@@ -1,8 +1,9 @@
 /**
  * Side-drawer body shown when a tool-call step pill is clicked. Mirrors the
- * macOS "TECHNICAL DETAILS / OUTPUT" detail view and the web
- * `SubagentDetailPanel` shell (outer container, header with leading icon /
- * title / risk badge / close, scrollable body with sections).
+ * web `SubagentDetailPanel` shell (outer container, header with leading icon /
+ * title / close, scrollable body with sections). The call's risk level lives
+ * in the body's "Risk Level" section (badge + tolerance hint), not the
+ * header.
  *
  * Driven by the `ToolDetailPayload` opened into `viewer-store`. Both variants
  * subscribe to the chat-session store so an open drawer streams live: the tool
@@ -41,6 +42,7 @@ import {
     deriveStepLabelFromName,
     type IconName,
 } from "@/domains/chat/components/tool-progress-card/derive-step-label";
+import { getRiskToleranceHint } from "@/domains/chat/utils/risk";
 import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
 import type { ToolDetailPayload } from "@/stores/viewer-store";
 
@@ -112,12 +114,19 @@ export function CodeBlock({ text }: { text: string }) {
 }
 
 /** Uppercase section label in `--content-tertiary`. */
-export function SectionLabel({ children }: { children: string }) {
+export function SectionLabel({
+  children,
+  className = "mb-1.5",
+}: {
+  children: string;
+  /** Margin override for rows that manage their own spacing. */
+  className?: string;
+}) {
   return (
     <Typography
       variant="label-small-default"
       as="div"
-      className="mb-1.5 uppercase tracking-wider text-[var(--content-tertiary)]"
+      className={`uppercase tracking-wider text-[var(--content-tertiary)] ${className}`}
     >
       {children}
     </Typography>
@@ -156,30 +165,18 @@ function ThinkingDetailBody({
 }
 
 /**
- * Tool-variant detail sections — the risk-reason note, "Technical details"
- * (input `CodeBlock`), and "Output" — with no surrounding shell, header, or
- * close button. Composed by `ToolDetailPanel` inside its own `DetailShell`, and
- * reused by `SubagentDetailPanel` to show a nested tool call under the
- * subagent's own header.
+ * Tool-variant detail sections — the tool name, activity, input `CodeBlock`,
+ * and "Output" — with no surrounding shell, header, or close button. Composed
+ * by `ToolDetailPanel` inside its own `DetailShell`, and reused by
+ * `SubagentDetailPanel` to show a nested tool call under the subagent's own
+ * header.
  *
  * Subscribes to the chat-session store via `useLiveToolCall` so an open drawer
  * streams `tool_output_chunk` output while the call runs and flips to the final
  * `result` when it lands, falling back to the open-time snapshot on `detail`
  * when the call can't be resolved live (e.g. paged out).
  */
-export function ToolDetailBody({
-  detail,
-  showTechnicalDetailsLabel = true,
-}: {
-  detail: ToolDetailPayload;
-  /**
-   * Render the "Technical details" section label above the tool name + input.
-   * Defaults to true (main-chat `ToolDetailPanel`). `SubagentDetailPanel` passes
-   * false — its nested view already sits under the subagent header and a "Back
-   * to timeline" affordance, so the extra label reads as redundant there.
-   */
-  showTechnicalDetailsLabel?: boolean;
-}) {
+export function ToolDetailBody({ detail }: { detail: ToolDetailPayload }) {
   const liveTc = useLiveToolCall(detail.toolCallId);
   const result = liveTc?.result ?? detail.result;
   const streamedOutput = liveTc?.streamedOutput ?? detail.streamedOutput;
@@ -191,23 +188,36 @@ export function ToolDetailBody({
   const hasStreamedOutput = !!streamedOutput;
   const inputJson = JSON.stringify(detail.input, null, 2);
 
+  // Risk assessment can land after the drawer opens — prefer the live call.
+  // The raw `riskReason` rule-match string ("ls (default)") is internal
+  // classifier jargon and is deliberately NOT shown.
+  const riskLevel = liveTc?.riskLevel ?? detail.riskLevel;
+  const riskHint = getRiskToleranceHint(riskLevel);
+
   return (
     <>
-      {detail.riskReason && (
-        <Typography
-          variant="body-small-default"
-          as="p"
-          className="mb-4 text-[var(--content-tertiary)]"
-        >
-          {detail.riskReason}
-        </Typography>
+      {/* Risk Level — the call's risk badge and tolerance hint in an
+          overlay card. */}
+      {riskLevel && (
+        <div className="mb-5">
+          <SectionLabel>Risk Level</SectionLabel>
+          <div className="rounded-lg border border-[var(--border-base)] bg-[var(--surface-overlay)] p-3">
+            <RiskBadge level={riskLevel} />
+            {riskHint && (
+              <Typography
+                variant="body-small-default"
+                as="p"
+                className="mt-1.5 text-[var(--content-secondary)]"
+              >
+                {riskHint}
+              </Typography>
+            )}
+          </div>
+        </div>
       )}
 
-      {/* Technical details section */}
+      {/* Tool name + activity + input */}
       <div>
-        {showTechnicalDetailsLabel && (
-          <SectionLabel>Technical details</SectionLabel>
-        )}
         <Typography
           variant="body-medium-default"
           as="div"
@@ -256,11 +266,9 @@ export function ToolDetailBody({
 export function ToolDetailPanel({
   detail,
   onClose,
-  onRiskBadgeClick,
 }: {
   detail: ToolDetailPayload;
   onClose: () => void;
-  onRiskBadgeClick?: () => void;
 }) {
   // Thinking variant — reuse the same shell/header but render the full
   // reasoning markdown with no input/output sections and no risk badge.
@@ -279,9 +287,6 @@ export function ToolDetailPanel({
       title={title}
       closeLabel="Close tool details"
       onClose={onClose}
-      headerTrailing={
-        <RiskBadge level={detail.riskLevel} onClick={onRiskBadgeClick} />
-      }
     >
       <ToolDetailBody detail={detail} />
     </DetailShell>

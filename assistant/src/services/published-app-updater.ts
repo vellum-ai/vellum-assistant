@@ -9,7 +9,6 @@ import { join } from "node:path";
 import {
   getApp,
   getAppDirPath,
-  isMultifileApp,
   resolveEffectiveAppHtml,
 } from "../apps/app-store.js";
 import {
@@ -30,23 +29,19 @@ export async function updatePublishedAppDeployment(
     const publishedPage = getActivePublishedPageByAppId(appId);
     if (!publishedPage) return;
 
-    // 2. Load the app and resolve its deployable HTML. For multifile apps the
-    // real content lives in dist/index.html (compiled from src/), not in
-    // htmlDefinition (which is "" for them) — using htmlDefinition directly
-    // would deploy a blank page.
+    // 2. Load the app and resolve its deployable HTML: the real content
+    // lives in dist/index.html (compiled from src/), inlined into a
+    // self-contained page.
     const app = getApp(appId);
     if (!app) {
       log.warn({ appId }, "Published app not found");
       return;
     }
 
-    // Skip rather than deploy the compile-failure fallback when a multifile
-    // app has no compiled output (e.g. a concurrent compile failed); a later
+    // Skip rather than deploy the compile-failure fallback when the app has
+    // no compiled output (e.g. a concurrent compile failed); a later
     // successful compile re-triggers this path.
-    if (
-      isMultifileApp(app) &&
-      !existsSync(join(getAppDirPath(app.id), "dist", "index.html"))
-    ) {
+    if (!existsSync(join(getAppDirPath(app.id), "dist", "index.html"))) {
       log.warn({ appId }, "Skipping auto-redeploy: compiled output missing");
       return;
     }

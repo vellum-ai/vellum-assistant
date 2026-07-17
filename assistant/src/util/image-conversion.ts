@@ -86,6 +86,12 @@ function evictIfNeeded(dir: string): void {
 export interface ConvertToJpegOptions {
   /** Downscale so neither side exceeds this; omit to keep full resolution. */
   maxDimensionPx?: number;
+  /**
+   * Resample to exactly these pixel dimensions (up- or downscaling). The
+   * caller is responsible for preserving aspect ratio. Mutually exclusive
+   * with `maxDimensionPx`; when both are set this wins.
+   */
+  resizeToPx?: { width: number; height: number };
   /** JPEG quality 1-100 (default 80). */
   quality?: number;
 }
@@ -99,10 +105,18 @@ function runSips(
   const outPath = join(tmpdir(), `vellum-img-opt-${stamp}-out.jpg`);
   try {
     writeFileSync(srcPath, inputBytes);
+    // `-z` resamples to an exact height/width (the only sips mode that can
+    // upscale); `--resampleHeightWidthMax` only caps the longest side.
     const args =
-      options.maxDimensionPx != null
-        ? ["--resampleHeightWidthMax", String(options.maxDimensionPx)]
-        : [];
+      options.resizeToPx != null
+        ? [
+            "-z",
+            String(options.resizeToPx.height),
+            String(options.resizeToPx.width),
+          ]
+        : options.maxDimensionPx != null
+          ? ["--resampleHeightWidthMax", String(options.maxDimensionPx)]
+          : [];
     args.push(
       "-s",
       "format",
@@ -142,8 +156,12 @@ export function convertImageToJpeg(
 ): Buffer | null {
   const hash = createHash("sha256").update(bytes).digest("hex").slice(0, 16);
   // Options qualify the key so full-resolution storage conversions and
-  // downscaled transport conversions of the same source never collide.
-  const cacheKey = `${hash}-${options.maxDimensionPx ?? "full"}-q${options.quality ?? DEFAULT_JPEG_QUALITY}`;
+  // resized transport conversions of the same source never collide.
+  const sizeKey =
+    options.resizeToPx != null
+      ? `${options.resizeToPx.width}x${options.resizeToPx.height}`
+      : (options.maxDimensionPx ?? "full");
+  const cacheKey = `${hash}-${sizeKey}-q${options.quality ?? DEFAULT_JPEG_QUALITY}`;
 
   const cached = readFromCache(cacheKey);
   if (cached) return cached;
@@ -197,6 +215,64 @@ export function isHeifImage(bytes: Uint8Array): boolean {
   return HEIF_FTYP_BRANDS.has(brand);
 }
 
+/**
+ * Sniff the actual image format from magic bytes, covering the formats
+ * providers accept as image blocks. Returns null for anything unrecognized
+ * (HEIF has its own detector, {@link isHeifImage}).
+ *
+ * Exists because clients derive the declared MIME from the file extension, so
+ * a JPEG renamed to `.png` arrives as `image/png` — and providers reject an
+ * image whose bytes disagree with the declared media type.
+ */
+export function sniffImageMimeType(bytes: Uint8Array): string | null {
+  if (
+    bytes.length >= 4 &&
+    bytes[0] === 0x89 &&
+    bytes[1] === 0x50 && // P
+    bytes[2] === 0x4e && // N
+    bytes[3] === 0x47 // G
+  ) {
+    return "image/png";
+  }
+  if (
+    bytes.length >= 3 &&
+    bytes[0] === 0xff &&
+    bytes[1] === 0xd8 &&
+    bytes[2] === 0xff
+  ) {
+    return "image/jpeg";
+  }
+  if (
+    bytes.length >= 4 &&
+    bytes[0] === 0x47 && // G
+    bytes[1] === 0x49 && // I
+    bytes[2] === 0x46 && // F
+    bytes[3] === 0x38 // 8
+  ) {
+    return "image/gif";
+  }
+  if (
+    bytes.length >= 12 &&
+    bytes[0] === 0x52 && // R
+    bytes[1] === 0x49 && // I
+    bytes[2] === 0x46 && // F
+    bytes[3] === 0x46 && // F
+    bytes[8] === 0x57 && // W
+    bytes[9] === 0x45 && // E
+    bytes[10] === 0x42 && // B
+    bytes[11] === 0x50 // P
+  ) {
+    return "image/webp";
+  }
+  return null;
+}
+
+/** Base64 variant of {@link sniffImageMimeType}; decodes only the head. */
+export function sniffBase64ImageMimeType(dataBase64: string): string | null {
+  // 16 base64 chars decode to the 12 bytes the longest signature needs.
+  return sniffImageMimeType(Buffer.from(dataBase64.slice(0, 16), "base64"));
+}
+
 const HEIF_FILENAME_RE = /\.(heic|heif)$/i;
 
 /**
@@ -227,24 +303,30 @@ export interface NormalizedImageBytes {
 
 /**
  * Normalize image bytes for storage: HEIF/HEIC becomes a full-resolution JPEG
- * master; everything else (and any conversion failure) passes through
- * unchanged. Callers that persist a filename should rewrite it with
- * {@link jpegFilenameFor} when `converted` is true.
+ * master; a declared MIME that disagrees with the sniffed format is corrected
+ * (bytes untouched); everything else (and any conversion failure) passes
+ * through unchanged. Callers that persist a filename should rewrite it with
+ * {@link jpegFilenameFor} when `converted` is true — a MIME-only correction
+ * sets `converted: false` and keeps the filename.
  */
 export function normalizeImageBytes(
   mimeType: string,
   bytes: Uint8Array,
 ): NormalizedImageBytes {
-  if (!isHeifImage(bytes)) {
-    return { mimeType, bytes, converted: false };
+  if (isHeifImage(bytes)) {
+    const converted = convertImageToJpeg(bytes, {
+      quality: STORAGE_JPEG_QUALITY,
+    });
+    if (!converted) {
+      return { mimeType, bytes, converted: false };
+    }
+    return { mimeType: "image/jpeg", bytes: converted, converted: true };
   }
-  const converted = convertImageToJpeg(bytes, {
-    quality: STORAGE_JPEG_QUALITY,
-  });
-  if (!converted) {
-    return { mimeType, bytes, converted: false };
+  const sniffed = sniffImageMimeType(bytes);
+  if (sniffed && sniffed !== mimeType) {
+    return { mimeType: sniffed, bytes, converted: false };
   }
-  return { mimeType: "image/jpeg", bytes: converted, converted: true };
+  return { mimeType, bytes, converted: false };
 }
 
 export interface NormalizedImageBase64 {
@@ -261,21 +343,25 @@ export function normalizeImageBase64(
   mimeType: string,
   dataBase64: string,
 ): NormalizedImageBase64 {
-  // 16 base64 chars decode to the 12 bytes the ftyp sniff needs.
+  // 16 base64 chars decode to the 12 bytes the ftyp/signature sniffs need.
   const head = Buffer.from(dataBase64.slice(0, 16), "base64");
-  if (!isHeifImage(head)) {
-    return { mimeType, dataBase64, converted: false };
+  if (isHeifImage(head)) {
+    const normalized = normalizeImageBytes(
+      mimeType,
+      Buffer.from(dataBase64, "base64"),
+    );
+    if (!normalized.converted) {
+      return { mimeType, dataBase64, converted: false };
+    }
+    return {
+      mimeType: normalized.mimeType,
+      dataBase64: Buffer.from(normalized.bytes).toString("base64"),
+      converted: true,
+    };
   }
-  const normalized = normalizeImageBytes(
-    mimeType,
-    Buffer.from(dataBase64, "base64"),
-  );
-  if (!normalized.converted) {
-    return { mimeType, dataBase64, converted: false };
+  const sniffed = sniffImageMimeType(head);
+  if (sniffed && sniffed !== mimeType) {
+    return { mimeType: sniffed, dataBase64, converted: false };
   }
-  return {
-    mimeType: normalized.mimeType,
-    dataBase64: Buffer.from(normalized.bytes).toString("base64"),
-    converted: true,
-  };
+  return { mimeType, dataBase64, converted: false };
 }

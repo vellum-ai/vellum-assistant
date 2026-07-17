@@ -8,13 +8,7 @@
  * and survives logout, matching the native app's UserDefaults semantics.
  */
 
-import { createStorageAccessor } from "@/utils/typed-storage";
-
-function parseBool(raw: string): boolean | null {
-  if (raw === "true") return true;
-  if (raw === "false") return false;
-  return null;
-}
+import { createStorageAccessor, parseBool } from "@/utils/typed-storage";
 
 export const cmdEnterToSend = createStorageAccessor<boolean>({
   key: "device:cmd_enter_to_send",

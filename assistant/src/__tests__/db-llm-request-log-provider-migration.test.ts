@@ -5,20 +5,12 @@ import {
   beforeEach,
   describe,
   expect,
-  mock,
   test,
 } from "bun:test";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
 const originalBunTest = process.env.BUN_TEST;
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
 
 import { getSqliteFrom } from "../persistence/db-connection.js";
 import { migrateLlmRequestLogProvider } from "../persistence/migrations/184-llm-request-log-provider.js";

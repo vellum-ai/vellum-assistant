@@ -51,6 +51,34 @@ export function getMtime(filePath: string): number {
 }
 
 /**
+ * Composite change signature for a file — `mtimeMs:size:ino` — or `""` when the
+ * file is absent or can't be stat'd.
+ *
+ * Unlike {@link getMtime}, this detects a rewrite even when the filesystem's
+ * mtime resolution is too coarse to move the timestamp (or two rewrites land in
+ * the same timestamp granule). The source-versions sentinel is published via a
+ * temp-file + atomic rename, which swaps in a fresh inode on every write, so
+ * `ino` changes even when `mtimeMs` does not — and `size` shifts too whenever
+ * the plugin set does. Gating the reconcile on this signature (rather than
+ * mtime alone) is what lets a plugin installed at runtime go live on
+ * filesystems whose mtime granularity is coarse (virtiofs / 9p / network mounts
+ * — the same mounts the plugin-source watcher polls precisely because their
+ * timestamps are unreliable) instead of only after the next daemon restart.
+ *
+ * Change detection only — the exact numbers are never interpreted, so inode
+ * values above 2^53 losing float precision cannot cause a missed update: `mtime`
+ * and `size` still move on a real publish.
+ */
+export function getFileSignature(filePath: string): string {
+  try {
+    const st = statSync(filePath);
+    return `${st.mtimeMs}:${st.size}:${st.ino}`;
+  } catch {
+    return "";
+  }
+}
+
+/**
  * Evict `filePath` from the runtime module registry so the next dynamic
  * `import()` of that path re-evaluates the file from disk.
  *
@@ -71,6 +99,47 @@ export function evictModule(filePath: string): void {
 }
 
 /**
+ * Error a {@link withTimeout} race rejects with when the deadline wins. Named
+ * so callers that time-box user code can tell "the wrapped promise took too
+ * long" apart from "the wrapped promise itself rejected".
+ */
+export class TimeoutError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "TimeoutError";
+  }
+}
+
+/**
+ * Reject with a {@link TimeoutError} after `ms` if `p` hasn't settled. The
+ * losing promise is abandoned, not cancelled — the caller must treat a timeout
+ * as best-effort and swallow any late rejection from the abandoned promise.
+ *
+ * This is the one place surface paths time-box user code: the surface import
+ * itself ({@link importWithTimeout}) and the hook runner's `shutdown`
+ * invocation both wrap through here so the deadline logic lives once.
+ */
+export function withTimeout<T>(
+  p: Promise<T>,
+  ms: number,
+  message: string,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new TimeoutError(message)), ms);
+    p.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      },
+    );
+  });
+}
+
+/**
  * In-flight import promises, keyed by file path. Prevents duplicate
  * `import()` calls when multiple readers request the same surface
  * concurrently.
@@ -81,21 +150,22 @@ const inflight = new Map<string, Promise<unknown>>();
  * Import a module's default export with a timeout. If the import doesn't
  * resolve within `timeoutMs`, logs a warning and returns `undefined` so a
  * hanging module doesn't block daemon startup indefinitely. Defaults to the
- * module-level {@link getSurfaceImportTimeout}.
+ * module-level {@link getSurfaceImportTimeout}. A genuine import failure (not a
+ * timeout) propagates so the caller can log and cache it as absent.
  */
 export async function importWithTimeout<T>(
   filePath: string,
   timeoutMs: number = importTimeoutMs,
 ): Promise<T | undefined> {
-  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+  const importPromise = importWithDedup<T>(filePath);
   try {
-    const timeoutSentinel = Symbol("import-timeout");
-    const importPromise = importWithDedup<T>(filePath);
-    const timeoutPromise = new Promise<typeof timeoutSentinel>((resolve) => {
-      timeoutHandle = setTimeout(() => resolve(timeoutSentinel), timeoutMs);
-    });
-    const result = await Promise.race([importPromise, timeoutPromise]);
-    if (result === timeoutSentinel) {
+    return await withTimeout<T>(
+      importPromise,
+      timeoutMs,
+      `Import timed out after ${timeoutMs}ms — skipping surface`,
+    );
+  } catch (err) {
+    if (err instanceof TimeoutError) {
       importPromise.catch(() => {
         /* swallow — late rejection from abandoned import */
       });
@@ -105,11 +175,7 @@ export async function importWithTimeout<T>(
       );
       return undefined;
     }
-    return result as T;
-  } finally {
-    if (timeoutHandle !== undefined) {
-      clearTimeout(timeoutHandle);
-    }
+    throw err;
   }
 }
 

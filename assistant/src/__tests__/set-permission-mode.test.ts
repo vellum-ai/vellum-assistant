@@ -1,26 +1,18 @@
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-import { __clearRegistryForTesting, getTool } from "../tools/registry.js";
-import { registerSystemTools } from "../tools/system/register.js";
+import {
+  __clearRegistryForTesting,
+  getTool,
+  initializeTools,
+} from "../tools/registry.js";
 
 beforeEach(() => {
   __clearRegistryForTesting();
 });
 
-afterAll(() => {
-  mock.restore();
-});
-
 describe("set_permission_mode removal", () => {
-  test("tool is not registered when system tools are initialized", () => {
-    registerSystemTools();
+  test("tool is not registered by initializeTools", async () => {
+    await initializeTools();
 
     expect(getTool("set_permission_mode")).toBeUndefined();
   });

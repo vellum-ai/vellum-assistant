@@ -5,20 +5,8 @@
  * the unknown field on the wire.
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
-
-let mockLlmConfig: Record<string, unknown> = {};
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({ llm: mockLlmConfig }),
-}));
-
-import { LLMSchema } from "../config/schemas/llm.js";
 import { RetryProvider } from "../providers/retry.js";
 import type {
   Message,
@@ -26,13 +14,14 @@ import type {
   ProviderResponse,
   SendMessageOptions,
 } from "../providers/types.js";
+import { setConfig } from "./helpers/set-config.js";
 
 function setLlmConfig(raw: unknown): void {
-  mockLlmConfig = LLMSchema.parse(raw) as Record<string, unknown>;
+  setConfig("llm", raw);
 }
 
 beforeEach(() => {
-  mockLlmConfig = LLMSchema.parse({}) as Record<string, unknown>;
+  setConfig("llm", {});
 });
 
 function makePipeline(providerName: string): {
@@ -69,10 +58,12 @@ const userMessage: Message = {
 describe("retry normalization for openrouter.only", () => {
   test("forwards openrouter.only on the outbound config for openrouter", async () => {
     setLlmConfig({
-      default: {
-        provider: "openrouter",
-        model: "anthropic/claude-opus-4.7",
-        openrouter: { only: ["Anthropic"] },
+      callSites: {
+        mainAgent: {
+          provider: "openrouter",
+          model: "anthropic/claude-opus-4.7",
+          openrouter: { only: ["Anthropic"] },
+        },
       },
     });
     const { provider, lastConfig } = makePipeline("openrouter");
@@ -84,9 +75,11 @@ describe("retry normalization for openrouter.only", () => {
 
   test("omits openrouter from config when resolved list is empty", async () => {
     setLlmConfig({
-      default: {
-        provider: "openrouter",
-        model: "anthropic/claude-opus-4.7",
+      callSites: {
+        mainAgent: {
+          provider: "openrouter",
+          model: "anthropic/claude-opus-4.7",
+        },
       },
     });
     const { provider, lastConfig } = makePipeline("openrouter");
@@ -113,13 +106,17 @@ describe("retry normalization for openrouter.only", () => {
     expect(lastConfig()?.openrouter).toBe(undefined);
   });
 
-  test("call-site override replaces default openrouter.only", async () => {
+  test("call-site override replaces the winning profile's openrouter.only", async () => {
     setLlmConfig({
-      default: {
-        provider: "openrouter",
-        model: "anthropic/claude-opus-4.7",
-        openrouter: { only: ["Anthropic"] },
+      profiles: {
+        "openrouter-profile": {
+          source: "user",
+          provider: "openrouter",
+          model: "anthropic/claude-opus-4.7",
+          openrouter: { only: ["Anthropic"] },
+        },
       },
+      activeProfile: "openrouter-profile",
       callSites: {
         mainAgent: { openrouter: { only: ["Google"] } },
       },

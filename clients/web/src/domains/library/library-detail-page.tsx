@@ -17,12 +17,15 @@ import { primeAppHtmlCache } from "@/utils/app-html-cache";
 import { navigateToNewConversation } from "@/utils/conversation-navigation";
 import { routes } from "@/utils/routes";
 import { shareApp } from "@/utils/share-app";
+import { isReadOnlyApp } from "@/types/app-types";
 
 interface LoadedApp {
   appId: string;
   dirName?: string;
   name: string;
   html: string;
+  /** "workspace" or "plugin:<name>" — read-only apps hide edit/share/deploy. */
+  origin: string;
 }
 
 export function LibraryDetailPage() {
@@ -40,7 +43,9 @@ export function LibraryDetailPage() {
   const requestRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!appId) {return;}
+    if (!appId) {
+      return;
+    }
     requestRef.current = appId;
     setApp(null);
     setError(null);
@@ -50,17 +55,22 @@ export function LibraryDetailPage() {
       throwOnError: true,
     })
       .then(({ data: result }) => {
-        if (requestRef.current !== appId) {return;}
+        if (requestRef.current !== appId) {
+          return;
+        }
         primeAppHtmlCache(assistantId, result.appId, result.html);
         setApp({
           appId: result.appId,
           dirName: result.dirName,
           name: result.name,
           html: result.html,
+          origin: result.origin,
         });
       })
       .catch((err) => {
-        if (requestRef.current !== appId) {return;}
+        if (requestRef.current !== appId) {
+          return;
+        }
         setError(err instanceof Error ? err.message : "Failed to open app");
       });
 
@@ -82,11 +92,15 @@ export function LibraryDetailPage() {
 
   const editApp = useEditApp();
   const handleEdit = useCallback(() => {
-    if (app) {editApp(app);}
+    if (app) {
+      editApp(app);
+    }
   }, [app, editApp]);
 
   const handleShare = useCallback(async () => {
-    if (!app || isSharing) {return;}
+    if (!app || isSharing) {
+      return;
+    }
     setIsSharing(true);
     try {
       await shareApp(assistantId, app.appId, app.name);
@@ -101,7 +115,9 @@ export function LibraryDetailPage() {
   }, [assistantId, app, isSharing]);
 
   const handleDeploy = useCallback(() => {
-    if (!app) {return;}
+    if (!app) {
+      return;
+    }
     void useDeployStore
       .getState()
       .deployApp(assistantId, app.appId, app.name, app.html);
@@ -120,7 +136,9 @@ export function LibraryDetailPage() {
     [navigate],
   );
 
-  if (!appId) {return null;}
+  if (!appId) {
+    return null;
+  }
 
   if (error) {
     return (
@@ -160,18 +178,22 @@ export function LibraryDetailPage() {
           html={app.html}
           assistantId={assistantId}
           onClose={handleClose}
-          onEdit={handleEdit}
-          onShare={handleShare}
-          isSharing={isSharing}
-          onDeploy={handleDeploy}
-          isDeploying={isDeploying}
+          {...(isReadOnlyApp(app.origin)
+            ? {}
+            : {
+                onEdit: handleEdit,
+                onShare: handleShare,
+                isSharing,
+                onDeploy: handleDeploy,
+                isDeploying,
+              })}
           enableFullscreen
         />
       </div>
       <DeployDialogs
-          assistantId={assistantId}
-          onStartConversation={handleStartConversation}
-        />
+        assistantId={assistantId}
+        onStartConversation={handleStartConversation}
+      />
     </>
   );
 }

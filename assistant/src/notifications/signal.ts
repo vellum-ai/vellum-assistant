@@ -9,8 +9,9 @@
 
 import { z } from "zod";
 
-import type { ConversationCreateType } from "../persistence/conversation-crud.js";
+import type { ConversationCreateType } from "../persistence/conversation-types.js";
 import type { GuardianQuestionPayload } from "./guardian-question-mode.js";
+import { UrgencySchema } from "./urgency.js";
 
 // ── Source channel registry ────────────────────────────────────────────
 
@@ -78,10 +79,6 @@ export const NOTIFICATION_SOURCE_EVENT_NAMES = [
     description: "Caller requested callback while unreachable",
   },
   {
-    id: "ingress.escalation",
-    description: "Incoming message escalated for attention",
-  },
-  {
     id: "ingress.trusted_contact.guardian_decision",
     description: "Guardian decided on trusted contact request",
   },
@@ -134,9 +131,6 @@ export type NotificationSourceEventName =
   (typeof NOTIFICATION_SOURCE_EVENT_NAMES)[number]["id"];
 
 // ── Attention hints & routing ──────────────────────────────────────────
-
-export const UrgencySchema = z.enum(["low", "medium", "high", "critical"]);
-export type Urgency = z.infer<typeof UrgencySchema>;
 
 export const AttentionHintsSchema = z.object({
   requiresAction: z.boolean(),
@@ -192,9 +186,12 @@ export const AccessRequestContextPayloadSchema = z.object({
   guardianResolutionSource: GuardianResolutionSourceSchema,
   previousMemberStatus: z.string().nullable(),
   messagePreview: z.string().nullable(),
+  isBot: z.boolean().optional(),
   isStranger: z.boolean().optional(),
   isRestricted: z.boolean().optional(),
   messageTs: z.string().optional(),
+  /** `admitted` marks an introduction nudge for a floor-admitted sender. */
+  trigger: z.enum(["denied", "admitted"]).optional(),
 });
 export type AccessRequestContextPayload = z.infer<
   typeof AccessRequestContextPayloadSchema

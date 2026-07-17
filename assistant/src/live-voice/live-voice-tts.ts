@@ -1,3 +1,4 @@
+import { createPcmChunkAligner } from "../tts/pcm-chunk-aligner.js";
 import { getTtsProvider } from "../tts/provider-catalog.js";
 import { synthesizeAndEmit } from "../tts/synthesis-stream.js";
 import { resolveTtsConfig } from "../tts/tts-config-resolver.js";
@@ -130,16 +131,7 @@ export async function streamLiveVoiceTtsAudio(
 
   // Provider chunks can split a 16-bit PCM sample across chunk boundaries;
   // a trailing odd byte is carried into the next chunk to keep frames aligned.
-  let pcm16Carry: Buffer | undefined;
-  const alignPcm16 = (audio: Buffer): Buffer => {
-    const combined = pcm16Carry ? Buffer.concat([pcm16Carry, audio]) : audio;
-    const alignedLength = combined.byteLength & ~1;
-    pcm16Carry =
-      alignedLength < combined.byteLength
-        ? combined.subarray(alignedLength)
-        : undefined;
-    return combined.subarray(0, alignedLength);
-  };
+  const pcmAligner = createPcmChunkAligner(2);
 
   try {
     const result = await synthesizeAndEmit({
@@ -154,7 +146,7 @@ export async function streamLiveVoiceTtsAudio(
         if (canStreamChunks) {
           emitAudioFrame(
             chunk.contentType || chunkContentType,
-            alignPcm16(chunk.audio),
+            pcmAligner.align(chunk.audio),
           );
         } else {
           bufferedAudio.push(chunk.audio);
@@ -164,7 +156,7 @@ export async function streamLiveVoiceTtsAudio(
 
     // A dangling final byte is malformed provider output — drop it rather
     // than emit a torn sample.
-    if (pcm16Carry) {
+    if (pcmAligner.carryLength() > 0) {
       log.debug(
         { provider: providerId },
         "Dropping trailing odd byte from PCM16 TTS stream",
@@ -230,7 +222,9 @@ function normalizeProviderError(
   err: unknown,
   providerId: TtsProviderId,
 ): LiveVoiceTtsError {
-  if (err instanceof LiveVoiceTtsError) return err;
+  if (err instanceof LiveVoiceTtsError) {
+    return err;
+  }
 
   const message = err instanceof Error ? err.message : String(err);
   if (isProviderConfigurationError(err)) {

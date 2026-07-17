@@ -4,13 +4,6 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 // Module mocks — must appear before any imports of the modules under test
 // ---------------------------------------------------------------------------
 
-mock.module("../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // -- Config mock -----------------------------------------------------------
 
 let mockElevenLabsConfig = {
@@ -42,21 +35,6 @@ let mockXaiConfig = {
   sampleRate: 24000,
   bitRate: 128000,
 };
-
-mock.module("../../config/loader.js", () => ({
-  getConfig: () => ({
-    services: {
-      tts: {
-        providers: {
-          elevenlabs: mockElevenLabsConfig,
-          "fish-audio": mockFishAudioConfig,
-          deepgram: mockDeepgramConfig,
-          xai: mockXaiConfig,
-        },
-      },
-    },
-  }),
-}));
 
 // -- Secure keys mock ------------------------------------------------------
 
@@ -100,10 +78,28 @@ mock.module("../../calls/fish-audio-client.js", () => ({
   synthesizeWithFishAudio: mockSynthesizeWithFishAudio,
 }));
 
+// -- xAI TTS socket-session mock ---------------------------------------------
+
+const defaultXaiSocketAudio = Buffer.from("fake-xai-stream-audio");
+
+const defaultXaiSocketImpl = async (
+  options: XaiTtsSocketOptions,
+): Promise<Buffer> => {
+  options.onChunk?.(defaultXaiSocketAudio);
+  return defaultXaiSocketAudio;
+};
+
+const mockSynthesizeOverXaiTtsSocket = mock(defaultXaiSocketImpl);
+
+mock.module("../providers/xai-tts-socket.js", () => ({
+  synthesizeOverXaiTtsSocket: mockSynthesizeOverXaiTtsSocket,
+}));
+
 // ---------------------------------------------------------------------------
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
 
+import { setConfig } from "../../__tests__/helpers/set-config.js";
 import {
   getProviderDefinition,
   getTtsProvider,
@@ -121,7 +117,22 @@ import {
 import { createFishAudioProvider } from "../providers/fish-audio-provider.js";
 import { FishAudioTtsError } from "../providers/fish-audio-provider.js";
 import { createXaiProvider, XaiTtsError } from "../providers/xai-provider.js";
+import type { XaiTtsSocketOptions } from "../providers/xai-tts-socket.js";
 import type { TtsSynthesisRequest } from "../types.js";
+
+/** Seed the current per-provider TTS config into the workspace config file. */
+function seedTtsConfig(): void {
+  setConfig("services", {
+    tts: {
+      providers: {
+        elevenlabs: mockElevenLabsConfig,
+        "fish-audio": mockFishAudioConfig,
+        deepgram: mockDeepgramConfig,
+        xai: mockXaiConfig,
+      },
+    },
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Fetch mock helpers
@@ -161,6 +172,9 @@ beforeEach(() => {
     bitRate: 128000,
   };
   mockSynthesizeWithFishAudio.mockClear();
+  mockSynthesizeOverXaiTtsSocket.mockClear();
+  mockSynthesizeOverXaiTtsSocket.mockImplementation(defaultXaiSocketImpl);
+  seedTtsConfig();
 });
 
 afterEach(() => {
@@ -195,6 +209,15 @@ function mockFetchError(status: number, body: string): void {
   globalThis.fetch = mock(
     async () => new Response(body, { status }),
   ) as unknown as typeof globalThis.fetch;
+}
+
+function streamOf(...parts: Uint8Array[]): ReadableStream<Uint8Array> {
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (const part of parts) controller.enqueue(part);
+      controller.close();
+    },
+  });
 }
 
 // ===========================================================================
@@ -289,6 +312,7 @@ describe("ElevenLabs TTS provider adapter", () => {
 
   test("uses configured voiceModelId when set", async () => {
     mockElevenLabsConfig.voiceModelId = "eleven_turbo_v2_5";
+    seedTtsConfig();
 
     const audioPayload = new Uint8Array([0x49, 0x44, 0x33]);
     let capturedBody = "";
@@ -360,7 +384,7 @@ describe("ElevenLabs TTS provider adapter", () => {
     expect(capturedUrl).toContain("output_format=pcm_16000");
   });
 
-  test("pcm output with unmatched sampleRateHz falls back to pcm_16000", async () => {
+  test("pcm output clamps an unsupported sampleRateHz hint to the nearest supported rate", async () => {
     const audioPayload = new Uint8Array([0x00, 0x01]);
     let capturedUrl = "";
 
@@ -373,8 +397,30 @@ describe("ElevenLabs TTS provider adapter", () => {
     await provider.synthesize(
       makeRequest({ outputFormat: "pcm", sampleRateHz: 8000 }),
     );
-
     expect(capturedUrl).toContain("output_format=pcm_16000");
+
+    // 48 kHz clamps to 24 kHz, not the Pro-tier-gated pcm_44100.
+    await provider.synthesize(
+      makeRequest({ outputFormat: "pcm", sampleRateHz: 48000 }),
+    );
+    expect(capturedUrl).toContain("output_format=pcm_24000");
+  });
+
+  test("pcm output uses Pro-tier pcm_44100 only on an exact 44100 hint", async () => {
+    const audioPayload = new Uint8Array([0x00, 0x01]);
+    let capturedUrl = "";
+
+    globalThis.fetch = mock(async (input: RequestInfo | URL) => {
+      capturedUrl = typeof input === "string" ? input : input.toString();
+      return new Response(audioPayload, { status: 200 });
+    }) as unknown as typeof globalThis.fetch;
+
+    const provider = createElevenLabsProvider();
+    await provider.synthesize(
+      makeRequest({ outputFormat: "pcm", sampleRateHz: 44100 }),
+    );
+
+    expect(capturedUrl).toContain("output_format=pcm_44100");
   });
 
   test("resolveOutputSampleRateHz reports the actual PCM rate without synthesis", () => {
@@ -389,20 +435,16 @@ describe("ElevenLabs TTS provider adapter", () => {
       provider.resolveOutputSampleRateHz!(
         makeRequest({ outputFormat: "pcm", sampleRateHz: 48000 }),
       ),
-    ).toBe(16000);
+    ).toBe(24000);
+    expect(
+      provider.resolveOutputSampleRateHz!(
+        makeRequest({ outputFormat: "pcm", sampleRateHz: 44100 }),
+      ),
+    ).toBe(44100);
     expect(provider.resolveOutputSampleRateHz!(makeRequest())).toBeUndefined();
   });
 
   // -- Streaming -------------------------------------------------------------
-
-  function streamOf(...parts: Uint8Array[]): ReadableStream<Uint8Array> {
-    return new ReadableStream<Uint8Array>({
-      start(controller) {
-        for (const part of parts) controller.enqueue(part);
-        controller.close();
-      },
-    });
-  }
 
   test("synthesizeStream reads chunks from the /stream endpoint and concatenates them", async () => {
     const part1 = new Uint8Array([0x01, 0x02]);
@@ -443,7 +485,10 @@ describe("ElevenLabs TTS provider adapter", () => {
     });
 
     await expect(
-      provider.synthesizeStream!(makeRequest({ outputFormat: "pcm" }), () => {}),
+      provider.synthesizeStream!(
+        makeRequest({ outputFormat: "pcm" }),
+        () => {},
+      ),
     ).rejects.toMatchObject({
       name: "ElevenLabsTtsError",
       code: "ELEVENLABS_TTS_STREAM_TIMEOUT",
@@ -472,8 +517,9 @@ describe("ElevenLabs TTS provider adapter", () => {
     });
 
     await expect(
-      provider.synthesizeStream!(makeRequest({ outputFormat: "pcm" }), (chunk) =>
-        received.push(chunk),
+      provider.synthesizeStream!(
+        makeRequest({ outputFormat: "pcm" }),
+        (chunk) => received.push(chunk),
       ),
     ).rejects.toMatchObject({
       name: "ElevenLabsTtsError",
@@ -501,6 +547,7 @@ describe("ElevenLabs TTS provider adapter", () => {
 
   test("synthesizeStream respects configured voiceModelId over flash default", async () => {
     mockElevenLabsConfig.voiceModelId = "eleven_turbo_v2_5";
+    seedTtsConfig();
     let capturedBody = "";
 
     globalThis.fetch = mock(
@@ -928,6 +975,7 @@ describe("Fish Audio TTS provider adapter", () => {
 
   test("explicit format request does not set a sample rate", async () => {
     mockFishAudioConfig.format = "wav";
+    seedTtsConfig();
     const provider = createFishAudioProvider();
     await provider.synthesize(makeRequest());
 
@@ -960,6 +1008,7 @@ describe("Fish Audio TTS provider adapter", () => {
 
   test("returns audio/mpeg content type for mp3 format", async () => {
     mockFishAudioConfig.format = "mp3";
+    seedTtsConfig();
     const provider = createFishAudioProvider();
     const result = await provider.synthesize(makeRequest());
     expect(result.contentType).toBe("audio/mpeg");
@@ -967,6 +1016,7 @@ describe("Fish Audio TTS provider adapter", () => {
 
   test("returns audio/wav content type for wav format", async () => {
     mockFishAudioConfig.format = "wav";
+    seedTtsConfig();
     const provider = createFishAudioProvider();
     const result = await provider.synthesize(makeRequest());
     expect(result.contentType).toBe("audio/wav");
@@ -974,6 +1024,7 @@ describe("Fish Audio TTS provider adapter", () => {
 
   test("returns audio/opus content type for opus format", async () => {
     mockFishAudioConfig.format = "opus";
+    seedTtsConfig();
     const provider = createFishAudioProvider();
     const result = await provider.synthesize(makeRequest());
     expect(result.contentType).toBe("audio/opus");
@@ -983,6 +1034,7 @@ describe("Fish Audio TTS provider adapter", () => {
 
   test("throws FISH_AUDIO_TTS_NO_REFERENCE_ID when no reference ID is available", async () => {
     mockFishAudioConfig.referenceId = "";
+    seedTtsConfig();
 
     const provider = createFishAudioProvider();
 
@@ -1000,6 +1052,7 @@ describe("Fish Audio TTS provider adapter", () => {
 
   test("throws FISH_AUDIO_TTS_NO_REFERENCE_ID in synthesizeStream when no reference ID", async () => {
     mockFishAudioConfig.referenceId = "";
+    seedTtsConfig();
 
     const provider = createFishAudioProvider();
 
@@ -1069,14 +1122,20 @@ describe("Deepgram TTS provider adapter", () => {
     expect(provider.id).toBe("deepgram");
   });
 
-  test("advertises mp3, wav, opus format support without streaming", () => {
+  test("advertises mp3, wav, opus, pcm format support with streaming", () => {
     const provider = createDeepgramProvider();
-    expect(provider.capabilities.supportsStreaming).toBe(false);
+    expect(provider.capabilities.supportsStreaming).toBe(true);
     expect(provider.capabilities.supportedFormats).toEqual([
       "mp3",
       "wav",
       "opus",
+      "pcm",
     ]);
+  });
+
+  test("implements synthesizeStream", () => {
+    const provider = createDeepgramProvider();
+    expect(typeof provider.synthesizeStream).toBe("function");
   });
 
   // -- Request mapping -----------------------------------------------------
@@ -1134,8 +1193,79 @@ describe("Deepgram TTS provider adapter", () => {
     expect(result.contentType).toBe("audio/pcm");
   });
 
+  test("pcm request honors a supported sampleRateHz hint", async () => {
+    const audioPayload = new Uint8Array([0x00, 0x01, 0x02]);
+    let capturedUrl = "";
+
+    globalThis.fetch = mock(async (input: RequestInfo | URL) => {
+      capturedUrl = typeof input === "string" ? input : input.toString();
+      return new Response(audioPayload, { status: 200 });
+    }) as unknown as typeof globalThis.fetch;
+
+    const provider = createDeepgramProvider();
+    await provider.synthesize(
+      makeRequest({ outputFormat: "pcm", sampleRateHz: 24_000 }),
+    );
+
+    expect(capturedUrl).toContain("encoding=linear16");
+    expect(capturedUrl).toContain("container=none");
+    expect(capturedUrl).toContain("sample_rate=24000");
+  });
+
+  test("pcm request clamps an unsupported sampleRateHz hint to the nearest supported rate", async () => {
+    const audioPayload = new Uint8Array([0x00, 0x01, 0x02]);
+    let capturedUrl = "";
+
+    globalThis.fetch = mock(async (input: RequestInfo | URL) => {
+      capturedUrl = typeof input === "string" ? input : input.toString();
+      return new Response(audioPayload, { status: 200 });
+    }) as unknown as typeof globalThis.fetch;
+
+    const provider = createDeepgramProvider();
+
+    await provider.synthesize(
+      makeRequest({ outputFormat: "pcm", sampleRateHz: 44_100 }),
+    );
+    expect(capturedUrl).toContain("sample_rate=48000");
+
+    // Tie between 8000 and 16000 prefers the higher rate.
+    await provider.synthesize(
+      makeRequest({ outputFormat: "pcm", sampleRateHz: 12_000 }),
+    );
+    expect(capturedUrl).toContain("sample_rate=16000");
+  });
+
+  // -- Output sample rate probe ---------------------------------------------
+
+  test("resolveOutputSampleRateHz returns the clamped rate for pcm requests", () => {
+    const provider = createDeepgramProvider();
+    expect(
+      provider.resolveOutputSampleRateHz!(
+        makeRequest({ outputFormat: "pcm", sampleRateHz: 44_100 }),
+      ),
+    ).toBe(48_000);
+  });
+
+  test("resolveOutputSampleRateHz defaults to 16 kHz for hint-less pcm requests", () => {
+    const provider = createDeepgramProvider();
+    expect(
+      provider.resolveOutputSampleRateHz!(makeRequest({ outputFormat: "pcm" })),
+    ).toBe(16_000);
+  });
+
+  test("resolveOutputSampleRateHz returns undefined for non-pcm requests", () => {
+    const provider = createDeepgramProvider();
+    expect(provider.resolveOutputSampleRateHz!(makeRequest())).toBeUndefined();
+    expect(
+      provider.resolveOutputSampleRateHz!(
+        makeRequest({ sampleRateHz: 24_000 }),
+      ),
+    ).toBeUndefined();
+  });
+
   test("translates wav config format to linear16 encoding with container=wav", async () => {
     mockDeepgramConfig.format = "wav";
+    seedTtsConfig();
     const audioPayload = new Uint8Array([0x52, 0x49, 0x46, 0x46]);
     let capturedUrl = "";
 
@@ -1155,6 +1285,7 @@ describe("Deepgram TTS provider adapter", () => {
 
   test("uses configured model", async () => {
     mockDeepgramConfig.model = "aura-luna-en";
+    seedTtsConfig();
     const audioPayload = new Uint8Array([0x49, 0x44, 0x33]);
     let capturedUrl = "";
 
@@ -1169,6 +1300,165 @@ describe("Deepgram TTS provider adapter", () => {
     expect(capturedUrl).toContain("model=aura-luna-en");
   });
 
+  // -- Streaming -------------------------------------------------------------
+
+  test("synthesizeStream reads chunks from /v1/speak and concatenates them", async () => {
+    const part1 = new Uint8Array([0x01, 0x02]);
+    const part2 = new Uint8Array([0x03]);
+    const part3 = new Uint8Array([0x04, 0x05]);
+    let capturedUrl = "";
+
+    globalThis.fetch = mock(async (input: RequestInfo | URL) => {
+      capturedUrl = typeof input === "string" ? input : input.toString();
+      return new Response(streamOf(part1, part2, part3), { status: 200 });
+    }) as unknown as typeof globalThis.fetch;
+
+    const received: Uint8Array[] = [];
+    const provider = createDeepgramProvider();
+    const result = await provider.synthesizeStream!(
+      makeRequest({ outputFormat: "pcm" }),
+      (chunk) => received.push(chunk),
+    );
+
+    expect(capturedUrl).toContain("/v1/speak");
+    expect(capturedUrl).toContain("encoding=linear16");
+    expect(capturedUrl).toContain("container=none");
+    expect(capturedUrl).toContain("sample_rate=");
+    expect(received).toEqual([part1, part2, part3]);
+    expect(result.audio).toEqual(Buffer.from([0x01, 0x02, 0x03, 0x04, 0x05]));
+    expect(result.contentType).toBe("audio/pcm");
+  });
+
+  test("synthesizeStream rejects after the first-chunk timeout when the stream never produces audio", async () => {
+    globalThis.fetch = mock(
+      async () =>
+        new Response(new ReadableStream<Uint8Array>({ start() {} }), {
+          status: 200,
+        }),
+    ) as unknown as typeof globalThis.fetch;
+
+    const provider = createDeepgramProvider({
+      firstChunkTimeoutMs: 20,
+      idleTimeoutMs: 20,
+    });
+
+    await expect(
+      provider.synthesizeStream!(
+        makeRequest({ outputFormat: "pcm" }),
+        () => {},
+      ),
+    ).rejects.toMatchObject({
+      name: "DeepgramTtsError",
+      code: "DEEPGRAM_TTS_STREAM_TIMEOUT",
+      message: expect.stringContaining("timed out after 20ms"),
+    });
+  });
+
+  test("synthesizeStream rejects after the idle timeout when the stream stalls mid-stream", async () => {
+    globalThis.fetch = mock(
+      async () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(new Uint8Array([0x01, 0x02]));
+              // Never enqueue again and never close — a mid-stream stall.
+            },
+          }),
+          { status: 200 },
+        ),
+    ) as unknown as typeof globalThis.fetch;
+
+    const received: Uint8Array[] = [];
+    const provider = createDeepgramProvider({
+      firstChunkTimeoutMs: 1_000,
+      idleTimeoutMs: 20,
+    });
+
+    await expect(
+      provider.synthesizeStream!(
+        makeRequest({ outputFormat: "pcm" }),
+        (chunk) => received.push(chunk),
+      ),
+    ).rejects.toMatchObject({
+      name: "DeepgramTtsError",
+      code: "DEEPGRAM_TTS_STREAM_TIMEOUT",
+    });
+    expect(received).toHaveLength(1);
+  });
+
+  test("synthesizeStream throws DEEPGRAM_TTS_EMPTY_RESPONSE on null body", async () => {
+    globalThis.fetch = mock(
+      async () => new Response(null, { status: 200 }),
+    ) as unknown as typeof globalThis.fetch;
+
+    const provider = createDeepgramProvider();
+
+    try {
+      await provider.synthesizeStream!(makeRequest(), () => {});
+      throw new Error("Expected synthesizeStream to throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(DeepgramTtsError);
+      expect((err as DeepgramTtsError).code).toBe(
+        "DEEPGRAM_TTS_EMPTY_RESPONSE",
+      );
+    }
+  });
+
+  test("synthesizeStream throws DEEPGRAM_TTS_EMPTY_RESPONSE on zero-byte stream", async () => {
+    globalThis.fetch = mock(
+      async () => new Response(streamOf(), { status: 200 }),
+    ) as unknown as typeof globalThis.fetch;
+
+    const provider = createDeepgramProvider();
+
+    try {
+      await provider.synthesizeStream!(makeRequest(), () => {});
+      throw new Error("Expected synthesizeStream to throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(DeepgramTtsError);
+      expect((err as DeepgramTtsError).code).toBe(
+        "DEEPGRAM_TTS_EMPTY_RESPONSE",
+      );
+    }
+  });
+
+  test("synthesizeStream throws DEEPGRAM_TTS_HTTP_ERROR on non-200 response", async () => {
+    mockFetchError(429, "Rate limit exceeded");
+
+    const provider = createDeepgramProvider();
+
+    try {
+      await provider.synthesizeStream!(makeRequest(), () => {});
+      throw new Error("Expected synthesizeStream to throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(DeepgramTtsError);
+      expect((err as DeepgramTtsError).code).toBe("DEEPGRAM_TTS_HTTP_ERROR");
+      expect((err as DeepgramTtsError).statusCode).toBe(429);
+    }
+  });
+
+  test("synthesizeStream propagates AbortError unmodified", async () => {
+    globalThis.fetch = mock(async () => {
+      const abortError = new Error("The operation was aborted");
+      abortError.name = "AbortError";
+      throw abortError;
+    }) as unknown as typeof globalThis.fetch;
+
+    const controller = new AbortController();
+    const provider = createDeepgramProvider();
+
+    try {
+      await provider.synthesizeStream!(
+        makeRequest({ signal: controller.signal }),
+        () => {},
+      );
+      throw new Error("Expected synthesizeStream to throw");
+    } catch (err) {
+      expect(err).not.toBeInstanceOf(DeepgramTtsError);
+      expect((err as Error).name).toBe("AbortError");
+    }
+  });
+
   // -- Content type / format -----------------------------------------------
 
   test("returns audio/mpeg content type for mp3 format", async () => {
@@ -1180,6 +1470,18 @@ describe("Deepgram TTS provider adapter", () => {
 
     expect(result.contentType).toBe("audio/mpeg");
     expect(result.audio.byteLength).toBeGreaterThan(0);
+  });
+
+  test("synthesizeStream resolves audio/mpeg content type for mp3 format", async () => {
+    globalThis.fetch = mock(
+      async () =>
+        new Response(streamOf(new Uint8Array([0x49])), { status: 200 }),
+    ) as unknown as typeof globalThis.fetch;
+
+    const provider = createDeepgramProvider();
+    const result = await provider.synthesizeStream!(makeRequest(), () => {});
+
+    expect(result.contentType).toBe("audio/mpeg");
   });
 
   // -- Required config validation ------------------------------------------
@@ -1215,6 +1517,24 @@ describe("Deepgram TTS provider adapter", () => {
       expect(err).toBeInstanceOf(DeepgramTtsError);
       expect((err as DeepgramTtsError).code).toBe("DEEPGRAM_TTS_HTTP_ERROR");
       expect((err as DeepgramTtsError).statusCode).toBe(401);
+    }
+  });
+
+  test("surfaces a friendly, JSON-free message on a 401 auth failure", async () => {
+    mockFetchError(401, '{"err_code":"INVALID_AUTH","err_msg":"expired"}');
+
+    const provider = createDeepgramProvider();
+
+    try {
+      await provider.synthesize(makeRequest());
+      throw new Error("Expected synthesize to throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(DeepgramTtsError);
+      const message = (err as DeepgramTtsError).message;
+      expect(message).not.toContain("{");
+      expect(message).not.toContain("INVALID_AUTH");
+      expect(message).toContain("API key");
+      expect(message).toContain("Settings");
     }
   });
 
@@ -1268,12 +1588,17 @@ describe("xAI TTS provider adapter", () => {
     expect(provider.id).toBe("xai");
   });
 
-  test("advertises mp3 and wav format support without streaming", () => {
+  test("advertises mp3, wav, and pcm format support with streaming", () => {
     const provider = createXaiProvider();
     expect(provider.capabilities).toEqual({
-      supportsStreaming: false,
-      supportedFormats: ["mp3", "wav"],
+      supportsStreaming: true,
+      supportedFormats: ["mp3", "wav", "pcm"],
     });
+  });
+
+  test("implements synthesizeStream", () => {
+    const provider = createXaiProvider();
+    expect(typeof provider.synthesizeStream).toBe("function");
   });
 
   // -- Request mapping -----------------------------------------------------
@@ -1336,6 +1661,7 @@ describe("xAI TTS provider adapter", () => {
 
   test("uses configured voiceId when request has none", async () => {
     mockXaiConfig.voiceId = "ara";
+    seedTtsConfig();
     const audioPayload = new Uint8Array([0x49, 0x44, 0x33]);
     let capturedBody = "";
 
@@ -1355,6 +1681,7 @@ describe("xAI TTS provider adapter", () => {
 
   test("wav config format produces codec=wav without bit_rate", async () => {
     mockXaiConfig.format = "wav";
+    seedTtsConfig();
     const audioPayload = new Uint8Array([0x52, 0x49, 0x46, 0x46]);
     let capturedBody = "";
 
@@ -1400,6 +1727,67 @@ describe("xAI TTS provider adapter", () => {
     });
     expect(body.output_format.bit_rate).toBeUndefined();
     expect(result.contentType).toBe("audio/pcm");
+  });
+
+  test("pcm sampleRateHz hint is sent when xAI supports the rate", async () => {
+    const audioPayload = new Uint8Array([0x00, 0x01, 0x02]);
+    let capturedBody = "";
+
+    globalThis.fetch = mock(
+      async (_input: RequestInfo | URL, init?: RequestInit) => {
+        capturedBody = init?.body as string;
+        return new Response(audioPayload, { status: 200 });
+      },
+    ) as unknown as typeof globalThis.fetch;
+
+    const provider = createXaiProvider();
+    await provider.synthesize(
+      makeRequest({ outputFormat: "pcm", sampleRateHz: 22_050 }),
+    );
+
+    const body = JSON.parse(capturedBody);
+    expect(body.output_format).toEqual({
+      codec: "pcm",
+      sample_rate: 22050,
+    });
+  });
+
+  test("unsupported pcm sampleRateHz hints clamp to the nearest xAI rate", async () => {
+    const audioPayload = new Uint8Array([0x00, 0x01, 0x02]);
+    let capturedBody = "";
+
+    globalThis.fetch = mock(
+      async (_input: RequestInfo | URL, init?: RequestInit) => {
+        capturedBody = init?.body as string;
+        return new Response(audioPayload, { status: 200 });
+      },
+    ) as unknown as typeof globalThis.fetch;
+
+    const provider = createXaiProvider();
+
+    await provider.synthesize(
+      makeRequest({ outputFormat: "pcm", sampleRateHz: 11_025 }),
+    );
+    expect(JSON.parse(capturedBody).output_format.sample_rate).toBe(8000);
+
+    await provider.synthesize(
+      makeRequest({ outputFormat: "pcm", sampleRateHz: 96_000 }),
+    );
+    expect(JSON.parse(capturedBody).output_format.sample_rate).toBe(48000);
+  });
+
+  test("resolveOutputSampleRateHz reports the clamped pcm rate and is undefined otherwise", () => {
+    const provider = createXaiProvider();
+
+    expect(
+      provider.resolveOutputSampleRateHz!(
+        makeRequest({ outputFormat: "pcm", sampleRateHz: 96_000 }),
+      ),
+    ).toBe(48000);
+    expect(
+      provider.resolveOutputSampleRateHz!(makeRequest({ outputFormat: "pcm" })),
+    ).toBe(16000);
+    expect(provider.resolveOutputSampleRateHz!(makeRequest())).toBeUndefined();
   });
 
   // -- Content type / format -----------------------------------------------
@@ -1462,6 +1850,146 @@ describe("xAI TTS provider adapter", () => {
       expect(err).toBeInstanceOf(XaiTtsError);
       expect((err as XaiTtsError).code).toBe("XAI_TTS_EMPTY_RESPONSE");
     }
+  });
+
+  // -- Streaming (WebSocket session wiring) ----------------------------------
+  // The socket session itself (frames, timeouts, abort, ordering) is covered
+  // by providers/__tests__/xai-tts-socket.test.ts; these tests assert only
+  // what the provider passes into it and how it maps the result.
+
+  describe("synthesizeStream", () => {
+    function capturedSocketOptions(): XaiTtsSocketOptions {
+      expect(mockSynthesizeOverXaiTtsSocket).toHaveBeenCalledTimes(1);
+      return mockSynthesizeOverXaiTtsSocket.mock.calls[0]![0];
+    }
+
+    test("passes the REST-mirrored pcm URL, key, text, and signal to the socket session", async () => {
+      const controller = new AbortController();
+      const provider = createXaiProvider();
+      const result = await provider.synthesizeStream!(
+        makeRequest({ outputFormat: "pcm", signal: controller.signal }),
+        () => {},
+      );
+
+      const options = capturedSocketOptions();
+      expect(options.url).toContain("wss://api.x.ai/v1/tts");
+      expect(options.url).toContain("language=auto");
+      expect(options.url).toContain("voice=eve");
+      expect(options.url).toContain("codec=pcm");
+      expect(options.url).toContain("sample_rate=16000");
+      expect(options.url).not.toContain("bit_rate=");
+      expect(options.apiKey).toBe("test-xai-api-key");
+      expect(options.text).toBe("Hello world");
+      expect(options.signal).toBe(controller.signal);
+
+      expect(result.audio.equals(defaultXaiSocketAudio)).toBe(true);
+      expect(result.contentType).toBe("audio/pcm");
+    });
+
+    test("pcm sampleRateHz hint is carried in the stream URL", async () => {
+      const provider = createXaiProvider();
+      await provider.synthesizeStream!(
+        makeRequest({ outputFormat: "pcm", sampleRateHz: 22_050 }),
+        () => {},
+      );
+
+      expect(capturedSocketOptions().url).toContain("sample_rate=22050");
+    });
+
+    test("mp3 requests carry codec=mp3 and bit_rate and resolve audio/mpeg", async () => {
+      const provider = createXaiProvider();
+      const result = await provider.synthesizeStream!(makeRequest(), () => {});
+
+      const { url } = capturedSocketOptions();
+      expect(url).toContain("codec=mp3");
+      expect(url).toContain("sample_rate=24000");
+      expect(url).toContain("bit_rate=128000");
+      expect(result.contentType).toBe("audio/mpeg");
+    });
+
+    test("forwards stream timeout options to the socket session", async () => {
+      const provider = createXaiProvider({
+        connectTimeoutMs: 11,
+        firstChunkTimeoutMs: 22,
+        idleTimeoutMs: 33,
+      });
+      await provider.synthesizeStream!(makeRequest(), () => {});
+
+      expect(capturedSocketOptions()).toMatchObject({
+        connectTimeoutMs: 11,
+        firstChunkTimeoutMs: 22,
+        idleTimeoutMs: 33,
+      });
+    });
+
+    test("passes the caller's onChunk through to the socket session", async () => {
+      mockSynthesizeOverXaiTtsSocket.mockImplementation(async (options) => {
+        options.onChunk?.(Buffer.from("chunk-1"));
+        options.onChunk?.(Buffer.from("chunk-2"));
+        return Buffer.from("chunk-1chunk-2");
+      });
+
+      const received: string[] = [];
+      const provider = createXaiProvider();
+      const result = await provider.synthesizeStream!(
+        makeRequest({ outputFormat: "pcm" }),
+        (chunk) => received.push(Buffer.from(chunk).toString()),
+      );
+
+      expect(received).toEqual(["chunk-1", "chunk-2"]);
+      expect(result.audio.toString()).toBe("chunk-1chunk-2");
+    });
+
+    test("error factories produce provider-owned XaiTtsError codes", async () => {
+      const provider = createXaiProvider();
+      await provider.synthesizeStream!(makeRequest(), () => {});
+
+      const options = capturedSocketOptions();
+
+      const timeoutErr = options.makeTimeoutError(20);
+      expect(timeoutErr).toBeInstanceOf(XaiTtsError);
+      expect((timeoutErr as XaiTtsError).code).toBe("XAI_TTS_STREAM_TIMEOUT");
+      expect(timeoutErr.message).toContain("20ms");
+
+      const streamErr = options.makeStreamError("voice not found");
+      expect(streamErr).toBeInstanceOf(XaiTtsError);
+      expect((streamErr as XaiTtsError).code).toBe("XAI_TTS_STREAM_FAILED");
+      expect(streamErr.message).toContain("voice not found");
+
+      const emptyErr = options.makeEmptyError();
+      expect(emptyErr).toBeInstanceOf(XaiTtsError);
+      expect((emptyErr as XaiTtsError).code).toBe("XAI_TTS_EMPTY_RESPONSE");
+    });
+
+    test("propagates a socket-session rejection unmodified", async () => {
+      const failure = new XaiTtsError(
+        "XAI_TTS_STREAM_FAILED",
+        "xAI streaming TTS failed: boom",
+      );
+      mockSynthesizeOverXaiTtsSocket.mockImplementation(async () => {
+        throw failure;
+      });
+
+      const provider = createXaiProvider();
+      await expect(
+        provider.synthesizeStream!(makeRequest(), () => {}),
+      ).rejects.toBe(failure);
+    });
+
+    test("throws XAI_TTS_NO_API_KEY without invoking the socket session", async () => {
+      mockXaiApiKey = null;
+
+      const provider = createXaiProvider();
+
+      try {
+        await provider.synthesizeStream!(makeRequest(), () => {});
+        throw new Error("Expected synthesizeStream to throw");
+      } catch (err) {
+        expect(err).toBeInstanceOf(XaiTtsError);
+        expect((err as XaiTtsError).code).toBe("XAI_TTS_NO_API_KEY");
+      }
+      expect(mockSynthesizeOverXaiTtsSocket).not.toHaveBeenCalled();
+    });
   });
 });
 

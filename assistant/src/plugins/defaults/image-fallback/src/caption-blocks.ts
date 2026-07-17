@@ -34,8 +34,10 @@ import {
   doesSupportVision,
   getModelProfiles,
   type ImageContent,
+  lastToolResultUserMessageIndex,
   type Message,
   type PluginLogger,
+  resolveMediaSourceData,
 } from "@vellumai/plugin-api";
 
 import { persistImage } from "./image-persist.js";
@@ -86,8 +88,12 @@ export async function captionImageBlocks(
     const image = block as ImageContent;
 
     // Persist the original to a known, content-hash-deduped location so it
-    // survives the text substitution and stays findable on disk.
-    persistImage(image.source.data, image.source.media_type);
+    // survives the text substitution and stays findable on disk. Resolve a
+    // reference source to its bytes first (a no-op for inline base64).
+    const resolvedForPersist = resolveMediaSourceData(image.source);
+    if (resolvedForPersist) {
+      persistImage(resolvedForPersist.data, resolvedForPersist.media_type);
+    }
 
     if (visionProfileKey != null) {
       const caption = await captionImage(
@@ -116,6 +122,30 @@ export async function captionImageBlocks(
 }
 
 /**
+ * Replace image blocks nested in a message's `tool_result` blocks' rich
+ * `contentBlocks` (in place) with text captions. Returns the number replaced.
+ */
+async function captionToolResultMedia(
+  message: Message,
+  conversationId: string,
+  visionProfileKey: string | null,
+  logger: PluginLogger,
+): Promise<number> {
+  let imageCount = 0;
+  for (const block of message.content) {
+    if (block.type === "tool_result" && block.contentBlocks != null) {
+      imageCount += await captionImageBlocks(
+        block.contentBlocks,
+        conversationId,
+        visionProfileKey,
+        logger,
+      );
+    }
+  }
+  return imageCount;
+}
+
+/**
  * Deep-sweep a message list (in place) for image blocks and replace each with
  * a text caption via {@link captionImageBlocks}. Covers both top-level image
  * blocks (user-attached images, the compactor's retained-image message) and
@@ -130,7 +160,6 @@ export async function captionImagesInMessages(
   logger: PluginLogger,
 ): Promise<number> {
   let imageCount = 0;
-
   for (const message of messages) {
     imageCount += await captionImageBlocks(
       message.content,
@@ -138,17 +167,49 @@ export async function captionImagesInMessages(
       visionProfileKey,
       logger,
     );
-    for (const block of message.content) {
-      if (block.type === "tool_result" && block.contentBlocks != null) {
-        imageCount += await captionImageBlocks(
-          block.contentBlocks,
-          conversationId,
-          visionProfileKey,
-          logger,
-        );
-      }
+    imageCount += await captionToolResultMedia(
+      message,
+      conversationId,
+      visionProfileKey,
+      logger,
+    );
+  }
+  return imageCount;
+}
+
+/**
+ * Caption only the image blocks a rejected model call would still carry after
+ * the host's outbound media-stripping: every top-level image block (the
+ * sanitizer never strips those) plus tool_result media in the current-turn
+ * message ({@link lastToolResultUserMessageIndex}, the one the sanitizer keeps
+ * intact). Older tool_result media is left raw so the sanitizer replaces it
+ * with its compact removed-media marker on the retry rather than a full
+ * caption — captioning it would waste vision calls and balloon context.
+ * Returns the number of image blocks replaced.
+ */
+export async function captionOutboundImagesInMessages(
+  messages: Message[],
+  conversationId: string,
+  visionProfileKey: string | null,
+  logger: PluginLogger,
+): Promise<number> {
+  const currentTurnIdx = lastToolResultUserMessageIndex(messages);
+  let imageCount = 0;
+  for (let i = 0; i < messages.length; i++) {
+    imageCount += await captionImageBlocks(
+      messages[i].content,
+      conversationId,
+      visionProfileKey,
+      logger,
+    );
+    if (i === currentTurnIdx) {
+      imageCount += await captionToolResultMedia(
+        messages[i],
+        conversationId,
+        visionProfileKey,
+        logger,
+      );
     }
   }
-
   return imageCount;
 }

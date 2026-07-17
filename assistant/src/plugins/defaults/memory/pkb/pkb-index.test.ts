@@ -3,12 +3,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { makeMockLogger } from "../../../../__tests__/helpers/mock-logger.js";
-
-mock.module("../../../../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
-
 // Capture calls to embedAndUpsert so we can assert on targetType + payload.
 const embedAndUpsertCalls: Array<{
   config: unknown;
@@ -36,17 +30,10 @@ mock.module("../../../../persistence/job-utils.js", () => ({
   },
 }));
 
-// Minimal stub for getConfig — indexPkbFile forwards it opaquely to the
-// mocked embedAndUpsert, so any sentinel value works.
-mock.module("../../../../config/loader.js", () => ({
-  getConfig: () => ({ __stub: true }),
-}));
-
 // Track Qdrant deletes by capturing the filter the client sends.
 const qdrantDeleteCalls: Array<{
   targetType: string;
   path: string;
-  memoryScopeId: string;
 }> = [];
 
 // Track per-target deletes (used by write-then-cleanup in indexPkbFile).
@@ -63,18 +50,13 @@ let scrollReturnPoints: Array<{
 }> = [];
 const qdrantScrollCalls: Array<{
   targetType: string;
-  memoryScopeId?: string;
   path?: string;
 }> = [];
 
 mock.module("../../../../persistence/embeddings/qdrant-client.js", () => ({
   getQdrantClient: () => ({
-    deleteByTargetTypeAndPath: async (
-      targetType: string,
-      path: string,
-      memoryScopeId: string,
-    ) => {
-      qdrantDeleteCalls.push({ targetType, path, memoryScopeId });
+    deleteByTargetTypeAndPath: async (targetType: string, path: string) => {
+      qdrantDeleteCalls.push({ targetType, path });
     },
     deleteByTarget: async (targetType: string, targetId: string) => {
       qdrantDeleteByTargetCalls.push({ targetType, targetId });
@@ -82,14 +64,12 @@ mock.module("../../../../persistence/embeddings/qdrant-client.js", () => ({
     scrollByTargetType: async (
       targetType: string,
       options?: {
-        memoryScopeId?: string;
         path?: string;
         batchSize?: number;
       },
     ) => {
       qdrantScrollCalls.push({
         targetType,
-        memoryScopeId: options?.memoryScopeId,
         path: options?.path,
       });
       return scrollReturnPoints;
@@ -235,17 +215,17 @@ describe("indexPkbFile", () => {
     const filePath = join(root, "doc.md");
     await writeFile(filePath, "# hello\nworld");
 
-    await indexPkbFile(root, filePath, "scope-xyz");
+    await indexPkbFile(root, filePath);
 
     expect(embedAndUpsertCalls).toHaveLength(1);
     const call = embedAndUpsertCalls[0];
     expect(call.targetType).toBe("pkb_file");
-    expect(call.targetId).toBe("scope-xyz:doc.md#0");
+    expect(call.targetId).toBe("doc.md#0");
     expect(call.input).toEqual({ type: "text", text: "# hello\nworld" });
     const payload = call.extraPayload as Record<string, unknown>;
     expect(payload.path).toBe("doc.md");
     expect(payload.chunk_index).toBe(0);
-    expect(payload.memory_scope_id).toBe("scope-xyz");
+    expect(payload).not.toHaveProperty("memory_scope_id");
     expect(typeof payload.mtime_ms).toBe("number");
     expect(typeof payload.content_hash).toBe("string");
     expect((payload.content_hash as string).length).toBe(16);
@@ -261,40 +241,39 @@ describe("indexPkbFile", () => {
       "b".repeat(5990);
     await writeFile(filePath, content);
 
-    await indexPkbFile(root, filePath, "scope-1");
+    await indexPkbFile(root, filePath);
 
     expect(embedAndUpsertCalls).toHaveLength(2);
-    expect(embedAndUpsertCalls[0].targetId).toBe("scope-1:big.md#0");
-    expect(embedAndUpsertCalls[1].targetId).toBe("scope-1:big.md#1");
+    expect(embedAndUpsertCalls[0].targetId).toBe("big.md#0");
+    expect(embedAndUpsertCalls[1].targetId).toBe("big.md#1");
     expect(embedAndUpsertCalls.every((c) => c.targetType === "pkb_file")).toBe(
       true,
     );
   });
 
-  test("scope-namespaces target ids so two scopes indexing the same path do not collide", async () => {
-    const root = await mkdtemp(join(tmpdir(), "pkb-index-scope-"));
+  test("re-indexing the same path regenerates identical target ids so upsert replaces in place", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pkb-index-rerun-"));
     const filePath = join(root, "shared.md");
     await writeFile(filePath, "# shared");
 
-    await indexPkbFile(root, filePath, "alpha");
-    await indexPkbFile(root, filePath, "beta");
+    await indexPkbFile(root, filePath);
+    await indexPkbFile(root, filePath);
 
     expect(embedAndUpsertCalls).toHaveLength(2);
     const ids = embedAndUpsertCalls.map((c) => c.targetId);
-    expect(ids).toEqual(["alpha:shared.md#0", "beta:shared.md#0"]);
+    expect(ids).toEqual(["shared.md#0", "shared.md#0"]);
   });
 
-  test("scrolls existing chunks scoped to (target_type, scope, path) before upserting", async () => {
+  test("scrolls existing chunks scoped to (target_type, path) before upserting", async () => {
     const root = await mkdtemp(join(tmpdir(), "pkb-index-scroll-"));
     const filePath = join(root, "noted.md");
     await writeFile(filePath, "# one");
 
-    await indexPkbFile(root, filePath, "scope-xyz");
+    await indexPkbFile(root, filePath);
 
     expect(qdrantScrollCalls).toHaveLength(1);
     expect(qdrantScrollCalls[0]).toEqual({
       targetType: "pkb_file",
-      memoryScopeId: "scope-xyz",
       path: "noted.md",
     });
   });
@@ -308,31 +287,28 @@ describe("indexPkbFile", () => {
     scrollReturnPoints = [
       {
         id: "point-0",
-        payload: { target_id: "scope-xyz:shrinking.md#0" },
+        payload: { target_id: "shrinking.md#0" },
       },
       {
         id: "point-1",
-        payload: { target_id: "scope-xyz:shrinking.md#1" },
+        payload: { target_id: "shrinking.md#1" },
       },
       {
         id: "point-2",
-        payload: { target_id: "scope-xyz:shrinking.md#2" },
+        payload: { target_id: "shrinking.md#2" },
       },
     ];
 
-    await indexPkbFile(root, filePath, "scope-xyz");
+    await indexPkbFile(root, filePath);
 
     // Exactly one upsert for the surviving chunk.
     expect(embedAndUpsertCalls).toHaveLength(1);
-    expect(embedAndUpsertCalls[0].targetId).toBe("scope-xyz:shrinking.md#0");
+    expect(embedAndUpsertCalls[0].targetId).toBe("shrinking.md#0");
 
     // The pre-delete is gone; only the two stale chunks are removed.
     expect(qdrantDeleteCalls).toHaveLength(0);
     const staleTargetIds = qdrantDeleteByTargetCalls.map((c) => c.targetId);
-    expect(staleTargetIds.sort()).toEqual([
-      "scope-xyz:shrinking.md#1",
-      "scope-xyz:shrinking.md#2",
-    ]);
+    expect(staleTargetIds.sort()).toEqual(["shrinking.md#1", "shrinking.md#2"]);
   });
 
   test("does not delete points whose target_id is regenerated", async () => {
@@ -342,11 +318,11 @@ describe("indexPkbFile", () => {
     scrollReturnPoints = [
       {
         id: "point-0",
-        payload: { target_id: "scope-xyz:stable.md#0" },
+        payload: { target_id: "stable.md#0" },
       },
     ];
 
-    await indexPkbFile(root, filePath, "scope-xyz");
+    await indexPkbFile(root, filePath);
 
     expect(embedAndUpsertCalls).toHaveLength(1);
     expect(qdrantDeleteByTargetCalls).toHaveLength(0);
@@ -358,14 +334,13 @@ describe("deletePkbFilePoints", () => {
     qdrantDeleteCalls.length = 0;
   });
 
-  test("sends a filter with target_type, path, and memory_scope_id predicates", async () => {
-    await deletePkbFilePoints("notes/todo.md", "scope-xyz");
+  test("sends a filter with target_type and path predicates", async () => {
+    await deletePkbFilePoints("notes/todo.md");
 
     expect(qdrantDeleteCalls).toHaveLength(1);
     expect(qdrantDeleteCalls[0]).toEqual({
       targetType: "pkb_file",
       path: "notes/todo.md",
-      memoryScopeId: "scope-xyz",
     });
   });
 });

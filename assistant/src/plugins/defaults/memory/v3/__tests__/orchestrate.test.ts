@@ -36,7 +36,9 @@ import type { MemoryRoutingTurn, SectionIndex, Slug } from "../types.js";
 
 let providerStub: Provider | null = null;
 
+const realPluginApi = await import("@vellumai/plugin-api");
 mock.module("@vellumai/plugin-api", () => ({
+  ...realPluginApi,
   getConfiguredProvider: async () => providerStub,
 }));
 
@@ -60,7 +62,9 @@ let denseCalls: Array<{ query: string; k: number }> = [];
 mock.module("../dense.js", () => ({
   ...realDense,
   denseLane: async (...args: Parameters<typeof realDense.denseLane>) => {
-    if (!denseMockActive) return realDense.denseLane(...args);
+    if (!denseMockActive) {
+      return realDense.denseLane(...args);
+    }
     denseCalls.push({ query: args[1], k: args[2] });
     return args[2] <= 0 ? [] : denseHits;
   },
@@ -71,7 +75,9 @@ mock.module("../dense.js", () => ({
   denseLaneScored: async (
     ...args: Parameters<typeof realDense.denseLaneScored>
   ) => {
-    if (!denseMockActive) return realDense.denseLaneScored(...args);
+    if (!denseMockActive) {
+      return realDense.denseLaneScored(...args);
+    }
     denseCalls.push({ query: args[1], k: args[2] });
     return args[2] <= 0
       ? []
@@ -87,11 +93,16 @@ const realWatchdogStore = {
   ...(await import("../../../../../telemetry/watchdog-events-store.js")),
 };
 let watchdogMockActive = false;
-let recordedGateEvents: Array<{
+type RecordedEvent = {
   checkName: string;
   value?: number | null;
   detail?: Record<string, unknown> | null;
-}> = [];
+};
+let recordedGateEvents: RecordedEvent[] = [];
+// Split by check_name rather than into one bucket: orchestrate emits a gate
+// event AND a selection event per turn, and the gate assertions below count
+// their events exactly.
+let recordedSelectionEvents: RecordedEvent[] = [];
 mock.module("../../../../../telemetry/watchdog-events-store.js", () => ({
   ...realWatchdogStore,
   recordWatchdogEvent: (
@@ -99,6 +110,10 @@ mock.module("../../../../../telemetry/watchdog-events-store.js", () => ({
   ) => {
     if (!watchdogMockActive) {
       return realWatchdogStore.recordWatchdogEvent(record);
+    }
+    if (record.checkName === MEMORY_V3_SELECTION_CHECK_NAME) {
+      recordedSelectionEvents.push(record);
+      return;
     }
     recordedGateEvents.push(record);
   },
@@ -109,6 +124,7 @@ const {
   DEFAULT_NEEDLE_K,
   DEFAULT_DENSE_K,
   MEMORY_V3_INJECTION_GATE_CHECK_NAME,
+  MEMORY_V3_SELECTION_CHECK_NAME,
 } = await import("../orchestrate.js");
 
 // ---------------------------------------------------------------------------
@@ -228,7 +244,9 @@ function parsePool(messages: Message[]): {
   let prefixBlock: string | null = null;
   for (const msg of messages) {
     for (const block of msg.content) {
-      if (block.type !== "text") continue;
+      if (block.type !== "text") {
+        continue;
+      }
       const cards = /<candidate_cards>\n([\s\S]*?)\n<\/candidate_cards>/.exec(
         block.text,
       );
@@ -246,7 +264,9 @@ function parsePool(messages: Message[]): {
       if (finder) {
         for (const line of finder[1].split("\n")) {
           const m = /^\[(\d+)\] (?:\([^)]*\) )?(\S+)(?: — |$)/.exec(line);
-          if (m) entries.push({ id: Number(m[1]), slug: m[2]!, line });
+          if (m) {
+            entries.push({ id: Number(m[1]), slug: m[2]!, line });
+          }
         }
       }
     }
@@ -280,8 +300,12 @@ function selectProvider(keep: Slug[], pin: Slug[] = []): Provider {
       const ids: number[] = [];
       const pinned_ids: number[] = [];
       parsed.slugs.forEach((slug, i) => {
-        if (keep.includes(slug)) ids.push(i + 1);
-        if (pin.includes(slug)) pinned_ids.push(i + 1);
+        if (keep.includes(slug)) {
+          ids.push(i + 1);
+        }
+        if (pin.includes(slug)) {
+          pinned_ids.push(i + 1);
+        }
       });
       return toolUseResponse({ ids, pinned_ids });
     },
@@ -295,6 +319,7 @@ beforeEach(() => {
   denseHits = [];
   denseCalls = [];
   recordedGateEvents = [];
+  recordedSelectionEvents = [];
   lastPool = [];
   lastPoolLines = [];
   lastPrefixBlock = null;
@@ -1089,13 +1114,13 @@ describe("orchestrate — injection gate", () => {
     expect(result.lanes.finder).toEqual([]);
   });
 
-  test("gate stays inert when the dense lane produced no hits (denseK = 0 new-user/outage case)", async () => {
+  test("gate stays inert when the dense lane is off (denseK = 0 new-user profile)", async () => {
     const lanes = await buildLanes();
-    // denseK: 0 leaves `densed` empty — the new-user profile, or any embedding
-    // outage. A low-score needle hit (norm ≈ 0.011) would CLOSE the gate if it
-    // ran on sparse signal alone, but zero dense hits means dense is
-    // unavailable, not low-relevance: the gate is dense-gated and never runs, so
-    // selection proceeds and memory is not suppressed.
+    // denseK: 0 leaves `densed` empty — the lean new-user profile. A low-score
+    // needle hit (norm ≈ 0.011) would CLOSE the gate if it ran on sparse signal
+    // alone, but zero dense hits means dense is unavailable, not low-relevance:
+    // the gate is dense-gated and never runs, so selection proceeds and memory
+    // is not suppressed.
     const needle = {
       query: () => [],
       queryScored: () => [{ article: "topic-a", section: 0, score: 0.1 }],
@@ -1139,6 +1164,11 @@ describe("orchestrate — injection gate", () => {
     expect(result.selections.map((s) => s.slug)).toContain("topic-a");
     // The stale deleted page never reaches the pool either.
     expect(lastPool).not.toContain("gone-page");
+    // The lane WAS enabled, so this reports as an outage, not as disabled.
+    expect(recordedGateEvents[0]!.detail).toMatchObject({
+      pass: true,
+      reason: "dense_unavailable",
+    });
   });
 
   test("bypassForCore: true on a closed gate selects the stable prefix only (no finder lines)", async () => {
@@ -1250,6 +1280,7 @@ describe("orchestrate — injection gate", () => {
     expect(event.detail).toMatchObject({
       pass: true,
       reason: "dense_pass",
+      scored: true,
       top_dense_score: 0.9,
     });
   });
@@ -1272,9 +1303,11 @@ describe("orchestrate — injection gate", () => {
     });
   });
 
-  test("the dense-unavailable pass-open records reason dense_unavailable", async () => {
+  test("denseK: 0 records reason dense_disabled, not dense_unavailable", async () => {
     const lanes = await buildLanes();
-    // denseK: 0 → no live dense hits → the gate passes open without scoring.
+    // denseK: 0 → the lane never ran → the gate passes open without scoring.
+    // Deliberate configuration (the lean new-user profile), so it must NOT be
+    // reported as an outage.
     const needle = {
       query: () => [],
       queryScored: () => [{ article: "topic-a", section: 0, score: 0.1 }],
@@ -1291,7 +1324,255 @@ describe("orchestrate — injection gate", () => {
     expect(recordedGateEvents).toHaveLength(1);
     expect(recordedGateEvents[0]!.detail).toMatchObject({
       pass: true,
+      reason: "dense_disabled",
+      scored: false,
+    });
+  });
+
+  test("an enabled dense lane yielding no live hits records reason dense_unavailable", async () => {
+    const lanes = await buildLanes();
+    // denseK > 0 but the lane came back empty — a degraded embedding backend or
+    // a Qdrant error swallowed to [] by denseLaneScored. Dense SHOULD have
+    // scored this turn and didn't, so this is the alertable reason.
+    denseHits = [];
+    const needle = {
+      query: () => [],
+      queryScored: () => [{ article: "topic-a", section: 0, score: 0.1 }],
+      bestSection: () => -1,
+      idf: () => 0,
+    };
+    providerStub = selectProvider(["topic-a"]);
+
+    await orchestrate(
+      makeTurn(1, "apple"),
+      depsOf(lanes, { needle, denseK: 100, gateConfig: gateConfigOf() }),
+    );
+
+    expect(recordedGateEvents).toHaveLength(1);
+    expect(recordedGateEvents[0]!.detail).toMatchObject({
+      pass: true,
       reason: "dense_unavailable",
+      scored: false,
+    });
+  });
+
+  test("records the corpus size on a scored run", async () => {
+    const lanes = await buildLanes();
+    denseHits = [{ article: "topic-b", section: 0, score: 0.9 }];
+    providerStub = selectProvider(["topic-a"]);
+
+    await orchestrate(
+      makeTurn(1, "apple"),
+      depsOf(lanes, {
+        denseK: 100,
+        realConceptPageCount: 42,
+        gateConfig: gateConfigOf(),
+      }),
+    );
+
+    expect(recordedGateEvents[0]!.detail).toMatchObject({
+      reason: "dense_pass",
+      real_concept_page_count: 42,
+    });
+  });
+
+  test("records the corpus size on a dense_disabled run", async () => {
+    const lanes = await buildLanes();
+    // The sub-threshold cohort is the whole reason the field exists: without it
+    // `dense_disabled` says only "below the threshold", not how far below.
+    const needle = {
+      query: () => [],
+      queryScored: () => [{ article: "topic-a", section: 0, score: 0.1 }],
+      bestSection: () => -1,
+      idf: () => 0,
+    };
+    providerStub = selectProvider(["topic-a"]);
+
+    await orchestrate(
+      makeTurn(1, "apple"),
+      depsOf(lanes, {
+        needle,
+        denseK: 0,
+        realConceptPageCount: 3,
+        gateConfig: gateConfigOf(),
+      }),
+    );
+
+    expect(recordedGateEvents[0]!.detail).toMatchObject({
+      reason: "dense_disabled",
+      real_concept_page_count: 3,
+    });
+  });
+
+  test("omits the corpus size when the dep is not threaded", async () => {
+    const lanes = await buildLanes();
+    denseHits = [{ article: "topic-b", section: 0, score: 0.9 }];
+    providerStub = selectProvider(["topic-a"]);
+
+    await orchestrate(
+      makeTurn(1, "apple"),
+      depsOf(lanes, { denseK: 100, gateConfig: gateConfigOf() }),
+    );
+
+    expect(recordedGateEvents).toHaveLength(1);
+    expect(recordedGateEvents[0]!.detail).not.toHaveProperty(
+      "real_concept_page_count",
+    );
+  });
+
+  test("a passed gate that selects NOTHING is recorded as a zero selection", async () => {
+    const lanes = await buildLanes();
+    // The case the gate's own pass rate cannot see: retrieval was confident
+    // enough to spend the selector call, and the selector judged that no
+    // candidate was relevant. Pass rate says 100%; injection rate says 0%.
+    denseHits = [{ article: "topic-b", section: 0, score: 0.9 }];
+    providerStub = selectProvider([]);
+
+    await orchestrate(
+      makeTurn(1, "apple"),
+      depsOf(lanes, { denseK: 100, gateConfig: gateConfigOf() }),
+    );
+
+    expect(recordedGateEvents[0]!.detail).toMatchObject({
+      pass: true,
+      reason: "dense_pass",
+    });
+    expect(recordedSelectionEvents).toHaveLength(1);
+    const event = recordedSelectionEvents[0]!;
+    expect(event.checkName).toBe(MEMORY_V3_SELECTION_CHECK_NAME);
+    expect(event.value).toBe(0);
+    expect(event.detail).toMatchObject({
+      gate_reason: "dense_pass",
+      gate_pass: true,
+      selector_ran: true,
+      selected_count: 0,
+    });
+  });
+
+  test("the selection event carries the gate reason and a non-zero count", async () => {
+    const lanes = await buildLanes();
+    denseHits = [{ article: "topic-b", section: 0, score: 0.9 }];
+    providerStub = selectProvider(["topic-a"]);
+
+    await orchestrate(
+      makeTurn(1, "apple"),
+      depsOf(lanes, {
+        denseK: 100,
+        realConceptPageCount: 42,
+        gateConfig: gateConfigOf(),
+      }),
+    );
+
+    expect(recordedSelectionEvents).toHaveLength(1);
+    expect(recordedSelectionEvents[0]!.value).toBe(1);
+    expect(recordedSelectionEvents[0]!.detail).toMatchObject({
+      gate_reason: "dense_pass",
+      selector_ran: true,
+      selected_count: 1,
+      real_concept_page_count: 42,
+    });
+    expect(
+      Number(recordedSelectionEvents[0]!.detail!.pool_size),
+    ).toBeGreaterThan(0);
+  });
+
+  test("selectorEnabled: false marks the passthrough as selector_ran: false", async () => {
+    const lanes = await buildLanes();
+    // The lean profile passes the whole pool through without consulting the
+    // selector, so `selected_count` there is pool size, not a relevance
+    // judgment. Without this flag those turns would read as a 100% hit rate.
+    denseHits = [{ article: "topic-b", section: 0, score: 0.9 }];
+
+    await orchestrate(
+      makeTurn(1, "apple"),
+      depsOf(lanes, {
+        denseK: 100,
+        coreSlugs: ["topic-a"],
+        selectorEnabled: false,
+        gateConfig: gateConfigOf(),
+      }),
+    );
+
+    expect(recordedSelectionEvents).toHaveLength(1);
+    expect(recordedSelectionEvents[0]!.detail).toMatchObject({
+      selector_ran: false,
+    });
+    expect(
+      Number(recordedSelectionEvents[0]!.detail!.selected_count),
+    ).toBeGreaterThan(0);
+  });
+
+  test("an empty pool is not a selector judgment", async () => {
+    const lanes = await buildLanes();
+    // `selectPool` returns [] before it ever reaches the provider when the pool
+    // is empty, so a candidate-less turn must not count as "the selector found
+    // nothing relevant" — that would drag the relevance rate down with turns the
+    // selector never saw.
+    const needle = {
+      query: () => [],
+      queryScored: () => [],
+      bestSection: () => -1,
+      idf: () => 0,
+    };
+    denseHits = [];
+    providerStub = selectProvider([]);
+
+    await orchestrate(
+      makeTurn(1, "apple"),
+      depsOf(lanes, {
+        needle,
+        denseK: 0,
+        coreSlugs: [],
+        hotSlugs: [],
+        freshSlugs: [],
+        selectorEnabled: true,
+        gateConfig: gateConfigOf(),
+      }),
+    );
+
+    expect(recordedSelectionEvents).toHaveLength(1);
+    expect(recordedSelectionEvents[0]!.detail).toMatchObject({
+      selector_ran: false,
+      selected_count: 0,
+      pool_size: 0,
+    });
+  });
+
+  test("a hard-closed gate records a zero selection with selector_ran: false", async () => {
+    const lanes = await buildLanes();
+    // Zero BY CONSTRUCTION — the selector was never asked. Must not be counted
+    // as "the selector found nothing relevant".
+    denseHits = [{ article: "topic-b", section: 0, score: 0.1 }];
+    providerStub = selectProvider([]);
+
+    await orchestrate(
+      makeTurn(1, "zzzz nomatch"),
+      depsOf(lanes, { denseK: 100, gateConfig: gateConfigOf() }),
+    );
+
+    expect(recordedSelectionEvents).toHaveLength(1);
+    expect(recordedSelectionEvents[0]!.detail).toMatchObject({
+      gate_reason: "fail_no_signal",
+      gate_pass: false,
+      selector_ran: false,
+      selected_count: 0,
+      pool_size: 0,
+    });
+  });
+
+  test("gate_reason is null on a selection when the gate never ran", async () => {
+    const lanes = await buildLanes();
+    denseHits = [{ article: "topic-b", section: 0, score: 0.9 }];
+    providerStub = selectProvider(["topic-a"]);
+
+    await orchestrate(makeTurn(1, "apple"), depsOf(lanes, { denseK: 100 }));
+
+    expect(recordedGateEvents).toEqual([]);
+    expect(recordedSelectionEvents).toHaveLength(1);
+    expect(recordedSelectionEvents[0]!.detail).toMatchObject({
+      gate_reason: null,
+      gate_pass: null,
+      selected_count: 1,
     });
   });
 

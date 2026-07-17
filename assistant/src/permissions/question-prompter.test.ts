@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { setConfig } from "../__tests__/helpers/set-config.js";
 import type { QuestionRequestEvent } from "../api/events/question-request.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import type {
@@ -7,20 +8,11 @@ import type {
   QuestionPromptResult,
 } from "./question-prompter.js";
 
-// Use a tiny timeout so the setTimeout branch fires quickly in tests
-const mockConfig = {
-  timeouts: { questionResponseTimeoutSec: 0.05 },
-};
-// Preserve every other export from the real config/loader so other
-// tests in the same `bun test` run (which share module-level mocks)
-// don't lose access to e.g. `setNestedValue`.
-const realConfigLoader = await import("../config/loader.js");
-mock.module("../config/loader.js", () => ({
-  ...realConfigLoader,
-  getConfig: () => mockConfig,
-  loadConfig: () => mockConfig,
-  invalidateConfigCache: () => {},
-}));
+// Use a tiny idle-timeout so the setTimeout backstop branch fires quickly in
+// tests (the schema only requires a positive number of seconds).
+function seedQuestionTimeout(): void {
+  setConfig("timeouts", { questionResponseTimeoutSec: 0.05 });
+}
 
 mock.module("../util/logger.js", () => ({
   getLogger: () => ({
@@ -182,6 +174,7 @@ const threeQuestionParams = {
 describe("QuestionPrompter", () => {
   beforeEach(() => {
     _piStore.clear();
+    seedQuestionTimeout();
   });
 
   test("happy path: option resolution via the shared batch helpers", async () => {

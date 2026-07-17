@@ -164,12 +164,10 @@ export function consolidateAssistantMessages(
     } else if (msg.role === "user") {
       // Check if this is an internal tool_result message (no text, only tool_result blocks)
       try {
-        const content = JSON.parse(msg.content);
+        const content = msg.content;
         const isToolResultOnly =
           Array.isArray(content) &&
-          content.every((block: Record<string, unknown>) =>
-            isToolResultBlock(block),
-          ) &&
+          content.every((block) => isToolResultBlock(block)) &&
           content.length > 0;
         if (isToolResultOnly) {
           internalToolResultMessages.push(msg);
@@ -223,11 +221,9 @@ export function consolidateAssistantMessages(
   const consolidatedContent: ContentBlock[] = [];
   for (const msg of messagesToConsolidate) {
     try {
-      const content = JSON.parse(msg.content);
+      const content = msg.content;
       if (Array.isArray(content)) {
-        const toolUseBlocks = content.filter(
-          (b: Record<string, unknown>) => b.type === "tool_use",
-        );
+        const toolUseBlocks = content.filter((b) => b.type === "tool_use");
         log.info(
           {
             messageId: msg.id,
@@ -249,11 +245,9 @@ export function consolidateAssistantMessages(
   // Also merge tool_result blocks from internal user messages
   for (const msg of internalToolResultMessages) {
     try {
-      const content = JSON.parse(msg.content);
+      const content = msg.content;
       if (Array.isArray(content)) {
-        const toolResultBlocks = content.filter((b: Record<string, unknown>) =>
-          isToolResultBlock(b),
-        );
+        const toolResultBlocks = content.filter((b) => isToolResultBlock(b));
         log.info(
           {
             messageId: msg.id,

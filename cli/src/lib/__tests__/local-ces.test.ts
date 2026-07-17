@@ -1,4 +1,10 @@
-import { mkdtempSync, rmSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
+import {
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+  existsSync,
+  mkdirSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
@@ -12,7 +18,11 @@ import { startCes } from "../local.js";
 // Capture spawn calls so we can assert on cmd/env.
 let lastSpawnCall: {
   cmd: string[];
-  options: { detached?: boolean; env?: Record<string, string | undefined>; cwd?: string };
+  options: {
+    detached?: boolean;
+    env?: Record<string, string | undefined>;
+    cwd?: string;
+  };
 } | null = null;
 
 mock.module("node:child_process", () => ({
@@ -90,9 +100,14 @@ describe("startCes", () => {
     expect(lastSpawnCall).not.toBeNull();
     expect(lastSpawnCall!.options.detached).toBe(true);
 
+    // Under plain bun (source tree / tests), CES must run via `bun run
+    // src/main.ts` — never an adjacent `credential-executor` binary, which in
+    // bun's own bin dir is an unrelated globally-installed package bin.
+    expect(lastSpawnCall!.cmd[0]).toBe(process.execPath);
+    expect(lastSpawnCall!.cmd).toContain("src/main.ts");
+
     // Verify env vars
     const env = lastSpawnCall!.options.env!;
-    expect(env["CES_STANDALONE"]).toBe("1");
     expect(env["CES_LOCAL_SOCKET"]).toBeDefined();
     expect(env["CREDENTIAL_SECURITY_DIR"]).toBeDefined();
     expect(env["VELLUM_WORKSPACE_DIR"]).toBeDefined();

@@ -13,16 +13,20 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { makeMockLogger } from "../__tests__/helpers/mock-logger.js";
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
-
 // Control the live-conversation lookup so `isTurnSettled` can be exercised
 // without a running agent loop. Returns `undefined` (no live conversation) by
 // default; tests set a fake with a chosen `isProcessing()`.
-let mockLiveConversation: { isProcessing: () => boolean } | undefined;
+let mockLiveConversation:
+  | {
+      isProcessing: () => boolean;
+      getCurrentSystemPrompt?: () => string;
+      getRegisteredToolDefinitions?: () => Array<{
+        name: string;
+        description: string;
+        input_schema: object;
+      }>;
+    }
+  | undefined;
 mock.module("../daemon/conversation-registry.js", () => ({
   findConversation: () => mockLiveConversation,
 }));
@@ -58,6 +62,8 @@ interface MessageSeed {
   role: "user" | "assistant" | "system";
   content: unknown;
   createdAt: number;
+  /** Persisted `messages.metadata` bag; assistant rows carry `{ model }`. */
+  metadata?: Record<string, unknown>;
 }
 
 function insertMessage(conversationId: string, seed: MessageSeed): void {
@@ -72,6 +78,7 @@ function insertMessage(conversationId: string, seed: MessageSeed): void {
           ? seed.content
           : JSON.stringify(seed.content),
       createdAt: seed.createdAt,
+      metadata: seed.metadata ? JSON.stringify(seed.metadata) : null,
     })
     .run();
 }
@@ -135,6 +142,7 @@ describe("assembleTurnTrace", () => {
         },
       ],
       createdAt: 1100,
+      metadata: { model: "claude-fable-5" },
     });
     insertMessage(conv.id, {
       id: "m-toolresult-1",
@@ -149,6 +157,7 @@ describe("assembleTurnTrace", () => {
       role: "assistant",
       content: [{ type: "text", text: "You have 2 events today." }],
       createdAt: 1300,
+      metadata: { model: "claude-fable-5" },
     });
     insertTool(conv.id, {
       id: "ti-1",
@@ -175,13 +184,22 @@ describe("assembleTurnTrace", () => {
 
     const trace = assembleTurnTrace(boundary(conv.id, "m-user-1", 1000));
 
-    expect(trace.schema_version).toBe(1);
+    expect(trace.schema_version).toBe(3);
     // Window stops before turn 2: only turn-1 message rows, oldest-first.
     expect(trace.messages.map((m) => m.id)).toEqual([
       "m-user-1",
       "m-asst-1a",
       "m-toolresult-1",
       "m-asst-1b",
+    ]);
+    // Model attribution is per message, from `metadata.model` (the served
+    // `response.model` persisted with the finalized content): assistant rows
+    // carry it, user and tool-result rows carry null.
+    expect(trace.messages.map((m) => [m.id, m.model])).toEqual([
+      ["m-user-1", null],
+      ["m-asst-1a", "claude-fable-5"],
+      ["m-toolresult-1", null],
+      ["m-asst-1b", "claude-fable-5"],
     ]);
     // The tool-result row keeps role="user" (faithful to what the model saw).
     const toolResultMsg = trace.messages.find((m) => m.id === "m-toolresult-1");
@@ -199,6 +217,136 @@ describe("assembleTurnTrace", () => {
     });
     // Result is forwarded verbatim.
     expect(trace.tool_calls[0].result).toBe(JSON.stringify({ events: 2 }));
+  });
+
+  test("attributes each assistant row to the model that served it when a hook reroutes mid-turn", () => {
+    // A pre-model-call hook reroutes the SECOND call in the turn, so the two
+    // assistant rows carry different served models — attribution stays faithful
+    // per message.
+    const conv = createConversation({ conversationType: "standard" });
+    insertMessage(conv.id, {
+      id: "m-user-1",
+      role: "user",
+      content: [{ type: "text", text: "hello" }],
+      createdAt: 1000,
+    });
+    insertMessage(conv.id, {
+      id: "m-asst-1a",
+      role: "assistant",
+      content: [{ type: "tool_use", id: "tu-1", name: "noop", input: {} }],
+      createdAt: 1100,
+      metadata: { model: "claude-fable-5" },
+    });
+    insertMessage(conv.id, {
+      id: "m-toolresult-1",
+      role: "user",
+      content: [{ type: "tool_result", tool_use_id: "tu-1", content: "ok" }],
+      createdAt: 1200,
+    });
+    insertMessage(conv.id, {
+      id: "m-asst-1b",
+      role: "assistant",
+      content: [{ type: "text", text: "done" }],
+      createdAt: 1300,
+      metadata: { model: "claude-opus-4-8" },
+    });
+
+    const trace = assembleTurnTrace(boundary(conv.id, "m-user-1", 1000));
+
+    expect(trace.messages.map((m) => [m.id, m.model])).toEqual([
+      ["m-user-1", null],
+      ["m-asst-1a", "claude-fable-5"],
+      ["m-toolresult-1", null],
+      ["m-asst-1b", "claude-opus-4-8"],
+    ]);
+  });
+
+  test("per-message model is null for rows with no stamped model (historical / missing metadata)", () => {
+    const conv = createConversation({ conversationType: "standard" });
+    insertMessage(conv.id, {
+      id: "m-user-1",
+      role: "user",
+      content: [{ type: "text", text: "hello" }],
+      createdAt: 1000,
+    });
+    // Assistant row with no metadata at all (historical row before stamping).
+    insertMessage(conv.id, {
+      id: "m-asst-1",
+      role: "assistant",
+      content: [{ type: "text", text: "hi" }],
+      createdAt: 1100,
+    });
+    // Assistant row whose metadata bag omits `model`.
+    insertMessage(conv.id, {
+      id: "m-asst-2",
+      role: "assistant",
+      content: [{ type: "text", text: "again" }],
+      createdAt: 1200,
+      metadata: { provenanceTrustClass: "unknown" },
+    });
+
+    const trace = assembleTurnTrace(boundary(conv.id, "m-user-1", 1000));
+
+    expect(trace.messages.map((m) => m.model)).toEqual([null, null, null]);
+  });
+
+  test("includes system_prompt and tool_definitions from the live conversation", () => {
+    const conv = createConversation({ conversationType: "standard" });
+    insertMessage(conv.id, {
+      id: "m-user-1",
+      role: "user",
+      content: [{ type: "text", text: "hello" }],
+      createdAt: 1000,
+    });
+    insertMessage(conv.id, {
+      id: "m-asst-1",
+      role: "assistant",
+      content: [{ type: "text", text: "hi" }],
+      createdAt: 1100,
+    });
+
+    // The conversation resolves + sorts its registered tools; trace assembly
+    // just maps them into the trace, so feed it already-resolved definitions.
+    mockLiveConversation = {
+      isProcessing: () => false,
+      getCurrentSystemPrompt: () => "You are a helpful assistant.",
+      getRegisteredToolDefinitions: () => [
+        { name: "file_read", description: "Read a file", input_schema: {} },
+        { name: "notify_parent", description: "", input_schema: {} },
+        { name: "web_search", description: "Search the web", input_schema: {} },
+      ],
+    };
+
+    const trace = assembleTurnTrace(boundary(conv.id, "m-user-1", 1000));
+
+    expect(trace.system_prompt).toBe("You are a helpful assistant.");
+    expect(trace.tool_definitions).toEqual([
+      { name: "file_read", description: "Read a file", input_schema: {} },
+      { name: "notify_parent", description: "", input_schema: {} },
+      { name: "web_search", description: "Search the web", input_schema: {} },
+    ]);
+  });
+
+  test("system_prompt is null and tool_definitions is empty when conversation is evicted", () => {
+    const conv = createConversation({ conversationType: "standard" });
+    insertMessage(conv.id, {
+      id: "m-user-1",
+      role: "user",
+      content: [{ type: "text", text: "hello" }],
+      createdAt: 1000,
+    });
+    insertMessage(conv.id, {
+      id: "m-asst-1",
+      role: "assistant",
+      content: [{ type: "text", text: "hi" }],
+      createdAt: 1100,
+    });
+
+    // No mockLiveConversation set — simulates evicted conversation.
+    const trace = assembleTurnTrace(boundary(conv.id, "m-user-1", 1000));
+
+    expect(trace.system_prompt).toBeNull();
+    expect(trace.tool_definitions).toEqual([]);
   });
 
   test("the final turn's window runs to the end of the conversation", () => {

@@ -6,13 +6,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ── Mocks ────────────────────────────────────────────────────────────
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // Track enqueued jobs
 const enqueuedJobs: Array<{ type: string; payload: Record<string, unknown> }> =
   [];
@@ -21,13 +14,6 @@ mock.module("../persistence/jobs-store.js", () => ({
   enqueueMemoryJob: (type: string, payload: Record<string, unknown>) => {
     enqueuedJobs.push({ type, payload });
   },
-}));
-
-// Stub config — multimodal disabled so we only test the graph path
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    memory: { enabled: true },
-  }),
 }));
 
 mock.module("../persistence/embeddings/embedding-backend.js", () => ({
@@ -167,7 +153,6 @@ describe("rebuildIndexJob", () => {
           stability: 14,
           reinforcementCount: 0,
           lastReinforced: now,
-          scopeId: "default",
         },
         {
           id: "node-2",
@@ -183,7 +168,6 @@ describe("rebuildIndexJob", () => {
           stability: 14,
           reinforcementCount: 0,
           lastReinforced: now,
-          scopeId: "default",
         },
         {
           id: "node-gone",
@@ -199,7 +183,6 @@ describe("rebuildIndexJob", () => {
           stability: 1,
           reinforcementCount: 0,
           lastReinforced: now,
-          scopeId: "default",
         },
       ])
       .run();
@@ -240,7 +223,6 @@ describe("rebuildIndexJob", () => {
         stability: 14,
         reinforcementCount: 0,
         lastReinforced: now,
-        scopeId: "default",
       })
       .run();
 

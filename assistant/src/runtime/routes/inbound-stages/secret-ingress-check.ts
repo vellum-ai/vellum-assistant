@@ -6,7 +6,7 @@
  * focused on orchestration.
  */
 import type { ChannelId } from "../../../channels/types.js";
-import type { TrustContext } from "../../../daemon/trust-context.js";
+import type { TrustContext } from "../../../daemon/trust-context-types.js";
 import { recordConversationSeenSignal } from "../../../persistence/conversation-attention-store.js";
 import {
   clearPayload,

@@ -3,6 +3,7 @@ import {
   listConversations,
   searchConversations,
 } from "../../persistence/conversation-queries.js";
+import { extractTextFromStoredMessageContent } from "../../persistence/message-content.js";
 import { renderHistoryContent } from "./shared.js";
 
 // ---------------------------------------------------------------------------
@@ -55,7 +56,9 @@ export function getMessageContent(
   conversationId?: string,
 ): MessageContentResult | null {
   const dbMessage = getMessageById(messageId, conversationId);
-  if (!dbMessage) return null;
+  if (!dbMessage) {
+    return null;
+  }
 
   let text: string | undefined;
   let toolCalls:
@@ -63,7 +66,7 @@ export function getMessageContent(
     | undefined;
 
   try {
-    const content = JSON.parse(dbMessage.content);
+    const content = dbMessage.content;
     const rendered = renderHistoryContent(content);
     text = rendered.text || undefined;
     const parsedToolCalls = rendered.toolCalls;
@@ -76,8 +79,7 @@ export function getMessageContent(
       }));
     }
   } catch {
-    // Raw text content (not JSON)
-    text = dbMessage.content || undefined;
+    text = extractTextFromStoredMessageContent(dbMessage.content) || undefined;
   }
 
   return {

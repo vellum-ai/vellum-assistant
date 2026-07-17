@@ -4,10 +4,6 @@ mock.module("../../../../config/assistant-feature-flags.js", () => ({
   isAssistantFeatureFlagEnabled: () => true,
 }));
 
-mock.module("../../../../config/loader.js", () => ({
-  getConfig: () => ({}),
-}));
-
 type AddMessageArgs = [
   string,
   "user" | "assistant",

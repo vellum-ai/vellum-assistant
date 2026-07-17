@@ -11,6 +11,9 @@
 // Must be first — before any imports that resolve socket paths
 delete process.env.ASSISTANT_IPC_SOCKET_DIR;
 
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, expect, mock, test } from "bun:test";
 
 import { runAssistantCommandFull } from "../../cli/__tests__/run-assistant-command.js";
@@ -356,6 +359,93 @@ test("send --json returns delivery_id", async () => {
   const parsed = JSON.parse(stdout.trim());
   expect(parsed.delivery_id).toBe("del_abc123");
   expect(process.exitCode).toBe(0);
+});
+
+test("send --attach reads the file and forwards base64 attachments to the platform", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "email-attach-"));
+  const filePath = join(dir, "report.pdf");
+  const fileBytes = "pdf-bytes-here";
+  writeFileSync(filePath, fileBytes);
+
+  let sendBody: Record<string, unknown> | null = null;
+  mockFetchFn = async (path, init) => {
+    if (path.includes("/email-addresses/")) {
+      return new Response(
+        JSON.stringify({
+          results: [{ id: "addr-1", address: "mybot@example.com" }],
+        }),
+        { status: 200 },
+      );
+    }
+    // send endpoint — capture the forwarded payload
+    sendBody = JSON.parse(init?.body as string);
+    return new Response(
+      JSON.stringify({ delivery_id: "del_attach", status: "accepted" }),
+      { status: 200 },
+    );
+  };
+
+  try {
+    await runAssistantCommandFull(
+      "email",
+      "--json",
+      "send",
+      "user@example.com",
+      "-s",
+      "Report",
+      "-b",
+      "Attached",
+      "--attach",
+      filePath,
+    );
+
+    expect(sendBody).not.toBeNull();
+    expect(sendBody!.attachments).toEqual([
+      {
+        filename: "report.pdf",
+        content_type: "application/pdf",
+        content: Buffer.from(fileBytes).toString("base64"),
+      },
+    ]);
+    expect(process.exitCode).toBe(0);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("send with a missing --attach path fails without calling the platform", async () => {
+  let sendCalled = false;
+  mockFetchFn = async (path) => {
+    if (path.includes("/email-addresses/")) {
+      return new Response(
+        JSON.stringify({
+          results: [{ id: "addr-1", address: "mybot@example.com" }],
+        }),
+        { status: 200 },
+      );
+    }
+    sendCalled = true;
+    return new Response(
+      JSON.stringify({ delivery_id: "x", status: "accepted" }),
+      { status: 200 },
+    );
+  };
+
+  await runAssistantCommandFull(
+    "email",
+    "--json",
+    "send",
+    "user@example.com",
+    "-s",
+    "Report",
+    "-b",
+    "Attached",
+    "--attach",
+    join(tmpdir(), "does-not-exist-xyz.pdf"),
+  );
+
+  expect(process.exitCode).not.toBe(0);
+  expect(sendCalled).toBe(false);
 });
 
 test("send: 402 billing error surfaces", async () => {

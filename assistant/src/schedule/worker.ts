@@ -1,21 +1,21 @@
 /**
  * Standalone entry point for the schedule worker as its own OS process.
  *
- * Spawned by `assistant schedules worker start` (and at daemon startup when
- * `schedules.worker.enabled` is set). Loads config, writes a PID file, and
+ * Spawned by the daemon at startup. Loads config, writes a PID file, and
  * claims + executes due schedules (all modes) on a fixed tick until
- * SIGTERM/SIGINT. While the flag is set, the daemon's in-process scheduler
- * leaves schedules to this process.
+ * SIGTERM/SIGINT. This process is the sole runner of schedule execution; the
+ * daemon's own scheduler tick runs only watchers and sequences.
  *
  * Running as a separate process — off the assistant's main event loop — is
  * the point: expensive scheduled jobs execute here without competing with
  * user-facing traffic, and keep running during a main-thread freeze in the
  * daemon.
  */
-
 import { existsSync, unlinkSync, writeFileSync } from "node:fs";
 
 import { getConfig } from "../config/loader.js";
+import { rehydratePlatformCredentials } from "../config/platform-rehydration.js";
+import { resetDb } from "../persistence/db-connection.js";
 import { initializeTools } from "../tools/registry.js";
 import { getLogger } from "../util/logger.js";
 import { getScheduleWorkerPidPath } from "../util/platform.js";
@@ -46,6 +46,14 @@ async function main(): Promise<void> {
   // Write PID file so `status` and `stop` can find us.
   writeFileSync(pidPath, String(process.pid), { flag: "w" });
   log.info({ pid: process.pid, pidPath }, "Schedule worker process started");
+
+  // Rehydrate the platform base URL and IDs from the credential store before
+  // the first tick. The daemon does this in initializeProvidersAndTools(); this
+  // standalone process must do it itself so getPlatformBaseUrl() resolves to
+  // the persisted platform environment instead of the VELLUM_ENVIRONMENT
+  // default — otherwise valid credentials are sent to the wrong platform and
+  // rejected for both inference and background-wake requests.
+  await rehydratePlatformCredentials();
 
   // Populate the tool registry (core built-ins + workspace tools). The daemon
   // does this at startup; this standalone process has to do it itself so
@@ -98,6 +106,11 @@ async function main(): Promise<void> {
 
   process.on("SIGTERM", () => shutdown("SIGTERM"));
   process.on("SIGINT", () => shutdown("SIGINT"));
+
+  process.on("SIGUSR1", () => {
+    log.info("Received SIGUSR1 — refreshing database connections");
+    resetDb();
+  });
 
   // Catch stray exceptions that escape the tick loop so they produce a clean
   // pino-formatted log entry (and PID-file cleanup) instead of a raw stack

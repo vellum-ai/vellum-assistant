@@ -40,10 +40,34 @@ export const PRESERVED_ENTRIES = [
   ".disabled",
 ] as const;
 
+/**
+ * Generated app build output: `apps/<app>/dist`. This is compiled output (the
+ * plugin source watcher builds each multi-file app's `src/` into its sibling
+ * `dist/`), never tracked source, so — like {@link PRESERVED_ENTRIES} — every
+ * fingerprint walk excludes it:
+ *
+ * - the **live-reload** change detector (`./source-fingerprint.ts`), so the
+ *   watcher's own compile does not read as a source change and re-trigger
+ *   itself in a loop, and
+ * - the **install/drift** fingerprint (`../cli/lib/plugin-fingerprint.ts`), so
+ *   generated output is not reported as drift/added against the pinned commit.
+ *
+ * A path pattern rather than a bare name so it stays scoped to `apps/<app>/dist`
+ * — a plugin's own top-level `dist/` (if it ships built code its hooks import)
+ * is still tracked. Matched against the POSIX path relative to the plugin root.
+ */
+export const GENERATED_APP_BUILD_DIR = /^apps\/[^/]+\/dist$/;
+
 /** Options controlling which entries a {@link walkPluginTree} visits. */
 export interface PluginTreeWalkOptions {
-  /** Top-level entry names to skip (e.g. {@link PRESERVED_ENTRIES}). */
-  readonly excludeRootEntries?: Iterable<string>;
+  /**
+   * Entries to exclude. A `string` matches a top-level entry by name (e.g.
+   * {@link PRESERVED_ENTRIES}); a `RegExp` matches any entry — at any depth —
+   * by its POSIX path relative to the walk root, and when it matches a
+   * directory the whole subtree is skipped (e.g. {@link
+   * GENERATED_APP_BUILD_DIR}).
+   */
+  readonly excludeRootEntries?: Iterable<string | RegExp>;
   /** Directory names skipped at any depth (e.g. `node_modules`). */
   readonly excludeDirsAnywhere?: ReadonlySet<string>;
   /** Skip entries whose name starts with `.`, at any depth. */
@@ -67,7 +91,17 @@ export function walkPluginTree(
   options: PluginTreeWalkOptions,
   visit: (rel: string, abs: string) => void,
 ): void {
-  const excludedRoot = new Set(options.excludeRootEntries ?? []);
+  // Split the exclusion list: bare strings match a top-level entry name;
+  // RegExps match an entry's relative path at any depth.
+  const excludedRootNames = new Set<string>();
+  const excludePatterns: RegExp[] = [];
+  for (const entry of options.excludeRootEntries ?? []) {
+    if (typeof entry === "string") {
+      excludedRootNames.add(entry);
+    } else {
+      excludePatterns.push(entry);
+    }
+  }
 
   const walk = (relDir: string): void => {
     const absDir = relDir ? join(root, relDir) : root;
@@ -82,7 +116,7 @@ export function walkPluginTree(
     }
     for (const entry of entries) {
       const name = entry.name;
-      if (relDir === "" && excludedRoot.has(name)) {
+      if (relDir === "" && excludedRootNames.has(name)) {
         continue;
       }
       if (options.excludeDotEntries === true && name.startsWith(".")) {
@@ -92,6 +126,9 @@ export function walkPluginTree(
         continue;
       }
       const rel = relDir ? `${relDir}/${name}` : name;
+      if (excludePatterns.some((pattern) => pattern.test(rel))) {
+        continue;
+      }
       if (entry.isDirectory()) {
         if (options.excludeDirsAnywhere?.has(name) === true) {
           continue;

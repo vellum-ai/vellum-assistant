@@ -55,6 +55,10 @@ export const PLATFORM_PROVIDER_META: Record<string, ManagedProviderMeta> = {
     name: "openrouter",
     managed: false,
   },
+  "vercel-ai-gateway": {
+    name: "vercel-ai-gateway",
+    managed: false,
+  },
   ollama: { name: "ollama", managed: false },
   "openai-compatible": { name: "openai-compatible", managed: false },
 };

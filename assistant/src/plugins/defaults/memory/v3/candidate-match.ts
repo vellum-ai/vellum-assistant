@@ -19,8 +19,9 @@
 // the catalog read are dependency-injected so tests exercise the ranking without
 // standing up Qdrant.
 
+import { listInstalledSkills } from "@vellumai/plugin-api";
+
 import { getConfig } from "../../../../config/loader.js";
-import { loadSkillCatalog } from "../../../../config/skills.js";
 import type { AssistantConfig } from "../../../../config/types.js";
 import {
   EMBED_BASE_DELAY_MS,
@@ -28,8 +29,8 @@ import {
   isAbortError,
   isTransientEmbeddingError,
 } from "../../../../persistence/embeddings/embed.js";
-import { getLogger } from "../../../../util/logger.js";
-import { abortableSleep, computeRetryDelay } from "../../../../util/retry.js";
+import { abortableSleep, computeRetryDelay } from "../host-utils.js";
+import { getLogger } from "../logging.js";
 import { simBatch } from "../v2/sim.js";
 import { skillSlugFor } from "../v2/skill-store.js";
 
@@ -85,8 +86,8 @@ export interface NearestExistingSkillsOptions {
   config?: AssistantConfig;
   /** ANN scorer. Defaults to the {@link simBatch} scorer. */
   scoreSlugs?: ScoreSlugsFn;
-  /** Live skill catalog. Defaults to `loadSkillCatalog()`. */
-  loadCatalog?: () => { id: string }[];
+  /** Live skill catalog. Defaults to `listInstalledSkills()`. */
+  loadCatalog?: () => { id: string }[] | Promise<{ id: string }[]>;
   /** Max shortlist entries. Defaults to {@link DEFAULT_SHORTLIST_LIMIT}. */
   limit?: number;
 }
@@ -105,24 +106,30 @@ export async function nearestExistingSkills(
   const config = opts.config ?? getConfig();
   const scoreSlugs =
     opts.scoreSlugs ?? ((g, slugs) => scoreSlugsWithSimBatch(config, g, slugs));
-  const loadCatalog = opts.loadCatalog ?? (() => loadSkillCatalog());
+  const loadCatalog = opts.loadCatalog ?? (() => listInstalledSkills());
   const limit = opts.limit ?? DEFAULT_SHORTLIST_LIMIT;
 
   // Map each skill id to its capability-page slug, score them, and resolve each
   // hit back to its id.
   const slugToSkillId = new Map<string, string>();
-  for (const skill of loadCatalog()) {
+  for (const skill of await loadCatalog()) {
     slugToSkillId.set(skillSlugFor(skill.id), skill.id);
   }
   const slugs = [...slugToSkillId.keys()];
-  if (slugs.length === 0) return [];
+  if (slugs.length === 0) {
+    return [];
+  }
 
   const scored = await scoreSlugs(goal, slugs);
   const hits: SkillShortlistHit[] = [];
   for (const { slug, score } of scored) {
-    if (score < SHORTLIST_THRESHOLD) continue;
+    if (score < SHORTLIST_THRESHOLD) {
+      continue;
+    }
     const skillId = slugToSkillId.get(slug);
-    if (skillId) hits.push({ skillId, score });
+    if (skillId) {
+      hits.push({ skillId, score });
+    }
   }
   hits.sort((a, b) => b.score - a.score);
   return hits.slice(0, limit);
@@ -181,7 +188,9 @@ async function simBatchWithRetry(
       return await simBatch(goal, restrictToSlugs, config);
     } catch (err) {
       lastError = err;
-      if (isAbortError(err)) throw err;
+      if (isAbortError(err)) {
+        throw err;
+      }
       if (!isTransientEmbeddingError(err) || attempt === EMBED_MAX_RETRIES) {
         throw err;
       }

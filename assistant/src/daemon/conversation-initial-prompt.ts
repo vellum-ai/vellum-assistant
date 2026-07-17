@@ -9,7 +9,7 @@
 import { getGuardianDeliveryFresh } from "../contacts/guardian-delivery-reader.js";
 import { buildSystemPrompt } from "../prompts/system-prompt.js";
 import type { ConversationCreateOptions } from "./handlers/shared.js";
-import type { TrustContext } from "./trust-context.js";
+import type { TrustContext } from "./trust-context-types.js";
 
 type GuardianDeliveryFetch = (input?: {
   channelTypes?: string[];

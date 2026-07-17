@@ -2,6 +2,9 @@ import { z } from "zod";
 import {
   ChannelPermissionCellKeySchema,
   ChannelPermissionCellSchema,
+  ChannelPermissionScopeSchema,
+  ResolveChannelPermissionRequestSchema,
+  RiskThresholdSchema,
 } from "@vellumai/gateway-client";
 
 import type { GatewayRouteDefinition } from "./types.js";
@@ -18,13 +21,15 @@ import type { GatewayRouteDefinition } from "./types.js";
  * `@vellumai/gateway-client` so gateway, daemon IPC, clients, and spec share
  * one source — the HTTP surface mirrors the IPC surface
  * (`gateway/src/ipc/channel-permission-handlers.ts`) operation for
- * operation, minus resolve (a runtime-evaluator concern, not a
- * configuration read).
+ * operation, including a read-only resolve so configuration clients can
+ * display the effective fall-through without re-implementing the cascade
+ * walk client-side (the runtime evaluator keeps using the IPC resolve).
  *
- * The handlers live in `channel-permission-overrides.ts`. Delete is a POST
- * verb path (`/delete`) rather than a body-carrying DELETE because cells
- * are identified by a composite key (selector × contact-type), not a row
- * id, and DELETE request bodies are unreliable through proxies.
+ * The handlers live in `channel-permission-overrides.ts`. Delete and
+ * resolve are POST verb paths (`/delete`, `/resolve`) rather than
+ * body-carrying DELETE/GET because cells are identified by a composite key
+ * (selector × contact-type), not a row id, and request bodies on those
+ * verbs are unreliable through proxies.
  */
 
 const ChannelPermissionCellRowSchema = ChannelPermissionCellSchema.extend({
@@ -54,6 +59,24 @@ export const ROUTES: GatewayRouteDefinition[] = [
     tags: ["channel-permission-overrides"],
     requestBody: ChannelPermissionCellSchema,
     responseBody: z.object({ cell: ChannelPermissionCellRowSchema }),
+  },
+  {
+    path: "/v1/channel-permission-overrides/resolve",
+    method: "post",
+    operationId: "channelPermissionResolve",
+    summary: "Resolve the effective channel-permission threshold",
+    description:
+      "Read-only cascade resolution for one coordinate: walks channel → channel_type → adapter → workspace for the given selector keys and contact-type, returning the winning cell's threshold and scope, or null when no cell matches (the caller then falls through to the global thresholds). Same resolver the runtime evaluator uses over IPC.",
+    tags: ["channel-permission-overrides"],
+    requestBody: ResolveChannelPermissionRequestSchema,
+    responseBody: z.object({
+      resolved: z
+        .object({
+          threshold: RiskThresholdSchema,
+          scope: ChannelPermissionScopeSchema,
+        })
+        .nullable(),
+    }),
   },
   {
     path: "/v1/channel-permission-overrides/delete",

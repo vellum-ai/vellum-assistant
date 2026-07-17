@@ -13,12 +13,7 @@
 import { spawn } from "node:child_process";
 import { readdirSync, readFileSync } from "node:fs";
 import { dlopen, FFIType, ptr } from "bun:ffi";
-import { afterAll, describe, expect, mock, test } from "bun:test";
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
+import { afterAll, describe, expect, test } from "bun:test";
 
 const { parseProcStat, selectReapable } = await import("./orphan-reaper.js");
 

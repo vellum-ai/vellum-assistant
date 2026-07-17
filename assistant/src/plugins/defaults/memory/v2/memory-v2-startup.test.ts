@@ -17,7 +17,6 @@
  */
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
-import { makeMockLogger } from "../../../../__tests__/helpers/mock-logger.js";
 import type { AssistantConfig } from "../../../../config/schema.js";
 
 const proxyState = { prereqs: true };
@@ -27,10 +26,6 @@ const seedCli = mock(async () => {});
 const enqueueJob = mock(
   (_type: string, _payload: Record<string, unknown>) => 1,
 );
-
-mock.module("../../../../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
 
 mock.module("../../../../providers/platform-proxy/context.js", () => ({
   hasManagedProxyPrereqs: async () => proxyState.prereqs,

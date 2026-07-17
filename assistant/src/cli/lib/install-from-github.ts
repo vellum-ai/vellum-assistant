@@ -36,6 +36,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 
@@ -61,8 +62,7 @@ const execFileAsync = promisify(execFile);
 const PLUGIN_SOURCE_OWNER = "vellum-ai";
 const PLUGIN_SOURCE_REPO = "vellum-assistant";
 const PLUGIN_SOURCE_PATH_PREFIX = "plugins";
-/** Default git ref to fetch from when callers don't override. */
-export const DEFAULT_PLUGIN_REF = "main";
+import { DEFAULT_PLUGIN_REF } from "./plugin-constants.js";
 
 /** Full Git commit SHA — 40 hex chars (SHA-1) or 64 (SHA-256). */
 const FULL_COMMIT_SHA_RE = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i;
@@ -132,6 +132,21 @@ export interface InstallPluginOptions {
    * commit to clone (a branch, tag, `HEAD`, or full SHA).
    */
   readonly directSource?: PluginFetchSource;
+  /**
+   * Install from these PRE-RESOLVED, TRUSTED GitHub coordinates while STILL
+   * overlaying the curated `plugins/<name>` adapter stub. This is the offline
+   * analogue of a marketplace install: the pin came from the reviewed bundled
+   * catalog instead of a live marketplace fetch, so — unlike
+   * {@link InstallPluginOptions.directSource} — the source is trusted and the
+   * adapter stub is kept. `trustedSource` names the EXTERNAL plugin repo, so
+   * `trustedSource.ref` (its immutable content commit) cannot address the stub,
+   * which lives in this repo; the stub is fetched from the canonical repo at
+   * {@link InstallPluginOptions.ref} (default {@link DEFAULT_PLUGIN_REF}) — the
+   * bundled catalog records no canonical-repo pin. When set, marketplace
+   * resolution and {@link InstallPluginOptions.commitOverride} are skipped;
+   * `trustedSource.ref` selects the commit to clone (the reviewed pin).
+   */
+  readonly trustedSource?: PluginFetchSource;
 }
 
 /** Dependencies injected by the caller. */
@@ -383,13 +398,24 @@ export async function installPlugin(
 
   // A direct install bypasses the marketplace whitelist entirely: the source is
   // supplied by the caller and the tree is materialized verbatim (no curated
-  // adapter stub). Otherwise the name is resolved against the reviewed manifest.
+  // adapter stub). A trusted pre-resolved source (offline bundled-catalog
+  // install) supplies its coordinates too but keeps the curated overlay.
+  // Otherwise the name is resolved against the reviewed manifest.
   let effectiveSource: PluginFetchSource;
   // Ref the curated adapter stub is fetched at, or `null` to skip the overlay.
   let stubRef: string | null;
   if (opts.directSource) {
     effectiveSource = opts.directSource;
     stubRef = null;
+  } else if (opts.trustedSource) {
+    // Offline bundled-catalog install: clone the external content verbatim but
+    // keep the curated adapter overlay (like the marketplace-git trusted path).
+    // The stub lives in this repo, not in `trustedSource` (the external plugin),
+    // so `trustedSource.ref` can't address it; with no canonical-repo pin
+    // recorded offline, the stub is fetched at `marketplaceRef` (its default,
+    // DEFAULT_PLUGIN_REF).
+    effectiveSource = opts.trustedSource;
+    stubRef = marketplaceRef;
   } else {
     const source = await resolvePluginSource(name, marketplaceRef, deps.fetch);
     if (!source) {
@@ -482,6 +508,8 @@ export interface FinalizeStagedInstallParams {
   readonly commit: string | null;
   /** ISO-8601 committer timestamp of {@link FinalizeStagedInstallParams.commit} (UTC); null when unknown. */
   readonly committedAt: string | null;
+  /** Artifact integrity digest (`sha256:<hex>`) recorded for platform-endpoint installs; omitted for git installs. */
+  readonly etag?: string;
   /** Served plugins directory; the staging dir is swapped into `<pluginsDir>/<name>`. */
   readonly pluginsDir: string;
 }
@@ -503,6 +531,7 @@ export function finalizeStagedInstall(
     ref,
     commit,
     committedAt,
+    etag,
     pluginsDir,
   }: FinalizeStagedInstallParams,
 ): { target: string; fingerprint: Fingerprint } {
@@ -523,6 +552,7 @@ export function finalizeStagedInstall(
     ref,
     commit,
     committedAt,
+    etag,
     fingerprint,
     contentHash,
   });
@@ -638,6 +668,14 @@ export interface InstallMeta {
   /** Resolved commit SHA the source was cloned at; `null` when it could not be read at install time. */
   readonly commit: string | null;
   /**
+   * Integrity digest of the downloaded artifact, when the install came through
+   * the platform install endpoint (`ETag: "sha256:<hex>"`). Recorded verbatim
+   * (including the `sha256:` prefix) as a stable id for caching / dedupe and to
+   * document what was verified. Absent for git-cloned installs, which have no
+   * single artifact to hash.
+   */
+  readonly etag?: string;
+  /**
    * ISO-8601 committer timestamp of {@link InstallMeta.commit}, in UTC
    * (e.g. `2026-06-01T12:34:56.000Z`). This is a property of the commit
    * itself, distinct from {@link InstallMeta.installedAt} (when the local
@@ -703,9 +741,22 @@ export async function materializePluginTree(
   // An external clone is often a foreign-ecosystem plugin (e.g. a Claude Code
   // plugin) that the Vellum loader can't run as-is. When we curate an adapter
   // stub for it, overlay the stub and run its transform so the materialized
-  // tree is a valid Vellum plugin. Raw clones (no stub) are left untouched.
+  // tree is a valid Vellum plugin. Raw clones (no stub) are left untouched,
+  // except for a minimal package.json synthesis when the upstream repo shipped
+  // none — the Vellum loader hard-requires one and would silently skip the
+  // plugin without it. The synthesis is deterministic (name + fixed version +
+  // fixed peer-dep range), so it produces the same bytes on initial install
+  // and upgrade re-materialization; the fingerprint is computed after
+  // materialization, so the synthesized file is present in both baselines and
+  // the comparison stays clean.
   if (cloned.fileCount > 0 && opts.stubRef !== null) {
     await applyAdapterStub(opts.name, opts.stubRef, opts.destDir, deps);
+  }
+  if (
+    cloned.fileCount > 0 &&
+    !existsSync(join(opts.destDir, "package.json"))
+  ) {
+    synthesizeMinimalPackageJson(opts.name, opts.destDir);
   }
   return cloned;
 }
@@ -964,6 +1015,31 @@ function normalizeInstalledManifest(
 }
 
 /**
+ * Write a minimal Vellum-compatible `package.json` into a staged plugin that
+ * shipped no manifest of its own. The Vellum external plugin loader
+ * (`buildPluginFromDir`) hard-requires a `package.json` validated against
+ * `PluginPackageJsonSchema` and silently skips the plugin when it's missing.
+ *
+ * The synthesized manifest carries the install name and the default
+ * `@vellumai/plugin-api` peer dependency range. No foreign-ecosystem manifest
+ * data is read — the install name is the only identity we trust for an
+ * untrusted direct install.
+ */
+function synthesizeMinimalPackageJson(name: string, stagingDir: string): void {
+  const manifestPath = join(stagingDir, "package.json");
+
+  const manifest: PackageManifest = {
+    name,
+    version: "0.0.0",
+    peerDependencies: {
+      "@vellumai/plugin-api": PLUGIN_API_PEER_RANGE,
+    },
+  };
+
+  writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+}
+
+/**
  * Resolve the absolute path of the adapter script named by the (overlaid stub)
  * `package.json`'s `scripts.postinstall`, or `null` when there is no stub
  * package.json / postinstall script.
@@ -1202,6 +1278,72 @@ function pluginGitEnv(): NodeJS.ProcessEnv {
   return env;
 }
 
+/**
+ * Resolve the commit SHA a plugin source's recorded ref points at *now*, using
+ * a single `git ls-remote` — no clone. `plugins upgrade` uses this to detect
+ * drift for a directly-installed plugin (one sourced from a GitHub URL rather
+ * than the curated marketplace), whose "latest" is whatever its recorded
+ * branch / tag / `HEAD` currently resolves to.
+ *
+ * A full-SHA ref is immutable, so it resolves to itself with no network call
+ * (ls-remote lists refs, never arbitrary commits). For an annotated tag the
+ * peeled commit (`<ref>^{}`) is preferred — the commit a checkout lands on.
+ * Returns `null` when the ref no longer exists on the remote (a deleted branch /
+ * tag) or the repo is unreachable as a hard failure; throws
+ * {@link PluginSourceUnavailableError} on a transient git / network failure so
+ * the caller can surface a retryable 503.
+ */
+export async function resolveRefCommit(
+  source: PluginFetchSource,
+  runGit: GitRunner = defaultGitRunner,
+): Promise<string | null> {
+  if (isFullCommitSha(source.ref)) {
+    return source.ref;
+  }
+  const repoUrl = `https://github.com/${source.owner}/${source.repo}.git`;
+
+  let stdout: string;
+  try {
+    // ls-remote takes the URL explicitly and never reads a local working tree,
+    // so the OS temp dir is a safe, always-present cwd.
+    ({ stdout } = await runGit(["ls-remote", repoUrl, source.ref], {
+      cwd: tmpdir(),
+    }));
+  } catch (err) {
+    // A missing repo / ref (or a private one we can't reach) is a hard failure
+    // the caller maps to not-found; anything else — network loss, a transient
+    // GitHub outage — is retryable, so surface a 503.
+    if (isGitRefNotFound(err)) {
+      return null;
+    }
+    throw new PluginSourceUnavailableError(
+      `git ls-remote failed for ${source.owner}/${source.repo} @ ${source.ref}: ${subprocessErrorText(err)}`,
+      503,
+    );
+  }
+
+  // Each line is `<sha>\t<refname>`. Prefer the peeled commit of an annotated
+  // tag (`<ref>^{}`) — the commit a checkout resolves to — over the tag object.
+  let peeled: string | null = null;
+  let direct: string | null = null;
+  for (const line of stdout.split("\n")) {
+    const trimmed = line.trim();
+    if (trimmed === "") {
+      continue;
+    }
+    const [sha, refname] = trimmed.split(/\s+/);
+    if (sha === undefined || refname === undefined || !isFullCommitSha(sha)) {
+      continue;
+    }
+    if (refname.endsWith("^{}")) {
+      peeled = sha;
+    } else {
+      direct ??= sha;
+    }
+  }
+  return peeled ?? direct;
+}
+
 /** Inputs for {@link writeInstallMeta}, resolved during a fresh install. */
 interface WriteInstallMetaParams {
   readonly name: string;
@@ -1210,6 +1352,8 @@ interface WriteInstallMetaParams {
   readonly commit: string | null;
   /** ISO-8601 committer timestamp of {@link WriteInstallMetaParams.commit} (UTC); null when unknown. */
   readonly committedAt: string | null;
+  /** Artifact integrity digest (`sha256:<hex>`) recorded for platform-endpoint installs; omitted for git installs. */
+  readonly etag?: string;
   readonly fingerprint: Fingerprint;
   readonly contentHash: string;
 }
@@ -1252,6 +1396,7 @@ function writeInstallMeta(
     ref,
     commit,
     committedAt,
+    etag,
     fingerprint,
     contentHash,
   }: WriteInstallMetaParams,
@@ -1273,6 +1418,7 @@ function writeInstallMeta(
     },
     commit,
     committedAt,
+    ...(etag ? { etag } : {}),
     fingerprint,
   };
   writeFileSync(
@@ -1347,6 +1493,7 @@ export function readInstallMeta(pluginDir: string): InstallMeta | null {
       ref: source.ref,
     },
     commit: typeof obj.commit === "string" ? obj.commit : null,
+    ...(typeof obj.etag === "string" ? { etag: obj.etag } : {}),
     committedAt: typeof obj.committedAt === "string" ? obj.committedAt : null,
     fingerprint: parseFingerprint(obj.fingerprint),
   };

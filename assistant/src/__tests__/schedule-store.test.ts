@@ -1,14 +1,6 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { mock } from "bun:test";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-  truncateForLog: (value: string) => value,
-}));
-
 // Stub the background-wake publisher so these store-level unit tests stay
 // hermetic. `notifySchedulesChanged()` fires a debounced background-wake
 // refresh on every mutation; left real, that 250ms timer performs a

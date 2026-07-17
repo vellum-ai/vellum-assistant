@@ -12,7 +12,7 @@
  *
  * 3. local_static handle rejection: managed mode returns clear errors
  *    when local_static credential handles are used (the core managed-mode
- *    behavioral contract per managed-main.ts lines 161-221).
+ *    behavioral contract per main.ts managed-mode handler builder).
  *
  * 4. RPC schema compatibility: managed-specific schemas
  *    (UpdateManagedCredential, MakeAuthenticatedRequest) validate expected
@@ -78,18 +78,14 @@ describe("three-container pod contract", () => {
     // Verify actual string values, not just that they exist. These are
     // the method names on the wire — changing them is a breaking change
     // that would break the assistant-to-CES sidecar RPC contract.
-    expect(CesRpcMethod.MakeAuthenticatedRequest).toBe(
-      "make_authenticated_request",
-    );
-    expect(CesRpcMethod.RunAuthenticatedCommand).toBe(
-      "run_authenticated_command",
-    );
-    expect(CesRpcMethod.ManageSecureCommandTool).toBe(
-      "manage_secure_command_tool",
-    );
     expect(CesRpcMethod.UpdateManagedCredential).toBe(
       "update_managed_credential",
     );
+    expect(CesRpcMethod.GetCredential).toBe("get_credential");
+    expect(CesRpcMethod.SetCredential).toBe("set_credential");
+    expect(CesRpcMethod.DeleteCredential).toBe("delete_credential");
+    expect(CesRpcMethod.ListCredentials).toBe("list_credentials");
+    expect(CesRpcMethod.BulkSetCredentials).toBe("bulk_set_credentials");
   });
 
   test("all declared RPC methods have matching schemas in CesRpcSchemas", () => {
@@ -97,7 +93,7 @@ describe("three-container pod contract", () => {
     // both request and response. A missing entry means the RPC dispatch
     // layer can't validate payloads for that method.
     const allMethods = Object.values(CesRpcMethod);
-    expect(allMethods.length).toBeGreaterThanOrEqual(9);
+    expect(allMethods.length).toBeGreaterThanOrEqual(6);
     for (const method of allMethods) {
       const schema = CesRpcSchemas[method as keyof typeof CesRpcSchemas];
       expect(schema).toBeDefined();
@@ -139,7 +135,7 @@ describe("local_static handle rejection in managed mode", () => {
   test("HandleType enum has exactly the three expected types", () => {
     // Managed mode explicitly switches on handle type. If a new type is
     // added without a managed-mode handler, the default case in
-    // managed-main.ts will return an error. This test catches new types
+    // main.ts will return an error. This test catches new types
     // that need managed-mode consideration.
     const types = Object.values(HandleType);
     expect(types).toContain("local_static");
@@ -149,7 +145,7 @@ describe("local_static handle rejection in managed mode", () => {
   });
 
   test("production rejection error mentions platform_oauth as the alternative", () => {
-    // Assert against the actual production constant from managed-errors.ts,
+    // Assert against the actual shared constant from service-contracts,
     // not a test-local copy.
     expect(MANAGED_LOCAL_STATIC_REJECTION_ERROR).toContain("platform_oauth");
   });
@@ -301,102 +297,10 @@ describe("managed CES bootstrap handshake contract", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Secure HTTP execution through sidecar path
-// ---------------------------------------------------------------------------
-
-describe("secure HTTP execution through managed sidecar", () => {
-  test("make_authenticated_request schema validates a well-formed request", () => {
-    const schema = CesRpcSchemas[CesRpcMethod.MakeAuthenticatedRequest];
-    const result = schema.request.safeParse({
-      credentialHandle: platformOAuthHandle("conn_123"),
-      method: "GET",
-      url: "https://api.example.com/resource",
-      purpose: "Fetch user data",
-    });
-    expect(result.success).toBe(true);
-  });
-
-  test("make_authenticated_request schema rejects request missing credentialHandle", () => {
-    const schema = CesRpcSchemas[CesRpcMethod.MakeAuthenticatedRequest];
-    const result = schema.request.safeParse({
-      method: "GET",
-      url: "https://api.example.com/resource",
-      purpose: "Fetch user data",
-    });
-    expect(result.success).toBe(false);
-  });
-
-  test("make_authenticated_request response schema validates success and error shapes", () => {
-    const schema = CesRpcSchemas[CesRpcMethod.MakeAuthenticatedRequest];
-
-    const successResult = schema.response.safeParse({
-      success: true,
-      statusCode: 200,
-      responseBody: '{"data": "ok"}',
-    });
-    expect(successResult.success).toBe(true);
-
-    const errorResult = schema.response.safeParse({
-      success: false,
-      error: { code: "UNAUTHORIZED", message: "Invalid token" },
-    });
-    expect(errorResult.success).toBe(true);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Secure command execution through sidecar path
-// ---------------------------------------------------------------------------
-
-describe("secure command execution through managed sidecar", () => {
-  test("run_authenticated_command schema validates a well-formed request", () => {
-    const schema = CesRpcSchemas[CesRpcMethod.RunAuthenticatedCommand];
-    const result = schema.request.safeParse({
-      credentialHandle: platformOAuthHandle("conn_456"),
-      command: "sha256abc123/default git status",
-      purpose: "Check repo status",
-    });
-    expect(result.success).toBe(true);
-  });
-
-  test("run_authenticated_command schema rejects request missing command", () => {
-    const schema = CesRpcSchemas[CesRpcMethod.RunAuthenticatedCommand];
-    const result = schema.request.safeParse({
-      credentialHandle: platformOAuthHandle("conn_456"),
-      purpose: "Check repo status",
-    });
-    expect(result.success).toBe(false);
-  });
-
-  test("run_authenticated_command response includes exitCode, stdout, stderr", () => {
-    const schema = CesRpcSchemas[CesRpcMethod.RunAuthenticatedCommand];
-    const result = schema.response.safeParse({
-      success: true,
-      exitCode: 0,
-      stdout: "On branch main\n",
-      stderr: "",
-    });
-    expect(result.success).toBe(true);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Managed OAuth materialization through CES
+// Managed OAuth handle parsing
 // ---------------------------------------------------------------------------
 
 describe("managed OAuth materialization through CES sidecar", () => {
-  test("credentialHandle field accepts platform_oauth handles", () => {
-    const schema = CesRpcSchemas[CesRpcMethod.MakeAuthenticatedRequest];
-    const handle = platformOAuthHandle("conn_abc123");
-    const result = schema.request.safeParse({
-      credentialHandle: handle,
-      method: "POST",
-      url: "https://api.example.com/token",
-      purpose: "Materialize OAuth token",
-    });
-    expect(result.success).toBe(true);
-  });
-
   test("platform_oauth handle roundtrips through parse correctly", () => {
     const handle = platformOAuthHandle("conn_abc123");
     expect(handle).toBe("platform_oauth:conn_abc123");

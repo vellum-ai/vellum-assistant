@@ -11,26 +11,10 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
+import { setConfig } from "./helpers/set-config.js";
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    model: "test",
-    provider: "test",
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    slack: {
-      teamId: "T123",
-      teamUrl: "https://example.slack.com/",
-    },
-  }),
-}));
+// The Slack link assertions below depend on a configured workspace team.
+setConfig("slack", { teamId: "T123", teamUrl: "https://example.slack.com/" });
 
 let mockAssistantName: string | null = null;
 mock.module("../daemon/identity-helpers.js", () => ({

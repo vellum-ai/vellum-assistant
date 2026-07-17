@@ -17,7 +17,6 @@
  * Follow-up opportunities for CLI-layer coverage:
  *   - `exitFromIpcResult` exit-code mapping
  *   - `shouldOutputJson` / `writeOutput` output formatting
- *   - `oauth token` shell-lockdown guard (`VELLUM_UNTRUSTED_SHELL=1`)
  *   - per-subcommand argument parsing & help text
  */
 
@@ -34,25 +33,6 @@ mock.module("../platform/client.js", () => ({
   VellumPlatformClient: {
     create: () => mockPlatformClientCreate(),
   },
-}));
-
-// Some shared helpers in oauth/shared.ts touch getConfig() — stub it so the
-// import resolves cleanly even though the requirePlatformConnection path
-// never reads service configuration.
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({ services: {} }),
-  getConfigReadOnly: () => ({ services: {} }),
-  loadConfig: () => ({ services: {} }),
-  invalidateConfigCache: () => {},
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  applyNestedDefaults: (c: unknown) => c,
-  deepMergeOverwrite: (a: unknown) => a,
-  mergeDefaultWorkspaceConfig: () => {},
-  getNestedValue: () => undefined,
-  setNestedValue: () => {},
-  _writeQuarantineNotice: () => {},
-  API_KEY_PROVIDERS: ["anthropic", "openai", "gemini"],
 }));
 
 mock.module("../util/logger.js", () => ({

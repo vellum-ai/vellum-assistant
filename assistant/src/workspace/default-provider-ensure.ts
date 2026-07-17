@@ -6,6 +6,7 @@ import { getIsPlatform } from "../config/env-registry.js";
 import { invalidateConfigCache } from "../config/loader.js";
 import { DefaultProviderSchema } from "../config/schemas/llm.js";
 import { hasManagedProxyPrereqs } from "../providers/platform-proxy/context.js";
+import { getProviderKeyAsync } from "../security/secure-keys.js";
 
 // Ensures `llm.defaultProvider` is populated on every boot.
 //
@@ -30,6 +31,15 @@ import { hasManagedProxyPrereqs } from "../providers/platform-proxy/context.js";
 // parse, so replacing it is repair, not overwrite), and never writes
 // `connectionName` — convention resolution
 // (`resolveDefaultConnectionName`) owns the name.
+//
+// The legacy `llm.default.provider` field is only honored as BYOK intent
+// when it is unambiguous: `LLMConfigBase.provider` defaults to "anthropic"
+// and the first-launch seed persists that default, so a bare "anthropic" is
+// treated as a possible schema-default echo and disambiguated via
+// `getProviderKeyAsync("anthropic")` (a vault/env read — the ensure pass is
+// async, unlike the sync migration). A key present confirms real BYOK
+// setup; absence falls through to custom profiles and the login fallback.
+// Other provider values can't be schema echoes and stay trustworthy as-is.
 
 const CUSTOM_PROFILE_ORDER = [
   "custom-balanced",
@@ -84,9 +94,7 @@ async function resolveProvider(llm: Record<string, unknown>): Promise<string> {
   // precedence): a pre-field platform config commonly carries
   // `llm.default.provider: "anthropic"` as a schema-default echo, not a
   // routing choice, and honoring it would pin the install to a personal
-  // connection. The login fallback below stays *below* the legacy field —
-  // an off-platform BYOK default is the user's operative choice and being
-  // logged in must not override it.
+  // connection.
   if (getIsPlatform()) {
     return "vellum";
   }
@@ -96,7 +104,21 @@ async function resolveProvider(llm: Record<string, unknown>): Promise<string> {
     typeof legacyProvider === "string" &&
     isDefaultProfileProvider(legacyProvider)
   ) {
-    return legacyProvider;
+    // `llm.default.provider` defaults to "anthropic" in LLMConfigBase and the
+    // first-launch seed persists that default, so a bare "anthropic" is
+    // ambiguous: it may be a schema-default echo with no user intent rather
+    // than a BYOK routing choice. Disambiguate via evidence of an actual
+    // anthropic key — the same key connection `api_key` auth references, so
+    // connection-backed setups are covered. No evidence means the field is a
+    // non-signal and the chain falls through (custom profiles → login
+    // fallback). Other providers can't be schema echoes, so they stay
+    // trustworthy as-is.
+    if (legacyProvider !== "anthropic") {
+      return legacyProvider;
+    }
+    if (await getProviderKeyAsync("anthropic")) {
+      return "anthropic";
+    }
   }
 
   const profiles = readObject(llm.profiles);

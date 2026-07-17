@@ -78,6 +78,42 @@ describe("listInstalledPlugins", () => {
     expect(result.every((p) => p.issues.length === 0)).toBe(true);
   });
 
+  test("surfaces a valid vellum.icon emoji on packageJson", () => {
+    mkdirSync(join(pluginsDir, "iconed"));
+    writeFileSync(
+      join(pluginsDir, "iconed", "package.json"),
+      JSON.stringify({
+        name: "iconed",
+        version: "1.0.0",
+        vellum: { icon: "🚀" },
+      }),
+    );
+
+    const result = listInstalledPlugins({ workspacePluginsDir: pluginsDir });
+    expect(result[0]!.packageJson?.icon).toBe("🚀");
+  });
+
+  test.each([
+    ["missing vellum block", { name: "p", version: "1.0.0" }],
+    ["non-string icon", { name: "p", version: "1.0.0", vellum: { icon: 42 } }],
+    ["empty icon", { name: "p", version: "1.0.0", vellum: { icon: "" } }],
+    [
+      "over-long icon",
+      { name: "p", version: "1.0.0", vellum: { icon: "x".repeat(17) } },
+    ],
+  ])("leaves icon undefined for %s", (_label, pkg) => {
+    mkdirSync(join(pluginsDir, "no-icon"));
+    writeFileSync(
+      join(pluginsDir, "no-icon", "package.json"),
+      JSON.stringify(pkg),
+    );
+
+    const result = listInstalledPlugins({ workspacePluginsDir: pluginsDir });
+    expect(result).toHaveLength(1);
+    expect(result[0]!.packageJson?.icon).toBeUndefined();
+    expect(result[0]!.issues).toEqual([]);
+  });
+
   test("reports missing package.json as an issue rather than failing", () => {
     mkdirSync(join(pluginsDir, "barebones"));
 

@@ -20,8 +20,8 @@ import {
   type RoutePolicy,
 } from "../../../../runtime/auth/route-policy.js";
 import type { RouteDefinition } from "../../../../runtime/routes/types.js";
-import { getLogger } from "../../../../util/logger.js";
-import { getWorkspaceDir } from "../../../../util/platform.js";
+import { getLogger } from "../logging.js";
+import { getWorkspaceDir } from "../paths.js";
 import { runMemoryEval } from "../v3-eval/eval-packets.js";
 import { type TallyResult, tallyVerdicts } from "../v3-eval/eval-tally.js";
 

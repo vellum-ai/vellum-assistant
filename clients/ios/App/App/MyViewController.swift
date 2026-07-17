@@ -30,13 +30,14 @@ import WebKit
 /// `capacitor-plugin-safe-area` and writes them to `--safe-area-inset-*`
 /// CSS custom properties.
 ///
-/// 4. Injects a "Reply" item into the WKWebView text-selection edit menu
-///    (iOS 16+) so highlighting assistant message text offers quote-and-reply
-///    natively, mirroring the web floating chip. The item is gated to
-///    assistant-message selections via a `canReply` flag the web layer pushes
-///    through the `vellumTextSelection` script-message handler on every
-///    `selectionchange`; tapping it calls back into the web bridge
-///    (`window.__vellumQuoteReplyFromSelection`) which opens the reply bubble.
+/// 4. Substitutes `QuoteReplyWebView` (below) as the bridge's web view so
+///    highlighting assistant message text offers a native "Reply" item in the
+///    text-selection edit menu (iOS 16+), mirroring the web floating chip.
+///    Eligibility is pushed by the web layer as a `{ canReply }` flag through
+///    the `vellumTextSelection` script-message handler (primed on
+///    `pointerdown`, kept in sync on `selectionchange`); tapping the item
+///    calls back into the web bridge (`window.__vellumQuoteReplyFromSelection`)
+///    which opens the reply bubble.
 ///    See `clients/web/src/domains/chat/hooks/use-native-quote-reply.ts`.
 ///
 /// `Main.storyboard`'s single scene uses this class instead of the stock
@@ -45,22 +46,46 @@ class MyViewController: CAPBridgeViewController {
     /// Name of the script-message handler the web layer posts selection
     /// context to. Must match `NATIVE_SELECTION_HANDLER` on the web side.
     private static let textSelectionHandlerName = "vellumTextSelection"
+    private static let surfaceOverlayHandlerName = "vellumSurfaceOverlay"
 
-    /// Identifier for the injected "Reply" edit-menu command.
-    private static let quoteReplyMenuIdentifier = UIMenu.Identifier(
-        "ai.vellum.assistant.quoteReply"
-    )
+    /// Substitute the quote-and-reply-aware web view subclass. This is the
+    /// Capacitor-supported hook for providing a custom `WKWebView` class.
+    override open func webView(
+        with frame: CGRect,
+        configuration: WKWebViewConfiguration
+    ) -> WKWebView {
+        return QuoteReplyWebView(frame: frame, configuration: configuration)
+    }
 
-    /// Whether the current web selection is inside an assistant message and
-    /// therefore eligible for quote-and-reply. Kept in sync by the web layer
-    /// via the `vellumTextSelection` handler. Toggling it rebuilds the edit
-    /// menu so the "Reply" item appears/disappears with the selection.
-    private var canQuoteReply = false {
-        didSet {
-            guard canQuoteReply != oldValue else { return }
-            if #available(iOS 16.0, *) {
-                UIMenuSystem.main.setNeedsRebuild()
-            }
+    /// Paint the native root view (and the web view's own backgrounds) with the
+    /// design system's `--surface-overlay` token so the safe-area regions that
+    /// fall *outside* the web viewport — most visibly the home-indicator band
+    /// below the drawer — match the web surface instead of the system default.
+    ///
+    /// The WKWebView's content extends to `viewport-fit=cover`, but its layout
+    /// height stops at the safe-area edge; the strip beneath it is painted by
+    /// the view controller's root view, which otherwise falls back to
+    /// `systemBackground` (pure white / near-black) and reads as a seam against
+    /// `--surface-overlay` (`#FDFDFC` light / `#1C2024` dark). Making the web
+    /// view non-opaque with a matching background lets the token color show
+    /// through uniformly. The color lives in the `SurfaceOverlay` asset-catalog
+    /// color set (light + dark appearances) so it tracks the design token as a
+    /// single native source of truth rather than a hardcoded literal.
+    override open func viewDidLoad() {
+        super.viewDidLoad()
+        let surfaceOverlay = UIColor(named: "SurfaceOverlay")
+        view.backgroundColor = surfaceOverlay
+        webView?.isOpaque = false
+        webView?.backgroundColor = surfaceOverlay
+        webView?.scrollView.backgroundColor = surfaceOverlay
+        // WebKit paints a `WKColorExtensionView` ABOVE the web content at
+        // obscured-inset edges (e.g. the home-indicator zone), colored by
+        // `underPageBackgroundColor` — which defaults to `systemBackground`
+        // (#FFFFFF light). None of the view/webView/scrollView backgrounds
+        // above can cover it, so it must be painted explicitly or a white
+        // band shows at the bottom edge in light mode on device.
+        if let surfaceOverlay {
+            webView?.underPageBackgroundColor = surfaceOverlay
         }
     }
 
@@ -70,6 +95,7 @@ class MyViewController: CAPBridgeViewController {
         installInputZoomPreventionUserScript()
         installViewportZoomLockUserScript()
         installTextSelectionHandler()
+        installSurfaceOverlayThemeSync()
         installQuoteReplyCapabilityMarker()
     }
 
@@ -104,23 +130,50 @@ class MyViewController: CAPBridgeViewController {
         )
     }
 
-    override open func buildMenu(with builder: UIMenuBuilder) {
-        super.buildMenu(with: builder)
-        guard #available(iOS 16.0, *), canQuoteReply else { return }
-        let replyAction = UIAction(title: "Reply") { [weak self] _ in
-            self?.webView?.evaluateJavaScript(
-                "window.__vellumQuoteReplyFromSelection && window.__vellumQuoteReplyFromSelection()"
-            )
-        }
-        let replyMenu = UIMenu(
-            title: "",
-            identifier: Self.quoteReplyMenuIdentifier,
-            options: .displayInline,
-            children: [replyAction]
+    /// Keep the native safe-area backdrop in sync with the *effective web theme*
+    /// rather than the OS appearance. The web UI's theme is an in-app preference
+    /// (light / dark / velvet) chosen independently of iOS Dark Mode, so a static
+    /// `UIColor(named:)` — which resolves against the system trait collection —
+    /// paints the wrong token whenever the two disagree (e.g. app set to Light
+    /// while iOS is Dark), and never matches `velvet` at all. Instead the web
+    /// layer reports its computed `--surface-overlay` value on load and whenever
+    /// `data-theme`, `class`, or inline `style` (workspace themes write the
+    /// token via `element.style.setProperty`) changes, and native paints that. The `SurfaceOverlay`
+    /// asset catalog color remains the first-paint fallback until the first
+    /// message arrives, avoiding a flash.
+    private func installSurfaceOverlayThemeSync() {
+        guard let contentController = webView?.configuration.userContentController
+        else { return }
+        contentController.add(
+            WeakScriptMessageHandler(self),
+            name: Self.surfaceOverlayHandlerName
         )
-        // Insert before the standard Cut/Copy/Paste group so "Reply" is the
-        // leading item, matching the reference selection-menu placement.
-        builder.insertSibling(replyMenu, beforeMenu: .standardEdit)
+        let source = """
+        (function() {
+          function report() {
+            try {
+              var c = getComputedStyle(document.documentElement)
+                .getPropertyValue('--surface-overlay').trim();
+              if (c) {
+                window.webkit.messageHandlers.\(Self.surfaceOverlayHandlerName)
+                  .postMessage({ color: c });
+              }
+            } catch (e) {}
+          }
+          report();
+          try {
+            new MutationObserver(report).observe(document.documentElement, {
+              attributes: true, attributeFilter: ['data-theme', 'class', 'style'],
+            });
+          } catch (e) {}
+        })();
+        """
+        let script = WKUserScript(
+            source: source,
+            injectionTime: .atDocumentEnd,
+            forMainFrameOnly: true
+        )
+        contentController.addUserScript(script)
     }
 
     // MARK: - Rotation zoom reset
@@ -195,11 +248,70 @@ extension MyViewController: WKScriptMessageHandler {
         _ userContentController: WKUserContentController,
         didReceive message: WKScriptMessage
     ) {
+        if message.name == Self.surfaceOverlayHandlerName {
+            guard let body = message.body as? [String: Any],
+                  let hex = body["color"] as? String,
+                  let color = UIColor(cssHex: hex)
+            else { return }
+            view.backgroundColor = color
+            webView?.backgroundColor = color
+            webView?.scrollView.backgroundColor = color
+            webView?.underPageBackgroundColor = color
+            return
+        }
         guard message.name == Self.textSelectionHandlerName,
               let body = message.body as? [String: Any],
               let canReply = body["canReply"] as? Bool
         else { return }
-        canQuoteReply = canReply
+        (webView as? QuoteReplyWebView)?.canQuoteReply = canReply
+    }
+}
+
+// MARK: - QuoteReplyWebView
+
+/// `WKWebView` subclass that hosts the "Reply" text-selection edit-menu item.
+///
+/// The item MUST live on the web view itself — not on the containing view
+/// controller. WebKit's internal first responder (`WKContentView`) forwards
+/// UIKit's action validation (`canPerformAction(_:withSender:)` and
+/// `targetForAction(_:withSender:)`) directly to the `WKWebView` instance
+/// rather than letting it bubble up the responder chain (see
+/// `WKContentViewInteraction.mm`), so a selector-based command hung off the
+/// view controller is stripped from the edit menu before the view
+/// controller's overrides are ever consulted. A block-based `UIAction`
+/// sidesteps action validation entirely: its visibility is decided solely by
+/// whether `buildMenu(with:)` inserts it, and UIKit rebuilds the edit menu
+/// through `buildMenu` on every presentation, so the `canQuoteReply` flag —
+/// primed by the web layer on `pointerdown`, before the long-press builds the
+/// menu — is always current by the time it is read here.
+final class QuoteReplyWebView: WKWebView {
+    /// Identifier for the injected "Reply" edit-menu group.
+    private static let quoteReplyMenuIdentifier = UIMenu.Identifier(
+        "ai.vellum.assistant.quoteReply"
+    )
+
+    /// Whether the current (or imminent) web selection is inside an assistant
+    /// message and therefore eligible for quote-and-reply. Pushed by the web
+    /// layer via the `vellumTextSelection` script-message handler.
+    var canQuoteReply = false
+
+    override func buildMenu(with builder: UIMenuBuilder) {
+        super.buildMenu(with: builder)
+        guard #available(iOS 16.0, *), canQuoteReply else { return }
+        let replyAction = UIAction(title: "Reply") { [weak self] _ in
+            self?.evaluateJavaScript(
+                "window.__vellumQuoteReplyFromSelection && window.__vellumQuoteReplyFromSelection()"
+            )
+        }
+        let replyMenu = UIMenu(
+            title: "",
+            identifier: Self.quoteReplyMenuIdentifier,
+            options: .displayInline,
+            children: [replyAction]
+        )
+        // Insert before the standard Cut/Copy/Paste group so "Reply" is the
+        // leading item, matching the reference selection-menu placement.
+        builder.insertSibling(replyMenu, beforeMenu: .standardEdit)
     }
 }
 
@@ -219,5 +331,38 @@ private final class WeakScriptMessageHandler: NSObject, WKScriptMessageHandler {
         didReceive message: WKScriptMessage
     ) {
         delegate?.userContentController(userContentController, didReceive: message)
+    }
+}
+
+// MARK: - CSS hex color parsing
+
+extension UIColor {
+    /// Parse a CSS hex color string (`#RGB`, `#RRGGBB`, or `#RRGGBBAA`) as
+    /// reported by `getComputedStyle().getPropertyValue()` for the web theme's
+    /// `--surface-overlay` token. Returns `nil` for any unrecognised format so
+    /// the caller can fall back to the asset-catalog color.
+    convenience init?(cssHex: String) {
+        var s = cssHex.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard s.hasPrefix("#") else { return nil }
+        s.removeFirst()
+        if s.count == 3 {
+            s = s.map { "\($0)\($0)" }.joined()
+        }
+        guard s.count == 6 || s.count == 8,
+              let value = UInt64(s, radix: 16)
+        else { return nil }
+        let r, g, b, a: CGFloat
+        if s.count == 8 {
+            r = CGFloat((value & 0xFF00_0000) >> 24) / 255
+            g = CGFloat((value & 0x00FF_0000) >> 16) / 255
+            b = CGFloat((value & 0x0000_FF00) >> 8) / 255
+            a = CGFloat(value & 0x0000_00FF) / 255
+        } else {
+            r = CGFloat((value & 0xFF0000) >> 16) / 255
+            g = CGFloat((value & 0x00FF00) >> 8) / 255
+            b = CGFloat(value & 0x0000FF) / 255
+            a = 1
+        }
+        self.init(red: r, green: g, blue: b, alpha: a)
     }
 }

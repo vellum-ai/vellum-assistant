@@ -48,7 +48,9 @@ import type { MemoryRoutingTurn, SectionIndex, Slug } from "../types.js";
 
 let providerStub: Provider | null = null;
 
+const realPluginApi = await import("@vellumai/plugin-api");
 mock.module("@vellumai/plugin-api", () => ({
+  ...realPluginApi,
   getConfiguredProvider: async () => providerStub,
 }));
 
@@ -177,7 +179,9 @@ function candidateSlugs(messages: Message[]): Slug[] {
   const entries: Array<{ id: number; slug: string }> = [];
   for (const msg of messages) {
     for (const block of msg.content) {
-      if (block.type !== "text") continue;
+      if (block.type !== "text") {
+        continue;
+      }
       const cards = /<candidate_cards>\n([\s\S]*?)\n<\/candidate_cards>/.exec(
         block.text,
       );
@@ -194,7 +198,9 @@ function candidateSlugs(messages: Message[]): Slug[] {
       if (finder) {
         for (const line of finder[1].split("\n")) {
           const m = /^\[(\d+)\] (?:\([^)]*\) )?(\S+)(?: — |$)/.exec(line);
-          if (m) entries.push({ id: Number(m[1]), slug: m[2]! });
+          if (m) {
+            entries.push({ id: Number(m[1]), slug: m[2]! });
+          }
         }
       }
     }
@@ -211,8 +217,12 @@ function selectProvider(keep: Slug[], pin: Slug[] = []): Provider {
       const ids: number[] = [];
       const pinned_ids: number[] = [];
       pool.forEach((slug, i) => {
-        if (keep.includes(slug)) ids.push(i + 1);
-        if (pin.includes(slug)) pinned_ids.push(i + 1);
+        if (keep.includes(slug)) {
+          ids.push(i + 1);
+        }
+        if (pin.includes(slug)) {
+          pinned_ids.push(i + 1);
+        }
       });
       return toolUseResponse({ ids, pinned_ids });
     },

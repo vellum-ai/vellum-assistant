@@ -1,18 +1,19 @@
 /**
- * Tests for `IntelligenceLayout`'s mobile/desktop title placement.
+ * Tests for `IntelligenceLayout`'s two chrome modes.
  *
- * On mobile the "About <name>" title moves into the shared top-bar center
- * slot (via `setTopBarCenter`) and the in-body <h1> is hidden with
- * `max-md:hidden`. On desktop the in-body <h1> renders the title and the
- * top-bar center is cleared (`setTopBarCenter(null)`).
+ * Section pages (`/assistant/superpowers`, `/assistant/schedules`, …) render
+ * the page-shell chrome: a back link to the overview labelled with the
+ * assistant's name, and the section's own <h1>. The overview
+ * (`/assistant/identity`) and the personality page render bare — they own
+ * their full-bleed stage chrome — so no back link or heading appears.
  *
- * A second suite covers the Plugins tab's backwards-compat version gate:
- * the tab only appears once the connected assistant's version is known and
- * at or above the plugin-routes minimum.
+ * On mobile the title moves into the shared top-bar center slot (via
+ * `setTopBarCenter`): the section label on section pages; the bare pages
+ * set no title (the stage greeting already names the assistant).
  *
  * `useIsMobile` and the slots-store setter are mocked; the assistant name
- * and version are driven through the real identity store. `MemoryRouter`
- * satisfies the component's `useLocation`/`NavLink` usage.
+ * is driven through the real identity store. `MemoryRouter` satisfies the
+ * component's `useLocation`/`Link` usage.
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { isValidElement } from "react";
@@ -20,8 +21,6 @@ import { cleanup, render } from "@testing-library/react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
 
-import { MIN_VERSION } from "@/lib/backwards-compat/plugins-surface";
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
 const isMobileRef = { value: false };
@@ -44,9 +43,9 @@ const { IntelligenceLayout } = await import(
   "@/domains/intelligence/intelligence-layout"
 );
 
-const renderLayout = () =>
+const renderLayoutAt = (path: string) =>
   render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[path]}>
       <IntelligenceLayout />
     </MemoryRouter>,
   );
@@ -60,73 +59,88 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   useAssistantIdentityStore.getState().clearIdentity();
-  useAssistantFeatureFlagStore.setState({ channelTrustFloors: false });
 });
 
-describe("IntelligenceLayout", () => {
-  test("on mobile, registers the centered title and hides the in-body h1", () => {
-    isMobileRef.value = true;
-    const { container } = renderLayout();
+describe("IntelligenceLayout — section pages", () => {
+  test("renders the section heading and a back chevron to the overview", () => {
+    const { container } = renderLayoutAt("/assistant/superpowers");
 
-    // The in-body h1 still renders the title but is hidden on mobile.
     const heading = container.querySelector("h1");
-    expect(heading?.textContent).toContain("About Ada");
-    expect(heading?.className).toContain("max-md:hidden");
+    expect(heading?.textContent).toBe("My Superpowers");
 
-    // The top-bar center receives a node that renders the dynamic title.
+    const back = container.querySelector("a");
+    expect(back?.getAttribute("href")).toBe("/assistant/identity");
+    expect(back?.getAttribute("aria-label")).toBe("Back to Ada");
+  });
+
+  test("treats section sub-paths as inside the section", () => {
+    const { container } = renderLayoutAt("/assistant/plugins/some-plugin");
+    expect(container.querySelector("h1")?.textContent).toBe("My Superpowers");
+  });
+
+  test("legacy skill detail paths wear the My Superpowers chrome", () => {
+    const { container } = renderLayoutAt("/assistant/skills/my-skill");
+    expect(container.querySelector("h1")?.textContent).toBe("My Superpowers");
+  });
+
+  test("the schedules page renders as a section, including detail sub-paths", () => {
+    const { container } = renderLayoutAt("/assistant/schedules/sch_123");
+    expect(container.querySelector("h1")?.textContent).toBe("Schedules");
+    expect(container.querySelector("a")?.getAttribute("href")).toBe(
+      "/assistant/identity",
+    );
+  });
+
+  test("the memory page renders as a section with the back chevron", () => {
+    const { container } = renderLayoutAt("/assistant/memory");
+    expect(container.querySelector("h1")?.textContent).toBe("Memory");
+    expect(container.querySelector("a")?.getAttribute("href")).toBe(
+      "/assistant/identity",
+    );
+  });
+
+  test("on mobile, registers the section label as the top-bar title", () => {
+    isMobileRef.value = true;
+    renderLayoutAt("/assistant/workspace");
+
     const lastCall = setTopBarCenterMock.mock.calls.at(-1);
     const node = lastCall?.[0];
     expect(isValidElement(node)).toBe(true);
     expect(renderToStaticMarkup(node as React.ReactElement)).toContain(
-      "About Ada",
+      "Workspace",
     );
   });
 
-  test("on desktop, renders the in-body title and clears the top-bar center", () => {
-    isMobileRef.value = false;
-    const { container } = renderLayout();
-
-    const heading = container.querySelector("h1");
-    expect(heading?.textContent).toContain("About Ada");
-
+  test("on desktop, clears the top-bar center", () => {
+    renderLayoutAt("/assistant/contacts");
     expect(setTopBarCenterMock).toHaveBeenLastCalledWith(null);
   });
 });
 
-describe("IntelligenceLayout — Plugins tab version gate", () => {
-  const tabLabels = (container: HTMLElement): (string | null)[] =>
-    Array.from(container.querySelectorAll("nav a")).map((a) => a.textContent);
-
-  test("shows the Plugins tab (between Identity and Skills) on a plugin-capable assistant", () => {
-    useAssistantIdentityStore.getState().setIdentity("Ada", MIN_VERSION);
-    useAssistantFeatureFlagStore.setState({ channelTrustFloors: true });
-    const { container } = renderLayout();
-    expect(tabLabels(container)).toEqual([
-      "Identity",
-      "Plugins",
-      "Skills",
-      "Workspace",
-      "Contacts",
-      "Channels",
-    ]);
+describe("IntelligenceLayout — bare pages (overview, personality)", () => {
+  test("the overview renders without back link or heading", () => {
+    const { container } = renderLayoutAt("/assistant/identity");
+    expect(container.querySelector("h1")).toBeNull();
+    expect(container.querySelector("a")).toBeNull();
   });
 
-  test("hides the Channels tab while channel-trust-floors is off", () => {
-    useAssistantIdentityStore.getState().setIdentity("Ada", MIN_VERSION);
-    const { container } = renderLayout();
-    expect(tabLabels(container)).not.toContain("Channels");
+  test("the personality page renders without back link or heading", () => {
+    const { container } = renderLayoutAt("/assistant/personality");
+    expect(container.querySelector("h1")).toBeNull();
+    expect(container.querySelector("a")).toBeNull();
   });
 
-  test("hides the Plugins tab on an assistant too old for the plugin routes", () => {
-    useAssistantIdentityStore.getState().setIdentity("Ada", "0.10.2");
-    const { container } = renderLayout();
-    expect(tabLabels(container)).not.toContain("Plugins");
+  test("on mobile, the overview sets no top-bar title", () => {
+    isMobileRef.value = true;
+    renderLayoutAt("/assistant/identity");
+
+    expect(setTopBarCenterMock).toHaveBeenLastCalledWith(null);
   });
 
-  test("hides the Plugins tab until the assistant version hydrates", () => {
-    // beforeEach already seeds a null version; assert the pre-hydration
-    // default keeps the tab hidden rather than flashing it in.
-    const { container } = renderLayout();
-    expect(tabLabels(container)).not.toContain("Plugins");
+  test("on mobile, the personality page sets no top-bar title", () => {
+    isMobileRef.value = true;
+    renderLayoutAt("/assistant/personality");
+
+    expect(setTopBarCenterMock).toHaveBeenLastCalledWith(null);
   });
 });

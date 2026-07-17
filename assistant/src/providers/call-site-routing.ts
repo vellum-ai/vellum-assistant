@@ -7,7 +7,7 @@
  * Without this wrapper the conversation-level provider transport is fixed at
  * construction time, so a per-call-site `llm.callSites.<id>.provider`
  * override only affects the request *metadata* the downstream client sees —
- * the actual HTTP transport still belongs to `llm.default.provider`. That
+ * the actual HTTP transport still belongs to the default provider. That
  * means routing decisions like "send `memoryRetrieval` calls to OpenAI even
  * though the main agent runs on Anthropic" silently fail.
  *
@@ -181,18 +181,25 @@ export class CallSiteRoutingProvider implements Provider {
    *      Soft credential failures fall back to the default Provider so
    *      a transient credential blip does not take a conversation
    *      offline.
-   *   3. Resolved profile's `provider` matches the default's name → reuse
-   *      the default provider instance (no connection-aware lookup
-   *      needed; the default IS the connection-aware route).
-   *   4. Resolved profile's `provider` differs from the default but no
-   *      `provider_connection` is set → throw. This is a configuration
+   *   3. No `provider_connection` → auto-resolve a connection for the
+   *      resolved provider and route through it. This runs even when the
+   *      provider matches the default's name: the default transport may
+   *      ride the managed (platform-billed) connection while the profile's
+   *      intent is the user's own key, so a bare name match must not stand
+   *      in for connection resolution.
+   *   4. No connection exists for the provider and it matches the
+   *      default's name → reuse the default provider instance.
+   *   5. Resolved profile's `provider` differs from the default but no
+   *      connection could be resolved → throw. This is a configuration
    *      bug: alternate-provider routing requires a connection.
    */
   private async selectProvider(
     options?: SendMessageOptions,
   ): Promise<Provider> {
     const callSite = options?.config?.callSite;
-    if (!callSite) return this.defaultProvider;
+    if (!callSite) {
+      return this.defaultProvider;
+    }
 
     const overrideProfile = options?.config?.overrideProfile;
     // Forward `forceOverrideProfile` and the per-conversation mix seed so
@@ -210,14 +217,18 @@ export class CallSiteRoutingProvider implements Provider {
 
     let connectionName = resolved.provider_connection;
 
-    // When no connection is set and the provider differs from the default,
-    // auto-resolve a connection for the provider (handles the case where the
-    // profile set provider but not provider_connection, and the merge didn't
-    // inherit one).
+    // When no connection is set, auto-resolve one for the resolved provider —
+    // including when the provider matches the default's name. The default
+    // transport may ride the managed (platform-billed) connection, so reusing
+    // it on a bare name match would silently bill managed credits for a
+    // profile whose intent is the user's own key. Mirrors
+    // `resolveConfiguredProvider`, which never takes a name shortcut; when no
+    // connection exists for the provider, the same-name fallthrough below
+    // still reuses the default transport.
     let autoResolveCandidates:
       | import("./inference/auth.js").ProviderConnection[]
       | undefined;
-    if (!connectionName && resolved.provider !== this.defaultProvider.name) {
+    if (!connectionName) {
       try {
         autoResolveCandidates = listConnections(getDb(), {
           provider: resolved.provider,
@@ -239,7 +250,9 @@ export class CallSiteRoutingProvider implements Provider {
         resolved.provider,
         resolved.model,
       );
-      if (connectionProvider) return connectionProvider;
+      if (connectionProvider) {
+        return connectionProvider;
+      }
       return this.defaultProvider;
     }
 
@@ -257,6 +270,7 @@ export class CallSiteRoutingProvider implements Provider {
           "<resolved-callsite>",
           "model_incompatible",
           incompatMsg,
+          { model: resolved.model },
         );
       }
     }

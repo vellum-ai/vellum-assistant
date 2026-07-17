@@ -1,6 +1,17 @@
-import { Lock, Shield, ShieldCheck, ShieldOff, type LucideIcon } from "lucide-react";
+import {
+  Lock,
+  Shield,
+  ShieldCheck,
+  ShieldOff,
+  type LucideIcon,
+} from "lucide-react";
 
-export type RiskThreshold = "none" | "low" | "medium" | "high";
+import type { AssistantPermissionsThresholdsGetResponse } from "@/generated/gateway/types.gen";
+
+// The gateway schema repeats this enum inline on every thresholds field;
+// the interactive threshold is the anchor the app derives it from.
+export type RiskThreshold =
+  AssistantPermissionsThresholdsGetResponse["interactive"];
 
 export interface ThresholdPreset {
   id: string;
@@ -22,7 +33,8 @@ export const THRESHOLD_PRESETS: ThresholdPreset[] = [
     id: "conservative",
     label: "Conservative",
     riskThreshold: "low",
-    description: "Auto-approve low-risk actions like reading files and web searches.",
+    description:
+      "Auto-approve low-risk actions, like web searches and reading and writing files in its own workspace.",
     icon: ShieldCheck,
   },
   {
@@ -30,7 +42,7 @@ export const THRESHOLD_PRESETS: ThresholdPreset[] = [
     label: "Relaxed",
     riskThreshold: "medium",
     description:
-      "Auto-approve low and medium-risk actions like writing files in your workspace.",
+      "Auto-approve low and medium-risk actions, like changing files outside its own workspace.",
     icon: Shield,
   },
   {

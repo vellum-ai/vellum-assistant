@@ -1,7 +1,11 @@
+import { useEffect, useState } from "react";
+
 import { cn } from "@/utils/misc";
 
 interface PluginIconProps {
   external?: boolean;
+  icon?: string;
+  iconSrc?: string;
   size?: "sm" | "md";
   className?: string;
 }
@@ -12,18 +16,29 @@ const SIZE_CLASS = {
 } as const;
 
 /**
- * Emoji-only icon for a plugin, mirroring `SkillIcon`'s container
- * dimensions for Plugins-tab / Skills-tab parity. Plugins have no
- * icon-image endpoint, so there is no remote-image branch. The glyph
- * follows the existing Plugins convention: 📦 for catalog (external),
- * 🧩 otherwise.
+ * Icon for a plugin, mirroring `SkillIcon`'s container dimensions for
+ * Plugins-tab / Skills-tab parity. A dumb renderer: the caller decides
+ * `iconSrc` (only when a gate passes and the plugin ships an icon). Render
+ * precedence — a bundled `iconSrc` image, then the author-provided `icon`
+ * emoji, then the origin glyph (📦 for catalog/external, 🧩 otherwise). A
+ * failed image load falls through to the emoji/glyph chain.
  */
 export function PluginIcon({
   external = false,
+  icon,
+  iconSrc,
   size = "sm",
   className,
 }: PluginIconProps) {
-  const glyph = external ? "\u{1F4E6}" : "\u{1F9E9}";
+  const [imageFailed, setImageFailed] = useState(false);
+  // Retry the image when the source changes (e.g. a new icon URL or a
+  // cache-busting version) so a past failure doesn't pin a reused instance
+  // to the fallback.
+  useEffect(() => {
+    setImageFailed(false);
+  }, [iconSrc]);
+  const glyph = icon || (external ? "\u{1F4E6}" : "\u{1F9E9}");
+  const showImage = Boolean(iconSrc) && !imageFailed;
 
   return (
     <span
@@ -33,7 +48,18 @@ export function PluginIcon({
         className,
       )}
     >
-      {glyph}
+      {showImage ? (
+        <img
+          src={iconSrc}
+          alt=""
+          aria-hidden
+          loading="lazy"
+          className="h-full w-full object-contain"
+          onError={() => setImageFailed(true)}
+        />
+      ) : (
+        glyph
+      )}
     </span>
   );
 }

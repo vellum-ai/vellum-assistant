@@ -32,7 +32,9 @@ const SAFE_AREA_RIGHT =
  * visual-viewport scroll compensation, not the device notch inset, so it can
  * be `0` while the keyboard is up and would otherwise let a header render under
  * the status bar. The bottom inset is dropped while the keyboard is open —
- * the home indicator sits behind the keyboard.
+ * the home indicator sits behind the keyboard. The effective bottom inset is
+ * also exposed as `--overlay-safe-area-bottom` so caller transforms subtract
+ * the same value the padding uses (e.g. `MobileAppOverlay`'s minimized strip).
  *
  * Callers apply the returned style to a `position: fixed` element that also
  * sets `left/right` (e.g. `inset-x-0`) and stacking (`z-30`); animation
@@ -61,6 +63,7 @@ export function useMobileOverlayViewportStyle(): CSSProperties {
       paddingBottom: 0,
       paddingLeft: SAFE_AREA_LEFT,
       paddingRight: SAFE_AREA_RIGHT,
+      ...effectiveBottomInsetVar("0px"),
     };
   }
 
@@ -73,5 +76,11 @@ export function useMobileOverlayViewportStyle(): CSSProperties {
     paddingBottom: SAFE_AREA_BOTTOM,
     paddingLeft: SAFE_AREA_LEFT,
     paddingRight: SAFE_AREA_RIGHT,
+    ...effectiveBottomInsetVar(SAFE_AREA_BOTTOM),
   };
+}
+
+// CSSProperties has no index signature for custom properties, hence the cast.
+function effectiveBottomInsetVar(value: string): CSSProperties {
+  return { "--overlay-safe-area-bottom": value } as CSSProperties;
 }

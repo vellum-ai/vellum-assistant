@@ -6,9 +6,12 @@
 //   - `lastProcessedMessageId` advances ONLY when a retrospective run
 //     completes successfully (correctness invariant — failures must
 //     re-process the same messages on the next attempt).
-//   - `lastRunAt` advances on EVERY job end (success or failure). Drives the
-//     per-conversation cooldown gate in the trigger-check helper so failing
-//     jobs can't loop in tight retries across trigger types.
+//   - `lastRunAt` advances at the end of every job that actually attempted a
+//     run (success or failure). Drives the per-conversation cooldown gate in
+//     the trigger-check helper so failing jobs can't loop in tight retries
+//     across trigger types. The job's mid-turn skip intentionally leaves it
+//     untouched so the turn-end trigger check can requeue immediately — see
+//     `memory-retrospective-job.ts`.
 //
 // A third column rides along with the success-path pointer write:
 //   - `rememberedLog` (JSON array of strings) — the cumulative `remember`
@@ -24,7 +27,7 @@ import { eq } from "drizzle-orm";
 
 import { type DrizzleDb, getDb } from "../../../persistence/db-connection.js";
 import { memoryRetrospectiveState } from "../../../persistence/schema/index.js";
-import { withSqliteRetry } from "../../../util/sqlite-retry.js";
+import { withSqliteRetry } from "./host-utils.js";
 
 export interface MemoryRetrospectiveState {
   conversationId: string;
@@ -228,12 +231,13 @@ export function forkRetrospectiveState(args: {
 }
 
 /**
- * Advance only `lastRunAt`. Used on every failure path so the cooldown gate
- * applies to subsequent trigger-driven enqueues. If no row exists yet (first
- * attempt failed), seed `lastProcessedMessageId` to the empty string — a
- * sentinel meaning "nothing successfully processed yet" that subsequent
- * `getMessagesSince(...)` queries treat the same as a missing row. An
- * existing row's `rememberedLog` is left untouched.
+ * Advance only `lastRunAt`. Used on failure paths that attempted a run (wake
+ * failure, fork failure) so the cooldown gate applies to subsequent
+ * trigger-driven enqueues; the mid-turn skip does NOT call this. If no row
+ * exists yet (first attempt failed), seed `lastProcessedMessageId` to the
+ * empty string — a sentinel meaning "nothing successfully processed yet"
+ * that subsequent `getMessagesSince(...)` queries treat the same as a
+ * missing row. An existing row's `rememberedLog` is left untouched.
  */
 export async function bumpRetrospectiveLastRunAt(
   conversationId: string,

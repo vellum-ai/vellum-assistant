@@ -16,7 +16,7 @@ const r = <const T extends string>(path: T): T => path;
 
 const dyn = (parent: string, id: string): string => `${parent}/${id}`;
 const LOCAL_ADMIN_ORIGIN = "http://localhost:3000";
-const LOGS_USAGE_PATH = r("/assistant/logs/usage");
+const SETTINGS_BILLING_PATH = r("/assistant/settings/billing");
 
 /**
  * Search param the chat transcript reads on load to scroll to and highlight a
@@ -48,6 +48,14 @@ export const routes = {
    */
   bundleConfirm: r("/assistant/bundle/confirm"),
   remotePair: r("/assistant/pair"),
+  /**
+   * Public one-time credential entry page, opened from a single-use
+   * credential-request link (`?token=` carries the secret-request token).
+   * Same standalone pattern as `remotePair`: lives under `/assistant/*` for
+   * the Vite SPA fallback but is declared OUTSIDE the auth-protected tree in
+   * `routes.tsx` — the person opening the link may have no Vellum session.
+   */
+  credentialEntry: r("/assistant/credentials/enter"),
   quickInput: r("/assistant/quick-input"),
   conversations: r("/assistant/conversations"),
   conversation: (key: string) => dyn(r("/assistant/conversations"), key),
@@ -77,15 +85,6 @@ export const routes = {
     `${dyn(r("/assistant/conversations"), conversationId)}/inspect`,
   logs: {
     root: r("/assistant/logs"),
-    usage: LOGS_USAGE_PATH,
-    usageForSchedule: (scheduleId: string) => {
-      const params = new URLSearchParams({
-        range: "7d",
-        groupBy: "schedule",
-        scheduleId,
-      });
-      return `${LOGS_USAGE_PATH}?${params.toString()}`;
-    },
     emails: r("/assistant/logs/emails"),
     systemEvents: r("/assistant/logs/system-events"),
   },
@@ -107,23 +106,26 @@ export const routes = {
   reviewTerms: r("/assistant/review-terms"),
 
   onboarding: {
+    // Platform onboarding welcome/front door. Not the funnel entrypoint
+    // (privacy still is) — it's the in-SPA landing spot for "Back" out of the
+    // privacy screen in platform mode, with a single CTA back into the flow.
+    start: r("/assistant/onboarding/start"),
     hosting: r("/assistant/onboarding/hosting"),
     apiKey: r("/assistant/onboarding/api-key"),
     privacy: r("/assistant/onboarding/privacy"),
-    prechat: r("/assistant/onboarding/prechat"),
     hatching: r("/assistant/onboarding/hatching"),
-    // SPIKE — research-onboarding front door. Reachable on demand behind the
-    // default-off research-onboarding flag (see routes.tsx).
+    // SPIKE — research-onboarding front door. Reachable on demand behind auth
+    // alone (no flag; see routes.tsx).
     research: r("/assistant/onboarding/research"),
   },
 
   home: r("/assistant/home"),
   /**
-   * Schedules surface — the same Activity page as `home`, opened with the
-   * Schedules tab active. `detail` deep-links a single schedule's drawer.
-   * Path-based (not `?tab=`) so the tab and the focused schedule are
-   * bookmarkable and shareable. Both render `HomePageRoute`, which derives
-   * the active tab + selected schedule from the URL.
+   * Schedules surface — a drill-down section under the assistant overview
+   * (`identity`), sharing the About Assistant chrome with Skills, Plugins,
+   * etc. `detail` deep-links a single schedule's drawer. Path-based (not
+   * `?tab=`) so the focused schedule is bookmarkable and shareable; both
+   * paths render `SchedulesPage`, which derives the selection from the URL.
    */
   schedules: {
     root: r("/assistant/schedules"),
@@ -131,8 +133,38 @@ export const routes = {
       dyn(r("/assistant/schedules"), scheduleId),
   },
   identity: r("/assistant/identity"),
+  /**
+   * Slider-based personality editor, drilled into from the assistant
+   * overview (`identity`). Lives alongside the other About Assistant
+   * sections so it inherits the shared drill-down chrome.
+   */
+  personality: r("/assistant/personality"),
+  memory: r("/assistant/memory"),
+  /**
+   * The My Superpowers surface — skills and plugins combined into one
+   * list. The legacy `/assistant/skills` and `/assistant/plugins` list
+   * URLs redirect here (query params preserved) so old bookmarks and
+   * deep links keep working.
+   */
+  superpowers: r("/assistant/superpowers"),
+  /** Legacy Plugins list URL — redirects to `superpowers`. Per-plugin
+   *  deep links (`/assistant/plugins/:name`) still resolve through it. */
   plugins: r("/assistant/plugins"),
-  skills: r("/assistant/skills"),
+  /**
+   * Skill deep links. The list at `root` redirects to `superpowers`;
+   * `detail` deep-links a single skill (`/assistant/skills/:skillId`).
+   *
+   * Callers pass raw skill ids. skills.sh catalog ids are namespaced with
+   * slashes (`org/repo/skill`), so `detail` percent-encodes the id to keep it
+   * a single path segment — otherwise it would never match the
+   * `skills/:skillId` route. React Router decodes route params, so
+   * `useParams()` in the detail page yields the original id unchanged.
+   */
+  skills: {
+    root: r("/assistant/skills"),
+    detail: (skillId: string) =>
+      dyn(r("/assistant/skills"), encodeURIComponent(skillId)),
+  },
   workspace: r("/assistant/workspace"),
   library: {
     root: r("/assistant/library"),
@@ -154,21 +186,26 @@ export const routes = {
     general: r("/assistant/settings/general"),
     ai: r("/assistant/settings/ai"),
     integrations: r("/assistant/settings/integrations"),
+    credentials: r("/assistant/settings/credentials"),
     notifications: r("/assistant/settings/notifications"),
-    keyboardShortcuts: r("/assistant/settings/keyboard-shortcuts"),
-    sounds: r("/assistant/settings/sounds"),
     voice: r("/assistant/settings/voice"),
-    devices: r("/assistant/settings/devices"),
     privacy: r("/assistant/settings/privacy"),
-    security: r("/assistant/settings/security"),
-    archive: r("/assistant/settings/archive"),
     bookmarks: r("/assistant/settings/bookmarks"),
-    billing: r("/assistant/settings/billing"),
+    billing: SETTINGS_BILLING_PATH,
+    billingUsage: `${SETTINGS_BILLING_PATH}?tab=usage`,
+    usageForSchedule: (scheduleId: string) => {
+      const params = new URLSearchParams({
+        tab: "usage",
+        range: "7d",
+        groupBy: "schedule",
+        scheduleId,
+      });
+      return `${SETTINGS_BILLING_PATH}?${params.toString()}`;
+    },
     community: r("/assistant/settings/community"),
-    debug: r("/assistant/settings/debug"),
     developer: r("/assistant/settings/developer"),
     mcp: r("/assistant/settings/mcp"),
-    advanced: r("/assistant/settings/advanced"),
+    debug: r("/assistant/settings/debug"),
     dangerZone: r("/assistant/settings/danger-zone"),
     systemEvents: r("/assistant/settings/system-events"),
     upgradeCancel: r("/assistant/settings/billing/upgrade/cancel"),
@@ -198,8 +235,12 @@ export const routes = {
  */
 const ABOUT_ASSISTANT_PATHS: readonly string[] = [
   routes.identity,
+  routes.personality,
+  routes.schedules.root,
+  routes.memory,
+  routes.superpowers,
   routes.plugins,
-  routes.skills,
+  routes.skills.root,
   routes.workspace,
   routes.contacts.root,
   routes.channels,

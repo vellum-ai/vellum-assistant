@@ -8,7 +8,10 @@
  * for transports that play audio via the audio store's `/v1/audio/:id` URLs.
  */
 
-import { createStreamingEntry } from "../calls/audio-store.js";
+import {
+  type CallAudioFormat,
+  createStreamingEntry,
+} from "../calls/audio-store.js";
 import { loadConfig } from "../config/loader.js";
 import { getPublicBaseUrl } from "../inbound/public-ingress-urls.js";
 import type {
@@ -200,12 +203,9 @@ export async function synthesizeAndEmit(
 // Audio-store sink
 // ---------------------------------------------------------------------------
 
-/** Audio formats accepted by the audio store. */
-export type AudioStoreFormat = Parameters<typeof createStreamingEntry>[0];
-
 export interface AudioStoreSinkOptions {
   /** Store format — determines the entry's served content type. */
-  format: AudioStoreFormat;
+  format: CallAudioFormat;
 
   /**
    * Invoked exactly once, when the first audio chunk arrives, with the

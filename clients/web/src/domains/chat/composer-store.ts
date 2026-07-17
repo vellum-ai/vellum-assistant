@@ -475,6 +475,7 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
                     mimeType: storedMime,
                     sizeBytes: storedSize,
                     previewUrl,
+                    thumbnailUrl: null,
                   } satisfies UploadedAttachment)
                 : att,
             ),

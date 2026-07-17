@@ -16,7 +16,7 @@ import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { getLogger } from "../util/logger.js";
 import { getOrCreateConversation } from "./conversation-store.js";
 import { processMessageInBackground } from "./process-message.js";
-import type { TrustContext } from "./trust-context.js";
+import type { TrustContext } from "./trust-context-types.js";
 
 const log = getLogger("conversation-launch");
 

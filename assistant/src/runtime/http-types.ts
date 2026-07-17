@@ -23,7 +23,7 @@ export type {
   ApprovalCopyGenerator,
   ComposeApprovalMessageGenerativeOptions,
 } from "./message-composer-types.js";
-import type { TrustContext } from "../daemon/trust-context.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 
 // ---------------------------------------------------------------------------
 // Approval conversation flow types
@@ -110,7 +110,17 @@ export type MessageProcessor = (
   conversationId: string,
   content: string,
   options?: RuntimeMessageConversationOptions,
-) => Promise<{ messageId: string; assistantMessageId?: string }>;
+) => Promise<{
+  messageId: string;
+  assistantMessageId?: string;
+  /**
+   * True when the persist layer deduplicated this ingress against a prior turn
+   * (same idempotency key) and no agent loop ran. Channel finalization must
+   * skip reply delivery on this signal so an at-least-once redelivery does not
+   * re-emit the original turn's reply.
+   */
+  deduplicated?: boolean;
+}>;
 
 /**
  * Dependencies for the POST /v1/messages handler.

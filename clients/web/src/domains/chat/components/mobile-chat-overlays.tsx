@@ -22,6 +22,7 @@ import { useViewerStore } from "@/stores/viewer-store";
 import { routes } from "@/utils/routes";
 
 import { MobileAcpRunDetailOverlay } from "@/domains/chat/components/mobile-acp-run-detail-overlay";
+import { MobileActivityStepsOverlay } from "@/domains/chat/components/mobile-activity-steps-overlay";
 import { MobileAppOverlay } from "@/domains/chat/components/mobile-app-overlay";
 import { MobileBackgroundTaskDetailOverlay } from "@/domains/chat/components/mobile-background-task-detail-overlay";
 import { MobileDocumentOverlay } from "@/domains/chat/components/mobile-document-overlay";
@@ -42,6 +43,7 @@ export function MobileChatOverlays() {
   const isAppMinimized = useViewerStore.use.isAppMinimized();
   const activeSubagentId = useViewerStore.use.activeSubagentId();
   const activeToolDetail = useViewerStore.use.activeToolDetail();
+  const activeActivitySteps = useViewerStore.use.activeActivitySteps();
   const activeWorkflowRunId = useViewerStore.use.activeWorkflowRunId();
   const activeAcpRunId = useViewerStore.use.activeAcpRunId();
   const activeBackgroundTaskId = useViewerStore.use.activeBackgroundTaskId();
@@ -129,8 +131,8 @@ export function MobileChatOverlays() {
     useViewerStore.getState().closeToolDetail();
   }, []);
 
-  const handleToolDetailRiskBadgeClick = useCallback(() => {
-    useViewerStore.getState().requestRuleEditorForActiveTool();
+  const handleCloseActivitySteps = useCallback(() => {
+    useViewerStore.getState().closeActivitySteps();
   }, []);
 
   if (!overlayTarget) return null;
@@ -196,7 +198,10 @@ export function MobileChatOverlays() {
       <MobileToolDetailOverlay
         detail={mainView === "tool-detail" ? activeToolDetail : null}
         onClose={handleCloseToolDetail}
-        onRiskBadgeClick={handleToolDetailRiskBadgeClick}
+      />
+      <MobileActivityStepsOverlay
+        payload={mainView === "activity-steps" ? activeActivitySteps : null}
+        onClose={handleCloseActivitySteps}
       />
     </>,
     overlayTarget,

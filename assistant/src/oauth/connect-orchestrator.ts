@@ -20,7 +20,7 @@
  */
 
 import { emitPostConnectNudge } from "../home/post-connect-feed.js";
-import { invalidateAssistantSuggestedPromptsCache } from "../home/suggested-prompts.js";
+import { invalidateAssistantSuggestedPromptsCache } from "../home/suggested-prompts-cache.js";
 import type { TokenEndpointAuthMethod } from "../security/oauth2.js";
 import { prepareOAuth2Flow, startOAuth2Flow } from "../security/oauth2.js";
 import { getLogger } from "../util/logger.js";

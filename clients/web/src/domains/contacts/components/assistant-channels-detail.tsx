@@ -1,5 +1,5 @@
 import { DetailCard } from "@/components/detail-card";
-import { assistantDisplayName } from "@/domains/contacts/assistant-display-name";
+import { assistantDisplayName } from "@/utils/assistant-display-name";
 import {
     AssistantContactChannels,
     type AssistantContactChannelsProps,

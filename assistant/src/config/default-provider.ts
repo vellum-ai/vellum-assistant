@@ -1,4 +1,10 @@
-import { VELLUM_MANAGED_CONNECTION_NAME } from "../providers/vellum-model-routing.js";
+/**
+ * Loader-coupled default-provider accessors. The pure read/resolution logic
+ * lives in `default-provider-resolution.ts`; import from there in code that
+ * already has a config in hand (route handlers especially) so the module
+ * graph stays free of write-side loader exports.
+ */
+import { getDefaultProviderFromConfig } from "./default-provider-resolution.js";
 import {
   getConfigReadOnly,
   invalidateConfigCache,
@@ -9,27 +15,12 @@ import type { DefaultProviderConfig } from "./schemas/llm.js";
 import { DefaultProviderSchema } from "./schemas/llm.js";
 import type { AssistantConfig } from "./types.js";
 
+export { resolveDefaultConnectionName } from "./default-provider-resolution.js";
+
 export function getDefaultProvider(
   config?: AssistantConfig,
 ): DefaultProviderConfig | null {
-  const llm = (config ?? getConfigReadOnly()).llm;
-  return llm.defaultProvider ?? null;
-}
-
-/**
- * Pure by design — no connection-existence check. A dangling name (explicit
- * or conventional) is allowed; see `DefaultProviderSchema`.
- */
-export function resolveDefaultConnectionName(
-  dp: DefaultProviderConfig,
-): string {
-  if (dp.connectionName) {
-    return dp.connectionName;
-  }
-  if (dp.provider === "vellum") {
-    return VELLUM_MANAGED_CONNECTION_NAME;
-  }
-  return `${dp.provider}-personal`;
+  return getDefaultProviderFromConfig(config ?? getConfigReadOnly());
 }
 
 export function setDefaultProvider(value: DefaultProviderConfig): void {

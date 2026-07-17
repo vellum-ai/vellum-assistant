@@ -1,24 +1,19 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
-let mockLlmConfig: Record<string, unknown> = {};
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({ llm: mockLlmConfig }),
-}));
-
+// The pre-existing describes pin attribution under the legacy cascade
+// (flag-off); the trailing describe pins the override-or-default mapping.
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
-import {
-  type LLMCallSite,
-  type LLMConfig,
-  LLMSchema,
-} from "../config/schemas/llm.js";
+import { getConfig } from "../config/loader.js";
+import { type LLMCallSite } from "../config/schemas/llm.js";
 import {
   resolveUsageAttribution,
   sanitizeUsageMetadataValue,
 } from "../usage/attribution.js";
+import { setConfig } from "./helpers/set-config.js";
 
+/** Seed the workspace `llm` config for real; the loader schema-merges it. */
 function setLlmConfig(raw: unknown): void {
-  mockLlmConfig = LLMSchema.parse(raw) as Record<string, unknown>;
+  setConfig("llm", raw);
 }
 
 function expectResolvedProviderModelMatchesResolver(
@@ -29,7 +24,7 @@ function expectResolvedProviderModelMatchesResolver(
     callSite,
     ...(overrideProfile != null ? { overrideProfile } : {}),
   });
-  const resolved = resolveCallSiteConfig(callSite, mockLlmConfig as LLMConfig, {
+  const resolved = resolveCallSiteConfig(callSite, getConfig().llm, {
     ...(overrideProfile != null ? { overrideProfile } : {}),
   });
 
@@ -38,25 +33,27 @@ function expectResolvedProviderModelMatchesResolver(
 }
 
 beforeEach(() => {
-  mockLlmConfig = LLMSchema.parse({}) as Record<string, unknown>;
+  setConfig("llm", {});
 });
 
 describe("resolveUsageAttribution", () => {
-  test("resolves default-only attribution", () => {
+  test("resolves default-intent attribution with a call-site tweak", () => {
     setLlmConfig({
-      default: { provider: "anthropic", model: "claude-opus-4-7" },
-      // Disable the catalog default so mainAgent resolves from `llm.default`.
-      profiles: { balanced: { source: "managed", status: "disabled" } },
+      callSites: {
+        mainAgent: { provider: "anthropic", model: "claude-opus-4-7" },
+      },
     });
 
     const snapshot = resolveUsageAttribution({ callSite: "mainAgent" });
 
+    // No override/active/site profile is set, so the winner is mainAgent's
+    // default intent (balanced); the call-site tweak supplies provider/model.
     expect(snapshot).toMatchObject({
       callSite: "mainAgent",
       activeProfile: null,
       overrideProfile: null,
       callSiteProfile: null,
-      appliedProfile: null,
+      appliedProfile: "balanced",
       profileSource: "default",
       resolvedProvider: "anthropic",
       resolvedModel: "claude-opus-4-7",
@@ -66,7 +63,6 @@ describe("resolveUsageAttribution", () => {
 
   test("resolves workspace active profile attribution", () => {
     setLlmConfig({
-      default: { provider: "anthropic", model: "claude-opus-4-7" },
       profiles: {
         balanced: { provider: "openai", model: "gpt-5.4" },
       },
@@ -89,7 +85,6 @@ describe("resolveUsageAttribution", () => {
 
   test("resolves per-conversation override profile attribution", () => {
     setLlmConfig({
-      default: { provider: "anthropic", model: "claude-opus-4-7" },
       profiles: {
         active: { provider: "openai", model: "gpt-5.4" },
         pinned: { provider: "gemini", model: "gemini-3-pro" },
@@ -114,12 +109,10 @@ describe("resolveUsageAttribution", () => {
     expectResolvedProviderModelMatchesResolver("mainAgent", "pinned");
   });
 
-  test("resolves call-site profile attribution over conversation override", () => {
+  test("resolves call-site profile attribution", () => {
     setLlmConfig({
-      default: { provider: "anthropic", model: "claude-opus-4-7" },
       profiles: {
         active: { provider: "openai", model: "gpt-5.4" },
-        pinned: { provider: "gemini", model: "gemini-3-pro" },
         site: {
           provider: "fireworks",
           model: "accounts/fireworks/models/kimi-k2",
@@ -133,24 +126,23 @@ describe("resolveUsageAttribution", () => {
 
     const snapshot = resolveUsageAttribution({
       callSite: "memoryRetrieval",
-      overrideProfile: "pinned",
     });
 
+    // activeProfile applies only to mainAgent, so the call-site pin wins here.
     expect(snapshot).toMatchObject({
       activeProfile: "active",
-      overrideProfile: "pinned",
+      overrideProfile: null,
       callSiteProfile: "site",
       appliedProfile: "site",
       profileSource: "call_site",
       resolvedProvider: "fireworks",
       resolvedModel: "accounts/fireworks/models/kimi-k2",
     });
-    expectResolvedProviderModelMatchesResolver("memoryRetrieval", "pinned");
+    expectResolvedProviderModelMatchesResolver("memoryRetrieval");
   });
 
   test("attributes mainAgent to conversation profile over call-site profile", () => {
     setLlmConfig({
-      default: { provider: "anthropic", model: "claude-opus-4-7" },
       profiles: {
         active: { provider: "openai", model: "gpt-5.4" },
         pinned: { provider: "gemini", model: "gemini-2.5-pro" },
@@ -184,7 +176,6 @@ describe("resolveUsageAttribution", () => {
 
   test("uses explicit call-site provider and model overrides in resolved metadata", () => {
     setLlmConfig({
-      default: { provider: "anthropic", model: "claude-opus-4-7" },
       profiles: {
         active: { provider: "openai", model: "gpt-5.4" },
       },
@@ -201,11 +192,14 @@ describe("resolveUsageAttribution", () => {
       callSite: "memoryRetrieval",
     });
 
+    // The winner is memoryRetrieval's default intent (activeProfile applies
+    // only to mainAgent); the call-site tweak still determines the resolved
+    // provider/model because it applies last.
     expect(snapshot).toMatchObject({
       activeProfile: "active",
       callSiteProfile: null,
-      appliedProfile: "active",
-      profileSource: "active",
+      appliedProfile: "cost-optimized",
+      profileSource: "default",
       resolvedProvider: "ollama",
       resolvedModel: "llama3.2",
     });
@@ -214,7 +208,6 @@ describe("resolveUsageAttribution", () => {
 
   test("falls back when a runtime override profile is missing", () => {
     setLlmConfig({
-      default: { provider: "anthropic", model: "claude-opus-4-7" },
       profiles: {
         active: { provider: "openai", model: "gpt-5.4" },
       },
@@ -245,5 +238,69 @@ describe("sanitizeUsageMetadataValue", () => {
     expect(sanitizeUsageMetadataValue(`profile\n1`)).toBeNull();
     expect(sanitizeUsageMetadataValue("profile\u00851")).toBeNull();
     expect(sanitizeUsageMetadataValue("x".repeat(200))).toHaveLength(128);
+  });
+});
+
+describe("resolveUsageAttribution — single-winner semantics", () => {
+  const completeProfile = {
+    source: "user",
+    provider: "openai",
+    provider_connection: "openai-personal",
+    model: "gpt-5.5",
+    maxTokens: 9000,
+  };
+
+  test("a non-forced override wins attribution on a background call site", () => {
+    setLlmConfig({
+      profiles: { mine: completeProfile },
+      callSites: {
+        conversationSummarization: { profile: "quality-optimized" },
+      },
+      defaultProvider: { provider: "anthropic" },
+    });
+    const snapshot = resolveUsageAttribution({
+      callSite: "conversationSummarization",
+      overrideProfile: "mine",
+    });
+    expect(snapshot.appliedProfile).toBe("mine");
+    expect(snapshot.profileSource).toBe("conversation");
+    expect(snapshot.resolvedModel).toBe("gpt-5.5");
+  });
+
+  test("the default intent attributes its profile key with source 'default'", () => {
+    setLlmConfig({ defaultProvider: { provider: "anthropic" } });
+    const snapshot = resolveUsageAttribution({
+      callSite: "conversationSummarization",
+    });
+    expect(snapshot.appliedProfile).toBe("cost-optimized");
+    expect(snapshot.profileSource).toBe("default");
+    expect(snapshot.resolvedProvider).toBe("anthropic");
+  });
+
+  test("activeProfile attributes as 'active' on mainAgent only", () => {
+    setLlmConfig({
+      profiles: { mine: completeProfile },
+      activeProfile: "mine",
+      defaultProvider: { provider: "anthropic" },
+    });
+    expect(resolveUsageAttribution({ callSite: "mainAgent" })).toMatchObject({
+      appliedProfile: "mine",
+      profileSource: "active",
+    });
+    expect(
+      resolveUsageAttribution({ callSite: "conversationSummarization" }),
+    ).toMatchObject({
+      appliedProfile: "cost-optimized",
+      profileSource: "default",
+    });
+  });
+
+  test("attribution provider/model agree with the resolver", () => {
+    setLlmConfig({
+      profiles: { mine: completeProfile },
+      defaultProvider: { provider: "anthropic" },
+    });
+    expectResolvedProviderModelMatchesResolver("conversationSummarization");
+    expectResolvedProviderModelMatchesResolver("mainAgent", "mine");
   });
 });

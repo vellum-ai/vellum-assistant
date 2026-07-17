@@ -16,7 +16,12 @@ export const PLATFORM_HOSTED_HOSTNAMES: readonly string[] = [
   APEX_DOMAIN,
 ];
 
+/** True when `host` is `domain` itself or any subdomain of it. */
+export function hostMatchesDomain(host: string, domain: string): boolean {
+  return host === domain || host.endsWith(`.${domain}`);
+}
+
 /** Check if a hostname belongs to the vellum.ai domain family. */
 export function isVellumDomain(host: string): boolean {
-  return host === APEX_DOMAIN || host.endsWith(`.${APEX_DOMAIN}`);
+  return hostMatchesDomain(host, APEX_DOMAIN);
 }

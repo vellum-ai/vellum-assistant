@@ -49,6 +49,16 @@ export interface HostBrowserResultPayload {
   isError?: boolean;
 }
 
+export interface HostUiSnapshotResultPayload {
+  requestId: string;
+  /** Base64 PNG capture of the staged view (device-scale pixels). */
+  pngBase64?: string;
+  widthPx?: number;
+  heightPx?: number;
+  isError?: boolean;
+  errorMessage?: string;
+}
+
 export interface HostCuResultPayload {
   requestId: string;
   axTree?: string;
@@ -154,6 +164,12 @@ export class HostProxyPoster {
     result: HostAppControlResultPayload,
   ): Promise<boolean> {
     return this.postJson("/host-app-control-result", result);
+  }
+
+  async postUiSnapshotResult(
+    result: HostUiSnapshotResultPayload,
+  ): Promise<boolean> {
+    return this.postJson("/host-ui-snapshot-result", result);
   }
 
   // -----------------------------------------------------------------------

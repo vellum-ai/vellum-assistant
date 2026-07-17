@@ -21,14 +21,12 @@
  */
 
 import type { ContentBlock } from "@vellumai/plugin-api";
-import { and, asc, desc, eq, lt, lte } from "drizzle-orm";
+import { and, desc, eq, lte } from "drizzle-orm";
 
 import type { AssistantConfig } from "../../../../../config/types.js";
 import type { DrizzleDb } from "../../../../../persistence/db-connection.js";
-import {
-  memoryV2ActivationLogs,
-  messages,
-} from "../../../../../persistence/schema/index.js";
+import { messages } from "../../../../../persistence/schema/index.js";
+import { memorySqliteOrNull } from "../../memory-db.js";
 import type { MemoryV2ConceptRowRecord } from "../../memory-v2-activation-log-store.js";
 import { loadNowText } from "../now-text.js";
 import type { RouterTurnPair } from "../router.js";
@@ -143,9 +141,13 @@ export async function reconstructInput(
     .all();
 
   const anchorPos = recent.findIndex((m) => m.id === turn.anchorMessageId);
-  if (anchorPos < 0) return null;
+  if (anchorPos < 0) {
+    return null;
+  }
   const beforeAnchor = recent.slice(anchorPos + 1);
-  if (beforeAnchor.length === 0) return null;
+  if (beforeAnchor.length === 0) {
+    return null;
+  }
 
   const plain: PlainMessage[] = beforeAnchor
     .slice()
@@ -154,7 +156,6 @@ export async function reconstructInput(
 
   const recentTurnPairs = extractRecentTurnPairs(plain, windowPairs);
   const priorEverInjected = reconstructPriorEverInjected(
-    db,
     turn.conversationId,
     turn.turn,
   );
@@ -197,38 +198,41 @@ const PRIOR_STATUSES = new Set<string>([
  * Union of slugs injected on earlier `mode='router'` turns in this conversation
  * (turn < `currentTurn`), each tagged with the earliest turn it appeared on —
  * the harness analogue of the running `everInjected` list production maintains.
+ * The activation log lives in the dedicated memory database; without that
+ * connection the prior state degrades to empty.
  */
 function reconstructPriorEverInjected(
-  db: DrizzleDb,
   conversationId: string,
   currentTurn: number,
 ): EverInjectedEntry[] {
-  const rows = db
-    .select({
-      turn: memoryV2ActivationLogs.turn,
-      conceptsJson: memoryV2ActivationLogs.conceptsJson,
-    })
-    .from(memoryV2ActivationLogs)
-    .where(
-      and(
-        eq(memoryV2ActivationLogs.conversationId, conversationId),
-        eq(memoryV2ActivationLogs.mode, "router"),
-        lt(memoryV2ActivationLogs.turn, currentTurn),
-      ),
+  const raw = memorySqliteOrNull("reconstructPriorEverInjected");
+  if (!raw) {
+    return [];
+  }
+  const rows = raw
+    .query(
+      `SELECT turn, concepts_json
+         FROM memory_v2_activation_logs
+        WHERE conversation_id = ? AND mode = 'router' AND turn < ?
+        ORDER BY turn ASC`,
     )
-    .orderBy(asc(memoryV2ActivationLogs.turn))
-    .all();
+    .all(conversationId, currentTurn) as Array<{
+    turn: number;
+    concepts_json: string;
+  }>;
 
   const firstTurnBySlug = new Map<string, number>();
   for (const row of rows) {
     let concepts: MemoryV2ConceptRowRecord[];
     try {
-      concepts = JSON.parse(row.conceptsJson) as MemoryV2ConceptRowRecord[];
+      concepts = JSON.parse(row.concepts_json) as MemoryV2ConceptRowRecord[];
     } catch {
       continue;
     }
     for (const concept of concepts) {
-      if (!PRIOR_STATUSES.has(concept.status)) continue;
+      if (!PRIOR_STATUSES.has(concept.status)) {
+        continue;
+      }
       if (!firstTurnBySlug.has(concept.slug)) {
         firstTurnBySlug.set(concept.slug, row.turn);
       }

@@ -9,9 +9,12 @@
  */
 
 import { ROUTES as MEMORY_EVAL_ROUTES } from "../../plugins/defaults/memory/routes/memory-eval-routes.js";
+import { ROUTES as MEMORY_GRAPH_ROUTES } from "../../plugins/defaults/memory/routes/memory-graph-routes.js";
 import { ROUTES as MEMORY_ITEM_ROUTES } from "../../plugins/defaults/memory/routes/memory-item-routes.js";
 import { ROUTES as MEMORY_V2_ROUTES } from "../../plugins/defaults/memory/routes/memory-v2-routes.js";
 import { ROUTES as MEMORY_V3_ROUTES } from "../../plugins/defaults/memory/routes/memory-v3-routes.js";
+import { ROUTES as MEMORY_WORKER_ROUTES } from "../../plugins/defaults/memory/routes/memory-worker-routes.js";
+import { ROUTES as ACP_CLAUDE_AUTH_ROUTES } from "./acp-claude-auth-routes.js";
 import { ROUTES as ACP_ROUTES } from "./acp-routes.js";
 import { ROUTES as APP_MANAGEMENT_ROUTES } from "./app-management-routes.js";
 import { ROUTES as APP_ROUTES } from "./app-routes.js";
@@ -41,7 +44,6 @@ import { ROUTES as CONSOLIDATION_ROUTES } from "./consolidation-routes.js";
 import { CONTACT_PROMPT_ROUTES } from "./contact-prompt-routes.js";
 import { ROUTES as CONTACT_ROUTES } from "./contact-routes.js";
 import { ROUTES as CONTENT_SOURCE_ROUTES } from "./content-source-routes.js";
-import { ROUTES as CONVERSATION_ANALYSIS_ROUTES } from "./conversation-analysis-routes.js";
 import { ROUTES as CONVERSATION_ATTENTION_ROUTES } from "./conversation-attention-routes.js";
 import { ROUTES as CONVERSATION_CLI_ROUTES } from "./conversation-cli-routes.js";
 import { ROUTES as CONVERSATION_COMPACTION_ROUTES } from "./conversation-compaction-routes.js";
@@ -52,9 +54,11 @@ import { ROUTES as CONVERSATION_MESSAGE_ROUTES } from "./conversation-routes.js"
 import { ROUTES as CONVERSATION_STARTER_ROUTES } from "./conversation-starter-routes.js";
 import { ROUTES as CONVERSATIONS_IMPORT_ROUTES } from "./conversations-import-routes.js";
 import { ROUTES as CREDENTIAL_PROMPT_ROUTES } from "./credential-prompt-routes.js";
+import { ROUTES as CREDENTIAL_REQUEST_ROUTES } from "./credential-request-routes.js";
 import { ROUTES as CREDENTIAL_ROUTES } from "./credential-routes.js";
 import { ROUTES as DEBUG_BASH_ROUTES } from "./debug-bash-routes.js";
 import { ROUTES as DEBUG_ROUTES } from "./debug-routes.js";
+import { ROUTES as DEFAULT_PROVIDER_ROUTES } from "./default-provider-routes.js";
 import { ROUTES as DEFER_ROUTES } from "./defer-routes.js";
 import { ROUTES as DIAGNOSTICS_ROUTES } from "./diagnostics-routes.js";
 import { ROUTES as DISK_PRESSURE_ROUTES } from "./disk-pressure-routes.js";
@@ -65,6 +69,7 @@ import { ROUTES as EMAIL_ROUTES } from "./email-routes.js";
 import { ROUTES as EVENTS_ROUTES } from "./events-routes.js";
 import { ROUTES as FILING_ROUTES } from "./filing-routes.js";
 import { ROUTES as GATEWAY_LOG_ROUTES } from "./gateway-log-routes.js";
+import { ROUTES as GATEWAY_STATUS_ROUTES } from "./gateway-status-routes.js";
 import { ROUTES as GLOBAL_SEARCH_ROUTES } from "./global-search-routes.js";
 import { ROUTES as GROUP_ROUTES } from "./group-routes.js";
 import { ROUTES as GUARDIAN_ACTION_ROUTES } from "./guardian-action-routes.js";
@@ -79,7 +84,10 @@ import { ROUTES as HOST_FILE_ROUTES } from "./host-file-routes.js";
 import { ROUTES as HOST_TRANSFER_ROUTES } from "./host-transfer-routes.js";
 import { ROUTES as IDENTITY_ROUTES } from "./identity-routes.js";
 import { ROUTES as IMAGE_GENERATION_ROUTES } from "./image-generation-routes.js";
+import { ROUTES as INFERENCE_CALLSITES_ROUTES } from "./inference-callsites-routes.js";
+import { ROUTES as INFERENCE_MODELS_ROUTES } from "./inference-models-routes.js";
 import { ROUTES as INFERENCE_PROFILE_SESSION_ROUTES } from "./inference-profile-session-routes.js";
+import { ROUTES as INFERENCE_PROFILES_ROUTES } from "./inference-profiles-routes.js";
 import { ROUTES as INFERENCE_PROVIDER_CONNECTION_ROUTES } from "./inference-provider-connection-routes.js";
 import { ROUTES as INFERENCE_SEND_ROUTES } from "./inference-send-routes.js";
 import { ROUTES as A2A_ROUTES } from "./integrations/a2a.js";
@@ -96,7 +104,6 @@ import { ROUTES as INTERNAL_TWILIO_ROUTES } from "./internal-twilio-routes.js";
 import { ROUTES as LLM_CALL_SITES_ROUTES } from "./llm-call-sites-routes.js";
 import { ROUTES as LOG_EXPORT_ROUTES } from "./log-export-routes.js";
 import { ROUTES as MCP_AUTH_ROUTES } from "./mcp-auth-routes.js";
-import { ROUTES as MEMORY_WORKER_ROUTES } from "./memory-worker-routes.js";
 import { ROUTES as MESSAGES_LEXICAL_ROUTES } from "./messages-lexical-routes.js";
 import { ROUTES as MIGRATION_ROLLBACK_ROUTES } from "./migration-rollback-routes.js";
 import { ROUTES as MIGRATION_ROUTES } from "./migration-routes.js";
@@ -132,12 +139,13 @@ import { ROUTES as SUBAGENT_ROUTES } from "./subagents-routes.js";
 import { ROUTES as SUGGEST_TRUST_RULE_ROUTES } from "./suggest-trust-rule-routes.js";
 import { ROUTES as SURFACE_ACTION_ROUTES } from "./surface-action-routes.js";
 import { ROUTES as SURFACE_CONTENT_ROUTES } from "./surface-content-routes.js";
-import { ROUTES as TASK_ROUTES } from "./task-routes.js";
 import { ROUTES as TELEMETRY_ROUTES } from "./telemetry-routes.js";
+import { ROUTES as THEME_ROUTES } from "./theme-routes.js";
 import { ROUTES as TRUST_RULES_ROUTES } from "./trust-rules-routes.js";
 import { ROUTES as TTS_ROUTES } from "./tts-routes.js";
 import type { RouteDefinition } from "./types.js";
 import { ROUTES as UI_REQUEST_ROUTES } from "./ui-request-routes.js";
+import { ROUTES as UI_SNAPSHOT_ROUTES } from "./ui-snapshot-routes.js";
 import { ROUTES as UPGRADE_BROADCAST_ROUTES } from "./upgrade-broadcast-routes.js";
 import { ROUTES as USAGE_ROUTES } from "./usage-routes.js";
 import { ROUTES as USER_ROUTES } from "./user-routes.js";
@@ -145,7 +153,6 @@ import { ROUTES as USER_ROUTES_CLI } from "./user-routes-cli.js";
 import { ROUTES as WAKE_CONVERSATION_ROUTES } from "./wake-conversation-routes.js";
 import { ROUTES as WATCHER_ROUTES } from "./watcher-routes.js";
 import { ROUTES as WEBHOOK_ROUTES } from "./webhook-routes.js";
-import { ROUTES as WORK_ITEM_ROUTES } from "./work-items-routes.js";
 import { ROUTES as WORKFLOW_ROUTES } from "./workflow-routes.js";
 import { ROUTES as WORKSPACE_COMMIT_ROUTES } from "./workspace-commit-routes.js";
 import { ROUTES as WORKSPACE_ROUTES } from "./workspace-routes.js";
@@ -153,6 +160,7 @@ import { ROUTES as WORKSPACE_ROUTES } from "./workspace-routes.js";
 export const ROUTES: RouteDefinition[] = [
   ...ATTACHMENT_ROUTES,
   ...ACP_ROUTES,
+  ...ACP_CLAUDE_AUTH_ROUTES,
   ...APP_MANAGEMENT_ROUTES,
   ...APP_ROUTES,
   ...APPROVAL_ROUTES,
@@ -179,7 +187,6 @@ export const ROUTES: RouteDefinition[] = [
   ...CONTENT_SOURCE_ROUTES,
   ...CONTACT_PROMPT_ROUTES,
   ...CONTACT_ROUTES,
-  ...CONVERSATION_ANALYSIS_ROUTES,
   ...CONVERSATION_ATTENTION_ROUTES,
   ...CONVERSATION_CLI_ROUTES,
   ...CONVERSATION_LIST_ROUTES,
@@ -188,6 +195,7 @@ export const ROUTES: RouteDefinition[] = [
   ...CONVERSATION_MESSAGE_ROUTES,
   ...CONSOLIDATION_ROUTES,
   ...CREDENTIAL_PROMPT_ROUTES,
+  ...CREDENTIAL_REQUEST_ROUTES,
   ...CREDENTIAL_ROUTES,
   ...DEFER_ROUTES,
   ...CONVERSATION_COMPACTION_ROUTES,
@@ -195,6 +203,7 @@ export const ROUTES: RouteDefinition[] = [
   ...CONVERSATION_STARTER_ROUTES,
   ...DEBUG_BASH_ROUTES,
   ...DEBUG_ROUTES,
+  ...DEFAULT_PROVIDER_ROUTES,
   ...DIAGNOSTICS_ROUTES,
   ...DISK_PRESSURE_ROUTES,
   ...DOMAIN_ROUTES,
@@ -204,6 +213,7 @@ export const ROUTES: RouteDefinition[] = [
   ...EVENTS_ROUTES,
   ...FILING_ROUTES,
   ...GATEWAY_LOG_ROUTES,
+  ...GATEWAY_STATUS_ROUTES,
   ...GLOBAL_SEARCH_ROUTES,
   ...GROUP_ROUTES,
   ...GUARDIAN_ACTION_ROUTES,
@@ -218,7 +228,10 @@ export const ROUTES: RouteDefinition[] = [
   ...HOST_FILE_ROUTES,
   ...HOST_TRANSFER_ROUTES,
   ...IDENTITY_ROUTES,
+  ...INFERENCE_CALLSITES_ROUTES,
+  ...INFERENCE_MODELS_ROUTES,
   ...INFERENCE_PROFILE_SESSION_ROUTES,
+  ...INFERENCE_PROFILES_ROUTES,
   ...INFERENCE_PROVIDER_CONNECTION_ROUTES,
   ...INFERENCE_SEND_ROUTES,
   ...INTERNAL_OAUTH_ROUTES,
@@ -229,6 +242,7 @@ export const ROUTES: RouteDefinition[] = [
   ...LOG_EXPORT_ROUTES,
   ...LLM_CALL_SITES_ROUTES,
   ...MEMORY_EVAL_ROUTES,
+  ...MEMORY_GRAPH_ROUTES,
   ...MEMORY_ITEM_ROUTES,
   ...MEMORY_V2_ROUTES,
   ...MEMORY_V3_ROUTES,
@@ -273,15 +287,15 @@ export const ROUTES: RouteDefinition[] = [
   ...SURFACE_CONTENT_ROUTES,
   ...TELEGRAM_ROUTES,
   ...TWILIO_ROUTES,
-  ...TASK_ROUTES,
   ...TELEMETRY_ROUTES,
+  ...THEME_ROUTES,
   ...TRUST_RULES_ROUTES,
   ...TTS_ROUTES,
   ...UI_REQUEST_ROUTES,
+  ...UI_SNAPSHOT_ROUTES,
   ...UPGRADE_BROADCAST_ROUTES,
   ...USAGE_ROUTES,
   ...VERCEL_ROUTES,
-  ...WORK_ITEM_ROUTES,
   ...WORKFLOW_ROUTES,
   ...WATCHER_ROUTES,
   ...WEBHOOK_ROUTES,

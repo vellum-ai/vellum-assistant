@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   buildAccessRequestCardView,
+  buildAccessRequestContractText,
   parseAccessRequestPayload,
 } from "../notifications/access-request-copy.js";
 
@@ -94,5 +95,42 @@ describe("buildAccessRequestCardView", () => {
       "Guest / restricted account.",
     ]);
     expect(view({}).warnings).toEqual([]);
+  });
+});
+
+describe("admitted-mode introduction nudge copy", () => {
+  test("view.admitted reflects the trigger marker", () => {
+    expect(view({ trigger: "admitted" }).admitted).toBe(true);
+    expect(view({}).admitted).toBe(false);
+    expect(view({ trigger: "denied" }).admitted).toBe(false);
+  });
+
+  test("contract identity line branches on the trigger", () => {
+    const base = {
+      actorDisplayName: "Alice",
+      senderIdentifier: "Alice",
+      sourceChannel: "telegram",
+    };
+    expect(buildAccessRequestContractText(base)).toContain(
+      "is requesting access to the assistant.",
+    );
+    const admitted = buildAccessRequestContractText({
+      ...base,
+      trigger: "admitted",
+    });
+    expect(admitted).toContain("messaged the assistant and was admitted");
+    expect(admitted).not.toContain("is requesting access");
+  });
+
+  test("admitted contract text keeps the decision directives", () => {
+    const text = buildAccessRequestContractText({
+      actorDisplayName: "Alice",
+      sourceChannel: "telegram",
+      requestCode: "ab12cd",
+      trigger: "admitted",
+    });
+    expect(text).toContain('"AB12CD trust"');
+    expect(text).toContain('"AB12CD reject"');
+    expect(text).toContain('"AB12CD block"');
   });
 });

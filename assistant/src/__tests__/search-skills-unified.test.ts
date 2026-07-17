@@ -105,12 +105,6 @@ mock.module("../skills/install-meta.js", () => ({
 mock.module("../config/assistant-feature-flags.js", () => ({
   isAssistantFeatureFlagEnabled: () => true,
 }));
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({}),
-  invalidateConfigCache: () => {},
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-}));
 mock.module("../config/skill-state.js", () => ({
   resolveSkillStates: () => [],
   skillFlagKey: () => null,

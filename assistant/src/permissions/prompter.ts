@@ -7,6 +7,7 @@ import { redactSensitiveFields } from "../security/redaction.js";
 import type { ExecutionTarget } from "../tools/tool-types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
+import { createGuardianRequestForConfirmation } from "./confirmation-guardian-request.js";
 import type { AllowlistOption, ScopeOption, UserDecision } from "./types.js";
 
 const log = getLogger("permission-prompter");
@@ -71,7 +72,9 @@ export class PermissionPrompter {
     isContainerized?: boolean,
     directoryScopeOptions?: readonly { scope: string; label: string }[],
   ): Promise<ConfirmResult & { wasAbort?: boolean }> {
-    if (signal?.aborted) return { decision: "deny", wasAbort: true };
+    if (signal?.aborted) {
+      return { decision: "deny", wasAbort: true };
+    }
 
     const requestId = uuid();
 
@@ -142,7 +145,9 @@ export class PermissionPrompter {
         signal.addEventListener("abort", onAbort, { once: true });
       }
 
-      this.sendToClient({
+      const confirmationMsg: ServerMessage & {
+        type: "confirmation_request";
+      } = {
         type: "confirmation_request",
         requestId,
         toolName,
@@ -170,7 +175,17 @@ export class PermissionPrompter {
         executionTarget,
         persistentDecisionsAllowed: persistentDecisionsAllowed ?? true,
         toolUseId,
-      });
+      };
+      this.sendToClient(confirmationMsg);
+
+      // Promote the confirmation to a guardian request so channel
+      // guardian decisions (reactions, buttons, text) can resolve it.
+      if (conversationId) {
+        void createGuardianRequestForConfirmation(
+          confirmationMsg,
+          conversationId,
+        );
+      }
 
       this.onStateChanged?.(requestId, "pending", "system", toolUseId);
     });

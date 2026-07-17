@@ -1,4 +1,4 @@
-import { truncate } from "../../../../util/truncate.js";
+import { truncate } from "../host-utils.js";
 import { ALL_RECALL_SOURCES, normalizeRecallSources } from "./limits.js";
 import type { RecallEvidence, RecallSource } from "./types.js";
 

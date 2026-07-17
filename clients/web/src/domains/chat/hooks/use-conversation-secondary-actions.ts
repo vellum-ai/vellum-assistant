@@ -1,5 +1,5 @@
 /**
- * Conversation secondary actions — fork, analyze, inspect, open-in-new-window,
+ * Conversation secondary actions — fork, inspect, open-in-new-window,
  * copy transcript, and share-feedback modal state.
  *
  * These are the "utility" actions surfaced in the conversation header chevron
@@ -15,15 +15,19 @@ import {
 } from "react";
 
 import { useNavigate } from "react-router";
+import { toast } from "@vellumai/design-library";
 
 import type { Conversation } from "@/types/conversation-types";
-import { conversationsByIdAnalyzePost, conversationsForkPost } from "@/generated/daemon/sdk.gen";
+import {
+  conversationsForkPost,
+  conversationsSummarizePost,
+} from "@/generated/daemon/sdk.gen";
+import { ApiError } from "@/utils/api-errors";
 import { isElectron } from "@/runtime/is-electron";
 import { openPopoutWindow } from "@/runtime/popout-window";
 import { routes } from "@/utils/routes";
 import { haptic } from "@/utils/haptics";
 import { messagePlainText } from "@/domains/chat/utils/message-plain-text";
-import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useTranscriptMessages } from "@/domains/chat/transcript/use-transcript-messages";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
@@ -37,7 +41,6 @@ import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 export interface UseConversationSecondaryActionsParams {
   activeConversation: Conversation | null | undefined;
   refreshConversations: () => void;
-  switchConversation: (key: string) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -47,7 +50,7 @@ export interface UseConversationSecondaryActionsParams {
 export interface UseConversationSecondaryActionsReturn {
   handleForkConversation: (throughMessageId: string) => Promise<void>;
   handleForkConversationFromMenu: () => void;
-  handleAnalyzeConversation: (conversation: Conversation) => Promise<void>;
+  handleSummarizeUpToMessage: (beforeMessageId: string) => Promise<void>;
   handleOpenInNewWindow: (conversation: Conversation) => void;
   handleInspectConversation: (conversation: Conversation) => void;
   handleInspectMessage: (messageId: string) => void;
@@ -86,7 +89,6 @@ function turnHeadMessageId(
 export function useConversationSecondaryActions({
   activeConversation,
   refreshConversations,
-  switchConversation,
 }: UseConversationSecondaryActionsParams): UseConversationSecondaryActionsReturn {
   const navigate = useNavigate();
 
@@ -124,6 +126,38 @@ export function useConversationSecondaryActions({
     [refreshConversations, navigate],
   );
 
+  // Asks the daemon to summarize everything before `beforeMessageId` in the
+  // assistant's working memory. Fire-and-forget from the client's point of
+  // view: the daemon acknowledges with 202 and progress/result arrive through
+  // the existing turn SSE events, so there is no navigation, list refresh, or
+  // history invalidation here.
+  const handleSummarizeUpToMessage = useCallback(
+    async (beforeMessageId: string) => {
+      const assistantId = useResolvedAssistantsStore.getState().activeAssistantId;
+      const activeConversationId = useConversationStore.getState().activeConversationId;
+      if (!assistantId || !activeConversationId) {
+        return;
+      }
+      haptic.light();
+
+      try {
+        await conversationsSummarizePost({
+          path: { assistant_id: assistantId },
+          body: { conversationId: activeConversationId, beforeMessageId },
+          throwOnError: true,
+        });
+      } catch (err) {
+        captureError(err, { context: "summarize_up_to_here" });
+        toast.error(
+          err instanceof ApiError && err.status === 409
+            ? "The assistant is busy — try again when the current response finishes"
+            : "Couldn't summarize the conversation",
+        );
+      }
+    },
+    [],
+  );
+
   const handleForkConversationFromMenu = useCallback(() => {
     const latestPersisted = transcriptRef.current.findLast(
       (m) => m.id != null,
@@ -132,27 +166,6 @@ export function useConversationSecondaryActions({
     if (!throughMessageId) return;
     void handleForkConversation(throughMessageId);
   }, [handleForkConversation]);
-
-  const handleAnalyzeConversation = useCallback(
-    async (conversation: Conversation) => {
-      const assistantId = useResolvedAssistantsStore.getState().activeAssistantId;
-      if (!assistantId) return;
-      try {
-        const { data } = await conversationsByIdAnalyzePost({
-          path: { assistant_id: assistantId, id: conversation.conversationId },
-          throwOnError: true,
-        });
-        await refreshConversations();
-        switchConversation(data.conversation.id);
-      } catch (err) {
-        const message =
-          err instanceof Error ? err.message : "Failed to analyze conversation.";
-        useChatSessionStore.getState().setError({ message });
-        captureError(err, { context: "analyzeConversation" });
-      }
-    },
-    [refreshConversations, switchConversation],
-  );
 
   const handleOpenInNewWindow = useCallback(
     (conversation: Conversation) => {
@@ -228,7 +241,7 @@ export function useConversationSecondaryActions({
   return {
     handleForkConversation,
     handleForkConversationFromMenu,
-    handleAnalyzeConversation,
+    handleSummarizeUpToMessage,
     handleOpenInNewWindow,
     handleInspectConversation,
     handleInspectMessage,

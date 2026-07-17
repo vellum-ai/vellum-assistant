@@ -1,28 +1,14 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
-
-let configBackgroundInjection: string =
-  "This is a background turn — your guardian isn't watching. If anything noteworthy comes up, send them a notification so they see it when they're back by invoking the `notifications` skill (`assistant notifications send --message \"...\"`)";
-
-const realLoaderForBackgroundTurnTest = await import("../config/loader.js");
-const realGetConfigForBackgroundTurnTest =
-  realLoaderForBackgroundTurnTest.getConfig;
-mock.module("../config/loader.js", () => ({
-  ...realLoaderForBackgroundTurnTest,
-  getConfig: () => {
-    const real = realGetConfigForBackgroundTurnTest();
-    return {
-      ...real,
-      conversations: {
-        ...real.conversations,
-        backgroundInjection: configBackgroundInjection,
-      },
-    };
-  },
-}));
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import { DEFAULT_INJECTOR_ORDER } from "../plugins/defaults/injector-order.js";
 import { sessionInjectors } from "../plugins/defaults/session/injectors.js";
 import type { Injector, TurnContext } from "../plugins/types.js";
+import { setConfig } from "./helpers/set-config.js";
+
+/** Seed `conversations.backgroundInjection` into the workspace config. */
+function seedBackgroundInjection(text: string): void {
+  setConfig("conversations", { backgroundInjection: text });
+}
 
 function findInjector(name: string): Injector {
   const injector = sessionInjectors.find(
@@ -51,7 +37,7 @@ const DEFAULT_INJECTION_TEXT =
 
 describe("background-turn injector", () => {
   beforeEach(() => {
-    configBackgroundInjection = DEFAULT_INJECTION_TEXT;
+    seedBackgroundInjection(DEFAULT_INJECTION_TEXT);
   });
 
   test("returns null when isBackgroundConversation is false", async () => {
@@ -107,7 +93,7 @@ describe("background-turn injector", () => {
   });
 
   test("returns null when configured text is the empty string", async () => {
-    configBackgroundInjection = "";
+    seedBackgroundInjection("");
 
     const result = await backgroundInjector.produce(
       makeContext({
@@ -119,7 +105,7 @@ describe("background-turn injector", () => {
   });
 
   test("uses operator-configured override text verbatim", async () => {
-    configBackgroundInjection = "Custom reminder body.";
+    seedBackgroundInjection("Custom reminder body.");
 
     const block = await backgroundInjector.produce(
       makeContext({

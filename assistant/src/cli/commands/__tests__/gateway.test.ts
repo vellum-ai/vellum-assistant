@@ -33,6 +33,7 @@ let mockResponses: Array<{
   ok: boolean;
   result?: unknown;
   error?: string;
+  statusCode?: number;
 }> = [];
 
 // ---------------------------------------------------------------------------
@@ -43,6 +44,10 @@ mock.module("../../../ipc/cli-client.js", () => ({
   cliIpcCall: async (method: string, params?: Record<string, unknown>) => {
     ipcCalls.push({ method, params });
     return mockResponses.shift() ?? { ok: true, result: null };
+  },
+  exitFromIpcResult: (r: { error?: string }) => {
+    process.exitCode = 1;
+    if (r.error) process.stderr.write(r.error);
   },
 }));
 
@@ -176,6 +181,56 @@ describe("gateway logs tail — IPC params", () => {
     await runCommand(["gateway", "logs", "tail", "--module", "mcp"]);
 
     expect(ipcCalls[0].params?.body).toEqual({ n: 10, module: "mcp" });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// gateway status
+// ---------------------------------------------------------------------------
+
+describe("gateway status", () => {
+  test("--json passes through the connected tunnel payload", async () => {
+    mockResponses.push({
+      ok: true,
+      result: { tunnel: "https://abc123.vellum.ai" },
+    });
+
+    const { stdout, exitCode } = await runCommand([
+      "gateway",
+      "status",
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(ipcCalls[0].method).toBe("gateway_status");
+    expect(JSON.parse(stdout.trim())).toEqual({
+      tunnel: "https://abc123.vellum.ai",
+    });
+  });
+
+  test("--json emits {} when no tunnel is connected", async () => {
+    mockResponses.push({ ok: true, result: {} });
+
+    const { stdout, exitCode } = await runCommand([
+      "gateway",
+      "status",
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(JSON.parse(stdout.trim())).toEqual({});
+  });
+
+  test("exits non-zero when the gateway is not running", async () => {
+    mockResponses.push({
+      ok: false,
+      error: "Gateway is not running or is unreachable over IPC.",
+      statusCode: 503,
+    });
+
+    const { exitCode } = await runCommand(["gateway", "status"]);
+
+    expect(exitCode).not.toBe(0);
   });
 });
 

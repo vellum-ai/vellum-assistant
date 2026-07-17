@@ -1,11 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { makeMockLogger } from "../../__tests__/helpers/mock-logger.js";
-
-mock.module("../../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
-
 // persistWakeTriggerMessage syncs each row to the disk view and publishes a
 // sync invalidation; stub both so this unit test stays a pure DB round-trip
 // without touching the filesystem or the event hub.

@@ -46,6 +46,12 @@ const PROVIDER_MODEL_INTENTS: Record<string, Record<ModelIntent, string>> = {
     "quality-optimized": "anthropic/claude-fable-5",
     "vision-optimized": "anthropic/claude-opus-4.6",
   },
+  "vercel-ai-gateway": {
+    balanced: "anthropic/claude-sonnet-4.6",
+    "latency-optimized": "anthropic/claude-haiku-4.5",
+    "quality-optimized": "anthropic/claude-fable-5",
+    "vision-optimized": "anthropic/claude-opus-4.6",
+  },
 };
 
 const FALLBACK_DEFAULT_MODEL = "claude-opus-4-8";

@@ -96,12 +96,6 @@ mock.module("../skills/install-meta.js", () => ({
 mock.module("../config/assistant-feature-flags.js", () => ({
   isAssistantFeatureFlagEnabled: () => true,
 }));
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({ memory: { v2: { enabled: false } } }),
-  invalidateConfigCache: () => {},
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-}));
 mock.module("../config/skill-state.js", () => ({
   resolveSkillStates: () => [],
   skillFlagKey: () => null,
@@ -166,6 +160,13 @@ mock.module("../daemon/handlers/shared.js", () => ({
     debug: () => {},
   },
 }));
+
+import { setConfig } from "./helpers/set-config.js";
+
+// The install path calls `refreshSkillCapabilityMemories(getConfig())`, whose
+// v2 seeding (skill-store + qdrant work) is gated on `memory.v2.enabled` —
+// keep it off so the handler tests stay side-effect free.
+setConfig("memory", { v2: { enabled: false } });
 
 // Import after mocking
 import { installSkill } from "../daemon/handlers/skills.js";

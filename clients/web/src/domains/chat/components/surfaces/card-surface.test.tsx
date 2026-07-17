@@ -201,6 +201,32 @@ describe("CardSurface", () => {
     expect(rendered).toContain("Details");
   });
 
+  test("status glyphs carry visually hidden labels for assistive tech", () => {
+    const rendered = renderToStaticMarkup(
+      <CardSurface
+        surface={surface({
+          title: "Connect Gmail",
+          data: {
+            title: "Connect Gmail",
+            body: "",
+            template: "task_progress",
+            templateData: {
+              title: "Connect Gmail",
+              status: "completed",
+              steps: [{ label: "Finishing setup", status: "waiting" }],
+            },
+          },
+        })}
+        onAction={() => undefined}
+      />,
+    );
+
+    // The header glyph and each step glyph are icon-only; the sr-only label
+    // is the only status text exposed to assistive tech.
+    expect(rendered).toContain(">Completed</span>");
+    expect(rendered).toContain("sr-only");
+  });
+
   test("a body-less card renders its title (no loading spinner)", () => {
     const rendered = renderToStaticMarkup(
       <CardSurface

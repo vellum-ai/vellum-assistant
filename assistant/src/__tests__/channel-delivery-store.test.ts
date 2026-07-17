@@ -1,20 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    slack: {
-      teamId: "T123",
-      teamUrl: "https://example.slack.com/",
-    },
-  }),
-}));
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import { eq } from "drizzle-orm";
 
@@ -56,6 +40,11 @@ import {
 } from "../persistence/schema/index.js";
 import { buildConversationDetailResponse } from "../runtime/services/conversation-serializer.js";
 import { handleDeleteConversation } from "./helpers/channel-test-adapter.js";
+import { setConfig } from "./helpers/set-config.js";
+
+// The Slack deep-link assertions below need a workspace identity; seed the
+// real config the serializer reads instead of mocking the loader.
+setConfig("slack", { teamId: "T123", teamUrl: "https://example.slack.com/" });
 
 await initializeDb();
 

@@ -21,12 +21,6 @@ mock.module("../persistence/checkpoints.js", () => ({
   },
 }));
 
-let cacheTtlMs = 4 * 60 * 60 * 1000;
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({ ui: { emptyStateGreetingCacheTtlMs: cacheTtlMs } }),
-}));
-
 // ---------------------------------------------------------------------------
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
@@ -35,11 +29,17 @@ import {
   getCachedEmptyStateGreeting,
   setCachedEmptyStateGreeting,
 } from "../runtime/routes/empty-state-greeting-cache.js";
+import { setConfig } from "./helpers/set-config.js";
+
+/** Seed the cache TTL into the real workspace config. */
+function setCacheTtlMs(ttlMs: number): void {
+  setConfig("ui", { emptyStateGreetingCacheTtlMs: ttlMs });
+}
 
 const TIMESTAMP_KEY = "empty_state:greeting:cached_at";
 
 beforeEach(() => {
-  cacheTtlMs = 4 * 60 * 60 * 1000;
+  setCacheTtlMs(4 * 60 * 60 * 1000);
 });
 
 afterEach(() => {
@@ -84,7 +84,7 @@ describe("empty-state greeting cache", () => {
   });
 
   test("TTL of 0 disables caching: writes are skipped and reads miss", () => {
-    cacheTtlMs = 0;
+    setCacheTtlMs(0);
     setCachedEmptyStateGreeting("should not persist");
     expect(checkpointStore.size).toBe(0);
     expect(getCachedEmptyStateGreeting()).toBeNull();
@@ -92,7 +92,7 @@ describe("empty-state greeting cache", () => {
 
   test("TTL of 0 ignores a value cached while caching was enabled", () => {
     setCachedEmptyStateGreeting("cached while on");
-    cacheTtlMs = 0;
+    setCacheTtlMs(0);
     expect(getCachedEmptyStateGreeting()).toBeNull();
   });
 

@@ -6,15 +6,7 @@
  *   - send()      → one mirrored assistant event per message
  *   - broadcast() → one mirrored assistant event per message (not per socket)
  */
-import { describe, expect, mock, test } from "bun:test";
-
-// ── Platform mock (must happen before imports that read it) ─────────────────
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
+import { describe, expect, test } from "bun:test";
 
 // ── Imports (after mocks) ────────────────────────────────────────────────────
 import type { ServerMessage } from "../daemon/message-protocol.js";

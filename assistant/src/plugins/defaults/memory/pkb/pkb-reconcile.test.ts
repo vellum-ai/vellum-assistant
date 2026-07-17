@@ -3,25 +3,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { makeMockLogger } from "../../../../__tests__/helpers/mock-logger.js";
-
-mock.module("../../../../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
-
 // Capture enqueued PKB re-index jobs.
 const enqueuedJobs: Array<{
   pkbRoot: string;
   absPath: string;
-  memoryScopeId: string;
 }> = [];
 
 mock.module("../jobs/embed-pkb-file.js", () => ({
-  enqueuePkbIndexJob: (input: {
-    pkbRoot: string;
-    absPath: string;
-    memoryScopeId: string;
-  }) => {
+  enqueuePkbIndexJob: (input: { pkbRoot: string; absPath: string }) => {
     enqueuedJobs.push(input);
     return "job-id";
   },
@@ -29,20 +18,13 @@ mock.module("../jobs/embed-pkb-file.js", () => ({
 
 // Capture calls into the fake Qdrant client.
 let scrollPoints: Array<{ id: string; payload: Record<string, unknown> }> = [];
-const deleteCalls: Array<{ path: string; memoryScopeId: string }> = [];
+const deleteCalls: Array<{ path: string }> = [];
 
 mock.module("../../../../persistence/embeddings/qdrant-client.js", () => ({
   getQdrantClient: () => ({
-    scrollByTargetType: async (
-      _targetType: string,
-      _options?: { memoryScopeId?: string },
-    ) => scrollPoints,
-    deleteByTargetTypeAndPath: async (
-      _targetType: string,
-      path: string,
-      memoryScopeId: string,
-    ) => {
-      deleteCalls.push({ path, memoryScopeId });
+    scrollByTargetType: async (_targetType: string) => scrollPoints,
+    deleteByTargetTypeAndPath: async (_targetType: string, path: string) => {
+      deleteCalls.push({ path });
     },
   }),
   resolveQdrantUrl: () => "http://127.0.0.1:6333",
@@ -62,9 +44,6 @@ mock.module(
 mock.module("../../../../persistence/job-utils.js", () => ({
   embedAndUpsert: async () => {},
 }));
-mock.module("../../../../config/loader.js", () => ({
-  getConfig: () => ({ __stub: true }),
-}));
 
 import { reconcilePkbIndex } from "./pkb-reconcile.js";
 
@@ -81,6 +60,8 @@ function pkbPoint(
       path,
       chunk_index: chunkIndex,
       content_hash: contentHash,
+      // Pre-existing points may carry a legacy memory_scope_id key;
+      // reconciliation must tolerate it.
       memory_scope_id: "default",
     },
   };
@@ -120,7 +101,7 @@ describe("reconcilePkbIndex", () => {
     // Qdrant empty.
     scrollPoints = [];
 
-    const result = await reconcilePkbIndex(root, "default");
+    const result = await reconcilePkbIndex(root);
 
     expect(result.enqueued).toBe(2);
     expect(result.deleted).toBe(0);
@@ -130,7 +111,6 @@ describe("reconcilePkbIndex", () => {
     expect(paths.has(join(root, "b.md"))).toBe(true);
     for (const job of enqueuedJobs) {
       expect(job.pkbRoot).toBe(root);
-      expect(job.memoryScopeId).toBe("default");
     }
     expect(deleteCalls).toHaveLength(0);
   });
@@ -147,10 +127,41 @@ describe("reconcilePkbIndex", () => {
       pkbPoint("b.md", hashes.get("b.md")!),
     ];
 
-    const result = await reconcilePkbIndex(root, "default");
+    const result = await reconcilePkbIndex(root);
 
     expect(result.enqueued).toBe(0);
     expect(result.deleted).toBe(0);
+    expect(enqueuedJobs).toHaveLength(0);
+    expect(deleteCalls).toHaveLength(0);
+  });
+
+  test("legacy-format points with scope-prefixed target ids do not trigger re-indexing", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pkb-reconcile-legacy-"));
+    const hashes = await seedPkbAndHash(root, [
+      { path: "notes.md", content: "# Notes" },
+    ]);
+
+    // Point indexed before scope removal: `_pkb_workspace:`-prefixed
+    // target_id plus a legacy memory_scope_id payload key. Reconciliation
+    // diffs on payload path + content_hash only, so a legacy point whose
+    // hash matches disk must read as up to date.
+    scrollPoints = [
+      {
+        id: "_pkb_workspace:notes.md#0",
+        payload: {
+          target_type: "pkb_file",
+          target_id: "_pkb_workspace:notes.md#0",
+          path: "notes.md",
+          chunk_index: 0,
+          content_hash: hashes.get("notes.md")!,
+          memory_scope_id: "_pkb_workspace",
+        },
+      },
+    ];
+
+    const result = await reconcilePkbIndex(root);
+
+    expect(result).toEqual({ enqueued: 0, deleted: 0 });
     expect(enqueuedJobs).toHaveLength(0);
     expect(deleteCalls).toHaveLength(0);
   });
@@ -168,7 +179,7 @@ describe("reconcilePkbIndex", () => {
       pkbPoint("b.md", hashes.get("b.md")!),
     ];
 
-    const result = await reconcilePkbIndex(root, "default");
+    const result = await reconcilePkbIndex(root);
 
     expect(result.enqueued).toBe(1);
     expect(result.deleted).toBe(0);
@@ -189,13 +200,11 @@ describe("reconcilePkbIndex", () => {
       pkbPoint("gone.md", "dead00dead00dead"),
     ];
 
-    const result = await reconcilePkbIndex(root, "default");
+    const result = await reconcilePkbIndex(root);
 
     expect(result.enqueued).toBe(0);
     expect(result.deleted).toBe(1);
-    expect(deleteCalls).toEqual([
-      { path: "gone.md", memoryScopeId: "default" },
-    ]);
+    expect(deleteCalls).toEqual([{ path: "gone.md" }]);
     expect(enqueuedJobs).toHaveLength(0);
   });
 
@@ -212,7 +221,7 @@ describe("reconcilePkbIndex", () => {
       pkbPoint("notes/c.md", "cccccccccccccccc"),
     ];
 
-    const result = await reconcilePkbIndex(missing, "default");
+    const result = await reconcilePkbIndex(missing);
 
     expect(result.enqueued).toBe(0);
     expect(result.deleted).toBe(0);
@@ -227,7 +236,7 @@ describe("reconcilePkbIndex", () => {
 
     scrollPoints = [pkbPoint("a.md", "aaaaaaaaaaaaaaaa")];
 
-    const result = await reconcilePkbIndex(root, "default");
+    const result = await reconcilePkbIndex(root);
 
     expect(result.enqueued).toBe(0);
     expect(result.deleted).toBe(0);
@@ -246,7 +255,7 @@ describe("reconcilePkbIndex", () => {
       pkbPoint("a.md", hashes.get("a.md")!, 1),
     ];
 
-    const result = await reconcilePkbIndex(root, "default");
+    const result = await reconcilePkbIndex(root);
 
     expect(result.enqueued).toBe(0);
     expect(result.deleted).toBe(0);

@@ -95,7 +95,9 @@ export function useAssistantIdentityInit({
     if (!optimisticName) return;
     const { name: current } = useAssistantIdentityStore.getState();
     if (!current) {
-      useAssistantIdentityStore.getState().setIdentity(optimisticName, null);
+      useAssistantIdentityStore
+        .getState()
+        .setIdentity(optimisticName, null, assistantId);
       lastWrittenForRef.current = assistantId;
     }
   }, [canFetchIdentity, assistantId]);
@@ -110,6 +112,7 @@ export function useAssistantIdentityInit({
     useAssistantIdentityStore.getState().setIdentity(
       data.name ?? null,
       data.version ?? null,
+      assistantId,
     );
     lastWrittenForRef.current = assistantId;
   }, [identityQuery.data, assistantId]);

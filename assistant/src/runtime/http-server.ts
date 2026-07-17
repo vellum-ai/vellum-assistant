@@ -75,11 +75,11 @@ import {
 } from "./middleware/twilio-validation.js";
 import { ROUTES as APP_ROUTES } from "./routes/app-routes.js";
 import { ROUTES as AUDIO_ROUTES } from "./routes/audio-routes.js";
-import {
-  startCanonicalGuardianExpirySweep,
-  stopCanonicalGuardianExpirySweep,
-} from "./routes/canonical-guardian-expiry-sweep.js";
 import { RouteError } from "./routes/errors.js";
+import {
+  startGuardianExpirySweep,
+  stopGuardianExpirySweep,
+} from "./routes/guardian-expiry-sweep.js";
 import {
   dbMigrationUnavailableResponse,
   handleHealth,
@@ -89,7 +89,6 @@ import {
   startInferenceProfileSessionReaper,
   stopInferenceProfileSessionReaper,
 } from "./routes/inference-profile-session-reaper.js";
-import { matchSkillRoute } from "./skill-route-registry.js";
 
 // Re-export for consumers
 export { isPrivateAddress } from "./middleware/auth.js";
@@ -105,7 +104,9 @@ const DEFAULT_HOSTNAME = "127.0.0.1";
 const MAX_REQUEST_BODY_BYTES = 512 * 1024 * 1024;
 
 function dbMigrationUnavailableForEndpoint(endpoint: string): Response | null {
-  if (isDbMigrationGateBypassed(endpoint)) return null;
+  if (isDbMigrationGateBypassed(endpoint)) {
+    return null;
+  }
   return dbMigrationUnavailableResponse();
 }
 
@@ -311,7 +312,9 @@ export class RuntimeHttpServer {
           }
           if (data.wsType === "stt-stream") {
             const session = data.session;
-            if (!session) return;
+            if (!session) {
+              return;
+            }
 
             if (typeof message === "string") {
               session.handleMessage(message);
@@ -459,7 +462,7 @@ export class RuntimeHttpServer {
 
   /**
    * Start background sweep timers: retry sweep for failed channel events,
-   * guardian approval/action expiry sweeps, and canonical guardian expiry.
+   * the guardian-request expiry sweep, and the inference-profile session reaper.
    *
    * These all touch the ORM, so the daemon defers this until DB migrations
    * have settled — successfully or in the failed degraded mode, where the DB
@@ -468,17 +471,23 @@ export class RuntimeHttpServer {
    * calls are no-ops.
    */
   startBackgroundSweeps(): void {
-    if (this.sweepsStarted) return;
+    if (this.sweepsStarted) {
+      return;
+    }
     this.sweepsStarted = true;
     if (!this.retrySweepTimer) {
       this.retrySweepTimer = setInterval(() => {
-        if (this.sweepInProgress) return;
+        if (this.sweepInProgress) {
+          return;
+        }
         // Replays route through processMessage, which refuses turns while
         // migration readiness is unready — and each refused replay would count
         // toward the event's dead-letter budget. Skip the cycle instead so
         // events queued before a failed migration survive until a restart
         // repairs the schema.
-        if (!getDbMigrationReadiness().ready) return;
+        if (!getDbMigrationReadiness().ready) {
+          return;
+        }
         this.sweepInProgress = true;
         void sweepFailedEvents(processMessage)
           .catch((err) => {
@@ -490,15 +499,15 @@ export class RuntimeHttpServer {
       }, 30_000);
     }
 
-    startCanonicalGuardianExpirySweep();
-    log.info("Canonical guardian request expiry sweep started");
+    startGuardianExpirySweep();
+    log.info("Guardian request expiry sweep started");
 
     startInferenceProfileSessionReaper();
     log.info("Inference profile session reaper started");
   }
 
   async stop(): Promise<void> {
-    stopCanonicalGuardianExpirySweep();
+    stopGuardianExpirySweep();
     stopInferenceProfileSessionReaper();
     if (this.retrySweepTimer) {
       clearInterval(this.retrySweepTimer);
@@ -573,7 +582,9 @@ export class RuntimeHttpServer {
     }
 
     const migrationResponse = dbMigrationUnavailableForPath(path);
-    if (migrationResponse) return migrationResponse;
+    if (migrationResponse) {
+      return migrationResponse;
+    }
 
     // WebSocket upgrade for Twilio Media Streams — before auth check because
     // Twilio WebSocket connections don't use bearer tokens; restricted to
@@ -606,7 +617,9 @@ export class RuntimeHttpServer {
     // Twilio webhook endpoints — before auth check because Twilio
     // webhook POSTs don't include bearer tokens.
     const twilioResponse = await this.handleTwilioWebhook(req, path);
-    if (twilioResponse) return twilioResponse;
+    if (twilioResponse) {
+      return twilioResponse;
+    }
 
     // Audio serving endpoint — before auth check because Twilio
     // fetches these URLs directly (isPublic route, ATL-314).
@@ -637,20 +650,6 @@ export class RuntimeHttpServer {
         }
         throw err;
       }
-    }
-
-    // Skill-registered routes (e.g. meet-bot event ingress). Handled before
-    // JWT auth because skills may use their own auth (e.g. per-meeting bearer
-    // tokens minted by a session manager).
-    const skillMatch = matchSkillRoute(path, req.method);
-    if (skillMatch) {
-      if (skillMatch.kind === "methodMismatch") {
-        return new Response("Method Not Allowed", {
-          status: 405,
-          headers: { Allow: skillMatch.allow.join(", ") },
-        });
-      }
-      return await skillMatch.route.handler(req, skillMatch.match);
     }
 
     // JWT bearer authentication — replaces the old shared-secret comparison.
@@ -749,7 +748,9 @@ export class RuntimeHttpServer {
   }
 
   private verifyGatewayServiceToken(req: Request): Response | null {
-    if (isHttpAuthDisabled()) return null;
+    if (isHttpAuthDisabled()) {
+      return null;
+    }
 
     const wsUrl = new URL(req.url);
     const token = wsUrl.searchParams.get("token");
@@ -784,7 +785,9 @@ export class RuntimeHttpServer {
 
     // Verify the gateway service token before accepting the upgrade.
     const tokenError = this.verifyGatewayServiceToken(req);
-    if (tokenError) return tokenError;
+    if (tokenError) {
+      return tokenError;
+    }
 
     const wsUrl = new URL(req.url);
     const callSessionId = wsUrl.searchParams.get("callSessionId");
@@ -828,7 +831,9 @@ export class RuntimeHttpServer {
 
     // Verify the gateway service token before accepting the upgrade.
     const tokenError = this.verifyGatewayServiceToken(req);
-    if (tokenError) return tokenError;
+    if (tokenError) {
+      return tokenError;
+    }
 
     const wsUrl = new URL(req.url);
     // provider is optional compatibility metadata — the runtime resolves
@@ -881,7 +886,9 @@ export class RuntimeHttpServer {
     }
 
     const tokenError = this.verifyGatewayServiceToken(req);
-    if (tokenError) return tokenError;
+    if (tokenError) {
+      return tokenError;
+    }
 
     const upgraded = server.upgrade(req, {
       data: {
@@ -940,8 +947,17 @@ export class RuntimeHttpServer {
   ): Promise<void> {
     if (frame.type === "start") {
       if (ws.data.sessionId) {
-        this.sendLiveVoiceStateError(ws, "Live voice session already started");
-        return;
+        // A session that failed after `ready` releases its manager slot
+        // without a frame crossing this socket — heal the stale binding so
+        // the client can retry on the same connection.
+        if (this.liveVoiceSessionManager.isSessionActive(ws.data.sessionId)) {
+          this.sendLiveVoiceStateError(
+            ws,
+            "Live voice session already started",
+          );
+          return;
+        }
+        ws.data.sessionId = undefined;
       }
 
       const result = await this.liveVoiceSessionManager.startSession(frame, {
@@ -1016,7 +1032,9 @@ export class RuntimeHttpServer {
   ): void {
     const sessionId = data.sessionId;
     data.sessionId = undefined;
-    if (!sessionId) return;
+    if (!sessionId) {
+      return;
+    }
 
     void this.liveVoiceSessionManager
       .releaseSession(sessionId, reason)
@@ -1044,7 +1062,9 @@ export class RuntimeHttpServer {
       : gatewayTwilioMatch
         ? GATEWAY_SUBPATH_MAP[gatewayTwilioMatch[1]]
         : null;
-    if (!resolvedTwilioSubpath || req.method !== "POST") return null;
+    if (!resolvedTwilioSubpath || req.method !== "POST") {
+      return null;
+    }
 
     const twilioSubpath = resolvedTwilioSubpath;
 
@@ -1057,14 +1077,18 @@ export class RuntimeHttpServer {
     }
 
     const validation = await validateTwilioWebhook(req);
-    if (validation instanceof Response) return validation;
+    if (validation instanceof Response) {
+      return validation;
+    }
 
     const validatedReq = cloneRequestWithBody(req, validation.body);
 
-    if (twilioSubpath === "voice-webhook")
+    if (twilioSubpath === "voice-webhook") {
       return await handleVoiceWebhook(validatedReq);
-    if (twilioSubpath === "status")
+    }
+    if (twilioSubpath === "status") {
       return await handleStatusCallback(validatedReq);
+    }
 
     return null;
   }
@@ -1118,7 +1142,9 @@ export function startRuntimeHttpServerBackgroundSweeps(): void {
 
 /** Stop the runtime HTTP server singleton if one is running; no-op otherwise. */
 export async function stopRuntimeHttpServer(): Promise<void> {
-  if (!instance) return;
+  if (!instance) {
+    return;
+  }
   await instance.stop();
   instance = null;
 }

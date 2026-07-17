@@ -10,7 +10,7 @@
 
 import { describe, expect, test } from "bun:test";
 
-import type { TrustContext } from "../daemon/trust-context.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import { RiskLevel } from "../permissions/types.js";
 import {
   type InitContext,
@@ -68,13 +68,6 @@ describe("plugin core types", () => {
         },
       },
       tools: [sampleTool],
-      routes: [
-        {
-          pattern: /^\/sample$/,
-          methods: ["GET"],
-          handler: async () => new Response("ok", { status: 200 }),
-        },
-      ],
     } satisfies Plugin;
 
     // Minimal runtime check so the test body is non-empty.

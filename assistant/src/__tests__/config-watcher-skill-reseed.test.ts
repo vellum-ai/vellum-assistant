@@ -15,14 +15,6 @@ const WORKSPACE_DIR = mkdtempSync(join(tmpdir(), "vellum-skills-watch-"));
 const SKILLS_DIR = join(WORKSPACE_DIR, "skills");
 process.env.VELLUM_WORKSPACE_DIR = WORKSPACE_DIR;
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-  truncateForLog: (v: string) => v,
-}));
-
 type WatchCallback = (eventType: string, filename: string | null) => void;
 
 interface CapturedWatcher {
@@ -74,14 +66,6 @@ mock.module("node:fs", () => {
     },
   };
 });
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    memory: { v2: { enabled: false } },
-  }),
-  invalidateConfigCache: () => {},
-}));
 
 mock.module("../persistence/embeddings/embedding-backend.js", () => ({
   clearEmbeddingBackendCache: () => {},
@@ -136,6 +120,7 @@ mock.module("../runtime/sync/resource-sync-events.js", () => ({
   publishConfigChanged: () => {},
   publishSoundsConfigUpdated: () => {},
   publishAvatarChanged: () => {},
+  publishWorkspaceThemeChanged: () => {},
 }));
 
 mock.module("../platform/sync-identity.js", () => ({

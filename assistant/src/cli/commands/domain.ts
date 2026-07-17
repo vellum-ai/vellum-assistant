@@ -1,12 +1,29 @@
+import { createRequire } from "node:module";
+
 import type { Command } from "commander";
 
-import { getApexDomain, getAssistantDomain } from "../../config/env.js";
 import { cliIpcCall, exitFromIpcResult } from "../../ipc/cli-client.js";
+import { applyCommandHelp, subcommand } from "../lib/cli-command-help.js";
 import { registerCommand } from "../lib/register-command.js";
 import { getCliLogger } from "../logger.js";
 import { shouldOutputJson, writeOutput } from "../output.js";
+import { domainHelp } from "./domain.help.js";
+
+const loadModule = createRequire(import.meta.url);
 
 const log = getCliLogger("domain");
+
+/**
+ * Loaded lazily because config/env pulls the full config-loader graph. Sync
+ * require rather than import(): commander invokes help-text callbacks
+ * synchronously, so there is no place to await a module load.
+ */
+function envDomains(): { apexDomain: string; baseDomain: string } {
+  const { getApexDomain, getAssistantDomain } = loadModule(
+    "../../config/env.js",
+  ) as typeof import("../../config/env.js");
+  return { apexDomain: getApexDomain(), baseDomain: getAssistantDomain() };
+}
 
 function handleDomainIpcError(
   r: { ok: false; error?: string; statusCode?: number },
@@ -21,19 +38,20 @@ function handleDomainIpcError(
 }
 
 export function registerDomainCommand(program: Command): void {
-  const apexDomain = getApexDomain();
-  const baseDomain = getAssistantDomain();
   registerCommand(program, {
-    name: "domain",
+    name: domainHelp.name,
     transport: "ipc",
-    description: `Register and manage this assistant's custom subdomain on ${baseDomain}`,
+    description: domainHelp.description,
     build: (domain) => {
-      domain.option("--json", "Machine-readable compact JSON output");
+      applyCommandHelp(domain, domainHelp);
 
+      // The help text below interpolates runtime-resolved domains, so it
+      // cannot be expressed as static data in the .help module and stays
+      // registered imperatively as a callback.
       domain.addHelpText(
         "after",
-        `
-Each assistant can register its own subdomain (e.g. velly.${baseDomain})
+        () => `
+Each assistant can register its own subdomain (e.g. velly.${envDomains().baseDomain})
 for email and web presence. DNS managed by the Vellum platform.
 
 Examples:
@@ -43,18 +61,10 @@ Examples:
   $ assistant domain status velly`,
       );
 
-      domain
-        .command("register [subdomain]")
-        .option(
-          "--email-username <username>",
-          "Also register an email address (e.g. --email-username hello → hello@<subdomain>.domain)",
-        )
-        .description(
-          `Register a custom subdomain on ${baseDomain} for this assistant`,
-        )
-        .addHelpText(
-          "after",
-          `
+      subcommand(domain, "register")
+        .addHelpText("after", () => {
+          const { baseDomain } = envDomains();
+          return `
 Arguments:
   subdomain   The subdomain to register (e.g. "velly" → velly.${baseDomain}).
               If omitted, the platform derives it from the assistant's name.
@@ -77,8 +87,8 @@ Examples:
   ✓ Registered my-assistant.${baseDomain}
 
   $ assistant domain register velly --json
-  {"domain":"velly.${baseDomain}","id":"..."}`,
-        )
+  {"domain":"velly.${baseDomain}","id":"..."}`;
+        })
         .action(
           async (
             subdomain: string | undefined,
@@ -102,13 +112,15 @@ Examples:
               email_error?: { detail: string; code: string };
             }>("domain_register", { body });
 
-            if (!r.ok)
+            if (!r.ok) {
               return handleDomainIpcError(
                 { ok: false, error: r.error, statusCode: r.statusCode },
                 cmd,
               );
+            }
 
             const data = r.result!;
+            const { apexDomain } = envDomains();
             const registeredSubdomain =
               data.subdomain ??
               data.domain?.replace(`.${apexDomain}`, "") ??
@@ -138,14 +150,10 @@ Examples:
           },
         );
 
-      domain
-        .command("status <subdomain>")
-        .description(
-          "Show registration and DNS verification status for a subdomain",
-        )
+      subcommand(domain, "status")
         .addHelpText(
           "after",
-          `
+          () => `
 Arguments:
   subdomain   The subdomain to check (e.g. "velly").
 
@@ -154,7 +162,7 @@ status from the email provider.
 
 Examples:
   $ assistant domain status velly
-  Domain:       velly.${baseDomain}
+  Domain:       velly.${envDomains().baseDomain}
   Verification: verified
                 DNS records have been verified. Your domain is ready to send and receive email.
   Created:      2026-04-15
@@ -173,17 +181,16 @@ Examples:
             }[];
           }>("domain_status");
 
-          if (!r.ok)
+          if (!r.ok) {
             return handleDomainIpcError(
               { ok: false, error: r.error, statusCode: r.statusCode },
               cmd,
             );
+          }
 
           const data = r.result!;
           const domains = data.results ?? [];
-          const d = domains.find(
-            (entry) => entry.subdomain === subdomain,
-          );
+          const d = domains.find((entry) => entry.subdomain === subdomain);
 
           if (!d) {
             if (shouldOutputJson(cmd)) {
@@ -214,7 +221,9 @@ Examples:
           } else {
             const displayDomain =
               d.domain ??
-              (d.subdomain ? `${d.subdomain}.${apexDomain}` : "unknown");
+              (d.subdomain
+                ? `${d.subdomain}.${envDomains().apexDomain}`
+                : "unknown");
             const createdRaw = d.created_at ?? d.created;
             const createdDate = createdRaw
               ? createdRaw.split("T")[0]

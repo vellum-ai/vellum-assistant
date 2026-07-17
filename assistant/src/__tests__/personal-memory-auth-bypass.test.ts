@@ -14,10 +14,8 @@
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import {
-  isPersonalMemoryAllowed,
-  type TrustContext,
-} from "../daemon/trust-context.js";
+import { isPersonalMemoryAllowed } from "../daemon/trust-context.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import type { TrustClass } from "../runtime/actor-trust-resolver.js";
 
 function slack(trustClass: TrustClass): TrustContext {

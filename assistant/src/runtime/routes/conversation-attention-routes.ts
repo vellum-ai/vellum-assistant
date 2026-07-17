@@ -75,7 +75,7 @@ function handleListConversationAttention({
       if (msg?.content) {
         snippetMap.set(
           attn.latestAssistantMessageId,
-          truncate(msg.content, 200, ""),
+          truncate(JSON.stringify(msg.content), 200, ""),
         );
       }
     }

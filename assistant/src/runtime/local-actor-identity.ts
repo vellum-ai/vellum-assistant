@@ -57,12 +57,14 @@ export async function findLocalGuardianPrincipalId(): Promise<
   string | undefined
 > {
   const list = await getGuardianDelivery({ channelTypes: ["vellum"] });
-  if (!list) return undefined;
+  if (!list) {
+    return undefined;
+  }
   return guardianForChannel(list, "vellum")?.principalId ?? undefined;
 }
 
 /**
- * Resolve a decidable guardian principal for canonical guardian-request
+ * Resolve a decidable guardian principal for guardian-request
  * creation: the channel binding's principal when present, else the vellum
  * anchor principal (the adopt/repair path for guardian rows that carry no
  * principal). A falsy binding principal (`null` or `""`) is unresolved by
@@ -106,7 +108,9 @@ export async function warmLocalGuardianPrincipalCache(): Promise<void> {
  */
 export function findLocalGuardianPrincipalIdFromStore(): string | undefined {
   const cached = peekCachedGuardianDelivery({ channelTypes: ["vellum"] });
-  if (!cached) return undefined;
+  if (!cached) {
+    return undefined;
+  }
   return guardianForChannel(cached, "vellum")?.principalId ?? undefined;
 }
 
@@ -134,10 +138,14 @@ export function findLocalGuardianPrincipalIdFromStore(): string | undefined {
 export async function resolveActorPrincipalIdForLocalGuardian(
   rawHeader: string | undefined,
 ): Promise<string | undefined> {
-  if (rawHeader !== "dev-bypass" || !isHttpAuthDisabled()) return rawHeader;
+  if (rawHeader !== "dev-bypass" || !isHttpAuthDisabled()) {
+    return rawHeader;
+  }
 
   const guardianPrincipalId = await findLocalGuardianPrincipalId();
-  if (guardianPrincipalId) return guardianPrincipalId;
+  if (guardianPrincipalId) {
+    return guardianPrincipalId;
+  }
 
   log.warn(
     "dev-bypass actor principal received but no vellum guardian binding found; returning undefined",
@@ -157,10 +165,14 @@ export async function resolveActorPrincipalIdForLocalGuardian(
 export function resolveActorPrincipalIdForLocalGuardianSync(
   rawHeader: string | undefined,
 ): string | undefined {
-  if (rawHeader !== "dev-bypass" || !isHttpAuthDisabled()) return rawHeader;
+  if (rawHeader !== "dev-bypass" || !isHttpAuthDisabled()) {
+    return rawHeader;
+  }
 
   const guardianPrincipalId = findLocalGuardianPrincipalIdFromStore();
-  if (guardianPrincipalId) return guardianPrincipalId;
+  if (guardianPrincipalId) {
+    return guardianPrincipalId;
+  }
 
   log.warn(
     "dev-bypass actor principal received but no vellum guardian binding found; returning undefined",

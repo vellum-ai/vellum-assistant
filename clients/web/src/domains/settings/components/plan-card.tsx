@@ -1,211 +1,461 @@
-import { Crown, FileText, Loader2, Palmtree, type LucideIcon } from "lucide-react";
+import { Computer, HardDrive, Loader2, Microchip, Sparkles } from "lucide-react";
 
 import { useState } from "react";
 
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
+import { AvatarRenderer } from "@/components/avatar-renderer";
+import {
+    nextPackageUp,
+    type ProPackage,
+} from "@/domains/settings/billing/package-types";
 import {
     formatGraceDate,
     getEffectiveCancelDate,
 } from "@/domains/settings/hooks/use-billing-portal-session";
 import {
     organizationsBillingPlansRetrieveOptions,
+    organizationsBillingPlansRetrieveQueryKey,
     organizationsBillingSubscriptionRetrieveOptions,
+    organizationsBillingSubscriptionRetrieveQueryKey,
+    organizationsBillingSubscriptionUpgradeCreateMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
-import type { ProPlan } from "@/generated/api/types.gen";
+import type { MachineSizeEnum, ProPlan } from "@/generated/api/types.gen";
+import { SIZE_DESCRIPTION, SIZE_LABEL } from "@/lib/billing/machine-sizes";
+import { openUrl } from "@/runtime/browser";
+import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
 import type { ButtonProps } from "@vellumai/design-library/components/button";
 import { Button } from "@vellumai/design-library/components/button";
 import { Card } from "@vellumai/design-library/components/card";
 import { Notice } from "@vellumai/design-library/components/notice";
+import { Tag } from "@vellumai/design-library/components/tag";
+import { toast } from "@vellumai/design-library/components/toast";
 import { Typography } from "@vellumai/design-library/components/typography";
-import { InvoicesModal } from "./invoices-modal";
-import { PlanFeatureList } from "./plan-feature-list";
+import { extractMutationError } from "./adjust-plan-utils";
 import { formatMonthly } from "./tier-pricing";
 
 interface PlanDisplay {
-  icon: LucideIcon;
-  actionLabel: string;
-  actionVariant: ButtonProps["variant"];
-  actionTestId: string;
-  showsRenewal: boolean;
+    actionLabel: string;
+    actionVariant: ButtonProps["variant"];
+    actionTestId: string;
+    showsRenewal: boolean;
 }
 
 const PLAN_DISPLAY: Record<string, PlanDisplay> = {
-  pro: {
-    icon: Crown,
-    actionLabel: "Manage",
-    actionVariant: "outlined",
-    actionTestId: "plan-card-manage-button",
-    showsRenewal: true,
-  },
-  base: {
-    icon: Palmtree,
-    actionLabel: "Upgrade to Pro",
-    actionVariant: "primary",
-    actionTestId: "plan-card-upgrade-button",
-    showsRenewal: false,
-  },
+    pro: {
+        actionLabel: "Manage",
+        actionVariant: "outlined",
+        actionTestId: "plan-card-manage-button",
+        showsRenewal: true,
+    },
+    base: {
+        actionLabel: "View Plans",
+        actionVariant: "primary",
+        actionTestId: "plan-card-upgrade-button",
+        showsRenewal: true,
+    },
 };
 
 const DEFAULT_DISPLAY: PlanDisplay = PLAN_DISPLAY.base;
 
 export interface PlanCardProps {
-  onManage: () => void;
+    onManage: () => void;
+}
+
+/** Accent color per Pro package tier, keyed by `ProPackage.key` ("free" for the base plan). */
+const TIER_ACCENT: Record<string, string> = {
+    free: "#E9C91A",
+    mighty: "#4C9B50",
+    super: "#0E9B8B",
+    ultra: "#EF4300",
+};
+
+/** Vellum creature traits per plan tier, matching the Figma 6982-157482 creatures. */
+const TIER_TRAITS: Record<
+    string,
+    { bodyShape: string; eyeStyle: string; color: string }
+> = {
+    free: { bodyShape: "ninja", eyeStyle: "angry", color: "yellow" },
+    mighty: { bodyShape: "blob", eyeStyle: "grumpy", color: "green" },
+    super: { bodyShape: "urchin", eyeStyle: "goofy", color: "teal" },
+    ultra: { bodyShape: "sprout", eyeStyle: "curious", color: "orange" },
+};
+
+/**
+ * Vellum creature avatar for a plan tier. The ~48 kB bundled component payload
+ * loads lazily; a same-size placeholder holds the layout until it resolves.
+ */
+function PlanTierAvatar({ tier, size = 40 }: { tier: string; size?: number }) {
+    const traits = TIER_TRAITS[tier] ?? TIER_TRAITS.free;
+    const components = useBundledAvatarComponents();
+    return (
+        <div aria-hidden className="inline-flex shrink-0">
+            {components ? (
+                <AvatarRenderer
+                    components={components}
+                    bodyShapeId={traits.bodyShape}
+                    eyeStyleId={traits.eyeStyle}
+                    colorId={traits.color}
+                    size={size}
+                />
+            ) : (
+                <div style={{ width: size, height: size }} />
+            )}
+        </div>
+    );
 }
 
 function PlanHeading() {
-  return (
-    <div>
-      <Typography
-        as="h2"
-        variant="title-medium"
-        className="text-[var(--content-default)]"
-      >
-        Plan
-      </Typography>
-      <Typography
-        as="p"
-        variant="body-small-default"
-        className="mt-2 text-[var(--content-tertiary)]"
-      >
-        Manage which Vellum plan you&apos;re on.
-      </Typography>
-    </div>
-  );
+    return (
+        <Typography
+            as="h2"
+            variant="title-medium"
+            className="text-[var(--content-emphasised)]"
+        >
+            Plan
+        </Typography>
+    );
+}
+
+/**
+ * The "standard" machine a package with no `machine_size` runs on — 2 vCPU per
+ * `SIZE_DESCRIPTION.small`, not an invented spec.
+ */
+const STANDARD_MACHINE = { sizeLabel: "Small", vcpu: "2" } as const;
+
+/**
+ * Storage included with the free/base plan. The plan catalog's BasePlan entry
+ * carries no storage field, so the baseline comes from the pricing spec
+ * (Free = 4 GiB).
+ */
+const FREE_STORAGE_GIB = 4;
+
+/** Machine size label + vCPU count for a package (or the standard machine). */
+function machineInfo(pkg: ProPackage | null): {
+    sizeLabel: string;
+    vcpu: string;
+} {
+    if (!pkg?.machine_size) {
+        return STANDARD_MACHINE;
+    }
+    const size = pkg.machine_size as MachineSizeEnum;
+    const vcpuMatch = SIZE_DESCRIPTION[size]?.match(/(\d+\.?\d*)\s*vCPU/);
+    return {
+        sizeLabel: SIZE_LABEL[size] ?? pkg.machine_size,
+        vcpu: vcpuMatch ? vcpuMatch[1] : STANDARD_MACHINE.vcpu,
+    };
+}
+
+interface ResourceDelta {
+    icon: typeof Computer;
+    label: string;
+}
+
+/** "X → Y" only when the resource actually changes; the bare value otherwise. */
+function arrow(from: string, to: string): string {
+    return from === to ? to : `${from} → ${to}`;
+}
+
+function buildDeltas(
+    recommended: ProPackage,
+    currentPackage: ProPackage | null,
+): ResourceDelta[] {
+    const from = machineInfo(currentPackage);
+    const to = machineInfo(recommended);
+    const fromStorage = currentPackage?.storage_gib ?? FREE_STORAGE_GIB;
+    return [
+        { icon: Computer, label: `${arrow(from.sizeLabel, to.sizeLabel)} Machine` },
+        {
+            icon: Microchip,
+            label: `${arrow(from.vcpu, to.vcpu)} vCPU${to.vcpu === "1" ? "" : "'s"}`,
+        },
+        {
+            icon: HardDrive,
+            label: `${arrow(String(fromStorage), String(recommended.storage_gib))} GB`,
+        },
+    ];
+}
+
+interface RecommendedUpgradeProps {
+    packages: ProPackage[];
+    currentKey: string | null;
+    /**
+     * Delegate for subscribers who are already on Pro — the upgrade endpoint
+     * no-ops for active Pro orgs, so package step-ups go through the manage
+     * flow instead. When absent (base plan), the CTA starts the Stripe
+     * package checkout directly.
+     */
+    onUpgrade?: () => void;
+}
+
+function RecommendedUpgrade({
+    packages,
+    currentKey,
+    onUpgrade,
+}: RecommendedUpgradeProps) {
+    const queryClient = useQueryClient();
+    const upgradeMutation = useMutation(
+        organizationsBillingSubscriptionUpgradeCreateMutation(),
+    );
+    const [pending, setPending] = useState(false);
+
+    const recommended = nextPackageUp(packages, currentKey);
+    if (!recommended) return null;
+
+    const currentPackage = currentKey
+        ? (packages.find((p) => p.key === currentKey) ?? null)
+        : null;
+    const currentPriceCents = currentPackage?.total_price_cents ?? 0;
+    const deltas = buildDeltas(recommended, currentPackage);
+    const priceLabel = `${formatMonthly(recommended.total_price_cents).replace("/mo", "")} / Monthly`;
+    const deltaCents = recommended.total_price_cents - currentPriceCents;
+    const upgradeLabel = `Upgrade for ${formatMonthly(deltaCents)} more`;
+    const accent = TIER_ACCENT[recommended.key] ?? TIER_ACCENT.free;
+    const tint = `color-mix(in srgb, ${accent} 10%, transparent)`;
+    const isPending = pending || upgradeMutation.isPending;
+
+    const handleUpgrade = async () => {
+        if (onUpgrade) {
+            onUpgrade();
+            return;
+        }
+        setPending(true);
+        try {
+            // A package checkout resolves its own line items server-side;
+            // explicit tiers / include_platform_fee alongside `package` are
+            // rejected by the upgrade serializer.
+            const result = await upgradeMutation.mutateAsync({
+                body: {
+                    target_plan_id: "pro",
+                    package: recommended.key,
+                    confirm: true,
+                },
+            });
+            if (result.status === "redirect" && result.checkout_url) {
+                // Stripe redirects back to the billing page with a
+                // `session_id`, which opens the post-checkout Pro onboarding
+                // wizard.
+                openUrl(result.checkout_url);
+            } else {
+                await queryClient.invalidateQueries({
+                    queryKey: organizationsBillingSubscriptionRetrieveQueryKey(),
+                });
+                await queryClient.invalidateQueries({
+                    queryKey: organizationsBillingPlansRetrieveQueryKey(),
+                });
+            }
+        } catch (error) {
+            toast.error(
+                extractMutationError(
+                    error,
+                    "Failed to start the upgrade checkout. Please try again.",
+                ),
+            );
+        } finally {
+            setPending(false);
+        }
+    };
+
+    return (
+        <div
+            className="flex flex-col gap-6 rounded-lg p-3"
+            style={{ backgroundColor: tint }}
+        >
+            <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                    <PlanTierAvatar tier={recommended.key} />
+                    <div className="flex flex-col gap-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                            <Typography
+                                as="span"
+                                variant="body-large-default"
+                                className="text-[var(--content-default)]"
+                            >
+                                {recommended.name}
+                            </Typography>
+                            <Tag
+                                className="bg-[var(--feed-digest-weak)] text-[var(--credits-accent)]"
+                                leftIcon={
+                                    <Sparkles className="h-3 w-3 text-[var(--credits-accent)]" />
+                                }
+                            >
+                                Recommended Upgrade
+                            </Tag>
+                        </div>
+                        <Typography
+                            as="span"
+                            variant="body-small-default"
+                            className="text-[var(--content-tertiary)]"
+                        >
+                            {priceLabel}
+                        </Typography>
+                    </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                    {deltas.map((delta) => {
+                        const Icon = delta.icon;
+                        return (
+                            <div
+                                key={delta.label}
+                                className="flex h-8 items-center gap-1.5 rounded-lg px-2 py-1.5"
+                                style={{ backgroundColor: tint }}
+                            >
+                                <Icon
+                                    className="h-3.5 w-3.5 shrink-0 text-[var(--content-default)]"
+                                    aria-hidden
+                                />
+                                <Typography
+                                    as="span"
+                                    variant="body-medium-default"
+                                    className="whitespace-nowrap text-[var(--content-default)]"
+                                >
+                                    {delta.label}
+                                </Typography>
+                            </div>
+                        );
+                    })}
+                </div>
+            </div>
+            <Button
+                variant="primary"
+                className="self-start"
+                onClick={handleUpgrade}
+                disabled={isPending}
+                leftIcon={
+                    isPending ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : undefined
+                }
+                data-testid="recommended-upgrade-button"
+            >
+                {upgradeLabel}
+            </Button>
+        </div>
+    );
 }
 
 export function PlanCard({ onManage }: PlanCardProps) {
-  const [invoicesOpen, setInvoicesOpen] = useState(false);
-  const subscriptionQuery = useQuery(
-    organizationsBillingSubscriptionRetrieveOptions(),
-  );
-  const plansQuery = useQuery(organizationsBillingPlansRetrieveOptions());
-
-  if (subscriptionQuery.isLoading || plansQuery.isLoading) {
-    return (
-      <Card padding="md">
-        <PlanHeading />
-        <div className="mt-4 flex items-center gap-2 text-[var(--content-tertiary)]">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          <Typography as="span" variant="body-small-default">
-            Loading plan...
-          </Typography>
-        </div>
-      </Card>
+    const subscriptionQuery = useQuery(
+        organizationsBillingSubscriptionRetrieveOptions(),
     );
-  }
+    const plansQuery = useQuery(organizationsBillingPlansRetrieveOptions());
 
-  const subscription = subscriptionQuery.data;
-  const plans = plansQuery.data?.plans;
-  const currentPlan = plans?.find((p) => p.id === subscription?.plan_id);
+    if (subscriptionQuery.isLoading || plansQuery.isLoading) {
+        return (
+            <Card padding="md">
+                <PlanHeading />
+                <div className="mt-4 flex items-center gap-2 text-[var(--content-tertiary)]">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <Typography as="span" variant="body-small-default">
+                        Loading plan...
+                    </Typography>
+                </div>
+            </Card>
+        );
+    }
 
-  if (
-    subscriptionQuery.isError ||
-    plansQuery.isError ||
-    !subscription ||
-    !plans ||
-    !currentPlan
-  ) {
-    return <Notice tone="error">Failed to load plan.</Notice>;
-  }
+    const subscription = subscriptionQuery.data;
+    const plans = plansQuery.data?.plans;
+    const currentPlan = plans?.find((p) => p.id === subscription?.plan_id);
 
-  const display = PLAN_DISPLAY[currentPlan.id] ?? DEFAULT_DISPLAY;
-  const PlanIcon = display.icon;
-  const planName = currentPlan.name ?? currentPlan.id;
+    if (
+        subscriptionQuery.isError ||
+        plansQuery.isError ||
+        !subscription ||
+        !plans ||
+        !currentPlan
+    ) {
+        return <Notice tone="error">Failed to load plan.</Notice>;
+    }
 
-  const isCancelling =
-    display.showsRenewal &&
-    (subscription.cancel_at_period_end === true ||
-      Boolean(subscription.cancel_at));
-  const isCanceled = subscription.status === "canceled";
-  const cancelDate = getEffectiveCancelDate(subscription);
-  const showRenewal = display.showsRenewal && !isCancelling && !isCanceled && subscription.current_period_end;
-  const showCancellation = display.showsRenewal && isCancelling && !isCanceled && cancelDate;
+    const display = PLAN_DISPLAY[currentPlan.id] ?? DEFAULT_DISPLAY;
+    const planName = currentPlan.name ?? currentPlan.id;
 
-  // Catalog-gated current credit bundle, shown only for a Pro org with a
-  // non-null selected tier when the catalog advertises `credit_tiers`. Resolve
-  // the label/price from the catalog, falling back to the raw tier key. A null
-  // selection (no bundle / $0) renders nothing.
-  const proPlan = currentPlan.id === "pro" ? (currentPlan as ProPlan) : undefined;
-  const selectedCreditTier = subscription.selected_credit_tier ?? null;
-  const creditTiers =
-    selectedCreditTier != null ? proPlan?.credit_tiers : undefined;
-  const creditTier = creditTiers?.find((t) => t.tier === selectedCreditTier);
-  const creditBundleLabel = creditTier
-    ? `${creditTier.label} (${formatMonthly(creditTier.price_cents)})`
-    : creditTiers?.length
-      ? selectedCreditTier
-      : null;
+    const isCancelling =
+        display.showsRenewal &&
+        (subscription.cancel_at_period_end === true ||
+            Boolean(subscription.cancel_at));
+    const isCanceled = subscription.status === "canceled";
+    const cancelDate = getEffectiveCancelDate(subscription);
+    const showRenewal =
+        display.showsRenewal &&
+        !isCancelling &&
+        !isCanceled &&
+        subscription.current_period_end;
+    const showCancellation =
+        display.showsRenewal && isCancelling && !isCanceled && cancelDate;
 
-  return (
-    <Card padding="lg">
-      <div className="flex flex-col gap-4">
-        <div className="flex items-start justify-between gap-3">
-          <PlanHeading />
-          <Button
-            variant="outlined"
-            leftIcon={<FileText />}
-            onClick={() => setInvoicesOpen(true)}
-            data-testid="plan-card-invoices-button"
-          >
-            Invoices
-          </Button>
-        </div>
-        <div className="flex items-center gap-3 rounded-lg bg-[var(--surface-base)] p-3">
-          <span
-            aria-hidden
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[var(--border-base)] bg-[var(--surface-overlay)]"
-          >
-            <PlanIcon className="h-4 w-4 text-[var(--content-default)]" />
-          </span>
-          <div className="min-w-0 flex-1 space-y-0.5">
-            <Typography variant="body-medium-default" as="div" data-testid="plan-card-name">
-              {planName}
-            </Typography>
-            <Typography variant="body-small-default" as="div" className="leading-snug text-[var(--content-tertiary)]">
-              <PlanFeatureList features={currentPlan.included_features} variant="inline" />
-            </Typography>
-          </div>
-          <Button
-            variant={display.actionVariant}
-            onClick={onManage}
-            data-testid={display.actionTestId}
-          >
-            {display.actionLabel}
-          </Button>
-        </div>
-        {creditBundleLabel && (
-          <Typography
-            as="p"
-            variant="body-small-default"
-            className="text-[var(--content-tertiary)]"
-            data-testid="plan-card-credit-bundle"
-          >
-            Monthly credits: {creditBundleLabel}
-          </Typography>
-        )}
-        {showRenewal && (
-          <Typography
-            as="p"
-            variant="body-small-default"
-            className="text-[var(--content-tertiary)]"
-            data-testid="plan-card-renews"
-          >
-            Renews on {formatGraceDate(subscription.current_period_end!)}.
-          </Typography>
-        )}
-        {showCancellation && (
-          <Typography
-            as="p"
-            variant="body-small-default"
-            className="text-[var(--system-mid-strong)]"
-            data-testid="plan-card-cancels"
-          >
-            Your plan ends on {formatGraceDate(cancelDate!)}.
-          </Typography>
-        )}
-      </div>
-      <InvoicesModal open={invoicesOpen} onOpenChange={setInvoicesOpen} />
-    </Card>
-  );
+    const proPlan = plans.find((p): p is ProPlan => p.id === "pro");
+    // Empty while the `pro-packages` flag is off — the upgrade banner no-ops.
+    const packages = proPlan?.packages ?? [];
+    const currentKey = subscription.package?.key ?? null;
+    const currentTier = currentKey ?? "free";
+
+    return (
+        <Card padding="md">
+            <div className="flex flex-col gap-4">
+                <div className="flex items-center justify-between gap-3">
+                    <PlanHeading />
+                    <Button
+                        variant={display.actionVariant}
+                        onClick={onManage}
+                        data-testid={display.actionTestId}
+                        className="shrink-0"
+                    >
+                        {display.actionLabel}
+                    </Button>
+                </div>
+                <div className="flex flex-col gap-2">
+                    <div className="flex items-center gap-3 rounded-lg bg-[var(--surface-base)] py-1.5 pl-3 pr-2">
+                        <div className="flex min-w-0 items-center gap-3">
+                            <PlanTierAvatar tier={currentTier} />
+                            <div className="flex min-w-0 flex-col gap-1">
+                                <Typography
+                                    variant="body-large-default"
+                                    as="div"
+                                    className="text-[var(--content-default)]"
+                                    data-testid="plan-card-name"
+                                >
+                                    {planName}
+                                </Typography>
+                                {showRenewal && (
+                                    <Typography
+                                        variant="body-small-default"
+                                        as="div"
+                                        className="leading-snug text-[var(--content-tertiary)]"
+                                        data-testid="plan-card-renews"
+                                    >
+                                        Monthly Payment &bull; Your subscription
+                                        will auto renew on{" "}
+                                        {formatGraceDate(
+                                            subscription.current_period_end!,
+                                        )}
+                                        .
+                                    </Typography>
+                                )}
+                                {showCancellation && (
+                                    <Typography
+                                        variant="body-small-default"
+                                        as="div"
+                                        className="leading-snug text-[var(--system-mid-strong)]"
+                                        data-testid="plan-card-cancels"
+                                    >
+                                        Your plan ends on{" "}
+                                        {formatGraceDate(cancelDate!)}.
+                                    </Typography>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                    <RecommendedUpgrade
+                        packages={packages}
+                        currentKey={currentKey}
+                        onUpgrade={
+                            currentPlan.id === "base" ? undefined : onManage
+                        }
+                    />
+                </div>
+            </div>
+        </Card>
+    );
 }

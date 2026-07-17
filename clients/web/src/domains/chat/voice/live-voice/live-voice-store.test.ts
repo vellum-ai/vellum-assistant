@@ -15,7 +15,11 @@ import {
   isLiveVoiceMicLive,
   isLiveVoiceSessionActive,
   isLiveVoiceSessionOwnedBy,
+  liveVoiceStateLabel,
   releaseLiveVoiceTurn,
+  setLiveVoiceMuted,
+  stopLiveVoiceResponse,
+  updateLiveVoiceSessionConfig,
   useLiveVoiceStore,
   type LiveVoiceSessionState,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
@@ -87,6 +91,86 @@ describe("useLiveVoiceStore — session starter", () => {
     useLiveVoiceStore.getState().setState("listening");
     useLiveVoiceStore.getState().reset();
     expect(useLiveVoiceStore.getState().starter).toBe(starter);
+  });
+});
+
+describe("useLiveVoiceStore — reconnecting", () => {
+  test("defaults to false when idle", () => {
+    expect(useLiveVoiceStore.getState().reconnecting).toBe(false);
+  });
+
+  test("setReconnecting toggles the flag", () => {
+    useLiveVoiceStore.getState().setReconnecting(true);
+    expect(useLiveVoiceStore.getState().reconnecting).toBe(true);
+    useLiveVoiceStore.getState().setReconnecting(false);
+    expect(useLiveVoiceStore.getState().reconnecting).toBe(false);
+  });
+
+  test("reset clears the reconnecting flag", () => {
+    useLiveVoiceStore.getState().setReconnecting(true);
+    useLiveVoiceStore.getState().reset();
+    expect(useLiveVoiceStore.getState().reconnecting).toBe(false);
+  });
+});
+
+describe("useLiveVoiceStore — mute + handsFree", () => {
+  test("defaults: mic live, not hands-free", () => {
+    expect(useLiveVoiceStore.getState().muted).toBe(false);
+    expect(useLiveVoiceStore.getState().handsFree).toBe(false);
+  });
+
+  test("setLiveVoiceMuted drives the registered control", () => {
+    const controls = makeControlsSpies();
+    useLiveVoiceStore.getState().setControls(controls);
+    setLiveVoiceMuted(true);
+    expect(controls.setMuted).toHaveBeenCalledWith(true);
+    setLiveVoiceMuted(false);
+    expect(controls.setMuted).toHaveBeenCalledWith(false);
+  });
+
+  test("stopLiveVoiceResponse drives the registered interrupt control", () => {
+    const controls = makeControlsSpies();
+    useLiveVoiceStore.getState().setControls(controls);
+    stopLiveVoiceResponse();
+    expect(controls.interrupt).toHaveBeenCalledTimes(1);
+  });
+
+  test("updateLiveVoiceSessionConfig drives the registered updateConfig control", () => {
+    const controls = makeControlsSpies();
+    useLiveVoiceStore.getState().setControls(controls);
+    updateLiveVoiceSessionConfig({ silenceThresholdMs: 1500 });
+    expect(controls.updateConfig).toHaveBeenCalledWith({
+      silenceThresholdMs: 1500,
+    });
+  });
+
+  test("helpers are no-ops with no registered controls", () => {
+    expect(() => {
+      setLiveVoiceMuted(true);
+      stopLiveVoiceResponse();
+      updateLiveVoiceSessionConfig({ silenceThresholdMs: 1500 });
+    }).not.toThrow();
+  });
+
+  test("reset clears muted and handsFree; setSessionContext unmutes a fresh session", () => {
+    useLiveVoiceStore.getState().setMuted(true);
+    useLiveVoiceStore.getState().setHandsFree(true);
+    useLiveVoiceStore.getState().reset();
+    expect(useLiveVoiceStore.getState().muted).toBe(false);
+    expect(useLiveVoiceStore.getState().handsFree).toBe(false);
+
+    useLiveVoiceStore.getState().setMuted(true);
+    useLiveVoiceStore.getState().setSessionContext("assistant-1", "conv-1");
+    expect(useLiveVoiceStore.getState().muted).toBe(false);
+  });
+});
+
+describe("liveVoiceStateLabel", () => {
+  test("relabels only the connecting phase while reconnecting", () => {
+    expect(liveVoiceStateLabel("connecting", true)).toBe("Reconnecting…");
+    expect(liveVoiceStateLabel("connecting", false)).toBe("Connecting…");
+    // reconnecting is ignored for every other phase.
+    expect(liveVoiceStateLabel("listening", true)).toBe("Listening…");
   });
 });
 

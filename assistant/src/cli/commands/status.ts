@@ -6,7 +6,10 @@ import { cliIpcCall } from "../../ipc/cli-client.js";
 import { getAssistantSocketPath } from "../../ipc/socket-path.js";
 import { getWorkspaceDirDisplay } from "../../util/platform.js";
 import { APP_VERSION } from "../../version.js";
+import { applyCommandHelp } from "../lib/cli-command-help.js";
 import { registerCommand } from "../lib/register-command.js";
+import { shouldOutputJson, writeOutput } from "../output.js";
+import { statusHelp } from "./status.help.js";
 
 interface HealthResponse {
   version: string;
@@ -21,20 +24,38 @@ function fmtMb(mb: number): string {
 
 export function registerStatusCommand(program: Command): void {
   registerCommand(program, {
-    name: "status",
+    name: statusHelp.name,
     transport: "ipc",
-    description: "Show assistant version, workspace, and runtime health",
+    description: statusHelp.description,
     build: (cmd) => {
+      applyCommandHelp(cmd, statusHelp);
+
       cmd.action(async () => {
+        const json = shouldOutputJson(cmd);
         const result = await cliIpcCall<HealthResponse>("health");
 
         if (!result.ok) {
           // Only ENOENT/ECONNREFUSED/connect-timeout produce this prefix; other
           // failures (daemon-side error, framing error, abort) are real failures.
-          if (result.error?.startsWith("Could not connect to the assistant at ")) {
+          if (
+            result.error?.startsWith("Could not connect to the assistant at ")
+          ) {
             const socketPath = getAssistantSocketPath();
             const socketExists = existsSync(socketPath);
             const workspace = getWorkspaceDirDisplay();
+            if (json) {
+              writeOutput(cmd, {
+                reachable: false,
+                cliVersion: APP_VERSION,
+                assistantVersion: null,
+                versionStale: false,
+                running: socketExists,
+                workspace,
+                memory: null,
+                disk: null,
+              });
+              process.exit(0);
+            }
             // Daemon unreachable, so its runtime version is unknown; show the
             // installed CLI version so there's always one reliable number.
             process.stdout.write(`CLI Version: ${APP_VERSION}\n`);
@@ -55,6 +76,20 @@ export function registerStatusCommand(program: Command): void {
 
         const h = result.result;
         const workspace = getWorkspaceDirDisplay();
+
+        if (json) {
+          writeOutput(cmd, {
+            reachable: true,
+            cliVersion: APP_VERSION,
+            assistantVersion: h.version,
+            versionStale: h.version !== APP_VERSION,
+            running: true,
+            workspace,
+            memory: h.memory,
+            disk: h.disk,
+          });
+          return;
+        }
 
         // h.version is the running runtime; APP_VERSION is the installed CLI.
         // They drift mid-upgrade (CLI bumped, daemon not yet restarted).

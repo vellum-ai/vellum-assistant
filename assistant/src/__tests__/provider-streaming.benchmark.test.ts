@@ -10,12 +10,7 @@
  * - Abort signal stops streaming within 100ms
  * - Stream timeout fires within 50ms of configured deadline
  */
-import { describe, expect, mock, test } from "bun:test";
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
+import { describe, expect, test } from "bun:test";
 
 import { RetryProvider } from "../providers/retry.js";
 import { createStreamTimeout } from "../providers/stream-timeout.js";

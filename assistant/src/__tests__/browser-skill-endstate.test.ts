@@ -4,11 +4,7 @@
  * Locks the invariants of the CLI-only browser contract so that future
  * changes cannot silently regress any of the architectural guarantees.
  */
-import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({}),
-}));
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 
 import { BROWSER_OPERATION_META } from "../browser/operations.js";
 import { BROWSER_OPERATIONS } from "../browser/types.js";

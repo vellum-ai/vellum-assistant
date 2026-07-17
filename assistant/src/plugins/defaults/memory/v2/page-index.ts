@@ -16,7 +16,7 @@
  * concept pages or seeded skill entries change.
  */
 
-import { getLogger } from "../../../../util/logger.js";
+import { getLogger } from "../logging.js";
 import { getPageMtimeMs, listPages, readPage } from "./page-store.js";
 
 // Dynamic import for `./skill-store.js` happens inside `getPageIndex` so that

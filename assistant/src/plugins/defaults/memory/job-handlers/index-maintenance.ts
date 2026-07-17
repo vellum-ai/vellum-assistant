@@ -1,17 +1,19 @@
-import { eq, isNotNull, like, ne } from "drizzle-orm";
+import {
+  selectedBackendSupportsMultimodal,
+  sweepOrphanedGraphNodePoints,
+} from "@vellumai/plugin-api";
+import { and, eq, isNotNull, like, ne } from "drizzle-orm";
 
 import { getDb } from "../../../../persistence/db-connection.js";
 import { withQdrantBreaker } from "../../../../persistence/embeddings/qdrant-circuit-breaker.js";
-import { getQdrantClient } from "../../../../persistence/embeddings/qdrant-client.js";
 import {
   asString,
-  BackendUnavailableError,
+  requireQdrantClient,
 } from "../../../../persistence/job-utils.js";
 import {
   enqueueMemoryJob,
   type MemoryJob,
 } from "../../../../persistence/jobs-store.js";
-import { extractMediaBlockMeta } from "../../../../persistence/message-content.js";
 import {
   mediaAssets,
   memoryEmbeddings,
@@ -21,8 +23,8 @@ import {
   memorySummaries,
   messages,
 } from "../../../../persistence/schema/index.js";
-import { getLogger } from "../../../../util/logger.js";
-import { selectedBackendSupportsMultimodal } from "../embeddings.js";
+import { getLogger } from "../logging.js";
+import { extractMediaBlockMeta } from "../message-media.js";
 
 const log = getLogger("memory-jobs-worker");
 
@@ -62,7 +64,12 @@ export async function rebuildIndexJob(): Promise<void> {
     const imageMessages = db
       .select({ id: messages.id, content: messages.content })
       .from(messages)
-      .where(like(messages.content, '%"type":"image"%'))
+      .where(
+        and(
+          eq(messages.finalized, 1),
+          like(messages.content, '%"type":"image"%'),
+        ),
+      )
       .all();
     for (const msg of imageMessages) {
       const blocks = extractMediaBlockMeta(msg.content);
@@ -99,18 +106,36 @@ export async function rebuildIndexJob(): Promise<void> {
 export async function deleteQdrantVectorsJob(job: MemoryJob): Promise<void> {
   const targetType = asString(job.payload.targetType);
   const targetId = asString(job.payload.targetId);
-  if (!targetType || !targetId) return;
-
-  let qdrant;
-  try {
-    qdrant = getQdrantClient();
-  } catch {
-    throw new BackendUnavailableError("Qdrant client not initialized");
+  if (!targetType || !targetId) {
+    return;
   }
 
+  const qdrant = requireQdrantClient();
   await withQdrantBreaker(() => qdrant.deleteByTarget(targetType, targetId));
   log.info(
     { targetType, targetId },
     "Retried Qdrant vector deletion succeeded",
   );
+}
+
+/**
+ * Sweep `graph_node` Qdrant points whose backing `memory_graph_nodes` row no
+ * longer exists — the cacheless orphans migration 340's `memory_embeddings`
+ * cache-driven sweep cannot see (see `sweepOrphanedGraphNodePoints`). Enqueued
+ * once by migration 341 and drained here so the scroll runs after Qdrant is up.
+ *
+ * `requireQdrantClient` throws a retryable `BackendUnavailableError` when the v1
+ * Qdrant client is not initialized, so the job defers instead of failing; under
+ * memory v2 the worker holds this job pending before dispatch (it is not in
+ * `V1_QDRANT_JOB_TYPES`), so the handler runs only once v1 is active.
+ */
+export async function sweepOrphanedGraphNodePointsJob(): Promise<void> {
+  const qdrant = requireQdrantClient();
+  const { scanned, deleted } = await sweepOrphanedGraphNodePoints(qdrant);
+  if (deleted > 0) {
+    log.info(
+      { scanned, deleted },
+      "Swept cacheless orphaned graph-node Qdrant points",
+    );
+  }
 }

@@ -41,6 +41,8 @@ const importSubagentDetailPanel = () =>
   import("@/domains/chat/components/subagent-detail-panel");
 const importToolDetailPanel = () =>
   import("@/domains/chat/components/tool-detail-panel");
+const importActivityStepsPanel = () =>
+  import("@/domains/chat/components/activity-steps-panel");
 const importAcpRunDetailPanel = () =>
   import("@/domains/chat/components/acp-run-detail-panel/acp-run-detail-panel");
 const importWorkflowDetailPanel = () =>
@@ -49,6 +51,8 @@ const importBackgroundTaskDetailPanel = () =>
   import(
     "@/domains/chat/components/background-task-detail-panel/background-task-detail-panel"
   );
+const importSkillDetailPanel = () =>
+  import("@/domains/chat/components/skill-detail-panel");
 
 const SubagentDetailPanel = lazy(() =>
   importSubagentDetailPanel().then((m) => ({ default: m.SubagentDetailPanel })),
@@ -62,10 +66,16 @@ const WorkflowDetailPanel = lazy(() =>
 const ToolDetailPanel = lazy(() =>
   importToolDetailPanel().then((m) => ({ default: m.ToolDetailPanel })),
 );
+const ActivityStepsPanel = lazy(() =>
+  importActivityStepsPanel().then((m) => ({ default: m.ActivityStepsPanel })),
+);
 const BackgroundTaskDetailPanel = lazy(() =>
   importBackgroundTaskDetailPanel().then((m) => ({
     default: m.BackgroundTaskDetailPanel,
   })),
+);
+const SkillDetailPanel = lazy(() =>
+  importSkillDetailPanel().then((m) => ({ default: m.SkillDetailPanel })),
 );
 
 // ---------------------------------------------------------------------------
@@ -81,6 +91,8 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
   const activeWorkflowRunId = useViewerStore.use.activeWorkflowRunId();
   const activeToolDetail = useViewerStore.use.activeToolDetail();
   const closeToolDetail = useViewerStore.use.closeToolDetail();
+  const activeActivitySteps = useViewerStore.use.activeActivitySteps();
+  const closeActivitySteps = useViewerStore.use.closeActivitySteps();
   // Subscribe to only the active subagent's entry rather than the whole `byId`
   // map, so streaming events from *other* subagents don't re-render the chat
   // layout (and the chat transcript it hosts) on every token.
@@ -98,6 +110,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
   const activeBackgroundTaskEntry = useBackgroundTaskStore((s) =>
     activeBackgroundTaskId ? s.byId[activeBackgroundTaskId] : undefined,
   );
+  const activeSkillDetailId = useViewerStore.use.activeSkillDetailId();
   const activeChannelSetup = useViewerStore.use.activeChannelSetup();
 
   const isSharing = useDeployStore.use.isSharing();
@@ -187,6 +200,10 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
     useViewerStore.getState().closeBackgroundTaskDetail();
   }, []);
 
+  const onCloseSkillDetail = useCallback(() => {
+    useViewerStore.getState().closeSkillDetail();
+  }, []);
+
   const onCloseChannelSetup = useCallback(() => {
     useViewerStore.getState().closeChannelSetup();
   }, []);
@@ -212,10 +229,24 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
     navigate(`${routes.channels}?setup=${channel}`);
   }, [isMobile, mainView, activeChannelSetup, navigate]);
 
+  // Same hand-off for the skill detail panel: narrowing the viewport with the
+  // panel open (resize/rotation) would otherwise strand the viewer store in
+  // "skill-detail" with nothing rendered — the right panel is desktop-only,
+  // MobileChatOverlays has no skill-detail entry, and mobile Escape is
+  // disabled. Redirect to the dedicated skill detail page instead (the same
+  // destination the in-chat card uses on mobile). Unlike channel setup, no
+  // hand-off notification is needed — the detail page is self-contained.
+  useEffect(() => {
+    if (!isMobile) return;
+    if (mainView !== "skill-detail" || !activeSkillDetailId) return;
+    useViewerStore.getState().closeSkillDetail();
+    navigate(routes.skills.detail(activeSkillDetailId));
+  }, [isMobile, mainView, activeSkillDetailId, navigate]);
+
   // -------------------------------------------------------------------------
   // Escape closes whichever right-hand side panel is open (tool detail /
   // thought process, subagent detail, workflow detail, acp run detail,
-  // document viewer). Surfaces stacked
+  // skill detail, document viewer). Surfaces stacked
   // above the panel that own Escape — Radix layers (dialogs, popovers,
   // dropdowns), the command palette, voice recording, the attachment
   // preview — all run before this bubble-phase window listener (document
@@ -239,6 +270,9 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
         case "tool-detail":
           viewer.closeToolDetail();
           break;
+        case "activity-steps":
+          viewer.closeActivitySteps();
+          break;
         case "subagent-detail":
           viewer.closeSubagentDetail();
           break;
@@ -250,6 +284,9 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
           break;
         case "background-task-detail":
           viewer.closeBackgroundTaskDetail();
+          break;
+        case "skill-detail":
+          viewer.closeSkillDetail();
           break;
         case "channel-setup":
           viewer.closeChannelSetup();
@@ -275,9 +312,11 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
     const run = () => {
       importSubagentDetailPanel().catch(() => {});
       importToolDetailPanel().catch(() => {});
+      importActivityStepsPanel().catch(() => {});
       importAcpRunDetailPanel().catch(() => {});
       importWorkflowDetailPanel().catch(() => {});
       importBackgroundTaskDetailPanel().catch(() => {});
+      importSkillDetailPanel().catch(() => {});
     };
     if (typeof window.requestIdleCallback === "function") {
       const id = window.requestIdleCallback(run);
@@ -406,7 +445,22 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
           <ToolDetailPanel
             detail={activeToolDetail}
             onClose={closeToolDetail}
-            onRiskBadgeClick={() => useViewerStore.getState().requestRuleEditorForActiveTool()}
+          />
+        </LazyBoundary>
+      );
+    } else if (mainView === "activity-steps" && activeActivitySteps) {
+      rightPanel = (
+        <LazyBoundary>
+          <ActivityStepsPanel
+            // Re-key per group so the drill-in level resets when a different
+            // group's header is clicked while the panel is already open.
+            key={`${activeActivitySteps.messageId ?? "snapshot"}:${
+              activeActivitySteps.groupIndex ??
+              activeActivitySteps.toolCalls[0]?.id ??
+              ""
+            }`}
+            payload={activeActivitySteps}
+            onClose={closeActivitySteps}
           />
         </LazyBoundary>
       );
@@ -448,6 +502,15 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
             onClose={onCloseWorkflowDetail}
             onStop={onStopWorkflow}
             onRequestJournal={onRequestWorkflowJournal}
+          />
+        </LazyBoundary>
+      );
+    } else if (mainView === "skill-detail" && activeSkillDetailId) {
+      rightPanel = (
+        <LazyBoundary>
+          <SkillDetailPanel
+            skillId={activeSkillDetailId}
+            onClose={onCloseSkillDetail}
           />
         </LazyBoundary>
       );

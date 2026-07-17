@@ -9,24 +9,7 @@
  * `message_queued` SSE events would otherwise be the only source of.
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    model: "test",
-    provider: "test",
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-  }),
-}));
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import type { Conversation } from "../daemon/conversation.js";
 import type { QueuedMessage } from "../daemon/conversation-queue-manager.js";
@@ -54,7 +37,7 @@ function resetTables() {
 interface MessagePayload {
   id: string;
   role: string;
-  content?: string;
+  contentBlocks?: Array<{ type: string; text?: string }>;
   clientMessageId?: string;
   queueStatus?: "queued" | "processing";
   queuePosition?: number;
@@ -123,7 +106,10 @@ describe("handleListMessages in-memory queue", () => {
     expect(first.queuePosition).toBe(1);
     expect(first.role).toBe("user");
     expect(first.id).toBe("req-queued-1");
-    expect(first.content).toBe("please also do this");
+    expect(first.contentBlocks?.[0]).toEqual({
+      type: "text",
+      text: "please also do this",
+    });
     expect(first.clientMessageId).toBe("nonce-queued");
 
     const second = body.messages[2];
@@ -148,7 +134,10 @@ describe("handleListMessages in-memory queue", () => {
     const body = response as { messages: MessagePayload[] };
 
     expect(body.messages).toHaveLength(1);
-    expect(body.messages[0].content).toBe("what the user actually typed");
+    expect(body.messages[0].contentBlocks?.[0]).toEqual({
+      type: "text",
+      text: "what the user actually typed",
+    });
   });
 
   test("renders queued attachments with a derived kind", async () => {

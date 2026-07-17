@@ -23,12 +23,8 @@ import type { Message } from "@vellumai/plugin-api";
 import type { InjectionMatcher } from "../../../context/strip-injections.js";
 import { getInContextPkbPaths } from "../../../daemon/pkb-context-tracker.js";
 import { buildPkbReminder } from "../../../daemon/pkb-reminder-builder.js";
-import {
-  isPersonalMemoryAllowed,
-  type TrustContext,
-} from "../../../daemon/trust-context.js";
-import { getLogger } from "../../../util/logger.js";
-import { getSandboxWorkingDir } from "../../../util/platform.js";
+import { isPersonalMemoryAllowed } from "../../../daemon/trust-context.js";
+import type { TrustContext } from "../../../daemon/trust-context-types.js";
 import {
   type InjectionBlock,
   type Injector,
@@ -38,10 +34,12 @@ import { hasInjectedUserTextBlock } from "../injection-presence.js";
 import { DEFAULT_INJECTOR_ORDER } from "../injector-order.js";
 import { getMemoryConfig } from "./config.js";
 import { getLiveGraphMemory } from "./graph/conversation-graph-memory.js";
+import { getLogger } from "./logging.js";
+import { getSandboxWorkingDir } from "./paths.js";
 import { getPkbAutoInjectList } from "./pkb/autoinject.js";
 import { readPkbContext } from "./pkb/context.js";
 import { searchPkbFiles } from "./pkb/pkb-search.js";
-import { getPkbRoot, PKB_WORKSPACE_SCOPE } from "./pkb/types.js";
+import { getPkbRoot } from "./pkb/types.js";
 import { readMemoryV2StaticContent } from "./v2/static-context.js";
 
 const pkbReminderLog = getLogger("pkb-reminder");
@@ -258,7 +256,6 @@ async function buildPkbReminderWithHints(
         queryVector,
         graphMemory?.pkbSparseVector,
         8,
-        [PKB_WORKSPACE_SCOPE],
       );
       const inContext = getInContextPkbPaths(
         { messages: runMessages },

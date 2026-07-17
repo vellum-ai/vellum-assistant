@@ -4,10 +4,10 @@
  * Covers three layers:
  * 1. `resolveTelephonyTtsCapability` — catalog `mediaStreamPlayback` format
  *    plus credential availability produce the playable / not-playable verdict.
- * 2. `resolveCallTtsProvider({ preferWav: true })` — a not-playable configured
- *    provider is swapped for a playable credentialed fallback instead of
- *    resolving into guaranteed media-stream silence.
- * 3. `speakSystemPrompt` on a WAV-requiring transport — synthesis failure
+ * 2. `resolveCallTtsProvider({ requiresPcmAudio: true })` — a not-playable
+ *    configured provider is swapped for a playable credentialed fallback
+ *    instead of resolving into guaranteed media-stream silence.
+ * 3. `speakSystemPrompt` on a PCM-requiring transport — synthesis failure
  *    retries once via the fallback provider before degrading to an
  *    end-of-turn-only signal; a mid-stream failure after the play URL went
  *    out skips all fallback (the truncated prompt stands); aborted
@@ -47,7 +47,6 @@ let guardMocksActive = false;
 const realProviderCatalogModule = {
   ...(await import("../tts/provider-catalog.js")),
 };
-const realConfigLoaderModule = { ...(await import("../config/loader.js")) };
 const realSecureKeysModule = {
   ...(await import("../security/secure-keys.js")),
 };
@@ -64,7 +63,7 @@ interface FakeCatalogEntry {
   callMode: "native-twilio" | "synthesized-play";
   allowNativeFallback: boolean;
   capabilities: { supportsStreaming: boolean; supportedFormats: string[] };
-  mediaStreamPlayback: { outputFormat: "pcm" | "wav" | "none" };
+  mediaStreamPlayback: { outputFormat: "pcm" | "none" };
   secretRequirements: Array<{
     credentialStoreKey: string;
     displayName: string;
@@ -75,7 +74,7 @@ interface FakeCatalogEntry {
 function makeEntry(
   id: string,
   callMode: "native-twilio" | "synthesized-play",
-  outputFormat: "pcm" | "wav" | "none",
+  outputFormat: "pcm" | "none",
   allowNativeFallback: boolean,
 ): FakeCatalogEntry {
   return {
@@ -97,9 +96,10 @@ function makeEntry(
 
 const fakeCatalog: FakeCatalogEntry[] = [
   makeEntry("elevenlabs", "native-twilio", "pcm", true),
-  makeEntry("fish-audio", "synthesized-play", "wav", true),
+  makeEntry("fish-audio", "synthesized-play", "pcm", true),
   makeEntry("deepgram", "synthesized-play", "pcm", false),
   makeEntry("compressed-only", "synthesized-play", "none", false),
+  makeEntry("vellum", "synthesized-play", "pcm", false),
 ];
 
 // The catalog is also the adapter-resolution point (`getTtsProvider`), so the
@@ -140,29 +140,19 @@ mock.module("../tts/provider-catalog.js", () => ({
 
 // -- Mutable config ------------------------------------------------------------
 
-const testConfig = {
+// Alias the loader's live cached config so each test's mutations write straight
+// through to what `getConfig()` returns. Some assigned provider ids
+// ("compressed-only") are fictional catalog entries the schema enum cannot
+// express, so mutating the cached object is the only way to drive them. No test
+// in this file writes the config file, so the mutations persist for the suite.
+const testConfig = getConfig() as unknown as {
   services: {
     tts: {
-      provider: "elevenlabs",
-      providers: {
-        elevenlabs: {},
-        "fish-audio": { referenceId: "", format: "mp3" },
-        deepgram: { format: "mp3" },
-        "compressed-only": { format: "mp3" },
-      } as Record<string, { referenceId?: string; format?: string }>,
-    },
-  },
+      provider: string;
+      providers: Record<string, { referenceId?: string; format?: string }>;
+    };
+  };
 };
-
-mock.module("../config/loader.js", () => ({
-  ...realConfigLoaderModule,
-  loadConfig: () =>
-    guardMocksActive ? testConfig : realConfigLoaderModule.loadConfig(),
-  getConfig: () =>
-    guardMocksActive ? testConfig : realConfigLoaderModule.getConfig(),
-  getConfigReadOnly: () =>
-    guardMocksActive ? testConfig : realConfigLoaderModule.getConfigReadOnly(),
-}));
 
 // -- Mutable credential store --------------------------------------------------
 
@@ -202,6 +192,12 @@ mock.module("../calls/audio-store.js", () => ({
   },
 }));
 
+let mockManagedSpeechAvailable = true;
+
+mock.module("../platform/managed-speech.js", () => ({
+  managedSpeechAvailable: async () => mockManagedSpeechAvailable,
+}));
+
 mock.module("../inbound/public-ingress-urls.js", () => ({
   ...realPublicIngressUrlsModule,
   getPublicBaseUrl: (
@@ -222,6 +218,7 @@ import {
   evaluateTelephonyTtsPlayability,
   resolveTelephonyTtsCapability,
 } from "../calls/telephony-tts-capability.js";
+import { getConfig } from "../config/loader.js";
 import type { TtsProvider } from "../tts/types.js";
 
 // ---------------------------------------------------------------------------
@@ -257,11 +254,11 @@ function registerStreamingStubProvider(
   return provider;
 }
 
-function createRelay(requiresWavAudio: boolean) {
+function createRelay(requiresPcmAudio: boolean) {
   const sentTokens: Array<{ token: string; last: boolean }> = [];
   const sentPlayUrls: string[] = [];
   const relay: CallTransport = {
-    requiresWavAudio,
+    requiresPcmAudio,
     sendTextToken: (token, last) => {
       sentTokens.push({ token, last });
     },
@@ -302,7 +299,7 @@ describe("resolveTelephonyTtsCapability", () => {
     expect(capability).toEqual({ status: "playable", providerId: "deepgram" });
   });
 
-  test("wav provider with a resolvable key and referenceId is playable", async () => {
+  test("fish-audio with a resolvable key and referenceId is playable", async () => {
     testConfig.services.tts.provider = "fish-audio";
     testConfig.services.tts.providers["fish-audio"].referenceId = "ref-123";
     storedKeys["fish-audio"] = "fa-key";
@@ -398,7 +395,7 @@ describe("findPlayableTelephonyTtsFallback", () => {
 // Call TTS resolver — media-stream playability guard
 // ---------------------------------------------------------------------------
 
-describe("resolveCallTtsProvider with preferWav", () => {
+describe("resolveCallTtsProvider with requiresPcmAudio", () => {
   test("keeps the configured provider when it is playable and credentialed", async () => {
     testConfig.services.tts.provider = "deepgram";
     storedKeys["deepgram"] = "dg-key";
@@ -406,10 +403,10 @@ describe("resolveCallTtsProvider with preferWav", () => {
       return { audio: Buffer.from("x"), contentType: "audio/pcm" };
     });
 
-    const result = await resolveCallTtsProvider({ preferWav: true });
+    const result = await resolveCallTtsProvider({ requiresPcmAudio: true });
     expect(result.provider?.id).toBe("deepgram");
     expect(result.useSynthesizedPath).toBe(true);
-    expect(result.audioFormat).toBe("wav");
+    expect(result.audioFormat).toBe("pcm");
   });
 
   test("falls back to a playable credentialed provider when the configured provider has an unsupported format", async () => {
@@ -423,9 +420,9 @@ describe("resolveCallTtsProvider with preferWav", () => {
       return { audio: Buffer.from("x"), contentType: "audio/pcm" };
     });
 
-    const result = await resolveCallTtsProvider({ preferWav: true });
+    const result = await resolveCallTtsProvider({ requiresPcmAudio: true });
     expect(result.provider?.id).toBe("elevenlabs");
-    expect(result.audioFormat).toBe("wav");
+    expect(result.audioFormat).toBe("pcm");
   });
 
   test("falls back when configured fish-audio has a key but no referenceId", async () => {
@@ -439,9 +436,9 @@ describe("resolveCallTtsProvider with preferWav", () => {
       return { audio: Buffer.from("x"), contentType: "audio/pcm" };
     });
 
-    const result = await resolveCallTtsProvider({ preferWav: true });
+    const result = await resolveCallTtsProvider({ requiresPcmAudio: true });
     expect(result.provider?.id).toBe("elevenlabs");
-    expect(result.audioFormat).toBe("wav");
+    expect(result.audioFormat).toBe("pcm");
   });
 
   test("falls back when the configured provider is missing credentials", async () => {
@@ -454,11 +451,11 @@ describe("resolveCallTtsProvider with preferWav", () => {
       return { audio: Buffer.from("x"), contentType: "audio/pcm" };
     });
 
-    const result = await resolveCallTtsProvider({ preferWav: true });
+    const result = await resolveCallTtsProvider({ requiresPcmAudio: true });
     expect(result.provider?.id).toBe("elevenlabs");
   });
 
-  test("without preferWav the configured provider is not swapped", async () => {
+  test("without requiresPcmAudio the configured provider is not swapped", async () => {
     testConfig.services.tts.provider = "deepgram";
     // No credentials at all — the CR transport path does not consult the
     // media-stream playability capability.
@@ -477,7 +474,7 @@ describe("resolveCallTtsProvider with preferWav", () => {
 // speakSystemPrompt — media-stream synthesis failure retries the fallback
 // ---------------------------------------------------------------------------
 
-describe("speakSystemPrompt on a WAV-requiring transport", () => {
+describe("speakSystemPrompt on a PCM-requiring transport", () => {
   test("retries with the fallback provider instead of emitting only end-of-turn", async () => {
     testConfig.services.tts.provider = "deepgram";
     storedKeys["deepgram"] = "dg-key";
@@ -563,7 +560,7 @@ describe("speakSystemPrompt mid-stream failure after audio started", () => {
     };
   }
 
-  test("WAV transport: skips the fallback retry — the truncated prompt stands", async () => {
+  test("PCM transport: skips the fallback retry — the truncated prompt stands", async () => {
     testConfig.services.tts.provider = "deepgram";
     storedKeys["deepgram"] = "dg-key";
     storedKeys["elevenlabs"] = "el-key";
@@ -584,7 +581,7 @@ describe("speakSystemPrompt mid-stream failure after audio started", () => {
     expect(sentTokens).toEqual([{ token: "", last: true }]);
   });
 
-  test("non-WAV transport: skips the native text fallback — no full-prompt re-speak", async () => {
+  test("non-PCM transport: skips the native text fallback — no full-prompt re-speak", async () => {
     testConfig.services.tts.provider = "fish-audio";
     testConfig.services.tts.providers["fish-audio"].referenceId = "ref-123";
 
@@ -628,7 +625,7 @@ describe("speakSystemPrompt mid-stream failure after audio started", () => {
 // ---------------------------------------------------------------------------
 
 describe("speakSystemPrompt aborted synthesis", () => {
-  test("WAV transport: abort mid-flight skips the fallback retry and end-of-turn", async () => {
+  test("PCM transport: abort mid-flight skips the fallback retry and end-of-turn", async () => {
     testConfig.services.tts.provider = "deepgram";
     storedKeys["deepgram"] = "dg-key";
     storedKeys["elevenlabs"] = "el-key";
@@ -657,7 +654,7 @@ describe("speakSystemPrompt aborted synthesis", () => {
     expect(sentTokens).toEqual([]);
   });
 
-  test("non-WAV transport with native-fallback provider: abort skips the text fallback and end-of-turn", async () => {
+  test("non-PCM transport with native-fallback provider: abort skips the text fallback and end-of-turn", async () => {
     testConfig.services.tts.provider = "fish-audio";
     testConfig.services.tts.providers["fish-audio"].referenceId = "ref-123";
 
@@ -712,7 +709,7 @@ describe("speakSystemPrompt aborted synthesis", () => {
     expect(sentTokens).toEqual([]);
   });
 
-  test("provider AbortError without our signal aborted is a failure — WAV fallback retry still runs", async () => {
+  test("provider AbortError without our signal aborted is a failure — PCM fallback retry still runs", async () => {
     testConfig.services.tts.provider = "deepgram";
     storedKeys["deepgram"] = "dg-key";
     storedKeys["elevenlabs"] = "el-key";
@@ -742,7 +739,7 @@ describe("speakSystemPrompt aborted synthesis", () => {
     expect(sentTokens).toEqual([{ token: "", last: true }]);
   });
 
-  test("provider AbortError without any signal is a failure — non-WAV native fallback still runs", async () => {
+  test("provider AbortError without any signal is a failure — non-PCM native fallback still runs", async () => {
     testConfig.services.tts.provider = "fish-audio";
     testConfig.services.tts.providers["fish-audio"].referenceId = "ref-123";
 
@@ -759,5 +756,25 @@ describe("speakSystemPrompt aborted synthesis", () => {
     expect(sentTokens).toEqual([
       { token: "You have a new message.", last: true },
     ]);
+  });
+});
+
+describe("vellum managed playability", () => {
+  test("playable only when the platform identity is fully provisioned", async () => {
+    // The stored secret resolves, but availability decides.
+    storedKeys["vellum"] = "stored";
+    mockManagedSpeechAvailable = true;
+    const playable = await evaluateTelephonyTtsPlayability("vellum");
+    expect(playable.status).toBe("playable");
+  });
+
+  test("half-connected platform (secret without identity) is not playable", async () => {
+    storedKeys["vellum"] = "stored";
+    mockManagedSpeechAvailable = false;
+    const playable = await evaluateTelephonyTtsPlayability("vellum");
+    expect(playable).toMatchObject({
+      status: "not-playable",
+      reason: "missing-platform-connection",
+    });
   });
 });

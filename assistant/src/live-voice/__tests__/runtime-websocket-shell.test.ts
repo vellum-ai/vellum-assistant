@@ -1,50 +1,34 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
 
 import type {
   StreamingTranscriber,
   SttStreamServerEvent,
 } from "../../stt/types.js";
 
-mock.module("../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
+// `mock.module` is process-global in Bun and leaks into sibling files that
+// run later in the same `bun test` invocation, so the STT/preflight stubs
+// delegate to the real implementation unless this file's tests are active
+// (`shellMocksActive`, toggled in beforeAll/afterAll). The real exports are
+// snapshotted into plain objects NOW, before the stubs register — a module
+// namespace is a live view, so reading the real export after the stub
+// installs would resolve back to the stub (infinite recursion).
+let shellMocksActive = false;
 
-mock.module("../../config/loader.js", () => {
-  const config = {
-    model: "test",
-    provider: "test",
-    platform: { baseUrl: "https://example.com" },
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    secretDetection: { enabled: false },
-    contextWindow: { maxInputTokens: 200_000 },
-    services: {
-      stt: { provider: "deepgram" },
-      inference: {
-        mode: "your-own",
-        provider: "anthropic",
-        model: "claude-opus-4-6",
-      },
-      "image-generation": {
-        mode: "your-own",
-        provider: "gemini",
-        model: "gemini-3.1-flash-image-preview",
-      },
-      "web-search": {
-        mode: "your-own",
-        provider: "inference-provider-native",
-      },
-    },
-  };
-  return {
-    loadConfig: () => config,
-    getConfig: () => config,
-    invalidateConfigCache: () => {},
-  };
-});
+const realSttResolveModule = {
+  ...(await import("../../providers/speech-to-text/resolve.js")),
+};
+const realPreflightModule = {
+  ...(await import("../live-voice-credential-preflight.js")),
+};
 
 class MockStreamingTranscriber implements StreamingTranscriber {
   readonly providerId = "deepgram" as const;
@@ -81,12 +65,31 @@ function createResolvedTranscriber(): MockStreamingTranscriber {
 }
 
 let resolveStreamingTranscriberImpl = async () => createResolvedTranscriber();
-const resolveStreamingTranscriberMock = mock(() =>
-  resolveStreamingTranscriberImpl(),
+const resolveStreamingTranscriberMock = mock(
+  (
+    options?: Parameters<
+      typeof realSttResolveModule.resolveStreamingTranscriber
+    >[0],
+  ) =>
+    shellMocksActive
+      ? resolveStreamingTranscriberImpl()
+      : realSttResolveModule.resolveStreamingTranscriber(options),
 );
 
 mock.module("../../providers/speech-to-text/resolve.js", () => ({
+  ...realSttResolveModule,
   resolveStreamingTranscriber: resolveStreamingTranscriberMock,
+}));
+
+// The shell tests exercise WebSocket frame routing and session locking, not
+// credential resolution — the preflight is stubbed ready so start frames
+// reach the session legs mocked above.
+mock.module("../live-voice-credential-preflight.js", () => ({
+  ...realPreflightModule,
+  resolveLiveVoiceCredentialReadiness: async () =>
+    shellMocksActive
+      ? { status: "ready" }
+      : realPreflightModule.resolveLiveVoiceCredentialReadiness(),
 }));
 
 import { CURRENT_POLICY_EPOCH } from "../../runtime/auth/policy.js";
@@ -234,6 +237,14 @@ describe("RuntimeHttpServer live voice WebSocket shell", () => {
   let baseUrl: string;
   let wsBaseUrl: string;
   let clients: WebSocket[];
+
+  beforeAll(() => {
+    shellMocksActive = true;
+  });
+
+  afterAll(() => {
+    shellMocksActive = false;
+  });
 
   beforeEach(async () => {
     delete process.env.DISABLE_HTTP_AUTH;
@@ -392,6 +403,13 @@ describe("RuntimeHttpServer live voice WebSocket shell", () => {
     await waitForOpen(ws);
 
     ws.send(startFrame("conversation-failed"));
+    // ready precedes the arm: the STT connection is established in the
+    // background, so its failure surfaces as a post-ready error frame.
+    const readyBeforeFailure = await waitForJsonFrame(ws);
+    expect(readyBeforeFailure).toMatchObject({
+      type: "ready",
+      conversationId: "conversation-failed",
+    });
     const error = await waitForJsonFrame(ws);
     expect(error).toMatchObject({
       type: "error",

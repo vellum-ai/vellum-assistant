@@ -12,7 +12,7 @@
 
 import { and, desc, eq, isNotNull } from "drizzle-orm";
 
-import { listPendingRequestsByConversationScope } from "../contacts/canonical-guardian-store.js";
+import { listPendingRequestsByScopeOrEmpty } from "../channels/gateway-guardian-requests.js";
 import { getDb } from "../persistence/db-connection.js";
 import {
   conversations,
@@ -68,15 +68,15 @@ export type ConversationCandidateSet = Partial<
  * Errors are caught per-channel so a failure in one channel does not
  * block candidates for others.
  */
-export function buildConversationCandidates(
+export async function buildConversationCandidates(
   channels: NotificationChannel[],
-): ConversationCandidateSet {
+): Promise<ConversationCandidateSet> {
   const result: ConversationCandidateSet = {};
   const cutoff = Date.now() - CANDIDATE_RECENCY_WINDOW_MS;
 
   for (const channel of channels) {
     try {
-      const candidates = buildCandidatesForChannel(channel, cutoff);
+      const candidates = await buildCandidatesForChannel(channel, cutoff);
       if (candidates.length > 0) {
         result[channel] = candidates;
       }
@@ -101,10 +101,10 @@ export function buildConversationCandidates(
  * to find conversations that were created by the notification pipeline for
  * this channel, then enriches with guardian context.
  */
-function buildCandidatesForChannel(
+async function buildCandidatesForChannel(
   channel: NotificationChannel,
   cutoffMs: number,
-): ConversationCandidate[] {
+): Promise<ConversationCandidate[]> {
   const db = getDb();
 
   // Find recent notification deliveries for this channel that have a
@@ -170,32 +170,25 @@ function buildCandidatesForChannel(
   }
 
   // Enrich each candidate with its count of pending guardian requests. The
-  // canonical store owns the addressing convention and counts by conversation
-  // scope: the request's source conversation plus any conversation its card was
-  // delivered to (e.g. an access request whose synthetic source id differs from
-  // the in-app card's destination conversation).
+  // gateway owns the addressing convention and counts by conversation scope:
+  // the request's source conversation plus any conversation its card was
+  // delivered to (e.g. an access request whose synthetic source id differs
+  // from the in-app card's destination conversation).
   //
-  // Best-effort per candidate: guardian context is supplementary, so a lookup
-  // failure degrades that candidate to "no context" (logged) rather than
-  // propagating to the per-channel catch in `buildConversationCandidates`,
-  // which would discard the channel's whole candidate set.
+  // Enrichment only: the degrading read logs a lookup failure and falls back
+  // to an empty list, so an unreachable gateway degrades the candidate to
+  // "no context" instead of discarding the channel's whole candidate set.
   for (const candidate of candidates) {
-    try {
-      const pendingCount = listPendingRequestsByConversationScope(
+    const pendingCount = (
+      await listPendingRequestsByScopeOrEmpty(
         candidate.conversationId,
         candidate.channel,
-      ).length;
-      if (pendingCount > 0) {
-        candidate.guardianContext = {
-          pendingUnresolvedRequestCount: pendingCount,
-        };
-      }
-    } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      log.warn(
-        { err: errMsg, conversationId: candidate.conversationId },
-        "Failed to enrich candidate with guardian context",
-      );
+      )
+    ).length;
+    if (pendingCount > 0) {
+      candidate.guardianContext = {
+        pendingUnresolvedRequestCount: pendingCount,
+      };
     }
   }
 

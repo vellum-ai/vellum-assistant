@@ -12,9 +12,9 @@
 import { getConfiguredProvider } from "@vellumai/plugin-api";
 
 import type { AssistantConfig } from "../../../../config/types.js";
-import { BackendUnavailableError } from "../../../../util/errors.js";
-import { getLogger } from "../../../../util/logger.js";
+import { BackendUnavailableError } from "../host-utils.js";
 import { extractToolUse, userMessage } from "../llm-helpers.js";
+import { getLogger } from "../logging.js";
 import { queryNodes, updateNode } from "./store.js";
 import type { MemoryNode } from "./types.js";
 
@@ -130,7 +130,6 @@ export interface NarrativeResult {
 }
 
 export async function runNarrativeRefinement(
-  scopeId: string = "default",
   _config: AssistantConfig,
 ): Promise<NarrativeResult> {
   const start = Date.now();
@@ -143,7 +142,6 @@ export async function runNarrativeRefinement(
 
   // Collect: all nodes with existing narrative roles + top significance nodes
   const allNodes = queryNodes({
-    scopeId,
     fidelityNot: ["gone"],
     limit: 10000,
   });

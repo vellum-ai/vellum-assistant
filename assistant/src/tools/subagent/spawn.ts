@@ -153,28 +153,28 @@ export async function executeSubagentSpawn(
   // profile of the call site that invoked us. That last fallback is what makes
   // a subagent match its invoker when the invoking turn ran purely on its
   // call-site default — the workspace `activeProfile` for `mainAgent`, or the
-  // call site's own catalog default (e.g. `cost-optimized`) for a
-  // heartbeat/background invoker. `resolveDefaultProfileKey` does not reflect a
-  // static `llm.callSites.<callSite>` profile override (only the
-  // activeProfile-for-mainAgent path plus the catalog default), a narrow gap
-  // that only surfaces with no `activeProfile` set and a hand-tuned call-site
-  // profile.
+  // call site's own winning default (a `llm.callSites.<callSite>` pin or the
+  // catalog intent, e.g. `cost-optimized`) for a heartbeat/background
+  // invoker (`resolveDefaultProfileKey` runs the same winner selection as
+  // dispatch, minus a per-turn override).
   //
-  // The fallback is forwarded NON-forced, so an explicit
-  // `llm.callSites.subagentSpawn` profile still wins; an explicit
-  // `inference_profile` argument keeps `forceOverrideProfile` and wins
-  // outright. (The row read short-circuits to `undefined` for the background
-  // subagent conversation and for tool calls outside an agent-loop turn.)
+  // An explicit `llm.callSites.subagentSpawn` profile must still win over
+  // the invoker-default tier: that tier is a matching heuristic, not a user
+  // choice, and any override outranks the call-site pin under single-winner
+  // resolution — so the heuristic is only forwarded when no explicit pin
+  // exists. An explicit `inference_profile` argument keeps
+  // `forceOverrideProfile` and wins outright; the row read short-circuits
+  // to `undefined` for the background subagent conversation and for tool
+  // calls outside an agent-loop turn.
   let inheritedOverrideProfile = requestedOverrideProfile;
   if (inheritedOverrideProfile === undefined) {
-    const inheritedCandidate =
+    const llm = getConfig().llm;
+    inheritedOverrideProfile =
       context.overrideProfile ??
       getConversationOverrideProfile(context.conversationId) ??
-      resolveDefaultProfileKey(
-        context.invokingCallSite ?? "mainAgent",
-        getConfig().llm,
-      );
-    inheritedOverrideProfile = inheritedCandidate;
+      (llm.callSites?.subagentSpawn?.profile == null
+        ? resolveDefaultProfileKey(context.invokingCallSite ?? "mainAgent", llm)
+        : undefined);
   }
 
   try {
@@ -366,7 +366,9 @@ function appendInFlightAssistantTurn(
 ): Message[] {
   // When the snapshot already ends on an assistant turn, the in-flight turn is
   // present (or there is none to add) — appending the latest row would duplicate it.
-  if (messages[messages.length - 1]?.role === "assistant") return messages;
+  if (messages[messages.length - 1]?.role === "assistant") {
+    return messages;
+  }
 
   let rows;
   try {
@@ -374,26 +376,19 @@ function appendInFlightAssistantTurn(
   } catch {
     return messages;
   }
-  if (!rows || rows.length === 0) return messages;
-
-  const lastRow = rows[rows.length - 1];
-  if (lastRow.role !== "assistant") return messages;
-
-  let blocks: ContentBlock[];
-  try {
-    const parsed = JSON.parse(lastRow.content);
-    if (Array.isArray(parsed)) {
-      blocks = parsed as ContentBlock[];
-    } else if (typeof parsed === "string") {
-      blocks = [{ type: "text", text: parsed }];
-    } else {
-      return messages;
-    }
-  } catch {
-    // Plain-text content (no JSON envelope).
-    blocks = [{ type: "text", text: lastRow.content }];
+  if (!rows || rows.length === 0) {
+    return messages;
   }
 
-  if (blocks.length === 0) return messages;
+  const lastRow = rows[rows.length - 1];
+  if (lastRow.role !== "assistant") {
+    return messages;
+  }
+
+  const blocks: ContentBlock[] = lastRow.content;
+
+  if (blocks.length === 0) {
+    return messages;
+  }
   return [...messages, { role: "assistant", content: blocks }];
 }

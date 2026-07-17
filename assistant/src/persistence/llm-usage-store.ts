@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, gt, or, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
+import { getTelemetryMainDb } from "../telemetry/telemetry-main-db.js";
 import type {
   PricingResult,
   UsageEvent,
@@ -153,7 +154,9 @@ function rowToUsageEvent(row: {
  * data and shouldn't be blocked by a single corrupt row.
  */
 function parseRawUsage(value: string | null): Record<string, unknown> | null {
-  if (value === null) return null;
+  if (value === null) {
+    return null;
+  }
   try {
     const parsed = JSON.parse(value);
     if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
@@ -211,7 +214,7 @@ export function queryUnreportedUsageEvents(
   afterId: string | undefined,
   limit: number,
 ): UnreportedUsageEvent[] {
-  const db = getDb();
+  const db = getTelemetryMainDb();
   // JOIN to `conversations` to attach `conversationType`. LEFT JOIN
   // because `llm_usage_events.conversationId` is nullable — calls that
   // aren't tied to a conversation (memory consolidation, etc.) still

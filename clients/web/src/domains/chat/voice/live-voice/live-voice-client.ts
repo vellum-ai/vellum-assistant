@@ -45,11 +45,23 @@ import {
 /** Fail the session if no `ready` frame arrives within this window. */
 const CONNECT_TIMEOUT_MS = 10_000;
 
+/**
+ * WebSocket close codes that are transient and retryable rather than terminal.
+ * `1013` ("Try Again Later") is what velay sends when its tunnel to the
+ * assistant drops ("assistant tunnel disconnected"); `1012` ("Service Restart")
+ * is treated the same. The controller reconnects a hands-free session through
+ * these; the transport also uses them to distinguish a retryable close that
+ * lands *before* `ready` (which must reach the controller with its code) from a
+ * genuine pre-ready connection failure. A locally-initiated close (`code: null`)
+ * is never retryable.
+ */
+export const RETRYABLE_LIVE_VOICE_CLOSE_CODES: ReadonlySet<number> = new Set([
+  1012, 1013,
+]);
+
 /** Reason a live-voice session failed, surfaced via the `error` event. */
 export type LiveVoiceClientErrorReason =
-  | "connection-failed"
-  | "protocol-error"
-  | "timeout";
+  "connection-failed" | "protocol-error" | "timeout";
 
 export interface LiveVoiceClientError {
   readonly reason: LiveVoiceClientErrorReason;
@@ -61,6 +73,22 @@ export interface LiveVoiceClientError {
    * kept open — the session is still live. Absent means the client tore down.
    */
   readonly recoverable?: boolean;
+}
+
+/**
+ * Payload of the `closed` event. `code` is the WebSocket close code from the
+ * far side (velay/gateway/runtime) when the socket was closed remotely, or
+ * `null` when this client initiated the close (`close()`/`end()`/`fail()`).
+ *
+ * The distinction matters for reconnect: velay closes a proxied session with
+ * code 1013 ("Try Again Later") when its tunnel to the assistant drops — a
+ * transient, retryable condition the session controller should reconnect
+ * through rather than tear down. A local `null` close is deliberate and never
+ * reconnects.
+ */
+export interface LiveVoiceClientClosed {
+  readonly code: number | null;
+  readonly reason: string;
 }
 
 /**
@@ -89,7 +117,7 @@ export interface LiveVoiceClientEventMap {
   busy: LiveVoiceBusyServerFrame;
   error: LiveVoiceClientError;
   /** Fired exactly once when the transport closes (clean or otherwise). */
-  closed: void;
+  closed: LiveVoiceClientClosed;
 }
 
 export type LiveVoiceClientEventName = keyof LiveVoiceClientEventMap;
@@ -107,6 +135,16 @@ export interface LiveVoiceConnectArgs {
    * (push-to-talk).
    */
   turnDetection?: LiveVoiceTurnDetectionMode;
+  /**
+   * Per-session "pause before reply" (ms) sent on the `start` frame. Omitted
+   * lets the daemon use its configured default.
+   */
+  silenceThresholdMs?: number;
+  /**
+   * Per-session "interrupt sensitivity" (ms of sustained speech to barge in)
+   * sent on the `start` frame. Omitted lets the daemon use its default.
+   */
+  bargeInMinSpeechMs?: number;
 }
 
 /** Factory so tests can inject a mock WebSocket. Defaults to the global. */
@@ -134,6 +172,13 @@ export class LiveVoiceChannelClient {
   private connectTimeout: ReturnType<typeof setTimeout> | null = null;
   private conversationId: string | undefined;
   private turnDetection: LiveVoiceTurnDetectionMode | undefined;
+  private silenceThresholdMs: number | undefined;
+  private bargeInMinSpeechMs: number | undefined;
+  // Set once an assistant running daemon code older than the `update_config`
+  // frame rejects it with `unknown_type`. We then stop sending config updates
+  // for this session so an older assistant is neither killed nor spammed by the
+  // voice-room settings (version-skew forward-compat).
+  private configUpdatesUnsupported = false;
 
   private readonly listeners: {
     [E in LiveVoiceClientEventName]: Set<LiveVoiceClientEventHandler<E>>;
@@ -194,11 +239,15 @@ export class LiveVoiceChannelClient {
     assistantId,
     conversationId,
     turnDetection,
+    silenceThresholdMs,
+    bargeInMinSpeechMs,
   }: LiveVoiceConnectArgs): Promise<void> {
     if (this.state !== "idle") return;
     this.state = "connecting";
     this.conversationId = conversationId;
     this.turnDetection = turnDetection;
+    this.silenceThresholdMs = silenceThresholdMs;
+    this.bargeInMinSpeechMs = bargeInMinSpeechMs;
 
     let url: string;
     try {
@@ -217,7 +266,10 @@ export class LiveVoiceChannelClient {
     try {
       ws = this.webSocketFactory(url);
     } catch (err) {
-      this.fail("connection-failed", messageOf(err, "Failed to open live-voice WebSocket"));
+      this.fail(
+        "connection-failed",
+        messageOf(err, "Failed to open live-voice WebSocket"),
+      );
       return;
     }
     this.ws = ws;
@@ -227,11 +279,14 @@ export class LiveVoiceChannelClient {
     ws.onmessage = (event) => this.handleMessage(event);
     ws.onerror = () =>
       this.fail("connection-failed", "Live-voice WebSocket error");
-    ws.onclose = () => this.handleClose();
+    ws.onclose = (event) => this.handleClose(event);
 
     this.connectTimeout = setTimeout(() => {
       if (this.state === "connecting") {
-        this.fail("timeout", `Live-voice connection timed out after ${this.connectTimeoutMs}ms`);
+        this.fail(
+          "timeout",
+          `Live-voice connection timed out after ${this.connectTimeoutMs}ms`,
+        );
       }
     }, this.connectTimeoutMs);
   }
@@ -253,6 +308,30 @@ export class LiveVoiceChannelClient {
   }
 
   /**
+   * Retune the running session's turn-detection knobs ("pause before reply" /
+   * "interrupt sensitivity") without reconnecting. No-op unless the session is
+   * active; each field is optional. The daemon applies changes from the next
+   * utterance.
+   */
+  updateConfig(config: {
+    silenceThresholdMs?: number;
+    bargeInMinSpeechMs?: number;
+  }): void {
+    if (this.state !== "active" || this.configUpdatesUnsupported) return;
+    this.trySend(
+      JSON.stringify({
+        type: "update_config",
+        ...(config.silenceThresholdMs !== undefined
+          ? { silenceThresholdMs: config.silenceThresholdMs }
+          : {}),
+        ...(config.bargeInMinSpeechMs !== undefined
+          ? { bargeInMinSpeechMs: config.bargeInMinSpeechMs }
+          : {}),
+      }),
+    );
+  }
+
+  /**
    * End the session gracefully: best-effort send `end`, then always close the
    * socket. A quick-cancel while still CONNECTING simply skips the (impossible)
    * `end` send and resolves as a clean close rather than a timeout failure.
@@ -270,7 +349,9 @@ export class LiveVoiceChannelClient {
   close(): void {
     if (this.state === "closed") return;
     this.teardown();
-    this.emit("closed", undefined);
+    // Locally initiated: `code: null` tells the controller this was a
+    // deliberate close (never a reconnect trigger).
+    this.emit("closed", { code: null, reason: "client closed" });
   }
 
   private handleOpen(): void {
@@ -280,6 +361,12 @@ export class LiveVoiceChannelClient {
       audio: LIVE_VOICE_AUDIO_FORMAT,
       ...(this.conversationId ? { conversationId: this.conversationId } : {}),
       ...(this.turnDetection ? { turnDetection: this.turnDetection } : {}),
+      ...(this.silenceThresholdMs !== undefined
+        ? { silenceThresholdMs: this.silenceThresholdMs }
+        : {}),
+      ...(this.bargeInMinSpeechMs !== undefined
+        ? { bargeInMinSpeechMs: this.bargeInMinSpeechMs }
+        : {}),
     };
     this.trySend(JSON.stringify(startFrame));
   }
@@ -340,6 +427,20 @@ export class LiveVoiceChannelClient {
         this.emit("archived", frame);
         return;
       case "error":
+        // An assistant running daemon code older than a client frame we sent
+        // rejects it with `unknown_type`. The only frame we send optimistically
+        // is `update_config` (the voice-room settings), so this is a
+        // forward-compat no-op, not a session failure: latch it off and keep
+        // the session alive. Mirrors the `unknown_frame` handling below for the
+        // reverse (newer-server) direction.
+        if (frame.code === "unknown_type") {
+          this.configUpdatesUnsupported = true;
+          console.warn(
+            "live-voice: assistant rejected update_config (unknown_type); " +
+              "in-session settings changes won't apply until it is upgraded",
+          );
+          return;
+        }
         // A recoverable mid-session error leaves the transport open; the
         // session controller decides whether the session survives. (`in`
         // narrows past LiveVoiceInvalidJsonFrame, which is never recoverable.)
@@ -368,16 +469,28 @@ export class LiveVoiceChannelClient {
     }
   }
 
-  private handleClose(): void {
+  private handleClose(event: CloseEvent): void {
     if (this.state === "closed") return;
-    // An unexpected transport close before `ready` is a connection failure;
-    // otherwise it's a clean teardown.
-    if (this.state === "connecting") {
-      this.fail("connection-failed", "Live-voice WebSocket closed before ready");
+    // An unexpected close before `ready` is normally a connection failure — but
+    // a *retryable* close (velay's 1012/1013) can land pre-`ready` when a
+    // reconnect races the tunnel's re-registration. Forward those as a normal
+    // close carrying the code so the controller can spend its remaining
+    // reconnect budget instead of failing the session on the first blip;
+    // genuine pre-ready closes still fail.
+    if (
+      this.state === "connecting" &&
+      !RETRYABLE_LIVE_VOICE_CLOSE_CODES.has(event.code)
+    ) {
+      this.fail(
+        "connection-failed",
+        "Live-voice WebSocket closed before ready",
+      );
       return;
     }
     this.teardown();
-    this.emit("closed", undefined);
+    // Forward the far-side close code so the controller can reconnect through a
+    // retryable tunnel drop (velay 1013).
+    this.emit("closed", { code: event.code, reason: event.reason });
   }
 
   private sendControlFrame(type: "ptt_release" | "interrupt"): void {
@@ -406,7 +519,8 @@ export class LiveVoiceChannelClient {
     if (this.state === "closed") return;
     this.teardown();
     this.emit("error", { reason, message, ...(code ? { code } : {}) });
-    this.emit("closed", undefined);
+    // Locally initiated after surfacing the failure; never a reconnect trigger.
+    this.emit("closed", { code: null, reason: message });
   }
 
   private teardown(): void {

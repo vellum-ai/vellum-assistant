@@ -8,6 +8,7 @@ import type {
   TurnTrace,
   TurnTraceMessage,
   TurnTraceToolCall,
+  TurnTraceToolDefinition,
 } from "./types.js";
 
 const log = getLogger("turn-trace-store");
@@ -47,6 +48,30 @@ function parseStoredContent(raw: string): unknown {
   } catch {
     // Legacy rows stored a plain (non-JSON) string. Forward as-is.
     return raw;
+  }
+}
+
+/**
+ * Extract the served model from a stored `messages.metadata` string. The daemon
+ * persists `metadata.model` with the finalized content of each assistant row
+ * (the `message_complete` event's `response.model`); returns null for rows
+ * without it — user rows, tool-result rows, synthetic assistant rows, and
+ * historical rows persisted before model stamping — or when the metadata JSON
+ * is absent/malformed.
+ */
+function parseStoredModel(raw: string | null): string | null {
+  if (raw == null) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (parsed != null && typeof parsed === "object" && "model" in parsed) {
+      const model = (parsed as { model?: unknown }).model;
+      return typeof model === "string" ? model : null;
+    }
+    return null;
+  } catch {
+    return null;
   }
 }
 
@@ -176,6 +201,7 @@ function queryTurnMessages(
       role: messages.role,
       content: messages.content,
       createdAt: messages.createdAt,
+      metadata: messages.metadata,
     })
     .from(messages)
     .where(
@@ -193,6 +219,7 @@ function queryTurnMessages(
     role: r.role,
     created_at: r.createdAt,
     content: parseStoredContent(r.content),
+    model: parseStoredModel(r.metadata),
   }));
 }
 
@@ -291,9 +318,11 @@ function queryTurnToolCalls(
  * before producing a response) traces user-only, which is faithful: its window
  * genuinely has no response. A coalesced batch's shared response lives on the
  * batch's FINAL turn's window — exactly where the daemon already attributes it
- * (via `lastUserMessageId` / `llm_usage` / `turn_index`). There is no durable
- * batch signal in the stored messages to distinguish a real batch from a
- * failed/cancelled turn, so no batch inference is attempted.
+ * (via `lastUserMessageId` / `llm_usage` / `turn_index`). Which case an empty
+ * window is (batched vs failed vs cancelled) is recorded durably on the user
+ * message row (`messages.metadata.turnOutcome`, written by `stampTurnOutcome`)
+ * and rides the turn event's `outcome` field — the trace itself stays the
+ * plain window and attempts no inference.
  *
  * Read-only; touches only existing tables (`messages`, `tool_invocations`), so
  * no migration is involved. Caller is responsible for the consent gate and the
@@ -302,10 +331,30 @@ function queryTurnToolCalls(
  */
 export function assembleTurnTrace(boundary: TurnTraceBoundary): TurnTrace {
   const nextTurn = nextRealUserTurn(boundary);
+  const conversation = findConversation(boundary.conversationId);
+
+  // System prompt and tool definitions are read from the live conversation's
+  // cached state — the same values the agent loop used for this turn. When the
+  // conversation has been evicted (e.g. after a daemon restart), these fall
+  // back to null / empty, which is faithful: we no longer have the values.
+  // (Model is read durably from `messages.metadata`, not from live state, so it
+  // survives eviction — see `queryTurnMessages`.)
+  const systemPrompt = conversation?.getCurrentSystemPrompt() ?? null;
+
+  const toolDefinitions: TurnTraceToolDefinition[] = conversation
+    ? conversation.getRegisteredToolDefinitions().map((tool) => ({
+        name: tool.name,
+        description: tool.description,
+        input_schema: tool.input_schema as Record<string, unknown>,
+      }))
+    : [];
+
   return {
-    schema_version: 1,
+    schema_version: 3,
     messages: queryTurnMessages(boundary, nextTurn),
     tool_calls: queryTurnToolCalls(boundary, nextTurn),
+    system_prompt: systemPrompt,
+    tool_definitions: toolDefinitions,
   };
 }
 

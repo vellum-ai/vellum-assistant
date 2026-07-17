@@ -10,6 +10,7 @@ import {
   ADMISSION_POLICY_DEFAULT,
   type AdmissionPolicy,
   isAdmissionPolicy,
+  isAdmissionPolicyExemptChannel,
 } from "@vellumai/gateway-client";
 
 import {
@@ -37,10 +38,8 @@ import {
 import { getDiskPressureStatus } from "../../daemon/disk-pressure-guard.js";
 import { classifyDiskPressureTurnPolicy } from "../../daemon/disk-pressure-policy.js";
 import { processMessage } from "../../daemon/process-message.js";
-import {
-  mapChatTypeToConversationType,
-  type TrustContext,
-} from "../../daemon/trust-context.js";
+import { mapChatTypeToConversationType } from "../../daemon/trust-context.js";
+import type { TrustContext } from "../../daemon/trust-context-types.js";
 import { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
 import type { Message as ProviderMessage } from "../../messaging/provider-types.js";
 import {
@@ -95,6 +94,7 @@ import { getLogger } from "../../util/logger.js";
 import { truncate } from "../../util/truncate.js";
 import {
   isApprovalHandshakeInProgress,
+  maybeNotifyGuardianOfAdmittedContact,
   notifyGuardianOfAccessRequest,
 } from "../access-request-helper.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
@@ -111,7 +111,6 @@ import { enforceAdmissionPolicy } from "./inbound-stages/admission-policy.js";
 import { processChannelMessageInBackground } from "./inbound-stages/background-dispatch.js";
 import { handleBootstrapIntercept } from "./inbound-stages/bootstrap-intercept.js";
 import { handleEditIntercept } from "./inbound-stages/edit-intercept.js";
-import { handleEscalationIntercept } from "./inbound-stages/escalation-intercept.js";
 import { handleGuardianActivationIntercept } from "./inbound-stages/guardian-activation-intercept.js";
 import { handleGuardianReplyIntercept } from "./inbound-stages/guardian-reply-intercept.js";
 import {
@@ -420,7 +419,7 @@ export async function handleChannelInbound({
   // notification, and a stranger's reaction creates no conversation/binding.
   // The interceptor drops strangers, records known contacts' reactions as
   // transcript signals, and routes a guardian's reaction on an approval card
-  // through the canonical guardian decision pipeline. Reactions never drive an
+  // through the guardian decision pipeline. Reactions never drive an
   // agent turn.
   if (isSlackReactionEvent(body)) {
     return handleSlackReactionIntercept({
@@ -823,7 +822,7 @@ export async function handleChannelInbound({
     const floorSenderId = canonicalSenderId ?? rawSenderId;
     if (isCallbackInteraction) {
       if (floorSenderId) {
-        handshakeInProgress = isApprovalHandshakeInProgress({
+        handshakeInProgress = await isApprovalHandshakeInProgress({
           canonicalAssistantId,
           sourceChannel,
           actorExternalId: floorSenderId,
@@ -846,6 +845,9 @@ export async function handleChannelInbound({
               }
             : {}),
           messagePreview: truncate(trimmedContent, MESSAGE_PREVIEW_MAX_LENGTH),
+          ...(typeof sourceMetadata?.isBot === "boolean"
+            ? { isBot: sourceMetadata.isBot }
+            : {}),
           ...(typeof sourceMetadata?.isStranger === "boolean"
             ? { isStranger: sourceMetadata.isStranger }
             : {}),
@@ -970,28 +972,6 @@ export async function handleChannelInbound({
     };
   }
 
-  // ── Ingress escalation ──
-  const escalationResponse = await handleEscalationIntercept({
-    resolvedMember,
-    canonicalAssistantId,
-    sourceChannel,
-    sourceInterface,
-    conversationExternalId,
-    externalMessageId,
-    conversationId: result.conversationId,
-    eventId: result.eventId,
-    content: trimmedContent,
-    attachmentIds,
-    sourceMetadata: body.sourceMetadata,
-    actorDisplayName: body.actorDisplayName,
-    actorExternalId: body.actorExternalId,
-    actorUsername: body.actorUsername,
-    replyCallbackUrl: body.replyCallbackUrl,
-    canonicalSenderId,
-    rawSenderId,
-  });
-  if (escalationResponse) return escalationResponse;
-
   const metadataHintsRaw = sourceMetadata?.hints;
   const metadataHints = Array.isArray(metadataHintsRaw)
     ? metadataHintsRaw.filter(
@@ -1043,12 +1023,11 @@ export async function handleChannelInbound({
   });
   if (bootstrapResponse) return bootstrapResponse;
 
-  // Legacy voice guardian action interception removed — all guardian reply
-  // routing now flows through the canonical router below (routeGuardianReply),
-  // which handles request code matching, callback parsing, and NL classification
-  // against canonical_guardian_requests.
+  // All guardian reply routing flows through the guardian reply router below
+  // (routeGuardianReply), which handles request code matching, callback
+  // parsing, and NL classification against the gateway's guardian_requests.
 
-  // ── Canonical guardian reply router ──
+  // ── Guardian reply router ──
   const guardianReplyResult = await handleGuardianReplyIntercept({
     isDuplicate: result.duplicate,
     trimmedContent,
@@ -1246,6 +1225,58 @@ export async function handleChannelInbound({
       // fires a full interval after this interaction.
       if (trustCtx.trustClass === "guardian") {
         heartbeatService?.resetTimer();
+      }
+
+      // ── Introduction nudge on first admit ──
+      // A sender the guardian has never classified can clear a permissive
+      // floor (`any_contact`, `strangers`) and start conversing with no
+      // guardian touchpoint — the introduction card otherwise fires only on
+      // deny. Nudge the guardian informationally so trust assignment does
+      // not depend on a denial; fire-and-forget, the turn proceeds
+      // regardless (LUM-2742). Runs after the secret ingress check so the
+      // persisted messagePreview can never carry a blocked secret. Exempt
+      // channels (`a2a`, `platform`) are outside the human-trust model, and
+      // a validated bootstrap session is already mid-verification.
+      if (
+        channelTrustFloorsEnabled &&
+        !isCallbackInteraction &&
+        aclResult.validatedBootstrapSession == null &&
+        !isAdmissionPolicyExemptChannel(sourceChannel) &&
+        (trustCtx.trustClass === "unverified_contact" ||
+          trustCtx.trustClass === "unknown")
+      ) {
+        const admittedSenderId = canonicalSenderId ?? rawSenderId;
+        if (admittedSenderId) {
+          void maybeNotifyGuardianOfAdmittedContact({
+            canonicalAssistantId,
+            sourceChannel,
+            conversationExternalId,
+            actorExternalId: admittedSenderId,
+            actorDisplayName: body.actorDisplayName,
+            actorUsername: body.actorUsername,
+            messagePreview: truncate(
+              trimmedContent,
+              MESSAGE_PREVIEW_MAX_LENGTH,
+            ),
+            ...(typeof sourceMetadata?.isBot === "boolean"
+              ? { isBot: sourceMetadata.isBot }
+              : {}),
+            ...(typeof sourceMetadata?.isStranger === "boolean"
+              ? { isStranger: sourceMetadata.isStranger }
+              : {}),
+            ...(typeof sourceMetadata?.isRestricted === "boolean"
+              ? { isRestricted: sourceMetadata.isRestricted }
+              : {}),
+            ...(typeof sourceMetadata?.messageId === "string"
+              ? { messageTs: sourceMetadata.messageId }
+              : {}),
+          }).catch((err) => {
+            log.warn(
+              { err, sourceChannel, conversationExternalId },
+              "Failed to send introduction nudge for admitted contact",
+            );
+          });
+        }
       }
 
       // Slack inbound metadata captured for thread-aware persistence. The
@@ -1771,12 +1802,12 @@ function isBackfilledSlackGuardianMessage(
 ): boolean {
   const rawSenderId = message.sender?.id?.trim();
   if (!rawSenderId || !guardianExternalUserId) return false;
-  const canonicalSender =
+  const normalizedSender =
     canonicalizeInboundIdentity("slack", rawSenderId) ?? rawSenderId;
-  const canonicalGuardian =
+  const normalizedGuardian =
     canonicalizeInboundIdentity("slack", guardianExternalUserId) ??
     guardianExternalUserId.trim();
-  return canonicalSender === canonicalGuardian;
+  return normalizedSender === normalizedGuardian;
 }
 
 const SLACK_ASSISTANT_THREAD_PLACEHOLDER_TEXT = "New Assistant Thread";

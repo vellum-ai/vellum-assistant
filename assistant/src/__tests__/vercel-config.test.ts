@@ -43,13 +43,6 @@ mock.module("../tools/credentials/metadata-store.js", () => ({
   },
 }));
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 import {
   deleteVercelConfig,
   getVercelConfig,

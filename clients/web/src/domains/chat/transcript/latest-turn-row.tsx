@@ -30,6 +30,7 @@ export interface LatestTurnRowProps {
     data?: Record<string, unknown>,
   ) => void;
   onForkConversation?: (messageId: string) => void;
+  onSummarizeUpToHere?: (messageId: string) => void;
   onInspectMessage?: (messageId: string) => void;
   renderOnboardingChoice?: () => ReactNode;
   onOpenRuleEditor?: (context: {
@@ -72,6 +73,7 @@ export const LatestTurnRow = memo(function LatestTurnRow({
   assistantDisplayName,
   onSurfaceAction,
   onForkConversation,
+  onSummarizeUpToHere,
   onInspectMessage,
   renderOnboardingChoice,
   onOpenRuleEditor,
@@ -93,6 +95,14 @@ export const LatestTurnRow = memo(function LatestTurnRow({
   const phase = useTurnStore.use.phase();
   const isStreaming =
     phase === "queued" || phase === "thinking" || phase === "streaming";
+  // The last message-kind item of the cluster collapses its hover-actions row
+  // (see `TranscriptRowProps.isLatestMessage`). Trailing non-message rows —
+  // the thinking slot, pending prompts — carry no trailer of their own, so
+  // the flag skips past them; this keeps the space collapsed while the turn
+  // is still streaming, not just after it settles.
+  const lastMessageItem = responseItems.findLast(
+    (item) => item.kind === "message",
+  );
   return (
     <div className="flex flex-col" data-latest-turn="true">
       <TranscriptRow
@@ -101,6 +111,7 @@ export const LatestTurnRow = memo(function LatestTurnRow({
         assistantDisplayName={assistantDisplayName}
         onSurfaceAction={onSurfaceAction}
         onForkConversation={onForkConversation}
+        onSummarizeUpToHere={onSummarizeUpToHere}
         onInspectMessage={onInspectMessage}
         renderOnboardingChoice={renderOnboardingChoice}
         onOpenRuleEditor={onOpenRuleEditor}
@@ -115,6 +126,7 @@ export const LatestTurnRow = memo(function LatestTurnRow({
         onStopSubagent={onStopSubagent}
         onWorkflowClick={onWorkflowClick}
         onStopWorkflow={onStopWorkflow}
+        isLatestMessage={!lastMessageItem}
       />
       {responseItems.map((response) => (
         <Fragment key={response.key}>
@@ -124,6 +136,7 @@ export const LatestTurnRow = memo(function LatestTurnRow({
             assistantDisplayName={assistantDisplayName}
             onSurfaceAction={onSurfaceAction}
             onForkConversation={onForkConversation}
+            onSummarizeUpToHere={onSummarizeUpToHere}
             onInspectMessage={onInspectMessage}
             renderOnboardingChoice={renderOnboardingChoice}
             onOpenRuleEditor={onOpenRuleEditor}
@@ -139,6 +152,7 @@ export const LatestTurnRow = memo(function LatestTurnRow({
             onWorkflowClick={onWorkflowClick}
             onStopWorkflow={onStopWorkflow}
             isStreaming={isStreaming}
+            isLatestMessage={response === lastMessageItem}
           />
         </Fragment>
       ))}

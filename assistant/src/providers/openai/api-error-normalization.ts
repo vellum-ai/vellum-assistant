@@ -1,5 +1,11 @@
 import type OpenAI from "openai";
 
+import type { ProviderErrorReason } from "../../util/errors.js";
+import {
+  INSUFFICIENT_CREDITS_PATTERNS,
+  VISION_NOT_SUPPORTED_PATTERNS,
+} from "../../util/provider-error-patterns.js";
+
 /**
  * Normalized view of an OpenAI-compatible `APIError`. The SDK reads
  * `error.message` and renders bodies it can't parse as "(no body)", so
@@ -22,6 +28,71 @@ export interface NormalizedOpenAIAPIError {
    * `captureRawErrorBodyFetch` intentionally doesn't drain.
    */
   rawBody?: string;
+  /**
+   * Semantic failure classification derived from status + body signals by
+   * {@link deriveReason}. The OpenAI-compat throw sites forward it onto the
+   * thrown `ProviderError.reason` so downstream classification/retry can switch
+   * on intent rather than re-deriving from status/regex.
+   */
+  reason?: ProviderErrorReason;
+}
+
+/**
+ * All human-readable text from a normalized error — message, detail, and raw
+ * body — joined for case-insensitive substring/regex scanning. Classifying off
+ * the intact upstream payload (not the SDK's lossy `error.message`) is what lets
+ * OpenRouter's wrapped errors be matched, where the real reason lives in
+ * `metadata.raw`.
+ */
+export function normalizedErrorText(n: NormalizedOpenAIAPIError): string {
+  return `${n.message} ${n.detail ?? ""} ${n.rawBody ?? ""}`;
+}
+
+/**
+ * Map an OpenAI-compatible error to a semantic {@link ProviderErrorReason}.
+ * Order matters — the model-restriction check precedes the generic 401/403
+ * credential branch, and billing precedes credentials.
+ */
+export function deriveReason(
+  n: NormalizedOpenAIAPIError,
+  status: number | undefined,
+): ProviderErrorReason {
+  const haystack = normalizedErrorText(n);
+
+  if (
+    status === 403 &&
+    (n.apiErrorType === "no_providers_available" ||
+      n.apiErrorParam === "RestrictedModelsError" ||
+      /RestrictedModelsError/i.test(haystack) ||
+      /do(?:es)? ?n[o']t have access to this model/i.test(haystack))
+  ) {
+    return "model_restricted";
+  }
+
+  if (
+    /model .*(?:not found|does not exist)/i.test(haystack) ||
+    /model_not_found/i.test(`${n.apiErrorCode ?? ""} ${n.apiErrorType ?? ""}`)
+  ) {
+    return "model_not_found";
+  }
+
+  if (VISION_NOT_SUPPORTED_PATTERNS.some((re) => re.test(haystack))) {
+    return "vision_unsupported";
+  }
+
+  if (
+    status === 402 ||
+    INSUFFICIENT_CREDITS_PATTERNS.some((re) => re.test(haystack))
+  ) {
+    return "insufficient_credits";
+  }
+
+  if (status === 401 || status === 403) return "invalid_credentials";
+  if (status === 429) return "rate_limited";
+  if (status === 529 || /overloaded/i.test(haystack)) return "overloaded";
+  if (status !== undefined && status >= 500) return "server_error";
+  if (status !== undefined && status >= 400) return "bad_request";
+  return "unknown";
 }
 
 const MAX_DETAIL_CHARS = 2000;
@@ -128,6 +199,7 @@ export function normalizeOpenAIAPIError(
   const requestId = readHeader(error.headers);
   if (requestId) out.requestId = requestId;
   if (rawBody) out.rawBody = rawBody;
+  out.reason = deriveReason(out, error.status);
   return out;
 }
 

@@ -19,9 +19,9 @@ import { generateSparseEmbedding } from "../../../../persistence/embeddings/embe
 import type { QdrantSparseVector } from "../../../../persistence/embeddings/qdrant-client.js";
 import { conversations } from "../../../../persistence/schema/conversations.js";
 import { memorySummaries } from "../../../../persistence/schema/index.js";
-import { getLogger } from "../../../../util/logger.js";
-import { getWorkspaceDir } from "../../../../util/platform.js";
+import { getLogger } from "../logging.js";
 import { wrapMemoryBlock } from "../memory-marker.js";
+import { getWorkspaceDir } from "../paths.js";
 import {
   clearEverInjected as clearV2EverInjected,
   hydrate as hydrateV2State,
@@ -83,6 +83,16 @@ export function getLiveGraphMemory(
   if (!conversationId) return undefined;
   return liveByConversation.get(conversationId);
 }
+
+/**
+ * Full output of a single memory-graph retrieval — the object returned by
+ * {@link ConversationGraphMemory.prepareMemory} (injected messages, query
+ * vectors, metrics). The plugin's user-prompt-submit hook consumes these
+ * fields to drive PKB hint search and runtime injection.
+ */
+export type GraphMemoryResult = Awaited<
+  ReturnType<ConversationGraphMemory["prepareMemory"]>
+>;
 
 /**
  * Manages memory graph state for a single conversation.
@@ -574,7 +584,6 @@ export class ConversationGraphMemory {
 
     // v1 fallback — only reached when the v2 flag or workspace config is off.
     const result = await loadContextMemory({
-      scopeId: "default",
       recentSummaries,
       userQuery,
       config,
@@ -743,7 +752,6 @@ export class ConversationGraphMemory {
       assistantLastMessage: assistantLast,
       userLastMessage: userLast,
       userLastMessageBlocks: userLastBlocks,
-      scopeId: "default",
       config,
       tracker: this.tracker,
       signal,

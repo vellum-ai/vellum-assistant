@@ -7,7 +7,7 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { parsePluginArtifact } from "../plugin-artifact.js";
+import { parsePluginArtifact, parsePluginIcon } from "../plugin-artifact.js";
 
 const VALID_SHA = "a".repeat(64);
 
@@ -179,5 +179,58 @@ describe("parsePluginArtifact", () => {
     // WHEN we parse a non-object package.json value
     // THEN nothing is surfaced
     expect(parsePluginArtifact(value)).toBeNull();
+  });
+});
+
+describe("parsePluginIcon", () => {
+  test("returns the emoji when vellum.icon is a short glyph", () => {
+    expect(parsePluginIcon({ vellum: { icon: "🚀" } })).toBe("🚀");
+  });
+
+  test("trims surrounding whitespace", () => {
+    expect(parsePluginIcon({ vellum: { icon: "  🎯 " } })).toBe("🎯");
+  });
+
+  test("accepts a multi-code-point glyph within the bound", () => {
+    // A ZWJ family emoji is several code points but well under the cap.
+    const family = "👩‍👩‍👧‍👦";
+    expect(parsePluginIcon({ vellum: { icon: family } })).toBe(family);
+  });
+
+  test("accepts a value at exactly the 16-code-point bound", () => {
+    const sixteen = "a".repeat(16);
+    expect(parsePluginIcon({ vellum: { icon: sixteen } })).toBe(sixteen);
+  });
+
+  test.each([
+    ["no vellum block", { name: "x" }],
+    ["no icon field", { vellum: {} }],
+    ["icon is empty", { vellum: { icon: "" } }],
+    ["icon is whitespace-only", { vellum: { icon: "   " } }],
+    [
+      "icon is too long (>16 code points)",
+      { vellum: { icon: "x".repeat(17) } },
+    ],
+    ["icon is a number", { vellum: { icon: 42 } }],
+    ["icon is an object", { vellum: { icon: {} } }],
+    ["vellum is an array", { vellum: [] }],
+  ])("returns undefined for %s", (_label, pkg) => {
+    expect(parsePluginIcon(pkg)).toBeUndefined();
+  });
+
+  test.each([
+    ["null", null],
+    ["a string", "not-a-package"],
+    ["an array", []],
+    ["a number", 42],
+  ])("returns undefined when package.json is %s", (_label, value) => {
+    expect(parsePluginIcon(value)).toBeUndefined();
+  });
+
+  test("does not count a >16-code-point emoji sequence as valid", () => {
+    // 17 rocket emoji: 17 code points, over the cap.
+    expect(
+      parsePluginIcon({ vellum: { icon: "🚀".repeat(17) } }),
+    ).toBeUndefined();
   });
 });

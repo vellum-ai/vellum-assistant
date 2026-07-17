@@ -5,6 +5,16 @@ import { convertImageToJpeg } from "../util/image-conversion.js";
 // down server-side anyway, so pre-scaling is zero quality loss.
 const MAX_DIMENSION = 1568;
 
+// Minimum per-side pixel floor for the image-recovery rejection path.
+// Anthropic rejects very small images with a 400 "Could not process image"
+// (observed with a 16×14 px upload) but does not document the floor, so it is
+// never enforced pre-send — images go out untouched and this gate only
+// identifies the likely offender after the provider has actually rejected a
+// turn. The value sits comfortably above the model's 28-px visual-patch size;
+// upscaling adds no information, so lifting a rejected image to this floor is
+// lossless.
+export const MIN_IMAGE_DIMENSION = 64;
+
 // Threshold below which we skip optimization — small images don't need it.
 const OPTIMIZE_THRESHOLD_BYTES = 300 * 1024; // 300 KB
 
@@ -38,6 +48,76 @@ export function shouldRescaleImage(
   }
   // Dimensions unparseable — fall back to file size as a rough proxy.
   return byteLength > OPTIMIZE_THRESHOLD_BYTES;
+}
+
+/**
+ * Whether an image sits below the {@link MIN_IMAGE_DIMENSION} floor on either
+ * side. Requires parsed dimensions — a byte-size proxy cannot distinguish a
+ * tiny image from a well-compressed large one.
+ *
+ * Only consulted by the image-recovery rejection path (the floor is
+ * undocumented, so it is never enforced pre-send). Exported for that gate and
+ * for unit testing.
+ */
+export function isBelowMinDimension(
+  dims: { width: number; height: number } | null,
+): boolean {
+  return (
+    dims != null &&
+    (dims.width < MIN_IMAGE_DIMENSION || dims.height < MIN_IMAGE_DIMENSION)
+  );
+}
+
+/**
+ * Aspect-preserving target dimensions that lift an undersized image's short
+ * side to {@link MIN_IMAGE_DIMENSION}. The scale factor is capped so the long
+ * side never exceeds {@link MAX_DIMENSION}; for pathological aspect ratios
+ * where no upscale is possible under that cap, returns null and the caller
+ * notes the image out instead.
+ *
+ * Exported for unit testing.
+ */
+export function upscaleTargetDimensions(dims: {
+  width: number;
+  height: number;
+}): { width: number; height: number } | null {
+  const shortSide = Math.min(dims.width, dims.height);
+  const longSide = Math.max(dims.width, dims.height);
+  if (shortSide <= 0) return null;
+  const scale = Math.min(
+    MIN_IMAGE_DIMENSION / shortSide,
+    MAX_DIMENSION / longSide,
+  );
+  if (scale <= 1) return null;
+  return {
+    width: Math.max(1, Math.round(dims.width * scale)),
+    height: Math.max(1, Math.round(dims.height * scale)),
+  };
+}
+
+/**
+ * Upscale an image the provider rejected as too small to the
+ * {@link MIN_IMAGE_DIMENSION} floor. Returns null when the image's dimensions
+ * are unparseable, no valid upscale exists, or conversion is unavailable on
+ * this host — the caller replaces the image with a note instead.
+ *
+ * Reactive only: called by the image-recovery plugin after an actual
+ * "Could not process image" rejection, never on the pre-send path.
+ */
+export function upscaleImageToMinimum(
+  base64Data: string,
+  mediaType: string,
+): { data: string; mediaType: string } | null {
+  const dims = parseImageDimensions(base64Data, mediaType);
+  if (!dims) return null;
+  const target = upscaleTargetDimensions(dims);
+  if (!target) return null;
+  const upscaled = convertImageToJpeg(Buffer.from(base64Data, "base64"), {
+    resizeToPx: target,
+    quality: JPEG_QUALITY,
+  });
+  if (!upscaled) return null;
+  return { data: upscaled.toString("base64"), mediaType: "image/jpeg" };
 }
 
 /**

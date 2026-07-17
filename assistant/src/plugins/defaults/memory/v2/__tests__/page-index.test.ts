@@ -13,7 +13,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { makeMockLogger } from "../../../../../__tests__/helpers/mock-logger.js";
 import type { ConceptPage, SkillEntry } from "../types.js";
 
 // ---------------------------------------------------------------------------
@@ -24,10 +23,6 @@ import type { ConceptPage, SkillEntry } from "../types.js";
 
 const skillState: { entries: SkillEntry[] } = { entries: [] };
 const failingSlugs = new Set<string>();
-
-mock.module("../../../../../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
 
 mock.module("../skill-store.js", () => ({
   SKILL_SLUG_PREFIX: "skills/",

@@ -173,32 +173,6 @@ describe("resolveCapabilities", () => {
     }
   });
 
-  test("forbids the CES authenticated tools (executor post-processing bypass)", () => {
-    // run_authenticated_command / make_authenticated_request can return
-    // `cesApprovalRequired`, which only ToolExecutor bridges + retries. A leaf
-    // calls tool.execute() directly, so it would see the raw approval-required
-    // result as an error — hence these are forbidden until leaf invocations run
-    // the executor's post-processing. Declaring either is a hard error.
-    for (const name of [
-      "run_authenticated_command",
-      "make_authenticated_request",
-    ]) {
-      expect(WORKFLOW_FORBIDDEN_TOOLS).toContain(name);
-      registerTool(makeFakeTool(name));
-      const manifest = CapabilityManifestSchema.parse({ tools: [name] });
-      try {
-        resolveCapabilities(manifest);
-        throw new Error(`expected resolveCapabilities to throw for ${name}`);
-      } catch (err) {
-        expect(err).toBeInstanceOf(CapabilityResolutionError);
-        expect((err as CapabilityResolutionError).reason).toBe(
-          "forbidden_tool",
-        );
-        expect((err as CapabilityResolutionError).toolName).toBe(name);
-      }
-    }
-  });
-
   test("rejects a declared host-proxy tool (executionTarget host)", () => {
     // A leaf builds a synthetic, anonymous ToolContext that carries none of the
     // originating turn's host-routing fields (transportInterface,

@@ -143,4 +143,51 @@ describe("defaultCompact", () => {
       actorTrustClass: "guardian",
     });
   });
+
+  test("forwards fixedTailStartIndex to the manager", async () => {
+    // GIVEN a manager and a fixed-boundary compaction context
+    const observed = registerManager("conv-fixed", makeResult());
+
+    // WHEN defaultCompact runs with a fixed tail boundary
+    await defaultCompact({
+      conversationId: "conv-fixed",
+      messages: [] as never,
+      force: true,
+      fixedTailStartIndex: 4,
+    });
+
+    // THEN the manager received the boundary in its options bag
+    expect(observed).toHaveLength(1);
+    expect(observed[0]!.options).toEqual({
+      force: true,
+      fixedTailStartIndex: 4,
+    });
+  });
+
+  test("rejects overflowSignal combined with fixedTailStartIndex", async () => {
+    // GIVEN a manager that records any compaction entry point
+    const calls: string[] = [];
+    fakeContextWindowManagers.set("conv-conflict", {
+      maybeCompact: async () => {
+        calls.push("maybeCompact");
+        return makeResult();
+      },
+      recoverContextOverflow: async () => {
+        calls.push("recoverContextOverflow");
+        return makeResult();
+      },
+    });
+
+    // WHEN defaultCompact runs with both an overflow signal and a fixed boundary
+    // THEN the request is rejected before reaching the manager
+    await expect(
+      defaultCompact({
+        conversationId: "conv-conflict",
+        messages: [] as never,
+        overflowSignal: { actualTokens: 250_000, isInteractive: true },
+        fixedTailStartIndex: 4,
+      }),
+    ).rejects.toThrow(/mutually exclusive/);
+    expect(calls).toEqual([]);
+  });
 });

@@ -82,10 +82,13 @@ function recordCompactionRequestLog(
   conversationId: string,
   response: ProviderResponse,
   provider: Provider,
-): void {
-  if (!response.rawRequest || !response.rawResponse) return;
+): string | null {
+  if (!response.rawRequest || !response.rawResponse) return null;
   try {
-    recordRequestLog(
+    // Inserted unlinked (no message id) — user-initiated compaction flows
+    // (/compact, summarize-up-to) link the row to their result card after
+    // it persists, via `linkRequestLogsToMessage`.
+    return recordRequestLog(
       conversationId,
       JSON.stringify(response.rawRequest),
       JSON.stringify(response.rawResponse),
@@ -98,6 +101,7 @@ function recordCompactionRequestLog(
       { err, conversationId },
       "Failed to persist compaction LLM request log (non-fatal)",
     );
+    return null;
   }
 }
 
@@ -170,6 +174,65 @@ active decisions, open questions, commitments, project states.
 </compaction_result>
 </compaction_instructions>`;
 
+/**
+ * Fixed-boundary compaction instruction. Used when the caller pins the cut
+ * via `fixedTailStartIndex` — the user chose where the summary ends, so the
+ * model writes the summary but does not pick a `tail_start`.
+ *
+ * Interpolation points: `{image_manifest}` (same as the default prompt) and
+ * `{boundary_description}` (a description of the first preserved message so
+ * the model knows exactly where "before" ends).
+ */
+const FIXED_BOUNDARY_COMPACTION_PROMPT = `<compaction_instructions>
+The user has asked to summarize this conversation up to a fixed point they
+chose. Everything BEFORE that point is replaced by your summary; the boundary
+message and everything after it are preserved verbatim. You do not choose the
+cut — it is already fixed.
+
+The first message to be preserved verbatim is {boundary_description}.
+Summarize ONLY what comes before it.
+
+Write the summary in YOUR voice — as if you're remembering this conversation,
+not writing meeting notes about it. Prioritize:
+- Decisions made and commitments given
+- Key context that's still relevant going forward
+- Emotional moments that shaped the conversation's direction
+- Exact quotes when the specific wording matters
+- Project/task state changes
+
+Compress aggressively:
+- Repeated debugging or troubleshooting attempts → just the outcome
+- Tool call outputs → results only, not raw data
+- Intermediate states superseded by later states
+- Back-and-forth deliberation → just the conclusion
+
+IMAGE MANIFEST (images in this conversation):
+{image_manifest}
+
+If any images from the summarized portion are still relevant to the
+ongoing conversation, include them in retained_images by filename.
+
+Output your result in this exact format:
+
+<compaction_result>
+<summary>
+Your summary in your voice. Aim for 2000-4000 tokens — rich enough
+to preserve what matters, compact enough to free real space.
+</summary>
+
+<key_state>
+Short structured list of anything PENDING from this conversation:
+active decisions, open questions, commitments, project states.
+</key_state>
+
+<retained_images>
+<image file="filename.ext" />
+(only images from BEFORE the boundary that are still contextually important)
+(omit this section entirely if no images need retention)
+</retained_images>
+</compaction_result>
+</compaction_instructions>`;
+
 // ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
@@ -211,6 +274,24 @@ export interface CompactionRunArgs {
    * DB counterparts.
    */
   nonPersistedPrefixCount?: number;
+  /**
+   * Index into `messages` of the first message to KEEP verbatim. When set,
+   * everything before it is summarized and the model does not choose the
+   * cut: the `<tail_start>` output contract, tail resolution, and the
+   * token-budget forward-cut are all skipped. The boundary is authoritative
+   * (the caller has already turn-snapped it); only the tool-pairing
+   * back-walk still applies, as defense-in-depth. Must be an integer in
+   * `[1, messages.length)` — otherwise the run returns `compacted: false`.
+   */
+  fixedTailStartIndex?: number;
+  /**
+   * Row-space twin of `fixedTailStartIndex`: index into the conversation's
+   * persisted rows of the first message kept verbatim. Bounds the image
+   * manifest to rows that are actually being summarized away — kept-tail
+   * images stay in context verbatim, so offering them for retention would
+   * only duplicate them. Only meaningful alongside `fixedTailStartIndex`.
+   */
+  fixedBoundaryRowIndex?: number;
 }
 
 export interface CompactionRunResult {
@@ -236,6 +317,14 @@ export interface CompactionRunResult {
   summaryCacheCreationInputTokens?: number;
   summaryCacheReadInputTokens?: number;
   summaryRawResponses?: unknown[];
+  /**
+   * `llm_request_logs.id` of this pass's compaction call, `null` when the
+   * row was not written (logging disabled, missing raw payloads, DB error).
+   * User-initiated flows (/compact, summarize-up-to) link the row to their
+   * persisted result card so the inspector attributes the call to the card
+   * instead of the unlinked-row recovery guessing an enclosing turn.
+   */
+  summaryRequestLogId?: string | null;
   summaryText: string;
   /** Inline structured pending state from the model's `<key_state>` block. */
   keyState?: string;
@@ -277,10 +366,14 @@ export interface ParsedCompactionResult {
  * Lenient by design — the model may wrap the block in narration, may omit
  * `<retained_images>`, and may produce slightly malformed inner tags. We
  * accept any of those. Returns `null` only when the required fields
- * (summary + tail_start.timestamp) are missing.
+ * (summary + tail_start.timestamp) are missing. With
+ * `requireTailStart: false` (the fixed-boundary mode, where the caller
+ * already owns the cut) an absent `<tail_start>` is tolerated and its
+ * fields come back empty.
  */
 export function parseCompactionResult(
   raw: string,
+  opts: { requireTailStart?: boolean } = {},
 ): ParsedCompactionResult | null {
   const openIdx = raw.indexOf(RESULT_TAG_OPEN);
   if (openIdx < 0) return null;
@@ -296,7 +389,12 @@ export function parseCompactionResult(
   const keyState = extractTagContent(inner, "key_state")?.trim() ?? "";
 
   const tail = extractTailStart(inner);
-  if (!tail || tail.timestamp.length === 0) return null;
+  if (
+    opts.requireTailStart !== false &&
+    (!tail || tail.timestamp.length === 0)
+  ) {
+    return null;
+  }
 
   const retainedImageFilenames = extractRetainedImages(inner);
 
@@ -304,8 +402,8 @@ export function parseCompactionResult(
     summary,
     keyState,
     retainedImageFilenames,
-    tailStartTimestamp: tail.timestamp,
-    tailStartPreview: tail.preview,
+    tailStartTimestamp: tail?.timestamp ?? "",
+    tailStartPreview: tail?.preview ?? "",
   };
 }
 
@@ -379,15 +477,23 @@ interface ManifestEntry {
  * `loadFromDb` applies when assembling history — so guardian-only images
  * never enter the manifest and therefore can never be retained back into
  * an untrusted actor's view.
+ *
+ * `endRowIndex` (exclusive, row-space) bounds the walk to rows before a
+ * caller-fixed compaction boundary — images in the kept tail survive
+ * verbatim and must not be offered for retention. The slice happens before
+ * the trust filter because the boundary indexes the full row list.
  */
 export function collectImageManifest(
   conversationId: string,
   actorTrustClass?: TrustClass,
+  endRowIndex?: number,
 ): ManifestEntry[] {
   const allRows = getMessages(conversationId);
+  const boundedRows =
+    endRowIndex != null ? allRows.slice(0, endRowIndex) : allRows;
   const rows = !resolveCapabilities(actorTrustClass).canAccessMemory
-    ? filterMessagesForUntrustedActor(allRows)
-    : allRows;
+    ? filterMessagesForUntrustedActor(boundedRows)
+    : boundedRows;
   const entries: ManifestEntry[] = [];
   for (const row of rows) {
     const atts = getAttachmentMetadataForMessage(row.id);
@@ -466,6 +572,23 @@ function extractFirstTextPreview(message: Message, maxChars = 120): string {
     return text.slice(0, maxChars);
   }
   return "";
+}
+
+/**
+ * Human-readable description of the first preserved message for the
+ * fixed-boundary instruction, so the model knows exactly where "before"
+ * ends: the message's `<turn_context>` timestamp when available, else a
+ * short preview of its text.
+ */
+function describeFixedBoundary(message: Message): string {
+  const timestamp = extractTurnContextTimestamp(message);
+  if (timestamp) {
+    return `the message whose turn_context timestamp is "${timestamp}"`;
+  }
+  const preview = extractFirstTextPreview(message, 80);
+  return preview.length > 0
+    ? `the ${message.role} message beginning: "${preview}"`
+    : `the first preserved ${message.role} message`;
 }
 
 // ---------------------------------------------------------------------------
@@ -749,7 +872,21 @@ export function buildInstructionMessage(
   customPrompt: string | null | undefined,
   imageManifest: string,
   tailBudgetTokens?: number,
+  fixedBoundaryDescription?: string,
 ): Message {
+  // Fixed-boundary mode always uses the fixed variant — custom prompts are
+  // authored against the tail-choosing `<tail_start>` contract, which does
+  // not apply when the caller pins the cut.
+  if (fixedBoundaryDescription != null) {
+    const text = FIXED_BOUNDARY_COMPACTION_PROMPT.replace(
+      "{image_manifest}",
+      imageManifest,
+    ).replace("{boundary_description}", fixedBoundaryDescription);
+    return {
+      role: "user",
+      content: [{ type: "text", text }],
+    };
+  }
   const template =
     customPrompt && customPrompt.trim().length > 0
       ? customPrompt
@@ -773,6 +910,39 @@ export function buildInstructionMessage(
 // ---------------------------------------------------------------------------
 // Summary message construction
 // ---------------------------------------------------------------------------
+
+export const CONTEXT_SUMMARY_MARKER = "<context_summary>";
+export const CONTEXT_SUMMARY_CLOSE = "</context_summary>";
+
+/**
+ * Wrap durable summary text in the `<context_summary>` tags that identify a
+ * synthetic summary head. Every summary head in a live history carries this
+ * wrapper — the reload/fork rehydration path (`createContextSummaryMessage`
+ * in the compaction plugin) and the compactor-minted heads below — so
+ * persisted-count accounting can recognize a head structurally even after
+ * history repair rebuilds message wrappers and WeakSet identity is lost.
+ * The durable `summaryText` result field stays unwrapped; rehydration adds
+ * the wrapper back when it rebuilds the head from the DB column.
+ */
+export function wrapContextSummaryText(summary: string): string {
+  return `${CONTEXT_SUMMARY_MARKER}\n${summary}\n${CONTEXT_SUMMARY_CLOSE}`;
+}
+
+/**
+ * Synthetic messages a compaction pass prepends to the rebuilt history —
+ * the summary head and the retained-images message. They have no DB row,
+ * so the persisted-count accounting of a later pass over the same
+ * in-memory history must exclude them (see
+ * `CompactionRunArgs.nonPersistedPrefixCount`). WeakSet-gated: only the
+ * exact objects minted here are recognized, never lookalike content.
+ */
+const SYNTHETIC_COMPACTION_MESSAGES = new WeakSet<Message>();
+
+export function isSyntheticCompactionMessage(
+  message: Message | undefined,
+): boolean {
+  return message != null && SYNTHETIC_COMPACTION_MESSAGES.has(message);
+}
 
 /**
  * Stitch summary + key_state into the assistant-role memory message that
@@ -933,19 +1103,42 @@ export async function runAssistantDrivenCompaction(
     return emptyResult(args, thresholdTokens, "no messages to compact");
   }
 
+  // A caller-fixed boundary must land strictly inside the array: index 0
+  // would leave nothing to summarize, and anything past the end preserves
+  // nothing. Validated before the provider call so an invalid index never
+  // burns a full-context summary pass.
+  const fixedTailStartIndex = args.fixedTailStartIndex;
+  if (
+    fixedTailStartIndex != null &&
+    (!Number.isInteger(fixedTailStartIndex) ||
+      fixedTailStartIndex < 1 ||
+      fixedTailStartIndex >= args.messages.length)
+  ) {
+    log.warn(
+      { fixedTailStartIndex, messageCount: args.messages.length },
+      "Fixed compaction boundary out of range — skipping compaction",
+    );
+    return emptyResult(args, thresholdTokens, "fixed boundary out of range");
+  }
+
   // Build image manifest from the DB before invoking the model so the
   // instruction message carries a faithful picture of available images.
   // Filtered by actor trust so untrusted turns never see guardian-only
-  // attachments.
+  // attachments, and bounded to pre-boundary rows on fixed-boundary runs
+  // so kept-tail images are never offered for retention.
   const manifest = collectImageManifest(
     args.conversationId,
     args.actorTrustClass,
+    fixedTailStartIndex != null ? args.fixedBoundaryRowIndex : undefined,
   );
   const manifestText = renderImageManifest(manifest);
   const instruction = buildInstructionMessage(
     args.compaction.prompt ?? null,
     manifestText,
     args.targetTokens,
+    fixedTailStartIndex != null
+      ? describeFixedBoundary(args.messages[fixedTailStartIndex])
+      : undefined,
   );
 
   // Bound the summary call's own input to the context window. With no tool
@@ -996,10 +1189,16 @@ export async function runAssistantDrivenCompaction(
 
   // Persist the compaction LLM call into `llm_request_logs` with
   // `call_site = "compactionAgent"`. Non-fatal on DB error — see helper.
-  recordCompactionRequestLog(args.conversationId, response, args.provider);
+  const summaryRequestLogId = recordCompactionRequestLog(
+    args.conversationId,
+    response,
+    args.provider,
+  );
 
   const rawText = extractTextFromResponse(response.content);
-  const parsed = parseCompactionResult(rawText);
+  const parsed = parseCompactionResult(rawText, {
+    requireTailStart: fixedTailStartIndex == null,
+  });
   if (!parsed) {
     log.warn(
       { rawPreview: rawText.slice(0, 200) },
@@ -1017,38 +1216,48 @@ export async function runAssistantDrivenCompaction(
       summaryCallSite: COMPACTION_CALL_SITE,
       summaryOverrideProfile: args.overrideProfile ?? null,
       summaryRawResponses: response.rawResponse ? [response.rawResponse] : [],
+      summaryRequestLogId,
       summaryCalls: 1,
     };
   }
 
-  const timestamps = buildTimestampIndex(args.messages);
-  const resolvedTailIndex = resolveTailStartIndex(
-    args.messages,
-    timestamps,
-    parsed,
-  );
-  if (resolvedTailIndex == null) {
-    log.warn(
-      {
-        timestamp: parsed.tailStartTimestamp,
-        preview: parsed.tailStartPreview.slice(0, 60),
-      },
-      "Compaction tail_start did not match any message — aborting compaction",
+  // The caller's fixed boundary is authoritative — any `<tail_start>` the
+  // model emitted anyway is ignored. Without a fixed boundary, resolve the
+  // model's choice against the live messages.
+  let resolvedTailIndex: number;
+  if (fixedTailStartIndex != null) {
+    resolvedTailIndex = fixedTailStartIndex;
+  } else {
+    const timestamps = buildTimestampIndex(args.messages);
+    const modelTailIndex = resolveTailStartIndex(
+      args.messages,
+      timestamps,
+      parsed,
     );
-    return {
-      ...emptyResult(args, thresholdTokens, "tail_start unresolved"),
-      summaryFailed: false,
-      summaryInputTokens: response.usage.inputTokens,
-      summaryOutputTokens: response.usage.outputTokens,
-      summaryModel: response.model,
-      summaryCacheCreationInputTokens:
-        response.usage.cacheCreationInputTokens ?? 0,
-      summaryCacheReadInputTokens: response.usage.cacheReadInputTokens ?? 0,
-      summaryCallSite: COMPACTION_CALL_SITE,
-      summaryOverrideProfile: args.overrideProfile ?? null,
-      summaryRawResponses: response.rawResponse ? [response.rawResponse] : [],
-      summaryCalls: 1,
-    };
+    if (modelTailIndex == null) {
+      log.warn(
+        {
+          timestamp: parsed.tailStartTimestamp,
+          preview: parsed.tailStartPreview.slice(0, 60),
+        },
+        "Compaction tail_start did not match any message — aborting compaction",
+      );
+      return {
+        ...emptyResult(args, thresholdTokens, "tail_start unresolved"),
+        summaryFailed: false,
+        summaryInputTokens: response.usage.inputTokens,
+        summaryOutputTokens: response.usage.outputTokens,
+        summaryModel: response.model,
+        summaryCacheCreationInputTokens:
+          response.usage.cacheCreationInputTokens ?? 0,
+        summaryCacheReadInputTokens: response.usage.cacheReadInputTokens ?? 0,
+        summaryCallSite: COMPACTION_CALL_SITE,
+        summaryOverrideProfile: args.overrideProfile ?? null,
+        summaryRawResponses: response.rawResponse ? [response.rawResponse] : [],
+        summaryCalls: 1,
+      };
+    }
+    resolvedTailIndex = modelTailIndex;
   }
 
   const pairedTailIndex = adjustTailIndexForToolPairing(
@@ -1076,7 +1285,7 @@ export async function runAssistantDrivenCompaction(
   let finalSummaryText = summaryText;
   let summaryMessage: Message = {
     role: "assistant",
-    content: [{ type: "text", text: finalSummaryText }],
+    content: [{ type: "text", text: wrapContextSummaryText(finalSummaryText) }],
   };
 
   const {
@@ -1116,6 +1325,10 @@ export async function runAssistantDrivenCompaction(
   // between the model's cut and the enforced cut is acknowledged with an
   // explicit truncation notice appended to the summary message (see below),
   // so the loss is visible in-context rather than silent.
+  //
+  // A caller-fixed boundary skips the enforcement entirely: the user's cut is
+  // authoritative and no token-budget forward-cut applies, however large the
+  // preserved tail.
   let tailIndex = pairedTailIndex;
   // Whether the deterministic forward-cut hit the tail floor while still over
   // `targetTokens` — propagated onto the success result so the window-manager's
@@ -1123,7 +1336,11 @@ export async function runAssistantDrivenCompaction(
   // next time, so it cannot do better). Only meaningful when a `targetTokens`
   // budget drove the forward-cut.
   let tailFloorReached = false;
-  if (args.targetTokens != null && pairedTailIndex > 0) {
+  if (
+    fixedTailStartIndex == null &&
+    args.targetTokens != null &&
+    pairedTailIndex > 0
+  ) {
     const providerName =
       args.provider.tokenEstimationProvider ?? args.provider.name;
     // Mirror the window-manager's post-compaction estimate (system prompt +
@@ -1169,7 +1386,9 @@ export async function runAssistantDrivenCompaction(
       finalSummaryText = summaryText + truncationNote;
       summaryMessage = {
         role: "assistant",
-        content: [{ type: "text", text: finalSummaryText }],
+        content: [
+          { type: "text", text: wrapContextSummaryText(finalSummaryText) },
+        ],
       };
       log.info(
         {
@@ -1203,6 +1422,7 @@ export async function runAssistantDrivenCompaction(
       summaryCallSite: COMPACTION_CALL_SITE,
       summaryOverrideProfile: args.overrideProfile ?? null,
       summaryRawResponses: response.rawResponse ? [response.rawResponse] : [],
+      summaryRequestLogId,
       summaryCalls: 1,
     };
   }
@@ -1221,7 +1441,11 @@ export async function runAssistantDrivenCompaction(
   );
 
   const compactedMessages: Message[] = [summaryMessage];
-  if (retainedImageMessage) compactedMessages.push(retainedImageMessage);
+  SYNTHETIC_COMPACTION_MESSAGES.add(summaryMessage);
+  if (retainedImageMessage) {
+    compactedMessages.push(retainedImageMessage);
+    SYNTHETIC_COMPACTION_MESSAGES.add(retainedImageMessage);
+  }
   compactedMessages.push(...tailMessages);
 
   const nonPersistedCompactedAway = Math.min(
@@ -1271,6 +1495,7 @@ export async function runAssistantDrivenCompaction(
       response.usage.cacheCreationInputTokens ?? 0,
     summaryCacheReadInputTokens: response.usage.cacheReadInputTokens ?? 0,
     summaryRawResponses: response.rawResponse ? [response.rawResponse] : [],
+    summaryRequestLogId,
     summaryText: finalSummaryText,
     keyState: parsed.keyState,
     summaryFailed: false,
@@ -1430,7 +1655,10 @@ export async function runEmergencyCompaction(
   recordCompactionRequestLog(args.conversationId, response, args.provider);
 
   const rawText = extractTextFromResponse(response.content);
-  const parsed = parseCompactionResult(rawText);
+  // The emergency prompt asks for summary + key_state only — the split
+  // point is already fixed at `splitIndex`, so no `<tail_start>` is
+  // requested and a prompt-following response must still parse.
+  const parsed = parseCompactionResult(rawText, { requireTailStart: false });
   if (!parsed) {
     log.warn(
       { rawPreview: rawText.slice(0, 200) },
@@ -1449,10 +1677,11 @@ export async function runEmergencyCompaction(
   const summaryText = buildSummaryMemoryText(parsed.summary, parsed.keyState);
   const summaryMessage: Message = {
     role: "assistant",
-    content: [{ type: "text", text: summaryText }],
+    content: [{ type: "text", text: wrapContextSummaryText(summaryText) }],
   };
 
   const compactedMessages: Message[] = [summaryMessage, ...keptTail];
+  SYNTHETIC_COMPACTION_MESSAGES.add(summaryMessage);
 
   const compactedCount = splitIndex;
   const nonPersistedAway = Math.min(

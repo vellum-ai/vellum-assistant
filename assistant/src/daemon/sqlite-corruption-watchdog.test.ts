@@ -14,19 +14,6 @@ import { join } from "node:path";
 import { Database } from "bun:sqlite";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-// Silence the logger.
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
-
-// Sentry is a side-effecting no-op in tests.
-mock.module("@sentry/node", () => ({
-  withScope: (fn: (scope: unknown) => void) =>
-    fn({ setLevel() {}, setTag() {}, setContext() {} }),
-  captureMessage: () => {},
-}));
-
 // Capture direct emits instead of POSTing them.
 const emitCalls: Array<{ checkName: string; detail: Record<string, unknown> }> =
   [];

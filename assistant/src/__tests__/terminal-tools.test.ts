@@ -12,27 +12,6 @@ mock.module("../util/logger.js", () => ({
 
 const testTmpDir = process.env.VELLUM_WORKSPACE_DIR!;
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-
-    timeouts: { shellDefaultTimeoutSec: 120, shellMaxTimeoutSec: 600 },
-    sandbox: {
-      enabled: false,
-      backend: "native",
-      docker: {
-        image: "vellum-sandbox:latest",
-        shell: "bash",
-        cpus: 1,
-        memoryMb: 512,
-        pidsLimit: 256,
-        network: "none",
-      },
-    },
-  }),
-  loadConfig: () => ({}),
-}));
-
 const proxyGetOrStartSession = mock(() =>
   Promise.resolve({
     session: { id: "mock-session" },

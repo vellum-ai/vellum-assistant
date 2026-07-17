@@ -398,7 +398,6 @@ function makeNode(overrides: Partial<MemoryNode> = {}): MemoryNode {
     narrativeRole: null,
     partOfStory: null,
     imageRefs: null,
-    scopeId: "scope-default",
     ...overrides,
   };
 }

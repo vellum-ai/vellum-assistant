@@ -2,7 +2,7 @@
 
 For error handling conventions (throw vs result objects vs null), see [docs/error-handling.md](docs/error-handling.md).
 
-Subdirectory-scoped rules live in local AGENTS.md files: `src/cli/`, `src/runtime/`, `src/approvals/`, `src/notifications/`, `src/workspace/migrations/`.
+Subdirectory-scoped rules live in local AGENTS.md files: `src/cli/`, `src/runtime/`, `src/approvals/`, `src/notifications/`, `src/plugins/`, `src/workspace/migrations/`.
 
 ## Adding new environment variables
 
@@ -72,6 +72,10 @@ The CLI and daemon are always shipped and upgraded together — there is no vers
 Some routes are IPC-only (defined in `src/ipc/routes/`, not in the shared array). These are tool/CLI-specific methods (e.g. `wake_conversation`, `upsert_contact`) that have no HTTP counterpart. They follow the existing pattern: define in `src/ipc/routes/`, register in `src/ipc/routes/index.ts`.
 
 The module-level dependency-injection pattern (`registerFooDeps()`) used by some IPC routes is a known antipattern. New IPC-only routes should avoid it.
+
+## Telemetry wire contract
+
+Telemetry event types are defined by a platform-generated wire contract (`src/telemetry/telemetry-wire.generated.ts`) that `src/telemetry/types.ts` layers over, with pre-flush validation against it. Adding a new event type starts platform-side, not here. The mechanics, the drift guards, and the cross-repo ordering are documented next to the code they govern: see [`src/telemetry/AGENTS.md`](src/telemetry/AGENTS.md).
 
 ## Code comments
 

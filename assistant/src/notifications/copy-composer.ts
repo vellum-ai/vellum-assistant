@@ -9,7 +9,11 @@
  * values from the context payload.
  */
 
-import { buildAccessRequestContractText } from "./access-request-copy.js";
+import {
+  accessRequestCardTitle,
+  buildAccessRequestContractText,
+  isAdmittedIntroduction,
+} from "./access-request-copy.js";
 import {
   buildAccessRequestSeedContentBlocks,
   buildToolApprovalSeedContentBlocks,
@@ -151,7 +155,7 @@ const TEMPLATES: Partial<Record<NotificationSourceEventName, CopyTemplate>> = {
   },
 
   "ingress.access_request": (payload) => ({
-    title: "Access Request",
+    title: accessRequestCardTitle(isAdmittedIntroduction(payload)),
     body: buildAccessRequestContractText(payload),
     seedContentBlocks: buildAccessRequestSeedContentBlocks(payload),
   }),
@@ -232,12 +236,6 @@ const TEMPLATES: Partial<Record<NotificationSourceEventName, CopyTemplate>> = {
       body: `A trusted contact request from ${requesterLabel} has been denied.`,
     };
   },
-
-  "ingress.escalation": (payload) => ({
-    title: "Escalation",
-    body:
-      str(payload.senderIdentifier, "An incoming message") + " needs attention",
-  }),
 
   "watcher.notification": (payload) => ({
     title: str(payload.title, "Watcher Notification"),

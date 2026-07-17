@@ -4,13 +4,6 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 // Module mocks — must appear before any imports of the modules under test
 // ---------------------------------------------------------------------------
 
-mock.module("../../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // -- Config mock -----------------------------------------------------------
 
 const mockConfig = {
@@ -24,10 +17,6 @@ const mockConfig = {
     },
   },
 };
-
-mock.module("../../../config/loader.js", () => ({
-  getConfig: () => mockConfig,
-}));
 
 // -- TTS config resolver mock ----------------------------------------------
 

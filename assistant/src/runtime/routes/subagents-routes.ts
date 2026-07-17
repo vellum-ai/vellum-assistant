@@ -65,14 +65,11 @@ export function parseSubagentMessages(
   const firstUser = messages.find((m) => m.role === "user");
   if (firstUser) {
     try {
-      const parsed = JSON.parse(firstUser.content);
-      if (Array.isArray(parsed)) {
-        const textBlock = parsed.find(
-          (b: Record<string, unknown>) => isRecord(b) && b.type === "text",
-        );
-        if (textBlock && typeof textBlock.text === "string") {
-          objective = stripForkDirectiveFraming(textBlock.text);
-        }
+      const textBlock = firstUser.content.find(
+        (b) => b.type === "text" && typeof b.text === "string",
+      );
+      if (textBlock && "text" in textBlock) {
+        objective = stripForkDirectiveFraming(textBlock.text);
       }
     } catch {
       /* ignore */
@@ -83,17 +80,15 @@ export function parseSubagentMessages(
   const events: SubagentDetailResult["events"] = [];
   const pendingTools = new Map<string, string>();
   for (const m of messages) {
-    if (m.role !== "assistant" && m.role !== "user") continue;
-    let content: unknown[];
-    try {
-      const parsed = JSON.parse(m.content);
-      content = Array.isArray(parsed) ? parsed : [];
-    } catch {
+    if (m.role !== "assistant" && m.role !== "user") {
       continue;
     }
+    const content: unknown[] = m.content;
 
     for (const block of content) {
-      if (!isRecord(block) || typeof block.type !== "string") continue;
+      if (!isRecord(block) || typeof block.type !== "string") {
+        continue;
+      }
       if (
         m.role === "assistant" &&
         block.type === "text" &&
@@ -117,7 +112,9 @@ export function parseSubagentMessages(
           toolUseId: id || undefined,
           input,
         });
-        if (id) pendingTools.set(id, name);
+        if (id) {
+          pendingTools.set(id, name);
+        }
       } else if (
         block.type === "tool_result" ||
         block.type === "web_search_tool_result" ||
@@ -132,13 +129,15 @@ export function parseSubagentMessages(
               ? (block.content as unknown[])
                   .filter((b): b is Record<string, unknown> => isRecord(b))
                   .map((b) => {
-                    if (b.type === "text" && typeof b.text === "string")
+                    if (b.type === "text" && typeof b.text === "string") {
                       return b.text;
+                    }
                     if (
                       b.type === "web_search_result" &&
                       typeof b.title === "string"
-                    )
+                    ) {
                       return `${b.title}\n${typeof b.url === "string" ? b.url : ""}`;
+                    }
                     return null;
                   })
                   .filter((s): s is string => s != null)

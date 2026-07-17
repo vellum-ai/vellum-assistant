@@ -6,7 +6,10 @@ import { getIsContainerized } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
 import { loadSkillCatalog, resolveSkillSelector } from "../config/skills.js";
 import { ipcClassifyRisk } from "../ipc/gateway-client.js";
-import { MEMORY_RETROSPECTIVE_ORIGIN } from "../plugins/defaults/memory/memory-retrospective-constants.js";
+import {
+  MEMORY_RETROSPECTIVE_ORIGIN,
+  SKILL_MANAGEMENT_SKILL_ID,
+} from "../plugins/defaults/memory/memory-retrospective-constants.js";
 import { indexCatalogById } from "../skills/include-graph.js";
 import { getSkillRoots } from "../skills/path-classifier.js";
 import { computeTransitiveSkillVersionHash } from "../skills/transitive-version-hash.js";
@@ -16,7 +19,7 @@ import {
   looksLikeHostPortShorthand,
   looksLikePathOnlyInput,
 } from "../tools/network/url-safety.js";
-import { getTool, getToolOwner } from "../tools/registry.js";
+import { getTool, getToolOwner, resolveTool } from "../tools/registry.js";
 import { resolveRealPath } from "../tools/shared/filesystem/path-policy.js";
 import type { Tool } from "../tools/types.js";
 import {
@@ -148,7 +151,9 @@ function fileToolFsStateKey(
   input: Record<string, unknown>,
   workingDir?: string,
 ): string | undefined {
-  if (!FILE_TOOL_NAMES.has(toolName)) {return undefined;}
+  if (!FILE_TOOL_NAMES.has(toolName)) {
+    return undefined;
+  }
   const resolved = resolveFileToolPaths(toolName, input, workingDir);
   return `${resolved.resolvedPath ?? ""}\0${resolved.resolvedTransferDestPath ?? ""}`;
 }
@@ -168,7 +173,9 @@ function getStringField(
 ): string {
   for (const key of keys) {
     const value = input[key];
-    if (typeof value === "string") {return value;}
+    if (typeof value === "string") {
+      return value;
+    }
   }
   return "";
 }
@@ -182,7 +189,9 @@ function resolveSkillIdAndHash(
   selector: string,
 ): { id: string; versionHash?: string } | null {
   const resolved = resolveSkillSelector(selector);
-  if (!resolved.skill) {return null;}
+  if (!resolved.skill) {
+    return null;
+  }
 
   try {
     const hash = computeSkillVersionHash(resolved.skill.directoryPath);
@@ -202,9 +211,13 @@ function resolveSkillIdAndHash(
  * since ownership lives on the registry, not on the tool itself.
  */
 function isToolOwnerSkillBundled(tool: Tool | undefined): boolean {
-  if (!tool) {return false;}
+  if (!tool) {
+    return false;
+  }
   const owner = getToolOwner(tool.name);
-  if (owner?.kind !== "skill") {return false;}
+  if (owner?.kind !== "skill") {
+    return false;
+  }
   const skill = loadSkillCatalog().find((s) => s.id === owner.id);
   return skill?.bundled ?? false;
 }
@@ -220,6 +233,31 @@ function hasInlineExpansions(skillId: string): boolean {
     skill?.inlineCommandExpansions != null &&
     skill.inlineCommandExpansions.length > 0
   );
+}
+
+/**
+ * Whether this invocation is an inline-command ("dynamic") skill load: a
+ * `skill_load` whose resolved skill carries inline command expansions,
+ * which execute shell commands at load time via child_process.spawn.
+ * Exported for the non-interactive guardian gate in
+ * tools/permission-checker.ts — a prompted dynamic load must never be
+ * silently auto-approved without a human present. (A pinned trust rule
+ * that covers the load lowers its classified risk upstream, so covered
+ * loads resolve to "allow" before that gate is reached.)
+ */
+export function isDynamicSkillLoadInvocation(
+  toolName: string,
+  input: Record<string, unknown>,
+): boolean {
+  if (toolName !== "skill_load") {
+    return false;
+  }
+  const selector = getStringField(input, "skill").trim();
+  if (!selector) {
+    return false;
+  }
+  const resolved = resolveSkillIdAndHash(selector);
+  return resolved !== null && hasInlineExpansions(resolved.id);
 }
 
 /**
@@ -259,7 +297,9 @@ function canonicalizeWebFetchUrl(parsed: URL): URL {
 
 function normalizeWebFetchUrl(rawUrl: string): URL | null {
   const trimmed = rawUrl.trim();
-  if (!trimmed) {return null;}
+  if (!trimmed) {
+    return null;
+  }
 
   if (looksLikeHostPortShorthand(trimmed)) {
     try {
@@ -373,7 +413,9 @@ function resolveClassificationPath(
   workingDir: string,
   isHostTool: boolean,
 ): string | undefined {
-  if (!filePath) {return undefined;}
+  if (!filePath) {
+    return undefined;
+  }
   // Mirror the gateway classifier's lexical base: host tools resolve the path
   // as absolute/relative-to-cwd; sandbox tools apply the /workspace remap and
   // resolve against workingDir. Then follow symlinks so a benign-looking name
@@ -465,7 +507,9 @@ function resolveFileToolPaths(
 
 function resolveSkillMetadata(selector: string): SkillMetadata | undefined {
   const resolved = resolveSkillIdAndHash(selector);
-  if (!resolved) {return undefined;}
+  if (!resolved) {
+    return undefined;
+  }
 
   const inlineExpansions = hasInlineExpansions(resolved.id);
 
@@ -677,7 +721,10 @@ export async function classifyRisk(
     workingDir,
     manifestOverride,
   );
-  const gatewayResult = await ipcClassifyRisk(ipcParams);
+  const gatewayResult = await ipcClassifyRisk(ipcParams, signal);
+  // A mid-retry cancellation should surface as an AbortError, not the
+  // misleading fail-closed "gateway unreachable" message.
+  signal?.throwIfAborted();
 
   if (!gatewayResult) {
     throw new Error(
@@ -710,7 +757,9 @@ export async function classifyRisk(
   // Cache the result.
   if (riskCache.size >= RISK_CACHE_MAX) {
     const oldest = riskCache.keys().next().value;
-    if (oldest !== undefined) {riskCache.delete(oldest);}
+    if (oldest !== undefined) {
+      riskCache.delete(oldest);
+    }
   }
   riskCache.set(cacheKey, result);
 
@@ -730,7 +779,9 @@ export async function classifyRisk(
   const aKey = assessmentCacheKey(toolName, input);
   if (assessmentCache.size >= RISK_CACHE_MAX) {
     const oldest = assessmentCache.keys().next().value;
-    if (oldest !== undefined) {assessmentCache.delete(oldest);}
+    if (oldest !== undefined) {
+      assessmentCache.delete(oldest);
+    }
   }
   assessmentCache.set(aKey, assessment);
 
@@ -754,8 +805,6 @@ export async function classifyRisk(
 // The grant is intentionally narrow: it matches exactly these tools AND the
 // retrospective origin on a v3-live assistant, so no interactive session, other
 // origin, or non-v3-live install is affected.
-const SKILL_MANAGEMENT_SKILL_ID = "skill-management";
-
 function isRetrospectiveSkillAuthoringGrant(
   toolName: string,
   input: Record<string, unknown>,
@@ -769,8 +818,12 @@ function isRetrospectiveSkillAuthoringGrant(
   ) {
     return false;
   }
-  if (toolName === "scaffold_managed_skill") {return true;}
-  if (toolName === "find_similar_skills") {return true;}
+  if (toolName === "scaffold_managed_skill") {
+    return true;
+  }
+  if (toolName === "find_similar_skills") {
+    return true;
+  }
   if (toolName === "skill_load") {
     return (
       getStringField(input, "skill", "skill_id").trim() ===
@@ -813,7 +866,7 @@ export async function check(
   const hasSandboxAutoApprove = classification.sandboxAutoApprove ?? false;
 
   // Build approval context from local variables
-  const tool = getTool(toolName);
+  const tool = await resolveTool(toolName);
   const cellQuery = buildChannelPermissionCellQuery(policyContext);
   const threshold = await getAutoApproveThreshold(
     policyContext?.conversationId,
@@ -859,12 +912,32 @@ export async function check(
     }
   }
 
+  // Inline-command ("dynamic") skill loads execute embedded shell commands
+  // at load time, so a threshold-based allow is not enough: they run
+  // without asking only when the user's own trust rule covers them (the
+  // rule re-classifies the risk inside the gateway, arriving here as
+  // matchType "user_rule"). Everything else prompts — at every threshold
+  // and in every execution context. The non-interactive guardian gate in
+  // tools/permission-checker.ts then converts the prompt into a denial
+  // when no human is present to answer it.
+  if (
+    approvalDecision.decision === "allow" &&
+    isDynamicSkillLoadInvocation(toolName, input) &&
+    getCachedAssessment(toolName, input)?.matchType !== "user_rule"
+  ) {
+    approvalDecision = {
+      decision: "prompt",
+      reason:
+        "Inline-command skill load: executes embedded commands, requires explicit approval",
+    };
+  }
+
   // Enrich the reason with the classifier's explanation when available.
   // For risk-based fallback decisions (prompt/deny from High/Medium risk),
   // incorporate the classifier reason so the user sees *why* the command
   // was classified at that level (e.g. "High risk (Recursive force delete): requires approval").
   let enrichedReason = approvalDecision.reason;
-  if (riskReason && !approvalDecision.matchedRule) {
+  if (riskReason) {
     const riskLabelMatch = enrichedReason.match(
       /^(High|Medium|Low|high|medium|low) risk(.*)/i,
     );
@@ -879,7 +952,6 @@ export async function check(
   return {
     decision: approvalDecision.decision,
     reason: enrichedReason,
-    matchedRule: approvalDecision.matchedRule,
     hasSandboxAutoApprove:
       approvalDecision.reason ===
         "Workspace filesystem operation (sandbox auto-approve)" || undefined,
@@ -959,9 +1031,13 @@ function fileAllowlistStrategy(
       description: `Anything in ${dirName}/`,
       pattern: `${toolName}:${dir}/**`,
     });
-    if (dir === home) {break;}
+    if (dir === home) {
+      break;
+    }
     const parent = dirname(dir);
-    if (parent === dir) {break;}
+    if (parent === dir) {
+      break;
+    }
     dir = parent;
     levels++;
   }
@@ -1010,7 +1086,9 @@ function urlAllowlistStrategy(
 
   const seen = new Set<string>();
   return options.filter((o) => {
-    if (seen.has(o.pattern)) {return false;}
+    if (seen.has(o.pattern)) {
+      return false;
+    }
     seen.add(o.pattern);
     return true;
   });

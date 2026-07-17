@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 
 import { cn } from "@vellumai/design-library";
 
@@ -11,9 +11,11 @@ import { cn } from "@vellumai/design-library";
 export function PageShell({
   children,
   className,
+  style,
 }: {
   children: ReactNode;
   className?: string;
+  style?: CSSProperties;
 }) {
   return (
     <div
@@ -21,6 +23,7 @@ export function PageShell({
         "flex min-h-0 flex-1 flex-col rounded-lg border border-[var(--border-base)] bg-[var(--surface-overlay)] px-6 py-5",
         className,
       )}
+      style={style}
     >
       {children}
     </div>

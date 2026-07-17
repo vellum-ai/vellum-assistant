@@ -47,7 +47,8 @@ export type SameActorOp =
   | "host_cu"
   | "host_browser"
   | "host_app_control"
-  | "host_transfer";
+  | "host_transfer"
+  | "host_ui_snapshot";
 
 /**
  * Args for the live-lookup variant: caller supplies the hub + target client

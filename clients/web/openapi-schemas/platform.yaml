@@ -408,9 +408,9 @@ paths:
       description: |-
         Restore an assistant from a named backup snapshot.
 
-        Enforces ownership and verifies the snapshot belongs to the requested
-        assistant by listing backups first.  Restore is never attempted if the
-        snapshot is absent from the list.
+        Enforces ownership; the shared restore flow verifies the snapshot
+        belongs to the requested assistant by listing backups first, and
+        never attempts the restore if the snapshot is absent from the list.
       parameters:
       - in: header
         name: Vellum-Organization-Id
@@ -829,6 +829,79 @@ paths:
                 $ref: '#/components/schemas/DetailResponse'
           description: ''
         '502':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/assistants/{assistant_id}/doctor/sessions/{session_id}/user-outcome/:
+    post:
+      operationId: assistants_doctor_sessions_user_outcome_create
+      description: |-
+        Record whether the Doctor solved the user's problem.
+
+        Writes only to the persisted Django row (no upstream Doctor call),
+        so it works for live sessions and for sessions that already ended.
+        Idempotent: the latest answer wins.
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      - in: path
+        name: assistant_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      - in: path
+        name: session_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - assistants
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DoctorSessionUserOutcomeRequestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/DoctorSessionUserOutcomeRequestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/DoctorSessionUserOutcomeRequestRequest'
+        required: true
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DoctorSessionUserOutcomeResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+        '503':
           content:
             application/json:
               schema:
@@ -1410,6 +1483,145 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ManagedSearchProxyErrorResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/assistants/{assistant_id}/managed-speech/stt/transcribe/:
+    post:
+      operationId: assistants_managed_speech_stt_transcribe_create
+      description: Transcribe pre-recorded audio through Vellum's managed Deepgram
+        speech-to-text proxy. Vellum validates the request, checks billing eligibility,
+        calls Deepgram with managed credentials, bills the transcribed duration, and
+        returns the transcript.
+      parameters:
+      - in: path
+        name: assistant_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - assistants
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ManagedSpeechSTTRequestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ManagedSpeechSTTRequestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ManagedSpeechSTTRequestRequest'
+        required: true
+      security:
+      - AssistantAPIKey: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagedSpeechSTTResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagedSpeechErrorResponse'
+          description: ''
+        '402':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagedSpeechErrorResponse'
+          description: ''
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagedSpeechErrorResponse'
+          description: ''
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagedSpeechErrorResponse'
+          description: ''
+        '502':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagedSpeechErrorResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/assistants/{assistant_id}/managed-speech/tts/synthesize/:
+    post:
+      operationId: assistants_managed_speech_tts_synthesize_create
+      description: Synthesize speech audio from text through Vellum's managed Deepgram
+        text-to-speech proxy. Vellum validates the request, checks billing eligibility,
+        calls Deepgram with managed credentials, bills the input character count,
+        and returns the synthesized audio bytes.
+      parameters:
+      - in: path
+        name: assistant_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - assistants
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ManagedSpeechTTSRequestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ManagedSpeechTTSRequestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ManagedSpeechTTSRequestRequest'
+        required: true
+      security:
+      - AssistantAPIKey: []
+      responses:
+        '200':
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+          description: Synthesized audio
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagedSpeechErrorResponse'
+          description: ''
+        '402':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagedSpeechErrorResponse'
+          description: ''
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagedSpeechErrorResponse'
+          description: ''
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagedSpeechErrorResponse'
+          description: ''
+        '502':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagedSpeechErrorResponse'
           description: ''
       x-vellum-api-clients:
       - platform
@@ -3505,6 +3717,36 @@ paths:
           description: ''
       x-vellum-api-clients:
       - platform
+  /v1/assistants/telemetry/ingest/:
+    post:
+      operationId: assistants_telemetry_ingest_create
+      tags:
+      - assistants
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TelemetryIngestRequestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TelemetryIngestRequestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TelemetryIngestRequestRequest'
+        required: true
+      security:
+      - SDKCompatibleAssistantKey: []
+      - XSessionTokenAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TelemetryIngestResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
   /v1/assistants/upgrade/:
     post:
       operationId: assistants_upgrade_create
@@ -4148,7 +4390,8 @@ paths:
   /v1/organizations/billing/plans/:
     get:
       operationId: organizations_billing_plans_retrieve
-      description: Return the Pro plan catalog (Base + Pro). Read-only, no I/O.
+      description: Return the Pro plan catalog (Base + Pro). Read-only, no Stripe
+        I/O.
       parameters:
       - in: header
         name: Vellum-Organization-Id
@@ -4273,14 +4516,16 @@ paths:
   /v1/organizations/billing/subscription/change-machine-tier/:
     post:
       operationId: organizations_billing_subscription_change_machine_tier_create
-      description: Switch the compute (machine) tier on the org's active Pro subscription.
-        Modifies the Stripe subscription item in place. Upgrades invoice immediately
-        (always_invoice) and only raise the ceiling — pods are left untouched (grow
-        later via the per-assistant resize). Downgrades net onto the next invoice
-        (create_prorations, no refund) and cap any pods above the new ceiling via
-        vembda. Rejected with HTTP 409 while a cancellation is pending. Requires an
-        active Pro subscription with the multi-item structure and machine_tier metadata;
-        legacy single-price subscriptions get HTTP 409 until they are migrated.
+      description: Add, switch, or remove the compute (machine) tier on the org's
+        active Pro subscription. A set value swaps the Stripe subscription item in
+        place (or adds one when the subscription has no machine item); a null ``machine_tier``
+        removes the item entirely (back to the small baseline). Upgrades — including
+        adding a tier — invoice immediately (always_invoice) and only raise the ceiling;
+        pods are left untouched (grow later via the per-assistant resize). Downgrades
+        and removals net onto the next invoice (create_prorations, no refund) and
+        cap any pods above the new ceiling via vembda. Rejected with HTTP 409 while
+        a cancellation is pending. Requires an active Pro subscription with the multi-item
+        structure; legacy single-price subscriptions get HTTP 409 until they are migrated.
       parameters:
       - in: header
         name: Vellum-Organization-Id
@@ -4321,11 +4566,12 @@ paths:
       description: Upgrade the storage tier on the org's active Pro subscription.
         Modifies the Stripe subscription item in place and invoices immediately (always_invoice).
         Storage is upgrade-only — equal-tier requests are a no-op and smaller-tier
-        requests are rejected with HTTP 400 before any Stripe call. PVCs are never
-        grown here; the per-assistant resize card applies the new ceiling. Rejected
-        with HTTP 409 while a cancellation is pending. Requires an active Pro subscription
-        with storage_tier metadata; legacy subscriptions get HTTP 409 until they are
-        migrated.
+        requests are rejected with HTTP 400 before any Stripe call. Legacy (no-longer-offered)
+        tiers are rejected with HTTP 400 unless they equal the current tier (which
+        no-ops). PVCs are never grown here; the per-assistant resize card applies
+        the new ceiling. Rejected with HTTP 409 while a cancellation is pending. Requires
+        an active Pro subscription with storage_tier metadata; legacy subscriptions
+        get HTTP 409 until they are migrated.
       parameters:
       - in: header
         name: Vellum-Organization-Id
@@ -5122,6 +5368,80 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/ReleaseListItem'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/telemetry/ingest/:
+    post:
+      operationId: telemetry_ingest_create
+      tags:
+      - telemetry
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TelemetryIngestRequestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TelemetryIngestRequestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TelemetryIngestRequestRequest'
+        required: true
+      security:
+      - SDKCompatibleAssistantKey: []
+      - XSessionTokenAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TelemetryIngestResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/user/consent/:
+    get:
+      operationId: user_consent_retrieve
+      tags:
+      - user
+      security:
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserConsent'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+    put:
+      operationId: user_consent_update
+      tags:
+      - user
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserConsentRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/UserConsentRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/UserConsentRequest'
+      security:
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserConsent'
           description: ''
       x-vellum-api-clients:
       - platform
@@ -5968,7 +6288,10 @@ components:
       type: object
       properties:
         machine_tier:
-          $ref: '#/components/schemas/MachineTierEnum'
+          nullable: true
+          oneOf:
+          - $ref: '#/components/schemas/MachineTierEnum'
+          - $ref: '#/components/schemas/NullEnum'
       required:
       - machine_tier
     ComputeTierChangeResponse:
@@ -5977,7 +6300,8 @@ components:
         status:
           $ref: '#/components/schemas/TierChangeStatusEnum'
         machine_tier:
-          $ref: '#/components/schemas/MachineTierEnum'
+          type: string
+          nullable: true
       required:
       - machine_tier
       - status
@@ -6126,15 +6450,19 @@ components:
       enum:
       - credits_10
       - credits_25
+      - credits_45
       - credits_50
       - credits_100
+      - credits_115
       - credits_200
       type: string
       description: |-
         * `credits_10` - credits_10
         * `credits_25` - credits_25
+        * `credits_45` - credits_45
         * `credits_50` - credits_50
         * `credits_100` - credits_100
+        * `credits_115` - credits_115
         * `credits_200` - credits_200
     DetailResponse:
       type: object
@@ -6282,6 +6610,17 @@ components:
             * `active` - Active
             * `completed` - Completed
             * `error` - Error
+        user_outcome:
+          readOnly: true
+          nullable: true
+          description: |-
+            User-reported outcome: whether the Doctor solved their problem. Null until the user answers the outcome prompt.
+
+            * `resolved` - Resolved
+            * `not_resolved` - Not resolved
+          oneOf:
+          - $ref: '#/components/schemas/UserOutcomeEnum'
+          - $ref: '#/components/schemas/NullEnum'
         last_message_at:
           type: string
           format: date-time
@@ -6345,6 +6684,7 @@ components:
       - total_estimated_cost_usd
       - total_input_tokens
       - total_output_tokens
+      - user_outcome
     DoctorSessionList:
       type: object
       description: |-
@@ -6368,6 +6708,17 @@ components:
             * `active` - Active
             * `completed` - Completed
             * `error` - Error
+        user_outcome:
+          readOnly: true
+          nullable: true
+          description: |-
+            User-reported outcome: whether the Doctor solved their problem. Null until the user answers the outcome prompt.
+
+            * `resolved` - Resolved
+            * `not_resolved` - Not resolved
+          oneOf:
+          - $ref: '#/components/schemas/UserOutcomeEnum'
+          - $ref: '#/components/schemas/NullEnum'
         last_message_at:
           type: string
           format: date-time
@@ -6425,6 +6776,7 @@ components:
       - total_estimated_cost_usd
       - total_input_tokens
       - total_output_tokens
+      - user_outcome
     DoctorSessionMessageRequestRequest:
       type: object
       description: Request body for sending a message to a Doctor session.
@@ -6448,6 +6800,23 @@ components:
         * `active` - Active
         * `completed` - Completed
         * `error` - Error
+    DoctorSessionUserOutcomeRequestRequest:
+      type: object
+      description: Request body for recording whether the Doctor solved the user's
+        problem.
+      properties:
+        resolved:
+          type: boolean
+      required:
+      - resolved
+    DoctorSessionUserOutcomeResponse:
+      type: object
+      description: Response after recording a Doctor session user outcome.
+      properties:
+        user_outcome:
+          type: string
+      required:
+      - user_outcome
     DomainVerificationStatus:
       type: object
       properties:
@@ -6574,6 +6943,12 @@ components:
           default: ''
           description: Raw assistant ID from the client; used to resolve the assistant
             FK.
+        doctor_session_id:
+          type: string
+          default: ''
+          description: Raw Doctor session ID from the client; used to resolve the
+            Doctor session FK.
+          maxLength: 64
         client_version:
           type: string
           default: ''
@@ -6607,6 +6982,16 @@ components:
           format: uuid
       required:
       - id
+    FormatEnum:
+      enum:
+      - mp3
+      - wav_8000
+      - pcm_16000
+      type: string
+      description: |-
+        * `mp3` - mp3
+        * `wav_8000` - wav_8000
+        * `pcm_16000` - pcm_16000
     FrequencyEnum:
       enum:
       - daily
@@ -6848,6 +7233,64 @@ components:
       - body
       - headers
       - status
+    ManagedSpeechErrorResponse:
+      type: object
+      description: Error envelope shared by the managed speech STT/TTS endpoints.
+      properties:
+        code:
+          type: string
+        detail:
+          type: string
+      required:
+      - code
+      - detail
+    ManagedSpeechSTTRequestRequest:
+      type: object
+      description: Request body for the managed speech STT (speech-to-text) endpoint.
+      properties:
+        audioBase64:
+          type: string
+          minLength: 1
+        mimeType:
+          type: string
+          minLength: 1
+        source:
+          type: string
+      required:
+      - audioBase64
+      - mimeType
+    ManagedSpeechSTTResponse:
+      type: object
+      description: Response body for the managed speech STT endpoint.
+      properties:
+        text:
+          type: string
+        providerId:
+          type: string
+        model:
+          type: string
+        durationSeconds:
+          type: number
+          format: double
+      required:
+      - durationSeconds
+      - model
+      - providerId
+      - text
+    ManagedSpeechTTSRequestRequest:
+      type: object
+      description: Request body for the managed speech TTS (text-to-speech) endpoint.
+      properties:
+        text:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        format:
+          allOf:
+          - $ref: '#/components/schemas/FormatEnum'
+          default: mp3
+      required:
+      - text
     MfaEnrollResponse:
       type: object
       properties:
@@ -7458,8 +7901,21 @@ components:
         was recorded against. The versioned legal-consent fields (ToS, privacy
         policy, AI data sharing) are intentionally excluded — the daemon only needs
         the share preferences.
+
+        Released daemons parse the share toggles as strict booleans, so this
+        projection must stay additive: telemetry is opt-out, so a never-chosen
+        (null) value is coerced to ``True`` (enabled by default) and the
+        explicit-choice fact is surfaced separately via the ``*_chosen`` fields.
+        PII trace eligibility is unaffected by the coercion: it also requires
+        ``share_diagnostics_accepted_version``, which is reported as ``""`` until
+        an explicit diagnostics value is recorded — even if a version-only write
+        stamped one — so a never-chose owner can never pass the daemon's
+        trace-disclosure gate.
       properties:
         share_analytics:
+          type: boolean
+          readOnly: true
+        share_analytics_chosen:
           type: boolean
           readOnly: true
         share_analytics_accepted_version:
@@ -7471,6 +7927,9 @@ components:
           readOnly: true
           nullable: true
         share_diagnostics:
+          type: boolean
+          readOnly: true
+        share_diagnostics_chosen:
           type: boolean
           readOnly: true
         share_diagnostics_accepted_version:
@@ -7485,9 +7944,11 @@ components:
       - share_analytics
       - share_analytics_accepted_at
       - share_analytics_accepted_version
+      - share_analytics_chosen
       - share_diagnostics
       - share_diagnostics_accepted_at
       - share_diagnostics_accepted_version
+      - share_diagnostics_chosen
     PaginatedAssistantDomainList:
       type: object
       required:
@@ -7916,6 +8377,75 @@ components:
       - machine_size
       - skipped
       - updated
+    ProPackage:
+      type: object
+      description: |-
+        A named Pro package preset (Mighty/Super/Ultra) at its current version.
+
+        Component prices mirror the tier entries above; ``total_price_cents`` is
+        the sum of the four ``*_price_cents`` components.
+      properties:
+        key:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        version:
+          type: integer
+          minimum: 1
+        machine_tier:
+          type: string
+          nullable: true
+        storage_tier:
+          type: string
+        credit_tier:
+          type: string
+          nullable: true
+        machine_size:
+          type: string
+          nullable: true
+        storage_gib:
+          type: integer
+          minimum: 0
+        credits_usd:
+          type: integer
+          minimum: 0
+          nullable: true
+        include_platform_fee:
+          type: boolean
+        base_price_cents:
+          type: integer
+          minimum: 0
+        machine_price_cents:
+          type: integer
+          minimum: 0
+        storage_price_cents:
+          type: integer
+          minimum: 0
+        credit_price_cents:
+          type: integer
+          minimum: 0
+        total_price_cents:
+          type: integer
+          minimum: 0
+      required:
+      - base_price_cents
+      - credit_price_cents
+      - credit_tier
+      - credits_usd
+      - description
+      - include_platform_fee
+      - key
+      - machine_price_cents
+      - machine_size
+      - machine_tier
+      - name
+      - storage_gib
+      - storage_price_cents
+      - storage_tier
+      - total_price_cents
+      - version
     ProPlan:
       type: object
       properties:
@@ -7946,6 +8476,10 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/CreditTier'
+        packages:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProPackage'
       required:
       - base_lookup_key
       - base_price_cents
@@ -7954,6 +8488,7 @@ components:
       - included_features
       - machine_tiers
       - name
+      - packages
       - storage_tiers
     ProPlanIdEnum:
       enum:
@@ -8131,8 +8666,13 @@ components:
           minimum: 0
         lookup_key:
           type: string
+        legacy:
+          type: boolean
+          description: 'True only for a grandfathered tier: no longer offered, present
+            in the catalog solely because it is the org''s current tier.'
       required:
       - label
+      - legacy
       - lookup_key
       - price_cents
       - storage_gib
@@ -8186,6 +8726,24 @@ components:
       required:
       - managed_email
       - phone_number
+    SubscriptionPackage:
+      type: object
+      description: The named Pro package the org subscribed under (its account pin).
+      properties:
+        key:
+          type: string
+        name:
+          type: string
+        version:
+          type: integer
+          minimum: 1
+        customized:
+          type: boolean
+      required:
+      - customized
+      - key
+      - name
+      - version
     SubscriptionResponse:
       type: object
       properties:
@@ -8212,6 +8770,10 @@ components:
           nullable: true
         selected_credit_tier:
           type: string
+          nullable: true
+        package:
+          allOf:
+          - $ref: '#/components/schemas/SubscriptionPackage'
           nullable: true
         entitlements:
           $ref: '#/components/schemas/SubscriptionEntitlements'
@@ -8247,9 +8809,20 @@ components:
       type: object
       properties:
         machine_tier:
-          $ref: '#/components/schemas/MachineTierEnum'
+          nullable: true
+          oneOf:
+          - $ref: '#/components/schemas/MachineTierEnum'
+          - $ref: '#/components/schemas/NullEnum'
         storage_tier:
-          $ref: '#/components/schemas/StorageTierEnum'
+          nullable: true
+          oneOf:
+          - $ref: '#/components/schemas/StorageTierEnum'
+          - $ref: '#/components/schemas/NullEnum'
+        package:
+          type: string
+          nullable: true
+          minLength: 1
+          pattern: ^[-a-zA-Z0-9_]+$
         target_plan_id:
           $ref: '#/components/schemas/PlanIdEnum'
         confirm:
@@ -8259,10 +8832,11 @@ components:
           oneOf:
           - $ref: '#/components/schemas/CreditTierEnum'
           - $ref: '#/components/schemas/NullEnum'
+        include_platform_fee:
+          type: boolean
+          default: true
       required:
       - confirm
-      - machine_tier
-      - storage_tier
       - target_plan_id
     SubscriptionUpgradeResponse:
       type: object
@@ -8306,6 +8880,44 @@ components:
         * `wake` - Wake
         * `profiler` - Profiler
         * `other` - Other
+    TelemetryIngestRequestRequest:
+      type: object
+      properties:
+        device_id:
+          type: string
+          minLength: 1
+          maxLength: 255
+        installation_id:
+          type: string
+          minLength: 1
+          maxLength: 255
+        assistant_version:
+          type: string
+          nullable: true
+          minLength: 1
+          maxLength: 64
+        events:
+          type: array
+          items:
+            type: object
+            additionalProperties: {}
+      required:
+      - events
+    TelemetryIngestResponse:
+      type: object
+      properties:
+        accepted:
+          type: integer
+        persisted:
+          type: integer
+        dropped:
+          type: object
+          additionalProperties:
+            type: integer
+      required:
+      - accepted
+      - dropped
+      - persisted
     TierChangeStatusEnum:
       enum:
       - ok
@@ -8525,6 +9137,107 @@ components:
       required:
       - event_count
       - total_usd
+    UserConsent:
+      type: object
+      properties:
+        tos_accepted_version:
+          type: string
+          maxLength: 32
+        tos_accepted_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        privacy_policy_accepted_version:
+          type: string
+          maxLength: 32
+        privacy_policy_accepted_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        ai_data_sharing_accepted_version:
+          type: string
+          maxLength: 32
+        ai_data_sharing_accepted_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        share_analytics:
+          type: boolean
+          nullable: true
+        share_diagnostics:
+          type: boolean
+          nullable: true
+        share_analytics_effective:
+          type: boolean
+          readOnly: true
+        share_diagnostics_effective:
+          type: boolean
+          readOnly: true
+        share_analytics_accepted_version:
+          type: string
+          maxLength: 32
+        share_analytics_accepted_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        share_diagnostics_accepted_version:
+          type: string
+          maxLength: 32
+        share_diagnostics_accepted_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        required_versions:
+          type: object
+          additionalProperties:
+            type: string
+          readOnly: true
+      required:
+      - ai_data_sharing_accepted_at
+      - privacy_policy_accepted_at
+      - required_versions
+      - share_analytics_accepted_at
+      - share_analytics_effective
+      - share_diagnostics_accepted_at
+      - share_diagnostics_effective
+      - tos_accepted_at
+    UserConsentRequest:
+      type: object
+      properties:
+        tos_accepted_version:
+          type: string
+          maxLength: 32
+        privacy_policy_accepted_version:
+          type: string
+          maxLength: 32
+        ai_data_sharing_accepted_version:
+          type: string
+          maxLength: 32
+        share_analytics:
+          type: boolean
+          nullable: true
+        share_diagnostics:
+          type: boolean
+          nullable: true
+        share_analytics_accepted_version:
+          type: string
+          maxLength: 32
+        share_diagnostics_accepted_version:
+          type: string
+          maxLength: 32
+    UserOutcomeEnum:
+      enum:
+      - resolved
+      - not_resolved
+      type: string
+      description: |-
+        * `resolved` - Resolved
+        * `not_resolved` - Not resolved
   securitySchemes:
     AssistantAPIKey:
       type: apiKey

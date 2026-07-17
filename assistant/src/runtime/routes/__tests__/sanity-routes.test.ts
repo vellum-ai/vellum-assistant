@@ -25,13 +25,6 @@ mock.module("../../../security/secure-keys.js", () => ({
   getSecureKeyAsync: async (_key: string) => storedToken,
 }));
 
-mock.module("../../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 const FAKE_WORKSPACE = "/tmp/sanity-routes-test-workspace";
 
 mock.module("../../../util/platform.js", () => ({

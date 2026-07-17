@@ -33,16 +33,37 @@ interface MemoryInfo {
   maxMb: number;
 }
 
+/**
+ * Sample this process's resident set size (RSS) in bytes, returning `null` when
+ * the reading fails.
+ *
+ * Bun 1.3.11 can throw `SystemError: Failed to get memory usage, errno: 2` from
+ * the underlying getrusage syscall. The health payload is best-effort, so a
+ * failed sample must never propagate and turn the liveness probe into a 500 —
+ * fall back to `null` and let the caller substitute an alternative source.
+ */
+function sampleProcessRssBytes(): number | null {
+  try {
+    return process.memoryUsage().rss;
+  } catch {
+    return null;
+  }
+}
+
 function getMemoryInfo(): MemoryInfo {
   const bytesToMb = (b: number) => Math.round((b / (1024 * 1024)) * 100) / 100;
   // In platform-managed mode the daemon shares its Node process with whatever
   // the container is doing as a whole; `process.memoryUsage().rss` only sees
   // this process's resident set, which understates the container footprint
   // operators care about. Read the cgroup usage file directly so /v1/health
-  // matches what the StatefulSet's memory limit is enforced against.
+  // matches what the StatefulSet's memory limit is enforced against. When RSS
+  // can't be sampled, fall back to the cgroup usage (if any) before reporting 0
+  // — the metric is best-effort and must never fail the probe.
   const currentBytes =
     (getIsPlatform() ? getContainerMemoryUsageBytes() : null) ??
-    process.memoryUsage().rss;
+    sampleProcessRssBytes() ??
+    getContainerMemoryUsageBytes() ??
+    0;
   return {
     currentMb: bytesToMb(currentBytes),
     maxMb: bytesToMb(getContainerMemoryLimitBytes() ?? totalmem()),

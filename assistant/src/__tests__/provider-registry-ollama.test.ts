@@ -33,14 +33,13 @@ function ollamaConfig(webSearch: {
     },
     llm: {
       ...baseLlm,
-      default: {
-        ...baseLlm.default,
-        provider: "ollama" as const,
-        model: "claude-opus-4-6",
-      },
-      profiles: {
-        // Disable the catalog default so resolution lands on llm.default.
-        balanced: { source: "managed" as const, status: "disabled" as const },
+      // The call-site tweak is applied last, so it makes ollama the resolved
+      // mainAgent provider regardless of the winning profile.
+      callSites: {
+        mainAgent: {
+          provider: "ollama" as const,
+          model: "claude-opus-4-6",
+        },
       },
     },
   };

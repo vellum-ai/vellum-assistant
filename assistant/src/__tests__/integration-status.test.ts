@@ -1,9 +1,16 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { z } from "zod";
+
 import { credentialKey } from "../security/credential-key.js";
+import { setConfig } from "./helpers/set-config.js";
 
 const secureKeyValues = new Map<string, string>();
-let mockTwilioAccountSid: string | undefined;
+
+/** Seed `twilio.accountSid` into the workspace config for real. */
+function seedTwilioAccountSid(accountSid: string): void {
+  setConfig("twilio", { accountSid });
+}
 
 const connectedProviders = new Set<string>();
 const managedProviders = new Set<string>();
@@ -13,19 +20,19 @@ mock.module("../security/secure-keys.js", () => ({
   getSecureKeyAsync: async (account: string) => secureKeyValues.get(account),
 }));
 
-mock.module("../config/loader.js", () => ({
-  loadConfig: () => ({
-    twilio: mockTwilioAccountSid
-      ? { accountSid: mockTwilioAccountSid }
-      : undefined,
-  }),
-  getConfig: () => ({ services: {} }),
-}));
-
+// `getServiceMode` consults the test's `managedProviders` set. The real
+// `ServicesSchema` is extended with the test-fiction "google"/"slack" keys so
+// the `managedKey in ServicesSchema.shape` gate passes while the real config
+// loader (which parses this schema) keeps working.
+const realServicesSchemaModule = await import("../config/schemas/services.js");
 mock.module("../config/schemas/services.js", () => ({
+  ...realServicesSchemaModule,
   getServiceMode: (_services: unknown, key: string) =>
     managedProviders.has(key) ? "managed" : "your-own",
-  ServicesSchema: { shape: { google: true, slack: true } },
+  ServicesSchema: realServicesSchemaModule.ServicesSchema.extend({
+    google: z.object({}).optional(),
+    slack: z.object({}).optional(),
+  }),
 }));
 
 mock.module("../oauth/oauth-store.js", () => ({
@@ -82,7 +89,8 @@ describe("integration-status", () => {
     connectedProviders.clear();
     managedProviders.clear();
     platformConnectedProviders.clear();
-    mockTwilioAccountSid = undefined;
+    // The schema default ("") reads as "not configured" on the Twilio path.
+    seedTwilioAccountSid("");
   });
 
   describe("getIntegrationSummary", () => {
@@ -99,7 +107,7 @@ describe("integration-status", () => {
     test("returns all connected when all keys are set", async () => {
       setOAuthConnected("google");
       setOAuthConnected("slack");
-      mockTwilioAccountSid = "sid";
+      seedTwilioAccountSid("sid");
       secureKeyValues.set(credentialKey("twilio", "auth_token"), "auth");
       setOAuthConnected("telegram");
 
@@ -110,7 +118,7 @@ describe("integration-status", () => {
     });
 
     test("returns mixed status", async () => {
-      mockTwilioAccountSid = "sid";
+      seedTwilioAccountSid("sid");
       secureKeyValues.set(credentialKey("twilio", "auth_token"), "auth");
       setOAuthConnected("telegram");
 
@@ -133,7 +141,7 @@ describe("integration-status", () => {
     });
 
     test("Twilio disconnected when only account_sid is set (missing auth_token)", async () => {
-      mockTwilioAccountSid = "sid";
+      seedTwilioAccountSid("sid");
 
       const summary = await getIntegrationSummary();
       const twilio = summary.find((s: { name: string }) => s.name === "Twilio");
@@ -151,7 +159,7 @@ describe("integration-status", () => {
 
   describe("formatIntegrationSummary", () => {
     test("shows checkmarks and crosses", async () => {
-      mockTwilioAccountSid = "sid";
+      seedTwilioAccountSid("sid");
       secureKeyValues.set(credentialKey("twilio", "auth_token"), "auth");
       setOAuthConnected("telegram");
 
@@ -171,7 +179,7 @@ describe("integration-status", () => {
     test("all connected", async () => {
       setOAuthConnected("google");
       setOAuthConnected("slack");
-      mockTwilioAccountSid = "sid";
+      seedTwilioAccountSid("sid");
       secureKeyValues.set(credentialKey("twilio", "auth_token"), "auth");
       setOAuthConnected("telegram");
 

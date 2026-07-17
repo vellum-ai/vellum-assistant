@@ -42,7 +42,6 @@ let appStoreResult: unknown = null;
 mock.module("../apps/app-store.js", () => ({
   getApp: (_id: string) => appStoreResult,
   getAppsDir: () => "/tmp/apps",
-  isMultifileApp: () => false,
   listApps: () => [],
 }));
 

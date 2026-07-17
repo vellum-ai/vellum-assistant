@@ -163,9 +163,11 @@ function handleQuestionResponse({ body }: RouteHandlerArgs) {
     "Question resolved",
   );
 
-  (interaction.rpcResolve as
-    | ((value: QuestionPromptResult) => void)
-    | undefined)?.(result);
+  (
+    interaction.rpcResolve as
+      | ((value: QuestionPromptResult) => void)
+      | undefined
+  )?.(result);
 
   return { success: true };
 }
@@ -233,7 +235,9 @@ function buildCompletedResult(
 function readBatchMetadata(
   interaction: ReturnType<typeof pendingInteractions.get>,
 ): QuestionBatchMetadata {
-  const meta = interaction?.metadata as Partial<QuestionBatchMetadata> | undefined;
+  const meta = interaction?.metadata as
+    | Partial<QuestionBatchMetadata>
+    | undefined;
   return {
     orderedIds: meta?.orderedIds ?? [],
     optionsById: meta?.optionsById ?? {},

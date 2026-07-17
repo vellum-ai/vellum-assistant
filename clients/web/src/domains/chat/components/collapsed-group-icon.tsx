@@ -36,8 +36,12 @@ export function getGroupIndicatorState(
     }
   }
 
-  if (hasProcessing) return "processing";
-  if (hasUnread) return "unread";
+  if (hasProcessing) {
+    return "processing";
+  }
+  if (hasUnread) {
+    return "unread";
+  }
   return null;
 }
 
@@ -103,7 +107,7 @@ export function CollapsedGroupIcon({
       <Tooltip content="No conversations" side="right">
         <div
           aria-label={label}
-          className="relative flex h-8 w-8 items-center justify-center rounded-[6px] text-[var(--content-disabled)]"
+          className="relative flex h-[30px] w-[30px] items-center justify-center rounded-[6px] text-[var(--content-disabled)]"
         >
           <Icon size={14} />
         </div>
@@ -119,13 +123,13 @@ export function CollapsedGroupIcon({
             type="button"
             aria-label={label}
             aria-haspopup="dialog"
-            className="relative flex h-8 w-8 cursor-pointer items-center justify-center rounded-[6px] text-[var(--content-tertiary)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--content-secondary)] aria-[expanded=true]:bg-[var(--surface-active)] aria-[expanded=true]:text-[var(--content-emphasised)]"
+            className="relative flex h-[30px] w-[30px] cursor-pointer items-center justify-center rounded-[6px] text-[var(--content-tertiary)] transition-colors hover:bg-[var(--surface-hover)] aria-[expanded=true]:bg-[var(--surface-active)] aria-[expanded=true]:text-[var(--content-default)]"
           >
             <Icon size={14} />
             {indicatorState != null ? (
               <span
                 aria-hidden
-                className={`absolute right-0 top-0 h-2.5 w-2.5 rounded-full border-2 border-[var(--surface-base)] ${INDICATOR_CLASS[indicatorState]}`}
+                className={`absolute right-0 top-0 h-2.5 w-2.5 rounded-full border-2 border-[var(--surface-overlay)] ${INDICATOR_CLASS[indicatorState]}`}
               />
             ) : null}
           </button>

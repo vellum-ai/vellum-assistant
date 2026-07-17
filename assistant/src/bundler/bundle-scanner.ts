@@ -229,6 +229,19 @@ async function scanArchiveStructure(
     }
   }
 
+  // Only multi-file (format_version 2) bundles are supported; this gate
+  // covers every scan consumer, including the macOS open-bundle flow.
+  if ("format_version" in manifest && Number(manifest.format_version) !== 2) {
+    findings.push({
+      category: "archive",
+      code: "unsupported_format",
+      message: `Bundle format_version ${String(
+        manifest.format_version,
+      )} is not supported; only format_version 2 (multi-file) bundles can be opened`,
+      level: "block",
+    });
+  }
+
   // Entry file check
   const entryName = manifest.entry;
   if (typeof entryName === "string" && !zip.file(entryName)) {

@@ -6,6 +6,8 @@ import { Card } from "@vellumai/design-library/components/card";
 import { Input } from "@vellumai/design-library/components/input";
 import { PanelItem } from "@vellumai/design-library/components/panel-item";
 
+import { Tag } from "@vellumai/design-library/components/tag";
+
 import { ContactTypeBadge } from "@/domains/contacts/components/contact-type-badge";
 import type {
     ContactSelection,
@@ -105,6 +107,7 @@ export function ContactsList({
                 role={contact.role}
                 contactType={contact.contactType}
                 channelTypes={contact.channelTypes}
+                verified={contact.verified}
                 selected={
                   selection?.kind === "contact" && selection.contactId === contact.id
                 }
@@ -148,6 +151,8 @@ interface ContactRowProps {
   selected: boolean;
   onClick: () => void;
   trailingIcon?: "pencil" | "more";
+  /** Renders the Verified/Unverified tag when set; omit to hide (guardian). */
+  verified?: boolean;
 }
 
 function ContactRow({
@@ -158,6 +163,7 @@ function ContactRow({
   selected,
   onClick,
   trailingIcon,
+  verified,
 }: ContactRowProps) {
   const channelLabel =
     channelTypes && channelTypes.length > 0
@@ -194,7 +200,12 @@ function ContactRow({
             </span>
           ) : null}
         </span>
-        <span className="shrink-0">
+        <span className="flex shrink-0 items-center gap-1">
+          {verified !== undefined ? (
+            <Tag tone={verified ? "positive" : "neutral"}>
+              {verified ? "Verified" : "Unverified"}
+            </Tag>
+          ) : null}
           <ContactTypeBadge role={role} contactType={contactType} />
         </span>
       </button>

@@ -1,5 +1,9 @@
+import { useCallback, type CSSProperties } from "react";
+
 import { AppViewerContainer } from "@/components/app-viewer-container";
 import { useMobileOverlayViewportStyle } from "@/hooks/use-mobile-overlay-viewport-style";
+import { useSwipeVertical } from "@/hooks/use-swipe-vertical";
+import { cn } from "@/utils/misc";
 import type { OpenedAppState } from "@/stores/viewer-store";
 
 interface MobileAppOverlayProps {
@@ -53,35 +57,109 @@ export function MobileAppOverlay({
 }: MobileAppOverlayProps) {
   const shellStyle = useMobileOverlayViewportStyle();
 
+  // Swipe-down on the full overlay minimizes to the strip; swipe-up on the
+  // minimized strip restores; swipe-down on the strip closes entirely. These
+  // trigger the same callbacks the nav-bar buttons use — no new state.
+  const handleSwipeDown = useCallback(() => {
+    if (isAppMinimized) {
+      onClose();
+    } else {
+      onToggleMinimized();
+    }
+  }, [isAppMinimized, onClose, onToggleMinimized]);
+
+  const handleSwipeUp = useCallback(() => {
+    if (isAppMinimized) {
+      onToggleMinimized();
+    }
+  }, [isAppMinimized, onToggleMinimized]);
+
+  const {
+    dragOffset,
+    isDragging,
+    onTouchStart,
+    onTouchMove,
+    onTouchEnd,
+    onTouchCancel,
+  } = useSwipeVertical({
+    enabled: !!openedAppState,
+    onSwipeDown: handleSwipeDown,
+    onSwipeUp: handleSwipeUp,
+  });
+
   if (!openedAppState) {
     return null;
   }
 
   return (
     <div
-      className="fixed inset-x-0 z-30 transition-transform duration-300 ease-out"
+      className={cn(
+        "fixed inset-x-0 z-30 transition-transform duration-300 ease-out",
+        // While minimized, the shell's transparent safe-area padding band
+        // sits directly above the visible strip — over the lifted composer —
+        // so the shell must not hit-test; the inner sheet wrapper (which
+        // starts below the padding) re-enables pointer events for the strip.
+        isAppMinimized && "pointer-events-none",
+      )}
       style={{
         ...shellStyle,
+        // `--drag-y` is 0 at rest and tracks the finger during a swipe. It
+        // composes with the resting translateY so the overlay follows the
+        // finger, then springs back (or animates to the new resting state on
+        // commit) when the transition re-enables.
+        "--drag-y": `${dragOffset}px`,
         transform: isAppMinimized
-          ? "translateY(calc(100% - var(--app-strip-h, 56px) - var(--safe-area-inset-top, env(safe-area-inset-top, 0px))))"
-          : "translateY(0)",
-      }}
+          ? "translateY(calc(100% - var(--app-strip-h, 64px) - var(--safe-area-inset-top, env(safe-area-inset-top, 0px)) - var(--overlay-safe-area-bottom, 0px) + var(--drag-y, 0px)))"
+          : "translateY(var(--drag-y, 0px))",
+        // Disable the CSS transition while dragging so the overlay tracks the
+        // finger 1:1; re-enable it on release for the spring-back / commit
+        // animation.
+        transition: isDragging ? "none" : undefined,
+      } as CSSProperties}
     >
-      <AppViewerContainer
-        appId={openedAppState.appId}
-        appName={openedAppState.name}
-        html={openedAppState.html}
-        assistantId={assistantId ?? ""}
-        onClose={onClose}
-        onEdit={onToggleMinimized}
-        onShare={onShare}
-        isSharing={isSharing}
-        onDeploy={onDeploy}
-        isDeploying={isDeploying}
-        isEditing={isAppMinimized}
-        route={route}
-        onAction={onAction}
-      />
+      {/* The minimized strip overlays the chat, so it needs a top-directional
+          shadow to read as a layer above it. The shadow lives on this inner
+          wrapper — not the outer fixed box — because the outer box's
+          `paddingTop` (safe-area inset) would paint the shadow above the
+          sheet's visible top edge. */}
+      <div
+        className={cn(
+          "h-full rounded-xl",
+          isAppMinimized &&
+            "pointer-events-auto shadow-[0_-4px_16px_rgba(0,0,0,0.15)]",
+        )}
+        // Claim vertical gestures for the swipe; let the browser handle
+        // horizontal pans natively. NOTE: touch events do not bubble out of
+        // iframes, and AppViewerContainer renders the app content as a
+        // sandboxed iframe, so the swipe-down-to-minimize / swipe-up-to-restore
+        // gesture only fires on touches that land on the overlay chrome (nav
+        // bar / header) — touches over the app content itself are handled by
+        // the iframe's own document and never reach these parent handlers. An
+        // invisible overlay layer on top of the iframe would capture those
+        // touches but would also block all app interaction, so we scope the
+        // gesture to the chrome and accept this as the right trade-off.
+        style={{ touchAction: "pan-x" }}
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
+        onTouchCancel={onTouchCancel}
+      >
+        <AppViewerContainer
+          appId={openedAppState.appId}
+          appName={openedAppState.name}
+          html={openedAppState.html}
+          assistantId={assistantId ?? ""}
+          onClose={onClose}
+          onEdit={onToggleMinimized}
+          onShare={onShare}
+          isSharing={isSharing}
+          onDeploy={onDeploy}
+          isDeploying={isDeploying}
+          isEditing={isAppMinimized}
+          route={route}
+          onAction={onAction}
+        />
+      </div>
     </div>
   );
 }

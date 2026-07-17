@@ -18,7 +18,7 @@
  * 44px min-height with 32px controls, so the pill must never stretch it.
  */
 
-import { ArrowUp, Mic, Square, TriangleAlert, X } from "lucide-react";
+import { ArrowUp, Mic, MicOff, Square, TriangleAlert, X } from "lucide-react";
 
 import { Button, Tag, Typography, cn } from "@vellumai/design-library";
 
@@ -39,12 +39,16 @@ export interface VoiceSessionPillProps {
   state: LiveVoiceSessionState;
   /** Polled by the waveform at ~30 Hz; must not force parent re-renders. */
   getAmplitude: () => number;
+  /** Whether the mic is muted — drives the mic toggle beside the waveform. */
+  muted: boolean;
+  /** Toggle the mic mute without ending the session. */
+  onToggleMute: () => void;
   /**
    * Stop the in-flight assistant response without ending the session. The
-   * ■ control is hidden when absent — hosts must only wire this once a
-   * turn-scoped interrupt exists; the ✕ (`onEnd`) is the destructive control.
-   * Dormant until the turn-scoped interrupt lands (engine plan, JARVIS-1240):
-   * no host passes it yet, deliberately.
+   * ■ control is hidden when absent — the host wires it only for hands-free
+   * sessions, where the interrupt is turn-scoped; a manual session's
+   * interrupt ends the whole session, so there the ✕ (`onEnd`) is the only
+   * stop.
    */
   onStop?: () => void;
   /** End the voice session. */
@@ -60,6 +64,8 @@ export function VoiceSessionPill({
   secondaryLabel,
   state,
   getAmplitude,
+  muted,
+  onToggleMute,
   onStop,
   onEnd,
   onSend,
@@ -121,10 +127,29 @@ export function VoiceSessionPill({
         />
       ) : null}
       <div className="flex items-center gap-1">
-        <Mic aria-hidden className="size-3.5 shrink-0 text-[var(--content-default)]" />
+        {/* The mic glyph doubles as the mute toggle — the one control a hot
+            open mic must always offer, wherever the session surface is. */}
+        <Button
+          variant="ghost"
+          iconOnly={
+            muted ? (
+              <MicOff className="size-3.5" />
+            ) : (
+              <Mic className="size-3.5" />
+            )
+          }
+          expandOnMobile={false}
+          onClick={onToggleMute}
+          aria-label={muted ? "Unmute microphone" : "Mute microphone"}
+          aria-pressed={muted}
+          tooltip={muted ? "Unmute microphone" : "Mute microphone"}
+          className={
+            muted ? "[--vbtn-fg:var(--system-negative-strong)]" : undefined
+          }
+        />
         <VoiceTimelineWaveform
           compact
-          active={isLiveVoiceMicLive(state)}
+          active={isLiveVoiceMicLive(state) && !muted}
           getAmplitude={getAmplitude}
           className="w-24"
         />

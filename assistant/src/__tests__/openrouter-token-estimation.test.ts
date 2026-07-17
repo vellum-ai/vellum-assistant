@@ -40,7 +40,7 @@ describe("OpenRouterProvider token estimation routing", () => {
   });
 
   test("reports its own name for non-Anthropic default models", () => {
-    const provider = new OpenRouterProvider("fake-key", "x-ai/grok-4.20-beta");
+    const provider = new OpenRouterProvider("fake-key", "x-ai/grok-4.20");
     expect(provider.tokenEstimationProvider).toBe(provider.name);
     expect(provider.tokenEstimationProvider).toBe("openrouter");
   });
@@ -81,7 +81,7 @@ describe("OpenRouterProvider token estimation routing", () => {
     // window fills. Vision models on OpenRouter — both anthropic/* and
     // non-Anthropic (Kimi K2.6, Grok, etc.) — must use the dimension-based
     // formula.
-    for (const model of ["moonshotai/kimi-k2.6", "x-ai/grok-4.20-beta"]) {
+    for (const model of ["moonshotai/kimi-k2.6", "x-ai/grok-4.20"]) {
       const provider = new OpenRouterProvider("fake-key", model);
       const messages: Message[] = [
         {

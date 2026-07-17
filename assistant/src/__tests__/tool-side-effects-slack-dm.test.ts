@@ -31,7 +31,6 @@ mock.module("../apps/app-store.js", () => ({
   getApp: mock(() => null),
   getAppDirPath: mock(() => ""),
   getAppsDir: mock(() => ""),
-  isMultifileApp: mock(() => false),
   resolveAppIdFromPath: mock(() => null),
   resolveAppIdByDirName: mock(() => null),
   resolveAppDir: mock(() => ({ dirName: "", dirPath: "" })),

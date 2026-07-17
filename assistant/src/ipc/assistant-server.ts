@@ -58,6 +58,7 @@ import {
 import { CONTACTS_INFO_IPC_METHODS } from "./routes/contacts-info-ipc-routes.js";
 import { CONTACTS_MIRROR_IPC_METHODS } from "./routes/contacts-mirror-ipc-routes.js";
 import { type DbProxyParams, handleDbProxy } from "./routes/db-proxy.js";
+import { GUARDIAN_LABEL_IPC_METHODS } from "./routes/guardian-label-ipc-routes.js";
 import { INVITE_IPC_METHODS } from "./routes/invite-ipc-routes.js";
 import { routeDefinitionsToIpcMethods } from "./routes/route-adapter.js";
 import { ensureSocketPathFree } from "./socket-cleanup.js";
@@ -202,30 +203,17 @@ export class AssistantIpcServer {
       handleDbProxy(params as unknown as DbProxyParams),
     );
 
-    // IPC-only invite methods (see ipc/routes/invite-ipc-routes.ts). The
-    // gateway calls these back over IPC to mirror redeemed-invite contact
-    // info locally. No HTTP surface; never in ROUTES.
-    for (const [operationId, handler] of Object.entries(INVITE_IPC_METHODS)) {
-      this.methods.set(operationId, handler);
-    }
-
-    // IPC-only contact INFO-READ methods (see ipc/routes/contacts-info-ipc-routes.ts).
-    // The gateway calls these to read assistant-owned info fields + channel
-    // identity, replacing raw db_proxy SELECTs. No HTTP surface; never in ROUTES.
-    for (const [operationId, handler] of Object.entries(
+    // IPC-only gateway-facing method maps (see each map's route file in
+    // ipc/routes/ for its contract). No HTTP surface; never in ROUTES.
+    for (const methodMap of [
+      INVITE_IPC_METHODS,
       CONTACTS_INFO_IPC_METHODS,
-    )) {
-      this.methods.set(operationId, handler);
-    }
-
-    // IPC-only contact identity-mirror methods (see
-    // ipc/routes/contacts-mirror-ipc-routes.ts). The gateway calls these back
-    // over IPC to mirror single-row contact/channel identity locally after a
-    // gateway-owned ACL write. No HTTP surface; never in ROUTES.
-    for (const [operationId, handler] of Object.entries(
       CONTACTS_MIRROR_IPC_METHODS,
-    )) {
-      this.methods.set(operationId, handler);
+      GUARDIAN_LABEL_IPC_METHODS,
+    ]) {
+      for (const [operationId, handler] of Object.entries(methodMap)) {
+        this.methods.set(operationId, handler);
+      }
     }
 
     this.methods.set("$cancel", (params) => {

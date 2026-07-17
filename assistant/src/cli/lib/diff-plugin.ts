@@ -42,7 +42,6 @@ import { PRESERVED_ENTRIES } from "../../plugins/plugin-tree-walk.js";
 import { getWorkspacePluginsDir } from "../../util/platform.js";
 import type { FetchLike } from "./fetch-like.js";
 import {
-  DEFAULT_PLUGIN_REF,
   type GitRunner,
   materializePluginTree,
   type PluginFetchSource,
@@ -52,6 +51,7 @@ import {
   sanitizePluginName,
 } from "./install-from-github.js";
 import { readInstalledPlugin } from "./list-installed-plugins.js";
+import { DEFAULT_PLUGIN_REF } from "./plugin-constants.js";
 import {
   compareFingerprint,
   computeFingerprint,

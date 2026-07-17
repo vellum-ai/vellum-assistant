@@ -39,8 +39,6 @@
 
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { makeMockLogger } from "../__tests__/helpers/mock-logger.js";
-
 // ---------------------------------------------------------------------------
 // Mocks — defined before importing the module under test.
 //
@@ -48,10 +46,6 @@ import { makeMockLogger } from "../__tests__/helpers/mock-logger.js";
 // other surface — sandbox, leaf runner, agent loop, journal store,
 // capabilities, config — is the real implementation.
 // ---------------------------------------------------------------------------
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
 
 interface SendOptions {
   signal?: AbortSignal;
@@ -171,7 +165,7 @@ mock.module("../providers/provider-send-message.js", () => ({
 // ---------------------------------------------------------------------------
 
 import { WorkflowsConfigSchema } from "../config/schemas/workflows.js";
-import type { TrustContext } from "../daemon/trust-context.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import { getSqlite } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { registerTool } from "../tools/registry.js";

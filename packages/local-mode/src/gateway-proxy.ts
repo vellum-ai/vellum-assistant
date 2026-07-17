@@ -87,6 +87,7 @@ export function readAllowedGatewayPorts(lockfilePaths: string[]): Set<number> {
         assistants?: Array<{
           gatewayUrl?: unknown;
           localUrl?: unknown;
+          runtimeUrl?: unknown;
           resources?: { gatewayPort?: unknown };
         }>;
       };
@@ -95,6 +96,10 @@ export function readAllowedGatewayPorts(lockfilePaths: string[]): Set<number> {
         if (!assistant) continue;
         addPortFromUrl(assistant.gatewayUrl, ports);
         addPortFromUrl(assistant.localUrl, ports);
+        // Docker entries record their published gateway as a loopback
+        // `runtimeUrl` with no `resources` block; the loopback-hostname filter
+        // in addPortFromUrl keeps remote runtimeUrls out of the allowlist.
+        addPortFromUrl(assistant.runtimeUrl, ports);
         const gp = assistant.resources?.gatewayPort;
         if (typeof gp === "number" && Number.isInteger(gp) && gp >= 1024 && gp <= 65535) {
           ports.add(gp);

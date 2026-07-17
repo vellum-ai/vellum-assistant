@@ -2,17 +2,11 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { SecretRequestEvent } from "../api/events/secret-request.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
+import { setConfig } from "./helpers/set-config.js";
 
 // Use a tiny timeout so the setTimeout branch fires quickly in tests
-const mockConfig = {
-  timeouts: { permissionTimeoutSec: 0.01 },
-  secretDetection: { allowOneTimeSend: false },
-};
-mock.module("../config/loader.js", () => ({
-  getConfig: () => mockConfig,
-  loadConfig: () => mockConfig,
-  invalidateConfigCache: () => {},
-}));
+setConfig("timeouts", { permissionTimeoutSec: 0.01 });
+setConfig("secretDetection", { allowOneTimeSend: false });
 
 mock.module("../util/logger.js", () => ({
   getLogger: () => ({
@@ -60,22 +54,26 @@ describe("secret prompter channel fallback", () => {
     broadcastMessages = [];
   });
 
-  test("broadcasts secret_request when channel lacks dynamic UI", async () => {
+  test("short-circuits with unsupported_channel when the channel lacks dynamic UI", async () => {
+    /**
+     * A channel without dynamic UI (slack, telegram, …) has no surface that
+     * renders the secure prompt. Broadcasting anyway leaves the request
+     * pending until it times out — which callers then misreport as a user
+     * cancellation. The prompter must fail fast instead: no broadcast, no
+     * pending interaction, an explicit unsupported_channel error.
+     */
     const prompter = new SecretPrompter();
     prompter.setChannelContext({
       channel: "slack",
       supportsDynamicUi: false,
     });
 
-    const promise = prompter.prompt("myservice", "apikey", "API Key");
+    const result = await prompter.prompt("myservice", "apikey", "API Key");
 
-    expect(broadcastMessages).toHaveLength(1);
-    expect(broadcastMessages[0]!.type).toBe("secret_request");
-
-    const requestId = (broadcastMessages[0] as SecretRequestEvent).requestId;
-    prompter.resolveSecret(requestId, "test-secret", "store");
-    const result = await promise;
-    expect(result.value).toBe("test-secret");
+    expect(result.value).toBeNull();
+    expect(result.error).toBe("unsupported_channel");
+    expect(broadcastMessages).toHaveLength(0);
+    expect(_piStore.size).toBe(0);
   });
 
   test("broadcasts secret_request when channel supports dynamic UI", async () => {
@@ -120,5 +118,27 @@ describe("secret prompter channel fallback", () => {
     expect(prompter.hasPendingRequest(requestId)).toBe(false);
 
     await promise;
+  });
+
+  test("a timed-out prompt is tagged timed_out, not a user cancel", async () => {
+    const prompter = new SecretPrompter();
+
+    const result = await prompter.prompt("myservice", "apikey", "API Key");
+
+    expect(result.value).toBeNull();
+    expect(result.reason).toBe("timed_out");
+    expect(result.error).toBeUndefined();
+  });
+
+  test("an explicit dismissal is tagged cancelled", async () => {
+    const prompter = new SecretPrompter();
+
+    const promise = prompter.prompt("myservice", "apikey", "API Key");
+    const requestId = (broadcastMessages[0] as SecretRequestEvent).requestId;
+    prompter.resolveSecret(requestId, undefined, "store");
+
+    const result = await promise;
+    expect(result.value).toBeNull();
+    expect(result.reason).toBe("cancelled");
   });
 });

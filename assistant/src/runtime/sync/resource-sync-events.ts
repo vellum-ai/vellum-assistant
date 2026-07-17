@@ -57,6 +57,10 @@ export function publishSchedulesChanged(originClientId?: string): void {
   void publishSyncInvalidation([SYNC_TAGS.assistantSchedules], originClientId);
 }
 
+export function publishWorkspaceThemeChanged(originClientId?: string): void {
+  void publishSyncInvalidation([SYNC_TAGS.assistantTheme], originClientId);
+}
+
 export function publishAppsChanged(originClientId?: string): void {
   void publishSyncInvalidation([SYNC_TAGS.appsList], originClientId);
 }

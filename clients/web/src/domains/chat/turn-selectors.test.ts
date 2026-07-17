@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  canStopGeneration,
+  isAssistantBusy,
   shouldShowThinkingIndicator,
   type UIContext,
 } from "@/domains/chat/turn-selectors";
@@ -55,16 +55,16 @@ describe("shouldShowThinkingIndicator — authoritative processing close-gate", 
   });
 });
 
-describe("canStopGeneration — authoritative processing close-gate", () => {
+describe("isAssistantBusy — authoritative processing close-gate", () => {
   test("cannot stop once the server reports the turn idle", () => {
     expect(
-      canStopGeneration("thinking", ctx({ snapshotProcessing: false })),
+      isAssistantBusy("thinking", ctx({ snapshotProcessing: false })),
     ).toBe(false);
   });
 
   test("can still stop while awaiting the first token after a send", () => {
     expect(
-      canStopGeneration(
+      isAssistantBusy(
         "thinking",
         ctx({ snapshotProcessing: false, hasPendingAssistantResponse: true }),
       ),
@@ -72,7 +72,7 @@ describe("canStopGeneration — authoritative processing close-gate", () => {
   });
 
   test("undefined processing leaves phase-driven stop behavior intact", () => {
-    expect(canStopGeneration("streaming", ctx({ snapshotProcessing: undefined }))).toBe(
+    expect(isAssistantBusy("streaming", ctx({ snapshotProcessing: undefined }))).toBe(
       true,
     );
   });

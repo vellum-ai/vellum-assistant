@@ -8,6 +8,7 @@ import {
   type ClientMetadataField,
   sanitizeClientMetadataValue,
 } from "@vellumai/service-contracts/client-metadata";
+import { v7 as uuidv7 } from "uuid";
 import { z } from "zod";
 
 import { enrichMessageWithSourcePaths } from "../../agent/attachments.js";
@@ -22,6 +23,12 @@ import {
   ConversationMessageSchema,
 } from "../../api/responses/conversation-message.js";
 import {
+  decideGuardianRequest,
+  expireGuardianRequest,
+  listGuardianRequestsOrEmpty,
+  listPendingRequestsByScopeOrEmpty,
+} from "../../channels/gateway-guardian-requests.js";
+import {
   CHANNEL_IDS,
   INTERFACE_IDS,
   isInteractiveInterface,
@@ -34,11 +41,6 @@ import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-fl
 import { getEffectiveProfiles } from "../../config/default-profile-catalog.js";
 import { isHttpAuthDisabled } from "../../config/env.js";
 import { getConfig } from "../../config/loader.js";
-import {
-  listCanonicalGuardianRequests,
-  listPendingRequestsByConversationScope,
-  resolveCanonicalGuardianRequest,
-} from "../../contacts/canonical-guardian-store.js";
 import {
   mergeConsecutiveAssistantMessages,
   mergeToolResultsIntoAssistantMessages,
@@ -83,7 +85,7 @@ import type {
   HostProxyTransportMetadata,
   NonHostProxyTransportMetadata,
 } from "../../daemon/message-types/conversations.js";
-import type { TrustContext } from "../../daemon/trust-context.js";
+import type { TrustContext } from "../../daemon/trust-context-types.js";
 import { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
 import {
   writeOnboardingSidecar,
@@ -105,7 +107,6 @@ import {
 } from "../../persistence/attachments-store.js";
 import {
   addMessage,
-  extractImageSourcePaths,
   getConversation,
   getConversationPersistedSeq,
   getMessages,
@@ -113,8 +114,8 @@ import {
   hasMessages,
   isConversationProcessing,
   isHiddenMessageMetadata,
+  isSystemCardMetadata,
   type MessageRow,
-  provenanceFromTrustContext,
   recordConversationPersistedSeq,
   setConversationInferenceProfile,
 } from "../../persistence/conversation-crud.js";
@@ -123,6 +124,7 @@ import {
   getOrCreateConversation,
 } from "../../persistence/conversation-key-store.js";
 import { searchConversations } from "../../persistence/conversation-queries.js";
+import { linkRequestLogsToMessage } from "../../persistence/llm-request-log-store.js";
 import { MEMORY_RETROSPECTIVE_FORK_SOURCE } from "../../plugins/defaults/memory/memory-retrospective-constants.js";
 import { normalizeOnboardingContext } from "../../prompts/normalize-onboarding.js";
 import { writeOnboardingSection } from "../../prompts/persona-resolver.js";
@@ -166,6 +168,11 @@ import {
 } from "../sync/resource-sync-events.js";
 import { withSourceChannel } from "../trust-context-resolver.js";
 import {
+  emitCannedMessageComplete,
+  persistCannedAssistantCard,
+} from "./canned-message-complete.js";
+import { buildChannelMetadata } from "./channel-metadata.js";
+import {
   BadRequestError,
   InternalError,
   NotFoundError,
@@ -207,11 +214,12 @@ interface AlignedAttachments {
 
 /**
  * Align DB-hydrated attachment rows with the file-block refs `renderHistoryContent`
- * captured. When a file block was persisted with `_attachmentId` (user-message
- * uploads) we join on that id to position the chip inline; DB rows without a
- * matching ref go to the tail as orphan chips, and unmatched refs drop their
- * `attachment:N` entry. Assistant-authored file blocks carry no `_attachmentId`,
- * so when no ids match we fall back to positional alignment if the ref and row
+ * captured. When a file block carries an attachment id (user-message uploads —
+ * on `source.attachmentId` for reference blocks, or the legacy top-level
+ * `_attachmentId`) we join on that id to position the chip inline; DB rows
+ * without a matching ref go to the tail as orphan chips, and unmatched refs drop
+ * their `attachment:N` entry. Assistant-authored file blocks carry no id, so
+ * when no ids match we fall back to positional alignment if the ref and row
  * counts agree; otherwise we strip the markers and let chips fall to the tail.
  */
 function alignAttachments(
@@ -238,13 +246,19 @@ function alignAttachments(
 
   const byId = new Map<string, number>();
   attachments.forEach((att, idx) => {
-    if (att.id) byId.set(att.id, idx);
+    if (att.id) {
+      byId.set(att.id, idx);
+    }
   });
   const consumed = new Set<number>();
   const orderedRowIdx: Array<number | null> = attachmentRefs.map((ref) => {
-    if (!ref.attachmentId) return null;
+    if (!ref.attachmentId) {
+      return null;
+    }
     const idx = byId.get(ref.attachmentId);
-    if (idx === undefined || consumed.has(idx)) return null;
+    if (idx === undefined || consumed.has(idx)) {
+      return null;
+    }
     consumed.add(idx);
     return idx;
   });
@@ -255,7 +269,9 @@ function alignAttachments(
   if (matchedRows.length > 0) {
     const orphanRows: number[] = [];
     for (let i = 0; i < attachments.length; i++) {
-      if (!consumed.has(i)) orphanRows.push(i);
+      if (!consumed.has(i)) {
+        orphanRows.push(i);
+      }
     }
     const reordered = [
       ...matchedRows.map((i) => attachments[i]),
@@ -274,7 +290,9 @@ function alignAttachments(
       contentOrder
         .map((entry) => {
           const match = entry.match(ATTACHMENT_ENTRY_RE);
-          if (!match) return entry;
+          if (!match) {
+            return entry;
+          }
           const remapped = refToNewIdx.get(Number(match[1]));
           return remapped !== undefined ? `attachment:${remapped}` : undefined;
         })
@@ -321,41 +339,15 @@ function isValidRiskThreshold(value: unknown): value is RiskThreshold {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Temporary fix — remove when #31994 lands
-// ---------------------------------------------------------------------------
-//
-// The canned-response paths in this file (canned greeting, inline approval
-// reply, slash command, /compact, /clean) bypass the agent loop and so don't
-// pick up the per-turn anchor id allocated in conversation-agent-loop.ts.
-// Their `message_complete` events therefore went out without `messageId`,
-// and the macOS client filter at ChatActionHandler.swift:507 dropped those
-// events when they raced past the 50 ms streaming-buffer flush — leaving
-// `isSending` stuck for the full 60 s watchdog window.
-//
-// Centralized so the patch surface is one helper + N one-line callers rather
-// than N duplicated literals. When #31994 lands and stamps these sites with
-// `state.assistantTurnId` directly, grep for `emitCannedMessageComplete` to
-// find every call site and inline-then-delete.
-function emitCannedMessageComplete(
-  send: (msg: ServerMessage) => void,
-  conversationId: string,
-  persistedAssistantId: string,
-): void {
-  send({
-    type: "message_complete",
-    conversationId,
-    messageId: persistedAssistantId,
-  });
-}
-
 /**
  * True when a message's persisted metadata explicitly flags it as hidden.
  * Used to suppress internal scaffolding messages from UI history while
  * leaving them in the LLM-side context.
  */
 function isHiddenMessage(metadata: string | null): boolean {
-  if (!metadata) return false;
+  if (!metadata) {
+    return false;
+  }
   try {
     return isHiddenMessageMetadata(
       JSON.parse(metadata) as Record<string, unknown>,
@@ -369,7 +361,9 @@ function buildSlackHistoryMessage(
   slackMeta: SlackMessageMetadata | null,
   opts?: { role?: string; assistantDisplayName?: string },
 ): RuntimeMessagePayload["slackMessage"] | undefined {
-  if (!slackMeta) return undefined;
+  if (!slackMeta) {
+    return undefined;
+  }
 
   const slackConfig = getConfig().slack;
   const replyThreadTs =
@@ -418,12 +412,14 @@ function buildSlackHistoryMessage(
   };
 }
 
-function collectCanonicalGuardianRequestHintIds(
+async function collectGuardianRequestHintIds(
   conversationId: string,
   sourceChannel: string,
   conversation: Conversation,
-): string[] {
-  const requests = listPendingRequestsByConversationScope(
+): Promise<string[]> {
+  // Degrades to no hints on gateway failure: the reply scope then blocks
+  // (see the caller) and the message falls through to the normal send path.
+  const requests = await listPendingRequestsByScopeOrEmpty(
     conversationId,
     sourceChannel,
   );
@@ -438,12 +434,12 @@ function collectCanonicalGuardianRequestHintIds(
 }
 
 /**
- * Expire orphaned canonical guardian requests for a conversation.
+ * Expire orphaned guardian requests for a conversation.
  *
  * After the in-memory auto-deny loop runs, there may still be "pending"
- * canonical requests in the DB that have no corresponding in-memory
+ * guardian requests in the gateway that have no corresponding in-memory
  * pending interaction (e.g. the prompter timed out and resolved the
- * confirmation directly without syncing canonical status). This sweep
+ * confirmation directly without syncing the request status). This sweep
  * catches those stragglers so they don't get falsely matched by the
  * guardian reply router on subsequent messages.
  *
@@ -452,13 +448,16 @@ function collectCanonicalGuardianRequestHintIds(
  * in their source conversation. Additionally skips requests that still
  * have a live in-memory pending interaction.
  *
- * Uses `listCanonicalGuardianRequests` (not `listPendingRequestsByConversationScope`)
- * so that time-expired requests (past their `expiresAt`) are also caught
- * instead of being silently filtered out.
+ * Uses the plain list (not `listPendingRequestsByScope`) so time-expired
+ * requests (past their `expiresAt`) are also caught instead of being
+ * silently filtered out. Sweep posture on gateway failure: log and skip —
+ * the next send or the periodic sweep retries.
  */
-function expireOrphanedCanonicalRequests(conversationId: string): void {
-  const sourceScoped = listCanonicalGuardianRequests({
-    conversationId,
+async function expireOrphanedGuardianRequests(
+  conversationId: string,
+): Promise<void> {
+  const sourceScoped = await listGuardianRequestsOrEmpty({
+    sourceConversationId: conversationId,
     status: "pending",
     kind: "tool_approval",
   });
@@ -466,15 +465,22 @@ function expireOrphanedCanonicalRequests(conversationId: string): void {
   for (const req of sourceScoped) {
     // Skip requests that still have a live in-memory pending interaction —
     // they are not orphaned.
-    if (pendingInteractions.get(req.id)) continue;
+    if (pendingInteractions.get(req.id)) {
+      continue;
+    }
 
-    resolveCanonicalGuardianRequest(req.id, "pending", {
-      status: "expired",
-    });
+    try {
+      await expireGuardianRequest(req.id);
+    } catch (err) {
+      log.warn(
+        { err, requestId: req.id, conversationId },
+        "Orphaned guardian request expiry skipped — gateway unreachable",
+      );
+    }
   }
 }
 
-async function tryConsumeCanonicalGuardianReply(params: {
+async function tryConsumeGuardianReply(params: {
   conversationId: string;
   sourceChannel: string;
   sourceInterface: string;
@@ -515,15 +521,15 @@ async function tryConsumeCanonicalGuardianReply(params: {
     return { consumed: false };
   }
 
-  const pendingRequestHintIds = collectCanonicalGuardianRequestHintIds(
+  const pendingRequestHintIds = await collectGuardianRequestHintIds(
     conversationId,
     sourceChannel,
     conversation,
   );
   // An empty hint set is `blocked`, not absence: the in-memory staleness
-  // filter in collectCanonicalGuardianRequestHintIds found no live requests,
-  // so the router must not fall back to identity/DB lookup (which rediscovered
-  // stale canonical requests). A non-empty set scopes resolution to it.
+  // filter in collectGuardianRequestHintIds found no live requests, so the
+  // router must not fall back to identity/DB lookup (which rediscovered
+  // stale guardian requests). A non-empty set scopes resolution to it.
   const pendingScope: GuardianPendingScope =
     pendingRequestHintIds.length > 0
       ? { mode: "scoped", requestIds: pendingRequestHintIds }
@@ -645,7 +651,9 @@ function buildQueuedMessagePayloads(
   conversationId: string,
 ): RuntimeMessagePayload[] {
   const conversation = findConversation(conversationId);
-  if (!conversation) return [];
+  if (!conversation) {
+    return [];
+  }
 
   // Hidden sends are suppressed from the transcript at every stage — echo,
   // persisted row, and here the in-memory queue window: a latest-page fetch
@@ -671,7 +679,9 @@ function buildQueuedMessagePayloads(
       );
 
       const contentBlocks: ConversationContentBlock[] = [];
-      if (text.length > 0) contentBlocks.push({ type: "text", text });
+      if (text.length > 0) {
+        contentBlocks.push({ type: "text", text });
+      }
       for (const attachment of attachments) {
         contentBlocks.push({ type: "attachment", attachment });
       }
@@ -681,7 +691,6 @@ function buildQueuedMessagePayloads(
         // identifier the queued-message delete/steer endpoints key on.
         id: item.requestId,
         role: "user" as const,
-        content: text,
         timestamp: new Date(item.sentAt).toISOString(),
         attachments,
         ...(contentBlocks.length > 0 ? { contentBlocks } : {}),
@@ -847,12 +856,7 @@ export function handleListMessages({
   // alignment, letting renderHistoryContent inline `attachment` blocks during
   // its single content walk.
   const parsed = consolidatedMessages.map((msg) => {
-    let content: unknown;
-    try {
-      content = JSON.parse(msg.content);
-    } catch {
-      content = msg.content;
-    }
+    const content: unknown = msg.content;
 
     // Extract sentAt from metadata for display timestamps. When a message
     // was queued or its persistence was delayed (long assistant generation),
@@ -870,10 +874,18 @@ export function handleListMessages({
     let acpNotification: { acpSessionId: string; agent?: string } | undefined;
     let backgroundEventNotification: boolean | undefined;
     let backgroundToolCompletion: ConversationMessage["backgroundToolCompletion"];
+    let systemCard: boolean | undefined;
     if (msg.metadata) {
       try {
         const meta = JSON.parse(msg.metadata);
-        if (typeof meta.sentAt === "number") sentAt = meta.sentAt;
+        if (typeof meta.sentAt === "number") {
+          sentAt = meta.sentAt;
+        }
+        // Daemon-authored status cards (compact/clean/summarize results)
+        // render as standalone system notices, not persona speech.
+        if (isSystemCardMetadata(meta)) {
+          systemCard = true;
+        }
         // Every wake persists a `<background_event source="...">` trigger row
         // (see `persistWakeTriggerMessage`) that the LLM reads. Flag any such
         // row so clients hide it from the transcript like a subagent/ACP
@@ -945,6 +957,7 @@ export function handleListMessages({
       acpNotification,
       backgroundEventNotification,
       backgroundToolCompletion,
+      systemCard,
       slackMessage,
       clientMessageId: msg.clientMessageId ?? undefined,
     };
@@ -1041,10 +1054,9 @@ export function handleListMessages({
 
     // Strip <no_response/> markers from assistant messages so web/API clients
     // never see the raw sentinel. Only assistant messages produce it; user
-    // messages are untouched. The filter is applied consistently to the flat
-    // text, the segments, the contentOrder text refs, and the text blocks of
+    // messages are untouched. The filter is applied consistently to the
+    // segments, the contentOrder text refs, and the text blocks of
     // contentBlocks.
-    let text = rendered.text;
     let textSegments = rendered.textSegments;
     let contentOrder = rendered.contentOrder;
     let contentBlocks = rendered.contentBlocks;
@@ -1065,13 +1077,14 @@ export function handleListMessages({
       contentOrder = rendered.contentOrder
         .map((entry) => {
           const tm = entry.match(/^text:(\d+)$/);
-          if (!tm) return entry;
+          if (!tm) {
+            return entry;
+          }
           const newIdx = indexMap.get(Number(tm[1]));
           return newIdx !== undefined ? `text:${newIdx}` : undefined;
         })
         .filter((e): e is string => e !== undefined);
       textSegments = filteredSegments;
-      text = rendered.text.replace(NO_RESPONSE_INLINE_RE, "").trim();
       contentBlocks = rendered.contentBlocks
         .map((block) =>
           block.type === "text"
@@ -1119,9 +1132,6 @@ export function handleListMessages({
       ...(mergedMessageIds.length > 0 ? { mergedMessageIds } : {}),
       ...(m.clientMessageId ? { clientMessageId: m.clientMessageId } : {}),
       role: m.role,
-      // Flat plain-text body; see the `content` field on
-      // ConversationMessageSchema for why this must stay.
-      content: text,
       timestamp: new Date(displayTimestamp).toISOString(),
       attachments: msgAttachments,
       ...(toolCalls.length > 0 ? { toolCalls } : {}),
@@ -1249,6 +1259,7 @@ export function persistOnboardingArtifacts(onboarding: {
   cohort?: string;
   websiteUrl?: string;
   contentSourceUrl?: string;
+  researchFindings?: string[];
 }): void {
   writeOnboardingSidecar(onboarding);
 
@@ -1376,6 +1387,7 @@ export async function handleSendMessage(
       tasks: string[];
       tone: string;
       userName?: string;
+      occupation?: string;
       assistantName?: string;
       googleConnected?: boolean;
       googleScopes?: string[];
@@ -1386,6 +1398,7 @@ export async function handleSendMessage(
       bootstrapTemplate?: string;
       initialMessage?: string;
       skills?: string[];
+      researchFindings?: string[];
       title?: string;
     };
   };
@@ -1710,7 +1723,9 @@ export async function handleSendMessage(
           guardianPrincipalId,
           sourceChannel,
         );
-        if (healed) trustCtx = healed;
+        if (healed) {
+          trustCtx = healed;
+        }
       }
       conversation.setTrustContext(trustCtx);
     } else {
@@ -1882,7 +1897,7 @@ export async function handleSendMessage(
       const persisted = await persistQueuedMessageBody(conversation, {
         content: rawContent,
         attachments,
-        requestId: crypto.randomUUID(),
+        requestId: uuidv7(),
         metadata: greetingMeta,
         clientMessageId,
       });
@@ -1917,7 +1932,6 @@ export async function handleSendMessage(
             tone: body.onboarding!.tone,
             googleConnected: body.onboarding!.googleConnected,
             googleScopes: body.onboarding!.googleScopes,
-            priorAssistants: body.onboarding!.priorAssistants,
           });
         } catch (err) {
           log.warn({ err }, "Failed to record onboarding telemetry event");
@@ -1980,7 +1994,6 @@ export async function handleSendMessage(
         tone: body.onboarding!.tone,
         googleConnected: body.onboarding!.googleConnected,
         googleScopes: body.onboarding!.googleScopes,
-        priorAssistants: body.onboarding!.priorAssistants,
       });
     } catch (err) {
       log.warn({ err }, "Failed to record onboarding telemetry event");
@@ -2003,11 +2016,11 @@ export async function handleSendMessage(
   const verifiedActorPrincipalId =
     conversation.trustContext?.guardianPrincipalId ?? undefined;
 
-  // Try to consume the message as a canonical guardian approval/rejection reply.
+  // Try to consume the message as a guardian approval/rejection reply.
   // On failure, degrade to the existing queue/auto-deny path rather than
   // surfacing a 500 — mirrors the handler's catch-and-fallback.
   try {
-    const inlineReplyResult = await tryConsumeCanonicalGuardianReply({
+    const inlineReplyResult = await tryConsumeGuardianReply({
       conversationId: mapping.conversationId,
       sourceChannel,
       sourceInterface,
@@ -2044,7 +2057,7 @@ export async function handleSendMessage(
 
   if (conversation.isProcessing()) {
     // Queue the message so it's processed when the current turn completes
-    const requestId = crypto.randomUUID();
+    const requestId = uuidv7();
     const enqueueResult = conversation.enqueueMessage({
       content: contentAfterScan,
       attachments,
@@ -2095,7 +2108,7 @@ export async function handleSendMessage(
     if (body.hidden !== true) {
       try {
         // Supersede interactions left pending by the in-flight turn: auto-deny
-        // confirmations (with canonical/client sync) and steer to the enqueued
+        // confirmations (with gateway/client sync) and steer to the enqueued
         // message if an ask_question is parked. Centralized so the CLI signal
         // path (signals/user-message.ts) gets identical handling.
         supersedePendingInteractionsOnEnqueue(
@@ -2103,9 +2116,9 @@ export async function handleSendMessage(
           requestId,
         );
 
-        // Expire any orphaned canonical requests that survived without a
+        // Expire any orphaned guardian requests that survived without a
         // matching in-memory pending interaction (e.g. prompter timeouts).
-        expireOrphanedCanonicalRequests(mapping.conversationId);
+        await expireOrphanedGuardianRequests(mapping.conversationId);
       } catch (err) {
         log.warn(
           { err, conversationId: mapping.conversationId },
@@ -2142,10 +2155,19 @@ export async function handleSendMessage(
           state: "denied" as const,
           source: "auto_deny" as const,
         });
-        // Sync canonical guardian request status so stale "pending" DB
-        // records don't get matched by later guardian reply routing.
-        resolveCanonicalGuardianRequest(interaction.requestId, "pending", {
+        // Sync the gateway request status so stale "pending" records don't
+        // get matched by later guardian reply routing. Fire-and-forget: the
+        // in-memory denial is authoritative here; a CAS miss (already
+        // decided elsewhere) or a lost sync is reaped by the orphan sweep.
+        void decideGuardianRequest({
+          id: interaction.requestId,
+          expectedStatus: "pending",
           status: "denied",
+        }).catch((err) => {
+          log.warn(
+            { err, requestId: interaction.requestId },
+            "Auto-deny guardian request status sync failed",
+          );
         });
       }
     }
@@ -2153,9 +2175,9 @@ export async function handleSendMessage(
     pendingInteractions.removeByConversation(mapping.conversationId);
   }
 
-  // Expire any orphaned canonical requests that survived without a
+  // Expire any orphaned guardian requests that survived without a
   // matching in-memory pending interaction (e.g. prompter timeouts).
-  expireOrphanedCanonicalRequests(mapping.conversationId);
+  await expireOrphanedGuardianRequests(mapping.conversationId);
 
   // Conversation is idle — persist and fire agent loop immediately
   conversation.setTurnChannelContext({
@@ -2198,7 +2220,7 @@ export async function handleSendMessage(
       const persisted = await persistQueuedMessageBody(conversation, {
         content: rawContent,
         attachments,
-        requestId: crypto.randomUUID(),
+        requestId: uuidv7(),
         metadata: withClientMetadata(slashMeta, clientMetadata),
         clientMessageId,
       });
@@ -2297,7 +2319,7 @@ export async function handleSendMessage(
       persisted = await persistQueuedMessageBody(conversation, {
         content: rawContent,
         attachments,
-        requestId: crypto.randomUUID(),
+        requestId: uuidv7(),
         metadata: withClientMetadata(slashMeta, clientMetadata),
         clientMessageId,
       });
@@ -2328,7 +2350,6 @@ export async function handleSendMessage(
     // forceCompact() makes an LLM call that can exceed the client's
     // HTTP timeout on large contexts, causing a false "Failed to send".
     (async () => {
-      let assistantMessagePersisted = false;
       try {
         broadcastMessage({
           type: "user_message_echo",
@@ -2340,35 +2361,18 @@ export async function handleSendMessage(
         publishConversationMessagesChanged(conversationId, originClientId);
         conversation.emitActivityState("thinking", "context_compacting");
         const result = await conversation.forceCompact();
-        const responseText = formatCompactResult(result);
-
-        const assistantMsg = createAssistantMessage(responseText);
-        const persistedAssistant = await addMessage(
+        const cardId = await persistCannedAssistantCard({
+          conversation,
           conversationId,
-          "assistant",
-          JSON.stringify(assistantMsg.content),
-          { metadata: channelMeta },
-        );
-        assistantMessagePersisted = true;
-        conversation.getMessages().push(assistantMsg);
-
-        broadcastMessage({
-          type: "assistant_text_delta",
-          text: responseText,
-          conversationId,
+          text: formatCompactResult(result),
+          metadata: channelMeta,
         });
-        emitCannedMessageComplete(
-          broadcastMessage,
-          conversationId,
-          persistedAssistant.id,
-        );
-        // Same anchor advance as the canned-greeting path above.
-        recordConversationPersistedSeq(conversationId, getCurrentSeq());
-        publishConversationMessagesChanged(conversationId, originClientId);
-      } catch (err) {
-        if (assistantMessagePersisted) {
-          publishConversationMessagesChanged(conversationId, originClientId);
+        // Attribute the compaction LLM call to the card it produced — same
+        // linkage as the summarize-up-to route.
+        if (result.summaryRequestLogId) {
+          linkRequestLogsToMessage([result.summaryRequestLogId], cardId);
         }
+      } catch (err) {
         log.error({ err, conversationId }, "Compact command failed");
         broadcastMessage({
           type: "conversation_error",
@@ -2410,7 +2414,7 @@ export async function handleSendMessage(
       const persisted = await persistQueuedMessageBody(conversation, {
         content: rawContent,
         attachments,
-        requestId: crypto.randomUUID(),
+        requestId: uuidv7(),
         metadata: withClientMetadata(slashMeta, clientMetadata),
         clientMessageId,
       });
@@ -2425,7 +2429,6 @@ export async function handleSendMessage(
       const channelMeta = buildChannelMetadata(sourceChannel, sourceInterface, {
         trustContext: conversation.trustContext,
       });
-      let assistantMessagePersisted = false;
       try {
         broadcastMessage({
           type: "user_message_echo",
@@ -2437,35 +2440,13 @@ export async function handleSendMessage(
         publishConversationMessagesChanged(conversationId, originClientId);
 
         const result = await conversation.forceClean();
-        const responseText = formatCleanResult(result);
-
-        const assistantMsg = createAssistantMessage(responseText);
-        const persistedAssistant = await addMessage(
+        await persistCannedAssistantCard({
+          conversation,
           conversationId,
-          "assistant",
-          JSON.stringify(assistantMsg.content),
-          { metadata: channelMeta },
-        );
-        assistantMessagePersisted = true;
-        conversation.getMessages().push(assistantMsg);
-
-        broadcastMessage({
-          type: "assistant_text_delta",
-          text: responseText,
-          conversationId,
+          text: formatCleanResult(result),
+          metadata: channelMeta,
         });
-        emitCannedMessageComplete(
-          broadcastMessage,
-          conversationId,
-          persistedAssistant.id,
-        );
-        // Same anchor advance as the canned-greeting path above.
-        recordConversationPersistedSeq(conversationId, getCurrentSeq());
-        publishConversationMessagesChanged(conversationId, originClientId);
       } catch (err) {
-        if (assistantMessagePersisted) {
-          publishConversationMessagesChanged(conversationId, originClientId);
-        }
         log.error({ err, conversationId }, "Clean command failed");
         broadcastMessage({
           type: "conversation_error",
@@ -2489,7 +2470,7 @@ export async function handleSendMessage(
 
   const resolvedContent = slashResult.content;
 
-  const requestId = crypto.randomUUID();
+  const requestId = uuidv7();
   const persistResult = await conversation.persistUserMessage({
     content: resolvedContent,
     attachments,
@@ -2699,10 +2680,14 @@ export async function handleGetSuggestion(
       resolvedConversationId = conversationKey;
     }
   }
-  if (!resolvedConversationId) return noSuggestion;
+  if (!resolvedConversationId) {
+    return noSuggestion;
+  }
 
   const rawMessages = getMessages(resolvedConversationId);
-  if (rawMessages.length === 0) return noSuggestion;
+  if (rawMessages.length === 0) {
+    return noSuggestion;
+  }
 
   // Staleness check: compare requested messageId against the latest
   // assistant message BEFORE filtering by text content.  This ensures
@@ -2726,17 +2711,16 @@ export async function handleGetSuggestion(
   // Walk backwards to find the last assistant message with text content
   for (let i = rawMessages.length - 1; i >= 0; i--) {
     const msg = rawMessages[i];
-    if (msg.role !== "assistant") continue;
-
-    let content: unknown;
-    try {
-      content = JSON.parse(msg.content);
-    } catch {
-      content = msg.content;
+    if (msg.role !== "assistant") {
+      continue;
     }
+
+    const content: unknown = msg.content;
     const rendered = renderHistoryContent(content);
     const text = rendered.text.trim();
-    if (!text) continue;
+    if (!text) {
+      continue;
+    }
 
     // If a messageId was requested and the first text-bearing assistant
     // message is a *different* message, the request is stale.
@@ -2755,13 +2739,10 @@ export async function handleGetSuggestion(
     // to guess which role it's generating for.
     let priorUserText: string | null = null;
     for (let j = i - 1; j >= 0; j--) {
-      if (rawMessages[j].role !== "user") continue;
-      let userContent: unknown;
-      try {
-        userContent = JSON.parse(rawMessages[j].content);
-      } catch {
-        userContent = rawMessages[j].content;
+      if (rawMessages[j].role !== "user") {
+        continue;
       }
+      const userContent: unknown = rawMessages[j].content;
       const userText = renderHistoryContent(userContent).text.trim();
       if (userText) {
         priorUserText = userText;
@@ -2845,47 +2826,6 @@ async function handleSearchConversations({
   });
 
   return { query, results };
-}
-
-// ---------------------------------------------------------------------------
-// Metadata helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Assemble the standard channel metadata object for message persistence.
- *
- * Combines provenance (trust context), channel/interface routing, and
- * optional per-message fields (automated flag, image source paths) into the
- * Record that `addMessage` stores in the `metadata` column.
- */
-function buildChannelMetadata(
-  sourceChannel: string,
-  sourceInterface: string,
-  opts?: {
-    trustContext?: Parameters<typeof provenanceFromTrustContext>[0];
-    provenanceOverride?: Record<string, unknown>;
-    automated?: boolean;
-    attachments?: ReadonlyArray<{
-      filename: string;
-      mimeType: string;
-      filePath?: string;
-    }>;
-  },
-): Record<string, unknown> {
-  const provenance =
-    opts?.provenanceOverride ?? provenanceFromTrustContext(opts?.trustContext);
-  const imageSourcePaths = opts?.attachments
-    ? extractImageSourcePaths(opts.attachments)
-    : undefined;
-  return {
-    ...provenance,
-    userMessageChannel: sourceChannel,
-    assistantMessageChannel: sourceChannel,
-    userMessageInterface: sourceInterface,
-    assistantMessageInterface: sourceInterface,
-    ...(opts?.automated ? { automated: true } : {}),
-    ...(imageSourcePaths ? { imageSourcePaths } : {}),
-  };
 }
 
 // ---------------------------------------------------------------------------
@@ -3082,6 +3022,12 @@ export const ROUTES: RouteDefinition[] = [
           bootstrapTemplate: z.string().optional(),
           initialMessage: z.string().optional(),
           skills: z.array(z.string()).optional(),
+          researchFindings: z
+            .array(z.string())
+            .optional()
+            .describe(
+              "Findings from pre-chat onboarding research that the user explicitly kept on the results screen. Written into the persona's onboarding section so the first turn can reference them.",
+            ),
           title: z
             .string()
             .optional()

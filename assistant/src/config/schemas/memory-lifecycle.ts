@@ -78,17 +78,6 @@ export const MemoryJobsConfigSchema = MemoryJobsConfigInputSchema.transform(
   },
 ).describe("Memory background job processing configuration");
 
-export const MemoryWorkerConfigSchema = z
-  .object({
-    enabled: z
-      .boolean({ error: "memory.worker.enabled must be a boolean" })
-      .default(true)
-      .describe(
-        "Whether the memory jobs worker runs as a separate OS process instead of the assistant's synchronous in-process runner. The assistant's worker supervisor re-reads this flag on every poll: while it is set (the default), the in-process runner stands down (the out-of-process worker, spawned at startup when set, owns the queue); while it is unset, the in-process runner drains the queue. `assistant memory worker start`/`stop` flip the flag (and spawn/stop the worker process) to switch modes at runtime without a restart.",
-      ),
-  })
-  .describe("Memory jobs worker process configuration");
-
 export const MemoryRetentionConfigSchema = z
   .object({
     keepRawForever: z
@@ -106,12 +95,6 @@ export const MemoryCleanupConfigSchema = z
       .boolean({ error: "memory.cleanup.enabled must be a boolean" })
       .default(true)
       .describe("Whether periodic memory cleanup is enabled"),
-    enqueueIntervalMs: z
-      .number({ error: "memory.cleanup.enqueueIntervalMs must be a number" })
-      .int("memory.cleanup.enqueueIntervalMs must be an integer")
-      .positive("memory.cleanup.enqueueIntervalMs must be a positive integer")
-      .default(6 * 60 * 60 * 1000)
-      .describe("How often cleanup jobs are enqueued in milliseconds"),
     supersededItemRetentionMs: z
       .number({
         error: "memory.cleanup.supersededItemRetentionMs must be a number",
@@ -154,7 +137,7 @@ export const MemoryCleanupConfigSchema = z
       .nullable()
       .default(1 * 60 * 60 * 1000)
       .describe(
-        "Retention period for LLM request/response logs in milliseconds (null keeps forever, 0 prunes immediately)",
+        "Retention period for LLM request/response logs in milliseconds (null or 0 disables pruning / keeps forever)",
       ),
   })
   .describe("Automatic memory cleanup and garbage collection settings");
@@ -192,7 +175,6 @@ export const MemoryMaintenanceConfigSchema = z
   );
 
 export type MemoryJobsConfig = z.infer<typeof MemoryJobsConfigSchema>;
-export type MemoryWorkerConfig = z.infer<typeof MemoryWorkerConfigSchema>;
 export type MemoryRetentionConfig = z.infer<typeof MemoryRetentionConfigSchema>;
 export type MemoryCleanupConfig = z.infer<typeof MemoryCleanupConfigSchema>;
 export type MemoryMaintenanceConfig = z.infer<

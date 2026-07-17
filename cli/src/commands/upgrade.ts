@@ -1018,8 +1018,8 @@ async function upgradeLocal(
   process.env.APP_VERSION = stripVersionPrefix(targetVersion);
   try {
     // Bring CES, daemon, and gateway up in parallel, the way the Docker
-    // topology starts its sibling processes together. startCes is a no-op
-    // unless CES_STANDALONE is set.
+    // topology starts its sibling processes together. startCes always
+    // launches the CES sibling.
     await Promise.all([
       startCes(false, entry.resources),
       startLocalDaemon(false, entry.resources, { signingKey }),

@@ -13,8 +13,12 @@ import type { TtsElevenLabsProviderConfig } from "../../config/schemas/tts.js";
 import { credentialKey } from "../../security/credential-key.js";
 import { getSecureKeyAsync } from "../../security/secure-keys.js";
 import { getLogger } from "../../util/logger.js";
+import { resolvePcmOutputSampleRateHz } from "../pcm-sample-rates.js";
 import type { TtsProviderDefinition } from "../provider-definition.js";
-import { readChunkedBody } from "../stream-read.js";
+import {
+  consumeSynthesisResponse,
+  type StreamReadTimeouts,
+} from "../stream-read.js";
 import type {
   TtsProvider,
   TtsProviderCapabilities,
@@ -161,12 +165,29 @@ function resolveVoiceId(
   return voiceId;
 }
 
-/** ElevenLabs PCM output formats by exact sample rate. */
-const PCM_FORMAT_BY_SAMPLE_RATE: Record<number, string> = {
-  16000: "pcm_16000",
-  22050: "pcm_22050",
-  24000: "pcm_24000",
-  44100: "pcm_44100",
+/** ElevenLabs `pcm_*` rates available on every subscription tier. */
+const UNRESTRICTED_PCM_SAMPLE_RATES_HZ = [16_000, 22_050, 24_000] as const;
+
+/** `pcm_44100` requires Pro tier or above upstream. */
+const PRO_TIER_PCM_SAMPLE_RATE_HZ = 44_100;
+
+/**
+ * PCM rate resolver for ElevenLabs. pcm_44100 is Pro-tier-gated upstream, so
+ * it is only used on an exact 44.1 kHz hint (explicit opt-in), never as a
+ * clamp target; all other hints clamp to the tier-unrestricted rates
+ * (e.g. 48 kHz → 24 kHz).
+ */
+const resolveElevenLabsPcmSampleRateHz = (request: TtsSynthesisRequest) => {
+  if (
+    request.outputFormat === "pcm" &&
+    request.sampleRateHz === PRO_TIER_PCM_SAMPLE_RATE_HZ
+  ) {
+    return PRO_TIER_PCM_SAMPLE_RATE_HZ;
+  }
+  return resolvePcmOutputSampleRateHz(
+    request,
+    UNRESTRICTED_PCM_SAMPLE_RATES_HZ,
+  );
 };
 
 /**
@@ -174,30 +195,21 @@ const PCM_FORMAT_BY_SAMPLE_RATE: Record<number, string> = {
  * format hint.
  *
  * When the caller requests `outputFormat: "pcm"` (e.g. the media-stream
- * transport which needs raw PCM for mu-law transcoding), we map the optional
- * `sampleRateHz` hint to an exact ElevenLabs PCM format — 16-bit signed
- * little-endian. An absent or unmatched hint defaults to `pcm_16000`, which
- * preserves the media-stream transport's behavior (its `audioBufferToFrames`
- * handles the 16 kHz -> 8 kHz downsample).
+ * transport which needs raw PCM for mu-law transcoding), we request the
+ * `pcm_*` format — 16-bit signed little-endian — at the rate chosen by
+ * {@link resolveElevenLabsPcmSampleRateHz}, defaulting to 16 kHz when no
+ * hint is given (the shared no-hint convention across TTS providers).
  *
  * Otherwise:
  * - Phone calls benefit from lower-latency, smaller payloads (mp3 at 22050/32).
  * - Message playback uses higher quality (mp3 at 44100/128).
  */
 function resolveOutputFormat(request: TtsSynthesisRequest): string {
-  if (request.outputFormat === "pcm") {
-    return (
-      PCM_FORMAT_BY_SAMPLE_RATE[request.sampleRateHz ?? 16000] ?? "pcm_16000"
-    );
+  const pcmSampleRateHz = resolveElevenLabsPcmSampleRateHz(request);
+  if (pcmSampleRateHz != null) {
+    return `pcm_${pcmSampleRateHz}`;
   }
   return request.useCase === "phone-call" ? "mp3_22050_32" : "mp3_44100_128";
-}
-
-/** Sample rate of a `pcm_*` output format in Hz; undefined for non-PCM formats. */
-function pcmFormatSampleRateHz(outputFormat: string): number | undefined {
-  return outputFormat.startsWith("pcm_")
-    ? Number(outputFormat.slice("pcm_".length))
-    : undefined;
 }
 
 /**
@@ -292,12 +304,6 @@ async function performTtsRequest(
   return { response, contentType };
 }
 
-/** Stream-stall timeouts, injectable for tests. */
-export interface ElevenLabsStreamTimeouts {
-  firstChunkTimeoutMs?: number;
-  idleTimeoutMs?: number;
-}
-
 /**
  * Issue the TTS request and consume the response into a complete result.
  * The streaming path forwards chunks via `onChunk` as they arrive, guarded
@@ -308,40 +314,27 @@ async function performSynthesis(
   options: {
     stream: boolean;
     onChunk?: (chunk: Uint8Array) => void;
-  } & ElevenLabsStreamTimeouts,
+  } & StreamReadTimeouts,
 ): Promise<TtsSynthesisResult> {
   const { response, contentType } = await performTtsRequest(request, {
     stream: options.stream,
   });
 
-  let audio: Buffer;
-  if (options.stream) {
-    if (!response.body) {
-      throw new ElevenLabsTtsError(
+  const audio = await consumeSynthesisResponse(response, {
+    ...options,
+    makeTimeoutError: (timeoutMs) =>
+      new ElevenLabsTtsError(
+        "ELEVENLABS_TTS_STREAM_TIMEOUT",
+        `ElevenLabs streaming TTS read timed out after ${timeoutMs}ms`,
+      ),
+    makeEmptyError: (kind) =>
+      new ElevenLabsTtsError(
         "ELEVENLABS_TTS_EMPTY_RESPONSE",
-        "ElevenLabs streaming TTS returned no response body",
-      );
-    }
-    audio = await readChunkedBody(response.body, {
-      onChunk: options.onChunk,
-      firstChunkTimeoutMs: options.firstChunkTimeoutMs,
-      idleTimeoutMs: options.idleTimeoutMs,
-      makeTimeoutError: (timeoutMs) =>
-        new ElevenLabsTtsError(
-          "ELEVENLABS_TTS_STREAM_TIMEOUT",
-          `ElevenLabs streaming TTS read timed out after ${timeoutMs}ms`,
-        ),
-    });
-  } else {
-    audio = Buffer.from(await response.arrayBuffer());
-  }
-
-  if (audio.byteLength === 0) {
-    throw new ElevenLabsTtsError(
-      "ELEVENLABS_TTS_EMPTY_RESPONSE",
-      "ElevenLabs TTS returned an empty audio response",
-    );
-  }
+        kind === "no-body"
+          ? "ElevenLabs streaming TTS returned no response body"
+          : "ElevenLabs TTS returned an empty audio response",
+      ),
+  });
 
   log.debug(
     { bytes: audio.byteLength, stream: options.stream },
@@ -352,7 +345,7 @@ async function performSynthesis(
 }
 
 export function createElevenLabsProvider(
-  streamTimeouts: ElevenLabsStreamTimeouts = {},
+  streamTimeouts: StreamReadTimeouts = {},
 ): TtsProvider {
   const capabilities: TtsProviderCapabilities = {
     supportsStreaming: true,
@@ -362,8 +355,7 @@ export function createElevenLabsProvider(
   return {
     id: "elevenlabs",
     capabilities,
-    resolveOutputSampleRateHz: (request) =>
-      pcmFormatSampleRateHz(resolveOutputFormat(request)),
+    resolveOutputSampleRateHz: resolveElevenLabsPcmSampleRateHz,
     synthesize: (request) => performSynthesis(request, { stream: false }),
     synthesizeStream: (request, onChunk) =>
       performSynthesis(request, { stream: true, onChunk, ...streamTimeouts }),

@@ -10,12 +10,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { GuardianDelivery } from "@vellumai/gateway-client";
 
-mock.module("../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-  truncateForLog: (value: string) => value,
-}));
-
 let deliverableChannels: string[] = [];
 let gatewayGuardians: GuardianDelivery[] | null = null;
 
@@ -35,8 +29,17 @@ mock.module("../../contacts/guardian-delivery-reader.js", () => ({
 
 const { getConnectedChannels } = await import("../emit-signal.js");
 
-function gatewayBinding(channelType: string, externalChatId: string): GuardianDelivery {
-  return { channelType, contactId: "c1", address: "addr", externalChatId, status: "active" };
+function gatewayBinding(
+  channelType: string,
+  externalChatId: string,
+): GuardianDelivery {
+  return {
+    channelType,
+    contactId: "c1",
+    address: "addr",
+    externalChatId,
+    status: "active",
+  };
 }
 
 beforeEach(() => {

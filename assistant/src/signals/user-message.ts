@@ -14,6 +14,8 @@
 import { readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { v7 as uuidv7 } from "uuid";
+
 import { getOrCreateConversation } from "../daemon/conversation-store.js";
 import { supersedePendingInteractionsOnEnqueue } from "../daemon/handlers/conversations.js";
 import type { UserMessageAttachment } from "../daemon/message-types/shared.js";
@@ -118,7 +120,7 @@ async function dispatchUserMessage(params: {
         }
       }
     }
-    const requestId = crypto.randomUUID();
+    const requestId = uuidv7();
     const resolvedChannel = resolveTurnChannel(params.sourceChannel);
     const resolvedInterface = resolveTurnInterface(params.sourceInterface);
     const result = conversation.enqueueMessage({

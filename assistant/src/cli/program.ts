@@ -5,6 +5,7 @@ import { Command } from "commander";
 import { initFeatureFlagOverrides } from "../config/assistant-feature-flags.js";
 import { getWorkspaceDir } from "../util/platform.js";
 import { APP_VERSION } from "../version.js";
+import { registerAppsCommand } from "./commands/apps.js";
 import { registerAttachmentCommand } from "./commands/attachment.js";
 import { registerAuditCommand } from "./commands/audit.js";
 import { registerAuthCommand } from "./commands/auth.js";
@@ -21,7 +22,6 @@ import { registerCompletionsCommand } from "./commands/completions.js";
 import { registerConfigCommand } from "./commands/config.js";
 import { registerContactsCommand } from "./commands/contacts.js";
 import { registerConversationsCommand } from "./commands/conversations.js";
-import { registerCredentialExecutionCommand } from "./commands/credential-execution.js";
 import { registerCredentialsCommand } from "./commands/credentials.js";
 import { registerDbCommand } from "./commands/db/index.js";
 import { registerDefaultAction } from "./commands/default-action.js";
@@ -55,6 +55,7 @@ import { registerUsageCommand } from "./commands/usage.js";
 import { registerWatchersCommand } from "./commands/watchers.js";
 import { registerWebhooksCommand } from "./commands/webhooks.js";
 import { red } from "./lib/cli-colors.js";
+import { registerGlobalJsonOption } from "./lib/global-json-option.js";
 import { log } from "./logger.js";
 
 /**
@@ -102,6 +103,7 @@ Examples:
 
   registerDefaultAction(program);
 
+  registerAppsCommand(program);
   registerAttachmentCommand(program);
   registerAuditCommand(program);
   registerAuthCommand(program);
@@ -118,7 +120,6 @@ Examples:
   registerConfigCommand(program);
   registerContactsCommand(program);
   registerConversationsCommand(program);
-  registerCredentialExecutionCommand(program);
   registerCredentialsCommand(program);
   registerDbCommand(program);
   registerDomainCommand(program);
@@ -150,6 +151,10 @@ Examples:
   registerUsageCommand(program);
   registerWatchersCommand(program);
   registerWebhooksCommand(program);
+
+  // Every command accepts `--json` — see registerGlobalJsonOption. Must run
+  // after all commands are registered so the whole tree is covered.
+  registerGlobalJsonOption(program);
 
   // Fail fast when no assistant workspace exists on disk. The workspace is
   // created by `vellum hatch` and must be present for any command to work.

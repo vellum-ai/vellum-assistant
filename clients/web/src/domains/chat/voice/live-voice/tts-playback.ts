@@ -65,6 +65,17 @@ const CONTAINER_MIME_TYPES: ReadonlySet<string> = new Set([
 
 const RAW_PCM_MIME_TYPE = "audio/pcm";
 
+/**
+ * Output-amplitude metering tuning for the voice-room avatar's speaking pulse
+ * (see {@link LiveVoiceAudioPlayer.getOutputAmplitude}). Speech RMS sits around
+ * 0.05–0.2, so `GAIN` lifts it into a visible range; `SMOOTHING` is the EMA
+ * weight toward each new read (~60 Hz from the avatar's rAF); `DECAY` eases the
+ * pulse back to rest between turns. These are the visual-feel knobs.
+ */
+const OUTPUT_AMPLITUDE_GAIN = 4;
+const OUTPUT_AMPLITUDE_SMOOTHING = 0.3;
+const OUTPUT_AMPLITUDE_DECAY = 0.85;
+
 /** Normalize a frame's `mimeType` (strip params, lowercase) for dispatch. */
 function normalizeMimeType(mimeType: string): string {
   return mimeType.split(";", 1)[0]?.trim().toLowerCase() ?? "";
@@ -89,12 +100,27 @@ export interface AudioContextLike {
   readonly currentTime: number;
   readonly sampleRate: number;
   readonly destination: AudioNode;
+  /**
+   * Playback state. A context created outside a user gesture starts
+   * `"suspended"` under the browser autoplay policy and outputs nothing until
+   * resumed — see {@link LiveVoiceAudioPlayer.prewarm}.
+   */
+  readonly state: AudioContextState;
+  /** Resume a suspended context. Must first be called from a user gesture. */
+  resume(): Promise<void>;
   createBuffer(
     numberOfChannels: number,
     length: number,
     sampleRate: number,
   ): AudioBuffer;
   createBufferSource(): AudioBufferSourceNode;
+  /**
+   * Create an analyser tapping the output bus for amplitude metering (drives
+   * the voice-room avatar's TTS-reactive pulse). Optional so lightweight test
+   * contexts can omit it — the player then degrades to no metering
+   * ({@link LiveVoiceAudioPlayer.getOutputAmplitude} returns 0).
+   */
+  createAnalyser?(): AnalyserNode;
   /**
    * Decode an encoded container (wav/mp3/opus) into an `AudioBuffer`, deriving
    * sample rate and channel layout from the container header.
@@ -148,6 +174,19 @@ export class LiveVoiceAudioPlayer {
   private playheadTime = 0;
 
   private playingState = false;
+
+  /**
+   * Analyser tapping the output bus for amplitude metering. Sources connect
+   * through it to the destination. Null when the context can't create one
+   * (test mock) — {@link getOutputAmplitude} then reports 0.
+   */
+  private analyser: AnalyserNode | null = null;
+
+  /** Reusable time-domain sample buffer for {@link getOutputAmplitude}. */
+  private analyserSamples: Float32Array<ArrayBuffer> | null = null;
+
+  /** EMA-smoothed output amplitude in [0, 1], advanced on each read. */
+  private smoothedOutputAmplitude = 0;
 
   /**
    * Count of container decodes that have started but not yet been scheduled or
@@ -296,7 +335,10 @@ export class LiveVoiceAudioPlayer {
   private scheduleBuffer(context: AudioContextLike, buffer: AudioBuffer): void {
     const source = context.createBufferSource();
     source.buffer = buffer;
-    source.connect(context.destination);
+
+    // Route through the metering analyser when present (so output amplitude can
+    // drive the room avatar), otherwise straight to the destination.
+    source.connect(this.analyser ?? context.destination);
 
     // Chain start time from the running playhead. Never schedule in the past:
     // if the queue drained the playhead may lag behind currentTime.
@@ -371,15 +413,83 @@ export class LiveVoiceAudioPlayer {
     this.stop();
     const context = this.context;
     this.context = null;
+    // The analyser belongs to the closed context; drop it (and its buffer) so a
+    // reused player rebuilds metering against a fresh context.
+    this.analyser = null;
+    this.analyserSamples = null;
+    this.smoothedOutputAmplitude = 0;
     if (context) await context.close();
+  }
+
+  /**
+   * Eagerly create and resume the `AudioContext` from within the user gesture
+   * that starts a session (the mic-button click). Otherwise the context is
+   * created lazily on the first `tts_audio` frame — which arrives seconds later,
+   * outside any gesture — so the browser autoplay policy starts it `"suspended"`
+   * and it never plays; audio only comes through once the context happens to
+   * flip to `"running"`, which is why the first turn(s) drop and later ones
+   * work. Safe to call repeatedly; `resume()` is a no-op once running.
+   */
+  prewarm(): void {
+    const context = this.ensureContext();
+    if (context.state !== "running") void context.resume();
   }
 
   private ensureContext(): AudioContextLike {
     if (!this.context) {
-      this.context = this.createContext();
+      const context = this.createContext();
+      this.context = context;
       this.playheadTime = 0;
+      // Tap the output bus for amplitude metering when the context supports it.
+      // Scheduled sources connect through this analyser to the destination; a
+      // context without createAnalyser (test mock) skips metering entirely and
+      // getOutputAmplitude() reports 0.
+      if (context.createAnalyser) {
+        const analyser = context.createAnalyser();
+        analyser.fftSize = 256;
+        analyser.connect(context.destination);
+        this.analyser = analyser;
+        this.analyserSamples = new Float32Array(analyser.fftSize);
+      }
     }
     return this.context;
+  }
+
+  /**
+   * Current smoothed output amplitude in [0, 1], read from the output-bus
+   * analyser — the RMS of the audio the assistant is speaking right now. Drives
+   * the voice-room avatar's `responding` pulse (the mic amplitude that drives
+   * `listening` is near-silent while the assistant speaks, which is why the
+   * avatar previously looked inverted — see JARVIS-1267).
+   *
+   * Polled ~60 Hz from the avatar's rAF loop: it EMA-smooths so the avatar
+   * breathes rather than jitters, and decays toward rest when nothing is
+   * playing. Returns 0 with no analyser (test mock).
+   */
+  getOutputAmplitude(): number {
+    const analyser = this.analyser;
+    const samples = this.analyserSamples;
+    if (!analyser || !samples) return 0;
+
+    if (!this.playingState) {
+      // Nothing scheduled — ease back to rest so the avatar settles between
+      // turns instead of holding the last speaking level.
+      this.smoothedOutputAmplitude *= OUTPUT_AMPLITUDE_DECAY;
+      return this.smoothedOutputAmplitude;
+    }
+
+    analyser.getFloatTimeDomainData(samples);
+    let sumSquares = 0;
+    for (let i = 0; i < samples.length; i++) {
+      const sample = samples[i];
+      sumSquares += sample * sample;
+    }
+    const rms = Math.sqrt(sumSquares / samples.length);
+    const scaled = Math.min(1, rms * OUTPUT_AMPLITUDE_GAIN);
+    this.smoothedOutputAmplitude =
+      OUTPUT_AMPLITUDE_SMOOTHING * scaled +
+      (1 - OUTPUT_AMPLITUDE_SMOOTHING) * this.smoothedOutputAmplitude;
+    return this.smoothedOutputAmplitude;
   }
 
   private handleSourceEnded(source: AudioBufferSourceNode): void {

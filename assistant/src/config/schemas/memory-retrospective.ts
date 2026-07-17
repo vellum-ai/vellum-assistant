@@ -57,6 +57,14 @@ export const MemoryRetrospectiveConfigSchema = z
       .describe(
         "When true, fork-based retrospectives run under the source conversation's inference profile (which forkConversation copies onto the fork) instead of the call site's default. Provider prompt caches are byte-exact prefix matches scoped per model, and a thinking enable/disable mismatch invalidates the messages cache tier — so reusing the source's cached prefix requires the retrospective to resolve the SAME model/thinking/effort as the conversation's own turns. Falls back to the call site's default when the conversation has no profile or the referenced profile no longer exists.",
       ),
+
+    promptPath: z
+      .string({ error: "memory.retrospective.promptPath must be a string" })
+      .nullable()
+      .default(null)
+      .describe(
+        "Optional path to a file whose contents replace the bundled retrospective fork-instruction prompt. Relative paths resolve under the workspace root; absolute paths and a leading `~/` (expanded to the home directory) are honored only when they still resolve inside the workspace root — a path that lands outside the workspace (including via symlinks) is rejected. The loaded contents may include `{{AVAILABLE_TOOLS_LINE}}`, `{{WINDOW_ANCHOR}}`, `{{ALREADY_REMEMBERED}}`, and `{{SKILL_AUTHORING_SECTION}}`, which are substituted at runtime. If the file is rejected, missing, unreadable, or empty, the bundled prompt is used and a warning is logged.",
+      ),
   })
   .describe(
     "Controls the memory-retrospective background pass. Model selection lives under llm.callSites.memoryRetrospective.",

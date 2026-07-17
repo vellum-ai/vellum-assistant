@@ -28,9 +28,9 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
-import { migrateAddMemoryV3Selections } from "../../../../../persistence/migrations/268-add-memory-v3-selections.js";
+import { setConfig } from "../../../../../__tests__/helpers/set-config.js";
 import { migrateAddMemoryV3EverInjected } from "../../../../../persistence/migrations/277-add-memory-v3-ever-injected.js";
-import { migrateMemoryV3SelectionsMessageIdAndSections } from "../../../../../persistence/migrations/283-memory-v3-selections-message-id-and-sections.js";
+import { ensureMemoryV3SelectionsSchema } from "../../../../../persistence/migrations/338-move-memory-v3-selections-to-memory-db.js";
 import * as schema from "../../../../../persistence/schema/index.js";
 import type { InjectionBlock } from "../../../../types.js";
 import { unwrapMemoryBlock } from "../../memory-marker.js";
@@ -41,9 +41,7 @@ import {
   type Slug,
 } from "../types.js";
 
-const realConfigLoader = {
-  ...(await import("../../../../../config/loader.js")),
-};
+const realMemoryConfig = { ...(await import("../../config.js")) };
 const realFlags = {
   ...(await import("../../../../../config/assistant-feature-flags.js")),
 };
@@ -90,14 +88,17 @@ mock.module("../../../../../util/logger.js", () => ({
 }));
 
 let testSqlite: Database;
+// The prune valve's recency ranking reads `memory_v3_selections` over the
+// dedicated memory connection, resolved via `getMemorySqlite` — stubbed to a
+// second in-memory DB carrying the relocated table's schema.
+let memorySqlite: Database;
 let testDb = makeDb();
 function makeDb() {
   testSqlite = new Database(":memory:");
   const db = drizzle(testSqlite, { schema });
   migrateAddMemoryV3EverInjected(db);
-  // The prune valve's recency ranking reads `memory_v3_selections`.
-  migrateAddMemoryV3Selections(db);
-  migrateMemoryV3SelectionsMessageIdAndSections(db);
+  memorySqlite = new Database(":memory:");
+  ensureMemoryV3SelectionsSchema(memorySqlite);
   // The prune valve plans only against slugs whose card sections are
   // locatable in persisted `memoryV3InjectedBlock` rows
   // (`collectPersistedV3Cards`) — minimal `messages` shape it reads.
@@ -123,23 +124,29 @@ mock.module("../../../../../persistence/db-connection.js", () => ({
       : realDbConnection.getSqliteFrom(
           db as Parameters<typeof realDbConnection.getSqliteFrom>[0],
         ),
+  getMemorySqlite: () =>
+    injectionMockActive ? memorySqlite : realDbConnection.getMemorySqlite(),
 }));
 
-mock.module("../../../../../config/loader.js", () => ({
-  ...realConfigLoader,
-  getConfig: () =>
+// The injector reads `memory.enabled` / `memory.v3.live` / `memory.v3.spotlight`
+// through the real `getConfig()`; the produce helpers seed those for real from
+// the mutable knobs below via `seedMemoryConfig()`.
+
+// Memory code resolves its config through the plugin's own accessor, not
+// getConfig(); the prune valve reads its bounds there — stub the same
+// conditional slice.
+mock.module("../../config.js", () => ({
+  getMemoryConfig: () =>
     injectionMockActive
       ? {
-          memory: {
-            enabled: memoryEnabled,
-            v3: {
-              live: liveEnabled,
-              spotlight: spotlightConfig,
-              prune: pruneConfig ?? undefined,
-            },
+          enabled: memoryEnabled,
+          v3: {
+            live: liveEnabled,
+            spotlight: spotlightConfig,
+            prune: pruneConfig ?? undefined,
           },
         }
-      : realConfigLoader.getConfig(),
+      : realMemoryConfig.getMemoryConfig(),
 }));
 
 // The prune valve resolves the live conversation through the daemon registry
@@ -204,6 +211,16 @@ const { MemoryV3RetrievalUnavailableError } = await import("../pool-select.js");
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
+/** Seed the real config the injector reads (`memory.enabled` / `v3.live` /
+ *  `v3.spotlight`) from the mutable per-test knobs. Called by the produce
+ *  helpers just before invoking the injector so each test's edits take effect. */
+function seedMemoryConfig(): void {
+  setConfig("memory", {
+    enabled: memoryEnabled,
+    v3: { live: liveEnabled, spotlight: spotlightConfig },
+  });
+}
+
 function section(slug: Slug, title: string, text: string): Section {
   return { article: slug, title, text, ordinal: 1 };
 }
@@ -250,6 +267,7 @@ function produceCardsWithoutCommit(
   turnIndex: number,
   trust: { sourceChannel: string; trustClass: string } = GUARDIAN_TRUST,
 ) {
+  seedMemoryConfig();
   return memoryV3Injector.produce({
     requestId: "req-1",
     conversationId,
@@ -292,6 +310,7 @@ function produceSpotlight(
   turnIndex: number,
   trust: { sourceChannel: string; trustClass: string } = GUARDIAN_TRUST,
 ) {
+  seedMemoryConfig();
   return memoryV3SpotlightInjector.produce({
     requestId: "req-1",
     conversationId,

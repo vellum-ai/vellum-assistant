@@ -2,42 +2,37 @@ import { useEffect, useMemo, useState } from "react";
 
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@vellumai/design-library/components/button";
-import { Dropdown } from "@vellumai/design-library/components/dropdown";
 import { Input } from "@vellumai/design-library/components/input";
 import { Modal } from "@vellumai/design-library/components/modal";
 import { Typography } from "@vellumai/design-library/components/typography";
 
-import { credentialPresenceQueryKey, useStoredCredentialPresence } from "@/domains/settings/ai/use-stored-credential-presence";
+import {
+  credentialPresenceQueryKey,
+  useStoredCredentialPresence,
+} from "@/domains/settings/ai/use-stored-credential-presence";
 import { secretsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import {
-    inferenceProviderconnectionsByNamePatch,
-    secretsPost,
+  inferenceProviderconnectionsByNamePatch,
+  secretsPost,
 } from "@/generated/daemon/sdk.gen";
 
-import { providerSupportsPlatformAuth, PROVIDER_DISPLAY_NAMES } from "@/assistant/llm-model-catalog";
 import { ChatgptOAuthSection } from "@/domains/settings/ai/chatgpt-oauth-section";
-import type { Auth, ConnectionProvider, InferenceProviderconnectionsByNamePatchData, ProviderConnection } from "@/generated/daemon/types.gen";
+import type {
+  Auth,
+  ConnectionProvider,
+  InferenceProviderconnectionsByNamePatchData,
+  ProviderConnection,
+} from "@/generated/daemon/types.gen";
 import { ProviderCreateForm } from "@/domains/settings/ai/provider-create-form";
 import { ProviderEditorApiKeySection } from "@/domains/settings/ai/provider-editor-api-key-section";
 import {
-    AUTH_TYPE_DISPLAY_NAMES,
-    type AuthType,
-    connectionSaveErrorMessage,
-    parseCredentialRef,
+  connectionSaveErrorMessage,
+  validationErrorMessage,
+  parseCredentialRef,
+  providerConnectionDisplayName,
 } from "@/domains/settings/ai/provider-editor-constants";
-import { useSelectableConnectionProviders } from "@/domains/settings/ai/provider-availability";
 import { secretPlaceholder } from "@/domains/settings/ai/secret-placeholder";
-import { useLabelKeySync } from "@/domains/settings/ai/use-label-key-sync";
 import { useProviderCredentialsList } from "@/domains/settings/ai/use-provider-credentials-list";
-
-// NOTE: The `platform` auth gate is `providerSupportsPlatformAuth()`. The
-// daemon derives `supportsPlatformAuth` from `PLATFORM_PROVIDER_META`
-// (assistant/src/providers/platform-proxy/constants.ts) into
-// meta/llm-provider-catalog.json via `cd assistant && bun run
-// sync:llm-catalog`; the web mirrors it in the hand-maintained
-// `PROVIDER_SUPPORTS_PLATFORM_AUTH` map in
-// clients/web/src/assistant/llm-model-catalog.ts, with parity tests guarding
-// drift against the meta catalog.
 
 // ---------------------------------------------------------------------------
 // ProviderEditorContent
@@ -49,12 +44,7 @@ import { useProviderCredentialsList } from "@/domains/settings/ai/use-provider-c
 // inside a single modal frame rather than stacking a second modal.
 
 export interface ProviderEditorContentProps {
-  // "managed-edit" is used for connections seeded + write-protected by the
-  // daemon (anthropic-managed / openai-managed / gemini-managed). Only the
-  // auth-related fields (Auth Type, API Key, Credential Reference) are
-  // disabled in this mode; Display Name + Status remain editable to match
-  // the PATCH fields the daemon allows on managed rows.
-  mode: "create" | "edit" | "managed-edit";
+  mode: "create" | "edit";
   connection?: ProviderConnection;
   assistantId: string;
   existingNames: string[];
@@ -70,39 +60,19 @@ export function ProviderEditorContent({
   onSave,
   onCancel,
 }: ProviderEditorContentProps) {
-  // Local mode state. Initialised from the `mode` prop, but the user can
-  // flip "managed-edit" → "create" via the Save as New button — they clone
-  // a managed connection's provider + label into a new (non-managed)
-  // connection of their own.
-  const [effectiveMode, setEffectiveMode] = useState<
-    "create" | "edit" | "managed-edit"
-  >(mode);
-
-  // Auth type to seed the create form with when entering create mode via the
-  // Save as New clone flow. `undefined` for a genuine "create" open so the
-  // form keeps its own default (platform for managed-capable providers).
-  const [createAuthTypeSeed, setCreateAuthTypeSeed] = useState<
-    AuthType | undefined
-  >(undefined);
-
-  // True when the editor is opened for a Vellum-managed connection. Locks
-  // the auth-related inputs (Auth Type, API Key, Credential Reference) but
-  // leaves Display Name + Status editable. Keyed off `effectiveMode` so
-  // the Save As New transition out of managed-edit also unlocks auth.
-  const isAuthLocked = effectiveMode === "managed-edit";
-
   const [label, setLabel] = useState(connection?.label ?? "");
-  const [name, setName] = useState(connection?.name ?? "");
-  const [provider, setProvider] = useState<ConnectionProvider>(
-    connection?.provider ?? "anthropic",
-  );
-  const [authType, setAuthType] = useState<AuthType>(() => {
-    if (!connection) return "platform";
-    return connection.auth.type;
-  });
+  const name = connection?.name ?? "";
+  const provider: ConnectionProvider = connection?.provider ?? "anthropic";
+  // Auth is fixed to the stored type — the editor rotates keys but never
+  // switches auth modality (that's a different provider entry).
+  const authType: Auth["type"] = connection?.auth.type ?? "api_key";
   const [credential, setCredential] = useState(() => {
-    if (connection?.auth.type === "api_key") return connection.auth.credential;
-    if (!connection) return `credential/anthropic/api_key`;
+    if (connection?.auth.type === "api_key") {
+      return connection.auth.credential;
+    }
+    if (!connection) {
+      return `credential/anthropic/api_key`;
+    }
     return "";
   });
   const [baseUrl, setBaseUrl] = useState(connection?.baseUrl ?? "");
@@ -116,61 +86,43 @@ export function ProviderEditorContent({
   const [error, setError] = useState<string | null>(null);
 
   const isOpenAICompatible = provider === "openai-compatible";
-  const selectableConnectionProviders = useSelectableConnectionProviders();
-  const connectionProviderOptions = useMemo(() => {
-    if (provider && !selectableConnectionProviders.includes(provider)) {
-      return [...selectableConnectionProviders, provider];
-    }
-    return selectableConnectionProviders;
-  }, [provider, selectableConnectionProviders]);
-
-  const { handleLabelChange, resetDirty } =
-    useLabelKeySync(effectiveMode, setLabel, setName);
 
   const [apiKeyValue, setApiKeyValue] = useState("");
   const [isSavingKey, setIsSavingKey] = useState(false);
   const queryClient = useQueryClient();
 
   // --- Credential presence (shared hook) ---
-  const parsedCredRef = useMemo(() => parseCredentialRef(credential), [credential]);
+  const parsedCredRef = useMemo(
+    () => parseCredentialRef(credential),
+    [credential],
+  );
   const needsCredentialCheck = authType === "api_key" && parsedCredRef !== null;
 
-  const {
-    hasStoredCredential,
-    isLoading: isLoadingCredential,
-  } = useStoredCredentialPresence({
-    assistantId,
-    credentialKind: "credential",
-    credentialName: parsedCredRef ? `${parsedCredRef.service}:${parsedCredRef.field}` : "",
-    enabled: needsCredentialCheck,
-  });
+  const { hasStoredCredential, isLoading: isLoadingCredential } =
+    useStoredCredentialPresence({
+      assistantId,
+      credentialKind: "credential",
+      credentialName: parsedCredRef
+        ? `${parsedCredRef.service}:${parsedCredRef.field}`
+        : "",
+      enabled: needsCredentialCheck,
+    });
 
   // --- Available credentials list ---
   // Create mode is fully owned by ProviderCreateForm (early return below), so
-  // the only reachable path here is edit / managed-edit — gate purely on auth.
+  // the only reachable path here is edit — gate purely on auth.
   const needsCredentialsList = authType === "api_key";
 
-  const {
-    credentials: availableCredentials,
-  } = useProviderCredentialsList({
+  const { credentials: availableCredentials } = useProviderCredentialsList({
     assistantId,
     enabled: needsCredentialsList,
   });
 
   // Reset form when connection prop changes (e.g. switching between edit
-  // targets). `effectiveMode` doesn't need a sync line here — it's
-  // initialised from the `mode` prop via `useState(mode)`, and the editor
-  // unmounts/remounts whenever the parent flips list ↔ editor view (see
-  // `ManageProvidersModal`'s `editorOpen ? <ProviderEditorContent /> : null`).
-  // So the useState initializer re-runs on every fresh open with the latest
-  // `mode` prop, and any Save as New transition is automatically discarded
-  // when the user returns to the list and re-opens.
+  // targets).
   useEffect(() => {
     const effectiveProvider = connection?.provider ?? "anthropic";
     setLabel(connection?.label ?? "");
-    setName(connection?.name ?? "");
-    setProvider(effectiveProvider);
-    setAuthType(connection ? connection.auth.type : "platform");
     if (connection?.auth.type === "api_key") {
       setCredential(connection.auth.credential);
     } else if (!connection) {
@@ -178,8 +130,6 @@ export function ProviderEditorContent({
     } else {
       setCredential("");
     }
-    resetDirty();
-
     setError(null);
 
     // Reset openai-compatible fields
@@ -194,27 +144,16 @@ export function ProviderEditorContent({
     // newCredentialName) resets automatically on unmount/remount.
     setApiKeyValue("");
     setIsSavingKey(false);
-  }, [connection, resetDirty]);
+  }, [connection]);
 
-  // Save as New: clone the currently-displayed connection into a fresh
-  // "create" mode session. The user keeps the provider + label as a
-  // starting point (so they don't have to re-enter the easy bits) but
-  // gets a blank Key field to pick a unique name, fresh credential
-  // inputs, and an unlocked Auth Type (default to api_key, the most
-  // common path for cloning off a managed connection).
-  function handleSaveAsNew() {
-    setEffectiveMode("create");
-    setCreateAuthTypeSeed(provider === "ollama" ? "none" : "api_key");
-  }
-
-  // Only edit / managed-edit reach this component's own Save (create is owned
-  // by ProviderCreateForm via the early return below), and the Key field is
-  // fixed/disabled there, so a non-empty name is the only save gate. Duplicate
-  // -name validation lives in ProviderCreateForm.
+  // Only edit reaches this component's own Save. The internal provider name
+  // remains fixed, so a non-empty value is the only save gate.
   const canSave = name.trim().length > 0;
 
   async function handleSave() {
-    if (!canSave) return;
+    if (!canSave) {
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
@@ -253,7 +192,9 @@ export function ProviderEditorContent({
             );
             queryClient.setQueryData(presenceKey, true);
             void queryClient.invalidateQueries({
-              queryKey: secretsGetQueryKey({ path: { assistant_id: assistantId } }),
+              queryKey: secretsGetQueryKey({
+                path: { assistant_id: assistantId },
+              }),
             });
           } catch {
             setError("Failed to save API key. Please try again.");
@@ -264,35 +205,20 @@ export function ProviderEditorContent({
         }
 
         auth = { type: "api_key", credential: effectiveCredential };
-      } else if (authType === "oauth_subscription") {
-        if (connection?.auth.type === "oauth_subscription") {
-          // Editing an existing oauth_subscription connection — preserve
-          // the stored auth so users can update display name / status.
-          auth = connection.auth;
-        } else {
-          // OAuth subscription connections are created by the OAuth flow
-          // (handleChatgptUrlSubmit), not through Save.
-          setError("Use the \"Sign in with ChatGPT\" button to connect your subscription.");
-          return;
-        }
-      } else if (authType === "service_account") {
-        if (connection?.auth.type === "service_account") {
-          auth = connection.auth;
-        } else {
-          setError("Service account connections cannot be created through this form.");
-          return;
-        }
-      } else if (authType === "none") {
-        auth = { type: "none" };
+      } else if (connection) {
+        // Non-key auth (oauth_subscription, none, platform, service_account)
+        // is preserved verbatim — the editor only changes display fields.
+        auth = connection.auth;
       } else {
-        auth = { type: "platform" };
+        setError("Nothing to edit. Close and try again.");
+        return;
       }
 
       const labelValue = label.trim() || null;
 
-      // Edit / managed-edit only — create mode is handled by
-      // ProviderCreateForm (see the early return above), which owns the
-      // POST path. This component never reaches handleSave in create mode.
+      // Edit only — create mode is handled by ProviderCreateForm (see the
+      // early return above), which owns the POST path. This component never
+      // reaches handleSave in create mode.
       const input: InferenceProviderconnectionsByNamePatchData["body"] = {
         auth,
         label: labelValue,
@@ -306,21 +232,22 @@ export function ProviderEditorContent({
             : null,
         }),
       };
-      const { data: updated, response: updateRes } = await inferenceProviderconnectionsByNamePatch({
-        path: { assistant_id: assistantId, name: connection?.name ?? name.trim() },
+      const {
+        data: updated,
+        error: updateErr,
+        response: updateRes,
+      } = await inferenceProviderconnectionsByNamePatch({
+        path: {
+          assistant_id: assistantId,
+          name: connection?.name ?? name.trim(),
+        },
         body: input,
       });
       if (!updateRes?.ok) {
-        let serverMessage: string | undefined;
-        try {
-          const body = await updateRes?.json();
-          if (typeof body?.error?.message === "string") {
-            serverMessage = body.error.message;
-          }
-        } catch {
-          // Response body not JSON-parseable; fall through to generic message.
-        }
-        setError(serverMessage || connectionSaveErrorMessage(updateRes?.status, name.trim()));
+        setError(
+          validationErrorMessage(updateRes?.status, updateErr) ??
+            connectionSaveErrorMessage(updateRes?.status),
+        );
         return;
       }
       if (!updated) {
@@ -329,7 +256,7 @@ export function ProviderEditorContent({
       }
       onSave(updated);
     } catch {
-      setError("Failed to save connection. Please try again.");
+      setError("Failed to save provider. Please try again.");
     } finally {
       setSaving(false);
     }
@@ -349,31 +276,25 @@ export function ProviderEditorContent({
   // needed — saving a key auto-creates `credential/<provider>/api_key`
   // under the hood, so the disclosure has nothing meaningful to offer.
   const isEditingApiKeyConnection =
-    effectiveMode !== "create" && connection?.auth.type === "api_key";
+    mode !== "create" && connection?.auth.type === "api_key";
   const shouldShowAdvancedSection =
-    providerCredentials.length > 0 ||
-    isEditingApiKeyConnection;
+    providerCredentials.length > 0 || isEditingApiKeyConnection;
   const apiKeyPlaceholder = secretPlaceholder(
     "Enter your API key",
     hasStoredCredential,
   );
 
-  // Create mode (genuine opens AND the Save as New transition out of
-  // managed-edit) is fully owned by the shared ProviderCreateForm. It
-  // carries the create-path submit sequence (secretsPost →
+  // Create mode is fully owned by the shared ProviderCreateForm. It carries
+  // the create-path submit sequence (secretsPost →
   // inferenceProviderconnectionsPost) and renders identical modal chrome.
-  // The `provider` carried over from a Save as New clone seeds the form via
-  // `defaultProviderType`. Keyed on it so a fresh provider remounts the form
-  // with the cloned starting point. Edit / managed-edit fall through below.
-  if (effectiveMode === "create") {
+  // Edit falls through below.
+  if (mode === "create") {
     return (
       <ProviderCreateForm
-        key={provider}
         variant="modal"
         assistantId={assistantId}
         existingNames={existingNames}
         defaultProviderType={provider}
-        defaultAuthType={createAuthTypeSeed}
         onCreated={onSave}
         onCancel={onCancel}
       />
@@ -383,11 +304,11 @@ export function ProviderEditorContent({
   return (
     <Modal.Content size="md">
       <Modal.Header>
-        <Modal.Title>Edit Connection</Modal.Title>
+        <Modal.Title>Edit Provider</Modal.Title>
         <Modal.Description>
-          {isAuthLocked
-            ? `Managed by Vellum — auth is locked, but you can rename "${connection?.name}".`
-            : `Editing "${connection?.name}".`}
+          {connection
+            ? `Editing ${providerConnectionDisplayName(connection)}.`
+            : "Edit provider settings."}
         </Modal.Description>
       </Modal.Header>
 
@@ -400,40 +321,9 @@ export function ProviderEditorContent({
           </label>
           <Input
             value={label}
-            onChange={(e) => handleLabelChange(e.target.value)}
+            onChange={(e) => setLabel(e.target.value)}
             placeholder="e.g. My Anthropic Key"
             fullWidth
-          />
-        </div>
-
-        {/* Key — fixed once a connection exists; edit / managed-edit only. */}
-        <div className="space-y-1">
-          <label className="block text-body-small-default text-[var(--content-tertiary)]">
-            Key
-          </label>
-          <Input
-            value={name}
-            placeholder="e.g. anthropic-personal"
-            disabled
-            fullWidth
-          />
-        </div>
-
-        {/* Provider — read-only in edit / managed-edit (provider is fixed
-            once a connection exists; create mode lives in ProviderCreateForm). */}
-        <div className="space-y-1">
-          <label className="block text-body-small-default text-[var(--content-tertiary)]">
-            Provider
-          </label>
-          <Dropdown
-            aria-label="Provider"
-            value={provider}
-            onChange={setProvider}
-            disabled
-            options={connectionProviderOptions.map((p) => ({
-              value: p,
-              label: PROVIDER_DISPLAY_NAMES[p],
-            }))}
           />
         </div>
 
@@ -448,7 +338,6 @@ export function ProviderEditorContent({
                 value={baseUrl}
                 onChange={(e) => setBaseUrl(e.target.value)}
                 placeholder="https://api.example.com/v1"
-                disabled={isAuthLocked}
                 fullWidth
               />
             </div>
@@ -460,7 +349,6 @@ export function ProviderEditorContent({
                 value={connectionModels}
                 onChange={(e) => setConnectionModels(e.target.value)}
                 placeholder="model-1, model-2"
-                disabled={isAuthLocked}
                 fullWidth
               />
               <Typography
@@ -474,42 +362,6 @@ export function ProviderEditorContent({
           </>
         )}
 
-        {/* Auth type */}
-        <div className="space-y-1">
-          <label className="block text-body-small-default text-[var(--content-tertiary)]">
-            Auth Type
-          </label>
-          <Dropdown
-            aria-label="Auth type"
-            value={authType}
-            onChange={(v) => {
-              setAuthType(v);
-              setError(null);
-            }}
-            disabled={isAuthLocked || provider === "ollama"}
-            options={(() => {
-              let types: AuthType[];
-              if (provider === "ollama") {
-                types = ["none"];
-              } else if (providerSupportsPlatformAuth(provider)) {
-                types = ["api_key", "platform"];
-              } else {
-                types = ["api_key"];
-              }
-              // Preserve the current auth type in edit mode so existing
-              // connections display their saved value even if the type is
-              // no longer offered for new connections.
-              if (authType && !types.includes(authType)) {
-                types.push(authType);
-              }
-              return types.map((t) => ({
-                value: t,
-                label: AUTH_TYPE_DISPLAY_NAMES[t],
-              }));
-            })()}
-          />
-        </div>
-
         {/* API Key + Advanced disclosure — only shown for api_key auth */}
         {authType === "api_key" && (
           <ProviderEditorApiKeySection
@@ -517,7 +369,6 @@ export function ProviderEditorContent({
             onApiKeyChange={setApiKeyValue}
             credential={credential}
             onCredentialChange={setCredential}
-            isAuthLocked={isAuthLocked}
             isLoadingCredential={isLoadingCredential}
             apiKeyPlaceholder={apiKeyPlaceholder}
             provider={provider}
@@ -529,10 +380,7 @@ export function ProviderEditorContent({
 
         {/* ChatGPT Subscription OAuth — shown when auth type is oauth_subscription */}
         {authType === "oauth_subscription" && (
-          <ChatgptOAuthSection
-            assistantId={assistantId}
-            onConnected={onSave}
-          />
+          <ChatgptOAuthSection assistantId={assistantId} onConnected={onSave} />
         )}
 
         {error && (
@@ -550,21 +398,6 @@ export function ProviderEditorContent({
         <Button variant="ghost" size="compact" onClick={onCancel}>
           Cancel
         </Button>
-        {/* Save as New: only offered for managed connections. The user
-            clones the row's provider + label into a fresh "create" mode
-            session where they can supply their own credential. Hidden
-            for plain edit because rename/clone of an unmanaged row is a
-            different workflow (delete + create). */}
-        {effectiveMode === "managed-edit" && (
-          <Button
-            variant="outlined"
-            size="compact"
-            onClick={handleSaveAsNew}
-            disabled={saving || isSavingKey}
-          >
-            Save as New
-          </Button>
-        )}
         <Button
           variant="primary"
           size="compact"

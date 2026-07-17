@@ -90,13 +90,6 @@ mock.module("../providers/provider-send-message.js", () => ({
       .join(" "),
 }));
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 const mockPublishConversationTitleChanged = mock(
   (_conversationId: string, _title: string) => {},
 );

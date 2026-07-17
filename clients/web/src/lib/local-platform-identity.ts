@@ -77,8 +77,28 @@ type ResolveLocalAssistantPlatformIdentityOptions = {
 
 const platformAssistantIdCache = new Map<string, Promise<string>>();
 
+/**
+ * Backoff schedule for the best-effort bootstrap. After a daemon restart the
+ * gateway 502s every proxied /v1/* request (including the secret injection
+ * that stores the platform credentials) until the daemon is listening again —
+ * a window observed to last ~90s — so the schedule must outlast it.
+ */
+const BOOTSTRAP_RETRY_DELAYS_MS = [2_000, 5_000, 15_000, 30_000, 60_000];
+
+let bootstrapRetryDelaysMs: readonly number[] = BOOTSTRAP_RETRY_DELAYS_MS;
+
+/** Assistants with a bootstrap retry loop currently running. */
+const activeBootstraps = new Set<string>();
+
 export function resetLocalPlatformIdentityCacheForTesting(): void {
   platformAssistantIdCache.clear();
+  activeBootstraps.clear();
+}
+
+export function setBootstrapRetryDelaysForTesting(
+  delays: readonly number[] | null,
+): void {
+  bootstrapRetryDelaysMs = delays ?? BOOTSTRAP_RETRY_DELAYS_MS;
 }
 
 export async function resolveLocalAssistantPlatformIdentity(
@@ -127,14 +147,45 @@ export function bootstrapLocalAssistantPlatformIdentity(
     targetAssistantId = assistant.assistantId;
   }
 
-  void resolveLocalAssistantPlatformIdentity(targetAssistantId, {
-    allowGatewayRepair: options.allowGatewayRepair ?? false,
-  }).catch(
-    options.onError ??
-      ((error: unknown) => {
-        console.warn("local assistant platform bootstrap failed", error);
-      }),
-  );
+  // One retrying bootstrap per assistant — a second trigger while a loop is
+  // waiting out a backoff delay would race the same registration and
+  // secret-injection flow.
+  if (activeBootstraps.has(targetAssistantId)) {
+    return;
+  }
+  activeBootstraps.add(targetAssistantId);
+  const target = targetAssistantId;
+
+  void (async () => {
+    try {
+      for (let attempt = 0; ; attempt++) {
+        try {
+          await resolveLocalAssistantPlatformIdentity(target, {
+            allowGatewayRepair: options.allowGatewayRepair ?? false,
+          });
+          return;
+        } catch (error) {
+          const delayMs = bootstrapRetryDelaysMs[attempt];
+          if (delayMs === undefined) {
+            (
+              options.onError ??
+              ((e: unknown) => {
+                console.warn("local assistant platform bootstrap failed", e);
+              })
+            )(error);
+            return;
+          }
+          console.warn(
+            `local assistant platform bootstrap attempt ${attempt + 1} failed, retrying in ${delayMs}ms`,
+            error,
+          );
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
+        }
+      }
+    } finally {
+      activeBootstraps.delete(target);
+    }
+  })();
 }
 
 function resolveLocalAssistant(assistantId: string): LockfileAssistant | null {
@@ -443,7 +494,6 @@ async function injectPlatformCredentials(
   },
 ): Promise<void> {
   const entries: Array<[string, string | null]> = [
-    ["vellum:assistant_api_key", params.assistantApiKey],
     ["vellum:platform_assistant_id", params.platformAssistantId],
     ["vellum:platform_base_url", params.platformBaseUrl],
     ["vellum:platform_organization_id", params.organizationId],
@@ -455,6 +505,19 @@ async function injectPlatformCredentials(
       .filter((entry): entry is [string, string] => Boolean(entry[1]))
       .map(([name, value]) => injectCredential(gateway, name, value)),
   );
+
+  // The API key is the sentinel the status probe reports as
+  // has_assistant_api_key, and the bootstrap early-returns when it is
+  // present. Store it only after every other credential has landed, so a
+  // partial write can never look "healthy" to a later retry and suppress
+  // the re-injection of the missing credentials.
+  if (params.assistantApiKey) {
+    await injectCredential(
+      gateway,
+      "vellum:assistant_api_key",
+      params.assistantApiKey,
+    );
+  }
 }
 
 async function injectCredential(

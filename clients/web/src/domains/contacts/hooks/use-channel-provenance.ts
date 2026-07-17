@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 
 import type { CascadeProvenance } from "@/domains/contacts/components/provenance-pill";
-import { isSetupChannelId, type SetupChannelId } from "@/domains/contacts/types";
+import { isSetupChannelId, type SetupChannelId } from "@/types/channel-types";
 import { assistantChannelAdmissionPolicyListOptions } from "@/generated/gateway/@tanstack/react-query.gen";
 import type { AssistantChannelAdmissionPolicyListResponse } from "@/generated/gateway/types.gen";
 import {
@@ -9,6 +9,7 @@ import {
   type ChannelPolicyView,
 } from "@/lib/channel-admission-policy/types";
 import { toChannelPolicyViews } from "@/lib/channel-admission-policy/api";
+import { useSupportsChannelTrustFloors } from "@/lib/backwards-compat/channel-trust-floors";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 
 export type ChannelProvenanceMap = Partial<
@@ -52,8 +53,8 @@ function selectChannelProvenance(
  * whether each setup channel's admission floor comes from the global default
  * or a channel-level default set on the Channels tab (see
  * {@link deriveChannelProvenance} for the decision rule). Reads the
- * `channelTrustFloors` flag itself; when off it returns `undefined`, which
- * hides the provenance pill entirely.
+ * `channelTrustFloors` flag and the gateway-version gate itself; when either
+ * is off it returns `undefined`, which hides the provenance pill entirely.
  *
  * Spreads the generated `assistantChannelAdmissionPolicyListOptions` so it
  * shares the generated query key — and one raw cache entry — with
@@ -62,7 +63,9 @@ function selectChannelProvenance(
 export function useChannelProvenance(
   assistantId: string,
 ): ChannelProvenanceMap | undefined {
-  const enabled = useAssistantFeatureFlagStore.use.channelTrustFloors();
+  const flagOn = useAssistantFeatureFlagStore.use.channelTrustFloors();
+  const supported = useSupportsChannelTrustFloors();
+  const enabled = flagOn && supported;
 
   const query = useQuery({
     ...assistantChannelAdmissionPolicyListOptions({

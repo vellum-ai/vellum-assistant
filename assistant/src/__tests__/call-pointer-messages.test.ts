@@ -1,12 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // Stand in for the daemon conversation-turn path so these tests can drive its
 // behavior (success / throw) without pulling in the real conversation pipeline.
 // `runPointerTurnImpl` is swapped per-test via setProcessor/resetProcessor.
@@ -80,7 +73,7 @@ function getLatestAssistantText(conversationId: string): string {
   );
   expect(rows.length).toBeGreaterThan(0);
   const latest = rows[rows.length - 1];
-  const parsed = JSON.parse(latest.content) as Array<{
+  const parsed = latest.content as unknown as Array<{
     type: string;
     text?: string;
   }>;

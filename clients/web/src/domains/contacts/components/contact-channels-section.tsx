@@ -24,11 +24,11 @@ import {
   type CascadeProvenance,
 } from "@/domains/contacts/components/provenance-pill";
 import type { ChannelProvenanceMap } from "@/domains/contacts/hooks/use-channel-provenance";
-import {
-  isSetupChannelId,
-  type ChannelInfo,
-  type ContactChannelPayload,
+import type {
+  ChannelInfo,
+  ContactChannelPayload,
 } from "@/domains/contacts/types";
+import { isSetupChannelId } from "@/types/channel-types";
 
 const KNOWN_CHANNEL_IDS: ReadonlySet<string> = new Set<ChannelInfo["id"]>([
   "telegram",

@@ -40,7 +40,7 @@ describe("addMessage pre-assigned id", () => {
     const msgs = getMessages("conv-preassigned-id");
     const found = msgs.find((m) => m.id === customId);
     expect(found).toBeDefined();
-    expect(found?.content).toBe("hello");
+    expect(found?.content).toEqual([{ type: "text", text: "hello" }]);
   });
 
   test("generates a uuid when no id is provided", async () => {

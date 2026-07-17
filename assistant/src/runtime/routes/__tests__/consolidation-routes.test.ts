@@ -27,14 +27,7 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-
-mock.module("../../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { invalidateConfigCache } from "../../../config/loader.js";
 import { createConversation } from "../../../persistence/conversation-crud.js";
@@ -46,6 +39,13 @@ import { ROUTES } from "../consolidation-routes.js";
 import type { RouteDefinition } from "../types.js";
 
 await initializeDb();
+
+// Open the memory connection now, while VELLUM_WORKSPACE_DIR still points at the
+// migrated per-process workspace. The per-test blocks below swap it to a fresh
+// dir for config isolation; without pinning here, resetTables()'s first
+// getMemorySqlite() would lazily open assistant-memory.db in the swapped (empty)
+// workspace and fail with "no such table: memory_jobs".
+getMemorySqlite();
 
 let workspaceDir: string;
 let origWorkspaceDir: string | undefined;

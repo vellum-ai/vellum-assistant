@@ -66,14 +66,13 @@ export interface TtsProviderCatalogCapabilities {
  * Output format the provider's adapter produces when a caller requests
  * PCM output (`outputFormat: "pcm"`) for media-stream playback.
  *
- * The media-stream transport can only transcode raw PCM or WAV
- * (PCM-in-container) to mu-law — compressed formats (mp3, opus) produce
- * garbled audio. Providers whose adapter honours the PCM hint declare
- * `"pcm"`; providers that substitute WAV declare `"wav"`; providers that
- * can only produce compressed audio declare `"none"` and are not playable
- * over media-stream transports.
+ * The media-stream transport can only transcode raw PCM to mu-law —
+ * compressed formats (mp3, opus) produce garbled audio. Providers whose
+ * adapter honours the PCM hint declare `"pcm"`; providers that can only
+ * produce compressed audio declare `"none"` and are not playable over
+ * media-stream transports.
  */
-export type TtsMediaStreamOutputFormat = "pcm" | "wav" | "none";
+export type TtsMediaStreamOutputFormat = "pcm" | "none";
 
 /**
  * How the provider's synthesized audio plays over media-stream transports.

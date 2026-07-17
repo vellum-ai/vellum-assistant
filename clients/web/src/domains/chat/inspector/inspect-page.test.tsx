@@ -152,6 +152,12 @@ mock.module("@/stores/assistant-feature-flag-store", () => ({
 }));
 
 mock.module("@/domains/chat/inspector/inspector-api", () => ({
+  isLlmRequestLogsDisabledError: (error: unknown) =>
+    Boolean(
+      error &&
+      typeof error === "object" &&
+      (error as { code?: string }).code === "LLM_REQUEST_LOGS_DISABLED",
+    ),
   useLlmContext: (
     _assistantId: string | undefined,
     _conversationId: string | undefined,
@@ -401,6 +407,29 @@ describe("InspectPage — data-loading branches", () => {
     expect(html).toContain("boom");
     expect(html).toContain("Retry");
   });
+
+  test("renders the enable-logging state when request logging is disabled", () => {
+    paramsStub = { conversationId: "conv-disabled" };
+    const disabledError = Object.assign(
+      new Error("LLM request logging is disabled."),
+      { code: "LLM_REQUEST_LOGS_DISABLED", status: 403 },
+    );
+    contextStub = {
+      data: undefined,
+      isLoading: false,
+      isError: true,
+      error: disabledError,
+      refetch: () => {},
+    };
+    const html = renderInspector();
+    expect(html).toContain("LLM request logging is off");
+    expect(html).toContain("Enable logging");
+    // The enable control is the design-library Toggle (role="switch").
+    expect(html).toContain('role="switch"');
+    // The generic error chrome must not show for this branch.
+    expect(html).not.toContain("Failed to load");
+    expect(html).not.toContain("Retry");
+  });
 });
 
 describe("InspectPage — dual-mode chrome", () => {
@@ -454,7 +483,7 @@ describe("InspectPage — dual-mode chrome", () => {
     expect(html).not.toContain("View all conversation calls");
   });
 
-  test("message mode renders the scoped subtitle, short id, and keeps the filter dropdown", () => {
+  test("message mode renders the scoped subtitle, full id, and keeps the filter dropdown", () => {
     paramsStub = { conversationId: "conv-1" };
     searchParamsMap.set("messageId", "msg-abcdef-1234567890");
     contextStub = {
@@ -476,7 +505,7 @@ describe("InspectPage — dual-mode chrome", () => {
     const html = renderInspector();
 
     expect(html).toContain("Scoped to one message");
-    expect(html).toContain("msg-abcd"); // shortMessageId
+    expect(html).toContain("msg-abcdef-1234567890");
     // The dropdown stays visible in message mode; selecting "All
     // messages" returns to conversation mode.
     expect(html).toContain("Filter to message:");

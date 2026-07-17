@@ -28,6 +28,7 @@ export const TTS_PROVIDER_IDS = [
   "fish-audio",
   "deepgram",
   "xai",
+  "vellum",
 ] as const;
 
 /**

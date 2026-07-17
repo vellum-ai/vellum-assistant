@@ -20,15 +20,6 @@ mock.module("../media/avatar-router.js", () => ({
   generateAvatar: generateAvatarFn,
 }));
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () => ({
-    debug: () => {},
-    info: () => {},
-    warn: () => {},
-    error: () => {},
-  }),
-}));
-
 // Import after mocking
 import { generateAvatarImage } from "../tools/system/avatar-generator.js";
 

@@ -68,7 +68,6 @@ export interface QdrantPointPayload {
   last_seen_at?: number;
   conversation_id?: string;
   message_id?: string;
-  memory_scope_id?: string;
   modality?: "text" | "image" | "audio" | "video";
 }
 
@@ -684,15 +683,12 @@ export class VellumQdrantClient {
   }
 
   /**
-   * Delete all vectors matching target_type, payload path, and memory scope.
-   * Used to remove every chunk belonging to a single PKB file within a scope.
-   * The memory_scope_id filter is required — omitting it would wipe that
-   * path's chunks across every scope that happens to index the same relpath.
+   * Delete all vectors matching target_type and payload path. Used to remove
+   * every chunk belonging to a single PKB file.
    */
   async deleteByTargetTypeAndPath(
     targetType: string,
     path: string,
-    memoryScopeId: string,
   ): Promise<void> {
     await this.ensureCollection();
 
@@ -703,7 +699,6 @@ export class VellumQdrantClient {
           must: [
             { key: "target_type", match: { value: targetType } },
             { key: "path", match: { value: path } },
-            { key: "memory_scope_id", match: { value: memoryScopeId } },
           ],
         },
       });
@@ -827,10 +822,6 @@ export class VellumQdrantClient {
         field_schema: "keyword",
       }),
       this.client.createPayloadIndex(this.collection, {
-        field_name: "memory_scope_id",
-        field_schema: "keyword",
-      }),
-      this.client.createPayloadIndex(this.collection, {
         field_name: "path",
         field_schema: "keyword",
       }),
@@ -879,7 +870,6 @@ export class VellumQdrantClient {
   async scrollByTargetType(
     targetType: string,
     options?: {
-      memoryScopeId?: string;
       path?: string;
       batchSize?: number;
     },
@@ -890,12 +880,6 @@ export class VellumQdrantClient {
     const must: Array<Record<string, unknown>> = [
       { key: "target_type", match: { value: targetType } },
     ];
-    if (options?.memoryScopeId) {
-      must.push({
-        key: "memory_scope_id",
-        match: { value: options.memoryScopeId },
-      });
-    }
     if (options?.path) {
       must.push({ key: "path", match: { value: options.path } });
     }

@@ -1,4 +1,4 @@
-// Contacts access control: invite management, member management, and escalation decisions.
+// Contacts access control: invite management and member management.
 
 // === Client → Server ===
 
@@ -23,21 +23,6 @@ export interface ContactsInviteRequest {
   externalChatId?: string;
   /** Filter by status (list only). */
   status?: string;
-}
-
-export interface AssistantInboxEscalationRequest {
-  type: "assistant_inbox_escalation";
-  action: "list" | "decide";
-  /** Filter by assistant ID (list only). */
-  assistantId?: string;
-  /** Filter by status (list only). */
-  status?: string;
-  /** Approval request ID (required for decide). */
-  approvalRequestId?: string;
-  /** Decision (required for decide). */
-  decision?: "approve" | "deny";
-  /** Reason for the decision (decide only). */
-  reason?: string;
 }
 
 // === Server → Client ===
@@ -73,36 +58,8 @@ export interface ContactsInviteResponse {
   }>;
 }
 
-export interface AssistantInboxEscalationResponse {
-  type: "assistant_inbox_escalation_response";
-  success: boolean;
-  error?: string;
-  /** List of escalations (returned on list). */
-  escalations?: Array<{
-    id: string;
-    runId: string;
-    conversationId: string;
-    channel: string;
-    requesterExternalUserId: string;
-    requesterChatId: string;
-    status: string;
-    requestSummary?: string;
-    createdAt: number;
-  }>;
-  /** Decision result (returned on decide). */
-  decision?: {
-    id: string;
-    status: string;
-    decidedAt: number;
-  };
-}
-
 // --- Domain-level union aliases (consumed by the barrel file) ---
 
-export type _InboxClientMessages =
-  | ContactsInviteRequest
-  | AssistantInboxEscalationRequest;
+export type _InboxClientMessages = ContactsInviteRequest;
 
-export type _InboxServerMessages =
-  | ContactsInviteResponse
-  | AssistantInboxEscalationResponse;
+export type _InboxServerMessages = ContactsInviteResponse;

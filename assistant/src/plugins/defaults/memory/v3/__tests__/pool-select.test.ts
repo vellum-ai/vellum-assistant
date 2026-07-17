@@ -58,7 +58,9 @@ interface ProviderCall {
 const providerCalls: ProviderCall[] = [];
 const warnCalls: Array<{ args: unknown[] }> = [];
 
+const realPluginApi = await import("@vellumai/plugin-api");
 mock.module("@vellumai/plugin-api", () => ({
+  ...realPluginApi,
   getConfiguredProvider: async () => providerStub,
 }));
 

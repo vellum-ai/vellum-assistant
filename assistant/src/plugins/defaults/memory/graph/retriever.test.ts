@@ -30,7 +30,9 @@ mock.module("../../../../persistence/embeddings/embed.js", () => ({
     _opts?: unknown,
   ) => {
     embedCallCount++;
-    if (embedShouldThrow) throw new Error("embedding backend down");
+    if (embedShouldThrow) {
+      throw new Error("embedding backend down");
+    }
     const vectors = texts.map((t) => {
       const text = typeof t === "string" ? t : "";
       return embedRouter ? embedRouter(text) : embedVector;
@@ -54,7 +56,9 @@ let searchRouter: ((vector: number[]) => SearchHit[]) | null = null;
 
 mock.module("./graph-search.js", () => ({
   searchGraphNodes: async (vector: number[]) => {
-    if (searchRouter) return searchRouter(vector);
+    if (searchRouter) {
+      return searchRouter(vector);
+    }
     return [];
   },
 }));
@@ -62,7 +66,9 @@ mock.module("./graph-search.js", () => ({
 // Returning `null` from getConfiguredProvider causes rerankAndDedup and
 // dedupCrossCategory to fall back to the candidate list without calling an
 // LLM, keeping these tests fully offline.
+const realPluginApi = await import("@vellumai/plugin-api");
 mock.module("@vellumai/plugin-api", () => ({
+  ...realPluginApi,
   getConfiguredProvider: async () => null,
 }));
 
@@ -114,14 +120,13 @@ function makeCapabilityNode(content: string, capId: string): NewNode {
     narrativeRole: null,
     partOfStory: null,
     imageRefs: null,
-    scopeId: "default",
   };
 }
 
 describe("loadContextMemory — query/sparse vector surfacing", () => {
   beforeAll(async () => {
     await initializeDb();
-  });
+  }, 30_000);
 
   beforeEach(async () => {
     embedShouldThrow = false;
@@ -131,13 +136,12 @@ describe("loadContextMemory — query/sparse vector surfacing", () => {
     searchRouter = null;
     resetDbForTesting();
     await initializeDb();
-  });
+  }, 30_000);
 
   test("returns the dense queryVector when embedding succeeds", async () => {
     embedVector = [0.42, 0.5, 0.7];
 
     const result = await loadContextMemory({
-      scopeId: "test-scope",
       recentSummaries: ["recent summary one", "recent summary two"],
       config: TEST_CONFIG,
     });
@@ -152,7 +156,6 @@ describe("loadContextMemory — query/sparse vector surfacing", () => {
     embedShouldThrow = true;
 
     const result = await loadContextMemory({
-      scopeId: "test-scope",
       recentSummaries: ["recent summary"],
       config: TEST_CONFIG,
     });
@@ -164,7 +167,6 @@ describe("loadContextMemory — query/sparse vector surfacing", () => {
 
   test("returns undefined queryVector when no summaries are provided", async () => {
     const result = await loadContextMemory({
-      scopeId: "test-scope",
       recentSummaries: [],
       config: TEST_CONFIG,
     });
@@ -177,7 +179,7 @@ describe("loadContextMemory — query/sparse vector surfacing", () => {
 describe("retrieveForTurn — query/sparse vector surfacing", () => {
   beforeAll(async () => {
     await initializeDb();
-  });
+  }, 30_000);
 
   beforeEach(async () => {
     embedShouldThrow = false;
@@ -187,7 +189,7 @@ describe("retrieveForTurn — query/sparse vector surfacing", () => {
     searchRouter = null;
     resetDbForTesting();
     await initializeDb();
-  });
+  }, 30_000);
 
   test("returns the dense queryVector when embedding succeeds", async () => {
     embedVector = [0.9, 0.8, 0.7];
@@ -196,7 +198,6 @@ describe("retrieveForTurn — query/sparse vector surfacing", () => {
     const result = await retrieveForTurn({
       assistantLastMessage: "What did we decide yesterday?",
       userLastMessage: "We decided to ship on Friday.",
-      scopeId: "test-scope",
       config: TEST_CONFIG,
       tracker,
     });
@@ -218,7 +219,6 @@ describe("retrieveForTurn — query/sparse vector surfacing", () => {
     const result = await retrieveForTurn({
       assistantLastMessage: "hello",
       userLastMessage: "how are you?",
-      scopeId: "test-scope",
       config: TEST_CONFIG,
       tracker,
     });
@@ -236,7 +236,6 @@ describe("retrieveForTurn — query/sparse vector surfacing", () => {
     const result = await retrieveForTurn({
       assistantLastMessage: "",
       userLastMessage: "",
-      scopeId: "test-scope",
       config: TEST_CONFIG,
       tracker,
     });
@@ -258,8 +257,12 @@ describe("retrieveForTurn — topic-pivot recovery", () => {
     const lowered = text.toLowerCase();
     const cakeHits = (lowered.match(/cake/g) ?? []).length;
     const shirtHits = (lowered.match(/shirt/g) ?? []).length;
-    if (cakeHits > shirtHits) return [0, 1, 0];
-    if (shirtHits > cakeHits) return [1, 0, 0];
+    if (cakeHits > shirtHits) {
+      return [0, 1, 0];
+    }
+    if (shirtHits > cakeHits) {
+      return [1, 0, 0];
+    }
     return [0.1, 0.1, 0.1];
   }
 
@@ -268,8 +271,12 @@ describe("retrieveForTurn — topic-pivot recovery", () => {
 
   function vectorSearchRouter(vector: number[]): SearchHit[] {
     const [a = 0, b = 0] = vector;
-    if (a === 1 && b === 0) return [{ nodeId: shirtNodeId, score: 0.9 }];
-    if (a === 0 && b === 1) return [{ nodeId: cakeNodeId, score: 0.9 }];
+    if (a === 1 && b === 0) {
+      return [{ nodeId: shirtNodeId, score: 0.9 }];
+    }
+    if (a === 0 && b === 1) {
+      return [{ nodeId: cakeNodeId, score: 0.9 }];
+    }
     return [];
   }
 
@@ -300,13 +307,12 @@ describe("retrieveForTurn — topic-pivot recovery", () => {
       narrativeRole: null,
       partOfStory: null,
       imageRefs: null,
-      scopeId: "test-scope",
     };
   }
 
   beforeAll(async () => {
     await initializeDb();
-  });
+  }, 30_000);
 
   beforeEach(() => {
     embedShouldThrow = false;
@@ -339,7 +345,6 @@ describe("retrieveForTurn — topic-pivot recovery", () => {
     const result = await retrieveForTurn({
       assistantLastMessage: assistantLast,
       userLastMessage: userLast,
-      scopeId: "test-scope",
       config: TEST_CONFIG,
       tracker,
     });
@@ -362,7 +367,6 @@ describe("retrieveForTurn — topic-pivot recovery", () => {
     const result = await retrieveForTurn({
       assistantLastMessage: "shirt shirt shirt shirt shirt",
       userLastMessage: "",
-      scopeId: "test-scope",
       config: TEST_CONFIG,
       tracker,
     });
@@ -383,7 +387,6 @@ describe("retrieveForTurn — topic-pivot recovery", () => {
     const result = await retrieveForTurn({
       assistantLastMessage: "",
       userLastMessage: "the birthday cake",
-      scopeId: "test-scope",
       config: TEST_CONFIG,
       tracker,
     });
@@ -416,11 +419,15 @@ describe("loadContextMemory — dual-query capability ranking", () => {
   // driving the capability-reserve decision.
   function keywordEmbedRouter(text: string): number[] {
     const lowered = text.toLowerCase();
-    if (lowered.includes("inbox")) return [1, 0, 0];
-    if (lowered.includes("heartbeat") || lowered.includes("readiness"))
+    if (lowered.includes("inbox")) {
+      return [1, 0, 0];
+    }
+    if (lowered.includes("heartbeat") || lowered.includes("readiness")) {
       return [0, 1, 0];
-    if (lowered.includes("bridgerton") || lowered.includes("watch"))
+    }
+    if (lowered.includes("bridgerton") || lowered.includes("watch")) {
       return [0, 0, 1];
+    }
     return [0.1, 0.1, 0.1];
   }
 
@@ -455,7 +462,7 @@ describe("loadContextMemory — dual-query capability ranking", () => {
 
   beforeAll(async () => {
     await initializeDb();
-  });
+  }, 30_000);
 
   beforeEach(() => {
     embedShouldThrow = false;
@@ -504,7 +511,6 @@ describe("loadContextMemory — dual-query capability ranking", () => {
     searchRouter = vectorSearchRouter;
 
     const result = await loadContextMemory({
-      scopeId: "default",
       recentSummaries: [LONG_HEARTBEAT_SUMMARY],
       userQuery: "clean up my inbox",
       config: DUAL_QUERY_CONFIG,
@@ -521,7 +527,6 @@ describe("loadContextMemory — dual-query capability ranking", () => {
     searchRouter = vectorSearchRouter;
 
     const result = await loadContextMemory({
-      scopeId: "default",
       recentSummaries: [LONG_HEARTBEAT_SUMMARY],
       config: DUAL_QUERY_CONFIG,
     });
@@ -539,7 +544,6 @@ describe("loadContextMemory — dual-query capability ranking", () => {
     // the user query are disjoint signals, so we always pay for both
     // embeds when a userQuery is present.
     const result = await loadContextMemory({
-      scopeId: "default",
       recentSummaries: ["hi"],
       userQuery:
         "this is a dramatically longer user query that easily dominates the summary text length",
@@ -555,7 +559,6 @@ describe("loadContextMemory — dual-query capability ranking", () => {
     searchRouter = vectorSearchRouter;
 
     const result = await loadContextMemory({
-      scopeId: "default",
       recentSummaries: [LONG_HEARTBEAT_SUMMARY],
       userQuery: "clean up my inbox",
       config: DUAL_QUERY_CONFIG,
@@ -574,14 +577,12 @@ describe("loadContextMemory — dual-query capability ranking", () => {
     searchRouter = vectorSearchRouter;
 
     const missing = await loadContextMemory({
-      scopeId: "default",
       recentSummaries: [LONG_HEARTBEAT_SUMMARY],
       config: DUAL_QUERY_CONFIG,
     });
     expect(missing.userQuerySparseVector).toBeUndefined();
 
     const blank = await loadContextMemory({
-      scopeId: "default",
       recentSummaries: [LONG_HEARTBEAT_SUMMARY],
       userQuery: "   ",
       config: DUAL_QUERY_CONFIG,
@@ -595,7 +596,6 @@ describe("loadContextMemory — dual-query capability ranking", () => {
 
     // No userQuery → only the summary embed runs.
     const missing = await loadContextMemory({
-      scopeId: "default",
       recentSummaries: [LONG_HEARTBEAT_SUMMARY],
       config: DUAL_QUERY_CONFIG,
     });
@@ -607,7 +607,6 @@ describe("loadContextMemory — dual-query capability ranking", () => {
     embedCallCount = 0;
 
     const blank = await loadContextMemory({
-      scopeId: "default",
       recentSummaries: [LONG_HEARTBEAT_SUMMARY],
       userQuery: "   ",
       config: DUAL_QUERY_CONFIG,

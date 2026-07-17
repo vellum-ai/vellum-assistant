@@ -5,10 +5,6 @@ import type { DiskUsageInfo } from "../util/disk-usage.js";
 let diskSample: DiskUsageInfo | null = null;
 const eventSubscribers = new Set<(event: unknown) => void>();
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({}),
-}));
-
 mock.module("../util/disk-usage.js", () => ({
   getDiskUsageInfo: () => diskSample,
 }));

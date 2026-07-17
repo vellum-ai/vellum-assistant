@@ -5,7 +5,6 @@ import { Outlet, useLocation, useNavigate } from "react-router";
 import { useOnboardingLogin } from "@/hooks/use-onboarding-login";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { handleLogout } from "@/lib/auth/handle-logout";
-import { isElectron } from "@/runtime/is-electron";
 import { useHasPlatformSession } from "@/stores/auth-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
@@ -22,14 +21,13 @@ import { SidebarTree, type SidebarItem } from "@/components/sidebar-tree";
  */
 export function SettingsLayout() {
   const settingsDeveloperNav = useAssistantFeatureFlagStore.use.settingsDeveloperNav();
+  const credentialsSettingsEnabled = useAssistantFeatureFlagStore.use.credentialsSettings();
   const platformNotifications = useClientFeatureFlagStore.use.platformNotifications();
   const bookmarksEnabled = useClientFeatureFlagStore.use.bookmarks();
-  const accountMfaEnabled = useClientFeatureFlagStore.use.accountMfa();
   const platformGate = usePlatformGate({ platformHostedOnly: true });
-  // The Vellum account exists independently of the active assistant's
-  // hosting, so account-level entries (billing, security) use the default
-  // gate — hidden only when the platform API is disabled entirely.
-  const accountGate = usePlatformGate();
+  // Billing & Usage is never hidden: the Usage tab reads from the local
+  // daemon and works for every assistant; the page gates its
+  // billing-specific tab internally.
   const { pathname } = useLocation();
   const navigate = useNavigate();
   // Show Log Out when a platform session exists, Log In otherwise.
@@ -45,25 +43,10 @@ export function SettingsLayout() {
         ) {
           return false;
         }
-        if (item.id === "billing" && accountGate !== "full") {
-          return false;
-        }
-        if (
-          item.id === "security" &&
-          (!accountMfaEnabled || accountGate === "gated")
-        ) {
-          return false;
-        }
         if (item.id === "bookmarks" && !bookmarksEnabled) {
           return false;
         }
-        if (item.id === "devices" && platformGate === "gated") {
-          return false;
-        }
-        // Hotkey rebinding drives Electron globalShortcut + menu accelerators,
-        // which have no web/iOS analogue. Hide the entry off the desktop app;
-        // the page itself also redirects as defense in depth.
-        if (item.id === "keyboard-shortcuts" && !isElectron()) {
+        if (item.id === "credentials" && !credentialsSettingsEnabled) {
           return false;
         }
         if (item.id === "developer") {
@@ -74,9 +57,8 @@ export function SettingsLayout() {
     [
       platformNotifications,
       platformGate,
-      accountGate,
       bookmarksEnabled,
-      accountMfaEnabled,
+      credentialsSettingsEnabled,
     ],
   );
 
@@ -105,12 +87,12 @@ export function SettingsLayout() {
   }, [settingsDeveloperNav, hasPlatformSession, navigate, login]);
 
   const pageTitle = useMemo(() => {
-    if (pathname === routes.settings.root) return "Settings";
+    if (pathname === routes.settings.root) {return "Settings";}
     const match = SETTINGS_SIDEBAR.find(
       (item) =>
         pathname === item.href || pathname.startsWith(item.href + "/"),
     );
-    if (match) return match.label;
+    if (match) {return match.label;}
     return "Settings";
   }, [pathname]);
 

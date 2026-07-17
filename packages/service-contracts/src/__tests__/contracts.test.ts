@@ -27,9 +27,7 @@ describe("package independence", () => {
   const sourceFiles = [
     "../index.ts",
     "../handles.ts",
-    "../grants.ts",
     "../rpc.ts",
-    "../rendering.ts",
     "../transport.ts",
     "../credential-rpc.ts",
     "../trust-rules.ts",

@@ -303,16 +303,45 @@ describe("lifecycle", () => {
     expect(chunks.length).toBe(0);
   });
 
-  test("emitted PCM chunks reach onChunk", async () => {
+  test("worklet quanta are coalesced into 800-sample batches", async () => {
     const chunks: ArrayBuffer[] = [];
     const capture = new LiveVoiceAudioCapture({ onChunk: (b) => chunks.push(b) });
     await capture.start();
 
-    const buf = new Int16Array([1, 2, 3]).buffer;
-    lastWorklet!.port.emit(buf);
+    // 10 quanta of 128 samples = 1280: one full batch plus a 480-sample
+    // tail held in the accumulator. Each quantum is filled with its ordinal
+    // so boundary continuity is observable.
+    for (let i = 0; i < 10; i++) {
+      const quantum = new Int16Array(128).fill(i + 1);
+      lastWorklet!.port.emit(quantum.buffer);
+    }
 
     expect(chunks.length).toBe(1);
+    const batch = new Int16Array(chunks[0]!);
+    expect(batch.length).toBe(800);
+    // Continuity across quantum boundaries: index 128k..128(k+1) holds
+    // quantum k+1's fill value, uninterrupted through the batch.
+    expect(batch[0]).toBe(1);
+    expect(batch[127]).toBe(1);
+    expect(batch[128]).toBe(2);
+    expect(batch[799]).toBe(7);
+  });
+
+  test("flush() emits the sub-batch tail synchronously and resets", async () => {
+    const chunks: ArrayBuffer[] = [];
+    const capture = new LiveVoiceAudioCapture({ onChunk: (b) => chunks.push(b) });
+    await capture.start();
+
+    lastWorklet!.port.emit(new Int16Array([1, 2, 3]).buffer);
+    expect(chunks.length).toBe(0); // held in the accumulator
+
+    capture.flush();
+    expect(chunks.length).toBe(1);
     expect(new Int16Array(chunks[0]!)).toEqual(new Int16Array([1, 2, 3]));
+
+    // The accumulator was reset: a second flush emits nothing.
+    capture.flush();
+    expect(chunks.length).toBe(1);
   });
 });
 

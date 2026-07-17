@@ -38,17 +38,9 @@
  * the persistence; nothing else is stored.
  */
 
-import {
-  type DrizzleDb,
-  getSqliteFrom,
-} from "../../../../persistence/db-connection.js";
+import { memorySqliteOrNull } from "../memory-db.js";
 import type { EdgeGraph } from "./edge.js";
 import type { Slug } from "./types.js";
-
-export interface LearnedEdgesDeps {
-  /** Handle to the database containing `memory_v3_selections`. */
-  db: DrizzleDb;
-}
 
 export interface LearnedEdgesOptions {
   /** Decay half-life in milliseconds: a selector call this old contributes
@@ -86,11 +78,12 @@ interface SelectionRow {
  * Deterministic for fixed inputs: per-page neighbors order by NPMI desc, then
  * peer slug asc. Symmetric by construction — an edge contributes to BOTH
  * endpoints' neighbor lists (each independently subject to `maxPerPage`).
+ *
+ * Reads `memory_v3_selections` over the dedicated memory connection.
+ * Fail-soft: an unavailable memory database yields an empty graph — the lane
+ * simply surfaces no learned associations.
  */
-export function computeLearnedEdgeGraph(
-  deps: LearnedEdgesDeps,
-  opts: LearnedEdgesOptions,
-): EdgeGraph {
+export function computeLearnedEdgeGraph(opts: LearnedEdgesOptions): EdgeGraph {
   const { halfLifeMs, minCount, npmiFloor, maxPerPage, now, windowMs } = opts;
   const empty: EdgeGraph = {
     adjacency: new Map(),
@@ -99,7 +92,12 @@ export function computeLearnedEdgeGraph(
   };
   if (maxPerPage <= 0) return empty;
 
-  const rows = getSqliteFrom(deps.db)
+  const raw = memorySqliteOrNull("computeLearnedEdgeGraph");
+  if (!raw) {
+    return empty;
+  }
+
+  const rows = raw
     .query(
       /*sql*/ `
       SELECT conversation_id, slug, created_at FROM memory_v3_selections
@@ -158,8 +156,13 @@ export function computeLearnedEdgeGraph(
     const pab = mass / total;
     const pa = uni.get(a)! / total;
     const pb = uni.get(b)! / total;
+    // pab === 1 (a pair present in every in-window call) makes the
+    // normalizer -log(pab) hit -0 and the score NaN; NaN would sail past the
+    // floor comparison and corrupt the NPMI-desc neighbor ordering below.
     const npmi = Math.log(pab / (pa * pb)) / -Math.log(pab);
-    if (npmi <= npmiFloor) continue;
+    if (!Number.isFinite(npmi) || npmi <= npmiFloor) {
+      continue;
+    }
     addNeighbor(a, b, npmi);
     addNeighbor(b, a, npmi);
   }

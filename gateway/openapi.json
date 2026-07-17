@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Vellum Gateway API",
-    "version": "0.10.6",
+    "version": "0.10.7",
     "description": "Auto-generated OpenAPI specification for the Vellum Gateway HTTP endpoints."
   },
   "servers": [{ "url": "", "description": "Same-origin (gateway)" }],
@@ -672,6 +672,83 @@
         }
       }
     },
+    "/v1/channel-permission-overrides/resolve": {
+      "post": {
+        "operationId": "channelPermissionResolve",
+        "summary": "Resolve the effective channel-permission threshold",
+        "tags": ["channel-permission-overrides"],
+        "description": "Read-only cascade resolution for one coordinate: walks channel → channel_type → adapter → workspace for the given selector keys and contact-type, returning the winning cell's threshold and scope, or null when no cell matches (the caller then falls through to the global thresholds). Same resolver the runtime evaluator uses over IPC.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "adapter": { "type": "string", "minLength": 1 },
+                  "channelType": {
+                    "type": "string",
+                    "enum": ["dm", "private", "public"]
+                  },
+                  "channelExternalId": { "type": "string", "minLength": 1 },
+                  "contactType": {
+                    "type": "string",
+                    "enum": [
+                      "guardian",
+                      "trusted_contact",
+                      "unverified_contact",
+                      "unknown"
+                    ]
+                  }
+                },
+                "required": ["adapter", "contactType"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "resolved": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "threshold": {
+                              "type": "string",
+                              "enum": ["none", "low", "medium", "high"]
+                            },
+                            "scope": {
+                              "type": "string",
+                              "enum": [
+                                "workspace",
+                                "adapter",
+                                "channel_type",
+                                "channel"
+                              ]
+                            }
+                          },
+                          "required": ["threshold", "scope"],
+                          "additionalProperties": false
+                        },
+                        { "type": "null" }
+                      ]
+                    }
+                  },
+                  "required": ["resolved"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/channel-permission-overrides/delete": {
       "post": {
         "operationId": "channelPermissionOverrideDelete",
@@ -1191,6 +1268,138 @@
                   },
                   "required": ["ok", "channel"],
                   "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/credential-requests/peek": {
+      "post": {
+        "operationId": "credential_requests_peek",
+        "summary": "Validate a credential-request token without consuming it",
+        "tags": ["credential-requests"],
+        "description": "Returns the service/field/label the link collects. The token travels in the body so it never appears in URLs or access logs.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "token": { "type": "string", "minLength": 20 }
+                },
+                "required": ["token"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "service": { "type": "string" },
+                        "field": { "type": "string" },
+                        "label": {
+                          "anyOf": [{ "type": "string" }, { "type": "null" }]
+                        },
+                        "expiresAt": { "type": "number" }
+                      },
+                      "required": ["service", "field", "label", "expiresAt"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": ["INVALID", "EXPIRED", "USED"]
+                            },
+                            "message": { "type": "string" }
+                          },
+                          "required": ["code", "message"],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": ["error"],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/credential-requests/submit": {
+      "post": {
+        "operationId": "credential_requests_submit",
+        "summary": "Consume a credential-request token and store the value",
+        "tags": ["credential-requests"],
+        "description": "Single-use: atomically claims the link, forwards the value to the assistant's credential store, and marks the link redeemed.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "token": { "type": "string", "minLength": 20 },
+                  "value": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 32768
+                  }
+                },
+                "required": ["token", "value"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": { "ok": { "type": "boolean" } },
+                      "required": ["ok"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": ["INVALID", "EXPIRED", "USED"]
+                            },
+                            "message": { "type": "string" }
+                          },
+                          "required": ["code", "message"],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": ["error"],
+                      "additionalProperties": false
+                    }
+                  ]
                 }
               }
             }

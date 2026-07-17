@@ -18,7 +18,14 @@ const execFileAsync = promisify(execFile);
 export interface ProcInfo {
   pid: number;
   ppid: number;
-  /** Best-effort full command line (falls back to the executable name). */
+  /**
+   * Safe process descriptor derived from the raw command line via
+   * {@link deriveName}. The raw command line is never stored because it can
+   * contain secrets (bearer tokens, API keys, database URLs) passed as
+   * process arguments. This redacted descriptor preserves diagnostic
+   * utility (identifying what is running) without leaking secrets into
+   * snapshot files.
+   */
   command: string;
 }
 
@@ -26,6 +33,7 @@ export interface ProcTreeNode {
   pid: number;
   /** Friendly process name derived from the command. */
   name: string;
+  /** Safe process descriptor (redacted via deriveName at collection time). */
   command: string;
   children: ProcTreeNode[];
 }
@@ -72,17 +80,17 @@ function scriptName(scriptPath: string): string {
  */
 export function deriveName(command: string): string {
   const tokens = command.trim().split(/\s+/).filter(Boolean);
-  if (tokens.length === 0) return "(unknown)";
+  if (tokens.length === 0) {return "(unknown)";}
 
   const argv0 = basename(tokens[0]);
   if (RUNTIMES.has(argv0)) {
     const args = tokens.slice(1);
     const script = args.find((t) => SCRIPT_EXT_RE.test(t));
-    if (script) return scriptName(script);
+    if (script) {return scriptName(script);}
     // No script to summarize: show the non-flag arguments so the entry reads as
     // "what was run" rather than an opaque `bun`. Flags are dropped as noise.
     const meaningful = args.filter((t) => !t.startsWith("-"));
-    if (meaningful.length > 0) return `${argv0} ${meaningful.join(" ")}`;
+    if (meaningful.length > 0) {return `${argv0} ${meaningful.join(" ")}`;}
   }
   return argv0;
 }
@@ -96,12 +104,12 @@ export function deriveName(command: string): string {
 function parseProcStat(content: string): { comm: string; ppid: number } | null {
   const lparen = content.indexOf("(");
   const rparen = content.lastIndexOf(")");
-  if (lparen === -1 || rparen === -1 || rparen < lparen) return null;
+  if (lparen === -1 || rparen === -1 || rparen < lparen) {return null;}
   const comm = content.slice(lparen + 1, rparen);
   // After ")" come: " <state> <ppid> …" — split the remainder on spaces.
   const rest = content.slice(rparen + 2).split(" ");
   const ppid = Number(rest[1]);
-  if (!Number.isInteger(ppid)) return null;
+  if (!Number.isInteger(ppid)) {return null;}
   return { comm, ppid };
 }
 
@@ -111,13 +119,13 @@ function listProcessesFromProc(): ProcInfo[] {
   const procs: ProcInfo[] = [];
   for (const entry of entries) {
     const pid = Number(entry);
-    if (!Number.isInteger(pid) || pid <= 0) continue;
+    if (!Number.isInteger(pid) || pid <= 0) {continue;}
 
     let ppid: number;
     let comm: string;
     try {
       const parsed = parseProcStat(readFileSync(`/proc/${pid}/stat`, "utf8"));
-      if (!parsed) continue;
+      if (!parsed) {continue;}
       ({ ppid, comm } = parsed);
     } catch {
       // Process exited between readdir and read — skip.
@@ -125,11 +133,15 @@ function listProcessesFromProc(): ProcInfo[] {
     }
 
     // `/proc/<pid>/cmdline` is NUL-delimited and empty for kernel threads.
+    // Redact the raw command line via deriveName to strip secrets (tokens,
+    // API keys, database URLs) that are commonly passed as process arguments.
+    // The raw command line is read here but never stored — only the derived
+    // safe descriptor is kept.
     let command = comm;
     try {
       const raw = readFileSync(`/proc/${pid}/cmdline`, "utf8");
       const joined = raw.split("\0").filter(Boolean).join(" ");
-      if (joined) command = joined;
+      if (joined) {command = deriveName(joined);}
     } catch {
       // Fall back to comm.
     }
@@ -150,11 +162,11 @@ async function listProcessesFromPs(): Promise<ProcInfo[]> {
   const procs: ProcInfo[] = [];
   for (const line of stdout.split("\n")) {
     const m = line.match(/^\s*(\d+)\s+(\d+)\s+(.*)$/);
-    if (!m) continue;
+    if (!m) {continue;}
     procs.push({
       pid: Number(m[1]),
       ppid: Number(m[2]),
-      command: m[3].trim(),
+      command: deriveName(m[3].trim()),
     });
   }
   return procs;
@@ -186,8 +198,8 @@ export function buildProcessTree(
   for (const p of procs) {
     byPid.set(p.pid, p);
     const siblings = childrenOf.get(p.ppid);
-    if (siblings) siblings.push(p.pid);
-    else childrenOf.set(p.ppid, [p.pid]);
+    if (siblings) {siblings.push(p.pid);}
+    else {childrenOf.set(p.ppid, [p.pid]);}
   }
 
   const visited = new Set<number>();

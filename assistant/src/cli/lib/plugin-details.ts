@@ -6,16 +6,21 @@
  * most authoritative for each field:
  *   1. The locally installed copy under `<workspacePluginsDir>/<name>/`, when
  *      present — its `package.json` and `README.md` are read straight off disk.
- *   2. The curated `plugins/marketplace.json` entry, for external
- *      ecosystem plugins (description / homepage / license / pinned source).
+ *   2. The catalog metadata for external ecosystem plugins (description /
+ *      homepage / license / pinned source). At the default ref, the gated
+ *      plugin catalog (platform-first, bundled offline) — the same source
+ *      `assistant plugins search` and install-by-name resolve. At an explicit
+ *      historical `ref`, the GitHub `plugins/marketplace.json` at that revision,
+ *      so a reviewed/rolled-back marketplace entry is inspected at the ref
+ *      requested (inherently a git operation, matching pin history / inspect).
  *   3. The plugin's own external repository at the pinned `owner/repo[/path]`,
  *      fetched via the GitHub Contents API for the README and any
  *      `package.json` fields the manifest doesn't carry.
  *
- * The `source` field is the marketplace entry's pinned origin when one claims
- * the name, otherwise `null` — an installed copy with no catalog entry has no
+ * The `source` field is the catalog entry's pinned origin when one claims the
+ * name, otherwise `null` — an installed copy with no catalog entry has no
  * advertised origin. Name-collision precedence matches {@link ./search-plugins}
- * and {@link ./install-from-github}: a marketplace entry owns its name, so the
+ * and {@link ./install-from-github}: a catalog entry owns its name, so the
  * detail page advertises the external source the catalog and installer use. A
  * same-named `plugins/<name>/` directory is that plugin's adapter stub, not a
  * standalone plugin, so it does not override the claim.
@@ -29,16 +34,25 @@ import { join } from "node:path";
 
 import { getWorkspacePluginsDir } from "../../util/platform.js";
 import type { FetchLike } from "./fetch-like.js";
+import { sanitizePluginName } from "./install-from-github.js";
 import {
-  DEFAULT_PLUGIN_REF,
-  sanitizePluginName,
-} from "./install-from-github.js";
-import { parsePluginArtifact, type PluginArtifact } from "./plugin-artifact.js";
+  parsePluginArtifact,
+  parsePluginIcon,
+  type PluginArtifact,
+} from "./plugin-artifact.js";
 import {
-  fetchMarketplaceEntries,
-  type MarketplaceEntry,
-} from "./plugin-marketplace.js";
-import type { PluginMatchSource } from "./search-plugins.js";
+  findCatalogEntry,
+  resolveSourceFromMatch,
+} from "./plugin-catalog-resolve.js";
+import { DEFAULT_PLUGIN_REF } from "./plugin-constants.js";
+import { readValidatedPluginIcon } from "./plugin-icon-file.js";
+import { fetchMarketplaceEntries } from "./plugin-marketplace.js";
+import {
+  marketplaceMatch,
+  PluginCatalogUnavailableError,
+  type PluginMatchSource,
+  type PluginSearchMatch,
+} from "./search-plugins.js";
 
 /** Recognised README filenames, matched case-insensitively against a listing. */
 const README_RE = /^readme(\.md|\.markdown)?$/i;
@@ -58,6 +72,7 @@ interface PluginManifestFields {
   readonly homepage: string | null;
   readonly license: string | null;
   readonly artifact: PluginArtifact | null;
+  readonly icon: string | null;
 }
 
 /** Options that control which plugin to resolve and at what ref. */
@@ -92,7 +107,7 @@ export interface PluginDetails {
   readonly version: string | null;
   /**
    * Pinned origin, mirroring the catalog's {@link PluginMatchSource}; `null`
-   * when an installed copy has no marketplace entry to advertise an origin.
+   * when an installed copy has no catalog entry to advertise an origin.
    */
   readonly source: PluginMatchSource | null;
   /** README markdown, or `null` when the plugin ships none. */
@@ -106,6 +121,22 @@ export interface PluginDetails {
    * descriptor is incomplete (e.g. a placeholder `sha256`).
    */
   readonly artifact: PluginArtifact | null;
+  /**
+   * Author-declared emoji icon from the plugin's `package.json` `vellum.icon`,
+   * resolved from the installed copy first then the repo; `null` when none.
+   */
+  readonly icon: string | null;
+  /**
+   * Whether the locally installed copy ships a valid author-bundled `icon.png`
+   * (validated for PNG magic, dimensions, and size). `false` when the plugin is
+   * not installed or ships no valid icon.
+   */
+  readonly hasIcon: boolean;
+  /**
+   * Content hash of the validated `icon.png`; `null` when {@link hasIcon} is
+   * false. A cache-buster for the bundled-icon endpoint.
+   */
+  readonly iconVersion: string | null;
 }
 
 /** No installed copy and no catalog/source entry claims the name. */
@@ -123,9 +154,12 @@ export class PluginDetailsNotFoundError extends Error {
  * Resolve the detail view for {@link opts.name}.
  *
  * Throws {@link PluginDetailsNotFoundError} when the name is neither installed
- * locally nor present in the marketplace catalog. Network failures while
- * enriching from GitHub degrade to the fields
- * already known from disk / the manifest rather than failing the whole view —
+ * locally nor present in the catalog (gated at the default ref, the GitHub
+ * marketplace at an explicit historical ref). A gated-catalog outage
+ * ({@link PluginCatalogUnavailableError}) degrades to the on-disk fields only
+ * when a local copy exists; with nothing installed to render it propagates so
+ * the caller can map the transient failure to a retryable 503 rather than a
+ * misleading 404. Network failures while enriching from GitHub always degrade —
  * a detail page that renders metadata without a README beats a hard error.
  */
 export async function getPluginDetails(
@@ -138,23 +172,22 @@ export async function getPluginDetails(
 
   const pluginsDir = deps.workspacePluginsDir ?? getWorkspacePluginsDir();
   const local = readLocalPlugin(pluginsDir, name);
+  // Validate the installed copy's bundled icon.png (fail-closed: a missing or
+  // invalid icon — including a not-installed plugin — resolves to no icon).
+  const localIcon = readValidatedPluginIcon(join(pluginsDir, name));
 
-  const marketplaceEntry = await findMarketplaceEntry(name, ref, fetchFn);
+  const catalogMatch = await resolveCatalogEntry(
+    name,
+    ref,
+    fetchFn,
+    local.installed,
+  );
 
-  if (!local.installed && !marketplaceEntry) {
+  if (!local.installed && !catalogMatch) {
     throw new PluginDetailsNotFoundError(name, ref);
   }
 
-  const source: PluginMatchSource | null = marketplaceEntry
-    ? {
-        kind: "github",
-        repo: marketplaceEntry.source.repo,
-        ref: marketplaceEntry.source.ref,
-        ...(marketplaceEntry.source.path
-          ? { path: marketplaceEntry.source.path }
-          : {}),
-      }
-    : null;
+  const source: PluginMatchSource | null = catalogMatch?.source ?? null;
 
   const remote = source
     ? await readRemotePlugin(source, fetchFn)
@@ -167,17 +200,17 @@ export async function getPluginDetails(
     installed: local.installed,
     description:
       local.manifest.description ??
-      marketplaceEntry?.description ??
+      catalogMatch?.description ??
       remote.manifest.description ??
       null,
     homepage:
       local.manifest.homepage ??
-      marketplaceEntry?.homepage ??
+      catalogMatch?.homepage ??
       remote.manifest.homepage ??
       null,
     license:
       local.manifest.license ??
-      marketplaceEntry?.license ??
+      catalogMatch?.license ??
       remote.manifest.license ??
       null,
     version: local.manifest.version ?? remote.manifest.version ?? null,
@@ -185,6 +218,9 @@ export async function getPluginDetails(
     readme,
     ref,
     artifact: local.manifest.artifact ?? remote.manifest.artifact,
+    icon: local.manifest.icon ?? remote.manifest.icon,
+    hasIcon: localIcon.hasIcon,
+    iconVersion: localIcon.iconVersion ?? null,
   };
 }
 
@@ -224,7 +260,9 @@ function readLocalReadme(dir: string): string | null {
     return null;
   }
   const readme = names.find((n) => README_RE.test(n));
-  if (!readme) return null;
+  if (!readme) {
+    return null;
+  }
   try {
     return readFileSync(join(dir, readme), "utf8");
   } catch {
@@ -298,9 +336,13 @@ async function listDirSafe(
 
   try {
     const res = await githubFetch(url, "application/vnd.github+json", fetchFn);
-    if (!res.ok) return null;
+    if (!res.ok) {
+      return null;
+    }
     const body = (await res.json()) as unknown;
-    if (!Array.isArray(body)) return null;
+    if (!Array.isArray(body)) {
+      return null;
+    }
     return body as readonly GitHubContentEntry[];
   } catch {
     return null;
@@ -312,33 +354,93 @@ async function fetchRawFile(
   entry: GitHubContentEntry,
   fetchFn: FetchLike,
 ): Promise<string | null> {
-  if (!entry.download_url) return null;
+  if (!entry.download_url) {
+    return null;
+  }
   try {
     const res = await githubFetch(
       entry.download_url,
       "application/vnd.github.raw",
       fetchFn,
     );
-    if (!res.ok) return null;
+    if (!res.ok) {
+      return null;
+    }
     return await res.text();
   } catch {
     return null;
   }
 }
 
-async function findMarketplaceEntry(
+/**
+ * Resolve the external catalog entry claiming {@link name}.
+ *
+ * The default ref reads the gated catalog (the same source search / install
+ * use). An explicit historical {@link ref} reads the GitHub marketplace
+ * manifest at that revision — the gated catalog is ref-agnostic, so honoring a
+ * reviewed/rolled-back revision is inherently a git lookup, matching the pin
+ * history / inspect carve-out.
+ *
+ * A gated-catalog outage (fail-hard {@link PluginCatalogUnavailableError})
+ * propagates when nothing is installed — there is nothing to render and the
+ * failure is transient, so the caller maps it to a retryable 503 instead of a
+ * misleading not-found. When a local copy exists ({@link installed}) that same
+ * outage degrades to `null` so the view still renders from disk. A marketplace
+ * fetch/parse failure or a malformed entry always degrades to `null`: that
+ * metadata is supplementary, never required to render a detail view.
+ */
+async function resolveCatalogEntry(
   name: string,
   ref: string,
   fetchFn: FetchLike,
-): Promise<MarketplaceEntry | null> {
+  installed: boolean,
+): Promise<PluginSearchMatch | null> {
   try {
-    const entries = await fetchMarketplaceEntries({ fetch: fetchFn }, { ref });
-    return entries.find((e) => e.name === name) ?? null;
-  } catch {
-    // A missing or malformed manifest degrades to "no external entry" — the
-    // marketplace is supplementary, never required to render a detail view.
+    const match =
+      ref === DEFAULT_PLUGIN_REF
+        ? await findCatalogEntry(name, { fetch: fetchFn })
+        : await findMarketplaceMatch(name, ref, fetchFn);
+    return validateCatalogMatchSource(match);
+  } catch (err) {
+    if (err instanceof PluginCatalogUnavailableError && !installed) {
+      throw err;
+    }
     return null;
   }
+}
+
+/**
+ * Guard a resolved catalog match through the installer's source validation.
+ *
+ * Returns the match only when {@link resolveSourceFromMatch} accepts its source
+ * (valid `owner/repo` slug, clean path, full commit SHA). A malformed row — the
+ * exact coordinate install-by-name refuses — resolves to `null`, so the detail
+ * view neither advertises its source nor enriches from it (metadata included):
+ * the whole row is untrusted, mirroring install rejecting it.
+ */
+function validateCatalogMatchSource(
+  match: PluginSearchMatch | null,
+): PluginSearchMatch | null {
+  if (!match) {
+    return null;
+  }
+  try {
+    resolveSourceFromMatch(match);
+    return match;
+  } catch {
+    return null;
+  }
+}
+
+/** Read the GitHub marketplace at {@link ref} and project the named entry. */
+async function findMarketplaceMatch(
+  name: string,
+  ref: string,
+  fetchFn: FetchLike,
+): Promise<PluginSearchMatch | null> {
+  const entries = await fetchMarketplaceEntries({ fetch: fetchFn }, { ref });
+  const entry = entries.find((e) => e.name === name);
+  return entry ? marketplaceMatch(entry) : null;
 }
 
 function githubFetch(
@@ -358,6 +460,7 @@ function emptyManifest(): PluginManifestFields {
     homepage: null,
     license: null,
     artifact: null,
+    icon: null,
   };
 }
 
@@ -382,6 +485,7 @@ function parseManifest(raw: string): PluginManifestFields {
     homepage: typeof meta.homepage === "string" ? meta.homepage : null,
     license: normalizeLicense(meta.license),
     artifact: parsePluginArtifact(parsed),
+    icon: parsePluginIcon(parsed) ?? null,
   };
 }
 
@@ -390,7 +494,9 @@ function parseManifest(raw: string): PluginManifestFields {
  * `{ "type": "MIT" }` still appears in the wild — surface its `type`.
  */
 function normalizeLicense(value: unknown): string | null {
-  if (typeof value === "string") return value;
+  if (typeof value === "string") {
+    return value;
+  }
   if (
     typeof value === "object" &&
     value !== null &&

@@ -371,7 +371,9 @@ async function teleportToLocal(
   // version-mismatch guard has nothing to compare against and a newer-cloud →
   // older-local import only fails late at runtime import.
   const sourceRuntimeVersion = await resolveRuntimeVersion(source.assistantId);
-  const upload = await requestSignedUploadUrl(sourceRuntimeVersion);
+  // The managed pod PUTs the bundle during the server-side export, so the
+  // URL must be signed for the runtime-reachable storage endpoint.
+  const upload = await requestSignedUploadUrl(sourceRuntimeVersion, "runtime");
 
   setStep("Exporting cloud data...");
   const jobId = await exportManagedToGcs(source.assistantId, upload.url);

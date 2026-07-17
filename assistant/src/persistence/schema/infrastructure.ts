@@ -170,6 +170,10 @@ export const llmRequestLogs = sqliteTable(
   ],
 );
 
+// Per-turn diagnostics for memory recall, recording hit counts, latency,
+// and the injected text. Lives in the dedicated memory database
+// (`assistant-memory.db`), not main — access it via the memory connection
+// (`getMemoryDb()` / `getMemorySqlite()`).
 export const memoryRecallLogs = sqliteTable(
   "memory_recall_logs",
   {
@@ -202,6 +206,9 @@ export const memoryRecallLogs = sqliteTable(
   ],
 );
 
+// Per-turn log of memory-v2 concept/skill activations. Lives in the
+// dedicated memory database (`assistant-memory.db`), not main — access it
+// via the memory connection (`getMemoryDb()` / `getMemorySqlite()`).
 export const memoryV2ActivationLogs = sqliteTable(
   "memory_v2_activation_logs",
   {
@@ -274,94 +281,49 @@ export const llmUsageEvents = sqliteTable(
   ],
 );
 
-export const lifecycleEvents = sqliteTable("lifecycle_events", {
-  id: text("id").primaryKey(),
-  eventName: text("event_name").notNull(), // 'app_open' | 'hatch'
-  createdAt: integer("created_at").notNull(),
-});
-
-export const onboardingEvents = sqliteTable("onboarding_events", {
-  id: text("id").primaryKey(),
-  createdAt: integer("created_at").notNull(),
-  screen: text("screen").notNull(),
-  toolsJson: text("tools_json"),
-  tasksJson: text("tasks_json"),
-  tone: text("tone"),
-  googleConnected: integer("google_connected", { mode: "boolean" }),
-  googleScopesJson: text("google_scopes_json"),
-  priorAssistantsJson: text("prior_assistants_json"),
-  abVariant: text("ab_variant"),
-  sessionId: text("session_id"),
-  stepName: text("step_name"),
-  stepIndex: integer("step_index"),
-  completedAt: text("completed_at"),
-  funnelVersion: text("funnel_version"),
-});
-
-// Aggregated legacy-loopback auth-fallback counts forwarded by the gateway.
-// One row per (guard, path, failure_kind) per flush window; `count` is how many
-// requests fell back to the loopback exemption in that window. Flushed to the
-// platform telemetry endpoint by the usage telemetry reporter.
-export const authFallbackEvents = sqliteTable("auth_fallback_events", {
-  id: text("id").primaryKey(),
-  createdAt: integer("created_at").notNull(),
-  guard: text("guard").notNull(), // 'edge' | 'edge-scoped' | 'edge-guardian'
-  path: text("path").notNull(),
-  failureKind: text("failure_kind").notNull(),
-  count: integer("count").notNull(),
-  windowStart: integer("window_start").notNull(),
-  windowEnd: integer("window_end").notNull(),
-});
-
 // One row per conversation started on the activation-rail bootstrap template.
 // Lets the activation funnel telemetry scope its events to activation
 // conversations without inspecting the bootstrap template at emit time.
+// Lives in the dedicated memory database (`assistant-memory.db`), not main —
+// access it via the memory connection (`getMemoryDb()` / `getMemorySqlite()`).
 export const activationSessions = sqliteTable("activation_sessions", {
   conversationId: text("conversation_id").primaryKey(),
   createdAt: integer("created_at").notNull(),
 });
 
-// One row per `skill_loaded` telemetry event, emitted when a Vellum-produced
-// skill is activated in a conversation — see skill-loaded-events-store.ts for
-// the data contract. Flushed by the usage telemetry reporter.
-export const skillLoadedEvents = sqliteTable(
-  "skill_loaded_events",
+// Key/value store for telemetry flush state — the per-event-type
+// `(last_reported_at, last_reported_id)` watermark cursors advanced by the
+// usage telemetry reporter after each successful upload. Lives on the
+// dedicated telemetry database (assistant-telemetry.db) so flush state
+// stays with the telemetry pipeline; the main DB's `memory_checkpoints`
+// ledger is reserved for DB-migration checkpoints.
+export const flushCheckpoints = sqliteTable("flush_checkpoints", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});
+
+// Generic telemetry outbox. Lives on the dedicated telemetry database
+// (assistant-telemetry.db). Each row's `payload` is the wire `TelemetryEvent`
+// JSON built at record time; `name` is the telemetry source id (e.g.
+// 'lifecycle'). Rows are deleted on successful flush by the usage telemetry
+// reporter. `conversation_id` is populated only for conversation-scoped
+// events so redaction stays an indexed column delete.
+export const telemetryEvents = sqliteTable(
+  "telemetry_events",
   {
     id: text("id").primaryKey(),
+    name: text("name").notNull(),
     createdAt: integer("created_at").notNull(),
     conversationId: text("conversation_id"),
-    skillName: text("skill_name").notNull(),
-    // ISO 8601 timestamp from the merged skill catalog, when known.
-    skillUpdatedAt: text("skill_updated_at"),
-    provider: text("provider"),
-    model: text("model"),
-    inferenceProfile: text("inference_profile"),
-    inferenceProfileSource: text("inference_profile_source"),
+    payload: text("payload").notNull(),
   },
   (table) => [
-    index("idx_skill_loaded_events_created_at_id").on(
+    index("idx_telemetry_events_name_created_at_id").on(
+      table.name,
       table.createdAt,
       table.id,
     ),
-  ],
-);
-
-// One row per `watchdog` telemetry event, emitted when a daemon watchdog
-// check fires (event-loop block, stream-idle stall, restart, ...) — see
-// watchdog-events-store.ts for the data contract. Flushed by the usage
-// telemetry reporter. `value` is a REAL (BQ FLOAT) so the daemon need not
-// distinguish int vs float; the platform serializer coerces ints to float.
-// `detail` is a JSON bag stored as text and forwarded verbatim.
-export const watchdogEvents = sqliteTable(
-  "watchdog_events",
-  {
-    id: text("id").primaryKey(),
-    createdAt: integer("created_at").notNull(),
-    checkName: text("check_name").notNull(),
-    value: real("value"),
-    detail: text("detail"),
-  },
-  (table) => [
-    index("idx_watchdog_events_created_at_id").on(table.createdAt, table.id),
+    index("idx_telemetry_events_conversation_id").on(table.conversationId),
   ],
 );

@@ -271,7 +271,7 @@ describe("CES client", () => {
     const client = createCesClient(transport);
 
     try {
-      await client.call("list_grants", {});
+      await client.call("list_credentials", {});
       expect(true).toBe(false);
     } catch (err) {
       expect(err).toBeInstanceOf(CesClientError);
@@ -304,7 +304,7 @@ describe("CES client", () => {
     transport.alive = false;
 
     try {
-      await client.call("list_grants", {});
+      await client.call("list_credentials", {});
       expect(true).toBe(false);
     } catch (err) {
       expect(err).toBeInstanceOf(CesTransportError);
@@ -334,7 +334,7 @@ describe("CES client", () => {
     await handshakePromise;
 
     // Start a call that will never complete
-    const callPromise = client.call("list_grants", {});
+    const callPromise = client.call("list_credentials", {});
 
     // Close the client
     client.close();

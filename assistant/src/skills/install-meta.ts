@@ -29,6 +29,14 @@ export interface SkillInstallMeta {
   // skills are eligible for the usage-based prune; "user" and untagged skills
   // are protected. Set by install/scaffold callers, never defaulted here.
   author?: "assistant" | "user";
+  // Conversation whose trace the retrospective distilled this skill from (the
+  // fork's parent). The durable lineage record for retrospective-authored
+  // skills.
+  sourceConversationId?: string;
+  // Retrospective background (fork) conversation that authored this skill.
+  // That conversation is GC'd once superseded, so this id is a debugging
+  // breadcrumb only — `sourceConversationId` is the durable lineage.
+  retrospectiveConversationId?: string;
   // Day-granularity stamp of the last time the skill was loaded (ISO 8601).
   // Stamped by `touchSkillLastUsed` on the managed-skill activation path; the
   // usage-based prune reads its date portion as the last-used signal.

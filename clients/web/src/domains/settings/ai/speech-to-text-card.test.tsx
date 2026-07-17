@@ -75,10 +75,10 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
   },
 }));
 
-const { SpeechToTextCard } = await import(
-  "@/domains/settings/ai/speech-to-text-card"
-);
-const { LS_STT_PROVIDER } = await import("@/domains/settings/ai/local-storage-keys");
+const { SpeechToTextCard } =
+  await import("@/domains/settings/ai/speech-to-text-card");
+const { LS_STT_PROVIDER } =
+  await import("@/domains/settings/ai/local-storage-keys");
 
 function renderCard() {
   const queryClient = new QueryClient({
@@ -95,7 +95,9 @@ function openProviderDropdown(): void {
   const trigger = document.querySelector<HTMLButtonElement>(
     'button[role="combobox"][aria-label="STT provider"]',
   );
-  if (!trigger) {throw new Error("expected the STT provider dropdown trigger");}
+  if (!trigger) {
+    throw new Error("expected the STT provider dropdown trigger");
+  }
   fireEvent.click(trigger);
 }
 
@@ -170,7 +172,9 @@ describe("SpeechToTextCard — macOS Native Dictation option", () => {
 
     await waitFor(() => expect(configPatchCalls.length).toBe(1));
     expect(credentialsSetCalls).toHaveLength(1);
-    expect(credentialsSetCalls[0]!.path).toEqual({ assistant_id: ASSISTANT_ID });
+    expect(credentialsSetCalls[0]!.path).toEqual({
+      assistant_id: ASSISTANT_ID,
+    });
     expect(credentialsSetCalls[0]!.body).toMatchObject({
       service: "deepgram",
       field: "api_key",
@@ -220,8 +224,129 @@ describe("SpeechToTextCard — macOS Native Dictation option", () => {
     // The provider is unchanged and the daemon already has one, so no config
     // PATCH must fire (which would re-assert / risk clobbering the provider).
     const sttBody = configPatchCalls[0]?.body as
-      | { services?: { stt?: Record<string, unknown> } }
-      | undefined;
+      { services?: { stt?: Record<string, unknown> } } | undefined;
     expect(sttBody?.services?.stt ?? {}).not.toHaveProperty("provider");
+  });
+
+  test("selecting a provider from a Vellum daemon writes that provider", async () => {
+    daemonConfigData = { services: { stt: { provider: "vellum" } } };
+    renderCard();
+
+    openProviderDropdown();
+    selectOption("OpenAI");
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(configPatchCalls.length).toBe(1));
+    expect(configPatchCalls[0]!.body).toMatchObject({
+      services: { stt: { provider: "openai-whisper" } },
+    });
+    expect(credentialsSetCalls).toHaveLength(0);
+  });
+});
+
+describe("SpeechToTextCard — Vellum provider", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    nativeDictationSupported = false;
+    credentialsSetCalls.length = 0;
+    configPatchCalls.length = 0;
+    daemonConfigData = { services: {} };
+  });
+
+  afterEach(() => {
+    cleanup();
+    localStorage.clear();
+  });
+
+  test("Vellum is offered in the provider dropdown", () => {
+    renderCard();
+
+    openProviderDropdown();
+    expect(visibleOptions()).toContain("Vellum");
+  });
+
+  test("a vellum daemon provider renders as the selected option with no API key field", () => {
+    daemonConfigData = { services: { stt: { provider: "vellum" } } };
+    renderCard();
+
+    const trigger = document.querySelector<HTMLButtonElement>(
+      'button[role="combobox"][aria-label="STT provider"]',
+    );
+    expect(trigger?.textContent).toContain("Vellum");
+    // Vellum authenticates via the platform connection — there is no key.
+    expect(screen.queryByText("API Key")).toBeNull();
+    expect(
+      screen.getByText(/Transcription runs through your Vellum account/),
+    ).toBeTruthy();
+  });
+
+  test("selecting Vellum saves provider vellum and stores no credential", async () => {
+    renderCard();
+
+    openProviderDropdown();
+    selectOption("Vellum");
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(configPatchCalls.length).toBe(1));
+    // Written as a pair so the save stays valid on daemons whose schema
+    // still couples provider "vellum" to mode "managed".
+    expect(configPatchCalls[0]!.body).toMatchObject({
+      services: { stt: { provider: "vellum", mode: "managed" } },
+    });
+    expect(credentialsSetCalls).toHaveLength(0);
+    expect(localStorage.getItem(LS_STT_PROVIDER)).toBe("vellum");
+  });
+
+  // A config written by the legacy mode toggle marks managed via `mode` while
+  // `provider` holds the BYOK restore value.
+  test("a legacy managed-mode daemon renders as Vellum", () => {
+    daemonConfigData = {
+      services: { stt: { mode: "managed", provider: "deepgram" } },
+    };
+    renderCard();
+
+    const trigger = document.querySelector<HTMLButtonElement>(
+      'button[role="combobox"][aria-label="STT provider"]',
+    );
+    expect(trigger?.textContent).toContain("Vellum");
+    expect(screen.queryByText("API Key")).toBeNull();
+  });
+
+  test("escaping a legacy managed-mode daemon resets mode alongside the provider", async () => {
+    // Without the mode reset, the stale `mode: "managed"` would win over the
+    // BYOK provider choice and the user would silently stay on Vellum.
+    daemonConfigData = {
+      services: { stt: { mode: "managed", provider: "deepgram" } },
+    };
+    renderCard();
+
+    openProviderDropdown();
+    selectOption("Deepgram");
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(configPatchCalls.length).toBe(1));
+    expect(configPatchCalls[0]!.body).toMatchObject({
+      services: { stt: { provider: "deepgram", mode: "your-own" } },
+    });
+  });
+
+  test("leaving Vellum for native dictation writes a daemon-backed fallback", async () => {
+    // Native is client-only (no daemon mapping), so without an explicit write
+    // the daemon would stay on Vellum and a refetch would snap the dropdown
+    // back to it.
+    nativeDictationSupported = true;
+    daemonConfigData = { services: { stt: { provider: "vellum" } } };
+    renderCard();
+
+    openProviderDropdown();
+    selectOption("macOS Native Dictation");
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(configPatchCalls.length).toBe(1));
+    expect(configPatchCalls[0]!.body).toMatchObject({
+      services: { stt: { provider: "deepgram" } },
+    });
+    // The client keeps routing dictation locally.
+    expect(localStorage.getItem(LS_STT_PROVIDER)).toBe("macos-native");
   });
 });

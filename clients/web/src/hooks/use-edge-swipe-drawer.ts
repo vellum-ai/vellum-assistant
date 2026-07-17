@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, type RefObject } from "react";
 
-import { useEdgeSwipe } from "@/hooks/use-edge-swipe";
+import { computeDrawerOffset, useEdgeSwipe } from "@/hooks/use-edge-swipe";
 
 /** Duration (ms) of the open / snap-closed animation the finger hands off to. */
 export const DRAWER_SLIDE_MS = 200;
@@ -37,10 +37,11 @@ export interface UseEdgeSwipeDrawerArgs {
  * counterpart to `useEdgeSwipeBack`, sharing the same `useEdgeSwipe`
  * detection engine.
  *
- * The panel tracks the finger 1:1 from off-screen-left (its revealed width
- * equals the horizontal drag distance); releasing past the commit threshold
- * hands off to a short slide-to-open animation, and releasing short snaps it
- * back closed. Because detection lives in the shared engine and this hook
+ * The panel tracks the finger from off-screen-left, its right edge anchored to
+ * the finger's absolute position so it stays under the finger wherever in the
+ * activation band the swipe began; releasing past the commit threshold hands
+ * off to a short slide-to-open animation, and releasing short snaps it back
+ * closed. Because detection lives in the shared engine and this hook
  * suppresses itself whenever a back-swipe owner is active (via the caller's
  * `enabled`), a single left-edge swipe never both opens the menu and
  * navigates back.
@@ -88,12 +89,13 @@ export function useEdgeSwipeDrawer({
     onConfirm: () => {
       callbacksRef.current.onDragStart();
     },
-    onMove: (dx) => {
+    onMove: (_dx, _threshold, x) => {
       const el = panelRef.current;
       if (!el) {return;}
-      // Reveal width equals drag distance: the panel's right edge tracks the
-      // finger from off-screen-left toward fully open at translateX(0).
-      const offset = Math.min(0, dx - window.innerWidth);
+      // The panel's right edge tracks the finger's absolute position toward
+      // fully open at translateX(0), so it stays under the finger wherever in
+      // the activation band the swipe began.
+      const offset = computeDrawerOffset(x, window.innerWidth);
       el.style.transition = "none";
       el.style.willChange = "transform";
       el.style.transform = `translateX(${offset}px)`;

@@ -36,30 +36,11 @@ function ensureTestDir(): void {
     join(WORKSPACE_DIR, "data", "logs"),
   ];
   for (const dir of dirs) {
-    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
+    }
   }
 }
-
-function makeLoggerStub(): Record<string, unknown> {
-  const stub: Record<string, unknown> = {};
-  for (const m of [
-    "info",
-    "warn",
-    "error",
-    "debug",
-    "trace",
-    "fatal",
-    "silent",
-    "child",
-  ]) {
-    stub[m] = m === "child" ? () => makeLoggerStub() : () => {};
-  }
-  return stub;
-}
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () => makeLoggerStub(),
-}));
 
 // Restore all mocked modules after this file's tests complete to prevent
 // cross-test contamination when running grouped with other test files.
@@ -401,7 +382,9 @@ describe("loadConfig startup behavior", () => {
     }
     // Clear any leftover config-quarantine notice sentinel from prior runs.
     const noticePath = getConfigQuarantineNoticePath();
-    if (existsSync(noticePath)) rmSync(noticePath, { force: true });
+    if (existsSync(noticePath)) {
+      rmSync(noticePath, { force: true });
+    }
     ensureTestDir();
     setStorePathForTesting(join(WORKSPACE_DIR, "keys.enc"));
     delete process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH;
@@ -594,8 +577,9 @@ describe("loadConfig startup behavior", () => {
     mergeDefaultConfigAndSeedInferenceProfiles();
     const config = loadConfig();
 
-    expect(config.llm.default.provider).toBe("anthropic");
-    expect(config.llm.default.model).toBe("claude-opus-4-7");
+    // `llm.default` is not part of the schema — the overlay blob stays on
+    // disk as inert user intent but never reaches the parsed config.
+    expect((config.llm as Record<string, unknown>).default).toBeUndefined();
     // Off-platform: user profiles are active, backed by the user's API key.
     expect(config.llm.activeProfile).toBe("custom-balanced");
     expect(config.llm.profiles["custom-balanced"]?.provider).toBe("anthropic");

@@ -7,7 +7,7 @@ Feature flag keys are **simple kebab-case strings** with no prefix or suffix:
 ```
 "browser"
 "a2a-channel"
-"ces-tools"
+"voice-mode"
 "conversation-starters"
 ```
 
@@ -41,7 +41,7 @@ The `id` and `key` fields in `feature-flag-registry.json` **must match** and bot
 2. Run the sync script to copy the registry into bundled locations:
 
    ```bash
-   bun run meta/feature-flags/sync-bundled-copies.ts
+   bun run meta/sync-bundled-copies.ts
    ```
 
 3. **Create the flag via Terraform in `vellum-assistant-platform`** so it exists on the platform for remote sync.

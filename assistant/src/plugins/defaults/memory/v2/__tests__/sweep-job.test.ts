@@ -40,12 +40,6 @@ import type {
   SendMessageOptions,
 } from "@vellumai/plugin-api";
 
-import { makeMockLogger } from "../../../../../__tests__/helpers/mock-logger.js";
-
-mock.module("../../../../../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
-
 // Provider stub. Each test sets `providerStub` to control the response;
 // `null` simulates "no configured provider".
 let providerStub: Provider | null = null;
@@ -54,7 +48,13 @@ const providerCalls: Array<{
   userText: string;
 }> = [];
 
+// The sweep imports `getConfiguredProvider` plus the identity reads
+// (`getAssistantName`/`resolveUserName`) from `@vellumai/plugin-api`. Spread the
+// real contract so the identity reads run (returning null on a missing
+// IDENTITY.md in the temp workspace); override only `getConfiguredProvider`.
+const realPluginApi = await import("@vellumai/plugin-api");
 mock.module("@vellumai/plugin-api", () => ({
+  ...realPluginApi,
   getConfiguredProvider: async () => providerStub,
 }));
 

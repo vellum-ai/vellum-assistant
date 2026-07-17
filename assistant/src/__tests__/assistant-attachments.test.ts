@@ -12,6 +12,7 @@ import {
   incompleteVellumLinkSuffixLength,
   inferMimeType,
   MAX_ASSISTANT_ATTACHMENT_BYTES,
+  resolveAttachmentFilename,
   stripVellumLinks,
   validateDrafts,
 } from "../daemon/assistant-attachments.js";
@@ -56,6 +57,28 @@ describe("estimateBase64Bytes", () => {
     // "YWJj" split across lines should still yield 3 bytes
     expect(estimateBase64Bytes("YW\nJj")).toBe(3);
   });
+
+  test("reads sizeBytes from a workspace_ref source", () => {
+    expect(
+      estimateBase64Bytes({ sizeBytes: 4096, media_type: "image/png" } as {
+        sizeBytes?: unknown;
+        data?: unknown;
+      }),
+    ).toBe(4096);
+  });
+
+  test("estimates from inline data on a base64 source", () => {
+    expect(estimateBase64Bytes({ data: "YWJj" })).toBe(3);
+  });
+
+  test("returns 0 for a source with neither sizeBytes nor data", () => {
+    expect(estimateBase64Bytes({})).toBe(0);
+  });
+
+  test("returns 0 for a null or undefined source", () => {
+    expect(estimateBase64Bytes(null)).toBe(0);
+    expect(estimateBase64Bytes(undefined)).toBe(0);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -95,6 +118,79 @@ describe("inferMimeType", () => {
 
   test("uses last extension for double-dotted names", () => {
     expect(inferMimeType("archive.tar.gz")).toBe("application/gzip");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveAttachmentFilename
+// ---------------------------------------------------------------------------
+
+describe("resolveAttachmentFilename", () => {
+  test("honors a label with a recognized extension", () => {
+    expect(
+      resolveAttachmentFilename(
+        "report.pdf",
+        "/workspace/out/final-v2.pdf",
+        "label",
+      ),
+    ).toBe("report.pdf");
+  });
+
+  test("keeps an extensionless label and appends the path extension", () => {
+    expect(
+      resolveAttachmentFilename(
+        "desktop",
+        "/workspace/qa-delete-desktop-dialog.png",
+        "label",
+      ),
+    ).toBe("desktop.png");
+  });
+
+  test("appends the path extension to a label with an unrecognized one", () => {
+    expect(
+      resolveAttachmentFilename("notes.xyz", "/workspace/notes.txt", "label"),
+    ).toBe("notes.xyz.txt");
+  });
+
+  test("bare labels to distinct files sharing a basename stay unique", () => {
+    const first = resolveAttachmentFilename(
+      "first",
+      "/workspace/a/result.png",
+      "label",
+    );
+    const second = resolveAttachmentFilename(
+      "second",
+      "/workspace/b/result.png",
+      "label",
+    );
+    expect(first).toBe("first.png");
+    expect(second).toBe("second.png");
+    expect(first).not.toBe(second);
+  });
+
+  test("falls back to path basename when preferred is undefined", () => {
+    expect(
+      resolveAttachmentFilename(undefined, "/workspace/shot.png", "label"),
+    ).toBe("shot.png");
+  });
+
+  test("keeps basename fallback even when the path is extensionless too", () => {
+    expect(
+      resolveAttachmentFilename("build file", "/workspace/Makefile", "label"),
+    ).toBe("Makefile");
+  });
+
+  test("explicit directive filenames are used verbatim regardless of extension", () => {
+    expect(
+      resolveAttachmentFilename(
+        "custom.dat",
+        "/workspace/data.bin",
+        "explicit",
+      ),
+    ).toBe("custom.dat");
+    expect(
+      resolveAttachmentFilename("no-extension", "/workspace/data.bin"),
+    ).toBe("no-extension");
   });
 });
 
@@ -447,6 +543,77 @@ describe("extractVellumLinks", () => {
     expect(result.directiveRequests).toHaveLength(0);
     expect(result.parseWarnings).toHaveLength(0);
   });
+
+  test("image form ignores alt text and falls back to path basename", () => {
+    const text =
+      "![A screenshot of the header](vellum://workspace/scratch/shot.png)";
+    const result = extractVellumLinks(text);
+
+    expect(result.directiveRequests).toHaveLength(1);
+    expect(result.directiveRequests[0].source).toBe("sandbox");
+    expect(result.directiveRequests[0].path).toBe("scratch/shot.png");
+    // Alt text is a description, not a filename — falls back to basename.
+    expect(result.directiveRequests[0].filename).toBeUndefined();
+  });
+
+  test("image form with empty alt still creates an attachment", () => {
+    const text = "![](vellum://workspace/scratch/shot.png)";
+    const result = extractVellumLinks(text);
+
+    expect(result.directiveRequests).toHaveLength(1);
+    expect(result.directiveRequests[0].path).toBe("scratch/shot.png");
+    expect(result.directiveRequests[0].filename).toBeUndefined();
+  });
+
+  test("image form works for host links", () => {
+    const text = "![a chart](vellum://host/Users/me/chart.png)";
+    const result = extractVellumLinks(text);
+
+    expect(result.directiveRequests).toHaveLength(1);
+    expect(result.directiveRequests[0].source).toBe("host");
+    expect(result.directiveRequests[0].path).toBe("/Users/me/chart.png");
+    expect(result.directiveRequests[0].filename).toBeUndefined();
+  });
+
+  test("plain link retains its link text as the filename", () => {
+    const text = "[report.pdf](vellum://workspace/scratch/report.pdf)";
+    const result = extractVellumLinks(text);
+
+    expect(result.directiveRequests).toHaveLength(1);
+    expect(result.directiveRequests[0].filename).toBe("report.pdf");
+  });
+
+  test("plain link with empty text falls back to path basename", () => {
+    const text = "[](vellum://workspace/scratch/report.pdf)";
+    const result = extractVellumLinks(text);
+
+    expect(result.directiveRequests).toHaveLength(1);
+    expect(result.directiveRequests[0].path).toBe("scratch/report.pdf");
+    expect(result.directiveRequests[0].filename).toBeUndefined();
+  });
+
+  test("mixes image and plain links in one message", () => {
+    const text = [
+      "Here is the chart ![the Q3 chart](vellum://workspace/scratch/chart.png)",
+      "and the writeup [report.pdf](vellum://workspace/scratch/report.pdf)",
+    ].join(" ");
+    const result = extractVellumLinks(text);
+
+    expect(result.directiveRequests).toHaveLength(2);
+    expect(result.directiveRequests[0].path).toBe("scratch/chart.png");
+    expect(result.directiveRequests[0].filename).toBeUndefined();
+    expect(result.directiveRequests[1].path).toBe("scratch/report.pdf");
+    expect(result.directiveRequests[1].filename).toBe("report.pdf");
+  });
+
+  test("image form decodes percent-encoded path", () => {
+    const text = "![final](vellum://workspace/scratch/shot%20final.png)";
+    const result = extractVellumLinks(text);
+
+    expect(result.directiveRequests).toHaveLength(1);
+    expect(result.directiveRequests[0].path).toBe("scratch/shot final.png");
+    expect(result.directiveRequests[0].filename).toBeUndefined();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -480,6 +647,23 @@ describe("stripVellumLinks", () => {
   test("handles link text that differs from path basename", () => {
     const text = "[Quarterly Report](vellum://workspace/scratch/report.pdf)";
     expect(stripVellumLinks(text)).toBe("Quarterly Report");
+  });
+
+  test("strips the leading `!` from image links, keeping only the alt text", () => {
+    const text =
+      "Here is the chart: ![the Q3 chart](vellum://workspace/scratch/chart.png)";
+    expect(stripVellumLinks(text)).toBe("Here is the chart: the Q3 chart");
+  });
+
+  test("image link with empty alt collapses to empty string", () => {
+    const text = "before ![](vellum://workspace/scratch/shot.png) after";
+    expect(stripVellumLinks(text)).toBe("before  after");
+  });
+
+  test("handles a mix of image and plain links", () => {
+    const text =
+      "![chart](vellum://workspace/scratch/chart.png) and [report.pdf](vellum://host/tmp/report.pdf)";
+    expect(stripVellumLinks(text)).toBe("chart and report.pdf");
   });
 });
 
@@ -539,6 +723,33 @@ describe("incompleteVellumLinkSuffixLength", () => {
     expect(
       incompleteVellumLinkSuffixLength("see [site](https://example.com"),
     ).toBe(0);
+  });
+
+  test.each([
+    ["image mid path", "look ![shot](vellum://workspace/scratch/sh"],
+    ["image at bracket", "look !["],
+    ["lone bang", "look !"],
+  ])("withholds an in-progress image link (%s)", (_name, text) => {
+    const held = incompleteVellumLinkSuffixLength(text);
+    expect(held).toBeGreaterThan(0);
+    // The withheld suffix always includes the leading `!` so a stray bang
+    // never leaks ahead of the alt text.
+    expect(suffix(text)).toContain("!");
+    expect(stripVellumLinks(text.slice(0, text.length - held))).not.toContain(
+      "vellum://",
+    );
+  });
+
+  test("returns 0 for a completed image link", () => {
+    expect(
+      incompleteVellumLinkSuffixLength(
+        "![shot](vellum://workspace/scratch/shot.png)",
+      ),
+    ).toBe(0);
+  });
+
+  test("does not withhold a `!` that is not at the end of the text", () => {
+    expect(incompleteVellumLinkSuffixLength("wow! more text")).toBe(0);
   });
 });
 

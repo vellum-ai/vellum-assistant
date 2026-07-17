@@ -2473,6 +2473,80 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
+      "/assistant/credentials/enter": {
+        get: {
+          summary: "One-time credential entry page",
+          description:
+            "Self-contained static HTML page for redeeming a one-time credential link. The single-use token rides the URL fragment (never sent over HTTP); the page calls the credential-requests peek/submit routes with the token in POST bodies.",
+          operationId: "credentialEntryPage",
+          responses: {
+            "200": { description: "HTML entry page" },
+            "405": { description: "Method not allowed" },
+          },
+        },
+      },
+      "/v1/credential-requests/peek": {
+        post: {
+          summary: "Validate a credential-request token without consuming it",
+          description:
+            "Unauthenticated: the single-use token in the request body is the credential to act. Returns the service/field/label the link collects. Invalid tokens count as auth failures for the per-IP limiter.",
+          operationId: "credentialRequestsPeek",
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["token"],
+                  properties: { token: { type: "string" } },
+                },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Credential request details returned" },
+            "400": { description: "Malformed body" },
+            "404": {
+              description: "Invalid, expired, or already-used token",
+            },
+            "413": { description: "Request body too large" },
+          },
+        },
+      },
+      "/v1/credential-requests/submit": {
+        post: {
+          summary: "Consume a credential-request token and store the value",
+          description:
+            "Unauthenticated single-use submission: atomically claims the link, forwards the value to the assistant's credential vault, and marks the link redeemed. The value transits memory only.",
+          operationId: "credentialRequestsSubmit",
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["token", "value"],
+                  properties: {
+                    token: { type: "string" },
+                    value: { type: "string" },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Credential stored" },
+            "400": { description: "Malformed body" },
+            "404": {
+              description: "Invalid, expired, or already-used token",
+            },
+            "413": { description: "Request body too large" },
+            "502": {
+              description: "The assistant could not store the credential",
+            },
+          },
+        },
+      },
       "/v1/feature-flags": {
         get: {
           summary: "List feature flags",
@@ -3380,6 +3454,31 @@ export function buildSchema(): Record<string, unknown> {
           },
           responses: {
             "200": { description: "Channel permission cell upserted" },
+            "400": { description: "Invalid request payload or adapter" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "500": { description: "Internal server error" },
+          },
+        },
+      },
+      "/v1/channel-permission-overrides/resolve": {
+        post: {
+          summary: "Resolve the effective channel-permission threshold",
+          description:
+            "Authenticated gateway endpoint that resolves the cascade for one coordinate (adapter, optional channelType/channelExternalId, contact-type) and returns the winning cell's threshold and scope, or null when no cell matches so the caller falls through to the global thresholds. Read-only; a POST verb path because the composite query travels in the body, same rationale as /delete.",
+          operationId: "channelPermissionResolve",
+          security: [{ BearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Resolution returned (resolved or null)" },
             "400": { description: "Invalid request payload or adapter" },
             "401": {
               description: "Unauthorized — missing or invalid bearer token",

@@ -10,6 +10,8 @@ import { existsSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { setConfig } from "./helpers/set-config.js";
+
 mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => true }));
 
 const formatCompactResultMock = mock(
@@ -19,62 +21,20 @@ const formatCompactResultMock = mock(
     )} tokens`,
 );
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    model: "claude-opus-4-7",
-    provider: "anthropic",
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    secretDetection: { enabled: false },
-    contextWindow: { maxInputTokens: 200000 },
-    llm: {
-      default: {
-        provider: "anthropic",
-        model: "claude-opus-4-7",
-        maxTokens: 64000,
-        effort: "max" as const,
-        speed: "standard" as const,
-        temperature: null,
-        thinking: { enabled: true, streamThinking: true },
-        contextWindow: {
-          enabled: true,
-          maxInputTokens: 200000,
-          targetBudgetRatio: 0.3,
-          compactThreshold: 0.8,
-          summaryBudgetRatio: 0.05,
-          overflowRecovery: {
-            enabled: true,
-            safetyMarginRatio: 0.05,
-            maxAttempts: 3,
-            interactiveLatestTurnCompression: "summarize",
-            nonInteractiveLatestTurnCompression: "truncate",
-          },
-        },
-      },
-      profiles: {
-        "short-context": {
-          contextWindow: { maxInputTokens: 150000 },
-        },
-      },
-      callSites: {},
-      pricingOverrides: [],
+// The /context and /compact branches resolve the conversation's override
+// profile ("short-context", via the mocked getConversationOverrideProfile)
+// against the real workspace config. The profile is complete (provider +
+// model) so it is a usable winner; its narrowed context window is what the
+// /context budget must reflect.
+setConfig("llm", {
+  profiles: {
+    "short-context": {
+      provider: "anthropic",
+      model: "claude-opus-4-7",
+      contextWindow: { maxInputTokens: 150000 },
     },
-    services: {
-      inference: {
-        mode: "your-own",
-        provider: "anthropic",
-        model: "claude-opus-4-7",
-      },
-      "image-generation": {
-        mode: "your-own",
-        provider: "gemini",
-        model: "gemini-3.1-flash-image-preview",
-      },
-      "web-search": { mode: "your-own", provider: "inference-provider-native" },
-    },
-  }),
-}));
+  },
+});
 
 const addMessageMock = mock(
   async (
@@ -87,13 +47,6 @@ const addMessageMock = mock(
     deduplicated: false,
   }),
 );
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
 
 mock.module("../persistence/conversation-key-store.js", () => ({
   getOrCreateConversation: () => ({ conversationId: "conv-slash-test" }),
@@ -112,15 +65,11 @@ mock.module("../runtime/guardian-reply-router.js", () => ({
   }),
 }));
 
-mock.module("../contacts/canonical-guardian-store.js", () => ({
-  createCanonicalGuardianRequest: () => ({
-    id: "canonical-id",
+mock.module("../channels/gateway-guardian-requests.js", () => ({
+  createGuardianRequest: async (params: Record<string, unknown>) => ({
+    ...params,
     requestCode: "ABC123",
   }),
-  generateCanonicalRequestCode: () => "ABC123",
-  listPendingCanonicalGuardianRequestsByDestinationConversation: () => [],
-  listCanonicalGuardianRequests: () => [],
-  listPendingRequestsByConversationScope: () => [],
 }));
 
 mock.module("../runtime/confirmation-request-guardian-bridge.js", () => ({
@@ -177,9 +126,8 @@ mock.module("../daemon/conversation-process.js", () => ({
   formatCompactResult: formatCompactResultMock,
 }));
 
-const realLocalActorIdentity = await import(
-  "../runtime/local-actor-identity.js"
-);
+const realLocalActorIdentity =
+  await import("../runtime/local-actor-identity.js");
 mock.module("../runtime/local-actor-identity.js", () => ({
   ...realLocalActorIdentity,
 }));
@@ -568,7 +516,9 @@ describe("handleSendMessage canned wake-up greeting", () => {
   });
 
   afterEach(() => {
-    if (existsSync(bootstrapPath)) rmSync(bootstrapPath, { force: true });
+    if (existsSync(bootstrapPath)) {
+      rmSync(bootstrapPath, { force: true });
+    }
   });
 
   test("persists the clientMessageId on the user row", async () => {

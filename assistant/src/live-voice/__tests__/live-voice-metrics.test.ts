@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  getLiveVoiceMetricsAggregateFields,
   LiveVoiceMetricsCollector,
   type LiveVoiceMetricsFrame,
 } from "../live-voice-metrics.js";
@@ -64,6 +65,9 @@ describe("LiveVoiceMetricsCollector", () => {
         pttReleaseToFinalTranscriptMs: 90,
         finalTranscriptToFirstAssistantDeltaMs: 45,
         firstAssistantDeltaToFirstTtsAudioMs: 60,
+        // Manual mode: no utterance_end mark, so the round trip falls back
+        // to ptt_release → first TTS audio.
+        roundTripMs: 195,
         totalTurnDurationMs: 595,
       },
     });
@@ -92,6 +96,68 @@ describe("LiveVoiceMetricsCollector", () => {
     });
   });
 
+  test("derives roundTripMs from utterance_end to first TTS audio and aggregates it", () => {
+    const clock = makeClock(0);
+    const collector = new LiveVoiceMetricsCollector({
+      sessionId: "session-round-trip",
+      clock: clock.now,
+    });
+
+    collector.startTurn("turn-vad");
+    clock.advance(10);
+    collector.markUtteranceEnd();
+    clock.advance(40);
+    // utterance_end takes precedence over a later ptt_release mark.
+    collector.markPushToTalkRelease();
+    clock.advance(50);
+    collector.markFinalTranscript();
+    clock.advance(25);
+    collector.markFirstAssistantDelta();
+    clock.advance(75);
+    collector.markFirstTtsAudio();
+    const turn = collector.completeTurn();
+
+    expect(turn.durations.roundTripMs).toBe(190);
+
+    const snapshot = collector.getSnapshot();
+    expect(getLiveVoiceMetricsAggregateFields(snapshot, "turn-vad")).toEqual({
+      sttMs: 50,
+      llmFirstDeltaMs: 25,
+      ttsFirstAudioMs: 75,
+      roundTripMs: 190,
+      totalMs: 200,
+    });
+    expect(snapshot.summary.durations.roundTripMs).toEqual({
+      count: 1,
+      p50Ms: 190,
+      p95Ms: 190,
+    });
+  });
+
+  test("roundTripMs is null when the end-of-speech or first TTS mark is missing", () => {
+    const clock = makeClock(0);
+    const collector = new LiveVoiceMetricsCollector({
+      sessionId: "session-round-trip-null",
+      clock: clock.now,
+    });
+
+    // First TTS audio without an end-of-speech mark.
+    collector.startTurn("turn-no-speech-end");
+    clock.advance(30);
+    collector.markFirstTtsAudio();
+    expect(collector.completeTurn().durations.roundTripMs).toBeNull();
+
+    // End-of-speech mark without first TTS audio.
+    collector.startTurn("turn-no-tts");
+    clock.advance(20);
+    collector.markUtteranceEnd();
+    expect(collector.completeTurn().durations.roundTripMs).toBeNull();
+
+    expect(
+      getLiveVoiceMetricsAggregateFields(collector.getSnapshot()).roundTripMs,
+    ).toBeNull();
+  });
+
   test("keeps missing phases nullable when a turn is cancelled", () => {
     const clock = makeClock(5_000);
     const frames: LiveVoiceMetricsFrame[] = [];
@@ -116,6 +182,7 @@ describe("LiveVoiceMetricsCollector", () => {
         pttReleaseToFinalTranscriptMs: null,
         finalTranscriptToFirstAssistantDeltaMs: null,
         firstAssistantDeltaToFirstTtsAudioMs: null,
+        roundTripMs: null,
         totalTurnDurationMs: 50,
       },
     });

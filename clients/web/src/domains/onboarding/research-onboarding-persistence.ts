@@ -57,12 +57,23 @@ export type ResearchStep =
   | "looking"
   | "results"
   | "suggestions"
-  | "finishing";
+  | "finishing"
+  // Established-assistant guard: the off-ramp offered when the flow would run
+  // against an assistant that already has a life (see the route's guard).
+  | "existing";
 
 /** Completed research output — only snapshotted once the turn settles "done". */
 export interface PersistedResearchResults {
   status: Extract<ResearchStatus, "done">;
   claims: ResearchFact[];
+  /**
+   * Aggregator-only claim texts the parser dropped from `claims` (see
+   * `research-facts.ts`). Persisted so a refresh that resumes PAST the results
+   * step can still scrub these hidden wrong-person facts from the assistant's
+   * memory. Optional for back-compat with snapshots written before this field
+   * existed (defaulted to [] on read).
+   */
+  droppedClaims?: string[];
   suggestions: ResearchSuggestion[];
   installedPlugins: string[];
   /**
@@ -96,6 +107,23 @@ export interface ResearchOnboardingSnapshot {
    * starts.
    */
   researchConversationId?: string;
+  /**
+   * Claims the user explicitly KEPT on the results step (all claims minus the
+   * X-ed ones; [] after "this is not me"). Persisted so a refresh between the
+   * results review and the "Let's chat" handoff still hands the confirmed
+   * findings to the persona. Absent on older snapshots and before the user
+   * reviews the results — absent must stay distinct from [] (unreviewed vs
+   * rejected-all).
+   */
+  keptClaims?: string[] | null;
+  /**
+   * True once the aggregator-only drops have been scrubbed from the assistant's
+   * memory — the one-shot correction was dispatched, or subsumed by a
+   * results-step prune / "this is not me" rejection. Persisted so a refresh that
+   * resumes past the results correction re-fires the scrub only when it never
+   * happened. Absent on older snapshots and before research settles → false.
+   */
+  droppedClaimsScrubbed?: boolean;
 }
 
 function storageKey(userId: string | null): string | null {
@@ -166,5 +194,9 @@ export function resolveResumeStep(
   if (snapshot.step === "meeting") {
     return snapshot.checkinBooked ? "looking" : "letschat";
   }
+  // The established-assistant guard holds an intercepted submit in transient
+  // state that a snapshot can't restore, so a saved journey never resumes onto
+  // it — land on the form and let a resubmit re-evaluate the guard.
+  if (snapshot.step === "existing") return "form";
   return snapshot.step;
 }

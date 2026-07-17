@@ -1,17 +1,24 @@
 #!/usr/bin/env bun
 /**
- * Local CES entrypoint. Serves RPC over a Unix socket (`getLocalSocketPath()`),
- * launched independently by the CLI as a sibling process. Runs until SIGTERM.
+ * CES (Credential Execution Service) entrypoint — unified for both
+ * local (bare-metal sibling) and managed (Kubernetes sidecar) modes.
  *
- * Local mode never opens a TCP listener. The Unix socket's listening fd is not
- * inherited by shell subprocesses spawned by CES (e.g. for
- * `run_authenticated_command`): Bun's `Bun.spawn` defaults to "pipe" for
- * stdio, and the listening socket is not passed to those subprocesses.
+ * Mode is determined by `getCesMode()` from `paths.ts`:
+ * - `CES_MODE=managed` (set in the Dockerfile / K8s statefulset) → managed mode
+ * - absent or any other value → local mode (bare-metal sibling)
+ *
+ * Both modes serve credential CRUD RPC over a Unix socket using a concurrent
+ * multi-connection server (`serveStandaloneSocket`). Each connection gets its
+ * own `CesRpcServer` over a shared, process-scoped handler registry. The server
+ * stays listening across connections, so an assistant that disconnects (crash,
+ * restart) can reconnect without CES re-binding.
+ *
+ * Managed mode additionally starts a health HTTP server (`/healthz`, `/readyz`,
+ * optional credential CRUD routes) for Kubernetes liveness/readiness probes.
  */
 
 import { mkdirSync, unlinkSync } from "node:fs";
 import { createServer as createNetServer, type Socket } from "node:net";
-import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { Readable, Writable } from "node:stream";
 
@@ -19,285 +26,60 @@ import {
   CES_PROTOCOL_VERSION,
   CesRpcMethod,
 } from "@vellumai/service-contracts/credential-rpc";
-import { StaticCredentialMetadataStore } from "@vellumai/credential-storage";
-
-import { AuditStore } from "./audit/store.js";
-import { PersistentGrantStore } from "./grants/persistent-store.js";
-import {
-  createListAuditRecordsHandler,
-  createListGrantsHandler,
-  createRecordGrantHandler,
-  createRevokeGrantHandler,
-} from "./grants/rpc-handlers.js";
-import { TemporaryGrantStore } from "./grants/temporary-store.js";
-import { LocalMaterialiser } from "./materializers/local.js";
 import type { SecureKeyBackend } from "@vellumai/credential-storage";
+
 import { createLocalSecureKeyBackend } from "./materializers/local-secure-key-backend.js";
-import { createLocalOAuthLookup } from "./materializers/local-oauth-lookup.js";
-import { createLocalTokenRefreshFn } from "./materializers/local-token-refresh.js";
-import { resolveLocalSubject } from "./subjects/local.js";
-import { checkCredentialPolicy } from "./subjects/policy.js";
 import { initLogger, getLogger } from "./logger.js";
 import {
-  getCesAuditDir,
+  getBootstrapSocketPath,
   getCesDataRoot,
-  getCesGrantsDir,
   getCesLogDir,
-  getCesToolStoreDir,
+  getCesMode,
+  getHealthPort,
   getLocalSocketPath,
+  getSecurityDir,
+  type CesMode,
 } from "./paths.js";
+import { CesRpcServer, type RpcHandlerRegistry } from "./server.js";
 import {
-  buildHandlersWithHttp,
-  CesRpcServer,
-  registerCommandExecutionHandler,
-  registerManageSecureCommandToolHandler,
-  type RpcHandlerRegistry,
-} from "./server.js";
-import {
-  deleteBundleFromToolstore,
-  publishBundle,
-} from "./toolstore/publish.js";
-import { validateSourceUrl } from "./toolstore/manifest.js";
-import { buildCesEgressHooks } from "./commands/egress-hooks.js";
+  handleCredentialRoute,
+  type CredentialRouteDeps,
+} from "./http/credential-routes.js";
+import { handleLogExportRoute } from "./http/log-export-routes.js";
 import { CES_MIGRATIONS } from "./migrations/registry.js";
 import { runCesMigrations } from "./migrations/runner.js";
+
+// ---------------------------------------------------------------------------
+// Logging (module-level for early bootstrap + structured logging post-init)
+// ---------------------------------------------------------------------------
+
+const log = getLogger("main");
 
 // ---------------------------------------------------------------------------
 // Data directory bootstrap
 // ---------------------------------------------------------------------------
 
-function ensureDataDirs(): void {
-  const dirs = [
-    getCesDataRoot("local"),
-    getCesGrantsDir("local"),
-    getCesAuditDir("local"),
-    getCesToolStoreDir("local"),
-  ];
-  for (const dir of dirs) {
-    mkdirSync(dir, { recursive: true });
-  }
+function ensureDataDirs(mode: CesMode): void {
+  mkdirSync(getCesDataRoot(mode), { recursive: true });
 }
 
 // ---------------------------------------------------------------------------
-// Path resolution
+// Credential CRUD handlers
 // ---------------------------------------------------------------------------
 
 /**
- * Resolve the workspace directory.
- *
- * Priority:
- * 1. `VELLUM_WORKSPACE_DIR` env var (set by the platform template)
- * 2. Default: `~/.vellum/workspace`
+ * Build the RPC handler registry. CES serves credential CRUD (get / set /
+ * delete / list / bulk-set) backed by the secure key store. The
+ * `update_managed_credential` handler is registered separately by the RPC
+ * server when an `onApiKeyUpdate` callback is supplied. Local and managed modes
+ * share the same registry — they differ only in where the secure key backend
+ * reads from and whether the health server is started.
  */
-function getWorkspaceDir(): string {
-  return (
-    process.env["VELLUM_WORKSPACE_DIR"]?.trim() ||
-    join(homedir(), ".vellum", "workspace")
-  );
-}
+function buildCrudHandlers(
+  secureKeyBackend: SecureKeyBackend,
+): RpcHandlerRegistry {
+  const handlers: RpcHandlerRegistry = {};
 
-/**
- * Resolve the CES security directory (contains key stores, encryption data).
- *
- * Priority:
- * 1. `CREDENTIAL_SECURITY_DIR` env var (set by the platform template for
- *    the CES container — `/ces-security` in managed mode)
- * 2. Default: `~/.vellum/protected` (local mode)
- */
-function getSecurityDir(): string {
-  return (
-    process.env["CREDENTIAL_SECURITY_DIR"]?.trim() ||
-    join(homedir(), ".vellum", "protected")
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Build RPC handler registry
-// ---------------------------------------------------------------------------
-
-function buildHandlers(secureKeyBackend: SecureKeyBackend): RpcHandlerRegistry {
-  // -- Grant stores ----------------------------------------------------------
-  const persistentGrantStore = new PersistentGrantStore(
-    getCesGrantsDir("local"),
-  );
-  persistentGrantStore.init();
-
-  const temporaryGrantStore = new TemporaryGrantStore();
-
-  // -- Audit store -----------------------------------------------------------
-  const auditStore = new AuditStore(getCesAuditDir("local"));
-  auditStore.init();
-
-  // -- Credential backend (local) --------------------------------------------
-  // In local mode CES shares the filesystem with the assistant and can access
-  // the same credential metadata and secure-key stores.
-  const workspaceDir = getWorkspaceDir();
-  const credentialMetadataPath = join(
-    workspaceDir,
-    "data",
-    "credentials",
-    "metadata.json",
-  );
-  const metadataStore = new StaticCredentialMetadataStore(
-    credentialMetadataPath,
-  );
-
-  // Read-only OAuth connection lookup backed by the assistant's SQLite
-  // database. CES opens the database in read-only mode.
-  const oauthConnections = createLocalOAuthLookup(workspaceDir);
-
-  const localMaterialiser = new LocalMaterialiser({
-    secureKeyBackend,
-    tokenRefreshFn: createLocalTokenRefreshFn(workspaceDir, secureKeyBackend),
-  });
-
-  // -- Build handler registry ------------------------------------------------
-
-  // Start with the HTTP handler (make_authenticated_request)
-  const handlers = buildHandlersWithHttp({
-    persistentGrantStore,
-    temporaryGrantStore,
-    localMaterialiser,
-    localSubjectDeps: {
-      metadataStore,
-      oauthConnections,
-    },
-    auditStore,
-  });
-
-  // Register run_authenticated_command handler
-  registerCommandExecutionHandler(handlers, {
-    executorDeps: {
-      persistentStore: persistentGrantStore,
-      temporaryStore: temporaryGrantStore,
-      materializeCredential: async (handle) => {
-        // Resolve the subject first, then materialise through the local backend
-        const subjectResult = resolveLocalSubject(handle, {
-          metadataStore,
-          oauthConnections,
-        });
-        if (!subjectResult.ok) {
-          return { ok: false as const, error: subjectResult.error };
-        }
-
-        // Enforce credential-level policies for local static handles
-        if (subjectResult.subject.type === "local_static") {
-          const policyCheck = checkCredentialPolicy(
-            subjectResult.subject.metadata,
-            "run_authenticated_command",
-          );
-          if (!policyCheck.ok) {
-            return { ok: false as const, error: policyCheck.error! };
-          }
-        }
-
-        const matResult = await localMaterialiser.materialise(
-          subjectResult.subject,
-        );
-        if (!matResult.ok) {
-          return { ok: false as const, error: matResult.error };
-        }
-        return {
-          ok: true as const,
-          value: matResult.credential.value,
-          handleType: matResult.credential.handleType,
-        };
-      },
-      auditStore,
-      cesMode: "local",
-      egressHooks: buildCesEgressHooks(),
-    },
-    defaultWorkspaceDir: workspaceDir,
-  });
-
-  // Register manage_secure_command_tool handler
-  const toolRegistry = new Map<
-    string,
-    {
-      toolName: string;
-      credentialHandle: string;
-      description: string;
-      bundleDigest: string;
-    }
-  >();
-
-  registerManageSecureCommandToolHandler(handlers, {
-    downloadBundle: async (sourceUrl: string) => {
-      const urlError = validateSourceUrl(sourceUrl);
-      if (urlError) {
-        throw new Error(urlError);
-      }
-      const MAX_BUNDLE_SIZE = 100 * 1024 * 1024; // 100 MB
-      const resp = await fetch(sourceUrl, {
-        signal: AbortSignal.timeout(60_000),
-      });
-      if (!resp.ok) {
-        throw new Error(`HTTP ${resp.status}: ${resp.statusText}`);
-      }
-      const contentLength = resp.headers.get("content-length");
-      if (contentLength && parseInt(contentLength, 10) > MAX_BUNDLE_SIZE) {
-        throw new Error(
-          `Bundle too large: ${contentLength} bytes (max ${MAX_BUNDLE_SIZE})`,
-        );
-      }
-      // Stream the body and enforce the size limit on actual bytes received,
-      // since Content-Length can be absent (chunked encoding) or lie.
-      const body = resp.body;
-      if (!body) {
-        throw new Error("Response body is null");
-      }
-      const chunks: Uint8Array[] = [];
-      let totalBytes = 0;
-      for await (const chunk of body) {
-        totalBytes += chunk.byteLength;
-        if (totalBytes > MAX_BUNDLE_SIZE) {
-          throw new Error(
-            `Bundle too large: received >${MAX_BUNDLE_SIZE} bytes (max ${MAX_BUNDLE_SIZE})`,
-          );
-        }
-        chunks.push(chunk);
-      }
-      return Buffer.concat(chunks);
-    },
-    publishBundle: (request) => publishBundle({ ...request, cesMode: "local" }),
-    unregisterTool: (toolName: string) => {
-      const entry = toolRegistry.get(toolName);
-      const removed = toolRegistry.delete(toolName);
-      if (removed && entry?.bundleDigest) {
-        const stillInUse = Array.from(toolRegistry.values()).some(
-          (t) => t.bundleDigest === entry.bundleDigest,
-        );
-        if (!stillInUse) {
-          deleteBundleFromToolstore(entry.bundleDigest, "local");
-        }
-      }
-      return removed;
-    },
-    registerTool: (entry) => {
-      toolRegistry.set(entry.toolName, entry);
-    },
-  });
-
-  // Register grant management handlers
-  handlers[CesRpcMethod.RecordGrant] = createRecordGrantHandler({
-    persistentGrantStore,
-    temporaryGrantStore,
-  }) as (typeof handlers)[string];
-
-  handlers[CesRpcMethod.ListGrants] = createListGrantsHandler({
-    persistentGrantStore,
-  }) as (typeof handlers)[string];
-
-  handlers[CesRpcMethod.RevokeGrant] = createRevokeGrantHandler({
-    persistentGrantStore,
-  }) as (typeof handlers)[string];
-
-  // Register audit record handler
-  handlers[CesRpcMethod.ListAuditRecords] = createListAuditRecordsHandler({
-    auditStore,
-  }) as (typeof handlers)[string];
-
-  // Register credential CRUD handlers
   handlers[CesRpcMethod.GetCredential] = (async (req: { account: string }) => {
     const value = await secureKeyBackend.get(req.account);
     return { found: value !== undefined, value };
@@ -338,15 +120,16 @@ function buildHandlers(secureKeyBackend: SecureKeyBackend): RpcHandlerRegistry {
 }
 
 // ---------------------------------------------------------------------------
-// Main
+// Socket server (unified multi-connection model)
 // ---------------------------------------------------------------------------
 
 /**
- * Serve RPC over a Unix socket.
+ * Serve RPC over a Unix socket using a concurrent multi-connection model.
  *
  * Binds the socket, accepts connections concurrently (each served by its own
  * CesRpcServer over the shared handler registry), and unlinks the socket when
- * the signal aborts.
+ * the signal aborts. The listener stays open across connections so a client
+ * that disconnects can reconnect without CES re-binding.
  */
 function serveStandaloneSocket(opts: {
   socketPath: string;
@@ -354,8 +137,22 @@ function serveStandaloneSocket(opts: {
   signal: AbortSignal;
   logger: Pick<Console, "log" | "warn" | "error">;
   log: ReturnType<typeof getLogger>;
+  onHandshakeComplete?: (
+    sessionId: string,
+    assistantApiKey?: string,
+    assistantId?: string,
+  ) => void;
+  onApiKeyUpdate?: (assistantApiKey: string, assistantId?: string) => void;
 }): void {
-  const { socketPath, handlers, signal, logger, log } = opts;
+  const {
+    socketPath,
+    handlers,
+    signal,
+    logger,
+    log,
+    onHandshakeComplete,
+    onApiKeyUpdate,
+  } = opts;
 
   mkdirSync(dirname(socketPath), { recursive: true });
   try {
@@ -367,10 +164,11 @@ function serveStandaloneSocket(opts: {
   const netServer = createNetServer();
 
   netServer.on("error", (err) => {
-    log.warn({ err }, "CES standalone socket server error");
+    log.warn({ err }, "CES socket server error");
   });
 
   netServer.on("connection", (socket: Socket) => {
+    connectionCount++;
     const readable = new Readable({ read() {} });
     const writable = new Writable({
       write(chunk, _encoding, callback) {
@@ -394,19 +192,24 @@ function serveStandaloneSocket(opts: {
       handlers,
       logger,
       signal,
-      onApiKeyUpdate: () => {},
+      onHandshakeComplete: (sessionId, apiKey, assistantId) => {
+        onHandshakeComplete?.(sessionId, apiKey, assistantId);
+      },
+      onApiKeyUpdate: onApiKeyUpdate ?? (() => {}),
     });
-    void server.serve().catch((err) => {
-      server.close();
-      log.warn(
-        { err },
-        "CES standalone connection ended with a transport error",
-      );
-    });
+    void server
+      .serve()
+      .catch((err) => {
+        server.close();
+        log.warn({ err }, "CES connection ended with a transport error");
+      })
+      .then(() => {
+        connectionCount = Math.max(0, connectionCount - 1);
+      });
   });
 
   netServer.listen(socketPath, () => {
-    log.info(`CES standalone socket listening at ${socketPath}`);
+    log.info(`CES socket listening at ${socketPath}`);
   });
 
   signal.addEventListener(
@@ -423,14 +226,89 @@ function serveStandaloneSocket(opts: {
   );
 }
 
-async function main(): Promise<void> {
-  ensureDataDirs();
+// ---------------------------------------------------------------------------
+// Health server (managed mode only)
+// ---------------------------------------------------------------------------
 
-  initLogger({ dir: getCesLogDir(), retentionDays: 30 });
-  const log = getLogger("main");
+let connectionCount = 0;
+
+function startHealthServer(
+  port: number,
+  signal: AbortSignal,
+  credentialDeps: CredentialRouteDeps | null,
+): ReturnType<typeof Bun.serve> {
+  const server = Bun.serve({
+    port,
+    async fetch(req) {
+      const url = new URL(req.url);
+      if (url.pathname === "/healthz") {
+        return new Response(JSON.stringify({ status: "ok" }), {
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (url.pathname === "/readyz") {
+        // Always return 200 — pod readiness must not depend on whether the
+        // assistant has connected.  When the CES feature flag is off the
+        // assistant never connects, and a 503 here would block pod
+        // scheduling during dark-launch.  The sidecar can't do useful work
+        // without a connection anyway, so readiness is purely about the
+        // process being up and able to accept a future connection.
+        return new Response(
+          JSON.stringify({
+            status: "ok",
+            connections: connectionCount,
+            rpcConnected: connectionCount > 0,
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          },
+        );
+      }
+
+      // Credential CRUD routes (only if service token is configured)
+      if (credentialDeps) {
+        const credentialResponse = await handleCredentialRoute(
+          req,
+          credentialDeps,
+        );
+        if (credentialResponse) return credentialResponse;
+      }
+
+      // Log export route
+      const logExportResponse = await handleLogExportRoute(
+        req,
+        getCesLogDir("managed"),
+      );
+      if (logExportResponse) return logExportResponse;
+
+      return new Response("Not Found", { status: 404 });
+    },
+  });
+
+  signal.addEventListener(
+    "abort",
+    () => {
+      server.stop(true);
+    },
+    { once: true },
+  );
+
+  return server;
+}
+
+// ---------------------------------------------------------------------------
+// Main
+// ---------------------------------------------------------------------------
+
+async function main(): Promise<void> {
+  const mode = getCesMode();
+  ensureDataDirs(mode);
+
+  initLogger({ dir: getCesLogDir(mode), retentionDays: 30 });
 
   log.info(
-    `Starting CES v${CES_PROTOCOL_VERSION} (local mode, socket transport)`,
+    `Starting CES v${CES_PROTOCOL_VERSION} (${mode} mode, socket transport)`,
   );
 
   const controller = new AbortController();
@@ -443,24 +321,57 @@ async function main(): Promise<void> {
   process.on("SIGTERM", shutdown);
   process.on("SIGINT", shutdown);
 
-  // Build the credential backend and run one-time migrations before starting
-  // the RPC server. Migrations complete synchronously before any connection
-  // is accepted — the backend is then passed to buildHandlers so it is not
-  // re-instantiated.
-  const secureKeyBackend = createLocalSecureKeyBackend(
-    dirname(getSecurityDir()),
-  );
+  // -- Secure key backend + migrations --------------------------------------
+  // The secure key backend path differs by mode:
+  // - Local: dirname(getSecurityDir()) — the parent of ~/.vellum/protected
+  //   (or CREDENTIAL_SECURITY_DIR when set by the CLI).
+  // - Managed: join(assistantDataMount, ".vellum") — the assistant data mount.
+  const secureKeyBackend =
+    mode === "managed"
+      ? createLocalSecureKeyBackend(
+          join(
+            process.env["CES_ASSISTANT_DATA_MOUNT"] ?? "/assistant-data-ro",
+            ".vellum",
+          ),
+        )
+      : createLocalSecureKeyBackend(dirname(getSecurityDir()));
+
   await runCesMigrations(
-    getCesDataRoot("local"),
+    getCesDataRoot(mode),
     secureKeyBackend,
     CES_MIGRATIONS,
   );
-  log.info("CES local startup: migrations complete");
+  log.info(`CES ${mode} startup: migrations complete`);
 
-  // Build the handler registry with all available RPC implementations.
-  // The handshake session ID is captured per connection in the server's
-  // SessionContext; handlers read it at call time for audit records.
-  const handlers = buildHandlers(secureKeyBackend);
+  // -- Build handlers --------------------------------------------------------
+  // The per-connection session ID lives in each CesRpcServer's SessionContext;
+  // handlers read it at call time. The registry is shared across connections
+  // and identical in both modes.
+  const handlers = buildCrudHandlers(secureKeyBackend);
+
+  // -- Health server (managed only) -----------------------------------------
+  if (mode === "managed") {
+    const serviceToken = process.env["CES_SERVICE_TOKEN"] ?? "";
+    let credentialDeps: CredentialRouteDeps | null = null;
+
+    if (serviceToken) {
+      credentialDeps = { backend: secureKeyBackend, serviceToken };
+      log.info("Credential CRUD routes enabled (CES_SERVICE_TOKEN configured)");
+    } else {
+      log.warn(
+        "CES_SERVICE_TOKEN not set — credential CRUD HTTP routes are disabled. " +
+          "Set CES_SERVICE_TOKEN to enable credential management over HTTP.",
+      );
+    }
+
+    const healthPort = getHealthPort();
+    startHealthServer(healthPort, controller.signal, credentialDeps);
+    log.info(`Health server listening on port ${healthPort}`);
+  }
+
+  // -- Socket server ---------------------------------------------------------
+  const socketPath =
+    mode === "managed" ? getBootstrapSocketPath() : getLocalSocketPath();
 
   const rpcLog = getLogger("rpc");
   const rpcLogger = {
@@ -469,14 +380,27 @@ async function main(): Promise<void> {
     error: (msg: string, ...args: unknown[]) => rpcLog.error({ args }, msg),
   };
 
-  // Serve over a Unix socket and run until a shutdown signal.
+  // Managed mode registers the `update_managed_credential` handler (via the
+  // `onApiKeyUpdate` hook) so the assistant can push its API key/ID after hatch.
+  // The push is acknowledged and logged; CES stores credentials via the CRUD
+  // handlers and no longer materializes platform tokens itself.
   serveStandaloneSocket({
-    socketPath: getLocalSocketPath(),
+    socketPath,
     handlers,
     signal: controller.signal,
     logger: rpcLogger,
     log,
+    onApiKeyUpdate:
+      mode === "managed"
+        ? (_newKey: string, newAssistantId?: string) => {
+            log.info("Assistant API key updated via RPC");
+            if (newAssistantId) {
+              log.info("Assistant ID updated via RPC");
+            }
+          }
+        : undefined,
   });
+
   await new Promise<void>((resolve) => {
     if (controller.signal.aborted) {
       resolve();
@@ -493,7 +417,7 @@ main().catch((err) => {
   try {
     getLogger("main").fatal({ err }, "Fatal error");
   } catch {
-    process.stderr.write(`[ces-local] Fatal: ${err}\n`);
+    process.stderr.write(`[ces-${getCesMode()}] Fatal: ${err}\n`);
   }
   process.exit(1);
 });

@@ -41,10 +41,16 @@ export class FakeClient {
     assistantId: string;
     conversationId?: string;
     turnDetection?: "manual" | "server_vad";
+    silenceThresholdMs?: number;
+    bargeInMinSpeechMs?: number;
   } | null = null;
   sentAudio: ArrayBuffer[] = [];
   pttReleaseCount = 0;
   interruptCount = 0;
+  updateConfigCalls: {
+    silenceThresholdMs?: number;
+    bargeInMinSpeechMs?: number;
+  }[] = [];
   ended = false;
   closed = false;
 
@@ -70,6 +76,8 @@ export class FakeClient {
     assistantId: string;
     conversationId?: string;
     turnDetection?: "manual" | "server_vad";
+    silenceThresholdMs?: number;
+    bargeInMinSpeechMs?: number;
   }): Promise<void> {
     this.connectArgs = args;
   }
@@ -82,6 +90,12 @@ export class FakeClient {
   }
   interrupt(): void {
     this.interruptCount++;
+  }
+  updateConfig(config: {
+    silenceThresholdMs?: number;
+    bargeInMinSpeechMs?: number;
+  }): void {
+    this.updateConfigCalls.push(config);
   }
   end(): void {
     this.ended = true;
@@ -108,7 +122,16 @@ export class FakeCapture {
   startCount = 0;
   stopCount = 0;
   shutdownCount = 0;
+  flushCount = 0;
   startResult: LiveVoiceCaptureResult = { ok: true };
+  /**
+   * When true, `start()` stays pending until {@link resolveStart} — lets tests
+   * hold the mic acquisition open across `ready`/teardown. Must be set before
+   * `start()` is called (i.e. at creation, in the `createCapture` factory,
+   * since the controller starts the capture at connect time).
+   */
+  deferStart = false;
+  private startResolvers: Array<(result: LiveVoiceCaptureResult) => void> = [];
 
   constructor(options: LiveVoiceAudioCaptureOptions) {
     this.onChunk = options.onChunk;
@@ -117,6 +140,9 @@ export class FakeCapture {
 
   async start(): Promise<LiveVoiceCaptureResult> {
     this.startCount++;
+    if (this.deferStart) {
+      return new Promise((resolve) => this.startResolvers.push(resolve));
+    }
     return this.startResult;
   }
   async stop(): Promise<void> {
@@ -124,6 +150,18 @@ export class FakeCapture {
   }
   async shutdown(): Promise<void> {
     this.shutdownCount++;
+  }
+  flush(): void {
+    this.flushCount++;
+  }
+
+  /** Resolve pending deferred `start()` calls with the current `startResult`. */
+  resolveStart(): void {
+    const resolvers = this.startResolvers;
+    this.startResolvers = [];
+    for (const resolve of resolvers) {
+      resolve(this.startResult);
+    }
   }
 
   /** Feed a captured PCM chunk to the controller. */
@@ -140,9 +178,13 @@ export class FakePlayer {
   enqueued: unknown[] = [];
   stopCount = 0;
   disposeCount = 0;
+  prewarmCount = 0;
   isPlaying = false;
   private drainResolvers: Array<() => void> = [];
 
+  prewarm(): void {
+    this.prewarmCount++;
+  }
   enqueue(chunk: unknown): void {
     this.enqueued.push(chunk);
     this.isPlaying = true;
@@ -189,6 +231,13 @@ export function makeControlsSpies() {
     stop: mock(() => {}),
     release: mock(() => {}),
     interrupt: mock(() => {}),
+    setMuted: mock((_muted: boolean) => {}),
+    updateConfig: mock(
+      (_config: {
+        silenceThresholdMs?: number;
+        bargeInMinSpeechMs?: number;
+      }) => {},
+    ),
   } satisfies LiveVoiceSessionControls;
 }
 
@@ -212,4 +261,11 @@ export function seedLiveVoiceSession(
     store.setControls(options.controls);
   }
   store.setState(state);
+  // Mirror the controller's first-`tts_audio` write: entering `speaking` means
+  // audio is flowing, so the avatar reads `responding`. (A silent mid-turn
+  // `speaking` pause is the exception, exercised directly against
+  // `toVoiceAvatarVisual`.)
+  if (state === "speaking") {
+    store.setAssistantAudioActive(true);
+  }
 }

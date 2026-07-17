@@ -7,13 +7,6 @@ import type { ToolContext } from "../../../../tools/types.js";
 // Mocks — must be declared before the subject import
 // ---------------------------------------------------------------------------
 
-mock.module("../../../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 let mockTranscriber: BatchTranscriber | null = null;
 
 mock.module("../../../../providers/speech-to-text/resolve.js", () => ({

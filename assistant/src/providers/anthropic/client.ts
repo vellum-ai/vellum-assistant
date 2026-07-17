@@ -2,10 +2,12 @@ import Anthropic from "@anthropic-ai/sdk";
 
 import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "../../prompts/cache-boundary.js";
 import { isAbortReason } from "../../util/abort-reasons.js";
-import { ProviderError } from "../../util/errors.js";
+import { ProviderError, type ProviderErrorReason } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
+import { INSUFFICIENT_CREDITS_PATTERNS } from "../../util/provider-error-patterns.js";
 import { extractRetryAfterMs } from "../../util/retry.js";
 import { stripOrphanedSurrogatesDeep } from "../../util/unicode.js";
+import { base64Source, resolveMediaReferences } from "../media-resolve.js";
 import {
   couldBePlaceholderSentinelPrefix,
   isPlaceholderSentinelText,
@@ -63,6 +65,92 @@ export function detectAnthropicContextOverflow(
   if (!/prompt.?is.?too.?long|prompt_too_long/i.test(combined)) return null;
   // Prefer the clean inner message over the JSON-stringified top-level string.
   return extractOverflowTokensFromMessage(innerMessage || topLevelMessage);
+}
+
+/**
+ * Read Anthropic's inner error type from an `APIError`. The body is shaped
+ * `{ type: "error", error: { type: <real>, message } }`, so the real type
+ * lives nested under `error.error.type`; some proxies flatten it to the top.
+ */
+function readAnthropicErrorType(
+  error: InstanceType<typeof Anthropic.APIError>,
+): string | undefined {
+  const body = error.error as
+    | { type?: string; error?: { type?: string; code?: string } }
+    | undefined;
+  return body?.error?.type ?? body?.type;
+}
+
+function readAnthropicErrorCode(
+  error: InstanceType<typeof Anthropic.APIError>,
+): string | undefined {
+  const body = error.error as { error?: { code?: string } } | undefined;
+  const code = body?.error?.code;
+  return typeof code === "string" && code.length > 0 ? code : undefined;
+}
+
+/**
+ * The SDK JSON-stringifies the nested body into `error.message` when there is
+ * no top-level message, so read the inner human message for display.
+ */
+function readAnthropicMessage(
+  error: InstanceType<typeof Anthropic.APIError>,
+): string | undefined {
+  const body = error.error as
+    | { message?: string; error?: { message?: string } }
+    | undefined;
+  const inner = body?.error?.message ?? body?.message;
+  return typeof inner === "string" && inner.length > 0 ? inner : undefined;
+}
+
+/**
+ * Map an Anthropic `APIError` to a semantic {@link ProviderErrorReason} from
+ * its error type and/or status. Order matters: billing precedes credentials,
+ * and the 403 branch disambiguates a model/plan restriction from generic auth.
+ * Context-overflow is handled separately (see {@link detectAnthropicContextOverflow}).
+ */
+export function deriveAnthropicReason(
+  error: InstanceType<typeof Anthropic.APIError>,
+): ProviderErrorReason {
+  const apiType = readAnthropicErrorType(error);
+  const status = error.status;
+  const haystack = `${apiType ?? ""} ${error.message ?? ""}`;
+
+  if (
+    status === 402 ||
+    INSUFFICIENT_CREDITS_PATTERNS.some((re) => re.test(haystack)) ||
+    /\bbilling\b/i.test(haystack)
+  ) {
+    return "insufficient_credits";
+  }
+  if (apiType === "authentication_error" || status === 401) {
+    return "invalid_credentials";
+  }
+  // A plan/tier model restriction requires an explicit model signal; a generic
+  // authorization/scope 403 or a missing gateway resource on 404 stays on the
+  // credential path / defers to the legacy fallback so the real detail survives.
+  const mentionsModel = /\bmodel\b/i.test(haystack);
+  if (apiType === "permission_error" || status === 403) {
+    return mentionsModel &&
+      /\b(?:plan|tier|upgrade|restricted|not\s+available|access|entitle)/i.test(
+        haystack,
+      )
+      ? "model_restricted"
+      : "invalid_credentials";
+  }
+  if (apiType === "not_found_error" || status === 404) {
+    return mentionsModel ? "model_not_found" : "bad_request";
+  }
+  if (apiType === "rate_limit_error" || status === 429) return "rate_limited";
+  if (apiType === "overloaded_error" || status === 529) return "overloaded";
+  if (status !== undefined && status >= 500) return "server_error";
+  if (
+    apiType === "invalid_request_error" ||
+    (status !== undefined && status >= 400)
+  ) {
+    return "bad_request";
+  }
+  return "unknown";
 }
 
 /** Rate-limit the orphaned-surrogate warning so a single bad stream can't flood logs. */
@@ -839,6 +927,9 @@ export class AnthropicProvider implements Provider {
         disableTurnStartCache: _disableTurnStartCache,
         mutableLatestUserMessage: _mutableLatestUserMessage,
         disableCache: _disableCache,
+        // OpenAI-transport prompt-cache key; reaches this client on
+        // OpenRouter's anthropic/* delegation path and must not hit the wire.
+        promptCacheKey: _promptCacheKey,
         max_tokens: callerMaxTokens,
         usageAttributionHeaders,
         // Pulled out of `restConfig` so they are forwarded conditionally below:
@@ -1423,6 +1514,7 @@ export class AnthropicProvider implements Provider {
           this.fromAnthropicBlock(block),
         ),
         model: response.model,
+        resolvedEndpoint: this.client.baseURL,
         usage: {
           inputTokens:
             response.usage.input_tokens +
@@ -1509,6 +1601,7 @@ export class AnthropicProvider implements Provider {
               actualTokens: overflow.actualTokens,
               maxTokens: overflow.maxTokens,
               statusCode: error.status,
+              reason: "context_overflow",
               cause: error,
             },
           );
@@ -1518,10 +1611,23 @@ export class AnthropicProvider implements Provider {
           retryAfterMs?: number;
           abortReason?: unknown;
           cause?: unknown;
+          reason?: ProviderErrorReason;
+          apiErrorType?: string;
+          apiErrorCode?: string;
         } = {};
         if (retryAfterMs !== undefined)
           errorOptions.retryAfterMs = retryAfterMs;
         if (abortReason) errorOptions.abortReason = abortReason;
+        // Stamp the semantic reason + structured type/code so downstream
+        // classification/retry can switch on intent. Skip on caller-abort:
+        // abortReason already short-circuits and carries the intent.
+        if (!abortReason) {
+          errorOptions.reason = deriveAnthropicReason(error);
+          const apiErrorType = readAnthropicErrorType(error);
+          if (apiErrorType) errorOptions.apiErrorType = apiErrorType;
+          const apiErrorCode = readAnthropicErrorCode(error);
+          if (apiErrorCode) errorOptions.apiErrorCode = apiErrorCode;
+        }
         // Only preserve the original error as `cause` for transport aborts
         // without a daemon-tagged reason — it's the diagnostic signal the
         // retry layer and log reader rely on. Don't leak it through the
@@ -1532,7 +1638,7 @@ export class AnthropicProvider implements Provider {
         const rewrittenMessage =
           isAbortMessage && innerTimeoutFired
             ? `Anthropic stream timed out after ${Math.round(elapsedMs / 1000)}s (inner streamTimeoutMs)`
-            : error.message;
+            : (readAnthropicMessage(error) ?? error.message);
         // Only include the `(status)` parenthetical when the SDK surfaced a
         // real HTTP status. Abort paths and mid-stream protocol errors have
         // `error.status === undefined`, and string-interpolating that produces
@@ -1612,6 +1718,9 @@ export class AnthropicProvider implements Provider {
    * only thing layered on top in `sendMessage`.
    */
   private buildSentMessages(messages: Message[]): Anthropic.MessageParam[] {
+    // Swap any persisted attachment references back to inline base64 before
+    // serializing, so the block transforms below can read `source.data`.
+    messages = resolveMediaReferences(messages);
     const formatted = messages
       .map((m) => {
         // Track whether an unknown block was dropped during filtering
@@ -1836,11 +1945,11 @@ export class AnthropicProvider implements Provider {
             type: "base64",
             media_type: block.source
               .media_type as Anthropic.Base64ImageSource["media_type"],
-            data: block.source.data,
+            data: base64Source(block.source).data,
           },
         };
       case "file": {
-        const { media_type, data, filename } = block.source;
+        const { media_type, data, filename } = base64Source(block.source);
         if (media_type === "application/pdf") {
           // Only valid base64 document source for Anthropic
           return {
@@ -1898,7 +2007,7 @@ export class AnthropicProvider implements Provider {
                   type: "base64" as const,
                   media_type: cb.source
                     .media_type as Anthropic.Base64ImageSource["media_type"],
-                  data: cb.source.data,
+                  data: base64Source(cb.source).data,
                 },
               });
             } else if (cb.type === "text") {

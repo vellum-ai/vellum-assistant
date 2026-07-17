@@ -6,7 +6,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Mocks — declared before imports that depend on platform/logger
@@ -29,27 +29,6 @@ function ensureTestDir(): void {
     }
   }
 }
-
-function makeLoggerStub(): Record<string, unknown> {
-  const stub: Record<string, unknown> = {};
-  for (const m of [
-    "info",
-    "warn",
-    "error",
-    "debug",
-    "trace",
-    "fatal",
-    "silent",
-    "child",
-  ]) {
-    stub[m] = m === "child" ? () => makeLoggerStub() : () => {};
-  }
-  return stub;
-}
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () => makeLoggerStub(),
-}));
 
 import { invalidateConfigCache, loadConfig } from "../config/loader.js";
 import {
@@ -79,11 +58,12 @@ function writeConfig(obj: unknown): void {
 describe("AssistantConfigSchema", () => {
   test("parses empty object with full defaults", () => {
     const result = AssistantConfigSchema.parse({});
-    // services.inference is now an empty object; provider/model live under
-    // llm.default.{provider,model}, auth routing via provider_connections.
+    // services.inference is an empty object; model selection lives under
+    // llm.profiles / llm.callSites, auth routing via provider_connections.
     expect(result.services.inference).toEqual({});
-    expect(result.llm.default.provider).toBe("anthropic");
-    expect(result.llm.default.model).toBe("claude-opus-4-8");
+    expect(result.llm.profiles).toEqual({});
+    expect(result.llm.profileOrder).toEqual([]);
+    expect(result.llm.callSites).toEqual({});
     expect(result.services["image-generation"].provider).toBe("gemini");
     expect(result.services["image-generation"].model).toBe(
       "gemini-3.1-flash-image-preview",
@@ -93,24 +73,9 @@ describe("AssistantConfigSchema", () => {
       "inference-provider-native",
     );
     expect(result.services["web-search"].mode).toBe("your-own");
-    expect(result.llm.default.maxTokens).toBe(64000);
-    expect(result.llm.default.thinking).toEqual({
-      enabled: true,
-      streamThinking: true,
-    });
-    expect(result.llm.default.contextWindow).toEqual({
-      enabled: true,
-      maxInputTokens: 200000,
-      targetBudgetRatio: 0.3,
-      compactThreshold: 0.8,
-      summaryBudgetRatio: 0.05,
-      overflowRecovery: {
-        enabled: true,
-        safetyMarginRatio: 0.05,
-        maxAttempts: 3,
-        interactiveLatestTurnCompression: "summarize",
-        nonInteractiveLatestTurnCompression: "truncate",
-      },
+    expect(result.llm.profileSession).toEqual({
+      defaultTtlSeconds: 1800,
+      maxTtlSeconds: 43200,
     });
     expect(result.timeouts).toEqual({
       shellDefaultTimeoutSec: 120,
@@ -163,7 +128,7 @@ describe("AssistantConfigSchema", () => {
   test("accepts Firecrawl as a web fetch provider", () => {
     const result = AssistantConfigSchema.parse({
       services: {
-        "web-fetch": { mode: "your-own", provider: "firecrawl" },
+        "web-fetch": { provider: "firecrawl" },
       },
     });
 
@@ -178,13 +143,27 @@ describe("AssistantConfigSchema", () => {
     ).toThrow();
   });
 
+  // Legacy config objects on disk may carry a `mode` key; parsing must strip
+  // it rather than reject the whole config.
+  test("ignores a legacy web-fetch mode key", () => {
+    const result = AssistantConfigSchema.parse({
+      services: {
+        "web-fetch": { mode: "your-own", provider: "firecrawl" },
+      },
+    });
+
+    expect(result.services["web-fetch"]).toEqual({ provider: "firecrawl" });
+  });
+
   test("accepts valid complete config", () => {
     const input = {
       llm: {
-        default: {
-          provider: "openai" as const,
-          model: "gpt-4",
-          maxTokens: 4096,
+        callSites: {
+          mainAgent: {
+            provider: "openai" as const,
+            model: "gpt-4",
+            maxTokens: 4096,
+          },
         },
       },
       timeouts: {
@@ -200,74 +179,28 @@ describe("AssistantConfigSchema", () => {
       auditLog: { retentionDays: 30 },
     };
     const result = AssistantConfigSchema.parse(input);
-    expect(result.llm.default.provider).toBe("openai");
-    expect(result.llm.default.model).toBe("gpt-4");
-    expect(result.llm.default.maxTokens).toBe(4096);
-    expect(result.llm.default.thinking.enabled).toBe(true);
+    expect(result.llm.callSites?.mainAgent?.provider).toBe("openai");
+    expect(result.llm.callSites?.mainAgent?.model).toBe("gpt-4");
+    expect(result.llm.callSites?.mainAgent?.maxTokens).toBe(4096);
     expect(result.secretDetection.enabled).toBe(false);
   });
 
   test("applies llm defaults when llm key is omitted", () => {
     const result = AssistantConfigSchema.parse({});
     expect(result.llm).toBeDefined();
-    expect(result.llm.default).toEqual({
-      provider: "anthropic",
-      model: "claude-opus-4-8",
-      maxTokens: 64000,
-      effort: "max",
-      speed: "standard",
-      verbosity: "medium",
-      temperature: null,
-      topP: null,
-      thinking: { enabled: true, streamThinking: true },
-      contextWindow: {
-        enabled: true,
-        maxInputTokens: 200000,
-        targetBudgetRatio: 0.3,
-        compactThreshold: 0.8,
-        summaryBudgetRatio: 0.05,
-        overflowRecovery: {
-          enabled: true,
-          safetyMarginRatio: 0.05,
-          maxAttempts: 3,
-          interactiveLatestTurnCompression: "summarize",
-          nonInteractiveLatestTurnCompression: "truncate",
-        },
-      },
-      openrouter: { only: [] },
-    });
     expect(result.llm.profiles).toEqual({});
     expect(result.llm.profileOrder).toEqual([]);
     expect(result.llm.callSites).toEqual({});
     expect(result.llm.pricingOverrides).toEqual([]);
+    expect(result.llm.profileSession).toEqual({
+      defaultTtlSeconds: 1800,
+      maxTtlSeconds: 43200,
+    });
   });
 
   test("accepts an explicit llm block with profiles and call sites", () => {
     const input = {
       llm: {
-        default: {
-          provider: "anthropic" as const,
-          model: "claude-opus-4-7",
-          maxTokens: 32000,
-          effort: "high" as const,
-          speed: "fast" as const,
-          temperature: null,
-          thinking: { enabled: true, streamThinking: false },
-          contextWindow: {
-            enabled: true,
-            maxInputTokens: 200000,
-            targetBudgetRatio: 0.3,
-            compactThreshold: 0.8,
-            summaryBudgetRatio: 0.05,
-            overflowRecovery: {
-              enabled: true,
-              safetyMarginRatio: 0.05,
-              maxAttempts: 3,
-              interactiveLatestTurnCompression: "summarize" as const,
-              nonInteractiveLatestTurnCompression: "truncate" as const,
-            },
-          },
-        },
         profiles: {
           fast: { speed: "fast" as const, effort: "low" as const },
         },
@@ -280,8 +213,6 @@ describe("AssistantConfigSchema", () => {
       },
     };
     const result = AssistantConfigSchema.parse(input);
-    expect(result.llm.default.model).toBe("claude-opus-4-7");
-    expect(result.llm.default.speed).toBe("fast");
     expect(result.llm.profiles?.fast).toEqual({
       speed: "fast",
       effort: "low",
@@ -294,29 +225,6 @@ describe("AssistantConfigSchema", () => {
   test("rejects an llm.callSites entry that references an undefined profile", () => {
     const input = {
       llm: {
-        default: {
-          provider: "anthropic" as const,
-          model: "claude-opus-4-6",
-          maxTokens: 64000,
-          effort: "max" as const,
-          speed: "standard" as const,
-          temperature: null,
-          thinking: { enabled: true, streamThinking: true },
-          contextWindow: {
-            enabled: true,
-            maxInputTokens: 200000,
-            targetBudgetRatio: 0.3,
-            compactThreshold: 0.8,
-            summaryBudgetRatio: 0.05,
-            overflowRecovery: {
-              enabled: true,
-              safetyMarginRatio: 0.05,
-              maxAttempts: 3,
-              interactiveLatestTurnCompression: "summarize" as const,
-              nonInteractiveLatestTurnCompression: "truncate" as const,
-            },
-          },
-        },
         callSites: {
           mainAgent: { profile: "missing-profile" },
         },
@@ -351,38 +259,32 @@ describe("AssistantConfigSchema", () => {
     expect(
       (result.services.inference as Record<string, unknown>).model,
     ).toBeUndefined();
-    expect(result.llm.default.provider).toBe("anthropic");
-    expect(result.llm.default.model).toBe("claude-opus-4-8");
+    expect(result.llm.profiles).toEqual({});
+    expect(result.llm.callSites).toEqual({});
   });
 
-  test("partial llm config (empty `llm: {}`) doesn't trigger full config reset", () => {
-    // Regression guard: previously LLMConfigBase had no schema-level defaults,
-    // so any `llm: {}` block would fail validation and the loader's recovery
-    // path would fall through to `cloneDefaultConfig()`, discarding unrelated
-    // valid settings (like a custom `llm.default.maxTokens`). With leaf-level
-    // defaults, `llm: {}` parses cleanly and the user's other settings are
-    // preserved.
+  test("partial llm config doesn't trigger full config reset", () => {
+    // Regression guard: schema-level leaf defaults mean a partial `llm`
+    // block parses cleanly instead of failing validation, so the loader's
+    // recovery path never falls through to `cloneDefaultConfig()` and the
+    // user's other settings are preserved.
     const result = AssistantConfigSchema.parse({
-      llm: { default: { maxTokens: 32000 } },
+      llm: { profileSession: { defaultTtlSeconds: 900 } },
     });
-    expect(result.llm.default.maxTokens).toBe(32000);
-    expect(result.llm.default.provider).toBe("anthropic");
-    expect(result.llm.default.model).toBe("claude-opus-4-8");
+    expect(result.llm.profileSession.defaultTtlSeconds).toBe(900);
+    expect(result.llm.profileSession.maxTtlSeconds).toBe(43200);
+    expect(result.llm.profiles).toEqual({});
   });
 
-  test("llm.default with one missing field still parses (defaults applied)", () => {
-    // A user can override a single field of `llm.default` without specifying
-    // the rest — schema-level defaults fill in everything that wasn't set.
+  test("legacy llm.default blob parses without error and is ignored", () => {
+    // Load-time backwards compat: `llm.default` is not part of the schema.
+    // Old configs that still carry the blob parse cleanly because Zod strips
+    // unknown keys — the parsed config simply has no `default` key.
     const result = AssistantConfigSchema.parse({
-      llm: { default: { model: "claude-haiku-4-5" } },
+      llm: { default: { provider: "openai", model: "gpt-4" }, profiles: {} },
     });
-    expect(result.llm.default.model).toBe("claude-haiku-4-5");
-    expect(result.llm.default.provider).toBe("anthropic");
-    expect(result.llm.default.maxTokens).toBe(64000);
-    expect(result.llm.default.thinking).toEqual({
-      enabled: true,
-      streamThinking: true,
-    });
+    expect((result.llm as Record<string, unknown>).default).toBeUndefined();
+    expect(result.llm.profiles).toEqual({});
   });
 
   test("applies rollout defaults for dynamic budget", () => {
@@ -420,18 +322,10 @@ describe("AssistantConfigSchema", () => {
     const result = AssistantConfigSchema.parse({});
     expect(result.memory.cleanup).toEqual({
       enabled: true,
-      enqueueIntervalMs: 6 * 60 * 60 * 1000,
       supersededItemRetentionMs: 30 * 24 * 60 * 60 * 1000,
       conversationRetentionDays: 0,
       llmRequestLogRetentionMs: 1 * 60 * 60 * 1000,
     });
-  });
-
-  test("rejects invalid memory.cleanup.enqueueIntervalMs", () => {
-    const result = AssistantConfigSchema.safeParse({
-      memory: { cleanup: { enqueueIntervalMs: 0 } },
-    });
-    expect(result.success).toBe(false);
   });
 
   test("accepts memory.cleanup.llmRequestLogRetentionMs at the 365-day boundary", () => {
@@ -481,7 +375,7 @@ describe("AssistantConfigSchema", () => {
     }
   });
 
-  test("accepts memory.cleanup.llmRequestLogRetentionMs: 0 (prune immediately)", () => {
+  test("accepts memory.cleanup.llmRequestLogRetentionMs: 0 (disables pruning)", () => {
     const result = AssistantConfigSchema.safeParse({
       memory: { cleanup: { llmRequestLogRetentionMs: 0 } },
     });
@@ -493,26 +387,14 @@ describe("AssistantConfigSchema", () => {
 
   test("rejects invalid provider", () => {
     const result = AssistantConfigSchema.safeParse({
-      llm: { default: { provider: "invalid" } },
+      llm: { profiles: { custom: { provider: "invalid" } } },
     });
     expect(result.success).toBe(false);
   });
 
-  test("rejects negative llm.default.maxTokens", () => {
+  test("rejects negative llm.callSites maxTokens", () => {
     const result = AssistantConfigSchema.safeParse({
-      llm: { default: { maxTokens: -100 } },
-    });
-    expect(result.success).toBe(false);
-    if (!result.success) {
-      expect(
-        result.error.issues.some((i) => i.path.includes("maxTokens")),
-      ).toBe(true);
-    }
-  });
-
-  test("rejects non-integer llm.default.maxTokens", () => {
-    const result = AssistantConfigSchema.safeParse({
-      llm: { default: { maxTokens: 3.14 } },
+      llm: { callSites: { mainAgent: { maxTokens: -100 } } },
     });
     expect(result.success).toBe(false);
     if (!result.success) {
@@ -522,9 +404,21 @@ describe("AssistantConfigSchema", () => {
     }
   });
 
-  test("rejects string llm.default.maxTokens", () => {
+  test("rejects non-integer llm.callSites maxTokens", () => {
     const result = AssistantConfigSchema.safeParse({
-      llm: { default: { maxTokens: "not-a-number" } },
+      llm: { callSites: { mainAgent: { maxTokens: 3.14 } } },
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(
+        result.error.issues.some((i) => i.path.includes("maxTokens")),
+      ).toBe(true);
+    }
+  });
+
+  test("rejects string llm.callSites maxTokens", () => {
+    const result = AssistantConfigSchema.safeParse({
+      llm: { callSites: { mainAgent: { maxTokens: "not-a-number" } } },
     });
     expect(result.success).toBe(false);
     if (!result.success) {
@@ -550,7 +444,7 @@ describe("AssistantConfigSchema", () => {
 
   test("rejects invalid thinking config", () => {
     const result = AssistantConfigSchema.safeParse({
-      llm: { default: { thinking: { enabled: "yes" } } },
+      llm: { callSites: { mainAgent: { thinking: { enabled: "yes" } } } },
     });
     expect(result.success).toBe(false);
     if (!result.success) {
@@ -558,26 +452,23 @@ describe("AssistantConfigSchema", () => {
     }
   });
 
-  test("rejects contextWindow targetBudgetRatio >= compactThreshold", () => {
-    const result = AssistantConfigSchema.safeParse({
-      llm: {
-        default: {
-          contextWindow: { targetBudgetRatio: 0.8, compactThreshold: 0.8 },
+  test("rejects out-of-range contextWindow targetBudgetRatio", () => {
+    for (const bad of [0, -0.1, 1.5]) {
+      const result = AssistantConfigSchema.safeParse({
+        llm: {
+          callSites: {
+            mainAgent: { contextWindow: { targetBudgetRatio: bad } },
+          },
         },
-      },
-    });
-    expect(result.success).toBe(false);
-    if (!result.success) {
-      expect(
-        result.error.issues.some(
-          (issue) =>
-            issue.path.join(".") ===
-              "llm.default.contextWindow.targetBudgetRatio" &&
-            issue.message.includes(
-              "must be less than llm.default.contextWindow.compactThreshold",
-            ),
-        ),
-      ).toBe(true);
+      });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(
+          result.error.issues.some((issue) =>
+            issue.path.join(".").includes("targetBudgetRatio"),
+          ),
+        ).toBe(true);
+      }
     }
   });
 
@@ -585,8 +476,10 @@ describe("AssistantConfigSchema", () => {
     for (const bad of [0, 1, -0.1, 1.5]) {
       const result = AssistantConfigSchema.safeParse({
         llm: {
-          default: {
-            contextWindow: { overflowRecovery: { safetyMarginRatio: bad } },
+          callSites: {
+            mainAgent: {
+              contextWindow: { overflowRecovery: { safetyMarginRatio: bad } },
+            },
           },
         },
       });
@@ -604,9 +497,11 @@ describe("AssistantConfigSchema", () => {
   test("rejects invalid overflowRecovery interactiveLatestTurnCompression", () => {
     const result = AssistantConfigSchema.safeParse({
       llm: {
-        default: {
-          contextWindow: {
-            overflowRecovery: { interactiveLatestTurnCompression: "explode" },
+        callSites: {
+          mainAgent: {
+            contextWindow: {
+              overflowRecovery: { interactiveLatestTurnCompression: "explode" },
+            },
           },
         },
       },
@@ -624,9 +519,11 @@ describe("AssistantConfigSchema", () => {
   test("rejects invalid overflowRecovery nonInteractiveLatestTurnCompression", () => {
     const result = AssistantConfigSchema.safeParse({
       llm: {
-        default: {
-          contextWindow: {
-            overflowRecovery: { nonInteractiveLatestTurnCompression: "nope" },
+        callSites: {
+          mainAgent: {
+            contextWindow: {
+              overflowRecovery: { nonInteractiveLatestTurnCompression: "nope" },
+            },
           },
         },
       },
@@ -713,7 +610,7 @@ describe("AssistantConfigSchema", () => {
       "ollama",
     ] as const) {
       const result = AssistantConfigSchema.safeParse({
-        llm: { default: { provider } },
+        llm: { profiles: { custom: { provider } } },
       });
       expect(result.success).toBe(true);
     }
@@ -721,12 +618,12 @@ describe("AssistantConfigSchema", () => {
 
   test("provides helpful error messages", () => {
     const result = AssistantConfigSchema.safeParse({
-      llm: { default: { maxTokens: -1 } },
+      llm: { callSites: { mainAgent: { maxTokens: -1 } } },
     });
     expect(result.success).toBe(false);
     if (!result.success) {
       const messages = result.error.issues.map((i) => i.message);
-      // The llm.default.maxTokens validation rejects -1 with a "Too small"
+      // The maxTokens validation rejects -1 with a "Too small"
       // / "expected number to be >0" message from Zod's default issue text.
       expect(
         messages.some(
@@ -742,6 +639,7 @@ describe("AssistantConfigSchema", () => {
       turnCommitMaxWaitMs: 4000,
       failureBackoffBaseMs: 2000,
       failureBackoffMaxMs: 60000,
+      maxFileSizeBytes: 256000,
       interactiveGitTimeoutMs: 10000,
       enrichmentQueueSize: 50,
       enrichmentConcurrency: 1,
@@ -885,6 +783,7 @@ describe("AssistantConfigSchema", () => {
         language: "en-US",
         interruptSensitivity: "low",
         telephonyStreaming: true,
+        utteranceEndMs: 1000,
       },
       callerIdentity: {
         allowPerCallOverride: true,
@@ -923,10 +822,12 @@ describe("AssistantConfigSchema", () => {
       mode: "open-mic",
       vad: {
         speechEnergyThreshold: 800,
-        silenceThresholdMs: 800,
+        silenceThresholdMs: 1200,
         maxTurnDurationMs: 30000,
+        bargeInMinSpeechMs: 250,
       },
       maxSessionDurationSeconds: 1800,
+      archiveAudio: false,
     });
   });
 
@@ -934,16 +835,42 @@ describe("AssistantConfigSchema", () => {
     const result = AssistantConfigSchema.parse({
       liveVoice: {
         mode: "ptt",
-        vad: { speechEnergyThreshold: 1500, silenceThresholdMs: 1000 },
+        vad: {
+          speechEnergyThreshold: 1500,
+          silenceThresholdMs: 1000,
+          bargeInMinSpeechMs: 120,
+        },
         maxSessionDurationSeconds: 900,
       },
     });
     expect(result.liveVoice.mode).toBe("ptt");
     expect(result.liveVoice.vad.speechEnergyThreshold).toBe(1500);
     expect(result.liveVoice.vad.silenceThresholdMs).toBe(1000);
+    expect(result.liveVoice.vad.bargeInMinSpeechMs).toBe(120);
     // Unspecified vad fields still get defaults
     expect(result.liveVoice.vad.maxTurnDurationMs).toBe(30000);
     expect(result.liveVoice.maxSessionDurationSeconds).toBe(900);
+  });
+
+  test("accepts a liveVoice.vad.bargeInMinSpeechMs of 0 (guard disabled)", () => {
+    const result = AssistantConfigSchema.parse({
+      liveVoice: { vad: { bargeInMinSpeechMs: 0 } },
+    });
+    expect(result.liveVoice.vad.bargeInMinSpeechMs).toBe(0);
+  });
+
+  test("rejects negative liveVoice.vad.bargeInMinSpeechMs", () => {
+    const result = AssistantConfigSchema.safeParse({
+      liveVoice: { vad: { bargeInMinSpeechMs: -1 } },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test("rejects non-integer liveVoice.vad.bargeInMinSpeechMs", () => {
+    const result = AssistantConfigSchema.safeParse({
+      liveVoice: { vad: { bargeInMinSpeechMs: 60.5 } },
+    });
+    expect(result.success).toBe(false);
   });
 
   test("accepts partial calls config with defaults for missing fields", () => {
@@ -1023,6 +950,7 @@ describe("AssistantConfigSchema", () => {
     expect(result.calls.voice.language).toBe("en-US");
     expect(result.calls.voice.interruptSensitivity).toBe("low");
     expect(result.calls.voice.telephonyStreaming).toBe(true);
+    expect(result.calls.voice.utteranceEndMs).toBe(1000);
   });
 
   test("accepts valid calls.voice overrides", () => {
@@ -1031,11 +959,35 @@ describe("AssistantConfigSchema", () => {
         voice: {
           language: "es-ES",
           telephonyStreaming: false,
+          utteranceEndMs: 2500,
         },
       },
     });
     expect(result.calls.voice.language).toBe("es-ES");
     expect(result.calls.voice.telephonyStreaming).toBe(false);
+    expect(result.calls.voice.utteranceEndMs).toBe(2500);
+  });
+
+  test("rejects calls.voice.utteranceEndMs outside the 1000-5000 range", () => {
+    for (const utteranceEndMs of [999, 5001]) {
+      const result = AssistantConfigSchema.safeParse({
+        calls: { voice: { utteranceEndMs } },
+      });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        const msgs = result.error.issues.map((i) => i.message);
+        expect(msgs.some((m) => m.includes("calls.voice.utteranceEndMs"))).toBe(
+          true,
+        );
+      }
+    }
+  });
+
+  test("rejects non-integer calls.voice.utteranceEndMs", () => {
+    const result = AssistantConfigSchema.safeParse({
+      calls: { voice: { utteranceEndMs: 1000.5 } },
+    });
+    expect(result.success).toBe(false);
   });
 
   test("rejects non-boolean calls.voice.telephonyStreaming", () => {
@@ -1249,7 +1201,6 @@ describe("AssistantConfigSchema", () => {
 
   test("applies services.tts defaults when not specified", () => {
     const result = AssistantConfigSchema.parse({});
-    expect(result.services.tts.mode).toBe("your-own");
     expect(result.services.tts.provider).toBe("elevenlabs");
     expect(result.services.tts.providers.elevenlabs.voiceId).toBe(
       DEFAULT_ELEVENLABS_VOICE_ID,
@@ -1275,7 +1226,6 @@ describe("AssistantConfigSchema", () => {
       services: { tts: { provider: "fish-audio" } },
     });
     expect(result.services.tts.provider).toBe("fish-audio");
-    expect(result.services.tts.mode).toBe("your-own");
   });
 
   test("accepts deepgram as services.tts.provider", () => {
@@ -1283,7 +1233,6 @@ describe("AssistantConfigSchema", () => {
       services: { tts: { provider: "deepgram" } },
     });
     expect(result.services.tts.provider).toBe("deepgram");
-    expect(result.services.tts.mode).toBe("your-own");
   });
 
   test("accepts valid services.tts.providers.elevenlabs overrides", () => {
@@ -1336,17 +1285,22 @@ describe("AssistantConfigSchema", () => {
     expect(result.services.tts.providers.deepgram.format).toBe("opus");
   });
 
-  test("rejects services.tts.mode = managed", () => {
-    const result = AssistantConfigSchema.safeParse({
+  // Legacy config objects on disk may carry a `mode` key. Parsing must strip
+  // it rather than reject the config — and must not treat it as a managed
+  // selection, which is what migration 130 rewrites to `provider: "vellum"`.
+  test("ignores a legacy tts mode key", () => {
+    const result = AssistantConfigSchema.parse({
       services: { tts: { mode: "managed" } },
     });
-    expect(result.success).toBe(false);
-    if (!result.success) {
-      const msgs = result.error.issues.map((i) => i.message);
-      expect(
-        msgs.some((m) => m.includes("your-own") || m.includes("managed")),
-      ).toBe(true);
-    }
+    expect(result.services.tts).not.toHaveProperty("mode");
+    expect(result.services.tts.provider).toBe("elevenlabs");
+  });
+
+  test("accepts tts provider vellum as an ordinary choice", () => {
+    const result = AssistantConfigSchema.safeParse({
+      services: { tts: { provider: "vellum" } },
+    });
+    expect(result.success).toBe(true);
   });
 
   // ── hostBrowser.cdpInspect.desktopAuto config ───────────────────────
@@ -1407,18 +1361,19 @@ describe("AssistantConfigSchema", () => {
     }
   });
 
-  test("services.tts.mode only accepts your-own as literal", () => {
-    // Explicit your-own should work
-    const valid = TtsServiceSchema.safeParse({ mode: "your-own" });
-    expect(valid.success).toBe(true);
+  test("services.tts.provider defaults to elevenlabs and rejects unknown ids", () => {
+    const defaulted = TtsServiceSchema.safeParse({});
+    expect(defaulted.success).toBe(true);
+    if (defaulted.success) {
+      expect(defaulted.data.provider).toBe("elevenlabs");
+    }
 
-    // managed should be rejected
-    const invalid = TtsServiceSchema.safeParse({ mode: "managed" });
-    expect(invalid.success).toBe(false);
-
-    // Any other string should be rejected
-    const invalid2 = TtsServiceSchema.safeParse({ mode: "self-hosted" });
-    expect(invalid2.success).toBe(false);
+    expect(TtsServiceSchema.safeParse({ provider: "vellum" }).success).toBe(
+      true,
+    );
+    expect(TtsServiceSchema.safeParse({ provider: "self-hosted" }).success).toBe(
+      false,
+    );
   });
 
   // ── services.stt config ──────────────────────────────────────────────
@@ -1439,7 +1394,6 @@ describe("AssistantConfigSchema", () => {
     const result = AssistantConfigSchema.parse({
       services: { stt: { provider: "openai-whisper" } },
     });
-    expect(result.services.stt.mode).toBe("your-own");
     expect(result.services.stt.provider).toBe("openai-whisper");
     // providers defaults to empty sparse map
     expect(result.services.stt.providers).toEqual({});
@@ -1450,7 +1404,6 @@ describe("AssistantConfigSchema", () => {
       services: { stt: { provider: "openai-whisper" } },
     });
     expect(result.services.stt.provider).toBe("openai-whisper");
-    expect(result.services.stt.mode).toBe("your-own");
   });
 
   test("accepts valid services.stt.providers.openai-whisper overrides", () => {
@@ -1494,17 +1447,22 @@ describe("AssistantConfigSchema", () => {
     });
   });
 
-  test("rejects services.stt.mode = managed", () => {
-    const result = AssistantConfigSchema.safeParse({
-      services: { stt: { mode: "managed" } },
+  // Legacy config objects on disk may carry a `mode` key. Parsing must strip
+  // it rather than reject the config — and must not treat it as a managed
+  // selection, which is what migration 130 rewrites to `provider: "vellum"`.
+  test("ignores a legacy stt mode key", () => {
+    const result = AssistantConfigSchema.parse({
+      services: { stt: { mode: "managed", provider: "deepgram" } },
     });
-    expect(result.success).toBe(false);
-    if (!result.success) {
-      const msgs = result.error.issues.map((i) => i.message);
-      expect(
-        msgs.some((m) => m.includes("your-own") || m.includes("managed")),
-      ).toBe(true);
-    }
+    expect(result.services.stt).not.toHaveProperty("mode");
+    expect(result.services.stt.provider).toBe("deepgram");
+  });
+
+  test("accepts stt provider vellum as an ordinary choice", () => {
+    const result = AssistantConfigSchema.safeParse({
+      services: { stt: { provider: "vellum" } },
+    });
+    expect(result.success).toBe(true);
   });
 
   test("rejects invalid services.stt.provider", () => {
@@ -1523,7 +1481,6 @@ describe("AssistantConfigSchema", () => {
       services: { stt: { provider: "deepgram" } },
     });
     expect(result.services.stt.provider).toBe("deepgram");
-    expect(result.services.stt.mode).toBe("your-own");
   });
 
   test("accepts google-gemini as services.stt.provider", () => {
@@ -1531,14 +1488,12 @@ describe("AssistantConfigSchema", () => {
       services: { stt: { provider: "google-gemini" } },
     });
     expect(result.services.stt.provider).toBe("google-gemini");
-    expect(result.services.stt.mode).toBe("your-own");
   });
 
   test("applies services.stt structural defaults when google-gemini provider is explicit", () => {
     const result = AssistantConfigSchema.parse({
       services: { stt: { provider: "google-gemini" } },
     });
-    expect(result.services.stt.mode).toBe("your-own");
     expect(result.services.stt.provider).toBe("google-gemini");
     expect(result.services.stt.providers).toEqual({});
   });
@@ -1582,27 +1537,16 @@ describe("AssistantConfigSchema", () => {
     expect(result.success).toBe(false);
   });
 
-  test("services.stt.mode only accepts your-own as literal", () => {
-    // Explicit your-own should work
-    const valid = SttServiceSchema.safeParse({
-      mode: "your-own",
-      provider: "openai-whisper",
-    });
-    expect(valid.success).toBe(true);
-
-    // managed should be rejected
-    const invalid = SttServiceSchema.safeParse({
-      mode: "managed",
-      provider: "openai-whisper",
-    });
-    expect(invalid.success).toBe(false);
-
-    // Any other string should be rejected
-    const invalid2 = SttServiceSchema.safeParse({
-      mode: "self-hosted",
-      provider: "openai-whisper",
-    });
-    expect(invalid2.success).toBe(false);
+  test("services.stt.provider accepts known ids and rejects unknown ones", () => {
+    expect(
+      SttServiceSchema.safeParse({ provider: "openai-whisper" }).success,
+    ).toBe(true);
+    expect(SttServiceSchema.safeParse({ provider: "vellum" }).success).toBe(
+      true,
+    );
+    expect(
+      SttServiceSchema.safeParse({ provider: "self-hosted" }).success,
+    ).toBe(false);
   });
 
   test("rejects hostBrowser.cdpInspect.desktopAuto.cooldownMs above 300000", () => {
@@ -1767,9 +1711,10 @@ describe("resolveTtsConfig", () => {
 // ---------------------------------------------------------------------------
 
 describe("TTS provider catalog integration", () => {
-  test("TTS_PROVIDER_IDS matches catalog provider IDs", () => {
-    const catalogIds = listCatalogProviderIds();
-    expect([...TTS_PROVIDER_IDS]).toEqual(catalogIds);
+  test("TTS_PROVIDER_IDS matches the display catalog exactly", () => {
+    expect([...listCatalogProviderIds()].sort()).toEqual(
+      [...TTS_PROVIDER_IDS].sort(),
+    );
   });
 
   test("schema accepts all catalog provider IDs as services.tts.provider", () => {
@@ -1794,13 +1739,21 @@ describe("TTS provider catalog integration", () => {
 
   test("resolveTtsConfig returns correct defaults for each catalog provider", () => {
     for (const providerId of listCatalogProviderIds()) {
+      // vellum is connection-based and only valid under managed mode.
+      const mode = providerId === "vellum" ? "managed" : "your-own";
       const config = AssistantConfigSchema.parse({
-        services: { tts: { provider: providerId } },
+        services: { tts: { mode, provider: providerId } },
       });
       const resolved = resolveTtsConfig(config);
       expect(resolved.provider).toBe(providerId);
-      // Every catalog provider should resolve to a non-empty config object
-      expect(Object.keys(resolved.providerConfig).length).toBeGreaterThan(0);
+      if (providerId === "vellum") {
+        // The vellum config block is intentionally empty — the platform
+        // pins the voice and model.
+        expect(resolved.providerConfig).toEqual({});
+      } else {
+        // Every BYOK provider resolves to a non-empty config object.
+        expect(Object.keys(resolved.providerConfig).length).toBeGreaterThan(0);
+      }
     }
   });
 
@@ -2090,53 +2043,64 @@ describe("loadConfig with schema validation", () => {
   test("loads valid config", () => {
     writeConfig({
       llm: {
-        default: { provider: "openai", model: "gpt-4", maxTokens: 4096 },
+        callSites: {
+          mainAgent: { provider: "openai", model: "gpt-4", maxTokens: 4096 },
+        },
       },
     });
     const config = loadConfig();
-    expect(config.llm.default.provider).toBe("openai");
-    expect(config.llm.default.model).toBe("gpt-4");
-    expect(config.llm.default.maxTokens).toBe(4096);
+    expect(config.llm.callSites?.mainAgent?.provider).toBe("openai");
+    expect(config.llm.callSites?.mainAgent?.model).toBe("gpt-4");
+    expect(config.llm.callSites?.mainAgent?.maxTokens).toBe(4096);
   });
 
   test("applies defaults for missing fields", () => {
     writeConfig({});
     const config = loadConfig();
-    expect(config.llm.default.provider).toBe("anthropic");
-    expect(config.llm.default.model).toBe("claude-opus-4-8");
-    expect(config.llm.default.maxTokens).toBe(64000);
-    expect(config.llm.default.thinking).toEqual({
-      enabled: true,
-      streamThinking: true,
+    expect(config.llm.profiles).toEqual({});
+    expect(config.llm.profileOrder).toEqual([]);
+    expect(config.llm.callSites).toEqual({});
+    expect(config.llm.profileSession).toEqual({
+      defaultTtlSeconds: 1800,
+      maxTtlSeconds: 43200,
     });
-    expect(config.llm.default.contextWindow).toEqual({
-      enabled: true,
-      maxInputTokens: 200000,
-      targetBudgetRatio: 0.3,
-      compactThreshold: 0.8,
-      summaryBudgetRatio: 0.05,
-      overflowRecovery: {
-        enabled: true,
-        safetyMarginRatio: 0.05,
-        maxAttempts: 3,
-        interactiveLatestTurnCompression: "summarize",
-        nonInteractiveLatestTurnCompression: "truncate",
+  });
+
+  test("legacy llm.default blob loads without error and is ignored", () => {
+    // Load-time backwards compat: old configs still carrying `llm.default`
+    // load cleanly — the key is stripped from the parsed config (not an
+    // error, no fallback to full defaults) and sibling llm fields survive.
+    writeConfig({
+      llm: {
+        default: { provider: "openai", model: "gpt-4" },
+        callSites: { mainAgent: { maxTokens: 4096 } },
       },
     });
+    const config = loadConfig();
+    expect((config.llm as Record<string, unknown>).default).toBeUndefined();
+    expect(config.llm.callSites?.mainAgent?.maxTokens).toBe(4096);
   });
 
   test("falls back to default for invalid provider", () => {
+    // Leaf-deletion recovery: the invalid provider leaf is stripped and the
+    // rest of the profile survives.
     writeConfig({
-      llm: { default: { provider: "invalid-provider" } },
+      llm: {
+        profiles: { custom: { provider: "invalid-provider", model: "gpt-4" } },
+      },
     });
     const config = loadConfig();
-    expect(config.llm.default.provider).toBe("anthropic");
+    expect(config.llm.profiles.custom?.provider).toBeUndefined();
+    expect(config.llm.profiles.custom?.model).toBe("gpt-4");
   });
 
   test("falls back to default for invalid maxTokens", () => {
-    writeConfig({ llm: { default: { maxTokens: -100 } } });
+    writeConfig({
+      llm: { callSites: { mainAgent: { maxTokens: -100, model: "gpt-4" } } },
+    });
     const config = loadConfig();
-    expect(config.llm.default.maxTokens).toBe(64000);
+    expect(config.llm.callSites?.mainAgent?.maxTokens).toBeUndefined();
+    expect(config.llm.callSites?.mainAgent?.model).toBe("gpt-4");
   });
 
   test("falls back to defaults for invalid nested values", () => {
@@ -2152,25 +2116,27 @@ describe("loadConfig with schema validation", () => {
   test("preserves valid fields when other fields are invalid", () => {
     writeConfig({
       llm: {
-        default: {
-          provider: "openai",
-          model: "gpt-4",
-          maxTokens: -1,
-          thinking: { enabled: true },
+        callSites: {
+          mainAgent: {
+            provider: "openai",
+            model: "gpt-4",
+            maxTokens: -1,
+            thinking: { enabled: true },
+          },
         },
       },
     });
     const config = loadConfig();
-    expect(config.llm.default.provider).toBe("openai");
-    expect(config.llm.default.model).toBe("gpt-4");
-    expect(config.llm.default.thinking.enabled).toBe(true);
-    expect(config.llm.default.maxTokens).toBe(64000);
+    expect(config.llm.callSites?.mainAgent?.provider).toBe("openai");
+    expect(config.llm.callSites?.mainAgent?.model).toBe("gpt-4");
+    expect(config.llm.callSites?.mainAgent?.thinking?.enabled).toBe(true);
+    expect(config.llm.callSites?.mainAgent?.maxTokens).toBeUndefined();
   });
 
   test("handles no config file", () => {
     const config = loadConfig();
-    expect(config.llm.default.provider).toBe("anthropic");
-    expect(config.llm.default.maxTokens).toBe(64000);
+    expect(config.llm.profiles).toEqual({});
+    expect(config.llm.profileSession.defaultTtlSeconds).toBe(1800);
   });
 
   test("partial nested objects get defaults for missing fields", () => {
@@ -2183,17 +2149,25 @@ describe("loadConfig with schema validation", () => {
     expect(config.timeouts.permissionTimeoutSec).toBe(300);
   });
 
-  test("falls back for invalid contextWindow relationship", () => {
+  test("falls back for out-of-range contextWindow ratio", () => {
+    // Leaf-deletion recovery: the invalid ratio leaf is stripped while its
+    // valid sibling survives.
     writeConfig({
       llm: {
-        default: {
-          contextWindow: { targetBudgetRatio: 0.8, compactThreshold: 0.8 },
+        callSites: {
+          mainAgent: {
+            contextWindow: { targetBudgetRatio: 1.5, compactThreshold: 0.7 },
+          },
         },
       },
     });
     const config = loadConfig();
-    expect(config.llm.default.contextWindow.targetBudgetRatio).toBe(0.3);
-    expect(config.llm.default.contextWindow.compactThreshold).toBe(0.8);
+    expect(
+      config.llm.callSites?.mainAgent?.contextWindow?.targetBudgetRatio,
+    ).toBeUndefined();
+    expect(
+      config.llm.callSites?.mainAgent?.contextWindow?.compactThreshold,
+    ).toBe(0.7);
   });
 
   test("falls back for invalid rateLimit values", () => {
@@ -2233,13 +2207,13 @@ describe("loadConfig with schema validation", () => {
     // Only activeHoursStart is set. The superRefine must emit the issue so
     // the loader's delete-and-retry can strip the set field; otherwise the
     // mismatch persists and the config falls back to full defaults (which
-    // would reset llm.default.maxTokens below to 64000).
+    // would wipe the user's llm.callSites.mainAgent.maxTokens below).
     writeConfig({
-      llm: { default: { maxTokens: 4096 } },
+      llm: { callSites: { mainAgent: { maxTokens: 4096 } } },
       filing: { activeHoursStart: 8 },
     });
     const config = loadConfig();
-    expect(config.llm.default.maxTokens).toBe(4096);
+    expect(config.llm.callSites?.mainAgent?.maxTokens).toBe(4096);
     expect(config.filing.activeHoursStart).toBeNull();
     expect(config.filing.activeHoursEnd).toBeNull();
   });
@@ -2247,13 +2221,13 @@ describe("loadConfig with schema validation", () => {
   test("recovers from partial heartbeat.activeHours without wiping unrelated fields", () => {
     // activeHoursStart is explicitly nulled while activeHoursEnd defaults to
     // 22 — a mismatch. Dual-emit strips both sides; both defaults restore
-    // (8, 22). llm.default.maxTokens is unaffected.
+    // (8, 22). llm.callSites.mainAgent.maxTokens is unaffected.
     writeConfig({
-      llm: { default: { maxTokens: 4096 } },
+      llm: { callSites: { mainAgent: { maxTokens: 4096 } } },
       heartbeat: { activeHoursStart: null },
     });
     const config = loadConfig();
-    expect(config.llm.default.maxTokens).toBe(4096);
+    expect(config.llm.callSites?.mainAgent?.maxTokens).toBe(4096);
     expect(config.heartbeat.activeHoursStart).toBe(8);
     expect(config.heartbeat.activeHoursEnd).toBe(22);
   });
@@ -2261,14 +2235,15 @@ describe("loadConfig with schema validation", () => {
   test("recovers from heartbeat.activeHours null-mismatch where explicit value equals opposite default", () => {
     // { start: null, end: 8 } — single-emit on the null side would strip
     // start, the default 8 would restore it, and the equal-hours check would
-    // fire, cascading to a full defaults reset that wipes llm.default.maxTokens.
-    // Dual-emit strips both sides in one pass.
+    // fire, cascading to a full defaults reset that wipes the user's
+    // llm.callSites.mainAgent.maxTokens. Dual-emit strips both sides in one
+    // pass.
     writeConfig({
-      llm: { default: { maxTokens: 4096 } },
+      llm: { callSites: { mainAgent: { maxTokens: 4096 } } },
       heartbeat: { activeHoursStart: null, activeHoursEnd: 8 },
     });
     const config = loadConfig();
-    expect(config.llm.default.maxTokens).toBe(4096);
+    expect(config.llm.callSites?.mainAgent?.maxTokens).toBe(4096);
     expect(config.heartbeat.activeHoursStart).toBe(8);
     expect(config.heartbeat.activeHoursEnd).toBe(22);
   });
@@ -2276,11 +2251,11 @@ describe("loadConfig with schema validation", () => {
   test("recovers from heartbeat.activeHours null-mismatch on the end side", () => {
     // { start: 22, end: null } — same cascade class as above, mirrored.
     writeConfig({
-      llm: { default: { maxTokens: 4096 } },
+      llm: { callSites: { mainAgent: { maxTokens: 4096 } } },
       heartbeat: { activeHoursStart: 22, activeHoursEnd: null },
     });
     const config = loadConfig();
-    expect(config.llm.default.maxTokens).toBe(4096);
+    expect(config.llm.callSites?.mainAgent?.maxTokens).toBe(4096);
     expect(config.heartbeat.activeHoursStart).toBe(8);
     expect(config.heartbeat.activeHoursEnd).toBe(22);
   });
@@ -2289,13 +2264,14 @@ describe("loadConfig with schema validation", () => {
     // { start: 22, end: 22 } — both equal to the default for end. Single-emit
     // on one path would strip one side, the default would recreate the
     // equal-hours mismatch, and the loader would fall back to full defaults,
-    // wiping llm.default.maxTokens. Dual-emit strips both sides at once.
+    // wiping the user's llm.callSites.mainAgent.maxTokens. Dual-emit strips
+    // both sides at once.
     writeConfig({
-      llm: { default: { maxTokens: 4096 } },
+      llm: { callSites: { mainAgent: { maxTokens: 4096 } } },
       heartbeat: { activeHoursStart: 22, activeHoursEnd: 22 },
     });
     const config = loadConfig();
-    expect(config.llm.default.maxTokens).toBe(4096);
+    expect(config.llm.callSites?.mainAgent?.maxTokens).toBe(4096);
     expect(config.heartbeat.activeHoursStart).toBe(8);
     expect(config.heartbeat.activeHoursEnd).toBe(22);
   });
@@ -2304,14 +2280,14 @@ describe("loadConfig with schema validation", () => {
     // activeHoursStart === activeHoursEnd is invalid (empty window). Filing's
     // defaults are null/null, so single-emit on one path would strip one side
     // and the null default would recreate a mismatch — cascading to a full
-    // defaults reset that wipes llm.default.maxTokens. Dual-emit strips both
-    // sides so both defaults restore to null.
+    // defaults reset that wipes the user's llm.callSites.mainAgent.maxTokens.
+    // Dual-emit strips both sides so both defaults restore to null.
     writeConfig({
-      llm: { default: { maxTokens: 1234 } },
+      llm: { callSites: { mainAgent: { maxTokens: 1234 } } },
       filing: { activeHoursStart: 5, activeHoursEnd: 5 },
     });
     const config = loadConfig();
-    expect(config.llm.default.maxTokens).toBe(1234);
+    expect(config.llm.callSites?.mainAgent?.maxTokens).toBe(1234);
     expect(config.filing.activeHoursStart).toBeNull();
     expect(config.filing.activeHoursEnd).toBeNull();
   });

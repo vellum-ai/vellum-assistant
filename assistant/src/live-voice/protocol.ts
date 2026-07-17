@@ -4,6 +4,7 @@ const LIVE_VOICE_CLIENT_FRAME_TYPES = [
   "ptt_release",
   "interrupt",
   "end",
+  "update_config",
 ] as const;
 
 type LiveVoiceClientFrameType = (typeof LIVE_VOICE_CLIENT_FRAME_TYPES)[number];
@@ -35,6 +36,12 @@ export const LiveVoiceProtocolErrorCode = {
   MissingRequiredField: "missing_required_field",
   InvalidField: "invalid_field",
   InvalidAudioPayload: "invalid_audio_payload",
+  /**
+   * Session startup was rejected because the daemon cannot run both audio
+   * legs (STT/TTS providers or credentials are unresolved). The error
+   * `message` names the offending provider(s) and missing credential(s).
+   */
+  CredentialsUnavailable: "credentials_unavailable",
 } as const;
 
 export type LiveVoiceProtocolErrorCode =
@@ -72,7 +79,35 @@ export interface LiveVoiceClientStartFrame {
    * utterance boundaries and runs repeated utterance→turn cycles.
    */
   readonly turnDetection?: LiveVoiceTurnDetectionMode;
+  /**
+   * Per-session override for the trailing-silence duration (ms) that ends the
+   * user's turn — the "pause before reply" the client exposes as a setting.
+   * Absent falls back to the daemon `liveVoice.vad.silenceThresholdMs` config.
+   * Only meaningful for `turnDetection: "server_vad"`. Bounded to
+   * [{@link MIN_SILENCE_THRESHOLD_MS}, {@link MAX_SILENCE_THRESHOLD_MS}].
+   */
+  readonly silenceThresholdMs?: number;
+  /**
+   * Per-session override for the sustained speech (ms) required before the
+   * user's speech interrupts the assistant mid-reply — the "interrupt
+   * sensitivity" the client exposes as a setting (higher = harder to
+   * interrupt; 0 disables the guard so barge-in is immediate). Absent falls
+   * back to the daemon `liveVoice.vad.bargeInMinSpeechMs` config. Bounded to
+   * [{@link MIN_BARGE_IN_MIN_SPEECH_MS}, {@link MAX_BARGE_IN_MIN_SPEECH_MS}].
+   */
+  readonly bargeInMinSpeechMs?: number;
 }
+
+/**
+ * Bounds for the per-session turn-detection overrides carried on the start
+ * frame. Kept deliberately wide — they only reject nonsensical values (a
+ * sub-100 ms pause would end turns mid-word; a 10 s barge-in guard would make
+ * the assistant uninterruptible). The daemon config defaults sit inside these.
+ */
+export const MIN_SILENCE_THRESHOLD_MS = 100;
+export const MAX_SILENCE_THRESHOLD_MS = 5_000;
+export const MIN_BARGE_IN_MIN_SPEECH_MS = 0;
+export const MAX_BARGE_IN_MIN_SPEECH_MS = 3_000;
 
 export interface LiveVoiceClientAudioFrame {
   readonly type: "audio";
@@ -91,12 +126,26 @@ export interface LiveVoiceClientEndFrame {
   readonly type: "end";
 }
 
+/**
+ * Mid-session tuning update: applies the same turn-detection knobs the start
+ * frame carries to the *running* session, so the client can retune "pause
+ * before reply" / "interrupt sensitivity" without reconnecting. Each field is
+ * optional and independently applied; the same bounds as the start frame apply.
+ * Only meaningful for `server_vad` sessions.
+ */
+export interface LiveVoiceClientUpdateConfigFrame {
+  readonly type: "update_config";
+  readonly silenceThresholdMs?: number;
+  readonly bargeInMinSpeechMs?: number;
+}
+
 export type LiveVoiceClientFrame =
   | LiveVoiceClientStartFrame
   | LiveVoiceClientAudioFrame
   | LiveVoiceClientPttReleaseFrame
   | LiveVoiceClientInterruptFrame
-  | LiveVoiceClientEndFrame;
+  | LiveVoiceClientEndFrame
+  | LiveVoiceClientUpdateConfigFrame;
 
 interface LiveVoiceBinaryAudioFrame {
   readonly type: "binary_audio";
@@ -203,6 +252,8 @@ export interface LiveVoiceMetricsServerFrame extends LiveVoiceServerFrameBase {
   readonly sttMs: number | null;
   readonly llmFirstDeltaMs: number | null;
   readonly ttsFirstAudioMs: number | null;
+  /** End-of-speech (utterance_end, or ptt_release in manual mode) to first TTS audio. */
+  readonly roundTripMs: number | null;
   readonly totalMs: number | null;
 }
 
@@ -350,7 +401,58 @@ export function validateLiveVoiceClientFrame(
       return { ok: true, frame: { type: "interrupt" } };
     case "end":
       return { ok: true, frame: { type: "end" } };
+    case "update_config":
+      return validateUpdateConfigFrame(value);
   }
+}
+
+function validateUpdateConfigFrame(
+  value: Record<string, unknown>,
+): LiveVoiceParseResult<LiveVoiceClientUpdateConfigFrame> {
+  if (
+    "silenceThresholdMs" in value &&
+    !isIntInRange(
+      value.silenceThresholdMs,
+      MIN_SILENCE_THRESHOLD_MS,
+      MAX_SILENCE_THRESHOLD_MS,
+    )
+  ) {
+    return protocolError(
+      "invalid_field",
+      `update_config field silenceThresholdMs must be an integer in [${MIN_SILENCE_THRESHOLD_MS}, ${MAX_SILENCE_THRESHOLD_MS}]`,
+      "silenceThresholdMs",
+      "update_config",
+    );
+  }
+
+  if (
+    "bargeInMinSpeechMs" in value &&
+    !isIntInRange(
+      value.bargeInMinSpeechMs,
+      MIN_BARGE_IN_MIN_SPEECH_MS,
+      MAX_BARGE_IN_MIN_SPEECH_MS,
+    )
+  ) {
+    return protocolError(
+      "invalid_field",
+      `update_config field bargeInMinSpeechMs must be an integer in [${MIN_BARGE_IN_MIN_SPEECH_MS}, ${MAX_BARGE_IN_MIN_SPEECH_MS}]`,
+      "bargeInMinSpeechMs",
+      "update_config",
+    );
+  }
+
+  return {
+    ok: true,
+    frame: {
+      type: "update_config",
+      ...(typeof value.silenceThresholdMs === "number"
+        ? { silenceThresholdMs: value.silenceThresholdMs }
+        : {}),
+      ...(typeof value.bargeInMinSpeechMs === "number"
+        ? { bargeInMinSpeechMs: value.bargeInMinSpeechMs }
+        : {}),
+    },
+  };
 }
 
 export function parseLiveVoiceBinaryAudioFrame(
@@ -440,6 +542,38 @@ function validateStartFrame(
     );
   }
 
+  if (
+    "silenceThresholdMs" in value &&
+    !isIntInRange(
+      value.silenceThresholdMs,
+      MIN_SILENCE_THRESHOLD_MS,
+      MAX_SILENCE_THRESHOLD_MS,
+    )
+  ) {
+    return protocolError(
+      "invalid_field",
+      `start frame field silenceThresholdMs must be an integer in [${MIN_SILENCE_THRESHOLD_MS}, ${MAX_SILENCE_THRESHOLD_MS}]`,
+      "silenceThresholdMs",
+      "start",
+    );
+  }
+
+  if (
+    "bargeInMinSpeechMs" in value &&
+    !isIntInRange(
+      value.bargeInMinSpeechMs,
+      MIN_BARGE_IN_MIN_SPEECH_MS,
+      MAX_BARGE_IN_MIN_SPEECH_MS,
+    )
+  ) {
+    return protocolError(
+      "invalid_field",
+      `start frame field bargeInMinSpeechMs must be an integer in [${MIN_BARGE_IN_MIN_SPEECH_MS}, ${MAX_BARGE_IN_MIN_SPEECH_MS}]`,
+      "bargeInMinSpeechMs",
+      "start",
+    );
+  }
+
   return {
     ok: true,
     frame: {
@@ -451,8 +585,24 @@ function validateStartFrame(
       ...(isLiveVoiceTurnDetectionMode(value.turnDetection)
         ? { turnDetection: value.turnDetection }
         : {}),
+      ...(typeof value.silenceThresholdMs === "number"
+        ? { silenceThresholdMs: value.silenceThresholdMs }
+        : {}),
+      ...(typeof value.bargeInMinSpeechMs === "number"
+        ? { bargeInMinSpeechMs: value.bargeInMinSpeechMs }
+        : {}),
     },
   };
+}
+
+/** Whether `value` is an integer within the inclusive `[min, max]` range. */
+function isIntInRange(value: unknown, min: number, max: number): boolean {
+  return (
+    typeof value === "number" &&
+    Number.isInteger(value) &&
+    value >= min &&
+    value <= max
+  );
 }
 
 function validateAudioFrame(

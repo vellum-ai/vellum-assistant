@@ -32,7 +32,7 @@ export const Default: Story = {
 export const CurrencyText: Story = {
   args: {
     content:
-      "Anthropic raised a $65B series H at $965B post-money. Tiers run $5, $1,000.50, $100M, and $1.5T — roughly $100 billion all-in.",
+      "Anthropic raised a $65B series H at $965B post-money. Tiers run $5, $1,000.50, $100M, and $1.5T — roughly $100 billion all-in. The $50+ tier funds the *launch* year; $10-15 is the *destination*.",
   },
 };
 

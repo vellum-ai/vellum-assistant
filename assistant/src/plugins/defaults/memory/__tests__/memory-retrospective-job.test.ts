@@ -1,11 +1,8 @@
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("../../../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
+import { getWorkspaceDir } from "../paths.js";
 
 // ---------------------------------------------------------------------------
 // Mock state. Reset between tests.
@@ -99,11 +96,30 @@ let messagesByConversationId: Record<string, StubMessage[]> = {};
 // the real registry's semantics for conversations not in memory.
 let loadedConversations: Record<string, { processing: boolean }> = {};
 
+const watchdogEvents: Array<{
+  checkName: string;
+  value?: number | null;
+  detail?: Record<string, unknown> | null;
+}> = [];
+mock.module("../../../../telemetry/watchdog-events-store.js", () => ({
+  recordWatchdogEvent: (record: {
+    checkName: string;
+    value?: number | null;
+    detail?: Record<string, unknown> | null;
+  }) => {
+    watchdogEvents.push(record);
+  },
+}));
+
 mock.module("../../../../daemon/conversation-registry.js", () => ({
   findConversation: (id: string | undefined) => {
-    if (!id) return undefined;
+    if (!id) {
+      return undefined;
+    }
     const entry = loadedConversations[id];
-    if (!entry) return undefined;
+    if (!entry) {
+      return undefined;
+    }
     return { isProcessing: () => entry.processing };
   },
 }));
@@ -140,8 +156,12 @@ mock.module("../find-most-recent-retrospective-for.js", () => ({
 mock.module("../../../../persistence/conversation-crud.js", () => ({
   getMessagesAfter: (_id: string, _afterId: string | null) => newMessages,
   getMessages: (id: string) => {
-    if (messagesByConversationId[id]) return messagesByConversationId[id];
-    if (id === priorRetroId) return priorRetroMessages;
+    if (messagesByConversationId[id]) {
+      return messagesByConversationId[id];
+    }
+    if (id === priorRetroId) {
+      return priorRetroMessages;
+    }
     return [];
   },
   // The handler calls `getConversation(sourceConversationId)` to read the
@@ -151,7 +171,9 @@ mock.module("../../../../persistence/conversation-crud.js", () => ({
   // extract-everything code path is exercised. `conversationOverrides` lets
   // per-test setup stage fork-kind priors or fork-shaped run conversations.
   getConversation: (id: string) => {
-    if (conversationOverrides[id]) return conversationOverrides[id];
+    if (conversationOverrides[id]) {
+      return conversationOverrides[id];
+    }
     if (id === priorRetroId) {
       return {
         source: "memory-retrospective",
@@ -259,13 +281,27 @@ mock.module("../../../../runtime/agent-wake.js", () => ({
       hint: opts.hint,
       opts,
     });
-    if (mockWakeThrows) throw mockWakeThrows;
+    if (mockWakeThrows) {
+      throw mockWakeThrows;
+    }
     return mockWakeResult;
   },
 }));
 
+// Mid-turn fallback requeue recorder (`upsertMemoryRetrospectiveJob` is the
+// same coalescing upsert the enqueue helper uses).
+let retrospectiveJobUpserts: Array<{
+  payload: { conversationId: string };
+  runAfter: number;
+}> = [];
 mock.module("../../../../persistence/jobs-store.js", () => ({
   enqueueMemoryJob: () => "follow-up-job-id",
+  upsertMemoryRetrospectiveJob: (
+    payload: { conversationId: string },
+    runAfter: number,
+  ) => {
+    retrospectiveJobUpserts.push({ payload, runAfter });
+  },
 }));
 
 // proc-to-skills gate. Drives both `buildForkInstruction`'s skill-authoring
@@ -278,7 +314,10 @@ mock.module("../../../../config/memory-v3-gate.js", () => ({
 }));
 
 import type { MemoryJob } from "../../../../persistence/jobs-store.js";
-import { memoryRetrospectiveJob } from "../memory-retrospective-job.js";
+import {
+  memoryRetrospectiveJob,
+  SOURCE_PROCESSING_REQUEUE_DELAY_MS,
+} from "../memory-retrospective-job.js";
 
 function makeConfig(
   overrides: {
@@ -286,6 +325,7 @@ function makeConfig(
     detectedTimezone?: string;
     keepSupersededRuns?: boolean;
     matchConversationProfile?: boolean;
+    promptPath?: string;
   } = {},
 ): Parameters<typeof memoryRetrospectiveJob>[1] {
   return {
@@ -294,6 +334,7 @@ function makeConfig(
       retrospective: {
         keepSupersededRuns: overrides.keepSupersededRuns ?? false,
         matchConversationProfile: overrides.matchConversationProfile ?? false,
+        promptPath: overrides.promptPath ?? null,
       },
     },
     ui: {
@@ -352,6 +393,7 @@ function priorRetroMessage(rememberContents: string[]) {
 
 describe("memoryRetrospectiveJob", () => {
   beforeEach(() => {
+    watchdogEvents.length = 0;
     mockState = null;
     stateUpserts = [];
     lastRunAtBumps = [];
@@ -371,6 +413,7 @@ describe("memoryRetrospectiveJob", () => {
     forkedConversationId = "fork-conv-1";
     forkCalls = [];
     addMessageCalls = [];
+    retrospectiveJobUpserts = [];
     conversationOverrides = {};
     messagesByConversationId = {};
     loadedConversations = {};
@@ -407,6 +450,111 @@ describe("memoryRetrospectiveJob", () => {
     expect(lastRunAtBumps).toHaveLength(0);
     expect(wakeCalls).toHaveLength(0);
     expect(forkCalls).toHaveLength(0);
+    // Every job run emits exactly one outcome counter for the health chart.
+    expect(
+      watchdogEvents.filter((e) => e.checkName === "memory_retrospective_run"),
+    ).toEqual([
+      {
+        checkName: "memory_retrospective_run",
+        value: 1,
+        detail: { outcome: "no_new_messages" },
+      },
+    ]);
+  });
+
+  test("a slice whose only row is the retrospective's own skill card is no new work", async () => {
+    // The card is inserted AFTER the cursor the run just persisted, so it is
+    // always "after" lastProcessedMessageId — but it must never constitute
+    // new work on its own (an idle conversation would otherwise wake another
+    // retrospective over the assistant's own card).
+    newMessages = [
+      {
+        id: "card-1",
+        createdAt: Date.parse("2026-05-11T10:00:00Z"),
+        role: "assistant",
+        metadata: JSON.stringify({
+          kind: "skill-authored-card",
+          automated: true,
+        }),
+      },
+    ];
+    const outcome = await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(outcome.kind).toBe("no_new_messages");
+    expect(stateUpserts).toHaveLength(0);
+    expect(wakeCalls).toHaveLength(0);
+    expect(forkCalls).toHaveLength(0);
+  });
+
+  test("mixed slice: skill-card rows are excluded from the count and the cutoff lands on the last real message", async () => {
+    newMessages = [
+      {
+        id: "m1",
+        createdAt: Date.parse("2026-05-11T10:00:00Z"),
+        role: "user",
+        metadata: null,
+      },
+      {
+        id: "card-1",
+        createdAt: Date.parse("2026-05-11T10:05:00Z"),
+        role: "assistant",
+        metadata: JSON.stringify({
+          kind: "skill-authored-card",
+          automated: true,
+        }),
+      },
+      {
+        id: "m2",
+        createdAt: Date.parse("2026-05-11T10:10:00Z"),
+        role: "assistant",
+        metadata: null,
+      },
+    ];
+    const outcome = await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(outcome.kind).toBe("invoked");
+    if (outcome.kind === "invoked") {
+      expect(outcome.cutoffMessageId).toBe("m2");
+      expect(outcome.newMessageCount).toBe(2);
+    }
+    // The interleaved card sits before the cutoff, so it rides into the fork
+    // as inert prefix context — the accounting just never counts it.
+    expect(forkCalls).toHaveLength(1);
+    expect(forkCalls[0]!.throughMessageId).toBe("m2");
+    expect(stateUpserts[0]!.lastProcessedMessageId).toBe("m2");
+  });
+
+  test("a trailing skill card never advances the cutoff past the last real message", async () => {
+    // A real message can land between the cutoff snapshot and the card
+    // insert, so the cursor must never be blindly advanced over a card: the
+    // cutoff is the last REAL row, and the trailing card stays past the
+    // cursor where the kind-aware accounting keeps ignoring it.
+    newMessages = [
+      {
+        id: "m1",
+        createdAt: Date.parse("2026-05-11T10:00:00Z"),
+        role: "user",
+        metadata: null,
+      },
+      {
+        id: "card-1",
+        createdAt: Date.parse("2026-05-11T10:05:00Z"),
+        role: "assistant",
+        metadata: JSON.stringify({
+          kind: "skill-authored-card",
+          automated: true,
+        }),
+      },
+    ];
+    const outcome = await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(outcome.kind).toBe("invoked");
+    if (outcome.kind === "invoked") {
+      expect(outcome.cutoffMessageId).toBe("m1");
+      expect(outcome.newMessageCount).toBe(1);
+    }
+    expect(forkCalls[0]!.throughMessageId).toBe("m1");
+    expect(stateUpserts[0]!.lastProcessedMessageId).toBe("m1");
   });
 
   test("incremental run: existing state row, pointer advances to new cutoff on success", async () => {
@@ -428,6 +576,17 @@ describe("memoryRetrospectiveJob", () => {
     const outcome = await memoryRetrospectiveJob(makeJob(), stubConfig);
 
     expect(outcome.kind).toBe("wake_failed");
+    // The outcome counter carries the wake-failure reason so a fleet-wide
+    // spike is attributable (e.g. provider outage vs busy conversations).
+    expect(
+      watchdogEvents.filter((e) => e.checkName === "memory_retrospective_run"),
+    ).toEqual([
+      {
+        checkName: "memory_retrospective_run",
+        value: 1,
+        detail: { outcome: "wake_failed", reason: "timeout" },
+      },
+    ]);
     if (outcome.kind === "wake_failed") {
       expect(outcome.reason).toBe("timeout");
     }
@@ -445,6 +604,17 @@ describe("memoryRetrospectiveJob", () => {
     expect(stateUpserts).toHaveLength(0);
     expect(lastRunAtBumps).toHaveLength(1);
     expect(deletedConversationIds).toEqual(["fork-conv-1"]);
+    // A thrown run still records an outcome counter (as "error") before the
+    // rethrow — exception-flavored outages must show in the health metric.
+    expect(
+      watchdogEvents.filter((e) => e.checkName === "memory_retrospective_run"),
+    ).toEqual([
+      {
+        checkName: "memory_retrospective_run",
+        value: 1,
+        detail: { outcome: "error", reason: "LLM provider 503" },
+      },
+    ]);
   });
 
   test("missing conversationId payload: no_new_messages, no side effects", async () => {
@@ -472,6 +642,9 @@ describe("memoryRetrospectiveJob", () => {
       "skill_load",
       "find_similar_skills",
     ]);
+    // skill-management is preactivated so the authoring trio is in the turn's
+    // active set from turn 1 (not merely on the execution allowlist).
+    expect(opts.preactivateSkillIds).toEqual(["skill-management"]);
     expect(opts.suppressWakeSurface).toBe(true);
     // Sanity: the other fork-specific opts the handler relies on are still set.
     expect(opts.skipHintInjection).toBe(true);
@@ -486,6 +659,8 @@ describe("memoryRetrospectiveJob", () => {
     expect(wakeCalls).toHaveLength(1);
     // The authoring trio is not even named on the allowlist when inactive.
     expect(wakeCalls[0]!.opts.allowedTools).toEqual(["remember"]);
+    // And skill-management is not preactivated, so its tools never go active.
+    expect(wakeCalls[0]!.opts.preactivateSkillIds).toBeUndefined();
   });
 
   test("wake pins the memory_retrospective origin on the tool-context pin so the checker's grant can fire", async () => {
@@ -640,20 +815,85 @@ describe("memoryRetrospectiveJob", () => {
     expect(instructionText).toContain("<​/already_remembered>");
   });
 
+  test("honors memory.retrospective.promptPath override when set", async () => {
+    // Overrides outside the workspace root are rejected, so the fixture must
+    // live under the process workspace.
+    mkdirSync(getWorkspaceDir(), { recursive: true });
+    const dir = mkdtempSync(
+      join(getWorkspaceDir(), "retro-job-prompt-override-"),
+    );
+    const overridePath = join(dir, "custom-instruction.md");
+    writeFileSync(
+      overridePath,
+      "CUSTOM RETROSPECTIVE\n\n{{WINDOW_ANCHOR}}\n\n<already_remembered>\n{{ALREADY_REMEMBERED}}\n</already_remembered>\n",
+    );
+
+    const outcome = await memoryRetrospectiveJob(
+      makeJob(),
+      makeConfig({ promptPath: overridePath }),
+    );
+
+    expect(outcome.kind).toBe("invoked");
+    const instructionText = persistedInstructionText();
+    expect(instructionText.startsWith("CUSTOM RETROSPECTIVE")).toBe(true);
+    // First run over the source ⇒ the anchor placeholder renders the
+    // full-conversation form and the dedup placeholder renders "(none)".
+    expect(instructionText).toContain(
+      "Your review window is the full conversation above",
+    );
+    expect(instructionText).toContain(
+      "<already_remembered>\n(none)\n</already_remembered>",
+    );
+    expect(instructionText).not.toContain(
+      "This is an automated background memory pass",
+    );
+    expect(instructionText).not.toContain("{{");
+  });
+
+  test("missing memory.retrospective.promptPath file falls back to the bundled instruction", async () => {
+    const outcome = await memoryRetrospectiveJob(
+      makeJob(),
+      makeConfig({ promptPath: "/nonexistent/retro-instruction.md" }),
+    );
+
+    expect(outcome.kind).toBe("invoked");
+    const instructionText = persistedInstructionText();
+    expect(
+      instructionText.startsWith("This is an automated background memory pass"),
+    ).toBe(true);
+  });
+
   // -------------------------------------------------------------------------
-  // Mid-turn skip gate
+  // Mid-turn requeue gate
   // -------------------------------------------------------------------------
 
-  test("source mid-turn → skipped outcome, pointer unchanged, lastRunAt bumped, no fork", async () => {
+  test("source mid-turn → skipped outcome, state fully untouched, job re-upserted with the fallback delay, no fork", async () => {
     loadedConversations["src-conv-1"] = { processing: true };
 
+    const before = Date.now();
     const outcome = await memoryRetrospectiveJob(makeJob(), stubConfig);
+    const after = Date.now();
 
     expect(outcome.kind).toBe("source_processing");
-    // `lastProcessedMessageId` untouched — only the cooldown timestamp moves.
+    // BOTH pointers untouched. `lastRunAt` must stay unbumped so the
+    // turn-end message-indexing trigger check re-enqueues immediately (the
+    // primary, event-driven requeue) instead of being cooldown-suppressed —
+    // a fresh single-turn conversation would otherwise burn its first run
+    // forever.
     expect(stateUpserts).toHaveLength(0);
-    expect(lastRunAtBumps).toHaveLength(1);
-    expect(lastRunAtBumps[0]!.conversationId).toBe("src-conv-1");
+    expect(lastRunAtBumps).toHaveLength(0);
+    // Timed fallback row for a turn that aborts without indexing another
+    // message: coalescing re-upsert at the named delay.
+    expect(retrospectiveJobUpserts).toHaveLength(1);
+    expect(retrospectiveJobUpserts[0]!.payload).toEqual({
+      conversationId: "src-conv-1",
+    });
+    expect(retrospectiveJobUpserts[0]!.runAfter).toBeGreaterThanOrEqual(
+      before + SOURCE_PROCESSING_REQUEUE_DELAY_MS,
+    );
+    expect(retrospectiveJobUpserts[0]!.runAfter).toBeLessThanOrEqual(
+      after + SOURCE_PROCESSING_REQUEUE_DELAY_MS,
+    );
     // No fork, no instruction, no wake, no cleanup side effects.
     expect(forkCalls).toHaveLength(0);
     expect(addMessageCalls).toHaveLength(0);
@@ -661,7 +901,7 @@ describe("memoryRetrospectiveJob", () => {
     expect(deletedConversationIds).toEqual([]);
   });
 
-  test("source loaded but idle → normal run", async () => {
+  test("source loaded but idle → normal run, no requeue upsert", async () => {
     loadedConversations["src-conv-1"] = { processing: false };
 
     const outcome = await memoryRetrospectiveJob(makeJob(), stubConfig);
@@ -670,6 +910,7 @@ describe("memoryRetrospectiveJob", () => {
     expect(forkCalls).toHaveLength(1);
     expect(lastRunAtBumps).toHaveLength(0);
     expect(stateUpserts).toHaveLength(1);
+    expect(retrospectiveJobUpserts).toHaveLength(0);
   });
 
   test("source unloaded (not in registry) → normal run", async () => {
@@ -1075,12 +1316,54 @@ describe("memoryRetrospectiveJob", () => {
     expect(instructionText).not.toContain("(none)");
   });
 
-  test("prior fork-kind retrospective with no copied messages degrades to empty dedup", async () => {
-    // Corrupted/empty fork-kind prior: no message carries
-    // `forkSourceMessageId`. The detector should return null and the
-    // handler should treat dedup as empty rather than dumping everything
-    // (which would leak any pre-fork content into the baseline).
+  test("prior fork-kind retrospective with an empty copied prefix attributes rows to the run", async () => {
+    // Empty-prefix fork-kind prior (a tail-only fork whose inherited
+    // compaction covered the whole cutoff range): no message carries
+    // `forkSourceMessageId` and the conversation opens with the run's own
+    // instruction row, so every row is the run's output and its saves feed
+    // the dedup baseline.
     priorRetroId = "prior-fork-retro-2";
+
+    conversationOverrides[priorRetroId] = {
+      source: "memory-retrospective-fork",
+      forkParentMessageId: "m-src-2",
+    };
+    messagesByConversationId[priorRetroId] = [
+      {
+        role: "user",
+        content: JSON.stringify([{ type: "text", text: "review the above" }]),
+        createdAt: 900,
+        metadata: JSON.stringify({
+          kind: "memory_retrospective_instruction",
+          hidden: true,
+        }),
+      },
+      {
+        role: "assistant",
+        content: JSON.stringify([
+          {
+            type: "tool_use",
+            name: "remember",
+            input: { content: "empty-prefix save" },
+          },
+        ]),
+        createdAt: 1000,
+        metadata: null,
+      },
+    ];
+
+    await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    const instructionText = persistedInstructionText();
+    expect(instructionText).toContain("- empty-prefix save");
+    expect(instructionText).not.toContain("(none)");
+  });
+
+  test("prior fork-kind retrospective with missing stamps degrades to empty dedup", async () => {
+    // Stampless rows with no leading instruction row are indeterminate
+    // (copied rows whose metadata lost its stamps): treating them as run
+    // output would leak pre-fork content into the baseline.
+    priorRetroId = "prior-fork-retro-3";
 
     conversationOverrides[priorRetroId] = {
       source: "memory-retrospective-fork",
@@ -1522,10 +1805,11 @@ describe("memoryRetrospectiveJob", () => {
 
     const instructionText = persistedInstructionText();
 
-    // Available-tools line names the skill-authoring trio.
+    // Available-tools line names the skill-authoring pair; skill-management is
+    // preactivated, so no `skill_load` step is instructed.
     expect(instructionText).toContain("find_similar_skills");
     expect(instructionText).toContain("scaffold_managed_skill");
-    expect(instructionText).toContain("skill_load skill-management");
+    expect(instructionText).not.toContain("skill_load skill-management");
 
     // Permissive relevance pre-check keyed on actually-executed procedures.
     expect(instructionText).toContain("a PROCEDURE you actually carried out");

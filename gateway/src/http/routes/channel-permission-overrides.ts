@@ -1,10 +1,15 @@
 /**
- * Channel-permission matrix cell CRUD endpoints.
+ * Channel-permission matrix cell CRUD + resolve endpoints.
  *
  * HTTP mirror of the IPC surface in `../../ipc/channel-permission-handlers.ts`
  * so configuration clients (web Channels tab) can read and write cells
- * through the gateway SDK. The resolve operation is intentionally absent —
- * cascade resolution is a runtime-evaluator concern served over IPC only.
+ * through the gateway SDK. Resolve is exposed read-only so those clients can
+ * display the effective fall-through for a coordinate without mirroring the
+ * cascade walk client-side (which drifts — e.g. the runtime resolves Slack
+ * rooms with no conversation type, so a client-side walk that matched
+ * `channel_type` cells would show defaults the evaluator never applies).
+ * The runtime evaluator keeps using the IPC resolve; this HTTP surface is
+ * for configuration reads only.
  *
  * Mirrors the channel-admission-policy routes — same zod / Response.json /
  * error conventions. No cache invalidation is needed: the runtime evaluator
@@ -15,6 +20,7 @@
 import {
   ChannelPermissionCellKeySchema,
   ChannelPermissionCellSchema,
+  ResolveChannelPermissionRequestSchema,
   type ChannelPermissionSelector,
 } from "@vellumai/gateway-client";
 
@@ -107,6 +113,48 @@ export function createChannelPermissionOverrideSetHandler() {
       return Response.json({ cell: store.set(parsed.data) });
     } catch (err) {
       log.error({ err }, "Failed to set channel permission override");
+      return Response.json({ error: "Internal server error" }, { status: 500 });
+    }
+  };
+}
+
+// ---------------------------------------------------------------------------
+// POST /v1/channel-permission-overrides/resolve — resolve the cascade
+// ---------------------------------------------------------------------------
+
+export function createChannelPermissionResolveHandler() {
+  return async (req: Request): Promise<Response> => {
+    const body = await readJsonBody(req);
+    if (body instanceof Response) {
+      return body;
+    }
+
+    const parsed = ResolveChannelPermissionRequestSchema.safeParse(body);
+    if (!parsed.success) {
+      return Response.json(
+        {
+          error:
+            "Invalid request body: expected a resolve query (adapter, channelType?, channelExternalId?, contactType)",
+          issues: parsed.error.issues,
+        },
+        { status: 400 },
+      );
+    }
+
+    if (!isChannelId(parsed.data.adapter)) {
+      return Response.json(
+        {
+          error: `Unknown channel adapter: "${parsed.data.adapter}". Must be one of: ${CHANNEL_IDS.join(", ")}`,
+        },
+        { status: 400 },
+      );
+    }
+
+    try {
+      const store = new ChannelPermissionStore();
+      return Response.json({ resolved: store.resolve(parsed.data) });
+    } catch (err) {
+      log.error({ err }, "Failed to resolve channel permission threshold");
       return Response.json({ error: "Internal server error" }, { status: 500 });
     }
   };

@@ -457,6 +457,253 @@ export function getGatewayChannelByExternalChatId(
 // ---------------------------------------------------------------------------
 
 /**
+ * Assistant-mirror upsert produced by {@link applyVerifiedChannelGatewayWrites}
+ * and executed post-commit by {@link mirrorVerifiedChannel}. Carries
+ * identity/info fields only — ACL columns are gateway-owned.
+ */
+export interface VerifiedChannelMirrorPlan {
+  contactId: string;
+  /** Present when the gateway minted the channel id (create path); the mirror adopts it. */
+  channelId?: string;
+  type: string;
+  address: string;
+  externalChatId: string;
+  displayName: string;
+  reassignConflictingChannels: boolean;
+}
+
+export type VerifiedChannelGatewayResult =
+  | { verified: false }
+  | { verified: true; mirror: VerifiedChannelMirrorPlan };
+
+/**
+ * Synchronous gateway-DB writes for a verified contact channel — plain
+ * statements over the gateway DB, no assistant IO, so callers can compose it
+ * inside a single SQLite transaction (e.g. atomically with a guardian-request
+ * decision CAS). The caller owns the transaction boundary and any post-commit
+ * mirror via the returned plan.
+ *
+ * `existingMirrorChannel` is the pre-resolved assistant-mirror identity for
+ * the (type, address) key (id + parent contact), or null when the mirror has
+ * no row / is unreachable — the ACL/status decision is owned by the gateway
+ * pre-check here either way.
+ *
+ * Returns `{ verified: false }` when the authoritative gateway row is
+ * blocked/revoked (nothing written). A thrown gateway write propagates so a
+ * transactional caller rolls back.
+ */
+export function applyVerifiedChannelGatewayWrites(params: {
+  sourceChannel: string;
+  externalUserId: string;
+  externalChatId: string;
+  displayName?: string;
+  username?: string;
+  verifiedVia?: string;
+  contactId?: string;
+  allowRevokedReactivation?: boolean;
+  existingMirrorChannel: { channelId: string; contactId: string } | null;
+}): VerifiedChannelGatewayResult {
+  const now = Date.now();
+  const {
+    sourceChannel,
+    externalChatId,
+    displayName,
+    username,
+    contactId: targetContactId,
+    allowRevokedReactivation,
+    existingMirrorChannel: existing,
+  } = params;
+  const verifiedVia = params.verifiedVia ?? "challenge";
+
+  const address =
+    canonicalizeInboundIdentity(sourceChannel, params.externalUserId) ??
+    params.externalUserId;
+  const contactDisplayName = displayName ?? username ?? address;
+
+  // The gateway is the source of truth: a blocked/revoked gateway row rejects
+  // the verification, gating BOTH the existing-channel update and the
+  // new-insert path so no active mirror is created for a blocked actor. A
+  // missing gateway row is the legitimate happy path (legacy/unmirrored).
+  const gwStatus = gatewayChannelStatus(sourceChannel, address);
+  if (
+    gwStatus === "blocked" ||
+    (gwStatus === "revoked" && !allowRevokedReactivation)
+  ) {
+    log.warn(
+      { sourceChannel, address, status: gwStatus },
+      "Skipping upsert: authoritative gateway channel is blocked or revoked",
+    );
+    return { verified: false };
+  }
+
+  if (existing) {
+    const row = existing;
+
+    // The block/revoke decision is owned by the authoritative gateway row,
+    // already gated above. The assistant mirror's status is not consulted: it
+    // can lag the gateway (e.g. a gateway reactivation leaves a stale revoked
+    // mirror), and gating on it would falsely reject a gateway-active channel.
+
+    // Bind to the invite's target contact when supplied: an invite can attach a
+    // redeemer's existing channel to a different contact, so reassign the
+    // channel's gateway parent here; the assistant mirror re-parent lands with
+    // the post-commit activation upsert.
+    const boundContactId =
+      targetContactId && targetContactId !== row.contactId
+        ? targetContactId
+        : row.contactId;
+    // The gateway reparents the channel only on a genuine target-contact bind;
+    // the mirror must mirror THAT decision (not the call path) so the two stores
+    // never disagree about channel ownership.
+    const gatewayReparented = boundContactId !== row.contactId;
+    if (gatewayReparented) {
+      reassignChannelContact({
+        type: sourceChannel,
+        address,
+        toContactId: boundContactId,
+        displayName: contactDisplayName,
+        now,
+      });
+    }
+
+    // The assistant channel id may not exist in the gateway DB
+    // (legacy/unmirrored) or live under a different gateway UUID, so the
+    // helper resolves by logical key.
+    const wrote = writeVerifiedGatewayChannel({
+      assistantChannelId: row.channelId,
+      contactId: boundContactId,
+      type: sourceChannel,
+      address,
+      externalChatId,
+      verifiedVia,
+      now,
+      allowRevokedReactivation,
+    });
+    // The pre-check passed, so a write is expected. A false means a
+    // blocked/revoked row appeared between the pre-check and the write —
+    // reject WITHOUT activating the assistant mirror so a blocked actor is
+    // never left active locally.
+    if (!wrote) {
+      log.warn(
+        { sourceChannel, address },
+        "Gateway write ignored after pre-check: channel became blocked/revoked",
+      );
+      return { verified: false };
+    }
+
+    return {
+      verified: true,
+      mirror: {
+        contactId: boundContactId,
+        type: sourceChannel,
+        address,
+        externalChatId,
+        displayName: contactDisplayName,
+        reassignConflictingChannels: gatewayReparented,
+      },
+    };
+  }
+
+  // No existing mirror channel: create contact + channel. Bind to the
+  // invite's target contact when supplied so the new channel lands under it.
+  const contactId = targetContactId ?? crypto.randomUUID();
+  const channelId = crypto.randomUUID();
+  // Gateway reparents a raced (type,address) row only on a target-contact bind
+  // (reassignChannelContact below). Plain verification with no target leaves any
+  // raced seed row under its seed contact (writeVerifiedGatewayChannel omits
+  // contactId), so the mirror must NOT reparent either or the stores disagree.
+  const gatewayReparented = Boolean(targetContactId);
+
+  // The parent contact is conflict-tolerant (a pre-existing contact is fine).
+  // For the channel, resolve by logical key so an existing non-blocked gateway
+  // row (e.g. a gateway-created unverified contact) is UPDATED to active/verified
+  // rather than silently no-op'd by the (type,address) unique index.
+  if (targetContactId) {
+    // The assistant mirror missed, but the gateway may already hold this
+    // (type,address) row under a different contact. Re-parent it to the
+    // target by logical key (writeVerifiedGatewayChannel's update set omits
+    // contactId), so the gateway source of truth lands under the invite's
+    // contact. No-ops when no gateway row exists.
+    reassignChannelContact({
+      type: sourceChannel,
+      address,
+      toContactId: contactId,
+      displayName: contactDisplayName,
+      now,
+    });
+  } else {
+    getGatewayDb()
+      .insert(gwContacts)
+      .values({
+        id: contactId,
+        displayName: contactDisplayName,
+        role: "contact",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoNothing()
+      .run();
+  }
+
+  const wrote = writeVerifiedGatewayChannel({
+    assistantChannelId: channelId,
+    contactId,
+    type: sourceChannel,
+    address,
+    externalChatId,
+    verifiedVia,
+    now,
+    allowRevokedReactivation,
+  });
+  // A blocked/revoked gateway row appeared after the pre-check — reject
+  // without creating an active assistant mirror for a blocked actor.
+  if (!wrote) {
+    log.warn(
+      { sourceChannel, address },
+      "Gateway write ignored after pre-check: channel became blocked/revoked",
+    );
+    return { verified: false };
+  }
+
+  return {
+    verified: true,
+    mirror: {
+      contactId,
+      // channelId is shared so the mirror row and the gateway row key the
+      // channel identically.
+      channelId,
+      type: sourceChannel,
+      address,
+      externalChatId,
+      displayName: contactDisplayName,
+      reassignConflictingChannels: gatewayReparented,
+    },
+  };
+}
+
+/**
+ * Assistant-mirror activation for committed verified-channel gateway writes.
+ * Identity/info columns only (ACL columns are gateway-owned); idempotent
+ * under retries. Throws on IPC failure — callers choose the soft/hard
+ * posture.
+ */
+export async function mirrorVerifiedChannel(
+  plan: VerifiedChannelMirrorPlan,
+): Promise<void> {
+  await ipcCallAssistant("contacts_mirror_upsert_channel", {
+    body: {
+      contactId: plan.contactId,
+      ...(plan.channelId ? { channelId: plan.channelId } : {}),
+      type: plan.type,
+      address: plan.address,
+      externalChatId: plan.externalChatId,
+      displayName: plan.displayName,
+      reassignConflictingChannels: plan.reassignConflictingChannels,
+    },
+  });
+}
+
+/**
  * Upsert a contact + channel for a verified user.
  *
  * If a contact channel with the same (type, address) exists, updates it.
@@ -489,43 +736,19 @@ export async function upsertVerifiedContactChannel(params: {
    */
   softMirrorFailures?: boolean;
 }): Promise<{ verified: boolean }> {
-  const now = Date.now();
-  const {
-    sourceChannel,
-    externalChatId,
-    displayName,
-    username,
-    contactId: targetContactId,
-    allowRevokedReactivation,
-  } = params;
-  const verifiedVia = params.verifiedVia ?? "challenge";
+  const { sourceChannel } = params;
   const mirrorSoft = params.softMirrorFailures === true;
-  const runMirror = async (
-    op: () => Promise<unknown>,
-    what: string,
-  ): Promise<void> => {
-    try {
-      await op();
-    } catch (mirrorErr) {
-      if (!mirrorSoft) throw mirrorErr;
-      log.warn(
-        { err: mirrorErr, sourceChannel },
-        `Assistant mirror ${what} failed (soft); gateway ACL result stands`,
-      );
-    }
-  };
 
   const address =
     canonicalizeInboundIdentity(sourceChannel, params.externalUserId) ??
     params.externalUserId;
-  const contactDisplayName = displayName ?? username ?? address;
 
   // Resolve the existing channel's identity (id, parent contact) only. The
-  // ACL/status decision is owned by the gateway pre-check below; the most
-  // recently updated mirror row is preferred (the typed lookup orders by
-  // updated_at DESC). In soft mode a failed lookup falls through to the create
-  // path: the gateway write resolves by logical key either way, and the mirror
-  // writes below are soft too.
+  // ACL/status decision is owned by the gateway pre-check in the writes core;
+  // the most recently updated mirror row is preferred (the typed lookup
+  // orders by updated_at DESC). In soft mode a failed lookup falls through to
+  // the create path: the gateway write resolves by logical key either way,
+  // and the mirror writes below are soft too.
   let existing: { channelId: string; contactId: string } | null;
   try {
     const channel = await lookupContactChannelIdentity({
@@ -536,7 +759,9 @@ export async function upsertVerifiedContactChannel(params: {
       ? { channelId: channel.id, contactId: channel.contactId }
       : null;
   } catch (mirrorErr) {
-    if (!mirrorSoft) throw mirrorErr;
+    if (!mirrorSoft) {
+      throw mirrorErr;
+    }
     log.warn(
       { err: mirrorErr, sourceChannel },
       "Assistant mirror lookup failed (soft); proceeding gateway-only",
@@ -544,183 +769,21 @@ export async function upsertVerifiedContactChannel(params: {
     existing = null;
   }
 
-  // The gateway is the source of truth: a blocked/revoked gateway row rejects
-  // the verification, gating BOTH the existing-channel update and the
-  // new-insert path so no active mirror is created for a blocked actor. A
-  // missing gateway row is the legitimate happy path (legacy/unmirrored).
-  const gwStatus = gatewayChannelStatus(sourceChannel, address);
-  if (
-    gwStatus === "blocked" ||
-    (gwStatus === "revoked" && !allowRevokedReactivation)
-  ) {
-    log.warn(
-      { sourceChannel, address, status: gwStatus },
-      "Skipping upsert: authoritative gateway channel is blocked or revoked",
-    );
-    return { verified: false };
-  }
-
-  if (existing) {
-    const row = existing;
-
-    // The block/revoke decision is owned by the authoritative gateway row,
-    // already gated above. The assistant mirror's status is not consulted: it
-    // can lag the gateway (e.g. a gateway reactivation leaves a stale revoked
-    // mirror), and gating on it would falsely reject a gateway-active channel.
-
-    // Bind to the invite's target contact when supplied: an invite can attach a
-    // redeemer's existing channel to a different contact, so reassign the
-    // channel's gateway parent here; the assistant mirror re-parent lands with
-    // the activation upsert below.
-    const boundContactId =
-      targetContactId && targetContactId !== row.contactId
-        ? targetContactId
-        : row.contactId;
-    // The gateway reparents the channel only on a genuine target-contact bind;
-    // the mirror must mirror THAT decision (not the call path) so the two stores
-    // never disagree about channel ownership.
-    const gatewayReparented = boundContactId !== row.contactId;
-    if (gatewayReparented) {
-      reassignChannelContact({
-        type: sourceChannel,
-        address,
-        toContactId: boundContactId,
-        displayName: contactDisplayName,
-        now,
-      });
-    }
-
-    // Gateway is source of truth: write it FIRST, then activate the assistant
-    // mirror only if the gateway accepted the write. The assistant channel id
-    // may not exist in the gateway DB (legacy/unmirrored) or live under a
-    // different gateway UUID, so the helper resolves by logical key.
-    let gatewayRejected = false;
-    try {
-      const wrote = writeVerifiedGatewayChannel({
-        assistantChannelId: row.channelId,
-        contactId: boundContactId,
-        type: sourceChannel,
-        address,
-        externalChatId,
-        verifiedVia,
-        now,
-        allowRevokedReactivation,
-      });
-      // The pre-check passed, so a write is expected. A false means a
-      // blocked/revoked row appeared between the pre-check and the write —
-      // reject WITHOUT activating the assistant mirror so a blocked actor is
-      // never left active locally.
-      if (!wrote) {
-        log.warn(
-          { sourceChannel, address },
-          "Gateway write ignored after pre-check: channel became blocked/revoked",
-        );
-        gatewayRejected = true;
-      }
-    } catch (gwErr) {
-      // The gateway DB is the source of truth and the assistant mirror carries
-      // identity/info only, so a thrown gateway write means no DB recorded an
-      // active verified channel. Fail closed rather than reply success off the
-      // mirror.
-      log.error(
-        { err: gwErr },
-        "Gateway DB contact channel update failed; failing verification closed",
-      );
-      gatewayRejected = true;
-    }
-
-    if (gatewayRejected) {
-      return { verified: false };
-    }
-
-    // Activate the assistant mirror. ACL columns are gateway-owned; only
-    // identity/info columns are written here. reassignConflictingChannels
-    // tracks the gateway's actual reparent decision above: true only on a real
-    // target-contact bind, so the mirror never moves a channel the gateway
-    // left in place.
-    await runMirror(
-      () =>
-        ipcCallAssistant("contacts_mirror_upsert_channel", {
-          body: {
-            contactId: boundContactId,
-            type: sourceChannel,
-            address,
-            externalChatId,
-            displayName: contactDisplayName,
-            reassignConflictingChannels: gatewayReparented,
-          },
-        }),
-      "update",
-    );
-
-    return { verified: true };
-  }
-
-  // No existing channel: create contact + channel. Gateway is source of truth,
-  // so write it FIRST and create the assistant mirror only if the gateway
-  // accepted the write — never leave an active assistant channel for an actor
-  // the gateway has blocked/revoked. Bind to the invite's target contact when
-  // supplied so the new channel lands under it.
-  const contactId = targetContactId ?? crypto.randomUUID();
-  const channelId = crypto.randomUUID();
-  // Gateway reparents a raced (type,address) row only on a target-contact bind
-  // (reassignChannelContact below). Plain verification with no target leaves any
-  // raced seed row under its seed contact (writeVerifiedGatewayChannel omits
-  // contactId), so the mirror must NOT reparent either or the stores disagree.
-  const gatewayReparented = Boolean(targetContactId);
-
-  // The parent contact is conflict-tolerant (a pre-existing contact is fine).
-  // For the channel, resolve by logical key so an existing non-blocked gateway
-  // row (e.g. a gateway-created unverified contact) is UPDATED to active/verified
-  // rather than silently no-op'd by the (type,address) unique index.
-  let gatewayRejected = false;
+  // Gateway is source of truth: write it FIRST, then activate the assistant
+  // mirror only if the gateway accepted the write.
+  let result: VerifiedChannelGatewayResult;
   try {
-    if (targetContactId) {
-      // The assistant mirror missed, but the gateway may already hold this
-      // (type,address) row under a different contact. Re-parent it to the
-      // target by logical key (writeVerifiedGatewayChannel's update set omits
-      // contactId), so the gateway source of truth lands under the invite's
-      // contact. No-ops when no gateway row exists.
-      reassignChannelContact({
-        type: sourceChannel,
-        address,
-        toContactId: contactId,
-        displayName: contactDisplayName,
-        now,
-      });
-    } else {
-      getGatewayDb()
-        .insert(gwContacts)
-        .values({
-          id: contactId,
-          displayName: contactDisplayName,
-          role: "contact",
-          createdAt: now,
-          updatedAt: now,
-        })
-        .onConflictDoNothing()
-        .run();
-    }
-
-    const wrote = writeVerifiedGatewayChannel({
-      assistantChannelId: channelId,
-      contactId,
-      type: sourceChannel,
-      address,
-      externalChatId,
-      verifiedVia,
-      now,
-      allowRevokedReactivation,
+    result = applyVerifiedChannelGatewayWrites({
+      sourceChannel,
+      externalUserId: params.externalUserId,
+      externalChatId: params.externalChatId,
+      displayName: params.displayName,
+      username: params.username,
+      verifiedVia: params.verifiedVia,
+      contactId: params.contactId,
+      allowRevokedReactivation: params.allowRevokedReactivation,
+      existingMirrorChannel: existing,
     });
-    // A blocked/revoked gateway row appeared after the pre-check — reject
-    // without creating an active assistant mirror for a blocked actor.
-    if (!wrote) {
-      log.warn(
-        { sourceChannel, address },
-        "Gateway write ignored after pre-check: channel became blocked/revoked",
-      );
-      gatewayRejected = true;
-    }
   } catch (gwErr) {
     // The gateway DB is the source of truth and the assistant mirror carries
     // identity/info only, so a thrown gateway write means no DB recorded an
@@ -728,37 +791,26 @@ export async function upsertVerifiedContactChannel(params: {
     // mirror.
     log.error(
       { err: gwErr },
-      "Gateway DB contact create failed; failing verification closed",
+      "Gateway DB verified-channel write failed; failing verification closed",
     );
-    gatewayRejected = true;
-  }
-
-  if (gatewayRejected) {
     return { verified: false };
   }
 
-  // Create the assistant mirror. Idempotent under retries; ACL columns are
-  // gateway-owned, so the mirror carries identity/info only and relies on the
-  // schema defaults (status='unverified', policy='allow'). channelId is shared
-  // so the mirror row and the gateway row key the channel identically.
-  await runMirror(
-    () =>
-      ipcCallAssistant("contacts_mirror_upsert_channel", {
-        body: {
-          contactId,
-          channelId,
-          type: sourceChannel,
-          address,
-          displayName: contactDisplayName,
-          externalChatId,
-          // Mirror the gateway's actual reparent decision: true only when a
-          // target contact drove reassignChannelContact above. Plain
-          // verification (no target) does not reparent, matching the gateway.
-          reassignConflictingChannels: gatewayReparented,
-        },
-      }),
-    "create",
-  );
+  if (!result.verified) {
+    return { verified: false };
+  }
+
+  try {
+    await mirrorVerifiedChannel(result.mirror);
+  } catch (mirrorErr) {
+    if (!mirrorSoft) {
+      throw mirrorErr;
+    }
+    log.warn(
+      { err: mirrorErr, sourceChannel },
+      "Assistant mirror upsert failed (soft); gateway ACL result stands",
+    );
+  }
 
   return { verified: true };
 }

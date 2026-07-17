@@ -2,9 +2,9 @@ import { type LLMCallSite } from "./schemas/llm.js";
 
 type CallSiteDefaultConfig = {
   /**
-   * Named profile the call site resolves to. Omit to inherit the workspace
-   * default config (`llm.default`, with the active profile applied) — used for
-   * call sites that must resolve to a credentialed provider on every install
+   * Named profile the call site resolves to. Omit to fall through to the
+   * balanced intent resolved through `llm.defaultProvider` — used for call
+   * sites that must resolve to a credentialed provider on every install
    * rather than pinning a profile that may be unavailable.
    */
   profile?: string;
@@ -26,7 +26,6 @@ export const CALL_SITE_DEFAULTS: Record<LLMCallSite, CallSiteDefaultConfig> = {
   mainAgent: { profile: "balanced" },
   subagentSpawn: { profile: "balanced" },
   compactionAgent: { profile: "balanced" },
-  analyzeConversation: { profile: "balanced" },
   patternScan: { profile: "balanced" },
   narrativeRefinement: { profile: "balanced" },
   callAgent: { profile: "balanced" },
@@ -38,7 +37,11 @@ export const CALL_SITE_DEFAULTS: Record<LLMCallSite, CallSiteDefaultConfig> = {
     profile: "cost-optimized",
     contextWindow: { maxInputTokens: 1000000 },
   },
-  memoryV3SelectL2: { profile: "balanced", temperature: 0 },
+  memoryV3SelectL2: {
+    profile: "balanced",
+    temperature: 0,
+    thinking: { enabled: false, streamThinking: false },
+  },
   recall: {
     profile: "balanced",
     maxTokens: 4096,

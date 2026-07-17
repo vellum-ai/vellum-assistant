@@ -4,15 +4,6 @@ import { afterEach, describe, expect, jest, mock, test } from "bun:test";
 // Module mocks
 // ---------------------------------------------------------------------------
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () => ({
-    info: () => {},
-    warn: () => {},
-    error: () => {},
-    debug: () => {},
-  }),
-}));
-
 // Mock TTS provider for synthesis tests
 const mockSynthesize = jest.fn();
 const mockProvider = {
@@ -25,7 +16,7 @@ mock.module("../calls/resolve-call-tts-provider.js", () => ({
   resolveCallTtsProvider: jest.fn(() => ({
     provider: mockProvider,
     useSynthesizedPath: false,
-    audioFormat: "wav" as const,
+    audioFormat: "pcm" as const,
   })),
 }));
 
@@ -196,7 +187,7 @@ function useProvider(provider: unknown): void {
   mockResolveCallTtsProvider.mockImplementation(() => ({
     provider,
     useSynthesizedPath: false,
-    audioFormat: "wav" as const,
+    audioFormat: "pcm" as const,
   }));
 }
 
@@ -230,7 +221,7 @@ afterEach(() => {
   mockResolveCallTtsProvider.mockImplementation(() => ({
     provider: mockProvider,
     useSynthesizedPath: false,
-    audioFormat: "wav" as const,
+    audioFormat: "pcm" as const,
   }));
 });
 
@@ -259,9 +250,9 @@ describe("MediaStreamOutput", () => {
       expect(events).toContain("media");
       expect(events).toContain("mark");
 
-      // The mark should be end-of-turn
+      // The mark should be the first sequenced end-of-turn mark
       const markMsg = sent.find((s) => JSON.parse(s).event === "mark");
-      expect(JSON.parse(markMsg!).mark.name).toBe("end-of-turn");
+      expect(JSON.parse(markMsg!).mark.name).toBe("end-of-turn:1");
     });
 
     test("empty token with last: true sends only end-of-turn mark (no synthesis)", async () => {
@@ -275,7 +266,7 @@ describe("MediaStreamOutput", () => {
       expect(sent).toHaveLength(1);
       const parsed = JSON.parse(sent[0]);
       expect(parsed.event).toBe("mark");
-      expect(parsed.mark.name).toBe("end-of-turn");
+      expect(parsed.mark.name).toBe("end-of-turn:1");
 
       // Synthesis should NOT have been called
       expect(mockSynthesize).not.toHaveBeenCalled();
@@ -522,6 +513,49 @@ describe("MediaStreamOutput", () => {
       output.endSession();
       output.clearBufferedAudio();
       expect(sent).toHaveLength(0);
+    });
+
+    test("resolves a drain waiter for an end-of-turn mark already sent to Twilio", async () => {
+      // A mark sent to Twilio is dropped by `clear` and never echoes, so a
+      // pending end-call drain wait must resolve here rather than stall.
+      const { ws, sent } = createMockWs();
+      const output = makeOutput(ws, "MZ-stream-1");
+      output.sendTextToken("", true); // enqueues + sends end-of-turn:1
+      await drain(() => countEvents(sent, "mark") > 0);
+
+      const drained = output.awaitPlaybackDrained();
+      output.clearBufferedAudio();
+      await expect(drained).resolves.toBeUndefined();
+    });
+
+    test("does not resolve a drain waiter for an end-of-turn mark not yet sent", async () => {
+      // Slow synthesis keeps the mark queued locally (not yet sent to Twilio);
+      // clearBufferedAudio preserves it, so it will still play and echo.
+      mockSynthesize.mockImplementation(
+        () =>
+          new Promise((resolve) =>
+            setTimeout(
+              () =>
+                resolve({
+                  audio: makeWavBuffer([1, 2, 3, 4]),
+                  contentType: "audio/wav",
+                }),
+              50,
+            ),
+          ),
+      );
+      const { ws } = createMockWs();
+      const output = makeOutput(ws, "MZ-stream-1");
+      output.sendTextToken("hello world", true); // mark queued behind synthesis
+
+      let resolved = false;
+      void output.awaitPlaybackDrained().then(() => {
+        resolved = true;
+      });
+
+      output.clearBufferedAudio(); // mark not sent yet — must stay pending
+      await drain();
+      expect(resolved).toBe(false);
     });
   });
 
@@ -1055,6 +1089,124 @@ describe("MediaStreamOutput", () => {
     });
   });
 
+  describe("eager first segment", () => {
+    function usePlayableWav(): void {
+      mockSynthesize.mockResolvedValue({
+        audio: makeWavBuffer([1000, 2000, 3000, 4000]),
+        contentType: "audio/wav",
+      });
+    }
+
+    test("the turn's first segment synthesizes at a clause boundary before any sentence ends", async () => {
+      usePlayableWav();
+      const { ws, sent } = createMockWs();
+      const output = makeOutput(ws, "stream-1");
+
+      // No sentence has ended yet — full-sentence rules would still be
+      // buffering, but the clause-bounded prefix synthesizes immediately.
+      output.sendTextToken("Let me take a look at that, ", false);
+      await drain(() => mockSynthesize.mock.calls.length > 0);
+
+      expect(mockSynthesize).toHaveBeenCalledTimes(1);
+      expect(mockSynthesize.mock.calls[0][0].text).toBe(
+        "Let me take a look at that,",
+      );
+
+      output.sendTextToken("and get right back to you.", true);
+      await drain(() => countEvents(sent, "mark") > 0);
+
+      expect(mockSynthesize).toHaveBeenCalledTimes(2);
+      expect(mockSynthesize.mock.calls[1][0].text).toBe(
+        "and get right back to you.",
+      );
+    });
+
+    test("eager mode applies only to the first segment — later clauses wait for sentence ends", async () => {
+      usePlayableWav();
+      const { ws, sent } = createMockWs();
+      const output = makeOutput(ws, "stream-1");
+
+      output.sendTextToken(
+        "Let me take a look at that, and then, after checking, I will confirm.",
+        false,
+      );
+      output.sendTextToken("", true);
+      await drain(() => countEvents(sent, "mark") > 0);
+
+      expect(mockSynthesize.mock.calls.map((c) => c[0].text)).toEqual([
+        "Let me take a look at that,",
+        "and then, after checking, I will confirm.",
+      ]);
+    });
+
+    test("a long unpunctuated opening flushes at the eager 60-char cap", async () => {
+      usePlayableWav();
+      const { ws, sent } = createMockWs();
+      const output = makeOutput(ws, "stream-1");
+
+      // 69 chars, no punctuation: below the default 180-char cap but past
+      // the eager 60-char cap, so the opening splits at the last whitespace
+      // under 60 chars.
+      output.sendTextToken(
+        "The quick brown fox jumps over the lazy dog near the quiet river bank",
+        false,
+      );
+      await drain(() => mockSynthesize.mock.calls.length > 0);
+
+      expect(mockSynthesize).toHaveBeenCalledTimes(1);
+      expect(mockSynthesize.mock.calls[0][0].text).toBe(
+        "The quick brown fox jumps over the lazy dog near the quiet",
+      );
+
+      output.sendTextToken("", true);
+      await drain(() => countEvents(sent, "mark") > 0);
+
+      // The short remainder never reaches a boundary and force-flushes on
+      // last: true.
+      expect(mockSynthesize).toHaveBeenCalledTimes(2);
+      expect(mockSynthesize.mock.calls[1][0].text).toBe("river bank");
+    });
+
+    test("the next turn's first segment is eager again", async () => {
+      usePlayableWav();
+      const { ws, sent } = createMockWs();
+      const output = makeOutput(ws, "stream-1");
+
+      output.sendTextToken("Let me take a look at that, one moment.", true);
+      await drain(() => countEvents(sent, "mark") >= 1);
+
+      output.sendTextToken("Here is the second answer, coming right up.", true);
+      await drain(() => countEvents(sent, "mark") >= 2);
+
+      expect(mockSynthesize.mock.calls.map((c) => c[0].text)).toEqual([
+        "Let me take a look at that,",
+        "one moment.",
+        "Here is the second answer,",
+        "coming right up.",
+      ]);
+    });
+
+    test("discardPendingText re-arms eager segmentation for the next turn", async () => {
+      usePlayableWav();
+      const { ws } = createMockWs();
+      const output = makeOutput(ws, "stream-1");
+
+      output.sendTextToken("Let me take a look at that, plus extra", false);
+      await drain(() => mockSynthesize.mock.calls.length > 0);
+
+      // Turn aborted: the unsegmented remainder is dropped and the next
+      // turn's first segment is eager again.
+      output.discardPendingText();
+      output.sendTextToken("Here is the second answer, plus more", false);
+      await drain(() => mockSynthesize.mock.calls.length > 1);
+
+      expect(mockSynthesize.mock.calls.map((c) => c[0].text)).toEqual([
+        "Let me take a look at that,",
+        "Here is the second answer,",
+      ]);
+    });
+  });
+
   // ---------------------------------------------------------------------------
   // Streaming PCM synthesis (incremental transcode)
   // ---------------------------------------------------------------------------
@@ -1209,6 +1361,466 @@ describe("MediaStreamOutput", () => {
       // transcoded once at the end.
       expect(midStreamFrames).toBe(0);
       expect(totalMulawBytes(sent)).toBe(400);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Streaming play-URL playback (processFetchUrlItem)
+  // ---------------------------------------------------------------------------
+
+  describe("sendPlayUrl streaming", () => {
+    const originalFetch = globalThis.fetch;
+
+    afterEach(() => {
+      globalThis.fetch = originalFetch;
+    });
+
+    /** Mock global fetch to resolve with the given response for any URL. */
+    function mockFetch(response: Response): void {
+      globalThis.fetch = (async () => response) as unknown as typeof fetch;
+    }
+
+    /**
+     * A fetch response whose body is a manually driven stream, so tests
+     * control exactly when bytes arrive and when the body completes.
+     * `arrayBuffer()` throws: the streaming path must never buffer the
+     * response wholesale.
+     */
+    function fakeStreamingResponse(contentType: string): {
+      response: Response;
+      push: (bytes: Buffer) => void;
+      close: () => void;
+      cancelled: () => boolean;
+    } {
+      let controller!: ReadableStreamDefaultController<Uint8Array>;
+      let cancelled = false;
+      const stream = new ReadableStream<Uint8Array>({
+        start(c) {
+          controller = c;
+        },
+        cancel() {
+          cancelled = true;
+        },
+      });
+      const response = {
+        ok: true,
+        headers: new Headers({ "content-type": contentType }),
+        body: stream,
+        arrayBuffer: () => {
+          throw new Error(
+            "arrayBuffer must not be called on the streaming path",
+          );
+        },
+      } as unknown as Response;
+      return {
+        response,
+        push: (bytes) => {
+          try {
+            controller.enqueue(new Uint8Array(bytes));
+          } catch {
+            // Stream already cancelled/closed — stale producer push.
+          }
+        },
+        close: () => {
+          try {
+            controller.close();
+          } catch {
+            // Already cancelled.
+          }
+        },
+        cancelled: () => cancelled,
+      };
+    }
+
+    test("WAV play-URL frames go out before the response stream completes", async () => {
+      // 1280 samples at 16 kHz -> 640 at 8 kHz = four whole frames.
+      const wav = makeWavBuffer(sineSamples(1280, 440, 16000), {
+        sampleRate: 16000,
+      });
+      // Header + 320 samples: exactly one 20 ms frame after 2x decimation.
+      const firstPart = wav.subarray(0, 44 + 320 * 2);
+      const rest = wav.subarray(44 + 320 * 2);
+
+      const fake = fakeStreamingResponse("audio/wav");
+      mockFetch(fake.response);
+
+      const { ws, sent } = createMockWs();
+      const output = makeOutput(ws, "stream-1");
+      output.sendPlayUrl("http://127.0.0.1/audio/test.wav");
+
+      fake.push(firstPart);
+      await drain(() => countEvents(sent, "media") >= 1);
+
+      // The first frame went out while the body is still open.
+      expect(countEvents(sent, "media")).toBe(1);
+
+      fake.push(rest);
+      fake.close();
+      await drain(() => countEvents(sent, "media") >= 4);
+
+      // Byte-identical to the whole-buffer transcode.
+      const expected = pcm16ToMulaw(decimateByTwo(wav.subarray(44)));
+      expect(concatMulawPayloads(sent).equals(expected)).toBe(true);
+    });
+
+    test("audio/pcm play-URL streams raw PCM incrementally", async () => {
+      const pcm = pcm16Buffer(sineSamples(1280, 440, 16000));
+      const fake = fakeStreamingResponse("audio/pcm");
+      mockFetch(fake.response);
+
+      const { ws, sent } = createMockWs();
+      const output = makeOutput(ws, "stream-1");
+      output.sendPlayUrl("http://127.0.0.1/audio/test.pcm");
+
+      fake.push(pcm.subarray(0, 320 * 2)); // 320 samples -> one whole frame
+      await drain(() => countEvents(sent, "media") >= 1);
+      expect(countEvents(sent, "media")).toBe(1);
+
+      fake.push(pcm.subarray(320 * 2));
+      fake.close();
+      await drain(() => countEvents(sent, "media") >= 4);
+
+      const expected = pcm16ToMulaw(decimateByTwo(pcm));
+      expect(concatMulawPayloads(sent).equals(expected)).toBe(true);
+    });
+
+    test("clearAudio mid-stream cancels the body read and sends clear", async () => {
+      const wav = makeWavBuffer(sineSamples(1280, 440, 16000), {
+        sampleRate: 16000,
+      });
+      const fake = fakeStreamingResponse("audio/wav");
+      mockFetch(fake.response);
+
+      const { ws, sent } = createMockWs();
+      const output = makeOutput(ws, "stream-1");
+      output.sendPlayUrl("http://127.0.0.1/audio/test.wav");
+
+      fake.push(wav.subarray(0, 44 + 320 * 2));
+      await drain(() => countEvents(sent, "media") >= 1);
+      const framesBefore = countEvents(sent, "media");
+      expect(framesBefore).toBeGreaterThan(0);
+
+      output.clearAudio();
+      await drain(() => fake.cancelled());
+
+      // The in-flight body read was cancelled and Twilio's buffer cleared.
+      expect(fake.cancelled()).toBe(true);
+      expect(countEvents(sent, "clear")).toBe(1);
+
+      // Bytes arriving after the abort never become frames.
+      fake.push(wav.subarray(44 + 320 * 2));
+      await drain();
+      expect(countEvents(sent, "media")).toBe(framesBefore);
+    });
+
+    test("audio/mpeg keeps the whole-buffer path (no body streaming)", async () => {
+      const mp3Bytes = Buffer.alloc(256, 0x80);
+      mp3Bytes[0] = 0xff; // MPEG sync
+      mp3Bytes[1] = 0xfb; // MPEG Layer 3
+
+      let bodyAccessed = false;
+      let arrayBufferCalled = false;
+      const response = {
+        ok: true,
+        headers: new Headers({ "content-type": "audio/mpeg" }),
+        get body(): ReadableStream<Uint8Array> {
+          bodyAccessed = true;
+          throw new Error("body must not be streamed for compressed formats");
+        },
+        arrayBuffer: async () => {
+          arrayBufferCalled = true;
+          return mp3Bytes.buffer.slice(
+            mp3Bytes.byteOffset,
+            mp3Bytes.byteOffset + mp3Bytes.byteLength,
+          );
+        },
+      } as unknown as Response;
+      mockFetch(response);
+
+      const { ws, sent } = createMockWs();
+      const output = makeOutput(ws, "stream-1");
+      output.sendPlayUrl("http://127.0.0.1/audio/test.mp3");
+
+      await drain(() => arrayBufferCalled);
+
+      expect(arrayBufferCalled).toBe(true);
+      expect(bodyAccessed).toBe(false);
+      // mp3 cannot be transcoded in this path, so no media frames go out.
+      expect(countEvents(sent, "media")).toBe(0);
+    });
+
+    test("non-canonical WAV (stereo) falls back to the whole-buffer path", async () => {
+      // Stereo is not streamable; the buffered path keeps the left channel.
+      const left = sineSamples(400, 440, 8000);
+      const interleaved: number[] = [];
+      for (const s of left) {
+        interleaved.push(s, -s);
+      }
+      const wav = makeWavBuffer(interleaved, { sampleRate: 8000, channels: 2 });
+
+      const fake = fakeStreamingResponse("audio/wav");
+      mockFetch(fake.response);
+
+      const { ws, sent } = createMockWs();
+      const output = makeOutput(ws, "stream-1");
+      output.sendPlayUrl("http://127.0.0.1/audio/stereo.wav");
+
+      fake.push(wav.subarray(0, 100));
+      // No frames while the fallback drains the body.
+      await drain();
+      expect(countEvents(sent, "media")).toBe(0);
+
+      fake.push(wav.subarray(100));
+      fake.close();
+      await drain(() => countEvents(sent, "media") > 0);
+
+      // Left channel of 400 pairs at 8 kHz -> 400 mu-law bytes.
+      expect(totalMulawBytes(sent)).toBe(400);
+    });
+
+    test("malformed WAV header falls back without throwing", async () => {
+      // RIFF magic but garbage after it: not streamable, and the buffered
+      // path's fixed-offset reads produce no usable frames.
+      const junk = Buffer.alloc(64, 0x42);
+      junk.write("RIFF", 0);
+
+      const fake = fakeStreamingResponse("audio/wav");
+      mockFetch(fake.response);
+
+      const { ws, sent } = createMockWs();
+      const output = makeOutput(ws, "stream-1");
+      output.sendPlayUrl("http://127.0.0.1/audio/junk.wav");
+
+      fake.push(junk);
+      fake.close();
+      await drain(() => output.getPlaybackQueueLength() === 0);
+      await drain();
+
+      // No crash; a malformed WAV yields no usable frames from the
+      // buffered transcode's fixed-offset reads.
+      expect(countEvents(sent, "media")).toBe(0);
+
+      // The output still works for a subsequent playable item.
+      const good = fakeStreamingResponse("audio/pcm");
+      mockFetch(good.response);
+      output.sendPlayUrl("http://127.0.0.1/audio/good.pcm");
+      good.push(pcm16Buffer(sineSamples(320, 440, 16000)));
+      good.close();
+      await drain(() => countEvents(sent, "media") > 0);
+      expect(countEvents(sent, "media")).toBe(1);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Playback drain tracking (sequenced end-of-turn marks)
+  // ---------------------------------------------------------------------------
+
+  describe("playback drain", () => {
+    /** Extract the names of all sent mark events, in order. */
+    function markNames(sent: string[]): string[] {
+      return sent
+        .map((s) => JSON.parse(s))
+        .filter((m) => m.event === "mark")
+        .map((m) => m.mark.name);
+    }
+
+    test("end-of-turn marks are sequenced in order", async () => {
+      const { ws, sent } = createMockWs();
+      const output = makeOutput(ws, "stream-1");
+      output.sendTextToken("", true);
+      output.sendTextToken("", true);
+      output.sendTextToken("", true);
+      await drain(() => countEvents(sent, "mark") >= 3);
+
+      expect(markNames(sent)).toEqual([
+        "end-of-turn:1",
+        "end-of-turn:2",
+        "end-of-turn:3",
+      ]);
+    });
+
+    test("resolves immediately when no end-of-turn mark is outstanding", async () => {
+      const { ws } = createMockWs();
+      const output = makeOutput(ws, "stream-1");
+      // Never enqueued a turn — nothing outstanding.
+      await expect(output.awaitPlaybackDrained()).resolves.toBeUndefined();
+    });
+
+    test("resolves immediately when the output is already closed", async () => {
+      const { ws } = createMockWs();
+      const output = makeOutput(ws, "stream-1");
+      output.sendTextToken("", true); // outstanding seq 1, never echoed
+      output.endSession();
+      await expect(output.awaitPlaybackDrained()).resolves.toBeUndefined();
+    });
+
+    test("stays pending until the matching end-of-turn mark is echoed", async () => {
+      const { ws, sent } = createMockWs();
+      const output = makeOutput(ws, "stream-1");
+      output.sendTextToken("", true);
+      await drain(() => countEvents(sent, "mark") > 0);
+
+      let resolved = false;
+      const drained = output.awaitPlaybackDrained().then(() => {
+        resolved = true;
+      });
+
+      await drain();
+      expect(resolved).toBe(false);
+
+      output.notePlaybackMarkEcho("end-of-turn:1");
+      await drained;
+      expect(resolved).toBe(true);
+    });
+
+    test("a higher-seq echo (still within enqueued) resolves an earlier waiter", async () => {
+      const { ws, sent } = createMockWs();
+      const output = makeOutput(ws, "stream-1");
+      output.sendTextToken("", true); // enqueues end-of-turn:1
+      await drain(() => countEvents(sent, "mark") > 0);
+
+      const drained = output.awaitPlaybackDrained(); // targets seq 1
+      output.sendTextToken("", true); // enqueues end-of-turn:2
+      await drain(() => countEvents(sent, "mark") >= 2);
+
+      // Echoing seq 2 (which was enqueued) satisfies the seq-1 waiter too.
+      output.notePlaybackMarkEcho("end-of-turn:2");
+      await expect(drained).resolves.toBeUndefined();
+    });
+
+    test("ignores an echo for a seq beyond what was enqueued", async () => {
+      // A stale/forged future echo must not advance the high-water mark, or
+      // later real turns would drain immediately before their audio played.
+      const { ws, sent } = createMockWs();
+      const output = makeOutput(ws, "stream-1");
+      output.sendTextToken("", true); // enqueues end-of-turn:1
+      await drain(() => countEvents(sent, "mark") > 0);
+
+      // Out-of-range echo before we ever queued seq 3 — ignored.
+      output.notePlaybackMarkEcho("end-of-turn:3");
+
+      let resolved = false;
+      void output.awaitPlaybackDrained().then(() => {
+        resolved = true;
+      });
+      await drain();
+      expect(resolved).toBe(false); // seq-1 waiter still pending
+
+      // The genuine seq-1 echo resolves it.
+      output.notePlaybackMarkEcho("end-of-turn:1");
+      await drain(() => resolved);
+      expect(resolved).toBe(true);
+    });
+
+    test("a stale lower-seq echo does not resolve a higher-seq waiter", async () => {
+      const { ws, sent } = createMockWs();
+      const output = makeOutput(ws, "stream-1");
+      output.sendTextToken("", true);
+      output.sendTextToken("", true);
+      await drain(() => countEvents(sent, "mark") >= 2);
+
+      let resolved = false;
+      void output.awaitPlaybackDrained().then(() => {
+        resolved = true;
+      });
+
+      output.notePlaybackMarkEcho("end-of-turn:1");
+      await drain();
+      expect(resolved).toBe(false);
+
+      output.notePlaybackMarkEcho("end-of-turn:2");
+      await drain(() => resolved);
+      expect(resolved).toBe(true);
+    });
+
+    test("flushing the playback queue releases a pending waiter", async () => {
+      const { ws, sent } = createMockWs();
+      const output = makeOutput(ws, "stream-1");
+      output.sendTextToken("", true);
+      await drain(() => countEvents(sent, "mark") > 0);
+
+      const drained = output.awaitPlaybackDrained();
+      output.clearAudio(); // flushes the playback queue
+      await expect(drained).resolves.toBeUndefined();
+    });
+
+    test("a waiter armed AFTER a flush does not hang on the flushed mark", async () => {
+      // Barge-in flushes an outstanding end-of-turn mark before any waiter
+      // exists. A later awaitPlaybackDrained() targeting that flushed seq
+      // must resolve (the audio was cleared, never to be echoed) rather than
+      // wait forever.
+      const { ws, sent } = createMockWs();
+      const output = makeOutput(ws, "stream-1");
+      output.sendTextToken("", true); // enqueues end-of-turn:1
+      await drain(() => countEvents(sent, "mark") > 0);
+
+      output.clearAudio(); // flushes end-of-turn:1 with no waiter present
+
+      await expect(output.awaitPlaybackDrained()).resolves.toBeUndefined();
+    });
+
+    test("a late cleared-mark echo does not prematurely resolve a fresh turn", async () => {
+      // After a flush advances the drained seq, a stale echo for the cleared
+      // mark is a no-op, and the next turn's waiter still pends until its own
+      // (higher-seq) mark is echoed.
+      const { ws, sent } = createMockWs();
+      const output = makeOutput(ws, "stream-1");
+      output.sendTextToken("", true); // end-of-turn:1
+      await drain(() => countEvents(sent, "mark") > 0);
+      output.clearAudio(); // flush; drained seq advances to 1
+
+      output.sendTextToken("", true); // end-of-turn:2 (next turn)
+      await drain(() => countEvents(sent, "mark") > 1);
+
+      let resolved = false;
+      void output.awaitPlaybackDrained().then(() => {
+        resolved = true;
+      });
+
+      // Stale echo for the cleared mark must not resolve the seq-2 waiter.
+      output.notePlaybackMarkEcho("end-of-turn:1");
+      await drain();
+      expect(resolved).toBe(false);
+
+      // The genuine seq-2 echo resolves it.
+      output.notePlaybackMarkEcho("end-of-turn:2");
+      await drain(() => resolved);
+      expect(resolved).toBe(true);
+    });
+
+    test("endSession releases a pending waiter", async () => {
+      const { ws, sent } = createMockWs();
+      const output = makeOutput(ws, "stream-1");
+      output.sendTextToken("", true);
+      await drain(() => countEvents(sent, "mark") > 0);
+
+      const drained = output.awaitPlaybackDrained();
+      output.endSession();
+      await expect(drained).resolves.toBeUndefined();
+    });
+
+    test("ignores non-end-of-turn and malformed mark names without throwing", async () => {
+      const { ws, sent } = createMockWs();
+      const output = makeOutput(ws, "stream-1");
+      output.sendTextToken("", true);
+      await drain(() => countEvents(sent, "mark") > 0);
+
+      let resolved = false;
+      void output.awaitPlaybackDrained().then(() => {
+        resolved = true;
+      });
+
+      // Unrelated mark name, wrong prefix, and non-numeric seq are ignored.
+      output.notePlaybackMarkEcho("some-other-mark");
+      output.notePlaybackMarkEcho("end-of-turn");
+      output.notePlaybackMarkEcho("end-of-turn:not-a-number");
+      await drain();
+      expect(resolved).toBe(false);
+
+      // The real echo still resolves.
+      output.notePlaybackMarkEcho("end-of-turn:1");
+      await drain(() => resolved);
+      expect(resolved).toBe(true);
     });
   });
 });

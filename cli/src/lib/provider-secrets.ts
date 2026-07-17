@@ -71,6 +71,11 @@ const PROVIDER_LABELS: Record<LlmProviderId, string> = {
   gemini: "Gemini",
   fireworks: "Fireworks",
   openrouter: "OpenRouter",
+  "vercel-ai-gateway": "Vercel AI Gateway",
+  minimax: "MiniMax",
+  atlascloud: "Atlas Cloud",
+  together: "Together AI",
+  baseten: "Baseten",
 };
 
 export function formatProviderName(provider: LlmProviderId): string {
@@ -151,13 +156,50 @@ function readConfigValue(
   return value && value.length > 0 ? value : undefined;
 }
 
-function inferProviderFromModel(model: string): string | undefined {
-  if (model.startsWith("claude-")) return "anthropic";
-  if (model.startsWith("gpt-")) return "openai";
-  if (model.startsWith("gemini-")) return "gemini";
-  if (model.startsWith("accounts/fireworks/models/")) return "fireworks";
-  if (model.includes("/")) return "openrouter";
-  if (model === "llama3.2" || model === "mistral") return "ollama";
+/**
+ * Infer the provider a bare model ID implies, mirroring the assistant
+ * resolver's `getCatalogProviderForModel`: an ID listed by multiple catalog
+ * providers resolves to the FIRST one in catalog order. Vendor prefixes unique
+ * to one provider map to it; shared gateway IDs (e.g. `anthropic/*`) fall
+ * through to openrouter, the earlier catalog entry. Drift guard:
+ * `cli/src/__tests__/provider-inference-parity.test.ts`. Exported for tests.
+ */
+export function inferProviderFromModel(model: string): string | undefined {
+  if (model.startsWith("claude-")) {
+    return "anthropic";
+  }
+  if (model.startsWith("gpt-")) {
+    return "openai";
+  }
+  if (model.startsWith("gemini-")) {
+    return "gemini";
+  }
+  if (model.startsWith("accounts/fireworks/models/")) {
+    return "fireworks";
+  }
+  if (model.startsWith("openai/gpt-5.6")) {
+    // Listed by OpenRouter (#37856), the earlier catalog entry; the Vercel
+    // AI Gateway does not carry these IDs.
+    return "openrouter";
+  }
+  if (model.startsWith("openai/") || model.startsWith("xai/")) {
+    return "vercel-ai-gateway";
+  }
+  if (model.startsWith("MiniMaxAI/")) {
+    return "together";
+  }
+  if (model.startsWith("deepseek-ai/")) {
+    return "atlascloud";
+  }
+  if (model.startsWith("thinkingmachines/")) {
+    return "baseten";
+  }
+  if (model.includes("/")) {
+    return "openrouter";
+  }
+  if (model === "llama3.2" || model === "mistral") {
+    return "ollama";
+  }
   return undefined;
 }
 

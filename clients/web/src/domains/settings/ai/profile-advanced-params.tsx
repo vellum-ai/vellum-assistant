@@ -20,6 +20,7 @@ import {
   geminiThinkingLevels,
   type ProfileParamVisibility,
 } from "@/domains/settings/ai/profile-param-visibility";
+import { useSupportsCompleteProfileSnapshots } from "@/lib/backwards-compat/complete-profile-snapshots";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -275,6 +276,8 @@ export function ProfileAdvancedParams({
   thinkingLevel,
   onThinkingLevelChange,
 }: ProfileAdvancedParamsProps) {
+  const supportsSnapshots = useSupportsCompleteProfileSnapshots();
+
   // Each model's hard ceiling doubles as that field's slider/input max. The
   // resolved runtime defaults, however, are what a profile inherits when it
   // omits the override: `llm.default.maxTokens` and
@@ -295,13 +298,22 @@ export function ProfileAdvancedParams({
     contextWindowCeiling,
   );
 
-
   return (
     // space-y-4 matches the modal body's rhythm so each advanced param gets
     // the same vertical breathing room as the "normal" fields above. Without
     // a spacing wrapper the fragment stacked these blocks flush against each
     // other (and against the disclosure edges).
     <div className="space-y-4">
+      {!isReadOnly && supportsSnapshots && (
+        // Profiles are complete overrides: fields left at their default are
+        // baked into the profile at save time and do not track later changes
+        // to the assistant defaults. Pre-0.10.8 assistants still live-inherit
+        // (deep merge), so the line is hidden against them.
+        <p className="text-body-small-default text-[var(--content-tertiary)]">
+          Fields left at their default are saved with the values shown and won’t
+          change if the assistant defaults change later.
+        </p>
+      )}
       {visibility.maxTokens && (
         <TokenBudgetField
           label="Max Output Tokens"
@@ -333,7 +345,9 @@ export function ProfileAdvancedParams({
           <SegmentControl
             items={EFFORT_OPTIONS.map((v) => ({
               value: v,
-              label: v,
+              // "inherit" is a wire sentinel; post-M6 the saved profile bakes
+              // the current default, so the UI says "default", not "inherit".
+              label: v === "inherit" ? "default" : v,
               disabled: isReadOnly,
             }))}
             value={effort}
@@ -452,7 +466,9 @@ export function ProfileAdvancedParams({
             checked={thinkingEnabled}
             onChange={(v) => {
               onThinkingEnabledChange(v);
-              if (!v) onThinkingStreamThinkingChange(false);
+              if (!v) {
+                onThinkingStreamThinkingChange(false);
+              }
             }}
             label="Enable extended thinking"
             disabled={isReadOnly}

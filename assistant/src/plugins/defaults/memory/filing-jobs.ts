@@ -19,7 +19,7 @@ import type { LLMCallSite } from "@vellumai/plugin-api";
 
 import type { MemoryJob } from "../../../persistence/jobs-store.js";
 import { runBackgroundJob } from "../../../runtime/background-job-runner.js";
-import { getLogger } from "../../../util/logger.js";
+import { getLogger } from "./logging.js";
 import { hasPkbBufferContent } from "./pkb-schedule.js";
 
 const log = getLogger("filing-jobs");

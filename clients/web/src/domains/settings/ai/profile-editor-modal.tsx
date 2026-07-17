@@ -41,7 +41,11 @@ import {
   MANAGED_ROUTABLE_PROVIDERS,
   VELLUM_CONNECTION_PROVIDER,
 } from "@/domains/settings/ai/constants";
-import { isProviderSelectableForAssistant } from "@/domains/settings/ai/provider-availability";
+import {
+  getManagedUpstreamForModel,
+  parseVellumRoutedModel,
+} from "@/assistant/llm-model-catalog";
+import { providersServedByConnections } from "@/domains/settings/ai/provider-availability";
 import type {
   ConnectionProvider,
   ProviderConnection,
@@ -49,7 +53,6 @@ import type {
 import { ProviderCreateForm } from "@/domains/settings/ai/provider-create-form";
 import { useLabelKeySync } from "@/domains/settings/ai/use-label-key-sync";
 import { useActiveAssistantIsSelfHosted } from "@/hooks/use-platform-gate";
-import { useIsMobile } from "@/hooks/use-is-mobile";
 
 // Sentinel value for the "+ Create new provider" option in the create-mode
 // Provider dropdown. Picking it mounts the inline ProviderCreateForm instead
@@ -68,6 +71,8 @@ function connectionServesProvider(
   selectedProvider: string,
 ): boolean {
   if (connectionProvider === selectedProvider) return true;
+  // Legacy wire shape: a managed profile stores its real upstream (e.g.
+  // "fireworks") while binding to the provider-agnostic vellum connection.
   return (
     connectionProvider === VELLUM_CONNECTION_PROVIDER &&
     MANAGED_ROUTABLE_PROVIDERS.has(selectedProvider)
@@ -206,7 +211,6 @@ function ProfileEditorModalInner({
   // daemon rejects for managed profiles.
   const isReadOnly = effectiveMode === "view" || isInvariant;
   const activeAssistantIsSelfHosted = useActiveAssistantIsSelfHosted();
-  const isMobile = useIsMobile();
 
   // Baseline for `hasViewModeChanges`: the enable flip is the only edit
   // read-only mode permits.
@@ -217,8 +221,15 @@ function ProfileEditorModalInner({
     initialValues?.description ?? "",
   );
   const [key, setKey] = useState(mode === "create" ? "" : (profileName ?? ""));
+  // "vellum" is a picker-level value: profiles bound to the Vellum-managed
+  // connection present (and edit) as provider "Vellum"; the wire-shape
+  // upstream is derived from the model at save time. The form opens on the
+  // stored upstream and only promotes to Vellum once the loaded connections
+  // prove the bound row is the managed sentinel (see the effect below) — a
+  // user-owned row merely named "vellum" must never enter Vellum mode, even
+  // in the pre-load window.
   const [provider, setProvider] = useState<
-    NonNullable<ProfileEntry["provider"]> | ""
+    NonNullable<ProfileEntry["provider"]> | "vellum" | ""
   >(initialValues?.provider ?? "");
   const [model, setModel] = useState(initialValues?.model ?? "");
   // Per-profile provider-connection binding. Empty string means no explicit
@@ -304,12 +315,25 @@ function ProfileEditorModalInner({
   );
 
   // Derived: selected model from catalog
+  // A saved Vellum model may be a routed `<provider>/<model>` string; parse
+  // it once — the native id feeds every catalog lookup (visibility, token
+  // ranges) and the save path, the prefix feeds upstream derivation.
+  const routedModel = useMemo(
+    () =>
+      provider === VELLUM_CONNECTION_PROVIDER
+        ? parseVellumRoutedModel(model)
+        : null,
+    [provider, model],
+  );
+  const nativeModel = routedModel?.model ?? model;
+
   const selectedModel = useMemo(
     () =>
       provider
-        ? (getModelsForProvider(provider).find((m) => m.id === model) ?? null)
+        ? (getModelsForProvider(provider).find((m) => m.id === nativeModel) ??
+          null)
         : null,
-    [provider, model],
+    [provider, nativeModel],
   );
 
   // The advanced-param defaults a profile inherits when it omits an override
@@ -327,8 +351,17 @@ function ProfileEditorModalInner({
 
   // Derived: which advanced param fields to show
   const visibility = useMemo(
-    () => resolveProfileParamVisibility(provider, model),
-    [provider, model],
+    () =>
+      resolveProfileParamVisibility(
+        provider === VELLUM_CONNECTION_PROVIDER
+          ? (routedModel?.provider ??
+              getManagedUpstreamForModel(model) ??
+              initialValues?.provider ??
+              "")
+          : provider,
+        nativeModel,
+      ),
+    [provider, model, nativeModel, routedModel, initialValues?.provider],
   );
 
   // Parent-supplied connections unioned with any created inline this session
@@ -371,11 +404,29 @@ function ProfileEditorModalInner({
   const queryClient = useQueryClient();
 
   // Create-mode-only UI: whether the inline "+ Create new provider" sub-form
-  // is mounted, and whether the advanced-params disclosure is expanded.
+  // is mounted, and whether the Advanced disclosure is expanded.
   const [creatingProvider, setCreatingProvider] = useState(false);
   const [advancedExpanded, setAdvancedExpanded] = useState(false);
   // One-time helper note shown after an inline provider create succeeds.
   const [newProviderNote, setNewProviderNote] = useState(false);
+
+  // Promote a vellum-bound profile into Vellum picker mode once the loaded
+  // connections prove the bound row is the managed sentinel (the daemon's
+  // seeder preserves a user-owned row that merely claims the name, and such
+  // profiles must keep their real provider). Skipped once the user changes
+  // the provider themselves.
+  useEffect(() => {
+    if (initialValues?.provider_connection !== VELLUM_CONNECTION_PROVIDER) {
+      return;
+    }
+    if (provider !== (initialValues?.provider ?? "")) return;
+    const boundRow = connections?.find(
+      (c) => c.name === initialValues.provider_connection,
+    );
+    if (boundRow?.provider === VELLUM_CONNECTION_PROVIDER) {
+      setProvider(VELLUM_CONNECTION_PROVIDER);
+    }
+  }, [connections, provider, initialValues]);
 
   // Reset dirty tracking when modal re-opens with new values.
   useEffect(() => {
@@ -388,9 +439,6 @@ function ProfileEditorModalInner({
 
   function handleProviderChange(newProvider: ConnectionProvider) {
     if (newProvider === provider) return;
-    // vellum is a connection type, not a selectable profile LLM provider — it's
-    // filtered out of the picker; this narrows ConnectionProvider to LlmProvider.
-    if (newProvider === "vellum") return;
     setProvider(newProvider);
     setModel("");
     // Auto-select connection: if exactly one connection exists for the new
@@ -567,20 +615,37 @@ function ProfileEditorModalInner({
           ? availableConnectionsForProvider[0].name
           : providerConnection;
       const effectiveBinding = connectionNotFound ? "" : resolvedBinding;
+      // The Vellum picker entry writes the legacy wire shape: the model's
+      // managed upstream as `provider`, bound to the vellum connection. Old
+      // daemons accept this today; the payload flips to provider "vellum"
+      // in a later milestone with no UI change.
+      // Derivation can miss for a bound model this build doesn't list (a
+      // newer managed model); the editor preserves such models, so preserve
+      // the stored upstream too instead of clearing it.
+      // A routed `<provider>/<model>` string names its upstream directly and
+      // must be stripped to the upstream's native id in the legacy wire shape.
+      const wireProvider =
+        provider === VELLUM_CONNECTION_PROVIDER
+          ? (routedModel?.provider ??
+            getManagedUpstreamForModel(model) ??
+            initialValues?.provider ??
+            "")
+          : provider;
+      const wireModel = nativeModel;
       if (effectiveMode === "edit") {
         // In edit mode send null for cleared fields so the server deep-merges
         // them as cleared rather than silently preserving the old value.
         entry.label = label.trim() || null;
         entry.description = description.trim() || null;
-        entry.provider = provider || null;
-        entry.model = model || null;
+        entry.provider = wireProvider || null;
+        entry.model = wireModel || null;
         entry.provider_connection = effectiveBinding || null;
       } else {
         // In create mode omit optional fields that are still empty.
         if (label.trim()) entry.label = label.trim();
         if (description.trim()) entry.description = description.trim();
-        if (provider) entry.provider = provider;
-        if (model) entry.model = model;
+        if (wireProvider) entry.provider = wireProvider;
+        if (wireModel) entry.model = wireModel;
         if (effectiveBinding) entry.provider_connection = effectiveBinding;
       }
       // Advanced params
@@ -653,9 +718,8 @@ function ProfileEditorModalInner({
         ? "Edit Profile"
         : (initialValues?.label ?? profileName ?? "Profile");
 
-  // Create mode uses the provider-first layout (Provider -> Model -> Name ->
-  // Key -> Description -> collapsed Advanced) with pre-fill. Edit and view
-  // modes use the legacy layout below.
+  // Create mode uses the provider-first layout, with derived identity fields
+  // grouped under Advanced. Edit and view modes use the legacy layout below.
   const useProviderFirst = effectiveMode === "create";
 
   // ---- Reusable field nodes (shared by create + edit/view bodies) ----
@@ -782,28 +846,16 @@ function ProfileEditorModalInner({
   // Providers with at least one connection, plus the always-present "+ Create
   // new provider" sentinel. First-run empty state shows ONLY the sentinel.
   const createModeProviderOptions = useMemo(() => {
-    const seen = new Set<ConnectionProvider>();
     const opts: {
       value: ConnectionProvider | typeof CREATE_NEW_PROVIDER_SENTINEL;
       label: string;
-    }[] = [];
-    for (const c of effectiveConnections) {
-      if (
-        !isProviderSelectableForAssistant(
-          c.provider,
-          activeAssistantIsSelfHosted,
-        )
-      ) {
-        continue;
-      }
-      if (!seen.has(c.provider)) {
-        seen.add(c.provider);
-        opts.push({
-          value: c.provider,
-          label: PROVIDER_DISPLAY_NAMES[c.provider] ?? c.provider,
-        });
-      }
-    }
+    }[] = providersServedByConnections(
+      effectiveConnections,
+      activeAssistantIsSelfHosted,
+    ).map((p) => ({
+      value: p,
+      label: PROVIDER_DISPLAY_NAMES[p] ?? p,
+    }));
     opts.push({
       value: CREATE_NEW_PROVIDER_SENTINEL,
       label: "+ Create new provider",
@@ -814,19 +866,12 @@ function ProfileEditorModalInner({
   const createProviderSection = (
     <div className="space-y-4">
       <div className="space-y-1">
-        <div className="flex items-center justify-between gap-2">
-          <label
-            id="profile-editor-provider-label"
-            className="block text-body-small-default text-[var(--content-tertiary)]"
-          >
-            Provider
-          </label>
-          {providerMissing && !creatingProvider && !isMobile ? (
-            <span className="rounded-full bg-[var(--surface-warning-subtle)] px-2 py-0.5 text-body-small-default text-[var(--content-warning)]">
-              Pick a provider
-            </span>
-          ) : null}
-        </div>
+        <label
+          id="profile-editor-provider-label"
+          className="block text-body-small-default text-[var(--content-tertiary)]"
+        >
+          Provider
+        </label>
         <Dropdown
           value={creatingProvider ? CREATE_NEW_PROVIDER_SENTINEL : provider}
           onChange={(next) => {
@@ -835,7 +880,9 @@ function ProfileEditorModalInner({
               setNewProviderNote(false);
               return;
             }
-            if (!next) return;
+            if (!next) {
+              return;
+            }
             setCreatingProvider(false);
             handleProviderChange(next);
           }}
@@ -881,25 +928,30 @@ function ProfileEditorModalInner({
     </div>
   );
 
-  // Only surface Advanced once a model is chosen — the advanced params are
-  // model-dependent (effort/thinking/token ranges resolve from the selected
-  // model), so showing the disclosure before then is meaningless.
+  // Only surface Advanced once a model is chosen: Name and Key derive from the
+  // model, and the model controls the available advanced parameters.
+  const createAdvancedOpen =
+    advancedExpanded || (Boolean(keyError) && getDirty());
   const createAdvancedDisclosure =
     model !== "" ? (
       <div>
         <button
           type="button"
-          aria-expanded={advancedExpanded}
+          aria-expanded={createAdvancedOpen}
           onClick={() => setAdvancedExpanded((v) => !v)}
           className="flex items-center gap-1 text-body-small-default text-[var(--content-secondary)] w-full text-left"
         >
           <ChevronRight
-            className={`h-4 w-4 transition-transform ${advancedExpanded ? "rotate-90" : ""}`}
+            className={`h-4 w-4 transition-transform ${createAdvancedOpen ? "rotate-90" : ""}`}
           />
           <span>Advanced</span>
         </button>
-        {advancedExpanded ? (
-          <div className="mt-4">{advancedParamsNode}</div>
+        {createAdvancedOpen ? (
+          <div className="mt-4 space-y-4">
+            {displayNameField}
+            {keyField}
+            {advancedParamsNode}
+          </div>
         ) : null}
       </div>
     ) : null;
@@ -920,12 +972,10 @@ function ProfileEditorModalInner({
       <Modal.Body>
         {useProviderFirst ? (
           // Create mode is provider-first: Provider (with inline create) ->
-          // Model -> Name -> Key -> Description -> collapsed Advanced.
+          // Model -> Description -> Active -> collapsed Advanced.
           <div className="space-y-4">
             {createProviderSection}
 
-            {displayNameField}
-            {keyField}
             {descriptionField}
             {activeToggle}
 

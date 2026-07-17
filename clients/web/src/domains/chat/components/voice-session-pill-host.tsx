@@ -11,11 +11,16 @@
  * carried to another conversation via in-window switching (Cmd+Up/Down) must
  * still have a visible control.
  *
- * Visibility is the exact complement of the composer's voice bar so that for
- * any active session exactly one of the two surfaces renders: the pill shows
- * whenever a session is active AND the composer currently on screen (if any)
- * does not own it (`isLiveVoiceSessionOwnedBy`). Concretely, the pill shows
- * when:
+ * Visibility is the exact complement of the owning-composer voice surface — the
+ * one the full-screen voice room also renders against — so that in the main
+ * window, for any active session, exactly one of {room, pill} renders. Both
+ * derive from the shared {@link useOwningComposerSurfaceVisible} predicate
+ * (session active AND the on-screen composer owns it): the pill shows when a
+ * session is active and it is `false`, the room when it is `true` and this is
+ * the main window. Because the pill keys off that popout-free primitive (not
+ * the room's own `!isPopout` gate), a headerless pop-out's standalone pill
+ * still hides while the composer's voice bar owns the session — no double
+ * control. Concretely, the pill shows when:
  *
  * - the user is viewing a different conversation than the session's,
  * - the user is off the chat routes entirely (Home, Library, …) or on a
@@ -46,25 +51,25 @@
  * two error surfaces never double-render. Dismissing the chip resets the
  * store to idle, mirroring the composer Notice's dismiss.
  *
- * The ■ "stop response" control is deliberately not wired: V1's `interrupt()`
- * ends the whole session, contradicting the control's "without ending the
- * session" contract, so the pill offers only ✕ (end) until a turn-scoped
- * interrupt exists (engine plan, JARVIS-1240).
+ * The ■ "stop response" control is wired only for hands-free sessions, where
+ * the client interrupt is turn-scoped (the daemon cancels the turn and
+ * re-arms). A manual session's `interrupt()` ends the whole session,
+ * contradicting the control's "without ending the session" contract, so
+ * there the pill offers only ✕ (end).
  */
 
 import { useCallback } from "react";
-import { useLocation, useNavigate } from "react-router";
+import { useNavigate } from "react-router";
 import type { ReactNode } from "react";
 
-import { useIsMobile } from "@/hooks/use-is-mobile";
 import { navigateToConversation } from "@/utils/conversation-navigation";
-import { isConversationChatPath } from "@/utils/routes";
 
 import {
   VoiceSessionErrorChip,
   VoiceSessionPill,
 } from "@/domains/chat/components/voice-session-pill";
 import { useActiveConversation } from "@/domains/chat/hooks/use-active-conversation";
+import { useComposerOnScreen } from "@/domains/chat/hooks/use-composer-on-screen";
 import {
   LIVE_VOICE_STATE_LABELS,
   dismissLiveVoiceFailure,
@@ -72,11 +77,11 @@ import {
   getLiveVoiceInputAmplitude,
   isLiveVoiceSessionActive,
   releaseLiveVoiceTurn,
-  useIsLiveVoiceSessionOwnedBy,
+  setLiveVoiceMuted,
+  stopLiveVoiceResponse,
   useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
-import { useConversationStore } from "@/stores/conversation-store";
-import { useViewerStore } from "@/stores/viewer-store";
+import { useOwningComposerSurfaceVisible } from "@/domains/chat/voice/voice-room/use-is-voice-room-visible";
 
 export interface VoiceSessionPillHostProps {
   /**
@@ -96,29 +101,30 @@ export function VoiceSessionPillHost({
   const error = useLiveVoiceStore.use.error();
   const sessionAssistantId = useLiveVoiceStore.use.assistantId();
   const sessionConversationId = useLiveVoiceStore.use.conversationId();
+  const muted = useLiveVoiceStore.use.muted();
+  // Turn-scoped ■ stop is hands-free-only: a manual (version-skew fallback)
+  // session's interrupt ends the whole session, contradicting the control's
+  // "without ending the session" contract — there the ✕ is the only stop.
+  const handsFree = useLiveVoiceStore.use.handsFree();
 
-  const activeConversationId = useConversationStore.use.activeConversationId();
-  const mainView = useViewerStore.use.mainView();
-  const isMobile = useIsMobile();
-  const location = useLocation();
   const navigate = useNavigate();
 
   const sessionActive = isLiveVoiceSessionActive(state);
-  // Mirror of `chat-content-layout.tsx`: the desktop `app` view replaces
-  // `ChatMainPanel` (composer included); every other view — and mobile's
-  // portal-overlay `app` view — keeps the composer mounted. The strict chat
-  // predicate matters: conversation subroutes like the inspector
-  // (`/assistant/conversations/:id/inspect`) render no composer, so the pill
-  // must stay up there even for the owning conversation.
-  const composerOnScreen =
-    isConversationChatPath(location.pathname) &&
-    !(mainView === "app" && !isMobile);
-  // Same ownership predicate the composer's voice bar uses, evaluated for the
-  // composer currently on screen — keeps the two surfaces exact complements.
-  const activeComposerOwnsSession =
-    useIsLiveVoiceSessionOwnedBy(activeConversationId);
-  const visible =
-    sessionActive && !(composerOnScreen && activeComposerOwnsSession);
+  // Shared with the voice room (see `use-composer-on-screen.ts`): a conversation
+  // chat route is mounted and not covered by the desktop fullscreen app viewer.
+  // The strict chat predicate matters — conversation subroutes like the
+  // inspector (`/assistant/conversations/:id/inspect`) render no composer, so
+  // the pill must stay up there even for the owning conversation. Retained here
+  // only for the failure surface below — the pill's own visibility keys off the
+  // owning-composer surface primitive.
+  const composerOnScreen = useComposerOnScreen();
+  // Exact complement of the owning-composer voice surface: the pill shows for an
+  // active session precisely when that surface is NOT on screen. Both derive
+  // from the one shared predicate so they can never drift. This is the room's
+  // popout-free core — so in a pop-out the pill still hides while the composer's
+  // voice bar owns the session (the room itself never renders there).
+  const owningSurfaceVisible = useOwningComposerSurfaceVisible();
+  const visible = sessionActive && !owningSurfaceVisible;
   // Failure surface: exact complement of the composer's failure Notice, which
   // any on-screen voice-enabled composer renders regardless of ownership.
   const showFailure = state === "failed" && error !== null && !composerOnScreen;
@@ -146,12 +152,15 @@ export function VoiceSessionPillHost({
   } else if (visible) {
     content = (
       <VoiceSessionPill
-        primaryLabel={LIVE_VOICE_STATE_LABELS[state]}
+        primaryLabel={muted ? "Muted" : LIVE_VOICE_STATE_LABELS[state]}
         secondaryLabel={
           owningConversation ? (owningConversation.title ?? "Untitled") : undefined
         }
         state={state}
         getAmplitude={getLiveVoiceInputAmplitude}
+        muted={muted}
+        onToggleMute={() => setLiveVoiceMuted(!muted)}
+        onStop={handsFree ? stopLiveVoiceResponse : undefined}
         onEnd={endLiveVoiceSession}
         onSend={releaseLiveVoiceTurn}
         onNavigate={sessionConversationId ? handleNavigate : undefined}

@@ -359,10 +359,7 @@ export function SubagentDetailPanel({
               ) : activeDetail.toolName === "web_fetch" ? (
                 <WebFetchDetailView detail={activeDetail} />
               ) : (
-                <ToolDetailBody
-                  detail={activeDetail}
-                  showTechnicalDetailsLabel={false}
-                />
+                <ToolDetailBody detail={activeDetail} />
               )}
             </>
           ) : (

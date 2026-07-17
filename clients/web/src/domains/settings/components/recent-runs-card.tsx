@@ -11,7 +11,7 @@ import {
   getOpenableScheduleRunConversationId,
   hasRunText,
 } from "@/domains/settings/utils/schedule-formatters";
-import { routes } from "@/utils/routes";
+import { navigateToConversation } from "@/utils/conversation-navigation";
 import { Button } from "@vellumai/design-library/components/button";
 import { PanelItem } from "@vellumai/design-library/components/panel-item";
 
@@ -99,7 +99,7 @@ export function RecentRunsCard({
                   }
                   onSelect={
                     conversationId
-                      ? () => navigate(routes.conversation(conversationId))
+                      ? () => navigateToConversation(navigate, conversationId)
                       : hasLocalDetails
                         ? () =>
                             setExpandedRunId(isExpanded ? null : run.id)

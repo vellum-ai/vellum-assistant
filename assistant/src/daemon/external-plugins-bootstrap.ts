@@ -20,17 +20,16 @@
  *    {@link InitContext.pluginStorageDir}. For user plugins this is
  *    `<pluginDir>/data/`; for default plugins it is
  *    `<workspaceDir>/plugins-data/<plugin>/`.
- * 5. For each surviving plugin, registers its contributed tools and routes
- *    into their global registries via {@link registerPluginTools} and
- *    {@link registerSkillRoute}. Contributions land BEFORE `init()` so
- *    the plugin's hook can observe a registry where its own model-visible
- *    surface is already wired — useful for plugins that want to attach
- *    metadata, warm caches, or otherwise interact with their own
+ * 5. For each surviving plugin, registers its contributed tools into the
+ *    global tool registry via {@link registerPluginTools}. Contributions land
+ *    BEFORE `init()` so the plugin's hook can observe a registry where its own
+ *    model-visible surface is already wired — useful for plugins that want to
+ *    attach metadata, warm caches, or otherwise interact with their own
  *    contributions during initialization.
  * 6. Awaits `plugin.init(ctx)` sequentially. An init failure is contained to
- *    the offending plugin: its already-registered tools and routes are rolled
- *    back, it is dropped from the registry, the failure is logged, and
- *    bootstrap continues with the remaining plugins. A single plugin's failure
+ *    the offending plugin: its already-registered tools are rolled back, it is
+ *    dropped from the registry, the failure is logged, and bootstrap continues
+ *    with the remaining plugins. A single plugin's failure
  *    never deregisters plugins that already initialized — in particular the
  *    first-party defaults, which carry core turn behavior (memory retrieval,
  *    history repair, title generation) — so the daemon comes up with the
@@ -39,8 +38,8 @@
  * Plugin `shutdown` hooks fire through the unified `runHook(HOOKS.SHUTDOWN, …)`
  * pipeline that the daemon shutdown handler runs — the same path every other
  * lifecycle hook uses; this module does not register a shutdown hook of its own.
- * Surfaces (tools/routes/injectors) are not unregistered at daemon shutdown:
- * the process is exiting, so that in-memory registry state is discarded anyway.
+ * Surfaces (tools/injectors) are not unregistered at daemon shutdown: the
+ * process is exiting, so that in-memory registry state is discarded anyway.
  * Surfaces are only torn down when a single plugin is rolled back after a failed
  * bring-up, via {@link teardownPlugin}.
  */
@@ -67,11 +66,6 @@ import {
   type ShutdownContext,
 } from "../plugins/types.js";
 import { loadUserPlugins } from "../plugins/user-loader.js";
-import {
-  registerSkillRoute,
-  type SkillRouteHandle,
-  unregisterSkillRoute,
-} from "../runtime/skill-route-registry.js";
 import {
   registerPluginTools,
   unregisterPluginTools,
@@ -249,7 +243,7 @@ export async function bootstrapPlugins(): Promise<void> {
       await initializePlugin(plugin, assistantConfig);
     } catch (err) {
       // Contain the failure to this plugin. `initializePlugin` already rolled
-      // back its own partial tool/route contributions, so we just drop
+      // back its own partial tool contributions, so we just drop
       // its hooks from the hook registry and move on. A single plugin's init
       // failure must never deregister the plugins that already came up —
       // above all the first-party defaults, which carry core turn behavior.
@@ -264,23 +258,11 @@ export async function bootstrapPlugins(): Promise<void> {
   }
 }
 
-/**
- * One plugin that made it through the full init + contribution phase. Holds
- * every opaque {@link SkillRouteHandle} issued by `registerSkillRoute` so
- * teardown can revoke exactly the routes this plugin contributed, even when
- * the regex pattern text collides with another owner's registration.
- */
-interface ActivePlugin {
-  readonly plugin: Plugin;
-  readonly routeHandles: readonly SkillRouteHandle[];
-}
-
 async function initializePlugin(
   plugin: Plugin,
   assistantConfig: AssistantConfig,
-): Promise<ActivePlugin> {
+): Promise<void> {
   const name = plugin.manifest.name;
-  const routeHandles: SkillRouteHandle[] = [];
   let initCompleted = false;
 
   try {
@@ -315,16 +297,6 @@ async function initializePlugin(
       }
     }
 
-    if (plugin.routes && plugin.routes.length > 0) {
-      for (const route of plugin.routes) {
-        routeHandles.push(registerSkillRoute(route));
-      }
-      log.info(
-        { plugin: name, count: plugin.routes.length },
-        "plugin routes registered",
-      );
-    }
-
     if (plugin.injectors && plugin.injectors.length > 0) {
       registerPluginInjectors(name, plugin.injectors);
       log.info(
@@ -349,17 +321,13 @@ async function initializePlugin(
     initCompleted = true;
 
     log.info({ plugin: name }, "plugin initialized");
-    return { plugin, routeHandles };
   } catch (err) {
     if (initCompleted) {
-      await teardownPlugin(
-        { plugin, routeHandles },
-        { assistantVersion: APP_VERSION, reason: "disable" },
-      );
+      await teardownPlugin(plugin, {
+        assistantVersion: APP_VERSION,
+        reason: "disable",
+      });
     } else {
-      for (const handle of routeHandles) {
-        unregisterSkillRoute(handle);
-      }
       unregisterPluginTools(name);
       unregisterPluginInjectors(name);
     }
@@ -368,20 +336,10 @@ async function initializePlugin(
 }
 
 /**
- * Unregister every initialized plugin's contributed routes and tools in reverse
- * registration order, clearing the model-visible surface before the shutdown
- * handler dispatches `shutdown` hooks via `runHook(HOOKS.SHUTDOWN, …)`. Reads
- * the snapshot captured by the most recent {@link bootstrapPlugins} run; a
- * no-op when no plugins initialized. Called by the daemon shutdown handler.
- */
-/**
  * Tear down a single fully-initialized plugin: unregister its model-visible
- * surfaces (contributed HTTP routes — keyed by the opaque handles retained at
- * registration time, since pattern text is not a stable key when two owners
- * register the same regex — plus its tools and runtime injectors), then invoke
- * its optional `shutdown` hook with the tools/routes already gone. Every step
- * swallows errors and logs with plugin attribution so one bad plugin can't
- * block teardown.
+ * surfaces (its tools and runtime injectors), then invoke its optional
+ * `shutdown` hook with those surfaces already gone. Every step swallows errors
+ * and logs with plugin attribution so one bad plugin can't block teardown.
  *
  * Used by the bootstrap-failure rollback path. The normal daemon shutdown path
  * does not unregister surfaces (the process is exiting, so that in-memory state
@@ -389,23 +347,11 @@ async function initializePlugin(
  * `runHook(HOOKS.SHUTDOWN, …)` pipeline.
  */
 async function teardownPlugin(
-  active: ActivePlugin,
+  plugin: Plugin,
   shutdownContext: ShutdownContext,
 ): Promise<void> {
-  const { plugin, routeHandles } = active;
   const name = plugin.manifest.name;
   const { reason } = shutdownContext;
-
-  for (const handle of routeHandles) {
-    try {
-      unregisterSkillRoute(handle);
-    } catch (err) {
-      log.warn(
-        { err, plugin: name },
-        "plugin route unregister failed (continuing)",
-      );
-    }
-  }
 
   try {
     unregisterPluginTools(name);

@@ -34,7 +34,6 @@ import {
   purgeConversationLexicalJob,
 } from "../../../persistence/job-handlers/message-lexical.js";
 import { backfillLexicalIndexJob } from "../../../persistence/job-handlers/message-lexical-backfill.js";
-import { conversationAnalyzeJob } from "../../../runtime/services/conversation-analyze-job.js";
 import { memoryJobHandlers } from "./job-handlers.js";
 import { registerJobHandler } from "./jobs-worker.js";
 
@@ -83,9 +82,6 @@ export function registerMemoryPluginJobHandlers(): void {
     await buildConversationSummaryJob(job, config);
   });
   registerJobHandler("media_processing", (job) => mediaProcessingJob(job));
-  registerJobHandler("conversation_analyze", (job, config) =>
-    conversationAnalyzeJob(job, config),
-  );
   registerJobHandler("generate_conversation_starters", (job) =>
     generateConversationStartersJob(job),
   );

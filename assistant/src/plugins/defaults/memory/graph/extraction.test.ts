@@ -7,17 +7,10 @@ import { parseExtractionResponse } from "./extraction.js";
 // ---------------------------------------------------------------------------
 
 const CONV_ID = "conv-test-1";
-const SCOPE_ID = "default";
 const NOW = Date.now();
 
 function parse(input: Record<string, unknown>, candidateIds: string[] = []) {
-  return parseExtractionResponse(
-    input,
-    CONV_ID,
-    SCOPE_ID,
-    new Set(candidateIds),
-    NOW,
-  );
+  return parseExtractionResponse(input, CONV_ID, new Set(candidateIds), NOW);
 }
 
 // ---------------------------------------------------------------------------
@@ -62,7 +55,6 @@ describe("parseExtractionResponse — node creation", () => {
     expect(node.reinforcementCount).toBe(0);
     expect(node.created).toBe(NOW);
     expect(node.sourceConversations).toEqual([CONV_ID]);
-    expect(node.scopeId).toBe(SCOPE_ID);
   });
 
   test("prospective nodes get stability=5", () => {

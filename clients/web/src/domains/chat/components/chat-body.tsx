@@ -8,6 +8,7 @@ import {
 
 import { Paperclip, X } from "lucide-react";
 
+import { useBannerVisibilityStore } from "@/stores/banner-visibility-store";
 import { QuestionPromptSlot } from "@/domains/chat/components/question-prompt-slot";
 import { StagedQuotesStrip } from "@/domains/chat/components/staged-quotes-strip";
 import {
@@ -44,10 +45,11 @@ import { Button, Notice, type NoticeTone } from "@vellumai/design-library";
  * as optional slot props or a `variant` enum, so the composer itself is
  * a single mounted instance across both paths (LUM-1516).
  *
- * The component is purely presentational: all state, handlers, and
- * derived flags are owned by the parent page. This keeps the chat-body
- * surface framework-agnostic and free of routing or page-level
- * concerns.
+ * The component is presentational: all state, handlers, and derived
+ * flags are owned by the parent page (its one side effect reports
+ * mounted-banner visibility to the shared banner-visibility store).
+ * This keeps the chat-body surface framework-agnostic and free of
+ * routing or page-level concerns.
  */
 export interface ChatBodyDragHandlers {
   onDragEnter: DragEventHandler<HTMLDivElement>;
@@ -76,6 +78,14 @@ export interface ChatBodyProps {
    */
   composerSlot: ReactNode;
 
+  /**
+   * Optional CSS length reserved at the bottom of the panel (applied as
+   * `padding-bottom` on the outer container). Used on mobile while the app
+   * overlay is minimized to its strip: the strip overlays the bottom of the
+   * chat, so the composer lifts above it instead of hiding underneath.
+   */
+  bottomInset?: string;
+
   /** Drag handlers attached to the outer container for attachment drag-and-drop. */
   dragHandlers: ChatBodyDragHandlers;
   /** True when an attachment drag is active; shows a drop-target overlay. */
@@ -87,7 +97,7 @@ export interface ChatBodyProps {
   onScrollToLatest: () => void;
   /** True when an assistant response is currently streaming — drives the
    *  animated dots indicator inside the "Go to Newest" pill. */
-  isStreaming?: boolean;
+  isAssistantBusy?: boolean;
 
   /** Active refresh-feedback pill, or `null` when no pill is shown. */
   refreshFeedback: RefreshFeedback | null;
@@ -113,6 +123,8 @@ export interface ChatBodyProps {
    * Optional pre-rendered banner stack (mobile-app nudge / GitHub / Discord)
    * rendered alongside the scroll-to-latest button in the absolute-positioned
    * overlay above the composer. Omitted by the app-editing side panel.
+   * While mounted (non-empty state), visibility is mirrored into the shared
+   * banner-visibility store so tip surfaces can stay mutually exclusive.
    */
   bannerSlot?: ReactNode;
 
@@ -178,11 +190,12 @@ export function ChatBody({
   variant,
   scrollAreaProps,
   composerSlot,
+  bottomInset,
   dragHandlers,
   isAttachmentDragOver,
   showScrollToLatest,
   onScrollToLatest,
-  isStreaming = false,
+  isAssistantBusy = false,
   refreshFeedback,
   onDismissRefreshFeedback,
   onRetryRefresh,
@@ -251,12 +264,29 @@ export function ChatBody({
   // user sends a message and the empty state clears. `showScrollToLatest`
   // is already false on the empty state (gated on `messages.length > 0`
   // at the call site), so this only affects `bannerSlot`.
-  const hasOverlay =
-    !isEmptyState && (showScrollToLatest || Boolean(bannerSlot));
+  const bannerRendered = !isEmptyState && Boolean(bannerSlot);
+  const hasOverlay = bannerRendered || (!isEmptyState && showScrollToLatest);
   const bottomOverlayReservePx =
-    !isEmptyState && bannerSlot && bottomBannerOverlayHeight > 0
+    bannerRendered && bottomBannerOverlayHeight > 0
       ? bottomBannerOverlayHeight
       : undefined;
+
+  // Mirror the mounted banner — not the candidate slot — into the shared
+  // store so tip surfaces stay mutually exclusive with nudge banners.
+  // Register/unregister (a count) tolerates concurrent instances (main +
+  // side panel) without a last-write-wins race. Layout effect so consumers
+  // see the update before paint and never render a frame over the banner.
+  const registerVisibleBanner =
+    useBannerVisibilityStore.use.registerVisibleBanner();
+  const unregisterVisibleBanner =
+    useBannerVisibilityStore.use.unregisterVisibleBanner();
+  useLayoutEffect(() => {
+    if (!bannerRendered) {
+      return;
+    }
+    registerVisibleBanner();
+    return unregisterVisibleBanner;
+  }, [bannerRendered, registerVisibleBanner, unregisterVisibleBanner]);
 
   // Composer stack — stays at the same tree position across the empty→active
   // transition so React preserves its state (focus, draft text, attachments)
@@ -280,7 +310,7 @@ export function ChatBody({
             <div className="pointer-events-auto pb-2.5">
               <ScrollToLatestButton
                 onClick={onScrollToLatest}
-                isStreaming={isStreaming}
+                isAssistantBusy={isAssistantBusy}
               />
             </div>
           )}
@@ -352,6 +382,7 @@ export function ChatBody({
     return (
       <div
         className={outerClass}
+        style={bottomInset ? { paddingBottom: bottomInset } : undefined}
         onDragEnter={dragHandlers.onDragEnter}
         onDragOver={dragHandlers.onDragOver}
         onDragLeave={dragHandlers.onDragLeave}
@@ -388,6 +419,7 @@ export function ChatBody({
   return (
     <div
       className={outerClass}
+      style={bottomInset ? { paddingBottom: bottomInset } : undefined}
       onDragEnter={dragHandlers.onDragEnter}
       onDragOver={dragHandlers.onDragOver}
       onDragLeave={dragHandlers.onDragLeave}

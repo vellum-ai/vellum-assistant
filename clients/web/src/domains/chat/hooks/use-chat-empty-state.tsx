@@ -41,8 +41,7 @@ export interface UseChatEmptyStateParams {
   mainView: string;
   /** Opened app state from viewer-store (non-null when editing an app). */
   openedAppState: { name: string; dirName?: string } | null;
-  isAssistantStreaming: boolean;
-  activeConversationIsProcessing: boolean;
+  isAssistantBusy: boolean;
   onSelectStarter: (starter: ConversationStarter) => void;
   /**
    * Behind the new-thread-suggestions flag, clicking a library card invokes
@@ -83,8 +82,7 @@ export function useChatEmptyState({
   avatar,
   mainView,
   openedAppState,
-  isAssistantStreaming,
-  activeConversationIsProcessing,
+  isAssistantBusy,
   onSelectStarter,
   onSelectSuggestion,
 }: UseChatEmptyStateParams): ChatEmptyStateResult {
@@ -137,7 +135,10 @@ export function useChatEmptyState({
           customImageUrl={avatarImageUrl}
           size={40}
           interactive
-          isProcessing={activeConversationIsProcessing}
+          isAssistantBusy={isAssistantBusy}
+          // The empty-state greeting avatar — the room's entrance grows from
+          // here on a fresh chat.
+          originAnchor
         />
       ) : null,
     greeting: editingApp ? buildEditAppGreeting(editingApp) : emptyStateGreeting,
@@ -183,8 +184,11 @@ export function useChatEmptyState({
               customImageUrl={avatarImageUrl}
               size={56}
               interactive
-              isStreaming={isAssistantStreaming}
-              isProcessing={activeConversationIsProcessing}
+              isAssistantBusy={isAssistantBusy}
+              // The latest-turn avatar below the most recent assistant
+              // response — the room's entrance grows from here in a
+              // conversation.
+              originAnchor
             />
           )
         : undefined,
@@ -192,8 +196,7 @@ export function useChatEmptyState({
       avatarComponents,
       avatarImageUrl,
       avatarTraits,
-      isAssistantStreaming,
-      activeConversationIsProcessing,
+      isAssistantBusy,
     ],
   );
 

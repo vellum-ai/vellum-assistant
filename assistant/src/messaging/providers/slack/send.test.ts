@@ -10,13 +10,6 @@ type CallSlackApi = typeof import("./api.js").callSlackApi;
 
 const callSlackApiMock = mock<CallSlackApi>(async () => ({ ok: true }));
 
-mock.module("../../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 mock.module("./api.js", () => ({
   callSlackApi: (method: string, body: Record<string, unknown>) =>
     callSlackApiMock(method, body),

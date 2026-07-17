@@ -26,6 +26,7 @@
 
 import { getLogger } from "./logger.js";
 import { computeRetryDelay } from "./retry.js";
+import { runWithSqliteQueryLabel } from "./sqlite-query-label.js";
 
 const log = getLogger("sqlite-retry");
 
@@ -34,7 +35,14 @@ const DEFAULT_MAX_RETRIES = 3;
 const DEFAULT_BASE_DELAY_MS = 50;
 
 export interface SqliteRetryOptions {
-  /** Short identifier for the wrapped operation, used in retry logs. */
+  /**
+   * Short identifier for the wrapped operation, used in retry logs. Also
+   * published as the ambient SQLite query label while `fn` runs, so any
+   * slow-query WARN emitted for a statement inside it is attributed to this
+   * name instead of an unattributable stack (a lazy Drizzle query awaited
+   * here executes from a microtask; a post-backoff retry runs from a stack
+   * that bottoms out in this helper).
+   */
   op: string;
   /** Maximum retry attempts after the initial try (default 3). */
   maxRetries?: number;
@@ -69,7 +77,11 @@ export async function withSqliteRetry<T>(
   const baseDelayMs = options.baseDelayMs ?? DEFAULT_BASE_DELAY_MS;
   for (let attempt = 0; ; attempt++) {
     try {
-      return await fn();
+      // The inner await must happen inside the label scope: a lazy thenable
+      // (e.g. a Drizzle QueryPromise) executes its statement only when
+      // awaited, so assimilating it outside the scope would run the query
+      // after the ambient label has already evaporated.
+      return await runWithSqliteQueryLabel(options.op, async () => await fn());
     } catch (err) {
       if (attempt < maxRetries && isRetryableSqliteError(err)) {
         log.warn(

@@ -53,6 +53,47 @@ describe("persistUserMessage setProcessing failure", () => {
     expect(ctx.isProcessing()).toBe(false);
   });
 
+  test("retries a transient SQLITE_BUSY from setProcessing(true)", async () => {
+    // A coded SQLITE_BUSY is transient WAL contention: `persistUserMessage`
+    // wraps the acquiring `setProcessing(true)` in `withSqliteRetry`, so it is
+    // re-attempted rather than failing the send immediately.
+    let trueCalls = 0;
+    const ctx = makeContext((value) => {
+      if (value) {
+        trueCalls += 1;
+        throw Object.assign(new Error("database is locked"), {
+          code: "SQLITE_BUSY",
+        });
+      }
+    });
+
+    await expect(
+      persistUserMessage(ctx, { content: "hello", requestId: "req-busy" }),
+    ).rejects.toThrow("database is locked");
+
+    // Initial attempt + 3 retries before withSqliteRetry gives up.
+    expect(trueCalls).toBe(4);
+    expect(ctx.currentRequestId).toBeUndefined();
+    expect(ctx.abortController).toBeNull();
+  });
+
+  test("does not retry a non-transient setProcessing(true) failure", async () => {
+    // No SQLite code / a non-BUSY code → not contention → fail fast, no retry.
+    let trueCalls = 0;
+    const ctx = makeContext((value) => {
+      if (value) {
+        trueCalls += 1;
+        throw new Error("boom");
+      }
+    });
+
+    await expect(
+      persistUserMessage(ctx, { content: "hello", requestId: "req-boom" }),
+    ).rejects.toThrow("boom");
+
+    expect(trueCalls).toBe(1);
+  });
+
   test("a failing clear does not mask the original persist error", async () => {
     // setProcessing throws on both the set and the clear; the original error
     // must still propagate and the bookkeeping must still be reset.

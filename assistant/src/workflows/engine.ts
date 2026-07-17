@@ -56,7 +56,7 @@
 import { createHash } from "node:crypto";
 
 import type { WorkflowsConfig } from "../config/schemas/workflows.js";
-import type { TrustContext } from "../daemon/trust-context.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import { getLogger } from "../util/logger.js";
 import type { ResolvedCapabilities } from "./capabilities.js";
 import { deterministicStringify } from "./deterministic-stringify.js";

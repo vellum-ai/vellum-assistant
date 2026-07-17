@@ -38,12 +38,11 @@ import {
 
 // Imported after the connection mock so the real connection.ts never enters
 // the static import graph.
-const { useLiveVoiceSessionController } = await import(
-  "@/domains/chat/voice/live-voice/use-live-voice-session-controller"
-);
-const { useLiveVoiceStore } = await import(
-  "@/domains/chat/voice/live-voice/live-voice-store"
-);
+const { useLiveVoiceSessionController } =
+  await import("@/domains/chat/voice/live-voice/use-live-voice-session-controller");
+const { useVoicePrefsStore } = await import("@/stores/voice-prefs-store");
+const { useLiveVoiceStore } =
+  await import("@/domains/chat/voice/live-voice/live-voice-store");
 
 // ---------------------------------------------------------------------------
 // Harness
@@ -96,6 +95,10 @@ async function startListeningViaStarter(
       seq: 1,
       sessionId: "s1",
       conversationId: conversationId ?? "conv-server-assigned",
+      // Echo server_vad so the session stays hands-free (the controller starts
+      // every session hands-free); without the echo the client falls back to
+      // manual single-turn.
+      turnDetection: "server_vad",
     });
     await Promise.resolve();
   });
@@ -104,6 +107,13 @@ async function startListeningViaStarter(
 beforeEach(() => {
   useLiveVoiceStore.getState().reset();
   useLiveVoiceStore.getState().setStarter(null);
+  // The voice-prefs store is a persisted singleton shared across test files;
+  // pin the turn-taking settings to unset (null) so connect-args assertions are
+  // deterministic regardless of test order.
+  useVoicePrefsStore.setState({
+    pauseBeforeReplyMs: null,
+    interruptSensitivity: null,
+  });
 });
 
 afterEach(() => {
@@ -134,6 +144,7 @@ describe("starter registration", () => {
     expect(h.lastClient().connectArgs).toEqual({
       assistantId: "assistant-1",
       conversationId: "conv-1",
+      turnDetection: "server_vad",
     });
     expect(useLiveVoiceStore.getState().state).toBe("listening");
     expect(useLiveVoiceStore.getState().conversationId).toBe("conv-1");
@@ -150,6 +161,7 @@ describe("starter registration", () => {
     expect(h.lastClient().connectArgs).toEqual({
       assistantId: "assistant-1",
       conversationId: undefined,
+      turnDetection: "server_vad",
     });
     expect(useLiveVoiceStore.getState().startedConversationId).toBeNull();
   });

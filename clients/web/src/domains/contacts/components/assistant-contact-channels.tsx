@@ -4,7 +4,10 @@ import { useState } from "react";
 import { Button } from "@vellumai/design-library/components/button";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 
-import type { AssistantChannelState, SetupChannelId } from "@/domains/contacts/types";
+import type {
+  AssistantChannelState,
+  SetupChannelId,
+} from "@/types/channel-types";
 import { ChannelIcon, getChannelLabel } from "@/utils/channel-presentation";
 
 export interface AssistantContactChannelsProps {
@@ -29,7 +32,8 @@ export function AssistantContactChannels({
   onConnect,
   onDisconnect,
 }: AssistantContactChannelsProps) {
-  const [pendingDisconnect, setPendingDisconnect] = useState<SetupChannelId | null>(null);
+  const [pendingDisconnect, setPendingDisconnect] =
+    useState<SetupChannelId | null>(null);
 
   return (
     <>
@@ -47,7 +51,9 @@ export function AssistantContactChannels({
               pending={pendingChannelKey === channel.key}
               onConnect={onConnect ? () => onConnect(channel.key) : undefined}
               onDisconnect={
-                onDisconnect ? () => setPendingDisconnect(channel.key) : undefined
+                onDisconnect
+                  ? () => setPendingDisconnect(channel.key)
+                  : undefined
               }
             />
           </div>
@@ -79,7 +85,12 @@ interface ChannelRowProps {
   onDisconnect?: () => void;
 }
 
-function ChannelRow({ channel, pending, onConnect, onDisconnect }: ChannelRowProps) {
+function ChannelRow({
+  channel,
+  pending,
+  onConnect,
+  onDisconnect,
+}: ChannelRowProps) {
   const connected = channel.status === "ready";
 
   return (

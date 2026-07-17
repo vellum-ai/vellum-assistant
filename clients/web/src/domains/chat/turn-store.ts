@@ -126,6 +126,8 @@ export interface ToolActivityMetadataEvent {
 export interface ActivityStateThinking {
   type: "ACTIVITY_STATE_THINKING";
   statusText?: string;
+  /** Mirrors `onActivityThinking`'s `canStartFromIdle` option. */
+  canStartFromIdle?: boolean;
 }
 
 export interface UISurfaceShow {
@@ -190,6 +192,10 @@ export interface TurnTimeout {
   type: "TURN_TIMEOUT";
 }
 
+export interface StaleTurnCleared {
+  type: "STALE_TURN_CLEARED";
+}
+
 export interface TurnReset {
   type: "TURN_RESET";
 }
@@ -230,6 +236,7 @@ export type DomainEvent =
   | PollReconciled
   | TurnTimeout
   | TurnReset
+  | StaleTurnCleared
   | MessageQueued
   | MessageDequeued
   | MessageQueuedDeleted;
@@ -248,7 +255,16 @@ export interface TurnActions {
     toolUseId: string,
     metadata: ToolActivityMetadata,
   ) => void;
-  onActivityThinking: (statusText?: string) => void;
+  onActivityThinking: (
+    statusText?: string,
+    opts?: {
+      /** Allow the thinking signal to START activity from an idle turn
+       *  store. Set by the stream handler only when the event belongs to
+       *  the ACTIVE conversation — daemon-initiated work (e.g. summarize
+       *  up to here) reports thinking without a client-initiated turn. */
+      canStartFromIdle?: boolean;
+    },
+  ) => void;
   showSurface: (interactive?: boolean) => void;
   updateSurface: () => void;
   dismissSurface: () => void;
@@ -265,6 +281,7 @@ export interface TurnActions {
   onPollReconciled: (turnId?: string) => void;
   onTurnTimeout: () => void;
   resetTurn: () => void;
+  clearStaleTurn: () => void;
   enqueueMessage: () => void;
   dequeueMessage: () => void;
   deleteQueuedMessage: () => void;
@@ -366,13 +383,27 @@ const useTurnStoreBase = create<TurnStore>()((set, get) => ({
 
   // ----- Daemon activity state -----
 
-  onActivityThinking: (statusText) => {
+  onActivityThinking: (statusText, opts) => {
     const s = get();
     // Server-driven thinking signal — the daemon reports that the agent
     // is processing (e.g. after a tool_result, during context compaction,
     // or after confirmation resolution). Transition back to "thinking"
     // so the thinking indicator re-appears in the post-tool-call gap.
-    if (isStale(s)) return;
+    if (isStale(s)) {
+      // No client-initiated turn is active. Daemon-initiated work (e.g.
+      // summarize-up-to-here) still reports thinking — accept it only when
+      // the handler scoped the event to the active conversation, so a
+      // background conversation's activity can't light this tab's
+      // indicator. Terminal teardown arrives via the paired idle activity
+      // event or the result card's message_complete (both call endTurn).
+      if (!opts?.canStartFromIdle) return;
+      set({
+        phase: "thinking",
+        statusText: statusText ?? null,
+        lastTerminalReason: null,
+      });
+      return;
+    }
     if (s.phase === "awaiting_user_input") return;
     set({ phase: "thinking", statusText: statusText ?? null });
   },
@@ -529,6 +560,23 @@ const useTurnStoreBase = create<TurnStore>()((set, get) => ({
 
   resetTurn: () => set({ ...INITIAL_TURN_STATE }),
 
+  /**
+   * Reset only when no turn is genuinely in flight — for "clean up possibly
+   * stale turn UI" callers (the reachability burst-limiter's ready signal)
+   * that must NOT clobber a live turn. The initial reachability probe
+   * resolves "ready" during a new conversation's first send; a hard reset
+   * there nulls `activeTurnId` mid-turn, after which `onTextDelta`'s
+   * stale-delta guard refuses to re-activate the phase and the whole first
+   * turn renders as phase "idle" (no thinking indicator, no streaming
+   * affordances). A live turn that just survived a reconnect needs no reset
+   * anyway: the post-reconnect reconcile resyncs its true state.
+   */
+  clearStaleTurn: () => {
+    const s = get();
+    if (s.activeTurnId && isSending(s.phase)) return;
+    set({ ...INITIAL_TURN_STATE });
+  },
+
   // ----- Queue management -----
 
   enqueueMessage: () =>
@@ -635,7 +683,17 @@ export function turnReducer(state: TurnState, event: DomainEvent): TurnState {
       };
 
     case "ACTIVITY_STATE_THINKING":
-      if (isStale(state)) return state;
+      if (isStale(state)) {
+        // Daemon-initiated activity (e.g. summarize-up-to-here) may start
+        // without a client-initiated turn — mirrors `onActivityThinking`.
+        if (!event.canStartFromIdle) return state;
+        return {
+          ...state,
+          phase: "thinking",
+          statusText: event.statusText ?? null,
+          lastTerminalReason: null,
+        };
+      }
       if (state.phase === "awaiting_user_input") return state;
       return {
         ...state,
@@ -831,6 +889,11 @@ export function turnReducer(state: TurnState, event: DomainEvent): TurnState {
       };
 
     case "TURN_RESET":
+      return { ...INITIAL_TURN_STATE };
+
+    case "STALE_TURN_CLEARED":
+      // See `clearStaleTurn` action for rationale.
+      if (state.activeTurnId && isSending(state.phase)) return state;
       return { ...INITIAL_TURN_STATE };
   }
 }

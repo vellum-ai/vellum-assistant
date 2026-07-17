@@ -1,12 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("../../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // ── Mock Qdrant REST client ───────────────────────────────────────────
 
 interface CreateCollectionCall {
@@ -149,6 +142,9 @@ describe("MessagesLexicalIndex", () => {
     // No dense `vectors` config at all.
     expect(config.vectors).toBeUndefined();
     expect("vectors" in config).toBe(false);
+
+    // Explicit segment count — never Qdrant's CPU-count auto-detection.
+    expect(config.optimizers_config).toEqual({ default_segment_number: 2 });
 
     // Payload indexes on conversation_id (keyword) + created_at (integer).
     const fields = payloadIndexCalls.map((c) => c.field_name);

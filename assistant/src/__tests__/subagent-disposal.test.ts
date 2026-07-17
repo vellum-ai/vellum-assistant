@@ -22,6 +22,7 @@ interface FakeManagedSubagent {
       outputTokens: number;
       estimatedCost: number;
     };
+    subagentDeniedToolNames: Set<string>;
   } | null;
   state: SubagentState;
   parentSendToClient: (msg: ServerMessage) => void;
@@ -51,6 +52,7 @@ function makeFakeConversation(): NonNullable<
     messages: [],
     sendToClient: () => {},
     usageStats: { inputTokens: 100, outputTokens: 50, estimatedCost: 0.005 },
+    subagentDeniedToolNames: new Set<string>(),
   };
 }
 

@@ -26,6 +26,7 @@ import { ROUTES as autoApproveThresholdRoutes } from "../src/http/routes/auto-ap
 import { ROUTES as channelAdmissionPolicyRoutes } from "../src/http/routes/channel-admission-policy-routes.js";
 import { ROUTES as channelPermissionOverrideRoutes } from "../src/http/routes/channel-permission-overrides-routes.js";
 import { ROUTES as contactsControlPlaneRoutes } from "../src/http/routes/contacts-control-plane-routes.js";
+import { ROUTES as credentialRequestRoutes } from "../src/http/routes/credential-requests.js";
 import { ROUTES as featureFlagRoutes } from "../src/http/routes/feature-flags.js";
 import { ROUTES as trustRuleRoutes } from "../src/http/routes/trust-rules-routes.js";
 
@@ -39,6 +40,7 @@ const ALL_ROUTES: GatewayRouteDefinition[] = [
   ...channelAdmissionPolicyRoutes,
   ...channelPermissionOverrideRoutes,
   ...contactsControlPlaneRoutes,
+  ...credentialRequestRoutes,
   ...featureFlagRoutes,
   ...trustRuleRoutes,
 ];

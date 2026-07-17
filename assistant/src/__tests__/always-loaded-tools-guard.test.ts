@@ -13,10 +13,8 @@
 
 import { afterAll, describe, expect, test } from "bun:test";
 
-import {
-  isToolActiveForContext,
-  type SkillProjectionContext,
-} from "../daemon/conversation-tool-setup.js";
+import type { Conversation } from "../daemon/conversation.js";
+import { isToolActiveForContext } from "../daemon/conversation-tool-setup.js";
 import {
   __resetRegistryForTesting,
   getAllToolDefinitions,
@@ -33,14 +31,13 @@ describe("always-loaded tool count", () => {
     const allDefs = getAllToolDefinitions();
 
     // Minimal context: no client, no capabilities
-    const minimalContext: SkillProjectionContext = {
+    const minimalContext = {
       skillProjectionState: new Map(),
       skillProjectionCache: {},
-      coreToolNames: new Set(),
       toolsDisabledDepth: 0,
       hasNoClient: true,
       channelCapabilities: undefined,
-    };
+    } as unknown as Conversation;
 
     const activeTools = allDefs.filter((def) =>
       isToolActiveForContext(def.name, minimalContext),

@@ -10,11 +10,15 @@ import {
 } from "react";
 
 import { BubbleAttachments } from "@/domains/chat/components/chat-attachments/bubble-attachments";
+import { resolveAttachmentFilename } from "@vellumai/service-contracts/attachment-naming";
+
 import { downloadAttachment } from "@/domains/chat/components/chat-attachments/download-attachment";
 import { MessageAttachments } from "@/domains/chat/components/chat-attachments/message-attachments";
+import { ToolResultImages } from "@/domains/chat/components/chat-attachments/tool-result-images";
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
 import { toast } from "@vellumai/design-library";
 import { MessageHoverActions } from "@/domains/chat/components/message-hover-actions/message-hover-actions";
+import { MessageLongPressActions } from "@/domains/chat/components/message-hover-actions/message-long-press-actions";
 import { SubagentSpawnGroup } from "@/domains/chat/components/subagent-inline-progress-card/subagent-spawn-group";
 import { InlineProcessCardRow } from "@/domains/chat/process-registry/inline-process-card-row";
 import { WORKFLOW_DESCRIPTOR } from "@/domains/chat/process-registry/descriptors/workflow";
@@ -23,27 +27,29 @@ import { BACKGROUND_TASK_DESCRIPTOR } from "@/domains/chat/process-registry/desc
 import { SurfaceRouter } from "@/domains/chat/components/surfaces/surface-router";
 import { SingleActivity } from "@/domains/chat/components/single-activity/single-activity";
 import { MultiActivityGroup } from "@/domains/chat/components/multi-activity-group/multi-activity-group";
+import { WEB_TOOL_NAMES } from "@/domains/chat/utils/tool-call-card-utils";
 import {
-  WEB_TOOL_NAMES,
-  type ToolCallCardItem,
-} from "@/domains/chat/utils/tool-call-card-utils";
-import {
+  activityItemsToCardData,
   type ContentBlockActivityItem,
   groupContentBlocks,
   isSubagentSpawnCall,
-  isSuppressedUiTool,
 } from "@/domains/chat/transcript/message-content";
+import { AcpConnectAffordance } from "@/domains/chat/transcript/acp-connect-affordance";
 import { parseInlineSurfaces } from "@/domains/chat/utils/parse-inline-surfaces";
+import { useSmoothStreamText } from "@/domains/chat/hooks/use-smooth-stream-text";
+import { useSupportsRedactedCredentialChips } from "@/lib/backwards-compat/use-supports-redacted-credential-chips";
 import { stopAcpRun } from "@/domains/chat/utils/acp-run-actions";
 import { stopBackgroundTask } from "@/domains/chat/utils/background-task-actions";
 import { captureError } from "@/lib/sentry/capture-error";
 import { getExternalLinkUrl } from "@/domains/chat/types/types";
 import { wireSurfaceToDisplay } from "@/domains/chat/utils/map-runtime-message";
 import { isPointerCoarse } from "@/utils/pointer";
+import { useLongPress } from "@/hooks/use-long-press";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useWorkflowStore } from "@/domains/chat/workflow-store";
 import { useAcpRunStore } from "@/domains/chat/acp-run-store";
 import { useBackgroundTaskStore } from "@/domains/chat/background-task-store";
+import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { useViewerStore } from "@/stores/viewer-store";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { ConversationMessageSurface } from "@vellumai/assistant-api";
@@ -62,24 +68,19 @@ import {
   type TranscriptMessageBodyProps,
   workflowRunIdForCall,
 } from "@/domains/chat/transcript/transcript-message-body-shared";
+import { workspaceFileContentGet } from "@/generated/daemon/sdk.gen";
+import { saveFile } from "@/runtime/native-file";
 
-function inferImageMimeType(imageData: string): string {
-  const normalized = imageData.replace(/\s/g, "");
-  if (normalized.startsWith("iVBORw0KGgo")) return "image/png";
-  if (normalized.startsWith("/9j/")) return "image/jpeg";
-  if (normalized.startsWith("UklGR")) return "image/webp";
-  if (normalized.startsWith("R0lGOD")) return "image/gif";
-  if (normalized.startsWith("Qk")) return "image/bmp";
-  return "image/png";
-}
-
-function toolResultImageSrc(imageData: string): string {
-  const trimmed = imageData.trim();
-  if (/^data:image\/[a-z0-9.+-]+;base64,/i.test(trimmed)) {
-    return trimmed;
-  }
-  return `data:${inferImageMimeType(trimmed)};base64,${trimmed}`;
-}
+/**
+ * Word-fade cutoff for the streaming trailing text group. The fade wraps
+ * every word in a span, and each ~30fps reveal commit re-reconciles the whole
+ * group, so cost grows with group length: benchmarked (happy-dom, M-series)
+ * at ~1.6ms/commit for a 2k-char group and ~4.8ms at 8k — comfortably inside
+ * the 33ms commit budget — but ~14ms avg / 27ms p95 at 24k. Past this cutoff
+ * the group streams without the per-word fade (reveal smoothing still
+ * applies), trading polish for headroom on outlier-length messages.
+ */
+const STREAM_WORD_FADE_MAX_CHARS = 12000;
 
 /**
  * Renders a `DisplayMessage`'s body by walking its unified `contentBlocks`
@@ -98,6 +99,7 @@ export function TranscriptMessageBody({
   assistantDisplayName,
   onSurfaceAction,
   onForkConversation,
+  onSummarizeUpToHere,
   onInspectMessage,
   onOpenRuleEditor,
   unknownNudgeToolCallIds,
@@ -112,45 +114,118 @@ export function TranscriptMessageBody({
   onWorkflowClick,
   onStopWorkflow,
   isStreaming = false,
+  isLatestMessage = false,
 }: TranscriptMessageBodyProps) {
   const isSlackMessage = Boolean(message.slackMessage);
   const isSlackReaction = message.slackMessage?.eventKind === "reaction";
   const isUser = message.role === "user";
   const hasAttachments = Boolean(message.attachments?.length);
+  // Gated on the transcript owner: an older daemon neutralizes nothing, so
+  // sentinel-shaped text in its transcripts must never chip-ify, and only the
+  // active assistant's version is known (see the gate module).
+  const supportsRedactedCredentialChips =
+    useSupportsRedactedCredentialChips(assistantId);
 
   // User-typed thinking tags must render verbatim; only assistant text splits.
   const groups = groupContentBlocks(message.contentBlocks ?? [], {
     splitInlineThinking: !isUser,
   });
 
+  // Only the trailing text group of a streaming assistant message is still
+  // growing, so only it gets the typewriter re-pacing; earlier groups (and
+  // everything once the turn settles) render their text directly.
+  const trailingGroup = groups[groups.length - 1];
+  const smoothedTrailingText = useSmoothStreamText(
+    isStreaming && !isUser && trailingGroup?.type === "text"
+      ? trailingGroup.text
+      : null,
+  );
+
+  const isTouch = isPointerCoarse();
+
   const textBubbleClass = isSlackMessage
     ? "max-w-[80%] text-[var(--content-default)] sm:max-w-[640px]"
     : "w-full text-[var(--content-default)]";
-  const userBubbleClass = `max-w-[80%] rounded-lg bg-[var(--surface-lift)] px-4 py-3 text-[var(--content-default)] flex flex-col gap-2 ${
-    isSlackMessage ? "sm:max-w-[420px]" : ""
-  }`;
+  // On touch devices, the long-press gesture opens the message actions sheet.
+  // iOS's native text selection (blue highlight + callout bar) otherwise races
+  // the 500ms long-press timer, so both surface at once. Suppress native
+  // selection/callout on user bubbles for coarse pointers only; desktop keeps
+  // text selectable. Assistant text stays selectable everywhere (quote-reply).
+  const userBubbleClass = `max-w-[80%] rounded-lg bg-[var(--user-bubble-bg,var(--surface-lift))] px-4 py-3 text-[var(--user-bubble-text,var(--content-default))] flex flex-col gap-2 ${
+    isTouch ? "select-none [-webkit-touch-callout:none]" : ""
+  } ${isSlackMessage ? "sm:max-w-[420px]" : ""}`;
   const segmentClass = isUser
     ? "break-words text-[15px]"
     : `break-words text-[15px] ${textBubbleClass}`;
 
   const forkMessageId = message.id;
-  const forkHandler = forkMessageId && onForkConversation
-    ? () => onForkConversation(forkMessageId)
-    : undefined;
+  const forkHandler =
+    forkMessageId && onForkConversation
+      ? () => onForkConversation(forkMessageId)
+      : undefined;
+  const summarizeMessageId = message.id;
+  const summarizeHandler =
+    summarizeMessageId && onSummarizeUpToHere
+      ? () => onSummarizeUpToHere(summarizeMessageId)
+      : undefined;
   const inspectMessageId = message.id;
-  const inspectHandler = inspectMessageId && onInspectMessage
-    ? () => onInspectMessage(inspectMessageId)
-    : undefined;
+  const inspectHandler =
+    inspectMessageId && onInspectMessage
+      ? () => onInspectMessage(inspectMessageId)
+      : undefined;
 
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const [revealed, setRevealed] = useState(false);
   const slackMessageUrl = getExternalLinkUrl(message.slackMessage?.messageLink);
 
+  const [longPressOpen, setLongPressOpen] = useState(false);
+  const longPressFiredRef = useRef(false);
+
+  // Assistant messages own the long-press for quote-reply text selection
+  // (see resolve-assistant-selection.ts / useNativeQuoteReply). Suppressing the
+  // action sheet there — rather than racing it at the long-press threshold —
+  // keeps the two from competing: a long-press on assistant text selects it for
+  // Reply, and the sheet never opens. The sheet still arms on user/tool
+  // messages, which have no selection affordance.
+  const isAssistant = message.role === "assistant";
+  const longPressHandlers = useLongPress(
+    () => {
+      // Set the suppression flag so the compatibility click the browser emits
+      // on the following touchend (see handleBubbleClick) is swallowed rather
+      // than toggling the inline trailer / opening a Slack URL behind the sheet.
+      // The flag is cleared by that click, or — if the click is swallowed by
+      // native long-press handling or routed to the portaled sheet — when the
+      // sheet closes (handleLongPressOpenChange). It is deliberately NOT expired
+      // on a timer: a timer set from activation could fire before the compat
+      // click on a long hold, letting that click through as a real tap.
+      longPressFiredRef.current = true;
+      setLongPressOpen(true);
+    },
+    undefined,
+    { shouldSkip: () => isAssistant },
+  );
+
+  const handleLongPressOpenChange = useCallback((open: boolean) => {
+    setLongPressOpen(open);
+    // Once the sheet closes, the long-press interaction is over; clear the
+    // suppression flag so the next genuine tap on the message is honored even
+    // if the post-long-press compatibility click never reached this wrapper.
+    if (!open) {
+      longPressFiredRef.current = false;
+    }
+  }, []);
+
   useEffect(() => {
-    if (!revealed) return;
+    if (!revealed) {
+      return;
+    }
     const onDocPointerDown = (e: PointerEvent) => {
       const target = e.target as Node | null;
-      if (target && wrapperRef.current && !wrapperRef.current.contains(target)) {
+      if (
+        target &&
+        wrapperRef.current &&
+        !wrapperRef.current.contains(target)
+      ) {
         setRevealed(false);
       }
     };
@@ -158,27 +233,47 @@ export function TranscriptMessageBody({
     return () => document.removeEventListener("pointerdown", onDocPointerDown);
   }, [revealed]);
 
-  const handleBubbleClick = useCallback((e: ReactMouseEvent<HTMLDivElement>) => {
-    const target = e.target as Element | null;
-    if (isInteractiveClickTarget(target)) {
-      return;
-    }
+  const handleBubbleClick = useCallback(
+    (e: ReactMouseEvent<HTMLDivElement>) => {
+      // Suppress the click that follows a long-press activation so the
+      // inline trailer doesn't toggle open behind the BottomSheet.
+      if (longPressFiredRef.current) {
+        longPressFiredRef.current = false;
+        return;
+      }
+      const target = e.target as Element | null;
+      if (isInteractiveClickTarget(target)) {
+        return;
+      }
 
-    if (slackMessageUrl && isPointerCoarse()) {
-      if (window.getSelection()?.toString()) return;
-      window.open(slackMessageUrl, "_blank", "noopener,noreferrer");
-      return;
-    }
+      if (slackMessageUrl && isPointerCoarse()) {
+        if (window.getSelection()?.toString()) {
+          return;
+        }
+        window.open(slackMessageUrl, "_blank", "noopener,noreferrer");
+        return;
+      }
 
-    if (!isPointerCoarse()) return;
-    setRevealed((v) => !v);
-  }, [slackMessageUrl]);
+      if (!isPointerCoarse()) {
+        return;
+      }
+      setRevealed((v) => !v);
+    },
+    [slackMessageUrl],
+  );
 
-  const linkedSubagentEntries = useSubagentStore(
-    (s) => lookupSubagentEntriesForMessage(s.byParent, message),
+  const linkedSubagentEntries = useSubagentStore((s) =>
+    lookupSubagentEntriesForMessage(s.byParent, message),
   );
   const byToolUseId = useSubagentStore.use.byToolUseId();
   const byToolUseIdWf = useWorkflowStore.use.byToolUseId();
+  // The failed `acp_spawn` (if any) that raised the ephemeral "Connect Claude
+  // Code" prompt. Read from the interaction store — not the tool-call
+  // `errorCode` field — so the affordance survives a `/messages` reseed that
+  // strips the marker; matched to a tool call by id below so it renders under
+  // the right activity group.
+  const acpConnectToolUseId =
+    useInteractionStore.use.pendingAcpConnect()?.toolUseId ?? null;
   // The runIds in THIS message whose `run_workflow` chip is suppressed in favor
   // of an inline card ("card-backed"). Subscribed via a narrowed selector that
   // returns a stable key, so the message re-renders only when a card's
@@ -213,7 +308,9 @@ export function TranscriptMessageBody({
         const ids: string[] = [];
         for (const tc of message.toolCalls ?? []) {
           const id = acpRunIdForCall(tc, s.byToolUseId);
-          if (id !== null && s.byId[id] !== undefined) ids.push(id);
+          if (id !== null && s.byId[id] !== undefined) {
+            ids.push(id);
+          }
         }
         return ids.join("|");
       },
@@ -236,7 +333,9 @@ export function TranscriptMessageBody({
         const ids: string[] = [];
         for (const tc of message.toolCalls ?? []) {
           const id = extractBgIdFromResult(tc);
-          if (id !== undefined && s.byId[id] !== undefined) ids.push(id);
+          if (id !== undefined && s.byId[id] !== undefined) {
+            ids.push(id);
+          }
         }
         return ids.join("|");
       },
@@ -275,12 +374,72 @@ export function TranscriptMessageBody({
 
   const handleVellumLinkClick = useCallback(
     (href: string, linkText: string) => {
-      const pathBasename = href.split("/").pop() ?? "";
+      const rawBasename = href.split("/").pop() ?? "";
+      // The daemon percent-decodes vellum:// paths before storing attachment
+      // filenames, so match on the decoded basename. Keep the raw form as a
+      // defensive fallback for malformed encodings.
+      let pathBasename = rawBasename;
+      try {
+        pathBasename = decodeURIComponent(rawBasename);
+      } catch {
+        // Malformed percent-encoding: fall back to the raw basename.
+      }
+      // Mirror the daemon's stored-filename rule (shared contract): a link
+      // label is only the stored name when it carries a recognized
+      // extension, otherwise the attachment lives under the path basename.
+      // Search the expected name first so an unrelated attachment that
+      // happens to share the label's text cannot shadow the linked file.
+      // The label/basename/raw fallbacks keep older messages working when
+      // their stored filenames do not follow the shared naming rule.
+      const expectedFilename = resolveAttachmentFilename(
+        linkText || undefined,
+        pathBasename,
+        "label",
+      );
       const att =
+        message.attachments?.find((a) => a.filename === expectedFilename) ??
         message.attachments?.find((a) => a.filename === linkText) ??
-        message.attachments?.find((a) => a.filename === pathBasename);
+        message.attachments?.find((a) => a.filename === pathBasename) ??
+        message.attachments?.find((a) => a.filename === rawBasename);
       if (att) {
         void downloadAttachment(att, assistantId);
+      } else if (href.startsWith("vellum://workspace/")) {
+        // Fallback for files not registered as message attachments — e.g.
+        // files linked only inside component/surface HTML. The daemon's
+        // cleanAssistantContent only extracts vellum:// links from assistant
+        // TEXT blocks, not from dynamic_page surface HTML, so a file cited
+        // only in a component never becomes an attachment. Fetch it by path
+        // from the workspace file content endpoint instead — the same route
+        // the workspace browser uses. Inlined here to avoid a cross-domain
+        // import (chat -> workspace).
+        const WORKSPACE_PREFIX = "vellum://workspace/";
+        let filePath = href.slice(WORKSPACE_PREFIX.length);
+        try {
+          filePath = decodeURIComponent(filePath);
+        } catch {
+          // Malformed percent-encoding — use the raw path.
+        }
+        const filename = resolveAttachmentFilename(
+          linkText || undefined,
+          pathBasename,
+          "label",
+        );
+        void (async () => {
+          try {
+            const { data, error } = await workspaceFileContentGet({
+              path: { assistant_id: assistantId ?? "" },
+              query: { path: filePath },
+              parseAs: "blob",
+              throwOnError: false,
+            });
+            if (error || !(data instanceof Blob)) {
+              throw new Error("workspace file content fetch failed");
+            }
+            await saveFile(data, filename);
+          } catch {
+            toast.error("Failed to download file", { description: filename });
+          }
+        })();
       } else {
         const isHost = href.startsWith("vellum://host/");
         toast.error(
@@ -292,7 +451,11 @@ export function TranscriptMessageBody({
     [message.attachments, assistantId],
   );
 
-  const renderTextWithInlineSurfaces = (text: string, key: string) => {
+  const renderTextWithInlineSurfaces = (
+    text: string,
+    key: string,
+    streamWordFade?: "revealing" | "caughtUp",
+  ) => {
     const inlineSegments = parseInlineSurfaces(text);
     if (inlineSegments) {
       return (
@@ -309,16 +472,25 @@ export function TranscriptMessageBody({
                     assistantId={assistantId}
                     assistantDisplayName={assistantDisplayName}
                     toolCalls={message.toolCalls}
+                    onVellumLinkClick={handleVellumLinkClick}
                   />
                 </div>
               );
             }
             return (
-              <div key={`inline-text-${si}`} className={segmentClass}>
+              <div
+                key={`inline-text-${si}`}
+                data-message-text=""
+                className={segmentClass}
+              >
                 <ChatMarkdownMessage
                   content={seg.content}
                   hardLineBreaks
                   onVellumLinkClick={handleVellumLinkClick}
+                  attachments={message.attachments}
+                  assistantId={assistantId}
+                  streamWordFade={streamWordFade}
+                  redactedCredentialChips={!isUser && supportsRedactedCredentialChips}
                 />
               </div>
             );
@@ -327,11 +499,15 @@ export function TranscriptMessageBody({
       );
     }
     return (
-      <div key={key} className={segmentClass}>
+      <div key={key} data-message-text="" className={segmentClass}>
         <ChatMarkdownMessage
           content={text}
           hardLineBreaks
           onVellumLinkClick={handleVellumLinkClick}
+          attachments={message.attachments}
+          assistantId={assistantId}
+          streamWordFade={streamWordFade}
+          redactedCredentialChips={!isUser && supportsRedactedCredentialChips}
         />
       </div>
     );
@@ -344,7 +520,9 @@ export function TranscriptMessageBody({
       byToolUseId,
       claimedSpawnIds,
     );
-    if (spawnedIds.length === 0) return null;
+    if (spawnedIds.length === 0) {
+      return null;
+    }
     return (
       <SubagentSpawnGroup
         subagentIds={spawnedIds}
@@ -360,7 +538,9 @@ export function TranscriptMessageBody({
       byToolUseIdWf,
       claimedWorkflowIds,
     );
-    if (runIds.length === 0) return null;
+    if (runIds.length === 0) {
+      return null;
+    }
     return (
       <div className="flex w-full flex-col gap-1.5">
         {runIds.map((runId) => (
@@ -384,7 +564,9 @@ export function TranscriptMessageBody({
       byToolUseIdAcp,
       claimedAcpIds,
     );
-    if (acpSessionIds.length === 0) return null;
+    if (acpSessionIds.length === 0) {
+      return null;
+    }
     return (
       <div className="flex w-full flex-col gap-1.5">
         {acpSessionIds.map((acpSessionId) => (
@@ -395,7 +577,9 @@ export function TranscriptMessageBody({
             onOpen={() => handleAcpRunClick(acpSessionId)}
             onStop={() =>
               void stopAcpRun(acpSessionId).catch((err) => {
-                captureError(err, { context: "TranscriptMessageBody.stopAcpRun" });
+                captureError(err, {
+                  context: "TranscriptMessageBody.stopAcpRun",
+                });
               })
             }
             stopAriaLabel="Stop run"
@@ -406,11 +590,29 @@ export function TranscriptMessageBody({
     );
   };
 
+  // A missing-token ACP spawn renders its plain error card plus this inline
+  // Connect affordance (version-gated inside the component). Rendered under the
+  // group whose failed `acp_spawn` raised the store-held Connect prompt, so
+  // unrelated failures are unaffected and the affordance persists across the
+  // reseed that would strip the tool-call `errorCode` marker. Pass the
+  // transcript's `assistantId` down so the affordance never calls the
+  // active-assistant hook that throws outside `ActiveAssistantGate`.
+  const renderAcpConnectAffordance = (toolCalls: ChatMessageToolCall[]) =>
+    acpConnectToolUseId !== null &&
+    toolCalls.some((tc) => tc.id === acpConnectToolUseId) ? (
+      <AcpConnectAffordance assistantId={assistantId} />
+    ) : null;
+
   const renderInlineBackgroundTaskCards = (
     toolCalls: ChatMessageToolCall[],
   ) => {
-    const taskIds = resolveBackgroundTaskIds(toolCalls, claimedBackgroundTaskIds);
-    if (taskIds.length === 0) return null;
+    const taskIds = resolveBackgroundTaskIds(
+      toolCalls,
+      claimedBackgroundTaskIds,
+    );
+    if (taskIds.length === 0) {
+      return null;
+    }
     return (
       <div className="flex w-full flex-col gap-1.5">
         {taskIds.map((id) => (
@@ -434,27 +636,13 @@ export function TranscriptMessageBody({
     );
   };
 
-  const renderToolResultImages = (toolCalls: ChatMessageToolCall[]) => {
-    if (hasAttachments) return null;
-    const images = toolCalls.flatMap((tc) => {
-      if (tc.imageDataList?.length) return tc.imageDataList;
-      return tc.imageData ? [tc.imageData] : [];
-    });
-    if (images.length === 0) return null;
-    return (
-      <div className="flex w-full flex-wrap gap-2">
-        {images.map((imageData, index) => (
-          <img
-            key={`tool-result-image-${index}`}
-            data-testid="tool-result-image"
-            src={toolResultImageSrc(imageData)}
-            alt={`Generated image ${index + 1}`}
-            className="max-h-72 max-w-full rounded-md border border-[var(--border-base)] bg-[var(--surface-base)] object-contain sm:max-w-[28rem]"
-          />
-        ))}
-      </div>
-    );
-  };
+  const renderToolResultImages = (toolCalls: ChatMessageToolCall[]) => (
+    <ToolResultImages
+      toolCalls={toolCalls}
+      hasAttachments={hasAttachments}
+      assistantId={assistantId}
+    />
+  );
 
   const renderSurfaceNode = (
     surface: ConversationMessageSurface,
@@ -468,6 +656,7 @@ export function TranscriptMessageBody({
         onOpenDocument={onOpenDocument}
         assistantId={assistantId}
         toolCalls={message.toolCalls}
+        onVellumLinkClick={handleVellumLinkClick}
       />
     </div>
   );
@@ -482,29 +671,11 @@ export function TranscriptMessageBody({
     isLastGroup: boolean,
     groupIndex: number,
   ): ReactNode => {
-    const cardItems: ToolCallCardItem[] = [];
-    const groupToolCalls: ChatMessageToolCall[] = [];
-    const thinkingContents: string[] = [];
-    for (const item of items) {
-      if (item.type === "thinking") {
-        if (item.thinking) {
-          thinkingContents.push(item.thinking);
-          cardItems.push({
-            kind: "thinking",
-            text: item.thinking,
-            startedAt: item.startedAt,
-            completedAt: item.completedAt,
-          });
-        }
-      } else {
-        const tc = item.toolCall;
-        if (isSuppressedUiTool(tc)) {
-          continue;
-        }
-        groupToolCalls.push(tc);
-        cardItems.push({ kind: "toolCall", toolCall: tc });
-      }
-    }
+    const { cardItems, toolCalls: groupToolCalls } =
+      activityItemsToCardData(items);
+    const thinkingContents = cardItems.flatMap((it) =>
+      it.kind === "thinking" ? [it.text] : [],
+    );
     const renderableToolCalls = groupToolCalls.filter(
       // Suppress the raw chip only for a card-backed run_workflow / acp_spawn /
       // background bash call (see cardBackedWorkflowRunId / cardBackedAcpRunId /
@@ -534,6 +705,7 @@ export function TranscriptMessageBody({
           {renderInlineWorkflowCards(groupToolCalls)}
           {renderInlineAcpRunCards(groupToolCalls)}
           {renderInlineBackgroundTaskCards(groupToolCalls)}
+          {renderAcpConnectAffordance(groupToolCalls)}
         </Fragment>
       );
     }
@@ -585,6 +757,7 @@ export function TranscriptMessageBody({
           {renderInlineWorkflowCards(groupToolCalls)}
           {renderInlineAcpRunCards(groupToolCalls)}
           {renderInlineBackgroundTaskCards(groupToolCalls)}
+          {renderAcpConnectAffordance(groupToolCalls)}
         </Fragment>
       );
     }
@@ -631,11 +804,15 @@ export function TranscriptMessageBody({
 
     for (const item of items) {
       if (item.kind === "text") {
-        if (item.node) textRun.push(item.node);
+        if (item.node) {
+          textRun.push(item.node);
+        }
         continue;
       }
       flushTextRun();
-      if (item.node) slots.push({ kind: "raw", node: item.node });
+      if (item.node) {
+        slots.push({ kind: "raw", node: item.node });
+      }
     }
     flushTextRun();
 
@@ -673,12 +850,32 @@ export function TranscriptMessageBody({
     gi: number,
   ): ReactNode => {
     if (group.type === "text") {
-      return renderTextWithInlineSurfaces(group.text, `b-text-${gi}`);
+      const isSmoothedTrailing =
+        gi === lastGroupIndex && smoothedTrailingText !== null;
+      // `useSmoothStreamText` returns the target string itself (identity,
+      // not a copy) once the reveal has drained the backlog — that identity
+      // check is what flips the sweep from "revealing" to "caughtUp".
+      const fadeMode =
+        isSmoothedTrailing && group.text.length <= STREAM_WORD_FADE_MAX_CHARS
+          ? smoothedTrailingText === group.text
+            ? ("caughtUp" as const)
+            : ("revealing" as const)
+          : undefined;
+      return renderTextWithInlineSurfaces(
+        isSmoothedTrailing ? smoothedTrailingText : group.text,
+        `b-text-${gi}`,
+        fadeMode,
+      );
     }
     if (group.type === "surface") {
       return renderSurfaceNode(group.surface, `b-surface-${gi}`);
     }
-    return renderActivityGroup(group.items, `b-activity-${gi}`, gi === lastGroupIndex, gi);
+    return renderActivityGroup(
+      group.items,
+      `b-activity-${gi}`,
+      gi === lastGroupIndex,
+      gi,
+    );
   };
 
   const wrapperClass = `group/msg flex ${isUser ? "justify-end" : "justify-start"}`;
@@ -687,18 +884,29 @@ export function TranscriptMessageBody({
   // truncates inside the card instead of overflowing the message column.
   const columnClass = `flex w-full min-w-0 flex-col gap-2 ${isUser ? "items-end" : "items-start"}`;
 
+  // See `TranscriptMessageBodyProps.isLatestMessage` for why only the latest
+  // message collapses this row instead of reserving its height. `-mt-2`
+  // cancels the column's `gap-2` slot while collapsed — a zero-height flex
+  // item still incurs the parent gap — and animates back to `mt-0` on reveal.
+  const trailerHeightClass = isLatestMessage
+    ? "h-0 -mt-2 overflow-hidden group-hover/msg:h-8 group-hover/msg:mt-0 has-[:focus-visible]:h-8 has-[:focus-visible]:mt-0 group-data-[revealed=true]/msg:h-8 group-data-[revealed=true]/msg:mt-0"
+    : "h-6 overflow-hidden";
+
   const trailer = (
     <>
       <SlackMessageAttribution
         message={message}
         assistantDisplayName={assistantDisplayName}
       />
-      <div className="h-6 opacity-0 transition-opacity duration-150 group-hover/msg:opacity-100 has-[:focus-visible]:opacity-100 group-data-[revealed=true]/msg:opacity-100">
+      <div
+        className={`${trailerHeightClass} opacity-0 transition-[height,margin,opacity] duration-200 ease-out group-hover/msg:opacity-100 has-[:focus-visible]:opacity-100 group-data-[revealed=true]/msg:opacity-100 motion-reduce:transition-none`}
+      >
         <MessageHoverActions
           message={message}
           conversationId={conversationId}
           openInSlackUrl={slackMessageUrl}
           onFork={forkHandler}
+          onSummarizeUpToHere={summarizeHandler}
           onInspect={inspectHandler}
         />
       </div>
@@ -724,6 +932,10 @@ export function TranscriptMessageBody({
         data-message-id={message.id || undefined}
         data-message-role={message.role}
         onClick={handleBubbleClick}
+        onTouchStart={longPressHandlers.onTouchStart}
+        onTouchMove={longPressHandlers.onTouchMove}
+        onTouchEnd={longPressHandlers.onTouchEnd}
+        onTouchCancel={longPressHandlers.onTouchCancel}
         data-revealed={revealed}
         className={wrapperClass}
       >
@@ -731,6 +943,20 @@ export function TranscriptMessageBody({
           {renderUserContent(userItems)}
           {trailer}
         </div>
+        {isTouch && (
+          <div onClick={(e) => e.stopPropagation()}>
+            <MessageLongPressActions
+              message={message}
+              conversationId={conversationId}
+              openInSlackUrl={slackMessageUrl}
+              onFork={forkHandler}
+              onSummarizeUpToHere={summarizeHandler}
+              onInspect={inspectHandler}
+              open={longPressOpen}
+              onOpenChange={handleLongPressOpenChange}
+            />
+          </div>
+        )}
       </div>
     );
   }
@@ -742,6 +968,10 @@ export function TranscriptMessageBody({
       data-message-id={message.id || undefined}
       data-message-role={message.role}
       onClick={handleBubbleClick}
+      onTouchStart={longPressHandlers.onTouchStart}
+      onTouchMove={longPressHandlers.onTouchMove}
+      onTouchEnd={longPressHandlers.onTouchEnd}
+      onTouchCancel={longPressHandlers.onTouchCancel}
       data-revealed={revealed}
       className={wrapperClass}
     >
@@ -755,6 +985,20 @@ export function TranscriptMessageBody({
         )}
         {trailer}
       </div>
+      {isTouch && !isAssistant && (
+        <div onClick={(e) => e.stopPropagation()}>
+          <MessageLongPressActions
+            message={message}
+            conversationId={conversationId}
+            openInSlackUrl={slackMessageUrl}
+            onFork={forkHandler}
+            onSummarizeUpToHere={summarizeHandler}
+            onInspect={inspectHandler}
+            open={longPressOpen}
+            onOpenChange={handleLongPressOpenChange}
+          />
+        </div>
+      )}
     </div>
   );
 }

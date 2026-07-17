@@ -32,7 +32,6 @@ export interface ConversationListContextValue {
   onUnarchive?: (conversation: Conversation) => void;
   onMarkRead?: (conversation: Conversation) => void;
   onMarkUnread?: (conversation: Conversation) => void;
-  onAnalyze?: (conversation: Conversation) => void;
   onOpenInNewWindow?: (conversation: Conversation) => void;
   onShareFeedback?: () => void;
   onInspect?: (conversation: Conversation) => void;

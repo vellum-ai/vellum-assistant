@@ -1,4 +1,4 @@
-import { rawAll, rawGet } from "../../../persistence/raw-query.js";
+import { memorySqliteOrNull } from "./memory-db.js";
 import type { MemoryV2ConceptRowRecord } from "./memory-v2-activation-log-store.js";
 import { listPages } from "./v2/page-store.js";
 
@@ -67,43 +67,51 @@ export async function getConceptFrequencySummary(
   const sinceMs = filters.sinceMs ?? null;
 
   // Kick off the on-disk page walk in parallel with the (synchronous) SQL
-  // queries below — listPages does fs.readdir, rawAll/rawGet are sync.
+  // queries below — listPages does fs.readdir, the sqlite queries are sync.
   const onDiskSlugsPromise = listPages(workspaceDir);
 
-  const aggRows = rawAll<AggRow>(
-    "conceptFreq:summary:agg",
-    `SELECT
-       json_extract(c.value, '$.slug')   AS slug,
-       json_extract(c.value, '$.status') AS status,
-       COUNT(*)                          AS count,
-       MAX(l.created_at)                 AS last_seen
-     FROM memory_v2_activation_logs l, json_each(l.concepts_json) c
-     WHERE (? IS NULL OR l.conversation_id = ?)
-       AND (? IS NULL OR l.created_at >= ?)
-     GROUP BY slug, status`,
-    conversationId,
-    conversationId,
-    sinceMs,
-    sinceMs,
-  );
+  // Fail-soft: with the memory database unavailable the aggregation degrades
+  // to zero counts, so every on-disk page reads as never evaluated.
+  const raw = memorySqliteOrNull("getConceptFrequencySummary");
+  if (!raw) {
+    return {
+      filters: { conversationId, sinceMs },
+      totals: { logCount: 0, conceptOccurrences: 0 },
+      concepts: [],
+      neverEvaluatedSlugs: [...(await onDiskSlugsPromise)].sort(),
+    };
+  }
 
-  const logCountRow = rawGet<CountRow>(
-    "conceptFreq:summary:count",
-    `SELECT COUNT(*) AS count
-       FROM memory_v2_activation_logs
-       WHERE (? IS NULL OR conversation_id = ?)
-         AND (? IS NULL OR created_at >= ?)`,
-    conversationId,
-    conversationId,
-    sinceMs,
-    sinceMs,
-  );
+  const aggRows = raw
+    .query(
+      `SELECT
+         json_extract(c.value, '$.slug')   AS slug,
+         json_extract(c.value, '$.status') AS status,
+         COUNT(*)                          AS count,
+         MAX(l.created_at)                 AS last_seen
+       FROM memory_v2_activation_logs l, json_each(l.concepts_json) c
+       WHERE (? IS NULL OR l.conversation_id = ?)
+         AND (? IS NULL OR l.created_at >= ?)
+       GROUP BY slug, status`,
+    )
+    .all(conversationId, conversationId, sinceMs, sinceMs) as AggRow[];
+
+  const logCountRow = raw
+    .query(
+      `SELECT COUNT(*) AS count
+         FROM memory_v2_activation_logs
+         WHERE (? IS NULL OR conversation_id = ?)
+           AND (? IS NULL OR created_at >= ?)`,
+    )
+    .get(conversationId, conversationId, sinceMs, sinceMs) as CountRow | null;
 
   const bySlug = new Map<string, ConceptFrequencyRow>();
   let conceptOccurrences = 0;
 
   for (const row of aggRows) {
-    if (!row.slug) continue;
+    if (!row.slug) {
+      continue;
+    }
     let entry = bySlug.get(row.slug);
     if (!entry) {
       entry = {
@@ -152,7 +160,9 @@ export async function getConceptFrequencySummary(
 
   const neverEvaluatedSlugs: string[] = [];
   for (const slug of onDiskSlugs) {
-    if (!bySlug.has(slug)) neverEvaluatedSlugs.push(slug);
+    if (!bySlug.has(slug)) {
+      neverEvaluatedSlugs.push(slug);
+    }
   }
   neverEvaluatedSlugs.sort();
 

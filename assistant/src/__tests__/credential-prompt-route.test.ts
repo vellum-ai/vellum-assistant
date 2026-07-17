@@ -13,7 +13,6 @@ let secretResult: SecretPromptResult = {
   value: "secret-value",
   delivery: "store",
 };
-let allowOneTimeSend = true;
 let existingMetadata: Record<string, unknown> | undefined;
 let slackConfigResult: SlackChannelConfigResult;
 let slackConfigArgs: Array<(string | undefined)[]>;
@@ -24,17 +23,20 @@ let transientInjections: Array<{
   value: string;
 }>;
 let syncedServices: string[];
+// Controls the ACP-Connect redirect guard: whether a conversation resolves,
+// whether it can render the inline Connect card, and whether a card has actually
+// been raised (a missing-token acp_spawn failure) in this conversation.
+let conversationExists = true;
+let dynamicUiSupported = true;
+let cardRaised = true;
+
+mock.module("../acp/acp-connect-card-state.js", () => ({
+  hasAcpConnectCardRaised: mock(() => cardRaised),
+}));
 
 // ---------------------------------------------------------------------------
 // Mocks for the route's collaborators
 // ---------------------------------------------------------------------------
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
 
 mock.module("../daemon/handlers/shared.js", () => ({
   requestSecretStandalone: mock(
@@ -72,10 +74,6 @@ mock.module("../oauth/manual-token-connection.js", () => ({
   }),
 }));
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({ secretDetection: { allowOneTimeSend } }),
-}));
-
 mock.module("../daemon/handlers/config-slack-channel.js", () => ({
   setSlackChannelConfig: mock(
     async (
@@ -97,9 +95,25 @@ mock.module("../tools/credentials/broker.js", () => ({
   },
 }));
 
+mock.module("../daemon/conversation-registry.js", () => ({
+  findConversation: mock((id?: string) =>
+    conversationExists ? { id: id ?? "conv-1" } : undefined,
+  ),
+}));
+
+mock.module("../daemon/channel-ui-capability.js", () => ({
+  conversationSupportsDynamicUi: mock(() => dynamicUiSupported),
+}));
+
 import { ROUTES } from "../runtime/routes/credential-prompt-routes.js";
+import { setConfig } from "./helpers/set-config.js";
 
 const promptRoute = ROUTES.find((r) => r.operationId === "credentials_prompt");
+
+/** Seed the real workspace config's one-time-send gate. */
+function setAllowOneTimeSend(enabled: boolean): void {
+  setConfig("secretDetection", { allowOneTimeSend: enabled });
+}
 
 function slackResult(
   overrides: Partial<SlackChannelConfigResult>,
@@ -122,6 +136,7 @@ type PromptResponse = {
   service?: string;
   field?: string;
   message?: string;
+  redirected?: boolean;
 };
 
 describe("credentials/prompt route", () => {
@@ -129,13 +144,16 @@ describe("credentials/prompt route", () => {
     capturedSecretParams = undefined;
     capturedMetadata = undefined;
     secretResult = { value: "secret-value", delivery: "store" };
-    allowOneTimeSend = true;
+    setAllowOneTimeSend(true);
     existingMetadata = undefined;
     slackConfigResult = slackResult({});
     slackConfigArgs = [];
     secureKeyWrites = [];
     transientInjections = [];
     syncedServices = [];
+    conversationExists = true;
+    dynamicUiSupported = true;
+    cardRaised = true;
   });
 
   test("forwards usageDescription as the prompt purpose and to metadata", async () => {
@@ -299,7 +317,7 @@ describe("credentials/prompt route", () => {
      * operation and must never write it to secure storage.
      */
     // GIVEN one-time send is enabled and the user chose transient delivery
-    allowOneTimeSend = true;
+    setAllowOneTimeSend(true);
     secretResult = { value: "secret-value", delivery: "transient_send" };
 
     // WHEN a non-slack credential is submitted for one-time use
@@ -324,7 +342,7 @@ describe("credentials/prompt route", () => {
      * flag; otherwise the value is rejected rather than injected.
      */
     // GIVEN one-time send is disabled and the user chose transient delivery
-    allowOneTimeSend = false;
+    setAllowOneTimeSend(false);
     secretResult = { value: "secret-value", delivery: "transient_send" };
 
     // WHEN a credential is submitted for one-time use
@@ -453,7 +471,85 @@ describe("credentials/prompt route", () => {
     expect(result.ok).toBe(false);
     expect(result.cancelled).toBeUndefined();
     expect(result.error).toBe(
-      "No connected client supports secure credential entry",
+      "This conversation's channel does not support secure credential entry",
+    );
+  });
+
+  test("returns a pending collection link for unsupported channels when minted", async () => {
+    /**
+     * When the channel cannot render the secure prompt but the gateway minted
+     * a one-time collection link, the route reports a PENDING non-success
+     * (nothing is stored yet — `ok` must stay false so the CLI's exit-0 =
+     * stored contract holds) carrying the link for the model to relay. The
+     * policy is NOT applied at mint time: it travels through the prompt
+     * params onto the gateway row and is applied at redemption, so an
+     * unredeemed link never mutates an existing credential's metadata.
+     */
+    // GIVEN the prompt short-circuited with a minted collection link
+    secretResult = {
+      value: null,
+      delivery: "store",
+      error: "unsupported_channel",
+      collectionUrl: "https://x.test/assistant/credentials/enter#token=tok",
+      collectionExpiresAt: Date.now() + 30 * 60_000,
+    };
+
+    // WHEN the route handles a prompt carrying policy flags
+    const result = (await promptRoute!.handler({
+      body: {
+        service: "stripe",
+        field: "api_key",
+        label: "Stripe API Key",
+        usageDescription: "Needed for billing lookups",
+        allowedTools: ["make_authenticated_request"],
+        injectionTemplates: [
+          { hostPattern: "api.stripe.com", injectionType: "header" },
+        ],
+      },
+    })) as PromptResponse & { pending?: boolean; collectionUrl?: string };
+
+    // THEN it is a pending non-success carrying the link
+    expect(result.ok).toBe(false);
+    expect(result.pending).toBe(true);
+    expect(result.cancelled).toBeUndefined();
+    expect(result.collectionUrl).toBe(
+      "https://x.test/assistant/credentials/enter#token=tok",
+    );
+    expect(result.message).toContain("NOT been stored");
+    expect(result.message).toContain(
+      "https://x.test/assistant/credentials/enter#token=tok",
+    );
+
+    // AND the policy travels to the prompt (for the gateway row), but no
+    // metadata is upserted at mint time
+    expect(capturedSecretParams?.injectionTemplates).toEqual([
+      { hostPattern: "api.stripe.com", injectionType: "header" },
+    ]);
+    expect(capturedMetadata).toBeUndefined();
+
+    // AND nothing was written to secure storage yet
+    expect(secureKeyWrites).toEqual([]);
+  });
+
+  test("reports a superseded prompt as a failure, not a cancel", async () => {
+    /**
+     * A newer message in the conversation auto-denies pending prompts. The
+     * user never answered the prompt, so this must not read as a deliberate
+     * cancel — the CLI keeps the error exit code and an honest message.
+     */
+    // GIVEN the prompt resolves with no value because it was superseded
+    secretResult = { value: null, delivery: "store", reason: "superseded" };
+
+    // WHEN the route handles the prompt
+    const result = (await promptRoute!.handler({
+      body: { service: "stripe", field: "api_key", label: "Stripe API Key" },
+    })) as PromptResponse;
+
+    // THEN it is a plain failure with no cancel flag
+    expect(result.ok).toBe(false);
+    expect(result.cancelled).toBeUndefined();
+    expect(result.error).toBe(
+      "The credential prompt was superseded by a new message",
     );
   });
 
@@ -482,5 +578,118 @@ describe("credentials/prompt route", () => {
       "make_authenticated_request",
     ]);
     expect(capturedMetadata!.allowedDomains).toEqual([]);
+  });
+
+  test("redirects the ACP Claude OAuth token to the inline Connect card when the conversation can render it", async () => {
+    /**
+     * The acp/claude_oauth_token has a first-class in-app surface (the inline
+     * Connect Claude card). When the conversation can render dynamic UI, the
+     * route must NOT emit a redundant secure prompt — it returns a `redirected`
+     * result telling the model to defer to the card, and never calls
+     * requestSecretStandalone or writes to storage.
+     */
+    // GIVEN an interactive conversation that can render the Connect card AND a
+    // missing-token acp_spawn failure has already raised one
+    conversationExists = true;
+    dynamicUiSupported = true;
+    cardRaised = true;
+
+    // WHEN the model prompts for the ACP Claude OAuth token
+    const result = (await promptRoute!.handler({
+      body: {
+        service: "acp",
+        field: "claude_oauth_token",
+        label: "Claude OAuth Token",
+        conversationId: "conv-1",
+      },
+    })) as PromptResponse;
+
+    // THEN the prompt is redirected, not shown
+    expect(result.ok).toBe(false);
+    expect(result.redirected).toBe(true);
+    expect(result.message).toContain("Connect Claude Code");
+    // AND it must not claim "nothing to paste" — the cloud/manual card DOES ask
+    // the user to paste the code/key, so that phrasing misdirects cloud users.
+    expect(result.message).not.toContain("nothing to paste");
+
+    // AND no secure prompt was issued and nothing was stored
+    expect(capturedSecretParams).toBeUndefined();
+    expect(secureKeyWrites).toEqual([]);
+  });
+
+  test("still prompts when NO Connect card has been raised (proactive prompt must not dead-end)", async () => {
+    /**
+     * A setup flow / model fallback that prompts for acp/claude_oauth_token
+     * before any missing-token acp_spawn failure has no card to point at.
+     * Redirecting there would exit 0 with "click Connect" and suppress the
+     * prompt, leaving auth unset — so the guard must NOT fire and the secure
+     * prompt must be shown.
+     */
+    // GIVEN a dynamic-UI conversation where no card has been raised
+    conversationExists = true;
+    dynamicUiSupported = true;
+    cardRaised = false;
+
+    // WHEN the token is prompted for
+    const result = (await promptRoute!.handler({
+      body: {
+        service: "acp",
+        field: "claude_oauth_token",
+        label: "Claude OAuth Token",
+        conversationId: "conv-1",
+      },
+    })) as PromptResponse;
+
+    // THEN it is NOT redirected — the secure prompt proceeds normally
+    expect(result.redirected).toBeUndefined();
+    expect(capturedSecretParams).toBeDefined();
+  });
+
+  test("still prompts for the ACP Claude token on a channel that cannot render the card", async () => {
+    /**
+     * On a channel/headless conversation (no dynamic UI) the inline Connect
+     * card cannot appear, so the legacy secure-prompt / collection-link
+     * fallback must remain available — the redirect guard must NOT fire.
+     */
+    // GIVEN a conversation that cannot render dynamic UI
+    conversationExists = true;
+    dynamicUiSupported = false;
+
+    // WHEN the model prompts for the ACP Claude OAuth token
+    const result = (await promptRoute!.handler({
+      body: {
+        service: "acp",
+        field: "claude_oauth_token",
+        label: "Claude OAuth Token",
+        conversationId: "conv-1",
+      },
+    })) as PromptResponse;
+
+    // THEN the guard does not fire and the prompt proceeds normally
+    expect(result.redirected).toBeUndefined();
+    expect(capturedSecretParams?.service).toBe("acp");
+    expect(capturedSecretParams?.field).toBe("claude_oauth_token");
+  });
+
+  test("still prompts for the ACP Claude token outside any conversation (headless CLI)", async () => {
+    /**
+     * A bare CLI `credentials prompt` with no conversation (headless) can't show
+     * an inline card, so the guard must not fire and the prompt proceeds.
+     */
+    // GIVEN no conversation resolves (headless CLI, no conversationId)
+    conversationExists = false;
+
+    // WHEN the ACP Claude OAuth token is prompted
+    const result = (await promptRoute!.handler({
+      body: {
+        service: "acp",
+        field: "claude_oauth_token",
+        label: "Claude OAuth Token",
+      },
+    })) as PromptResponse;
+
+    // THEN the guard does not fire and the prompt proceeds normally
+    expect(result.redirected).toBeUndefined();
+    expect(capturedSecretParams?.field).toBe("claude_oauth_token");
   });
 });

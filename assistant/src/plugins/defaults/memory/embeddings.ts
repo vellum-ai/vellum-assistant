@@ -7,45 +7,20 @@ import type {
 import { resolveQdrantUrl as resolveQdrantUrlWithConfig } from "../../../persistence/embeddings/qdrant-client.js";
 
 /**
- * Memory-internal accessor for the shared embeddings / vector subsystem.
+ * Memory-internal accessor for the embeddings operations that stay off
+ * `@vellumai/plugin-api` (the self-contained ops live there — see
+ * `persistence/embeddings/plugin-facade.ts`).
  *
- * The embeddings operations live in `persistence/embeddings` (and
- * `persistence/job-utils`) and take the full `AssistantConfig` as their first
- * argument — they read both the `memory` slice (Qdrant collection and vector
- * settings) and the `llm` slice (embedding-backend selection). Memory code
- * reaches those operations through this accessor: the self-contained ones
- * (`embedAndUpsert`, `selectedBackendSupportsMultimodal`, `resolveQdrantUrl`)
- * resolve the live config internally, so their call sites need not hold it.
  * `embedWithBackend` keeps its `config` parameter — it is a primitive whose
  * vectors the caller stores alongside its own config-derived metadata (cache
  * keys, vector-size checks, Qdrant collection), so it must embed with the
  * caller's exact config snapshot rather than a re-read that could diverge from
- * that metadata mid-operation.
- *
- * The embed operations are loaded via dynamic `import()` inside each wrapper so
- * that importing this module for a single operation does not eagerly pull the
- * whole embed/vector import graph (`job-utils`, `embedding-backend`) into the
- * consumer. An eager pull would force every one of those modules' named exports
- * to resolve at instantiation, which breaks the intentional partial module
- * mocks in memory tests (a store that mocks only the exports it uses). Only the
- * synchronous `resolveQdrantUrl` is imported statically.
+ * that metadata mid-operation. It is loaded via dynamic `import()` inside the
+ * wrapper so importing this module does not eagerly pull the embed graph
+ * (`embedding-backend`), which would break intentional partial module mocks
+ * in memory tests. `resolveQdrantUrl` is synchronous — its consumers are
+ * memoized client getters — so it is imported statically.
  */
-
-type EmbeddingTargetType = Parameters<
-  typeof import("../../../persistence/job-utils.js").embedAndUpsert
->[1];
-
-/** Embed a target and upsert its vector to Qdrant. */
-export async function embedAndUpsert(
-  targetType: EmbeddingTargetType,
-  targetId: string,
-  input: EmbeddingInput,
-  extraPayload?: Record<string, unknown>,
-): Promise<void> {
-  const { embedAndUpsert: withConfig } =
-    await import("../../../persistence/job-utils.js");
-  return withConfig(getConfig(), targetType, targetId, input, extraPayload);
-}
 
 /** Embed one or more inputs via the selected embedding backend. */
 export async function embedWithBackend(
@@ -62,13 +37,6 @@ export async function embedWithBackend(
   const { embedWithBackend: withConfig } =
     await import("../../../persistence/embeddings/embedding-backend.js");
   return withConfig(config, inputs, options);
-}
-
-/** Whether the active embedding backend handles multimodal inputs. */
-export async function selectedBackendSupportsMultimodal(): Promise<boolean> {
-  const { selectedBackendSupportsMultimodal: withConfig } =
-    await import("../../../persistence/embeddings/embedding-backend.js");
-  return withConfig(getConfig());
 }
 
 /** Resolve the Qdrant base URL for this process. */

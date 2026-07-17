@@ -6,15 +6,7 @@
  * persisted on the reminder at create time.
  */
 
-import { describe, expect, mock, test } from "bun:test";
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-  truncateForLog: (v: string) => v,
-}));
+import { describe, expect, test } from "bun:test";
 
 import { enforceRoutingIntent } from "../notifications/decision-engine.js";
 import type {

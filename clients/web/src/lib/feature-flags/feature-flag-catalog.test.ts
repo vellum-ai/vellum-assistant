@@ -35,6 +35,12 @@ describe("feature flag catalog", () => {
     );
   });
 
+  test("exposes proactive tips as a client string flag defaulted off", () => {
+    expect(CLIENT_STRING_FLAG_DEFAULTS.proactiveTips).toBe("off");
+    expect("proactiveTips" in CLIENT_FLAG_DEFAULTS).toBe(false);
+    expect("proactiveTips" in ASSISTANT_FLAG_DEFAULTS).toBe(false);
+  });
+
   test("does not expose GA empty-state greetings as a feature flag", () => {
     expect("emptyStateDynamicGreetings" in ASSISTANT_FLAG_DEFAULTS).toBe(false);
     expect("emptyStateDynamicGreetings" in CLIENT_FLAG_DEFAULTS).toBe(false);
@@ -53,6 +59,11 @@ describe("feature flag catalog", () => {
   test("exposes the MCP add-server gate without a page-level MCP gate", () => {
     expect("mcpSettings" in ASSISTANT_FLAG_DEFAULTS).toBe(false);
     expect(ASSISTANT_FLAG_DEFAULTS.mcpAddServer).toBe(false);
+  });
+
+  test("does not expose GA summarize-up-to-here as a feature flag", () => {
+    expect("summarizeUpToHere" in CLIENT_FLAG_DEFAULTS).toBe(false);
+    expect("summarizeUpToHere" in ASSISTANT_FLAG_DEFAULTS).toBe(false);
   });
 });
 
@@ -91,9 +102,9 @@ describe("getEnvFlagOverridesForScope", () => {
         // client-only flag (boolean)
         "home-tab": true,
         // assistant-only flag (boolean) — should be excluded from client scope
-        "auto-analyze": true,
-        // client-only flag (string)
-        "pre-chat-onboarding-experiment-2026-06-06": "variant-a",
+        "settings-developer-nav": true,
+        // client-visible flag (string)
+        "experiment-activation-flow-2026-06-03": "variant-a",
       },
     };
     resetEnvOverridesCache();
@@ -101,9 +112,102 @@ describe("getEnvFlagOverridesForScope", () => {
     const result = getEnvFlagOverridesForScope("client");
     expect(result.bool).toEqual({ homeTab: true });
     expect(result.str).toEqual({
-      preChatOnboardingExperiment20260606: "variant-a",
+      experimentActivationFlow20260603: "variant-a",
     });
-    expect(result.bool).not.toHaveProperty("autoAnalyze");
+    expect(result.bool).not.toHaveProperty("settingsDeveloperNav");
+  });
+
+  test("keeps booleanish Vite env values as strings for string-valued flags", () => {
+    (globalThis as Record<string, unknown>).window = undefined;
+    process.env.VITE_VELLUM_FLAG_PROACTIVE_TIPS = "on";
+    try {
+      resetEnvOverridesCache();
+      const result = getEnvFlagOverridesForScope("client");
+      expect(result.str.proactiveTips).toBe("on");
+      expect(result.bool).not.toHaveProperty("proactiveTips");
+
+      process.env.VITE_VELLUM_FLAG_PROACTIVE_TIPS = "off";
+      resetEnvOverridesCache();
+      expect(getEnvFlagOverridesForScope("client").str.proactiveTips).toBe(
+        "off",
+      );
+    } finally {
+      delete process.env.VITE_VELLUM_FLAG_PROACTIVE_TIPS;
+    }
+  });
+
+  test("matches string-flag env arms case-insensitively and stores the canonical arm", () => {
+    (globalThis as Record<string, unknown>).window = undefined;
+    process.env.VITE_VELLUM_FLAG_PROACTIVE_TIPS = "ON";
+    try {
+      resetEnvOverridesCache();
+      expect(getEnvFlagOverridesForScope("client").str.proactiveTips).toBe(
+        "on",
+      );
+
+      process.env.VITE_VELLUM_FLAG_PROACTIVE_TIPS = "On";
+      resetEnvOverridesCache();
+      expect(getEnvFlagOverridesForScope("client").str.proactiveTips).toBe(
+        "on",
+      );
+    } finally {
+      delete process.env.VITE_VELLUM_FLAG_PROACTIVE_TIPS;
+    }
+  });
+
+  test("drops string-flag env values that match no declared arm", () => {
+    (globalThis as Record<string, unknown>).window = undefined;
+    process.env.VITE_VELLUM_FLAG_PROACTIVE_TIPS = "bogus";
+    try {
+      resetEnvOverridesCache();
+      const result = getEnvFlagOverridesForScope("client");
+      expect(result.str).not.toHaveProperty("proactiveTips");
+      expect(result.bool).not.toHaveProperty("proactiveTips");
+    } finally {
+      delete process.env.VITE_VELLUM_FLAG_PROACTIVE_TIPS;
+    }
+  });
+
+  test("boolean flags keep case-insensitive env coercion", () => {
+    (globalThis as Record<string, unknown>).window = undefined;
+    for (const raw of ["on", "ON"]) {
+      process.env.VITE_VELLUM_FLAG_HOME_TAB = raw;
+      try {
+        resetEnvOverridesCache();
+        const result = getEnvFlagOverridesForScope("client");
+        expect(result.bool.homeTab).toBe(true);
+        expect(result.str).not.toHaveProperty("homeTab");
+      } finally {
+        delete process.env.VITE_VELLUM_FLAG_HOME_TAB;
+      }
+    }
+  });
+
+  test("maps boolean-coerced window overrides back onto on/off string flags", () => {
+    (globalThis as Record<string, unknown>).window = {
+      __VELLUM_FLAG_OVERRIDES__: { "proactive-tips": true },
+    };
+    resetEnvOverridesCache();
+    expect(getEnvFlagOverridesForScope("client").str.proactiveTips).toBe("on");
+
+    (globalThis as Record<string, unknown>).window = {
+      __VELLUM_FLAG_OVERRIDES__: { "proactive-tips": false },
+    };
+    resetEnvOverridesCache();
+    expect(getEnvFlagOverridesForScope("client").str.proactiveTips).toBe("off");
+  });
+
+  test("drops boolean-coerced window overrides for string flags without on/off arms", () => {
+    (globalThis as Record<string, unknown>).window = {
+      __VELLUM_FLAG_OVERRIDES__: {
+        "pre-chat-onboarding-experiment-2026-06-06": true,
+      },
+    };
+    resetEnvOverridesCache();
+
+    const result = getEnvFlagOverridesForScope("client");
+    expect(result.str).not.toHaveProperty("preChatOnboardingExperiment20260606");
+    expect(result.bool).not.toHaveProperty("preChatOnboardingExperiment20260606");
   });
 
   test("flags with scope 'both' appear for both client and assistant scopes", () => {

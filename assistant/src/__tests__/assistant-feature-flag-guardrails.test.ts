@@ -2,7 +2,7 @@
  * Guard tests for assistant feature flag conventions:
  *
  * 1. Key format: all feature flag keys used in production code must use
- *    simple kebab-case format (e.g., "browser", "ces-tools"). Any remaining
+ *    simple kebab-case format (e.g., "browser", "voice-mode"). Any remaining
  *    `skills.<id>.enabled` usage outside of migration/backward-compat code is
  *    flagged — including template literal forms like `skills.${skillId}.enabled`.
  *

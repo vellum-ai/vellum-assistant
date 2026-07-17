@@ -1,8 +1,5 @@
 import type { Command } from "commander";
 
-import { startCli } from "../../cli.js";
-import { shouldAutoStartDaemon } from "../../daemon/connection-policy.js";
-import { ensureDaemonRunning } from "../../daemon/daemon-control.js";
 import {
   findClosestCommand,
   formatUnknownCommandMessage,
@@ -29,6 +26,14 @@ export function registerDefaultAction(program: Command): void {
       });
       return;
     }
+
+    // Deferred: only the bare `assistant` action needs these graphs.
+    const [{ startCli }, { shouldAutoStartDaemon }, { ensureDaemonRunning }] =
+      await Promise.all([
+        import("../../cli.js"),
+        import("../../daemon/connection-policy.js"),
+        import("../../daemon/daemon-control.js"),
+      ]);
 
     if (shouldAutoStartDaemon()) {
       await ensureDaemonRunning();

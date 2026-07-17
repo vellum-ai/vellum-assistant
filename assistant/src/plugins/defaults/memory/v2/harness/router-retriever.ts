@@ -7,7 +7,6 @@
  * its own injected ground truth.
  */
 
-import type { DrizzleDb } from "../../../../../persistence/db-connection.js";
 import { runRouter } from "../router.js";
 import type {
   RetrievalInput,
@@ -15,12 +14,7 @@ import type {
   Retriever,
 } from "./retriever.js";
 
-/**
- * @param database optional handle for tier-2 EMA scoring, forwarded to
- * `runRouter`. Omit to exercise only the tier-1 / tier-3 paths (as the router's
- * own tests do).
- */
-export function createRouterRetriever(database?: DrizzleDb): Retriever {
+export function createRouterRetriever(): Retriever {
   return {
     name: "router",
     async retrieve(input: RetrievalInput): Promise<RetrievalOutput> {
@@ -31,7 +25,6 @@ export function createRouterRetriever(database?: DrizzleDb): Retriever {
         priorEverInjected: input.priorEverInjected,
         config: input.config,
         ...(input.signal ? { signal: input.signal } : {}),
-        ...(database ? { database } : {}),
       });
       return {
         selectedSlugs: result.selectedSlugs,
