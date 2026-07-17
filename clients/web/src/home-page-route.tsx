@@ -12,6 +12,7 @@ import {
 } from "@/hooks/conversation-queries";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { mergeConversationLists } from "@/utils/conversation-cache";
+import { navigateToConversation } from "@/utils/conversation-navigation";
 import { routes } from "@/utils/routes";
 import { Typography } from "@vellumai/design-library";
 
@@ -75,7 +76,7 @@ export function HomePageRoute() {
       navigationKey={location.key}
       onInitialFeedItemConsumed={handleInitialFeedItemConsumed}
       onOpenConversation={(conversationId) =>
-        navigate(routes.conversation(conversationId))
+        navigateToConversation(navigate, conversationId)
       }
       onViewSchedule={(scheduleId) =>
         navigate(routes.schedules.detail(scheduleId))
