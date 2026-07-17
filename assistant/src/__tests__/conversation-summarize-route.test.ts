@@ -195,10 +195,13 @@ function makeConversation(opts: { processing?: boolean } = {}) {
   };
 }
 
-function makeRequest(body: Record<string, unknown>) {
+function makeRequest(
+  body: Record<string, unknown>,
+  extraHeaders: Record<string, string> = {},
+) {
   return new Request("http://localhost/v1/conversations/summarize", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...extraHeaders },
     body: JSON.stringify(body),
   });
 }
@@ -225,10 +228,14 @@ describe("POST /v1/conversations/summarize", () => {
 
     const res = await callHandler(
       summarizeHandler,
-      makeRequest({
-        conversationId: "conv-summarize-test",
-        beforeMessageId: "msg-42",
-      }),
+      makeRequest(
+        {
+          conversationId: "conv-summarize-test",
+          beforeMessageId: "msg-42",
+        },
+        // A real initiating client id — the card must still surface here.
+        { "X-Vellum-Client-Id": "web-client-xyz" },
+      ),
       undefined,
       202,
     );
@@ -286,10 +293,14 @@ describe("POST /v1/conversations/summarize", () => {
       ["compaction-log-1"],
       "persisted-assistant-id",
     );
-    expect(publishConversationMessagesChangedMock).toHaveBeenCalledWith(
+    // The card's messages-changed invalidation carries no origin client id
+    // despite the request's `X-Vellum-Client-Id`: the origin materializes the
+    // bodyless-`message_complete` card only by refetching, so suppressing its
+    // own invalidation would hide the card until a reload.
+    expect(publishConversationMessagesChangedMock).toHaveBeenCalledTimes(1);
+    expect(publishConversationMessagesChangedMock.mock.calls[0]).toEqual([
       "conv-summarize-test",
-      undefined,
-    );
+    ]);
 
     expect(ctx.conversation.isProcessing()).toBe(false);
     expect(ctx.drainQueue).toHaveBeenCalledTimes(1);

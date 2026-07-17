@@ -2381,7 +2381,6 @@ export async function handleSendMessage(
           conversationId,
           text: formatCompactResult(result),
           metadata: channelMeta,
-          originClientId,
         });
         // Attribute the compaction LLM call to the card it produced — same
         // linkage as the summarize-up-to route.
@@ -2461,7 +2460,6 @@ export async function handleSendMessage(
           conversationId,
           text: formatCleanResult(result),
           metadata: channelMeta,
-          originClientId,
         });
       } catch (err) {
         log.error({ err, conversationId }, "Clean command failed");
