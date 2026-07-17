@@ -66,6 +66,7 @@ mock.module("@google/genai", () => ({
     models = {
       generateContentStream: async (params: Record<string, unknown>) => {
         lastStreamParams = params;
+        if (generateContentShouldThrow) throw generateContentShouldThrow;
         if (shouldThrow) throw shouldThrow;
 
         return {
@@ -1721,9 +1722,11 @@ describe("validateGeminiApiKey", () => {
   beforeEach(() => {
     listShouldThrow = null;
     generateContentShouldThrow = null;
+    shouldThrow = null;
+    fakeChunks = [{ text: "OK" }];
   });
 
-  test("returns valid when both list and generateContent succeed", async () => {
+  test("returns valid when both list and generateContentStream succeed", async () => {
     const result = await validateGeminiApiKey("test-key");
     expect(result.valid).toBe(true);
   });
@@ -1749,7 +1752,7 @@ describe("validateGeminiApiKey", () => {
     expect(result.valid).toBe(true);
   });
 
-  test("returns invalid when list succeeds but generateContent throws 404", async () => {
+  test("returns invalid when list succeeds but generateContentStream throws 404", async () => {
     generateContentShouldThrow = new FakeApiError(404, "");
     const result = await validateGeminiApiKey("test-key");
     expect(result.valid).toBe(false);
@@ -1758,13 +1761,13 @@ describe("validateGeminiApiKey", () => {
     }
   });
 
-  test("returns valid when generateContent throws a transient error (429)", async () => {
+  test("returns valid when generateContentStream throws a transient error (429)", async () => {
     generateContentShouldThrow = new FakeApiError(429, "RESOURCE_EXHAUSTED");
     const result = await validateGeminiApiKey("test-key");
     expect(result.valid).toBe(true);
   });
 
-  test("returns valid when generateContent throws a 5xx error", async () => {
+  test("returns valid when generateContentStream throws a 5xx error", async () => {
     generateContentShouldThrow = new FakeApiError(503, "UNAVAILABLE");
     const result = await validateGeminiApiKey("test-key");
     expect(result.valid).toBe(true);

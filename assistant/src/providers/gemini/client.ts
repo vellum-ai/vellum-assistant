@@ -331,11 +331,21 @@ export async function validateGeminiApiKey(
   }
 
   try {
-    await client.models.generateContent({
+    // Use the streaming endpoint (generateContentStream), not the
+    // non-streaming generateContent, to match the real inference path.
+    // A proxy can allow :generateContent but block :streamGenerateContent,
+    // so probing the non-streaming endpoint would give a false positive.
+    const stream = await client.models.generateContentStream({
       model: VALIDATION_PROBE_MODEL,
       contents: [{ role: "user", parts: [{ text: "Reply with OK" }] }],
       config: { httpOptions: { timeout: VALIDATION_TIMEOUT_MS } },
     });
+    // Consume at least the first chunk so request-level errors (404, 403,
+    // etc.) surface before we declare the key valid. The SDK throws from
+    // the async iterator, not from the generateContentStream call itself.
+    for await (const _chunk of stream) {
+      break;
+    }
     return { valid: true };
   } catch (error) {
     if (error instanceof ApiError && isTransientApiError(error)) {
@@ -354,7 +364,7 @@ export async function validateGeminiApiKey(
     const detail = error instanceof ApiError ? error.message : String(error);
     log.warn(
       { error: detail },
-      "Gemini key passed models.list() but generateContent failed during validation",
+      "Gemini key passed models.list() but generateContentStream failed during validation",
     );
     return {
       valid: false,
