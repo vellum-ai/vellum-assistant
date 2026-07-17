@@ -299,8 +299,10 @@ export interface WorkerSupervisorOptions {
   probe: () => WorkerProcessStatus;
   respawn: () => Promise<{ pid: number; alreadyRunning: boolean }>;
   /**
-   * Kill a child respawned after {@link WorkerSupervisor.dispose} was called
-   * (closes the shutdown race where a respawn was already in flight).
+   * Kill a child brought up by a respawn that resolved after the worker was
+   * disposed ({@link WorkerSupervisor.dispose}) or administratively suppressed
+   * ({@link WorkerSupervisorOptions.isSuppressed}) — closes the race where a
+   * stop lands while a respawn is already in flight.
    */
   killChild?: (pid: number) => void;
   /**
@@ -350,9 +352,11 @@ export function createWorkerSupervisor(
         const { pid, alreadyRunning } = await opts.respawn();
         consecutiveFailures = 0;
         nextAttemptAt = 0;
-        if (stopping) {
-          // Disposed mid-respawn: kill the child we just created so it is not
-          // orphaned past shutdown.
+        if (stopping || opts.isSuppressed?.()) {
+          // A stop landed while this respawn was in flight — either disposal
+          // (shutdown) or an operator stop that set suppression. Kill the child
+          // we just brought up so the stop is not silently undone; otherwise
+          // the fresh worker survives past the stop.
           opts.killChild?.(pid);
           return;
         }

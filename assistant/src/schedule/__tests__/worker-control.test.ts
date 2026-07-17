@@ -167,6 +167,45 @@ describe("spawnScheduleWorkerProcess", () => {
     }
   });
 
+  test("coalesces concurrent spawns onto a single OS process", async () => {
+    let spawnCount = 0;
+    let writePidFile: () => void = () => {};
+    const restore = stubBunSpawn(() => {
+      spawnCount++;
+      // A cold worker writes its PID file only after the caller has started
+      // waiting, so a racing spawn cannot see it via the PID-file guard.
+      writePidFile = () => writeFileSync(pidPath, "4242");
+      return {
+        unref: () => {},
+        kill: () => {},
+        pid: 4242,
+        exited: neverExits(),
+      };
+    });
+    try {
+      // The daemon's boot spawn goes in flight before the worker writes its PID.
+      const boot = spawnScheduleWorkerProcess({
+        pidWaitTimeoutMs: 1_000,
+        pidPollIntervalMs: 5,
+      });
+      // The watchdog's first tick fires a second spawn during that window.
+      const watchdog = spawnScheduleWorkerProcess({
+        pidWaitTimeoutMs: 1_000,
+        pidPollIntervalMs: 5,
+      });
+      writePidFile(); // the single worker finally reports readiness
+      const [bootResult, watchdogResult] = await Promise.all([boot, watchdog]);
+
+      expect(spawnCount).toBe(1); // only one OS process was ever started
+      expect(bootResult).toEqual({ pid: 4242, alreadyRunning: false });
+      // The coalesced caller reports alreadyRunning so the watchdog logs no
+      // spurious respawn for the boot spawn's worker.
+      expect(watchdogResult).toEqual({ pid: 4242, alreadyRunning: true });
+    } finally {
+      restore();
+    }
+  });
+
   test("reuses an already-running worker without spawning", async () => {
     writeFileSync(pidPath, String(process.pid));
     let spawned = false;

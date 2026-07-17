@@ -51,11 +51,22 @@ export function probeScheduleWorker(): WorkerProcessStatus {
 
 export class ScheduleWorkerSpawnError extends WorkerProcessSpawnError {}
 
+/** The single in-flight spawn attempt, or null when none is running. */
+let inFlightSpawn: Promise<{ pid: number; alreadyRunning: boolean }> | null =
+  null;
+
 /**
  * Spawn the schedule worker as a background process. If a worker is already
  * running, returns its PID with `alreadyRunning: true` rather than spawning a
  * second one. Throws {@link ScheduleWorkerSpawnError} if the child crashes
  * during startup or never writes its PID file within the wait window.
+ *
+ * Concurrent calls coalesce onto one in-flight spawn. The daemon's boot spawn
+ * and the liveness watchdog's first tick both run before a cold worker has
+ * written its PID file, so `spawnWorkerProcess`'s PID-file guard cannot see the
+ * sibling spawn; without this latch each would start a worker — double schedule
+ * execution plus an orphan on shutdown. Coalesced callers report
+ * `alreadyRunning: true`, so the watchdog logs no spurious respawn.
  *
  * See {@link SpawnWorkerProcessOptions} for the generic option semantics. The
  * daemon's boot spawn leaves `terminateOnTimeout` unset: a worker that comes up
@@ -63,6 +74,23 @@ export class ScheduleWorkerSpawnError extends WorkerProcessSpawnError {}
  */
 export async function spawnScheduleWorkerProcess(
   opts: SpawnWorkerProcessOptions = {},
+): Promise<{ pid: number; alreadyRunning: boolean }> {
+  const existing = inFlightSpawn;
+  if (existing) {
+    const { pid } = await existing;
+    return { pid, alreadyRunning: true };
+  }
+  const spawn = spawnScheduleWorkerProcessUncoalesced(opts);
+  inFlightSpawn = spawn;
+  try {
+    return await spawn;
+  } finally {
+    inFlightSpawn = null;
+  }
+}
+
+async function spawnScheduleWorkerProcessUncoalesced(
+  opts: SpawnWorkerProcessOptions,
 ): Promise<{ pid: number; alreadyRunning: boolean }> {
   try {
     return await spawnWorkerProcess({
