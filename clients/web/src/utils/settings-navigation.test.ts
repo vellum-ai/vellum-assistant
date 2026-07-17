@@ -38,6 +38,14 @@ describe("getSettingsRouteForClientTab — Debug page", () => {
     );
   });
 
+  test("routes the Usage tab to the Usage sub-tab, not the page default", () => {
+    // The bare Usage page defaults to the Billing sub-tab for a signed-in
+    // viewer, so a "Usage" lookup must carry ?tab=usage to land on Usage.
+    expect(getSettingsRouteForClientTab("Usage")).toBe(
+      "/assistant/settings/usage?tab=usage",
+    );
+  });
+
   test("resolves the Debug sidebar label to the Debug page without ambiguity", () => {
     expect(getSettingsRouteForClientTab("Debug")).toBe(
       "/assistant/settings/debug",
