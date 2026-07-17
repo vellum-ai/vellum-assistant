@@ -14694,6 +14694,12 @@ paths:
                       - inputTokens
                       - outputTokens
                     additionalProperties: false
+                  evidence:
+                    type: object
+                    properties:
+                      resolved_endpoint:
+                        type: string
+                    additionalProperties: false
                 required:
                   - response
                   - model

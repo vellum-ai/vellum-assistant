@@ -744,6 +744,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
       return {
         content,
         model: responseModel,
+        resolvedEndpoint: this.client.baseURL,
         usage: {
           inputTokens: promptTokens,
           outputTokens: completionTokens,

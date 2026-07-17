@@ -32,6 +32,9 @@ interface InferenceSendResult {
     inputTokens: number;
     outputTokens: number;
   };
+  evidence?: {
+    resolved_endpoint?: string;
+  };
 }
 
 const DEFAULT_INFERENCE_IPC_TIMEOUT_MS = 32 * 60 * 1000;
@@ -181,6 +184,9 @@ function attachSendSubcommand(group: Command): void {
             response: result.response,
             model: result.model,
             usage: result.usage,
+            ...(result.evidence !== undefined
+              ? { evidence: result.evidence }
+              : {}),
           }) + "\n",
         );
       } else {
