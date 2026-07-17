@@ -70,6 +70,35 @@ function broadcastAppFilesChanged(appId: string): void {
   publishAppsChanged();
 }
 
+/**
+ * Resolve the app id a post-execution hook should act on.
+ *
+ * `app_id` is optional for the app-builder fallback tools (`app_update`,
+ * `app_refresh`, `app_generate_icon`): when the model omits it, the skill
+ * script resolves the conversation's active app and the executor echoes that
+ * id back as `appId` in its result. Prefer the explicit tool input; fall back
+ * to the resolved id the result carries so an omitted-id call still refreshes
+ * surfaces, rebroadcasts, and re-deploys instead of silently no-op'ing.
+ */
+function resolveHookAppId(
+  input: Record<string, unknown>,
+  result: ToolExecutionResult,
+): string | undefined {
+  const explicit = input.app_id;
+  if (typeof explicit === "string" && explicit.trim().length > 0) {
+    return explicit;
+  }
+  try {
+    const parsed = JSON.parse(result.content) as { appId?: unknown };
+    if (typeof parsed.appId === "string" && parsed.appId.length > 0) {
+      return parsed.appId;
+    }
+  } catch {
+    // Result wasn't valid JSON — no resolved id to recover.
+  }
+  return undefined;
+}
+
 // ── Registry ─────────────────────────────────────────────────────────
 
 /**
@@ -130,8 +159,8 @@ registerHook("app_create", (_name, _input, result, { ctx }) => {
   }
 });
 
-registerHook("app_generate_icon", (_name, input) => {
-  const appId = input.app_id as string | undefined;
+registerHook("app_generate_icon", (_name, input, result) => {
+  const appId = resolveHookAppId(input, result);
   if (appId) {
     broadcastAppFilesChanged(appId);
   }
@@ -144,31 +173,26 @@ registerHook("app_delete", (_name, input) => {
   }
 });
 
-registerHook("app_refresh", (_name, input, _result, { ctx }) => {
-  const appId = input.app_id as string | undefined;
-  if (!appId) return;
-  try {
-    addAppConversationId(appId, ctx.conversationId);
-  } catch (err) {
-    log.warn({ err, appId }, "Failed to track conversation ID on app_refresh");
-  }
-  notifyAppChanged(ctx, appId, { fileChange: true });
-});
-
-// app_update compiles internally (like app_refresh) but emits no events of its
-// own, so without this hook an updated app leaves open surfaces rendering the
-// stale dist and never re-deploys or invalidates the Library. The executor owns
-// the compile; notifyAppChanged only refreshes surfaces and broadcasts.
-registerHook("app_update", (_name, input, _result, { ctx }) => {
-  const appId = input.app_id as string | undefined;
-  if (!appId) return;
-  try {
-    addAppConversationId(appId, ctx.conversationId);
-  } catch (err) {
-    log.warn({ err, appId }, "Failed to track conversation ID on app_update");
-  }
-  notifyAppChanged(ctx, appId, { fileChange: true });
-});
+// app_refresh and app_update mutate an app's source but emit no events of their
+// own, so without a hook an updated app leaves open surfaces rendering the stale
+// dist and never re-deploys or invalidates the Library. The executor owns the
+// compile; notifyAppChanged only refreshes surfaces and broadcasts.
+function registerAppSurfaceRefreshHook(toolName: string): void {
+  registerHook(toolName, (name, input, result, { ctx }) => {
+    const appId = resolveHookAppId(input, result);
+    if (!appId) {
+      return;
+    }
+    try {
+      addAppConversationId(appId, ctx.conversationId);
+    } catch (err) {
+      log.warn({ err, appId }, `Failed to track conversation ID on ${name}`);
+    }
+    notifyAppChanged(ctx, appId, { fileChange: true });
+  });
+}
+registerAppSurfaceRefreshHook("app_refresh");
+registerAppSurfaceRefreshHook("app_update");
 
 registerHook("voice_config_update", (_name, input) => {
   const setting = input.setting as string | undefined;
