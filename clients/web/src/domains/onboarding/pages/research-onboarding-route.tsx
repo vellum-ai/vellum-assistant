@@ -212,6 +212,14 @@ export function ResearchOnboardingRoute() {
   const [gatedFormValues, setGatedFormValues] =
     useState<ResearchOnboardingValues | null>(null);
   const guardOverriddenRef = useRef(false);
+  // Holds the terminal "Let's chat" handoff while a RESUMED completed journey
+  // waits for the established-assistant guard. A done snapshot hydrates straight
+  // onto the suggestions step, whose handoff would otherwise clear the snapshot
+  // and navigate away before the async verdict lands — skipping the keep/redo
+  // choice for an established assistant. Set in the restore pass (before first
+  // paint, no gap) and cleared on every settle path below, so a genuinely-new
+  // user is never stuck.
+  const [resumeGuardPending, setResumeGuardPending] = useState(false);
   const [faceValues, setFaceValues] = useState<GiveMeAFaceValues | null>(null);
   // Personality sliders live here (not in the step) so they survive a step-back
   // and stay shown once locked. `personalityLocked` flips true on the first
@@ -420,6 +428,10 @@ export function ResearchOnboardingRoute() {
         // dispatched the correction, don't re-send it; if it didn't, the effect
         // below re-fires once the resumed suggestions step renders.
         syncDroppedClaimsScrubbed(snapshot.droppedClaimsScrubbed ?? false);
+        // A completed journey resumes straight onto the terminal handoff step
+        // (resolveResumeStep → "suggestions"); hold that CTA here, synchronously,
+        // until the resume-guard effect below settles the verdict.
+        setResumeGuardPending(true);
       }
       // A snapshot written before the calendar steps were dropped from the
       // local flow (or by a signed-in web session) may resume onto them —
@@ -531,11 +543,14 @@ export function ResearchOnboardingRoute() {
           setForwardStack([]);
           setFormValues(null);
           setStep("existing");
+          setResumeGuardPending(false);
           return;
         }
       }
-      // Only the idle path re-fires the search; a hydrated "done" journey keeps
-      // its restored results.
+      // Fresh/unknown verdict (or the guard was already overridden): release the
+      // handoff hold so the CTA is usable. Only the idle path re-fires the
+      // search; a hydrated "done" journey keeps its restored results.
+      setResumeGuardPending(false);
       if (wasIdle) {
         startResearch({
           awaitAssistantId: awaitHatchReady,
@@ -551,6 +566,9 @@ export function ResearchOnboardingRoute() {
     })();
     return () => {
       cancelled = true;
+      // Abandoned before it settled (unmount, or a dep-change re-run): drop the
+      // hold so the handoff is never left stuck disabled.
+      setResumeGuardPending(false);
     };
   }, [
     restored,
@@ -996,6 +1014,9 @@ export function ResearchOnboardingRoute() {
           <LetsChatReadyStep
             installedPlugins={research.installedPlugins}
             pluginCatalog={research.pluginCatalog}
+            // Hold the handoff until a resumed done journey's guard settles, so
+            // it can't fire against an established assistant before the verdict.
+            disabled={resumeGuardPending}
             onStart={async () => {
               // Terminal step: the handoff leaves via enterAssistant, not
               // goForwardTo, so emit the completion here (mirrors SuggestionsStep).
