@@ -410,6 +410,13 @@ export async function processMessage(
   messageId: string;
   assistantMessageId?: string;
   /**
+   * True when this ingress deduplicated against a prior turn (same idempotency
+   * key) and the agent loop was skipped. Channel finalization must skip reply
+   * delivery on this signal so an at-least-once redelivery does not re-emit the
+   * original turn's reply.
+   */
+  deduplicated?: boolean;
+  /**
    * The agent turn's failure outcome, or `null` when it replied normally. Set
    * when the turn failed (e.g. its LLM call failed with an invalid provider) —
    * that path persists a synthetic error message and returns normally rather
@@ -676,12 +683,18 @@ export async function processMessage(
 
   if (deduplicated) {
     // This exact ingress (same idempotency key) already ran a turn; skip the
-    // loop so an at-least-once redelivery does not emit a second reply.
+    // loop so an at-least-once redelivery does not emit a second reply. The
+    // `deduplicated` signal also stops channel finalization from re-delivering
+    // the original reply.
     log.info(
       { conversationId, messageId },
       "Skipping agent loop for deduplicated ingress message",
     );
-    return { messageId, turnFailure: readTurnFailure(messageId) };
+    return {
+      messageId,
+      deduplicated: true,
+      turnFailure: readTurnFailure(messageId),
+    };
   }
 
   if (options?.isInteractive === true) {
