@@ -10,6 +10,12 @@
  * assistant resumes exactly as before. A form-submit case guards the shared-gate
  * refactor.
  *
+ * They also cover the two follow-ups from Codex on #38405: the guard runs for a
+ * snapshot hydrated straight to "done" (not just an idle one), and parking on
+ * the guard from a resume never persists a resumable `step: "existing"` snapshot
+ * — so a refresh re-lands on the keep/redo choice instead of auto-resuming past
+ * it.
+ *
  * Self-contained mocks (run this file solo — `mock.module` leaks across a shared
  * `bun test` run).
  */
@@ -25,6 +31,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { type ReactNode } from "react";
 
 import {
+  readResearchSnapshot,
   writeResearchSnapshot,
   type ResearchOnboardingSnapshot,
 } from "@/domains/onboarding/research-onboarding-persistence";
@@ -332,6 +339,78 @@ describe("ResearchOnboardingRoute resume guard", () => {
 
     fireEvent.click(await screen.findByTestId("form-submit"));
 
+    await waitFor(() =>
+      expect(screen.getByTestId("existing-step")).toBeTruthy(),
+    );
+    expect(startResearchMock).not.toHaveBeenCalled();
+  });
+
+  // A completed snapshot hydrates the runner to "done" and resolveResumeStep
+  // lands it on the suggestions step. That is NOT idle, so the pre-fix resume
+  // effect returned early and never consulted the guard — the user could walk a
+  // done journey into the chat handoff against an established assistant.
+  const doneSnapshot = (): ResearchOnboardingSnapshot =>
+    postFormSnapshot({
+      step: "suggestions",
+      research: {
+        status: "done",
+        claims: [],
+        droppedClaims: [],
+        suggestions: [],
+        installedPlugins: [],
+        pluginCatalog: {},
+      },
+    });
+
+  test("a restored completed snapshot diverts to the decision screen when the assistant is established", async () => {
+    establishedResult = { established: true, assistantName: "Viper" };
+    researchStatus = "done";
+    writeResearchSnapshot(USER_ID, doneSnapshot());
+
+    render(<ResearchOnboardingRoute />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("existing-step")).toBeTruthy(),
+    );
+    expect(screen.getByTestId("existing-step").textContent).toBe("Viper");
+    // A hydrated "done" journey never re-fires research either way.
+    expect(startResearchMock).not.toHaveBeenCalled();
+  });
+
+  test("a restored completed snapshot resumes without the guard when the assistant is fresh", async () => {
+    establishedResult = { established: false, assistantName: null };
+    researchStatus = "done";
+    writeResearchSnapshot(USER_ID, doneSnapshot());
+
+    render(<ResearchOnboardingRoute />);
+
+    // personalityEnabled → the suggestions step renders the "Let's chat" screen.
+    await waitFor(() =>
+      expect(screen.getByTestId("letschat-ready-step")).toBeTruthy(),
+    );
+    // A fresh verdict must not divert, and a done journey never re-fires.
+    expect(screen.queryByTestId("existing-step")).toBeNull();
+    expect(startResearchMock).not.toHaveBeenCalled();
+  });
+
+  test("parking on the guard from a resume never persists a resumable 'existing' snapshot", async () => {
+    establishedResult = { established: true, assistantName: "Viper" };
+    writeResearchSnapshot(USER_ID, postFormSnapshot());
+
+    render(<ResearchOnboardingRoute />);
+    await waitFor(() =>
+      expect(screen.getByTestId("existing-step")).toBeTruthy(),
+    );
+
+    // The parked-on-guard journey clears formValues, so the persistence effect
+    // can't write a `step: "existing"` snapshot carrying post-form values — the
+    // persisted step stays the pre-guard one.
+    expect(readResearchSnapshot(USER_ID)?.step).not.toBe("existing");
+
+    // A refresh (fresh mount, same snapshot) re-lands on the keep/redo choice
+    // rather than auto-resuming past the guard.
+    cleanup();
+    render(<ResearchOnboardingRoute />);
     await waitFor(() =>
       expect(screen.getByTestId("existing-step")).toBeTruthy(),
     );

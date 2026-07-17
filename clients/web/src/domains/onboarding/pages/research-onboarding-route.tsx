@@ -493,26 +493,33 @@ export function ResearchOnboardingRoute() {
     droppedClaimsScrubbed,
   ]);
 
-  // Mid-flow resume: we restored a journey whose research turn hadn't settled.
-  // Resume it once from the restored subject. When the prior session got far
-  // enough to mint the research conversation, re-attach to that SAME thread
-  // (`resumeConversationId`) — the turn keeps generating server-side across the
-  // reload, so we poll it instead of running a second search; only if it's gone
-  // (or was never minted) does the runner fall back to a fresh run. Only fires
-  // when results are absent (status "idle") — a fresh visit has no `formValues`
-  // until the form is submitted (which fires the search itself), and a completed
-  // resume hydrates the status to "done". The meeting is never re-booked here:
-  // that only fires from the calendar step, which a resume skips past.
+  // Resume a restored post-form journey through the SAME established-assistant
+  // guard the form submit applies. A snapshot persisted before the verdict
+  // settled (or after a transient fail-open) must not let the flow proceed
+  // against an assistant that already has a life without the keep/redo choice.
+  // This covers BOTH resumable entry points:
+  //   - a still-idle turn: re-fired below from the restored subject. When the
+  //     prior session minted the research conversation, the re-fire re-attaches
+  //     to that SAME thread (`resumeConversationId`) — the turn keeps generating
+  //     server-side across the reload, so the runner polls it instead of running
+  //     a second search, falling back to a fresh run only if it's gone.
+  //   - a turn hydrated straight to "done" from the snapshot: nothing re-fires,
+  //     but it lands on a later step and could otherwise walk into the chat
+  //     handoff ungated — so the guard still runs.
+  // (Running/error are transient, not resume entry points.) The meeting is never
+  // re-booked here: that only fires from the calendar step, which a resume skips.
   //
-  // The same established-assistant guard the form submit applies runs first: a
-  // restored post-form snapshot (persisted before the verdict settled, or after
-  // a transient fail-open) must not silently re-run research against an
-  // assistant that already has a life. When established, divert to the same
-  // keep/redo decision screen instead of re-firing; fail open (resume) on a
-  // fresh/unknown verdict, so a genuinely-new user never sees the guard.
+  // When established, divert to the keep/redo screen and move the values into
+  // `gatedFormValues` — clearing `formValues` so the persistence effect can't
+  // snapshot this parked-on-the-guard journey (a `step: "existing"` snapshot
+  // with post-form values would, on refresh, auto-resume past the guard). With
+  // `formValues` cleared the persisted step stays the pre-guard one, so a
+  // refresh re-runs the guard. Fail open (resume) on a fresh/unknown verdict so
+  // a genuinely-new user never sees the guard.
   useEffect(() => {
-    if (!restored) return;
-    if (!formValues || research.status !== "idle") return;
+    if (!restored || !formValues) return;
+    if (research.status !== "idle" && research.status !== "done") return;
+    const wasIdle = research.status === "idle";
     const values = formValues;
     let cancelled = false;
     void (async () => {
@@ -522,20 +529,25 @@ export function ResearchOnboardingRoute() {
         if (check?.established) {
           setGatedFormValues(values);
           setForwardStack([]);
+          setFormValues(null);
           setStep("existing");
           return;
         }
       }
-      startResearch({
-        awaitAssistantId: awaitHatchReady,
-        subject: researchSubjectFrom(values),
-        conversationTitle: researchTitleFor(values),
-        ...(researchConversationId
-          ? { resumeConversationId: researchConversationId }
-          : {}),
-        onConversationCreated: setResearchConversationId,
-        includeSuggestions: !personalityEnabled,
-      });
+      // Only the idle path re-fires the search; a hydrated "done" journey keeps
+      // its restored results.
+      if (wasIdle) {
+        startResearch({
+          awaitAssistantId: awaitHatchReady,
+          subject: researchSubjectFrom(values),
+          conversationTitle: researchTitleFor(values),
+          ...(researchConversationId
+            ? { resumeConversationId: researchConversationId }
+            : {}),
+          onConversationCreated: setResearchConversationId,
+          includeSuggestions: !personalityEnabled,
+        });
+      }
     })();
     return () => {
       cancelled = true;
