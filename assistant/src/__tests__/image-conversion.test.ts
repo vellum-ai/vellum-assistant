@@ -14,6 +14,8 @@ import {
   jpegFilenameFor,
   normalizeImageBase64,
   normalizeImageBytes,
+  sniffBase64ImageMimeType,
+  sniffImageMimeType,
 } from "../util/image-conversion.js";
 import {
   fakeHeifHeaderBytes,
@@ -69,6 +71,48 @@ describe("jpegFilenameFor", () => {
   });
 });
 
+const JPEG_HEADER_BYTES = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10]);
+const GIF_HEADER_BYTES = Buffer.from("GIF89a\x01\x00\x01\x00", "latin1");
+const WEBP_HEADER_BYTES = Buffer.concat([
+  Buffer.from("RIFF"),
+  Buffer.from([0x24, 0x00, 0x00, 0x00]),
+  Buffer.from("WEBPVP8 "),
+]);
+
+describe("sniffImageMimeType", () => {
+  test("identifies PNG, JPEG, GIF, and WebP signatures", () => {
+    expect(sniffImageMimeType(PNG_1PX_BYTES)).toBe("image/png");
+    expect(sniffImageMimeType(JPEG_HEADER_BYTES)).toBe("image/jpeg");
+    expect(sniffImageMimeType(GIF_HEADER_BYTES)).toBe("image/gif");
+    expect(sniffImageMimeType(WEBP_HEADER_BYTES)).toBe("image/webp");
+  });
+
+  test("returns null for unrecognized or truncated content", () => {
+    expect(sniffImageMimeType(Buffer.from("plain text content"))).toBeNull();
+    expect(sniffImageMimeType(Buffer.alloc(0))).toBeNull();
+    expect(sniffImageMimeType(fakeHeifHeaderBytes())).toBeNull();
+    // RIFF container that is not WebP (e.g. WAV audio).
+    expect(
+      sniffImageMimeType(
+        Buffer.concat([
+          Buffer.from("RIFF"),
+          Buffer.from([0x24, 0x00, 0x00, 0x00]),
+          Buffer.from("WAVEfmt "),
+        ]),
+      ),
+    ).toBeNull();
+  });
+
+  test("base64 variant sniffs from the encoded head", () => {
+    expect(sniffBase64ImageMimeType(PNG_1PX_BYTES.toString("base64"))).toBe(
+      "image/png",
+    );
+    expect(
+      sniffBase64ImageMimeType(Buffer.from("not an image").toString("base64")),
+    ).toBeNull();
+  });
+});
+
 describe("normalizeImageBytes passthrough", () => {
   test("non-HEIF bytes pass through untouched", () => {
     const result = normalizeImageBytes("image/png", PNG_1PX_BYTES);
@@ -93,6 +137,32 @@ describe("normalizeImageBase64 passthrough", () => {
     const result = normalizeImageBase64("image/png", b64);
     expect(result.converted).toBe(false);
     expect(result.dataBase64).toBe(b64);
+  });
+});
+
+describe("declared-MIME correction from sniffed bytes", () => {
+  test("normalizeImageBytes relabels a mislabeled image, bytes untouched", () => {
+    // A JPEG renamed to .png arrives declared as image/png; providers reject
+    // the mismatch, so the sniffed format wins.
+    const result = normalizeImageBytes("image/png", JPEG_HEADER_BYTES);
+    expect(result.converted).toBe(false);
+    expect(result.mimeType).toBe("image/jpeg");
+    expect(result.bytes).toBe(JPEG_HEADER_BYTES);
+  });
+
+  test("normalizeImageBase64 relabels a mislabeled image, payload untouched", () => {
+    const b64 = PNG_1PX_BYTES.toString("base64");
+    const result = normalizeImageBase64("image/jpeg", b64);
+    expect(result.converted).toBe(false);
+    expect(result.mimeType).toBe("image/png");
+    expect(result.dataBase64).toBe(b64);
+  });
+
+  test("unrecognized bytes keep the declared MIME", () => {
+    const bytes = Buffer.from("plain text content");
+    const result = normalizeImageBytes("text/plain", bytes);
+    expect(result.mimeType).toBe("text/plain");
+    expect(result.bytes).toBe(bytes);
   });
 });
 

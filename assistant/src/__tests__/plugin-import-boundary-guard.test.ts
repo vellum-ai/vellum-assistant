@@ -75,6 +75,7 @@ const BASELINE: Record<string, readonly string[]> = {
     "../../../agent/image-optimize.js",
     "../../../context/image-dimensions.js",
     "../../../persistence/conversation-crud.js",
+    "../../../util/image-conversion.js",
     "../../../util/logger.js",
   ],
   memory: [

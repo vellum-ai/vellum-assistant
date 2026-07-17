@@ -14,6 +14,7 @@
 
 import { beforeEach, describe, expect, test } from "bun:test";
 
+import { uploadAttachment } from "../persistence/attachments-store.js";
 import {
   addMessage,
   createConversation,
@@ -83,10 +84,10 @@ function makePngBase64(width: number, height: number, padBytes = 0): string {
   return padBytes > 0 ? header + "A".repeat(padBytes) : header;
 }
 
-function imageBlock(data: string): ContentBlock {
+function imageBlock(data: string, mediaType = "image/png"): ContentBlock {
   return {
     type: "image",
-    source: { type: "base64", media_type: "image/png", data },
+    source: { type: "base64", media_type: mediaType, data },
   };
 }
 
@@ -286,6 +287,41 @@ describe("persistUnsendableImageDowngrades", () => {
     );
   });
 
+  /** A stored image whose declared media type disagrees with its bytes (e.g.
+   *  a JPEG renamed to .png before upload) is relabeled in place — bytes kept,
+   *  media_type corrected — so it stops re-rejecting on every later turn. */
+  test("relabels a mislabeled image instead of removing it", async () => {
+    // GIVEN a normally-sized PNG stored with a declared type of image/jpeg
+    const conv = createConversation();
+    const pngData = makePngBase64(1024, 768);
+    await addMessage(
+      conv.id,
+      "user",
+      JSON.stringify([imageBlock(pngData, "image/jpeg")]),
+      { skipIndexing: true },
+    );
+
+    // WHEN the downgrade is persisted
+    const rewritten = persistUnsendableImageDowngrades(conv.id);
+
+    // THEN the image survives with its media type corrected to the sniffed one
+    expect(rewritten).toBe(1);
+    const [content] = storedContent(conv.id);
+    const image = content.find((b) => b.type === "image") as Extract<
+      ContentBlock,
+      { type: "image" }
+    >;
+    expect(image).toBeDefined();
+    expect(image.source).toMatchObject({
+      type: "base64",
+      media_type: "image/png",
+      data: pngData,
+    });
+
+    // AND a second run is a no-op (the corrected block no longer mismatches)
+    expect(persistUnsendableImageDowngrades(conv.id)).toBe(0);
+  });
+
   /** Re-running after a rewrite is a safe no-op (no image blocks remain). */
   test("is idempotent — a second run rewrites nothing", async () => {
     // GIVEN a conversation whose oversized image has already been downgraded
@@ -339,5 +375,53 @@ describe("unsendableImageReplacement", () => {
     >;
     const replacement = unsendableImageReplacement(undersized);
     expect(replacement?.type).toBe("text");
+  });
+
+  /** A within-limits image whose declared media type disagrees with its bytes
+   *  is relabeled with the sniffed type instead of being noted out. */
+  test("relabels a mislabeled image with its sniffed media type", () => {
+    const pngData = makePngBase64(1024, 768);
+    const mislabeled = imageBlock(pngData, "image/jpeg") as Extract<
+      ContentBlock,
+      { type: "image" }
+    >;
+    const replacement = unsendableImageReplacement(mislabeled);
+    expect(replacement).toMatchObject({
+      type: "image",
+      source: { type: "base64", media_type: "image/png", data: pngData },
+    });
+  });
+
+  /** Relabeling a persisted (workspace_ref) image keeps the reference shape —
+   *  inlining it would bake the full payload into the stored message row. */
+  test("relabels a mislabeled workspace_ref without inlining the payload", () => {
+    const pngData = makePngBase64(1024, 768);
+    const stored = uploadAttachment("photo.png", "image/png", pngData);
+    const mislabeledRef = {
+      type: "image",
+      source: {
+        type: "workspace_ref",
+        media_type: "image/jpeg",
+        attachmentId: stored.id,
+        sizeBytes: Buffer.from(pngData, "base64").length,
+      },
+    } as Extract<ContentBlock, { type: "image" }>;
+
+    const replacement = unsendableImageReplacement(mislabeledRef);
+
+    expect(replacement).toMatchObject({
+      type: "image",
+      source: {
+        type: "workspace_ref",
+        media_type: "image/png",
+        attachmentId: stored.id,
+      },
+    });
+    // AND the corrected reference no longer matches on a second pass
+    expect(
+      unsendableImageReplacement(
+        replacement as Extract<ContentBlock, { type: "image" }>,
+      ),
+    ).toBeNull();
   });
 });
