@@ -24,7 +24,7 @@ import {
     useActiveAssistantLifecycleIsLoading,
     usePlatformGate,
 } from "@/hooks/use-platform-gate";
-import { useIsSessionInitializing } from "@/stores/auth-store";
+import { useIsPlatformSessionSettled } from "@/stores/auth-store";
 import { routes } from "@/utils/routes";
 import { Notice } from "@vellumai/design-library/components/notice";
 import { Tabs } from "@vellumai/design-library/components/tabs";
@@ -192,12 +192,15 @@ export function BillingPage() {
     // Keep the active tab explicit in the URL so both tabs are symmetric and
     // the address bar always names what's shown: a bare `/settings/usage` — or
     // a stale `?tab=billing` after signing out — is rewritten to the resolved
-    // tab. Gated on the settled session so the boot window (platform session
-    // still `"unknown"`, so Billing hasn't resolved as default yet) can't lock
-    // in `?tab=usage` before we know the viewer is signed in.
-    const isSessionInitializing = useIsSessionInitializing();
+    // tab. Gate on the *platform-session* probe settling, not just session
+    // status: the local-gateway path flips `sessionStatus` to authenticated
+    // while `platformSession` is still `"unknown"` (so `usePlatformGate()`
+    // reads no session and Billing hasn't resolved as the default). Rewriting
+    // in that window would lock `?tab=usage` and strand a signed-in viewer on
+    // Usage once the session confirms.
+    const isPlatformSessionSettled = useIsPlatformSessionSettled();
     useEffect(() => {
-        if (isSessionInitializing) {
+        if (!isPlatformSessionSettled) {
             return;
         }
         if (searchParams.get("tab") !== activeTab) {
@@ -205,7 +208,7 @@ export function BillingPage() {
             next.set("tab", activeTab);
             setSearchParams(next, { replace: true });
         }
-    }, [isSessionInitializing, searchParams, activeTab, setSearchParams]);
+    }, [isPlatformSessionSettled, searchParams, activeTab, setSearchParams]);
 
     const handleTabChange = (value: string) => {
         const next = new URLSearchParams(searchParams);
