@@ -173,16 +173,19 @@ export function CustomPlanModal({
         }
       }}
     >
+      {/* 608px is the design's dialog height; min() keeps short windows from
+          forcing the dialog past the viewport, since min-height would beat
+          the base max-height. */}
       <Modal.Content
         size="lg"
         data-theme="light"
         hideCloseButton
         overlayClassName="backdrop-blur-[2px]"
-        className="max-w-[820px]"
+        className="max-w-[820px] md:min-h-[min(608px,calc(100vh-4rem))]"
       >
-        <Modal.Body className="pt-4">
+        <Modal.Body className="p-6">
           <div className="flex flex-col gap-8 md:flex-row md:gap-12">
-            <div className="flex min-w-0 flex-col gap-6 md:w-[440px] md:shrink-0">
+            <div className="flex min-w-0 flex-col gap-8 md:w-[440px] md:shrink-0">
               <div className="flex items-center gap-3">
                 <div className="flex shrink-0 items-center justify-center rounded-xl bg-[var(--surface-active)] p-[14px]">
                   <SlidersHorizontal
@@ -240,7 +243,7 @@ export function CustomPlanModal({
               </div>
             </div>
 
-            <div className="flex min-w-0 flex-1 flex-col gap-4 md:pt-[3px]">
+            <div className="flex min-w-0 flex-1 flex-col gap-5 md:pt-[3px]">
               <span className="text-[16px] font-medium text-[var(--content-emphasised)]">
                 Recap
               </span>

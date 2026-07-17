@@ -323,7 +323,7 @@ export function PlansPage() {
   return (
     <div
       data-theme="dark"
-      className="relative h-full w-full overflow-y-auto"
+      className="plans-takeover-canvas-enter relative h-full w-full overflow-y-auto"
       style={{ backgroundColor: PAGE_BACKGROUND }}
     >
       {/* WindowDragRegion handles title-bar dragging globally; the chip opts
@@ -343,7 +343,7 @@ export function PlansPage() {
       </div>
 
       <div
-        className="flex min-h-full flex-col items-center px-6 pb-8"
+        className="plans-takeover-content-enter flex min-h-full flex-col items-center px-6 pb-8"
         style={{ paddingTop: electron ? "5rem" : "4rem" }}
       >
         {body}
