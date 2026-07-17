@@ -2027,7 +2027,7 @@
         {
           "id": "thinkingmachines/inkling",
           "displayName": "Inkling",
-          "contextWindowTokens": 1048576,
+          "contextWindowTokens": 262144,
           "maxOutputTokens": 32768,
           "defaultContextWindowTokens": 200000,
           "longContextMode": "native-model",
