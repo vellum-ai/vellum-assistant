@@ -104,12 +104,27 @@ export const RESEARCH_ONBOARDING_CHECKIN_STEP = {
  */
 export type OnboardingFunnelStepOutcome = "completed" | "skipped";
 
+/**
+ * A/B arm stamped on the event. The ingest stores `ab_variant` as an open
+ * CharField; the `OnboardingFunnelVariant` union documents the pre-chat arms
+ * while `(string & {})` admits other funnels' arms (e.g. tips flag variants).
+ */
+export type OnboardingFunnelAbVariant = OnboardingFunnelVariant | (string & {});
+
 export interface OnboardingFunnelStepCompletedOptions {
   userId?: string | null;
+  /** A/B arm stamped as `ab_variant`; defaults to control. The tips funnel
+   * passes its flag arm here. */
+  variant?: OnboardingFunnelAbVariant;
   /** Funnel this step belongs to; defaults to the pre-chat funnel version. */
   funnelVersion?: string;
   /** Completed vs skipped; omitted when the funnel doesn't distinguish. */
   outcome?: OnboardingFunnelStepOutcome;
+  /**
+   * Emitted `screen` when it differs from the step name — e.g. the tips
+   * funnel puts the tip id in `screen` and the action in `step_name`.
+   */
+  screen?: string;
 }
 
 export interface OnboardingFunnelEvent {
@@ -123,7 +138,7 @@ export interface OnboardingFunnelEvent {
   completed_at: string;
   user_id: string | null;
   funnel_version: string;
-  ab_variant: OnboardingFunnelVariant;
+  ab_variant: OnboardingFunnelAbVariant;
   /** Completed vs skipped; absent when the funnel doesn't distinguish. */
   outcome?: OnboardingFunnelStepOutcome;
 }
@@ -155,14 +170,14 @@ export function buildOnboardingFunnelEvent(
     type: "onboarding",
     daemon_event_id: crypto.randomUUID(),
     recorded_at: now,
-    screen: screen.stepName,
+    screen: options.screen ?? screen.stepName,
     session_id: getOnboardingFunnelSessionId(),
     step_name: screen.stepName,
     step_index: screen.stepIndex,
     completed_at: new Date(now).toISOString(),
     user_id: options.userId ?? null,
     funnel_version: options.funnelVersion ?? ONBOARDING_FUNNEL_VERSION,
-    ab_variant: ONBOARDING_FUNNEL_VARIANTS.control,
+    ab_variant: options.variant ?? ONBOARDING_FUNNEL_VARIANTS.control,
     // Omitted (→ stripped before send) unless the caller distinguishes the two.
     outcome: options.outcome,
   };

@@ -70,6 +70,8 @@ import { requestComposerFocus } from "./composer-focus";
 import { LazyBoundary } from "@/components/lazy-boundary";
 import { RuntimeUpgradeBanner } from "@/components/runtime-upgrade-banner";
 import { StatusBanner } from "@/components/status-banner";
+import { SidebarTipCard } from "@/components/tips/sidebar-tip-card";
+import { ensureTipsFirstSeenAt } from "@/utils/tips-storage";
 import { AssistantSideMenu } from "@/domains/chat/components/assistant-side-menu";
 import { PreferencesMenu } from "@/domains/chat/components/preferences-menu";
 import { useCommandPaletteOrchestrator } from "@/domains/chat/hooks/use-command-palette-orchestrator";
@@ -311,6 +313,13 @@ export function ChatLayout({
   useEffect(() => {
     setDrawerOpen(false);
   }, [location.key]);
+
+  // The tips new-user grace clock anchors to first app use. Stamping here
+  // (not only in the tip hook) covers mobile, where the drawer-gated tip
+  // card may not mount for days.
+  useEffect(() => {
+    ensureTipsFirstSeenAt();
+  }, []);
 
   useEffect(() => {
     if (!sidebarCollapseRequested) {
@@ -719,6 +728,14 @@ export function ChatLayout({
           activeConversationId={activeConversationId}
           triggerVariant={args.variant === "overlay" ? "pill" : "item"}
         />
+      }
+      // The overlay subtree mounts mid edge-swipe while still off-screen;
+      // mounting the tip card there stamps an impression for a tip never
+      // seen, so the overlay only gets it once the drawer settles open.
+      tipCard={
+        args.variant === "overlay" && !drawerOpen ? undefined : (
+          <SidebarTipCard />
+        )
       }
       onClose={args.onClose}
     />

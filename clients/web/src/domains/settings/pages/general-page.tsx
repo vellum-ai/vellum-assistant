@@ -24,6 +24,7 @@ import { PreferencesModal } from "@/domains/settings/components/preferences-moda
 import { PreviewReleaseChannel } from "@/domains/settings/components/preview-release-channel";
 import { ResizeCard } from "@/domains/settings/components/resize-card";
 import { RetireAssistant } from "@/domains/settings/components/retire-assistant";
+import { ShowTipsRow } from "@/domains/settings/components/show-tips-row";
 import { TimezoneSection } from "@/domains/settings/components/timezone-section";
 import { UpdateWindowModal } from "@/domains/settings/components/update-window-modal";
 import { TwoFactorSection } from "@/domains/settings/security/two-factor-section";
@@ -289,8 +290,12 @@ export function GeneralPage() {
           ) : undefined
         }
       >
-        <ThemePicker />
+        <div className="flex flex-col gap-5">
+          <ThemePicker />
+          <ShowTipsRow />
+        </div>
       </DetailCard>
+
       {showPreferences && (
         <PreferencesModal
           open={preferencesOpen}

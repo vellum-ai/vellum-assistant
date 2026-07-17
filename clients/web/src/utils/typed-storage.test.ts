@@ -4,6 +4,7 @@ import {
   createKeyedStorageAccessor,
   createRecordStorageAccessor,
   createStorageAccessor,
+  parseBool,
 } from "./typed-storage";
 
 beforeEach(() => {
@@ -82,11 +83,7 @@ describe("createStorageAccessor", () => {
     const boolAccessor = createStorageAccessor<boolean>({
       key: "vellum:test-flag",
       scope: "user",
-      parse: (raw) => {
-        if (raw === "true") return true;
-        if (raw === "false") return false;
-        return null;
-      },
+      parse: parseBool,
       serialize: (v) => String(v),
       fallback: false,
     });
