@@ -974,9 +974,35 @@ export function ConceptGraphView({
       />
     );
   } else {
+    // Brain-vocabulary stat header: neurons (nodes), synapses (edges), and
+    // lobes (distinct detected clusters). Only reached inside the ready body
+    // (nodes.length > 0), so it always has live counts to show.
+    const neurons = layout.nodes.length;
+    const synapses = layout.edges.length;
+    const lobes = new Set(clusters.values()).size;
+    const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
     body = (
       <>
         <canvas ref={canvasRef} className="absolute inset-0 h-full w-full" />
+
+        {/* Brain-vocabulary stat header. Tagged data-graph-control so a
+            pointer-down on it bails the orbit-drag. Yields the top-center slot
+            to the intro banner and to a hover tooltip so the pills never stack. */}
+        {!showIntro && focusLabel == null && edgeLabel == null ? (
+          <div
+            data-graph-control
+            className="absolute left-1/2 top-4 -translate-x-1/2 rounded-full px-3 py-1 text-[11px] tabular-nums"
+            style={{
+              backgroundColor: "color-mix(in srgb, var(--surface-base) 82%, transparent)",
+              border: "1px solid var(--border-base)",
+              color: "var(--content-tertiary)",
+            }}
+          >
+            {plural(neurons, "neuron")} · {plural(synapses, "synapse")} ·{" "}
+            {plural(lobes, "lobe")}
+          </div>
+        ) : null}
 
         {/* Keep the box visible whenever a search is active, even if the graph
             shrank below the threshold (e.g. a refetch) — otherwise an active
