@@ -17,7 +17,13 @@
  * then clicks "Continue" to drop into the full workspace on the same conversation.
  */
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
 import { lifecycleService } from "@/assistant/lifecycle-service";
@@ -206,6 +212,14 @@ export function ResearchOnboardingRoute() {
   const [gatedFormValues, setGatedFormValues] =
     useState<ResearchOnboardingValues | null>(null);
   const guardOverriddenRef = useRef(false);
+  // Holds the terminal "Let's chat" handoff while a RESUMED completed journey
+  // waits for the established-assistant guard. A done snapshot hydrates straight
+  // onto the suggestions step, whose handoff would otherwise clear the snapshot
+  // and navigate away before the async verdict lands — skipping the keep/redo
+  // choice for an established assistant. Set in the restore pass (before first
+  // paint, no gap) and cleared on every settle path below, so a genuinely-new
+  // user is never stuck.
+  const [resumeGuardPending, setResumeGuardPending] = useState(false);
   const [faceValues, setFaceValues] = useState<GiveMeAFaceValues | null>(null);
   // Personality sliders live here (not in the step) so they survive a step-back
   // and stay shown once locked. `personalityLocked` flips true on the first
@@ -292,6 +306,21 @@ export function ResearchOnboardingRoute() {
   // minted — otherwise the rejected facts could still be pulled into its context.
   // Resolves immediately when nothing was corrected (never rejects).
   const researchCorrectionRef = useRef<Promise<void>>(Promise.resolve());
+  // Guards the one-shot dropped-claims scrub (below) so the hidden aggregator-
+  // only drops are corrected out of memory exactly once per run — whether the
+  // scrub fires from the empty-card effect, the results-step prune, a "this is
+  // not me" rejection, or a resume that landed past the results step. The ref is
+  // the synchronous guard (StrictMode-safe); the state mirror is persisted so a
+  // resume never re-sends a scrub the prior session already dispatched. Both
+  // reset when a fresh research run starts (see fireResearch).
+  const droppedClaimsScrubbedRef = useRef(false);
+  const [droppedClaimsScrubbed, setDroppedClaimsScrubbed] = useState(false);
+  // Keep the sync guard and its persisted mirror in lockstep — every mutation
+  // (dispatch, reset, resume-seed) flows through here so they can't diverge.
+  const syncDroppedClaimsScrubbed = useCallback((scrubbed: boolean) => {
+    droppedClaimsScrubbedRef.current = scrubbed;
+    setDroppedClaimsScrubbed(scrubbed);
+  }, []);
   // Findings the user explicitly KEPT on the results step (claims minus the
   // X-ed ones), captured at the moment of confirmation. Null until the user
   // has actually reviewed the results — a "Skip to Chat" before that must not
@@ -343,6 +372,23 @@ export function ResearchOnboardingRoute() {
     void check.then(setEstablishedCheck);
   }, [awaitHatchReady]);
 
+  // Resolve the established-assistant verdict for a gate decision: race the
+  // in-flight check (kicked off at mount, above) against a short timeout so a
+  // slow daemon can't hold the flow. A null result — the check hasn't started
+  // yet or the race timed out — is the fail-open signal: the caller proceeds as
+  // if fresh, matching the check's own fail-open posture (the guard stops
+  // silent persona rewrites of real assistants, not onboarding on a hiccup).
+  const resolveEstablishedGate = useCallback(
+    (): Promise<EstablishedAssistantCheck | null> =>
+      Promise.race([
+        establishedCheckRef.current ?? Promise.resolve(null),
+        new Promise<null>((resolve) => {
+          setTimeout(() => resolve(null), ESTABLISHED_CHECK_SUBMIT_WAIT_MS);
+        }),
+      ]),
+    [],
+  );
+
   // Resume a journey saved by a previous session (a page refresh). Runs once,
   // as soon as the user id is known, BEFORE the persistence write / research
   // re-fire effects below (which gate on `restored`). useLayoutEffect so we
@@ -366,14 +412,27 @@ export function ResearchOnboardingRoute() {
       setResearchConversationId(snapshot.researchConversationId ?? null);
       // Re-enqueue the named plugin installs against the re-hatched assistant so
       // a suggestion click awaits real (idempotent) installs, not an empty map.
-      if (snapshot.research)
+      if (snapshot.research) {
         hydrateResearch(
           {
             ...snapshot.research,
             pluginCatalog: snapshot.research.pluginCatalog ?? {},
+            // Restore the hidden aggregator-only drops (absent on older
+            // snapshots) so a resume that lands past the results correction can
+            // still scrub them from memory — see the drops-scrub effect below.
+            droppedClaims: snapshot.research.droppedClaims ?? [],
           },
           awaitHatchReady,
         );
+        // Seed the scrub guard from the snapshot: if the prior session already
+        // dispatched the correction, don't re-send it; if it didn't, the effect
+        // below re-fires once the resumed suggestions step renders.
+        syncDroppedClaimsScrubbed(snapshot.droppedClaimsScrubbed ?? false);
+        // A completed journey resumes straight onto the terminal handoff step
+        // (resolveResumeStep → "suggestions"); hold that CTA here, synchronously,
+        // until the resume-guard effect below settles the verdict.
+        setResumeGuardPending(true);
+      }
       // A snapshot written before the calendar steps were dropped from the
       // local flow (or by a signed-in web session) may resume onto them —
       // remap to the research reveal the skip lands on.
@@ -386,7 +445,14 @@ export function ResearchOnboardingRoute() {
       setForwardStack([]);
     }
     setRestored(true);
-  }, [restored, userId, hydrateResearch, awaitHatchReady, skipCheckinSteps]);
+  }, [
+    restored,
+    userId,
+    hydrateResearch,
+    awaitHatchReady,
+    skipCheckinSteps,
+    syncDroppedClaimsScrubbed,
+  ]);
 
   // Persist the journey as it advances so a refresh can resume it. Gated on
   // `restored` so we don't overwrite the snapshot before reading it, and only
@@ -406,6 +472,9 @@ export function ResearchOnboardingRoute() {
           ? {
               status: "done",
               claims: research.claims,
+              // Persist the hidden aggregator-only drops so a resume past the
+              // results step can still scrub them (see the drops-scrub effect).
+              droppedClaims: research.droppedClaims,
               suggestions: research.suggestions,
               installedPlugins: research.installedPlugins,
               pluginCatalog: research.pluginCatalog,
@@ -415,6 +484,7 @@ export function ResearchOnboardingRoute() {
         ? { researchConversationId }
         : {}),
       ...(keptFindings ? { keptClaims: keptFindings } : {}),
+      ...(droppedClaimsScrubbed ? { droppedClaimsScrubbed: true } : {}),
     });
   }, [
     restored,
@@ -428,34 +498,78 @@ export function ResearchOnboardingRoute() {
     researchConversationId,
     research.status,
     research.claims,
+    research.droppedClaims,
     research.suggestions,
     research.installedPlugins,
     research.pluginCatalog,
+    droppedClaimsScrubbed,
   ]);
 
-  // Mid-flow resume: we restored a journey whose research turn hadn't settled.
-  // Resume it once from the restored subject. When the prior session got far
-  // enough to mint the research conversation, re-attach to that SAME thread
-  // (`resumeConversationId`) — the turn keeps generating server-side across the
-  // reload, so we poll it instead of running a second search; only if it's gone
-  // (or was never minted) does the runner fall back to a fresh run. Only fires
-  // when results are absent (status "idle") — a fresh visit has no `formValues`
-  // until the form is submitted (which fires the search itself), and a completed
-  // resume hydrates the status to "done". The meeting is never re-booked here:
-  // that only fires from the calendar step, which a resume skips past.
+  // Resume a restored post-form journey through the SAME established-assistant
+  // guard the form submit applies. A snapshot persisted before the verdict
+  // settled (or after a transient fail-open) must not let the flow proceed
+  // against an assistant that already has a life without the keep/redo choice.
+  // This covers BOTH resumable entry points:
+  //   - a still-idle turn: re-fired below from the restored subject. When the
+  //     prior session minted the research conversation, the re-fire re-attaches
+  //     to that SAME thread (`resumeConversationId`) — the turn keeps generating
+  //     server-side across the reload, so the runner polls it instead of running
+  //     a second search, falling back to a fresh run only if it's gone.
+  //   - a turn hydrated straight to "done" from the snapshot: nothing re-fires,
+  //     but it lands on a later step and could otherwise walk into the chat
+  //     handoff ungated — so the guard still runs.
+  // (Running/error are transient, not resume entry points.) The meeting is never
+  // re-booked here: that only fires from the calendar step, which a resume skips.
+  //
+  // When established, divert to the keep/redo screen and move the values into
+  // `gatedFormValues` — clearing `formValues` so the persistence effect can't
+  // snapshot this parked-on-the-guard journey (a `step: "existing"` snapshot
+  // with post-form values would, on refresh, auto-resume past the guard). With
+  // `formValues` cleared the persisted step stays the pre-guard one, so a
+  // refresh re-runs the guard. Fail open (resume) on a fresh/unknown verdict so
+  // a genuinely-new user never sees the guard.
   useEffect(() => {
-    if (!restored) return;
-    if (!formValues || research.status !== "idle") return;
-    startResearch({
-      awaitAssistantId: awaitHatchReady,
-      subject: researchSubjectFrom(formValues),
-      conversationTitle: researchTitleFor(formValues),
-      ...(researchConversationId
-        ? { resumeConversationId: researchConversationId }
-        : {}),
-      onConversationCreated: setResearchConversationId,
-      includeSuggestions: !personalityEnabled,
-    });
+    if (!restored || !formValues) return;
+    if (research.status !== "idle" && research.status !== "done") return;
+    const wasIdle = research.status === "idle";
+    const values = formValues;
+    let cancelled = false;
+    void (async () => {
+      if (!guardOverriddenRef.current) {
+        const check = await resolveEstablishedGate();
+        if (cancelled) return;
+        if (check?.established) {
+          setGatedFormValues(values);
+          setForwardStack([]);
+          setFormValues(null);
+          setStep("existing");
+          setResumeGuardPending(false);
+          return;
+        }
+      }
+      // Fresh/unknown verdict (or the guard was already overridden): release the
+      // handoff hold so the CTA is usable. Only the idle path re-fires the
+      // search; a hydrated "done" journey keeps its restored results.
+      setResumeGuardPending(false);
+      if (wasIdle) {
+        startResearch({
+          awaitAssistantId: awaitHatchReady,
+          subject: researchSubjectFrom(values),
+          conversationTitle: researchTitleFor(values),
+          ...(researchConversationId
+            ? { resumeConversationId: researchConversationId }
+            : {}),
+          onConversationCreated: setResearchConversationId,
+          includeSuggestions: !personalityEnabled,
+        });
+      }
+    })();
+    return () => {
+      cancelled = true;
+      // Abandoned before it settled (unmount, or a dep-change re-run): drop the
+      // hold so the handoff is never left stuck disabled.
+      setResumeGuardPending(false);
+    };
   }, [
     restored,
     formValues,
@@ -464,6 +578,7 @@ export function ResearchOnboardingRoute() {
     startResearch,
     awaitHatchReady,
     personalityEnabled,
+    resolveEstablishedGate,
   ]);
 
   // If we're sitting on the results step when the research turn resolves empty
@@ -474,6 +589,39 @@ export function ResearchOnboardingRoute() {
       setStep("suggestions");
     }
   }, [step, noClaims]);
+
+  // Scrub the hidden aggregator-only drops from the assistant's memory when the
+  // results step won't do it itself. The results step folds drops into its own
+  // correction, but it's skipped in two cases: a search that surfaced no card
+  // claims (nothing to review), and a refresh that restored completed research
+  // straight onto the suggestions step (past the results correction). In either
+  // case issue the scrub here once research settles (done or timed-out error —
+  // matching how the results step renders on both), once per run via the guard
+  // (reset in fireResearch, seeded from the snapshot on resume).
+  useEffect(() => {
+    if (droppedClaimsScrubbedRef.current) return;
+    if (researchLoading) return;
+    if (research.droppedClaims.length === 0) return;
+    if (!researchConversationId || !hatchedAssistantId) return;
+    // With card claims present the results step owns the scrub — unless we've
+    // resumed straight onto the suggestions step, past that correction.
+    if (research.claims.length > 0 && step !== "suggestions") return;
+    syncDroppedClaimsScrubbed(true);
+    researchCorrectionRef.current = sendResearchCorrection({
+      assistantId: hatchedAssistantId,
+      conversationId: researchConversationId,
+      removedClaims: research.droppedClaims,
+      rejectedAll: false,
+    });
+  }, [
+    researchLoading,
+    research.claims.length,
+    research.droppedClaims,
+    researchConversationId,
+    hatchedAssistantId,
+    step,
+    syncDroppedClaimsScrubbed,
+  ]);
 
   // Build the pre-chat context and hand off to the chat pipeline. The chosen
   // name is applied via `assistantName`; the avatar traits are applied to the
@@ -595,6 +743,8 @@ export function ResearchOnboardingRoute() {
   // Fire the research turn; the runner awaits hatch readiness internally, so
   // it starts at the later of the caller's submit and the background hatch.
   function fireResearch(values: ResearchOnboardingValues) {
+    // A fresh run produces fresh drops — re-arm the one-shot scrub above.
+    syncDroppedClaimsScrubbed(false);
     research.start({
       awaitAssistantId: awaitHatchReady,
       subject: researchSubjectFrom(values),
@@ -608,18 +758,11 @@ export function ResearchOnboardingRoute() {
 
   async function handleFormSubmit(values: ResearchOnboardingValues) {
     // Established-assistant guard: never run the flow's side effects against
-    // an assistant that already has a life without an explicit choice. Uses
-    // the settled verdict when available, otherwise waits briefly for the
-    // in-flight check — failing open so a slow daemon can't hold the form.
+    // an assistant that already has a life without an explicit choice. Awaits
+    // the (usually already-settled) verdict, failing open so a slow daemon
+    // can't hold the form.
     if (!guardOverriddenRef.current) {
-      const check =
-        establishedCheck ??
-        (await Promise.race([
-          establishedCheckRef.current ?? Promise.resolve(null),
-          new Promise<null>((resolve) => {
-            setTimeout(() => resolve(null), ESTABLISHED_CHECK_SUBMIT_WAIT_MS);
-          }),
-        ]));
+      const check = await resolveEstablishedGate();
       if (check?.established) {
         setGatedFormValues(values);
         goForwardTo("existing");
@@ -822,13 +965,26 @@ export function ResearchOnboardingRoute() {
               );
               // Pruned claims are wrong — tell the assistant to disregard them so
               // they don't leak into the real chat (the research turn taught its
-              // memory these facts). The chat handoff awaits this promise, so the
-              // correction is persisted before the first conversation is minted.
-              if (researchConversationId && hatchedAssistantId && removed.length > 0) {
+              // memory these facts). Fold in the aggregator-only claims the card
+              // hid: they live in the same memory but were never shown, so the
+              // user couldn't prune them. Skip that fold if a resume already
+              // scrubbed them, so stepping back to this card can't re-send them.
+              // The chat handoff awaits this promise, so the correction is
+              // persisted before the first conversation is minted.
+              const dropsToFold = droppedClaimsScrubbedRef.current
+                ? []
+                : research.droppedClaims;
+              const toDisregard = [...removed, ...dropsToFold];
+              if (
+                researchConversationId &&
+                hatchedAssistantId &&
+                toDisregard.length > 0
+              ) {
+                if (dropsToFold.length > 0) syncDroppedClaimsScrubbed(true);
                 researchCorrectionRef.current = sendResearchCorrection({
                   assistantId: hatchedAssistantId,
                   conversationId: researchConversationId,
-                  removedClaims: removed,
+                  removedClaims: toDisregard,
                   rejectedAll: false,
                 });
               }
@@ -837,8 +993,10 @@ export function ResearchOnboardingRoute() {
             onRejectAll={() => {
               setKeptFindings([]);
               // "This is not me" — the search matched someone else. Disown the
-              // whole result so none of it carries into the assistant's context.
+              // whole result so none of it carries into the assistant's context;
+              // that covers the hidden drops too, so mark them scrubbed.
               if (researchConversationId && hatchedAssistantId) {
+                syncDroppedClaimsScrubbed(true);
                 researchCorrectionRef.current = sendResearchCorrection({
                   assistantId: hatchedAssistantId,
                   conversationId: researchConversationId,
@@ -856,6 +1014,9 @@ export function ResearchOnboardingRoute() {
           <LetsChatReadyStep
             installedPlugins={research.installedPlugins}
             pluginCatalog={research.pluginCatalog}
+            // Hold the handoff until a resumed done journey's guard settles, so
+            // it can't fire against an established assistant before the verdict.
+            disabled={resumeGuardPending}
             onStart={async () => {
               // Terminal step: the handoff leaves via enterAssistant, not
               // goForwardTo, so emit the completion here (mirrors SuggestionsStep).

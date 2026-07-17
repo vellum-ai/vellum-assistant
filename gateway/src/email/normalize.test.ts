@@ -1,5 +1,8 @@
 import { describe, it, expect } from "bun:test";
-import { normalizeEmailWebhook } from "./normalize.js";
+import {
+  evaluateSenderAuthentication,
+  normalizeEmailWebhook,
+} from "./normalize.js";
 
 describe("normalizeEmailWebhook", () => {
   function makePayload(overrides?: Record<string, unknown>) {
@@ -206,5 +209,161 @@ describe("normalizeEmailWebhook", () => {
   it("omits attachments when the field is not an array", () => {
     const result = normalizeEmailWebhook(makePayload({ attachments: "nope" }));
     expect(result!.attachments).toBeUndefined();
+  });
+});
+
+describe("evaluateSenderAuthentication", () => {
+  const FROM = "alice@example.com";
+
+  it("treats a DMARC pass as authenticated", () => {
+    const authResults =
+      "mx.resend.com; spf=pass smtp.mailfrom=example.com; " +
+      "dkim=pass header.d=example.com; dmarc=pass header.from=example.com";
+    expect(evaluateSenderAuthentication({ authResults, fromEmail: FROM })).toBe(
+      true,
+    );
+  });
+
+  it("treats a DMARC fail as unauthenticated (the spoof case)", () => {
+    // From: claims example.com but DMARC failed — a forged sender.
+    const authResults =
+      "mx.resend.com; spf=fail smtp.mailfrom=attacker.net; " +
+      "dkim=none; dmarc=fail header.from=example.com";
+    expect(evaluateSenderAuthentication({ authResults, fromEmail: FROM })).toBe(
+      false,
+    );
+  });
+
+  it("treats dmarc=fail as authoritative even when an aligned DKIM passes", () => {
+    // The receiver applied the From: domain's own DMARC policy and reported
+    // failure, so the aligned `dkim=pass` must not re-authenticate the visible
+    // From: — a fail verdict overrides the DKIM-alignment fallback.
+    const authResults =
+      "mx.resend.com; dkim=pass header.d=example.com; " +
+      "dmarc=fail header.from=mail.example.com";
+    expect(
+      evaluateSenderAuthentication({
+        authResults,
+        // generic-examples:ignore-next-line — reason: relaxed DMARC alignment needs a subdomain of the reserved example.com
+        fromEmail: "alice@mail.example.com",
+      }),
+    ).toBe(false);
+  });
+
+  it("treats a DMARC permerror as unauthenticated despite an aligned DKIM", () => {
+    // An evaluation error is not a clean pass: the receiver could not confirm
+    // the domain's policy, so we do not substitute our alignment heuristic.
+    const authResults =
+      "mx.resend.com; dkim=pass header.d=example.com; dmarc=permerror";
+    expect(evaluateSenderAuthentication({ authResults, fromEmail: FROM })).toBe(
+      false,
+    );
+  });
+
+  it("treats a DMARC temperror as unauthenticated despite an aligned DKIM", () => {
+    const authResults =
+      "mx.resend.com; dkim=pass header.d=example.com; dmarc=temperror";
+    expect(evaluateSenderAuthentication({ authResults, fromEmail: FROM })).toBe(
+      false,
+    );
+  });
+
+  it("returns undefined when there is no Authentication-Results header", () => {
+    // No signal → undefined so the caller omits it and handleInbound preserves
+    // existing behavior rather than downgrading every sender on missing data.
+    expect(
+      evaluateSenderAuthentication({ authResults: undefined, fromEmail: FROM }),
+    ).toBeUndefined();
+    expect(
+      evaluateSenderAuthentication({ authResults: "", fromEmail: FROM }),
+    ).toBeUndefined();
+  });
+
+  it("treats an aligned DKIM pass without DMARC as authenticated", () => {
+    const authResults =
+      "mx.resend.com; spf=pass smtp.mailfrom=bounce.example.com; " +
+      "dkim=pass header.d=example.com header.s=sel";
+    expect(evaluateSenderAuthentication({ authResults, fromEmail: FROM })).toBe(
+      true,
+    );
+  });
+
+  it("falls back to aligned DKIM when DMARC reports no policy (dmarc=none)", () => {
+    // `dmarc=none` means the From: domain publishes no DMARC policy — no
+    // determination — so an aligned DKIM pass still authenticates, exactly as
+    // when the header carries no DMARC verdict at all.
+    const authResults =
+      "mx.resend.com; dkim=pass header.d=example.com; dmarc=none";
+    expect(evaluateSenderAuthentication({ authResults, fromEmail: FROM })).toBe(
+      true,
+    );
+  });
+
+  it("still requires DKIM alignment when DMARC reports no policy (dmarc=none)", () => {
+    // `dmarc=none` is not a free pass: without an aligned DKIM the From:
+    // remains unauthenticated.
+    const authResults =
+      "mx.resend.com; dkim=pass header.d=attacker.net; dmarc=none";
+    expect(evaluateSenderAuthentication({ authResults, fromEmail: FROM })).toBe(
+      false,
+    );
+  });
+
+  it("falls back to aligned DKIM on Microsoft's dmarc=bestguesspass", () => {
+    // Microsoft 365 stamps `dmarc=bestguesspass` when the From: domain
+    // publishes no DMARC record but an implicit policy would have passed — a
+    // non-failure no-determination verdict, so the aligned-DKIM fallback still
+    // applies.
+    const authResults =
+      "spf=pass (sender ip is 203.0.113.5) smtp.mailfrom=example.com; " +
+      "dkim=pass (signature was verified) header.d=example.com; " +
+      "dmarc=bestguesspass action=none header.from=example.com";
+    expect(evaluateSenderAuthentication({ authResults, fromEmail: FROM })).toBe(
+      true,
+    );
+  });
+
+  it("still requires DKIM alignment on dmarc=bestguesspass", () => {
+    const authResults =
+      "mx.resend.com; dkim=pass header.d=attacker.net; dmarc=bestguesspass";
+    expect(evaluateSenderAuthentication({ authResults, fromEmail: FROM })).toBe(
+      false,
+    );
+  });
+
+  it("treats a DKIM pass for an unaligned domain as unauthenticated", () => {
+    // DKIM passed, but for the attacker's own domain — not the From:.
+    const authResults =
+      "mx.resend.com; spf=pass smtp.mailfrom=attacker.net; " +
+      "dkim=pass header.d=attacker.net header.s=sel";
+    expect(evaluateSenderAuthentication({ authResults, fromEmail: FROM })).toBe(
+      false,
+    );
+  });
+
+  it("treats an SPF pass alone as unauthenticated", () => {
+    // SPF validates the envelope MAIL FROM, not the visible From: header.
+    const authResults = "mx.resend.com; spf=pass smtp.mailfrom=attacker.net";
+    expect(evaluateSenderAuthentication({ authResults, fromEmail: FROM })).toBe(
+      false,
+    );
+  });
+
+  it("accepts relaxed subdomain alignment", () => {
+    const authResults = "mx.resend.com; dkim=pass header.d=example.com";
+    expect(
+      evaluateSenderAuthentication({
+        authResults,
+        // generic-examples:ignore-next-line — reason: relaxed DMARC alignment needs a subdomain of the reserved example.com
+        fromEmail: "alice@mail.example.com",
+      }),
+    ).toBe(true);
+  });
+
+  it("accepts the DKIM header.i identity domain form", () => {
+    const authResults = "mx.resend.com; dkim=pass header.i=@example.com";
+    expect(evaluateSenderAuthentication({ authResults, fromEmail: FROM })).toBe(
+      true,
+    );
   });
 });

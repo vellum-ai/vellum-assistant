@@ -572,4 +572,55 @@ describe("compaction-call attribution", () => {
     expect(logs).toHaveLength(1);
     expect(logs[0]?.id).toBe(compactionLogId!);
   });
+
+  test("recovery on the prior turn cannot defeat the deliberate card link", async () => {
+    const conv = createConversation("link-race");
+    await addMessage(conv.id, "user", "Chat away", { skipIndexing: true });
+    recordRequestLog(conv.id, '{"turn":"main"}', '{"answer":"sure"}');
+    const reply = await addMessage(conv.id, "assistant", "Sure!", {
+      skipIndexing: true,
+    });
+    backfillMessageIdOnLogs(conv.id, reply.id);
+
+    // The compaction call is recorded unlinked, before its result card
+    // persists — its createdAt falls inside the prior turn's open time window.
+    const compactionLogId = recordRequestLog(
+      conv.id,
+      '{"compaction":true}',
+      '{"summary":"..."}',
+      undefined,
+      "openrouter",
+      "compactionAgent",
+    );
+
+    // Race: the inspector queries the prior turn in the window between the
+    // compaction call and the card link. Recovery may sweep the unlinked
+    // compaction row into the view, but it must NOT durably stamp it onto this
+    // turn — otherwise the IS-NULL-guarded link below would no-op.
+    getRequestLogsByMessageId(reply.id);
+    const afterRecovery = logsDb()
+      .select({ messageId: llmRequestLogs.messageId })
+      .from(llmRequestLogs)
+      .where(sql`${llmRequestLogs.id} = ${compactionLogId!}`)
+      .get();
+    expect(afterRecovery?.messageId).toBeNull();
+
+    // The card persists and the route deliberately links the compaction row.
+    const card = await addMessage(conv.id, "assistant", "**Compacted**", {
+      metadata: { messageKind: "system_card" },
+      skipIndexing: true,
+    });
+    linkRequestLogsToMessage([compactionLogId!], card.id);
+
+    // The deliberate link wins: the compaction call belongs to the card…
+    const cardLogs = getRequestLogsByMessageId(card.id);
+    expect(cardLogs).toHaveLength(1);
+    expect(cardLogs[0]?.id).toBe(compactionLogId!);
+    expect(cardLogs[0]?.messageId).toBe(card.id);
+
+    // …and the prior turn keeps only its own mainAgent call.
+    const turnLogs = getRequestLogsByMessageId(reply.id);
+    expect(turnLogs).toHaveLength(1);
+    expect(turnLogs[0]?.messageId).toBe(reply.id);
+  });
 });

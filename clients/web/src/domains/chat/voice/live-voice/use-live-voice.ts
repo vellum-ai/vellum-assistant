@@ -1212,6 +1212,12 @@ function updateAutomaticRelease(
 function releasePushToTalk(session: SessionContext): void {
   if (session.releaseInFlight || !session.forwardingAudio) return;
   session.releaseInFlight = true;
+  // Drain the capture's sub-batch tail while the forwarding gate is still
+  // open: the last <50ms of the utterance may sit in the batch accumulator,
+  // and the daemon rejects audio that arrives after the release frame.
+  // Synchronous — the flushed chunk passes through handleChunk before the
+  // gate closes below (re-entry is blocked by releaseInFlight above).
+  session.capture.flush();
   session.forwardingAudio = false;
   session.client.pttRelease();
   // End of user speech (manual mode): stamp the client-heard latency start,

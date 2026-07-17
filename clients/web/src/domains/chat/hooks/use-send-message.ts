@@ -3,8 +3,9 @@
  * queue operations (cancel, delete, edit).
  *
  * Orchestrates: optimistic message insertion, draft key resolution,
- * stream creation via `postChatMessage`/`pollForResponse`, and
- * processing-key tracking.
+ * stream creation via `postChatMessage`, and processing-key tracking.
+ * Reply delivery and turn settlement are owned by the SSE stream plus the
+ * reconciliation loop — there is no client-side polling fallback.
  *
  * Composes `useMessageQueue` for queue management and imports pure
  * transforms from `send-message-utils`.
@@ -29,9 +30,7 @@ import type {
   DisplayAttachment,
   DisplayMessage,
 } from "@/domains/chat/types/types";
-import { conversationHistoryQueryKey } from "@/domains/chat/transcript/use-history-pagination";
 import { patchTranscriptMessages } from "@/domains/chat/transcript/patch-transcript-messages";
-import { recordLocalSeq } from "@/lib/streaming/local-seq";
 import { isAsyncChatScopeCurrent } from "@/domains/chat/utils/conversation-scope";
 import { resolveEditChatDraftConversationId } from "@/utils/edit-chat-session";
 import { type DiskPressureChatBlockReason, getDiskPressureChatBlockMessage } from "@/assistant/disk-pressure";
@@ -60,33 +59,22 @@ import {
 } from "@/domains/onboarding/prechat";
 
 import { clearQueueStatus } from "@/domains/chat/utils/stream-updaters/shared";
-import { mapRuntimeToDisplayMessage } from "@/domains/chat/utils/map-runtime-message";
-import { attachConfirmationToToolCall } from "@/domains/chat/utils/chat";
 import type { ChatError } from "@/domains/chat/types";
 
 import {
   clearPendingConfirmationsFromMessages,
   dismissInteractiveSurfaces,
   newTurnId,
-  parsePendingConfirmationData,
-  parsePendingSecretState,
   resolvePostError,
   shouldCleanupSupersededInteractions,
 } from "@/domains/chat/utils/send-message-utils";
 import type { UIContext } from "@/domains/chat/turn-selectors";
 import { useComposerStore } from "@/domains/chat/composer-store";
-import { useNavGateStore } from "@/domains/chat/nav-gate/nav-gate-store";
 import { getSoundManager } from "@/lib/sounds/sound-manager";
 import { useMessageQueue } from "@/domains/chat/hooks/use-message-queue";
 import { conversationsByIdCancelPost } from "@/generated/daemon/sdk.gen";
 import type { Conversation } from "@/types/conversation-types";
-import { getPendingInteractions } from "@/domains/chat/api/interactions";
-import {
-  fetchConversationMessages,
-  postChatMessage,
-  pollForResponse,
-  RECONCILE_LATEST_PAGE_LIMIT,
-} from "@/domains/chat/api/messages";
+import { postChatMessage } from "@/domains/chat/api/messages";
 import { surfaceConversation } from "@/domains/chat/api/conversations";
 import { supportsServerMintedConversation } from "@/lib/backwards-compat/server-minted-conversation";
 import { resolveSupportsNewChatPlugins } from "@/lib/backwards-compat/use-supports-new-chat-plugins";
@@ -270,7 +258,7 @@ export function useSendMessage({
   // sendMessageViaStream — low-level POST + polling fallback
   // -------------------------------------------------------------------------
   const sendMessageViaStream = useCallback(
-    async (content: string, epoch: number, turnId: string, attachmentIds: string[] = [], isDraft = false, clientMessageId?: string, isHidden = false, source?: string): Promise<SendStreamResult> => {
+    async (content: string, epoch: number, turnId: string, attachmentIds: string[] = [], isDraft = false, clientMessageId?: string, isHidden = false): Promise<SendStreamResult> => {
       if (!activeConversationId || !assistantId) {
         return {
           status: "failed",
@@ -343,7 +331,6 @@ export function useSendMessage({
           inferenceProfile: inferenceProfileForSend,
           enabledPlugins: enabledPluginsForSend,
           hidden: isHidden,
-          source,
         },
       );
       if (
@@ -492,138 +479,9 @@ export function useSendMessage({
         };
       }
 
-      if (isHidden) {
-        // Hidden sends (e.g. the onboarding "Let's chat" kickoff) never
-        // materialize a user row in `/messages` — the daemon suppresses it
-        // (see `conversation-routes.ts`) — so `pollForResponse`'s causal
-        // boundary (find the user message, then the assistant reply after it)
-        // can never match: the poll would spin the full timeout and then
-        // fire a spurious "Assistant did not respond in time." error even
-        // though the proactive greeting streamed in fine over SSE. Skip the
-        // poll entirely and lean on the reconciliation loop, which pulls the
-        // latest snapshot without needing a user-message boundary and folds
-        // the greeting in if the SSE stream dropped it.
-        startReconciliationLoop(epoch);
-        return {
-          status: "ok",
-          userMessageId: postResult.messageId,
-          resolvedConversationId: postResult.conversationId,
-        };
-      }
-
-      pollForResponse(postResult.assistantId, postResult.messageId, effectiveConversationId)
-        .then(async (reply) => {
-          if (!isCurrentSendScope(effectiveConversationId)) {
-            recordDiagnostic("poll_response_ignored_inactive_conversation", {
-              assistantId: postResult.assistantId,
-              conversationId: requestConversationId,
-              resolvedConversationId: effectiveConversationId,
-              activeAssistantId: useResolvedAssistantsStore.getState().activeAssistantId,
-              activeConversationId: useConversationStore.getState().activeConversationId,
-            });
-            return;
-          }
-          let restoredConfData: Parameters<typeof attachConfirmationToToolCall>[1] | null = null;
-          try {
-            const interactions = await getPendingInteractions(
-              postResult.assistantId,
-              effectiveConversationId,
-            );
-            if (!isCurrentSendScope(effectiveConversationId)) return;
-            if (interactions.pendingSecret) {
-              useInteractionStore.getState().showSecret(parsePendingSecretState(interactions.pendingSecret));
-              if (!reply) return;
-            }
-            if (interactions.pendingConfirmation) {
-              const { confData, state } = parsePendingConfirmationData(interactions.pendingConfirmation);
-              restoredConfData = confData;
-              useInteractionStore.getState().showConfirmation(state);
-              if (!reply) return;
-            }
-          } catch {
-            // Best-effort
-          }
-
-          if (!reply) {
-            setError({ message: "Assistant did not respond in time." });
-            return;
-          }
-          let serverSeq: number | null = null;
-          try {
-            const snapshot = await fetchConversationMessages(
-              postResult.assistantId,
-              effectiveConversationId,
-              { latestPageLimit: RECONCILE_LATEST_PAGE_LIMIT },
-            );
-            serverSeq = snapshot?.seq ?? null;
-          } catch {
-            // Reconciliation is best-effort
-          }
-          if (!isCurrentSendScope(effectiveConversationId)) return;
-          // Advance the local seq frontier — we've observed this snapshot.
-          recordLocalSeq(effectiveConversationId, serverSeq);
-          // No active SSE stream delivered this turn (poll fallback): fold the
-          // polled reply onto the materialized snapshot immediately, then pull
-          // the authoritative server view into the history cache, which reseeds
-          // the snapshot. Upsert by id so a reply a late event already folded
-          // isn't duplicated.
-          useChatSessionStore.getState().patchSnapshotMessages((prev) => {
-            const mapped = mapRuntimeToDisplayMessage(reply);
-            const existingIdx = prev.findIndex((m) => m.id === reply.id);
-            if (existingIdx >= 0) {
-              const existing = prev[existingIdx];
-              const updated = [...prev];
-              updated[existingIdx] = {
-                ...mapped,
-                timestamp: existing?.timestamp ?? mapped.timestamp ?? Date.now(),
-              };
-              return updated;
-            }
-            return [
-              ...prev,
-              { ...mapped, timestamp: mapped.timestamp ?? Date.now() },
-            ];
-          });
-          void queryClient.invalidateQueries({
-            queryKey: conversationHistoryQueryKey(
-              postResult.assistantId,
-              effectiveConversationId,
-            ),
-          });
-          if (restoredConfData && isCurrentSendScope(effectiveConversationId)) {
-            const capturedConfData = restoredConfData;
-            // Zustand set() is synchronous — the snapshot already reflects the
-            // patch above, so getState() gives us fresh messages.
-            const currentMessages =
-              useChatSessionStore.getState().snapshot?.messages ?? [];
-            const result = attachConfirmationToToolCall(currentMessages, capturedConfData);
-            if (result.attachedToolCallId) {
-              useInteractionStore.getState().setInlineConfirmationToolCallId(result.attachedToolCallId);
-              useChatSessionStore.getState().setConfirmationToolCall(capturedConfData.requestId, result.attachedToolCallId);
-            } else {
-              useInteractionStore.getState().setInlineConfirmationToolCallId(null);
-            }
-            useChatSessionStore.getState().patchSnapshotMessages(() => result.updatedMessages);
-          }
-          startReconciliationLoop(epoch);
-        })
-        .catch((err) => {
-          if (!isCurrentSendScope(effectiveConversationId)) return;
-          captureError(err, { context: "send_message_stream" });
-          setError({ message: "Connection lost. Please try again." });
-        })
-        .finally(() => {
-          if (!isCurrentSendScope(effectiveConversationId)) return;
-          // Defense-in-depth: settle the turn if SSE didn't already.
-          // `onPollReconciled` no-ops when the turn is already idle, so
-          // this is safe to call alongside the SSE terminal handlers.
-          endTurn({
-            conversationId: effectiveConversationId,
-            reason: "rescued",
-            rescuedTurnId: turnId,
-          });
-        });
-
+      // No matching live stream: SSE delivers the reply and settles the turn;
+      // startReconciliationLoop is the disconnect-safe backstop.
+      startReconciliationLoop(epoch);
       return {
         status: "ok",
         userMessageId: postResult.messageId,
@@ -689,7 +547,7 @@ export function useSendMessage({
     async (
       content: string,
       attachments: DisplayAttachment[] = [],
-      opts: { hidden?: boolean; source?: string } = {},
+      opts: { hidden?: boolean } = {},
     ) => {
       // A hidden send (e.g. the onboarding "Let's chat" kickoff) drives a turn
       // and the assistant's reply, but renders NO user bubble: skip the
@@ -697,10 +555,6 @@ export function useSendMessage({
       // always a fresh first message (conversation idle), so they never take the
       // queue path below.
       const isHidden = opts.hidden === true;
-      // System-initiated sends (e.g. the sidenav-gate bubbles) tag their
-      // origin so the daemon can steer the reply and analytics can separate
-      // them from typed messages. They still render a user bubble.
-      const source = opts.source;
       if (!activeConversationId || !assistantId) {
         setError({ message: "No active conversation. Please try again." });
         return;
@@ -805,7 +659,7 @@ export function useSendMessage({
             assistantId,
             activeConversationId,
             content,
-            { attachmentIds, clientMessageId, hidden: isHidden, source },
+            { attachmentIds, clientMessageId, hidden: isHidden },
           );
           if (!postResult.ok) {
             revertQueuedMessage(userMessage.id);
@@ -817,11 +671,6 @@ export function useSendMessage({
             setError({ message: detail, code: postResult.error.code ?? undefined });
             return;
           }
-          // Sidenav-gating experiment: the daemon accepted the message, so
-          // it advances the unlock thresholds — including tagged nav_redirect
-          // sends, which are real intent. Counted only on accepted POSTs so a
-          // failed send can't unlock chrome or mute the bounce signal.
-          if (!isHidden) useNavGateStore.getState().recordMessageSent();
           void surfaceConversationAfterUserSend(postResult.conversationId).catch(
             (err) => {
               captureError(err, {
@@ -904,7 +753,6 @@ export function useSendMessage({
           isDraft,
           clientMessageId,
           isHidden,
-          source,
         );
 
         if (result.status === "failed") {
@@ -937,11 +785,6 @@ export function useSendMessage({
           // Scope changed mid-flight; the new scope owns UI state from here.
           return;
         }
-
-        // Sidenav-gating experiment counter — see the queue-path note above.
-        // The "ignored" return skips counting: scope flipped mid-flight, so
-        // undercounting one edge send beats crediting an uncertain one.
-        if (!isHidden) useNavGateStore.getState().recordMessageSent();
 
         resolvedId = result.resolvedConversationId;
 

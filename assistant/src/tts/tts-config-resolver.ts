@@ -7,7 +7,6 @@
  * have canonical fields materialised.
  */
 
-import { effectiveTtsProvider } from "../config/schemas/tts.js";
 import type { AssistantConfig } from "../config/types.js";
 import type { TtsProviderId } from "./types.js";
 
@@ -38,7 +37,7 @@ export interface ResolvedTtsConfig {
 export function resolveTtsConfig(config: AssistantConfig): ResolvedTtsConfig {
   const ttsService = config.services.tts;
 
-  const provider = effectiveTtsProvider(ttsService) as TtsProviderId;
+  const provider = ttsService.provider as TtsProviderId;
 
   // Resolve provider-specific config from the canonical providers map.
   const providerConfig = resolveProviderConfig(config, provider);

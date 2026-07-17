@@ -31,7 +31,7 @@ export const SectionChrome: Story = {
   decorators: [
     (Story) => (
       <>
-        <Navigate to="/assistant/skills" replace />
+        <Navigate to="/assistant/superpowers" replace />
         <Story />
       </>
     ),

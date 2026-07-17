@@ -642,16 +642,20 @@ describe("upgradePlugin --strategy", () => {
   // - common.txt: edited on disjoint lines by each side (a clean auto-merge)
   // - conflict.txt: edited differently on both sides (a true conflict)
   // - local-only.txt / remote-only.txt: added on one side only
+  const PKG = '{"name":"level-up"}\n';
   const BASE: Tree = {
+    "package.json": PKG,
     "common.txt": "a\nb\nc\n",
     "conflict.txt": "base\n",
   };
   const OURS: Tree = {
+    "package.json": PKG,
     "common.txt": "A\nb\nc\n",
     "conflict.txt": "ours\n",
     "local-only.txt": "added locally\n",
   };
   const THEIRS: Tree = {
+    "package.json": PKG,
     "common.txt": "a\nb\nC\n",
     "conflict.txt": "theirs\n",
     "remote-only.txt": "added upstream\n",
@@ -781,9 +785,9 @@ describe("upgradePlugin --strategy", () => {
 
   test("--strategy assistant reports no conflicts on a clean three-way merge", async () => {
     // GIVEN an install whose only divergence from the pin auto-merges cleanly
-    const cleanOurs: Tree = { "common.txt": "A\nb\nc\n" };
-    const cleanBase: Tree = { "common.txt": "a\nb\nc\n" };
-    const cleanTheirs: Tree = { "common.txt": "a\nb\nC\n" };
+    const cleanOurs: Tree = { "package.json": PKG, "common.txt": "A\nb\nc\n" };
+    const cleanBase: Tree = { "package.json": PKG, "common.txt": "a\nb\nc\n" };
+    const cleanTheirs: Tree = { "package.json": PKG, "common.txt": "a\nb\nC\n" };
     installMergeCopy("level-up", cleanOurs, SHA_A, cleanBase);
     const fetch = makeFetch({ manifest: manifestWith("level-up", SHA_B) });
     const runGit = treeGitRunner({ [SHA_A]: cleanBase, [SHA_B]: cleanTheirs });
@@ -841,13 +845,12 @@ describe("upgradePlugin --strategy", () => {
 
   test("--strategy ours merges a direct GitHub-URL install's local edits forward", async () => {
     // A direct install carries no curated adapter overlay, so the base/target
-    // re-materialize verbatim (stubRef null). Include a package.json in each
-    // tree so no minimal manifest is synthesized — matching what a real direct
-    // install recorded — and the base fingerprint reconstructs faithfully.
-    const PKG = '{"name":"level-up"}\n';
-    const directBase: Tree = { ...BASE, "package.json": PKG };
-    const directOurs: Tree = { ...OURS, "package.json": PKG };
-    const directTheirs: Tree = { ...THEIRS, "package.json": PKG };
+    // re-materialize verbatim (stubRef null). The shared BASE/OURS/THEIRS
+    // trees already carry a package.json so no minimal manifest is synthesized
+    // and the base fingerprint reconstructs faithfully.
+    const directBase: Tree = BASE;
+    const directOurs: Tree = OURS;
+    const directTheirs: Tree = THEIRS;
 
     // GIVEN a direct install tracking `main` at SHA_A with local edits, absent
     // from the marketplace

@@ -21,6 +21,7 @@
 
 import { z } from "zod";
 
+import { isUserCancellation } from "../../daemon/conversation-error.js";
 import { formatSummarizeUpToResult } from "../../daemon/conversation-process.js";
 import { findConversation } from "../../daemon/conversation-registry.js";
 import {
@@ -194,10 +195,7 @@ async function handleForkConversation({
   }
 }
 
-async function handleSummarizeConversation({
-  body = {},
-  headers,
-}: RouteHandlerArgs) {
+async function handleSummarizeConversation({ body = {} }: RouteHandlerArgs) {
   const rawConversationId = body.conversationId;
   if (!rawConversationId || typeof rawConversationId !== "string") {
     throw new BadRequestError("Missing conversationId");
@@ -224,8 +222,13 @@ async function handleSummarizeConversation({
     );
   }
   conversation.setProcessing(true);
-
-  const originClientId = headers?.["x-vellum-client-id"]?.trim() || undefined;
+  // Install an abort controller before the long summary call so Stop can
+  // actually cancel it — mirroring the send path (`persistUserMessage`).
+  // Without one, `abortConversation` finds no live controller, force-clears the
+  // processing flag, and lets the summary keep running so it can apply/persist
+  // after cancel and race the next turn.
+  const abortController = new AbortController();
+  conversation.abortController = abortController;
 
   // The summarize action only ships from the vellum web/desktop client; the
   // interface id is omitted because this management route (unlike the send
@@ -239,7 +242,6 @@ async function handleSummarizeConversation({
       conversationId,
       text,
       metadata: channelMeta,
-      originClientId,
     });
 
   // Fire-and-forget: return 202 immediately, run summarization async. The
@@ -253,13 +255,25 @@ async function handleSummarizeConversation({
     // idle — the result card's `message_complete` covers the happy path,
     // but the hard-error path persists no card, so the idle emit in
     // `finally` is what guarantees the indicator always clears.
-    let terminalReason: "message_complete" | "error_terminal" =
-      "message_complete";
+    let terminalReason:
+      | "message_complete"
+      | "error_terminal"
+      | "generation_cancelled" = "message_complete";
     try {
       conversation.emitActivityState("thinking", "context_compacting", {
         statusText: "Summarizing conversation",
       });
       const result = await conversation.summarizeUpToMessage(beforeMessageId);
+      // Stop aborted the in-flight summary: the compactor reports the aborted
+      // provider call as a non-compacted result (it swallows the abort rather
+      // than throwing), so detect cancellation via the signal. A cancelled
+      // summary applies nothing — surface a clean cancellation instead of a
+      // "skipped" card. A summary that already compacted before a late Stop
+      // still shows its card; that work is already persisted.
+      if (!result.compacted && abortController.signal.aborted) {
+        terminalReason = "generation_cancelled";
+        return;
+      }
       const cardId = await persistCard(formatSummarizeUpToResult(result));
       // Attribute the compaction LLM call to the card it produced, so the
       // inspector shows it there instead of the unlinked-row recovery
@@ -268,6 +282,17 @@ async function handleSummarizeConversation({
         linkRequestLogsToMessage([result.summaryRequestLogId], cardId);
       }
     } catch (err) {
+      // A Stop that surfaces as a thrown abort (rather than the compactor's
+      // swallowed no-op) is still a clean cancellation, not an error card.
+      if (
+        isUserCancellation(err, {
+          phase: "handler",
+          aborted: abortController.signal.aborted,
+        })
+      ) {
+        terminalReason = "generation_cancelled";
+        return;
+      }
       // Boundary/mapping UserErrors are expected user-facing outcomes, not
       // failures: surface them as a skipped card rather than an error event.
       if (err instanceof UserError) {
@@ -289,6 +314,12 @@ async function handleSummarizeConversation({
       });
     } finally {
       conversation.emitActivityState("idle", terminalReason);
+      // Null our controller before clearing the flag so a racing Stop takes
+      // `abortConversation`'s force-clear branch instead of signalling a dead
+      // controller. Identity-guarded: a newer turn may already own the field.
+      if (conversation.abortController === abortController) {
+        conversation.abortController = null;
+      }
       conversation.setProcessing(false);
       silentlyWithLog(
         conversation.drainQueue(),

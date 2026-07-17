@@ -50,22 +50,21 @@ import {
   type ContentBlock,
   type HookFunction,
   INTERNAL_NUDGE_OUTPUT_SUPPRESSION,
+  isToolResultMessage,
   type Message,
   type PostModelCallContext,
+  REFUSAL_FALLBACK_TEXT,
 } from "@vellumai/plugin-api";
 
 import {
   isEmptyResponseNudged,
   markEmptyResponseNudged,
 } from "../nudge-state-store.js";
-import {
-  isToolResultMessage,
-  REFUSAL_FALLBACK_TEXT,
-} from "../refusal-quarantine.js";
 
 // Re-exported so existing importers (tests, sibling hooks) keep resolving
-// REFUSAL_FALLBACK_TEXT from this module; the definition lives in
-// refusal-quarantine.ts alongside its detector (single source of truth).
+// REFUSAL_FALLBACK_TEXT from this module; the definition lives in the host's
+// `context/refusal-quarantine.ts` alongside its detector (single source of
+// truth).
 export { REFUSAL_FALLBACK_TEXT };
 
 /**

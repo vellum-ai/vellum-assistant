@@ -3427,6 +3427,18 @@ export async function surfaceProxyResolver(
   }
 
   if (toolName === "app_open") {
+    // An app surface only renders on a connected client that supports dynamic
+    // UI. On clientless, background, or non-dynamic-UI channels (e.g. Slack)
+    // the ui_surface_show below reaches no renderer, so fail closed with an
+    // actionable error rather than reporting a surface the user cannot see.
+    if (!canShowInteractiveUi(ctx)) {
+      return {
+        content:
+          "app_open needs a connected client that can display app surfaces (the Vellum macOS or web app), and none is available for this conversation. The app is saved — the user can open it from a connected client.",
+        isError: true,
+      };
+    }
+
     // Weaker models routinely omit app_id even though the active app is in
     // context. Fall back to the conversation's most-recently-updated app
     // rather than failing with "Invalid ID: undefined".

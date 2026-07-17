@@ -1,7 +1,7 @@
 /**
  * The drill-down sections reachable from the assistant overview page —
  * the replacement for the old About Assistant tab bar. Pure so the
- * capability gating (plugins version gate, channels feature flag) is
+ * capability gating (channels feature flag, memory flag) is
  * unit-testable without rendering the overview.
  */
 
@@ -16,8 +16,6 @@ export interface IdentitySection {
 }
 
 export interface IdentitySectionGates {
-  /** Plugin routes exist on this assistant (backwards-compat version gate). */
-  supportsPlugins: boolean;
   /** The `channel-trust-floors` flag exposes the Channels surface. */
   showChannels: boolean;
   /** The `memory-concept-graph` flag exposes the Memory surface. */
@@ -25,7 +23,6 @@ export interface IdentitySectionGates {
 }
 
 export function buildIdentitySections({
-  supportsPlugins,
   showChannels,
   showMemory,
 }: IdentitySectionGates): IdentitySection[] {
@@ -42,11 +39,13 @@ export function buildIdentitySections({
       description: "My routines",
       to: routes.schedules.root,
     },
+    // Skills and plugins combined into one list; on assistants without the
+    // plugin surface the page itself degrades to skills-only.
     {
-      key: "skills",
-      label: "Skills",
+      key: "superpowers",
+      label: "My Superpowers",
       description: "What I can do",
-      to: routes.skills.root,
+      to: routes.superpowers,
     },
   ];
   if (showMemory) {
@@ -55,14 +54,6 @@ export function buildIdentitySections({
       label: "Memory",
       description: "What I remember",
       to: routes.memory,
-    });
-  }
-  if (supportsPlugins) {
-    sections.push({
-      key: "plugins",
-      label: "Plugins",
-      description: "My add-ons",
-      to: routes.plugins,
     });
   }
   sections.push(

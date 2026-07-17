@@ -300,6 +300,13 @@ export type ResearchStatus = "idle" | "running" | "done" | "error";
 export interface ResearchRunnerState {
   status: ResearchStatus;
   claims: ResearchFact[];
+  /**
+   * Claim texts the parser dropped from `claims` because every source was a
+   * people-search aggregator. Carried so the onboarding flow can scrub these
+   * hidden wrong-person facts from the assistant's memory alongside the ones the
+   * user prunes on the card.
+   */
+  droppedClaims: string[];
   suggestions: ResearchSuggestion[];
   /**
    * Capabilities being installed for the assistant this run — the deterministic
@@ -407,6 +414,7 @@ export function useResearchRunner(): UseResearchRunner {
   const [state, setState] = useState<ResearchRunnerState>({
     status: "idle",
     claims: [],
+    droppedClaims: [],
     suggestions: [],
     installedPlugins: [],
     pluginCatalog: {},
@@ -456,6 +464,7 @@ export function useResearchRunner(): UseResearchRunner {
       setState({
         status: "running",
         claims: [],
+        droppedClaims: [],
         suggestions: [],
         installedPlugins: [],
         pluginCatalog: {},
@@ -653,8 +662,14 @@ export function useResearchRunner(): UseResearchRunner {
             const messages = listed.data?.messages ?? [];
             const text = latestAssistantText(messages);
             if (text) {
-              const { claims, suggestions, plugins, pluginsResolved, complete } =
-                parseResearchResultStreaming(text);
+              const {
+                claims,
+                droppedClaims,
+                suggestions,
+                plugins,
+                pluginsResolved,
+                complete,
+              } = parseResearchResultStreaming(text);
               // Narrow the model's picks to the catalog we actually fetched so a
               // hallucinated name never hits the install route; fire each new one.
               const validPlugins = plugins.filter((name) => validNames.has(name));
@@ -682,6 +697,7 @@ export function useResearchRunner(): UseResearchRunner {
               setState({
                 status: "running",
                 claims,
+                droppedClaims,
                 suggestions,
                 installedPlugins,
                 pluginCatalog,

@@ -1,8 +1,8 @@
 /**
  * Tests for `IntelligenceLayout`'s two chrome modes.
  *
- * Section pages (`/assistant/skills`, `/assistant/plugins`, …) render the
- * page-shell chrome: a back link to the overview labelled with the
+ * Section pages (`/assistant/superpowers`, `/assistant/schedules`, …) render
+ * the page-shell chrome: a back link to the overview labelled with the
  * assistant's name, and the section's own <h1>. The overview
  * (`/assistant/identity`) and the personality page render bare — they own
  * their full-bleed stage chrome — so no back link or heading appears.
@@ -63,10 +63,10 @@ afterEach(() => {
 
 describe("IntelligenceLayout — section pages", () => {
   test("renders the section heading and a back chevron to the overview", () => {
-    const { container } = renderLayoutAt("/assistant/skills");
+    const { container } = renderLayoutAt("/assistant/superpowers");
 
     const heading = container.querySelector("h1");
-    expect(heading?.textContent).toBe("Skills");
+    expect(heading?.textContent).toBe("My Superpowers");
 
     const back = container.querySelector("a");
     expect(back?.getAttribute("href")).toBe("/assistant/identity");
@@ -75,7 +75,12 @@ describe("IntelligenceLayout — section pages", () => {
 
   test("treats section sub-paths as inside the section", () => {
     const { container } = renderLayoutAt("/assistant/plugins/some-plugin");
-    expect(container.querySelector("h1")?.textContent).toBe("Plugins");
+    expect(container.querySelector("h1")?.textContent).toBe("My Superpowers");
+  });
+
+  test("legacy skill detail paths wear the My Superpowers chrome", () => {
+    const { container } = renderLayoutAt("/assistant/skills/my-skill");
+    expect(container.querySelector("h1")?.textContent).toBe("My Superpowers");
   });
 
   test("the schedules page renders as a section, including detail sub-paths", () => {

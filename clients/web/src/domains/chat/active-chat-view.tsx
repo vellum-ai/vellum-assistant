@@ -19,7 +19,6 @@ import { useParams, useSearchParams } from "react-router";
 
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { useAutoGreetGate } from "@/domains/chat/hooks/use-auto-greet-gate";
-import { useNavGateStore } from "@/domains/chat/nav-gate/nav-gate-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useAuthStore } from "@/stores/auth-store";
 import { useConversationStore } from "@/stores/conversation-store";
@@ -50,6 +49,7 @@ import { useDraftPersistence } from "@/domains/chat/hooks/use-draft-persistence"
 import { useOnboardingOrchestrator } from "@/domains/chat/hooks/use-onboarding-orchestrator";
 
 import { useConversationSecondaryActions } from "@/domains/chat/hooks/use-conversation-secondary-actions";
+import { useSupportsSummarizeUpToHere } from "@/lib/backwards-compat/use-supports-summarize-up-to-here";
 import { useCanUseLlmInspector } from "@/domains/chat/inspector/access";
 import { useSendMessage } from "@/domains/chat/hooks/use-send-message";
 import { useMessageLifecycle } from "@/domains/chat/hooks/use-message-lifecycle";
@@ -342,18 +342,6 @@ export function ActiveChatView() {
     void sendMessage(pendingFollowupMessage);
   }, [pendingFollowupMessage, sendMessage]);
 
-  // Sidenav-gating experiment: a gated item's bubble button staged a message
-  // to send on the user's behalf. Same one-shot channel as the follow-up
-  // above; tagged so analytics can tell these apart from typed messages.
-  const pendingNavGateSend = useNavGateStore.use.pendingSend();
-  useEffect(() => {
-    if (!pendingNavGateSend) return;
-    if (isSending(useTurnStore.getState().phase)) return;
-    const pending = useNavGateStore.getState().consumePendingSend();
-    if (!pending) return;
-    void sendMessage(pending.text, [], { source: "nav_redirect" });
-  }, [pendingNavGateSend, sendMessage]);
-
   // Post-hatch "Connecting…" overlay lifecycle — pre-chat detector,
   // messages-arrived clear, safety timer, conversation-switch clear.
   const autoGreet = useAutoGreetGate(
@@ -426,7 +414,11 @@ export function ActiveChatView() {
   // "Summarize up to here" confirm dialog. The hover action only records the
   // target message; the POST fires from the dialog's confirm button — a
   // misfired summarize mutates the assistant's live context with no undo, so
-  // it always goes through an explicit confirmation.
+  // it always goes through an explicit confirmation. Version-gated at the
+  // callback source: assistants below the endpoint's release get no
+  // `onSummarizeUpToHere`, so the hover button never renders and the dialog
+  // is unreachable.
+  const supportsSummarizeUpToHere = useSupportsSummarizeUpToHere();
   const [pendingSummarizeMessageId, setPendingSummarizeMessageId] =
     useState<string | null>(null);
   const [summarizePending, setSummarizePending] = useState(false);
@@ -510,7 +502,9 @@ export function ActiveChatView() {
 
     // Conversation secondary actions
     handleForkConversation,
-    onSummarizeUpToHere: handleSummarizeUpToHere,
+    onSummarizeUpToHere: supportsSummarizeUpToHere
+      ? handleSummarizeUpToHere
+      : undefined,
     handleInspectMessage: showLlmInspector ? handleInspectMessage : undefined,
 
     // History pagination

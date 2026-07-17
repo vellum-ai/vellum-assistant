@@ -75,6 +75,7 @@ import { initializePlugins } from "./external-plugins-bootstrap.js";
 import { backfillSlackInjectionTemplates } from "./handlers/config-slack-channel.js";
 import { installAssistantSymlink } from "./install-symlink.js";
 import {
+  type InterruptedResumeTarget,
   MAX_RESUME_ATTEMPTS,
   reconcileInterruptedConversations,
   resumeInterruptedConversations,
@@ -499,7 +500,7 @@ export async function runDaemon(): Promise<void> {
   // `conversations.resumeProcessingOnStartup` is enabled the reconciler also
   // selects conversations to resume once startup completes (the wakes need
   // providers/CES, so they are kicked off next to `setStartupComplete()`).
-  let conversationsToResume: string[] = [];
+  let conversationsToResume: InterruptedResumeTarget[] = [];
   if (dbReady) {
     try {
       const reconciled = reconcileInterruptedConversations(
@@ -522,6 +523,12 @@ export async function runDaemon(): Promise<void> {
             maxAttempts: MAX_RESUME_ATTEMPTS,
           },
           "Left interrupted conversations un-resumed after repeated interruptions",
+        );
+      }
+      if (reconciled.trustUnrecoverable.length > 0) {
+        log.warn(
+          { conversationIds: reconciled.trustUnrecoverable },
+          "Left interrupted conversations un-resumed: resting trust could not be reconstructed",
         );
       }
     } catch (err) {

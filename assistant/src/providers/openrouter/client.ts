@@ -4,7 +4,10 @@ import {
   retagDelegateError,
   toAnthropicMessagesBaseURL,
 } from "../anthropic-gateway-shared.js";
-import { PROMPT_CACHE_BREAKPOINT_MODEL_IDS } from "../model-catalog.js";
+import {
+  modelEffortCeilings,
+  PROMPT_CACHE_BREAKPOINT_MODEL_IDS,
+} from "../model-catalog.js";
 import {
   clampReasoningEffort,
   EFFORT_TO_REASONING_EFFORT,
@@ -30,6 +33,8 @@ const OPENROUTER_APP_ATTRIBUTION_HEADERS = {
   "X-OpenRouter-Title": "Vellum Assistant",
   "X-OpenRouter-Categories": "personal-agent,cli-agent",
 };
+
+const OPENROUTER_MODEL_EFFORT_CEILINGS = modelEffortCeilings("openrouter");
 
 /**
  * Extract the normalized `openrouter.only` list from a per-call config. Returns
@@ -228,6 +233,18 @@ export class OpenRouterProvider extends OpenAIChatCompletionsProvider {
       extras.provider = { ...existingProvider, only };
     }
     return extras;
+  }
+
+  // Consult the catalog for a per-model effort ceiling before falling back to
+  // the provider-wide default. Keeps grok-4.5 (low|medium|high only) from
+  // receiving Vellum's xhigh/max efforts, which its API rejects.
+  protected override resolveMaxReasoningEffort(
+    model: string,
+  ): "high" | "xhigh" | "max" {
+    return (
+      OPENROUTER_MODEL_EFFORT_CEILINGS.get(model) ??
+      super.resolveMaxReasoningEffort(model)
+    );
   }
 
   private resolveEffectiveModel(options?: SendMessageOptions): string {

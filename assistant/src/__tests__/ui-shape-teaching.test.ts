@@ -137,6 +137,21 @@ describe("ui_show missing-content teaching", () => {
       expectInError: "`data.columns`",
     },
     { surfaceType: "form", data: {}, expectInError: "`data.fields`" },
+    {
+      surfaceType: "form",
+      data: { pages: [{ id: "p1", title: "Page 1" }] },
+      expectInError: "at least one page with a non-empty",
+    },
+    {
+      // A valid top-level `fields` must not mask malformed pages: the renderer
+      // prefers `pages` when present, so a fieldless page still breaks.
+      surfaceType: "form",
+      data: {
+        fields: [{ id: "a", type: "text", label: "A" }],
+        pages: [{ id: "p1", title: "Page 1" }],
+      },
+      expectInError: "at least one page with a non-empty",
+    },
     { surfaceType: "confirmation", data: {}, expectInError: "confirmLabel" },
     { surfaceType: "work_result", data: {}, expectInError: "summary" },
     { surfaceType: "oauth_connect", data: {}, expectInError: "providerKey" },
@@ -144,6 +159,24 @@ describe("ui_show missing-content teaching", () => {
       surfaceType: "channel_setup",
       data: { channel: "email" },
       expectInError: '"slack", "telegram", "phone"',
+    },
+    {
+      // Snake_case constraint keys are stripped by the schema, so without the
+      // guard the uploader would render silently unconstrained.
+      surfaceType: "file_upload",
+      data: { accepted_types: ["application/pdf"], max_files: 1 },
+      expectInError: "`accepted_types`",
+    },
+    {
+      // A valid prompt must not mask a mis-named constraint: the snake_case
+      // key still drops silently, so the guard fires even with prompt present.
+      surfaceType: "file_upload",
+      data: {
+        prompt: "Upload your resume",
+        maxFiles: 2,
+        allowedFormats: ["pdf"],
+      },
+      expectInError: "`allowedFormats`",
     },
   ];
 
@@ -188,8 +221,70 @@ describe("ui_show displayable payloads proxy through", () => {
         input: { surface_type: "card", title: "Status", data: {} },
       },
       {
-        surfaceType: "file_upload",
+        surfaceType: "form (multi-page with fields)",
+        input: {
+          surface_type: "form",
+          data: {
+            pages: [
+              {
+                id: "p1",
+                title: "Page 1",
+                fields: [{ id: "a", type: "text", label: "A" }],
+              },
+            ],
+          },
+        },
+      },
+      {
+        // At least one page carries fields; the renderer treats the fieldless
+        // page as empty rather than crashing, so the guard lets it through.
+        surfaceType: "form (mixed pages, one has fields)",
+        input: {
+          surface_type: "form",
+          data: {
+            pages: [
+              {
+                id: "p1",
+                title: "Page 1",
+                fields: [{ id: "a", type: "text", label: "A" }],
+              },
+              { id: "p2", title: "Page 2" },
+            ],
+          },
+        },
+      },
+      {
+        // Empty data still renders a functional uploader (context can come from
+        // a top-level title), and carries no unknown keys, so it proxies.
+        surfaceType: "file_upload (empty)",
         input: { surface_type: "file_upload", data: {} },
+      },
+      {
+        surfaceType: "file_upload (prompt only)",
+        input: {
+          surface_type: "file_upload",
+          data: { prompt: "Upload your resume" },
+        },
+      },
+      {
+        surfaceType: "file_upload (camelCase constraints)",
+        input: {
+          surface_type: "file_upload",
+          data: {
+            prompt: "Upload your resume",
+            acceptedTypes: ["application/pdf"],
+            maxFiles: 1,
+          },
+        },
+      },
+      {
+        // maxSizeBytes is a real schema field the renderer honors even though
+        // it is not advertised in the shape doc, so it must not be flagged.
+        surfaceType: "file_upload (maxSizeBytes)",
+        input: {
+          surface_type: "file_upload",
+          data: { prompt: "Upload a photo", maxSizeBytes: 1_000_000 },
+        },
       },
       {
         surfaceType: "channel_setup",

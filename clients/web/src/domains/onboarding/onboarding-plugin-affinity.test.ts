@@ -13,7 +13,7 @@ import {
   pluginsForRole,
   resolveDeterministicPlugins,
 } from "@/domains/onboarding/onboarding-plugin-affinity";
-import { PENDING_PLUGIN_INSTALL_KEY } from "@/domains/onboarding/plugin-attribution";
+import { ATTRIBUTED_PLUGIN_PARAM } from "@/domains/onboarding/plugin-attribution";
 
 /** Stand-in for the full Vellum-owned onboarding catalog. */
 const FULL_CATALOG = new Set([
@@ -23,16 +23,21 @@ const FULL_CATALOG = new Set([
 ]);
 
 function setAttribution(pluginId: string) {
-  localStorage.setItem(
-    PENDING_PLUGIN_INSTALL_KEY,
-    JSON.stringify({ pluginId, ts: Date.now() }),
+  window.history.replaceState(
+    {},
+    "",
+    `/?${ATTRIBUTED_PLUGIN_PARAM}=${pluginId}`,
   );
 }
 
-// `resolveDeterministicPlugins` folds in marketing attribution from
-// localStorage; keep it clean so role cases aren't perturbed.
-beforeEach(() => localStorage.clear());
-afterEach(() => localStorage.clear());
+function clearAttribution() {
+  window.history.replaceState({}, "", "/");
+}
+
+// `resolveDeterministicPlugins` folds in marketing attribution from the current
+// URL's query param; keep it clean so role cases aren't perturbed.
+beforeEach(clearAttribution);
+afterEach(clearAttribution);
 
 describe("ALWAYS_INSTALL_PLUGINS", () => {
   test("admin-copilot is the universal baseline", () => {

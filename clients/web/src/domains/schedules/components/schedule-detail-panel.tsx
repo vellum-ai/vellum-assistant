@@ -30,6 +30,7 @@ import {
 } from "@/domains/settings/utils/schedule-formatters";
 import { captureError } from "@/lib/sentry/capture-error";
 import { schedulesByIdRunsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
+import { navigateToConversation } from "@/utils/conversation-navigation";
 import { routes } from "@/utils/routes";
 import { Button, Typography, cn } from "@vellumai/design-library";
 import { toast } from "@vellumai/design-library/components/toast";
@@ -469,7 +470,7 @@ export function ScheduleDetailPanel({
             isLoading={isLoading}
             disableDirectOpen={schedule.mode === "script"}
             onOpenConversation={(conversationId) =>
-              navigate(routes.conversation(conversationId))
+              navigateToConversation(navigate, conversationId)
             }
           />
         </section>
