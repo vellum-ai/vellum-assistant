@@ -1,13 +1,13 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  buildSkillsSearchParams,
-  readSkillsUrlState,
-} from "@/domains/intelligence/skills/skills-url-state";
+  buildSuperpowersSearchParams,
+  readSuperpowersUrlState,
+} from "@/domains/intelligence/superpowers/superpowers-url-state";
 
-describe("readSkillsUrlState", () => {
+describe("readSuperpowersUrlState", () => {
   test("empty params resolve to the defaults", () => {
-    expect(readSkillsUrlState(new URLSearchParams())).toEqual({
+    expect(readSuperpowersUrlState(new URLSearchParams())).toEqual({
       q: "",
       filter: "all",
       category: null,
@@ -18,27 +18,36 @@ describe("readSkillsUrlState", () => {
     const params = new URLSearchParams(
       "?q=git&filter=installed&category=email",
     );
-    expect(readSkillsUrlState(params)).toEqual({
+    expect(readSuperpowersUrlState(params)).toEqual({
       q: "git",
       filter: "installed",
       category: "email",
     });
   });
 
+  test("accepts the type filters", () => {
+    expect(
+      readSuperpowersUrlState(new URLSearchParams("?filter=plugins")).filter,
+    ).toBe("plugins");
+    expect(
+      readSuperpowersUrlState(new URLSearchParams("?filter=skills")).filter,
+    ).toBe("skills");
+  });
+
   test("an unknown filter value falls back to 'all'", () => {
     const params = new URLSearchParams("?filter=bogus");
-    expect(readSkillsUrlState(params).filter).toBe("all");
+    expect(readSuperpowersUrlState(params).filter).toBe("all");
   });
 
   test("an empty category param reads as null", () => {
     const params = new URLSearchParams("?category=");
-    expect(readSkillsUrlState(params).category).toBeNull();
+    expect(readSuperpowersUrlState(params).category).toBeNull();
   });
 });
 
-describe("buildSkillsSearchParams", () => {
+describe("buildSuperpowersSearchParams", () => {
   test("omits defaults so the plain URL stays clean", () => {
-    const next = buildSkillsSearchParams(new URLSearchParams(), {
+    const next = buildSuperpowersSearchParams(new URLSearchParams(), {
       q: "",
       filter: "all",
       category: null,
@@ -47,7 +56,7 @@ describe("buildSkillsSearchParams", () => {
   });
 
   test("sets non-default values", () => {
-    const next = buildSkillsSearchParams(new URLSearchParams(), {
+    const next = buildSuperpowersSearchParams(new URLSearchParams(), {
       q: "git",
       filter: "clawhub",
       category: "email",
@@ -59,7 +68,7 @@ describe("buildSkillsSearchParams", () => {
 
   test("resetting a value back to its default removes the param", () => {
     const params = new URLSearchParams("?q=git&filter=installed&category=email");
-    const next = buildSkillsSearchParams(params, {
+    const next = buildSuperpowersSearchParams(params, {
       q: "",
       filter: "all",
       category: null,
@@ -69,7 +78,7 @@ describe("buildSkillsSearchParams", () => {
 
   test("leaves keys absent from the update untouched", () => {
     const params = new URLSearchParams("?q=git&filter=installed");
-    const next = buildSkillsSearchParams(params, { category: "email" });
+    const next = buildSuperpowersSearchParams(params, { category: "email" });
     expect(next.get("q")).toBe("git");
     expect(next.get("filter")).toBe("installed");
     expect(next.get("category")).toBe("email");
@@ -77,26 +86,26 @@ describe("buildSkillsSearchParams", () => {
 
   test("preserves unrelated params", () => {
     const params = new URLSearchParams("?other=1");
-    const next = buildSkillsSearchParams(params, { q: "git" });
+    const next = buildSuperpowersSearchParams(params, { q: "git" });
     expect(next.get("other")).toBe("1");
     expect(next.get("q")).toBe("git");
   });
 
   test("whitespace-only search is treated as empty", () => {
     const params = new URLSearchParams("?q=git");
-    const next = buildSkillsSearchParams(params, { q: "   " });
+    const next = buildSuperpowersSearchParams(params, { q: "   " });
     expect(next.has("q")).toBe(false);
   });
 
-  test("round-trips through readSkillsUrlState", () => {
-    const next = buildSkillsSearchParams(new URLSearchParams(), {
+  test("round-trips through readSuperpowersUrlState", () => {
+    const next = buildSuperpowersSearchParams(new URLSearchParams(), {
       q: "memory",
-      filter: "assistant-memory",
+      filter: "plugins",
       category: "productivity",
     });
-    expect(readSkillsUrlState(next)).toEqual({
+    expect(readSuperpowersUrlState(next)).toEqual({
       q: "memory",
-      filter: "assistant-memory",
+      filter: "plugins",
       category: "productivity",
     });
   });

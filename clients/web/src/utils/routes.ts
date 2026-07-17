@@ -140,9 +140,18 @@ export const routes = {
    */
   personality: r("/assistant/personality"),
   memory: r("/assistant/memory"),
+  /**
+   * The My Superpowers surface — skills and plugins combined into one
+   * list. The legacy `/assistant/skills` and `/assistant/plugins` list
+   * URLs redirect here (query params preserved) so old bookmarks and
+   * deep links keep working.
+   */
+  superpowers: r("/assistant/superpowers"),
+  /** Legacy Plugins list URL — redirects to `superpowers`. Per-plugin
+   *  deep links (`/assistant/plugins/:name`) still resolve through it. */
   plugins: r("/assistant/plugins"),
   /**
-   * Skills surface — the list plus a dedicated per-skill detail page.
+   * Skill deep links. The list at `root` redirects to `superpowers`;
    * `detail` deep-links a single skill (`/assistant/skills/:skillId`).
    *
    * Callers pass raw skill ids. skills.sh catalog ids are namespaced with
@@ -229,6 +238,7 @@ const ABOUT_ASSISTANT_PATHS: readonly string[] = [
   routes.personality,
   routes.schedules.root,
   routes.memory,
+  routes.superpowers,
   routes.plugins,
   routes.skills.root,
   routes.workspace,

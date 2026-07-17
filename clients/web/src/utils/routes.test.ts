@@ -27,7 +27,8 @@ describe("routes", () => {
     );
   });
 
-  test("builds the skills tab and per-skill detail paths", () => {
+  test("builds the superpowers list and per-skill detail paths", () => {
+    expect(routes.superpowers).toBe("/assistant/superpowers");
     expect(routes.skills.root).toBe("/assistant/skills");
     expect(routes.skills.detail("my-skill")).toBe("/assistant/skills/my-skill");
   });
@@ -44,6 +45,7 @@ describe("routes", () => {
 describe("isAboutAssistantPath", () => {
   test("matches the drill-down sections, including schedule detail sub-paths", () => {
     expect(isAboutAssistantPath(routes.identity)).toBe(true);
+    expect(isAboutAssistantPath(routes.superpowers)).toBe(true);
     expect(isAboutAssistantPath(routes.skills.root)).toBe(true);
     expect(isAboutAssistantPath(routes.schedules.root)).toBe(true);
     expect(isAboutAssistantPath(routes.schedules.detail("sch_123"))).toBe(true);

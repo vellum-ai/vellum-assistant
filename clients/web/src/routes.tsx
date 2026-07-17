@@ -372,6 +372,9 @@ export const routeTree = [
                     { path: "schedules", lazy: { Component: () => import("@/domains/schedules/schedules-page").then((m) => m.SchedulesPage) } },
                     { path: "schedules/:scheduleId", lazy: { Component: () => import("@/domains/schedules/schedules-page").then((m) => m.SchedulesPage) } },
                     { path: "memory", lazy: { Component: () => import("@/memory-page-route").then((m) => m.MemoryPageRoute) } },
+                    // Skills + plugins merged into one list. The legacy list
+                    // URLs redirect here; the per-item detail routes stay.
+                    { path: "superpowers", lazy: { Component: () => import("@/domains/intelligence/superpowers-page").then((m) => m.SuperpowersPage) } },
                     { path: "plugins", lazy: { Component: () => import("@/domains/intelligence/plugins-page").then((m) => m.PluginsPage) } },
                     { path: "plugins/:name", lazy: { Component: () => import("@/domains/intelligence/plugin-detail-page").then((m) => m.PluginDetailPage) } },
                     { path: "skills", lazy: { Component: () => import("@/domains/intelligence/skills-page").then((m) => m.SkillsPage) } },

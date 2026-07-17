@@ -3,7 +3,7 @@
  * section. A bento mosaic on a surface lightly tinted with the avatar's
  * color: the avatar and a typewritten "Hi, I'm {name}" greeting (with
  * inline rename) sit in the center cell, surrounded by organically-rounded
- * drill-down cards (Personality, Schedules, Skills, Plugins, Workspace,
+ * drill-down cards (Personality, Schedules, My Superpowers, Workspace,
  * Contacts, Channels — the replacement for the old tab bar), each carrying
  * one glanceable stat. On narrow or short viewports the mosaic collapses
  * to a stacked avatar + card grid of uniform tiles (icon, title, subtitle,
@@ -15,7 +15,6 @@ import {
   Brain,
   CalendarClock,
   FolderOpen,
-  Puzzle,
   Radio,
   Sparkles,
   Users,
@@ -26,7 +25,7 @@ import { useCallback, useRef, useState, type CSSProperties } from "react";
 import { motion, useReducedMotion } from "motion/react";
 import { Link } from "react-router";
 
-import { Card, Tag, toast } from "@vellumai/design-library";
+import { Card, toast } from "@vellumai/design-library";
 
 import { AvatarManagementModal } from "@/components/avatar/avatar-management-modal";
 import { ChatAvatar } from "@/components/avatar/chat-avatar";
@@ -62,9 +61,8 @@ import { PersonalityRadar } from "./personality-radar";
 const SECTION_ICONS: Record<string, LucideIcon> = {
   personality: Sparkles,
   schedules: CalendarClock,
-  skills: Zap,
+  superpowers: Zap,
   memory: Brain,
-  plugins: Puzzle,
   workspace: FolderOpen,
   contacts: Users,
   channels: Radio,
@@ -79,10 +77,9 @@ const SECTION_ICONS: Record<string, LucideIcon> = {
 const SECTION_RADII: Record<string, string> = {
   personality: "rounded-3xl",
   schedules: "rounded-3xl",
-  skills: "rounded-[1.25rem_2.75rem_1.25rem_2.5rem]",
+  superpowers: "rounded-[1.25rem_2.75rem_1.25rem_2.5rem]",
   channels: "rounded-[2.25rem_1rem_2.5rem_1.25rem]",
   contacts: "rounded-[1rem_2.5rem_1.25rem_2.75rem]",
-  plugins: "rounded-[2.5rem_1.25rem_2.75rem_1rem]",
   workspace: "rounded-[1.25rem_2.5rem_1rem_2.5rem]",
 };
 
@@ -92,9 +89,8 @@ const BENTO_MIN_H = 480;
 
 /** Sections rendered as compact mini cards in the bottom strip. */
 const MINI_SECTION_KEYS = [
-  "skills",
+  "superpowers",
   "memory",
-  "plugins",
   "workspace",
   "contacts",
   "channels",
@@ -106,9 +102,8 @@ const MINI_SECTION_KEYS = [
  */
 const CARD_HOVER_LINES: Record<string, string> = {
   personality: "Go ahead — tweak my soul",
-  skills: "Everything I know how to do",
+  superpowers: "Everything I know how to do",
   memory: "Everything I remember",
-  plugins: "My add-ons — extra superpowers",
   schedules: "What I do on repeat",
   workspace: "All the files that power me",
   contacts: "The people I know and trust",
@@ -206,7 +201,6 @@ export function IdentityOverview({ assistantId }: IdentityOverviewProps) {
   }, [invalidateAvatar]);
 
   const sections = buildIdentitySections({
-    supportsPlugins,
     showChannels,
     showMemory,
   });
@@ -348,9 +342,7 @@ function SectionCard({
     const stackedStat =
       stat?.value !== undefined
         ? `${stat.value} ${stat.label ?? ""}`.trim()
-        : stat?.chips && stat.chips.length > 0
-          ? stat.chips.join(" · ")
-          : stat?.text;
+        : stat?.text;
     return (
       <Card.Root
         asChild
@@ -387,11 +379,7 @@ function SectionCard({
 
   if (mini) {
     const miniStat =
-      stat?.value !== undefined
-        ? `${stat.value} ${stat.label}`
-        : stat?.chips && stat.chips.length > 0
-          ? stat.chips.join(" · ")
-          : stat?.text;
+      stat?.value !== undefined ? `${stat.value} ${stat.label}` : stat?.text;
     // Bottom-strip tile per Figma (New-App 6944-89405): left-aligned,
     // 12px radius, 40px icon slot in the secondary tone, 16px title over
     // an 11px tertiary stat.
@@ -585,12 +573,6 @@ function SectionCard({
             >
               {stat.label}
             </span>
-          </span>
-        ) : stat?.chips && stat.chips.length > 0 ? (
-          <span className="relative flex flex-wrap items-center gap-1">
-            {stat.chips.map((chip) => (
-              <Tag key={chip}>{chip}</Tag>
-            ))}
           </span>
         ) : stat?.text ? (
           <span
