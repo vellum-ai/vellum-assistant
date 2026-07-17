@@ -190,7 +190,7 @@ function PersonalityBody({
           type="button"
           onClick={onUpdate}
           disabled={applying}
-          className="flex h-11 w-[240px] shrink-0 cursor-pointer items-center justify-center gap-2 rounded-[10px] text-body-medium-default transition-transform duration-150 active:scale-[0.97] disabled:cursor-default disabled:opacity-80 disabled:active:scale-100"
+          className="flex h-11 w-[240px] max-w-full shrink-0 cursor-pointer items-center justify-center gap-2 rounded-[10px] px-4 text-body-medium-default transition-transform duration-150 active:scale-[0.97] disabled:cursor-default disabled:opacity-80 disabled:active:scale-100"
           style={{
             backgroundColor: tone.isLight ? "#1A1A1A" : "#FFFFFF",
             color: tone.isLight ? "#FFFFFF" : "#1A1A1A",
@@ -199,13 +199,15 @@ function PersonalityBody({
           {applying ? (
             <>
               <div
-                className="h-4 w-4 animate-spin rounded-full border-2 border-transparent"
+                className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-transparent"
                 style={{
                   borderTopColor: tone.isLight ? "#FFFFFF" : "#1A1A1A",
                   borderRightColor: tone.isLight ? "#FFFFFF" : "#1A1A1A",
                 }}
               />
-              {assistantName} is rewriting itself…
+              <span className="min-w-0 truncate">
+                {assistantName} is rewriting itself…
+              </span>
             </>
           ) : (
             <>
