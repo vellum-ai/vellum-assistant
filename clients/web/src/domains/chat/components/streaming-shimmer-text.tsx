@@ -1,8 +1,4 @@
-import {
-  buildBandGradient,
-  easingPresets,
-  type GradientStop,
-} from "gradient-shimmer";
+import { buildBandGradient, type GradientStop } from "gradient-shimmer";
 import { useReducedMotion } from "motion/react";
 import { useLayoutEffect, useMemo, useRef, type CSSProperties } from "react";
 
@@ -80,15 +76,22 @@ export interface StreamingShimmerTextProps {
  * the assistant's avatar color, sweeping across the loading label.
  *
  * The sweep is built for continuity — the "working on it" signal must never
- * visibly reset while a turn is in flight. Every instance runs an infinite
- * Web Animations API sweep with `startTime = 0`, phase-locking it to the
- * document timeline's origin. Because the phase is a pure function of the
- * shared clock, any re-creation of the animation — a label swap from the
- * daemon's activity status, a remount, or a handoff between the shimmer's
- * hosts (the standalone thinking row, the inline thinking link, the
- * tool-card header) — resumes the sweep mid-cycle instead of snapping it
- * back to the start. The band parks just off-text at both ends of a cycle,
- * so the iteration wrap is invisible too.
+ * visibly reset while a turn is in flight:
+ *
+ * - **The loop wraps, it doesn't rewind.** The gradient tiles horizontally
+ *   (`repeat-x`, one glint per tile) and translates linearly by exactly one
+ *   tile per iteration, so the wrap is pixel-perfect: the next glint enters
+ *   from the left as the previous one exits right. There is no "start of the
+ *   sweep" to snap back to. Linear easing is load-bearing — the belt moves
+ *   at constant speed, and any ease would visibly accelerate every glint in
+ *   unison at the iteration boundary.
+ * - **Instances share a clock.** Every animation runs with `startTime = 0`,
+ *   phase-locking it to the document timeline's origin. Because the phase is
+ *   a pure function of the shared clock, any re-creation of the animation —
+ *   a label swap from the daemon's activity status, a remount, or a handoff
+ *   between the shimmer's hosts (the standalone thinking row, the inline
+ *   thinking link, the tool-card header) — resumes the motion mid-cycle
+ *   instead of snapping it back to the start.
  *
  * Renders a static gradient under `prefers-reduced-motion`, and plain text
  * when `background-clip: text` is unsupported.
@@ -136,24 +139,24 @@ export function StreamingShimmerText({
         children.length * SPREAD_PER_CHAR_PX * fontScale,
         MAX_SPREAD_PX * fontScale,
       );
-      const layerWidth = Math.max(1, textWidth + spreadPx * 2);
+      const tileWidth = Math.max(1, textWidth + spreadPx * 2);
       el.style.setProperty("--gs-spread", `${spreadPx}px`);
       el.style.setProperty(
         "--gs-spread-mid",
         `${spreadPx * SPREAD_MID_RATIO}px`,
       );
-      el.style.backgroundSize = `${layerWidth}px 100%`;
+      el.style.backgroundSize = `${tileWidth}px 100%`;
       anim?.cancel();
+      // Advancing by exactly one tile per iteration makes the wrap seamless:
+      // position `tileWidth` is pixel-identical to position 0.
       anim = el.animate(
         [
-          { backgroundPosition: `${-spreadPx - layerWidth / 2}px center` },
-          {
-            backgroundPosition: `${textWidth + spreadPx - layerWidth / 2}px center`,
-          },
+          { backgroundPosition: "0px center" },
+          { backgroundPosition: `${tileWidth}px center` },
         ],
         {
           duration: SWEEP_DURATION_MS,
-          easing: easingPresets.smooth,
+          easing: "linear",
           iterations: Infinity,
         },
       );
@@ -183,9 +186,9 @@ export function StreamingShimmerText({
     position: "relative",
     display: "inline-block",
     backgroundImage,
-    backgroundRepeat: "no-repeat",
+    backgroundRepeat: "repeat-x",
     backgroundSize: "100% 100%",
-    // Text outside the gradient layer still renders in the base color.
+    // Anything the tiles miss (e.g. vertical overflow) keeps the base color.
     backgroundColor: "var(--gs-base)",
     WebkitBackgroundClip: "text",
     backgroundClip: "text",
