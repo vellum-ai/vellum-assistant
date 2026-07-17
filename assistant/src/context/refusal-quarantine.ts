@@ -1,26 +1,32 @@
 /**
- * Refusal-quarantine helpers for the empty-response plugin.
+ * Refusal-quarantine helpers.
  *
  * When the provider's safety classifier zeroes a response (`stopReason ===
- * "refusal"`), the `post-model-call` hook rewrites that turn into a canned
- * apology (`REFUSAL_FALLBACK_TEXT`) which is persisted like a normal assistant
- * turn. Without further action the flagged user prompt stays in the transcript,
- * so every following turn resends it and re-trips the same refusal — a dead-
- * ended, poisoned conversation.
+ * "refusal"`), the empty-response plugin's `post-model-call` hook rewrites that
+ * turn into a canned apology (`REFUSAL_FALLBACK_TEXT`) which is persisted like
+ * a normal assistant turn. Without further action the flagged user prompt stays
+ * in the transcript, so every following turn resends it and re-trips the same
+ * refusal — a dead-ended, poisoned conversation.
  *
  * The persisted apology is itself a durable, per-exchange marker of "this
- * exchange was refused". The `user-prompt-submit` hook uses these helpers at
- * turn start to drop each previously-refused exchange from the working history
- * the provider sees, so the poison never replays. No new storage and no
- * migration: the signal lives in the transcript (source of truth), so an
- * already-poisoned conversation self-heals on its next turn.
+ * exchange was refused". These helpers drop each previously-refused exchange
+ * from the working history the provider sees, so the poison never replays. No
+ * new storage and no migration: the signal lives in the transcript (source of
+ * truth), so an already-poisoned conversation self-heals on its next turn.
+ *
+ * Host-owned because both sides of the boundary consume it: the runtime
+ * assembly (`daemon/conversation-runtime-assembly.ts`) quarantines the message
+ * array and the lockstep Slack chronological transcript, and the empty-response
+ * plugin's hooks reach the producer/sweep pieces via `@vellumai/plugin-api`
+ * re-exports.
  */
 
-import type { ContentBlock, Message } from "@vellumai/plugin-api";
+import type { ContentBlock, Message } from "../providers/types.js";
 
 /**
  * User-facing text a refusal turn is rewritten into (single source of truth for
- * both the producer in `hooks/post-model-call.ts` and the detector below).
+ * both the producer — the empty-response plugin's `post-model-call` hook — and
+ * the detector below).
  *
  * DETECTION COUPLING: `isRefusalFallbackMessage` matches this string exactly,
  * so it doubles as the quarantine marker for already-persisted transcripts.

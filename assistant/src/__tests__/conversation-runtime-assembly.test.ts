@@ -105,6 +105,7 @@ mock.module("../daemon/date-context.js", () => ({
 
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { LLMSchema } from "../config/schemas/llm.js";
+import { REFUSAL_FALLBACK_TEXT } from "../context/refusal-quarantine.js";
 import {
   clearConversations,
   setConversation,
@@ -147,7 +148,6 @@ import type { MessageRow } from "../persistence/conversation-crud.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { conversations, messages } from "../persistence/schema/index.js";
-import { REFUSAL_FALLBACK_TEXT } from "../plugins/defaults/empty-response/refusal-quarantine.js";
 import { registerDefaultPluginInjectors } from "../plugins/defaults/index.js";
 import { ConversationGraphMemory } from "../plugins/defaults/memory/graph/conversation-graph-memory.js";
 import postCompact from "../plugins/defaults/memory/hooks/post-compact.js";
