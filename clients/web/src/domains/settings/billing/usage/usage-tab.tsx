@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle } from "lucide-react";
 import { useCallback, useMemo, useState, type ReactNode } from "react";
-import { useSearchParams } from "react-router";
+import { Link, useNavigate, useSearchParams } from "react-router";
 
 import { Dropdown } from "@vellumai/design-library";
 
@@ -61,6 +61,7 @@ import {
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import { PromptLaunchButton } from "@/components/prompt-launch-button";
 import { extractUsageProfileMetadata } from "@/utils/profile-metadata";
+import { routes } from "@/utils/routes";
 import { fetchSchedules, type AssistantSchedule } from "@/utils/schedules";
 import { useEffectiveTimezone } from "@/utils/use-effective-timezone";
 
@@ -775,6 +776,7 @@ function BreakdownSection({
           render={(breakdown) => (
             <BreakdownTable
               groups={decoratedGroups ?? breakdown.response.breakdown}
+              groupBy={breakdown.groupBy}
               showPct={visibleColumns.has("pct")}
               showTokens={visibleColumns.has("tokens")}
               showTurns={visibleColumns.has("turns")}
@@ -817,15 +819,19 @@ function ColumnToggle({
 
 function BreakdownTable({
   groups,
+  groupBy,
   showPct,
   showTokens,
   showTurns,
 }: {
   groups: UsageGroupBreakdown[];
+  groupBy: UsageGroupBy;
   showPct: boolean;
   showTokens: boolean;
   showTurns: boolean;
 }) {
+  const navigate = useNavigate();
+
   if (groups.length === 0) {
     return (
       <EmptyState
@@ -887,6 +893,11 @@ function BreakdownTable({
           {groups.map((group, index) => {
             const tokenDetail = formatBreakdownTokens(group);
             const tokenShort = formatBreakdownTokensShort(group);
+            // groupId carries the conversation id only for the conversation
+            // grouping ("Other" rows have none); other dimensions reuse it
+            // for their own identifiers.
+            const conversationId =
+              groupBy === "conversation" ? group.groupId : null;
             const costPct =
               totalCost > 0
                 ? Math.round(
@@ -898,6 +909,21 @@ function BreakdownTable({
                 key={
                   group.groupKey ?? group.groupId ?? `${group.group}-${index}`
                 }
+                className={
+                  conversationId
+                    ? "cursor-pointer hover:bg-[var(--surface-hover)]"
+                    : undefined
+                }
+                onClick={
+                  conversationId
+                    ? (event) => {
+                        if ((event.target as HTMLElement).closest("a")) {
+                          return;
+                        }
+                        navigate(routes.conversation(conversationId));
+                      }
+                    : undefined
+                }
                 style={{
                   borderTop:
                     index === 0 ? "none" : "1px solid var(--border-base)",
@@ -907,12 +933,22 @@ function BreakdownTable({
                   className="min-w-0 px-3 py-2"
                   style={{ color: "var(--content-default)" }}
                 >
-                  <span
-                    className="block truncate text-body-medium-lighter"
-                    title={group.group}
-                  >
-                    {group.group}
-                  </span>
+                  {conversationId ? (
+                    <Link
+                      to={routes.conversation(conversationId)}
+                      className="block truncate text-body-medium-lighter"
+                      title={group.group}
+                    >
+                      {group.group}
+                    </Link>
+                  ) : (
+                    <span
+                      className="block truncate text-body-medium-lighter"
+                      title={group.group}
+                    >
+                      {group.group}
+                    </span>
+                  )}
                 </td>
                 {showTokens ? (
                   <td
