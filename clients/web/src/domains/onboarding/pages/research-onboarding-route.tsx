@@ -72,7 +72,7 @@ import {
   GiveMeAFaceScreen,
   type GiveMeAFaceValues,
 } from "@/domains/onboarding/screens/give-me-a-face-screen";
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
+import { useOnboardingVoiceFlag } from "@/domains/onboarding/use-onboarding-voice-flag";
 import { IntroductionScreen } from "@/domains/onboarding/screens/introduction-screen";
 import { PitchStep } from "@/domains/onboarding/screens/intro-pitch-steps";
 import { IntegrationStep } from "@/domains/onboarding/screens/integration-step";
@@ -141,12 +141,6 @@ export function ResearchOnboardingRoute() {
   // the legacy pre-chat funnel and is no longer flag-gated, so the route always
   // renders and the "Create my personality" step is always shown.
   const personalityEnabled = true;
-  // Surface the assistant's voice on the face/name step behind the assistant-
-  // scoped `voice-mode` flag (a "Hear my voice" audition — every assistant gets
-  // the default Vellum managed voice). The background hatch fires on mount, so by
-  // the face step the assistant's flags are usually hydrated; before that this
-  // reads the registry default (false), which fails safe (button just hidden).
-  const voiceEnabled = useAssistantFeatureFlagStore.use.voiceMode();
 
   // Sub-steps share this route: details form → avatar/name picker →
   // introduction → pitch (the "different" step, which carousels its lines to
@@ -304,6 +298,12 @@ export function ResearchOnboardingRoute() {
     adoptExisting: adoptExistingAssistant,
     adoptAssistantId,
   });
+  // Gate the face-step "Hear my voice" audition on the HATCHED assistant's
+  // voice-mode flag — not the app's active assistant. Onboarding hatches a
+  // separate assistant and only selects it at handoff, so the shared flag store
+  // would report the wrong assistant (or the default for a brand-new user with
+  // nothing selected). Fails safe to hidden until the hatch id + flags land.
+  const voiceEnabled = useOnboardingVoiceFlag(hatchedAssistantId);
   const research = useResearchRunner();
   // Stable across renders (useCallback in the runner); safe as effect deps.
   const { start: startResearch, hydrate: hydrateResearch } = research;

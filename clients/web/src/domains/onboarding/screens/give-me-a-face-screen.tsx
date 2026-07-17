@@ -174,6 +174,10 @@ export function GiveMeAFaceScreen({
   const [voiceLoading, setVoiceLoading] = useState(false);
   const voiceAudioRef = useRef<HTMLAudioElement | null>(null);
   const voiceUrlRef = useRef<string | null>(null);
+  // Bumped on every request AND on unmount, so an in-flight synthesis that
+  // resolves after the user has left the step (or after a newer click) bails
+  // instead of starting playback on the next screen with no later cleanup.
+  const voiceRequestRef = useRef(0);
   function stopVoice() {
     voiceAudioRef.current?.pause();
     voiceAudioRef.current = null;
@@ -182,7 +186,13 @@ export function GiveMeAFaceScreen({
       voiceUrlRef.current = null;
     }
   }
-  useEffect(() => () => stopVoice(), []);
+  useEffect(
+    () => () => {
+      voiceRequestRef.current++;
+      stopVoice();
+    },
+    [],
+  );
 
   async function hearVoice() {
     if (!assistantId) {
@@ -190,6 +200,8 @@ export function GiveMeAFaceScreen({
       return;
     }
     stopVoice();
+    const requestId = ++voiceRequestRef.current;
+    const isCurrent = () => voiceRequestRef.current === requestId;
     setVoiceLoading(true);
     try {
       const trimmed = name.trim();
@@ -197,6 +209,9 @@ export function GiveMeAFaceScreen({
         ? `Hi! It's ${trimmed}. This is how I sound.`
         : "Hi there! This is how I sound.";
       const blob = await synthesizeManagedVoiceSample(assistantId, sampleText);
+      // Unmounted or superseded by a newer click while synthesizing — don't
+      // start playback on a step the user has already left.
+      if (!isCurrent()) return;
       if (!blob) {
         toast.error("Couldn't play a sample just now — give it another try.");
         return;
@@ -208,9 +223,11 @@ export function GiveMeAFaceScreen({
       audio.onended = () => stopVoice();
       await audio.play();
     } catch {
-      toast.error("Couldn't play a sample just now — give it another try.");
+      if (isCurrent()) {
+        toast.error("Couldn't play a sample just now — give it another try.");
+      }
     } finally {
-      setVoiceLoading(false);
+      if (isCurrent()) setVoiceLoading(false);
     }
   }
 
