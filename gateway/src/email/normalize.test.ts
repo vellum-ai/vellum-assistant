@@ -309,6 +309,28 @@ describe("evaluateSenderAuthentication", () => {
     );
   });
 
+  it("falls back to aligned DKIM on Microsoft's dmarc=bestguesspass", () => {
+    // Microsoft 365 stamps `dmarc=bestguesspass` when the From: domain
+    // publishes no DMARC record but an implicit policy would have passed — a
+    // non-failure no-determination verdict, so the aligned-DKIM fallback still
+    // applies.
+    const authResults =
+      "spf=pass (sender ip is 203.0.113.5) smtp.mailfrom=example.com; " +
+      "dkim=pass (signature was verified) header.d=example.com; " +
+      "dmarc=bestguesspass action=none header.from=example.com";
+    expect(evaluateSenderAuthentication({ authResults, fromEmail: FROM })).toBe(
+      true,
+    );
+  });
+
+  it("still requires DKIM alignment on dmarc=bestguesspass", () => {
+    const authResults =
+      "mx.resend.com; dkim=pass header.d=attacker.net; dmarc=bestguesspass";
+    expect(evaluateSenderAuthentication({ authResults, fromEmail: FROM })).toBe(
+      false,
+    );
+  });
+
   it("treats a DKIM pass for an unaligned domain as unauthenticated", () => {
     // DKIM passed, but for the attacker's own domain — not the From:.
     const authResults =
