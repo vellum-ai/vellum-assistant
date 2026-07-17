@@ -1292,6 +1292,25 @@ describe("DeepgramRealtimeTranscriber", () => {
     expect(events.filter((e) => e.type === "closed")).toHaveLength(0);
   });
 
+  test("finalize fallback retires the pending-audio watchdog debt", async () => {
+    const { transcriber, events } = await startSession({
+      inactivityTimeoutMs: 100,
+      finalizeFallbackMs: 10,
+    });
+    transcriber.sendAudio(Buffer.from([1, 2, 3]), "audio/pcm");
+    transcriber.finalizeUtterance();
+
+    // The fallback settles the request without any provider frame (short
+    // or noisy utterance — Deepgram had nothing significant buffered)...
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(events.filter((e) => e.type === "finalized")).toHaveLength(1);
+
+    // ...and the now-idle stream must not hit the inactivity timeout.
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    expect(events.filter((e) => e.type === "error")).toHaveLength(0);
+    expect(events.filter((e) => e.type === "closed")).toHaveLength(0);
+  });
+
   test("provider response clears the pending-audio watchdog", async () => {
     const { transcriber, events } = await startSession({
       inactivityTimeoutMs: 100,

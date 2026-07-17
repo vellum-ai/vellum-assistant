@@ -959,6 +959,12 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
         // handleTranscriptFrame.
         this.fallbackSettledFinalizes += 1;
       }
+      // The settled request covers all audio sent so far — Deepgram had
+      // nothing significant buffered, so no response is owed anymore.
+      // Leaving the debt set would let the inactivity watchdog kill the
+      // now-idle stream ~30s after a short/noisy utterance that elicited
+      // no provider frames at all.
+      this.awaitingResponseSinceMs = null;
       this.settleOneFinalize();
     }, this.finalizeFallbackMs);
   }

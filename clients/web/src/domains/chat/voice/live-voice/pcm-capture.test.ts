@@ -157,22 +157,16 @@ describe("pcm-downsample worklet (cross-quantum continuity)", () => {
 
   test("48kHz: consecutive 128-frame blocks stay continuous (no zeros, no dropped boundary samples)", async () => {
     const chunks: number[] = [];
-    const postedLengths: number[] = [];
     // Distinct, non-zero per-sample values so we can detect both injected
     // zeros and skipped boundary samples. A linear ramp at full scale would
     // clip, so keep values in (0, 1].
     const processor = await loadProcessor(48000, (buf) => {
-      const samples = new Int16Array(buf);
-      postedLengths.push(samples.length);
-      for (const v of samples) chunks.push(v);
+      for (const v of new Int16Array(buf)) chunks.push(v);
     });
 
     const BLOCK = 128;
     const RATIO = 3; // 48000 / 16000
-    const BATCH = 800; // worklet coalesces output into 50ms frames
-    // Enough input to fill at least two full batches (each consumes
-    // BATCH * RATIO input samples); the sub-batch tail stays buffered.
-    const BLOCKS = Math.ceil((2 * BATCH * RATIO) / BLOCK) + 1;
+    const BLOCKS = 5;
 
     // Build the full input stream and feed it block-by-block.
     const total = BLOCK * BLOCKS;
@@ -198,11 +192,7 @@ describe("pcm-downsample worklet (cross-quantum continuity)", () => {
       expected.push(Math.trunc(scaled));
     }
 
-    // Every posted frame is a full 50ms batch, and the concatenated stream
-    // is a prefix-exact match of the single-shot decimation.
-    expect(postedLengths.length).toBeGreaterThanOrEqual(2);
-    expect(postedLengths.every((len) => len === BATCH)).toBe(true);
-    expect(chunks).toEqual(expected.slice(0, chunks.length));
+    expect(chunks).toEqual(expected);
     // No artificial silence injected at block boundaries.
     expect(chunks.some((v) => v === 0)).toBe(false);
   });
@@ -313,16 +303,45 @@ describe("lifecycle", () => {
     expect(chunks.length).toBe(0);
   });
 
-  test("emitted PCM chunks reach onChunk", async () => {
+  test("worklet quanta are coalesced into 800-sample batches", async () => {
     const chunks: ArrayBuffer[] = [];
     const capture = new LiveVoiceAudioCapture({ onChunk: (b) => chunks.push(b) });
     await capture.start();
 
-    const buf = new Int16Array([1, 2, 3]).buffer;
-    lastWorklet!.port.emit(buf);
+    // 10 quanta of 128 samples = 1280: one full batch plus a 480-sample
+    // tail held in the accumulator. Each quantum is filled with its ordinal
+    // so boundary continuity is observable.
+    for (let i = 0; i < 10; i++) {
+      const quantum = new Int16Array(128).fill(i + 1);
+      lastWorklet!.port.emit(quantum.buffer);
+    }
 
     expect(chunks.length).toBe(1);
+    const batch = new Int16Array(chunks[0]!);
+    expect(batch.length).toBe(800);
+    // Continuity across quantum boundaries: index 128k..128(k+1) holds
+    // quantum k+1's fill value, uninterrupted through the batch.
+    expect(batch[0]).toBe(1);
+    expect(batch[127]).toBe(1);
+    expect(batch[128]).toBe(2);
+    expect(batch[799]).toBe(7);
+  });
+
+  test("flush() emits the sub-batch tail synchronously and resets", async () => {
+    const chunks: ArrayBuffer[] = [];
+    const capture = new LiveVoiceAudioCapture({ onChunk: (b) => chunks.push(b) });
+    await capture.start();
+
+    lastWorklet!.port.emit(new Int16Array([1, 2, 3]).buffer);
+    expect(chunks.length).toBe(0); // held in the accumulator
+
+    capture.flush();
+    expect(chunks.length).toBe(1);
     expect(new Int16Array(chunks[0]!)).toEqual(new Int16Array([1, 2, 3]));
+
+    // The accumulator was reset: a second flush emits nothing.
+    capture.flush();
+    expect(chunks.length).toBe(1);
   });
 });
 
