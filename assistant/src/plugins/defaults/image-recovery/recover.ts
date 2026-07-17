@@ -103,13 +103,12 @@ export function unsendableImageReplacement(
   const belowMinDimension = isBelowMinDimension(dims);
   if (!exceedsDimensionCap && !exceedsPayloadCap && !belowMinDimension) {
     if (mediaTypeMismatch) {
+      // Only the label is wrong, so keep the source shape: a workspace_ref
+      // stays a reference (inlining it would bake the full payload into the
+      // stored message row) and only media_type is corrected.
       return {
         type: "image",
-        source: {
-          type: "base64",
-          media_type: effectiveMediaType,
-          data: resolved.data,
-        },
+        source: { ...block.source, media_type: effectiveMediaType },
       };
     }
     return null;

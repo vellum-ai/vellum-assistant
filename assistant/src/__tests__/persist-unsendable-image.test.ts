@@ -14,6 +14,7 @@
 
 import { beforeEach, describe, expect, test } from "bun:test";
 
+import { uploadAttachment } from "../persistence/attachments-store.js";
 import {
   addMessage,
   createConversation,
@@ -389,5 +390,38 @@ describe("unsendableImageReplacement", () => {
       type: "image",
       source: { type: "base64", media_type: "image/png", data: pngData },
     });
+  });
+
+  /** Relabeling a persisted (workspace_ref) image keeps the reference shape —
+   *  inlining it would bake the full payload into the stored message row. */
+  test("relabels a mislabeled workspace_ref without inlining the payload", () => {
+    const pngData = makePngBase64(1024, 768);
+    const stored = uploadAttachment("photo.png", "image/png", pngData);
+    const mislabeledRef = {
+      type: "image",
+      source: {
+        type: "workspace_ref",
+        media_type: "image/jpeg",
+        attachmentId: stored.id,
+        sizeBytes: Buffer.from(pngData, "base64").length,
+      },
+    } as Extract<ContentBlock, { type: "image" }>;
+
+    const replacement = unsendableImageReplacement(mislabeledRef);
+
+    expect(replacement).toMatchObject({
+      type: "image",
+      source: {
+        type: "workspace_ref",
+        media_type: "image/png",
+        attachmentId: stored.id,
+      },
+    });
+    // AND the corrected reference no longer matches on a second pass
+    expect(
+      unsendableImageReplacement(
+        replacement as Extract<ContentBlock, { type: "image" }>,
+      ),
+    ).toBeNull();
   });
 });
