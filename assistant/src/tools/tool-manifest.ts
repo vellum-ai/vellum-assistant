@@ -6,7 +6,11 @@
  * so adding/removing tools only requires editing this manifest.
  */
 
-import { recallTool, rememberTool } from "../plugins/defaults/memory/tools.js";
+import {
+  deleteMemoryPageTool,
+  recallTool,
+  rememberTool,
+} from "../plugins/defaults/memory/tools.js";
 import { askQuestionTool } from "./ask-question/ask-question-tool.js";
 import { fileEditTool } from "./filesystem/edit.js";
 import { fileListTool } from "./filesystem/list.js";
@@ -58,6 +62,7 @@ export const explicitTools: ToolDefinition[] = [
   requestSystemPermissionTool,
   rememberTool,
   recallTool,
+  deleteMemoryPageTool,
   notifyParentTool,
   askQuestionTool,
   hostFileReadTool,

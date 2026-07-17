@@ -565,6 +565,21 @@ export const SUBAGENT_ONLY_TOOL_NAMES = new Set<string>([
 ]);
 
 /**
+ * Tools that never appear on the default tool surface — they reach the wire
+ * ONLY for a wire-scoped background run that explicitly allowlists them (see
+ * `allowedTools` in `runBackgroundJob`). A normal turn carries no subagent
+ * allowlist, so these stay hidden from every interactive and injected-content
+ * turn; no user- or attacker-driven turn is ever handed the capability.
+ *
+ * `delete_memory_page` is the memory-consolidation page-maintenance primitive:
+ * the guardian consolidation pass allowlists it to retire merged/renamed/dead
+ * pages, and nothing else should be able to delete memory pages.
+ */
+export const ALLOWLIST_ONLY_TOOL_NAMES = new Set<string>([
+  "delete_memory_page",
+]);
+
+/**
  * Determine whether a tool is part of the final exposed tool set for the
  * current turn. This helper mirrors the filtering applied by
  * `createResolveToolsCallback` — including the subagent allowlist,
@@ -686,6 +701,15 @@ export function isToolActiveForContext(
   }
   if (SUBAGENT_ONLY_TOOL_NAMES.has(name)) {
     return ctx.isSubagent === true;
+  }
+  // Allowlist-only tools stay off the default surface: they appear ONLY when a
+  // wire-scoped background run explicitly names them in its allowlist. A normal
+  // turn has no `subagentAllowedTools`, so this reads false and the tool stays
+  // hidden. (Both gate modes are covered: wire mode also filters the wire to
+  // the allowlist downstream; execution mode keeps the full surface, so this
+  // check is what keeps the tool off it unless the run opted in.)
+  if (ALLOWLIST_ONLY_TOOL_NAMES.has(name)) {
+    return ctx.subagentAllowedTools?.has(name) === true;
   }
   return true;
 }
