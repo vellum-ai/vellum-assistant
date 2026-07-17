@@ -107,6 +107,7 @@ const V1_QDRANT_JOB_TYPES = new Set<MemoryJobType>([
   "embed_pkb_file",
   "rebuild_index",
   "delete_qdrant_vectors",
+  "sweep_orphaned_graph_node_points",
 ]);
 
 /**

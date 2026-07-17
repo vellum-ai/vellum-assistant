@@ -40,6 +40,7 @@ export type MemoryJobType =
   | "backfill"
   | "rebuild_index"
   | "delete_qdrant_vectors"
+  | "sweep_orphaned_graph_node_points"
   | "media_processing"
   | "embed_media"
   | "embed_attachment"
