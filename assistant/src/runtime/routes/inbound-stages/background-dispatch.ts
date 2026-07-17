@@ -30,6 +30,7 @@ import {
   storeStreamedReplyTs,
 } from "../../../persistence/delivery-crud.js";
 import {
+  getSiblingEventDeliveryStatuses,
   markProcessed,
   recordProcessingFailure,
 } from "../../../persistence/delivery-status.js";
@@ -326,13 +327,32 @@ export function processChannelMessageInBackground(
         return;
       }
 
-      if (deduplicatedIngress) {
-        // The original turn already delivered its reply; a redelivery of the
-        // same ingress must not re-emit it. `finalizeEventDelivery` would
-        // re-deliver via `sinceMessageId: userMessageId`, so skip it entirely.
+      // An at-least-once redelivery that deduplicated against the original turn
+      // must not blindly re-deliver: `finalizeEventDelivery` would re-emit the
+      // reply via `sinceMessageId: userMessageId`. Consult the sibling events
+      // linked to the same user message (they share `messageId` because the
+      // deduped turn returns the original message id and this redelivery was
+      // `linkMessage`d to it). `deliveryStatus` goes `pending` → `delivered` |
+      // `failed` | `dead_letter`; only `pending` is non-terminal:
+      //   - `delivered`            → reply already emitted → skip (would duplicate).
+      //   - `failed`/`dead_letter` → a delivery attempt is recorded; the retry
+      //     sweep (which selects `deliveryStatus='failed'`) or dead-letter replay
+      //     owns recovery → skip to avoid racing it.
+      //   - all siblings `pending` → the first process persisted the turn but
+      //     died before recording a delivery outcome. The sweep never selects
+      //     `pending`, so this redelivery is the only path that can recover the
+      //     undelivered reply → fall through and deliver.
+      const priorDeduplicatedDeliveryOwned =
+        deduplicatedIngress &&
+        userMessageId !== undefined &&
+        getSiblingEventDeliveryStatuses(userMessageId, eventId).some(
+          (status) => status !== "pending",
+        );
+
+      if (priorDeduplicatedDeliveryOwned) {
         log.info(
           { conversationId, eventId },
-          "Skipping channel reply delivery for deduplicated ingress event",
+          "Skipping channel reply delivery for deduplicated ingress event; a prior attempt owns delivery",
         );
       } else if (replyCallbackUrl) {
         try {
