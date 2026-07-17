@@ -195,6 +195,19 @@ export { isVisionNotSupportedError } from "../util/provider-error-patterns.js";
 // avoid touching stale tool-result media the sanitizer will replace with its
 // removed-media marker.
 export { lastToolResultUserMessageIndex } from "../context/outbound-sanitize.js";
+// Refusal quarantine — the canned apology a refusal turn is rewritten into
+// (`REFUSAL_FALLBACK_TEXT`, which doubles as the persisted per-exchange
+// "refused" marker), the tool-result-only user-message classifier the producer
+// shares with the detector, and the sweep that drops previously-refused
+// exchanges from a working history. The empty-response plugin's
+// `post-model-call` hook writes the marker and its `user-prompt-submit` hook
+// runs the sweep; the host runtime assembly applies the same helpers to the
+// provider-bound history.
+export {
+  isToolResultMessage,
+  quarantineRefusedExchanges,
+  REFUSAL_FALLBACK_TEXT,
+} from "../context/refusal-quarantine.js";
 // Identity reads — "who is the assistant and the user." A plugin that builds
 // its own prompts (e.g. for its own inference) names the actor via these.
 // Backed by the workspace `IDENTITY.md` / user profile; each returns null when

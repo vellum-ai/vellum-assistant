@@ -22,6 +22,10 @@ import { isMemoryV3Live } from "../config/memory-v3-gate.js";
 import type { LLMCallSite, LLMConfig } from "../config/schemas/llm.js";
 import { findContactInfoById } from "../contacts/contact-store.js";
 import {
+  computeRefusedExchangeDrops,
+  quarantineRefusedExchanges,
+} from "../context/refusal-quarantine.js";
+import {
   NOW_SCRATCHPAD_STRIP_PREFIXES,
   stripSpotlightInjections,
   stripUserTextBlocksByPrefix,
@@ -45,10 +49,6 @@ import {
 } from "../persistence/conversation-crud.js";
 import { isBackgroundConversationType } from "../persistence/conversation-types.js";
 import { createContextSummaryMessage } from "../plugins/defaults/compaction/window-manager.js";
-import {
-  computeRefusedExchangeDrops,
-  quarantineRefusedExchanges,
-} from "../plugins/defaults/empty-response/refusal-quarantine.js";
 import {
   countMemoryPrefixBlocks,
   extractMemoryPrefixBlocks,

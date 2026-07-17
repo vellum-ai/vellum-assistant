@@ -11,12 +11,11 @@
  * role-alternation artifact left by a dropped run.
  */
 
-import type {
-  HookFunction,
-  UserPromptSubmitContext,
+import {
+  type HookFunction,
+  quarantineRefusedExchanges,
+  type UserPromptSubmitContext,
 } from "@vellumai/plugin-api";
-
-import { quarantineRefusedExchanges } from "../refusal-quarantine.js";
 
 const userPromptSubmit: HookFunction<UserPromptSubmitContext> = async (ctx) => {
   const { messages, droppedExchanges } = quarantineRefusedExchanges(

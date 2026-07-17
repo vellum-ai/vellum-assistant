@@ -30,6 +30,7 @@
 
 import { beforeEach, describe, expect, test } from "bun:test";
 
+import { quarantineRefusedExchanges } from "../context/refusal-quarantine.js";
 import {
   HOOKS,
   INTERNAL_NUDGE_OUTPUT_SUPPRESSION,
@@ -52,7 +53,6 @@ import {
   markEmptyResponseNudged,
   resetEmptyResponseNudgeStoreForTests,
 } from "../plugins/defaults/empty-response/nudge-state-store.js";
-import { quarantineRefusedExchanges } from "../plugins/defaults/empty-response/refusal-quarantine.js";
 import { defaultEmptyResponsePlugin } from "../plugins/defaults/index.js";
 import { runHook } from "../plugins/pipeline.js";
 import {
