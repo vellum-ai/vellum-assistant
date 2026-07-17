@@ -58,6 +58,45 @@ export function isRefusalFallbackMessage(message: Message): boolean {
 }
 
 /**
+ * Indices of every message belonging to a previously-refused exchange: for each
+ * assistant message that is exactly the refusal fallback, its own index plus the
+ * contiguous run back to (and including) the nearest genuine user prompt — the
+ * flagged prompt and any tool exchange in that run.
+ *
+ * Exposed as a set of indices (rather than only the filtered messages) so a
+ * caller holding an array rendered in lockstep with `messages` — e.g. the Slack
+ * chronological transcript, whose per-message compaction provenance rides in a
+ * sibling array — can drop the same exchanges from both and keep them aligned.
+ */
+export function computeRefusedExchangeDrops(messages: Message[]): {
+  dropIndices: Set<number>;
+  droppedExchanges: number;
+} {
+  const dropIndices = new Set<number>();
+  let droppedExchanges = 0;
+  for (let r = 0; r < messages.length; r++) {
+    if (!isRefusalFallbackMessage(messages[r])) {
+      continue;
+    }
+    dropIndices.add(r);
+    // Walk back over tool-result / assistant tool churn to the genuine prompt.
+    let s = r - 1;
+    while (
+      s >= 0 &&
+      !(messages[s].role === "user" && !isToolResultMessage(messages[s]))
+    ) {
+      dropIndices.add(s);
+      s--;
+    }
+    if (s >= 0) {
+      dropIndices.add(s); // the genuine user prompt that was refused
+    }
+    droppedExchanges++;
+  }
+  return { dropIndices, droppedExchanges };
+}
+
+/**
  * Remove every previously-refused exchange from a working history: for each
  * assistant message that is exactly the refusal fallback, drop it together with
  * the contiguous run back to (and including) the nearest genuine user prompt.
@@ -68,32 +107,13 @@ export function quarantineRefusedExchanges(messages: Message[]): {
   messages: Message[];
   droppedExchanges: number;
 } {
-  const drop = new Set<number>();
-  let droppedExchanges = 0;
-  for (let r = 0; r < messages.length; r++) {
-    if (!isRefusalFallbackMessage(messages[r])) {
-      continue;
-    }
-    drop.add(r);
-    // Walk back over tool-result / assistant tool churn to the genuine prompt.
-    let s = r - 1;
-    while (
-      s >= 0 &&
-      !(messages[s].role === "user" && !isToolResultMessage(messages[s]))
-    ) {
-      drop.add(s);
-      s--;
-    }
-    if (s >= 0) {
-      drop.add(s); // the genuine user prompt that was refused
-    }
-    droppedExchanges++;
-  }
-  if (drop.size === 0) {
+  const { dropIndices, droppedExchanges } =
+    computeRefusedExchangeDrops(messages);
+  if (dropIndices.size === 0) {
     return { messages, droppedExchanges: 0 };
   }
   return {
-    messages: messages.filter((_, i) => !drop.has(i)),
+    messages: messages.filter((_, i) => !dropIndices.has(i)),
     droppedExchanges,
   };
 }
