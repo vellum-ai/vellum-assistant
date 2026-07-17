@@ -190,6 +190,10 @@ export {
   getAssistantName,
   resolveUserName,
 } from "../daemon/identity-helpers.js";
+// Absolute path to the active workspace directory. A plugin that reads or
+// writes files under the workspace (e.g. its own `plugins/<name>/data/`
+// directory) resolves them against this instead of hardcoding a base path.
+export { getWorkspaceDir } from "../util/platform.js";
 // Declarative help for the top-level `assistant` CLI commands that have adopted
 // the static-help split. Plugins (e.g. the memory capability indexer) read this
 // to embed CLI command capabilities without importing the CLI action graph.

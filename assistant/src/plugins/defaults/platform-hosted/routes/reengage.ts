@@ -19,17 +19,15 @@
 import { mkdir, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 
-import { runConversationTurn } from "@vellumai/plugin-api";
-
-import { getWorkspaceDir } from "../../../../util/platform.js";
+import { getWorkspaceDir, runConversationTurn } from "@vellumai/plugin-api";
 
 // ---------------------------------------------------------------------------
 // Output location — the plugin's own data directory
 // ---------------------------------------------------------------------------
 
-/** `<workspaceDir>/plugins-data/platform-hosted/` — this plugin's runtime data dir. */
+/** `<workspaceDir>/plugins/platform-hosted/data` — this plugin's runtime data dir. */
 function pluginDataDir(): string {
-  return join(getWorkspaceDir(), "plugins-data", "platform-hosted");
+  return join(getWorkspaceDir(), "plugins", "platform-hosted", "data");
 }
 
 // ---------------------------------------------------------------------------

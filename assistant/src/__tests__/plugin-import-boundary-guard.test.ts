@@ -223,6 +223,7 @@ const BASELINE: Record<string, readonly string[]> = {
     "yaml",
     "zod",
   ],
+  "platform-hosted": ["node:fs/promises", "node:path"],
   session: [
     "../../../config/loader.js",
     "../../types.js",
