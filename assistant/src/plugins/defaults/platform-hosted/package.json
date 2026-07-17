@@ -1,11 +1,10 @@
 {
   "name": "default-platform-hosted",
   "version": "1.0.0",
-  "description": "First-party default plugin contributing platform-hosted capabilities. Exposes the /reengage route, which runs a background conversation turn and returns a subject line and body the platform can send as a re-engagement email written in the assistant's voice.",
+  "description": "First-party default plugin contributing platform-hosted capabilities. Exposes the /reengage route, which asks the assistant to compose a re-engagement email in its own voice and returns the subject line and body for the platform to send.",
   "private": true,
   "license": "MIT",
   "type": "module",
-  "main": "./register.ts",
   "engines": {
     "node": ">=20.12.0"
   },

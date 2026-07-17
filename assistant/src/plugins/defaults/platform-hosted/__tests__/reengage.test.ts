@@ -1,142 +1,115 @@
 /**
- * Unit tests for the platform-hosted /reengage route handler (userland
- * `export const POST` form).
+ * Unit tests for the platform-hosted /reengage route handler.
  *
  * Covers:
- * - Happy path: background turn returns bare JSON → parsed subject/body
- * - Fenced JSON: model wraps the object in a ```json fence → still parsed
- * - The turn always runs in a fresh background conversation (no caller id)
- * - additionalGuidance is appended to the base prompt
- * - Invalid JSON body → 400
- * - Unparseable model output → 502
+ * - Happy path: forced tool_use → structured subject/body
+ * - The compose tool is forced via tool_choice
+ * - No provider configured → 503
+ * - Missing / empty tool output → 502
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type {
-  ContentBlock,
-  RunConversationTurnOptions,
-} from "@vellumai/plugin-api";
+import type { Message } from "@vellumai/plugin-api";
 
 // ---------------------------------------------------------------------------
 // Mock — defined before importing the module under test
 // ---------------------------------------------------------------------------
 
-let mockTurnResult: {
-  content: ContentBlock[];
-  userMessageId: string;
-  conversationId: string;
-  queued?: boolean;
-} = {
+type SendMessage = (messages: Message[], options?: unknown) => Promise<unknown>;
+
+let mockResponse: unknown = {
   content: [
     {
-      type: "text",
-      text: '{"subject": "Ready when you are", "body": "Just picking up where we left off."}',
+      type: "tool_use",
+      id: "tu_1",
+      name: "compose_reengagement_email",
+      input: {
+        subject: "Ready when you are",
+        body: "Just picking up where we left off.",
+      },
     },
   ],
-  userMessageId: "msg-1",
-  conversationId: "conv-1",
+  model: "test-model",
+  usage: { inputTokens: 10, outputTokens: 20 },
+  stopReason: "tool_use",
 };
 
-let lastOptions: RunConversationTurnOptions | undefined;
+let mockProvider: { sendMessage: SendMessage } | null = null;
+let lastOptions:
+  | { config?: { tool_choice?: unknown }; tools?: unknown }
+  | undefined;
 
 mock.module("@vellumai/plugin-api", () => ({
-  runConversationTurn: async (options: RunConversationTurnOptions) => {
-    lastOptions = options;
-    return mockTurnResult;
-  },
+  getConfiguredProvider: async () => mockProvider,
 }));
 
 const { POST } = await import("../routes/reengage.js");
 
-function postRequest(body?: unknown): Request {
+function postRequest(): Request {
   return new Request(
     "http://plugin.internal/x/plugins/platform-hosted/reengage",
-    {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-    },
+    { method: "POST" },
   );
 }
 
 describe("platform-hosted /reengage POST", () => {
   beforeEach(() => {
     lastOptions = undefined;
-    mockTurnResult = {
+    mockProvider = {
+      sendMessage: async (_messages, options) => {
+        lastOptions = options as typeof lastOptions;
+        return mockResponse;
+      },
+    };
+    mockResponse = {
       content: [
         {
-          type: "text",
-          text: '{"subject": "Ready when you are", "body": "Just picking up where we left off."}',
+          type: "tool_use",
+          id: "tu_1",
+          name: "compose_reengagement_email",
+          input: {
+            subject: "Ready when you are",
+            body: "Just picking up where we left off.",
+          },
         },
       ],
-      userMessageId: "msg-1",
-      conversationId: "conv-1",
+      model: "test-model",
+      usage: { inputTokens: 10, outputTokens: 20 },
+      stopReason: "tool_use",
     };
   });
 
-  test("parses a bare JSON object into subject and body", async () => {
-    const response = await POST(postRequest({}));
+  test("returns the structured subject and body from the tool call", async () => {
+    const response = await POST(postRequest());
     expect(response.status).toBe(200);
-    const json = (await response.json()) as {
-      subject: string;
-      body: string;
-      conversationId: string;
-    };
+    const json = (await response.json()) as { subject: string; body: string };
     expect(json.subject).toBe("Ready when you are");
     expect(json.body).toBe("Just picking up where we left off.");
-    expect(json.conversationId).toBe("conv-1");
   });
 
-  test("always runs the turn in a fresh background conversation", async () => {
-    await POST(postRequest({}));
-    expect(lastOptions?.conversationType).toBe("background");
-    expect(lastOptions?.conversationId).toBeUndefined();
+  test("forces the compose_reengagement_email tool via tool_choice", async () => {
+    await POST(postRequest());
+    expect(lastOptions?.config?.tool_choice).toEqual({
+      type: "tool",
+      name: "compose_reengagement_email",
+    });
   });
 
-  test("parses JSON wrapped in a code fence", async () => {
-    mockTurnResult = {
-      content: [
-        {
-          type: "text",
-          text: 'Here you go:\n```json\n{"subject": "A quick nudge", "body": "Let me know if you want to continue."}\n```',
-        },
-      ],
-      userMessageId: "msg-2",
-      conversationId: "conv-2",
+  test("returns 503 when no provider is configured", async () => {
+    mockProvider = null;
+    const response = await POST(postRequest());
+    expect(response.status).toBe(503);
+  });
+
+  test("returns 502 when the model returns no usable tool output", async () => {
+    mockResponse = {
+      content: [{ type: "text", text: "sorry, I can't" }],
+      model: "test-model",
+      usage: { inputTokens: 5, outputTokens: 5 },
+      stopReason: "end_turn",
     };
-    const response = await POST(postRequest({}));
-    const json = (await response.json()) as { subject: string; body: string };
-    expect(json.subject).toBe("A quick nudge");
-    expect(json.body).toBe("Let me know if you want to continue.");
-  });
-
-  test("appends additionalGuidance to the prompt", async () => {
-    await POST(postRequest({ additionalGuidance: "Mention the launch." }));
-    const promptText = (lastOptions?.content[0] as { text: string }).text;
-    expect(promptText).toContain("Mention the launch.");
-  });
-
-  test("returns 400 for a malformed JSON body", async () => {
-    const request = new Request(
-      "http://plugin.internal/x/plugins/platform-hosted/reengage",
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: "{not json",
-      },
-    );
-    const response = await POST(request);
-    expect(response.status).toBe(400);
-  });
-
-  test("returns 502 when the response has no usable subject/body", async () => {
-    mockTurnResult = {
-      content: [{ type: "text", text: "" }],
-      userMessageId: "msg-3",
-      conversationId: "conv-3",
-    };
-    const response = await POST(postRequest({}));
+    const response = await POST(postRequest());
     expect(response.status).toBe(502);
   });
 });
