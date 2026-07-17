@@ -289,6 +289,13 @@ const CATALOG_RECORD: CatalogRecord = {
       "Captions images via a vision-capable profile for text-only model fallback.",
     domain: "skills",
   },
+  voiceFrontDecision: {
+    id: "voiceFrontDecision",
+    displayName: "Voice Front Decision",
+    description:
+      "Fast turn-taking and presence decisions during live voice (semantic endpointing, ack generation).",
+    domain: "skills",
+  },
   homeGreeting: {
     id: "homeGreeting",
     displayName: "Home Greeting",
