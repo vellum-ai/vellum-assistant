@@ -94,9 +94,6 @@ const SETTINGS_TAB_ID_ALIASES: Record<string, PanelId> = {
   // Self-hosted assistant management has no settings page; land on General.
   devices: "assistant-status",
   "self-hosted assistants": "assistant-status",
-  // The "Billing & Usage" tab was renamed to just "Usage" (the panel id is
-  // still "billing"); keep the old full label resolving to it.
-  "billing & usage": "billing",
 };
 
 /**
@@ -116,6 +113,12 @@ const SETTINGS_TAB_ROUTE_ALIASES: Record<string, string> = {
   // Archive is an in-page tab on the Debug page; the bare Debug route opens
   // General, so the archive alias carries the ?tab= param.
   archive: `${routes.settings.debug}?tab=archive`,
+  // The Billing & Usage page moved to `/assistant/settings/usage`, where
+  // Billing is an in-page tab. Route the canonical "Billing" tab (and the old
+  // "Billing & Usage" label) straight to the Billing sub-tab so model- and
+  // native-driven navigation reaches it regardless of the page's default tab.
+  billing: routes.settings.usageBilling,
+  "billing & usage": routes.settings.usageBilling,
 };
 
 function normalizeSettingsTabName(tab: string): string {
