@@ -157,16 +157,22 @@ describe("pcm-downsample worklet (cross-quantum continuity)", () => {
 
   test("48kHz: consecutive 128-frame blocks stay continuous (no zeros, no dropped boundary samples)", async () => {
     const chunks: number[] = [];
+    const postedLengths: number[] = [];
     // Distinct, non-zero per-sample values so we can detect both injected
     // zeros and skipped boundary samples. A linear ramp at full scale would
     // clip, so keep values in (0, 1].
     const processor = await loadProcessor(48000, (buf) => {
-      for (const v of new Int16Array(buf)) chunks.push(v);
+      const samples = new Int16Array(buf);
+      postedLengths.push(samples.length);
+      for (const v of samples) chunks.push(v);
     });
 
     const BLOCK = 128;
     const RATIO = 3; // 48000 / 16000
-    const BLOCKS = 5;
+    const BATCH = 800; // worklet coalesces output into 50ms frames
+    // Enough input to fill at least two full batches (each consumes
+    // BATCH * RATIO input samples); the sub-batch tail stays buffered.
+    const BLOCKS = Math.ceil((2 * BATCH * RATIO) / BLOCK) + 1;
 
     // Build the full input stream and feed it block-by-block.
     const total = BLOCK * BLOCKS;
@@ -192,7 +198,11 @@ describe("pcm-downsample worklet (cross-quantum continuity)", () => {
       expected.push(Math.trunc(scaled));
     }
 
-    expect(chunks).toEqual(expected);
+    // Every posted frame is a full 50ms batch, and the concatenated stream
+    // is a prefix-exact match of the single-shot decimation.
+    expect(postedLengths.length).toBeGreaterThanOrEqual(2);
+    expect(postedLengths.every((len) => len === BATCH)).toBe(true);
+    expect(chunks).toEqual(expected.slice(0, chunks.length));
     // No artificial silence injected at block boundaries.
     expect(chunks.some((v) => v === 0)).toBe(false);
   });

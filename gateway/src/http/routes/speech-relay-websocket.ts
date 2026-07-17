@@ -38,8 +38,13 @@ const log = getLogger("speech-relay-ws");
 /** Default relay origin when VELAY_BASE_URL is not configured. */
 const DEFAULT_VELAY_BASE_URL = "https://velay.vellum.ai";
 
-// Cap buffered messages to prevent unbounded memory growth if upstream stalls
-const MAX_PENDING_MESSAGES = 100;
+// Cap buffered bytes to prevent unbounded memory growth if upstream stalls.
+// Counted in bytes, not messages: the daemon legally bursts thousands of
+// small audio frames while the velay leg is still dialing (it flushes up to
+// ~10s of buffered utterance audio and keeps streaming live mic frames for
+// the duration of the dial — 16 kHz PCM16 is ~32 KB/s, so the worst
+// legitimate burst is well under this cap).
+const MAX_PENDING_BYTES = 1024 * 1024;
 
 /**
  * The only principal allowed on this path: the daemon's self-minted
@@ -102,6 +107,8 @@ export type SpeechRelaySocketData = {
    */
   downstreamClosed?: boolean;
   pendingMessages?: (string | ArrayBuffer | Uint8Array)[];
+  /** Total bytes held in pendingMessages, checked against MAX_PENDING_BYTES. */
+  pendingBytes?: number;
 };
 
 function jsonError(status: number, code: string, detail: string): Response {
@@ -333,6 +340,7 @@ export function getSpeechRelayWebsocketHandlers() {
     async open(ws: import("bun").ServerWebSocket<SpeechRelaySocketData>) {
       const { deps, upstreamWsUrl, upstreamHttpUrl, operation } = ws.data;
       ws.data.pendingMessages = [];
+      ws.data.pendingBytes = 0;
       ws.data.upstreamOpened = false;
 
       const apiKey = await readAssistantApiKey(deps);
@@ -447,13 +455,18 @@ export function getSpeechRelayWebsocketHandlers() {
       if (upstream && upstream.readyState === WebSocket.OPEN) {
         upstream.send(message);
       } else if (ws.data.pendingMessages) {
-        if (ws.data.pendingMessages.length >= MAX_PENDING_MESSAGES) {
+        const size =
+          typeof message === "string"
+            ? Buffer.byteLength(message)
+            : message.byteLength;
+        if ((ws.data.pendingBytes ?? 0) + size > MAX_PENDING_BYTES) {
           log.warn(
             "Speech relay pending message buffer overflow — closing connection",
           );
           ws.close(1008, "Buffer overflow");
           return;
         }
+        ws.data.pendingBytes = (ws.data.pendingBytes ?? 0) + size;
         ws.data.pendingMessages.push(message);
       }
     },

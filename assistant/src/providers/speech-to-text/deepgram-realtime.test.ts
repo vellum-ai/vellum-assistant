@@ -1256,13 +1256,14 @@ describe("DeepgramRealtimeTranscriber", () => {
   // Inactivity timeout
   // ─────────────────────────────────────────────────────────────────
 
-  test("inactivity timeout emits error + closed events", async () => {
-    const { events } = await startSession({
+  test("inactivity timeout fires when sent audio gets no response", async () => {
+    const { transcriber, events } = await startSession({
       inactivityTimeoutMs: 50, // very short for testing
     });
+    transcriber.sendAudio(Buffer.from([1, 2, 3]), "audio/pcm");
 
     // Wait for the inactivity timeout to fire.
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await new Promise((resolve) => setTimeout(resolve, 150));
 
     const errorEvents = events.filter((e) => e.type === "error");
     const closedEvents = events.filter((e) => e.type === "closed");
@@ -1278,21 +1279,33 @@ describe("DeepgramRealtimeTranscriber", () => {
     expect(err.message).toContain("inactivity");
   });
 
-  test("inactivity timer resets on incoming messages", async () => {
+  test("idle stream with no audio owed a response never times out", async () => {
     const { events } = await startSession({
-      inactivityTimeoutMs: 100,
+      inactivityTimeoutMs: 50,
     });
 
-    // Send a message before the timeout fires — should reset the timer.
+    // Several timeout windows pass with no audio sent (e.g. mic gated
+    // while the assistant speaks) — the stream must stay open.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    expect(events.filter((e) => e.type === "error")).toHaveLength(0);
+    expect(events.filter((e) => e.type === "closed")).toHaveLength(0);
+  });
+
+  test("provider response clears the pending-audio watchdog", async () => {
+    const { transcriber, events } = await startSession({
+      inactivityTimeoutMs: 100,
+    });
+    transcriber.sendAudio(Buffer.from([1, 2, 3]), "audio/pcm");
+
+    // A response arrives before the timeout — nothing is owed anymore.
     await new Promise((resolve) => setTimeout(resolve, 60));
     mockWs.simulateMessage(resultsFrame("hello", { is_final: false }));
 
-    // Wait another period — less than a full timeout from the last message.
-    await new Promise((resolve) => setTimeout(resolve, 60));
+    // Well past a full timeout since the audio was sent.
+    await new Promise((resolve) => setTimeout(resolve, 150));
 
-    // Should not have timed out yet (timer was reset by the message).
-    const errorEvents = events.filter((e) => e.type === "error");
-    expect(errorEvents).toHaveLength(0);
+    expect(events.filter((e) => e.type === "error")).toHaveLength(0);
   });
 
   // ─────────────────────────────────────────────────────────────────

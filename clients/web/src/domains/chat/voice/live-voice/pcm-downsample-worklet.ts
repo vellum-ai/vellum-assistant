@@ -20,6 +20,14 @@
 // Mirror of LIVE_VOICE_AUDIO_FORMAT.sampleRate in protocol.ts (see docblock).
 const TARGET_SAMPLE_RATE = 16000;
 
+// Coalesce output into 50 ms frames (800 samples @ 16 kHz) before posting.
+// Posting per 128-sample render quantum would emit ~375 messages/s, and
+// each one becomes its own WebSocket frame on every relay leg downstream
+// (client → gateway → daemon → speech relay) — flooding per-message
+// buffers and burning per-frame overhead for ~2.7 ms of audio. 50 ms adds
+// at most 50 ms of capture latency, well under turn-taking thresholds.
+const BATCH_SAMPLES = 800;
+
 // AudioWorkletGlobalScope globals. They are not in the default DOM lib, so
 // declare the minimal surface this processor relies on. `sampleRate` is the
 // render-thread context rate; `registerProcessor` registers the node.
@@ -58,6 +66,12 @@ class PcmDownsampleProcessor extends AudioWorkletProcessor {
   // in [0, ratio) — never negative — so we never read before the buffer start
   // (which would inject artificial zeros) and never skip boundary samples.
   private readOffset = 0;
+  // Batch accumulator: filled across render quanta and posted when full.
+  // A sub-batch tail at teardown is simply dropped — the mic streams
+  // continuously, so at most the final <50 ms (silence, in practice: the
+  // graph is torn down between utterances, not mid-speech) is lost.
+  private batch = new Int16Array(BATCH_SAMPLES);
+  private batchLength = 0;
 
   process(inputs: Float32Array[][]): boolean {
     const channel = inputs[0]?.[0];
@@ -65,34 +79,27 @@ class PcmDownsampleProcessor extends AudioWorkletProcessor {
     // processor alive but emit nothing. The pending read offset is preserved.
     if (!channel || channel.length === 0) return true;
 
-    // How many output samples this block can produce: the count of read
-    // positions `readOffset, readOffset + ratio, ...` that land within
-    // `[0, channel.length)`.
-    const outLength = Math.ceil((channel.length - this.readOffset) / this.ratio);
-    if (outLength <= 0) {
-      // The next read position is past the end of this block; carry the
-      // offset forward (it will still be >= 0 since outLength <= 0 implies
-      // readOffset >= channel.length).
-      this.readOffset -= channel.length;
-      return true;
-    }
-
-    const pcm = new Int16Array(outLength);
+    // Walk the read positions `readOffset, readOffset + ratio, ...` that
+    // land within `[0, channel.length)`, appending to the batch.
     let pos = this.readOffset;
-    for (let i = 0; i < outLength; i++) {
+    while (pos < channel.length) {
       const sample = channel[Math.floor(pos)] ?? 0;
       // Clamp to [-1, 1] then scale to signed 16-bit range.
       const clamped = sample < -1 ? -1 : sample > 1 ? 1 : sample;
-      pcm[i] = clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff;
+      this.batch[this.batchLength++] =
+        clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff;
+      if (this.batchLength === BATCH_SAMPLES) {
+        // Transfer the underlying buffer to avoid a copy on the main thread.
+        this.port.postMessage(this.batch.buffer, [this.batch.buffer]);
+        this.batch = new Int16Array(BATCH_SAMPLES);
+        this.batchLength = 0;
+      }
       pos += this.ratio;
     }
     // `pos` is now the next read position relative to this block's start.
     // Rebase it onto the next block so the fractional cursor is continuous and
     // no boundary samples are dropped or re-read.
     this.readOffset = pos - channel.length;
-
-    // Transfer the underlying buffer to avoid a copy on the main thread.
-    this.port.postMessage(pcm.buffer, [pcm.buffer]);
     return true;
   }
 }
