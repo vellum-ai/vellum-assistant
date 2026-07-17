@@ -30085,6 +30085,53 @@ paths:
                   - description
                   - scopeOptions
                 additionalProperties: false
+  /v1/tts/managed-voices:
+    get:
+      operationId: tts_managedvoices_get
+      summary: List managed TTS voices
+      description:
+        Return the voices offered by Vellum managed TTS, fetched live from the platform. Only currently-usable
+        voices are returned; defaultModel is always one of them (null when none are offered).
+      tags:
+        - tts
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  voices:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        model:
+                          type: string
+                        label:
+                          type: string
+                        description:
+                          type: string
+                        sampleUrl:
+                          type: string
+                        source:
+                          type: string
+                      required:
+                        - model
+                        - label
+                        - description
+                        - sampleUrl
+                        - source
+                      additionalProperties: false
+                  defaultModel:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                required:
+                  - voices
+                  - defaultModel
+                additionalProperties: false
   /v1/tts/providers:
     get:
       operationId: tts_providers_get
