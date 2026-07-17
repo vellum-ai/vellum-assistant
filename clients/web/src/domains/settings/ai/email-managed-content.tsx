@@ -283,7 +283,7 @@ export function EmailManagedContent({
         actions={
           <Button
             size="compact"
-            onClick={() => navigate(`${routes.settings.billing}?adjust_plan`)}
+            onClick={() => navigate(`${routes.settings.usage}?tab=billing&adjust_plan`)}
           >
             Upgrade to Pro
           </Button>

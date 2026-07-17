@@ -57,7 +57,7 @@ function BillingStatusHandler() {
             });
         }
 
-        navigate(routes.settings.billing, { replace: true });
+        navigate(routes.settings.usageBilling, { replace: true });
     }, [searchParams, navigate, queryClient]);
 
     return null;
@@ -175,17 +175,22 @@ function UsagePanel() {
 }
 
 export function BillingPage() {
+    // The Billing tab is only meaningful when signed in to the Vellum platform;
+    // `"full"` requires a platform session. Signed-out and self-hosted users
+    // see the Usage tab alone.
     const billingGate = usePlatformGate();
-    const showBillingTab = billingGate !== "gated";
+    const showBillingTab = billingGate === "full";
 
     const [searchParams, setSearchParams] = useSearchParams();
+    // Usage is the default tab; Billing is opt-in via `?tab=billing` and only
+    // when it's actually shown.
     const activeTab =
-        !showBillingTab || searchParams.get("tab") === "usage" ? "usage" : "billing";
+        showBillingTab && searchParams.get("tab") === "billing" ? "billing" : "usage";
 
     const handleTabChange = (value: string) => {
         const next = new URLSearchParams(searchParams);
-        if (value === "usage") {
-            next.set("tab", "usage");
+        if (value === "billing") {
+            next.set("tab", "billing");
         } else {
             next.delete("tab");
         }
@@ -196,17 +201,17 @@ export function BillingPage() {
         <div className="space-y-6">
             <Tabs.Root value={activeTab} onValueChange={handleTabChange}>
                 <Tabs.List>
-                    {showBillingTab && <Tabs.Trigger value="billing">Billing</Tabs.Trigger>}
                     <Tabs.Trigger value="usage">Usage</Tabs.Trigger>
+                    {showBillingTab && <Tabs.Trigger value="billing">Billing</Tabs.Trigger>}
                 </Tabs.List>
+                <Tabs.Panel value="usage" className="pt-4">
+                    <UsagePanel />
+                </Tabs.Panel>
                 {showBillingTab && (
                     <Tabs.Panel value="billing" className="pt-4">
                         <BillingTab />
                     </Tabs.Panel>
                 )}
-                <Tabs.Panel value="usage" className="pt-4">
-                    <UsagePanel />
-                </Tabs.Panel>
             </Tabs.Root>
         </div>
     );

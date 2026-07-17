@@ -9,12 +9,12 @@
 
 import type { LucideIcon } from "lucide-react";
 import {
+  BarChart3,
   Bell,
   Bookmark,
   Bug,
   Code,
   Cpu,
-  CreditCard,
   KeyRound,
   Mic,
   Users,
@@ -76,7 +76,7 @@ export const SETTINGS_SIDEBAR: SidebarItem[] = [
   { id: "voice", label: "Voice & Sounds", href: routes.settings.voice, icon: Mic },
   { id: "privacy", label: "Permissions & Privacy", href: routes.settings.privacy, icon: ShieldCheck },
   { id: "bookmarks", label: "Bookmarks", href: routes.settings.bookmarks, icon: Bookmark },
-  { id: "billing", label: "Billing & Usage", href: routes.settings.billing, icon: CreditCard },
+  { id: "billing", label: "Usage", href: routes.settings.usage, icon: BarChart3 },
   { id: "community", label: "Community", href: routes.settings.community, icon: Users },
   { id: "debug", label: "Debug", href: routes.settings.debug, icon: Bug },
   { id: "developer", label: "Developer", href: routes.settings.developer, icon: Code },
@@ -94,6 +94,9 @@ const SETTINGS_TAB_ID_ALIASES: Record<string, PanelId> = {
   // Self-hosted assistant management has no settings page; land on General.
   devices: "assistant-status",
   "self-hosted assistants": "assistant-status",
+  // The "Billing & Usage" tab was renamed to just "Usage" (the panel id is
+  // still "billing"); keep the old full label resolving to it.
+  "billing & usage": "billing",
 };
 
 /**
