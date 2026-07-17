@@ -61,7 +61,7 @@ function TipCarouselDots({ index, count }: { index: number; count: number }) {
               "rounded-full",
               shrunk ? "size-1" : "size-1.5",
               dotIndex === index
-                ? "bg-[var(--system-info-strong)]"
+                ? "bg-[var(--content-emphasised)]"
                 : "bg-[var(--content-tertiary)] opacity-50",
             )}
           />
@@ -95,14 +95,14 @@ export function TipCard({
   return (
     <div
       data-slot="tip-card"
-      className="flex flex-col rounded-xl bg-[var(--system-info-weak)] p-4"
+      className="flex flex-col rounded-xl bg-[var(--surface-active)] p-4"
     >
       <div className="mb-3 flex items-center gap-1.5">
         <Lightbulb
-          className="h-3.5 w-3.5 text-[color:var(--system-info-strong)]"
+          className="h-3.5 w-3.5 text-[color:var(--content-secondary)]"
           aria-hidden="true"
         />
-        <span className="text-[11px] font-semibold tracking-wider text-[color:var(--system-info-strong)] uppercase">
+        <span className="text-[11px] font-semibold tracking-wider text-[color:var(--content-secondary)] uppercase">
           {tip.eyebrow}
         </span>
         <span className="flex-1" />
@@ -130,7 +130,7 @@ export function TipCard({
             data-slot="tip-card-learn-more"
             to={tip.learnMore.to}
             onClick={onLearnMore}
-            className="text-body-small-default font-semibold whitespace-nowrap text-[color:var(--system-info-strong)] hover:underline"
+            className="text-body-small-default font-semibold whitespace-nowrap text-[color:var(--content-emphasised)] hover:underline"
           >
             {tip.learnMore.label} →
           </Link>
