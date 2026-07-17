@@ -625,6 +625,42 @@ describe("Conversation.summarizeUpToMessage", () => {
     );
     expect(compactCalls).toHaveLength(0);
   });
+
+  test("a Stop-aborted summary does not trip the compaction circuit breaker", async () => {
+    const conversation = makeConversation();
+    // Stop fired: the summarize route installed an abort controller and aborted
+    // it. The compactor reports the aborted provider call as summaryFailed —
+    // a cancellation, not a genuine compaction failure.
+    const controller = new AbortController();
+    controller.abort();
+    conversation.abortController = controller;
+    mockCompactResult = { ...makeNoopResult(), summaryFailed: true };
+
+    const recordOutcome = mock(async () => {});
+    conversation.agentLoop.compactionCircuit.recordOutcome = recordOutcome;
+
+    const result = await conversation.summarizeUpToMessage("m4");
+
+    // No breaker outcome recorded for a cancellation, and nothing applied.
+    expect(recordOutcome).not.toHaveBeenCalled();
+    expect(result.compacted).toBe(false);
+    // The aborted signal still reached the compactor's summary call.
+    expect(compactCalls).toHaveLength(1);
+    expect(compactCalls[0].signal?.aborted).toBe(true);
+  });
+
+  test("a genuine summary failure (no abort) still records a breaker outcome", async () => {
+    const conversation = makeConversation();
+    mockCompactResult = { ...makeNoopResult(), summaryFailed: true };
+
+    const recordOutcome = mock(async () => {});
+    conversation.agentLoop.compactionCircuit.recordOutcome = recordOutcome;
+
+    await conversation.summarizeUpToMessage("m4");
+
+    expect(recordOutcome).toHaveBeenCalledTimes(1);
+    expect(recordOutcome).toHaveBeenCalledWith(true, expect.anything());
+  });
 });
 
 describe("formatSummarizeUpToResult", () => {
