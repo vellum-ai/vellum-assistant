@@ -190,7 +190,7 @@ function PersonalityBody({
           type="button"
           onClick={onUpdate}
           disabled={applying}
-          className="flex h-11 w-[240px] max-w-full shrink-0 cursor-pointer items-center justify-center gap-2 rounded-[10px] px-4 text-body-medium-default transition-transform duration-150 active:scale-[0.97] disabled:cursor-default disabled:opacity-80 disabled:active:scale-100"
+          className="flex min-h-11 min-w-[240px] max-w-full shrink-0 cursor-pointer items-center justify-center gap-2 rounded-[10px] px-6 py-2 text-body-medium-default transition-transform duration-150 active:scale-[0.97] disabled:cursor-default disabled:opacity-80 disabled:active:scale-100"
           style={{
             backgroundColor: tone.isLight ? "#1A1A1A" : "#FFFFFF",
             color: tone.isLight ? "#FFFFFF" : "#1A1A1A",
@@ -205,7 +205,7 @@ function PersonalityBody({
                   borderRightColor: tone.isLight ? "#FFFFFF" : "#1A1A1A",
                 }}
               />
-              <span className="min-w-0 truncate">
+              <span className="min-w-0 text-center">
                 {assistantName} is rewriting itself…
               </span>
             </>
