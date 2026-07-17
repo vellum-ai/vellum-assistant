@@ -117,6 +117,19 @@ mock.module("../credential-execution/managed-catalog.js", () => ({
   fetchManagedCatalog: mock(async () => ({ ok: true, descriptors: [] })),
 }));
 
+// Stub the prompted-credential persist path's Slack + broker collaborators so
+// importing it exercises the ACP guard without loading their real dep chains.
+mock.module("../daemon/handlers/config-slack-channel.js", () => ({
+  setSlackChannelConfig: mock(async () => ({
+    success: true,
+    connected: false,
+  })),
+}));
+mock.module("../tools/credentials/broker.js", () => ({
+  credentialBroker: { injectTransient: mock(() => {}) },
+}));
+
+import { persistPromptedCredential } from "../credential-execution/prompted-credential.js";
 import {
   forChatMintsSince,
   resetForChatMintRegistryForTest,
@@ -438,6 +451,98 @@ describe("credentials routes", () => {
       // THEN it rejects with a BadRequestError and stores nothing
       await expect(call).rejects.toBeInstanceOf(BadRequestError);
       expect(secureStore.size).toBe(0);
+    });
+
+    test("rejects an Anthropic API key written into the ACP OAuth-token field", async () => {
+      /**
+       * Pasting an `sk-ant-api…` key into `acp/claude_oauth_token` 401s at
+       * runtime; the write seam rejects it with a clear 400-class error and
+       * persists nothing.
+       */
+      const call = setRoute!.handler({
+        body: {
+          service: "acp",
+          field: "claude_oauth_token",
+          value: "sk-ant-api03-not-an-oauth-token",
+        },
+      });
+
+      await expect(call).rejects.toBeInstanceOf(BadRequestError);
+      await expect(call).rejects.toThrow("Claude OAuth token");
+      expect(secureStore.size).toBe(0);
+    });
+
+    test("accepts a Claude OAuth token in the ACP OAuth-token field", async () => {
+      const result = (await setRoute!.handler({
+        body: {
+          service: "acp",
+          field: "claude_oauth_token",
+          value: "sk-ant-oat01-a-real-oauth-token",
+        },
+      })) as SetResponse;
+
+      expect(result.service).toBe("acp");
+      expect(result.field).toBe("claude_oauth_token");
+      expect(secureStore.get("acp:claude_oauth_token")).toBe(
+        "sk-ant-oat01-a-real-oauth-token",
+      );
+    });
+
+    test("leaves a non-ACP service unaffected by the OAuth-field guard", async () => {
+      /**
+       * The guard is scoped to the ACP service; the same field name on another
+       * service stores whatever value it is given.
+       */
+      const result = (await setRoute!.handler({
+        body: {
+          service: "vercel",
+          field: "claude_oauth_token",
+          value: "sk-ant-api03-not-an-oauth-token",
+        },
+      })) as SetResponse;
+
+      expect(result.service).toBe("vercel");
+      expect(secureStore.get("vercel:claude_oauth_token")).toBe(
+        "sk-ant-api03-not-an-oauth-token",
+      );
+    });
+  });
+
+  describe("persistPromptedCredential ACP guard", () => {
+    test("rejects an Anthropic API key prompted into the ACP OAuth-token field", async () => {
+      /**
+       * The secure-prompt persist path shares the same footgun as the route:
+       * an `sk-ant-api…` key in `acp/claude_oauth_token` is surfaced through
+       * the existing error channel and never written.
+       */
+      const result = await persistPromptedCredential({
+        service: "acp",
+        field: "claude_oauth_token",
+        value: "sk-ant-api03-not-an-oauth-token",
+        delivery: "store",
+        policy: {},
+      });
+
+      expect(result.outcome).toBe("error");
+      if (result.outcome === "error") {
+        expect(result.message).toContain("Claude OAuth token");
+      }
+      expect(secureStore.size).toBe(0);
+    });
+
+    test("stores a Claude OAuth token prompted into the ACP OAuth-token field", async () => {
+      const result = await persistPromptedCredential({
+        service: "acp",
+        field: "claude_oauth_token",
+        value: "sk-ant-oat01-a-real-oauth-token",
+        delivery: "store",
+        policy: {},
+      });
+
+      expect(result.outcome).toBe("stored");
+      expect(secureStore.get("acp:claude_oauth_token")).toBe(
+        "sk-ant-oat01-a-real-oauth-token",
+      );
     });
   });
 

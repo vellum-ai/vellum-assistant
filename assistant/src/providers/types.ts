@@ -155,6 +155,13 @@ export interface ProviderResponse {
   model: string;
   /** Provider that actually produced this response, which may differ from a wrapper provider name. */
   actualProvider?: string;
+  /**
+   * Base URL the provider's HTTP client actually resolved to for this request,
+   * read from the live SDK client instance rather than re-derived from config.
+   * Lets diagnostics observe the true routing target (e.g. a misrouted host)
+   * instead of inferring it. Absent for providers that don't surface it.
+   */
+  resolvedEndpoint?: string;
   usage: {
     /** Total input tokens (input_tokens + cache_creation + cache_read). */
     inputTokens: number;

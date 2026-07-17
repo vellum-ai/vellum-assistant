@@ -54,7 +54,9 @@ import { useCanUseLlmInspector } from "@/domains/chat/inspector/access";
 import { useSendMessage } from "@/domains/chat/hooks/use-send-message";
 import { useMessageLifecycle } from "@/domains/chat/hooks/use-message-lifecycle";
 import { useActiveAppPinSync } from "@/domains/chat/hooks/use-active-app-pin-sync";
+import { useAcpAutoContinue } from "@/domains/chat/hooks/use-acp-auto-continue";
 import { useDeepLinkConsumer } from "@/domains/chat/hooks/use-deep-link-consumer";
+import { ACP_CONNECT_CONTINUE_PROMPT } from "@/domains/chat/utils/acp-connect";
 
 import { useChatDebugRegistration } from "@/domains/chat/hooks/use-chat-debug-registration";
 import { useDeepLinkApp } from "@/domains/chat/hooks/use-deep-link-app";
@@ -302,6 +304,16 @@ export function ActiveChatView() {
     getPendingInitialMessageHidden: () =>
       peekPendingPreChatContext()?.initialMessageHidden === true,
   });
+
+  // Auto-continue after the inline "Connect Claude Code" card finishes: the card
+  // flips a store flag (it can't reach `sendMessage`), and here we turn that into
+  // a hidden continuation send so the assistant re-runs the failed spawn without
+  // the user typing "retry".
+  const sendAcpContinue = useCallback(
+    () => void sendMessage(ACP_CONNECT_CONTINUE_PROMPT, [], { hidden: true }),
+    [sendMessage],
+  );
+  useAcpAutoContinue(sendAcpContinue);
 
   // Onboarding deep-link attribution: emit the research-onboarding check-in
   // funnel step when the user lands here from the Day-2 calendar event's CTA.

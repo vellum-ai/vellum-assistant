@@ -278,6 +278,26 @@ describe("renderHistoryContent", () => {
     ]);
   });
 
+  test("projects a persisted errorCode onto the paired tool call", () => {
+    // The daemon persists `errorCode` on the stored tool_result block so a
+    // reopened history row can re-derive an error-specific surface (e.g. the
+    // inline Connect Claude card from `acp_claude_oauth_missing`) instead of it
+    // living only on the transient live event.
+    const output = renderHistoryContent([
+      { type: "tool_use", id: "tu_1", name: "acp_spawn", input: {} },
+      {
+        type: "tool_result",
+        tool_use_id: "tu_1",
+        content: "claude-agent-acp needs a Claude OAuth token",
+        is_error: true,
+        errorCode: "acp_claude_oauth_missing",
+      },
+    ]);
+
+    expect(output.toolCalls[0].isError).toBe(true);
+    expect(output.toolCalls[0].errorCode).toBe("acp_claude_oauth_missing");
+  });
+
   test("emits the attachment id for a workspace_ref tool-result image", () => {
     // "aGVsbG8=" = "hello" — a stand-in for screenshot bytes.
     const stored = uploadAttachment("shot.png", "image/png", "aGVsbG8=");

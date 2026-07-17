@@ -64,6 +64,14 @@ export interface OAuth2Config {
    * Providers like Notion require JSON-encoded bodies at their token endpoint.
    */
   tokenExchangeBodyFormat?: "form" | "json";
+  /**
+   * When true, include the OAuth `state` in the token-exchange request body.
+   * Non-standard — `state` is normally only validated on the client — but
+   * required by Anthropic's Claude OAuth token endpoint, which hands the caller
+   * a `code#state` pair precisely so both can be posted back at exchange. Off by
+   * default so providers that reject unknown params are unaffected.
+   */
+  sendStateInTokenExchange?: boolean;
 }
 
 export interface OAuth2TokenResult {
@@ -123,6 +131,7 @@ export async function exchangeCodeForTokens(
   code: string,
   redirectUri: string,
   codeVerifier: string,
+  state?: string,
 ): Promise<OAuth2FlowResult> {
   const authMethod = config.tokenEndpointAuthMethod ?? "client_secret_post";
   const bodyFormat = config.tokenExchangeBodyFormat ?? "form";
@@ -133,6 +142,12 @@ export async function exchangeCodeForTokens(
     redirect_uri: redirectUri,
     code_verifier: codeVerifier,
   };
+
+  // Anthropic's Claude OAuth token endpoint validates the `state` echoed back in
+  // the exchange body; opt-in per provider so others are unaffected.
+  if (config.sendStateInTokenExchange && state) {
+    tokenBody.state = state;
+  }
 
   const headers: Record<string, string> = {
     "Content-Type":
@@ -169,14 +184,27 @@ export async function exchangeCodeForTokens(
     let errorCode = "";
     try {
       const parsed = JSON.parse(rawBody) as Record<string, unknown>;
-      if (parsed.error) {
-        safeDetail.error = String(parsed.error);
-        errorCode = String(parsed.error);
+      const err = parsed.error;
+      if (err && typeof err === "object") {
+        // Anthropic-style nested error: `{ error: { type, message } }`.
+        const nested = err as Record<string, unknown>;
+        if (nested.message !== undefined) {
+          safeDetail.error = String(nested.message);
+        }
+        if (nested.type !== undefined) {
+          safeDetail.error_type = String(nested.type);
+        }
+        errorCode = String(nested.type ?? nested.message ?? "");
+      } else if (err !== undefined) {
+        safeDetail.error = String(err);
+        errorCode = String(err);
       }
-      if (parsed.error_description)
+      if (parsed.error_description !== undefined) {
         safeDetail.error_description = String(parsed.error_description);
+      }
     } catch {
-      safeDetail.error = "[non-JSON response]";
+      // Non-JSON error body — keep a bounded slice so failures stay diagnosable.
+      safeDetail.error = rawBody.slice(0, 300) || "[empty response body]";
     }
     log.error(
       { status: tokenResp.status, ...safeDetail },
@@ -280,7 +308,7 @@ async function runGatewayFlow(
 
   const code = await codePromise;
 
-  return await exchangeCodeForTokens(config, code, redirectUri, codeVerifier);
+  return await exchangeCodeForTokens(config, code, redirectUri, codeVerifier, state);
 }
 
 // ---------------------------------------------------------------------------
@@ -308,7 +336,7 @@ async function runLoopbackFlow(
     callbackPath,
   );
 
-  return await exchangeCodeForTokens(config, code, redirectUri, codeVerifier);
+  return await exchangeCodeForTokens(config, code, redirectUri, codeVerifier, state);
 }
 
 /**
@@ -551,7 +579,7 @@ export async function prepareOAuth2Flow(
   const authorizeUrl = `${config.authorizeUrl}?${authParams}`;
 
   const completion = codePromise.then(async (code) => {
-    return await exchangeCodeForTokens(config, code, redirectUri, codeVerifier);
+    return await exchangeCodeForTokens(config, code, redirectUri, codeVerifier, state);
   });
 
   log.debug({ transport: "gateway", state }, "Prepared deferred OAuth2 flow");
@@ -593,7 +621,7 @@ async function prepareLoopbackFlow(
   const authorizeUrl = `${config.authorizeUrl}?${authParams}`;
 
   const completion = codePromise.then(async (code) => {
-    return await exchangeCodeForTokens(config, code, redirectUri, codeVerifier);
+    return await exchangeCodeForTokens(config, code, redirectUri, codeVerifier, state);
   });
 
   log.debug(
