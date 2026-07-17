@@ -326,3 +326,18 @@ export function isAssistantFeatureFlagEnabled(
 ): boolean {
   return !!getAssistantFeatureFlagValue(key, config);
 }
+
+/**
+ * Temporary rollout flag for the live-voice front-model presence layer
+ * (semantic endpointing + spoken acks). Delete once default-on; permanent
+ * tunables live in `liveVoice.frontModel` config.
+ */
+export const VOICE_FRONT_MODEL_FLAG = "voice-front-model" as const;
+
+/**
+ * Whether the front-model presence layer is active for live voice.
+ * When false, every live-voice turn behaves exactly as before.
+ */
+export function isVoiceFrontModelEnabled(config: AssistantConfig): boolean {
+  return isAssistantFeatureFlagEnabled(VOICE_FRONT_MODEL_FLAG, config);
+}
