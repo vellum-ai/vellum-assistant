@@ -1973,8 +1973,8 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
       {
         id: "thinkingmachines/inkling",
         displayName: "Inkling",
-        // Baseten serves Inkling with a 1,048K-token input window.
-        contextWindowTokens: 1048576,
+        // Baseten serves Inkling with a 256K-token (262,144) input window.
+        contextWindowTokens: 262144,
         maxOutputTokens: 32768,
         supportsThinking: true,
         supportsCaching: true,

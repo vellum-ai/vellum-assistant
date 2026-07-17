@@ -848,7 +848,7 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "thinkingmachines/inkling",
       displayName: "Inkling",
-      contextWindowTokens: 1_048_576,
+      contextWindowTokens: 262_144,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 32_768,
       supportsThinking: true,
