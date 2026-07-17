@@ -408,6 +408,9 @@ export function TextToSpeechCard() {
               }))}
               aria-label="Managed voice"
             />
+            <p className="text-body-small-default text-[var(--content-tertiary)]">
+              Voices by Deepgram
+            </p>
           </div>
         )}
 
