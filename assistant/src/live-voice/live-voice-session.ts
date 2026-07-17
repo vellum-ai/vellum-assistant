@@ -320,6 +320,9 @@ interface ActiveAssistantTurn {
   // or reference it in reply to the user, without ever speaking it unprompted.
   // Null when no continuation result is pending for this turn.
   continuationResult: string | null;
+  // The agent run started a definitive tool use this turn — tool use implies
+  // a guaranteed-slow turn, so acknowledgment logic can key off this.
+  toolUseStarted: boolean;
   // Triage-and-escalate (Voice Mode): the front-door leg emitted [ESCALATE]
   // and the strong "escalated" leg has taken over this same turn. Guards the
   // front-door leg's trailing completion from finalizing the turn, and makes
@@ -1862,6 +1865,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       finalized: false,
       interruptedRequest: opts?.interruptedRequest ?? null,
       continuationResult: opts?.continuationResult ?? null,
+      toolUseStarted: false,
       escalationHandedOff: false,
       ttsBuffer: "",
       ttsSegmentEnqueued: false,
@@ -2079,6 +2083,14 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
               return;
             }
             current.assistantMessageId = messageId;
+          },
+          tool_use_start: (toolName) => {
+            const current = this.activeAssistantTurn;
+            if (current?.token !== token) {
+              return;
+            }
+            current.toolUseStarted = true;
+            log.debug({ turnId, toolName }, "Live voice turn started tool use");
           },
         },
         onError: (message) => {

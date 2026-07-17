@@ -359,6 +359,49 @@ describe("LiveVoiceSession assistant turn", () => {
     });
   });
 
+  test("records tool_use_start on the active turn without emitting frames", async () => {
+    let callbacks: VoiceTurnCallbacks | undefined;
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      callbacks = options.callbacks;
+      return { turnId: "bridge-turn-1", abort: mock() };
+    });
+    const { frames, session } = createSessionHarness({ startVoiceTurn });
+
+    await session.start();
+    await session.handleClientFrame({ type: "ptt_release" });
+    await waitForFrameCount(frames, 3);
+    expect(frames.map((frame) => frame.type)).toEqual([
+      "ready",
+      "stt_final",
+      "thinking",
+    ]);
+
+    const frameCountBefore = frames.length;
+    callbacks?.tool_use_start?.("some_tool");
+    await flushAsyncCallbacks();
+
+    const activeTurn = (
+      session as unknown as {
+        activeAssistantTurn: { toolUseStarted: boolean } | null;
+      }
+    ).activeAssistantTurn;
+    expect(activeTurn?.toolUseStarted).toBe(true);
+    expect(frames).toHaveLength(frameCountBefore);
+
+    callbacks?.message_complete?.({
+      type: "message_complete",
+      conversationId: "conversation-123",
+      messageId: "assistant-message-123",
+    });
+    await waitForFrameCount(frames, 4);
+    expect(frames.map((frame) => frame.type)).toEqual([
+      "ready",
+      "stt_final",
+      "thinking",
+      "tts_done",
+    ]);
+  });
+
   test("interrupt aborts the in-flight turn and ignores late bridge events", async () => {
     let callbacks: VoiceTurnCallbacks | undefined;
     let signal: AbortSignal | undefined;
