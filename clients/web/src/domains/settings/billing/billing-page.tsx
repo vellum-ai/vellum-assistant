@@ -8,6 +8,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { PlatformLoginNotice } from "@/components/platform-login-notice";
 import { BillingOnboardingModal } from "@/domains/settings/billing/pro-onboarding/billing-onboarding-modal";
+import { shouldShowBillingTab } from "@/domains/settings/billing/billing-tab-visibility";
 import { UsageTab } from "@/domains/settings/billing/usage/usage-tab";
 import { AdjustPlanModal } from "@/domains/settings/components/adjust-plan-modal";
 import { BillingPanel } from "@/domains/settings/components/billing-panel";
@@ -176,13 +177,16 @@ function UsagePanel() {
 }
 
 export function BillingPage() {
-    // The Billing tab is only meaningful when signed in to the Vellum platform;
-    // `"full"` requires a platform session. Signed-out and self-hosted users
-    // see the Usage tab alone.
     const billingGate = usePlatformGate();
-    const showBillingTab = billingGate === "full";
-
     const [searchParams, setSearchParams] = useSearchParams();
+    // Shown when signed in (`"full"`); for a signed-out-but-reachable viewer
+    // (`"disabled"`) it stays reachable only when the URL carries billing intent
+    // (a deeplink / upgrade CTA / Stripe return), so the BillingTab login notice
+    // can carry those params through sign-in. Normal signed-out browsing and
+    // self-hosted (`"gated"`) see the Usage tab alone. See
+    // `billing-tab-visibility.ts`.
+    const showBillingTab = shouldShowBillingTab(billingGate, searchParams);
+
     // When Billing is available it leads the tab list and is the default;
     // Usage is reached via `?tab=usage`. With no Billing tab, Usage is all
     // there is.
