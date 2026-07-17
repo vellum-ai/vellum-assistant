@@ -56,6 +56,7 @@ import { createNode, deleteNode, getNode, updateNode } from "../graph/store.js";
 import {
   handleDeleteMemory,
   handleListMemory,
+  handleRemember,
   handleUpdateMemory,
 } from "../graph/tool-handlers.js";
 import type {
@@ -942,6 +943,33 @@ export const ROUTES: RouteDefinition[] = [
           new_content: parsed.data.newContent,
         },
         "cli",
+        getConfig(),
+      );
+    },
+  },
+
+  {
+    operationId: "createMemory",
+    endpoint: "memory/remember",
+    method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Create a memory by remembering a fact",
+    description:
+      "Append a user-authored fact to the memory buffer via handleRemember; it is materialized into a graph node later by consolidation.",
+    tags: ["memory"],
+    requestBody: z.object({ content: z.string() }),
+    responseBody: z.object({ message: z.string(), success: z.boolean() }),
+    handler: ({ body }) => {
+      const parsed = z.object({ content: z.string() }).safeParse(body ?? {});
+      if (!parsed.success) {
+        throw new BadRequestError("content (string) is required");
+      }
+      return handleRemember(
+        { content: parsed.data.content },
+        "web",
         getConfig(),
       );
     },

@@ -4,7 +4,11 @@
  * Covers: list with filters, get by ID, create + duplicate rejection,
  * update + fingerprint collision, delete + 404.
  */
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
+  afterAll,
   afterEach,
   beforeAll,
   beforeEach,
@@ -1050,6 +1054,68 @@ describe("Memory Item Routes", () => {
       expect(after.nodes.map((n) => n.content)).toContain(
         "User prefers TypeScript and Bun",
       );
+    });
+  });
+
+  // ── Create memory (remember) ──────────────────────────────────────────────
+
+  describe("POST /v1/memory/remember (createMemory)", () => {
+    // handleRemember writes to getWorkspaceDir(); point it at a throwaway
+    // tmpdir so the buffer/archive writes stay isolated. Enable memory v2 so
+    // writes take the memory/ path and skip PKB re-index jobs.
+    let tmpWorkspace: string;
+    let previousWorkspaceEnv: string | undefined;
+
+    beforeAll(() => {
+      tmpWorkspace = mkdtempSync(join(tmpdir(), "create-memory-route-test-"));
+      previousWorkspaceEnv = process.env.VELLUM_WORKSPACE_DIR;
+      process.env.VELLUM_WORKSPACE_DIR = tmpWorkspace;
+    });
+
+    afterAll(() => {
+      if (previousWorkspaceEnv === undefined) {
+        delete process.env.VELLUM_WORKSPACE_DIR;
+      } else {
+        process.env.VELLUM_WORKSPACE_DIR = previousWorkspaceEnv;
+      }
+      rmSync(tmpWorkspace, { recursive: true, force: true });
+    });
+
+    beforeEach(() => {
+      setConfig("memory", { v2: { enabled: true } });
+    });
+
+    afterEach(() => {
+      setConfig("memory", { v2: { enabled: false } });
+    });
+
+    interface RememberBody {
+      success: boolean;
+      message: string;
+    }
+
+    test("appends a valid fact and returns { success, message }", async () => {
+      const res = await callHandler(getRoute("memory/remember", "POST"), {
+        body: { content: "User prefers dark mode" },
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as RememberBody;
+      expect(body.success).toBe(true);
+      expect(body.message.length).toBeGreaterThan(0);
+    });
+
+    test("rejects a missing content body as 400", async () => {
+      const res = await callHandler(getRoute("memory/remember", "POST"), {
+        body: {},
+      });
+      expect(res.status).toBe(400);
+    });
+
+    test("rejects a non-string content field as 400", async () => {
+      const res = await callHandler(getRoute("memory/remember", "POST"), {
+        body: { content: 42 },
+      });
+      expect(res.status).toBe(400);
     });
   });
 });
