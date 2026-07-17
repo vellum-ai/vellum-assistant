@@ -14,6 +14,7 @@
 import { describe, expect, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
+import { MemoryRouter } from "react-router";
 
 import {
   organizationsBillingPlansRetrieveQueryKey,
@@ -99,9 +100,12 @@ function renderCard(
     plans,
   );
   return renderToStaticMarkup(
-    <QueryClientProvider client={client}>
-      <PlanCard onManage={() => {}} />
-    </QueryClientProvider>,
+    // MemoryRouter supplies the router context PlanCard's useNavigate needs.
+    <MemoryRouter>
+      <QueryClientProvider client={client}>
+        <PlanCard onManage={() => {}} />
+      </QueryClientProvider>
+    </MemoryRouter>,
   );
 }
 

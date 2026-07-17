@@ -2,13 +2,19 @@ import { Computer, HardDrive, Loader2, Microchip, Sparkles } from "lucide-react"
 
 import { useState } from "react";
 
+import { useNavigate } from "react-router";
+
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { AvatarRenderer } from "@/components/avatar-renderer";
 import {
     nextPackageUp,
     type ProPackage,
 } from "@/domains/settings/billing/package-types";
+import {
+    FREE_STORAGE_GIB,
+    PlanTierAvatar,
+    TIER_ACCENT,
+} from "@/domains/settings/billing/plan-tier-meta";
 import {
     formatGraceDate,
     getEffectiveCancelDate,
@@ -23,7 +29,7 @@ import {
 import type { MachineSizeEnum, ProPlan } from "@/generated/api/types.gen";
 import { SIZE_DESCRIPTION, SIZE_LABEL } from "@/lib/billing/machine-sizes";
 import { openUrl } from "@/runtime/browser";
-import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
+import { routes } from "@/utils/routes";
 import type { ButtonProps } from "@vellumai/design-library/components/button";
 import { Button } from "@vellumai/design-library/components/button";
 import { Card } from "@vellumai/design-library/components/card";
@@ -62,49 +68,6 @@ export interface PlanCardProps {
     onManage: () => void;
 }
 
-/** Accent color per Pro package tier, keyed by `ProPackage.key` ("free" for the base plan). */
-const TIER_ACCENT: Record<string, string> = {
-    free: "#E9C91A",
-    mighty: "#4C9B50",
-    super: "#0E9B8B",
-    ultra: "#EF4300",
-};
-
-/** Vellum creature traits per plan tier, matching the Figma 6982-157482 creatures. */
-const TIER_TRAITS: Record<
-    string,
-    { bodyShape: string; eyeStyle: string; color: string }
-> = {
-    free: { bodyShape: "ninja", eyeStyle: "angry", color: "yellow" },
-    mighty: { bodyShape: "blob", eyeStyle: "grumpy", color: "green" },
-    super: { bodyShape: "urchin", eyeStyle: "goofy", color: "teal" },
-    ultra: { bodyShape: "sprout", eyeStyle: "curious", color: "orange" },
-};
-
-/**
- * Vellum creature avatar for a plan tier. The ~48 kB bundled component payload
- * loads lazily; a same-size placeholder holds the layout until it resolves.
- */
-function PlanTierAvatar({ tier, size = 40 }: { tier: string; size?: number }) {
-    const traits = TIER_TRAITS[tier] ?? TIER_TRAITS.free;
-    const components = useBundledAvatarComponents();
-    return (
-        <div aria-hidden className="inline-flex shrink-0">
-            {components ? (
-                <AvatarRenderer
-                    components={components}
-                    bodyShapeId={traits.bodyShape}
-                    eyeStyleId={traits.eyeStyle}
-                    colorId={traits.color}
-                    size={size}
-                />
-            ) : (
-                <div style={{ width: size, height: size }} />
-            )}
-        </div>
-    );
-}
-
 function PlanHeading() {
     return (
         <Typography
@@ -122,13 +85,6 @@ function PlanHeading() {
  * `SIZE_DESCRIPTION.small`, not an invented spec.
  */
 const STANDARD_MACHINE = { sizeLabel: "Small", vcpu: "2" } as const;
-
-/**
- * Storage included with the free/base plan. The plan catalog's BasePlan entry
- * carries no storage field, so the baseline comes from the pricing spec
- * (Free = 4 GiB).
- */
-const FREE_STORAGE_GIB = 4;
 
 /** Machine size label + vCPU count for a package (or the standard machine). */
 function machineInfo(pkg: ProPackage | null): {
@@ -335,6 +291,7 @@ function RecommendedUpgrade({
 }
 
 export function PlanCard({ onManage }: PlanCardProps) {
+    const navigate = useNavigate();
     const subscriptionQuery = useQuery(
         organizationsBillingSubscriptionRetrieveOptions(),
     );
@@ -398,7 +355,14 @@ export function PlanCard({ onManage }: PlanCardProps) {
                     <PlanHeading />
                     <Button
                         variant={display.actionVariant}
-                        onClick={onManage}
+                        onClick={
+                            // Base plan with a live catalog opens the full-screen
+                            // plans takeover; Pro "Manage" (and the flag-off empty
+                            // catalog) keep the modal.
+                            currentPlan.id === "base" && packages.length > 0
+                                ? () => navigate(routes.plans)
+                                : onManage
+                        }
                         data-testid={display.actionTestId}
                         className="shrink-0"
                     >

@@ -181,6 +181,10 @@ export const routes = {
     root: r("/assistant/contacts"),
   },
 
+  /** Full-screen pricing takeover ("View Plans") — renders outside ChatLayout
+   *  chrome, a sibling of the settings/logs full-screen shells. */
+  plans: r("/assistant/plans"),
+
   settings: {
     root: r("/assistant/settings"),
     general: r("/assistant/settings/general"),

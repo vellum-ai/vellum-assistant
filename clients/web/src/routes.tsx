@@ -313,6 +313,10 @@ export const routeTree = [
               ],
             },
 
+            // View Plans — full-screen pricing takeover. Like settings/logs it
+            // renders its own dark shell outside ChatLayout chrome.
+            { path: "plans", lazy: { Component: () => import("@/domains/settings/billing/plans/plans-page").then((m) => m.PlansPage) } },
+
             // Logs routes — full-screen overlay panel (like SettingsLayout).
             // LogsLayout reuses SidebarShell for visual consistency.
             // Lazy-loaded: analytics-only.
