@@ -11,6 +11,11 @@
  * timeout, provider error, caller abort, unparseable output — resolves to
  * "release" within `endpointDecisionTimeoutMs`, so the front model can only
  * ever add a bounded latency and never break turn-taking.
+ *
+ * The same service optionally phrases the spoken ack (`generateAckText`,
+ * behind `liveVoice.frontModel.llmAckText`): one short contextual sentence
+ * that acknowledges without answering, bounded by `ackGenerationTimeoutMs`,
+ * `null` on any failure so the caller's static phrase always covers it.
  */
 
 import type { LiveVoiceFrontModelConfig } from "../config/schemas/live-voice.js";
@@ -20,7 +25,11 @@ import {
   getConfiguredProvider,
   userMessage,
 } from "../providers/provider-send-message.js";
-import type { Provider, ToolDefinition } from "../providers/types.js";
+import type {
+  Provider,
+  ToolDefinition,
+  ToolUseContent,
+} from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("voice-front-decision");
@@ -38,6 +47,13 @@ export interface VoiceEndpointDecisionInput {
 
 export type VoiceEndpointDecision = { action: "release" } | { action: "hold" };
 
+export interface VoiceAckTextInput {
+  /** Final transcript of the utterance the ack acknowledges. */
+  transcriptSoFar: string;
+  /** Tool the turn just started, when the ack is tool-triggered. */
+  toolName?: string;
+}
+
 export interface VoiceFrontDecider {
   /**
    * Decide whether a silence-fired turn-end should release the turn to the
@@ -48,6 +64,17 @@ export interface VoiceFrontDecider {
     input: VoiceEndpointDecisionInput,
     signal?: AbortSignal,
   ): Promise<VoiceEndpointDecision>;
+
+  /**
+   * Phrase one short contextual spoken ack for the utterance. Never rejects —
+   * every failure mode (no provider, timeout past `ackGenerationTimeoutMs`,
+   * provider error, caller abort, empty or overlong output) resolves to
+   * `null`, and the caller falls back to a static phrase.
+   */
+  generateAckText(
+    input: VoiceAckTextInput,
+    signal?: AbortSignal,
+  ): Promise<string | null>;
 }
 
 const RELEASE: VoiceEndpointDecision = { action: "release" };
@@ -77,6 +104,45 @@ const SYSTEM_PROMPT =
   "You see a live-voice transcript captured up to a pause. Treat trailing conjunctions, " +
   "dangling prepositions, or an obviously unfinished clause as mid-thought. " +
   "Bias toward finished: when in doubt, mark the turn complete.";
+
+const ACK_TOOL_NAME = "ack";
+
+// Defensive cap on generated ack length: an ack is a floor-holder, never
+// content, so anything long enough to carry content is rejected in favor of
+// the static fallback phrase.
+const ACK_MAX_CHARS = 120;
+
+const ACK_TOOL: ToolDefinition = {
+  name: ACK_TOOL_NAME,
+  description:
+    "Record the single short spoken acknowledgment sentence. Call this exactly once.",
+  input_schema: {
+    type: "object",
+    properties: {
+      ack: {
+        type: "string",
+        description:
+          "One short spoken sentence acknowledging the request without answering it.",
+      },
+    },
+    required: ["ack"],
+  },
+};
+
+const ACK_SYSTEM_PROMPT =
+  "You phrase a brief spoken acknowledgment for a voice assistant that needs a moment " +
+  "before answering. Produce exactly one short spoken sentence (under ten words) that " +
+  "acknowledges the user's request without answering it: no facts, no answers, no " +
+  "commitments, no questions — the assistant's main model owns all content. " +
+  "Sound natural and conversational.";
+
+function buildAckPrompt(input: VoiceAckTextInput): string {
+  const parts = [`User's request: ${input.transcriptSoFar || "(empty)"}`];
+  if (input.toolName) {
+    parts.push(`The assistant just started using this tool: ${input.toolName}`);
+  }
+  return parts.join("\n");
+}
 
 function buildPrompt(input: VoiceEndpointDecisionInput): string {
   const parts = [
@@ -122,6 +188,51 @@ function raceAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
   });
 }
 
+/**
+ * One bounded front-model call with a forced tool: resolve the provider, race
+ * the request against `timeoutMs` (and the caller's signal, when given), and
+ * return the response's tool_use block. `undefined` when no provider is
+ * configured or the response carries no tool block; throws on provider
+ * failure, timeout, or abort — callers map every failure to their fail-open
+ * value.
+ */
+async function requestForcedToolUse(args: {
+  getProvider: () => Promise<Provider | null>;
+  timeoutMs: number;
+  tool: ToolDefinition;
+  systemPrompt: string;
+  prompt: string;
+  signal?: AbortSignal;
+}): Promise<ToolUseContent | undefined> {
+  const provider = await args.getProvider();
+  if (!provider) {
+    return undefined;
+  }
+  const { signal: timeoutSignal, cleanup } = createTimeout(args.timeoutMs);
+  const combinedSignal = args.signal
+    ? AbortSignal.any([args.signal, timeoutSignal])
+    : timeoutSignal;
+  try {
+    const response = await raceAbort(
+      provider.sendMessage([userMessage(args.prompt)], {
+        tools: [args.tool],
+        systemPrompt: args.systemPrompt,
+        config: {
+          max_tokens: 64,
+          callSite: "voiceFrontDecision",
+          tool_choice: { type: "tool", name: args.tool.name },
+          disableCache: true,
+        },
+        signal: combinedSignal,
+      }),
+      combinedSignal,
+    );
+    return extractToolUse(response);
+  } finally {
+    cleanup();
+  }
+}
+
 export function createVoiceFrontDecider(options: {
   config: LiveVoiceFrontModelConfig;
   /**
@@ -139,48 +250,23 @@ export function createVoiceFrontDecider(options: {
       if (signal?.aborted) {
         return RELEASE;
       }
-      let provider: Provider | null;
       try {
-        provider = await getProvider();
-      } catch (error) {
-        log.debug({ error }, "Endpoint decision provider resolution failed");
-        return RELEASE;
-      }
-      if (!provider) {
-        // No configured provider — fail open.
-        return RELEASE;
-      }
-
-      const { signal: timeoutSignal, cleanup } = createTimeout(
-        config.endpointDecisionTimeoutMs,
-      );
-      const combinedSignal = signal
-        ? AbortSignal.any([signal, timeoutSignal])
-        : timeoutSignal;
-      try {
-        const response = await raceAbort(
-          provider.sendMessage([userMessage(buildPrompt(input))], {
-            tools: [TURN_DECISION_TOOL],
-            systemPrompt: SYSTEM_PROMPT,
-            config: {
-              max_tokens: 64,
-              callSite: "voiceFrontDecision",
-              tool_choice: { type: "tool", name: TURN_DECISION_TOOL_NAME },
-              disableCache: true,
-            },
-            signal: combinedSignal,
-          }),
-          combinedSignal,
-        );
-        const toolBlock = extractToolUse(response);
+        const toolBlock = await requestForcedToolUse({
+          getProvider,
+          timeoutMs: config.endpointDecisionTimeoutMs,
+          tool: TURN_DECISION_TOOL,
+          systemPrompt: SYSTEM_PROMPT,
+          prompt: buildPrompt(input),
+          signal,
+        });
         if (
           toolBlock?.name === TURN_DECISION_TOOL_NAME &&
           (toolBlock.input as { complete?: unknown }).complete === false
         ) {
           return HOLD;
         }
-        // `complete: true`, a missing/foreign tool block, or a malformed
-        // input all release — only an explicit "not finished" holds.
+        // No provider, `complete: true`, a missing/foreign tool block, or a
+        // malformed input all release — only an explicit "not finished" holds.
         return RELEASE;
       } catch (error) {
         log.debug(
@@ -188,8 +274,37 @@ export function createVoiceFrontDecider(options: {
           "Endpoint decision failed — releasing turn",
         );
         return RELEASE;
-      } finally {
-        cleanup();
+      }
+    },
+
+    async generateAckText(input, signal) {
+      if (signal?.aborted) {
+        return null;
+      }
+      try {
+        const toolBlock = await requestForcedToolUse({
+          getProvider,
+          timeoutMs: config.ackGenerationTimeoutMs,
+          tool: ACK_TOOL,
+          systemPrompt: ACK_SYSTEM_PROMPT,
+          prompt: buildAckPrompt(input),
+          signal,
+        });
+        if (toolBlock?.name !== ACK_TOOL_NAME) {
+          return null;
+        }
+        const ack = (toolBlock.input as { ack?: unknown }).ack;
+        if (typeof ack !== "string") {
+          return null;
+        }
+        const trimmed = ack.trim();
+        if (trimmed.length === 0 || trimmed.length > ACK_MAX_CHARS) {
+          return null;
+        }
+        return trimmed;
+      } catch (error) {
+        log.debug({ error }, "Ack generation failed — static phrase fallback");
+        return null;
       }
     },
   };

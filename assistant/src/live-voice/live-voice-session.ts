@@ -58,7 +58,7 @@ import type {
 import { getSubagentManager } from "../subagent/index.js";
 import { extractSpeakableSegments } from "../tts/speakable-segments.js";
 import { getLogger } from "../util/logger.js";
-import { pickAckPhrase } from "./ack-phrases.js";
+import { pickAckPhrase, pickToolAckPhrase } from "./ack-phrases.js";
 import {
   createVoiceFrontDecider,
   type VoiceFrontDecider,
@@ -234,11 +234,11 @@ export interface LiveVoiceSessionOptions {
    */
   frontModelConfig?: Partial<LiveVoiceFrontModelConfig>;
   /**
-   * Semantic-endpointing decider consulted on silence-fired turn-ends when
-   * the voice-front-model flag is on: a "hold" keeps the utterance open
-   * through a bounded extension window instead of releasing the turn. The
-   * production factory seeds the config-backed decider when unset; `null`
-   * disables semantic endpointing.
+   * Front-model decision/phrasing service: semantic endpointing on
+   * silence-fired turn-ends (a "hold" keeps the utterance open through a
+   * bounded extension window) and LLM-phrased acks. The production factory
+   * constructs it from `liveVoice.frontModel` config when unset; `null`
+   * disables front-model LLM calls (energy endpointing + static ack phrasing).
    */
   frontDecider?: VoiceFrontDecider | null;
   /**
@@ -582,9 +582,14 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   private readonly ackFirstDeltaTimeoutMs: number;
   // Rotates through the ack phrase list across the session's turns.
   private ackPhraseCounter = 0;
-  // Semantic endpointing (voice-front-model): consulted on silence-fired
-  // turn-ends; null disables the capability entirely.
+  // Front-model service (voice-front-model): semantic endpointing on
+  // silence-fired turn-ends and LLM-phrased acks; null disables both LLM
+  // capabilities (energy endpointing + static ack phrasing remain).
   private readonly frontDecider: VoiceFrontDecider | null;
+  // LLM-phrased contextual acks (liveVoice.frontModel.llmAckText): when on
+  // and a decider is wired, the ack text comes from the front model with the
+  // static phrase as fallback.
+  private readonly llmAckText: boolean;
   private readonly endpointExtensionMs: number;
   private readonly endpointMaxExtensions: number;
   // Effective trailing-silence threshold, mirroring the detector's private
@@ -642,6 +647,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       options.frontModelConfig?.ackFirstDeltaTimeoutMs ??
       DEFAULT_ACK_FIRST_DELTA_TIMEOUT_MS;
     this.frontDecider = options.frontDecider ?? null;
+    this.llmAckText = options.frontModelConfig?.llmAckText ?? false;
     this.endpointExtensionMs =
       options.frontModelConfig?.endpointExtensionMs ??
       DEFAULT_ENDPOINT_EXTENSION_MS;
@@ -2327,6 +2333,18 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
             }
             current.toolUseStarted = true;
             log.debug({ turnId, toolName }, "Live voice turn started tool use");
+            // Definitive tool use means the turn is guaranteed slow: speak
+            // the floor-holding ack now instead of waiting out the
+            // first-delta timer (same one-ack-per-turn `ackSpoken` budget).
+            if (
+              this.streamTtsAudio &&
+              isVoiceFrontModelEnabled(getConfig()) &&
+              !current.firstDeltaSeen &&
+              !current.ackSpoken
+            ) {
+              this.clearAckTimer(current);
+              this.speakAck(current, "tool-use");
+            }
           },
         },
         onError: (message) => {
@@ -2508,7 +2526,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       ) {
         return;
       }
-      this.speakAck(activeTurn);
+      this.speakAck(activeTurn, "slow-first-delta");
     }, this.ackFirstDeltaTimeoutMs);
   }
 
@@ -2532,11 +2550,64 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // ordered TTS queue, so the model's audio always follows it cleanly; it
   // never consumes the eager first-clause flush reserved for the model's real
   // first segment.
-  private speakAck(activeTurn: ActiveAssistantTurn): void {
+  private speakAck(
+    activeTurn: ActiveAssistantTurn,
+    kind: "slow-first-delta" | "tool-use",
+  ): void {
     activeTurn.ackSpoken = true;
-    const phrase = sanitizeForTts(
-      pickAckPhrase(this.ackPhraseCounter++),
-    ).trim();
+    if (this.llmAckText && this.frontDecider) {
+      // Optimistic ackSpoken above keeps the one-per-turn budget honest for
+      // any other ack trigger while the generation is in flight; the async
+      // path undoes it if the ack turns out moot.
+      void this.speakGeneratedAck(activeTurn, this.frontDecider, kind);
+      return;
+    }
+    this.enqueueAckPhrase(activeTurn, this.pickStaticAckPhrase(kind));
+  }
+
+  private pickStaticAckPhrase(kind: "slow-first-delta" | "tool-use"): string {
+    const pickPhrase = kind === "tool-use" ? pickToolAckPhrase : pickAckPhrase;
+    return pickPhrase(this.ackPhraseCounter++);
+  }
+
+  // LLM-phrased ack (liveVoice.frontModel.llmAckText): ask the front model
+  // for one short contextual sentence, static phrase on null. The decider
+  // internally bounds the call by `ackGenerationTimeoutMs` and resolves null
+  // on every failure mode, so the enqueue never waits beyond that budget.
+  private async speakGeneratedAck(
+    activeTurn: ActiveAssistantTurn,
+    frontDecider: VoiceFrontDecider,
+    kind: "slow-first-delta" | "tool-use",
+  ): Promise<void> {
+    const { token } = activeTurn;
+    const transcript = activeTurn.utterance.finalTranscriptSegments
+      .join(" ")
+      .trim();
+    const generated = await frontDecider
+      .generateAckText(
+        { transcriptSoFar: transcript },
+        activeTurn.abortController.signal,
+      )
+      // The decider contract never rejects; belt-and-braces for a stub.
+      .catch(() => null);
+    // Liveness re-check after the await: the turn may have been cancelled or
+    // finalized while generating, or the brain's first delta may have arrived
+    // — in every such case the ack is moot and must not speak over real
+    // output. Undo the optimistic ackSpoken so the flag reflects reality.
+    if (!this.isActiveAssistantTurn(token) || activeTurn.firstDeltaSeen) {
+      activeTurn.ackSpoken = false;
+      return;
+    }
+    this.enqueueAckPhrase(
+      activeTurn,
+      generated ?? this.pickStaticAckPhrase(kind),
+    );
+  }
+
+  // Sanitize and enqueue one ack sentence on the turn's ordered TTS queue
+  // (shared tail of the static and LLM-phrased ack paths).
+  private enqueueAckPhrase(activeTurn: ActiveAssistantTurn, raw: string): void {
+    const phrase = sanitizeForTts(raw).trim();
     if (phrase.length === 0) {
       return;
     }
@@ -3284,8 +3355,10 @@ export function createLiveVoiceSession(
       options.bargeInMinSpeechMs ?? vadConfig?.bargeInMinSpeechMs,
     frontModelConfig,
     // The decider only runs when the voice-front-model flag allows it (the
-    // session checks per boundary), so eager construction is flag-safe. An
-    // explicit option (incl. `null`) always wins — the test seam.
+    // session checks per boundary), so eager construction is flag-safe even
+    // when the `liveVoice.frontModel` config namespace is absent (schema
+    // defaults fill the tunables). An explicit option (incl. `null`) always
+    // wins — the test seam.
     frontDecider:
       options.frontDecider !== undefined
         ? options.frontDecider
