@@ -1,14 +1,17 @@
 /**
- * Tests for the rewritten Plugins tab: a single installed-first list (not the
- * old two-section "Installed" / "Available to install" layout) filtered by a
- * status filter + in-memory search, with tab-level install/remove/upgrade.
+ * Tests for the merged My Superpowers tab: skills and plugins in a single
+ * installed-first list behind one search box, one status/type/source filter,
+ * and the shared category rail, with tab-level install/remove/upgrade.
  *
- * The generated SDK layer is mocked so the installed read (`pluginsGet`), the
- * catalog read (`pluginsSearchGet`), the per-row drift inspect, and the
- * mutations all resolve locally. Per-test fixtures live in module-level
- * holders the mocks read, letting each case drive the payloads (or force the
- * installed read to fail for the error state). Mounted via
- * `@testing-library/react` (happy-dom — see `clients/web/test-setup.ts`).
+ * The generated SDK layer is mocked so the skills read (`skillsGet`), the
+ * installed plugins read (`pluginsGet`), the catalog read (`pluginsSearchGet`),
+ * the per-row drift inspect, and the mutations all resolve locally. Per-test
+ * fixtures live in module-level holders the mocks read, letting each case
+ * drive the payloads (or force a read to fail for the error state). The
+ * backwards-compat plugin surface gate is driven through the real identity
+ * store (`setIdentity` with a version above/below the plugin minimum).
+ * Mounted via `@testing-library/react` (happy-dom — see
+ * `clients/web/test-setup.ts`).
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -29,13 +32,15 @@ import type {
   PluginsByNameInspectGetResponse,
   PluginsGetResponse,
   PluginsSearchGetResponse,
+  SkillsGetResponse,
 } from "@/generated/daemon/types.gen";
+import { MIN_VERSION as PLUGINS_MIN_VERSION } from "@/lib/backwards-compat/plugins-surface";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
 const ASSISTANT_ID = "asst-1";
 const okResponse = { response: new Response(), error: undefined };
 
-// The shared Skills taxonomy the rail renders from. Seeded by default so the
-// rail gate hinges solely on whether the installed read carries categoryCounts.
+// The shared Skills taxonomy the rail renders from.
 const CATEGORY_DEFS: CategoryInfo[] = [
   { slug: "email", label: "Email", description: "Email tools", icon: "mail" },
   { slug: "system", label: "System", description: "System tools", icon: "settings" },
@@ -43,11 +48,13 @@ const CATEGORY_DEFS: CategoryInfo[] = [
 
 type InstalledPlugin = PluginsGetResponse["plugins"][number];
 type CatalogMatch = PluginsSearchGetResponse["matches"][number];
+type Skill = SkillsGetResponse["skills"][number];
 
 // Per-test holders the SDK mocks read. `installedStatus` lets a case force the
 // installed read into its failure branch (a non-ok, non-404 response).
 // `installedCategoryCounts` (when set) makes the installed read taxonomy-aware,
-// which is what gates the category rail.
+// which is what keeps plugins visible under a selected category.
+let skills: Skill[];
 let installedPlugins: InstalledPlugin[];
 let installedStatus: number;
 let installedCategoryCounts: Record<string, number> | undefined;
@@ -74,13 +81,34 @@ const upgradeSpy = mock(async (_options: unknown) => ({
 const sdkActual = await import("@/generated/daemon/sdk.gen");
 mock.module("@/generated/daemon/sdk.gen", () => ({
   ...sdkActual,
+  // Mirrors the daemon's server-side skills filtering: kind, origin, category
+  // and substring search all narrow the returned list.
+  skillsGet: mock(
+    async (options: {
+      query?: { kind?: string; origin?: string; category?: string; q?: string };
+    }) => {
+      const { kind, origin, category, q } = options.query ?? {};
+      const filtered = skills.filter((s) => {
+        if (kind === "installed" && s.kind === "catalog") {return false;}
+        if (kind === "available" && s.kind !== "catalog") {return false;}
+        if (origin && s.origin !== origin) {return false;}
+        if (category && (s.category ?? "system") !== category) {return false;}
+        if (q && !s.name.toLowerCase().includes(q.toLowerCase())) {return false;}
+        return true;
+      });
+      return {
+        data: { skills: filtered } as SkillsGetResponse,
+        ...okResponse,
+      };
+    },
+  ),
   pluginsInstallPost: installSpy,
   pluginsByNameDelete: deleteSpy,
   pluginsByNameUpgradePost: upgradeSpy,
   // Mirrors the daemon: filter installed plugins by the requested category
   // slug, and (when taxonomy-aware) echo the UNFILTERED categoryCounts/total.
   pluginsGet: mock(async (options: { query?: { category?: string } }) => {
-    if (installedGate) await installedGate;
+    if (installedGate) {await installedGate;}
     const selected = options.query?.category;
     const plugins = selected
       ? installedPlugins.filter((p) => (p.category ?? "system") === selected)
@@ -102,7 +130,7 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
     data: { query: "", ref: "main", matches: catalogMatches } as PluginsSearchGetResponse,
     ...okResponse,
   })),
-  // Backs the shared Skills category taxonomy the rail renders from.
+  // Backs the shared category taxonomy the rail renders from.
   skillsCategoriesGet: mock(async () => ({
     data: { categories: categoryDefs },
     ...okResponse,
@@ -133,11 +161,24 @@ mock.module("@vellumai/design-library", () => ({
   }),
 }));
 
-const { PluginsTab } = await import("./plugins-tab");
+const { SuperpowersTab } = await import("./superpowers-tab");
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+function skill(overrides: Partial<Skill> = {}): Skill {
+  return {
+    id: "focus-timer",
+    name: "focus-timer",
+    description: "A focus timer skill",
+    kind: "installed",
+    status: "enabled",
+    origin: "custom",
+    category: "system",
+    ...overrides,
+  } as Skill;
+}
 
 function installed(overrides: Partial<InstalledPlugin> = {}): InstalledPlugin {
   // `enabled` is omitted by default (older-daemon shape); the cast is needed
@@ -210,11 +251,13 @@ function renderTab(props: { plugin?: string; success?: boolean } = {}) {
     params.set("success", "true");
   }
   const query = params.toString();
-  const entry = query ? `/assistant/plugins?${query}` : "/assistant/plugins";
+  const entry = query
+    ? `/assistant/superpowers?${query}`
+    : "/assistant/superpowers";
   return render(
     <MemoryRouter initialEntries={[entry]}>
       <QueryClientProvider client={client}>
-        <PluginsTab assistantId={ASSISTANT_ID} />
+        <SuperpowersTab assistantId={ASSISTANT_ID} />
       </QueryClientProvider>
       <LocationProbe />
     </MemoryRouter>,
@@ -227,20 +270,20 @@ function LocationProbe() {
   return <div data-testid="location-search">{location.search}</div>;
 }
 
-/** Click the Status option whose visible label matches (popover portal). */
-function clickStatusOption(label: string): void {
+/** Click the filter option whose visible label matches (popover portal). */
+function clickFilterOption(label: string): void {
   const option = Array.from(
     document.querySelectorAll<HTMLElement>('[role="option"]'),
   ).find((o) => o.textContent?.trim() === label);
   if (!option) {
-    throw new Error(`expected a "${label}" status option`);
+    throw new Error(`expected a "${label}" filter option`);
   }
   fireEvent.click(option);
 }
 
 /**
  * Force `useIsMobile` true so the filter button opens the BottomSheet (the
- * mobile category surface) instead of the desktop Status popover. Returns a
+ * mobile category surface) instead of the desktop filter popover. Returns a
  * restore fn the caller invokes once done.
  */
 function forceMobile(): () => void {
@@ -261,6 +304,7 @@ function forceMobile(): () => void {
 }
 
 beforeEach(() => {
+  skills = [];
   installedPlugins = [];
   installedStatus = 200;
   installedCategoryCounts = undefined;
@@ -273,117 +317,199 @@ beforeEach(() => {
   upgradeSpy.mockClear();
   toastSuccessSpy.mockClear();
   toastErrorSpy.mockClear();
+  // Plugin-surface capable by default; individual tests drop below the
+  // minimum to exercise the skills-only degradation.
+  useAssistantIdentityStore
+    .getState()
+    .setIdentity("Test", PLUGINS_MIN_VERSION, ASSISTANT_ID);
 });
 
 afterEach(() => {
   cleanup();
+  useAssistantIdentityStore.getState().clearIdentity();
 });
 
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("PluginsTab", () => {
-  test("renders installed and available plugins in a single list", async () => {
+describe("SuperpowersTab", () => {
+  test("renders skills and plugins together, installed first", async () => {
+    skills = [skill({ id: "zz-skill", name: "zz-skill" })];
     installedPlugins = [installed()];
     catalogMatches = [catalog()];
 
     const { findByText, queryByText } = renderTab();
 
+    expect(await findByText("zz-skill")).toBeTruthy();
     expect(await findByText("simple-memory")).toBeTruthy();
     expect(await findByText("apollo-bot-brain")).toBeTruthy();
-    // The old two-section layout is gone.
+
+    // Installed rows (the skill and the plugin, alphabetical) precede the
+    // available catalog row.
+    const rows = Array.from(
+      document.querySelectorAll<HTMLElement>('li [role="button"]'),
+    ).map((r) => r.textContent ?? "");
+    const indexOf = (name: string) =>
+      rows.findIndex((text) => text.includes(name));
+    expect(indexOf("simple-memory")).toBeLessThan(indexOf("zz-skill"));
+    expect(indexOf("zz-skill")).toBeLessThan(indexOf("apollo-bot-brain"));
+
+    // No two-section layout.
     expect(queryByText("Available to install")).toBeNull();
   });
 
-  test("the Active filter narrows to enabled installed plugins", async () => {
-    installedPlugins = [
-      installed({ id: "on", name: "on-plugin", enabled: true }),
-      installed({ id: "off", name: "off-plugin", enabled: false }),
-    ];
-    catalogMatches = [catalog()];
-
-    const { findByText, queryByText, getByLabelText } = renderTab();
-    await findByText("apollo-bot-brain");
-
-    fireEvent.click(getByLabelText("Filter plugins"));
-    clickStatusOption("Active");
-
-    await waitFor(() => expect(queryByText("off-plugin")).toBeNull());
-    expect(queryByText("apollo-bot-brain")).toBeNull();
-    expect(queryByText("on-plugin")).toBeTruthy();
-  });
-
-  test("the Off filter narrows to disabled installed plugins", async () => {
-    installedPlugins = [
-      installed({ id: "on", name: "on-plugin", enabled: true }),
-      installed({ id: "off", name: "off-plugin", enabled: false }),
-    ];
-    catalogMatches = [catalog()];
-
-    const { findByText, queryByText, getByLabelText } = renderTab();
-    await findByText("apollo-bot-brain");
-
-    fireEvent.click(getByLabelText("Filter plugins"));
-    clickStatusOption("Off");
-
-    await waitFor(() => expect(queryByText("on-plugin")).toBeNull());
-    expect(queryByText("apollo-bot-brain")).toBeNull();
-    expect(queryByText("off-plugin")).toBeTruthy();
-  });
-
-  test("the Available filter narrows to catalog plugins", async () => {
-    installedPlugins = [installed({ id: "on", name: "on-plugin", enabled: true })];
-    catalogMatches = [catalog()];
-
-    const { findByText, queryByText, getByLabelText } = renderTab();
-    await findByText("on-plugin");
-
-    fireEvent.click(getByLabelText("Filter plugins"));
-    clickStatusOption("Available");
-
-    await waitFor(() => expect(queryByText("on-plugin")).toBeNull());
-    expect(queryByText("apollo-bot-brain")).toBeTruthy();
-  });
-
-  test("offers Installed (not Active/Off) and filters to installed rows when the daemon lacks enable/disable support", async () => {
-    // `installed()` omits `enabled` (older-daemon shape) → toggle unsupported.
+  test("plugin rows carry a Plugin badge; skill rows don't", async () => {
+    skills = [skill()];
     installedPlugins = [installed()];
-    catalogMatches = [catalog()];
 
-    const { findByText, queryByText, getByLabelText } = renderTab();
-    await findByText("apollo-bot-brain");
+    const { findByText } = renderTab();
+    await findByText("focus-timer");
+    await findByText("simple-memory");
 
-    fireEvent.click(getByLabelText("Filter plugins"));
-
-    // Active/Off are replaced by a plain Installed option.
-    const labels = Array.from(
-      document.querySelectorAll<HTMLElement>('[role="option"]'),
-    ).map((o) => o.textContent?.trim());
-    expect(labels).toEqual(["All", "Installed", "Available"]);
-
-    // Installed narrows to installed rows; the catalog (available) row drops.
-    clickStatusOption("Installed");
-    await waitFor(() => expect(queryByText("apollo-bot-brain")).toBeNull());
-    expect(queryByText("simple-memory")).toBeTruthy();
+    const rowFor = (name: string) =>
+      Array.from(
+        document.querySelectorAll<HTMLElement>('li [role="button"]'),
+      ).find((r) => r.textContent?.includes(name));
+    expect(rowFor("simple-memory")?.textContent).toContain("Plugin");
+    expect(rowFor("focus-timer")?.textContent).not.toContain("Plugin");
   });
 
-  test("search filters the list in memory", async () => {
+  test("the Skills type filter hides plugin rows", async () => {
+    skills = [skill()];
     installedPlugins = [installed()];
     catalogMatches = [catalog()];
 
     const { findByText, queryByText, getByLabelText } = renderTab();
     await findByText("simple-memory");
 
-    fireEvent.change(getByLabelText("Search plugins"), {
-      target: { value: "apollo" },
-    });
+    fireEvent.click(getByLabelText("Filter superpowers"));
+    clickFilterOption("Skills");
 
     await waitFor(() => expect(queryByText("simple-memory")).toBeNull());
+    expect(queryByText("apollo-bot-brain")).toBeNull();
+    expect(queryByText("focus-timer")).toBeTruthy();
+  });
+
+  test("the Plugins type filter hides skill rows", async () => {
+    skills = [skill()];
+    installedPlugins = [installed()];
+    catalogMatches = [catalog()];
+
+    const { findByText, queryByText, getByLabelText } = renderTab();
+    await findByText("focus-timer");
+
+    fireEvent.click(getByLabelText("Filter superpowers"));
+    clickFilterOption("Plugins");
+
+    await waitFor(() => expect(queryByText("focus-timer")).toBeNull());
+    expect(queryByText("simple-memory")).toBeTruthy();
     expect(queryByText("apollo-bot-brain")).toBeTruthy();
   });
 
-  test("inline Install on an available row triggers the install mutation", async () => {
+  test("a skill-origin filter narrows skills and hides plugins", async () => {
+    skills = [
+      skill({ id: "mine", name: "mine", origin: "custom" }),
+      skill({ id: "shipped", name: "shipped", origin: "vellum" }),
+    ];
+    installedPlugins = [installed()];
+
+    const { findByText, queryByText, getByLabelText } = renderTab();
+    await findByText("simple-memory");
+
+    fireEvent.click(getByLabelText("Filter superpowers"));
+    clickFilterOption("Custom");
+
+    await waitFor(() => expect(queryByText("simple-memory")).toBeNull());
+    expect(queryByText("shipped")).toBeNull();
+    expect(queryByText("mine")).toBeTruthy();
+  });
+
+  test("the Installed filter drops available rows of both kinds", async () => {
+    skills = [
+      skill(),
+      skill({ id: "cat-skill", name: "cat-skill", kind: "catalog", status: "available" }),
+    ];
+    installedPlugins = [installed()];
+    catalogMatches = [catalog()];
+
+    const { findByText, queryByText, getByLabelText } = renderTab();
+    await findByText("apollo-bot-brain");
+
+    fireEvent.click(getByLabelText("Filter superpowers"));
+    clickFilterOption("Installed");
+
+    await waitFor(() => expect(queryByText("apollo-bot-brain")).toBeNull());
+    expect(queryByText("cat-skill")).toBeNull();
+    expect(queryByText("focus-timer")).toBeTruthy();
+    expect(queryByText("simple-memory")).toBeTruthy();
+  });
+
+  test("the Available filter narrows to catalog rows of both kinds", async () => {
+    skills = [
+      skill(),
+      skill({ id: "cat-skill", name: "cat-skill", kind: "catalog", status: "available" }),
+    ];
+    installedPlugins = [installed()];
+    catalogMatches = [catalog()];
+
+    const { findByText, queryByText, getByLabelText } = renderTab();
+    await findByText("simple-memory");
+
+    fireEvent.click(getByLabelText("Filter superpowers"));
+    clickFilterOption("Available");
+
+    await waitFor(() => expect(queryByText("simple-memory")).toBeNull());
+    expect(queryByText("focus-timer")).toBeNull();
+    expect(queryByText("cat-skill")).toBeTruthy();
+    expect(queryByText("apollo-bot-brain")).toBeTruthy();
+  });
+
+  test("search filters both kinds after the debounce settles", async () => {
+    skills = [skill()];
+    installedPlugins = [installed()];
+    catalogMatches = [catalog()];
+
+    const { findByText, queryByText, getByLabelText } = renderTab();
+    await findByText("simple-memory");
+
+    fireEvent.change(getByLabelText("Search superpowers"), {
+      target: { value: "apollo" },
+    });
+
+    // The term debounces into the query layer (and re-keys the skills query),
+    // so give the debounce window + refetch a beat to settle before asserting.
+    await new Promise((r) => setTimeout(r, 600));
+    await waitFor(
+      () => {
+        expect(queryByText("apollo-bot-brain")).toBeTruthy();
+        expect(queryByText("simple-memory")).toBeNull();
+        expect(queryByText("focus-timer")).toBeNull();
+      },
+      { timeout: 2000 },
+    );
+  });
+
+  test("hides the Type group on assistants without the plugin surface", async () => {
+    useAssistantIdentityStore.getState().setIdentity("Test", "0.1.0", ASSISTANT_ID);
+    skills = [skill()];
+    installedPlugins = [installed()];
+
+    const { findByText, queryByText, getByLabelText } = renderTab();
+    await findByText("focus-timer");
+
+    // Plugin rows never surface without the plugin routes.
+    expect(queryByText("simple-memory")).toBeNull();
+
+    fireEvent.click(getByLabelText("Filter superpowers"));
+    const labels = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="option"]'),
+    ).map((o) => o.textContent?.trim());
+    expect(labels).not.toContain("Plugins");
+    expect(labels).toContain("Installed");
+  });
+
+  test("inline Install on an available plugin row triggers the install mutation", async () => {
     catalogMatches = [catalog()];
 
     const { findByLabelText } = renderTab();
@@ -396,7 +522,7 @@ describe("PluginsTab", () => {
     });
   });
 
-  test("a successful inline install fires a success toast", async () => {
+  test("a successful inline plugin install fires a success toast", async () => {
     catalogMatches = [catalog()];
 
     const { findByLabelText } = renderTab();
@@ -434,7 +560,7 @@ describe("PluginsTab", () => {
     expect(toastSuccessSpy).not.toHaveBeenCalled();
   });
 
-  test("a failed inline install surfaces an error toast", async () => {
+  test("a failed inline plugin install surfaces an error toast", async () => {
     catalogMatches = [catalog()];
     // Force the next install into the mutation's error branch (the SDK throws
     // because the generated mutationFn passes `throwOnError: true`).
@@ -451,7 +577,7 @@ describe("PluginsTab", () => {
     expect(toastSuccessSpy).not.toHaveBeenCalled();
   });
 
-  test("inline Remove opens the confirm dialog without deleting yet", async () => {
+  test("inline plugin Remove opens the confirm dialog without deleting yet", async () => {
     installedPlugins = [installed()];
 
     const { findByLabelText } = renderTab();
@@ -466,17 +592,36 @@ describe("PluginsTab", () => {
 
   test("shows the empty state when nothing is installed or available", async () => {
     const { findByText } = renderTab();
-    expect(await findByText("No Plugins Found")).toBeTruthy();
+    expect(await findByText("No Superpowers Available")).toBeTruthy();
   });
 
-  test("shows the error state when the installed read fails", async () => {
+  test("shows the error state when both reads fail", async () => {
+    installedStatus = 500;
+    const sdk = await import("@/generated/daemon/sdk.gen");
+    (sdk.skillsGet as ReturnType<typeof mock>).mockImplementationOnce(
+      async () => {
+        throw new Error("skills read failed");
+      },
+    );
+
+    const { findByText } = renderTab();
+    expect(await findByText("Failed to load superpowers")).toBeTruthy();
+  });
+
+  test("degrades to skills with a notice when only the plugin read fails", async () => {
+    skills = [skill()];
     installedStatus = 500;
 
     const { findByText } = renderTab();
-    expect(await findByText("Failed to load plugins")).toBeTruthy();
+    expect(await findByText("focus-timer")).toBeTruthy();
+    expect(
+      await findByText(
+        "Plugins are temporarily unavailable. Skills are still listed below.",
+      ),
+    ).toBeTruthy();
   });
 
-  test("selecting a row opens the detail in-tab and back returns to the list", async () => {
+  test("selecting a plugin row opens the detail in-tab and back returns to the list", async () => {
     installedPlugins = [installed()];
 
     const { findByText, findByLabelText, queryByLabelText } = renderTab();
@@ -486,12 +631,12 @@ describe("PluginsTab", () => {
     // The detail renders in-tab (the open plugin is held in `?plugin=`) — its
     // back affordance appears and the list chrome (the search box) is gone.
     const back = await findByLabelText("Back to plugins");
-    expect(queryByLabelText("Search plugins")).toBeNull();
+    expect(queryByLabelText("Search superpowers")).toBeNull();
 
     fireEvent.click(back);
 
     // Back returns to the list view.
-    expect(await findByLabelText("Search plugins")).toBeTruthy();
+    expect(await findByLabelText("Search superpowers")).toBeTruthy();
     expect(await findByText("simple-memory")).toBeTruthy();
   });
 
@@ -503,7 +648,8 @@ describe("PluginsTab", () => {
     expect(await findByLabelText("Back to plugins")).toBeTruthy();
   });
 
-  test("renders the category rail with counts when the daemon supports categories", async () => {
+  test("rail counts merge skills and plugins per category", async () => {
+    skills = [skill({ category: "email" })];
     installedPlugins = [
       installed({ id: "mailer", name: "mailer", category: "email" }),
     ];
@@ -511,93 +657,26 @@ describe("PluginsTab", () => {
     catalogMatches = [catalog({ name: "sys-cat", category: "system" })];
 
     const { findByRole } = renderTab();
-    const nav = await findByRole("navigation", { name: "Plugin categories" });
+    const nav = await findByRole("navigation", {
+      name: "Superpower categories",
+    });
 
-    // "All" + each seeded Skills category renders a row.
-    expect(within(nav).getByRole("button", { name: /All/ })).toBeTruthy();
-    const emailRow = within(nav).getByRole("button", { name: /Email/ });
-    const systemRow = within(nav).getByRole("button", { name: /System/ });
-    // Email: 1 installed + 0 catalog. System: 0 installed + 1 catalog.
-    expect(emailRow.textContent).toContain("1");
-    expect(systemRow.textContent).toContain("1");
-  });
-
-  test("respects the status filter when deriving category badges", async () => {
-    // email is installed-only; system is available-only. `enabled` on the
-    // installed row latches toggle support so the Active option is offered.
-    installedPlugins = [
-      installed({ id: "mailer", name: "mailer", category: "email", enabled: true }),
-    ];
-    installedCategoryCounts = { email: 1 };
-    catalogMatches = [catalog({ name: "sys-cat", category: "system" })];
-
-    const { findByRole, getByLabelText } = renderTab();
-    const nav = await findByRole("navigation", { name: "Plugin categories" });
-
-    // "All": both axes contribute (email: 1 installed, system: 1 catalog).
-    expect(
-      within(nav).getByRole("button", { name: /Email/ }).textContent,
-    ).toContain("1");
-    expect(
-      within(nav).getByRole("button", { name: /System/ }).textContent,
-    ).toContain("1");
-
-    // "Active" is installed-only: the available-only System badge drops so it no
-    // longer counts rows the status filter hides; Email (installed) stays 1.
-    fireEvent.click(getByLabelText("Filter plugins"));
-    clickStatusOption("Active");
-    await waitFor(() =>
-      expect(
-        within(nav).getByRole("button", { name: /System/ }).textContent,
-      ).not.toContain("1"),
-    );
-    expect(
-      within(nav).getByRole("button", { name: /Email/ }).textContent,
-    ).toContain("1");
-  });
-
-  test("Active/Off category badges count only matching plugins, not the server total", async () => {
-    // Two installed email plugins — one enabled, one disabled. The server's
-    // categoryCounts is the total for ALL installed (email: 2); Active/Off must
-    // reflect only the matching subset, or a badge over-counts rows the filter
-    // hides (and a category with only hidden rows would show empty under a
-    // nonzero badge).
-    installedPlugins = [
-      installed({ id: "on", name: "on-mailer", category: "email", enabled: true }),
-      installed({ id: "off", name: "off-mailer", category: "email", enabled: false }),
-    ];
-    installedCategoryCounts = { email: 2 };
-
-    const { findByRole, getByLabelText } = renderTab();
-    const nav = await findByRole("navigation", { name: "Plugin categories" });
-
-    // All: the server total (2) shows.
+    // Email: 1 skill + 1 installed plugin. System: 1 catalog plugin.
+    // All: the deduped union total (3).
     expect(
       within(nav).getByRole("button", { name: /Email/ }).textContent,
     ).toContain("2");
-
-    // Active: only the enabled email plugin — badge drops to 1, not the server's 2.
-    fireEvent.click(getByLabelText("Filter plugins"));
-    clickStatusOption("Active");
-    await waitFor(() =>
-      expect(
-        within(nav).getByRole("button", { name: /Email/ }).textContent,
-      ).toContain("1"),
-    );
-
-    // Off: only the disabled email plugin — also 1.
-    fireEvent.click(getByLabelText("Filter plugins"));
-    clickStatusOption("Off");
-    await waitFor(() =>
-      expect(
-        within(nav).getByRole("button", { name: /Email/ }).textContent,
-      ).toContain("1"),
-    );
+    expect(
+      within(nav).getByRole("button", { name: /System/ }).textContent,
+    ).toContain("1");
+    expect(
+      within(nav).getByRole("button", { name: /All/ }).textContent,
+    ).toContain("3");
   });
 
   test("hides the rail counts while a search term is active, restoring them when cleared", async () => {
-    // Search is client-side (the term never reaches the data hook), so the
-    // count gating must key off the term — not react-query's fetch state.
+    // Plugin search is client-side (the term never reaches the data hook), so
+    // the count gating must key off the term — not react-query's fetch state.
     installedPlugins = [
       installed({ id: "mailer", name: "mailer", category: "email" }),
     ];
@@ -605,7 +684,9 @@ describe("PluginsTab", () => {
     catalogMatches = [catalog({ name: "sys-cat", category: "system" })];
 
     const { findByRole, getByLabelText } = renderTab();
-    const nav = await findByRole("navigation", { name: "Plugin categories" });
+    const nav = await findByRole("navigation", {
+      name: "Superpower categories",
+    });
 
     // With no active search the per-category badges show (email: 1, system: 1).
     expect(
@@ -617,7 +698,7 @@ describe("PluginsTab", () => {
 
     // Typing a term hides every badge — the unfiltered counts would mislead
     // while the visible rows are filtered client-side.
-    fireEvent.change(getByLabelText("Search plugins"), {
+    fireEvent.change(getByLabelText("Search superpowers"), {
       target: { value: "mailer" },
     });
     await waitFor(() =>
@@ -630,7 +711,7 @@ describe("PluginsTab", () => {
     ).not.toContain("1");
 
     // Clearing the term restores the badges.
-    fireEvent.change(getByLabelText("Search plugins"), {
+    fireEvent.change(getByLabelText("Search superpowers"), {
       target: { value: "" },
     });
     await waitFor(() =>
@@ -643,7 +724,11 @@ describe("PluginsTab", () => {
     ).toContain("1");
   });
 
-  test("selecting a category filters both installed and available", async () => {
+  test("selecting a category filters skills, installed plugins, and the catalog", async () => {
+    skills = [
+      skill({ id: "mail-skill", name: "mail-skill", category: "email" }),
+      skill({ id: "sys-skill", name: "sys-skill", category: "system" }),
+    ];
     installedPlugins = [
       installed({ id: "mailer", name: "mailer", category: "email" }),
       installed({ id: "sysd", name: "sysd", category: "system" }),
@@ -661,15 +746,22 @@ describe("PluginsTab", () => {
     expect(queryByText("sysd")).toBeTruthy();
     expect(queryByText("email-cat")).toBeTruthy();
     expect(queryByText("sys-cat")).toBeTruthy();
+    expect(queryByText("mail-skill")).toBeTruthy();
+    expect(queryByText("sys-skill")).toBeTruthy();
 
-    const nav = await findByRole("navigation", { name: "Plugin categories" });
+    const nav = await findByRole("navigation", {
+      name: "Superpower categories",
+    });
     fireEvent.click(within(nav).getByRole("button", { name: /Email/ }));
 
-    // Installed filters server-side (?category=); available filters client-side.
+    // Skills + installed plugins filter server-side (?category=); the catalog
+    // filters client-side.
     await waitFor(() => expect(queryByText("sysd")).toBeNull());
     expect(queryByText("sys-cat")).toBeNull();
+    expect(queryByText("sys-skill")).toBeNull();
     expect(queryByText("mailer")).toBeTruthy();
     expect(queryByText("email-cat")).toBeTruthy();
+    expect(queryByText("mail-skill")).toBeTruthy();
   });
 
   test("a plugin both installed and in the catalog is deduped from rows and counts", async () => {
@@ -685,7 +777,9 @@ describe("PluginsTab", () => {
     ];
 
     const { findByRole, findByText, queryAllByText } = renderTab();
-    const nav = await findByRole("navigation", { name: "Plugin categories" });
+    const nav = await findByRole("navigation", {
+      name: "Superpower categories",
+    });
 
     // The fresh catalog plugin is Available; `mailer` renders once, never as a
     // second "Available" row alongside its installed row.
@@ -714,7 +808,9 @@ describe("PluginsTab", () => {
     ];
 
     const { findByRole, findByText, queryByText } = renderTab();
-    const nav = await findByRole("navigation", { name: "Plugin categories" });
+    const nav = await findByRole("navigation", {
+      name: "Superpower categories",
+    });
 
     fireEvent.click(within(nav).getByRole("button", { name: /Email/ }));
 
@@ -724,20 +820,26 @@ describe("PluginsTab", () => {
     await waitFor(() => expect(queryByText("mailer")).toBeNull());
   });
 
-  test("falls back to a single column when the daemon omits categoryCounts", async () => {
+  test("hides plugins under a selected category when the daemon lacks the plugin taxonomy", async () => {
+    // installedCategoryCounts stays undefined → the daemon ignores the
+    // installed read's ?category= param, so plugin rows would leak into every
+    // category. Skills still filter fine.
+    skills = [skill({ id: "mail-skill", name: "mail-skill", category: "email" })];
     installedPlugins = [installed()];
-    catalogMatches = [catalog()];
-    // installedCategoryCounts stays undefined → older daemon, no rail.
 
-    const { findByText, queryByRole } = renderTab();
+    const { findByRole, findByText, queryByText } = renderTab();
     await findByText("simple-memory");
 
-    expect(
-      queryByRole("navigation", { name: "Plugin categories" }),
-    ).toBeNull();
+    const nav = await findByRole("navigation", {
+      name: "Superpower categories",
+    });
+    fireEvent.click(within(nav).getByRole("button", { name: /Email/ }));
+
+    await waitFor(() => expect(queryByText("simple-memory")).toBeNull());
+    expect(queryByText("mail-skill")).toBeTruthy();
   });
 
-  test("the mobile filter sheet surfaces the category taxonomy", async () => {
+  test("the mobile filter sheet surfaces status, type, source, and categories", async () => {
     installedPlugins = [
       installed({ id: "mailer", name: "mailer", category: "email" }),
     ];
@@ -749,49 +851,19 @@ describe("PluginsTab", () => {
       const { findByLabelText } = renderTab();
       // The desktop <aside> rail is hidden on mobile; the sheet is the only
       // category surface. Open it via the filter button.
-      fireEvent.click(await findByLabelText("Filter plugins"));
+      fireEvent.click(await findByLabelText("Filter superpowers"));
 
       const sheet = await screen.findByRole("dialog");
-      // Status stays available alongside the new Categories axis.
       expect(within(sheet).getByText("Status")).toBeTruthy();
+      expect(within(sheet).getByText("Type")).toBeTruthy();
+      expect(within(sheet).getByText("Source")).toBeTruthy();
       expect(within(sheet).getByText("Categories")).toBeTruthy();
-      // "All" + each seeded Skills category renders a selectable row.
+      // "All" + each seeded category renders a selectable row.
       expect(within(sheet).getByText("Email")).toBeTruthy();
       expect(within(sheet).getByText("System")).toBeTruthy();
     } finally {
       restoreMatchMedia();
     }
-  });
-
-  test("the mobile filter sheet omits Categories when the daemon lacks support", async () => {
-    installedPlugins = [installed()];
-    // installedCategoryCounts stays undefined → older daemon, no taxonomy.
-
-    const restoreMatchMedia = forceMobile();
-    try {
-      const { findByLabelText } = renderTab();
-      fireEvent.click(await findByLabelText("Filter plugins"));
-
-      const sheet = await screen.findByRole("dialog");
-      // Status is still offered, but no Categories section is rendered.
-      expect(within(sheet).getByText("Status")).toBeTruthy();
-      expect(within(sheet).queryByText("Categories")).toBeNull();
-    } finally {
-      restoreMatchMedia();
-    }
-  });
-
-  test("hides the rail when no categories load even if categoryCounts is present", async () => {
-    installedPlugins = [installed({ category: "email" })];
-    installedCategoryCounts = { email: 1 };
-    categoryDefs = [];
-
-    const { findByText, queryByRole } = renderTab();
-    await findByText("simple-memory");
-
-    expect(
-      queryByRole("navigation", { name: "Plugin categories" }),
-    ).toBeNull();
   });
 
   test("keeps the category rail mounted while a category-filtered read is pending", async () => {
@@ -802,12 +874,13 @@ describe("PluginsTab", () => {
     installedCategoryCounts = { email: 1, system: 1 };
 
     const { findByRole, queryByRole } = renderTab();
-    const nav = await findByRole("navigation", { name: "Plugin categories" });
+    const nav = await findByRole("navigation", {
+      name: "Superpower categories",
+    });
 
     // Hold every subsequent installed read pending, then select a category. The
     // filtered read stays in flight, but the rail must remain mounted so the
-    // user can still switch or clear the category — support derives from the
-    // cached unfiltered read (latched), not the in-flight filtered one.
+    // user can still switch or clear the category.
     let releaseInstalled: () => void = () => {};
     installedGate = new Promise<void>((resolve) => {
       releaseInstalled = resolve;
@@ -815,14 +888,14 @@ describe("PluginsTab", () => {
     fireEvent.click(within(nav).getByRole("button", { name: /Email/ }));
 
     expect(
-      queryByRole("navigation", { name: "Plugin categories" }),
+      queryByRole("navigation", { name: "Superpower categories" }),
     ).not.toBeNull();
 
     // Let the pending read resolve; the rail is still there afterward.
     releaseInstalled();
     await waitFor(() =>
       expect(
-        queryByRole("navigation", { name: "Plugin categories" }),
+        queryByRole("navigation", { name: "Superpower categories" }),
       ).not.toBeNull(),
     );
   });

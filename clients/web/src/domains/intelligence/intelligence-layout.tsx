@@ -17,12 +17,15 @@ interface IntelligenceSection {
 
 /**
  * The drill-down section pages that get the shared back-button chrome.
- * Sub-paths (e.g. `/assistant/plugins/:name`) count as inside a section.
+ * Sub-paths (e.g. `/assistant/skills/:skillId`) count as inside a section.
+ * The legacy skills/plugins paths still carry the per-item detail routes,
+ * so they wear the My Superpowers chrome.
  */
 const CHROME_SECTIONS: readonly IntelligenceSection[] = [
   { label: "Schedules", to: routes.schedules.root },
-  { label: "Plugins", to: routes.plugins },
-  { label: "Skills", to: routes.skills.root },
+  { label: "My Superpowers", to: routes.superpowers },
+  { label: "My Superpowers", to: routes.plugins },
+  { label: "My Superpowers", to: routes.skills.root },
   { label: "Memory", to: routes.memory },
   { label: "Workspace", to: routes.workspace },
   { label: "Contacts", to: routes.contacts.root },
@@ -41,7 +44,7 @@ function sectionForPath(pathname: string): IntelligenceSection | null {
  * Shared layout for the "About Assistant" pages. The overview
  * (`/assistant/identity`) and the personality page render full-bleed —
  * they own their avatar-tinted stage chrome — while every other section
- * (Schedules, Plugins, Skills, Memory, Workspace, Contacts, Channels)
+ * (Schedules, My Superpowers, Memory, Workspace, Contacts, Channels)
  * renders inside the standard page shell with a back button to the
  * overview where the old tab bar used to be.
  *

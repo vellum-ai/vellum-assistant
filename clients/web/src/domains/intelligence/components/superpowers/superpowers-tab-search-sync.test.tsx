@@ -1,17 +1,19 @@
 /**
- * Tests for the Skills tab's search ↔ URL (`?q=`) synchronization — the
- * two-way sync direction, not the list rendering:
+ * Tests for the My Superpowers tab's search ↔ URL (`?q=`) synchronization —
+ * the two-way sync direction, not the list rendering:
  *
  * - typing debounces into `?q=` exactly once per settled value,
- * - an external `?q=` change WITHOUT a remount (re-clicking the Skills nav
- *   link to clear the query, back/forward, in-app filtered links) wins over
- *   the local input instead of being debounce-bounced back to the stale
- *   local value.
+ * - an external `?q=` change WITHOUT a remount (re-clicking the nav link to
+ *   clear the query, back/forward, in-app filtered links) wins over the
+ *   local input instead of being debounce-bounced back to the stale local
+ *   value.
  *
  * The generated SDK is mocked with empty payloads (the queries only need to
- * settle); the tab is mounted with sibling probe/controls components on the
- * same route so URL changes never remount it. Mounted via
- * `@testing-library/react` (happy-dom — see `clients/web/test-setup.ts`).
+ * settle); the identity store's version stays null, so the plugin surface is
+ * gated off and the plugin queries never fire. The tab is mounted with
+ * sibling probe/controls components on the same route so URL changes never
+ * remount it. Mounted via `@testing-library/react` (happy-dom — see
+ * `clients/web/test-setup.ts`).
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -40,7 +42,7 @@ import type {
 const ASSISTANT_ID = "asst-1";
 const okResponse = { response: new Response(), error: undefined };
 
-/** Mirrors `SEARCH_DEBOUNCE_MS` in `skills-tab.tsx` (not exported). */
+/** Mirrors `SEARCH_DEBOUNCE_MS` in `superpowers-tab.tsx` (not exported). */
 const SEARCH_DEBOUNCE_MS = 300;
 
 const sdkActual = await import("@/generated/daemon/sdk.gen");
@@ -56,8 +58,7 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
   })),
 }));
 
-const { SkillsTab } =
-  await import("@/domains/intelligence/components/skills/skills-tab");
+const { SuperpowersTab } = await import("./superpowers-tab");
 
 /** Every distinct `location.search` the router passed through, in order. */
 const searchLog: string[] = [];
@@ -105,7 +106,7 @@ async function renderTab(initialSearch = ""): Promise<HTMLInputElement> {
   // Async act so the mocked queries' immediate resolutions flush in-act.
   await act(async () => {
     render(
-      <MemoryRouter initialEntries={[`/assistant/skills${initialSearch}`]}>
+      <MemoryRouter initialEntries={[`/assistant/superpowers${initialSearch}`]}>
         <QueryClientProvider
           client={
             new QueryClient({
@@ -115,10 +116,10 @@ async function renderTab(initialSearch = ""): Promise<HTMLInputElement> {
         >
           <Routes>
             <Route
-              path="/assistant/skills"
+              path="/assistant/superpowers"
               element={
                 <>
-                  <SkillsTab assistantId={ASSISTANT_ID} />
+                  <SuperpowersTab assistantId={ASSISTANT_ID} />
                   <UrlProbe />
                   <ExternalControls />
                 </>
@@ -129,7 +130,7 @@ async function renderTab(initialSearch = ""): Promise<HTMLInputElement> {
       </MemoryRouter>,
     );
   });
-  return screen.getByLabelText("Search skills") as HTMLInputElement;
+  return screen.getByLabelText("Search superpowers") as HTMLInputElement;
 }
 
 /** Lets a full debounce window elapse so a wrong-direction write would land. */
@@ -168,7 +169,7 @@ afterEach(() => {
   cleanup();
 });
 
-describe("SkillsTab search ↔ ?q= sync", () => {
+describe("SuperpowersTab search ↔ ?q= sync", () => {
   test("typing debounces into the URL exactly once", async () => {
     const input = await renderTab();
 

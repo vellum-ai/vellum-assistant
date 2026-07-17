@@ -1,6 +1,6 @@
 /**
- * One-line, high-level stats for the overview's bento cards — a count or a
- * few chips per section, nothing more. Every query degrades silently
+ * One-line, high-level stats for the overview's bento cards — a count or
+ * one short line per section, nothing more. Every query degrades silently
  * (loading or error → no stat shown) so the overview never blocks or
  * errors on these extras.
  */
@@ -38,7 +38,6 @@ export interface IdentitySectionStat {
   label?: string;
   /** Plain one-liner for sections without a countable stat. */
   text?: string;
-  chips?: string[];
   /** Persisted personality slider values, plotted as a radar chart. */
   radar?: Record<string, number>;
   /** Upcoming enabled schedules (soonest first) + how many were cut. */
@@ -48,7 +47,6 @@ export interface IdentitySectionStat {
 /** These are glanceable extras — refresh lazily. */
 const STATS_STALE_MS = 60_000;
 
-const PLUGIN_CHIP_COUNT = 3;
 const SCHEDULE_PREVIEW_COUNT = 3;
 
 function pluralLabel(n: number, singular: string, pluralForm: string): string {
@@ -79,11 +77,7 @@ export function useIdentitySectionStats(
   // different queryFn shape would poison the cache for the other readers.
   const plugins = useQuery({
     ...installedPluginsQueryOptions(assistantId),
-    select: (data) =>
-      data.plugins
-        .filter((p) => p.enabled)
-        .slice(0, PLUGIN_CHIP_COUNT)
-        .map((p) => p.name),
+    select: (data) => data.plugins.length,
     enabled: supportsPlugins,
   });
   const workspace = useQuery({
@@ -145,15 +139,23 @@ export function useIdentitySectionStats(
           ? completeSliderValues(sliders.data ?? {})
           : undefined,
     },
-    skills:
+    // Skills and plugins share the merged My Superpowers card; the stat
+    // names both kinds (interpunct-separated) so a plugin never hides
+    // inside a bare count. The plugin half appears once its query resolves
+    // — on assistants without the plugin surface it never does, and the
+    // stat stays skills-only.
+    superpowers:
       skills.data !== undefined
-        ? { value: skills.data, label: "installed" }
-        : undefined,
-    plugins:
-      plugins.data !== undefined
-        ? plugins.data.length > 0
-          ? { chips: plugins.data }
-          : { text: "None yet" }
+        ? {
+            text: [
+              `${skills.data} ${pluralLabel(skills.data, "skill", "skills")}`,
+              ...(plugins.data !== undefined
+                ? [
+                    `${plugins.data} ${pluralLabel(plugins.data, "plugin", "plugins")}`,
+                  ]
+                : []),
+            ].join(" · "),
+          }
         : undefined,
     workspace:
       workspace.data !== undefined

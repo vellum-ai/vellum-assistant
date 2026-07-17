@@ -8,9 +8,11 @@ import {
     Globe,
     LayoutGrid,
     Loader2,
+    Puzzle,
     Search,
     Terminal,
     User,
+    Zap,
 } from "lucide-react";
 import {
     type ChangeEvent,
@@ -21,13 +23,13 @@ import {
 } from "react";
 
 import { resolveCategoryIcon } from "@/domains/intelligence/skills/category-icon-map";
-import type { SkillFilter } from "@/domains/intelligence/skills/types";
 import type { CategoryInfo } from "@/domains/intelligence/skills/use-skill-categories";
+import type { SuperpowerFilter } from "@/domains/intelligence/superpowers/types";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { BottomSheet, Button, Input, PanelItem, Popover } from "@vellumai/design-library";
 
 interface FilterOption {
-  value: SkillFilter;
+  value: SuperpowerFilter;
   label: string;
   icon: typeof LayoutGrid;
 }
@@ -38,6 +40,11 @@ const STATUS_FILTERS: FilterOption[] = [
   ALL_FILTER,
   { value: "installed", label: "Installed", icon: CheckCircle },
   { value: "available", label: "Available", icon: ArrowDownToLine },
+];
+
+const TYPE_FILTERS: FilterOption[] = [
+  { value: "skills", label: "Skills", icon: Zap },
+  { value: "plugins", label: "Plugins", icon: Puzzle },
 ];
 
 const ORIGIN_FILTERS: FilterOption[] = [
@@ -51,10 +58,10 @@ const ORIGIN_FILTERS: FilterOption[] = [
 interface FilterBarProps {
   search: string;
   onSearchChange: Dispatch<SetStateAction<string>>;
-  filter: SkillFilter;
-  onFilterChange: (f: SkillFilter) => void;
+  filter: SuperpowerFilter;
+  onFilterChange: (f: SuperpowerFilter) => void;
   isSearching: boolean;
-  /** Available skill categories — surfaced inside the mobile filter sheet. */
+  /** Available categories — surfaced inside the mobile filter sheet. */
   categories: CategoryInfo[];
   /** Currently selected category slug, or `null` for "All". */
   category: string | null;
@@ -65,6 +72,11 @@ interface FilterBarProps {
   totalCount: number;
   /** Hide counts while a search is in flight (they'd be stale mid-query). */
   showCounts: boolean;
+  /**
+   * Whether the connected assistant exposes the plugin surface. When it
+   * doesn't, the list is skills-only, so the Type group is omitted.
+   */
+  pluginsSupported: boolean;
 }
 
 export function FilterBar({
@@ -79,6 +91,7 @@ export function FilterBar({
   counts,
   totalCount,
   showCounts,
+  pluginsSupported,
 }: FilterBarProps) {
   const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
     onSearchChange(e.target.value);
@@ -90,8 +103,8 @@ export function FilterBar({
         type="search"
         value={search}
         onChange={handleChange}
-        placeholder="Search skills"
-        aria-label="Search skills"
+        placeholder="Search superpowers"
+        aria-label="Search superpowers"
         leftIcon={<Search className="h-4 w-4" aria-hidden />}
         rightIcon={
           isSearching ? (
@@ -111,28 +124,31 @@ export function FilterBar({
         counts={counts}
         totalCount={totalCount}
         showCounts={showCounts}
+        pluginsSupported={pluginsSupported}
       />
     </div>
   );
 }
 
 interface FilterControlProps {
-  filter: SkillFilter;
-  onFilterChange: (v: SkillFilter) => void;
+  filter: SuperpowerFilter;
+  onFilterChange: (v: SuperpowerFilter) => void;
   categories: CategoryInfo[];
   category: string | null;
   onCategoryChange: (category: string | null) => void;
   counts: Record<string, number>;
   totalCount: number;
   showCounts: boolean;
+  pluginsSupported: boolean;
 }
 
 /**
- * Filter affordance for the Skills page. On mobile the outlined filter button
- * opens a bottom sheet exposing Status, Source, AND Categories (the category
- * sidebar is desktop-only, so the sheet is mobile's sole category surface). On
- * desktop the same button opens a compact popover with Status + Source; the
- * always-visible sidebar owns category selection there.
+ * Filter affordance for the My Superpowers page. On mobile the outlined
+ * filter button opens a bottom sheet exposing Status, Type, Source, AND
+ * Categories (the category sidebar is desktop-only, so the sheet is mobile's
+ * sole category surface). On desktop the same button opens a compact popover
+ * with Status + Type + Source; the always-visible sidebar owns category
+ * selection there.
  */
 function FilterControl(props: FilterControlProps) {
   const isMobile = useIsMobile();
@@ -143,7 +159,7 @@ function FilterControl(props: FilterControlProps) {
       type="button"
       variant="outlined"
       iconOnly={<Filter aria-hidden />}
-      aria-label="Filter skills"
+      aria-label="Filter superpowers"
       aria-haspopup={isMobile ? "dialog" : "listbox"}
       aria-expanded={open}
       tintColor="var(--primary-base)"
@@ -155,6 +171,11 @@ function FilterControl(props: FilterControlProps) {
       <FilterSheet {...props} open={open} onOpenChange={setOpen} trigger={trigger} />
     );
   }
+
+  const selectAndClose = (v: SuperpowerFilter) => {
+    props.onFilterChange(v);
+    setOpen(false);
+  };
 
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
@@ -169,11 +190,22 @@ function FilterControl(props: FilterControlProps) {
             label="Status"
             options={STATUS_FILTERS}
             selected={props.filter}
-            onSelect={(v) => {
-              props.onFilterChange(v);
-              setOpen(false);
-            }}
+            onSelect={selectAndClose}
           />
+          {props.pluginsSupported && (
+            <>
+              <div
+                className="border-t"
+                style={{ borderColor: "var(--border-base)" }}
+              />
+              <FilterGroup
+                label="Type"
+                options={TYPE_FILTERS}
+                selected={props.filter}
+                onSelect={selectAndClose}
+              />
+            </>
+          )}
           <div
             className="border-t"
             style={{ borderColor: "var(--border-base)" }}
@@ -182,10 +214,7 @@ function FilterControl(props: FilterControlProps) {
             label="Source"
             options={ORIGIN_FILTERS}
             selected={props.filter}
-            onSelect={(v) => {
-              props.onFilterChange(v);
-              setOpen(false);
-            }}
+            onSelect={selectAndClose}
           />
         </ul>
       </Popover.Content>
@@ -200,9 +229,9 @@ interface FilterSheetProps extends FilterControlProps {
 }
 
 /**
- * Mobile bottom sheet. Status/Source and Categories are independent axes that
- * both stay applied, so selecting a row updates the results live behind the
- * sheet without closing it — the user dials in both, then taps Done (or
+ * Mobile bottom sheet. Status/Type/Source and Categories are independent axes
+ * that both stay applied, so selecting a row updates the results live behind
+ * the sheet without closing it — the user dials in both, then taps Done (or
  * outside) to dismiss.
  */
 function FilterSheet({
@@ -214,6 +243,7 @@ function FilterSheet({
   counts,
   totalCount,
   showCounts,
+  pluginsSupported,
   open,
   onOpenChange,
   trigger,
@@ -245,6 +275,20 @@ function FilterSheet({
               />
             ))}
           </SheetSection>
+
+          {pluginsSupported && (
+            <SheetSection label="Type">
+              {TYPE_FILTERS.map((option) => (
+                <FilterRow
+                  key={option.value}
+                  icon={option.icon}
+                  label={option.label}
+                  active={filter === option.value}
+                  onSelect={() => onFilterChange(option.value)}
+                />
+              ))}
+            </SheetSection>
+          )}
 
           <SheetSection label="Source">
             {ORIGIN_FILTERS.map((option) => (
@@ -317,7 +361,7 @@ function SheetSection({
 /**
  * One selectable row inside the filter sheet. `badge` carries a result count
  * (categories); the trailing check marks the active row on the count-less
- * Status/Source axes where the branded highlight alone is easy to miss.
+ * Status/Type/Source axes where the branded highlight alone is easy to miss.
  */
 function FilterRow({
   icon,
@@ -357,8 +401,8 @@ function FilterGroup({
 }: {
   label: string;
   options: FilterOption[];
-  selected: SkillFilter;
-  onSelect: (v: SkillFilter) => void;
+  selected: SuperpowerFilter;
+  onSelect: (v: SuperpowerFilter) => void;
 }) {
   return (
     <li>
