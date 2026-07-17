@@ -49,24 +49,26 @@ export function PlanColumnCard({
   return (
     <div
       data-theme={tone}
-      className="flex w-full flex-col gap-3 rounded-2xl bg-[var(--surface-lift)] p-4"
+      className="flex w-full flex-col gap-4 rounded-2xl bg-[var(--surface-lift)] p-4"
     >
       <PlanTierAvatar tier={tierKey} size={50} />
 
-      <div className="flex h-8 items-center gap-2">
-        <span className="text-[20px] font-medium text-[var(--content-emphasised)]">
-          {name}
-        </span>
-        {mostPopular ? (
-          <Tag className="bg-[var(--feed-digest-weak)] text-[12px] font-semibold uppercase text-[var(--credits-accent)]">
-            Most Popular
-          </Tag>
-        ) : null}
-      </div>
+      <div className="flex flex-col gap-2">
+        <div className="flex h-8 items-center gap-2">
+          <span className="text-[20px] font-medium text-[var(--content-emphasised)]">
+            {name}
+          </span>
+          {mostPopular ? (
+            <Tag className="bg-[var(--feed-digest-weak)] text-[12px] font-semibold uppercase text-[var(--credits-accent)]">
+              Most Popular
+            </Tag>
+          ) : null}
+        </div>
 
-      <p className="h-9 overflow-hidden text-[14px] font-medium leading-[18px] text-[var(--content-tertiary)]">
-        {tagline}
-      </p>
+        <p className="h-9 overflow-hidden text-[14px] font-medium leading-[18px] text-[var(--content-tertiary)]">
+          {tagline}
+        </p>
+      </div>
 
       <div className="h-px w-full bg-[var(--border-hover)]" />
 
@@ -90,7 +92,7 @@ export function PlanColumnCard({
 
       <div className="h-px w-full bg-[var(--border-hover)]" />
 
-      <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-4">
         <span className="text-[12px] font-medium text-[var(--content-tertiary)]">
           Includes:
         </span>
