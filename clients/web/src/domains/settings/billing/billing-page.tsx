@@ -79,6 +79,13 @@ function BillingTab() {
     const onTierUpgraded = useCallback(() => setResizeModalOpen(true), []);
 
     useEffect(() => {
+        // Only consume `adjust_plan` once billing is usable (signed in). While
+        // the tab shows the login notice (`"disabled"`), leave the param in the
+        // URL so PlatformLoginNotice carries it through sign-in and the
+        // manage-plan modal opens on return instead of being silently dropped.
+        if (billingGate !== "full") {
+            return;
+        }
         if (searchParams.has("adjust_plan")) {
             setPlanModalOpen(true);
             setSearchParams((prev) => {
@@ -87,7 +94,7 @@ function BillingTab() {
                 return next;
             }, { replace: true });
         }
-    }, [searchParams, setSearchParams]);
+    }, [billingGate, searchParams, setSearchParams]);
 
     const hasSessionId = searchParams.has("session_id");
     const closeOnboarding = useCallback(() => {
