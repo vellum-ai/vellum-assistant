@@ -607,7 +607,11 @@ function useAssistantBannerConfig(): BannerConfig | null {
   useEffect(() => {
     if (!assistantId) return;
     if (operationalStatus?.state === "restarting") {
-      setRecentlyRestartingAssistantId(assistantId);
+      // A failed restart disarms the suppression so a follow-up
+      // crash_loop surfaces immediately instead of reading as a restart.
+      setRecentlyRestartingAssistantId(
+        operationalStatus.detail_state === "failed" ? null : assistantId,
+      );
     } else if (
       operationalStatus?.state === "active" ||
       operationalStatus?.state === "sleeping" ||
@@ -615,7 +619,7 @@ function useAssistantBannerConfig(): BannerConfig | null {
     ) {
       setRecentlyRestartingAssistantId(null);
     }
-  }, [assistantId, operationalStatus?.state]);
+  }, [assistantId, operationalStatus?.state, operationalStatus?.detail_state]);
   const wasRecentlyRestarting =
     recentlyRestartingAssistantId !== null &&
     recentlyRestartingAssistantId === assistantId;
