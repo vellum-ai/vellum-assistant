@@ -126,8 +126,8 @@ export async function deleteQdrantVectorsJob(job: MemoryJob): Promise<void> {
  *
  * `requireQdrantClient` throws a retryable `BackendUnavailableError` when the v1
  * Qdrant client is not initialized, so the job defers instead of failing; under
- * memory v2 the worker short-circuits this type (`V1_QDRANT_JOB_TYPES`) before
- * dispatch, so it never reaches here.
+ * memory v2 the worker holds this job pending before dispatch (it is not in
+ * `V1_QDRANT_JOB_TYPES`), so the handler runs only once v1 is active.
  */
 export async function sweepOrphanedGraphNodePointsJob(): Promise<void> {
   const qdrant = requireQdrantClient();

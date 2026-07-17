@@ -19,9 +19,9 @@ const SWEEP_JOB_ID = "migration-341-sweep-cacheless-graph-node-vectors";
  * init. So this migration only enqueues a durable
  * `sweep_orphaned_graph_node_points` job on the memory database, mirroring how
  * migration 340 and the live delete path defer Qdrant work to the memory worker.
- * The worker — running once Qdrant is up, and short-circuited under memory v2
- * where the v1 collection is intentionally absent — scrolls every `graph_node`
- * point and deletes those whose backing node row is gone (see
+ * The worker — running once Qdrant is up, and held pending under memory v2 where
+ * the v1 collection is intentionally absent — scrolls every `graph_node` point
+ * and deletes those whose backing node row is gone (see
  * `sweepOrphanedGraphNodePoints`).
  *
  * Registered after migration 340, so it catches exactly the cacheless orphans

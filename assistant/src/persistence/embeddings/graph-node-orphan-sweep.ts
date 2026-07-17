@@ -43,14 +43,18 @@ export interface GraphNodeSweepResult {
  *
  * Idempotent: a second run finds no orphans. Deletion is by Qdrant payload
  * (`target_type` + `target_id`) via `deleteByTarget`, so it removes cacheless
- * points a cache lookup could never surface. Each delete goes through the Qdrant
- * circuit breaker; a transient Qdrant failure propagates so the caller (the
- * memory worker) can retry the sweep on a later cycle.
+ * points a cache lookup could never surface. Both the initial scroll and each
+ * delete go through the Qdrant circuit breaker: an already-open circuit surfaces
+ * as `QdrantCircuitOpenError` so the caller (the memory worker) defers the sweep
+ * instead of spending its bounded retries, and a transient failure propagates
+ * for retry on a later cycle.
  */
 export async function sweepOrphanedGraphNodePoints(
   qdrant: GraphNodeSweepClient,
 ): Promise<GraphNodeSweepResult> {
-  const points = await qdrant.scrollByTargetType(GRAPH_NODE_TARGET_TYPE);
+  const points = await withQdrantBreaker(() =>
+    qdrant.scrollByTargetType(GRAPH_NODE_TARGET_TYPE),
+  );
 
   const indexedTargetIds = new Set<string>();
   for (const { payload } of points) {

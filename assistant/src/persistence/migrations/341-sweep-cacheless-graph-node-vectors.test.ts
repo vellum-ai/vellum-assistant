@@ -18,8 +18,13 @@ const { migrateSweepCachelessGraphNodeVectors } =
   await import("./341-sweep-cacheless-graph-node-vectors.js");
 const { sweepOrphanedGraphNodePoints } =
   await import("../embeddings/graph-node-orphan-sweep.js");
+const { withQdrantBreaker, QdrantCircuitOpenError, _resetQdrantBreaker } =
+  await import("../embeddings/qdrant-circuit-breaker.js");
 
 await initializeDb();
+
+/** Consecutive failures that open the breaker (mirrors its FAILURE_THRESHOLD). */
+const BREAKER_FAILURE_THRESHOLD = 5;
 
 const SWEEP_JOB_ID = "migration-341-sweep-cacheless-graph-node-vectors";
 
@@ -80,6 +85,7 @@ function fakeQdrant(indexedTargetIds: string[]) {
 beforeEach(() => {
   mainRaw().run("DELETE FROM memory_graph_nodes");
   getMemorySqlite()!.run("DELETE FROM memory_jobs");
+  _resetQdrantBreaker();
 });
 
 describe("migration 341: enqueue cacheless graph-node vector sweep", () => {
@@ -161,5 +167,32 @@ describe("sweepOrphanedGraphNodePoints", () => {
 
     expect(second.deleted).toEqual([]);
     expect(result).toEqual({ scanned: 1, deleted: 0 });
+  });
+
+  test("an already-open circuit fails the scroll fast with QdrantCircuitOpenError", async () => {
+    // Trip the breaker open so the next Qdrant op fails fast.
+    for (let i = 0; i < BREAKER_FAILURE_THRESHOLD; i++) {
+      await withQdrantBreaker(async () => {
+        throw new Error("qdrant unavailable");
+      }).catch(() => {});
+    }
+
+    let scrollCalled = false;
+    const client = {
+      scrollByTargetType: async () => {
+        scrollCalled = true;
+        return [];
+      },
+      deleteByTarget: async () => {},
+    };
+
+    // The scroll is breaker-wrapped, so an open circuit surfaces as
+    // QdrantCircuitOpenError before the scroll runs — the worker's
+    // `handleJobError` maps this to a defer, not a bounded retry that would burn
+    // the one-shot sweep.
+    await expect(sweepOrphanedGraphNodePoints(client)).rejects.toBeInstanceOf(
+      QdrantCircuitOpenError,
+    );
+    expect(scrollCalled).toBe(false);
   });
 });
