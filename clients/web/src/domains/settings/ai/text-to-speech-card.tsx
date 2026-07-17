@@ -32,6 +32,7 @@ import {
 } from "@/domains/settings/ai/local-storage-keys";
 import {
   DEFAULT_MANAGED_VOICE,
+  MANAGED_VOICE_SOURCE_LABELS,
   MANAGED_VOICES,
 } from "@/domains/settings/ai/managed-voice-catalog";
 import { TTS_PROVIDERS } from "@/domains/settings/ai/provider-catalogs";
@@ -426,7 +427,14 @@ export function TextToSpeechCard() {
               aria-label="Managed voice"
             />
             <p className="text-body-small-default text-[var(--content-tertiary)]">
-              Voices by Deepgram
+              {`Voice by ${
+                MANAGED_VOICE_SOURCE_LABELS[
+                  (
+                    MANAGED_VOICES.find((v) => v.model === draftManagedVoice) ??
+                    MANAGED_VOICES[0]!
+                  ).source
+                ]
+              }`}
             </p>
           </div>
         )}
