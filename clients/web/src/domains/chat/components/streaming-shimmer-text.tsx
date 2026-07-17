@@ -1,6 +1,40 @@
-import { buildBandGradient, type GradientStop } from "gradient-shimmer";
 import { useReducedMotion } from "motion/react";
 import { useLayoutEffect, useMemo, useRef, type CSSProperties } from "react";
+
+export interface GradientStop {
+  /** 0..1 position of the stop across the band. */
+  position: number;
+  color: string;
+}
+
+/** Fraction of the half-spread the band's core color stops occupy. */
+const BAND_CORE_RATIO = 0.44;
+
+/**
+ * One tile of the shimmer: the accent band at the tile's center, fading to
+ * the dimmed base at `--gs-spread` on both sides. Band geometry lives in CSS
+ * vars so `startSweep` can retune measured values without rebuilding the
+ * gradient string. Derived from `gradient-shimmer`'s band gradient (MIT).
+ */
+function buildBandGradient(stops: GradientStop[], angle: number): string {
+  const sorted = [...stops].sort((a, b) => a.position - b.position);
+  const first = sorted[0]?.color ?? "white";
+  const last = sorted[sorted.length - 1]?.color ?? "white";
+  const core = sorted
+    .map((stop) => {
+      const factor = (stop.position - 0.5) * 2 * BAND_CORE_RATIO;
+      return `${stop.color} calc(50% + var(--gs-spread-mid) * ${factor.toFixed(4)})`;
+    })
+    .join(", ");
+  return [
+    `linear-gradient(${angle}deg`,
+    `var(--gs-base) calc(50% - var(--gs-spread))`,
+    `color-mix(in oklab, var(--gs-base) 42%, ${first}) calc(50% - var(--gs-spread-mid))`,
+    core,
+    `color-mix(in oklab, var(--gs-base) 42%, ${last}) calc(50% + var(--gs-spread-mid))`,
+    `var(--gs-base) calc(50% + var(--gs-spread)))`,
+  ].join(", ");
+}
 
 /**
  * Gradient band for a given accent color: the saturated accent at the core
@@ -42,7 +76,7 @@ const SWEEP_DURATION_MS = 1500;
 const SWEEP_ANGLE = 106;
 const SPREAD_PER_CHAR_PX = 6;
 const MAX_SPREAD_PX = 48;
-/** Must match the `--gs-spread-mid` derivation `buildBandGradient` expects. */
+/** Where `--gs-spread-mid` (the band's soft inner edge) sits within the spread. */
 const SPREAD_MID_RATIO = 0.72;
 const BASE_FONT_PX = 14;
 const FALLBACK_TEXT_WIDTH_PX = 96;
