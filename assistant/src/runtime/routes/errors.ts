@@ -105,8 +105,8 @@ export class RangeNotSatisfiableError extends RouteError {
 }
 
 export class FailedDependencyError extends RouteError {
-  constructor(message: string) {
-    super(message, "FAILED_DEPENDENCY", 424);
+  constructor(message: string, details?: unknown) {
+    super(message, "FAILED_DEPENDENCY", 424, details);
     this.name = "FailedDependencyError";
   }
 }

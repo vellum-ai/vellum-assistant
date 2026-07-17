@@ -734,6 +734,12 @@ export function useSendMessage({
       // A real send supersedes any ephemeral meta-command cards.
       useChatSessionStore.getState().clearEphemeralMetaResults();
       useInteractionStore.getState().resetSecretAndConfirmation();
+      // NOTE: a send deliberately does NOT dismiss the "Connect Claude Code"
+      // prompt. Unlike a turn-blocking confirmation/secret (superseded by the
+      // next send), the Connect card is a non-blocking remediation CTA that
+      // stays until the user resolves it — connects (self-heal / auto-continue)
+      // or dismisses it (X) — the way `ask_question` stays until answered. The
+      // post-connect retirement lives in `useAcpAutoContinue` instead.
       useChatSessionStore.getState().clearConfirmationToolCallMap();
       // Clear pending confirmations and dismiss interactive surfaces in a
       // single functional updater so the two transforms compose correctly
