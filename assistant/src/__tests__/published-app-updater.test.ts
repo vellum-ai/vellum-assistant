@@ -1,26 +1,28 @@
 /**
  * Tests that the auto-redeploy path deploys the app's *effective* HTML
- * (dist/index.html for multifile apps) rather than the empty `htmlDefinition`.
+ * (compiled dist/index.html) rather than the empty `htmlDefinition`.
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { AppDefinition } from "../apps/app-store.js";
 
 // ── Mocks ───────────────────────────────────────────────────────────────
 
 let mockApp: AppDefinition | null = null;
-let mockIsMultifile = false;
 let mockEffectiveHtml = "";
-// A directory that does not exist on disk, so the multifile dist-existence
-// guard reads `false` from the real fs without mocking node:fs (which would
-// leak across test files).
-let mockAppDir = "/tmp/__vellum_test_nonexistent__/app-1";
+// A real temp app dir whose dist/index.html satisfies the compiled-output
+// guard; individual tests point mockAppDir at a nonexistent path to exercise
+// the skip branch without mocking node:fs (which would leak across files).
+const realAppDir = join(tmpdir(), `published-app-updater-test-${Date.now()}`);
+let mockAppDir = realAppDir;
 
 mock.module("../apps/app-store.js", () => ({
   getApp: () => mockApp,
   getAppDirPath: () => mockAppDir,
-  isMultifileApp: () => mockIsMultifile,
   resolveEffectiveAppHtml: () => mockEffectiveHtml,
 }));
 
@@ -78,19 +80,23 @@ function makeApp(overrides: Partial<AppDefinition> = {}): AppDefinition {
 
 describe("updatePublishedAppDeployment", () => {
   beforeEach(() => {
+    mkdirSync(join(realAppDir, "dist"), { recursive: true });
+    writeFileSync(join(realAppDir, "dist", "index.html"), "<html></html>");
     mockApp = makeApp();
-    mockIsMultifile = false;
     mockEffectiveHtml = "";
     mockPublishedPage = { id: "pp-1", projectSlug: "slug", htmlHash: "old" };
-    mockAppDir = "/tmp/__vellum_test_nonexistent__/app-1";
+    mockAppDir = realAppDir;
     deploySpy.mockClear();
     updatePublishedPageSpy.mockClear();
   });
 
+  afterEach(() => {
+    rmSync(realAppDir, { recursive: true, force: true });
+  });
+
   test("deploys the resolved effective HTML, not the empty htmlDefinition", async () => {
-    // htmlDefinition is "" (as it is for every multifile app); the real
-    // content comes from resolveEffectiveAppHtml. isMultifile=false here keeps
-    // the dist guard out of the way so the assertion targets the html source.
+    // htmlDefinition is "" (as it is for every app); the real content comes
+    // from resolveEffectiveAppHtml.
     mockApp = makeApp({ htmlDefinition: "" });
     mockEffectiveHtml = "<html><body>real app</body></html>";
 
@@ -102,11 +108,11 @@ describe("updatePublishedAppDeployment", () => {
     );
   });
 
-  test("skips deploy when a multifile app has no compiled output", async () => {
-    mockIsMultifile = true;
+  test("skips deploy when the app has no compiled output", async () => {
     mockApp = makeApp({ formatVersion: 2 });
     mockEffectiveHtml = "<p>App compilation failed.</p>";
-    // mockAppDir does not exist → dist/index.html is absent.
+    // A nonexistent app dir → dist/index.html is absent.
+    mockAppDir = "/tmp/__vellum_test_nonexistent__/app-1";
 
     await updatePublishedAppDeployment("app-1");
 

@@ -24,21 +24,12 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { setConfig } from "./helpers/set-config.js";
+
 // This test exercises v1 PKB injection. `config.memory.v2.enabled`
-// (default `true`) makes the PKB injector go silent — force it off here
+// (default `true`) makes the PKB injector go silent — seed it off for real
 // so the v1 injection chain assertions stay meaningful.
-const realLoader = await import("../config/loader.js");
-const realGetConfig = realLoader.getConfig;
-mock.module("../config/loader.js", () => ({
-  ...realLoader,
-  getConfig: () => {
-    const real = realGetConfig();
-    return {
-      ...real,
-      memory: { ...real.memory, v2: { ...real.memory.v2, enabled: false } },
-    };
-  },
-}));
+setConfig("memory", { v2: { enabled: false } });
 
 // Memory code resolves its config through the plugin's own accessor, not
 // getConfig(); mirror the v2-disabled override there.

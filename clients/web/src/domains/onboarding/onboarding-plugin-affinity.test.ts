@@ -6,13 +6,14 @@
  * narrowed to the live catalog.
  */
 
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import {
   ALWAYS_INSTALL_PLUGINS,
   pluginsForRole,
   resolveDeterministicPlugins,
 } from "@/domains/onboarding/onboarding-plugin-affinity";
+import { ATTRIBUTED_PLUGIN_PARAM } from "@/domains/onboarding/plugin-attribution";
 
 /** Stand-in for the full Vellum-owned onboarding catalog. */
 const FULL_CATALOG = new Set([
@@ -20,6 +21,23 @@ const FULL_CATALOG = new Set([
   "marketing-expert",
   "git-workflow",
 ]);
+
+function setAttribution(pluginId: string) {
+  window.history.replaceState(
+    {},
+    "",
+    `/?${ATTRIBUTED_PLUGIN_PARAM}=${pluginId}`,
+  );
+}
+
+function clearAttribution() {
+  window.history.replaceState({}, "", "/");
+}
+
+// `resolveDeterministicPlugins` folds in marketing attribution from the current
+// URL's query param; keep it clean so role cases aren't perturbed.
+beforeEach(clearAttribution);
+afterEach(clearAttribution);
 
 describe("ALWAYS_INSTALL_PLUGINS", () => {
   test("admin-copilot is the universal baseline", () => {
@@ -146,6 +164,29 @@ describe("resolveDeterministicPlugins", () => {
       "marketing-expert",
       "git-workflow",
     ]);
+    expect(new Set(result).size).toBe(result.length);
+  });
+
+  test("attributed plugin installs even when the role doesn't imply it", () => {
+    // Teacher is unmapped (no role affinity), so only the baseline + attribution.
+    setAttribution("git-workflow");
+    expect(resolveDeterministicPlugins("Teacher", FULL_CATALOG)).toEqual([
+      "admin-copilot",
+      "git-workflow",
+    ]);
+  });
+
+  test("attribution is narrowed to the catalog — an absent name is dropped", () => {
+    setAttribution("not-in-catalog");
+    expect(resolveDeterministicPlugins("Teacher", FULL_CATALOG)).toEqual([
+      "admin-copilot",
+    ]);
+  });
+
+  test("attribution is deduped against baseline and role matches", () => {
+    setAttribution("marketing-expert");
+    const result = resolveDeterministicPlugins("Founder / CEO", FULL_CATALOG);
+    expect(result).toEqual(["admin-copilot", "marketing-expert"]);
     expect(new Set(result).size).toBe(result.length);
   });
 });

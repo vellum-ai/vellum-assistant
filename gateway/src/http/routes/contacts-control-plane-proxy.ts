@@ -655,7 +655,7 @@ const VALID_CHANNEL_STATUSES = [
   "blocked",
   "unverified",
 ] as const;
-const VALID_CHANNEL_POLICIES = ["allow", "deny", "escalate"] as const;
+const VALID_CHANNEL_POLICIES = ["allow", "deny"] as const;
 
 type ContactType = (typeof VALID_CONTACT_TYPES)[number];
 type AssistantSpecies = (typeof VALID_ASSISTANT_SPECIES)[number];
@@ -757,6 +757,38 @@ export async function updateContactChannelCore(params: {
     { contactChannelId, contactId: updated.contactId, status, policy },
     "update_channel: handled natively",
   );
+  return {
+    ok: true,
+    contact: contact ? toContactPayload(contact) : undefined,
+  };
+}
+
+/**
+ * Transport-agnostic contact merge.
+ *
+ * Shared by the HTTP `handleMergeContacts` and the gateway IPC
+ * `merge_contacts` route. Runs `ContactStore.mergeContacts` (gateway DB
+ * transaction + best-effort assistant mirror), emits `contacts_changed`, and
+ * returns the survivor contact payload.
+ *
+ * Throws `MergeContactsError` for validation failures; unexpected errors
+ * propagate so each transport surfaces a 500-equivalent — never a silent
+ * fallback.
+ */
+export async function mergeContactsCore(params: {
+  keepId: string;
+  mergeId: string;
+}): Promise<{ ok: true; contact?: Record<string, unknown> }> {
+  const { keepId, mergeId } = params;
+  const store = new ContactStore();
+  const contact = await store.mergeContacts(keepId, mergeId);
+
+  // Emit contacts_changed so connected clients refresh.
+  void ipcCallAssistant("emit_event", {
+    body: { kind: "contacts_changed" },
+  } as unknown as Record<string, unknown>).catch(() => {});
+
+  log.info({ keepId, mergeId }, "merge_contacts: handled natively");
   return {
     ok: true,
     contact: contact ? toContactPayload(contact) : undefined,
@@ -1177,8 +1209,7 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
       }
 
       const assistantMeta = body.assistantMetadata as
-        | { species?: unknown; metadata?: unknown }
-        | undefined;
+        { species?: unknown; metadata?: unknown } | undefined;
 
       if (body.contactType === "assistant") {
         if (!assistantMeta) {
@@ -1334,9 +1365,7 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
                 species: assistantMeta.species as string,
                 metadata:
                   (assistantMeta.metadata as
-                    | Record<string, unknown>
-                    | null
-                    | undefined) ?? null,
+                    Record<string, unknown> | null | undefined) ?? null,
               }
             : undefined,
         channels: channelInputs?.map((ch) => ({
@@ -1544,19 +1573,8 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
       }
 
       try {
-        const store = new ContactStore();
-        const contact = await store.mergeContacts(keepId, mergeId);
-
-        // Emit contacts_changed so connected clients refresh.
-        void ipcCallAssistant("emit_event", {
-          body: { kind: "contacts_changed" },
-        } as unknown as Record<string, unknown>).catch(() => {});
-
-        log.info({ keepId, mergeId }, "merge_contacts: handled natively");
-        return Response.json({
-          ok: true,
-          contact: contact ? toContactPayload(contact) : undefined,
-        });
+        const result = await mergeContactsCore({ keepId, mergeId });
+        return Response.json(result);
       } catch (err) {
         if (err instanceof MergeContactsError) {
           return Response.json(

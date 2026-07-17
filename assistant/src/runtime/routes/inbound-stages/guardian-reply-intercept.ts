@@ -1,6 +1,6 @@
 /**
- * Canonical guardian reply intercept stage: routes inbound messages from
- * guardian-class actors through the canonical decision pipeline before
+ * Guardian reply intercept stage: routes inbound messages from
+ * guardian-class actors through the guardian decision pipeline before
  * they reach the legacy approval interception or the agent loop.
  *
  * Handles deterministic callbacks (button presses), request code prefixes,
@@ -9,11 +9,11 @@
  * Extracted from inbound-message-handler.ts to keep the top-level handler
  * focused on orchestration.
  */
-import type { ChannelId } from "../../../channels/types.js";
 import {
-  listCanonicalGuardianRequests,
-  listPendingCanonicalGuardianRequestsByDestinationChat,
-} from "../../../contacts/canonical-guardian-store.js";
+  listGuardianRequestsOrEmpty,
+  listPendingRequestsByDestinationOrEmpty,
+} from "../../../channels/gateway-guardian-requests.js";
+import type { ChannelId } from "../../../channels/types.js";
 import { getLogger } from "../../../util/logger.js";
 import { deliverChannelReply } from "../../gateway-client.js";
 import {
@@ -60,7 +60,7 @@ export interface GuardianReplyInterceptResult {
 }
 
 /**
- * Route inbound guardian messages through the canonical decision pipeline.
+ * Route inbound guardian messages through the guardian decision pipeline.
  *
  * Returns a response if the message was consumed, or null to continue
  * the pipeline. Also signals whether legacy approval interception should
@@ -104,7 +104,7 @@ export async function handleGuardianReplyIntercept(
   }
 
   // Compute destination-scoped pending request hints so the router can
-  // discover canonical requests delivered to this chat even when the
+  // discover guardian requests delivered to this chat even when the
   // request lacks a guardianExternalUserId (e.g. voice-originated
   // pending_question requests).
   //
@@ -133,18 +133,20 @@ export async function handleGuardianReplyIntercept(
   const isReaction = callbackData?.startsWith("reaction:") === true;
   let pendingScope: GuardianPendingScope | undefined;
   if (!isReaction) {
+    // Hint reads degrade to empty on gateway failure: Slack then blocks the
+    // identity fallback (safe), other channels keep it (unchanged posture).
     const deliveryScopedPendingRequests =
-      listPendingCanonicalGuardianRequestsByDestinationChat(
-        sourceChannel,
-        conversationExternalId,
-      );
+      await listPendingRequestsByDestinationOrEmpty({
+        channel: sourceChannel,
+        chatId: conversationExternalId,
+      });
     if (deliveryScopedPendingRequests.length > 0) {
       const deliveryIds = new Set(
         deliveryScopedPendingRequests.map((r) => r.id),
       );
       // Also include identity-based pending requests so we don't hide them
       const identityId = canonicalSenderId ?? rawSenderId!;
-      const identityPending = listCanonicalGuardianRequests({
+      const identityPending = await listGuardianRequestsOrEmpty({
         status: "pending",
         guardianExternalUserId: identityId,
       });
@@ -199,7 +201,7 @@ export async function handleGuardianReplyIntercept(
       } catch (err) {
         log.error(
           { err, conversationExternalId },
-          "Failed to deliver canonical router reply",
+          "Failed to deliver guardian reply-router reply",
         );
       }
     }

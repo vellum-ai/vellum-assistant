@@ -17,6 +17,7 @@ import type {
   OutlookMessageRule,
   OutlookMessageRuleListResponse,
   OutlookRecipient,
+  OutlookSendFileAttachment,
   OutlookSendMessagePayload,
   OutlookUserProfile,
 } from "./types.js";
@@ -201,18 +202,26 @@ export async function sendMessage(
   });
 }
 
-/** Reply to an existing message. */
+/** Reply to an existing message, optionally with file attachments. */
 export async function replyToMessage(
   connection: OAuthConnection,
   messageId: string,
   comment: string,
+  attachments?: OutlookSendFileAttachment[],
 ): Promise<void> {
+  const body: {
+    comment: string;
+    message?: { attachments: OutlookSendFileAttachment[] };
+  } = { comment };
+  if (attachments?.length) {
+    body.message = { attachments };
+  }
   await request<void>(
     connection,
     `/v1.0/me/messages/${encodeURIComponent(messageId)}/reply`,
     {
       method: "POST",
-      body: JSON.stringify({ comment }),
+      body: JSON.stringify(body),
     },
   );
 }

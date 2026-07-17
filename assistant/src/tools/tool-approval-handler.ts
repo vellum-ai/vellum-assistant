@@ -1,11 +1,11 @@
 import { consumeGrantForInvocation } from "../approvals/approval-primitive.js";
+import {
+  getGuardianRequestOrNull,
+  updateGuardianRequest,
+} from "../channels/gateway-guardian-requests.js";
 import { isToolAllowedInChannel } from "../channels/permission-profiles.js";
 import type { ChannelId } from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
-import {
-  getCanonicalGuardianRequest,
-  updateCanonicalGuardianRequest,
-} from "../contacts/canonical-guardian-store.js";
 import type { AutoApproveThreshold } from "../permissions/approval-policy.js";
 import {
   isUnparseableToolArgs,
@@ -127,7 +127,7 @@ export type InlineGrantWaitOutcome =
 
 /**
  * Wait bounded for a guardian to approve a tool grant request and for the
- * resulting grant to become consumable. Polls both the canonical request
+ * resulting grant to become consumable. Polls both the gateway request
  * status (to detect early rejection) and the grant store (to detect approval
  * and atomically consume the grant).
  *
@@ -165,9 +165,11 @@ export async function waitForInlineGrant(
       return { outcome: "aborted" };
     }
 
-    // Check if the canonical request was rejected - exit early without
-    // waiting for the full timeout.
-    const request = getCanonicalGuardianRequest(escalationRequestId);
+    // Check if the guardian request was rejected - exit early without
+    // waiting for the full timeout. Degrades to null on gateway failure so
+    // one bad read never aborts the wait; grant consumption stays the
+    // authoritative approval signal.
+    const request = await getGuardianRequestOrNull(escalationRequestId);
     if (request && request.status === "denied") {
       log.info(
         {
@@ -181,7 +183,7 @@ export async function waitForInlineGrant(
       return { outcome: "denied", requestId: escalationRequestId };
     }
 
-    // Try to consume the grant - if the guardian approved, the canonical
+    // Try to consume the grant - if the guardian approved, the guardian
     // decision primitive will have minted a scoped grant by now.
     const grantResult = await consumeGrantForInvocation(consumeParams, {
       maxWaitMs: 0,
@@ -211,6 +213,25 @@ export async function waitForInlineGrant(
     "Inline grant wait timed out - no guardian decision within budget",
   );
   return { outcome: "timeout", requestId: escalationRequestId };
+}
+
+/**
+ * Stamp `followupState` on the escalation's gateway row. Best-effort: the
+ * stamp only steers the resolver's retry notification, never the decision,
+ * so a failed write logs and the invocation proceeds.
+ */
+async function stampFollowupState(
+  requestId: string,
+  followupState: string | null,
+): Promise<void> {
+  try {
+    await updateGuardianRequest(requestId, { followupState });
+  } catch (err) {
+    log.warn(
+      { err, requestId, followupState },
+      "Failed to stamp inline-wait followup state on guardian request",
+    );
+  }
 }
 
 const UI_SURFACE_TOOLS = new Set(["ui_show", "ui_update", "ui_dismiss"]);
@@ -629,7 +650,7 @@ export class ToolApprovalHandler {
       //
       // For non-guardian actors with established identity (trusted_contact
       // or unverified_contact) and sufficient context, escalate to the
-      // guardian by creating a canonical tool_grant_request. Then wait
+      // guardian by creating a tool_grant_request guardian request. Then wait
       // bounded for the grant to become available - this lets the tool call
       // succeed inline after guardian approval without the requester having
       // to retry manually.
@@ -662,13 +683,14 @@ export class ToolApprovalHandler {
         // If escalation failed (no binding, missing identity), fall through
         // to the generic denial path.
         if ("created" in escalation || "deduped" in escalation) {
-          // Stamp the canonical request so the approval resolver knows an
+          // Stamp the guardian request so the approval resolver knows an
           // inline consumer is waiting. Without this, the resolver would
           // send a stale "please retry" notification even though the
           // original invocation is about to resume inline.
-          updateCanonicalGuardianRequest(escalation.requestId, {
-            followupState: "inline_wait_active:" + Date.now(),
-          });
+          await stampFollowupState(
+            escalation.requestId,
+            "inline_wait_active:" + Date.now(),
+          );
 
           const waitResult = await waitForInlineGrant(
             escalation.requestId,
@@ -682,9 +704,7 @@ export class ToolApprovalHandler {
 
           if (waitResult.outcome === "granted") {
             // Clear the inline-wait stamp now that the grant has been consumed.
-            updateCanonicalGuardianRequest(escalation.requestId, {
-              followupState: null,
-            });
+            await stampFollowupState(escalation.requestId, null);
             log.info(
               {
                 toolName: name,
@@ -702,9 +722,7 @@ export class ToolApprovalHandler {
           if (waitResult.outcome === "aborted") {
             // Clear the inline-wait stamp so a later guardian approval
             // (if the request is still pending) will send the retry notification.
-            updateCanonicalGuardianRequest(escalation.requestId, {
-              followupState: null,
-            });
+            await stampFollowupState(escalation.requestId, null);
             this.auditGateError(
               context,
               name,
@@ -722,9 +740,7 @@ export class ToolApprovalHandler {
           // Clear the inline-wait stamp so a later guardian approval
           // (if the request is still pending after timeout) will send
           // the retry notification as expected.
-          updateCanonicalGuardianRequest(escalation.requestId, {
-            followupState: null,
-          });
+          await stampFollowupState(escalation.requestId, null);
 
           const codeSuffix = escalation.requestCode
             ? ` (request code: ${escalation.requestCode})`

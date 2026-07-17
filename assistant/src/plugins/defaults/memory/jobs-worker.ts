@@ -49,16 +49,21 @@ import {
   type MemoryJob,
   type MemoryJobType,
   MESSAGE_LEXICAL_JOB_TYPES,
+  rescheduleMemoryJob,
   resetRunningJobsToPending,
   SLOW_LLM_JOB_TYPES,
 } from "../../../persistence/jobs-store.js";
-import { spawnMemoryWorkerProcess } from "../../../persistence/worker-control.js";
 import type { JobHandler } from "../../types.js";
 import { getLogger } from "./logging.js";
 import { sweepOrphanMemoryRetrospectiveConversations } from "./memory-retrospective-startup-cleanup.js";
 import { getWorkspaceDir } from "./paths.js";
 import { hasPkbBufferContent } from "./pkb-schedule.js";
-import { countBufferLines } from "./v2/consolidation-job.js";
+import {
+  type ConsolidationFailureKind,
+  countBufferLines,
+  readConsolidationFailureState,
+} from "./v2/consolidation-job.js";
+import { spawnMemoryWorkerProcess } from "./worker-control.js";
 
 const log = getLogger("memory-jobs-worker");
 
@@ -93,6 +98,13 @@ export const MIN_BUFFER_LINES_FOR_CONSOLIDATION = 10;
  * throw `BackendUnavailableError` and accumulate as a deferred backlog. Stale
  * rows from indexer.ts and other unguarded enqueue sites must short-circuit
  * here for the same reason `graph_extract` does below.
+ *
+ * Completing these as a no-op under v2 is safe: their live write paths keep
+ * re-enqueuing them, so nothing is lost. The one-shot
+ * `sweep_orphaned_graph_node_points` cleanup is deliberately NOT in this set —
+ * it has no re-enqueue, so `processJob` holds it pending under v2 (see
+ * {@link SweepPostponedUnderV2Error}) instead of losing it to a no-op
+ * completion.
  */
 const V1_QDRANT_JOB_TYPES = new Set<MemoryJobType>([
   "embed_segment",
@@ -104,6 +116,28 @@ const V1_QDRANT_JOB_TYPES = new Set<MemoryJobType>([
   "rebuild_index",
   "delete_qdrant_vectors",
 ]);
+
+/**
+ * The one-shot cacheless graph-node sweep (migration 341) can only run against
+ * the v1 Qdrant collection. Thrown from {@link processJob} when the job is
+ * claimed while `memory.v2.enabled` is on, so {@link handleJobError} reschedules
+ * it — keeping it pending with no attempt or deferral spent — until v1 is active
+ * again, rather than completing it as a no-op and losing the cleanup on a later
+ * v2→v1 rollback.
+ */
+class SweepPostponedUnderV2Error extends Error {
+  constructor() {
+    super("Cacheless graph-node sweep postponed while memory v2 is enabled");
+    this.name = "SweepPostponedUnderV2Error";
+  }
+}
+
+/**
+ * Reschedule window for the postponed cacheless graph-node sweep under v2: long
+ * enough that re-checking the flag costs only a trivial claim a few times a day,
+ * short enough that a v2→v1 rollback runs the cleanup within the same day.
+ */
+const SWEEP_POSTPONE_UNDER_V2_MS = 6 * 60 * 60 * 1000;
 
 /**
  * Job types whose handlers have been removed. Existing rows may still sit in
@@ -141,100 +175,41 @@ export interface MemoryJobsWorker {
   stop(): void;
 }
 
-/** The daemon's in-process supervisor, retained so shutdown can stop it. */
-let instance: MemoryJobsWorker | null = null;
-
 /**
- * Start the daemon's memory jobs worker supervisor.
+ * Daemon-lifecycle entry point: spawn the memory jobs worker as a child of the
+ * daemon (`detached: false`, so it appears in `assistant ps` and is torn down
+ * on shutdown). The worker process is the sole drainer of the memory job queue.
+ * Fire-and-forget — a worker failure must never block boot. A worker that comes
+ * up late is still the desired sole drainer, so `terminateOnTimeout` is
+ * deliberately not set.
  *
- * The daemon always runs the in-process supervisor returned here. The
- * supervisor owns the synchronous in-process runner and reconciles to
- * `memory.worker.enabled` on every poll, re-reading the flag from disk so a
- * runtime change takes effect without a restart:
- *   - flag off: drain the queue in-process (the synchronous runner).
- *   - flag on (the default): stand down (the out-of-process worker owns the
- *     queue).
- * Gating on the flag — rather than on the worker process actually being present
- * — keeps exactly one drainer active and avoids a boot race: when the flag is
- * on the supervisor never processes, so it can't claim jobs that the spawning
- * worker's startup recovery would then reset out from under it.
- *
- * `memory.worker.enabled` is also the persisted boot preference: when set, the
- * out-of-process worker is spawned here at startup so it is running
- * immediately. The CLI `memory worker start`/`stop` commands flip the flag (and
- * spawn/stop the worker process), so the supervisor switches the running daemon
- * between synchronous and out-of-process modes within one poll. When the flag
- * is on but no worker process is running, neither drainer processes — `status`
- * surfaces this (worker not running, synchronous runner not running).
- *
- * This dispatcher must not be used as the standalone worker process's entry —
- * that would recurse and fork-bomb, and the flag-on worker process would stand
- * itself down. `worker.ts` calls {@link startInProcessMemoryJobsWorker}
- * directly with no options.
+ * This must not be used as the standalone worker process's entry — that would
+ * recurse and fork-bomb. `worker.ts` calls {@link startMemoryJobsWorkerLoop}
+ * directly.
  */
-export function startMemoryJobsWorker(): MemoryJobsWorker {
-  if (getConfig().memory.worker?.enabled === true) {
-    // The flag is on, so the supervisor below stands the synchronous runner
-    // down: a worker that comes up late is the desired sole drainer, so do not
-    // terminate it on a slow start (the default). Spawn it as a direct child
-    // (not detached) so the worker the daemon owns shows up in its process tree
-    // (`assistant ps`) and is torn down with the daemon; it is re-spawned on the
-    // next boot, so it need not survive a restart.
-    void spawnMemoryWorkerProcess({
-      terminateOnTimeout: false,
-      detached: false,
-    })
-      .then(({ pid, alreadyRunning }) =>
-        log.info(
-          { pid, alreadyRunning },
-          alreadyRunning
-            ? "Memory worker process already running — reusing it"
-            : "Memory worker process started",
-        ),
-      )
-      .catch((err) =>
-        log.warn(
-          { err },
-          "Failed to start memory worker process — the in-process supervisor will drain the queue instead",
-        ),
-      );
-  }
-
-  instance = startInProcessMemoryJobsWorker({
-    standDownForWorkerProcess: true,
-  });
-  return instance;
+export function startMemoryJobsWorker(): void {
+  void spawnMemoryWorkerProcess({
+    terminateOnTimeout: false,
+    detached: false,
+  })
+    .then(({ pid, alreadyRunning }) =>
+      log.info(
+        { pid, alreadyRunning },
+        alreadyRunning
+          ? "Memory worker process already running — reusing it"
+          : "Memory worker process started",
+      ),
+    )
+    .catch((err) => log.warn({ err }, "Failed to start memory worker process"));
 }
 
 /**
- * Stop the daemon's in-process memory jobs supervisor if it was started; no-op
- * otherwise. Does not touch the out-of-process worker — see
- * stopMemoryWorkerProcess() in worker-control.ts.
- */
-export function stopMemoryJobsWorker(): void {
-  if (!instance) {
-    return;
-  }
-  instance.stop();
-  instance = null;
-}
-
-/**
- * Run the memory jobs worker in-process on the caller's event loop: poll for
+ * Run the memory jobs worker loop on the caller's event loop: poll for
  * claimable jobs with adaptive backoff until {@link MemoryJobsWorker.stop} is
- * called. This is the worker loop itself — used by the daemon supervisor (with
- * `standDownForWorkerProcess`) and by the standalone worker process (without).
- *
- * When `standDownForWorkerProcess` is set the loop acts as the daemon's
- * synchronous-runner supervisor: each tick it skips processing while
- * `memory.worker.enabled` is on, and drains the queue while it is off. The
- * standalone worker process must NOT set this — it runs precisely when the flag
- * is on and would otherwise stand itself down forever.
+ * called. This is the worker loop itself, driven by the standalone worker
+ * process (`worker.ts`).
  */
-export function startInProcessMemoryJobsWorker(
-  opts: { standDownForWorkerProcess?: boolean } = {},
-): MemoryJobsWorker {
-  const standDownForWorkerProcess = opts.standDownForWorkerProcess === true;
+export function startMemoryJobsWorkerLoop(): MemoryJobsWorker {
   const recovered = resetRunningJobsToPending();
   if (recovered > 0) {
     log.info({ recovered }, "Recovered stale running memory jobs");
@@ -281,20 +256,6 @@ export function startInProcessMemoryJobsWorker(
     }
     tickRunning = true;
     try {
-      if (
-        standDownForWorkerProcess &&
-        getConfig().memory.worker?.enabled === true
-      ) {
-        // The out-of-process worker owns the queue — stand the synchronous
-        // runner down so jobs aren't processed twice.
-        //
-        // Switching modes is a rare operator action, so poll at the slow cap
-        // while standing down: it still picks up a `memory worker stop` (which
-        // flips the flag back off) within one interval, without waking every
-        // couple seconds for the whole time the worker owns the queue.
-        currentIntervalMs = POLL_INTERVAL_MAX_MS;
-        return;
-      }
       const processed = await runMemoryJobsOnce({
         enableScheduledCleanup: true,
       });
@@ -569,6 +530,15 @@ async function runLanePool(
 // ── Job error handling ─────────────────────────────────────────────
 
 function handleJobError(job: MemoryJob, err: unknown): void {
+  if (err instanceof SweepPostponedUnderV2Error) {
+    rescheduleMemoryJob(job.id, SWEEP_POSTPONE_UNDER_V2_MS);
+    log.debug(
+      { jobId: job.id, type: job.type },
+      "Cacheless graph-node sweep held pending while memory v2 is enabled",
+    );
+    return;
+  }
+
   if (err instanceof EmbeddingBillingBlockError) {
     const result = deferMemoryJob(job.id);
     if (result === "failed") {
@@ -659,8 +629,13 @@ async function processJob(
   job: MemoryJob,
   config: AssistantConfig,
 ): Promise<void> {
-  if (config.memory.v2.enabled && V1_QDRANT_JOB_TYPES.has(job.type)) {
-    return;
+  if (config.memory.v2.enabled) {
+    if (V1_QDRANT_JOB_TYPES.has(job.type)) {
+      return;
+    }
+    if (job.type === "sweep_orphaned_graph_node_points") {
+      throw new SweepPostponedUnderV2Error();
+    }
   }
   const handler = jobHandlers.get(job.type);
   if (handler) {
@@ -734,7 +709,10 @@ function recordCleanupEnqueued(kind: CleanupJobKind, nowMs: number): void {
  * Enqueue periodic cleanup jobs, each on a cadence equal to its own retention
  * window. A job that keeps data for N is re-enqueued at most once per N:
  * pruning that retains LLM logs for 1h runs hourly, pruning that retains
- * conversations for 30d runs every 30d. Each job's throttle is tracked
+ * conversations for 30d runs every 30d. A non-positive window disables its job
+ * (`conversationRetentionDays`/`auditLog.retentionDays` of 0, or
+ * `llmRequestLogRetentionMs` of `null`/0) — a 0 window would otherwise make the
+ * cadence 0 and busy-loop the enqueue. Each job's throttle is tracked
  * independently in cleanup-schedule-state (and persisted via checkpoints so the
  * cadence survives restarts), and enqueue is deduped in jobs-store, so repeated
  * calls remain safe.
@@ -777,8 +755,14 @@ export function maybeEnqueueScheduledCleanupJobs(
     );
   }
 
+  // A retention of `null` or `0` disables LLM-request-log pruning (keep
+  // forever). `0` must be excluded here, not just `null`: the cadence interval
+  // equals the retention window, so `isDue("llm_request_logs", 0)` reduces to
+  // `nowMs - lastEnqueue >= 0` — always true — which would re-enqueue the prune
+  // on every idle/drain tick and spin a sqlite3 subprocess many times a second.
   if (
     cleanup.llmRequestLogRetentionMs !== null &&
+    cleanup.llmRequestLogRetentionMs > 0 &&
     isDue("llm_request_logs", cleanup.llmRequestLogRetentionMs)
   ) {
     const jobId = enqueuePruneOldLlmRequestLogsJob(
@@ -888,6 +872,70 @@ function memoryBufferLineCount(): number {
   return countBufferLines(join(getWorkspaceDir(), "memory", "buffer.md"));
 }
 
+// Failure backoff for automatic consolidation enqueues. A failed run never
+// trims the buffer, so without backoff the size trigger re-enqueues a
+// fast-failing run on every worker poll (~1.5s), each iteration persisting a
+// full background conversation. Two curves, selected by the most recent
+// failure's kind (see `ConsolidationFailureState`):
+//   - transient (network blip, model hiccup, timeout): 5min doubling,
+//     capped at 30min — transient failures never meaningfully delay
+//     consolidation;
+//   - billing (non-retryable PROVIDER_BILLING): 1h doubling, capped at
+//     max(6h, the configured interval) — retrying can't succeed until the
+//     account is funded.
+// Manual "run now" enqueues go through the routes layer, not this schedule,
+// and are never gated.
+const CONSOLIDATION_TRANSIENT_BACKOFF_BASE_MS = 5 * 60 * 1000;
+const CONSOLIDATION_TRANSIENT_BACKOFF_CAP_MS = 30 * 60 * 1000;
+const CONSOLIDATION_BILLING_BACKOFF_BASE_MS = 60 * 60 * 1000;
+const CONSOLIDATION_BILLING_BACKOFF_MIN_CAP_MS = 6 * 60 * 60 * 1000;
+
+/**
+ * Backoff window after `consecutiveFailures` failed consolidation runs.
+ * Billing: `min(1h * 2^(n-1), max(6h, intervalMs))`. Transient:
+ * `min(5min * 2^(n-1), 30min)`.
+ */
+export function consolidationFailureBackoffMs(
+  kind: ConsolidationFailureKind,
+  consecutiveFailures: number,
+  intervalMs: number,
+): number {
+  if (kind === "billing") {
+    const capMs = Math.max(
+      CONSOLIDATION_BILLING_BACKOFF_MIN_CAP_MS,
+      intervalMs,
+    );
+    return Math.min(
+      CONSOLIDATION_BILLING_BACKOFF_BASE_MS * 2 ** (consecutiveFailures - 1),
+      capMs,
+    );
+  }
+  return Math.min(
+    CONSOLIDATION_TRANSIENT_BACKOFF_BASE_MS * 2 ** (consecutiveFailures - 1),
+    CONSOLIDATION_TRANSIENT_BACKOFF_CAP_MS,
+  );
+}
+
+/**
+ * Milliseconds until the consolidation failure backoff expires; `0` when no
+ * failure state is recorded or the window has already elapsed.
+ */
+function consolidationBackoffRemainingMs(
+  intervalMs: number,
+  nowMs: number,
+): number {
+  const state = readConsolidationFailureState();
+  if (state === null) {
+    return 0;
+  }
+  const backoffMs = consolidationFailureBackoffMs(
+    state.kind,
+    state.consecutiveFailures,
+    intervalMs,
+  );
+  return Math.max(0, state.lastFailureAt + backoffMs - nowMs);
+}
+
 export function maybeEnqueueGraphMaintenanceJobs(
   config: AssistantConfig,
   nowMs = Date.now(),
@@ -961,6 +1009,20 @@ export function maybeEnqueueGraphMaintenanceJobs(
       // The checkpoint advances so the next check fires after the regular
       // interval. Manual "Run now" is unaffected (routes layer, not schedule).
       if (jobType === consolidateEntry.jobType) {
+        // Failure backoff: skip WITHOUT advancing the checkpoint so the
+        // enqueue fires on the first tick after the window elapses instead
+        // of a full interval later.
+        const backoffRemainingMs = consolidationBackoffRemainingMs(
+          intervalMs,
+          nowMs,
+        );
+        if (backoffRemainingMs > 0) {
+          log.debug(
+            { backoffRemainingMs },
+            "Scheduled consolidation skipped: failure backoff active",
+          );
+          continue;
+        }
         if (memoryBufferLineCount() < MIN_BUFFER_LINES_FOR_CONSOLIDATION) {
           log.debug(
             "Scheduled consolidation skipped: buffer under minimum line threshold",
@@ -989,6 +1051,9 @@ export function maybeEnqueueGraphMaintenanceJobs(
   // interval elapses), so it dedupes against an already-active consolidate job
   // instead — otherwise it would re-enqueue on every worker tick while the
   // buffer stays over threshold, flooding the queue with redundant LLM work.
+  // The failure backoff gates it too: a failed run never trims the buffer, so
+  // the size trigger alone would re-fire a failing run on every tick. A
+  // backoff skip leaves the checkpoint alone.
   const maxLines = config.memory.v2.consolidation_max_buffer_lines;
   if (
     v2Active &&
@@ -997,11 +1062,22 @@ export function maybeEnqueueGraphMaintenanceJobs(
     !hasActiveJobOfType(consolidateEntry.jobType)
   ) {
     if (memoryBufferLineCount() >= maxLines) {
-      enqueueMemoryJob(
-        consolidateEntry.jobType,
-        AUTOMATIC_CONSOLIDATION_JOB_PAYLOAD,
+      const backoffRemainingMs = consolidationBackoffRemainingMs(
+        consolidateEntry.intervalMs,
+        nowMs,
       );
-      setMemoryCheckpoint(consolidateEntry.key, String(nowMs));
+      if (backoffRemainingMs > 0) {
+        log.debug(
+          { backoffRemainingMs },
+          "Size-triggered consolidation skipped: failure backoff active",
+        );
+      } else {
+        enqueueMemoryJob(
+          consolidateEntry.jobType,
+          AUTOMATIC_CONSOLIDATION_JOB_PAYLOAD,
+        );
+        setMemoryCheckpoint(consolidateEntry.key, String(nowMs));
+      }
     }
   }
 

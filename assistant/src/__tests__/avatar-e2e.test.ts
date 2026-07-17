@@ -20,25 +20,6 @@ const geminiGenerateContentFn = mock(async () => geminiGenerateContentResult);
 // Mock modules — must be before importing the module under test
 // ---------------------------------------------------------------------------
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    imageGenModel: "gemini-3.1-flash-image-preview",
-    services: {
-      inference: {
-        mode: "your-own",
-        provider: "anthropic",
-        model: "claude-opus-4-6",
-      },
-      "image-generation": {
-        mode: "your-own",
-        provider: "gemini",
-        model: "gemini-3.1-flash-image-preview",
-      },
-      "web-search": { mode: "your-own", provider: "inference-provider-native" },
-    },
-  }),
-}));
-
 mock.module("../security/secure-keys.js", () => ({
   getSecureKeyAsync: async (name: string) =>
     name === "gemini" ? mockGeminiKey : null,

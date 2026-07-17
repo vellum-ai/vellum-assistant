@@ -1,13 +1,10 @@
 /**
  * Declarative help for the `assistant browser` command.
  *
- * Import-safe for the memory capability indexer: no action handlers and no
- * daemon/IPC action graph. Unlike the hand-written `.help.ts` modules, the
- * per-operation subcommands are derived from {@link BROWSER_OPERATION_META} —
- * the browser operations contract is the single source of truth for their
- * names, flags, and help text, so the derived help can never drift from the
- * operations the daemon actually supports. The handlers live in `browser.ts`,
- * which applies this via `applyCommandHelp` and attaches them.
+ * The per-operation subcommands are derived from {@link BROWSER_OPERATION_META}
+ * — the browser operations contract is the single source of truth for their
+ * names, flags, and help text, so the derived help cannot drift from the
+ * operations the daemon actually supports.
  */
 
 // operation-meta is an execution-free data leaf (no Playwright imports),

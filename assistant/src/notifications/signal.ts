@@ -79,10 +79,6 @@ export const NOTIFICATION_SOURCE_EVENT_NAMES = [
     description: "Caller requested callback while unreachable",
   },
   {
-    id: "ingress.escalation",
-    description: "Incoming message escalated for attention",
-  },
-  {
     id: "ingress.trusted_contact.guardian_decision",
     description: "Guardian decided on trusted contact request",
   },

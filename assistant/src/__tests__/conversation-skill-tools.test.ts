@@ -1,4 +1,3 @@
-import * as realFs from "node:fs";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { SkillSummary, SkillToolManifest } from "../config/skills.js";
@@ -227,18 +226,25 @@ mock.module("../tools/registry.js", () => ({
   },
 }));
 
-// Stub existsSync so TOOLS.json existence checks pass for skills that have manifests
-mock.module("node:fs", () => ({
-  ...realFs,
-  existsSync: (p: string) => {
-    if (typeof p === "string" && p.endsWith("TOOLS.json")) {
-      const parts = p.split("/");
-      const skillId = parts[parts.length - 2];
-      return skillId in mockManifests;
-    }
-    return realFs.existsSync(p);
-  },
-}));
+// Stub existsSync so TOOLS.json existence checks pass for skills that have
+// manifests. `require("fs")` inside the factory captures the real
+// implementation eagerly; a top-level `import * as realFs` spread would
+// live-bind back into this mock and deadlock the real config loader.
+mock.module("node:fs", () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const realFs = require("fs");
+  return {
+    ...realFs,
+    existsSync: (p: string) => {
+      if (typeof p === "string" && p.endsWith("TOOLS.json")) {
+        const parts = p.split("/");
+        const skillId = parts[parts.length - 2];
+        return skillId in mockManifests;
+      }
+      return realFs.existsSync(p);
+    },
+  };
+});
 
 mock.module("../skills/version-hash.js", () => ({
   computeSkillVersionHash: (skillDir: string) => {
@@ -252,16 +258,6 @@ mock.module("../skills/version-hash.js", () => ({
     }
     return `v1:default-hash-${skillId}`;
   },
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    skills: { entries: {}, allowBundled: null },
-  }),
-  loadConfig: () => ({
-    skills: { entries: {}, allowBundled: null },
-  }),
-  invalidateConfigCache: () => {},
 }));
 
 mock.module("../config/assistant-feature-flags.js", () => ({

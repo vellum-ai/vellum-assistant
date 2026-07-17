@@ -40,6 +40,7 @@ export type MemoryJobType =
   | "backfill"
   | "rebuild_index"
   | "delete_qdrant_vectors"
+  | "sweep_orphaned_graph_node_points"
   | "media_processing"
   | "embed_media"
   | "embed_attachment"
@@ -278,17 +279,18 @@ export function upsertMemoryRetrospectiveJob(
 }
 
 /**
- * Upsert a pending `skill_card_insert` job — the deferred delivery of a
- * retrospective run's skill card into a source conversation that was mid-turn
- * at insert time (see `memory-retrospective-skill-card.ts`). Keyed by
- * `runConversationId`: one pending delivery exists per authoring run, so the
- * handler's own still-mid-turn re-upsert (and any duplicate enqueue) coalesces
- * into a single row instead of stacking deliveries — the message-level
- * `clientMessageId` dedup remains the final backstop against a double card.
- * The earliest `runAfter` wins, mirroring `upsertMemoryRetrospectiveJob`; the
- * stored payload is kept as-is since every enqueue for a given run carries the
- * same snapshot (the skill list is derived from that run's persisted
- * messages).
+ * Upsert a pending `skill_card_insert` job — the durable delivery of a
+ * retrospective run's skill card into its source conversation (see
+ * `memory-retrospective-skill-card.ts`; the scaffold executor enqueues one at
+ * the creation site per authored skill). Keyed by `runConversationId`: one
+ * pending delivery exists per authoring run. A follow-up enqueue for the same
+ * run MERGES into the pending row instead of stacking deliveries — its
+ * `skills` entries are appended, deduplicated by `skillId` (the pending entry
+ * wins), so a run that authors several skills coalesces into a single card
+ * and the handler's own still-mid-turn re-upsert of an identical snapshot is
+ * a no-op append. The earliest `runAfter` wins, mirroring
+ * `upsertMemoryRetrospectiveJob`; the message-level `clientMessageId` dedup
+ * remains the final backstop against a double card.
  */
 export function upsertSkillCardInsertJob(
   payload: {
@@ -310,16 +312,62 @@ export function upsertSkillCardInsertJob(
     )
     .get();
   if (existing) {
-    const nextRunAfter = Math.min(existing.runAfter, runAfter);
-    if (nextRunAfter !== existing.runAfter) {
-      db.update(memoryJobs)
-        .set({ runAfter: nextRunAfter, updatedAt: Date.now() })
-        .where(eq(memoryJobs.id, existing.id))
-        .run();
+    let existingPayload: Record<string, unknown> = {};
+    try {
+      existingPayload = JSON.parse(existing.payload) as Record<string, unknown>;
+    } catch {
+      existingPayload = {};
     }
+    const mergedPayload = {
+      ...existingPayload,
+      ...payload,
+      skills: mergeSkillCardEntries(existingPayload.skills, payload.skills),
+    };
+    db.update(memoryJobs)
+      .set({
+        payload: JSON.stringify(mergedPayload),
+        runAfter: Math.min(existing.runAfter, runAfter),
+        updatedAt: Date.now(),
+      })
+      .where(eq(memoryJobs.id, existing.id))
+      .run();
     return;
   }
   enqueueMemoryJob("skill_card_insert", payload, runAfter);
+}
+
+/**
+ * Append incoming skill-card entries to the already-pending list,
+ * deduplicated by `skillId` — the pending entry wins over a re-enqueue of the
+ * same skill. Entries are opaque to the queue beyond the `skillId` key;
+ * malformed values (non-arrays, entries without a non-empty string `skillId`)
+ * contribute nothing rather than corrupting the pending payload.
+ */
+function mergeSkillCardEntries(
+  existing: unknown,
+  incoming: unknown,
+): unknown[] {
+  const merged: unknown[] = [];
+  const seen = new Set<string>();
+  const candidates = [
+    ...(Array.isArray(existing) ? existing : []),
+    ...(Array.isArray(incoming) ? incoming : []),
+  ];
+  for (const entry of candidates) {
+    if (!entry || typeof entry !== "object") {
+      continue;
+    }
+    const skillId = (entry as Record<string, unknown>).skillId;
+    if (typeof skillId !== "string" || skillId.length === 0) {
+      continue;
+    }
+    if (seen.has(skillId)) {
+      continue;
+    }
+    seen.add(skillId);
+    merged.push(entry);
+  }
+  return merged;
 }
 
 /**
@@ -340,6 +388,65 @@ export function hasActiveJobOfType(type: MemoryJobType): boolean {
       )
       .get() != null
   );
+}
+
+/**
+ * Check whether a pending job of the given type already exists. Enqueue-side
+ * coalesce for follow-up jobs whose payload is empty and whose handler reads
+ * all state at execution time (`memory_v2_reembed`, `memory_v3_maintain`): a
+ * pending row already covers everything a fresh enqueue would, while a
+ * running row may have snapshotted state before the caller's writes — so only
+ * `pending` suppresses, leaving at most one pending row queued behind one
+ * running job.
+ */
+export function hasPendingJobOfType(type: MemoryJobType): boolean {
+  const db = memoryDb();
+  return (
+    db
+      .select({ id: memoryJobs.id })
+      .from(memoryJobs)
+      .where(and(eq(memoryJobs.type, type), eq(memoryJobs.status, "pending")))
+      .get() != null
+  );
+}
+
+/**
+ * Enqueue an `embed_concept_page` job, coalescing with an existing pending
+ * row for the same slug. The payload carries only the slug — the handler
+ * reads the page from disk at execution time — so a pending row is exactly
+ * equivalent to a fresh enqueue and a duplicate would only redo identical
+ * work. A running row never matches: it may have already read a pre-write
+ * snapshot of the page, so the new enqueue must survive it. On a match the
+ * existing row keeps its `runAfter` (a deferred or backed-off row keeps its
+ * backoff). Returns the id of the pending row, existing or newly inserted.
+ *
+ * The check-then-insert pair is deliberately synchronous: bun:sqlite cannot
+ * interleave another same-process write between the SELECT and the INSERT.
+ * A cross-process race (daemon vs. memory worker) can still produce one
+ * duplicate pair, which is harmless — executions are idempotent and the next
+ * coalescing enqueue matches whichever row is still pending. Do not replace
+ * this with a partial UNIQUE index: `failMemoryJob` and
+ * `resetRunningJobsToPending` legitimately flip `running` rows back to
+ * `pending`, and a constraint would make those updates throw whenever a
+ * duplicate pair exists.
+ */
+export function upsertEmbedConceptPageJob(payload: { slug: string }): string {
+  const db = memoryDb();
+  const existing = db
+    .select({ id: memoryJobs.id })
+    .from(memoryJobs)
+    .where(
+      and(
+        eq(memoryJobs.type, "embed_concept_page"),
+        eq(memoryJobs.status, "pending"),
+        sql`json_extract(${memoryJobs.payload}, '$.slug') = ${payload.slug}`,
+      ),
+    )
+    .get();
+  if (existing) {
+    return existing.id;
+  }
+  return enqueueMemoryJob("embed_concept_page", { slug: payload.slug });
 }
 
 export function enqueuePruneOldLlmRequestLogsJob(retentionMs?: number): string {
@@ -691,6 +798,23 @@ export function deferMemoryJob(id: string): "deferred" | "failed" {
     .where(eq(memoryJobs.id, id))
     .run();
   return "deferred";
+}
+
+/**
+ * Move a running job back to pending after `delayMs` WITHOUT advancing the
+ * attempt or deferral counters. For a job intentionally postponed by a stable
+ * config condition rather than a failure: it must survive an unbounded number of
+ * postponements, so neither {@link failMemoryJob}'s attempt budget nor
+ * {@link deferMemoryJob}'s deferral cap may dead-letter it. It simply re-runs
+ * once the condition clears.
+ */
+export function rescheduleMemoryJob(id: string, delayMs: number): void {
+  const now = Date.now();
+  memoryDb()
+    .update(memoryJobs)
+    .set({ status: "pending", runAfter: now + delayMs, updatedAt: now })
+    .where(eq(memoryJobs.id, id))
+    .run();
 }
 
 export function failMemoryJob(

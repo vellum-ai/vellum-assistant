@@ -350,7 +350,6 @@ subgraph "Text Q&A Session"
             DB_SCHED_RUNS["cron_runs (schedule execution history)"]
             DB_TASKS["tasks"]
             DB_TASK_RUNS["task_runs"]
-            DB_WORK_ITEMS["work_items"]
             DB_CONTACTS["contacts<br/>(migrating to gateway)"]
         end
 

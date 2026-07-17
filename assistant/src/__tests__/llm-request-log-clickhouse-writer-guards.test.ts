@@ -7,33 +7,26 @@
  * local row in local mode, flip `readSource` to `clickhouse`, and assert each
  * mutator leaves the local row untouched.
  */
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
 }));
 
-// Mutable read source drives the writer resolution: local SQLite writer vs
-// the ClickHouse sink (whose mutators are no-ops).
-let readSource: "local" | "clickhouse" = "local";
+import { setConfig } from "./helpers/set-config.js";
+
+// The seeded read source drives the writer resolution: local SQLite writer
+// vs the ClickHouse sink (whose mutators are no-ops).
 const CLICKHOUSE_CONFIG = {
   database: "default",
   table: "llm_request_logs",
   user: "default",
 };
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    llmRequestLogs: { readSource, clickhouse: CLICKHOUSE_CONFIG },
-  }),
-  getConfigReadOnly: () => ({
-    llmRequestLogs: { readSource, clickhouse: CLICKHOUSE_CONFIG },
-  }),
-}));
 
-afterAll(() => {
-  readSource = "local";
-});
+function setReadSource(readSource: "local" | "clickhouse"): void {
+  setConfig("llmRequestLogs", { readSource, clickhouse: CLICKHOUSE_CONFIG });
+}
 
 import { getLogsDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
@@ -57,7 +50,7 @@ function seedLocalRow(
   conversationId: string,
   opts: { messageId?: string } = {},
 ): string {
-  readSource = "local";
+  setReadSource("local");
   const id = recordRequestLog(
     conversationId,
     '{"req":1}',
@@ -73,7 +66,7 @@ function seedLocalRow(
 describe("SQLite mutators skip when ClickHouse owns writes", () => {
   beforeEach(() => {
     resetLogs();
-    readSource = "local";
+    setReadSource("local");
   });
 
   test("setAgentLoopExitReasonOnLatestLog stamps in local mode", () => {
@@ -86,7 +79,7 @@ describe("SQLite mutators skip when ClickHouse owns writes", () => {
     // An older local-mode row with a NULL exit reason (a normal intermediate
     // call). A later ClickHouse-mode turn must NOT stamp it.
     const staleId = seedLocalRow("conv-1");
-    readSource = "clickhouse";
+    setReadSource("clickhouse");
     setAgentLoopExitReasonOnLatestLog("conv-1", "yield_to_user");
     expect(getRequestLogById(staleId)?.agentLoopExitReason).toBeNull();
   });
@@ -94,7 +87,7 @@ describe("SQLite mutators skip when ClickHouse owns writes", () => {
   test("backfillMessageIdOnLogs leaves stale local rows untouched in ClickHouse mode", () => {
     const staleId = seedLocalRow("conv-2"); // messageId NULL
     expect(getRequestLogById(staleId)?.messageId).toBeNull();
-    readSource = "clickhouse";
+    setReadSource("clickhouse");
     backfillMessageIdOnLogs("conv-2", "msg-new");
     expect(getRequestLogById(staleId)?.messageId).toBeNull();
   });
@@ -102,7 +95,7 @@ describe("SQLite mutators skip when ClickHouse owns writes", () => {
   test("relinkLlmRequestLogs leaves stale local rows untouched in ClickHouse mode", () => {
     const staleId = seedLocalRow("conv-3", { messageId: "m1" });
     expect(getRequestLogById(staleId)?.messageId).toBe("m1");
-    readSource = "clickhouse";
+    setReadSource("clickhouse");
     relinkLlmRequestLogs(["m1"], "m2");
     expect(getRequestLogById(staleId)?.messageId).toBe("m1");
   });

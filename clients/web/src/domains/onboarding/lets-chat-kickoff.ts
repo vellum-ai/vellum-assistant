@@ -1,6 +1,6 @@
 /**
  * Hidden kickoff sent on the user's behalf when they hit "Let's chat" at the
- * end of the personality-onboarding flow. It drives the assistant's first
+ * end of the research-onboarding flow. It drives the assistant's first
  * reply but renders no user bubble, so the chat opens with the assistant
  * proactively greeting the user in the persona they just configured.
  *
@@ -18,5 +18,6 @@ export function buildLetsChatKickoffMessage(assistantName?: string): string {
     : "";
   return `You're about to begin your first conversation.${nameLine}
 Respond with a warm and engaging greeting. Be interesting, be real. This is your chance to get to know and impress the user.
+End with exactly one short question about something specific you already know about them (see your Onboarding Context) — a question they can answer in five words or less. If you know almost nothing about them yet, ask one specific, concrete question anyway (still five-word-answerable). Never ask what they want to do, what you're getting into, or anything else open-ended: an open question hands a stranger a blank page.
 Keep it short! For this opening greeting only, don't use \`recall\` or read any files — just say hello. (This applies to the greeting alone; use your tools normally for everything the user asks afterward.)`;
 }

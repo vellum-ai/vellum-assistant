@@ -64,7 +64,9 @@ function StatusPill({ text }: { text: string }) {
     return () => clearTimeout(timer);
   }, [text]);
 
-  if (state.hidden) return null;
+  if (state.hidden) {
+    return null;
+  }
 
   return (
     <div className="absolute top-2 right-2 z-10 rounded-full bg-[var(--primary-base)]/80 px-3 py-1 text-body-small-default text-[var(--content-inset)] shadow-sm backdrop-blur-sm transition-opacity duration-300">
@@ -175,10 +177,6 @@ export function DynamicPageSurface({
             id: appId,
             name: cardName,
             icon: data.preview?.icon,
-            createdAt: 0,
-            updatedAt: 0,
-            version: "",
-            contentId: "",
           })
       : undefined;
     return (

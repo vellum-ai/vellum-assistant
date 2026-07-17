@@ -1,7 +1,10 @@
 import { PinOff, Rocket } from "lucide-react";
 
+import { SwipeActionReveal } from "@/components/swipe-action-reveal";
 import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
 import type { PinnedAppEntry } from "@/utils/app-pin-storage";
+import { isPointerCoarse } from "@/utils/pointer";
+import type { SwipeAction } from "@/hooks/use-swipe-to-reveal";
 import { ContextMenu, SideMenu } from "@vellumai/design-library";
 
 export interface PinnedAppNavItemProps {
@@ -20,10 +23,10 @@ export interface PinnedAppNavItemProps {
  * cleared: a deleted app never appears in the Library, so its card-level
  * unpin is unreachable, leaving the sidebar entry orphaned.
  *
- * In the collapsed rail the item is wrapped in a Tooltip whose provider
- * would swallow the context-menu trigger's cloned handlers, so the menu is
- * omitted there — the overlay and expanded rail (always available on mobile
- * and the default desktop width) carry the affordance.
+ * On touch devices, swiping left reveals an Unpin action button —
+ * complementing the long-press context menu. In the collapsed rail the
+ * swipe is omitted (the tooltip provider would interfere, same as the
+ * context menu).
  */
 export function PinnedAppNavItem({
   app,
@@ -50,9 +53,23 @@ export function PinnedAppNavItem({
     return item;
   }
 
+  const trailingActions: SwipeAction[] = isPointerCoarse()
+    ? [{
+        id: "unpin",
+        label: "Unpin",
+        icon: PinOff,
+        variant: "destructive",
+        onSelect: () => unpin(app.appId),
+      }]
+    : [];
+
   return (
     <ContextMenu.Root>
-      <ContextMenu.Trigger>{item}</ContextMenu.Trigger>
+      <ContextMenu.Trigger>
+        <SwipeActionReveal trailingActions={trailingActions}>
+          {item}
+        </SwipeActionReveal>
+      </ContextMenu.Trigger>
       <ContextMenu.Content onClick={(event) => event.stopPropagation()}>
         <ContextMenu.Item
           leftIcon={<PinOff size={14} />}

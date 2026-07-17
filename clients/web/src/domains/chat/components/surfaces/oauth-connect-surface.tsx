@@ -1,21 +1,24 @@
 import { Tooltip } from "@vellumai/design-library";
+import { useQueryClient } from "@tanstack/react-query";
 import {
-    CheckCircle2,
-    ExternalLink,
-    Info,
-    Loader2,
-    X,
-    XCircle,
+  CheckCircle2,
+  ExternalLink,
+  Info,
+  Loader2,
+  X,
+  XCircle,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { IntegrationIcon } from "@/components/integrations/integration-icon";
 import {
-    defaultManagedOAuthConnectClient,
-    type ManagedOAuthConnectClient,
-    type ManagedOAuthProviderSummary,
+  defaultManagedOAuthConnectClient,
+  type ManagedOAuthConnectClient,
+  type ManagedOAuthProviderSummary,
 } from "@/domains/chat/api/managed-oauth";
 import type { Surface } from "@/domains/chat/types/types";
+import { assistantsOauthConnectionsListQueryKey } from "@/generated/api/@tanstack/react-query.gen";
+import { resolveLocalAssistantPlatformIdentity } from "@/lib/local-platform-identity";
 
 interface OAuthConnectSurfaceData {
   providerKey?: string;
@@ -99,6 +102,7 @@ export function OAuthConnectSurface({
   assistantDisplayName,
   oauthClient = defaultManagedOAuthConnectClient,
 }: OAuthConnectSurfaceProps) {
+  const queryClient = useQueryClient();
   const data = surface.data as OAuthConnectSurfaceData;
   const providerKey = data.providerKey ?? "";
   const [provider, setProvider] = useState<ManagedOAuthProviderSummary | null>(
@@ -106,6 +110,17 @@ export function OAuthConnectSurface({
   );
   const [state, setState] = useState<ConnectState>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  // A remounted card can share one in-flight OAuth promise (see the module-level
+  // dedupe in `connectManagedOAuthProvider`). Only the still-mounted instance
+  // reports the shared result, so one completed authorization submits one
+  // surface action — not one per instance that awaited the promise.
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -146,8 +161,27 @@ export function OAuthConnectSurface({
       providerLabel,
     });
 
+    // Skip if this instance unmounted while the (possibly shared) OAuth flow was
+    // in flight — a still-mounted sibling reports the result instead, so the
+    // surface action is submitted exactly once.
+    if (!mountedRef.current) {
+      return;
+    }
+
     if (result.status === "connected") {
       setState("connected");
+      // Refresh any mounted connections list (e.g. Settings integrations) so a
+      // just-connected account no longer reads as unconnected. Best-effort: the
+      // platform-id resolution can throw and must not block the surface action.
+      void resolveLocalAssistantPlatformIdentity(assistantId)
+        .then((platformAssistantId) =>
+          queryClient.invalidateQueries({
+            queryKey: assistantsOauthConnectionsListQueryKey({
+              path: { assistant_id: platformAssistantId },
+            }),
+          }),
+        )
+        .catch(() => {});
       onAction(surface.surfaceId, "connect", {
         status: "connected",
         providerKey,

@@ -35,25 +35,6 @@ mock.module("../platform/client.js", () => ({
   },
 }));
 
-// Some shared helpers in oauth/shared.ts touch getConfig() — stub it so the
-// import resolves cleanly even though the requirePlatformConnection path
-// never reads service configuration.
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({ services: {} }),
-  getConfigReadOnly: () => ({ services: {} }),
-  loadConfig: () => ({ services: {} }),
-  invalidateConfigCache: () => {},
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  applyNestedDefaults: (c: unknown) => c,
-  deepMergeOverwrite: (a: unknown) => a,
-  mergeDefaultWorkspaceConfig: () => {},
-  getNestedValue: () => undefined,
-  setNestedValue: () => {},
-  _writeQuarantineNotice: () => {},
-  API_KEY_PROVIDERS: ["anthropic", "openai", "gemini"],
-}));
-
 mock.module("../util/logger.js", () => ({
   getLogger: () => ({
     info: () => {},

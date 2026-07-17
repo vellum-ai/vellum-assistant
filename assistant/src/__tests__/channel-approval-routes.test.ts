@@ -41,7 +41,9 @@ mock.module("../daemon/process-message.js", () => ({
   resolveTurnInterface: () => "telegram",
   prepareConversationForMessage: async () => ({}),
   processMessage: (...args: unknown[]) => {
-    if (_testProcessMessage) return _testProcessMessage(...args);
+    if (_testProcessMessage) {
+      return _testProcessMessage(...args);
+    }
     return Promise.resolve({ messageId: "mock-msg-1" });
   },
   processMessageInBackground: async () => ({ messageId: "mock-bg" }),
@@ -62,11 +64,6 @@ mock.module("../daemon/approval-generators.js", () => ({
   createApprovalConversationGenerator: () => _testApprovalConversationGenerator,
 }));
 
-import {
-  createCanonicalGuardianDelivery,
-  createCanonicalGuardianRequest,
-  getCanonicalGuardianRequest,
-} from "../contacts/canonical-guardian-store.js";
 import type { Conversation } from "../daemon/conversation.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
@@ -84,6 +81,7 @@ import {
 } from "./helpers/channel-test-adapter.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
 import { resetGatewayAclStore } from "./helpers/gateway-acl-store.js";
+import { bridgeState } from "./helpers/gateway-guardian-requests-store-bridge.js";
 
 await initializeDb();
 initAuthSigningKey(Buffer.from("test-signing-key-at-least-32-bytes-long"));
@@ -112,10 +110,9 @@ function ensureConversation(conversationId: string): void {
 }
 
 function resetTables(): void {
+  bridgeState.reset();
   resetTestTables(
     "scoped_approval_grants",
-    "canonical_guardian_deliveries",
-    "canonical_guardian_requests",
     "conversation_keys",
     "message_runs",
     "channel_inbound_events",
@@ -1614,8 +1611,7 @@ describe("background channel processing approval prompts", () => {
 
     expect(deliverPromptSpy).toHaveBeenCalled();
     const approvalMeta = deliverPromptSpy.mock.calls[0]?.[3] as
-      | { requestId?: string }
-      | undefined;
+      { requestId?: string } | undefined;
     expect(approvalMeta?.requestId).toBe("req-bg-1");
 
     deliverPromptSpy.mockRestore();
@@ -1782,10 +1778,10 @@ describe("background channel processing approval prompts", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// NL approval routing via destination-scoped canonical requests
+// NL approval routing via destination-scoped guardian requests
 // ═══════════════════════════════════════════════════════════════════════════
 
-describe("NL approval routing via destination-scoped canonical requests", () => {
+describe("NL approval routing via destination-scoped guardian requests", () => {
   beforeEach(() => {
     resetTables();
     noopProcessMessage.mockClear();
@@ -1808,13 +1804,13 @@ describe("NL approval routing via destination-scoped canonical requests", () => 
       guardianPrincipalId: guardianUserId,
     });
 
-    // Create canonical tool_approval request WITHOUT guardianExternalUserId
+    // Create guardian tool_approval request WITHOUT guardianExternalUserId
     // but WITH a conversationId (required by the tool_approval resolver)
-    const canonicalReq = createCanonicalGuardianRequest({
+    const guardianReq = bridgeState.seedRequest({
       kind: "tool_approval",
       sourceType: "voice",
       sourceChannel: "twilio",
-      conversationId: "conv-voice-nl-1",
+      sourceConversationId: "conv-voice-nl-1",
       toolName: "shell",
       guardianPrincipalId: "test-principal-id",
       expiresAt: Date.now() + 60_000,
@@ -1822,11 +1818,11 @@ describe("NL approval routing via destination-scoped canonical requests", () => 
     });
 
     // Register pending interaction so resolver can find it
-    registerPendingInteraction(canonicalReq.id, "conv-voice-nl-1", "shell");
+    registerPendingInteraction(guardianReq.id, "conv-voice-nl-1", "shell");
 
-    // Create canonical delivery row targeting guardian chat
-    createCanonicalGuardianDelivery({
-      requestId: canonicalReq.id,
+    // Create guardian delivery row targeting guardian chat
+    bridgeState.seedDelivery({
+      requestId: guardianReq.id,
       destinationChannel: "telegram",
       destinationChatId: guardianChatId,
     });
@@ -1846,12 +1842,12 @@ describe("NL approval routing via destination-scoped canonical requests", () => 
     expect(body.canonicalRouter).toBe("canonical_decision_stale");
 
     // Verify the request remains pending (identity-bound fail-closed).
-    const resolved = getCanonicalGuardianRequest(canonicalReq.id);
+    const resolved = bridgeState.getRequest(guardianReq.id);
     expect(resolved).not.toBeNull();
     expect(resolved!.status).toBe("pending");
   });
 
-  test("inbound from different chat ID does not auto-match delivery-scoped canonical request", async () => {
+  test("inbound from different chat ID does not auto-match delivery-scoped guardian request", async () => {
     const guardianChatId = "guardian-chat-nl-2";
     const guardianUserId = "guardian-user-nl-2";
     const differentChatId = "different-chat-999";
@@ -1865,8 +1861,8 @@ describe("NL approval routing via destination-scoped canonical requests", () => 
       guardianPrincipalId: guardianUserId,
     });
 
-    // Create canonical pending_question WITHOUT guardianExternalUserId
-    const canonicalReq = createCanonicalGuardianRequest({
+    // Create guardian pending_question WITHOUT guardianExternalUserId
+    const guardianReq = bridgeState.seedRequest({
       kind: "tool_approval",
       sourceType: "voice",
       sourceChannel: "twilio",
@@ -1876,8 +1872,8 @@ describe("NL approval routing via destination-scoped canonical requests", () => 
     });
 
     // Delivery targets the original guardian chat, NOT the different chat
-    createCanonicalGuardianDelivery({
-      requestId: canonicalReq.id,
+    bridgeState.seedDelivery({
+      requestId: guardianReq.id,
       destinationChannel: "telegram",
       destinationChatId: guardianChatId,
     });
@@ -1900,7 +1896,7 @@ describe("NL approval routing via destination-scoped canonical requests", () => 
     expect(body.canonicalRouter).toBeUndefined();
 
     // Request should remain pending
-    const unchanged = getCanonicalGuardianRequest(canonicalReq.id);
+    const unchanged = bridgeState.getRequest(guardianReq.id);
     expect(unchanged).not.toBeNull();
     expect(unchanged!.status).toBe("pending");
   });
@@ -1949,7 +1945,7 @@ describe("trusted-contact self-approval blocked before guardian approval row exi
     const conversationId = events[0]?.conversation_id;
     ensureConversation(conversationId!);
 
-    // Register a pending interaction — but do NOT create a canonical guardian
+    // Register a pending interaction — but do NOT create a guardian
     // request row. This simulates the window between the pending confirmation
     // being created (isInteractive=true) and the guardian approval prompt being
     // delivered.

@@ -89,17 +89,6 @@ const state: TestState = {
   callSequence: [],
 };
 
-// Stub config so resolveSkillStates / mcp augmentation have something to read.
-mock.module("../../../../../config/loader.js", () => ({
-  getConfig: () => ({
-    memory: {
-      qdrant: { url: "http://127.0.0.1:6333", vectorSize: 3, onDisk: false },
-    },
-    mcp: { servers: {} },
-    skills: { entries: {}, allowBundled: [] },
-  }),
-}));
-
 mock.module("../../../../../config/skills.js", () => ({
   loadSkillCatalog: () => state.catalog ?? [],
 }));

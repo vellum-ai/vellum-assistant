@@ -29,7 +29,7 @@ import {
   type DrizzleDb,
   getSqliteFrom,
 } from "../../../../persistence/db-connection.js";
-import { enqueueMemoryJob } from "../../../../persistence/jobs-store.js";
+import { upsertEmbedConceptPageJob } from "../../../../persistence/jobs-store.js";
 import { extractText, userMessage } from "../llm-helpers.js";
 import { getLogger } from "../logging.js";
 import { deletePage, listPages, slugify, writePage } from "./page-store.js";
@@ -154,8 +154,12 @@ export function gatherV1State(
     .all();
   const edges: V1Edge[] = [];
   for (const row of edgeRows) {
-    if (!liveNodeIds.has(row.source_node_id)) continue;
-    if (!liveNodeIds.has(row.target_node_id)) continue;
+    if (!liveNodeIds.has(row.source_node_id)) {
+      continue;
+    }
+    if (!liveNodeIds.has(row.target_node_id)) {
+      continue;
+    }
     edges.push({
       sourceNodeId: row.source_node_id,
       targetNodeId: row.target_node_id,
@@ -200,7 +204,9 @@ function readPkbItems(pkbDir: string): V1Item[] {
   const archiveDir = join(pkbDir, "archive");
   if (existsSync(archiveDir)) {
     for (const name of readdirSync(archiveDir).sort()) {
-      if (!name.endsWith(".md")) continue;
+      if (!name.endsWith(".md")) {
+        continue;
+      }
       items.push({
         id: `pkb:archive:${name}`,
         text: readFileSync(join(archiveDir, name), "utf-8"),
@@ -215,8 +221,12 @@ function readPkbItems(pkbDir: string): V1Item[] {
 
   // Topic files — anything else at the top level besides buffer.md.
   for (const name of readdirSync(pkbDir).sort()) {
-    if (!name.endsWith(".md")) continue;
-    if (name === "buffer.md") continue;
+    if (!name.endsWith(".md")) {
+      continue;
+    }
+    if (name === "buffer.md") {
+      continue;
+    }
     items.push({
       id: `pkb:topic:${name}`,
       text: readFileSync(join(pkbDir, name), "utf-8"),
@@ -396,7 +406,9 @@ export function derivePromotions(items: V1Item[]): Promotions {
   const archive: string[] = [];
 
   for (const item of items) {
-    if (item.source !== "graph_node") continue;
+    if (item.source !== "graph_node") {
+      continue;
+    }
 
     const summary = formatPromotionLine(item);
     if (item.significance >= ESSENTIALS_SIGNIFICANCE_THRESHOLD) {
@@ -445,8 +457,12 @@ export function collapseEdges(
   for (const edge of v1Edges) {
     const from = slugMap.get(edge.sourceNodeId);
     const to = slugMap.get(edge.targetNodeId);
-    if (!from || !to) continue;
-    if (from === to) continue;
+    if (!from || !to) {
+      continue;
+    }
+    if (from === to) {
+      continue;
+    }
     let targets = outgoing.get(from);
     if (!targets) {
       targets = new Set<string>();
@@ -464,18 +480,19 @@ export function collapseEdges(
 /**
  * Enqueue an `embed_concept_page` job for each newly-written slug. The handler
  * is implemented separately — we just stage the queue here so the embeddings
- * are ready by the time activation needs them.
+ * are ready by the time activation needs them. Coalesces per slug: an already
+ * pending embed for the same slug is reused rather than duplicated.
  *
  * The `memory_jobs` queue lives in the dedicated memory database
- * (`assistant-memory.db`), not the main DB. `enqueueMemoryJob` targets it by
- * default, so we pass no DB override here: the migration's `database` handle is
- * the *main* DB (the v1 graph source read by `gatherV1State`) and must not
- * receive `memory_jobs` writes — doing so silently drops the jobs into a table
- * that doesn't exist there.
+ * (`assistant-memory.db`), not the main DB. `upsertEmbedConceptPageJob`
+ * targets it by default, so we pass no DB override here: the migration's
+ * `database` handle is the *main* DB (the v1 graph source read by
+ * `gatherV1State`) and must not receive `memory_jobs` writes — doing so
+ * silently drops the jobs into a table that doesn't exist there.
  */
 export function enqueueEmbeds(slugs: string[]): number {
   for (const slug of slugs) {
-    enqueueMemoryJob("embed_concept_page", { slug });
+    upsertEmbedConceptPageJob({ slug });
   }
   return slugs.length;
 }
@@ -543,7 +560,7 @@ export async function runMemoryV2Migration(
     params.provider ?? (await getConfiguredProvider("memoryV2Migration"));
   if (!provider) {
     throw new Error(
-      "memoryV2Migration provider unavailable — configure llm.callSites.memoryV2Migration or llm.default before re-running.",
+      "memoryV2Migration provider unavailable — configure llm.callSites.memoryV2Migration or connect a default provider before re-running.",
     );
   }
 
@@ -572,7 +589,9 @@ export async function runMemoryV2Migration(
     pages.push(finalized);
 
     for (const item of cluster.items) {
-      if (item.source === "graph_node") slugMap.set(item.id, finalSlug);
+      if (item.source === "graph_node") {
+        slugMap.set(item.id, finalSlug);
+      }
     }
   }
 
@@ -582,7 +601,9 @@ export async function runMemoryV2Migration(
   const outgoingBySource = collapseEdges(v1Edges, slugMap);
   const finalizedPages: ConceptPage[] = pages.map((page) => {
     const targets = outgoingBySource.get(page.slug);
-    if (!targets || targets.size === 0) return page;
+    if (!targets || targets.size === 0) {
+      return page;
+    }
     return {
       ...page,
       frontmatter: {
@@ -688,9 +709,13 @@ async function appendLines(path: string, lines: string[]): Promise<void> {
   try {
     existing = await readFile(path, "utf-8");
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+      throw err;
+    }
   }
-  if (existing.includes(PROMOTION_MARKER_OPEN)) return;
+  if (existing.includes(PROMOTION_MARKER_OPEN)) {
+    return;
+  }
   const trailing = existing.length === 0 || existing.endsWith("\n") ? "" : "\n";
   const block = `${PROMOTION_MARKER_OPEN}\n${lines.join("\n")}\n${PROMOTION_MARKER_CLOSE}\n`;
   const next = `${existing}${trailing}${block}`;
@@ -734,17 +759,23 @@ async function stripMarkerBlock(path: string): Promise<void> {
   try {
     existing = await readFile(path, "utf-8");
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") return;
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      return;
+    }
     throw err;
   }
   const openIdx = existing.indexOf(PROMOTION_MARKER_OPEN);
-  if (openIdx === -1) return;
+  if (openIdx === -1) {
+    return;
+  }
 
   let endIdx: number;
   const closeIdx = existing.indexOf(PROMOTION_MARKER_CLOSE, openIdx);
   if (closeIdx !== -1) {
     endIdx = closeIdx + PROMOTION_MARKER_CLOSE.length;
-    if (existing[endIdx] === "\n") endIdx += 1;
+    if (existing[endIdx] === "\n") {
+      endIdx += 1;
+    }
   } else {
     const blankIdx = existing.indexOf("\n\n", openIdx);
     endIdx = blankIdx === -1 ? existing.length : blankIdx + 2;

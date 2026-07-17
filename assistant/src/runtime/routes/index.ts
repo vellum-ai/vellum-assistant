@@ -13,6 +13,8 @@ import { ROUTES as MEMORY_GRAPH_ROUTES } from "../../plugins/defaults/memory/rou
 import { ROUTES as MEMORY_ITEM_ROUTES } from "../../plugins/defaults/memory/routes/memory-item-routes.js";
 import { ROUTES as MEMORY_V2_ROUTES } from "../../plugins/defaults/memory/routes/memory-v2-routes.js";
 import { ROUTES as MEMORY_V3_ROUTES } from "../../plugins/defaults/memory/routes/memory-v3-routes.js";
+import { ROUTES as MEMORY_WORKER_ROUTES } from "../../plugins/defaults/memory/routes/memory-worker-routes.js";
+import { ROUTES as ACP_CLAUDE_AUTH_ROUTES } from "./acp-claude-auth-routes.js";
 import { ROUTES as ACP_ROUTES } from "./acp-routes.js";
 import { ROUTES as APP_MANAGEMENT_ROUTES } from "./app-management-routes.js";
 import { ROUTES as APP_ROUTES } from "./app-routes.js";
@@ -67,6 +69,7 @@ import { ROUTES as EMAIL_ROUTES } from "./email-routes.js";
 import { ROUTES as EVENTS_ROUTES } from "./events-routes.js";
 import { ROUTES as FILING_ROUTES } from "./filing-routes.js";
 import { ROUTES as GATEWAY_LOG_ROUTES } from "./gateway-log-routes.js";
+import { ROUTES as GATEWAY_STATUS_ROUTES } from "./gateway-status-routes.js";
 import { ROUTES as GLOBAL_SEARCH_ROUTES } from "./global-search-routes.js";
 import { ROUTES as GROUP_ROUTES } from "./group-routes.js";
 import { ROUTES as GUARDIAN_ACTION_ROUTES } from "./guardian-action-routes.js";
@@ -101,7 +104,6 @@ import { ROUTES as INTERNAL_TWILIO_ROUTES } from "./internal-twilio-routes.js";
 import { ROUTES as LLM_CALL_SITES_ROUTES } from "./llm-call-sites-routes.js";
 import { ROUTES as LOG_EXPORT_ROUTES } from "./log-export-routes.js";
 import { ROUTES as MCP_AUTH_ROUTES } from "./mcp-auth-routes.js";
-import { ROUTES as MEMORY_WORKER_ROUTES } from "./memory-worker-routes.js";
 import { ROUTES as MESSAGES_LEXICAL_ROUTES } from "./messages-lexical-routes.js";
 import { ROUTES as MIGRATION_ROLLBACK_ROUTES } from "./migration-rollback-routes.js";
 import { ROUTES as MIGRATION_ROUTES } from "./migration-routes.js";
@@ -137,13 +139,13 @@ import { ROUTES as SUBAGENT_ROUTES } from "./subagents-routes.js";
 import { ROUTES as SUGGEST_TRUST_RULE_ROUTES } from "./suggest-trust-rule-routes.js";
 import { ROUTES as SURFACE_ACTION_ROUTES } from "./surface-action-routes.js";
 import { ROUTES as SURFACE_CONTENT_ROUTES } from "./surface-content-routes.js";
-import { ROUTES as TASK_ROUTES } from "./task-routes.js";
 import { ROUTES as TELEMETRY_ROUTES } from "./telemetry-routes.js";
 import { ROUTES as THEME_ROUTES } from "./theme-routes.js";
 import { ROUTES as TRUST_RULES_ROUTES } from "./trust-rules-routes.js";
 import { ROUTES as TTS_ROUTES } from "./tts-routes.js";
 import type { RouteDefinition } from "./types.js";
 import { ROUTES as UI_REQUEST_ROUTES } from "./ui-request-routes.js";
+import { ROUTES as UI_SNAPSHOT_ROUTES } from "./ui-snapshot-routes.js";
 import { ROUTES as UPGRADE_BROADCAST_ROUTES } from "./upgrade-broadcast-routes.js";
 import { ROUTES as USAGE_ROUTES } from "./usage-routes.js";
 import { ROUTES as USER_ROUTES } from "./user-routes.js";
@@ -158,6 +160,7 @@ import { ROUTES as WORKSPACE_ROUTES } from "./workspace-routes.js";
 export const ROUTES: RouteDefinition[] = [
   ...ATTACHMENT_ROUTES,
   ...ACP_ROUTES,
+  ...ACP_CLAUDE_AUTH_ROUTES,
   ...APP_MANAGEMENT_ROUTES,
   ...APP_ROUTES,
   ...APPROVAL_ROUTES,
@@ -210,6 +213,7 @@ export const ROUTES: RouteDefinition[] = [
   ...EVENTS_ROUTES,
   ...FILING_ROUTES,
   ...GATEWAY_LOG_ROUTES,
+  ...GATEWAY_STATUS_ROUTES,
   ...GLOBAL_SEARCH_ROUTES,
   ...GROUP_ROUTES,
   ...GUARDIAN_ACTION_ROUTES,
@@ -283,12 +287,12 @@ export const ROUTES: RouteDefinition[] = [
   ...SURFACE_CONTENT_ROUTES,
   ...TELEGRAM_ROUTES,
   ...TWILIO_ROUTES,
-  ...TASK_ROUTES,
   ...TELEMETRY_ROUTES,
   ...THEME_ROUTES,
   ...TRUST_RULES_ROUTES,
   ...TTS_ROUTES,
   ...UI_REQUEST_ROUTES,
+  ...UI_SNAPSHOT_ROUTES,
   ...UPGRADE_BROADCAST_ROUTES,
   ...USAGE_ROUTES,
   ...VERCEL_ROUTES,

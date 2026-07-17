@@ -102,13 +102,6 @@ mock.module("../providers/call-site-routing.js", () => ({
   wrapWithCallSiteRouting: (p: unknown) => p,
 }));
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    llm: { default: { provider: "anthropic", model: "claude-opus-4-7" } },
-    rateLimit: { maxRequestsPerMinute: 0 },
-  }),
-}));
-
 mock.module("../config/llm-resolver.js", () => ({
   resolveCallSiteConfig: () => ({ provider: "anthropic", maxTokens: 8192 }),
 }));

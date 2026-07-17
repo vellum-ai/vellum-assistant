@@ -21,6 +21,7 @@ mock.module("../../assistant-event-hub.js", () => ({
 
 import { eq } from "drizzle-orm";
 
+import { setConfig } from "../../../__tests__/helpers/set-config.js";
 import { getDb } from "../../../persistence/db-connection.js";
 import { initializeDb } from "../../../persistence/db-init.js";
 import { conversations } from "../../../persistence/schema/index.js";
@@ -35,26 +36,14 @@ import type { RouteDefinition } from "../types.js";
 await initializeDb();
 
 // ---------------------------------------------------------------------------
-// Config fixture — must expose at least one profile so the handler can
-// validate profile names.
+// Config fixture — the handler validates profile names against
+// `llm.profiles`, so seed at least one workspace profile. `profileSession`
+// keeps its schema default (`maxTtlSeconds: 43200`).
 // ---------------------------------------------------------------------------
 
-let configLlmProfiles: Record<string, unknown> = {};
-
-mock.module("../../../config/loader.js", () => ({
-  loadConfig: () => ({
-    llm: {
-      profiles: configLlmProfiles,
-      profileSession: { maxTtlSeconds: 43200 },
-    },
-  }),
-  getConfig: () => ({
-    llm: {
-      profiles: configLlmProfiles,
-      profileSession: { maxTtlSeconds: 43200 },
-    },
-  }),
-}));
+function seedProfiles(profiles: Record<string, unknown>): void {
+  setConfig("llm", { profiles });
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -174,10 +163,10 @@ describe("POST /v1/conversations (createConversation)", () => {
 describe("PUT /v1/conversations/:id/inference-profile", () => {
   beforeEach(() => {
     clearConversations();
-    configLlmProfiles = {
+    seedProfiles({
       fast: { model: "model-a" },
       slow: { model: "model-b" },
-    };
+    });
   });
 
   test("PUT with ttlSeconds=600 → response includes sessionId (UUID), expiresAt, ttlSeconds=600", async () => {
@@ -265,7 +254,7 @@ describe("PUT /v1/conversations/:id/inference-profile", () => {
 describe("POST /v1/conversations/inference-profile-session (inference_profile_open)", () => {
   beforeEach(() => {
     clearConversations();
-    configLlmProfiles = { fast: { model: "model-a" } };
+    seedProfiles({ fast: { model: "model-a" } });
   });
 
   test("POST with ttlSeconds=600 → same shape as PUT: sessionId UUID, expiresAt, ttlSeconds=600", async () => {
@@ -297,7 +286,7 @@ describe("POST /v1/conversations/inference-profile-session (inference_profile_op
 describe("GET /v1/conversations/inference-profile-sessions (inference_profile_list)", () => {
   beforeEach(() => {
     clearConversations();
-    configLlmProfiles = { fast: { model: "model-a" } };
+    seedProfiles({ fast: { model: "model-a" } });
   });
 
   test("GET inference-profile-sessions → returns sessions array with remainingSeconds", async () => {
@@ -332,7 +321,7 @@ describe("GET /v1/conversations/inference-profile-sessions (inference_profile_li
 describe("POST /v1/conversations/inference-profile-session/close (inference_profile_close)", () => {
   beforeEach(() => {
     clearConversations();
-    configLlmProfiles = { fast: { model: "model-a" } };
+    seedProfiles({ fast: { model: "model-a" } });
   });
 
   test("POST inference_profile_close → { noop: false, closed: { profile, sessionId } } after an open", async () => {

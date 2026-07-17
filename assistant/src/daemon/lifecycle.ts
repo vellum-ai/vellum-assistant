@@ -2,6 +2,7 @@ import { config as dotenvConfig } from "dotenv";
 
 import { reconcileCallsOnStartup } from "../calls/call-recovery.js";
 import { TwilioVoiceProvider } from "../calls/twilio-provider.js";
+import { expireInteractionBoundGuardianRequests } from "../channels/gateway-guardian-requests.js";
 import { initFeatureFlagOverrides } from "../config/assistant-feature-flags.js";
 import { setIngressPublicBaseUrl, validateEnv } from "../config/env.js";
 import {
@@ -11,7 +12,6 @@ import {
 } from "../config/loader.js";
 import { seedInferenceProfiles } from "../config/seed-inference-profiles.js";
 import { reconcileFlagGatedProfiles } from "../config/sync-gated-profiles.js";
-import { expireAllPendingCanonicalRequests } from "../contacts/canonical-guardian-store.js";
 import { startCes } from "../credential-execution/ces-runtime.js";
 import { refreshManagedConnectionCache } from "../credential-execution/managed-catalog.js";
 import { startHeartbeatService } from "../heartbeat/heartbeat-service.js";
@@ -52,10 +52,6 @@ import {
   getWorkspaceDir,
 } from "../util/platform.js";
 import { APP_VERSION } from "../version.js";
-import {
-  listWorkItems,
-  updateWorkItem,
-} from "../work-items/work-item-store.js";
 import { getWorkflowRunManager } from "../workflows/run-manager.js";
 import { repairAdaptiveThinkingOnManagedProfiles } from "../workspace/adaptive-thinking-repair.js";
 import { ensureCompleteCustomProfiles } from "../workspace/custom-profile-ensure.js";
@@ -79,6 +75,7 @@ import { initializePlugins } from "./external-plugins-bootstrap.js";
 import { backfillSlackInjectionTemplates } from "./handlers/config-slack-channel.js";
 import { installAssistantSymlink } from "./install-symlink.js";
 import {
+  type InterruptedResumeTarget,
   MAX_RESUME_ATTEMPTS,
   reconcileInterruptedConversations,
   resumeInterruptedConversations,
@@ -160,8 +157,8 @@ export async function runDaemon(): Promise<void> {
   // so a fast-reconnecting client could otherwise resolve a turn against a
   // partial profile in the window between readiness and the post-overlay
   // ensure call below. Sync, DB-free, and idempotent. Skipped when an
-  // unconsumed onboarding overlay is pending: the overlay can rewrite
-  // llm.default later this boot, and baking against the pre-overlay default
+  // unconsumed onboarding overlay is pending: the overlay can rewrite the
+  // llm config later this boot, and baking against the pre-overlay default
   // would pin the wrong baseline — on that single boot (a fresh hatch, with
   // no established clients to race the window) the post-overlay pass owns
   // materialization; the overlay file is consumed on merge, so every
@@ -239,7 +236,7 @@ export async function runDaemon(): Promise<void> {
     } else {
       setDbMigrationFailed();
       log.error(
-        "Daemon startup: DB opened but one or more migrations failed — /readyz will remain unready",
+        "Daemon startup: DB opened but one or more migrations failed or were deferred — /readyz will remain unready",
       );
     }
     // Migrations have settled (successfully or in the failed degraded mode),
@@ -363,8 +360,11 @@ export async function runDaemon(): Promise<void> {
       );
     }
 
-    // Expire stale pending canonical guardian requests left over from before
-    // this process started.  Two categories are cleaned up:
+    // Expire stale pending guardian requests left over from before this
+    // process started. Daemon-keyed by design: interaction-bound kinds die
+    // with THIS process's in-memory pendingInteractions map, so the daemon
+    // triggers the gateway op at its own boot — the gateway never runs it
+    // on its own restart. Two categories are cleaned up:
     //
     // 1. Interaction-bound kinds (tool_approval, pending_question) — their
     //    in-memory pending-interaction session references are gone, so they
@@ -373,31 +373,22 @@ export async function runDaemon(): Promise<void> {
     //    kinds (access_request, tool_grant_request) that expired while the
     //    daemon was stopped are transitioned so dedup logic doesn't return
     //    stale rows.
-    const expiredCount = expireAllPendingCanonicalRequests();
-    if (expiredCount > 0) {
-      log.info(
-        { event: "startup_expired_stale_requests", expiredCount },
-        `Expired ${expiredCount} stale canonical request(s) from previous process`,
-      );
-    }
-
-    // Recover orphaned work items that were left in 'running' state when the
-    // daemon previously crashed or was killed mid-task.
-    const orphanedRunning = listWorkItems({ status: "running" });
-    if (orphanedRunning.length > 0) {
-      for (const item of orphanedRunning) {
-        updateWorkItem(item.id, {
-          status: "failed",
-          lastRunStatus: "interrupted",
-        });
+    //
+    // Startup must not block on the gateway (daemon startup philosophy):
+    // on failure the periodic sweep still reaps time-expired rows, and
+    // decide paths reject interaction-bound strays via pendingInteractions.
+    try {
+      const expiredCount = await expireInteractionBoundGuardianRequests();
+      if (expiredCount > 0) {
         log.info(
-          { workItemId: item.id, title: item.title },
-          "Recovered orphaned running work item → failed (interrupted)",
+          { event: "startup_expired_stale_requests", expiredCount },
+          `Expired ${expiredCount} stale guardian request(s) from previous process`,
         );
       }
-      log.info(
-        { count: orphanedRunning.length },
-        "Recovered orphaned running work items",
+    } catch (err) {
+      log.warn(
+        { err },
+        "Startup guardian-request expiry failed — continuing in degraded mode",
       );
     }
 
@@ -509,7 +500,7 @@ export async function runDaemon(): Promise<void> {
   // `conversations.resumeProcessingOnStartup` is enabled the reconciler also
   // selects conversations to resume once startup completes (the wakes need
   // providers/CES, so they are kicked off next to `setStartupComplete()`).
-  let conversationsToResume: string[] = [];
+  let conversationsToResume: InterruptedResumeTarget[] = [];
   if (dbReady) {
     try {
       const reconciled = reconcileInterruptedConversations(
@@ -532,6 +523,12 @@ export async function runDaemon(): Promise<void> {
             maxAttempts: MAX_RESUME_ATTEMPTS,
           },
           "Left interrupted conversations un-resumed after repeated interruptions",
+        );
+      }
+      if (reconciled.trustUnrecoverable.length > 0) {
+        log.warn(
+          { conversationIds: reconciled.trustUnrecoverable },
+          "Left interrupted conversations un-resumed: resting trust could not be reconstructed",
         );
       }
     } catch (err) {
@@ -563,7 +560,7 @@ export async function runDaemon(): Promise<void> {
   }
 
   // Refresh the consent cache regardless of dev mode so record-time telemetry
-  // writes (gated on getCachedShareAnalytics()) work in dev too. The usage
+  // writes (which drop on a confirmed opt-out) work in dev too. The usage
   // telemetry reporter re-checks share_analytics on every flush, so dev still
   // never sends telemetry to the platform. Fire-and-forget: startConsentRefresh()
   // runs an immediate non-blocking refresh, so the startup hot path is never

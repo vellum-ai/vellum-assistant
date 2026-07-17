@@ -51,6 +51,34 @@ export function getMtime(filePath: string): number {
 }
 
 /**
+ * Composite change signature for a file — `mtimeMs:size:ino` — or `""` when the
+ * file is absent or can't be stat'd.
+ *
+ * Unlike {@link getMtime}, this detects a rewrite even when the filesystem's
+ * mtime resolution is too coarse to move the timestamp (or two rewrites land in
+ * the same timestamp granule). The source-versions sentinel is published via a
+ * temp-file + atomic rename, which swaps in a fresh inode on every write, so
+ * `ino` changes even when `mtimeMs` does not — and `size` shifts too whenever
+ * the plugin set does. Gating the reconcile on this signature (rather than
+ * mtime alone) is what lets a plugin installed at runtime go live on
+ * filesystems whose mtime granularity is coarse (virtiofs / 9p / network mounts
+ * — the same mounts the plugin-source watcher polls precisely because their
+ * timestamps are unreliable) instead of only after the next daemon restart.
+ *
+ * Change detection only — the exact numbers are never interpreted, so inode
+ * values above 2^53 losing float precision cannot cause a missed update: `mtime`
+ * and `size` still move on a real publish.
+ */
+export function getFileSignature(filePath: string): string {
+  try {
+    const st = statSync(filePath);
+    return `${st.mtimeMs}:${st.size}:${st.ino}`;
+  } catch {
+    return "";
+  }
+}
+
+/**
  * Evict `filePath` from the runtime module registry so the next dynamic
  * `import()` of that path re-evaluates the file from disk.
  *

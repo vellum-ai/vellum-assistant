@@ -28,6 +28,14 @@ import {
   openMarkdownOAuthLinkInPopup,
   shouldOpenMarkdownLinkInOAuthPopup,
 } from "@/domains/chat/utils/oauth-popup-links";
+import {
+  RedactedCredentialChip,
+  type RedactedCredentialChipProps,
+} from "@/domains/chat/components/redacted-credential-chip";
+import {
+  REDACTED_CREDENTIAL_TAG,
+  rehypeRedactedCredential,
+} from "@/domains/chat/utils/rehype-redacted-credential";
 import { rehypeStreamWordFade } from "@/domains/chat/utils/rehype-stream-word-fade";
 
 /** Returns true when `href` is a known `vellum://` attachment link. */
@@ -77,7 +85,8 @@ function OAuthAwareLink({
   );
 }
 
-const IMAGE_CLASSES = "my-2 max-w-full max-h-[400px] rounded-lg border border-[var(--border-default)] object-contain";
+const IMAGE_CLASSES =
+  "my-2 max-w-full max-h-[400px] rounded-lg border border-[var(--border-default)] object-contain";
 
 function ImageErrorFallback({ alt }: { alt: string }) {
   return (
@@ -137,7 +146,11 @@ function WorkspaceInlineImage({
   const attachment = attachments?.find((a) => a.filename === pathBasename);
 
   useEffect(() => {
-    if (!attachment || !assistantId || attachment.id.startsWith("rehydrated:")) {
+    if (
+      !attachment ||
+      !assistantId ||
+      attachment.id.startsWith("rehydrated:")
+    ) {
       return;
     }
 
@@ -161,7 +174,10 @@ function WorkspaceInlineImage({
       } catch (err) {
         if (!revoked) {
           setFailed(true);
-          captureError(err, { context: "WorkspaceInlineImage", bestEffort: true });
+          captureError(err, {
+            context: "WorkspaceInlineImage",
+            bestEffort: true,
+          });
         }
       }
     })();
@@ -207,7 +223,10 @@ function WorkspaceInlineImage({
   );
 }
 
-export interface ChatMarkdownMessageProps extends Omit<MarkdownMessageProps, "linkComponent" | "imageComponent"> {
+export interface ChatMarkdownMessageProps extends Omit<
+  MarkdownMessageProps,
+  "linkComponent" | "imageComponent"
+> {
   /**
    * Callback invoked when a `vellum://` link is clicked. Receives the full
    * href (e.g. `vellum://workspace/scratch/report.pdf`) and the visible
@@ -233,6 +252,15 @@ export interface ChatMarkdownMessageProps extends Omit<MarkdownMessageProps, "li
    * content should render plain (`undefined`).
    */
   streamWordFade?: "revealing" | "caughtUp";
+  /**
+   * Render redacted-credential sentinels as interactive chips (see
+   * `rehypeRedactedCredential`). Enable ONLY for daemon-persisted content
+   * (assistant text, tool results) — the persist seams neutralize forged
+   * sentinel strings there, so surviving sentinels are redactor-authored.
+   * Never enable for user-authored content: a pasted sentinel-shaped string
+   * must render as literal text, not manufacture a reveal affordance.
+   */
+  redactedCredentialChips?: boolean;
 }
 
 export const ChatMarkdownMessage = memo(function ChatMarkdownMessage({
@@ -243,6 +271,7 @@ export const ChatMarkdownMessage = memo(function ChatMarkdownMessage({
   attachments,
   assistantId,
   streamWordFade,
+  redactedCredentialChips,
 }: ChatMarkdownMessageProps) {
   const { openPreview, previewModal } = useAttachmentPreview(
     assistantId,
@@ -277,17 +306,26 @@ export const ChatMarkdownMessage = memo(function ChatMarkdownMessage({
     [onVellumLinkClick],
   );
 
-  const streamFadePlugins = useMemo(
-    () =>
-      streamWordFade
+  const extraRehypePlugins = useMemo(
+    () => [
+      // Upgrade redacted-credential sentinels into chip elements — only for
+      // content the daemon persisted (assistant text, tool results), where
+      // forged sentinel strings are neutralized at the persist seams. User
+      // messages never enable this, so pasted sentinel-shaped text renders
+      // as literal text instead of manufacturing a reveal affordance.
+      ...(redactedCredentialChips
+        ? [rehypeRedactedCredential as import("unified").Pluggable]
+        : []),
+      ...(streamWordFade
         ? [
             [
               rehypeStreamWordFade,
               { caughtUp: streamWordFade === "caughtUp" },
             ] as import("unified").Pluggable,
           ]
-        : undefined,
-    [streamWordFade],
+        : []),
+    ],
+    [redactedCredentialChips, streamWordFade],
   );
 
   const imageComponent: MarkdownImageComponent = useMemo(
@@ -309,6 +347,33 @@ export const ChatMarkdownMessage = memo(function ChatMarkdownMessage({
     [attachments, assistantId, openPreview],
   );
 
+  // Built per-render (not module-level) so the chip's reveal request is scoped
+  // to THIS transcript's assistant. A static map would leave the chip reading
+  // the globally active assistant, which can differ from the transcript owner
+  // (inspector, document view, multi-assistant surfaces) and reveal the wrong
+  // assistant's credential for a colliding service:field name.
+  //
+  // The chip is keyed by its full identity (assistant + vault coordinates):
+  // when a re-render puts a DIFFERENT sentinel at the same tree position
+  // (transcript snapshot replacing streamed content, edited history), React
+  // would otherwise preserve the old instance's state by position — leaving
+  // a revealed plaintext, or an in-flight reveal response, attached to the
+  // new credential's label. The key change remounts the chip with fresh
+  // state, and any in-flight reveal resolves against the unmounted instance
+  // as a no-op.
+  const extraComponents = useMemo(
+    () => ({
+      [REDACTED_CREDENTIAL_TAG]: (props: RedactedCredentialChipProps) => (
+        <RedactedCredentialChip
+          key={`${assistantId ?? ""}\u0000${props.service ?? ""}\u0000${props.field ?? ""}`}
+          {...props}
+          assistantId={assistantId}
+        />
+      ),
+    }),
+    [assistantId],
+  );
+
   return (
     <>
       <MarkdownMessage
@@ -318,7 +383,8 @@ export const ChatMarkdownMessage = memo(function ChatMarkdownMessage({
         linkComponent={linkComponent}
         imageComponent={imageComponent}
         urlTransform={vellumUrlTransform}
-        extraRehypePlugins={streamFadePlugins}
+        extraRehypePlugins={extraRehypePlugins}
+        extraComponents={redactedCredentialChips ? extraComponents : undefined}
       />
       {previewModal}
     </>

@@ -7,28 +7,30 @@
  *     supplants the generic recall/remember nudge).
  *   - `now-md` fires unchanged (workspace state, independent of PKB).
  *
- * Mocks `getConfig` at the module level so each test can flip the effective
- * gate state without standing up a full config stack. Mocks the PKB hybrid
- * search so the reminder-with-hints branch can resolve deterministically
- * when called.
+ * Seeds `memory.v2.enabled` into the workspace config (and mirrors it in the
+ * mocked plugin config accessor) so each test can flip the effective gate
+ * state. Mocks the PKB hybrid search so the reminder-with-hints branch can
+ * resolve deterministically when called.
  */
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { setConfig } from "./helpers/set-config.js";
+
 let v2Active = false;
 
-const realLoader = await import("../config/loader.js");
-
-mock.module("../config/loader.js", () => ({
-  ...realLoader,
-  getConfig: () => ({
-    memory: {
-      v2: { enabled: v2Active },
-      retrieval: { scratchpadInjection: { enabled: true } },
-    },
-  }),
-}));
+/**
+ * Flip the v2 gate: seeds the workspace config for real (covering any
+ * loader-based readers) and drives the mocked plugin accessor below.
+ */
+function setV2Active(enabled: boolean): void {
+  v2Active = enabled;
+  setConfig("memory", {
+    v2: { enabled },
+    retrieval: { scratchpadInjection: { enabled: true } },
+  });
+}
 
 // The PKB silencing gate reads the plugin's own config accessor.
 mock.module("../plugins/defaults/memory/config.js", () => ({
@@ -81,7 +83,7 @@ describe("PKB injector v2 cutover behavior", () => {
   // passing a flag.
   beforeEach(() => {
     registerDefaultPluginInjectors();
-    v2Active = false;
+    setV2Active(false);
     mkdirSync(getPkbRoot(), { recursive: true });
     writeFileSync(
       join(getPkbRoot(), "INDEX.md"),
@@ -111,7 +113,7 @@ describe("PKB injector v2 cutover behavior", () => {
   });
 
   test("v2 active → pkb-context and pkb-reminder silenced; now-md still fires", async () => {
-    v2Active = true;
+    setV2Active(true);
     const result = await applyRuntimeInjections(RUN_MESSAGES, {
       ...makeTurnContext(),
     });

@@ -21,7 +21,6 @@ mock.module("../apps/app-store.js", () => ({
   getApp: (id: string) => mockApps.get(id) ?? null,
   getAppsDir: () => testAppsDir,
   getAppDirPath: (id: string) => join(testAppsDir, id),
-  isMultifileApp: (app: Record<string, unknown>) => app.formatVersion === 2,
 }));
 
 // Mock content-id to avoid pulling in crypto internals
@@ -323,19 +322,12 @@ render(<App />, document.getElementById('app')!);
     expect(zip.file("main.css")).toBeNull();
   });
 
-  test("keeps legacy single-file apps packageable", async () => {
+  test("rejects legacy single-file apps with a missing-src error", async () => {
     const appId = "legacy-single-file";
     setupLegacyApp(appId);
 
-    const result = await packageApp(appId);
-    const zipData = await readFile(result.bundlePath);
-    const zip = await JSZip.loadAsync(zipData);
-
-    const indexContent = await zip.file("index.html")!.async("string");
-    const manifestJson = await zip.file("manifest.json")!.async("string");
-    const manifest: AppManifest = JSON.parse(manifestJson);
-
-    expect(indexContent).toContain("<h1>Legacy</h1>");
-    expect(manifest.format_version).toBe(1);
+    await expect(packageApp(appId)).rejects.toThrow(
+      /missing src\/index\.html and src\/main\.tsx/,
+    );
   });
 });

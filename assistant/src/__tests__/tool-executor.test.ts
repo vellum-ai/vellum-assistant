@@ -9,35 +9,6 @@ import { RiskLevel } from "../permissions/types.js";
 import type { Tool, ToolExecutionResult } from "../tools/types.js";
 import { createAbortReason } from "../util/abort-reasons.js";
 
-const mockConfig = {
-  provider: "anthropic",
-  model: "test",
-  maxTokens: 4096,
-  dataDir: "/tmp",
-  timeouts: {
-    shellDefaultTimeoutSec: 120,
-    shellMaxTimeoutSec: 600,
-    permissionTimeoutSec: 300,
-    questionResponseTimeoutSec: 1800,
-  },
-  sandbox: {
-    enabled: false,
-    backend: "native" as const,
-    docker: {
-      image: "vellum-sandbox:latest",
-      cpus: 1,
-      memoryMb: 512,
-      pidsLimit: 256,
-      network: "none" as const,
-    },
-  },
-  rateLimit: { maxRequestsPerMinute: 0 },
-  secretDetection: {
-    enabled: false,
-  },
-  permissions: {},
-};
-
 let fakeToolResult: ToolExecutionResult = { content: "ok", isError: false };
 
 /** Captured arguments from the last check() call, for assertion in tests. */
@@ -87,16 +58,6 @@ let cachedAssessmentOverride:
       matchType: string;
     }
   | undefined;
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => mockConfig,
-  loadConfig: () => mockConfig,
-  invalidateConfigCache: () => {},
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  getNestedValue: () => undefined,
-  setNestedValue: () => {},
-}));
 
 mock.module("../permissions/checker.js", () => ({
   isDynamicSkillLoadInvocation: () => false,
@@ -170,6 +131,7 @@ mock.module("../tools/shared/filesystem/path-policy.js", () => ({
   hostPolicy: () => ({ ok: false }),
 }));
 
+import { getConfig } from "../config/loader.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import {
   computePerToolTimeoutMs,
@@ -1344,7 +1306,7 @@ describe("computePerToolTimeoutMs ask_question budget", () => {
   // or if the executor budget and the prompter timeout drift onto different
   // config knobs.
   test("execution-timeout budget exceeds the prompt's own questionResponseTimeoutSec", () => {
-    const { questionResponseTimeoutSec } = mockConfig.timeouts;
+    const { questionResponseTimeoutSec } = getConfig().timeouts;
     const askQuestionBudgetMs = computePerToolTimeoutMs("ask_question", {});
 
     expect(askQuestionBudgetMs).toBeGreaterThan(
@@ -1354,7 +1316,7 @@ describe("computePerToolTimeoutMs ask_question budget", () => {
   });
 
   test("the generic budget that would otherwise apply is shorter than the prompt timeout", () => {
-    const { questionResponseTimeoutSec } = mockConfig.timeouts;
+    const { questionResponseTimeoutSec } = getConfig().timeouts;
     const genericBudgetMs = computePerToolTimeoutMs("some_other_tool", {});
 
     // This is the collision the ask_question special case fixes: the generic

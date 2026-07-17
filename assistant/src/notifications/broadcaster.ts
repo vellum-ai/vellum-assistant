@@ -135,7 +135,14 @@ export interface ConversationCreatedInfo {
    */
   silent: boolean;
 }
-export type OnConversationCreatedFn = (info: ConversationCreatedInfo) => void;
+/**
+ * A returned promise is awaited before the broadcast proceeds (and before the
+ * `notification_conversation_created` event is emitted), so delivery
+ * bookkeeping rows can be durable before a client can act on the conversation.
+ */
+export type OnConversationCreatedFn = (
+  info: ConversationCreatedInfo,
+) => void | Promise<void>;
 export interface BroadcastDecisionOptions {
   onConversationCreated?: OnConversationCreatedFn;
 }
@@ -422,10 +429,12 @@ export class NotificationBroadcaster {
         // The per-dispatch onConversationCreated callback fires whenever a vellum
         // conversation is paired (new or reused) because callers like
         // dispatchGuardianQuestion rely on it to create delivery bookkeeping
-        // rows before emitNotificationSignal() returns.
+        // rows before emitNotificationSignal() returns. A returned promise is
+        // awaited so those rows are durable before the client can learn of
+        // the conversation and act on its approval card.
         if (options?.onConversationCreated) {
           try {
-            options.onConversationCreated(info);
+            await options.onConversationCreated(info);
           } catch (err) {
             log.error(
               { err, signalId: signal.signalId },
@@ -444,7 +453,7 @@ export class NotificationBroadcaster {
         ) {
           if (this.onConversationCreated) {
             try {
-              this.onConversationCreated(info);
+              await this.onConversationCreated(info);
             } catch (err) {
               log.error(
                 { err, signalId: signal.signalId },

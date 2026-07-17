@@ -6,10 +6,8 @@ import type {
   UiSurfaceShowFileUpload,
 } from "../daemon/message-protocol.js";
 import { INTERACTIVE_SURFACE_TYPES } from "../daemon/message-protocol.js";
-import {
-  allUiSurfaceTools,
-  uiShowTool,
-} from "../tools/ui-surface/definitions.js";
+import { explicitTools } from "../tools/tool-manifest.js";
+import { uiShowTool } from "../tools/ui-surface/definitions.js";
 
 // ---------------------------------------------------------------------------
 // FileUploadSurfaceData shape
@@ -97,11 +95,10 @@ describe("ui_show tool includes file_upload", () => {
 
 describe("UI surface tool registration", () => {
   test("registers only the base UI surface tools", () => {
-    expect(allUiSurfaceTools.map((tool) => tool.name)).toEqual([
-      "ui_show",
-      "ui_update",
-      "ui_dismiss",
-    ]);
+    const uiToolNames = explicitTools
+      .map((tool) => tool.name)
+      .filter((name) => name?.startsWith("ui_"));
+    expect(uiToolNames).toEqual(["ui_show", "ui_update", "ui_dismiss"]);
   });
 });
 

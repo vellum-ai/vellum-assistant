@@ -13,8 +13,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 let twilioInitiateCallBehavior: "success" | "error" = "success";
 let twilioInitiateCallCount = 0;
 let twilioInitiateCallArgs: Array<Record<string, unknown>> = [];
-let mockIngressEnabled = true;
-let mockIngressPublicBaseUrl = "https://test.example.com";
 
 mock.module("../calls/twilio-config.js", () => ({
   getTwilioConfig: (assistantId?: string) => ({
@@ -48,33 +46,6 @@ mock.module("../calls/twilio-provider.js", () => ({
 
 mock.module("../security/secure-keys.js", () => ({
   getSecureKeyAsync: async () => null,
-}));
-
-mock.module("../config/loader.js", () => ({
-  loadConfig: () => ({
-    calls: {
-      enabled: true,
-      provider: "twilio",
-      callerIdentity: { allowPerCallOverride: true },
-    },
-    ingress: {
-      enabled: mockIngressEnabled,
-      publicBaseUrl: mockIngressPublicBaseUrl,
-    },
-    memory: { enabled: false },
-  }),
-  getConfig: () => ({
-    calls: {
-      enabled: true,
-      provider: "twilio",
-      callerIdentity: { allowPerCallOverride: true },
-    },
-    ingress: {
-      enabled: mockIngressEnabled,
-      publicBaseUrl: mockIngressPublicBaseUrl,
-    },
-    memory: { enabled: false },
-  }),
 }));
 
 mock.module("../inbound/platform-callback-registration.js", () => ({
@@ -119,6 +90,18 @@ import { getMessages } from "../persistence/conversation-crud.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { conversations } from "../persistence/schema/index.js";
+import { setConfig } from "./helpers/set-config.js";
+
+/** Seed the ingress block startCall's preflight reads for real. */
+function seedIngress(enabled: boolean): void {
+  setConfig("ingress", {
+    enabled,
+    publicBaseUrl: "https://test.example.com",
+  });
+}
+
+// Disable memory so pointer-message writes skip background indexing.
+setConfig("memory", { enabled: false });
 
 await initializeDb();
 
@@ -128,8 +111,7 @@ beforeEach(() => {
   twilioInitiateCallBehavior = "success";
   twilioInitiateCallCount = 0;
   twilioInitiateCallArgs = [];
-  mockIngressEnabled = true;
-  mockIngressPublicBaseUrl = "https://test.example.com";
+  seedIngress(true);
   mockCredentialReadiness = { status: "ready" };
 });
 
@@ -334,7 +316,7 @@ describe("startCall — pointer message regression", () => {
   test("fails fast when ingress is disabled and never reaches Twilio dialing", async () => {
     const convId = "conv-domain-ingress-disabled";
     ensureConversation(convId);
-    mockIngressEnabled = false;
+    seedIngress(false);
 
     const result = await startCall({
       phoneNumber: "+15559876543",

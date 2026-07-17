@@ -75,8 +75,12 @@ mock.module("../runtime/approval-message-composer.js", () => ({
   composeApprovalMessageGenerative: async () => "mock generative message",
 }));
 
+import { createGuardianGatewaySim } from "./guardian-gateway-sim.js";
+
+const sim = createGuardianGatewaySim();
+mock.module("../channels/gateway-guardian-requests.js", () => sim.module);
+
 import { getResolver } from "../approvals/guardian-request-resolvers.js";
-import { createCanonicalGuardianRequest } from "../contacts/canonical-guardian-store.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import {
@@ -99,14 +103,13 @@ const GUARDIAN_APPROVAL_TTL_MS = 5 * 60 * 1000;
 function resetState(): void {
   resetVerificationSessionsSim();
   const db = getDb();
-  db.run("DELETE FROM canonical_guardian_requests");
-  db.run("DELETE FROM canonical_guardian_deliveries");
   db.run("DELETE FROM channel_inbound_events");
   db.run("DELETE FROM conversations");
   db.run("DELETE FROM notification_events");
   db.run("DELETE FROM contact_channels");
   db.run("DELETE FROM contacts");
   resetGatewayAclStore();
+  sim.reset();
   emitSignalCalls.length = 0;
   deliverReplyCalls.length = 0;
 }
@@ -177,12 +180,12 @@ describe("trusted contact lifecycle notification signals", () => {
     const testRequestId = `req-deny-${Date.now()}`;
 
     // Create a pending canonical access request
-    createCanonicalGuardianRequest({
+    sim.seedRequest({
       id: testRequestId,
       kind: "access_request",
       sourceType: "channel",
       sourceChannel: "telegram",
-      conversationId: "access-req-telegram-requester-user-456",
+      sourceConversationId: "access-req-telegram-requester-user-456",
       requesterExternalUserId: "requester-user-456",
       requesterChatId: "requester-chat-456",
       guardianExternalUserId: "guardian-user-789",
@@ -271,12 +274,12 @@ describe("trusted contact lifecycle notification signals", () => {
     const testRequestId = `req-approve-${Date.now()}`;
 
     // Create a pending canonical access request
-    createCanonicalGuardianRequest({
+    sim.seedRequest({
       id: testRequestId,
       kind: "access_request",
       sourceType: "channel",
       sourceChannel: "telegram",
-      conversationId: "access-req-telegram-requester-user-456",
+      sourceConversationId: "access-req-telegram-requester-user-456",
       requesterExternalUserId: "requester-user-456",
       requesterChatId: "requester-chat-456",
       guardianExternalUserId: "guardian-user-789",
@@ -347,12 +350,12 @@ describe("trusted contact lifecycle notification signals", () => {
 
     const testRequestId = `req-dedup-${Date.now()}`;
 
-    const approval = createCanonicalGuardianRequest({
+    const approval = sim.seedRequest({
       id: testRequestId,
       kind: "access_request",
       sourceType: "channel",
       sourceChannel: "telegram",
-      conversationId: "access-req-telegram-requester-user-456",
+      sourceConversationId: "access-req-telegram-requester-user-456",
       requesterExternalUserId: "requester-user-456",
       requesterChatId: "requester-chat-456",
       guardianExternalUserId: "guardian-user-789",
@@ -419,12 +422,12 @@ describe("trusted contact lifecycle notification signals", () => {
 
     const testRequestId = `req-noname-${Date.now()}`;
 
-    createCanonicalGuardianRequest({
+    sim.seedRequest({
       id: testRequestId,
       kind: "access_request",
       sourceType: "channel",
       sourceChannel: "telegram",
-      conversationId: "access-req-telegram-requester-noname-222",
+      sourceConversationId: "access-req-telegram-requester-noname-222",
       requesterExternalUserId: "requester-noname-222",
       requesterChatId: "requester-chat-222",
       guardianExternalUserId: "guardian-noname-111",

@@ -136,6 +136,9 @@ export function useChatEmptyState({
           size={40}
           interactive
           isAssistantBusy={isAssistantBusy}
+          // The empty-state greeting avatar — the room's entrance grows from
+          // here on a fresh chat.
+          originAnchor
         />
       ) : null,
     greeting: editingApp ? buildEditAppGreeting(editingApp) : emptyStateGreeting,
@@ -182,6 +185,10 @@ export function useChatEmptyState({
               size={56}
               interactive
               isAssistantBusy={isAssistantBusy}
+              // The latest-turn avatar below the most recent assistant
+              // response — the room's entrance grows from here in a
+              // conversation.
+              originAnchor
             />
           )
         : undefined,

@@ -18,24 +18,11 @@
 
 import { beforeAll, describe, expect, mock, test } from "bun:test";
 
+import * as realPlatform from "../util/platform.js";
+
 // Local registry for ToolExecutor tests — the mock delegates to this map
 // so that registerTool/getTool/getAllTools work for our benchmark tools.
 const localRegistry = new Map<string, import("../tools/types.js").Tool>();
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-
-    provider: "mock-provider",
-    timeouts: { permissionTimeoutSec: 5, toolExecutionTimeoutSec: 120 },
-    permissions: {},
-    skills: { load: { extraDirs: [] } },
-    secretDetection: { enabled: true },
-    sandbox: { enabled: false },
-    contextWindow: {},
-    memory: {},
-  }),
-}));
 
 mock.module("../config/skills.js", () => ({
   resolveSkillSelector: () => ({ skill: null }),
@@ -60,6 +47,7 @@ mock.module("../config/env-registry.js", () => ({
 }));
 
 mock.module("../util/platform.js", () => ({
+  ...realPlatform,
   getWorkspaceDir: () => "/tmp",
   getProtectedDir: () => "/tmp/protected",
   getWorkspaceHooksDir: () => "/tmp/hooks",

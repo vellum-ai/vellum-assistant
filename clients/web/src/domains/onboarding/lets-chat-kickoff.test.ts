@@ -17,6 +17,15 @@ describe("buildLetsChatKickoffMessage", () => {
     expect(msg).toContain("don't use `recall` or read any files");
   });
 
+  test("instructs a closing question that is specific and answerable", () => {
+    const msg = buildLetsChatKickoffMessage("Quill");
+    expect(msg).toContain(
+      "exactly one short question about something specific you already know",
+    );
+    expect(msg).toContain("five words or less");
+    expect(msg).toContain("Never ask what they want to do");
+  });
+
   test("omits the name line when no name was picked", () => {
     for (const name of [undefined, "", "   "]) {
       const msg = buildLetsChatKickoffMessage(name);

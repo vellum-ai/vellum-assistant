@@ -3,36 +3,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import type { ToolExecutionResult } from "../tools/types.js";
 import type { UsageAttributionSnapshot } from "../usage/attribution.js";
 
-const mockConfig = {
-  provider: "anthropic",
-  model: "test",
-  maxTokens: 4096,
-  dataDir: "/tmp",
-  timeouts: {
-    shellDefaultTimeoutSec: 120,
-    shellMaxTimeoutSec: 600,
-    permissionTimeoutSec: 300,
-  },
-  sandbox: {
-    enabled: false,
-    backend: "native" as const,
-    docker: {
-      image: "vellum-sandbox:latest",
-      cpus: 1,
-      memoryMb: 512,
-      pidsLimit: 256,
-      network: "none" as const,
-    },
-  },
-  rateLimit: { maxRequestsPerMinute: 0 },
-  secretDetection: {
-    enabled: false,
-  },
-  permissions: {
-    mode: "workspace" as const,
-  },
-};
-
 let checkerDecision: "allow" | "prompt" | "deny" = "allow";
 let checkerReason = "allowed";
 let checkerRisk = "low";
@@ -108,20 +78,10 @@ mock.module("../telemetry/tool-audit.js", () => ({
   },
 }));
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => mockConfig,
-  loadConfig: () => mockConfig,
-  invalidateConfigCache: () => {},
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  getNestedValue: () => undefined,
-  setNestedValue: () => {},
-}));
-
 // Analytics consent is granted so any consent-gated telemetry path the audit
 // terminals consult sees the opted-in state.
 mock.module("../platform/consent-cache.js", () => ({
-  getCachedShareAnalytics: () => true,
+  getRawShareAnalytics: () => true,
 }));
 
 mock.module("../permissions/checker.js", () => ({

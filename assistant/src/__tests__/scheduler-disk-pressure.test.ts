@@ -6,22 +6,6 @@ mock.module("../runtime/agent-wake.js", () => ({
   ),
 }));
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({}),
-  loadConfig: () => ({}),
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  getConfigReadOnly: () => ({}),
-  applyNestedDefaults: (config: unknown) => config,
-  deepMergeOverwrite: (base: unknown) => base,
-  mergeDefaultWorkspaceConfig: () => {},
-  getNestedValue: () => undefined,
-  setNestedValue: () => {},
-  API_KEY_PROVIDERS: [],
-  _writeQuarantineNotice: () => {},
-  invalidateConfigCache: () => {},
-}));
-
 let locked = true;
 mock.module("../daemon/disk-pressure-background-gate.js", () => ({
   checkDiskPressureBackgroundGate: () =>

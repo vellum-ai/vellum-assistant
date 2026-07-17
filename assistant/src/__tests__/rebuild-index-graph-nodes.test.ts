@@ -16,13 +16,6 @@ mock.module("../persistence/jobs-store.js", () => ({
   },
 }));
 
-// Stub config — multimodal disabled so we only test the graph path
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    memory: { enabled: true },
-  }),
-}));
-
 mock.module("../persistence/embeddings/embedding-backend.js", () => ({
   selectedBackendSupportsMultimodal: async () => false,
 }));

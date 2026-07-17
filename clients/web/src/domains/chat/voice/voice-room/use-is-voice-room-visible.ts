@@ -4,11 +4,13 @@
  *
  * The room is the owning-composer's voice surface: it shows exactly when a
  * session is active AND the composer currently on screen owns it AND this is
- * the main window (never a pop-out — see below). Its popout-free core,
+ * the main window (never a pop-out — see below). It is a full-app takeover —
+ * there is no minimize: the room stays up for the whole session and ending the
+ * session (the room's ✕) is the only way out. Its popout-free core,
  * {@link useOwningComposerSurfaceVisible}, is the precise complement of the
  * title-bar session pill, whose host consumes that primitive's negation
- * (`sessionActive && !owningSurfaceVisible`) so the two surfaces can never both
- * render — or both hide — for an active owned session.
+ * (`sessionActive && !owningSurfaceVisible`) so the two surfaces can never
+ * both render — or both hide — for an active owned session.
  *
  * The inputs mirror {@link VoiceSessionPillHost} one-for-one:
  * - `composerOnScreen` — shared via {@link useComposerOnScreen}: a conversation
@@ -65,9 +67,9 @@ export function useOwningComposerSurfaceVisible(): boolean {
 }
 
 /**
- * Whether the full-screen voice room should render. See the module docstring
- * for the exact-complement contract with the title-bar session pill and the
- * pop-out exclusion.
+ * Whether the voice room should render. See the module docstring for the
+ * complement contract with the title-bar session pill and the pop-out
+ * exclusion.
  */
 export function useIsVoiceRoomVisible(): boolean {
   const owningSurfaceVisible = useOwningComposerSurfaceVisible();

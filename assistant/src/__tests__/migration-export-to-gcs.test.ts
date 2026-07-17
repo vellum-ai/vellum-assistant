@@ -43,18 +43,6 @@ mock.module("../permissions/trust-store.js", () => ({
   clearCache: () => {},
 }));
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    model: "test",
-    provider: "test",
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    secretDetection: { enabled: false },
-  }),
-  invalidateConfigCache: () => {},
-}));
-
 // Force the credential collector onto the unreachable branch so the
 // handler treats it as "export without credentials" (fast, no CES).
 mock.module("../security/secure-keys.js", () => ({

@@ -27,6 +27,14 @@ export type ManagedSpeechResult<T> =
       status?: number;
       /** Platform error code (e.g. `insufficient_balance`) when the body carried one. */
       code?: string;
+      /**
+       * Platform-supplied human-readable message, present only when the error
+       * body carried a `detail` field. Absent when the failure fell back to a
+       * bare HTTP status. `message` mirrors this when set; callers use the
+       * presence of `detail` to distinguish real platform copy (safe to surface
+       * verbatim) from the generic status fallback.
+       */
+      detail?: string;
       message: string;
     };
 
@@ -67,6 +75,15 @@ async function resolveClient(): Promise<
     };
   }
   return { client };
+}
+
+/**
+ * Whether managed speech can be used at all: a platform connection whose
+ * assistant identity is fully provisioned. A stored API key alone is not
+ * enough — synthesis/transcription would fail before any request is made.
+ */
+export async function managedSpeechAvailable(): Promise<boolean> {
+  return !("error" in (await resolveClient()));
 }
 
 export async function managedSpeechTranscribe(input: {
@@ -188,6 +205,7 @@ async function platformError(
     kind: "platform-error",
     status: response.status,
     code,
+    detail,
     message:
       detail ??
       `Managed speech ${operation} failed (platform returned ${response.status}).`,

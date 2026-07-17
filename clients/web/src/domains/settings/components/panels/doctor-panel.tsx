@@ -7,12 +7,14 @@ import { Tag } from "@vellumai/design-library/components/tag";
 
 import { ShareFeedbackModal } from "@/components/share-feedback-modal";
 import type { FeedbackReason } from "@/components/share-feedback-types";
+import { AssistantBackups } from "@/domains/settings/components/assistant-backups";
 import {
   ApprovalBlock,
   AssistantMessage,
   BackupPromptBlock,
   ErrorMessage,
   FeedbackPromptBlock,
+  UserOutcomePromptBlock,
   StatusMessage,
   ToolCallBlock,
   UserMessage,
@@ -20,6 +22,8 @@ import {
 import { DoctorAvatar } from "@/domains/settings/components/panels/doctor-avatar";
 import {
   type ChatEntry,
+  type DoctorUserOutcomeAnswer,
+  applySessionUserOutcome,
   hasPendingApproval,
   hasPendingBackup,
   latestReplayableDoctorSourceEventId,
@@ -42,7 +46,11 @@ import {
   assistantsDoctorHistoryRetrieveOptions,
   useAssistantsDoctorSessionsMessagesCreateMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
-import { type Options, assistantsDoctorSessionsCreate } from "@/generated/api/sdk.gen";
+import {
+  type Options,
+  assistantsDoctorSessionsCreate,
+  assistantsDoctorSessionsUserOutcomeCreate,
+} from "@/generated/api/sdk.gen";
 import type { AssistantsDoctorSessionsCreateData } from "@/generated/api/types.gen";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { captureError } from "@/lib/sentry/capture-error";
@@ -177,7 +185,10 @@ export function DoctorPanel() {
   const historyEntries = useMemo(
     () =>
       historyDetail
-        ? mapPersistedMessagesToEntries(historyDetail.messages ?? [])
+        ? applySessionUserOutcome(
+            mapPersistedMessagesToEntries(historyDetail.messages ?? []),
+            historyDetail.user_outcome,
+          )
         : [],
     [historyDetail],
   );
@@ -204,7 +215,10 @@ export function DoctorPanel() {
 
     const store = useDoctorPanelStore.getState();
     const messages = historyDetail.messages ?? [];
-    const resumedEntries = mapPersistedMessagesToEntries(messages);
+    const resumedEntries = applySessionUserOutcome(
+      mapPersistedMessagesToEntries(messages),
+      historyDetail.user_outcome,
+    );
     store.setEntries(resumedEntries);
     store.setPendingApproval(hasPendingApproval(resumedEntries));
     store.setPendingBackup(hasPendingBackup(resumedEntries));
@@ -346,6 +360,71 @@ export function DoctorPanel() {
     setFeedbackDraft(null);
   }, []);
 
+  const refetchHistoryDetail = historyDetailQuery.refetch;
+  const handleUserOutcomeRespond = useCallback(
+    (entryId: string, resolved: boolean) => {
+      const store = useDoctorPanelStore.getState();
+      const isHistoryView = store.sessionId === null;
+      const targetSessionId = store.sessionId ?? latestHistorySessionId;
+      if (!assistantId || !targetSessionId) {
+        return;
+      }
+      // Optimistic answer for the live-session view (store-backed entries).
+      const existingEntry = store.entries.find((entry) => entry.id === entryId);
+      const previousAnswer =
+        existingEntry?.kind === "user_outcome_prompt"
+          ? existingEntry.meta?.answer
+          : undefined;
+      const optimisticAnswer = resolved ? "resolved" : "not_resolved";
+      const setAnswer = (answer: DoctorUserOutcomeAnswer | undefined) => {
+        store.updateEntries((entries) =>
+          entries.map((entry) =>
+            entry.id === entryId && entry.kind === "user_outcome_prompt"
+              ? { ...entry, meta: { ...entry.meta, answer } }
+              : entry,
+          ),
+        );
+      };
+      setAnswer(optimisticAnswer);
+      assistantsDoctorSessionsUserOutcomeCreate({
+        path: { assistant_id: assistantId, session_id: targetSessionId },
+        body: { resolved },
+        throwOnError: false,
+      }).then(({ error }) => {
+        if (error) {
+          // Roll back so the prompt stays retryable — the answer wasn't
+          // persisted. Guard against a session/assistant switch that reset the
+          // store and reused entry ids: only roll back while the store still
+          // targets this session and the entry still holds this request's
+          // optimistic answer.
+          const current = useDoctorPanelStore.getState();
+          const currentEntry = current.entries.find(
+            (entry) => entry.id === entryId,
+          );
+          if (
+            current.sessionId === targetSessionId &&
+            currentEntry?.kind === "user_outcome_prompt" &&
+            currentEntry.meta?.answer === optimisticAnswer
+          ) {
+            setAnswer(previousAnswer);
+          }
+          captureError(error, { context: "doctor_session_user_outcome" });
+        } else if (isHistoryView) {
+          // History-view entries render from the query cache, not the
+          // store — refetch so the answered state comes back via
+          // applySessionUserOutcome.
+          void refetchHistoryDetail();
+        }
+      });
+      if (!resolved) {
+        handleOpenFeedback({
+          message: "The Doctor wasn't able to solve my problem: ",
+        });
+      }
+    },
+    [assistantId, latestHistorySessionId, handleOpenFeedback, refetchHistoryDetail],
+  );
+
   const handleEndSession = () => {
     abort();
     const store = useDoctorPanelStore.getState();
@@ -381,6 +460,46 @@ export function DoctorPanel() {
     () => serializeSessionToText(entries),
     [entries],
   );
+
+  // When the doctor lists platform backups, surface the interactive backups
+  // panel (list + restore) inline so the user can act without leaving the
+  // session. Only the most recent completed listing gets the panel — earlier
+  // listings are stale once the doctor (or the user) creates or restores one.
+  // Persisted history replays of past sessions never get it: a transcript
+  // from days ago is no place for live Create/Restore buttons.
+  //
+  // refreshKey remounts the panel (forcing a refetch) when the doctor
+  // completes a backup mutation AFTER the listing — the mounted panel only
+  // fetches on mount and after its own actions, so without this it would
+  // show a stale backup set.
+  const backupsPanel = useMemo(() => {
+    const viewingLiveSession = sessionId !== null || storeEntries.length > 0;
+    if (!viewingLiveSession) {
+      return null;
+    }
+    let refreshKey: string | null = null;
+    for (let i = entries.length - 1; i >= 0; i--) {
+      const candidate = entries[i];
+      if (
+        candidate.kind !== "tool_call" ||
+        candidate.meta.status !== "completed" ||
+        candidate.meta.isError
+      ) {
+        continue;
+      }
+      if (candidate.meta.toolName === "list_assistant_backups") {
+        return { entryId: candidate.id, refreshKey: refreshKey ?? candidate.id };
+      }
+      if (
+        refreshKey === null &&
+        (candidate.meta.toolName === "create_doctor_backup" ||
+          candidate.meta.toolName === "restore_assistant_backup")
+      ) {
+        refreshKey = candidate.id;
+      }
+    }
+    return null;
+  }, [entries, sessionId, storeEntries]);
 
   // Scroll coordinator — auto-follows streaming growth only while the
   // user is pinned to the latest message. Scrolling away (drag on
@@ -543,7 +662,7 @@ export function DoctorPanel() {
           {/* Messages area */}
           <div className="relative min-h-0 flex-1">
           <div ref={scrollContainerRef} className="h-full overflow-y-auto">
-            <div className="mx-auto max-w-2xl space-y-3">
+            <div className="mx-auto max-w-3xl space-y-3">
               {entries.map((entry) => {
                 switch (entry.kind) {
                   case "user":
@@ -555,6 +674,14 @@ export function DoctorPanel() {
                       <div key={entry.id} className="flex justify-start">
                         <div className="w-full">
                           <ToolCallBlock entry={entry} />
+                          {entry.id === backupsPanel?.entryId && assistantId && (
+                            <div className="mt-2 rounded-lg border border-[var(--border-base)] bg-[var(--surface-lift)] p-4">
+                              <AssistantBackups
+                                key={backupsPanel.refreshKey}
+                                assistantId={assistantId}
+                              />
+                            </div>
+                          )}
                         </div>
                       </div>
                     );
@@ -593,6 +720,18 @@ export function DoctorPanel() {
                                   : entry.content,
                               reason: entry.meta?.reason,
                             })
+                          }
+                        />
+                      </div>
+                    );
+                  case "user_outcome_prompt":
+                    return (
+                      <div key={entry.id} className="max-w-[90%]">
+                        <UserOutcomePromptBlock
+                          question={entry.content}
+                          answer={entry.meta?.answer}
+                          onRespond={(resolved) =>
+                            handleUserOutcomeRespond(entry.id, resolved)
                           }
                         />
                       </div>
@@ -659,7 +798,7 @@ export function DoctorPanel() {
                   }
                 }
               }}
-              className="mx-auto w-full max-w-2xl shrink-0 overflow-hidden rounded-[10px] bg-[var(--surface-lift)] shadow-sm ring-1 ring-transparent focus-within:ring-[var(--ring)]"
+              className="mx-auto w-full max-w-3xl shrink-0 overflow-hidden rounded-[10px] bg-[var(--surface-lift)] shadow-sm ring-1 ring-transparent focus-within:ring-[var(--ring)]"
             >
               <textarea
                 ref={inputRef}

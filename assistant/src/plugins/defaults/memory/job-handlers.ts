@@ -36,6 +36,7 @@ import {
 import {
   deleteQdrantVectorsJob,
   rebuildIndexJob,
+  sweepOrphanedGraphNodePointsJob,
 } from "./job-handlers/index-maintenance.js";
 import { embedConceptPageJob } from "./jobs/embed-concept-page.js";
 import { embedPkbFileJob } from "./jobs/embed-pkb-file.js";
@@ -124,6 +125,10 @@ export const memoryJobHandlers: readonly JobHandlerEntry[] = [
   {
     type: "delete_qdrant_vectors",
     handler: (job) => deleteQdrantVectorsJob(job),
+  },
+  {
+    type: "sweep_orphaned_graph_node_points",
+    handler: () => sweepOrphanedGraphNodePointsJob(),
   },
   { type: "embed_media", handler: (job) => embedMediaJob(job) },
   {

@@ -1,13 +1,4 @@
-import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
-
-import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
-
-// Legacy-shaped fixtures (llm.default-centric resolution): pinned to the
-// flag-off cascade. Override-or-default (flag-on) semantics are pinned by
-// llm-resolver-override-or-default.test.ts and its companion suites.
-beforeAll(() => {
-  setOverridesForTesting({ "override-or-default-resolution": false });
-});
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 const updateConversationUsageCalls: Array<{
   conversationId: string;
@@ -15,14 +6,6 @@ const updateConversationUsageCalls: Array<{
   outputTokens: number;
   estimatedCost: number;
 }> = [];
-
-let mockLlmConfig = createMockLlmConfig();
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    llm: mockLlmConfig,
-  }),
-}));
 
 mock.module("../persistence/conversation-crud.js", () => ({
   setConversationProcessingStartedAt: () => {},
@@ -51,63 +34,35 @@ import type { Provider, ProviderResponse } from "../providers/types.js";
 import { UsageTrackingProvider } from "../providers/usage-tracking.js";
 import type { PricingUsage } from "../usage/types.js";
 import { resolvePricingForUsageWithOverrides } from "../util/pricing.js";
+import { setConfig } from "./helpers/set-config.js";
 
 await initializeDb();
 
-function createMockLlmConfig() {
-  return {
-    default: {
-      provider: "anthropic" as const,
-      model: "claude-opus-4-6",
-      maxTokens: 64_000,
-      effort: "max" as const,
-      speed: "standard" as const,
-      verbosity: "medium" as const,
-      temperature: null,
-      thinking: { enabled: true, streamThinking: true },
-      contextWindow: {
-        enabled: true,
-        maxInputTokens: 200_000,
-        targetBudgetRatio: 0.3,
-        compactThreshold: 0.8,
-        summaryBudgetRatio: 0.05,
-        overflowRecovery: {
-          enabled: true,
-          safetyMarginRatio: 0.05,
-          maxAttempts: 3,
-          interactiveLatestTurnCompression: "summarize" as const,
-          nonInteractiveLatestTurnCompression: "truncate" as const,
-        },
-      },
-      openrouter: { only: [] },
+// The attribution assertions resolve profiles/call sites through the real
+// workspace config, so seed the fixtures the tests reference.
+setConfig("llm", {
+  profiles: {
+    conversationProfile: {
+      provider: "openai",
+      model: "gpt-4o",
     },
-    profiles: {
-      conversationProfile: {
-        provider: "openai" as const,
-        model: "gpt-4o",
-      },
-      summaryProfile: {
-        provider: "anthropic" as const,
-        model: "claude-haiku-3",
-      },
+    summaryProfile: {
+      provider: "anthropic",
+      model: "claude-haiku-3",
     },
-    profileOrder: [],
-    callSites: {
-      conversationSummarization: {
-        profile: "summaryProfile",
-      },
+  },
+  callSites: {
+    conversationSummarization: {
+      profile: "summaryProfile",
     },
-    activeProfile: undefined,
-    pricingOverrides: [],
-  };
-}
+  },
+});
 
 describe("recordUsage", () => {
   beforeEach(() => {
     const db = getDb();
     db.run(`DELETE FROM llm_usage_events`);
     updateConversationUsageCalls.length = 0;
-    mockLlmConfig = createMockLlmConfig();
   });
 
   test("applies fast mode pricing when any response has speed: fast", () => {
@@ -402,9 +357,11 @@ describe("recordUsage", () => {
       undefined,
       1,
       undefined,
+      // No override profile: an override wins selection at every call site
+      // (covered by the main-agent test above), so attribution lands on the
+      // call-site rung only when the turn carries no override.
       {
         callSite: "conversationSummarization",
-        overrideProfile: "conversationProfile",
       },
     );
 

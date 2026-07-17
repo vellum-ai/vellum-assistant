@@ -13,6 +13,7 @@
 import type { Command } from "commander";
 
 import { cliIpcCall } from "../../ipc/cli-client.js";
+import { subcommand } from "../lib/cli-command-help.js";
 import { renderTable, writeCliError, writeLine } from "../lib/cli-output.js";
 
 type Source = "override" | "active" | "call_site" | "default";
@@ -64,57 +65,40 @@ function formatCtxIn(tokens: number | undefined): string {
 }
 
 export function attachCallsitesSubcommand(inference: Command): void {
-  const callsites = inference
-    .command("callsites")
-    .description("Inspect how each LLM call site resolves to a profile");
+  const callsites = subcommand(inference, "callsites");
 
-  callsites
-    .command("list")
-    .description("List the effective resolution for every call site")
-    .option("--json", "Output as machine-readable JSON")
-    .action(async (opts: { json?: boolean }) => {
-      const ipcResult = await cliIpcCall<{ callSites: CallSiteSummary[] }>(
-        "inference_callsites_list",
-        {},
+  subcommand(callsites, "list").action(async (opts: { json?: boolean }) => {
+    const ipcResult = await cliIpcCall<{ callSites: CallSiteSummary[] }>(
+      "inference_callsites_list",
+      {},
+    );
+    if (!ipcResult.ok) {
+      writeCliError(ipcResult.error ?? "Unknown error", opts.json);
+      return;
+    }
+    const rows = ipcResult.result!.callSites;
+    if (opts.json) {
+      process.stdout.write(
+        JSON.stringify({ ok: true, callSites: rows }) + "\n",
       );
-      if (!ipcResult.ok) {
-        writeCliError(ipcResult.error ?? "Unknown error", opts.json);
-        return;
-      }
-      const rows = ipcResult.result!.callSites;
-      if (opts.json) {
-        process.stdout.write(
-          JSON.stringify({ ok: true, callSites: rows }) + "\n",
-        );
-        return;
-      }
-      renderTable(
-        [
-          "CALL SITE",
-          "PROFILE",
-          "SRC",
-          "PROVIDER",
-          "MODEL",
-          "EFFORT",
-          "CTX-IN",
-        ],
-        rows.map((r) => [
-          r.callSite,
-          r.profile ?? "(anchor)",
-          SOURCE_LABEL[r.source],
-          r.provider,
-          r.model,
-          r.effort,
-          formatCtxIn(r.maxInputTokens),
-        ]),
-      );
-    });
+      return;
+    }
+    renderTable(
+      ["CALL SITE", "PROFILE", "SRC", "PROVIDER", "MODEL", "EFFORT", "CTX-IN"],
+      rows.map((r) => [
+        r.callSite,
+        r.profile ?? "(anchor)",
+        SOURCE_LABEL[r.source],
+        r.provider,
+        r.model,
+        r.effort,
+        formatCtxIn(r.maxInputTokens),
+      ]),
+    );
+  });
 
-  callsites
-    .command("get <site>")
-    .description("Show the resolution detail and chain for one call site")
-    .option("--json", "Output as machine-readable JSON")
-    .action(async (site: string, opts: { json?: boolean }) => {
+  subcommand(callsites, "get").action(
+    async (site: string, opts: { json?: boolean }) => {
       const ipcResult = await cliIpcCall<CallSiteDetail>(
         "inference_callsites_get",
         { pathParams: { site } },
@@ -154,5 +138,6 @@ export function attachCallsitesSubcommand(inference: Command): void {
           `  resolution error [${d.resolutionError.reason}]: ${d.resolutionError.message}`,
         );
       }
-    });
+    },
+  );
 }

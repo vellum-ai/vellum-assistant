@@ -1,56 +1,49 @@
 /**
  * `assistant memory worker` CLI subgroup.
  *
- * Manages the memory jobs worker as its own OS process — separate from the
- * daemon's main event loop. This prevents long-running embedding jobs from
- * blocking user-facing HTTP traffic.
+ * The memory jobs worker processes embedding, consolidation, and cleanup jobs
+ * as its own OS process — a child of the daemon spawned at startup — so
+ * long-running jobs don't block user-facing HTTP traffic. It is spun up by
+ * default; these commands manage the process lifecycle on demand.
  *
- * Subcommands:
+ * Subcommands (thin IPC wrappers; the daemon owns the process so it is spawned
+ * as a child of the daemon and appears in `assistant ps`):
  *
- *   - `start`  — spawn the worker process and enable `memory.worker.enabled`,
- *     standing the daemon's synchronous in-process runner down.
- *   - `stop`   — SIGTERM the worker process and disable `memory.worker.enabled`,
- *     handing the queue back to the synchronous in-process runner.
- *   - `status` — report the worker process state, the `memory.worker.enabled`
- *     config value, and whether the synchronous in-process runner is going.
- *
- * All three are thin IPC wrappers (transport: "ipc"): the daemon owns the
- * worker process so it is spawned as a *child of the daemon* — which is what
- * makes it appear in `assistant ps` and lets the daemon tear it down on
- * shutdown. (If the CLI spawned the worker itself, the short-lived CLI process
- * would be its parent and the worker would be reparented to init.)
+ *   - `start`  — spawn the worker process if it is not already running.
+ *   - `stop`   — SIGTERM the worker process.
+ *   - `status` — report the worker process state and the embedding backend.
  */
 
 import type { Command } from "commander";
 
 import { cliIpcCall, exitFromIpcResult } from "../../../ipc/cli-client.js";
-import { registerCommand } from "../../lib/register-command.js";
+import { subcommand } from "../../lib/cli-command-help.js";
 import { log } from "../../logger.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
-
-interface WorkerProcessState {
-  status: "running" | "not_running";
-  pid?: number;
-}
 
 interface StartResponse {
   pid: number;
   alreadyRunning: boolean;
-  workerEnabled: true;
   pidPath: string;
 }
 
 interface StopResponse {
   workerWasRunning: boolean;
   pid?: number;
-  workerEnabled: false;
+}
+
+interface EmbeddingStatus {
+  enabled: boolean;
+  degraded: boolean;
+  provider: "local" | "openai" | "gemini" | "ollama" | null;
+  model: string | null;
+  reason: string | null;
 }
 
 interface StatusResponse {
   status: "running" | "not_running";
   pid?: number;
-  workerEnabled: boolean;
-  syncRunner: WorkerProcessState;
+  embedding: EmbeddingStatus;
 }
 
 // ---------------------------------------------------------------------------
@@ -58,108 +51,70 @@ interface StatusResponse {
 // ---------------------------------------------------------------------------
 
 export function registerMemoryWorkerCommand(memory: Command): void {
-  registerCommand(memory, {
-    name: "worker",
-    transport: "ipc",
-    description: "Manage the memory jobs worker process (start/stop/status)",
-    build: (worker) => {
-      worker.addHelpText(
-        "after",
-        `
-The memory worker processes embedding, consolidation, and cleanup jobs in a
-separate OS process so they do not block the assistant's main event loop. The
-daemon owns the process, so it is spawned as a child of the daemon and shows up
-in \`assistant ps\`.
+  const worker = subcommand(memory, "worker");
 
-\`start\` enables memory.worker.enabled and \`stop\` disables it, so the
-assistant's synchronous in-process runner stands down (start) or takes back over
-(stop) without a restart.
+  subcommand(worker, "start").action(
+    async (_opts: { json?: boolean }, cmd: Command) => {
+      const r = await cliIpcCall<StartResponse>("memory_worker_start");
+      if (!r.ok) {
+        return exitFromIpcResult(r);
+      }
+      const res = r.result!;
 
-Examples:
-  $ assistant memory worker start
-  $ assistant memory worker status
-  $ assistant memory worker stop`,
+      if (shouldOutputJson(cmd)) {
+        writeOutput(cmd, res);
+        return;
+      }
+      log.info(
+        res.alreadyRunning
+          ? `Memory worker is already running (PID ${res.pid})`
+          : `Memory worker started (PID ${res.pid})`,
       );
-
-      worker
-        .command("start")
-        .description(
-          "Start the memory worker process and enable memory.worker.enabled",
-        )
-        .option("--json", "Emit raw JSON instead of a formatted summary")
-        .action(async (_opts: { json?: boolean }, cmd: Command) => {
-          const r = await cliIpcCall<StartResponse>("memory_worker_start");
-          if (!r.ok) return exitFromIpcResult(r);
-          const res = r.result!;
-
-          if (shouldOutputJson(cmd)) {
-            writeOutput(cmd, res);
-            return;
-          }
-          log.info(
-            res.alreadyRunning
-              ? `Memory worker is already running (PID ${res.pid})`
-              : `Memory worker started (PID ${res.pid})`,
-          );
-          log.info(
-            "Enabled memory.worker.enabled; the synchronous in-process runner will stand down",
-          );
-        });
-
-      worker
-        .command("stop")
-        .description(
-          "Stop the memory worker process and disable memory.worker.enabled",
-        )
-        .option("--json", "Emit raw JSON instead of a formatted summary")
-        .action(async (_opts: { json?: boolean }, cmd: Command) => {
-          const r = await cliIpcCall<StopResponse>("memory_worker_stop");
-          if (!r.ok) return exitFromIpcResult(r);
-          const res = r.result!;
-
-          if (shouldOutputJson(cmd)) {
-            writeOutput(cmd, res);
-            return;
-          }
-          if (res.workerWasRunning) {
-            log.info(`Memory worker stop signal sent (PID ${res.pid})`);
-          } else {
-            log.info("Memory worker process was not running");
-          }
-          log.info(
-            "Disabled memory.worker.enabled; the synchronous in-process runner will take over",
-          );
-        });
-
-      worker
-        .command("status")
-        .description(
-          "Report worker process state, memory.worker.enabled, and the synchronous runner",
-        )
-        .option("--json", "Emit raw JSON instead of a formatted summary")
-        .action(async (_opts: { json?: boolean }, cmd: Command) => {
-          const r = await cliIpcCall<StatusResponse>("memory_worker_status");
-          if (!r.ok) return exitFromIpcResult(r);
-          const res = r.result!;
-
-          if (shouldOutputJson(cmd)) {
-            writeOutput(cmd, res);
-            return;
-          }
-          if (res.status === "running") {
-            log.info(`Memory worker process is running (PID ${res.pid})`);
-          } else {
-            log.info("Memory worker process is not running");
-          }
-          log.info(`memory.worker.enabled: ${res.workerEnabled}`);
-          if (res.syncRunner.status === "running") {
-            log.info(
-              `Synchronous in-process runner is running (PID ${res.syncRunner.pid})`,
-            );
-          } else {
-            log.info("Synchronous in-process runner is not running");
-          }
-        });
     },
-  });
+  );
+
+  subcommand(worker, "stop").action(
+    async (_opts: { json?: boolean }, cmd: Command) => {
+      const r = await cliIpcCall<StopResponse>("memory_worker_stop");
+      if (!r.ok) {
+        return exitFromIpcResult(r);
+      }
+      const res = r.result!;
+
+      if (shouldOutputJson(cmd)) {
+        writeOutput(cmd, res);
+        return;
+      }
+      if (res.workerWasRunning) {
+        log.info(`Memory worker stop signal sent (PID ${res.pid})`);
+      } else {
+        log.info("Memory worker process was not running");
+      }
+    },
+  );
+
+  subcommand(worker, "status").action(
+    async (_opts: { json?: boolean }, cmd: Command) => {
+      const r = await cliIpcCall<StatusResponse>("memory_worker_status");
+      if (!r.ok) {
+        return exitFromIpcResult(r);
+      }
+      const res = r.result!;
+
+      if (shouldOutputJson(cmd)) {
+        writeOutput(cmd, res);
+        return;
+      }
+      if (res.status === "running") {
+        log.info(`Memory worker process is running (PID ${res.pid})`);
+      } else {
+        log.info("Memory worker process is not running");
+      }
+      if (res.embedding.degraded) {
+        log.info(
+          `Embedding backend degraded${res.embedding.reason ? `: ${res.embedding.reason}` : ""}`,
+        );
+      }
+    },
+  );
 }

@@ -29,12 +29,26 @@ import {
   upsertCredentialMetadata,
 } from "../tools/credentials/metadata-store.js";
 import { getLogger } from "../util/logger.js";
+import {
+  ACP_OAUTH_TOKEN_FIELD,
+  ACP_SERVICE,
+  classifyAnthropicToken,
+} from "./acp-credentials.js";
 import type { AcpAgentConfig } from "./types.js";
 
 const log = getLogger("acp:prepare-agent-env");
 
 const ACP_SPAWN_TOOL = "acp_spawn";
-const ACP_SERVICE = "acp";
+
+/**
+ * Stable, machine-readable marker carried on the `FailedDependencyError.details`
+ * when a `claude-agent-acp` spawn is missing `CLAUDE_CODE_OAUTH_TOKEN`. Threaded
+ * through the tool result / error payload as a structured field so clients can
+ * offer the inline "Connect Claude Code" flow instead of re-parsing the human
+ * message string. Kept in lockstep with the web literal in
+ * `clients/web/src/domains/chat/transcript/acp-connect-affordance.tsx`.
+ */
+export const ACP_CLAUDE_OAUTH_MISSING_CODE = "acp_claude_oauth_missing";
 
 /**
  * Ensure an `acp/<field>` credential has metadata that allows the
@@ -47,7 +61,7 @@ const ACP_SERVICE = "acp";
  *   by the user/admin. Respect it even if `acp_spawn` is absent; the
  *   broker will deny the read and the caller decides whether that's fatal.
  */
-function ensureAcpCredentialPolicy(
+export function ensureAcpCredentialPolicy(
   field: string,
   usageDescription: string,
 ): void {
@@ -65,6 +79,52 @@ function ensureAcpCredentialPolicy(
       allowedTools: [ACP_SPAWN_TOOL],
     });
   }
+}
+
+/**
+ * Force-grant the `acp_spawn` read policy on `acp/<field>`, unioning it into any
+ * existing `allowedTools`. Unlike {@link ensureAcpCredentialPolicy} (which
+ * PRESERVES an explicit non-empty policy so a passive spawn can't silently widen
+ * it), this is for the EXPLICIT Connect flow: a user connecting Claude is a
+ * deliberate opt-in to `acp_spawn`, so granting it makes the CTA actually repair
+ * a policy-denied credential instead of dead-looping the missing-token card.
+ */
+export function grantAcpSpawnPolicy(
+  field: string,
+  usageDescription: string,
+): void {
+  const meta = getCredentialMetadata(ACP_SERVICE, field);
+  if (!meta) {
+    upsertCredentialMetadata(ACP_SERVICE, field, {
+      allowedTools: [ACP_SPAWN_TOOL],
+      usageDescription,
+    });
+    return;
+  }
+  const tools = meta.allowedTools ?? [];
+  if (!tools.includes(ACP_SPAWN_TOOL)) {
+    upsertCredentialMetadata(ACP_SERVICE, field, {
+      allowedTools: [...tools, ACP_SPAWN_TOOL],
+    });
+  }
+}
+
+/**
+ * Whether the `acp_spawn` broker read for `acp/<field>` would actually be
+ * permitted, mirroring {@link ensureAcpCredentialPolicy}'s grant rules: a
+ * missing or empty `allowedTools` is auto-granted `acp_spawn` at spawn time, so
+ * it can read; a non-empty explicit policy is respected as-is, so it can read
+ * only when it lists `acp_spawn`. Lets a connected-status check avoid reporting
+ * "connected" for a token the spawn is policy-denied from reading (which would
+ * otherwise hide the repair CTA and trap the user in a missing-token loop).
+ */
+export function acpSpawnCanReadCredential(field: string): boolean {
+  const meta = getCredentialMetadata(ACP_SERVICE, field);
+  if (!meta) {
+    return true;
+  }
+  const tools = meta.allowedTools ?? [];
+  return tools.length === 0 || tools.includes(ACP_SPAWN_TOOL);
 }
 
 /**
@@ -162,19 +222,56 @@ export async function prepareAgentEnv(
   const adapterCommand = basename(agentConfig.command);
 
   if (adapterCommand === "claude-agent-acp") {
+    // A config `env` override or a legacy vault entry can hold an Anthropic API
+    // key (`sk-ant-api…`) in this OAuth-only field (e.g. written before the
+    // write-path format guard). The adapter would take it as an OAuth token and
+    // 401 at runtime, so treat any `api_key` value as absent. Drop it BEFORE the
+    // vault read — otherwise a stale API-key override skips the read and shadows
+    // the freshly-stored OAuth token, re-looping the Connect card on every
+    // auto-continue — and again AFTER the read (the vault value itself can be a
+    // legacy key), so the missing-token branch raises the
+    // `acp_claude_oauth_missing` marker instead of spawning a doomed credential.
+    const dropApiKeyOauthToken = () => {
+      if (
+        env.CLAUDE_CODE_OAUTH_TOKEN &&
+        classifyAnthropicToken(env.CLAUDE_CODE_OAUTH_TOKEN) === "api_key"
+      ) {
+        delete env.CLAUDE_CODE_OAUTH_TOKEN;
+      }
+    };
+
+    dropApiKeyOauthToken();
     if (!env.CLAUDE_CODE_OAUTH_TOKEN) {
       await injectCredential(
         env,
-        "claude_oauth_token",
+        ACP_OAUTH_TOKEN_FIELD,
         "CLAUDE_CODE_OAUTH_TOKEN",
         "Claude OAuth token for ACP agent authentication",
       );
     }
+    dropApiKeyOauthToken();
     if (!env.CLAUDE_CODE_OAUTH_TOKEN) {
+      // Carry the stable marker as structured `details` so the client renders
+      // the inline "Connect Claude Code" card. The message itself is the tool
+      // result the model reads at the failure moment, so it directs the model
+      // AT that card and away from CLI/token-paste workarounds — otherwise the
+      // model relays a `claude setup-token` / paste-a-token flow that the card
+      // exists to replace. The CLI command stays only as a headless fallback.
       throw new FailedDependencyError(
-        "claude-agent-acp requires CLAUDE_CODE_OAUTH_TOKEN. " +
-          "Run: assistant credentials set --service acp --field claude_oauth_token <token> " +
-          "(or set it under acp.agents.<id>.env in config.json).",
+        "claude-agent-acp needs a Claude OAuth token (CLAUDE_CODE_OAUTH_TOKEN), " +
+          'which is not set. The app shows the user an inline "Connect Claude ' +
+          'Code" card. Reply with ONE short sentence: ask them to click Connect ' +
+          "in that card to sign in, and tell them you'll continue automatically " +
+          "once they're connected. Do NOT say where the card is — never say " +
+          '"below", "above", "at the bottom", or "here"; its placement is a UI ' +
+          'detail you cannot see. Do NOT say the card "appeared", narrate how ' +
+          'the sign-in works, or claim there is "nothing to paste" (the cloud ' +
+          "flow does paste a key). Do NOT tell them to run `claude setup-token`, " +
+          "paste a token in chat, or run credential CLI commands, and do NOT " +
+          "retry the spawn yourself — the card and auto-continue handle it. " +
+          "(Headless only, where no card can appear: `assistant credentials set " +
+          "--service acp --field claude_oauth_token <token>`.)",
+        { code: ACP_CLAUDE_OAUTH_MISSING_CODE },
       );
     }
   } else if (adapterCommand === "codex-acp") {

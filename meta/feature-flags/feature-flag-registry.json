@@ -10,16 +10,13 @@
       "defaultEnabled": false
     },
     {
-      "id": "pre-chat-onboarding-experiment-2026-06-06",
+      "id": "proactive-tips",
       "scope": "client",
-      "key": "pre-chat-onboarding-experiment-2026-06-06",
-      "label": "Pre-chat Onboarding Experiment 2026-06-06",
-      "description": "Pre-chat onboarding experiment with control and variant-a arms. Control shows the full funnel; variant-a shows the condensed pared-down flow.",
-      "defaultEnabled": "control",
-      "values": [
-        "control",
-        "variant-a"
-      ]
+      "key": "proactive-tips",
+      "label": "Proactive Tips",
+      "description": "Gates the dismissible proactive tip card in the web sidebar. String-valued so future A/B arms can be added as new values.",
+      "defaultEnabled": "off",
+      "values": ["off", "on"]
     },
     {
       "id": "experiment-activation-flow-2026-06-03",
@@ -28,11 +25,7 @@
       "label": "Activation Flow Experiment 2026-06-03",
       "description": "Multivariate activation-flow experiment. control = standard flow; variant-a = activation rail; personal-page = new sign-up-page variant (front-end only). Targeted via LaunchDarkly.",
       "defaultEnabled": "control",
-      "values": [
-        "control",
-        "variant-a",
-        "personal-page"
-      ]
+      "values": ["control", "variant-a", "personal-page"]
     },
     {
       "id": "local-docker-enabled",
@@ -48,14 +41,6 @@
       "key": "a2a-channel",
       "label": "A2A Channel",
       "description": "Enable the A2A (Agent-to-Agent) channel for inter-assistant communication via the open A2A protocol",
-      "defaultEnabled": false
-    },
-    {
-      "id": "trace-collection",
-      "scope": "assistant",
-      "key": "trace-collection",
-      "label": "Trace Collection",
-      "description": "Gate per-turn conversation trace (user/assistant/tool-call/tool-response) collection. The daemon attaches a trace to its turn telemetry only when this flag AND the owner's share_diagnostics consent are both on. Defaults off (fail-closed) \u2014 the live value is delivered from LaunchDarkly.",
       "defaultEnabled": false
     },
     {
@@ -123,6 +108,22 @@
       "defaultEnabled": false
     },
     {
+      "id": "voice-triage-escalate",
+      "scope": "assistant",
+      "key": "voice-triage-escalate",
+      "label": "Voice Triage & Escalate",
+      "description": "Front phone-call turns with a fast model that answers simple turns and escalates tricky ones to the quality model, cutting perceived latency",
+      "defaultEnabled": false
+    },
+    {
+      "id": "voice-duplex-handoff",
+      "scope": "assistant",
+      "key": "voice-duplex-handoff",
+      "label": "Voice Duplex Handoff",
+      "description": "When a user barges in during live voice, keep the interrupted turn running as a background subagent instead of discarding it (true-duplex handoff)",
+      "defaultEnabled": false
+    },
+    {
       "id": "fast-mode",
       "scope": "assistant",
       "key": "fast-mode",
@@ -176,14 +177,6 @@
       "key": "scroll-debug-overlay",
       "label": "Scroll Debug Overlay",
       "description": "Show a live HUD in the top-right of the conversation with scroll geometry, velocity, update rate, and anchor-preserver activity. Developer diagnostic for investigating scroll jank.",
-      "defaultEnabled": false
-    },
-    {
-      "id": "coding-agents-panel",
-      "scope": "client",
-      "key": "coding-agents-panel",
-      "label": "Coding Agents Panel",
-      "description": "Gate native macOS Coding Agents panel entry points and inline ACP session deep links.",
       "defaultEnabled": false
     },
     {
@@ -311,7 +304,7 @@
       "scope": "assistant",
       "key": "memory-concept-graph",
       "label": "Memory concept graph",
-      "description": "Gates the Obsidian-style memory concept graph on the assistant identity page and the backend-agnostic /memory-graph + /memory-graph-node routes that feed it. When off, the identity page shows the skills constellation instead. Only produces a graph on memory-v3 backends. Default off.",
+      "description": "Gates the Obsidian-style memory concept graph on its own Memory tab (/assistant/memory) and the backend-agnostic /memory-graph + /memory-graph-node routes that feed it. When off, the Memory tab is hidden; the identity page keeps the skills constellation. Only produces a graph on memory-v3 backends. Default off.",
       "defaultEnabled": false
     },
     {
@@ -320,22 +313,6 @@
       "key": "self-intro-greeting",
       "label": "Self-intro first message",
       "description": "On the first conversation, send a natural self-introduction (e.g. \"Hi Vela, I'm alex. Nice to meet you.\") on the user's behalf and route it through real LLM inference, instead of serving the canned first greeting. Names come from the onboarding context; falls back to the canned greeting when no name is known. Exposed to clients so pre-hatch onboarding can compute the source-of-truth initial message, and to the assistant so older clients can still be gated server-side. See assistant/src/daemon/first-greeting.ts (buildSelfIntroMessage).",
-      "defaultEnabled": false
-    },
-    {
-      "id": "research-onboarding",
-      "scope": "client",
-      "key": "research-onboarding",
-      "label": "Research onboarding (spike)",
-      "description": "Spike: replace pre-chat onboarding with a web-research \"here's what I know about you\" flow, including a Google Calendar \"Let's chat tomorrow\" step shown over the streaming research. Gates the /assistant/onboarding/research route and the research mock harness. Off by default; enable locally via the feature-flags panel.",
-      "defaultEnabled": false
-    },
-    {
-      "id": "personality-onboarding",
-      "scope": "client",
-      "key": "personality-onboarding",
-      "label": "Personality onboarding step (spike)",
-      "description": "Spike: show the \"Create my personality\" trait-slider step in the research-onboarding flow (between the pitch and the integration step). On continue it applies the sliders to the assistant's persona on a throwaway side conversation. When off, the step is skipped entirely. Off by default; enable locally via the feature-flags panel.",
       "defaultEnabled": false
     },
     {
@@ -395,20 +372,12 @@
       "defaultEnabled": false
     },
     {
-      "id": "summarize-up-to-here",
-      "scope": "both",
-      "key": "summarize-up-to-here",
-      "label": "Summarize Up To Here",
-      "description": "Show the per-message Summarize up to here action and enable the conversation summarize endpoint",
-      "defaultEnabled": false
-    },
-    {
-      "id": "override-or-default-resolution",
+      "id": "chat-credential-reveal",
       "scope": "assistant",
-      "key": "override-or-default-resolution",
-      "label": "Override-or-Default Profile Resolution",
-      "description": "Resolve inference profiles as single complete overrides (or the call site's default intent through the default provider) instead of the legacy deep-merge cascade. Ships enabled; disable as a kill switch to restore merge semantics.",
-      "defaultEnabled": true
+      "key": "chat-credential-reveal",
+      "label": "Chat Credential Reveal",
+      "description": "Persist chat secret redactions as sentinel markers instead of the legacy HTML marker, enriched with the vault identity when the value byte-matches a credential revealed this turn. Also gates the `credentials reveal --for-chat` channel and the live-stream swap that replaces an echoed reveal plaintext with its sentinel before emission. Redaction itself is NOT gated: a route-proven reveal plaintext stays out of persisted rows in both modes. Client chip rendering is gated on daemon version, not on this flag.",
+      "defaultEnabled": false
     }
   ]
 }

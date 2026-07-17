@@ -56,8 +56,8 @@ mock.module("../notifications/deliveries-store.js", () => ({
 // Captures call arguments so tests can inspect what was passed in.
 // Set `nextPairingResult` to override the return value for a single call.
 let nextPairingResult:
-  | import("../notifications/conversation-pairing.js").PairingResult
-  | null = null;
+  import("../notifications/conversation-pairing.js").PairingResult | null =
+  null;
 let pairingCallCount = 0;
 
 interface PairingCall {
@@ -339,9 +339,9 @@ describe("notification broadcaster", () => {
     const vellumAdapter = new MockAdapter("vellum");
     const broadcaster = new NotificationBroadcaster([vellumAdapter]);
     const conversationCreatedCalls: ConversationCreatedInfo[] = [];
-    broadcaster.setOnConversationCreated((info) =>
-      conversationCreatedCalls.push(info),
-    );
+    broadcaster.setOnConversationCreated((info) => {
+      conversationCreatedCalls.push(info);
+    });
 
     const signal = makeSignal();
     // No conversationActions means default start_new behavior
@@ -363,7 +363,9 @@ describe("notification broadcaster", () => {
     const decision = makeDecision();
 
     await broadcaster.broadcastDecision(signal, decision, {
-      onConversationCreated: (info) => dispatchCalls.push(info),
+      onConversationCreated: (info) => {
+        dispatchCalls.push(info);
+      },
     });
 
     expect(dispatchCalls).toHaveLength(1);
@@ -374,7 +376,9 @@ describe("notification broadcaster", () => {
     const broadcaster = new NotificationBroadcaster([vellumAdapter]);
     const eventCalls: ConversationCreatedInfo[] = [];
     const dispatchCalls: ConversationCreatedInfo[] = [];
-    broadcaster.setOnConversationCreated((info) => eventCalls.push(info));
+    broadcaster.setOnConversationCreated((info) => {
+      eventCalls.push(info);
+    });
 
     // Simulate a successful reuse by injecting a pairing result with
     // createdNewConversation=false. This bypasses the real conversation
@@ -399,7 +403,9 @@ describe("notification broadcaster", () => {
     });
 
     await broadcaster.broadcastDecision(signal, decision, {
-      onConversationCreated: (info) => dispatchCalls.push(info),
+      onConversationCreated: (info) => {
+        dispatchCalls.push(info);
+      },
     });
 
     // The class-level event callback should NOT fire because
@@ -489,7 +495,9 @@ describe("notification broadcaster", () => {
     const vellumAdapter = new MockAdapter("vellum");
     const broadcaster = new NotificationBroadcaster([vellumAdapter]);
     const eventCalls: ConversationCreatedInfo[] = [];
-    broadcaster.setOnConversationCreated((info) => eventCalls.push(info));
+    broadcaster.setOnConversationCreated((info) => {
+      eventCalls.push(info);
+    });
 
     // Simulate binding-key continuation: pairing reuses an existing bound
     // conversation (createdNewConversation=false, strategy=continue_existing_conversation)
@@ -516,7 +524,9 @@ describe("notification broadcaster", () => {
     const vellumAdapter = new MockAdapter("vellum");
     const broadcaster = new NotificationBroadcaster([vellumAdapter]);
     const eventCalls: ConversationCreatedInfo[] = [];
-    broadcaster.setOnConversationCreated((info) => eventCalls.push(info));
+    broadcaster.setOnConversationCreated((info) => {
+      eventCalls.push(info);
+    });
 
     // First delivery to a new destination: creates a fresh conversation but
     // the strategy is continue_existing_conversation (not start_new_conversation),
@@ -558,7 +568,9 @@ describe("notification broadcaster", () => {
     const decision = makeDecision();
 
     await broadcaster.broadcastDecision(signal, decision, {
-      onConversationCreated: (info) => dispatchCalls.push(info),
+      onConversationCreated: (info) => {
+        dispatchCalls.push(info);
+      },
     });
 
     // The per-dispatch callback SHOULD fire regardless of reuse
@@ -587,7 +599,9 @@ describe("notification broadcaster", () => {
     const vellumAdapter = new MockAdapter("vellum");
     const broadcaster = new NotificationBroadcaster([vellumAdapter]);
     const createdCalls: ConversationCreatedInfo[] = [];
-    broadcaster.setOnConversationCreated((info) => createdCalls.push(info));
+    broadcaster.setOnConversationCreated((info) => {
+      createdCalls.push(info);
+    });
 
     const signal = makeSignal({
       sourceEventName: "schedule.notify",
@@ -611,7 +625,9 @@ describe("notification broadcaster", () => {
     const vellumAdapter = new MockAdapter("vellum");
     const broadcaster = new NotificationBroadcaster([vellumAdapter]);
     const createdCalls: ConversationCreatedInfo[] = [];
-    broadcaster.setOnConversationCreated((info) => createdCalls.push(info));
+    broadcaster.setOnConversationCreated((info) => {
+      createdCalls.push(info);
+    });
 
     const signal = makeSignal(); // no conversationMetadata
     const decision = makeDecision();
@@ -638,7 +654,9 @@ describe("notification broadcaster", () => {
     const decision = makeDecision();
 
     await broadcaster.broadcastDecision(signal, decision, {
-      onConversationCreated: (info) => dispatchCalls.push(info),
+      onConversationCreated: (info) => {
+        dispatchCalls.push(info);
+      },
     });
 
     expect(dispatchCalls).toHaveLength(1);

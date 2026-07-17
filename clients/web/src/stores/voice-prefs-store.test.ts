@@ -1,6 +1,12 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
+import {
+  DEFAULT_PAUSE_BEFORE_REPLY_MS,
+  MAX_PAUSE_BEFORE_REPLY_MS,
+  MIN_PAUSE_BEFORE_REPLY_MS,
+  interruptSensitivityToMs,
+  useVoicePrefsStore,
+} from "@/stores/voice-prefs-store";
 
 const VOICE_PREFS_STORE_KEY = "vellum:voice-prefs";
 
@@ -10,6 +16,8 @@ beforeEach(() => {
     showUserTranscript: false,
     showAssistantTranscript: false,
     firstRunSeen: false,
+    pauseBeforeReplyMs: null,
+    interruptSensitivity: null,
   });
 });
 
@@ -63,6 +71,8 @@ describe("useVoicePrefsStore — voice-mode preferences", () => {
     useVoicePrefsStore.getState().setShowUserTranscript(true);
     useVoicePrefsStore.getState().setShowAssistantTranscript(true);
     useVoicePrefsStore.getState().markFirstRunSeen();
+    useVoicePrefsStore.getState().setPauseBeforeReplyMs(1500);
+    useVoicePrefsStore.getState().setInterruptSensitivity("low");
 
     const raw = localStorage.getItem(VOICE_PREFS_STORE_KEY);
     expect(raw).not.toBeNull();
@@ -71,5 +81,49 @@ describe("useVoicePrefsStore — voice-mode preferences", () => {
     expect(persisted.showUserTranscript).toBe(true);
     expect(persisted.showAssistantTranscript).toBe(true);
     expect(persisted.firstRunSeen).toBe(true);
+    expect(persisted.pauseBeforeReplyMs).toBe(1500);
+    expect(persisted.interruptSensitivity).toBe("low");
+  });
+});
+
+describe("useVoicePrefsStore — turn-taking settings (JARVIS-1284)", () => {
+  test("defaults are unset (null) so the daemon config governs", () => {
+    expect(useVoicePrefsStore.getState().pauseBeforeReplyMs).toBeNull();
+    expect(useVoicePrefsStore.getState().interruptSensitivity).toBeNull();
+    // The default constant still exists for the UI's resting value.
+    expect(DEFAULT_PAUSE_BEFORE_REPLY_MS).toBe(1200);
+  });
+
+  test("setInterruptSensitivity records an explicit level", () => {
+    useVoicePrefsStore.getState().setInterruptSensitivity("high");
+    expect(useVoicePrefsStore.getState().interruptSensitivity).toBe("high");
+  });
+
+  test("interruptSensitivityToMs maps inversely (higher sensitivity → fewer ms)", () => {
+    expect(interruptSensitivityToMs("high")).toBe(100);
+    expect(interruptSensitivityToMs("medium")).toBe(250);
+    expect(interruptSensitivityToMs("low")).toBe(600);
+  });
+
+  test("setPauseBeforeReplyMs clamps to the supported range and rounds", () => {
+    const set = useVoicePrefsStore.getState().setPauseBeforeReplyMs;
+
+    set(1234.6);
+    expect(useVoicePrefsStore.getState().pauseBeforeReplyMs).toBe(1235);
+
+    set(50); // below MIN
+    expect(useVoicePrefsStore.getState().pauseBeforeReplyMs).toBe(
+      MIN_PAUSE_BEFORE_REPLY_MS,
+    );
+
+    set(99_999); // above MAX
+    expect(useVoicePrefsStore.getState().pauseBeforeReplyMs).toBe(
+      MAX_PAUSE_BEFORE_REPLY_MS,
+    );
+
+    set(Number.NaN); // guards against non-finite
+    expect(useVoicePrefsStore.getState().pauseBeforeReplyMs).toBe(
+      DEFAULT_PAUSE_BEFORE_REPLY_MS,
+    );
   });
 });

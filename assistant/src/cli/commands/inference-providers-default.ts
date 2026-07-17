@@ -8,6 +8,7 @@
 import type { Command } from "commander";
 
 import { cliIpcCall } from "../../ipc/cli-client.js";
+import { subcommand } from "../lib/cli-command-help.js";
 import { writeCliError, writeLine } from "../lib/cli-output.js";
 
 interface DefaultProviderStatus {
@@ -37,53 +38,37 @@ function printStatus(status: DefaultProviderStatus, json?: boolean): void {
 }
 
 export function attachDefaultProviderSubcommand(providers: Command): void {
-  providers
-    .command("default [name]")
-    .description("Read or set the default provider (prints availability)")
-    .option("--connection <name>", "Pin a specific connection when setting")
-    .option("--json", "Output as machine-readable JSON")
-    .addHelpText(
-      "after",
-      `
-With no argument, prints the default provider and whether it is usable.
-With a provider name, sets it (optionally pinning a connection).
-
-Examples:
-  $ assistant inference providers default
-  $ assistant inference providers default anthropic
-  $ assistant inference providers default anthropic --connection anthropic-personal`,
-    )
-    .action(
-      async (
-        name: string | undefined,
-        opts: { connection?: string; json?: boolean },
-      ) => {
-        if (name === undefined) {
-          const ipcResult = await cliIpcCall<DefaultProviderStatus>(
-            "llm_default_provider_get",
-            {},
-          );
-          if (!ipcResult.ok) {
-            writeCliError(ipcResult.error ?? "Unknown error", opts.json);
-            return;
-          }
-          printStatus(ipcResult.result!, opts.json);
-          return;
-        }
-
-        const body: Record<string, unknown> = { provider: name };
-        if (opts.connection !== undefined) {
-          body.connectionName = opts.connection;
-        }
+  subcommand(providers, "default").action(
+    async (
+      name: string | undefined,
+      opts: { connection?: string; json?: boolean },
+    ) => {
+      if (name === undefined) {
         const ipcResult = await cliIpcCall<DefaultProviderStatus>(
-          "llm_default_provider_put",
-          { body },
+          "llm_default_provider_get",
+          {},
         );
         if (!ipcResult.ok) {
           writeCliError(ipcResult.error ?? "Unknown error", opts.json);
           return;
         }
         printStatus(ipcResult.result!, opts.json);
-      },
-    );
+        return;
+      }
+
+      const body: Record<string, unknown> = { provider: name };
+      if (opts.connection !== undefined) {
+        body.connectionName = opts.connection;
+      }
+      const ipcResult = await cliIpcCall<DefaultProviderStatus>(
+        "llm_default_provider_put",
+        { body },
+      );
+      if (!ipcResult.ok) {
+        writeCliError(ipcResult.error ?? "Unknown error", opts.json);
+        return;
+      }
+      printStatus(ipcResult.result!, opts.json);
+    },
+  );
 }

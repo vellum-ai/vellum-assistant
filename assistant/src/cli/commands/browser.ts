@@ -5,10 +5,6 @@
  * browser operations contract ({@link BROWSER_OPERATION_META}).
  * Each subcommand maps CLI kebab-case flags into snake_case input
  * keys and calls `browser_execute` over the CLI IPC socket.
- *
- * The command's help structure lives in `browser.help.ts` (import-safe for
- * the memory capability indexer, derived from the same operations contract);
- * this module applies it and attaches the action handlers.
  */
 
 import { writeFileSync } from "node:fs";

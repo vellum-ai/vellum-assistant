@@ -4,18 +4,7 @@
  * `LogRow.callSite`. Historical rows (pre-migration 264) stay NULL —
  * "we don't know" rather than guessing `mainAgent`.
  */
-import { beforeEach, describe, expect, mock, test } from "bun:test";
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    model: "test",
-    provider: "test",
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    secretDetection: { enabled: false },
-  }),
-}));
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import { getLogsDb, getSqliteFrom } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";

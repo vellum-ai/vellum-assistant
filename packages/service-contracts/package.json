@@ -15,6 +15,7 @@
     "./handles": "./src/handles.ts",
     "./rpc": "./src/rpc.ts",
     "./attachment-naming": "./src/attachment-naming.ts",
+    "./redacted-credential": "./src/redacted-credential.ts",
     "./error": "./src/error.ts"
   },
   "scripts": {

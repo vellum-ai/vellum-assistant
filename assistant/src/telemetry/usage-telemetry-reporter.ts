@@ -5,9 +5,20 @@
  * lifecycle, ...) from the local SQLite databases and POSTs them to the
  * platform telemetry endpoint. Each event type is a
  * {@link TelemetryEventSource}; the reporter is a generic engine over the
- * source list it is constructed with, advancing one compound
- * `(createdAt, id)` watermark cursor per source in the telemetry DB's
- * `flush_checkpoints` table after each successful upload.
+ * source list it is constructed with, acknowledging each source after a
+ * successful upload in one of two modes: watermark-mode sources advance a
+ * compound `(createdAt, id)` cursor in the telemetry DB's
+ * `flush_checkpoints` table, and ack-mode sources (those defining `ack`)
+ * delete their shipped rows instead.
+ *
+ * Flushing is split across two processes, each running its own reporter
+ * instance over a disjoint source partition: the daemon flushes turn events
+ * (their completeness barrier and consented traces read live in-memory
+ * conversation state), and the resource monitor process flushes everything
+ * else off the daemon's event loop — see `monitoring/worker.ts`. The
+ * per-source watermark cursors live in the telemetry DB, which both
+ * processes open read-write; each instance only touches its own sources'
+ * cursors, so the split shares no flush state.
  *
  * Authenticated-only: events are sent via the managed proxy context
  * (Api-Key header). When no platform credentials are available, or when
@@ -17,7 +28,7 @@
 
 import { getPlatformOrganizationId, getPlatformUserId } from "../config/env.js";
 import { VellumPlatformClient } from "../platform/client.js";
-import { getCachedShareAnalytics } from "../platform/consent-cache.js";
+import { getRawShareAnalytics } from "../platform/consent-cache.js";
 import { arePlatformFeaturesEnabled } from "../platform/feature-gate.js";
 import { getDeviceId } from "../util/device-id.js";
 import { getLogger } from "../util/logger.js";
@@ -27,12 +38,19 @@ import {
   telemetryDbFlushCheckpointStore,
 } from "./flush-checkpoints.js";
 import {
-  ALL_TELEMETRY_EVENT_SOURCES,
+  DAEMON_TELEMETRY_EVENT_SOURCES,
+  MONITOR_TELEMETRY_EVENT_SOURCES,
   type TelemetryEventSource,
   type TelemetryEventSourceBatch,
   TOOL_EXECUTED_SOURCE_ID,
   watermarkKeysForSource,
 } from "./telemetry-event-sources.js";
+import {
+  deleteTelemetryOutboxEventsBefore,
+  OUTBOX_MAX_ROW_AGE_MS,
+} from "./telemetry-events-outbox.js";
+import { useReadOnlyMainDbForTelemetry } from "./telemetry-main-db.js";
+import { validateWireEvents } from "./telemetry-wire-validation.js";
 
 const log = getLogger("usage-telemetry");
 
@@ -51,6 +69,43 @@ const BATCH_SIZE = 500;
 const MAX_CONSECUTIVE_BATCHES = 10;
 const TELEMETRY_PATH = "/v1/telemetry/ingest/";
 
+/**
+ * Outcome of a {@link UsageTelemetryReporter.flush} call. `flushed: true` means
+ * at least one batch reached the platform (2xx). `sent` is the count the daemon
+ * POSTed; `persisted` is the count the platform confirmed written; `dropped` is
+ * `sent - persisted` — folding server-side drops (opt-out, unauthenticated) and
+ * events silently skipped at ingest validation (unknown/invalid type) into one
+ * "did not land" number. `flushed: false` carries a kebab-case skip reason.
+ */
+export type TelemetryFlushSummary =
+  | { flushed: true; sent: number; persisted: number; dropped: number }
+  | { flushed: false; reason: string };
+
+interface FlushAccumulator {
+  sent: number;
+  persisted: number;
+}
+
+/**
+ * Read `persisted` from an ingest response body. Falls back to `fallback`
+ * (the POSTed count — assume all landed) on a malformed body or an older
+ * platform that omits the field. Never throws.
+ */
+function parsePersistedCount(body: string, fallback: number): number {
+  try {
+    const parsed: unknown = JSON.parse(body);
+    if (parsed && typeof parsed === "object") {
+      const p = (parsed as { persisted?: unknown }).persisted;
+      if (typeof p === "number" && Number.isFinite(p) && p >= 0) {
+        return p;
+      }
+    }
+  } catch {
+    // Malformed/empty body — assume everything persisted.
+  }
+  return fallback;
+}
+
 // ---------------------------------------------------------------------------
 // Singleton access
 // ---------------------------------------------------------------------------
@@ -61,33 +116,64 @@ export function getUsageTelemetryReporter(): UsageTelemetryReporter | null {
   return _instance;
 }
 
-/**
- * Construct and start the singleton usage telemetry reporter. No-op in dev mode
- * (VELLUM_DEV=1) and idempotent if already started.
- *
- * Started even when share_analytics consent is opted out: flush() re-checks
- * consent each cycle and, when opted out, sends nothing but advances all
- * watermarks (including the final flush in stop()). New opted-out
- * tool_invocations rows are already unreportable by construction — the audit
- * listener persists NULL telemetry columns for them, which the tool_executed
- * projection filters out — so the opted-out flushes are defense in depth there
- * (covering rows recorded under builds that predate that write-time gate) and
- * remain the primary guard for the always-on tables without a write-time gate
- * (llm_usage, turn events). Not gated on DB readiness: getDb() can still work
- * when initializeDb() failed mid-migration, in which case the audit listener
- * keeps writing rows the opt-out branch must keep covered. The reporter is
- * degraded-mode safe — its constructor and flush() treat DB errors as non-fatal.
- */
-export function startUsageTelemetryReporter(): void {
+function startReporterWithSources(
+  sources: readonly TelemetryEventSource[],
+  label: string,
+): void {
   if (process.env.VELLUM_DEV === "1") {
     return;
   }
   if (_instance) {
     return;
   }
-  _instance = new UsageTelemetryReporter();
+  _instance = new UsageTelemetryReporter(sources);
   _instance.start();
-  log.info("Usage telemetry reporter started");
+  log.info(`${label} telemetry reporter started`);
+}
+
+/**
+ * Construct and start the daemon's singleton telemetry reporter, flushing
+ * the daemon-owned sources (turn events). No-op in dev mode (VELLUM_DEV=1)
+ * and idempotent if already started.
+ *
+ * Started even when share_analytics consent is opted out: flush() re-checks
+ * consent each cycle and, when opted out, sends nothing but advances its
+ * sources' watermarks (including the final flush in stop()). Not gated on DB
+ * readiness: getDb() can still work when initializeDb() failed mid-migration,
+ * in which case message writes keep producing rows the opt-out branch must
+ * keep covered. The reporter is degraded-mode safe — flush() treats DB errors
+ * as non-fatal.
+ *
+ * Also initializes the tool_executed absent-watermark epoch even though that
+ * source is flushed by the monitor process: the "no flush has ever advanced
+ * it" guard needs the before-any-tool-runs ordering only daemon startup can
+ * provide (the monitor boots concurrently with the daemon serving turns).
+ */
+export function startUsageTelemetryReporter(): void {
+  if (process.env.VELLUM_DEV === "1") {
+    return;
+  }
+  initToolExecutedWatermarkIfAbsent(telemetryDbFlushCheckpointStore);
+  startReporterWithSources(DAEMON_TELEMETRY_EVENT_SOURCES, "Daemon");
+}
+
+/**
+ * Construct and start the resource monitor process's singleton telemetry
+ * reporter, flushing every non-turn source off the daemon's event loop.
+ * No-op in dev mode (VELLUM_DEV=1) and idempotent if already started.
+ *
+ * Switches this process's telemetry main-DB reads to the dedicated
+ * read-only connection first: the monitor observes the daemon's main DB
+ * (WAL permits cross-process readers) and must never write to it or create
+ * it. The caller (monitoring/worker.ts) is responsible for the consent
+ * refresh loop the share_analytics gate reads.
+ */
+export function startMonitorUsageTelemetryReporter(): void {
+  if (process.env.VELLUM_DEV === "1") {
+    return;
+  }
+  useReadOnlyMainDbForTelemetry();
+  startReporterWithSources(MONITOR_TELEMETRY_EVENT_SOURCES, "Monitor");
 }
 
 /**
@@ -105,6 +191,42 @@ export async function stopUsageTelemetryReporter(): Promise<void> {
   }
 }
 
+/**
+ * Initialize the tool_executed flush watermark to "now" when absent.
+ *
+ * `tool_invocations` is an always-on audit table that predates the reporter
+ * shipping its rows: an absent watermark means no flush (opted in or out) has
+ * ever advanced it, so rows recorded before this build — including any
+ * opted-out period under older builds that gated the reporter on the
+ * usage-data opt-out — would otherwise ship retroactively. Runs at daemon
+ * startup, before any tool can run, so no legitimate row falls behind the
+ * epoch; the checkpoint persists immediately so a crash can't leave it absent
+ * and re-initialize later. An EXISTING watermark is never touched: opted-out
+ * sessions keep it advancing via the opt-out flush branch, and overwriting it
+ * would drop a legitimate unshipped backlog. The other sources need no init:
+ * their recording is either consent-gated at write time (opt-out rows never
+ * exist) or covered by the same watermark discipline from first boot.
+ *
+ * Best-effort: DB init failures are tolerated at daemon startup (degraded
+ * mode), so this never throws — matching flush(), which treats DB errors as
+ * non-fatal.
+ */
+export function initToolExecutedWatermarkIfAbsent(
+  checkpoints: FlushCheckpointStore,
+): void {
+  try {
+    const key = watermarkKeysForSource(TOOL_EXECUTED_SOURCE_ID).at;
+    if (checkpoints.get(key) == null) {
+      checkpoints.set(key, String(Date.now()));
+    }
+  } catch (err) {
+    log.warn(
+      { err },
+      "tool_executed watermark init failed — non-fatal; a later run with a working DB re-runs the absent-checkpoint init",
+    );
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Reporter
 // ---------------------------------------------------------------------------
@@ -112,47 +234,24 @@ export async function stopUsageTelemetryReporter(): Promise<void> {
 export class UsageTelemetryReporter {
   private initialFlushTimer: ReturnType<typeof setTimeout> | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
-  private activeFlush: Promise<void> | null = null;
+  private activeFlush: Promise<TelemetryFlushSummary> | null = null;
   private readonly sources: readonly TelemetryEventSource[];
   private readonly checkpoints: FlushCheckpointStore;
 
   constructor(
-    sources: readonly TelemetryEventSource[] = ALL_TELEMETRY_EVENT_SOURCES,
+    sources: readonly TelemetryEventSource[],
     checkpoints: FlushCheckpointStore = telemetryDbFlushCheckpointStore,
   ) {
     this.sources = sources;
     this.checkpoints = checkpoints;
-    // `tool_invocations` is an always-on audit table that predates this
-    // reporter shipping its rows: an absent watermark means no flush (opted
-    // in or out) has ever advanced it, so rows recorded before this build —
-    // including any opted-out period under older builds that gated the
-    // reporter on the usage-data opt-out — would otherwise ship retroactively.
-    // Initialize an absent watermark to "now" at construction. Construction
-    // happens during daemon startup before any tool runs, so no legitimate
-    // row falls behind the watermark — initializing at first FLUSH instead
-    // would drop tools used during the 30s+ flush delay. The checkpoint is
-    // persisted immediately so a crash before the first flush can't leave it
-    // absent and re-initialize later. An EXISTING watermark is never touched:
-    // opted-out sessions keep it advancing via the opt-out flush branch, and
-    // overwriting it here would drop a legitimate unshipped backlog.
-    // `skill_loaded` needs no init: recording is gated on share_analytics
-    // consent, so opt-out rows never exist and its standard 0 default is safe.
-    //
-    // Best-effort: DB init failures are tolerated at daemon startup (degraded
-    // mode), so this must never throw out of the constructor — matching
-    // flush(), which treats DB errors as non-fatal.
+    // Backstop for the tool_executed absent-watermark epoch (see
+    // initToolExecutedWatermarkIfAbsent) — the authoritative init runs at
+    // daemon startup, which alone guarantees the before-any-tool-runs
+    // ordering; constructing an instance that flushes the source re-runs the
+    // guarded init in case that never happened (e.g. a standalone monitor
+    // started out of band).
     if (this.sources.some((s) => s.id === TOOL_EXECUTED_SOURCE_ID)) {
-      try {
-        const key = watermarkKeysForSource(TOOL_EXECUTED_SOURCE_ID).at;
-        if (this.checkpoints.get(key) == null) {
-          this.checkpoints.set(key, String(Date.now()));
-        }
-      } catch (err) {
-        log.warn(
-          { err },
-          "tool_executed watermark init failed at construction — non-fatal; a later construction with a working DB re-runs the absent-checkpoint init",
-        );
-      }
+      initToolExecutedWatermarkIfAbsent(this.checkpoints);
     }
   }
 
@@ -190,22 +289,53 @@ export class UsageTelemetryReporter {
     await this.flush();
   }
 
-  async flush(): Promise<void> {
+  async flush(): Promise<TelemetryFlushSummary> {
     if (this.activeFlush) {
-      return; // overlap guard
+      return this.activeFlush; // overlap guard — share the in-flight result
     }
     this.activeFlush = this._doFlush();
     try {
-      await this.activeFlush;
+      return await this.activeFlush;
     } finally {
       this.activeFlush = null;
     }
   }
 
-  private async _doFlush(batchCount = 0): Promise<void> {
+  private async _doFlush(
+    batchCount = 0,
+    acc: FlushAccumulator = { sent: 0, persisted: 0 },
+  ): Promise<TelemetryFlushSummary> {
+    // Once any batch has shipped (acc.sent > 0), a later skip/defer/error is
+    // just the natural end of the flush — report what landed, not a failure.
+    const flushed = (): TelemetryFlushSummary => ({
+      flushed: true,
+      sent: acc.sent,
+      persisted: acc.persisted,
+      dropped: Math.max(0, acc.sent - acc.persisted),
+    });
+    const settle = (reason: string): TelemetryFlushSummary =>
+      acc.sent > 0 ? flushed() : { flushed: false, reason };
+
     try {
       if (batchCount >= MAX_CONSECUTIVE_BATCHES) {
-        return;
+        return flushed();
+      }
+
+      // Age-bound the ack-mode outbox before any skip gate (platform,
+      // checkpoint store, consent three-way), so the bound holds in every
+      // state — including the unknown-consent deferral below. Only the
+      // reporter partition that flushes the outbox (ack-mode sources)
+      // prunes it.
+      if (batchCount === 0 && this.sources.some((source) => source.ack)) {
+        const prunedCount = deleteTelemetryOutboxEventsBefore(
+          Date.now() - OUTBOX_MAX_ROW_AGE_MS,
+        );
+        if (prunedCount > 0) {
+          log.debug(
+            { prunedCount },
+            "Telemetry flush: pruned expired outbox rows",
+          );
+        }
       }
 
       // Skip when platform features are disabled (VELLUM_DISABLE_PLATFORM in
@@ -214,7 +344,7 @@ export class UsageTelemetryReporter {
       // is a deployment/local-mode toggle, not a privacy opt-out, so the unsent
       // backlog ships once the flag is cleared.
       if (!arePlatformFeaturesEnabled()) {
-        return;
+        return settle("disabled");
       }
 
       // Skip when the flush-checkpoint store (telemetry DB) is unreachable.
@@ -225,10 +355,29 @@ export class UsageTelemetryReporter {
         log.warn(
           "Telemetry flush: flush-checkpoint store unavailable — skipping, will retry next cycle",
         );
-        return;
+        return settle("checkpoint-unavailable");
       }
 
-      // Respect opt-out: if the platform owner has not granted
+      // Tri-state consent gate: `true` ships, `false` purges, `"unknown"`
+      // defers.
+      const shareAnalytics = getRawShareAnalytics();
+
+      // `"unknown"` (boot before the first successful consent refresh, no
+      // platform session, no resolvable owner) is not an opt-out: nothing is
+      // sent, acked, discarded, or advanced — the same shape as the
+      // checkpoint-unavailable skip above. Purging here would silently
+      // destroy events recorded before the cache warmed up; instead the
+      // backlog ships (or is purged) on a later cycle once the 5-minute
+      // refresh loop resolves the cache to a confirmed value. Bounded by
+      // the age prune above.
+      if (shareAnalytics === "unknown") {
+        log.debug(
+          "Telemetry flush: share_analytics consent unknown — skipping, will retry next cycle",
+        );
+        return settle("unknown-consent");
+      }
+
+      // Respect a confirmed opt-out: if the platform owner declined
       // `share_analytics` consent, skip the flush and advance watermarks so
       // events recorded during the opt-out window are never sent
       // retroactively. The daemon runs the reporter even when opted out
@@ -244,10 +393,11 @@ export class UsageTelemetryReporter {
       // under builds predating the audit listener's write-time gate — new
       // opted-out tool_invocations rows persist NULL telemetry columns and
       // are unreportable by construction regardless of watermark timing.
-      if (!getCachedShareAnalytics()) {
-        // Advance the timestamp watermarks and pin the ID watermarks to a
-        // sentinel that sorts above any real UUID. The sentinel (rather than
-        // "") keeps the compound-cursor branch active — a falsy ID would
+      if (shareAnalytics === false) {
+        // Ack-mode sources drop their pending rows outright. Watermark-mode
+        // sources advance the timestamp watermarks and pin the ID watermarks
+        // to a sentinel that sorts above any real UUID. The sentinel (rather
+        // than "") keeps the compound-cursor branch active — a falsy ID would
         // downgrade the query to a timestamp-only `gt(createdAt, watermark)`
         // — while making its same-millisecond arm unsatisfiable, so a row
         // written in the same millisecond as this flush's Date.now() can
@@ -255,11 +405,15 @@ export class UsageTelemetryReporter {
         // ships events overwrites the sentinel with a real row ID.
         const now = String(Date.now());
         for (const source of this.sources) {
+          if (source.ack) {
+            source.ack.discardPending();
+            continue;
+          }
           const keys = watermarkKeysForSource(source.id);
           this.checkpoints.set(keys.at, now);
           this.checkpoints.set(keys.id, OPT_OUT_WATERMARK_ID_SENTINEL);
         }
-        return;
+        return settle("opted-out");
       }
 
       // Read each source's watermark (compound cursor: createdAt + id) and
@@ -280,8 +434,35 @@ export class UsageTelemetryReporter {
         };
       });
 
+      // Ack-mode batches must carry a row id per event: without them nothing
+      // can be acknowledged post-2xx, so shipping would re-send the same rows
+      // on every flush. Exclude such a batch from the POST instead.
+      for (const entry of batches) {
+        const { source, batch } = entry;
+        if (
+          source.ack &&
+          batch.events.length > 0 &&
+          (batch.rowIds ?? []).length !== batch.events.length
+        ) {
+          log.warn(
+            {
+              sourceId: source.id,
+              eventCount: batch.events.length,
+              rowIdCount: batch.rowIds?.length ?? 0,
+            },
+            "Telemetry flush: ack-mode batch missing/mismatched rowIds — excluding from POST",
+          );
+          entry.batch = {
+            events: [],
+            rowIds: [],
+            lastCursor: null,
+            fullBatch: false,
+          };
+        }
+      }
+
       if (batches.every(({ batch }) => batch.events.length === 0)) {
-        return;
+        return settle("nothing-pending");
       }
 
       // Resolve auth context. We send authenticated-only: if no platform
@@ -298,7 +479,7 @@ export class UsageTelemetryReporter {
           },
           "Telemetry flush: no platform credentials — skipping, will retry next cycle",
         );
-        return;
+        return settle("no-credentials");
       }
       log.debug(
         {
@@ -315,6 +496,10 @@ export class UsageTelemetryReporter {
       // Build payload — sources in construction order, each source's events
       // in cursor order.
       const typedEvents = batches.flatMap(({ batch }) => batch.events);
+
+      // Pre-flush wire validation — observability only: warns about events
+      // the server would silently drop; the batch is POSTed unchanged.
+      validateWireEvents(typedEvents, log);
 
       const organizationId = getPlatformOrganizationId() || undefined;
       const userId = getPlatformUserId() || undefined;
@@ -343,25 +528,39 @@ export class UsageTelemetryReporter {
           { status: resp.status, body },
           "Usage telemetry POST failed — will retry next cycle",
         );
-        return;
+        return settle("post-failed");
       }
-      await resp.text(); // consume body to release connection
 
-      // Advance each source's watermark to its last reported row.
+      // Read the ingest response so `persisted` reflects what actually landed;
+      // consuming the body also releases the connection.
+      const body = await resp.text();
+      acc.sent += typedEvents.length;
+      acc.persisted += parsePersistedCount(body, typedEvents.length);
+
+      // Acknowledge each source's shipped rows: ack-mode sources delete them
+      // (never touching flush_checkpoints), watermark-mode sources advance
+      // their compound cursor to the last reported row.
       for (const { source, batch } of batches) {
-        if (batch.lastCursor) {
+        if (source.ack) {
+          if (batch.events.length > 0) {
+            source.ack.acknowledge(batch.rowIds ?? []);
+          }
+        } else if (batch.lastCursor) {
           const keys = watermarkKeysForSource(source.id);
           this.checkpoints.set(keys.at, String(batch.lastCursor.createdAt));
           this.checkpoints.set(keys.id, batch.lastCursor.id);
         }
       }
 
-      // If any source produced a full batch, there may be more — recurse.
+      // If any source produced a full batch, there may be more — recurse,
+      // threading the accumulator so counts span every batch in this flush.
       if (batches.some(({ batch }) => batch.fullBatch)) {
-        await this._doFlush(batchCount + 1);
+        return this._doFlush(batchCount + 1, acc);
       }
+      return flushed();
     } catch (err) {
       log.warn({ err }, "Usage telemetry flush error — non-fatal, will retry");
+      return settle("error");
     }
   }
 }

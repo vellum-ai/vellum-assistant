@@ -193,6 +193,14 @@ export interface RunBackgroundJobOptions {
    * run completes successfully. See `notifications/deferred-emit.ts`.
    */
   deferNotifications?: boolean;
+  /**
+   * Persist the kickoff `prompt` without indexing it — no memory segments,
+   * no embeddings, no lexical-index entry. Opt-in for jobs whose prompt is a
+   * static machine-authored instruction manual (e.g. memory consolidation)
+   * that must not enter memory or search on every run. The run's replies and
+   * all other messages index normally. Defaults to false.
+   */
+  skipPromptIndexing?: boolean;
 }
 
 export interface RunBackgroundJobResult {
@@ -200,6 +208,14 @@ export interface RunBackgroundJobResult {
   ok: boolean;
   error?: Error;
   errorKind?: BackgroundJobErrorKind;
+  /**
+   * Stable classified error code (`ConversationErrorCode`, e.g.
+   * `"PROVIDER_BILLING"`) when the turn failed without throwing. Absent for
+   * timeouts and thrown exceptions. Lets callers branch on the failure class
+   * (e.g. billing vs transient) without depending on error identity or
+   * message text.
+   */
+  failureCode?: string;
   /**
    * Set when the runner declined to execute. Callers can distinguish a
    * skipped job from a successful one even though both report `ok: true`.
@@ -341,6 +357,7 @@ export async function runBackgroundJob(
       ...(opts.cronRunId ? { cronRunId: opts.cronRunId } : {}),
       ...(opts.allowedTools ? { allowedTools: opts.allowedTools } : {}),
       ...(opts.toolGateMode ? { toolGateMode: opts.toolGateMode } : {}),
+      ...(opts.skipPromptIndexing ? { skipUserMessageIndexing: true } : {}),
     });
     // Absorb late rejections: if the timeout wins the race, `work` keeps
     // running and may eventually reject — swallow so it doesn't surface as
@@ -380,6 +397,10 @@ export async function runBackgroundJob(
   } catch (err) {
     const errorKind = classifyError(err);
     const error = err instanceof Error ? err : new Error(String(err));
+    const failureCode =
+      err instanceof BackgroundJobTurnFailureError
+        ? err.failureCode
+        : undefined;
     // Bootstrap can fail before `conversation` is assigned; fall back to ""
     // so the structured failure result still flows to the caller.
     const conversationId = conversation?.id ?? "";
@@ -439,6 +460,7 @@ export async function runBackgroundJob(
       ok: false,
       error,
       errorKind,
+      ...(failureCode !== undefined ? { failureCode } : {}),
     };
   } finally {
     if (timer) clearTimeout(timer);

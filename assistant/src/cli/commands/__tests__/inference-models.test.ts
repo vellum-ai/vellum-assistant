@@ -27,6 +27,8 @@ mock.module("../../../util/logger.js", () => ({
 }));
 
 const { attachModelsSubcommand } = await import("../inference-models.js");
+const { applyCommandHelp } = await import("../../lib/cli-command-help.js");
+const { inferenceHelp } = await import("../inference.help.js");
 
 beforeEach(() => {
   lastIpcCall = null;
@@ -45,6 +47,7 @@ async function run(args: string[]): Promise<string> {
     const program = new Command();
     program.exitOverride();
     const inference = program.command("inference");
+    applyCommandHelp(inference, inferenceHelp);
     attachModelsSubcommand(inference);
     await program.parseAsync(["node", "assistant", "inference", ...args]);
   } catch {

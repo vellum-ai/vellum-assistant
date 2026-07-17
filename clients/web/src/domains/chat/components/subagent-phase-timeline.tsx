@@ -527,11 +527,6 @@ const SubagentPhaseRow = memo(function SubagentPhaseRow({
                         variant="tool"
                         iconName={step.iconName}
                         label={step.activity || step.info || step.title}
-                        tone={
-                          step.status === "error" || step.status === "denied"
-                            ? "error"
-                            : "default"
-                        }
                         ariaLabel="View tool details"
                         onClick={() => onStepDetailClick(detailKey)}
                       />
@@ -567,9 +562,9 @@ const SubagentPhaseRow = memo(function SubagentPhaseRow({
                     );
                   }
                   if (step.kind === "web_search_error") {
-                    // A failed search becomes an error-toned pill that opens the
-                    // full, untruncated provider error in the nested detail —
-                    // parity with a failed tool. Falls back to the inline error chip
+                    // A failed search becomes a pill that opens the full,
+                    // untruncated provider error in the nested detail —
+                    // parity with a failed tool. Falls back to the inline chip
                     // below when no detail handler is wired (deploy-safe).
                     return (
                       <ToolStepPill
@@ -577,7 +572,6 @@ const SubagentPhaseRow = memo(function SubagentPhaseRow({
                         variant="tool"
                         iconName="globe"
                         label={step.errorMessage}
-                        tone="error"
                         ariaLabel="View search error"
                         onClick={() => onStepDetailClick(detailKey)}
                       />

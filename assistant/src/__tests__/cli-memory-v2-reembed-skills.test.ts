@@ -51,6 +51,8 @@ mock.module("../plugins/defaults/memory/v2/skill-store.js", () => ({
 // Imports under test (after mocks)
 // ---------------------------------------------------------------------------
 
+const { applyCommandHelp } = await import("../cli/lib/cli-command-help.js");
+const { memoryHelp } = await import("../cli/commands/memory/index.help.js");
 const { registerMemoryV2Command } =
   await import("../cli/commands/memory/memory-v2.js");
 const { ROUTES: memoryV2Routes, MEMORY_V2_DISABLED_CODE } =
@@ -69,6 +71,7 @@ function buildProgram(): Command {
     writeOut: () => {},
   });
   const memory = program.command("memory");
+  applyCommandHelp(memory, memoryHelp);
   registerMemoryV2Command(memory);
   return program;
 }

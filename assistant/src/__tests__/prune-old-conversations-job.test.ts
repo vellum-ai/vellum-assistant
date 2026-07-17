@@ -1,13 +1,13 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import type { AssistantConfig } from "../config/schema.js";
-import { getDb } from "../persistence/db-connection.js";
+import { getDb, getTelemetryDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { pruneOldConversationsJob } from "../persistence/job-handlers/cleanup.js";
 import type { MemoryJob } from "../persistence/jobs-store.js";
 import {
   conversations,
-  skillLoadedEvents,
+  telemetryEvents,
   toolInvocations,
 } from "../persistence/schema/index.js";
 
@@ -39,19 +39,23 @@ function seedConversation(id: string, updatedAt: number): void {
       createdAt: updatedAt,
     })
     .run();
-  db.insert(skillLoadedEvents)
+  // Pending conversation-scoped telemetry rows live in the telemetry_events
+  // outbox on the dedicated telemetry DB.
+  getTelemetryDb()!
+    .insert(telemetryEvents)
     .values({
-      id: `sl-${id}`,
+      id: `te-${id}`,
+      name: "skill_loaded",
       createdAt: updatedAt,
       conversationId: id,
-      skillName: "test-skill",
+      payload: "{}",
     })
     .run();
 }
 
 function countRows(conversationId: string): {
   invocations: number;
-  skillLoads: number;
+  telemetryRows: number;
 } {
   const db = getDb();
   return {
@@ -60,9 +64,9 @@ function countRows(conversationId: string): {
       .from(toolInvocations)
       .all()
       .filter((r) => r.conversationId === conversationId).length,
-    skillLoads: db
+    telemetryRows: getTelemetryDb()!
       .select()
-      .from(skillLoadedEvents)
+      .from(telemetryEvents)
       .all()
       .filter((r) => r.conversationId === conversationId).length,
   };
@@ -71,21 +75,33 @@ function countRows(conversationId: string): {
 describe("pruneOldConversationsJob", () => {
   beforeEach(() => {
     const db = getDb();
-    db.delete(skillLoadedEvents).run();
+    getTelemetryDb()!.delete(telemetryEvents).run();
     db.delete(toolInvocations).run();
     db.delete(conversations).run();
   });
 
-  test("deletes non-cascading rows — including skill_loaded_events — for pruned conversations only", () => {
+  test("deletes non-cascading rows — including pending telemetry_events — for pruned conversations only", () => {
     const staleUpdatedAt = Date.now() - 60 * 86_400_000;
     seedConversation(STALE_ID, staleUpdatedAt);
     seedConversation(FRESH_ID, Date.now());
 
     pruneOldConversationsJob(JOB, CONFIG);
 
-    expect(countRows(STALE_ID)).toEqual({ invocations: 0, skillLoads: 0 });
-    expect(countRows(FRESH_ID)).toEqual({ invocations: 1, skillLoads: 1 });
+    expect(countRows(STALE_ID)).toEqual({ invocations: 0, telemetryRows: 0 });
+    expect(countRows(FRESH_ID)).toEqual({ invocations: 1, telemetryRows: 1 });
     const remaining = getDb().select().from(conversations).all();
     expect(remaining.map((c) => c.id)).toEqual([FRESH_ID]);
+  });
+
+  test("retentionDays of 0 is a no-op (keep forever)", () => {
+    const ancientUpdatedAt = Date.now() - 999 * 86_400_000;
+    seedConversation(STALE_ID, ancientUpdatedAt);
+
+    pruneOldConversationsJob(JOB, {
+      memory: { cleanup: { conversationRetentionDays: 0 } },
+    } as unknown as AssistantConfig);
+
+    const remaining = getDb().select().from(conversations).all();
+    expect(remaining.map((c) => c.id)).toEqual([STALE_ID]);
   });
 });

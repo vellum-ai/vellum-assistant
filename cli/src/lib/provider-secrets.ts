@@ -75,6 +75,7 @@ const PROVIDER_LABELS: Record<LlmProviderId, string> = {
   minimax: "MiniMax",
   atlascloud: "Atlas Cloud",
   together: "Together AI",
+  baseten: "Baseten",
 };
 
 export function formatProviderName(provider: LlmProviderId): string {
@@ -176,6 +177,11 @@ export function inferProviderFromModel(model: string): string | undefined {
   if (model.startsWith("accounts/fireworks/models/")) {
     return "fireworks";
   }
+  if (model.startsWith("openai/gpt-5.6")) {
+    // Listed by OpenRouter (#37856), the earlier catalog entry; the Vercel
+    // AI Gateway does not carry these IDs.
+    return "openrouter";
+  }
   if (model.startsWith("openai/") || model.startsWith("xai/")) {
     return "vercel-ai-gateway";
   }
@@ -184,6 +190,9 @@ export function inferProviderFromModel(model: string): string | undefined {
   }
   if (model.startsWith("deepseek-ai/")) {
     return "atlascloud";
+  }
+  if (model.startsWith("thinkingmachines/")) {
+    return "baseten";
   }
   if (model.includes("/")) {
     return "openrouter";

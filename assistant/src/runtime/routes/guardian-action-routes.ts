@@ -13,11 +13,11 @@
  */
 import { z } from "zod";
 
-import { isHttpAuthDisabled } from "../../config/env.js";
 import {
-  type CanonicalGuardianRequest,
-  listPendingRequestsByConversationScope,
-} from "../../contacts/canonical-guardian-store.js";
+  type GuardianRequestWire,
+  listPendingRequestsByScope,
+} from "../../channels/gateway-guardian-requests.js";
+import { isHttpAuthDisabled } from "../../config/env.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { processGuardianDecision } from "../guardian-action-service.js";
 import type { GuardianDecisionPrompt } from "../guardian-decision-types.js";
@@ -30,14 +30,16 @@ import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 // GET /v1/guardian-actions/pending?conversationId=...
 // ---------------------------------------------------------------------------
 
-function handleGuardianActionsPending({ queryParams = {} }: RouteHandlerArgs) {
+async function handleGuardianActionsPending({
+  queryParams = {},
+}: RouteHandlerArgs) {
   const conversationId = queryParams.conversationId;
 
   if (!conversationId) {
     throw new BadRequestError("conversationId query parameter is required");
   }
 
-  const prompts = listGuardianDecisionPrompts({
+  const prompts = await listGuardianDecisionPrompts({
     conversationId,
     channel: "vellum",
   });
@@ -135,24 +137,24 @@ async function handleGuardianActionDecision({
  * The returned prompts normalize `conversationId` to the queried conversation ID
  * for client rendering stability.
  */
-export function listGuardianDecisionPrompts(params: {
+export async function listGuardianDecisionPrompts(params: {
   conversationId: string;
   channel?: string;
-}): GuardianDecisionPrompt[] {
+}): Promise<GuardianDecisionPrompt[]> {
   const { conversationId, channel } = params;
   const prompts: GuardianDecisionPrompt[] = [];
 
-  const canonicalRequests = listPendingRequestsByConversationScope(
+  const pendingRequests = await listPendingRequestsByScope(
     conversationId,
     channel,
   );
 
-  for (const req of canonicalRequests) {
-    // Skip expired canonical requests
+  for (const req of pendingRequests) {
+    // Skip expired requests
     if (req.expiresAt && new Date(req.expiresAt).getTime() < Date.now())
       continue;
 
-    const prompt = mapCanonicalRequestToPrompt(req, conversationId);
+    const prompt = mapRequestToPrompt(req, conversationId);
     prompts.push(prompt);
   }
 
@@ -160,11 +162,11 @@ export function listGuardianDecisionPrompts(params: {
 }
 
 // ---------------------------------------------------------------------------
-// Canonical request -> prompt mapping
+// Guardian request -> prompt mapping
 // ---------------------------------------------------------------------------
 
-function mapCanonicalRequestToPrompt(
-  req: CanonicalGuardianRequest,
+function mapRequestToPrompt(
+  req: GuardianRequestWire,
   conversationId: string,
 ): GuardianDecisionPrompt {
   const questionText = buildKindAwareQuestionText(req);
@@ -193,7 +195,7 @@ function mapCanonicalRequestToPrompt(
   };
 }
 
-function buildKindAwareQuestionText(req: CanonicalGuardianRequest): string {
+function buildKindAwareQuestionText(req: GuardianRequestWire): string {
   const baseText =
     req.questionText ??
     (req.toolName

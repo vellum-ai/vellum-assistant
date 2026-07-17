@@ -41,10 +41,16 @@ export class FakeClient {
     assistantId: string;
     conversationId?: string;
     turnDetection?: "manual" | "server_vad";
+    silenceThresholdMs?: number;
+    bargeInMinSpeechMs?: number;
   } | null = null;
   sentAudio: ArrayBuffer[] = [];
   pttReleaseCount = 0;
   interruptCount = 0;
+  updateConfigCalls: {
+    silenceThresholdMs?: number;
+    bargeInMinSpeechMs?: number;
+  }[] = [];
   ended = false;
   closed = false;
 
@@ -70,6 +76,8 @@ export class FakeClient {
     assistantId: string;
     conversationId?: string;
     turnDetection?: "manual" | "server_vad";
+    silenceThresholdMs?: number;
+    bargeInMinSpeechMs?: number;
   }): Promise<void> {
     this.connectArgs = args;
   }
@@ -82,6 +90,12 @@ export class FakeClient {
   }
   interrupt(): void {
     this.interruptCount++;
+  }
+  updateConfig(config: {
+    silenceThresholdMs?: number;
+    bargeInMinSpeechMs?: number;
+  }): void {
+    this.updateConfigCalls.push(config);
   }
   end(): void {
     this.ended = true;
@@ -108,6 +122,7 @@ export class FakeCapture {
   startCount = 0;
   stopCount = 0;
   shutdownCount = 0;
+  flushCount = 0;
   startResult: LiveVoiceCaptureResult = { ok: true };
   /**
    * When true, `start()` stays pending until {@link resolveStart} — lets tests
@@ -135,6 +150,9 @@ export class FakeCapture {
   }
   async shutdown(): Promise<void> {
     this.shutdownCount++;
+  }
+  flush(): void {
+    this.flushCount++;
   }
 
   /** Resolve pending deferred `start()` calls with the current `startResult`. */
@@ -213,6 +231,13 @@ export function makeControlsSpies() {
     stop: mock(() => {}),
     release: mock(() => {}),
     interrupt: mock(() => {}),
+    setMuted: mock((_muted: boolean) => {}),
+    updateConfig: mock(
+      (_config: {
+        silenceThresholdMs?: number;
+        bargeInMinSpeechMs?: number;
+      }) => {},
+    ),
   } satisfies LiveVoiceSessionControls;
 }
 
@@ -236,4 +261,11 @@ export function seedLiveVoiceSession(
     store.setControls(options.controls);
   }
   store.setState(state);
+  // Mirror the controller's first-`tts_audio` write: entering `speaking` means
+  // audio is flowing, so the avatar reads `responding`. (A silent mid-turn
+  // `speaking` pause is the exception, exercised directly against
+  // `toVoiceAvatarVisual`.)
+  if (state === "speaking") {
+    store.setAssistantAudioActive(true);
+  }
 }

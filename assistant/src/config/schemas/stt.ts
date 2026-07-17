@@ -9,7 +9,21 @@ export const VALID_STT_PROVIDERS = [
   "google-gemini",
   "openai-whisper",
   "xai",
+  "vellum",
 ] as const;
+
+/**
+ * Forgiving aliases normalized to a canonical provider id before the enum
+ * check, so a natural value like `openai` or `whisper` is accepted rather than
+ * silently reset (which cascades into a full `services` section reset).
+ */
+const STT_PROVIDER_ALIASES: Record<
+  string,
+  (typeof VALID_STT_PROVIDERS)[number]
+> = {
+  openai: "openai-whisper",
+  whisper: "openai-whisper",
+};
 
 /**
  * Sparse provider config map under `services.stt.providers`.
@@ -32,24 +46,24 @@ export type SttProviders = z.infer<typeof SttProvidersSchema>;
 /**
  * Canonical STT service configuration.
  *
- * `mode` is locked to `"your-own"` -- managed STT is not supported.
- * Attempting to set `mode: "managed"` will fail schema validation.
+ * `provider` is the only axis: `"vellum"` transcribes through the platform,
+ * billed to Vellum credits; any other provider uses the user's own API key.
  */
 export const SttServiceSchema = z
   .object({
-    mode: z
-      .literal("your-own", {
-        error:
-          'services.stt.mode must be "your-own" -- managed STT is not supported',
-      })
-      .default("your-own" as const)
-      .describe(
-        'STT service mode -- only "your-own" is supported (managed STT is not available)',
-      ),
     provider: z
-      .enum(VALID_STT_PROVIDERS, {
-        error: `services.stt.provider must be one of: ${VALID_STT_PROVIDERS.join(", ")}`,
-      })
+      .preprocess(
+        (v) => {
+          if (typeof v !== "string") {
+            return v;
+          }
+          const k = v.trim().toLowerCase();
+          return STT_PROVIDER_ALIASES[k] ?? k;
+        },
+        z.enum(VALID_STT_PROVIDERS, {
+          error: `services.stt.provider must be one of: ${VALID_STT_PROVIDERS.join(", ")} (aliases: openai/whisper -> openai-whisper)`,
+        }),
+      )
       .describe("Active STT provider used for speech-to-text transcription"),
     providers: SttProvidersSchema.default({}),
   })

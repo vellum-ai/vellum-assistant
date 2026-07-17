@@ -1,11 +1,4 @@
-/**
- * Declarative help for the `assistant bash` command.
- *
- * Plain data (no action handlers, imports only the help contract type) so the
- * memory capability indexer can read it without pulling in the daemon/IPC action
- * graph. The handler lives in `bash.ts`, which applies this via
- * `applyCommandHelp` and attaches it.
- */
+/** Declarative help for the `assistant bash` command. */
 
 import type { CliCommandHelp } from "../lib/cli-command-help.js";
 

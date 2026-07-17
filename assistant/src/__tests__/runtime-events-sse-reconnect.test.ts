@@ -10,18 +10,7 @@
  *   - dedup against live events that race in mid-replay
  *   - malformed `lastSeenSeq` query param rejected with 400
  */
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    model: "test",
-    provider: "test",
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    secretDetection: { enabled: false },
-  }),
-}));
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { getOrCreateConversation } from "../persistence/conversation-key-store.js";
 import { getDb } from "../persistence/db-connection.js";

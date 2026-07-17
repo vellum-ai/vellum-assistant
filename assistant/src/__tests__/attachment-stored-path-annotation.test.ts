@@ -8,18 +8,7 @@
  * stays bound to the oldest upload.
  */
 import { readFileSync } from "node:fs";
-import { beforeEach, describe, expect, mock, test } from "bun:test";
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-
-    model: "test",
-    provider: "test",
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-  }),
-}));
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import { reinjectAttachmentPathAnnotations } from "../daemon/conversation-lifecycle.js";
 import type { MessagingConversationContext } from "../daemon/conversation-messaging.js";

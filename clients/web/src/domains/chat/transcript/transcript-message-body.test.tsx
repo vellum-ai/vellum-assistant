@@ -38,16 +38,21 @@ mock.module("@/domains/chat/components/chat-markdown-message", () => ({
     content,
     hardLineBreaks,
     onVellumLinkClick,
+    redactedCredentialChips,
   }: {
     content: string;
     hardLineBreaks?: boolean;
     onVellumLinkClick?: (href: string, linkText: string) => void;
+    redactedCredentialChips?: boolean;
   }) => {
     lastVellumLinkClick = onVellumLinkClick;
     return (
       <div
         data-testid="markdown"
         data-hard-line-breaks={hardLineBreaks ? "true" : "false"}
+        data-redacted-credential-chips={
+          redactedCredentialChips ? "true" : "false"
+        }
       >
         {content}
       </div>
@@ -213,6 +218,8 @@ import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { DisplayMessage, Surface } from "@/domains/chat/types/types";
 
 import { TranscriptMessageBody } from "@/domains/chat/transcript/transcript-message-body";
+import { MIN_VERSION as REDACTED_CHIPS_MIN_VERSION } from "@/lib/backwards-compat/use-supports-redacted-credential-chips";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
 const noop = () => {};
 
@@ -1236,6 +1243,91 @@ describe("TranscriptMessageBody", () => {
     ).toBeNull();
   });
 
+  test("suppresses native text selection on user bubbles for coarse pointers", () => {
+    const originalMatchMedia = window.matchMedia;
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      writable: true,
+      value: mock((query: string) => ({
+        matches: query === "(pointer: coarse)",
+        media: query,
+        onchange: null,
+        addListener: mock(() => {}),
+        removeListener: mock(() => {}),
+        addEventListener: mock(() => {}),
+        removeEventListener: mock(() => {}),
+        dispatchEvent: mock(() => false),
+      })),
+    });
+
+    try {
+      const { container } = render(
+        <TranscriptMessageBody
+          message={{
+            id: "u-touch",
+            role: "user",
+            contentBlocks: [textBlock("hold me")],
+          }}
+          onSurfaceAction={noop}
+        />,
+      );
+      const bubble = container.querySelector("[class*='user-bubble-bg']");
+      expect(bubble).not.toBeNull();
+      // The long-press sheet owns the gesture on touch; native selection must
+      // not race it, so the bubble carries select-none + touch-callout:none.
+      expect(bubble!.className).toContain("select-none");
+      expect(bubble!.className).toContain("[-webkit-touch-callout:none]");
+    } finally {
+      Object.defineProperty(window, "matchMedia", {
+        configurable: true,
+        writable: true,
+        value: originalMatchMedia,
+      });
+    }
+  });
+
+  test("keeps user-bubble text selectable on fine pointers (desktop)", () => {
+    const originalMatchMedia = window.matchMedia;
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      writable: true,
+      value: mock((query: string) => ({
+        // Fine pointer: no coarse-pointer match.
+        matches: false,
+        media: query,
+        onchange: null,
+        addListener: mock(() => {}),
+        removeListener: mock(() => {}),
+        addEventListener: mock(() => {}),
+        removeEventListener: mock(() => {}),
+        dispatchEvent: mock(() => false),
+      })),
+    });
+
+    try {
+      const { container } = render(
+        <TranscriptMessageBody
+          message={{
+            id: "u-mouse",
+            role: "user",
+            contentBlocks: [textBlock("select me")],
+          }}
+          onSurfaceAction={noop}
+        />,
+      );
+      const bubble = container.querySelector("[class*='user-bubble-bg']");
+      expect(bubble).not.toBeNull();
+      expect(bubble!.className).not.toContain("select-none");
+      expect(bubble!.className).not.toContain("[-webkit-touch-callout:none]");
+    } finally {
+      Object.defineProperty(window, "matchMedia", {
+        configurable: true,
+        writable: true,
+        value: originalMatchMedia,
+      });
+    }
+  });
+
   test("renders a user-message surface outside the user bubble", () => {
     const { container } = render(
       <TranscriptMessageBody
@@ -1499,5 +1591,72 @@ describe("TranscriptMessageBody — generic inline process cards", () => {
 
     fireEvent.click(getByTestId("inline-process-card-stop"));
     expect(stopBackgroundTaskMock).toHaveBeenCalledWith("bg-1");
+  });
+});
+
+describe("TranscriptMessageBody — redacted-credential chip version gate", () => {
+  const GATE_ASSISTANT_ID = "asst-gate";
+
+  function chipFlag(
+    role: "assistant" | "user",
+    assistantId: string | null = GATE_ASSISTANT_ID,
+  ): string | null {
+    const { container } = render(
+      <TranscriptMessageBody
+        message={{
+          id: `m-gate-${role}`,
+          role,
+          contentBlocks: [textBlock("some text")],
+          timestamp: 1_000,
+        }}
+        assistantId={assistantId}
+        onSurfaceAction={noop}
+      />,
+    );
+    return container
+      .querySelector("[data-testid='markdown']")!
+      .getAttribute("data-redacted-credential-chips");
+  }
+
+  function hydrateIdentity(version: string, assistantId = GATE_ASSISTANT_ID) {
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity("test-asst", version, assistantId);
+  }
+
+  afterEach(() => {
+    useAssistantIdentityStore.getState().clearIdentity();
+  });
+
+  test("chips stay off while the assistant version is unknown", () => {
+    useAssistantIdentityStore.getState().clearIdentity();
+    expect(chipFlag("assistant")).toBe("false");
+  });
+
+  test("chips stay off against an assistant below the gate (no neutralization)", () => {
+    hydrateIdentity("0.10.8");
+    expect(chipFlag("assistant")).toBe("false");
+  });
+
+  test("chips enable for the identity owner's messages at the gated version", () => {
+    hydrateIdentity(REDACTED_CHIPS_MIN_VERSION);
+    expect(chipFlag("assistant")).toBe("true");
+  });
+
+  test("chips stay off when the hydrated version belongs to a different assistant", () => {
+    // Assistant-switch race: the previous assistant's supported version
+    // is still hydrated while the transcript belongs to the new one.
+    hydrateIdentity(REDACTED_CHIPS_MIN_VERSION, "asst-previous");
+    expect(chipFlag("assistant")).toBe("false");
+  });
+
+  test("chips stay off when the transcript has no assistant owner", () => {
+    hydrateIdentity(REDACTED_CHIPS_MIN_VERSION);
+    expect(chipFlag("assistant", null)).toBe("false");
+  });
+
+  test("user messages never enable chips, even at the gated version", () => {
+    hydrateIdentity(REDACTED_CHIPS_MIN_VERSION);
+    expect(chipFlag("user")).toBe("false");
   });
 });

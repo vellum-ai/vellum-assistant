@@ -44,8 +44,16 @@ const postModelCall: HookFunction<PostModelCallContext> = async (ctx) => {
     isRecoverableImageError(ctx.error.message) &&
     !isImageRecoveryAttempted(ctx.conversationId)
   ) {
+    const { messages, changed } = recoverUnsendableImages(ctx.messages);
+    // A rejection can be classified as recoverable yet leave nothing to fix —
+    // e.g. a media-type mismatch on a format the sniffer cannot identify. Retrying
+    // an unchanged history would resend the identical rejected image and surface a
+    // "corrected" notice that isn't true, so let the original error stand instead.
+    if (!changed) {
+      return;
+    }
     markImageRecoveryAttempted(ctx.conversationId);
-    ctx.messages = recoverUnsendableImages(ctx.messages);
+    ctx.messages = messages;
     // Make the downgrade durable so the rejected image can't rehydrate from the
     // stored row and re-reject on later turns. This is cleanup for future
     // turns, so a persistence failure must never abort the retry that is about

@@ -3,7 +3,7 @@
  */
 
 export interface AppManifest {
-  format_version: number; // 1 = legacy single-HTML; 2 = multi-file TSX (future PR)
+  format_version: number; // always 2 (multi-file TSX)
   name: string;
   description?: string;
   icon?: string; // single emoji

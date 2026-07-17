@@ -382,11 +382,11 @@ mock.module("../runtime/access-request-helper.js", () => ({
   notifyGuardianOfAccessRequest: mockNotifyGuardianOfAccessRequest,
 }));
 
-// Canonical guardian-request store polled by the guardian wait controller.
-let mockCanonicalRequest: { status: string } | null = null;
-const mockGetCanonicalGuardianRequest = jest.fn(() => mockCanonicalRequest);
-mock.module("../contacts/canonical-guardian-store.js", () => ({
-  getCanonicalGuardianRequest: mockGetCanonicalGuardianRequest,
+// Gateway guardian-request client polled by the guardian wait controller.
+let mockGuardianRequest: { status: string } | null = null;
+const mockGetGuardianRequest = jest.fn(async () => mockGuardianRequest);
+mock.module("../channels/gateway-guardian-requests.js", () => ({
+  getGuardianRequestOrNull: mockGetGuardianRequest,
 }));
 
 // Wait-state helpers: no heartbeats in tests; capture callback handoffs.
@@ -586,8 +586,8 @@ beforeEach(() => {
   };
   mockNotifyGuardianOfAccessRequest.mockClear();
   mockNotifyResult = { notified: true, created: true, requestId: "req-1" };
-  mockGetCanonicalGuardianRequest.mockClear();
-  mockCanonicalRequest = null;
+  mockGetGuardianRequest.mockClear();
+  mockGuardianRequest = null;
   mockEmitCallbackHandoff.mockClear();
   mockTtsPlaybackDelayMs = 5;
   mockAccessRequestPollIntervalMs = 5;
@@ -833,6 +833,27 @@ describe("MediaStreamCallSession", () => {
       session.handleMessage(makeMarkMessage("end-of-turn"));
     });
 
+    test("inbound mark echo is routed into the output drain tracker", () => {
+      const mock = createMockWs();
+      const session = new MediaStreamCallSession(mock.ws, "call-1");
+      const noteEcho = jest.spyOn(session.getOutput(), "notePlaybackMarkEcho");
+
+      session.handleMessage(makeMarkMessage("end-of-turn:3"));
+
+      expect(noteEcho).toHaveBeenCalledWith("end-of-turn:3");
+    });
+
+    test("mark echo after disposal does not touch the output", () => {
+      const mock = createMockWs();
+      const session = new MediaStreamCallSession(mock.ws, "call-1");
+      const noteEcho = jest.spyOn(session.getOutput(), "notePlaybackMarkEcho");
+
+      session.destroy();
+      session.handleMessage(makeMarkMessage("end-of-turn:3"));
+
+      expect(noteEcho).not.toHaveBeenCalled();
+    });
+
     test("stop events are forwarded to the STT session", () => {
       const mock = createMockWs();
       mockSessions.set("call-1", {
@@ -906,7 +927,7 @@ describe("media-stream output egress", () => {
     expect(markMessages.length).toBeGreaterThan(0);
 
     const markParsed = JSON.parse(markMessages[0]);
-    expect(markParsed.mark.name).toBe("end-of-turn");
+    expect(markParsed.mark.name).toBe("end-of-turn:1");
   });
 
   test("empty sendTextToken (end-of-turn signal) sends only a mark, no media", async () => {
@@ -2352,7 +2373,7 @@ describe("setup flows over the media-stream transport", () => {
       );
       expect(session.getSetupFlow()?.getState()).toBe("capturing_name");
 
-      mockCanonicalRequest = { status: "pending" };
+      mockGuardianRequest = { status: "pending" };
       deliverTranscript(session, "Casey Example");
       await sleep();
 
@@ -2378,7 +2399,7 @@ describe("setup flows over the media-stream transport", () => {
       expect(registerCallController).not.toHaveBeenCalled();
 
       // The guardian approves; the wait poll picks it up.
-      mockCanonicalRequest = { status: "approved" };
+      mockGuardianRequest = { status: "approved" };
       await sleep(40);
 
       expect(speakSystemPrompt).toHaveBeenCalledWith(
@@ -2403,11 +2424,11 @@ describe("setup flows over the media-stream transport", () => {
       });
       await session.whenSetupSettled();
 
-      mockCanonicalRequest = { status: "pending" };
+      mockGuardianRequest = { status: "pending" };
       deliverTranscript(session, "Casey Example");
       await sleep();
 
-      mockCanonicalRequest = { status: "denied" };
+      mockGuardianRequest = { status: "denied" };
       await sleep(40);
 
       expect(speakSystemPrompt).toHaveBeenCalledWith(
@@ -2437,7 +2458,7 @@ describe("setup flows over the media-stream transport", () => {
       });
       await session.whenSetupSettled();
 
-      mockCanonicalRequest = { status: "pending" };
+      mockGuardianRequest = { status: "pending" };
       deliverTranscript(session, "Casey Example");
       await sleep();
 
@@ -2467,7 +2488,7 @@ describe("setup flows over the media-stream transport", () => {
       });
       await session.whenSetupSettled();
 
-      mockCanonicalRequest = { status: "pending" };
+      mockGuardianRequest = { status: "pending" };
       deliverTranscript(session, "Casey Example");
       await sleep();
       expect(session.getSetupFlow()?.getState()).toBe(
@@ -2487,7 +2508,7 @@ describe("setup flows over the media-stream transport", () => {
       expect(session.getSetupFlow()).toBeNull();
 
       // A late approval must not resurrect the torn-down call.
-      mockCanonicalRequest = { status: "approved" };
+      mockGuardianRequest = { status: "approved" };
       await sleep(40);
       expect(registerCallController).not.toHaveBeenCalled();
       expect(finalizeCall).toHaveBeenCalledTimes(1);
@@ -2604,12 +2625,12 @@ describe("setup flows over the media-stream transport", () => {
       });
       await session.whenSetupSettled();
 
-      mockCanonicalRequest = { status: "pending" };
+      mockGuardianRequest = { status: "pending" };
       deliverTranscript(session, "Casey Example");
       await sleep();
 
       const releaseSpeech = gateNextSpeech();
-      mockCanonicalRequest = { status: "denied" };
+      mockGuardianRequest = { status: "denied" };
       await sleep(40);
 
       expect(updateCallSession).toHaveBeenCalledWith(

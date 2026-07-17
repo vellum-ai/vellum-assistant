@@ -24,7 +24,7 @@ import { resetGatewayAclStore } from "./helpers/gateway-acl-store.js";
 
 // Mirrors `src/memory/db-singleton.ts`. Duplicated by design — see the
 // "No source-module imports" section above.
-type DbSlotKey = "main" | "logs" | "memory" | "telemetry";
+type DbSlotKey = "main" | "main-readonly" | "logs" | "memory" | "telemetry";
 
 type DbSlot = {
   db: unknown;
@@ -46,6 +46,7 @@ function dbSlots(): DbSlots {
   const ns = (g.vellumAssistant ??= {});
   return (ns.dbSingletons ??= {
     main: emptySlot(),
+    "main-readonly": emptySlot(),
     logs: emptySlot(),
     memory: emptySlot(),
     telemetry: emptySlot(),
@@ -53,7 +54,7 @@ function dbSlots(): DbSlots {
 }
 
 /**
- * Close every active DB connection (main, logs, memory, telemetry) and drop
+ * Close every active DB connection (main, main-readonly, logs, memory, telemetry) and drop
  * the singletons.
  *
  * Used by tests that nuke or replace a DB file mid-run — without this
@@ -68,7 +69,13 @@ function dbSlots(): DbSlots {
 export function resetDbForTesting(): void {
   resetGatewayAclStore();
   const slots = dbSlots();
-  for (const key of ["main", "logs", "memory", "telemetry"] as const) {
+  for (const key of [
+    "main",
+    "main-readonly",
+    "logs",
+    "memory",
+    "telemetry",
+  ] as const) {
     const s = slots[key];
     if (s.closer) {
       try {

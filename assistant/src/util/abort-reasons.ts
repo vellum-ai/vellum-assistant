@@ -21,9 +21,7 @@ export type AbortReasonKind =
   /** A signal-file cancel was written by an out-of-process caller (CLI, hook). */
   | "signal_cancel"
   /** Voice session bridge aborted the conversation (turn supersession, call end). */
-  | "voice_session_aborted"
-  /** A scheduled work item run was cancelled or its conversation reset. */
-  | "work_item_aborted";
+  | "voice_session_aborted";
 
 const ABORT_REASON_TAG = "__vellumAbortReason" as const;
 

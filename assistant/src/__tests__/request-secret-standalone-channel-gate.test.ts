@@ -9,16 +9,11 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { ServerMessage } from "../daemon/message-protocol.js";
+import { setConfig } from "./helpers/set-config.js";
 
-const mockConfig = {
-  timeouts: { permissionTimeoutSec: 0.01 },
-  secretDetection: { allowOneTimeSend: false },
-};
-mock.module("../config/loader.js", () => ({
-  getConfig: () => mockConfig,
-  loadConfig: () => mockConfig,
-  invalidateConfigCache: () => {},
-}));
+// A short permission timeout keeps a leaked prompt from lingering; the default
+// `secretDetection.allowOneTimeSend` (false) drives the broadcast field.
+setConfig("timeouts", { permissionTimeoutSec: 0.01 });
 
 let broadcastMessages: ServerMessage[] = [];
 mock.module("../runtime/assistant-event-hub.js", () => ({

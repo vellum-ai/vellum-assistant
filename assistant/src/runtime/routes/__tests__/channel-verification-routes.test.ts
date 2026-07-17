@@ -20,7 +20,10 @@ const updateChannelStatusCalls: unknown[] = [];
 const ipcCalls: Array<[string, unknown]> = [];
 
 mock.module("../../../daemon/handlers/config-channels.js", () => ({
-  verifyTrustedContact: async (contactChannelId: string, assistantId: string) => {
+  verifyTrustedContact: async (
+    contactChannelId: string,
+    assistantId: string,
+  ) => {
     verifyTrustedContactCalls.push([contactChannelId, assistantId]);
     return verifyTrustedContactImpl(contactChannelId, assistantId);
   },

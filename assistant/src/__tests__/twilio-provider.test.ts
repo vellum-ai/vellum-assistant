@@ -11,12 +11,6 @@ import { credentialKey } from "../security/credential-key.js";
 let mockAuthToken: string | undefined = "test-auth-token-secret";
 let mockAccountSid: string | undefined = "AC_test_account";
 
-mock.module("../config/loader.js", () => ({
-  loadConfig: () => ({
-    twilio: { accountSid: mockAccountSid },
-  }),
-}));
-
 mock.module("../security/secure-keys.js", () => ({
   getSecureKeyAsync: async (key: string) => {
     if (key === credentialKey("twilio", "auth_token")) return mockAuthToken;
@@ -26,6 +20,7 @@ mock.module("../security/secure-keys.js", () => ({
 }));
 
 import { TwilioVoiceProvider } from "../calls/twilio-provider.js";
+import { setConfig } from "./helpers/set-config.js";
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
@@ -48,6 +43,7 @@ describe("TwilioVoiceProvider", () => {
   beforeEach(() => {
     mockAuthToken = "test-auth-token-secret";
     mockAccountSid = "AC_test_account";
+    setConfig("twilio", { accountSid: mockAccountSid });
   });
 
   describe("verifyWebhookSignature", () => {

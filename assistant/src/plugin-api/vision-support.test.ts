@@ -1,8 +1,10 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
+import { setConfig } from "../__tests__/helpers/set-config.js";
+import { getConfig } from "../config/loader.js";
 import type { ModelProfileInfo } from "./types.js";
 
-// ─── Mock config ────────────────────────────────────────────────────────────
+// ─── Fixture config ─────────────────────────────────────────────────────────
 
 interface MockProfileEntry {
   provider?: string;
@@ -12,28 +14,6 @@ interface MockProfileEntry {
 }
 
 let mockProfiles: Record<string, MockProfileEntry> = {};
-let mockDefault: { provider?: string; model?: string } = {
-  provider: "anthropic",
-  model: "claude-opus-4-6",
-};
-
-const realConfigLoader = await import("../config/loader.js");
-
-mock.module("../config/loader.js", () => ({
-  ...realConfigLoader,
-  getConfig: () => ({
-    llm: {
-      profiles: mockProfiles,
-      default: mockDefault,
-    },
-  }),
-  getConfigReadOnly: () => ({
-    llm: {
-      profiles: mockProfiles,
-      default: mockDefault,
-    },
-  }),
-}));
 
 // Real model catalog — don't mock it, the test exercises real catalog lookups.
 const { doesSupportVision } = await import("./vision-support.js");
@@ -51,17 +31,26 @@ function profile(key: string): ModelProfileInfo {
   };
 }
 
-function setMockConfig(
-  profiles: Record<string, MockProfileEntry>,
-  def: { provider?: string; model?: string } = {},
-) {
+/**
+ * Install the current fixture `llm` config for real. A schema-valid baseline
+ * is seeded first so the loader caches a config object; `llm` is then
+ * overwritten on that live cached object so fixtures the schema would strip
+ * (non-enum provider ids) reach the resolver exactly as authored.
+ */
+function applyConfig(): void {
+  setConfig("llm", { profiles: {} });
+  const config = getConfig() as { llm: unknown };
+  config.llm = { profiles: mockProfiles };
+}
+
+function setMockConfig(profiles: Record<string, MockProfileEntry>) {
   mockProfiles = profiles;
-  mockDefault = { provider: "anthropic", model: "claude-opus-4-6", ...def };
+  applyConfig();
 }
 
 beforeEach(() => {
   mockProfiles = {};
-  mockDefault = { provider: "anthropic", model: "claude-opus-4-6" };
+  applyConfig();
 });
 
 // ─── Tests ──────────────────────────────────────────────────────────────────
@@ -96,18 +85,16 @@ describe("doesSupportVision", () => {
     expect(doesSupportVision(profile("unknown-model"))).toBe(false);
   });
 
-  test("inherits provider from llm.default when profile only sets model", () => {
-    setMockConfig(
-      { "model-only": { model: "claude-opus-4-6" } },
-      { provider: "anthropic" },
-    );
+  test("implies the provider from the catalog when profile only sets model", () => {
+    setMockConfig({ "model-only": { model: "claude-opus-4-6" } });
     expect(doesSupportVision(profile("model-only"))).toBe(true);
   });
 
-  test("inherits model from llm.default when profile only sets provider", () => {
-    // llm.default → anthropic/claude-opus-4-6 (vision-capable)
+  test("fails safe to false for a profile without a model", () => {
+    // A model-less entry is not a usable resolution target, so vision
+    // resolution treats it as "can't show images" (caption instead).
     setMockConfig({ "provider-only": { provider: "anthropic" } });
-    expect(doesSupportVision(profile("provider-only"))).toBe(true);
+    expect(doesSupportVision(profile("provider-only"))).toBe(false);
   });
 
   test("mix profile returns true when any arm supports vision", () => {

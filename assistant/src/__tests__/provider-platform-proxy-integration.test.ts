@@ -1,13 +1,4 @@
-import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
-
-import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
-
-// Legacy-shaped fixtures (llm.default-centric resolution): pinned to the
-// flag-off cascade. Override-or-default (flag-on) semantics are pinned by
-// llm-resolver-override-or-default.test.ts and its companion suites.
-beforeAll(() => {
-  setOverridesForTesting({ "override-or-default-resolution": false });
-});
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { Services } from "../config/schemas/services.js";
 import { PLATFORM_PROVIDER_META } from "../providers/platform-proxy/constants.js";
@@ -110,8 +101,7 @@ let mockPlatformBaseUrl = "";
 let mockPlatformAssistantId = "";
 let mockAssistantApiKey: string | null = null;
 let mockProviderKeys: Record<string, string> = {};
-let mockLlmConfig: Record<string, unknown> = {};
-let mockWebSearchService: Services["web-search"] = {
+const defaultWebSearchService: Services["web-search"] = {
   mode: "your-own",
   provider: "inference-provider-native",
 };
@@ -140,26 +130,11 @@ mock.module("../security/secure-keys.js", () => ({
     undefined,
 }));
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    llm: mockLlmConfig,
-    services: {
-      inference: {},
-      "image-generation": {
-        mode: "your-own",
-        provider: "gemini",
-        model: "gemini-3.1-flash-image-preview",
-      },
-      "web-search": mockWebSearchService,
-    },
-  }),
-}));
-
 mock.module("../platform/feature-gate.js", () => ({
   arePlatformFeaturesEnabled: () => true,
 }));
 
-import { type LLMConfigBase, LLMSchema } from "../config/schemas/llm.js";
+import { LLMSchema } from "../config/schemas/llm.js";
 import type { ProvidersConfig } from "../providers/registry.js";
 import {
   getProvider,
@@ -168,13 +143,13 @@ import {
   listProviders,
 } from "../providers/registry.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
+import { setConfig } from "./helpers/set-config.js";
 
 function makeProvidersConfig(
   provider: string,
   model: string,
-  webSearch: Services["web-search"] = mockWebSearchService,
+  webSearch: Services["web-search"] = defaultWebSearchService,
 ): ProvidersConfig {
-  const baseLlm = LLMSchema.parse({});
   return {
     services: {
       inference: {},
@@ -185,14 +160,11 @@ function makeProvidersConfig(
       },
       "web-search": webSearch,
     },
-    llm: {
-      ...baseLlm,
-      default: {
-        ...baseLlm.default,
-        provider: provider as LLMConfigBase["provider"],
-        model,
-      },
-    },
+    // The mainAgent call-site tweak is applied last by the resolver, so it
+    // fully determines the provider/model the registry resolves at boot.
+    llm: LLMSchema.parse({
+      callSites: { mainAgent: { provider, model } },
+    }),
   };
 }
 
@@ -285,14 +257,14 @@ const sampleTools: ToolDefinition[] = [
 beforeEach(() => {
   disableManagedProxy();
   mockProviderKeys = {};
-  mockWebSearchService = {
-    mode: "your-own",
-    provider: "inference-provider-native",
-  };
   lastGeminiConstructorOpts = null;
   lastGeminiGenerateContentStreamParams = null;
   lastOpenAIChatParams = null;
-  mockLlmConfig = LLMSchema.parse({}) as Record<string, unknown>;
+  // Reset the workspace config to pure schema defaults (the default
+  // web-search service — your-own / inference-provider-native — IS the
+  // schema default, so only divergent tests seed `services`).
+  setConfig("llm", {});
+  setConfig("services", {});
 });
 
 describe("managed proxy integration — credential precedence", () => {
@@ -413,10 +385,11 @@ describe("managed proxy integration — credential precedence", () => {
     test("managed gemini receives attribution headers outside request JSON", async () => {
       enableManagedProxy();
       mockProviderKeys = {};
-      mockLlmConfig = LLMSchema.parse({
-        default: { provider: "gemini", model: "gemini-3.1-pro" },
+      setConfig("llm", {
         profiles: {
+          // Complete (provider + model) so the override pin wins resolution.
           "conversation-profile": {
+            provider: "gemini",
             model: "gemini-3.1-flash",
             source: "user",
           },
@@ -424,7 +397,7 @@ describe("managed proxy integration — credential precedence", () => {
         callSites: {
           mainAgent: {},
         },
-      }) as Record<string, unknown>;
+      });
       await initializeProviders(
         makeProvidersConfig("gemini", "gemini-3.1-pro"),
       );
@@ -469,9 +442,6 @@ describe("managed proxy integration — credential precedence", () => {
     test("managed gemini omits attribution headers without callSite", async () => {
       enableManagedProxy();
       mockProviderKeys = {};
-      mockLlmConfig = LLMSchema.parse({
-        default: { provider: "gemini", model: "gemini-3.1-pro" },
-      }) as Record<string, unknown>;
       await initializeProviders(
         makeProvidersConfig("gemini", "gemini-3.1-pro"),
       );
@@ -554,7 +524,7 @@ describe("managed proxy integration — managed web search routing", () => {
   test("managed Fireworks/Kimi tool call completes through the platform Brave proxy", async () => {
     enableManagedProxy();
     mockProviderKeys = {};
-    mockWebSearchService = MANAGED_NATIVE_WEB_SEARCH;
+    setConfig("services", { "web-search": MANAGED_NATIVE_WEB_SEARCH });
 
     const originalFetch = globalThis.fetch;
     const fetchUrls: string[] = [];
@@ -646,13 +616,7 @@ describe("managed proxy integration — ollama exclusion", () => {
   test("ollama registers only when explicitly configured as provider", async () => {
     enableManagedProxy();
     mockProviderKeys = {};
-    const config = makeProvidersConfig("ollama", "test-model");
-    // Disable the catalog default so resolution lands on llm.default.
-    config.llm.profiles = {
-      ...config.llm.profiles,
-      balanced: { source: "managed", status: "disabled" },
-    };
-    await initializeProviders(config);
+    await initializeProviders(makeProvidersConfig("ollama", "test-model"));
     expect(listProviders()).toContain("ollama");
   });
 

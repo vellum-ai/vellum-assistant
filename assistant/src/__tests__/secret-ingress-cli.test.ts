@@ -1,29 +1,12 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
-// Mocks — must be declared before any imports that depend on them
-// ---------------------------------------------------------------------------
-
-let mockConfig: Record<string, unknown> = {
-  secretDetection: {
-    enabled: true,
-    blockIngress: true,
-  },
-};
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => mockConfig,
-  loadConfig: () => mockConfig,
-  invalidateConfigCache: () => {},
-}));
-
-// ---------------------------------------------------------------------------
 // Test: CLI signal path (user-message signal handler) calls
 // checkIngressForSecrets before dispatching through processMessageInBackground.
 // ---------------------------------------------------------------------------
-
 import { resetAllowlist } from "../security/secret-allowlist.js";
 import { checkIngressForSecrets } from "../security/secret-ingress.js";
+import { setConfig } from "./helpers/set-config.js";
 
 /**
  * Simulates the user-message callback registered in DaemonServer.start().
@@ -74,12 +57,7 @@ function makeUserMessageCallback() {
 
 describe("secret ingress — CLI signal path", () => {
   beforeEach(() => {
-    mockConfig = {
-      secretDetection: {
-        enabled: true,
-        blockIngress: true,
-      },
-    };
+    setConfig("secretDetection", { enabled: true, blockIngress: true });
     resetAllowlist();
   });
 
@@ -162,12 +140,7 @@ describe("secret ingress — CLI signal path", () => {
   });
 
   test("CLI signal with blockIngress: false allows secrets through", async () => {
-    mockConfig = {
-      secretDetection: {
-        enabled: true,
-        blockIngress: false,
-      },
-    };
+    setConfig("secretDetection", { enabled: true, blockIngress: false });
 
     const { callback, persistAndProcessMessageMock } =
       makeUserMessageCallback();

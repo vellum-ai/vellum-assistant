@@ -51,7 +51,9 @@ export function doesSupportVision(
 function modelVision(model: string): boolean | undefined {
   for (const provider of PROVIDER_CATALOG) {
     const catalogModel = provider.models.find((m) => m.id === model);
-    if (catalogModel != null) return catalogModel.supportsVision ?? false;
+    if (catalogModel != null) {
+      return catalogModel.supportsVision ?? false;
+    }
   }
   return undefined;
 }
@@ -66,38 +68,45 @@ function modelVision(model: string): boolean | undefined {
 function profileVision(profileKey: string): boolean | undefined {
   const { llm } = getConfig();
   const entry = getEffectiveProfile(llm.profiles, profileKey);
-  if (entry == null) return undefined;
+  if (entry == null) {
+    return undefined;
+  }
 
   if (entry.mix != null) {
     let sawUnknown = false;
     for (const arm of entry.mix) {
       const armEntry = getEffectiveProfile(llm.profiles, arm.profile);
       const armVision =
-        armEntry == null ? undefined : resolveEntryVision(armEntry, llm);
-      if (armVision === true) return true;
-      if (armVision == null) sawUnknown = true;
+        armEntry == null ? undefined : resolveEntryVision(armEntry);
+      if (armVision === true) {
+        return true;
+      }
+      if (armVision == null) {
+        sawUnknown = true;
+      }
     }
     return sawUnknown ? undefined : false;
   }
 
-  return resolveEntryVision(entry, llm);
+  return resolveEntryVision(entry);
 }
 
 /**
- * Resolve whether a concrete (non-mix) profile entry supports vision by
- * merging its fields over `llm.default` and inferring the provider when only
+ * Resolve whether a concrete (non-mix) profile entry supports vision from its
+ * own `(provider, model)`, inferring the provider from the catalog when only
  * the model is set. Returns `undefined` when the effective `(provider, model)`
- * can't be determined or isn't in the catalog.
+ * can't be determined or isn't in the catalog — an entry that omits its model
+ * is not a usable resolution target, so it fails safe to "caption".
  */
-function resolveEntryVision(
-  entry: { provider?: string; model?: string },
-  llm: { default?: { provider?: string; model?: string } },
-): boolean | undefined {
-  const provider = entry.provider ?? llm.default?.provider;
-  const model = entry.model ?? llm.default?.model;
+function resolveEntryVision(entry: {
+  provider?: string;
+  model?: string;
+}): boolean | undefined {
+  const provider = entry.provider;
+  const model = entry.model;
 
-  // Infer provider from model when missing (mirrors the resolver's
-  // withImpliedProviders).
+  // Infer provider from model when missing (mirrors the resolver's catalog
+  // provider implication).
   const effectiveProvider =
     provider ??
     (typeof model === "string" ? getCatalogProviderForModel(model) : undefined);

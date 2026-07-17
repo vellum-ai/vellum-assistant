@@ -1,13 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
 import {
-    ChartColumn,
     ChevronDown,
     ChevronUp,
-    Gift,
+    CircleUser,
     MessageSquareText,
     Settings as SettingsIcon,
     Shield,
-    SlidersHorizontal,
 } from "lucide-react";
 import { lazy, useState } from "react";
 import { useNavigate } from "react-router";
@@ -44,11 +42,6 @@ const ShareFeedbackModal = lazy(() =>
     default: m.ShareFeedbackModal,
   })),
 );
-const EarnCreditsModal = lazy(() =>
-  import("@/components/earn-credits-modal").then((m) => ({
-    default: m.EarnCreditsModal,
-  })),
-);
 
 export interface PreferencesMenuProps {
   assistantId?: string | null;
@@ -69,9 +62,9 @@ export function PreferencesMenu({
 }: PreferencesMenuProps) {
   const isAuthenticated = useIsAuthenticated();
   const isMobile = useIsMobile();
+  const user = useAuthStore.use.user();
   const [isOpen, setIsOpen] = useState(false);
   const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
-  const [isEarnCreditsOpen, setIsEarnCreditsOpen] = useState(false);
 
   if (!isAuthenticated) {
     return null;
@@ -79,21 +72,39 @@ export function PreferencesMenu({
 
   const closeMenu = () => setIsOpen(false);
 
+  // Only a platform account carries a real identity; the local gateway user is
+  // a synthetic placeholder whose "Local"/"User" name fields would otherwise
+  // render as a profile.
+  const account = user?.kind === "platform" ? user : null;
+
+  // Prefer the account's real name; fall back to username, then email, then the
+  // generic label so the trigger is never blank.
+  const displayName =
+    [account?.firstName, account?.lastName].filter(Boolean).join(" ").trim() ||
+    account?.username ||
+    account?.email ||
+    "Preferences";
+
   const trigger =
     triggerVariant === "pill" ? (
       /* Solid surface + shadow: the pill floats over the scrolling
          conversation list, so it can't be transparent like `ghost`. */
       <Button
         variant="ghost"
-        leftIcon={<SlidersHorizontal />}
-        className="h-10 w-full rounded-full border border-[var(--border-base)] bg-[var(--surface-lift)] px-4 shadow-[var(--shadow-lg)]"
+        leftIcon={<CircleUser />}
+        aria-label={displayName}
+        title={displayName}
+        className="h-10 w-full min-w-0 rounded-full border border-[var(--border-base)] bg-[var(--surface-lift)] px-4 shadow-[var(--shadow-lg)]"
       >
-        Preferences
+        {/* A long name/email must not force the pill wider and overlap the
+            sibling New Chat pill, so truncate the visible label; the full
+            value stays available via aria-label/title. */}
+        <span className="min-w-0 truncate">{displayName}</span>
       </Button>
     ) : (
       <SideMenu.Item
-        icon={SlidersHorizontal}
-        label="Preferences"
+        icon={CircleUser}
+        label={displayName}
         trailingIcon={isOpen ? ChevronDown : ChevronUp}
         active={isOpen}
       />
@@ -103,7 +114,6 @@ export function PreferencesMenu({
     <PreferencesMenuContent
       onClose={closeMenu}
       onShareFeedback={() => setIsFeedbackOpen(true)}
-      onEarnCredits={() => setIsEarnCreditsOpen(true)}
     />
   );
 
@@ -126,6 +136,12 @@ export function PreferencesMenu({
             side="top"
             align="start"
             sideOffset={8}
+            tabIndex={-1}
+            onOpenAutoFocus={(event) => {
+              const content = event.currentTarget as HTMLElement | null;
+              event.preventDefault();
+              content?.focus();
+            }}
             className="w-64 rounded-lg p-4"
           >
             {content}
@@ -144,15 +160,6 @@ export function PreferencesMenu({
           />
         </LazyBoundary>
       ) : null}
-
-      {isEarnCreditsOpen ? (
-        <LazyBoundary>
-          <EarnCreditsModal
-            open={isEarnCreditsOpen}
-            onClose={() => setIsEarnCreditsOpen(false)}
-          />
-        </LazyBoundary>
-      ) : null}
     </>
   );
 }
@@ -160,13 +167,11 @@ export function PreferencesMenu({
 interface PreferencesMenuContentProps {
   onClose: () => void;
   onShareFeedback: () => void;
-  onEarnCredits: () => void;
 }
 
 function PreferencesMenuContent({
   onClose,
   onShareFeedback,
-  onEarnCredits,
 }: PreferencesMenuContentProps) {
   const navigate = useNavigate();
   const user = useAuthStore.use.user();
@@ -199,26 +204,6 @@ function PreferencesMenuContent({
           />
         </div>
       ) : null}
-
-      {showBillingRows ? (
-        <PanelItem
-          icon={Gift}
-          label="Earn Free Credits"
-          onSelect={() => {
-            onClose();
-            onEarnCredits();
-          }}
-        />
-      ) : null}
-
-      <PanelItem
-        icon={ChartColumn}
-        label="Usage"
-        onSelect={() => {
-          onClose();
-          navigate(routes.logs.usage);
-        }}
-      />
 
       {(platformGate === "full" || isElectron()) && (
         <PanelItem

@@ -23,6 +23,14 @@ export const MESSAGES_LEXICAL_COLLECTION = "messages_lexical";
  */
 const MESSAGE_POINT_NAMESPACE = "b6d0d3e2-1f1a-4c3e-9a7c-0e2f5a8d4c11";
 
+/**
+ * Explicit segment count for the collection. Left unset, Qdrant sizes the
+ * segment count to the node's CPU count, and each segment carries a fixed
+ * storage preallocation — a small sparse-only collection then idles at
+ * hundreds of MB. Matches the v2 concept-pages collection.
+ */
+const DEFAULT_SEGMENT_NUMBER = 2;
+
 export interface MessagesLexicalIndexConfig {
   url: string;
   collection?: string;
@@ -112,6 +120,9 @@ export class MessagesLexicalIndex {
           // RAM footprint grows without bound — keep it on disk alongside the
           // payloads.
           sparse: { index: { on_disk: this.onDisk } },
+        },
+        optimizers_config: {
+          default_segment_number: DEFAULT_SEGMENT_NUMBER,
         },
         on_disk_payload: this.onDisk,
       });

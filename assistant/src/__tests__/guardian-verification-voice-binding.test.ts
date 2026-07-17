@@ -42,16 +42,6 @@ mock.module("../calls/voice-ingress-preflight.js", () => ({
   }),
 }));
 
-mock.module("../config/loader.js", () => ({
-  loadConfig: () => ({
-    calls: {
-      callerIdentity: {
-        allowPerCallOverride: true,
-      },
-    },
-  }),
-}));
-
 mock.module("../inbound/platform-callback-registration.js", () => ({
   resolveCallbackUrl: async (fn: () => string) => fn(),
 }));

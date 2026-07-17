@@ -23,7 +23,12 @@ describe("llm-call-sites-routes", () => {
 
   test("all call site IDs match LLMCallSiteEnum", async () => {
     const result = (await route.handler({})) as {
-      callSites: Array<{ id: string; displayName: string; description: string; domain: string }>;
+      callSites: Array<{
+        id: string;
+        displayName: string;
+        description: string;
+        domain: string;
+      }>;
     };
     const validIds = new Set(LLMCallSiteEnum.options);
     for (const site of result.callSites) {

@@ -68,13 +68,6 @@ describe("plugin core types", () => {
         },
       },
       tools: [sampleTool],
-      routes: [
-        {
-          pattern: /^\/sample$/,
-          methods: ["GET"],
-          handler: async () => new Response("ok", { status: 200 }),
-        },
-      ],
     } satisfies Plugin;
 
     // Minimal runtime check so the test body is non-empty.

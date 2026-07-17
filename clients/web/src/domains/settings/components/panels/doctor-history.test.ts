@@ -3,6 +3,8 @@ import { describe, expect, test } from "bun:test";
 import type { DoctorMessage } from "@/generated/api/types.gen";
 
 import {
+  USER_OUTCOME_PROMPT_QUESTION,
+  applySessionUserOutcome,
   hasPendingApproval,
   hasPendingBackup,
   isReplayableDoctorSourceEventId,
@@ -258,6 +260,20 @@ describe("mapPersistedMessagesToEntries", () => {
       msg({ kind: "status", content: "active" }),
     ]);
     expect(entries).toHaveLength(0);
+  });
+
+  test("maps status 'user_outcome_prompt' to a user-outcome prompt entry", () => {
+    const entries = mapPersistedMessagesToEntries([
+      msg({ kind: "status", content: "user_outcome_prompt" }),
+    ]);
+    expect(entries).toEqual([
+      {
+        id: "msg-1",
+        kind: "user_outcome_prompt",
+        content: USER_OUTCOME_PROMPT_QUESTION,
+        timestamp: Date.parse("2026-01-01T00:00:00Z"),
+      },
+    ]);
   });
 
   test("maps error message", () => {
@@ -682,5 +698,43 @@ describe("selectLatestHistorySession", () => {
 
   test("returns null for empty list", () => {
     expect(selectLatestHistorySession([])).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// applySessionUserOutcome
+// ---------------------------------------------------------------------------
+
+describe("applySessionUserOutcome", () => {
+  const promptEntry: ChatEntry = {
+    id: "e1",
+    kind: "user_outcome_prompt",
+    content: USER_OUTCOME_PROMPT_QUESTION,
+    timestamp: 0,
+  };
+
+  test("marks user-outcome prompts answered from the session field", () => {
+    const entries = applySessionUserOutcome([promptEntry], "resolved");
+    expect(entries[0]).toMatchObject({
+      kind: "user_outcome_prompt",
+      meta: { answer: "resolved" },
+    });
+  });
+
+  test("supports not_resolved", () => {
+    const entries = applySessionUserOutcome([promptEntry], "not_resolved");
+    expect(entries[0]).toMatchObject({ meta: { answer: "not_resolved" } });
+  });
+
+  test("returns entries unchanged when user outcome is null or unknown", () => {
+    expect(applySessionUserOutcome([promptEntry], null)).toEqual([promptEntry]);
+    expect(applySessionUserOutcome([promptEntry], undefined)).toEqual([promptEntry]);
+    expect(applySessionUserOutcome([promptEntry], "bogus")).toEqual([promptEntry]);
+  });
+
+  test("leaves other entry kinds untouched", () => {
+    const user: ChatEntry = { id: "u1", kind: "user", content: "hi", timestamp: 0 };
+    const entries = applySessionUserOutcome([user, promptEntry], "resolved");
+    expect(entries[0]).toEqual(user);
   });
 });

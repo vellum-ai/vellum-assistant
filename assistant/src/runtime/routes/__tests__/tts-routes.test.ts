@@ -18,10 +18,6 @@ const mockConfig = {
   },
 };
 
-mock.module("../../../config/loader.js", () => ({
-  getConfig: () => mockConfig,
-}));
-
 // -- TTS config resolver mock ----------------------------------------------
 
 mock.module("../../../tts/tts-config-resolver.js", () => ({

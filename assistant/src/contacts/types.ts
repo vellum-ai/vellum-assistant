@@ -45,7 +45,7 @@ export type ChannelStatus =
   | "revoked"
   | "blocked"
   | "unverified";
-export type ChannelPolicy = "allow" | "deny" | "escalate";
+export type ChannelPolicy = "allow" | "deny";
 
 export interface ContactChannel {
   id: string;

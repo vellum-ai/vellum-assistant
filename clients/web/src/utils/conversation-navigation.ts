@@ -13,20 +13,26 @@ import { getSoundManager } from "@/lib/sounds/sound-manager";
 
 /**
  * Navigate to an existing conversation, resetting subagent state and updating
- * the active conversation in the store.
+ * the active conversation in the store. Pass `messageId` to anchor the
+ * transcript to a specific message on load.
  *
  * Pure imperative function — reads stores via `.getState()`, no React hooks.
  */
 export function navigateToConversation(
   navigate: NavigateFunction,
   conversationId: string,
+  options?: { messageId?: string },
 ): void {
   haptic.light();
   useViewerStore.getState().setMainView("chat");
   useSubagentStore.getState().reset();
   useWorkflowStore.getState().reset();
   useConversationStore.getState().setActiveConversationId(conversationId);
-  void navigate(routes.conversation(conversationId));
+  void navigate(
+    options?.messageId
+      ? routes.conversationAtMessage(conversationId, options.messageId)
+      : routes.conversation(conversationId),
+  );
 }
 
 export interface NavigateToNewConversationOptions {

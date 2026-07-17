@@ -4,7 +4,10 @@ import type { PageIndexEntry } from "../../v2/page-index.js";
 import type { Slug } from "../../v3/types.js";
 import { assembleMemoryGraph } from "../build-memory-graph.js";
 
-function entry(slug: string, over: Partial<PageIndexEntry> = {}): PageIndexEntry {
+function entry(
+  slug: string,
+  over: Partial<PageIndexEntry> = {},
+): PageIndexEntry {
   return {
     id: 0,
     slug,
@@ -40,7 +43,9 @@ describe("assembleMemoryGraph", () => {
         entry("skills/agent-mail", { modifiedAt: 0 }),
         entry("send-email", { modifiedAt: 0 }),
       ],
-      staticAdjacency: adjacency([["my-concept", "skills/agent-mail", undefined]]),
+      staticAdjacency: adjacency([
+        ["my-concept", "skills/agent-mail", undefined],
+      ]),
     });
 
     const byId = new Map(nodes.map((n) => [n.id, n]));
@@ -126,5 +131,79 @@ describe("assembleMemoryGraph", () => {
       expect(nodes.some((n) => n.id === edge.source)).toBe(true);
       expect(nodes.some((n) => n.id === edge.target)).toBe(true);
     }
+  });
+
+  it("prunes disconnected functionality nodes but keeps connected ones and all concepts", () => {
+    const { nodes } = assembleMemoryGraph({
+      entries: [
+        entry("lonely-concept"), // concept, degree 0 → kept
+        entry("linked-concept"), // concept, links to a skill
+        entry("skills/connected", { modifiedAt: 0 }), // skill, degree 1 → kept
+        entry("skills/orphan", { modifiedAt: 0 }), // skill, degree 0 → pruned
+        entry("cli-commands/orphan", { modifiedAt: 0 }), // capability, degree 0 → pruned
+      ],
+      staticAdjacency: adjacency([
+        ["linked-concept", "skills/connected", undefined],
+      ]),
+      pruneDisconnectedNonConcepts: true,
+    });
+
+    expect(nodes.map((n) => n.id).sort()).toEqual([
+      "linked-concept",
+      "lonely-concept",
+      "skills/connected",
+    ]);
+  });
+
+  it("keeps disconnected functionality nodes when pruning is off (default)", () => {
+    const { nodes } = assembleMemoryGraph({
+      entries: [entry("a"), entry("skills/orphan", { modifiedAt: 0 })],
+      staticAdjacency: adjacency([]),
+    });
+    expect(nodes.map((n) => n.id).sort()).toEqual(["a", "skills/orphan"]);
+  });
+
+  it("re-prunes a functionality node stranded by truncation", () => {
+    const { nodes, edges, truncated } = assembleMemoryGraph({
+      entries: [
+        entry("hub"),
+        entry("h1"),
+        entry("h2"),
+        entry("h3"),
+        entry("p"),
+        entry("q"),
+        entry("skills/s", { modifiedAt: 0 }),
+      ],
+      // hub has degree 3; skills/s has degree 2 (p, q). The cap keeps the top 2
+      // by degree (hub, skills/s) but drops every one of skills/s's neighbors.
+      staticAdjacency: adjacency([
+        ["hub", "h1", undefined],
+        ["hub", "h2", undefined],
+        ["hub", "h3", undefined],
+        ["skills/s", "p", undefined],
+        ["skills/s", "q", undefined],
+      ]),
+      maxNodes: 2,
+      pruneDisconnectedNonConcepts: true,
+    });
+
+    expect(truncated).toBe(true);
+    // skills/s survived the cap but lost both neighbors → re-pruned as isolated;
+    // the isolated concept hub is kept (concepts always survive).
+    expect(nodes.map((n) => n.id)).toEqual(["hub"]);
+    expect(edges).toEqual([]);
+  });
+
+  it("treats a real page under a reserved prefix as a concept, not a prunable skill", () => {
+    // A non-colliding user page like `skills/my-notes` survives the page index
+    // with a real mtime; it must classify as a concept (by modifiedAt, not the
+    // slug prefix) and therefore never be pruned as a disconnected skill.
+    const { nodes } = assembleMemoryGraph({
+      entries: [entry("skills/my-notes", { modifiedAt: 5 })],
+      staticAdjacency: adjacency([]),
+      pruneDisconnectedNonConcepts: true,
+    });
+    expect(nodes).toHaveLength(1);
+    expect(nodes[0]).toMatchObject({ id: "skills/my-notes", kind: "concept" });
   });
 });

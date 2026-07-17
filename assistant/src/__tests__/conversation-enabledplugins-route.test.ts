@@ -1,15 +1,4 @@
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
-
-const config = {
-  llm: {
-    profiles: {},
-  },
-};
-
-mock.module("../config/loader.js", () => ({
-  loadConfig: () => config,
-  getConfig: () => config,
-}));
+import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 
 import {
   createConversation,
@@ -45,7 +34,6 @@ describe("PUT /v1/conversations/:id/enabledplugins", () => {
 
   afterAll(() => {
     resetDbForTesting();
-    mock.restore();
   });
 
   test("persists a string[] scope and reflects it on the conversation", async () => {

@@ -133,6 +133,31 @@ export function useDoctorAutoScroll(
     classify();
   }, [entries, classify]);
 
+  // Transcript content can also grow WITHOUT an entries change — e.g. the
+  // inline backups panel loading asynchronously, or a tool block expanding.
+  // Observe the content element's size so pinned users keep following and
+  // un-pinned users get the "Go to Newest" affordance, matching the chat
+  // transcript's content-ResizeObserver re-pins.
+  useEffect(() => {
+    if (!scrollEl || typeof ResizeObserver === "undefined") {
+      return;
+    }
+    const content = scrollEl.firstElementChild;
+    if (!content) {
+      return;
+    }
+    const observer = new ResizeObserver(() => {
+      if (isPinnedRef.current) {
+        scrollEl.scrollTo({ top: scrollEl.scrollHeight, behavior: "auto" });
+      }
+      classify();
+    });
+    observer.observe(content);
+    return () => {
+      observer.disconnect();
+    };
+  }, [scrollEl, classify]);
+
   const scrollToLatest = useCallback(() => {
     if (!scrollEl) {
       return;

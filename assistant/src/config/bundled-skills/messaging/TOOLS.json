@@ -125,7 +125,7 @@
     },
     {
       "name": "messaging_send",
-      "description": "Send a message, reply to a thread, or create a draft. On Gmail, always creates a draft for review. Supports replies (via thread_id), attachments (via attachment_paths, Gmail only), and all messaging platforms.",
+      "description": "Send a message, reply to a thread, or create a draft. On Gmail, always creates a draft for review. Supports replies (via thread_id), attachments (via attachment_paths, Gmail and Outlook), and all messaging platforms.",
       "category": "messaging",
       "risk": "high",
       "input_schema": {
@@ -160,7 +160,7 @@
             "items": {
               "type": "string"
             },
-            "description": "Absolute file paths of attachments to include (Gmail only)"
+            "description": "Absolute file paths of attachments to include (Gmail and Outlook)"
           },
           "thread_id": {
             "type": "string",

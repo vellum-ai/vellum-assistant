@@ -154,7 +154,7 @@ All CDP-backed browser tools (`browser_navigate`, `browser_snapshot`, `browser_s
 Channel approval flows use `requestId` (not `runId`) as the primary identifier:
 
 - Telegram callback buttons encode `apr:<requestId>:<action>` in `callback_data`.
-- Guardian approval records in `canonicalGuardianRequests` (and their `canonicalGuardianDeliveries`) link via `requestId`.
+- Guardian approval records in the gateway-owned `guardian_requests` table (and their `guardian_request_deliveries`) link via `requestId`; the daemon reads/writes them through the `channels/gateway-guardian-requests.ts` client.
 - The conversational approval engine classifies user intent and resolves via `conversation.handleConfirmationResponse(requestId, decision)`.
 
 ### Channel verification: gateway-owned

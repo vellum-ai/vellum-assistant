@@ -95,7 +95,9 @@ mock.module("@vellumai/design-library", () => {
 
 import {
     ConversationActionsMenu,
+    ConversationActionsSheet,
     renderConversationMenuItems,
+    renderConversationMenuItemsAsPanelItems,
     type ConversationMenuPrimitive,
 } from "@/domains/chat/components/conversation-actions-menu";
 import { Menu } from "@vellumai/design-library";
@@ -314,6 +316,85 @@ describe("ConversationActionsMenu — mobile panel details", () => {
     expect(html).toContain("Fork conversation");
     expect(html).toContain("Pin");
     expect(html).toContain("Rename");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ConversationActionsSheet — shared controlled sheet (row long-press + ellipsis)
+// ---------------------------------------------------------------------------
+
+describe("ConversationActionsSheet", () => {
+  test("renders the actions title and the provided items", () => {
+    const html = renderToStaticMarkup(
+      <ConversationActionsSheet
+        open
+        onOpenChange={() => {}}
+        onPinToggle={() => {}}
+        onRename={() => {}}
+      />,
+    );
+    expect(html).toContain("Conversation actions");
+    expect(html).toContain("Pin");
+    expect(html).toContain("Rename");
+  });
+
+  test("renders a trigger when one is provided (ellipsis path)", () => {
+    const html = renderToStaticMarkup(
+      <ConversationActionsSheet
+        open={false}
+        onOpenChange={() => {}}
+        onArchive={() => {}}
+        trigger={<button aria-label="Conversation actions" />}
+      />,
+    );
+    expect(html).toContain('aria-label="Conversation actions"');
+    expect(html).toContain("Archive");
+  });
+
+  test("omits a trigger when none is provided (row long-press path)", () => {
+    const html = renderToStaticMarkup(
+      <ConversationActionsSheet
+        open
+        onOpenChange={() => {}}
+        onArchive={() => {}}
+      />,
+    );
+    // No trigger button, but the sheet body still renders the item set.
+    expect(html).not.toContain("<button");
+    expect(html).toContain("Archive");
+  });
+
+  test("hides Open in New Window on native iOS", () => {
+    mockIsNativePlatform = true;
+    const html = renderToStaticMarkup(
+      <ConversationActionsSheet
+        open
+        onOpenChange={() => {}}
+        variant="header"
+        onOpenInNewWindow={() => {}}
+        onPinToggle={() => {}}
+      />,
+    );
+    expect(html).not.toContain("Open in new window");
+    expect(html).toContain("Pin");
+  });
+});
+
+describe("renderConversationMenuItemsAsPanelItems", () => {
+  test("flattens the item set into panel rows with a close handler", () => {
+    const html = renderToStaticMarkup(
+      <>
+        {renderConversationMenuItemsAsPanelItems({
+          onPinToggle: () => {},
+          onRename: () => {},
+          onArchive: () => {},
+          onClose: () => {},
+        })}
+      </>,
+    );
+    expect(html).toContain("Pin");
+    expect(html).toContain("Rename");
+    expect(html).toContain("Archive");
   });
 });
 

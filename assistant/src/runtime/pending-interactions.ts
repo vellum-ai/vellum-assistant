@@ -98,6 +98,7 @@ export interface PendingInteraction {
     | "host_browser"
     | "host_app_control"
     | "host_transfer"
+    | "host_ui_snapshot"
     | "acp_confirmation";
   confirmationDetails?: ConfirmationDetails;
   /** For a pending `question`: the full batched entries, so a history-load render can rehydrate the question card. */

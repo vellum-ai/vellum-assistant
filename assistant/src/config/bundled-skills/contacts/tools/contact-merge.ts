@@ -49,7 +49,7 @@ export async function executeContactMerge(
 
   const mergeResult = await cliIpcCall<{
     ok: boolean;
-    contact: ContactRead;
+    contact?: ContactRead;
   }>("merge_contacts", {
     body: { keepId, mergeId },
   });
@@ -58,7 +58,9 @@ export async function executeContactMerge(
     return { content: `Error: ${mergeResult.error}`, isError: true };
   }
 
-  const mergedId = mergeResult.result!.contact.id;
+  // The merge response may omit the survivor (post-merge read-back can
+  // degrade); the id we asked to keep is authoritative either way.
+  const mergedId = mergeResult.result?.contact?.id ?? keepId;
 
   // Re-read the surviving contact through the gateway-relayed read so role and
   // interactionCount come from the gateway ContactRead.

@@ -10,6 +10,12 @@
  *    the parent via `postMessage`.
  * 3. **Fetch proxy** — `window.vellum.fetch()` proxies authenticated requests
  *    through the parent, keeping auth tokens out of the sandbox.
+ *    `window.vellum.asset(path)` is the binary sibling: it fetches a bundled
+ *    app file through the parent and resolves to a `blob:` object URL the
+ *    sandbox can load in `<img>` / `<video>` / `<audio>`.
+ *    `window.vellum.subscribe(filter, cb)` completes the trio with server→app
+ *    push: the parent forwards scoped `sync_changed` invalidations so an app
+ *    refreshes on demand instead of polling.
  * 4. **Link interceptor** — catches clicks on `<a>` elements and opens them in
  *    new tabs via `window.open()`, which the `allow-popups` sandbox token
  *    permits. Without this, links inside sandboxed iframes are non-interactive
@@ -48,7 +54,9 @@ export const FETCH_PROXY_PATH_RE = /^\/v1\/x\//;
  * @see https://html.spec.whatwg.org/multipage/scripting.html#restrictions-for-contents-of-script-elements
  */
 export function jsonForScript(value: unknown): string {
-  return JSON.stringify(value).replace(/<\//g, "<\\/").replace(/<!--/g, "<\\!--");
+  return JSON.stringify(value)
+    .replace(/<\//g, "<\\/")
+    .replace(/<!--/g, "<\\!--");
 }
 
 // ---------------------------------------------------------------------------
@@ -196,7 +204,10 @@ export interface BridgeOptions {
  * storage polyfill is prepended separately via `prependScript` so that it
  * runs before any app code that accesses `localStorage` during parsing.
  */
-function buildBridgeLogicScript(frameId: string, options?: BridgeOptions): string {
+function buildBridgeLogicScript(
+  frameId: string,
+  options?: BridgeOptions,
+): string {
   const enableFetch = options?.fetch ?? false;
   const route = options?.route ?? null;
 
@@ -224,6 +235,11 @@ function buildBridgeLogicScript(frameId: string, options?: BridgeOptions): strin
     delete window.vellum._pendingFetches[callId];
     p.reject(new Error(errorMessage));
   };
+  window.vellum._pendingAssets = {};
+  window.vellum._assetNextId = 1;
+  window.vellum._assetCache = {};
+  window.vellum._subs = {};
+  window.vellum._subNextId = 1;
   window.addEventListener('message', function(event) {
     var d = event.data;
     if (!d) return;
@@ -232,6 +248,24 @@ function buildBridgeLogicScript(frameId: string, options?: BridgeOptions): strin
         window.vellum._rejectFetch(d.callId, d.error);
       } else {
         window.vellum._resolveFetch(d.callId, d.status, d.statusText, d.body, d.headers);
+      }
+    }
+    if (d.type === 'vellum_asset_response' && d.callId) {
+      var pa = window.vellum._pendingAssets[d.callId];
+      if (!pa) return;
+      delete window.vellum._pendingAssets[d.callId];
+      if (d.error) { pa.reject(new Error(d.error)); return; }
+      try {
+        var blob = new Blob([d.buffer], { type: d.contentType || 'application/octet-stream' });
+        var url = URL.createObjectURL(blob);
+        window.vellum._assetCache[pa.path] = url;
+        pa.resolve(url);
+      } catch (e) { pa.reject(e); }
+    }
+    if (d.type === 'vellum_event' && d.subId) {
+      var s = window.vellum._subs[d.subId];
+      if (s && typeof s.cb === 'function') {
+        try { s.cb(d.event); } catch (e) { /* a subscriber throwing is not the host's problem */ }
       }
     }
   });
@@ -250,6 +284,41 @@ function buildBridgeLogicScript(frameId: string, options?: BridgeOptions): strin
         body: options.body || null
       }, '*');
     });
+  };
+  window.vellum.asset = function(path) {
+    if (window.vellum._assetCache[path]) {
+      return Promise.resolve(window.vellum._assetCache[path]);
+    }
+    return new Promise(function(resolve, reject) {
+      var callId = 'a' + (window.vellum._assetNextId++);
+      window.vellum._pendingAssets[callId] = { resolve: resolve, reject: reject, path: path };
+      window.parent.postMessage({
+        type: 'vellum_asset_request',
+        frameId: ${jsonForScript(frameId)},
+        callId: callId,
+        path: path
+      }, '*');
+    });
+  };
+  window.vellum.subscribe = function(filter, cb) {
+    var subId = 's' + (window.vellum._subNextId++);
+    var tags = (filter && Array.isArray(filter.tags)) ? filter.tags : [];
+    window.vellum._subs[subId] = { cb: cb, tags: tags };
+    window.parent.postMessage({
+      type: 'vellum_subscribe',
+      frameId: ${jsonForScript(frameId)},
+      subId: subId,
+      tags: tags
+    }, '*');
+    return function() {
+      if (!window.vellum._subs[subId]) return;
+      delete window.vellum._subs[subId];
+      window.parent.postMessage({
+        type: 'vellum_unsubscribe',
+        frameId: ${jsonForScript(frameId)},
+        subId: subId
+      }, '*');
+    };
   };`
     : "";
 
@@ -277,8 +346,15 @@ function buildBridgeLogicScript(frameId: string, options?: BridgeOptions): strin
  * `injectBridge` is preferred because it places the polyfill and bridge
  * logic at separate positions in the HTML.
  */
-export function buildBridgeScript(frameId: string, options?: BridgeOptions): string {
-  return buildStoragePolyfill() + buildBridgeLogicScript(frameId, options) + buildLinkInterceptorScript(frameId);
+export function buildBridgeScript(
+  frameId: string,
+  options?: BridgeOptions,
+): string {
+  return (
+    buildStoragePolyfill() +
+    buildBridgeLogicScript(frameId, options) +
+    buildLinkInterceptorScript(frameId)
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -341,9 +417,17 @@ export function prependScript(html: string, script: string): string {
  * the bridge logic is appended before `</body>` (app code calls
  * `window.vellum` APIs asynchronously after mount, not during parsing).
  */
-export function injectBridge(html: string, frameId: string, options?: BridgeOptions): string {
+export function injectBridge(
+  html: string,
+  frameId: string,
+  options?: BridgeOptions,
+): string {
   return prependScript(
-    injectScript(html, buildBridgeLogicScript(frameId, options) + buildLinkInterceptorScript(frameId)),
+    injectScript(
+      html,
+      buildBridgeLogicScript(frameId, options) +
+        buildLinkInterceptorScript(frameId),
+    ),
     buildStoragePolyfill(),
   );
 }

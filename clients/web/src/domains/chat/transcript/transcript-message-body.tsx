@@ -18,6 +18,7 @@ import { ToolResultImages } from "@/domains/chat/components/chat-attachments/too
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
 import { toast } from "@vellumai/design-library";
 import { MessageHoverActions } from "@/domains/chat/components/message-hover-actions/message-hover-actions";
+import { MessageLongPressActions } from "@/domains/chat/components/message-hover-actions/message-long-press-actions";
 import { SubagentSpawnGroup } from "@/domains/chat/components/subagent-inline-progress-card/subagent-spawn-group";
 import { InlineProcessCardRow } from "@/domains/chat/process-registry/inline-process-card-row";
 import { WORKFLOW_DESCRIPTOR } from "@/domains/chat/process-registry/descriptors/workflow";
@@ -33,18 +34,22 @@ import {
   groupContentBlocks,
   isSubagentSpawnCall,
 } from "@/domains/chat/transcript/message-content";
+import { AcpConnectAffordance } from "@/domains/chat/transcript/acp-connect-affordance";
 import { parseInlineSurfaces } from "@/domains/chat/utils/parse-inline-surfaces";
 import { useSmoothStreamText } from "@/domains/chat/hooks/use-smooth-stream-text";
+import { useSupportsRedactedCredentialChips } from "@/lib/backwards-compat/use-supports-redacted-credential-chips";
 import { stopAcpRun } from "@/domains/chat/utils/acp-run-actions";
 import { stopBackgroundTask } from "@/domains/chat/utils/background-task-actions";
 import { captureError } from "@/lib/sentry/capture-error";
 import { getExternalLinkUrl } from "@/domains/chat/types/types";
 import { wireSurfaceToDisplay } from "@/domains/chat/utils/map-runtime-message";
 import { isPointerCoarse } from "@/utils/pointer";
+import { useLongPress } from "@/hooks/use-long-press";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useWorkflowStore } from "@/domains/chat/workflow-store";
 import { useAcpRunStore } from "@/domains/chat/acp-run-store";
 import { useBackgroundTaskStore } from "@/domains/chat/background-task-store";
+import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { useViewerStore } from "@/stores/viewer-store";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { ConversationMessageSurface } from "@vellumai/assistant-api";
@@ -115,6 +120,11 @@ export function TranscriptMessageBody({
   const isSlackReaction = message.slackMessage?.eventKind === "reaction";
   const isUser = message.role === "user";
   const hasAttachments = Boolean(message.attachments?.length);
+  // Gated on the transcript owner: an older daemon neutralizes nothing, so
+  // sentinel-shaped text in its transcripts must never chip-ify, and only the
+  // active assistant's version is known (see the gate module).
+  const supportsRedactedCredentialChips =
+    useSupportsRedactedCredentialChips(assistantId);
 
   // User-typed thinking tags must render verbatim; only assistant text splits.
   const groups = groupContentBlocks(message.contentBlocks ?? [], {
@@ -131,12 +141,19 @@ export function TranscriptMessageBody({
       : null,
   );
 
+  const isTouch = isPointerCoarse();
+
   const textBubbleClass = isSlackMessage
     ? "max-w-[80%] text-[var(--content-default)] sm:max-w-[640px]"
     : "w-full text-[var(--content-default)]";
+  // On touch devices, the long-press gesture opens the message actions sheet.
+  // iOS's native text selection (blue highlight + callout bar) otherwise races
+  // the 500ms long-press timer, so both surface at once. Suppress native
+  // selection/callout on user bubbles for coarse pointers only; desktop keeps
+  // text selectable. Assistant text stays selectable everywhere (quote-reply).
   const userBubbleClass = `max-w-[80%] rounded-lg bg-[var(--user-bubble-bg,var(--surface-lift))] px-4 py-3 text-[var(--user-bubble-text,var(--content-default))] flex flex-col gap-2 ${
-    isSlackMessage ? "sm:max-w-[420px]" : ""
-  }`;
+    isTouch ? "select-none [-webkit-touch-callout:none]" : ""
+  } ${isSlackMessage ? "sm:max-w-[420px]" : ""}`;
   const segmentClass = isUser
     ? "break-words text-[15px]"
     : `break-words text-[15px] ${textBubbleClass}`;
@@ -161,8 +178,47 @@ export function TranscriptMessageBody({
   const [revealed, setRevealed] = useState(false);
   const slackMessageUrl = getExternalLinkUrl(message.slackMessage?.messageLink);
 
+  const [longPressOpen, setLongPressOpen] = useState(false);
+  const longPressFiredRef = useRef(false);
+
+  // Assistant messages own the long-press for quote-reply text selection
+  // (see resolve-assistant-selection.ts / useNativeQuoteReply). Suppressing the
+  // action sheet there — rather than racing it at the long-press threshold —
+  // keeps the two from competing: a long-press on assistant text selects it for
+  // Reply, and the sheet never opens. The sheet still arms on user/tool
+  // messages, which have no selection affordance.
+  const isAssistant = message.role === "assistant";
+  const longPressHandlers = useLongPress(
+    () => {
+      // Set the suppression flag so the compatibility click the browser emits
+      // on the following touchend (see handleBubbleClick) is swallowed rather
+      // than toggling the inline trailer / opening a Slack URL behind the sheet.
+      // The flag is cleared by that click, or — if the click is swallowed by
+      // native long-press handling or routed to the portaled sheet — when the
+      // sheet closes (handleLongPressOpenChange). It is deliberately NOT expired
+      // on a timer: a timer set from activation could fire before the compat
+      // click on a long hold, letting that click through as a real tap.
+      longPressFiredRef.current = true;
+      setLongPressOpen(true);
+    },
+    undefined,
+    { shouldSkip: () => isAssistant },
+  );
+
+  const handleLongPressOpenChange = useCallback((open: boolean) => {
+    setLongPressOpen(open);
+    // Once the sheet closes, the long-press interaction is over; clear the
+    // suppression flag so the next genuine tap on the message is honored even
+    // if the post-long-press compatibility click never reached this wrapper.
+    if (!open) {
+      longPressFiredRef.current = false;
+    }
+  }, []);
+
   useEffect(() => {
-    if (!revealed) return;
+    if (!revealed) {
+      return;
+    }
     const onDocPointerDown = (e: PointerEvent) => {
       const target = e.target as Node | null;
       if (
@@ -179,18 +235,28 @@ export function TranscriptMessageBody({
 
   const handleBubbleClick = useCallback(
     (e: ReactMouseEvent<HTMLDivElement>) => {
+      // Suppress the click that follows a long-press activation so the
+      // inline trailer doesn't toggle open behind the BottomSheet.
+      if (longPressFiredRef.current) {
+        longPressFiredRef.current = false;
+        return;
+      }
       const target = e.target as Element | null;
       if (isInteractiveClickTarget(target)) {
         return;
       }
 
       if (slackMessageUrl && isPointerCoarse()) {
-        if (window.getSelection()?.toString()) return;
+        if (window.getSelection()?.toString()) {
+          return;
+        }
         window.open(slackMessageUrl, "_blank", "noopener,noreferrer");
         return;
       }
 
-      if (!isPointerCoarse()) return;
+      if (!isPointerCoarse()) {
+        return;
+      }
       setRevealed((v) => !v);
     },
     [slackMessageUrl],
@@ -201,6 +267,13 @@ export function TranscriptMessageBody({
   );
   const byToolUseId = useSubagentStore.use.byToolUseId();
   const byToolUseIdWf = useWorkflowStore.use.byToolUseId();
+  // The failed `acp_spawn` (if any) that raised the ephemeral "Connect Claude
+  // Code" prompt. Read from the interaction store — not the tool-call
+  // `errorCode` field — so the affordance survives a `/messages` reseed that
+  // strips the marker; matched to a tool call by id below so it renders under
+  // the right activity group.
+  const acpConnectToolUseId =
+    useInteractionStore.use.pendingAcpConnect()?.toolUseId ?? null;
   // The runIds in THIS message whose `run_workflow` chip is suppressed in favor
   // of an inline card ("card-backed"). Subscribed via a narrowed selector that
   // returns a stable key, so the message re-renders only when a card's
@@ -235,7 +308,9 @@ export function TranscriptMessageBody({
         const ids: string[] = [];
         for (const tc of message.toolCalls ?? []) {
           const id = acpRunIdForCall(tc, s.byToolUseId);
-          if (id !== null && s.byId[id] !== undefined) ids.push(id);
+          if (id !== null && s.byId[id] !== undefined) {
+            ids.push(id);
+          }
         }
         return ids.join("|");
       },
@@ -258,7 +333,9 @@ export function TranscriptMessageBody({
         const ids: string[] = [];
         for (const tc of message.toolCalls ?? []) {
           const id = extractBgIdFromResult(tc);
-          if (id !== undefined && s.byId[id] !== undefined) ids.push(id);
+          if (id !== undefined && s.byId[id] !== undefined) {
+            ids.push(id);
+          }
         }
         return ids.join("|");
       },
@@ -413,6 +490,7 @@ export function TranscriptMessageBody({
                   attachments={message.attachments}
                   assistantId={assistantId}
                   streamWordFade={streamWordFade}
+                  redactedCredentialChips={!isUser && supportsRedactedCredentialChips}
                 />
               </div>
             );
@@ -429,6 +507,7 @@ export function TranscriptMessageBody({
           attachments={message.attachments}
           assistantId={assistantId}
           streamWordFade={streamWordFade}
+          redactedCredentialChips={!isUser && supportsRedactedCredentialChips}
         />
       </div>
     );
@@ -441,7 +520,9 @@ export function TranscriptMessageBody({
       byToolUseId,
       claimedSpawnIds,
     );
-    if (spawnedIds.length === 0) return null;
+    if (spawnedIds.length === 0) {
+      return null;
+    }
     return (
       <SubagentSpawnGroup
         subagentIds={spawnedIds}
@@ -457,7 +538,9 @@ export function TranscriptMessageBody({
       byToolUseIdWf,
       claimedWorkflowIds,
     );
-    if (runIds.length === 0) return null;
+    if (runIds.length === 0) {
+      return null;
+    }
     return (
       <div className="flex w-full flex-col gap-1.5">
         {runIds.map((runId) => (
@@ -481,7 +564,9 @@ export function TranscriptMessageBody({
       byToolUseIdAcp,
       claimedAcpIds,
     );
-    if (acpSessionIds.length === 0) return null;
+    if (acpSessionIds.length === 0) {
+      return null;
+    }
     return (
       <div className="flex w-full flex-col gap-1.5">
         {acpSessionIds.map((acpSessionId) => (
@@ -505,6 +590,19 @@ export function TranscriptMessageBody({
     );
   };
 
+  // A missing-token ACP spawn renders its plain error card plus this inline
+  // Connect affordance (version-gated inside the component). Rendered under the
+  // group whose failed `acp_spawn` raised the store-held Connect prompt, so
+  // unrelated failures are unaffected and the affordance persists across the
+  // reseed that would strip the tool-call `errorCode` marker. Pass the
+  // transcript's `assistantId` down so the affordance never calls the
+  // active-assistant hook that throws outside `ActiveAssistantGate`.
+  const renderAcpConnectAffordance = (toolCalls: ChatMessageToolCall[]) =>
+    acpConnectToolUseId !== null &&
+    toolCalls.some((tc) => tc.id === acpConnectToolUseId) ? (
+      <AcpConnectAffordance assistantId={assistantId} />
+    ) : null;
+
   const renderInlineBackgroundTaskCards = (
     toolCalls: ChatMessageToolCall[],
   ) => {
@@ -512,7 +610,9 @@ export function TranscriptMessageBody({
       toolCalls,
       claimedBackgroundTaskIds,
     );
-    if (taskIds.length === 0) return null;
+    if (taskIds.length === 0) {
+      return null;
+    }
     return (
       <div className="flex w-full flex-col gap-1.5">
         {taskIds.map((id) => (
@@ -605,6 +705,7 @@ export function TranscriptMessageBody({
           {renderInlineWorkflowCards(groupToolCalls)}
           {renderInlineAcpRunCards(groupToolCalls)}
           {renderInlineBackgroundTaskCards(groupToolCalls)}
+          {renderAcpConnectAffordance(groupToolCalls)}
         </Fragment>
       );
     }
@@ -656,6 +757,7 @@ export function TranscriptMessageBody({
           {renderInlineWorkflowCards(groupToolCalls)}
           {renderInlineAcpRunCards(groupToolCalls)}
           {renderInlineBackgroundTaskCards(groupToolCalls)}
+          {renderAcpConnectAffordance(groupToolCalls)}
         </Fragment>
       );
     }
@@ -702,11 +804,15 @@ export function TranscriptMessageBody({
 
     for (const item of items) {
       if (item.kind === "text") {
-        if (item.node) textRun.push(item.node);
+        if (item.node) {
+          textRun.push(item.node);
+        }
         continue;
       }
       flushTextRun();
-      if (item.node) slots.push({ kind: "raw", node: item.node });
+      if (item.node) {
+        slots.push({ kind: "raw", node: item.node });
+      }
     }
     flushTextRun();
 
@@ -826,6 +932,10 @@ export function TranscriptMessageBody({
         data-message-id={message.id || undefined}
         data-message-role={message.role}
         onClick={handleBubbleClick}
+        onTouchStart={longPressHandlers.onTouchStart}
+        onTouchMove={longPressHandlers.onTouchMove}
+        onTouchEnd={longPressHandlers.onTouchEnd}
+        onTouchCancel={longPressHandlers.onTouchCancel}
         data-revealed={revealed}
         className={wrapperClass}
       >
@@ -833,6 +943,20 @@ export function TranscriptMessageBody({
           {renderUserContent(userItems)}
           {trailer}
         </div>
+        {isTouch && (
+          <div onClick={(e) => e.stopPropagation()}>
+            <MessageLongPressActions
+              message={message}
+              conversationId={conversationId}
+              openInSlackUrl={slackMessageUrl}
+              onFork={forkHandler}
+              onSummarizeUpToHere={summarizeHandler}
+              onInspect={inspectHandler}
+              open={longPressOpen}
+              onOpenChange={handleLongPressOpenChange}
+            />
+          </div>
+        )}
       </div>
     );
   }
@@ -844,6 +968,10 @@ export function TranscriptMessageBody({
       data-message-id={message.id || undefined}
       data-message-role={message.role}
       onClick={handleBubbleClick}
+      onTouchStart={longPressHandlers.onTouchStart}
+      onTouchMove={longPressHandlers.onTouchMove}
+      onTouchEnd={longPressHandlers.onTouchEnd}
+      onTouchCancel={longPressHandlers.onTouchCancel}
       data-revealed={revealed}
       className={wrapperClass}
     >
@@ -857,6 +985,20 @@ export function TranscriptMessageBody({
         )}
         {trailer}
       </div>
+      {isTouch && !isAssistant && (
+        <div onClick={(e) => e.stopPropagation()}>
+          <MessageLongPressActions
+            message={message}
+            conversationId={conversationId}
+            openInSlackUrl={slackMessageUrl}
+            onFork={forkHandler}
+            onSummarizeUpToHere={summarizeHandler}
+            onInspect={inspectHandler}
+            open={longPressOpen}
+            onOpenChange={handleLongPressOpenChange}
+          />
+        </div>
+      )}
     </div>
   );
 }

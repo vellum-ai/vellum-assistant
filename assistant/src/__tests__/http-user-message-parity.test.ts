@@ -24,13 +24,6 @@ const routeGuardianReplyMock = mock(async () => ({
   type: "not_consumed" as const,
 })) as any;
 
-const listPendingByDestinationMock = mock(
-  (_conversationId: string, _sourceChannel?: string) =>
-    [] as Array<{ id: string; kind?: string }>,
-);
-const listCanonicalMock = mock(
-  (_filters?: Record<string, unknown>) => [] as Array<{ id: string }>,
-);
 const addMessageMock = mock(
   async (
     _conversationId: string,
@@ -70,31 +63,11 @@ mock.module("../runtime/guardian-vellum-migration.js", () => ({
   },
 }));
 
-mock.module("../contacts/canonical-guardian-store.js", () => ({
-  createCanonicalGuardianRequest: () => ({
-    id: "canonical-id",
+mock.module("../channels/gateway-guardian-requests.js", () => ({
+  createGuardianRequest: async (params: Record<string, unknown>) => ({
+    ...params,
     requestCode: "ABC123",
   }),
-  generateCanonicalRequestCode: () => "ABC123",
-  listPendingCanonicalGuardianRequestsByDestinationConversation: (
-    conversationId: string,
-    sourceChannel?: string,
-  ) => listPendingByDestinationMock(conversationId, sourceChannel),
-  listCanonicalGuardianRequests: (filters?: Record<string, unknown>) =>
-    listCanonicalMock(filters),
-  listPendingRequestsByConversationScope: (conversationId: string) => {
-    const byDest = listPendingByDestinationMock(conversationId);
-    const bySrc = listCanonicalMock({ status: "pending", conversationId });
-    const seen = new Set<string>();
-    const result: Array<{ id: string; kind?: string }> = [];
-    for (const r of [...bySrc, ...byDest]) {
-      if (!seen.has(r.id)) {
-        seen.add(r.id);
-        result.push(r);
-      }
-    }
-    return result;
-  },
 }));
 
 mock.module("../runtime/confirmation-request-guardian-bridge.js", () => ({
@@ -182,58 +155,6 @@ mock.module("../runtime/trust-context-resolver.js", () => ({
   withSourceChannel: (sourceChannel: unknown, ctx: unknown) => ({
     ...(ctx as Record<string, unknown>),
     sourceChannel,
-  }),
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    secretDetection: {
-      enabled: true,
-    },
-    model: "test",
-    provider: "test",
-    contextWindow: { maxInputTokens: 200000 },
-    llm: {
-      default: {
-        provider: "anthropic",
-        model: "claude-opus-4-7",
-        maxTokens: 64000,
-        effort: "max" as const,
-        speed: "standard" as const,
-        temperature: null,
-        thinking: { enabled: true, streamThinking: true },
-        contextWindow: {
-          enabled: true,
-          maxInputTokens: 200000,
-          targetBudgetRatio: 0.3,
-          compactThreshold: 0.8,
-          summaryBudgetRatio: 0.05,
-          overflowRecovery: {
-            enabled: true,
-            safetyMarginRatio: 0.05,
-            maxAttempts: 3,
-            interactiveLatestTurnCompression: "summarize",
-            nonInteractiveLatestTurnCompression: "truncate",
-          },
-        },
-      },
-      profiles: {},
-      callSites: {},
-      pricingOverrides: [],
-    },
-    services: {
-      inference: {
-        mode: "your-own",
-        provider: "anthropic",
-        model: "claude-opus-4-7",
-      },
-      "image-generation": {
-        mode: "your-own",
-        provider: "gemini",
-        model: "gemini-3.1-flash-image-preview",
-      },
-      "web-search": { mode: "your-own", provider: "inference-provider-native" },
-    },
   }),
 }));
 
@@ -360,8 +281,6 @@ async function sendMessage(
 describe("HTTP POST /v1/messages does not intercept recording intents (by design)", () => {
   beforeEach(() => {
     routeGuardianReplyMock.mockClear();
-    listPendingByDestinationMock.mockClear();
-    listCanonicalMock.mockClear();
     addMessageMock.mockClear();
   });
 
@@ -428,8 +347,6 @@ describe("HTTP POST /v1/messages does not intercept recording intents (by design
 describe("HTTP POST /v1/messages clientTimezone transport metadata", () => {
   beforeEach(() => {
     routeGuardianReplyMock.mockClear();
-    listPendingByDestinationMock.mockClear();
-    listCanonicalMock.mockClear();
     addMessageMock.mockClear();
   });
 
@@ -532,8 +449,6 @@ describe("HTTP POST /v1/messages clientTimezone transport metadata", () => {
 describe("HTTP POST /v1/messages client metadata headers", () => {
   beforeEach(() => {
     routeGuardianReplyMock.mockClear();
-    listPendingByDestinationMock.mockClear();
-    listCanonicalMock.mockClear();
     addMessageMock.mockClear();
   });
 

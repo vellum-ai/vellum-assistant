@@ -1,4 +1,7 @@
-import { type DisplayMessage, isSurfaceInteractive } from "@/domains/chat/types/types";
+import {
+  type DisplayMessage,
+  isSurfaceInteractive,
+} from "@/domains/chat/types/types";
 import type { IdentityGetResponse } from "@/generated/daemon/types.gen";
 import type { Conversation } from "@/types/conversation-types";
 import type { AssistantEvent } from "@/types/event-types";
@@ -7,10 +10,12 @@ import { mapMessageToolCalls } from "@/domains/chat/utils/map-message-tool-calls
 import type {
   AllowlistOption,
   DirectoryScopeOption,
+  PendingAcpConnectState,
   PendingConfirmationState,
   PendingQuestionState,
   ScopeOption,
 } from "@/types/interaction-ui-types";
+import { ACP_CLAUDE_OAUTH_MISSING_CODE } from "@/domains/chat/utils/acp-connect";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { PendingToolConfirmation } from "@vellumai/assistant-api";
 import type { ToolCallRuleContext } from "@/domains/chat/rule-editor-actions";
@@ -29,6 +34,12 @@ const GLOBAL_STREAM_EVENT_TYPE_NAMES = [
   // (daemon emits `{ type, tab }`), so the conversation-id gate would
   // otherwise drop it before it reached `handleNavigateSettings`.
   "navigate_settings",
+  // Client directive to open/focus a conversation. Its `conversationId` is
+  // the TARGET conversation to open, not the stream the event arrived on, so
+  // the conversation-id gate (which compares against the active stream's
+  // conversation) would otherwise drop it as a mismatch before it reached
+  // `handleOpenConversation`.
+  "open_conversation",
   "identity_changed",
   "avatar_updated",
   "sync_changed",
@@ -108,7 +119,9 @@ export function hasPendingAssistantResponse(
 }
 
 /** Whether any message carries a surface that still accepts user input. */
-export function hasAnyInteractiveSurface(messages: DisplayMessage[]): boolean {
+export function hasAnyInteractiveSurface(
+  messages: readonly DisplayMessage[],
+): boolean {
   for (const msg of messages) {
     if (msg.surfaces) {
       for (const s of msg.surfaces) {
@@ -368,6 +381,35 @@ export function extractWirePendingQuestion(
           entries: tc.pendingQuestion.entries,
           toolUseId: tc.id,
         };
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Find the "Connect Claude Code" prompt a history snapshot carries on one of
+ * its tool calls. Unlike a confirmation/question (a live registry entry the
+ * daemon stamps and clears when resolved), this rides the failed `acp_spawn`
+ * tool call's persisted `errorCode` marker — so on a full reload or an SSE
+ * reconnect the inline card restores from history instead of vanishing with
+ * the in-memory store. Returns the prompt projected into the interaction-store
+ * shape, anchored to the carrying tool call, or null when no tool call failed
+ * for a missing Claude token. Scans latest-first for the most recent such
+ * failure. The affordance itself self-heals (retires when Claude is already
+ * connected), so re-raising a resolved prompt is harmless. Mirrors
+ * {@link extractWirePendingQuestion}.
+ */
+export function extractWirePendingAcpConnect(
+  messages: DisplayMessage[],
+): PendingAcpConnectState | null {
+  for (let mi = messages.length - 1; mi >= 0; mi--) {
+    const msg = messages[mi];
+    if (!msg?.toolCalls?.length) continue;
+    for (let ti = msg.toolCalls.length - 1; ti >= 0; ti--) {
+      const tc = msg.toolCalls[ti];
+      if (tc?.errorCode === ACP_CLAUDE_OAUTH_MISSING_CODE && tc.id) {
+        return { toolUseId: tc.id };
       }
     }
   }

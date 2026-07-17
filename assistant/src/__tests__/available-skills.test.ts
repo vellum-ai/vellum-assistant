@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { SkillSummary } from "../config/skills.js";
 import type { SkillInstallMeta } from "../skills/install-meta.js";
+import { setConfig } from "./helpers/set-config.js";
 
 function makeSummary(overrides: Partial<SkillSummary> = {}): SkillSummary {
   return {
@@ -27,11 +28,6 @@ let remoteFixture: unknown[] = [];
 let remoteError: Error | null = null;
 let installMetaByDir: Record<string, SkillInstallMeta | null> = {};
 let readInstallMetaCalls: string[] = [];
-let configFixture: unknown = { skills: { entries: {}, allowBundled: null } };
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => configFixture,
-}));
 
 mock.module("../config/skills.js", () => ({
   loadSkillCatalog: () => catalogFixture,
@@ -64,7 +60,7 @@ beforeEach(() => {
   remoteError = null;
   installMetaByDir = {};
   readInstallMetaCalls = [];
-  configFixture = { skills: { entries: {}, allowBundled: null } };
+  setConfig("skills", { entries: {}, allowBundled: null });
 });
 
 describe("listInstalledSkills", () => {
@@ -83,12 +79,10 @@ describe("listInstalledSkills", () => {
         directoryPath: "/skills/managed-off",
       }),
     ];
-    configFixture = {
-      skills: {
-        entries: { "managed-off": { enabled: false } },
-        allowBundled: null,
-      },
-    };
+    setConfig("skills", {
+      entries: { "managed-off": { enabled: false } },
+      allowBundled: null,
+    });
 
     const { listInstalledSkills } =
       await import("../skills/available-skills.js");
@@ -131,9 +125,7 @@ describe("listInstalledSkills", () => {
       makeSummary({ id: "allowed-bundled" }),
       makeSummary({ id: "excluded-bundled" }),
     ];
-    configFixture = {
-      skills: { entries: {}, allowBundled: ["allowed-bundled"] },
-    };
+    setConfig("skills", { entries: {}, allowBundled: ["allowed-bundled"] });
 
     const { listInstalledSkills } =
       await import("../skills/available-skills.js");

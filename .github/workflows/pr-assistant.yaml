@@ -13,6 +13,7 @@ on:
       - 'packages/**'
       - 'scripts/skills/**'
       - 'meta/feature-flags/**'
+      - 'meta/sync-bundled-copies.ts'
       # The daemon LLM catalog parity test reads these files, so hand edits to
       # either catalog JSON must run the assistant tests on the PR that
       # introduces drift.
@@ -52,7 +53,7 @@ jobs:
         run: bun install --frozen-lockfile --filter=@vellumai/assistant --filter=@vellumai/vellum-gateway
 
       - name: Sync feature flag registry
-        run: cd .. && bun run meta/feature-flags/sync-bundled-copies.ts
+        run: cd .. && bun run meta/sync-bundled-copies.ts
 
       - name: Lint
         run: bun run lint
@@ -88,7 +89,7 @@ jobs:
         run: bun install --frozen-lockfile --filter=@vellumai/assistant --filter=@vellumai/vellum-gateway
 
       - name: Sync feature flag registry
-        run: cd .. && bun run meta/feature-flags/sync-bundled-copies.ts
+        run: cd .. && bun run meta/sync-bundled-copies.ts
 
       - name: Type check
         run: bunx tsc --noEmit
@@ -121,7 +122,7 @@ jobs:
         run: bun install --frozen-lockfile --filter=@vellumai/assistant --filter=@vellumai/vellum-gateway
 
       - name: Sync feature flag registry
-        run: cd .. && bun run meta/feature-flags/sync-bundled-copies.ts
+        run: cd .. && bun run meta/sync-bundled-copies.ts
 
       - name: Test
         run: bun run test
@@ -206,7 +207,7 @@ jobs:
         run: bun install --frozen-lockfile --filter=@vellumai/assistant --filter=@vellumai/vellum-gateway
 
       - name: Sync feature flag registry
-        run: cd .. && bun run meta/feature-flags/sync-bundled-copies.ts
+        run: cd .. && bun run meta/sync-bundled-copies.ts
 
       - name: Check OpenAPI spec is up to date
         run: bun run generate:openapi -- --check

@@ -1,19 +1,5 @@
 import { describe, expect, mock, test } from "bun:test";
 
-mock.module("../../../../config/loader.js", () => ({
-  getConfig: () => ({
-    llm: {
-      default: {
-        contextWindow: {
-          enabled: true,
-          maxInputTokens: 200_000,
-          compactThreshold: 0.8,
-        },
-      },
-    },
-  }),
-}));
-
 mock.module("../../../../config/assistant-feature-flags.js", () => ({
   isAssistantFeatureFlagEnabled: () => true,
 }));

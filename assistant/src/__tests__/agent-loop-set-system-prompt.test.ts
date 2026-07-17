@@ -20,13 +20,7 @@ mock.module("../plugins/pipeline.js", () => ({
   runHook: async (_hook: unknown, ctx: unknown): Promise<unknown> => ctx,
 }));
 
-let mockLlmConfig: Record<string, unknown> = {};
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({ llm: mockLlmConfig }),
-}));
-
 import { AgentLoop } from "../agent/loop.js";
-import { LLMSchema } from "../config/schemas/llm.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
 import type {
   Message,
@@ -34,6 +28,7 @@ import type {
   ProviderResponse,
   SendMessageOptions,
 } from "../providers/types.js";
+import { setConfig } from "./helpers/set-config.js";
 
 const userMessage: Message = {
   role: "user",
@@ -92,9 +87,9 @@ async function runOnce(loop: AgentLoop): Promise<void> {
 }
 
 beforeEach(() => {
-  mockLlmConfig = LLMSchema.parse({
+  setConfig("llm", {
     default: { provider: "anthropic", model: "mock-model" },
-  }) as Record<string, unknown>;
+  });
 });
 
 describe("AgentLoop.setSystemPrompt", () => {

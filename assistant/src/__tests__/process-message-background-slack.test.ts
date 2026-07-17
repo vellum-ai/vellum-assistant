@@ -5,12 +5,11 @@ mock.module("../persistence/attachments-store.js", () => ({
   getSourcePathsForAttachments: () => new Map<string, string>(),
 }));
 
-mock.module("../contacts/canonical-guardian-store.js", () => ({
-  createCanonicalGuardianRequest: () => ({
-    id: "canonical-id",
+mock.module("../channels/gateway-guardian-requests.js", () => ({
+  createGuardianRequest: async (params: Record<string, unknown>) => ({
+    ...params,
     requestCode: "ABC123",
   }),
-  generateCanonicalRequestCode: () => "ABC123",
 }));
 
 mock.module("../persistence/conversation-crud.js", () => ({
@@ -61,18 +60,6 @@ mock.module("../daemon/conversation-runtime-assembly.js", () => ({
     supportsDynamicUi: false,
     supportsVoiceInput: false,
     chatType: "channel",
-  }),
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    llm: {
-      default: {
-        provider: "mock-provider",
-        model: "mock-model",
-        contextWindow: { maxInputTokens: 100000 },
-      },
-    },
   }),
 }));
 
@@ -147,6 +134,7 @@ import {
   processMessage,
   processMessageInBackground,
 } from "../daemon/process-message.js";
+import { setConfig } from "./helpers/set-config.js";
 
 function createDeferred<T = void>(): Deferred<T> {
   let resolve!: (value: T | PromiseLike<T>) => void;
@@ -236,6 +224,9 @@ function makeConversation(): TestConversation {
 
 describe("processMessageInBackground Slack option propagation", () => {
   beforeEach(() => {
+    // The turns run through the real processMessage path; keep memory
+    // indexing out of these tests so no background pipeline work starts.
+    setConfig("memory", { enabled: false, v2: { enabled: false } });
     activeConversation = makeConversation();
     mergeConversationOptionsMock.mockClear();
     broadcastMessages.length = 0;

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  isAboutAssistantPath,
   isConversationChatPath,
   isConversationPath,
   routes,
@@ -8,14 +9,14 @@ import {
 
 describe("routes", () => {
   test("builds schedule-filtered usage URLs", () => {
-    expect(routes.logs.usageForSchedule("schedule-123")).toBe(
-      "/assistant/logs/usage?range=7d&groupBy=schedule&scheduleId=schedule-123",
+    expect(routes.settings.usageForSchedule("schedule-123")).toBe(
+      "/assistant/settings/billing?tab=usage&range=7d&groupBy=schedule&scheduleId=schedule-123",
     );
   });
 
   test("encodes schedule ids in usage URLs", () => {
-    expect(routes.logs.usageForSchedule("schedule with spaces")).toBe(
-      "/assistant/logs/usage?range=7d&groupBy=schedule&scheduleId=schedule+with+spaces",
+    expect(routes.settings.usageForSchedule("schedule with spaces")).toBe(
+      "/assistant/settings/billing?tab=usage&range=7d&groupBy=schedule&scheduleId=schedule+with+spaces",
     );
   });
 
@@ -26,7 +27,8 @@ describe("routes", () => {
     );
   });
 
-  test("builds the skills tab and per-skill detail paths", () => {
+  test("builds the superpowers list and per-skill detail paths", () => {
+    expect(routes.superpowers).toBe("/assistant/superpowers");
     expect(routes.skills.root).toBe("/assistant/skills");
     expect(routes.skills.detail("my-skill")).toBe("/assistant/skills/my-skill");
   });
@@ -37,6 +39,21 @@ describe("routes", () => {
     expect(routes.skills.detail("org/repo/shared-skill")).toBe(
       "/assistant/skills/org%2Frepo%2Fshared-skill",
     );
+  });
+});
+
+describe("isAboutAssistantPath", () => {
+  test("matches the drill-down sections, including schedule detail sub-paths", () => {
+    expect(isAboutAssistantPath(routes.identity)).toBe(true);
+    expect(isAboutAssistantPath(routes.superpowers)).toBe(true);
+    expect(isAboutAssistantPath(routes.skills.root)).toBe(true);
+    expect(isAboutAssistantPath(routes.schedules.root)).toBe(true);
+    expect(isAboutAssistantPath(routes.schedules.detail("sch_123"))).toBe(true);
+  });
+
+  test("rejects the Activity page and conversations", () => {
+    expect(isAboutAssistantPath(routes.home)).toBe(false);
+    expect(isAboutAssistantPath(routes.conversation("conv-1"))).toBe(false);
   });
 });
 

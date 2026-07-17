@@ -6,7 +6,7 @@
  * retryable and dead-lettered events, and replaying dead letters.
  */
 
-import { and, eq, lte, or } from "drizzle-orm";
+import { and, eq, lte, ne, or } from "drizzle-orm";
 
 import { getDb } from "./db-connection.js";
 import {
@@ -273,6 +273,34 @@ export function getRetryableDeliveryEvents(limit = 20): Array<{
     )
     .limit(limit)
     .all();
+}
+
+/**
+ * Fetch the `deliveryStatus` of every OTHER inbound event linked to the given
+ * user message (excluding `excludeEventId`).
+ *
+ * An at-least-once redelivery that deduplicates against the original turn is
+ * `linkMessage`d to that turn's `messageId`, so the original and the
+ * redelivered event become siblings sharing `messageId`. The dedup dispatch
+ * path reads these statuses to tell an already-owned delivery from the crash
+ * window where the reply was persisted but never delivered.
+ */
+export function getSiblingEventDeliveryStatuses(
+  messageId: string,
+  excludeEventId: string,
+): string[] {
+  const db = getDb();
+  return db
+    .select({ deliveryStatus: channelInboundEvents.deliveryStatus })
+    .from(channelInboundEvents)
+    .where(
+      and(
+        eq(channelInboundEvents.messageId, messageId),
+        ne(channelInboundEvents.id, excludeEventId),
+      ),
+    )
+    .all()
+    .map((row) => row.deliveryStatus);
 }
 
 /** Fetch dead-lettered events. */

@@ -55,11 +55,7 @@ mock.module("../daemon/disk-pressure-guard.js", () => ({
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import * as deliveryCrud from "../persistence/delivery-crud.js";
-import {
-  canonicalGuardianRequests,
-  channelInboundEvents,
-  messages,
-} from "../persistence/schema/index.js";
+import { channelInboundEvents, messages } from "../persistence/schema/index.js";
 import { sweepFailedEvents } from "../runtime/channel-retry-sweep.js";
 import {
   handleChannelInbound,
@@ -67,13 +63,14 @@ import {
   setAdapterProcessMessage,
 } from "./helpers/channel-test-adapter.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
+import { bridgeState } from "./helpers/gateway-guardian-requests-store-bridge.js";
 
 await initializeDb();
 
 function resetTables(): void {
+  bridgeState.reset();
   const db = getDb();
   db.run("DELETE FROM channel_inbound_events");
-  db.run("DELETE FROM canonical_guardian_requests");
   db.run("DELETE FROM conversation_keys");
   db.run("DELETE FROM messages");
   db.run("DELETE FROM conversations");
@@ -82,13 +79,13 @@ function resetTables(): void {
   db.run("DELETE FROM contacts");
 }
 
-function seedTrustedContact(policy: "allow" | "escalate" = "allow"): void {
+function seedTrustedContact(): void {
   seedContactChannel({
     sourceChannel: "telegram",
     externalUserId: "telegram-user-1",
     displayName: "Example User",
     status: "active",
-    policy,
+    policy: "allow",
   });
 }
 
@@ -277,7 +274,7 @@ describe("channel inbound disk pressure gate", () => {
     expect(db.select().from(messages).all()).toHaveLength(0);
   });
 
-  test("blocks escalation-policy trusted-contact ingress before escalation state", async () => {
+  test("blocks trusted-contact ingress without creating guardian requests", async () => {
     resetTables();
     createGuardianBinding({
       channel: "telegram",
@@ -285,14 +282,14 @@ describe("channel inbound disk pressure gate", () => {
       guardianDeliveryChatId: "guardian-chat-1",
       guardianPrincipalId: "guardian-user-1",
     });
-    seedTrustedContact("escalate");
+    seedTrustedContact();
     const processMessage = mock(async () => {
       throw new Error("processMessage should not run");
     });
     setAdapterProcessMessage(processMessage);
 
     const res = await handleChannelInbound(
-      makeInboundRequest({ externalMessageId: "msg-escalate-blocked" }),
+      makeInboundRequest({ externalMessageId: "msg-guardian-bound-blocked" }),
     );
     const body = (await res.json()) as Record<string, unknown>;
 
@@ -308,13 +305,18 @@ describe("channel inbound disk pressure gate", () => {
     const event = db
       .select()
       .from(channelInboundEvents)
-      .where(eq(channelInboundEvents.externalMessageId, "msg-escalate-blocked"))
+      .where(
+        eq(
+          channelInboundEvents.externalMessageId,
+          "msg-guardian-bound-blocked",
+        ),
+      )
       .get();
     expect(event?.processingStatus).toBe("processed");
     expect(event?.messageId).toBeNull();
     expect(event?.rawPayload).toBeNull();
 
-    expect(db.select().from(canonicalGuardianRequests).all()).toHaveLength(0);
+    expect(bridgeState.requests.size).toBe(0);
     expect(db.select().from(messages).all()).toHaveLength(0);
   });
 

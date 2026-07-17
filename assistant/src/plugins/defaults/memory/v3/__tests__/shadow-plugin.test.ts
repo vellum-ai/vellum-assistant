@@ -20,15 +20,16 @@
  * `memory_v3_selections` migration.
  */
 
+import { join } from "node:path";
 import { Database } from "bun:sqlite";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
+import { setConfig } from "../../../../../__tests__/helpers/set-config.js";
 import { MemoryV3GateSchema } from "../../../../../config/schemas/memory-v3.js";
-import { migrateAddMemoryV3Selections } from "../../../../../persistence/migrations/268-add-memory-v3-selections.js";
 import { migrateAddMemoryV3EverInjected } from "../../../../../persistence/migrations/277-add-memory-v3-ever-injected.js";
-import { migrateMemoryV3SelectionsMessageIdAndSections } from "../../../../../persistence/migrations/283-memory-v3-selections-message-id-and-sections.js";
+import { ensureMemoryV3SelectionsSchema } from "../../../../../persistence/migrations/338-move-memory-v3-selections-to-memory-db.js";
 import * as schema from "../../../../../persistence/schema/index.js";
 import type { HotSetEntry, HotSetOptions } from "../hot-set.js";
 import type { OrchestrateResult } from "../orchestrate.js";
@@ -168,17 +169,23 @@ let hotSetOpts: HotSetOptions | null = null;
 // page body.
 let capturedPageBody: ((slug: string) => Promise<string>) | null = null;
 
-// Shared in-memory DB so writes are observable from the test.
+// Shared in-memory DBs so writes are observable from the test. Selection rows
+// live on the dedicated memory connection (`memorySqlite`, resolved through
+// the stubbed `getMemorySqlite`); the everInjected store stays in main.
 let testSqlite: Database;
+let memorySqlite: Database;
+// When false, the stubbed `getMemorySqlite` resolves to null — the contract
+// the plugin sees when the dedicated memory database cannot be opened.
+let memoryDbAvailable = true;
 let testDb = makeDb();
 function makeDb() {
   testSqlite = new Database(":memory:");
   testSqlite.exec("PRAGMA journal_mode=WAL");
   const db = drizzle(testSqlite, { schema });
-  migrateAddMemoryV3Selections(db);
-  migrateMemoryV3SelectionsMessageIdAndSections(db);
   // The live injector's net-new dedup reads/writes the everInjected store.
   migrateAddMemoryV3EverInjected(db);
+  memorySqlite = new Database(":memory:");
+  ensureMemoryV3SelectionsSchema(memorySqlite);
   return db;
 }
 
@@ -205,38 +212,41 @@ mock.module("../../../../../config/assistant-feature-flags.js", () => ({
         : false,
 }));
 
-mock.module("../../../../../config/loader.js", () => ({
-  getConfig: () => ({
-    memory: {
-      enabled: memoryEnabled,
-      v3: {
-        live: liveEnabled,
-        hotSet: { k: 8, halfLifeDays: 14 },
-        freshSet: { k: 8 },
-        spotlight: { n: 6, windowTurns: 2 },
-        needleK: 12,
-        denseK: 0,
-        replyQueryK: 0,
-        selectorEnabled: selectorEnabledCfg,
-        learnedEdges: {
-          halfLifeDays: 30,
-          minCount: 3,
-          npmiFloor: 0.2,
-          maxPerPage: 6,
-          perSeed: 3,
-          cap: learnedEdgesCap,
-        },
-        edge: { hubDegree: 30, seedCount: 6, perSeed: 1, cap: 6 },
-        entity: { enabled: true, idfFloor: 4, cap: 8 },
-        // Gate tuning (schema defaults) with the mutable `enabled` kill-switch;
-        // `observeTurn` spreads this and overwrites `enabled` with the effective
-        // flag AND config value before passing to orchestrate.
-        gate: { ...GATE_DEFAULTS, enabled: gateEnabledCfg },
+// `observeTurn` and the injector resolve their tuning through the real
+// `getConfig()`; `seedMemoryConfig()` (called by the observe/produce wrappers
+// below) writes the mutable knobs into the workspace config for real. The
+// seeded values override schema defaults where they differ (e.g. hotSet.k 8 vs
+// default 40) so the per-turn tuning assertions hold.
+function seedMemoryConfig(): void {
+  setConfig("memory", {
+    enabled: memoryEnabled,
+    v3: {
+      live: liveEnabled,
+      hotSet: { k: 8, halfLifeDays: 14 },
+      freshSet: { k: 8 },
+      spotlight: { n: 6, windowTurns: 2 },
+      needleK: 12,
+      denseK: 0,
+      replyQueryK: 0,
+      selectorEnabled: selectorEnabledCfg,
+      learnedEdges: {
+        halfLifeDays: 30,
+        minCount: 3,
+        npmiFloor: 0.2,
+        maxPerPage: 6,
+        perSeed: 3,
+        cap: learnedEdgesCap,
       },
-      qdrant: { vectorSize: 8, onDisk: false },
+      edge: { hubDegree: 30, seedCount: 6, perSeed: 1, cap: 6 },
+      entity: { enabled: true, idfFloor: 4, cap: 8 },
+      // Gate tuning (schema defaults) with the mutable `enabled` kill-switch;
+      // `observeTurn` spreads this and overwrites `enabled` with the effective
+      // flag AND config value before passing to orchestrate.
+      gate: { ...GATE_DEFAULTS, enabled: gateEnabledCfg },
     },
-  }),
-}));
+    qdrant: { vectorSize: 8, onDisk: false },
+  });
+}
 
 // Stable-prefix lanes: the curated core loader and the frecency hot set are
 // stubbed to controllable values; `initLanes` owns the existence filtering and
@@ -253,7 +263,7 @@ mock.module("../hot-set.js", () => ({
     ...args: Parameters<typeof realHotSet.computeHotSet>
   ): HotSetEntry[] => {
     if (!shadowMockActive) return realHotSet.computeHotSet(...args);
-    hotSetOpts = args[1];
+    hotSetOpts = args[0];
     return hotSetResult;
   },
 }));
@@ -268,6 +278,7 @@ mock.module("../../../../../persistence/conversation-crud.js", () => ({
 mock.module("../../../../../persistence/db-connection.js", () => ({
   getDb: () => testDb,
   getSqliteFrom: () => testSqlite,
+  getMemorySqlite: () => (memoryDbAvailable ? memorySqlite : null),
 }));
 
 mock.module("../../v2/page-index.js", () => ({
@@ -336,6 +347,12 @@ mock.module("../../../../../util/platform.js", () => ({
     shadowMockActive
       ? "/tmp/shadow-test-workspace"
       : realPlatform.getWorkspaceDir(),
+  // The real loader resolves `config.json` via `getWorkspaceConfigPath` →
+  // `getWorkspaceDir`; the stubbed workspace dir above would divert it away
+  // from the per-test workspace `setConfig` seeds into. Pin the config path to
+  // the real workspace so seeded config actually flows to `getConfig()`.
+  getWorkspaceConfigPath: () =>
+    join(realPlatform.getWorkspaceDir(), "config.json"),
 }));
 
 // Capability stores: `renderCapabilityContent` (reached from `initLanes`' pageBody
@@ -431,21 +448,31 @@ mock.module("../orchestrate.js", () => ({
 
 // Import AFTER mocks so the plugin binds to them.
 const {
-  observeTurn,
+  observeTurn: observeTurnImpl,
   resetShadowLanesForTests,
   invalidateLanes,
   attributeSelections,
+  writeSelections,
+  backfillMemoryV3SelectionMessageId,
 } = await import("../shadow-plugin.js");
 const { memoryV3Injector, resetMemoryV3InjectorStateForTests } =
   await import("../injector.js");
 const { MemoryV3RetrievalUnavailableError } = await import("../pool-select.js");
+
+/** Seed the real config from the current mutable knobs, then run the real
+ *  `observeTurn` — mirrors how each test sets its knobs immediately before
+ *  observing. */
+async function observeTurn(conversationId: string, turnIndex: number) {
+  seedMemoryConfig();
+  return observeTurnImpl(conversationId, turnIndex);
+}
 
 afterAll(() => {
   shadowMockActive = false;
 });
 
 function readRows() {
-  return testSqlite
+  return memorySqlite
     .query(
       `SELECT slug, source, pinned FROM memory_v3_selections ORDER BY slug`,
     )
@@ -456,6 +483,7 @@ beforeEach(() => {
   shadowMockActive = true;
   liveEnabled = false;
   memoryEnabled = true;
+  memoryDbAvailable = true;
   learnedEdgesCap = 0;
   extraRealConceptPages = 0;
   selectorEnabledCfg = false;
@@ -490,6 +518,7 @@ beforeEach(() => {
  *  assembly's user-tail commit point, where the everInjected-store write now
  *  happens. */
 async function produce(conversationId: string, turnIndex: number) {
+  seedMemoryConfig();
   const block = await memoryV3Injector.produce({
     requestId: "r1",
     conversationId,
@@ -509,6 +538,28 @@ describe("memory-v3 engine", () => {
 
     expect(orchestrateSpy).not.toHaveBeenCalled();
     expect(sectionBuilds).toBe(0);
+    expect(readRows()).toHaveLength(0);
+  });
+
+  test("selection writes and the message-id backfill no-op when the memory database is unavailable", () => {
+    memoryDbAvailable = false;
+    expect(() =>
+      writeSelections("conv-1", 1, [
+        {
+          slug: "page-1",
+          source: "needle",
+          pinned: 0,
+          sectionOrdinal: null,
+          sectionTitle: null,
+        },
+      ]),
+    ).not.toThrow();
+    expect(() =>
+      backfillMemoryV3SelectionMessageId("conv-1", "m-1"),
+    ).not.toThrow();
+
+    // Nothing landed while the connection was down.
+    memoryDbAvailable = true;
     expect(readRows()).toHaveLength(0);
   });
 

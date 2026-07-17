@@ -102,6 +102,32 @@ export interface RunAsyncSqliteOptions {
 
 let warnedAboutFallback = false;
 
+/**
+ * SQL statements that `ATTACH` one extra database and bring the attached schema
+ * to `synchronous=NORMAL`.
+ *
+ * `synchronous` is schema-scoped: the connection-level `PRAGMA
+ * synchronous=NORMAL` applied to `main` does not reach an `ATTACH`ed file, which
+ * keeps the CLI/library default of FULL. Without the per-alias pragma every
+ * cross-database write (e.g. the relocation copy batches inserting into the
+ * attached target) fsyncs the WAL inside the commit's write-lock window — the
+ * exact contention the NORMAL posture exists to avoid (see the {@link runViaCli}
+ * prelude for the WAL-mode durability rationale).
+ *
+ * Returned as discrete statements — the single source both backends build their
+ * ATTACH SQL from: the sqlite3-CLI backend joins them into its piped prelude and
+ * the in-process fallback `exec`s each in turn.
+ */
+export function attachStatements(entry: {
+  path: string;
+  alias: string;
+}): string[] {
+  return [
+    `ATTACH DATABASE '${entry.path.replace(/'/g, "''")}' AS ${entry.alias}`,
+    `PRAGMA ${entry.alias}.synchronous=NORMAL`,
+  ];
+}
+
 export async function runAsyncSqlite(
   sql: string,
   label: string,
@@ -114,10 +140,8 @@ export async function runAsyncSqlite(
   let result: AsyncSqliteResult;
   if (sqlite3Path && forced !== "in-process-blocking") {
     const attachPrefix = (options.attach ?? [])
-      .map(
-        (a) =>
-          `ATTACH DATABASE '${a.path.replace(/'/g, "''")}' AS ${a.alias};\n`,
-      )
+      .flatMap(attachStatements)
+      .map((stmt) => `${stmt};\n`)
       .join("");
     result = await runViaCli(
       sqlite3Path,
@@ -294,10 +318,11 @@ async function runInProcessBlocking(
       // has both set via applyConnectionPragmas.)
       transient.exec(`PRAGMA busy_timeout=${SQLITE_BUSY_TIMEOUT_MS}`);
       transient.exec("PRAGMA synchronous=NORMAL");
-      for (const a of options.attach ?? []) {
-        transient.exec(
-          `ATTACH DATABASE '${a.path.replace(/'/g, "''")}' AS ${a.alias}`,
-        );
+      // ATTACH each extra database and bring it to synchronous=NORMAL as well;
+      // synchronous is schema-scoped, so the main-schema pragma above does not
+      // reach an attached file (see attachStatements).
+      for (const stmt of (options.attach ?? []).flatMap(attachStatements)) {
+        transient.exec(stmt);
       }
       sqlite = transient;
     } else {

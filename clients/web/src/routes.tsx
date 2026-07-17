@@ -10,6 +10,7 @@ import { AccountLayout } from "@/domains/account/account-layout";
 import { ChatLayout } from "@/domains/chat/chat-layout";
 import { ChatPage } from "@/domains/chat/chat-page";
 import { ConversationRedirect } from "@/domains/chat/conversation-redirect";
+import { NotificationsBell } from "@/domains/home/components/notifications-bell";
 import { NotFound } from "@/components/not-found";
 import { RouteErrorBoundary } from "@/components/route-error-boundary";
 import { RootHydrateFallback } from "@/components/root-hydrate-fallback";
@@ -36,6 +37,30 @@ function OAuthDesktopCompleteRedirect() {
 
 function McpSettingsRedirect() {
   return <Navigate to={`${routes.settings.integrations}?tab=mcp`} replace />;
+}
+
+/**
+ * Forwards legacy `/assistant/settings/advanced` deep links to Settings → Debug,
+ * which hosts the General, Terminal, Doctor, and Archive tabs. The query string
+ * is preserved so `?tab=terminal` and `?tab=doctor` land on the matching in-page
+ * tab.
+ */
+function AdvancedSettingsRedirect() {
+  const [searchParams] = useSearchParams();
+  const qs = searchParams.toString();
+  return (
+    <Navigate to={`${routes.settings.debug}${qs ? `?${qs}` : ""}`} replace />
+  );
+}
+
+/**
+ * ChatLayout with its cross-domain header chrome injected. The bell is home
+ * domain (it renders the home feed) and the layout is chat domain, so the
+ * composition happens here at the route level — neither domain imports the
+ * other (see STYLE_GUIDE.md — Shared UI components).
+ */
+function ChatLayoutRoute() {
+  return <ChatLayout topBarAccessory={<NotificationsBell />} />;
 }
 
 export function getRouterBasename(): string | undefined {
@@ -135,6 +160,13 @@ export const routeTree = [
     // request body, is the only authorization the gateway needs.
     { path: "/assistant/credentials/enter", ErrorBoundary: RouteErrorBoundary, HydrateFallback: RootHydrateFallback, lazy: { Component: () => import("@/domains/credential-requests/credential-entry-page").then((m) => m.CredentialEntryPage) } },
 
+    // Theme stage — deterministic compositions of the app's themeable
+    // surfaces, rendered inside a hidden Electron BrowserWindow and
+    // screenshotted for the `assistant ui snapshot` flow. Unauthenticated
+    // and API-free (theme tokens arrive URL-encoded). Same sibling pattern
+    // as About.
+    { path: "/assistant/theme-stage/:view", ErrorBoundary: RouteErrorBoundary, HydrateFallback: RootHydrateFallback, lazy: { Component: () => import("@/components/theme-stage-page").then((m) => m.ThemeStagePage) } },
+
     // Quick Input — lightweight input panel rendered inside the Electron
     // quick input BrowserWindow (a frameless, always-on-top panel invoked
     // via Cmd+Shift+/). Same pattern as About: sibling of `/assistant`,
@@ -226,12 +258,12 @@ export const routeTree = [
               ],
             },
             {
-              path: "onboarding/privacy",
-              lazy: { Component: () => import("@/domains/onboarding/pages/privacy-screen").then((m) => m.PrivacyScreen) },
+              path: "onboarding/start",
+              lazy: { Component: () => import("@/domains/onboarding/pages/start-screen").then((m) => m.StartScreen) },
             },
             {
-              path: "onboarding/prechat",
-              lazy: { Component: () => import("@/domains/onboarding/pages/prechat-route").then((m) => m.PreChatRoute) },
+              path: "onboarding/privacy",
+              lazy: { Component: () => import("@/domains/onboarding/pages/privacy-screen").then((m) => m.PrivacyScreen) },
             },
             {
               path: "onboarding/hatching",
@@ -260,13 +292,13 @@ export const routeTree = [
                 { path: "integrations", lazy: { Component: () => import("@/domains/settings/pages/integrations-page").then((m) => m.IntegrationsPage) } },
                 { path: "credentials", lazy: { Component: () => import("@/domains/settings/credentials/credentials-page").then((m) => m.CredentialsPage) } },
                 { path: "notifications", lazy: { Component: () => import("@/domains/settings/pages/notifications-page").then((m) => m.NotificationsPage) } },
-                { path: "keyboard-shortcuts", lazy: { Component: () => import("@/domains/settings/keyboard-shortcuts/keyboard-shortcuts-page").then((m) => m.KeyboardShortcutsPage) } },
-                { path: "sounds", lazy: { Component: () => import("@/domains/settings/pages/sounds-page").then((m) => m.SoundsPage) } },
+                { path: "keyboard-shortcuts", lazy: { Component: () => import("@/domains/settings/keyboard-shortcuts/keyboard-shortcuts-redirect-page").then((m) => m.KeyboardShortcutsRedirectPage) } },
+                { path: "sounds", lazy: { Component: () => import("@/domains/settings/pages/sounds-redirect-page").then((m) => m.SoundsRedirectPage) } },
                 { path: "voice", lazy: { Component: () => import("@/domains/settings/pages/voice-page").then((m) => m.VoicePage) } },
-                { path: "devices", lazy: { Component: () => import("@/domains/settings/pages/devices-page").then((m) => m.DevicesPage) } },
+                { path: "devices", lazy: { Component: () => import("@/domains/settings/pages/devices-redirect-page").then((m) => m.DevicesRedirectPage) } },
                 { path: "privacy", lazy: { Component: () => import("@/domains/settings/pages/privacy-page").then((m) => m.PrivacyPage) } },
-                { path: "security", lazy: { Component: () => import("@/domains/settings/security/security-page").then((m) => m.SecurityPage) } },
-                { path: "archive", lazy: { Component: () => import("@/domains/settings/pages/archive-page").then((m) => m.ArchivePage) } },
+                { path: "security", lazy: { Component: () => import("@/domains/settings/pages/security-redirect-page").then((m) => m.SecurityRedirectPage) } },
+                { path: "archive", lazy: { Component: () => import("@/domains/settings/pages/archive-redirect-page").then((m) => m.ArchiveRedirectPage) } },
                 { path: "bookmarks", lazy: { Component: () => import("@/domains/settings/pages/bookmarks-page").then((m) => m.BookmarksPage) } },
                 { path: "billing", lazy: { Component: () => import("@/domains/settings/billing/billing-page").then((m) => m.BillingPage) } },
                 { path: "billing/upgrade/cancel", lazy: { Component: () => import("@/domains/settings/billing/upgrade-cancel-page").then((m) => m.UpgradeCancelPage) } },
@@ -275,7 +307,7 @@ export const routeTree = [
                 { path: "mcp", Component: McpSettingsRedirect },
                 { path: "debug", lazy: { Component: () => import("@/domains/settings/pages/debug-page").then((m) => m.DebugPage) } },
                 { path: "developer", lazy: { Component: () => import("@/domains/settings/pages/developer-page").then((m) => m.DeveloperPage) } },
-                { path: "advanced", lazy: { Component: () => import("@/domains/settings/pages/advanced-page").then((m) => m.AdvancedPage) } },
+                { path: "advanced", Component: AdvancedSettingsRedirect },
                 { path: "danger-zone", lazy: { Component: () => import("@/domains/settings/pages/danger-zone-redirect-page").then((m) => m.DangerZoneRedirectPage) } },
                 { path: "system-events", lazy: { Component: () => import("@/domains/settings/pages/system-events-redirect-page").then((m) => m.SystemEventsRedirectPage) } },
               ],
@@ -288,8 +320,8 @@ export const routeTree = [
               path: "logs",
               lazy: { Component: () => import("@/domains/logs/logs-layout").then((m) => m.LogsLayout) },
               children: [
-                { index: true, lazy: { Component: () => import("@/domains/logs/pages/usage-page").then((m) => m.UsagePage) } },
-                { path: "usage", lazy: { Component: () => import("@/domains/logs/pages/usage-page").then((m) => m.UsagePage) } },
+                { index: true, lazy: { Component: () => import("@/domains/logs/pages/usage-redirect-page").then((m) => m.UsageRedirectPage) } },
+                { path: "usage", lazy: { Component: () => import("@/domains/logs/pages/usage-redirect-page").then((m) => m.UsageRedirectPage) } },
                 { path: "system-events", lazy: { Component: () => import("@/domains/logs/pages/system-events-page").then((m) => m.SystemEventsPage) } },
                 { path: "emails", lazy: { Component: () => import("@/domains/logs/pages/emails-page").then((m) => m.EmailsPage) } },
               ],
@@ -298,7 +330,7 @@ export const routeTree = [
         },
 
         {
-          Component: ChatLayout,
+          Component: ChatLayoutRoute,
           children: [
             // Inner pathless wrapper: catches every error from chat-side
             // routes (home, library, identity, inspector, etc.) one layer
@@ -329,21 +361,20 @@ export const routeTree = [
                   path: "home",
                   lazy: { Component: () => import("@/home-page-route").then((m) => m.HomePageRoute) },
                 },
-                // Schedules tab + per-schedule deep links. Same component as
-                // `home`; HomePageRoute reads the pathname / `:scheduleId` to
-                // open the Schedules tab and focus a schedule's drawer.
-                {
-                  path: "schedules",
-                  lazy: { Component: () => import("@/home-page-route").then((m) => m.HomePageRoute) },
-                },
-                {
-                  path: "schedules/:scheduleId",
-                  lazy: { Component: () => import("@/home-page-route").then((m) => m.HomePageRoute) },
-                },
                 {
                   lazy: { Component: () => import("@/domains/intelligence/intelligence-layout").then((m) => m.IntelligenceLayout) },
                   children: [
                     { path: "identity", lazy: { Component: () => import("@/identity-page-route").then((m) => m.IdentityPageRoute) } },
+                    { path: "personality", lazy: { Component: () => import("@/domains/intelligence/personality-page").then((m) => m.PersonalityPage) } },
+                    // Schedules list + per-schedule deep links. One component:
+                    // SchedulesPage reads `:scheduleId` to focus a schedule's
+                    // detail drawer.
+                    { path: "schedules", lazy: { Component: () => import("@/domains/schedules/schedules-page").then((m) => m.SchedulesPage) } },
+                    { path: "schedules/:scheduleId", lazy: { Component: () => import("@/domains/schedules/schedules-page").then((m) => m.SchedulesPage) } },
+                    { path: "memory", lazy: { Component: () => import("@/memory-page-route").then((m) => m.MemoryPageRoute) } },
+                    // Skills + plugins merged into one list. The legacy list
+                    // URLs redirect here; the per-item detail routes stay.
+                    { path: "superpowers", lazy: { Component: () => import("@/domains/intelligence/superpowers-page").then((m) => m.SuperpowersPage) } },
                     { path: "plugins", lazy: { Component: () => import("@/domains/intelligence/plugins-page").then((m) => m.PluginsPage) } },
                     { path: "plugins/:name", lazy: { Component: () => import("@/domains/intelligence/plugin-detail-page").then((m) => m.PluginDetailPage) } },
                     { path: "skills", lazy: { Component: () => import("@/domains/intelligence/skills-page").then((m) => m.SkillsPage) } },

@@ -2,7 +2,9 @@
  * Tests that projectSkillTools drops flag-OFF active skills from projected
  * tools, even when conversation history contains old markers for those skills.
  */
-import * as realFs from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { SkillSummary, SkillToolManifest } from "../config/skills.js";
@@ -14,13 +16,13 @@ import type { Tool } from "../tools/types.js";
 // Mock state
 // ---------------------------------------------------------------------------
 
+let tmpRoot: string;
 let mockCatalog: SkillSummary[] = [];
 let mockManifests: Record<string, SkillToolManifest | null> = {};
 let mockRegisteredTools: Map<string, Tool[]> = new Map();
 let mockUnregisteredSkillIds: string[] = [];
 let mockSkillRefCount: Map<string, number> = new Map();
 
-let currentConfig: Record<string, unknown> = {};
 const DECLARED_SKILL_ID = "contacts";
 const DECLARED_FLAG_KEY = "contacts";
 
@@ -32,12 +34,6 @@ mock.module("../config/skills.js", () => ({
   loadSkillCatalog: () => mockCatalog,
   // Pass-through: these tests don't exercise per-chat plugin scoping.
   filterSkillsByEnabledPlugins: (skills: unknown) => skills,
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => currentConfig,
-  loadConfig: () => currentConfig,
-  invalidateConfigCache: () => {},
 }));
 
 mock.module("../config/skill-state.js", () => ({
@@ -222,18 +218,6 @@ mock.module("../tools/registry.js", () => ({
   },
 }));
 
-mock.module("node:fs", () => ({
-  ...realFs,
-  existsSync: (p: string) => {
-    if (typeof p === "string" && p.endsWith("TOOLS.json")) {
-      const parts = p.split("/");
-      const skillId = parts[parts.length - 2];
-      return skillId in mockManifests;
-    }
-    return realFs.existsSync(p);
-  },
-}));
-
 mock.module("../skills/version-hash.js", () => ({
   computeSkillVersionHash: (skillDir: string) => {
     const parts = skillDir.split("/");
@@ -270,13 +254,19 @@ const { setOverridesForTesting } =
 // ---------------------------------------------------------------------------
 
 function makeSkill(id: string, featureFlag?: string): SkillSummary {
+  // A real on-disk skill dir with a TOOLS.json so the production manifest
+  // existence check (`existsSync(<dir>/TOOLS.json)`) passes for real; the
+  // manifest's contents are supplied by the mocked `parseToolManifestFile`.
+  const directoryPath = join(tmpRoot, id);
+  mkdirSync(directoryPath, { recursive: true });
+  writeFileSync(join(directoryPath, "TOOLS.json"), "{}");
   return {
     id,
     name: id,
     displayName: id,
     description: `Skill ${id}`,
-    directoryPath: `/skills/${id}`,
-    skillFilePath: `/skills/${id}/SKILL.md`,
+    directoryPath,
+    skillFilePath: join(directoryPath, "SKILL.md"),
 
     source: "managed",
     featureFlag,
@@ -331,18 +321,19 @@ function buildHistoryWithMarker(skillId: string): Message[] {
 
 describe("projectSkillTools feature flag enforcement", () => {
   beforeEach(() => {
+    tmpRoot = mkdtempSync(join(tmpdir(), "skill-projection-flag-"));
     mockCatalog = [];
     mockManifests = {};
     mockRegisteredTools = new Map();
     mockUnregisteredSkillIds = [];
     mockSkillRefCount = new Map();
-    currentConfig = {};
     setOverridesForTesting({});
     resetSkillToolProjection();
   });
 
   afterEach(() => {
     setOverridesForTesting({});
+    rmSync(tmpRoot, { recursive: true, force: true });
   });
 
   test("no skill tools projected for flag OFF skill even with old markers", () => {
@@ -399,7 +390,6 @@ describe("projectSkillTools feature flag enforcement", () => {
     const prevActive = new Map<string, string>();
 
     // No overrides — skill has no featureFlag so it's never gated
-    currentConfig = {};
 
     const result = projectSkillTools(history, {
       previouslyActiveSkillIds: prevActive,

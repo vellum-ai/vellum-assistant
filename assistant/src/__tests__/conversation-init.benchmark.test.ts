@@ -96,61 +96,6 @@ mock.module("../util/logger.js", () => ({
   pruneOldLogFiles: () => 0,
 }));
 
-const mockConfig = {
-  model: "mock-model",
-  provider: "mock",
-  contextWindow: {
-    enabled: true,
-    maxInputTokens: 180000,
-    targetBudgetRatio: 0.3,
-    compactThreshold: 0.8,
-    summaryBudgetRatio: 0.05,
-  },
-  thinking: { enabled: false },
-  llm: {
-    default: {
-      provider: "mock",
-      model: "mock-model",
-      speed: "standard",
-      thinking: { enabled: false, streamThinking: false },
-      effort: "medium",
-      contextWindow: {
-        enabled: true,
-        maxInputTokens: 180000,
-        targetBudgetRatio: 0.3,
-        compactThreshold: 0.8,
-        summaryBudgetRatio: 0.05,
-      },
-    },
-    profiles: {},
-    callSites: {},
-  },
-};
-
-mock.module("../config/loader.js", () => ({
-  API_KEY_PROVIDERS: [
-    "anthropic",
-    "openai",
-    "gemini",
-    "ollama",
-    "fireworks",
-    "brave",
-    "perplexity",
-    "tavily",
-  ],
-  getConfig: () => mockConfig,
-  getConfigReadOnly: () => mockConfig,
-  loadConfig: () => mockConfig,
-  invalidateConfigCache: () => {},
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  getNestedValue: () => undefined,
-  setNestedValue: () => {},
-  applyNestedDefaults: (c: unknown) => c,
-  deepMergeOverwrite: () => {},
-  mergeDefaultWorkspaceConfig: () => {},
-}));
-
 mock.module("../tools/watch/watch-state.js", () => ({
   watchSessions: new Map(),
   registerWatchStartNotifier: () => {},
@@ -470,7 +415,9 @@ describe("End-to-end session creation benchmark", () => {
       if (i === 0) {
         // Tool infrastructure is wired (the executor records audit/telemetry
         // and profiler timings directly to their module-level terminals).
-        expect(session.coreToolNames.size).toBeGreaterThan(0);
+        expect(session.getRegisteredToolDefinitions().length).toBeGreaterThan(
+          0,
+        );
       }
       session.dispose();
     }

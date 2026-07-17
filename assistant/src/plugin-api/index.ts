@@ -67,7 +67,7 @@
  */
 
 export type { HookName } from "./constants.js";
-export { HOOKS } from "./constants.js";
+export { HOOKS, INTERNAL_NUDGE_OUTPUT_SUPPRESSION } from "./constants.js";
 // Conversation message/content shapes. A hook receives the live message
 // history (e.g. `PostToolUseContext.latestMessages: Message[]`), so plugins
 // that inspect or narrow content blocks — reading a `tool_use` block's input,
@@ -150,6 +150,16 @@ export { getModelProfiles } from "./model-profiles.js";
 // looks up the model catalog's `supportsVision` flag (mix profiles are
 // vision-capable if any arm is). Returns false when nothing resolves.
 export { doesSupportVision } from "./vision-support.js";
+// Resolve a stored credential to its plaintext value — the same value
+// `assistant credentials reveal` prints — from a UUID or a "service/field"
+// reference. When a plugin is in context, resolution is scoped to credentials
+// whose `field` matches the plugin's manifest name; outside any plugin it is
+// unscoped. Throws CredentialResolutionError when the ref does not resolve, the
+// store is unreachable, or the credential is out of the plugin's scope.
+export {
+  CredentialResolutionError,
+  resolveCredential,
+} from "./resolve-credential.js";
 // Resolve a provider for a call site (optionally overriding the profile) so a
 // plugin can run inference through the workspace's configured profiles and
 // credentials — managed-proxy or BYOK — without supplying its own API key.
@@ -172,6 +182,32 @@ export { resolveMediaSourceData } from "../providers/media-resolve.js";
 // hook reads it off `PostModelCallContext.stopReason` to decide whether to
 // continue a cut-off reply.
 export { isMaxTokensStopReason } from "../providers/stop-reasons.js";
+// Classify a provider error message: whether the model rejected image input (a
+// vision-not-supported rejection). Matches the raw provider prose the adapters
+// wrap their errors in, so a `post-model-call` hook can read
+// `PostModelCallContext.error` to decide whether to caption the request's
+// images and retry.
+export { isVisionNotSupportedError } from "../util/provider-error-patterns.js";
+// Index of the last user message carrying `tool_result` blocks — the
+// "current turn" boundary the host's outbound sanitizer keeps intact while it
+// strips media from older tool results. A plugin that mirrors that scope (e.g.
+// captioning only the media a rejected request would still carry) reads it to
+// avoid touching stale tool-result media the sanitizer will replace with its
+// removed-media marker.
+export { lastToolResultUserMessageIndex } from "../context/outbound-sanitize.js";
+// Refusal quarantine — the canned apology a refusal turn is rewritten into
+// (`REFUSAL_FALLBACK_TEXT`, which doubles as the persisted per-exchange
+// "refused" marker), the tool-result-only user-message classifier the producer
+// shares with the detector, and the sweep that drops previously-refused
+// exchanges from a working history. The empty-response plugin's
+// `post-model-call` hook writes the marker and its `user-prompt-submit` hook
+// runs the sweep; the host runtime assembly applies the same helpers to the
+// provider-bound history.
+export {
+  isToolResultMessage,
+  quarantineRefusedExchanges,
+  REFUSAL_FALLBACK_TEXT,
+} from "../context/refusal-quarantine.js";
 // Identity reads — "who is the assistant and the user." A plugin that builds
 // its own prompts (e.g. for its own inference) names the actor via these.
 // Backed by the workspace `IDENTITY.md` / user profile; each returns null when
@@ -193,6 +229,11 @@ export {
   embedAndUpsert,
   selectedBackendSupportsMultimodal,
 } from "../persistence/embeddings/plugin-facade.js";
+// Graph-node orphan sweep — deletes `graph_node` Qdrant points whose backing
+// `memory_graph_nodes` row is gone (cacheless points the cache-driven sweep
+// cannot see). The memory plugin's `sweep_orphaned_graph_node_points` job
+// handler drains it once Qdrant is up.
+export { sweepOrphanedGraphNodePoints } from "../persistence/embeddings/graph-node-orphan-sweep.js";
 // Skills — the installed skill catalog with resolved states, and the remote
 // skill catalog. Host-resolved: catalog load, install-state resolution,
 // feature-flag gating, and install-meta reads are composed internally, so
@@ -244,3 +285,15 @@ export {
 export type { SynthesizeTextOptions } from "../tts/synthesize-text.js";
 export { synthesizeText, TtsSynthesisError } from "../tts/synthesize-text.js";
 export type { TtsSynthesisResult } from "../tts/types.js";
+// Conversation agent-loop turn — run a full conversation turn (persist user
+// message, execute the agent loop with history/tools/compaction/injections,
+// return the assistant's full content-block response). Accepts ContentBlock[]
+// input (text, images, files) and an optional conversationId (creates a new
+// conversation when omitted). Plugins that need to drive conversation turns
+// (e.g. meeting-bot flushing a transcript excerpt) should prefer this over the
+// stateless `provider.sendMessage()` call.
+export type {
+  RunConversationTurnOptions,
+  RunConversationTurnResult,
+} from "./conversation-turn.js";
+export { runConversationTurn } from "./conversation-turn.js";

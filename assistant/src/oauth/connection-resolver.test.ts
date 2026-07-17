@@ -10,7 +10,6 @@ let mockConnections:
   | Array<Record<string, unknown> & { clientId?: string; accountInfo?: string }>
   | undefined;
 let mockAccessToken: string | undefined;
-let mockConfig: Record<string, unknown> = {};
 let mockPlatformClient: Record<string, unknown> | null = null;
 let syncManualTokenCalls: string[] = [];
 
@@ -55,10 +54,6 @@ mock.module("./manual-token-connection.js", () => ({
   },
 }));
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => mockConfig,
-}));
-
 mock.module("../platform/client.js", () => ({
   VellumPlatformClient: {
     create: async () => mockPlatformClient,
@@ -69,6 +64,7 @@ mock.module("../platform/client.js", () => ({
 // Import the module under test (after all mocks are registered)
 // ---------------------------------------------------------------------------
 
+import { setConfig } from "../__tests__/helpers/set-config.js";
 import { BYOOAuthConnection } from "./byo-connection.js";
 import {
   formatNoConnectionError,
@@ -77,6 +73,16 @@ import {
   resolveOAuthConnectionWithMeta,
 } from "./connection-resolver.js";
 import { PlatformOAuthConnection } from "./platform-connection.js";
+
+/** Seed `services.<key>.mode` entries into the workspace config for real. */
+function seedServiceModes(modes: Record<string, "managed" | "your-own">): void {
+  setConfig(
+    "services",
+    Object.fromEntries(
+      Object.entries(modes).map(([key, mode]) => [key, { mode }]),
+    ),
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -115,22 +121,7 @@ function setupDefaults(): void {
     clientId: "client-1",
   };
   mockAccessToken = "tok-valid";
-  mockConfig = {
-    services: {
-      inference: {
-        mode: "your-own",
-        provider: "anthropic",
-        model: "claude-opus-4-6",
-      },
-      "image-generation": {
-        mode: "your-own",
-        provider: "gemini",
-        model: "gemini-3.1-flash-image-preview",
-      },
-      "web-search": { mode: "your-own", provider: "inference-provider-native" },
-      "google-oauth": { mode: "managed" },
-    },
-  };
+  seedServiceModes({ "google-oauth": "managed" });
   mockConnections = undefined;
   mockPlatformClient = makeMockClient();
   syncManualTokenCalls = [];
@@ -211,9 +202,7 @@ describe("resolveOAuthConnection", () => {
   test("returns PlatformOAuthConnection when GitHub is in managed mode", async () => {
     mockProvider!.provider = "github";
     mockProvider!.managedServiceConfigKey = "github-oauth";
-    (mockConfig.services as Record<string, unknown>)["github-oauth"] = {
-      mode: "managed",
-    };
+    seedServiceModes({ "google-oauth": "managed", "github-oauth": "managed" });
 
     const result = await resolveOAuthConnection("github");
     expect(result).toBeInstanceOf(PlatformOAuthConnection);
@@ -223,9 +212,7 @@ describe("resolveOAuthConnection", () => {
 
   test("returns BYOOAuthConnection when service config mode is your-own", async () => {
     mockProvider!.managedServiceConfigKey = "google-oauth";
-    (mockConfig.services as Record<string, unknown>)["google-oauth"] = {
-      mode: "your-own",
-    };
+    seedServiceModes({ "google-oauth": "your-own" });
 
     const result = await resolveOAuthConnection("google");
     expect(result).toBeInstanceOf(BYOOAuthConnection);
@@ -392,9 +379,7 @@ describe("resolveOAuthConnection scope-awareness", () => {
   });
 
   test("BYO: rejects when granted scopes are known and missing the requirement", async () => {
-    (mockConfig.services as Record<string, unknown>)["google-oauth"] = {
-      mode: "your-own",
-    };
+    seedServiceModes({ "google-oauth": "your-own" });
     mockConnection!.grantedScopes = JSON.stringify(CALENDAR_ONLY);
 
     await expect(
@@ -403,9 +388,7 @@ describe("resolveOAuthConnection scope-awareness", () => {
   });
 
   test("BYO: treats full Gmail access as covering Gmail read access", async () => {
-    (mockConfig.services as Record<string, unknown>)["google-oauth"] = {
-      mode: "your-own",
-    };
+    seedServiceModes({ "google-oauth": "your-own" });
     mockConnection!.grantedScopes = JSON.stringify([GMAIL_FULL_ACCESS_SCOPE]);
 
     const result = await resolveOAuthConnection("google", {
@@ -415,9 +398,7 @@ describe("resolveOAuthConnection scope-awareness", () => {
   });
 
   test("BYO: unknown granted scopes never block", async () => {
-    (mockConfig.services as Record<string, unknown>)["google-oauth"] = {
-      mode: "your-own",
-    };
+    seedServiceModes({ "google-oauth": "your-own" });
     mockConnection!.grantedScopes = JSON.stringify([]);
 
     const result = await resolveOAuthConnection("google", {
@@ -427,9 +408,7 @@ describe("resolveOAuthConnection scope-awareness", () => {
   });
 
   test("BYO: picks an older scope-satisfying connection over a newer narrow one", async () => {
-    (mockConfig.services as Record<string, unknown>)["google-oauth"] = {
-      mode: "your-own",
-    };
+    seedServiceModes({ "google-oauth": "your-own" });
     // Newest first (matching the store's ordering): a Calendar-only row, then
     // an older row that carries the Gmail scope. The narrow row must not win.
     mockConnections = [

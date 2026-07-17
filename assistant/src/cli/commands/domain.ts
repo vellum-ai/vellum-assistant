@@ -3,9 +3,11 @@ import { createRequire } from "node:module";
 import type { Command } from "commander";
 
 import { cliIpcCall, exitFromIpcResult } from "../../ipc/cli-client.js";
+import { applyCommandHelp, subcommand } from "../lib/cli-command-help.js";
 import { registerCommand } from "../lib/register-command.js";
 import { getCliLogger } from "../logger.js";
 import { shouldOutputJson, writeOutput } from "../output.js";
+import { domainHelp } from "./domain.help.js";
 
 const loadModule = createRequire(import.meta.url);
 
@@ -37,12 +39,15 @@ function handleDomainIpcError(
 
 export function registerDomainCommand(program: Command): void {
   registerCommand(program, {
-    name: "domain",
+    name: domainHelp.name,
     transport: "ipc",
-    description: "Register and manage this assistant's custom subdomain",
+    description: domainHelp.description,
     build: (domain) => {
-      domain.option("--json", "Machine-readable compact JSON output");
+      applyCommandHelp(domain, domainHelp);
 
+      // The help text below interpolates runtime-resolved domains, so it
+      // cannot be expressed as static data in the .help module and stays
+      // registered imperatively as a callback.
       domain.addHelpText(
         "after",
         () => `
@@ -56,13 +61,7 @@ Examples:
   $ assistant domain status velly`,
       );
 
-      domain
-        .command("register [subdomain]")
-        .option(
-          "--email-username <username>",
-          "Also register an email address (e.g. --email-username hello → hello@<subdomain>.domain)",
-        )
-        .description("Register a custom subdomain for this assistant")
+      subcommand(domain, "register")
         .addHelpText("after", () => {
           const { baseDomain } = envDomains();
           return `
@@ -151,11 +150,7 @@ Examples:
           },
         );
 
-      domain
-        .command("status <subdomain>")
-        .description(
-          "Show registration and DNS verification status for a subdomain",
-        )
+      subcommand(domain, "status")
         .addHelpText(
           "after",
           () => `

@@ -56,6 +56,7 @@ let lastPersistedUserMessage: string | undefined;
 class FakeConversation {
   messages: Message[];
   usageStats = { inputTokens: 10, outputTokens: 5, estimatedCost: 0.001 };
+  subagentDeniedToolNames = new Set<string>();
   conversationType = "background";
   hasSystemPromptOverride = false;
 
@@ -160,19 +161,6 @@ mock.module("../providers/connection-resolution.js", () => ({
 
 mock.module("../providers/call-site-routing.js", () => ({
   wrapWithCallSiteRouting: (provider: unknown) => provider,
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    llm: {
-      default: {
-        provider: "anthropic",
-        provider_connection: "anthropic-conn",
-        model: "claude-opus-4-7",
-      },
-    },
-    rateLimit: { maxRequestsPerMinute: 0 },
-  }),
 }));
 
 mock.module("../config/llm-resolver.js", () => ({

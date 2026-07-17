@@ -10,6 +10,11 @@
 import { z } from "zod";
 
 import {
+  ACP_SERVICE,
+  AcpCredentialFormatError,
+  assertAcpCredentialFormat,
+} from "../../acp/acp-credentials.js";
+import {
   getPlatformAssistantId,
   setPlatformAssistantId,
   setPlatformBaseUrl,
@@ -17,6 +22,7 @@ import {
   setPlatformUserId,
 } from "../../config/env.js";
 import { getConfig, invalidateConfigCache } from "../../config/loader.js";
+import { maybeDefaultSpeechToManaged } from "../../config/managed-speech-defaults.js";
 import { getCesClient } from "../../credential-execution/ces-runtime.js";
 import type { CesClient } from "../../credential-execution/client.js";
 import { evictConversationsForReload } from "../../daemon/conversation-store.js";
@@ -25,6 +31,7 @@ import { clearEmbeddingBackendCache } from "../../persistence/embeddings/embeddi
 import { maybeReseedCapabilitiesAfterManagedCredential } from "../../plugins/defaults/memory/v2/memory-v2-startup.js";
 import { validateAnthropicApiKey } from "../../providers/anthropic/client.js";
 import { validateAtlasCloudApiKey } from "../../providers/atlascloud/client.js";
+import { validateBasetenApiKey } from "../../providers/baseten/client.js";
 import { validateGeminiApiKey } from "../../providers/gemini/client.js";
 import { validateMinimaxApiKey } from "../../providers/minimax/client.js";
 import { validateOpenAIApiKey } from "../../providers/openai/client.js";
@@ -215,6 +222,15 @@ async function handleAddSecret({ body }: RouteHandlerArgs) {
           );
           return { success: false, error: validation.reason };
         }
+      } else if (name === "baseten") {
+        const validation = await validateBasetenApiKey(value);
+        if (!validation.valid) {
+          log.warn(
+            { provider: name, reason: validation.reason },
+            "API key validation failed",
+          );
+          return { success: false, error: validation.reason };
+        }
       }
 
       const stored = await setSecureKeyAsync(
@@ -241,6 +257,20 @@ async function handleAddSecret({ body }: RouteHandlerArgs) {
       assertMetadataWritable();
       const service = name.slice(0, colonIdx);
       const field = name.slice(colonIdx + 1);
+
+      // Reject an Anthropic API key pasted into the ACP OAuth-token field (a 401
+      // footgun) as a 400 rather than letting it persist and fail at runtime.
+      if (service === ACP_SERVICE) {
+        try {
+          assertAcpCredentialFormat(field, value);
+        } catch (err) {
+          if (err instanceof AcpCredentialFormatError) {
+            throw new BadRequestError(err.message);
+          }
+          throw err;
+        }
+      }
+
       const key = credentialKey(service, field);
 
       const TRIMMED_IDENTITY_FIELDS = new Set([
@@ -319,6 +349,19 @@ async function handleAddSecret({ body }: RouteHandlerArgs) {
             }
           }
         }
+      }
+      if (
+        service === "vellum" &&
+        (field === "assistant_api_key" ||
+          field === "platform_assistant_id" ||
+          field === "platform_base_url")
+      ) {
+        // Managed-speech availability needs the API key, the assistant ID,
+        // and the base URL, and the CLI connect path stores all three
+        // concurrently — fire on each so the last write to land triggers the
+        // defaulting; the hook no-ops until the connection is complete.
+        // Detached — must not block the response.
+        void maybeDefaultSpeechToManaged();
       }
       log.info({ service, field }, "Credential added via HTTP");
       return { success: true, type, name };

@@ -143,6 +143,9 @@ describe("MessagesLexicalIndex", () => {
     expect(config.vectors).toBeUndefined();
     expect("vectors" in config).toBe(false);
 
+    // Explicit segment count — never Qdrant's CPU-count auto-detection.
+    expect(config.optimizers_config).toEqual({ default_segment_number: 2 });
+
     // Payload indexes on conversation_id (keyword) + created_at (integer).
     const fields = payloadIndexCalls.map((c) => c.field_name);
     expect(fields).toContain("conversation_id");

@@ -2,23 +2,23 @@
  * Bridge trusted-contact confirmation_request events to guardian.question notifications.
  *
  * When a trusted-contact channel session creates a confirmation_request (tool approval),
- * this helper emits a guardian.question notification signal and persists canonical
+ * this helper emits a guardian.question notification signal and persists guardian-request
  * delivery rows to guardian destinations (Telegram/Slack/Vellum), enabling the guardian
  * to approve via callback/request-code path.
  *
  * Modeled after the tool-grant-request-helper pattern. Designed to be called from
  * both the daemon event registrar (server.ts) and the HTTP hub publisher
  * (conversation-routes.ts) — the two paths that create confirmation_request
- * canonical records.
+ * guardian requests.
  */
 
-import type { CanonicalGuardianRequest } from "../contacts/canonical-guardian-store.js";
+import type { GuardianRequestWire } from "../channels/gateway-guardian-requests.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
+import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import {
   recordApprovalCardDelivery,
   recordGuardianRequestDeliveries,
-} from "../notifications/canonical-delivery-recorder.js";
-import { emitNotificationSignal } from "../notifications/emit-signal.js";
+} from "../notifications/guardian-delivery-recorder.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
 import { getLogger } from "../util/logger.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "./assistant-scope.js";
@@ -32,8 +32,8 @@ const log = getLogger("confirmation-request-guardian-bridge");
 // ---------------------------------------------------------------------------
 
 export interface BridgeConfirmationRequestParams {
-  /** The canonical guardian request already persisted for this confirmation_request. */
-  canonicalRequest: CanonicalGuardianRequest;
+  /** The guardian request already persisted for this confirmation_request. */
+  guardianRequest: GuardianRequestWire;
   /** Guardian runtime context from the session. */
   trustContext: TrustContext;
   /** Conversation ID where the confirmation_request was emitted. */
@@ -74,7 +74,7 @@ export async function bridgeConfirmationRequestToGuardian(
   params: BridgeConfirmationRequestParams,
 ): Promise<BridgeConfirmationRequestResult> {
   const {
-    canonicalRequest,
+    guardianRequest,
     trustContext,
     conversationId,
     toolName,
@@ -109,36 +109,39 @@ export async function bridgeConfirmationRequestToGuardian(
     return { skipped: true, reason: "no_guardian_binding" };
   }
 
-  // Validate that the binding's guardian identity matches the canonical request's
+  // Validate that the binding's guardian identity matches the request's
   // guardian identity. A mismatch can occur if a guardian rebind happens between
   // message ingress and confirmation emission — sending the notification to the
   // new binding would leak requester/tool metadata to the wrong recipient.
   //
-  // Both sides are canonicalized before comparison because the canonical request
-  // value was normalized by toTrustContext() (verdict and local resolution
+  // Both sides are canonicalized before comparison because the request's
+  // guardian id was normalized by toTrustContext() (verdict and local resolution
   // both route through it) while the binding stores the raw identity. On
   // phone channels the same guardian can have format variance
   // (e.g. "+1 555-123-4567" vs "+15551234567") that would cause a false mismatch.
-  const canonicalBindingId = canonicalizeInboundIdentity(
+  const canonicalizedBindingGuardianId = canonicalizeInboundIdentity(
     sourceChannel,
     binding.guardianExternalUserId,
   );
-  const canonicalRequestId = canonicalRequest.guardianExternalUserId
+  const canonicalizedRequestGuardianId = guardianRequest.guardianExternalUserId
     ? canonicalizeInboundIdentity(
         sourceChannel,
-        canonicalRequest.guardianExternalUserId,
+        guardianRequest.guardianExternalUserId,
       )
     : null;
-  if (canonicalRequestId && canonicalBindingId !== canonicalRequestId) {
+  if (
+    canonicalizedRequestGuardianId &&
+    canonicalizedBindingGuardianId !== canonicalizedRequestGuardianId
+  ) {
     log.warn(
       {
         sourceChannel,
         assistantId,
         bindingGuardianId: binding.guardianExternalUserId,
-        expectedGuardianId: canonicalRequest.guardianExternalUserId,
-        requestId: canonicalRequest.id,
+        expectedGuardianId: guardianRequest.guardianExternalUserId,
+        requestId: guardianRequest.id,
       },
-      "Guardian binding identity does not match canonical request guardian — skipping notification to prevent misrouting",
+      "Guardian binding identity does not match the request guardian — skipping notification to prevent misrouting",
     );
     return { skipped: true, reason: "binding_identity_mismatch" };
   }
@@ -148,13 +151,13 @@ export async function bridgeConfirmationRequestToGuardian(
     trustContext.requesterExternalUserId ||
     "unknown";
 
-  const questionText = canonicalRequest.activityText
-    ? `Approve tool: ${toolName} — ${canonicalRequest.activityText}`
+  const questionText = guardianRequest.activityText
+    ? `Approve tool: ${toolName} — ${guardianRequest.activityText}`
     : `Approve tool: ${toolName}`;
 
   // The vellum delivery row is created up front in onConversationCreated so the
   // in-app client sees it immediately; the post-resolve recorder reuses it.
-  let vellumDeliveryId: string | undefined;
+  let vellumDeliveryIdPromise: Promise<string | undefined> | undefined;
 
   // Emit guardian.question notification so the guardian is alerted.
   const signalPromise = emitNotificationSignal({
@@ -170,41 +173,44 @@ export async function bridgeConfirmationRequestToGuardian(
     },
     contextPayload: {
       requestKind: "tool_approval",
-      requestId: canonicalRequest.id,
+      requestId: guardianRequest.id,
       requestCode:
-        canonicalRequest.requestCode ??
-        canonicalRequest.id.slice(0, 6).toUpperCase(),
+        guardianRequest.requestCode ??
+        guardianRequest.id.slice(0, 6).toUpperCase(),
       sourceChannel,
       requesterExternalUserId: trustContext.requesterExternalUserId,
       requesterChatId: trustContext.requesterChatId ?? null,
       requesterIdentifier: senderLabel,
       toolName,
       questionText,
-      riskLevel: canonicalRequest.riskLevel ?? undefined,
-      commandPreview: canonicalRequest.commandPreview ?? undefined,
+      riskLevel: guardianRequest.riskLevel ?? undefined,
+      commandPreview: guardianRequest.commandPreview ?? undefined,
     },
-    dedupeKey: `tc-confirmation-request:${canonicalRequest.id}`,
+    dedupeKey: `tc-confirmation-request:${guardianRequest.id}`,
+    // The broadcaster awaits the returned promise, so the delivery row is
+    // durable before the client can act on the conversation.
     onConversationCreated: (info) => {
-      vellumDeliveryId = recordApprovalCardDelivery({
-        requestId: canonicalRequest.id,
+      vellumDeliveryIdPromise ??= recordApprovalCardDelivery({
+        requestId: guardianRequest.id,
         channel: "vellum",
         conversationId: info.conversationId,
-      })?.id;
+      }).then((delivery) => delivery?.id);
+      return vellumDeliveryIdPromise.then(() => undefined);
     },
   });
 
   // Record deliveries from the notification pipeline (fire-and-forget).
   void signalPromise
-    .then((signalResult) => {
-      recordGuardianRequestDeliveries({
-        requestId: canonicalRequest.id,
+    .then(async (signalResult) => {
+      await recordGuardianRequestDeliveries({
+        requestId: guardianRequest.id,
         deliveryResults: signalResult.deliveryResults,
-        vellumDeliveryId,
+        vellumDeliveryId: await vellumDeliveryIdPromise,
       });
     })
     .catch((err) => {
       log.warn(
-        { err, requestId: canonicalRequest.id },
+        { err, requestId: guardianRequest.id },
         "Failed to record channel deliveries for guardian bridge",
       );
     });
@@ -214,8 +220,8 @@ export async function bridgeConfirmationRequestToGuardian(
       sourceChannel,
       requesterExternalUserId: trustContext.requesterExternalUserId,
       toolName,
-      requestId: canonicalRequest.id,
-      requestCode: canonicalRequest.requestCode,
+      requestId: guardianRequest.id,
+      requestCode: guardianRequest.requestCode,
     },
     "Guardian notified of trusted-contact confirmation request",
   );
@@ -223,6 +229,6 @@ export async function bridgeConfirmationRequestToGuardian(
   // Return the signal ID synchronously from the promise-producing call.
   // The actual signal ID is not available until the promise resolves, but
   // callers only need to know it was bridged — the ID is for diagnostics.
-  // We use the canonical request ID as a stable correlation key.
-  return { bridged: true, signalId: canonicalRequest.id };
+  // We use the guardian request ID as a stable correlation key.
+  return { bridged: true, signalId: guardianRequest.id };
 }

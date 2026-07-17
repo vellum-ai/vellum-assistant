@@ -78,6 +78,7 @@ import {
   getDb,
   getLogsDb,
   getSqliteFrom,
+  getTelemetryDb,
 } from "./db-connection.js";
 import {
   copyForkMessagesViaSubprocess,
@@ -89,6 +90,7 @@ import {
   enqueueLexicalIndexForMessage,
   enqueuePurgeConversationLexical,
 } from "./job-handlers/message-lexical.js";
+import { buildLifecycleTelemetryEvent } from "./lifecycle-events-store.js";
 import { resolveMessageContentBlocks } from "./message-content-file.js";
 import {
   rawAll,
@@ -97,6 +99,7 @@ import {
   rawLogsRun,
   rawMemoryRun,
   rawRun,
+  rawTelemetryRun,
 } from "./raw-query.js";
 import {
   channelInboundEvents,
@@ -106,7 +109,7 @@ import {
   memorySegments,
   messageAttachments,
   messages,
-  skillLoadedEvents,
+  telemetryEvents,
   toolInvocations,
 } from "./schema/index.js";
 import { timeSyncSection } from "./slow-sync-log.js";
@@ -122,6 +125,20 @@ function logsDb(): DrizzleDb {
   const db = getLogsDb();
   if (!db) {
     throw new Error("logs database unavailable");
+  }
+  return db;
+}
+
+/**
+ * The telemetry connection (`assistant-telemetry.db`), where the
+ * `telemetry_events` outbox lives. Throws if the file cannot be opened — the
+ * conversation-delete call sites must not report success while unshipped
+ * events referencing the deleted conversation survive to be flushed.
+ */
+function telemetryDb(): DrizzleDb {
+  const db = getTelemetryDb();
+  if (!db) {
+    throw new Error("telemetry database unavailable");
   }
   return db;
 }
@@ -220,6 +237,14 @@ export const messageMetadataSchema = z
      */
     hidden: z.boolean().optional(),
     /**
+     * Discriminates daemon-authored rows from ordinary turns.
+     * `"system_card"` marks pre-composed status cards (the /compact, /clean,
+     * and summarize-up-to results); see {@link SYSTEM_CARD_MESSAGE_KIND}.
+     * Kept as a plain string so unknown future kinds never fail metadata
+     * validation.
+     */
+    messageKind: z.string().optional(),
+    /**
      * Structured terminal record stamped onto a `<background_event
      * source="background-tool">` wake so the web can rebuild the inline
      * bash/host_bash card from history after a daemon restart.
@@ -272,6 +297,48 @@ export function isHiddenMessageMetadata(
   metadata: Record<string, unknown> | null | undefined,
 ): boolean {
   return metadata?.hidden === true;
+}
+
+/**
+ * `messageKind` value marking a daemon-authored system card — a pre-composed
+ * status reply (the /compact, /clean, and summarize-up-to result cards) that
+ * bypasses the agent loop. Cards render as standalone system notices, never
+ * as the assistant persona speaking, and never merge into adjacent assistant
+ * display turns.
+ */
+export const SYSTEM_CARD_MESSAGE_KIND = "system_card";
+
+/**
+ * Shared predicate for the system-card marker on assistant-message metadata
+ * (see the `messageKind` field on {@link messageMetadataSchema}). One
+ * definition so display merging, transcript rendering, and turn grouping
+ * cannot drift.
+ */
+export function isSystemCardMetadata(
+  metadata: Record<string, unknown> | null | undefined,
+): boolean {
+  return metadata?.messageKind === SYSTEM_CARD_MESSAGE_KIND;
+}
+
+/**
+ * Row-level variant of {@link isSystemCardMetadata} for callers holding the
+ * raw persisted `metadata` JSON string. The single place the parse lives so
+ * display merging and turn grouping agree on what a card is.
+ */
+export function isSystemCardMessage(
+  role: string,
+  metadata: string | null,
+): boolean {
+  if (role !== "assistant" || !metadata) {
+    return false;
+  }
+  try {
+    return isSystemCardMetadata(
+      JSON.parse(metadata) as Record<string, unknown>,
+    );
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -812,7 +879,7 @@ export function createConversation(
  * web client's `crypto.randomUUID()` / `draft-<ts>-<hex>` drafts while
  * rejecting anything with path separators, `..`, or other traversal vectors.
  */
-const ADOPTABLE_CONVERSATION_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
+export const ADOPTABLE_CONVERSATION_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
 
 /**
  * Ensure a `conversations` row exists for `id`, creating one with default
@@ -1639,11 +1706,19 @@ export function deleteConversation(id: string): DeletedMemoryIds {
   const convBeforeDelete = getConversation(id);
   const createdAtForDiskCleanup = convBeforeDelete?.createdAt;
 
-  // llm_request_logs lives in the dedicated logs connection, so it is deleted
-  // there — separately from the main-DB transaction below.
+  // llm_request_logs and pending telemetry_events rows live in the dedicated
+  // logs and telemetry connections, so they are deleted there — separately
+  // from (and before) the main-DB transaction below, so a failure leaves the
+  // conversation intact for a retried delete. Telemetry redaction keys on
+  // conversation_id regardless of event name, so every conversation-scoped
+  // pending event is covered.
   logsDb()
     .delete(llmRequestLogs)
     .where(eq(llmRequestLogs.conversationId, id))
+    .run();
+  telemetryDb()
+    .delete(telemetryEvents)
+    .where(eq(telemetryEvents.conversationId, id))
     .run();
 
   db.transaction((tx) => {
@@ -1668,9 +1743,6 @@ export function deleteConversation(id: string): DeletedMemoryIds {
       tx.delete(toolInvocations)
         .where(eq(toolInvocations.conversationId, id))
         .run();
-      tx.delete(skillLoadedEvents)
-        .where(eq(skillLoadedEvents.conversationId, id))
-        .run();
       // Cascade deletes memory_segments, message_attachments.
       tx.delete(messages).where(eq(messages.conversationId, id)).run();
 
@@ -1689,9 +1761,6 @@ export function deleteConversation(id: string): DeletedMemoryIds {
       // No messages — just clean up non-message tables.
       tx.delete(toolInvocations)
         .where(eq(toolInvocations.conversationId, id))
-        .run();
-      tx.delete(skillLoadedEvents)
-        .where(eq(skillLoadedEvents.conversationId, id))
         .run();
     }
 
@@ -1768,6 +1837,16 @@ export async function deleteConversationGently(
     .all()
     .map((r) => r.id);
 
+  // Pending telemetry_events rows live in the dedicated telemetry connection;
+  // delete them there (by conversation_id, regardless of event name) before
+  // ANY destructive work so a telemetry failure leaves the conversation fully
+  // intact for a retried delete — a throw after the bulk drains below would
+  // strand unredacted rows that could still flush.
+  telemetryDb()
+    .delete(telemetryEvents)
+    .where(eq(telemetryEvents.conversationId, id))
+    .run();
+
   // llm_request_logs lives in the dedicated logs connection, and each row is
   // bulky, so drain it off the event loop in batches against the logs DB file.
   const logsDel = await deleteConversationRowsInBatches({
@@ -1799,9 +1878,6 @@ export async function deleteConversationGently(
   db.transaction((tx) => {
     tx.delete(toolInvocations)
       .where(eq(toolInvocations.conversationId, id))
-      .run();
-    tx.delete(skillLoadedEvents)
-      .where(eq(skillLoadedEvents.conversationId, id))
       .run();
 
     // Clean up segment embeddings (not FK-linked to segments, so the message
@@ -2954,6 +3030,17 @@ export async function clearAll(): Promise<{
     }
   };
 
+  // Pending skill_loaded rows live in the telemetry_events outbox on the
+  // dedicated telemetry connection. Redact them FIRST, before any destructive
+  // delete: unshipped skill events reference conversations this wipe must
+  // redact, so a telemetry failure must abort the clear-all while the
+  // workspace is still fully intact — never after memory state is already
+  // gone.
+  rawTelemetryRun(
+    "conversation:clearAll:skillLoadedEvents",
+    "DELETE FROM telemetry_events WHERE name = 'skill_loaded'",
+  );
+
   // Delete in dependency order. Cascades handle memory_segments and
   // tool_invocations, but we explicitly clear non-cascading memory
   // tables too.
@@ -2961,8 +3048,8 @@ export async function clearAll(): Promise<{
   await runOrThrow("DELETE FROM memory_summaries");
   await runOrThrow("DELETE FROM memory_embeddings");
   // memory_jobs and llm_request_logs each live in their own dedicated
-  // connection; clear them directly on those connections rather than through a
-  // sqlite3 subprocess.
+  // connection; clear them directly on those connections rather than through
+  // a sqlite3 subprocess.
   rawMemoryRun("conversation:clearAll:memoryJobs", "DELETE FROM memory_jobs");
   await runOrThrow("DELETE FROM memory_checkpoints");
   rawLogsRun(
@@ -2973,19 +3060,32 @@ export async function clearAll(): Promise<{
   await runOrThrow("DELETE FROM message_attachments");
   await runOrThrow("DELETE FROM attachments");
   await runOrThrow("DELETE FROM tool_invocations");
-  await runOrThrow("DELETE FROM skill_loaded_events");
   await runOrThrow("DELETE FROM messages");
   await runOrThrow("DELETE FROM conversations");
 
-  // Record audit event — lifecycle_events is NOT deleted by clearAll(),
-  // so this survives the wipe and provides a permanent trail.
-  rawRun(
-    "conversation:clearAll:auditEvent",
-    `INSERT INTO lifecycle_events (id, event_name, created_at) VALUES (?, ?, ?)`,
-    uuid(),
-    "conversations_clear_all",
-    Date.now(),
-  );
+  // Record audit event into the telemetry_events outbox (consent-bypassing);
+  // the trail persists platform-side once flushed. Best-effort: the
+  // destructive deletes above already completed, so telemetry degradation
+  // must not turn a finished wipe into a failure or skip the cleanup below.
+  try {
+    const auditEventId = uuid();
+    const auditEventAt = Date.now();
+    rawTelemetryRun(
+      "conversation:clearAll:auditEvent",
+      `INSERT INTO telemetry_events (id, name, created_at, conversation_id, payload) VALUES (?, 'lifecycle', ?, NULL, ?)`,
+      auditEventId,
+      auditEventAt,
+      JSON.stringify(
+        buildLifecycleTelemetryEvent(
+          auditEventId,
+          "conversations_clear_all",
+          auditEventAt,
+        ),
+      ),
+    );
+  } catch (err) {
+    log.warn({ err }, "clearAll: failed to record audit event");
+  }
 
   // Drop the whole lexical (Qdrant) collection — a "delete all" leaves no ids
   // to key per-message cleanup on. AWAITED so the drop completes before
@@ -3780,6 +3880,12 @@ export function getAssistantMessageIdsInTurn(messageId: string): string[] {
     return [messageId];
   }
 
+  // A system card is its own single-row group — its linked calls (e.g. the
+  // summarize-up-to compaction call) never mix into a neighbouring turn.
+  if (isSystemCardMessage(target.role, target.metadata)) {
+    return [target.id];
+  }
+
   // Walk backward from the target message to find the turn boundary.
   // Limit to 50 rows — sufficient for even aggressive tool-use loops.
   const backwardRows = db
@@ -3788,6 +3894,7 @@ export function getAssistantMessageIdsInTurn(messageId: string): string[] {
       role: messages.role,
       content: messages.content,
       createdAt: messages.createdAt,
+      metadata: messages.metadata,
     })
     .from(messages)
     .where(
@@ -3805,6 +3912,12 @@ export function getAssistantMessageIdsInTurn(messageId: string): string[] {
 
   for (const row of backwardRows) {
     if (row.role === "assistant") {
+      if (isSystemCardMessage(row.role, row.metadata)) {
+        // A system card closes the groups on either side of it — rows
+        // before the card belong to an earlier display group.
+        boundaryCreatedAt = row.createdAt;
+        break;
+      }
       assistantIds.push(row.id);
     } else if (row.role === "user") {
       if (isToolResultMessage(row.role, row.content)) {
@@ -3826,6 +3939,7 @@ export function getAssistantMessageIdsInTurn(messageId: string): string[] {
       role: messages.role,
       content: messages.content,
       createdAt: messages.createdAt,
+      metadata: messages.metadata,
     })
     .from(messages)
     .where(
@@ -3840,6 +3954,15 @@ export function getAssistantMessageIdsInTurn(messageId: string): string[] {
 
   for (const row of forwardRows) {
     if (row.role === "assistant") {
+      if (isSystemCardMessage(row.role, row.metadata)) {
+        // A card that is the queried user message's only reply (e.g. the
+        // /compact result) IS the turn's response; otherwise the card
+        // closes the group.
+        if (assistantIds.length === 0) {
+          assistantIds.push(row.id);
+        }
+        break;
+      }
       if (!assistantIds.includes(row.id)) {
         assistantIds.push(row.id);
       }
@@ -3862,6 +3985,7 @@ export function getAssistantMessageIdsInTurn(messageId: string): string[] {
         id: messages.id,
         role: messages.role,
         createdAt: messages.createdAt,
+        metadata: messages.metadata,
       })
       .from(messages)
       .where(
@@ -3875,7 +3999,11 @@ export function getAssistantMessageIdsInTurn(messageId: string): string[] {
       .all();
 
     for (const row of gapRows) {
-      if (row.role === "assistant" && !assistantIds.includes(row.id)) {
+      if (
+        row.role === "assistant" &&
+        !isSystemCardMessage(row.role, row.metadata) &&
+        !assistantIds.includes(row.id)
+      ) {
         assistantIds.push(row.id);
       }
     }

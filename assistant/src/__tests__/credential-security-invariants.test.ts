@@ -149,6 +149,8 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
     // Any new import must be reviewed for secret-leak risk and added here.
     const ALLOWED_IMPORTERS = new Set([
       "credential-execution/prompted-credential.ts", // shared prompt-action persistence (stores secret via setSecureKeyAsync)
+      "daemon/chat-credential-redaction.ts", // chat sentinel enrichment — scoped read ONLY of credentials a `credentials reveal` command in the same turn already printed to stdout; value byte-compared at persist and discarded, never persisted or logged
+
       "tools/credentials/broker.ts", // brokered credential access
       "tools/network/web-search.ts", // web search API key lookup
       "tools/network/web-fetch.ts", // web fetch provider (Firecrawl) API key lookup
@@ -183,6 +185,8 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "oauth/credential-token-resolver.ts", // centralized access-token key resolution for OAuth and manual-token providers
       "oauth/connection-resolver.ts", // resolve OAuthConnection from oauth-store (access_token lookup)
       "runtime/routes/secret-routes.ts", // HTTP secret management routes (set/delete secrets)
+      "acp/acp-claude-oauth.ts", // Connect Claude OAuth token vault-store helper (stores sk-ant-oat token via setSecureKeyAsync)
+      "runtime/routes/acp-claude-auth-routes.ts", // Connect Claude Code daemon OAuth flow (stores OAuth token in vault)
       "runtime/routes/migration-routes.ts", // migration import credential restore
       "daemon/conversation-messaging.ts", // credential storage during session messaging
       "runtime/routes/settings-routes.ts", // settings routes OAuth credential lookup (client_secret)
@@ -203,7 +207,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "persistence/llm-request-log-source-clickhouse.ts", // ClickHouse read source — lazy lookup of clickhouse:url + clickhouse:password + vellum:platform_assistant_id for self-scoped mirror reads
       "persistence/llm-request-log-sink-clickhouse.ts", // ClickHouse write sink — lazy lookup of clickhouse:url + clickhouse:password + vellum:platform_assistant_id for self-scoped log writes
       "persistence/compaction-log-store-clickhouse.ts", // ClickHouse compaction log writer — lazy lookup of clickhouse:url + clickhouse:password + vellum:platform_assistant_id for self-scoped event writes
-      "daemon/providers-setup.ts", // provider initialization API key lookup
+      "config/platform-rehydration.ts", // startup rehydration of platform base URL + IDs from credential store (daemon and schedule worker)
       "workspace/migrations/006-services-config.ts", // services config migration reads provider API keys
       "workspace/migrations/018-rekey-compound-credential-keys.ts", // re-key compound credential storage keys
       "daemon/conversation-process.ts", // masked provider key display
@@ -229,6 +233,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "tools/network/web-fetch.ts", // Firecrawl /scrape BYOK fetch provider API key lookup (firecrawl provider key)
       "workspace/default-provider-ensure.ts", // legacy anthropic echo disambiguation (vault key presence check)
       "providers/inference/connection-availability.ts", // shared (provider, connection) availability status (credential presence check only; value never leaves the helper)
+      "plugin-api/resolve-credential.ts", // plugin-facing resolveCredential — reveal-equivalent plaintext read, scoped to the in-context plugin's own field
     ]);
 
     const thisDir = dirname(fileURLToPath(import.meta.url));

@@ -41,6 +41,10 @@ import {
   MANAGED_ROUTABLE_PROVIDERS,
   VELLUM_CONNECTION_PROVIDER,
 } from "@/domains/settings/ai/constants";
+import {
+  getManagedUpstreamForModel,
+  parseVellumRoutedModel,
+} from "@/assistant/llm-model-catalog";
 import { providersServedByConnections } from "@/domains/settings/ai/provider-availability";
 import type {
   ConnectionProvider,
@@ -67,6 +71,8 @@ function connectionServesProvider(
   selectedProvider: string,
 ): boolean {
   if (connectionProvider === selectedProvider) return true;
+  // Legacy wire shape: a managed profile stores its real upstream (e.g.
+  // "fireworks") while binding to the provider-agnostic vellum connection.
   return (
     connectionProvider === VELLUM_CONNECTION_PROVIDER &&
     MANAGED_ROUTABLE_PROVIDERS.has(selectedProvider)
@@ -215,8 +221,15 @@ function ProfileEditorModalInner({
     initialValues?.description ?? "",
   );
   const [key, setKey] = useState(mode === "create" ? "" : (profileName ?? ""));
+  // "vellum" is a picker-level value: profiles bound to the Vellum-managed
+  // connection present (and edit) as provider "Vellum"; the wire-shape
+  // upstream is derived from the model at save time. The form opens on the
+  // stored upstream and only promotes to Vellum once the loaded connections
+  // prove the bound row is the managed sentinel (see the effect below) — a
+  // user-owned row merely named "vellum" must never enter Vellum mode, even
+  // in the pre-load window.
   const [provider, setProvider] = useState<
-    NonNullable<ProfileEntry["provider"]> | ""
+    NonNullable<ProfileEntry["provider"]> | "vellum" | ""
   >(initialValues?.provider ?? "");
   const [model, setModel] = useState(initialValues?.model ?? "");
   // Per-profile provider-connection binding. Empty string means no explicit
@@ -302,12 +315,25 @@ function ProfileEditorModalInner({
   );
 
   // Derived: selected model from catalog
+  // A saved Vellum model may be a routed `<provider>/<model>` string; parse
+  // it once — the native id feeds every catalog lookup (visibility, token
+  // ranges) and the save path, the prefix feeds upstream derivation.
+  const routedModel = useMemo(
+    () =>
+      provider === VELLUM_CONNECTION_PROVIDER
+        ? parseVellumRoutedModel(model)
+        : null,
+    [provider, model],
+  );
+  const nativeModel = routedModel?.model ?? model;
+
   const selectedModel = useMemo(
     () =>
       provider
-        ? (getModelsForProvider(provider).find((m) => m.id === model) ?? null)
+        ? (getModelsForProvider(provider).find((m) => m.id === nativeModel) ??
+          null)
         : null,
-    [provider, model],
+    [provider, nativeModel],
   );
 
   // The advanced-param defaults a profile inherits when it omits an override
@@ -325,8 +351,17 @@ function ProfileEditorModalInner({
 
   // Derived: which advanced param fields to show
   const visibility = useMemo(
-    () => resolveProfileParamVisibility(provider, model),
-    [provider, model],
+    () =>
+      resolveProfileParamVisibility(
+        provider === VELLUM_CONNECTION_PROVIDER
+          ? (routedModel?.provider ??
+              getManagedUpstreamForModel(model) ??
+              initialValues?.provider ??
+              "")
+          : provider,
+        nativeModel,
+      ),
+    [provider, model, nativeModel, routedModel, initialValues?.provider],
   );
 
   // Parent-supplied connections unioned with any created inline this session
@@ -375,6 +410,24 @@ function ProfileEditorModalInner({
   // One-time helper note shown after an inline provider create succeeds.
   const [newProviderNote, setNewProviderNote] = useState(false);
 
+  // Promote a vellum-bound profile into Vellum picker mode once the loaded
+  // connections prove the bound row is the managed sentinel (the daemon's
+  // seeder preserves a user-owned row that merely claims the name, and such
+  // profiles must keep their real provider). Skipped once the user changes
+  // the provider themselves.
+  useEffect(() => {
+    if (initialValues?.provider_connection !== VELLUM_CONNECTION_PROVIDER) {
+      return;
+    }
+    if (provider !== (initialValues?.provider ?? "")) return;
+    const boundRow = connections?.find(
+      (c) => c.name === initialValues.provider_connection,
+    );
+    if (boundRow?.provider === VELLUM_CONNECTION_PROVIDER) {
+      setProvider(VELLUM_CONNECTION_PROVIDER);
+    }
+  }, [connections, provider, initialValues]);
+
   // Reset dirty tracking when modal re-opens with new values.
   useEffect(() => {
     resetDirty();
@@ -386,9 +439,6 @@ function ProfileEditorModalInner({
 
   function handleProviderChange(newProvider: ConnectionProvider) {
     if (newProvider === provider) return;
-    // vellum is a connection type, not a selectable profile LLM provider — it's
-    // filtered out of the picker; this narrows ConnectionProvider to LlmProvider.
-    if (newProvider === "vellum") return;
     setProvider(newProvider);
     setModel("");
     // Auto-select connection: if exactly one connection exists for the new
@@ -565,20 +615,37 @@ function ProfileEditorModalInner({
           ? availableConnectionsForProvider[0].name
           : providerConnection;
       const effectiveBinding = connectionNotFound ? "" : resolvedBinding;
+      // The Vellum picker entry writes the legacy wire shape: the model's
+      // managed upstream as `provider`, bound to the vellum connection. Old
+      // daemons accept this today; the payload flips to provider "vellum"
+      // in a later milestone with no UI change.
+      // Derivation can miss for a bound model this build doesn't list (a
+      // newer managed model); the editor preserves such models, so preserve
+      // the stored upstream too instead of clearing it.
+      // A routed `<provider>/<model>` string names its upstream directly and
+      // must be stripped to the upstream's native id in the legacy wire shape.
+      const wireProvider =
+        provider === VELLUM_CONNECTION_PROVIDER
+          ? (routedModel?.provider ??
+            getManagedUpstreamForModel(model) ??
+            initialValues?.provider ??
+            "")
+          : provider;
+      const wireModel = nativeModel;
       if (effectiveMode === "edit") {
         // In edit mode send null for cleared fields so the server deep-merges
         // them as cleared rather than silently preserving the old value.
         entry.label = label.trim() || null;
         entry.description = description.trim() || null;
-        entry.provider = provider || null;
-        entry.model = model || null;
+        entry.provider = wireProvider || null;
+        entry.model = wireModel || null;
         entry.provider_connection = effectiveBinding || null;
       } else {
         // In create mode omit optional fields that are still empty.
         if (label.trim()) entry.label = label.trim();
         if (description.trim()) entry.description = description.trim();
-        if (provider) entry.provider = provider;
-        if (model) entry.model = model;
+        if (wireProvider) entry.provider = wireProvider;
+        if (wireModel) entry.model = wireModel;
         if (effectiveBinding) entry.provider_connection = effectiveBinding;
       }
       // Advanced params

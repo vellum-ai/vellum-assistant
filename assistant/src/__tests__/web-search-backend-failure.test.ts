@@ -35,27 +35,6 @@ import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.
 // `mock.module()` is file-scoped, so the shared harness cannot install these.
 // ---------------------------------------------------------------------------
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    skills: {
-      entries: {},
-      load: { extraDirs: [], watch: false, watchDebounceMs: 0 },
-      install: { nodeManager: "npm" },
-      allowBundled: null,
-      remoteProviders: {
-        skillssh: { enabled: true },
-        clawhub: { enabled: true },
-      },
-      remotePolicy: {
-        blockSuspicious: true,
-        blockMalware: true,
-        maxSkillsShRisk: "medium",
-      },
-    },
-  }),
-  loadConfig: () => ({}),
-}));
-
 mock.module("../persistence/conversation-crud.js", () => ({
   setConversationProcessingStartedAt: () => {},
   isConversationProcessing: () => false,

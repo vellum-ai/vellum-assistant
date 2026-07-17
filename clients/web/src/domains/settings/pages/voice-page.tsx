@@ -1,42 +1,57 @@
-import { ArrowUpRight, Info } from "lucide-react";
+import { Info } from "lucide-react";
 import {
-    useCallback,
-    useEffect,
-    useMemo,
-    useRef,
-    useState,
-    type KeyboardEvent as ReactKeyboardEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
-import { Link } from "react-router";
+import { useSearchParams } from "react-router";
 
 import { Button } from "@vellumai/design-library/components/button";
 import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { Tabs } from "@vellumai/design-library/components/tabs";
+import { SegmentControl } from "@vellumai/design-library/components/segment-control";
+import { Slider } from "@vellumai/design-library/components/slider";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 
+import { SoundsSections } from "@/domains/settings/pages/sounds-sections";
+import { TextToSpeechCard } from "@/domains/settings/ai/text-to-speech-card";
+import { SpeechToTextCard } from "@/domains/settings/ai/speech-to-text-card";
+import { ManagedServicesBanner } from "@/domains/settings/ai/shared-ui";
+
 import { DetailCard } from "@/components/detail-card";
+import {
+  DEFAULT_INTERRUPT_SENSITIVITY,
+  DEFAULT_PAUSE_BEFORE_REPLY_MS,
+  MAX_PAUSE_BEFORE_REPLY_MS,
+  MIN_PAUSE_BEFORE_REPLY_MS,
+  useVoicePrefsStore,
+  type InterruptSensitivity,
+} from "@/stores/voice-prefs-store";
 import { VoiceTranscriptToggles } from "@/components/voice-transcript-toggles";
 import {
-    getLocalSetting,
-    removeLocalSetting,
-    setLocalSetting,
+  getLocalSetting,
+  removeLocalSetting,
+  setLocalSetting,
 } from "@/utils/local-settings";
 import {
-    CTRL_PTT_ACTIVATOR,
-    FN_PTT_ACTIVATOR,
-    LS_PTT_ACTIVATION_KEY,
-    activatorDisplayName,
-    activatorsEqual,
-    modifierLabel,
-    parseActivator,
-    serializeActivator,
-    sortModifiers,
-    type PTTActivator,
-    type PTTModifier,
+  CTRL_PTT_ACTIVATOR,
+  FN_PTT_ACTIVATOR,
+  LS_PTT_ACTIVATION_KEY,
+  activatorDisplayName,
+  activatorsEqual,
+  modifierLabel,
+  parseActivator,
+  serializeActivator,
+  sortModifiers,
+  type PTTActivator,
+  type PTTModifier,
 } from "@/utils/ptt-activator";
-import { routes } from "@/utils/routes";
 import {
-    LS_VOICE_INPUT_DEVICE,
-    getPreferredInputDeviceId,
+  LS_VOICE_INPUT_DEVICE,
+  getPreferredInputDeviceId,
 } from "@/utils/voice-input-device";
 import { canConfigureFnPushToTalk } from "@/runtime/hotkey";
 import { VOICE_TRANSCRIPT_RECOMMENDATION } from "@/utils/voice-transcript-prefs";
@@ -76,16 +91,70 @@ type ConversationTimeoutValue =
 
 const DEFAULT_CONVERSATION_TIMEOUT: ConversationTimeoutValue = "30";
 
-const labelClasses =
-  "text-body-small-default text-[var(--content-tertiary)]";
+const labelClasses = "text-body-small-default text-[var(--content-tertiary)]";
+
+const VOICE_TABS = ["voice", "services", "sounds"] as const;
+type VoiceTab = (typeof VOICE_TABS)[number];
+
+function isVoiceTab(value: string | null): value is VoiceTab {
+  return VOICE_TABS.includes(value as VoiceTab);
+}
 
 export function VoicePage() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tabParam = searchParams.get("tab");
+  const activeTab: VoiceTab = isVoiceTab(tabParam) ? tabParam : "voice";
+
+  const handleTabChange = (value: string) => {
+    const next = new URLSearchParams(searchParams);
+    if (value === "voice") {
+      next.delete("tab");
+    } else {
+      next.set("tab", value);
+    }
+    setSearchParams(next, { replace: true });
+  };
+
+  return (
+    <div className="space-y-6">
+      <Tabs.Root value={activeTab} onValueChange={handleTabChange}>
+        <Tabs.List>
+          <Tabs.Trigger value="voice">Voice</Tabs.Trigger>
+          <Tabs.Trigger value="services">Services</Tabs.Trigger>
+          <Tabs.Trigger value="sounds">Sounds</Tabs.Trigger>
+        </Tabs.List>
+        <Tabs.Panel value="voice" className="pt-4">
+          <VoiceSections />
+        </Tabs.Panel>
+        <Tabs.Panel value="services" className="pt-4">
+          <ServicesSections />
+        </Tabs.Panel>
+        <Tabs.Panel value="sounds" className="pt-4">
+          <SoundsSections />
+        </Tabs.Panel>
+      </Tabs.Root>
+    </div>
+  );
+}
+
+function ServicesSections() {
+  return (
+    <div className="flex flex-col gap-5">
+      <ManagedServicesBanner />
+      <TextToSpeechCard />
+      <SpeechToTextCard />
+    </div>
+  );
+}
+
+export function VoiceSections() {
   return (
     <div className="flex flex-col gap-6">
-      <SpeechServicesBanner />
       <MicrophoneCard />
       <PushToTalkCard />
       <ConversationTimeoutCard />
+      <PauseBeforeReplyCard />
+      <InterruptSensitivityCard />
       <TranscriptionCard />
     </div>
   );
@@ -104,24 +173,6 @@ function TranscriptionCard() {
         </p>
       </div>
     </DetailCard>
-  );
-}
-
-function SpeechServicesBanner() {
-  return (
-    <div className="flex items-center gap-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--field-bg)] px-3 py-2">
-      <Info className="h-3.5 w-3.5 shrink-0 text-[var(--primary-base)]" />
-      <span className="text-body-medium-lighter text-[var(--content-tertiary)]">
-        Looking to configure Speech-to-Text or Text-to-Speech models?
-      </span>
-      <Link
-        to={routes.settings.ai}
-        className="inline-flex items-center gap-1 text-body-medium-lighter text-[var(--system-positive-strong)] underline hover:opacity-80"
-      >
-        Go to Models &amp; Services
-        <ArrowUpRight className="h-3 w-3" />
-      </Link>
-    </div>
   );
 }
 
@@ -458,9 +509,10 @@ function PushToTalkCard() {
               <div className="flex items-start gap-1 pt-1 text-body-small-default text-[var(--content-quiet)]">
                 <Info className="mt-0.5 h-3 w-3 shrink-0" />
                 <span>
-                  Push-to-Talk only works while this tab is focused, and browsers
-                  may intercept some shortcuts (e.g. Ctrl+T) before the page can
-                  see them. For always-on PTT, use the Vellum desktop app.
+                  Push-to-Talk only works while this tab is focused, and
+                  browsers may intercept some shortcuts (e.g. Ctrl+T) before the
+                  page can see them. For always-on PTT, use the Vellum desktop
+                  app.
                 </span>
               </div>
             )}
@@ -534,6 +586,69 @@ function ConversationTimeoutCard() {
           value={timeout}
           onChange={handleChange}
           aria-label="Conversation timeout"
+        />
+      </div>
+    </DetailCard>
+  );
+}
+
+const INTERRUPT_SENSITIVITY_ITEMS: {
+  value: InterruptSensitivity;
+  label: string;
+}[] = [
+  { value: "low", label: "Low" },
+  { value: "medium", label: "Medium" },
+  { value: "high", label: "High" },
+];
+
+function PauseBeforeReplyCard() {
+  const pauseMs = useVoicePrefsStore.use.pauseBeforeReplyMs();
+  const setPauseMs = useVoicePrefsStore.use.setPauseBeforeReplyMs();
+
+  return (
+    <DetailCard
+      title="Pause before reply"
+      subtitle="How long the assistant waits after you stop speaking before it replies. A longer pause lets you gather your thoughts mid-sentence without being cut off."
+    >
+      <div className="max-w-xs">
+        <Slider
+          // Unset (null) shows the default as the resting value; moving the
+          // slider records an explicit preference (which is then sent).
+          value={(pauseMs ?? DEFAULT_PAUSE_BEFORE_REPLY_MS) / 1000}
+          onValueChange={(next) => {
+            if (typeof next === "number") setPauseMs(Math.round(next * 1000));
+          }}
+          min={MIN_PAUSE_BEFORE_REPLY_MS / 1000}
+          max={MAX_PAUSE_BEFORE_REPLY_MS / 1000}
+          step={0.1}
+          showValue
+          formatValue={(value) =>
+            `${(typeof value === "number" ? value : value[0]).toFixed(1)}s`
+          }
+          aria-label="Pause before reply"
+        />
+      </div>
+    </DetailCard>
+  );
+}
+
+function InterruptSensitivityCard() {
+  const sensitivity = useVoicePrefsStore.use.interruptSensitivity();
+  const setSensitivity = useVoicePrefsStore.use.setInterruptSensitivity();
+
+  return (
+    <DetailCard
+      title="Interrupt sensitivity"
+      subtitle="How easily talking over the assistant interrupts it. Lower it if the assistant cuts itself off on background noise or filler words; raise it to interrupt more quickly."
+    >
+      <div className="max-w-xs">
+        <SegmentControl<InterruptSensitivity>
+          items={INTERRUPT_SENSITIVITY_ITEMS}
+          // Unset (null) shows the default; picking a level records an explicit
+          // preference (which is then sent).
+          value={sensitivity ?? DEFAULT_INTERRUPT_SENSITIVITY}
+          onChange={setSensitivity}
+          ariaLabel="Interrupt sensitivity"
         />
       </div>
     </DetailCard>

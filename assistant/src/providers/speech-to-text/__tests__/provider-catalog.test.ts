@@ -185,3 +185,16 @@ describe("STT provider catalog", () => {
     expect(supportsDiarization("nonexistent" as never)).toBe(false);
   });
 });
+
+describe("connection-based providers", () => {
+  test("vellum is excluded from the API-key credential provider list", () => {
+    expect(listCredentialProviderNames()).not.toContain("vellum");
+  });
+
+  test("API-key providers remain listed", () => {
+    const names = listCredentialProviderNames();
+    for (const expected of ["deepgram", "gemini", "openai", "xai"]) {
+      expect(names).toContain(expected);
+    }
+  });
+});

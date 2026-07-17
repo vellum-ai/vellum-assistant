@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { setConfig } from "../../__tests__/helpers/set-config.js";
 import type { ToolContext } from "../types.js";
 
 // ---------------------------------------------------------------------------
@@ -16,14 +17,9 @@ mock.module("../../util/logger.js", () => ({
     }),
 }));
 
-const realLoader = await import("../../config/loader.js");
-mock.module("../../config/loader.js", () => ({
-  ...realLoader,
-  getConfig: () =>
-    ({
-      timeouts: { shellDefaultTimeoutSec: 30, shellMaxTimeoutSec: 60 },
-    }) as unknown as ReturnType<typeof realLoader.getConfig>,
-}));
+// The shell tool reads only `timeouts.shell{Default,Max}TimeoutSec`; seed the
+// non-default bounds the tests exercise.
+setConfig("timeouts", { shellDefaultTimeoutSec: 30, shellMaxTimeoutSec: 60 });
 
 // Capture lifecycle events broadcast by the tool.
 type CapturedEvent = { type: string } & Record<string, unknown>;

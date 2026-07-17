@@ -26,20 +26,6 @@ mock.module("../providers/speech-to-text/resolve.js", () => ({
   resolveStreamingTranscriber: jest.fn(),
 }));
 
-// Mock the config loader so the session's telephony-streaming flag read
-// never touches the real filesystem config.
-const configState = { telephonyStreaming: true, utteranceEndMs: 1000 };
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    calls: {
-      voice: {
-        telephonyStreaming: configState.telephonyStreaming,
-        utteranceEndMs: configState.utteranceEndMs,
-      },
-    },
-  }),
-}));
-
 // Now import the mocked modules and the module under test.
 import { MediaStreamSttSession } from "../calls/media-stream-stt-session.js";
 import {
@@ -47,6 +33,18 @@ import {
   resolveStreamingTranscriber,
   resolveTelephonySttCapability,
 } from "../providers/speech-to-text/resolve.js";
+import { setConfig } from "./helpers/set-config.js";
+
+/**
+ * Seed the session's `calls.voice` settings in the real workspace config.
+ * `utteranceEndMs` defaults to the schema default (1000).
+ */
+function seedCallsVoice(
+  telephonyStreaming: boolean,
+  utteranceEndMs = 1000,
+): void {
+  setConfig("calls", { voice: { telephonyStreaming, utteranceEndMs } });
+}
 
 // ---------------------------------------------------------------------------
 // Fixture factories
@@ -96,6 +94,15 @@ function makeDtmfMessage(digit = "5"): string {
     sequenceNumber: "3",
     streamSid: "MZ00000000000000000000000000000000",
     dtmf: { digit },
+  });
+}
+
+function makeMarkMessage(name = "drain-1"): string {
+  return JSON.stringify({
+    event: "mark",
+    sequenceNumber: "4",
+    streamSid: "MZ00000000000000000000000000000000",
+    mark: { name },
   });
 }
 
@@ -192,8 +199,7 @@ describe("MediaStreamSttSession", () => {
     // Most tests exercise the batch path — flip the kill-switch off so the
     // session selects batch mode deterministically. Streaming-mode tests
     // set it back to true.
-    configState.telephonyStreaming = false;
-    configState.utteranceEndMs = 1000;
+    seedCallsVoice(false);
 
     // Default: provider is supported and transcriber is available
     (resolveTelephonySttCapability as jest.Mock).mockResolvedValue({
@@ -240,6 +246,44 @@ describe("MediaStreamSttSession", () => {
 
     expect(onDtmf).toHaveBeenCalledTimes(1);
     expect(onDtmf).toHaveBeenCalledWith("9");
+
+    session.dispose();
+  });
+
+  // ── onMark ──────────────────────────────────────────────────────
+
+  test("fires onMark once with the mark name for mark events", () => {
+    const onMark = jest.fn();
+    const session = new MediaStreamSttSession({}, { onMark });
+
+    session.handleMessage(makeStartMessage());
+    session.handleMessage(makeMarkMessage("drain-42"));
+
+    expect(onMark).toHaveBeenCalledTimes(1);
+    expect(onMark).toHaveBeenCalledWith("drain-42");
+
+    session.dispose();
+  });
+
+  test("a session without onMark does not throw on mark events", () => {
+    const session = new MediaStreamSttSession({}, {});
+
+    session.handleMessage(makeStartMessage());
+    expect(() => session.handleMessage(makeMarkMessage())).not.toThrow();
+
+    session.dispose();
+  });
+
+  test("non-mark frames do not fire onMark", () => {
+    const onMark = jest.fn();
+    const session = new MediaStreamSttSession({}, { onMark, onDtmf: jest.fn() });
+
+    session.handleMessage(makeStartMessage());
+    session.handleMessage(makeMediaMessage());
+    session.handleMessage(makeDtmfMessage());
+    session.handleMessage(makeStopMessage());
+
+    expect(onMark).not.toHaveBeenCalled();
 
     session.dispose();
   });
@@ -667,7 +711,7 @@ describe("MediaStreamSttSession", () => {
   // ── Telephony streaming flag ─────────────────────────────────────
 
   test("flag off: never resolves a streaming transcriber", async () => {
-    configState.telephonyStreaming = false;
+    seedCallsVoice(false);
     const session = new MediaStreamSttSession({}, {});
 
     session.handleMessage(makeStartMessage());
@@ -681,7 +725,7 @@ describe("MediaStreamSttSession", () => {
 
   describe("streaming mode", () => {
     beforeEach(() => {
-      configState.telephonyStreaming = true;
+      seedCallsVoice(true);
     });
 
     /** Start a session with an already-started streaming transcriber. */
@@ -716,7 +760,7 @@ describe("MediaStreamSttSession", () => {
     });
 
     test("forwards the configured calls.voice.utteranceEndMs to the resolver", async () => {
-      configState.utteranceEndMs = 2500;
+      seedCallsVoice(true, 2500);
       const { session } = await startStreamingSession();
 
       expect(resolveStreamingTranscriber).toHaveBeenCalledWith({

@@ -6,13 +6,22 @@
  * so adding/removing tools only requires editing this manifest.
  */
 
-import { recallTool, rememberTool } from "../plugins/defaults/memory/tools.js";
+import {
+  deleteMemoryPageTool,
+  recallTool,
+  rememberTool,
+} from "../plugins/defaults/memory/tools.js";
 import { askQuestionTool } from "./ask-question/ask-question-tool.js";
 import { fileEditTool } from "./filesystem/edit.js";
 import { fileListTool } from "./filesystem/list.js";
 import { fileReadTool } from "./filesystem/read.js";
 import { codeSearchTool } from "./filesystem/search.js";
 import { fileWriteTool } from "./filesystem/write.js";
+import { hostFileEditTool } from "./host-filesystem/edit.js";
+import { hostFileReadTool } from "./host-filesystem/read.js";
+import { hostFileTransferTool } from "./host-filesystem/transfer.js";
+import { hostFileWriteTool } from "./host-filesystem/write.js";
+import { hostShellTool } from "./host-terminal/host-shell.js";
 import { webFetchTool } from "./network/web-fetch.js";
 import { webSearchTool } from "./network/web-search.js";
 import { skillExecuteTool } from "./skills/execute.js";
@@ -21,6 +30,11 @@ import { notifyParentTool } from "./subagent/notify-parent.js";
 import { requestSystemPermissionTool } from "./system/request-permission.js";
 import { shellTool } from "./terminal/shell.js";
 import type { ToolDefinition } from "./types.js";
+import {
+  uiDismissTool,
+  uiShowTool,
+  uiUpdateTool,
+} from "./ui-surface/definitions.js";
 
 // ── Explicit tool instances ─────────────────────────────────────────
 // Core tools registered by initializeTools(). Tool modules only export
@@ -48,6 +62,15 @@ export const explicitTools: ToolDefinition[] = [
   requestSystemPermissionTool,
   rememberTool,
   recallTool,
+  deleteMemoryPageTool,
   notifyParentTool,
   askQuestionTool,
+  hostFileReadTool,
+  hostFileWriteTool,
+  hostFileEditTool,
+  hostFileTransferTool,
+  hostShellTool,
+  uiShowTool,
+  uiUpdateTool,
+  uiDismissTool,
 ];

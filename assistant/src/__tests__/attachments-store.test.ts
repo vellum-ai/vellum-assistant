@@ -1,17 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { beforeEach, describe, expect, mock, test } from "bun:test";
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-
-    model: "test",
-    provider: "test",
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-  }),
-}));
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import {
   attachInlineAttachmentToMessage,
@@ -40,6 +29,10 @@ import { initializeDb } from "../persistence/db-init.js";
 import { rawGet, rawRun } from "../persistence/raw-query.js";
 import { mediaSourceBytes } from "../providers/media-resolve.js";
 import { getConversationsDir } from "../util/platform.js";
+import { setConfig } from "./helpers/set-config.js";
+
+// Disable memory so addMessage skips background indexing of test messages.
+setConfig("memory", { enabled: false });
 
 await initializeDb();
 

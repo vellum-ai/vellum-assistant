@@ -9,7 +9,7 @@
 
 import { isAbsolute, resolve, sep } from "node:path";
 
-import { addAppConversationId } from "../apps/app-store.js";
+import { addAppConversationId, getApp } from "../apps/app-store.js";
 import { findActiveSession } from "../channels/gateway-verification-sessions.js";
 import { generateAppIcon } from "../media/app-icon-generator.js";
 import { invalidateEdgeIndex } from "../plugins/defaults/memory/v2/edge-index.js";
@@ -70,6 +70,29 @@ function broadcastAppFilesChanged(appId: string): void {
   publishAppsChanged();
 }
 
+/**
+ * Resolve the app id a post-execution hook should act on.
+ *
+ * `app_id` is optional for the app-builder fallback tools (`app_update`,
+ * `app_refresh`, `app_generate_icon`): when the model omits it, the skill
+ * script resolves the conversation's active app and the executor operates on
+ * that id. Prefer the explicit tool input; otherwise use the id the executor
+ * reports through the typed `resolvedAppId` side channel, so an omitted-id call
+ * still refreshes surfaces, rebroadcasts, and re-deploys instead of silently
+ * no-op'ing. The hook must not infer the id by re-parsing the LLM-facing
+ * `result.content` (see assistant/AGENTS.md § Post-execution hooks).
+ */
+function resolveHookAppId(
+  input: Record<string, unknown>,
+  result: ToolExecutionResult,
+): string | undefined {
+  const explicit = input.app_id;
+  if (typeof explicit === "string" && explicit.trim().length > 0) {
+    return explicit;
+  }
+  return result.resolvedAppId;
+}
+
 // ── Registry ─────────────────────────────────────────────────────────
 
 /**
@@ -92,46 +115,36 @@ function registerHook(
 // (e.g. macOS "Things" sidebar) refresh their app list immediately.
 // Also kicks off async icon generation via Gemini.
 registerHook("app_create", (_name, _input, result, { ctx }) => {
+  const appId = result.resolvedAppId;
+  if (!appId) {
+    return;
+  }
   try {
-    const parsed = JSON.parse(result.content) as {
-      id?: string;
-      name?: string;
-      description?: string;
-    };
-    if (parsed.id) {
-      try {
-        addAppConversationId(parsed.id, ctx.conversationId);
-      } catch (err) {
-        log.warn(
-          { err, appId: parsed.id },
-          "Failed to track conversation ID on app_create",
-        );
-      }
+    addAppConversationId(appId, ctx.conversationId);
+  } catch (err) {
+    log.warn({ err, appId }, "Failed to track conversation ID on app_create");
+  }
 
-      ensureAppSourceWatcher();
+  ensureAppSourceWatcher();
 
-      notifyAppChanged(ctx, parsed.id);
+  notifyAppChanged(ctx, appId);
 
-      if (parsed.name) {
-        void generateAppIcon(parsed.id, parsed.name, parsed.description)
-          .then(() => {
-            broadcastAppFilesChanged(parsed.id!);
-          })
-          .catch((err) => {
-            log.warn(
-              { err, appId: parsed.id },
-              "Background icon generation failed",
-            );
-          });
-      }
-    }
-  } catch {
-    // Result wasn't valid JSON — skip the broadcast.
+  // Seed background icon generation from the created app's canonical record
+  // (its name/description) rather than the LLM-facing result payload.
+  const app = getApp(appId);
+  if (app?.name) {
+    void generateAppIcon(appId, app.name, app.description)
+      .then(() => {
+        broadcastAppFilesChanged(appId);
+      })
+      .catch((err) => {
+        log.warn({ err, appId }, "Background icon generation failed");
+      });
   }
 });
 
-registerHook("app_generate_icon", (_name, input) => {
-  const appId = input.app_id as string | undefined;
+registerHook("app_generate_icon", (_name, input, result) => {
+  const appId = resolveHookAppId(input, result);
   if (appId) {
     broadcastAppFilesChanged(appId);
   }
@@ -144,31 +157,26 @@ registerHook("app_delete", (_name, input) => {
   }
 });
 
-registerHook("app_refresh", (_name, input, _result, { ctx }) => {
-  const appId = input.app_id as string | undefined;
-  if (!appId) return;
-  try {
-    addAppConversationId(appId, ctx.conversationId);
-  } catch (err) {
-    log.warn({ err, appId }, "Failed to track conversation ID on app_refresh");
-  }
-  notifyAppChanged(ctx, appId, { fileChange: true });
-});
-
-// app_update compiles internally (like app_refresh) but emits no events of its
-// own, so without this hook an updated app leaves open surfaces rendering the
-// stale dist and never re-deploys or invalidates the Library. The executor owns
-// the compile; notifyAppChanged only refreshes surfaces and broadcasts.
-registerHook("app_update", (_name, input, _result, { ctx }) => {
-  const appId = input.app_id as string | undefined;
-  if (!appId) return;
-  try {
-    addAppConversationId(appId, ctx.conversationId);
-  } catch (err) {
-    log.warn({ err, appId }, "Failed to track conversation ID on app_update");
-  }
-  notifyAppChanged(ctx, appId, { fileChange: true });
-});
+// app_refresh and app_update mutate an app's source but emit no events of their
+// own, so without a hook an updated app leaves open surfaces rendering the stale
+// dist and never re-deploys or invalidates the Library. The executor owns the
+// compile; notifyAppChanged only refreshes surfaces and broadcasts.
+function registerAppSurfaceRefreshHook(toolName: string): void {
+  registerHook(toolName, (name, input, result, { ctx }) => {
+    const appId = resolveHookAppId(input, result);
+    if (!appId) {
+      return;
+    }
+    try {
+      addAppConversationId(appId, ctx.conversationId);
+    } catch (err) {
+      log.warn({ err, appId }, `Failed to track conversation ID on ${name}`);
+    }
+    notifyAppChanged(ctx, appId, { fileChange: true });
+  });
+}
+registerAppSurfaceRefreshHook("app_refresh");
+registerAppSurfaceRefreshHook("app_update");
 
 registerHook("voice_config_update", (_name, input) => {
   const setting = input.setting as string | undefined;

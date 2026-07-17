@@ -67,14 +67,6 @@ mock.module("node:fs", () => {
   };
 });
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    memory: { v2: { enabled: false } },
-  }),
-  invalidateConfigCache: () => {},
-}));
-
 mock.module("../persistence/embeddings/embedding-backend.js", () => ({
   clearEmbeddingBackendCache: () => {},
 }));

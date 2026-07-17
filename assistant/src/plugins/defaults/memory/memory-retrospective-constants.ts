@@ -54,10 +54,10 @@ export const MEMORY_RETROSPECTIVE_INSTRUCTION_KIND =
 
 /**
  * `metadata.kind` value stamped on the assistant-role message carrying the
- * `skill_card` ui_surface that a retrospective inserts into its SOURCE
- * conversation after authoring new skills. Lets clients and operators
- * identify the card row; the block itself is provider-stripped so it never
- * reaches the model as renderable content.
+ * `skill_card` ui_surface that the `skill_card_insert` delivery job appends
+ * to a retrospective's SOURCE conversation after the run authors new skills.
+ * Lets clients and operators identify the card row; the block itself is
+ * provider-stripped so it never reaches the model as renderable content.
  */
 export const SKILL_CARD_MESSAGE_KIND = "skill-authored-card";
 
@@ -70,3 +70,11 @@ export const SKILL_CARD_MESSAGE_KIND = "skill-authored-card";
  * the `"memory_retrospective"` member of `TitleOrigin`.
  */
 export const MEMORY_RETROSPECTIVE_ORIGIN = "memory_retrospective";
+
+/**
+ * Bundled skill that provides the retrospective's authoring tools
+ * (`find_similar_skills`, `scaffold_managed_skill`, and the `skill_load`
+ * target). Preactivated for the fork wake so those tools join the turn's active
+ * set from turn 1, and matched by the permission checker's origin-scoped grant.
+ */
+export const SKILL_MANAGEMENT_SKILL_ID = "skill-management";

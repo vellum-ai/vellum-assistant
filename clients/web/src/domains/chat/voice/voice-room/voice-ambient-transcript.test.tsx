@@ -13,7 +13,10 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { act, cleanup, render, screen } from "@testing-library/react";
 
-import { useLiveVoiceStore } from "@/domains/chat/voice/live-voice/live-voice-store";
+import {
+  type LiveVoiceSessionState,
+  useLiveVoiceStore,
+} from "@/domains/chat/voice/live-voice/live-voice-store";
 import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
 
 import { VoiceAmbientTranscript } from "@/domains/chat/voice/voice-room/voice-ambient-transcript";
@@ -36,6 +39,12 @@ function setPrefs({ user, assistant }: { user: boolean; assistant: boolean }) {
   act(() => {
     useVoicePrefsStore.getState().setShowUserTranscript(user);
     useVoicePrefsStore.getState().setShowAssistantTranscript(assistant);
+  });
+}
+
+function setSessionState(state: LiveVoiceSessionState) {
+  act(() => {
+    useLiveVoiceStore.getState().setState(state);
   });
 }
 
@@ -86,6 +95,34 @@ describe("VoiceAmbientTranscript — pref gating", () => {
     setPrefs({ user: true, assistant: true });
     const { container } = render(<VoiceAmbientTranscript />);
     expect(container.innerHTML).toBe("");
+  });
+});
+
+describe("VoiceAmbientTranscript — listening gate", () => {
+  test("hides the lingering assistant transcript while listening", () => {
+    // A finished response lingers in the store until the next turn thinks; the
+    // following `listening` turn must not paint it under the low-sunk eyes.
+    seedAssistant("my previous answer");
+    setPrefs({ user: false, assistant: true });
+    setSessionState("listening");
+    render(<VoiceAmbientTranscript />);
+    expect(assistantText()).toBeNull();
+  });
+
+  test("shows the assistant transcript while the assistant is speaking", () => {
+    seedAssistant("here's my answer");
+    setPrefs({ user: false, assistant: true });
+    setSessionState("speaking");
+    render(<VoiceAmbientTranscript />);
+    expect(assistantText()?.textContent).toContain("here's my answer");
+  });
+
+  test("still shows the user transcript while listening", () => {
+    seedUser("what I'm saying now");
+    setPrefs({ user: true, assistant: false });
+    setSessionState("listening");
+    render(<VoiceAmbientTranscript />);
+    expect(userText()?.textContent).toContain("what I'm saying now");
   });
 });
 

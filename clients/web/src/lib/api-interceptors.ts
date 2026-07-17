@@ -35,7 +35,7 @@ import { client as daemonClient } from "@/generated/daemon/client.gen";
 import { client as gatewayClient } from "@/generated/gateway/client.gen";
 import { ensureCsrfCookie, getCsrfToken } from "@/lib/auth/csrf";
 import { clearGatewayToken } from "@/lib/auth/gateway-session";
-import { ApiError, extractErrorMessage } from "@/utils/api-errors";
+import { ApiError, toApiError } from "@/utils/api-errors";
 import {
   isLocalMode,
   isPlatformDisabled,
@@ -86,6 +86,12 @@ const RUNTIME_PROXIED_FIRST_SEGMENTS = new Set<string>([
   // must be forwarded to the gateway in local / self-hosted mode rather
   // than falling through to the platform proxy.
   "x",
+  // Daemon-owned app-serving routes (`/v1/apps/*`: bundled asset media and
+  // compiled dist files). The sandbox asset proxy in `useSandboxFetchProxy`
+  // fetches `/v1/assistants/{id}/apps/{appId}/asset/...` through the platform
+  // client, so it must be forwarded to the gateway in local / self-hosted
+  // mode rather than falling through to the platform proxy.
+  "apps",
   // Daemon-owned config reached through the platform client via raw
   // `client.*` calls (the background `TimezoneSync` PATCH and the general
   // settings page). Must be forwarded to the gateway in local /
@@ -464,10 +470,7 @@ export function daemonErrorInterceptor(
   if (!options.throwOnError) return error;
   if (error instanceof ApiError) return error;
   if (!response || response.ok) return error;
-  return new ApiError(
-    response.status,
-    extractErrorMessage(error, response, `HTTP ${response.status}`),
-  );
+  return toApiError(error, response);
 }
 
 daemonClient.interceptors.request.use(daemonRequestInterceptor);

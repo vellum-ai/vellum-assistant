@@ -139,22 +139,6 @@ function getSaveBtn(): HTMLButtonElement {
   return btn;
 }
 
-/**
- * The inline ProviderCreateForm keeps its Display Name + Key fields under a
- * collapsed "Advanced" disclosure. Open it so those inputs mount.
- */
-function openInlineProviderAdvanced(): void {
-  const button = Array.from(
-    document.querySelectorAll<HTMLButtonElement>("button"),
-  ).find((b) => b.textContent?.trim() === "Advanced");
-  if (!button) {
-    throw new Error("expected the inline provider Advanced disclosure");
-  }
-  if (button.getAttribute("aria-expanded") !== "true") {
-    fireEvent.click(button);
-  }
-}
-
 /** All Dropdown triggers (custom comboboxes) in document order. */
 function dropdownTriggers(): HTMLButtonElement[] {
   return Array.from(
@@ -444,14 +428,269 @@ describe("ProfileEditorModal create mode — provider-first", () => {
     const optionLabels = Array.from(
       document.querySelectorAll<HTMLElement>('[role="option"]'),
     ).map((o) => o.textContent?.trim());
-    expect(optionLabels).toEqual([
-      "Anthropic",
-      "OpenAI",
-      "Google Gemini",
-      "Fireworks",
-      "Together AI",
-      "+ Create new provider",
-    ]);
+    // A single Vellum entry — never the managed upstreams it routes to.
+    expect(optionLabels).toEqual(["Vellum", "+ Create new provider"]);
+  });
+
+  test("selecting Vellum saves the model's managed upstream bound to the vellum connection", async () => {
+    const saveCalls: { name: string; entry: Record<string, unknown> }[] = [];
+    const onSave = (name: string, entry: unknown) => {
+      saveCalls.push({ name, entry: entry as Record<string, unknown> });
+      return Promise.resolve();
+    };
+    renderCreate([makeConnection("vellum-managed", "vellum")], onSave);
+
+    selectProvider("Vellum");
+    selectModel("Claude Opus 4.8");
+
+    await waitFor(() => {
+      expect(getSaveBtn().disabled).toBe(false);
+    });
+    fireEvent.click(getSaveBtn());
+
+    await waitFor(() => {
+      expect(saveCalls.length).toBe(1);
+    });
+    // Legacy wire shape: upstream derived from the model, vellum binding.
+    expect(saveCalls[0].entry.provider).toBe("anthropic");
+    expect(saveCalls[0].entry.provider_connection).toBe("vellum-managed");
+  });
+
+  test("a Vellum fireworks-hosted model derives the fireworks upstream", async () => {
+    const saveCalls: { name: string; entry: Record<string, unknown> }[] = [];
+    const onSave = (name: string, entry: unknown) => {
+      saveCalls.push({ name, entry: entry as Record<string, unknown> });
+      return Promise.resolve();
+    };
+    renderCreate([makeConnection("vellum-managed", "vellum")], onSave);
+
+    selectProvider("Vellum");
+    selectModel("GLM 5.2");
+
+    await waitFor(() => {
+      expect(getSaveBtn().disabled).toBe(false);
+    });
+    fireEvent.click(getSaveBtn());
+
+    await waitFor(() => {
+      expect(saveCalls.length).toBe(1);
+    });
+    expect(saveCalls[0].entry.provider).toBe("fireworks");
+    expect(saveCalls[0].entry.provider_connection).toBe("vellum-managed");
+  });
+
+  test("a legacy-shape managed profile presents as Vellum in edit mode", async () => {
+    // Managed profiles store their real upstream (anthropic) bound to the
+    // vellum connection; the editor must present them as "Vellum".
+    render(
+      <Wrapper>
+        <ProfileEditorModal
+          isOpen
+          mode="edit"
+          profileName="my-managed"
+          initialValues={
+            {
+              name: "my-managed",
+              provider: "anthropic",
+              model: "claude-opus-4-8",
+              provider_connection: "vellum",
+            } as never
+          }
+          existingNames={["my-managed"]}
+          connections={[makeConnection("vellum", "vellum")]}
+          assistantId={ASSISTANT_ID}
+          onSave={() => Promise.resolve()}
+          onCancel={() => {}}
+        />
+      </Wrapper>,
+    );
+
+    await waitFor(() => {
+      expect(providerTrigger().textContent?.trim()).toBe("Vellum");
+    });
+    expect(document.body.textContent).not.toContain("Connection (optional)");
+  });
+
+  test("editing a Vellum profile with a catalog-unknown model preserves the stored upstream", async () => {
+    const saveCalls: { name: string; entry: Record<string, unknown> }[] = [];
+    const onSave = (name: string, entry: unknown) => {
+      saveCalls.push({ name, entry: entry as Record<string, unknown> });
+      return Promise.resolve();
+    };
+    render(
+      <Wrapper>
+        <ProfileEditorModal
+          isOpen
+          mode="edit"
+          profileName="my-managed"
+          initialValues={
+            {
+              name: "my-managed",
+              provider: "fireworks",
+              model: "accounts/fireworks/models/some-future-model",
+              provider_connection: "vellum",
+            } as never
+          }
+          existingNames={["my-managed"]}
+          connections={[makeConnection("vellum", "vellum")]}
+          assistantId={ASSISTANT_ID}
+          onSave={onSave}
+          onCancel={() => {}}
+        />
+      </Wrapper>,
+    );
+
+    await waitFor(() => {
+      expect(getSaveBtn().disabled).toBe(false);
+    });
+    fireEvent.click(getSaveBtn());
+
+    await waitFor(() => {
+      expect(saveCalls.length).toBe(1);
+    });
+    // A harmless save must not clear the stored upstream.
+    expect(saveCalls[0].entry.provider).toBe("fireworks");
+    expect(saveCalls[0].entry.provider_connection).toBe("vellum");
+  });
+
+  test("a user-owned connection merely named 'vellum' does not trigger Vellum mode", async () => {
+    // The daemon's seeder preserves a user row named "vellum" whose provider
+    // is not the sentinel; editing a profile bound to it must keep the real
+    // provider and not corrupt the binding.
+    const saveCalls: { name: string; entry: Record<string, unknown> }[] = [];
+    const onSave = (name: string, entry: unknown) => {
+      saveCalls.push({ name, entry: entry as Record<string, unknown> });
+      return Promise.resolve();
+    };
+    render(
+      <Wrapper>
+        <ProfileEditorModal
+          isOpen
+          mode="edit"
+          profileName="my-local"
+          initialValues={
+            {
+              name: "my-local",
+              provider: "openai-compatible",
+              model: "my-model",
+              provider_connection: "vellum",
+            } as never
+          }
+          existingNames={["my-local"]}
+          connections={[
+            {
+              ...makeConnection("vellum", "openai-compatible"),
+              models: [{ id: "my-model" }],
+            },
+          ]}
+          assistantId={ASSISTANT_ID}
+          onSave={onSave}
+          onCancel={() => {}}
+        />
+      </Wrapper>,
+    );
+
+    await waitFor(() => {
+      expect(providerTrigger().textContent?.trim()).toBe("OpenAI-compatible");
+    });
+
+    await waitFor(() => {
+      expect(getSaveBtn().disabled).toBe(false);
+    });
+    fireEvent.click(getSaveBtn());
+    await waitFor(() => {
+      expect(saveCalls.length).toBe(1);
+    });
+    expect(saveCalls[0].entry.provider).toBe("openai-compatible");
+    expect(saveCalls[0].entry.provider_connection).toBe("vellum");
+  });
+
+  test("a routed model string is stripped to the upstream's native id on save", async () => {
+    const saveCalls: { name: string; entry: Record<string, unknown> }[] = [];
+    const onSave = (name: string, entry: unknown) => {
+      saveCalls.push({ name, entry: entry as Record<string, unknown> });
+      return Promise.resolve();
+    };
+    render(
+      <Wrapper>
+        <ProfileEditorModal
+          isOpen
+          mode="edit"
+          profileName="my-managed"
+          initialValues={
+            {
+              name: "my-managed",
+              provider: "fireworks",
+              model: "fireworks/accounts/fireworks/models/kimi-k2p5",
+              provider_connection: "vellum",
+            } as never
+          }
+          existingNames={["my-managed"]}
+          connections={[makeConnection("vellum", "vellum")]}
+          assistantId={ASSISTANT_ID}
+          onSave={onSave}
+          onCancel={() => {}}
+        />
+      </Wrapper>,
+    );
+
+    await waitFor(() => {
+      expect(getSaveBtn().disabled).toBe(false);
+    });
+    fireEvent.click(getSaveBtn());
+    await waitFor(() => {
+      expect(saveCalls.length).toBe(1);
+    });
+    expect(saveCalls[0].entry.provider).toBe("fireworks");
+    expect(saveCalls[0].entry.model).toBe(
+      "accounts/fireworks/models/kimi-k2p5",
+    );
+    expect(saveCalls[0].entry.provider_connection).toBe("vellum");
+  });
+
+  test("a routed model resolves advanced controls from its native id", async () => {
+    // Visibility heuristics expect native ids; a routed string must not hide
+    // the upstream's controls (a replace-mode save would then clear them).
+    render(
+      <Wrapper>
+        <ProfileEditorModal
+          isOpen
+          mode="edit"
+          profileName="my-managed"
+          initialValues={
+            {
+              name: "my-managed",
+              provider: "openai",
+              model: "openai/gpt-5.5",
+              provider_connection: "vellum",
+              effort: "high",
+            } as never
+          }
+          existingNames={["my-managed"]}
+          connections={[makeConnection("vellum", "vellum")]}
+          assistantId={ASSISTANT_ID}
+          onSave={() => Promise.resolve()}
+          onCancel={() => {}}
+        />
+      </Wrapper>,
+    );
+
+    // gpt-5.5's controls include Verbosity (an openai-family field) — it
+    // only renders when visibility resolved against the native id.
+    await waitFor(() => {
+      expect(document.body.textContent).toContain("Verbosity");
+    });
+  });
+
+  test("Vellum hides the Connection sub-dropdown", () => {
+    renderCreate([makeConnection("vellum-managed", "vellum")]);
+    selectProvider("Vellum");
+    expect(document.body.textContent).not.toContain("Connection (optional)");
+    expect(
+      Array.from(document.querySelectorAll("label")).some((l) =>
+        l.textContent?.trim().startsWith("Connection"),
+      ),
+    ).toBe(false);
   });
 
   test("a BYOK connection surfaces its own provider", () => {
@@ -527,15 +766,12 @@ describe("ProfileEditorModal create mode — provider-first", () => {
 
     selectProvider("+ Create new provider");
 
-    // Inline ProviderCreateForm is mounted; its Key field lives under Advanced.
-    openInlineProviderAdvanced();
-    const inlineKey = getInputByPlaceholder("e.g. anthropic-personal");
-    expect(inlineKey).toBeDefined();
-
-    // Fill the inline form and create (anthropic defaults to platform auth,
-    // so no API key entry is required).
-    fireEvent.change(inlineKey, { target: { value: "anthropic-personal" } });
-    fireEvent.click(getButton("Create"));
+    // Inline ProviderCreateForm is mounted; auth derives from the provider
+    // (anthropic → api_key), so entering a key is the whole flow.
+    fireEvent.change(getInputByPlaceholder("Enter your API key"), {
+      target: { value: "sk-test-123" },
+    });
+    fireEvent.click(getButton("Add"));
 
     // After create, the sub-form collapses and the provider is selected.
     await waitFor(() => {
@@ -572,11 +808,10 @@ describe("ProfileEditorModal create mode — provider-first", () => {
     renderCreate([], onSave);
 
     selectProvider("+ Create new provider");
-    openInlineProviderAdvanced();
-    fireEvent.change(getInputByPlaceholder("e.g. anthropic-personal"), {
-      target: { value: "anthropic-personal" },
+    fireEvent.change(getInputByPlaceholder("Enter your API key"), {
+      target: { value: "sk-test-123" },
     });
-    fireEvent.click(getButton("Create"));
+    fireEvent.click(getButton("Add"));
 
     await waitFor(() => {
       expect(document.body.textContent).toContain(

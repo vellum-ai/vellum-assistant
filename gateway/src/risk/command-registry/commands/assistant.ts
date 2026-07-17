@@ -12,6 +12,8 @@ import type {
  * buildCliProgram() in the local environment.
  */
 const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
+  "apps",
+  "apps list",
   "attachment",
   "attachment register",
   "attachment lookup",
@@ -121,6 +123,7 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "db status",
   "db repair",
   "gateway",
+  "gateway status",
   "gateway logs",
   "gateway logs tail",
   "image-generation",
@@ -139,6 +142,11 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "inference profiles list",
   "inference profiles update",
   "inference providers",
+  "inference providers create",
+  "inference providers delete",
+  "inference providers get",
+  "inference providers list",
+  "inference providers update",
   "inference providers connections",
   "inference providers connections create",
   "inference providers connections delete",
@@ -146,6 +154,7 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "inference providers connections list",
   "inference providers connections update",
   "inference providers default",
+  "inference providers login-chatgpt",
   "inference send",
   "inference session",
   "inference session open",
@@ -165,6 +174,7 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "mcp remove",
   "memory",
   "memory nodes",
+  "memory nodes stats",
   "memory nodes list",
   "memory nodes delete",
   "memory nodes update",
@@ -275,6 +285,7 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "ui",
   "ui request",
   "ui confirm",
+  "ui snapshot",
   "usage",
   "usage totals",
   "usage daily",
@@ -505,10 +516,42 @@ const riskOverrides: AssistantRiskOverride[] = [
     reason: "Read-only resolution detail for one call site",
   },
   {
+    path: "inference providers login-chatgpt",
+    risk: "medium",
+    reason:
+      "Runs a browser OAuth flow and writes ChatGPT subscription credentials to CES",
+  },
+  {
     path: "inference providers default",
     risk: "medium",
     reason:
       "Reads the default provider, or replaces llm.defaultProvider when a name is passed",
+  },
+  {
+    path: "inference providers list",
+    risk: "low",
+    reason: "Read-only listing of provider entries",
+  },
+  {
+    path: "inference providers get",
+    risk: "low",
+    reason: "Read-only fetch of a single provider entry",
+  },
+  {
+    path: "inference providers create",
+    risk: "medium",
+    reason: "Inserts a provider entry referenced by inference profiles",
+  },
+  {
+    path: "inference providers update",
+    risk: "medium",
+    reason: "Mutates provider auth config in place",
+  },
+  {
+    path: "inference providers delete",
+    risk: "medium",
+    reason:
+      "Deletes a provider entry; the daemon refuses while profiles still reference it",
   },
   {
     path: "inference providers connections list",
@@ -741,8 +784,7 @@ const riskOverrides: AssistantRiskOverride[] = [
   {
     path: "schedules worker stop",
     risk: "medium",
-    reason:
-      "Disables schedules.worker.enabled and sends SIGTERM to the schedule worker process",
+    reason: "Sends SIGTERM to the schedule worker process",
   },
   {
     path: "schedules worker status",

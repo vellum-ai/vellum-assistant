@@ -11,6 +11,7 @@ import {
   createAssistantMessage,
   createUserMessage,
 } from "../agent/message-types.js";
+import { listPendingRequestsByScopeOrEmpty } from "../channels/gateway-guardian-requests.js";
 import {
   parseChannelId,
   parseInterfaceId,
@@ -18,7 +19,6 @@ import {
   type TurnInterfaceContext,
 } from "../channels/types.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
-import { listPendingRequestsByConversationScope } from "../contacts/canonical-guardian-store.js";
 import { extractPreferences } from "../notifications/preference-extractor.js";
 import { createPreference } from "../notifications/preferences-store.js";
 import {
@@ -1605,26 +1605,31 @@ export async function processMessage(
   conversation.currentActiveSurfaceId = activeSurfaceId;
   conversation.currentPage = currentPage;
   const trimmedContent = content.trim();
-  const canonicalPendingRequestHintIdsForConversation =
+  // Hint read degrades to empty on gateway failure — the scope then stays
+  // unset and identity-fallback still resolves the guardian's pending work.
+  const pendingRequestHintIdsForConversation =
     trimmedContent.length > 0
-      ? listPendingRequestsByConversationScope(
-          conversation.conversationId,
-          "vellum",
+      ? (
+          await listPendingRequestsByScopeOrEmpty(
+            conversation.conversationId,
+            "vellum",
+          )
         ).map((request) => request.id)
       : [];
   // Empty hints → leave the scope unset (identity-fallback): the desktop
   // guardian can still resolve their pending work by identity/principal.
   const pendingScope: GuardianPendingScope | undefined =
-    canonicalPendingRequestHintIdsForConversation.length > 0
+    pendingRequestHintIdsForConversation.length > 0
       ? {
           mode: "scoped",
-          requestIds: canonicalPendingRequestHintIdsForConversation,
+          requestIds: pendingRequestHintIdsForConversation,
         }
       : undefined;
 
-  // ── Canonical guardian reply router (desktop/conversation path) ──
-  // Desktop/conversation guardian replies are canonical-only. Messages consumed
-  // by the router never hit the general agent loop.
+  // ── Guardian reply router (desktop/conversation path) ──
+  // Desktop/conversation guardian replies route only through the guardian
+  // decision pipeline. Messages consumed by the router never hit the general
+  // agent loop.
   if (trimmedContent.length > 0) {
     const routerResult = await routeGuardianReply({
       messageText: trimmedContent,
@@ -1713,7 +1718,7 @@ export async function processMessage(
           routerType: routerResult.type,
           requestId: routerResult.requestId,
         },
-        "Conversation guardian reply routed through canonical pipeline",
+        "Conversation guardian reply routed through the guardian decision pipeline",
       );
 
       return persisted.id;

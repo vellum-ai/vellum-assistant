@@ -17,13 +17,6 @@ let mockInstallMeta: SkillInstallMeta | null = null;
 // Module mocks — must be declared before importing the module under test
 // ---------------------------------------------------------------------------
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({}),
-  invalidateConfigCache: () => {},
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-}));
-
 mock.module("../config/skills.js", () => ({
   loadSkillCatalog: () => mockSummaries,
 }));

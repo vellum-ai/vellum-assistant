@@ -1,4 +1,8 @@
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+
+import { getWorkspaceDir } from "../paths.js";
 
 // ---------------------------------------------------------------------------
 // Mock state. Reset between tests.
@@ -92,11 +96,30 @@ let messagesByConversationId: Record<string, StubMessage[]> = {};
 // the real registry's semantics for conversations not in memory.
 let loadedConversations: Record<string, { processing: boolean }> = {};
 
+const watchdogEvents: Array<{
+  checkName: string;
+  value?: number | null;
+  detail?: Record<string, unknown> | null;
+}> = [];
+mock.module("../../../../telemetry/watchdog-events-store.js", () => ({
+  recordWatchdogEvent: (record: {
+    checkName: string;
+    value?: number | null;
+    detail?: Record<string, unknown> | null;
+  }) => {
+    watchdogEvents.push(record);
+  },
+}));
+
 mock.module("../../../../daemon/conversation-registry.js", () => ({
   findConversation: (id: string | undefined) => {
-    if (!id) return undefined;
+    if (!id) {
+      return undefined;
+    }
     const entry = loadedConversations[id];
-    if (!entry) return undefined;
+    if (!entry) {
+      return undefined;
+    }
     return { isProcessing: () => entry.processing };
   },
 }));
@@ -133,8 +156,12 @@ mock.module("../find-most-recent-retrospective-for.js", () => ({
 mock.module("../../../../persistence/conversation-crud.js", () => ({
   getMessagesAfter: (_id: string, _afterId: string | null) => newMessages,
   getMessages: (id: string) => {
-    if (messagesByConversationId[id]) return messagesByConversationId[id];
-    if (id === priorRetroId) return priorRetroMessages;
+    if (messagesByConversationId[id]) {
+      return messagesByConversationId[id];
+    }
+    if (id === priorRetroId) {
+      return priorRetroMessages;
+    }
     return [];
   },
   // The handler calls `getConversation(sourceConversationId)` to read the
@@ -144,7 +171,9 @@ mock.module("../../../../persistence/conversation-crud.js", () => ({
   // extract-everything code path is exercised. `conversationOverrides` lets
   // per-test setup stage fork-kind priors or fork-shaped run conversations.
   getConversation: (id: string) => {
-    if (conversationOverrides[id]) return conversationOverrides[id];
+    if (conversationOverrides[id]) {
+      return conversationOverrides[id];
+    }
     if (id === priorRetroId) {
       return {
         source: "memory-retrospective",
@@ -252,7 +281,9 @@ mock.module("../../../../runtime/agent-wake.js", () => ({
       hint: opts.hint,
       opts,
     });
-    if (mockWakeThrows) throw mockWakeThrows;
+    if (mockWakeThrows) {
+      throw mockWakeThrows;
+    }
     return mockWakeResult;
   },
 }));
@@ -271,9 +302,6 @@ mock.module("../../../../persistence/jobs-store.js", () => ({
   ) => {
     retrospectiveJobUpserts.push({ payload, runAfter });
   },
-  // The skill-card module's mid-turn deferral path; exercised in
-  // memory-retrospective-skill-card.test.ts, inert here.
-  upsertSkillCardInsertJob: () => {},
 }));
 
 // proc-to-skills gate. Drives both `buildForkInstruction`'s skill-authoring
@@ -297,6 +325,7 @@ function makeConfig(
     detectedTimezone?: string;
     keepSupersededRuns?: boolean;
     matchConversationProfile?: boolean;
+    promptPath?: string;
   } = {},
 ): Parameters<typeof memoryRetrospectiveJob>[1] {
   return {
@@ -305,6 +334,7 @@ function makeConfig(
       retrospective: {
         keepSupersededRuns: overrides.keepSupersededRuns ?? false,
         matchConversationProfile: overrides.matchConversationProfile ?? false,
+        promptPath: overrides.promptPath ?? null,
       },
     },
     ui: {
@@ -363,6 +393,7 @@ function priorRetroMessage(rememberContents: string[]) {
 
 describe("memoryRetrospectiveJob", () => {
   beforeEach(() => {
+    watchdogEvents.length = 0;
     mockState = null;
     stateUpserts = [];
     lastRunAtBumps = [];
@@ -419,6 +450,16 @@ describe("memoryRetrospectiveJob", () => {
     expect(lastRunAtBumps).toHaveLength(0);
     expect(wakeCalls).toHaveLength(0);
     expect(forkCalls).toHaveLength(0);
+    // Every job run emits exactly one outcome counter for the health chart.
+    expect(
+      watchdogEvents.filter((e) => e.checkName === "memory_retrospective_run"),
+    ).toEqual([
+      {
+        checkName: "memory_retrospective_run",
+        value: 1,
+        detail: { outcome: "no_new_messages" },
+      },
+    ]);
   });
 
   test("a slice whose only row is the retrospective's own skill card is no new work", async () => {
@@ -535,6 +576,17 @@ describe("memoryRetrospectiveJob", () => {
     const outcome = await memoryRetrospectiveJob(makeJob(), stubConfig);
 
     expect(outcome.kind).toBe("wake_failed");
+    // The outcome counter carries the wake-failure reason so a fleet-wide
+    // spike is attributable (e.g. provider outage vs busy conversations).
+    expect(
+      watchdogEvents.filter((e) => e.checkName === "memory_retrospective_run"),
+    ).toEqual([
+      {
+        checkName: "memory_retrospective_run",
+        value: 1,
+        detail: { outcome: "wake_failed", reason: "timeout" },
+      },
+    ]);
     if (outcome.kind === "wake_failed") {
       expect(outcome.reason).toBe("timeout");
     }
@@ -552,6 +604,17 @@ describe("memoryRetrospectiveJob", () => {
     expect(stateUpserts).toHaveLength(0);
     expect(lastRunAtBumps).toHaveLength(1);
     expect(deletedConversationIds).toEqual(["fork-conv-1"]);
+    // A thrown run still records an outcome counter (as "error") before the
+    // rethrow — exception-flavored outages must show in the health metric.
+    expect(
+      watchdogEvents.filter((e) => e.checkName === "memory_retrospective_run"),
+    ).toEqual([
+      {
+        checkName: "memory_retrospective_run",
+        value: 1,
+        detail: { outcome: "error", reason: "LLM provider 503" },
+      },
+    ]);
   });
 
   test("missing conversationId payload: no_new_messages, no side effects", async () => {
@@ -579,6 +642,9 @@ describe("memoryRetrospectiveJob", () => {
       "skill_load",
       "find_similar_skills",
     ]);
+    // skill-management is preactivated so the authoring trio is in the turn's
+    // active set from turn 1 (not merely on the execution allowlist).
+    expect(opts.preactivateSkillIds).toEqual(["skill-management"]);
     expect(opts.suppressWakeSurface).toBe(true);
     // Sanity: the other fork-specific opts the handler relies on are still set.
     expect(opts.skipHintInjection).toBe(true);
@@ -593,6 +659,8 @@ describe("memoryRetrospectiveJob", () => {
     expect(wakeCalls).toHaveLength(1);
     // The authoring trio is not even named on the allowlist when inactive.
     expect(wakeCalls[0]!.opts.allowedTools).toEqual(["remember"]);
+    // And skill-management is not preactivated, so its tools never go active.
+    expect(wakeCalls[0]!.opts.preactivateSkillIds).toBeUndefined();
   });
 
   test("wake pins the memory_retrospective origin on the tool-context pin so the checker's grant can fire", async () => {
@@ -745,6 +813,54 @@ describe("memoryRetrospectiveJob", () => {
 
     const instructionText = persistedInstructionText();
     expect(instructionText).toContain("<​/already_remembered>");
+  });
+
+  test("honors memory.retrospective.promptPath override when set", async () => {
+    // Overrides outside the workspace root are rejected, so the fixture must
+    // live under the process workspace.
+    mkdirSync(getWorkspaceDir(), { recursive: true });
+    const dir = mkdtempSync(
+      join(getWorkspaceDir(), "retro-job-prompt-override-"),
+    );
+    const overridePath = join(dir, "custom-instruction.md");
+    writeFileSync(
+      overridePath,
+      "CUSTOM RETROSPECTIVE\n\n{{WINDOW_ANCHOR}}\n\n<already_remembered>\n{{ALREADY_REMEMBERED}}\n</already_remembered>\n",
+    );
+
+    const outcome = await memoryRetrospectiveJob(
+      makeJob(),
+      makeConfig({ promptPath: overridePath }),
+    );
+
+    expect(outcome.kind).toBe("invoked");
+    const instructionText = persistedInstructionText();
+    expect(instructionText.startsWith("CUSTOM RETROSPECTIVE")).toBe(true);
+    // First run over the source ⇒ the anchor placeholder renders the
+    // full-conversation form and the dedup placeholder renders "(none)".
+    expect(instructionText).toContain(
+      "Your review window is the full conversation above",
+    );
+    expect(instructionText).toContain(
+      "<already_remembered>\n(none)\n</already_remembered>",
+    );
+    expect(instructionText).not.toContain(
+      "This is an automated background memory pass",
+    );
+    expect(instructionText).not.toContain("{{");
+  });
+
+  test("missing memory.retrospective.promptPath file falls back to the bundled instruction", async () => {
+    const outcome = await memoryRetrospectiveJob(
+      makeJob(),
+      makeConfig({ promptPath: "/nonexistent/retro-instruction.md" }),
+    );
+
+    expect(outcome.kind).toBe("invoked");
+    const instructionText = persistedInstructionText();
+    expect(
+      instructionText.startsWith("This is an automated background memory pass"),
+    ).toBe(true);
   });
 
   // -------------------------------------------------------------------------
@@ -1689,10 +1805,11 @@ describe("memoryRetrospectiveJob", () => {
 
     const instructionText = persistedInstructionText();
 
-    // Available-tools line names the skill-authoring trio.
+    // Available-tools line names the skill-authoring pair; skill-management is
+    // preactivated, so no `skill_load` step is instructed.
     expect(instructionText).toContain("find_similar_skills");
     expect(instructionText).toContain("scaffold_managed_skill");
-    expect(instructionText).toContain("skill_load skill-management");
+    expect(instructionText).not.toContain("skill_load skill-management");
 
     // Permissive relevance pre-check keyed on actually-executed procedures.
     expect(instructionText).toContain("a PROCEDURE you actually carried out");

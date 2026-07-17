@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { MessagingProvider } from "../messaging/provider.js";
@@ -129,6 +132,7 @@ describe("messaging-send tool", () => {
         subject: undefined,
         inReplyTo: undefined,
         threadId: undefined,
+        attachments: undefined,
         assistantId: "ast-alpha",
       },
     );
@@ -159,9 +163,72 @@ describe("messaging-send tool", () => {
         subject: undefined,
         inReplyTo: undefined,
         threadId: "thread-abc",
+        attachments: undefined,
         assistantId: "ast-alpha",
       },
     );
+  });
+
+  test("rejects attachments on platforms that can't carry them", async () => {
+    const result = await run(
+      {
+        platform: "phone",
+        conversation_id: "+12025550142",
+        text: "with a file",
+        attachment_paths: ["/tmp/does-not-matter.pdf"],
+      },
+      {
+        workingDir: "/tmp",
+        conversationId: "conv-1",
+        assistantId: "ast-alpha",
+        trustClass: "guardian" as const,
+      },
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("Gmail and Outlook");
+    expect(sendMessageMock).not.toHaveBeenCalled();
+  });
+
+  test("reads and forwards attachments to attachment-capable non-Gmail providers", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "msg-send-att-"));
+    const filePath = join(dir, "report.pdf");
+    writeFileSync(filePath, "pdf-bytes");
+    provider.id = "outlook";
+
+    try {
+      const result = await run(
+        {
+          platform: "outlook",
+          conversation_id: "user@example.com",
+          text: "see attached",
+          subject: "Docs",
+          attachment_paths: [filePath],
+        },
+        {
+          workingDir: "/tmp",
+          conversationId: "conv-1",
+          assistantId: "ast-alpha",
+          trustClass: "guardian" as const,
+        },
+      );
+
+      expect(result.isError).toBe(false);
+      const options = sendMessageMock.mock.calls[0][3] as {
+        attachments?: Array<{
+          filename: string;
+          mimeType: string;
+          data: Buffer;
+        }>;
+      };
+      expect(options.attachments).toHaveLength(1);
+      expect(options.attachments?.[0]?.filename).toBe("report.pdf");
+      expect(options.attachments?.[0]?.mimeType).toBe("application/pdf");
+      expect(options.attachments?.[0]?.data.toString()).toBe("pdf-bytes");
+    } finally {
+      provider.id = "phone";
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   test("cross-posts outbound message to bound conversation", async () => {

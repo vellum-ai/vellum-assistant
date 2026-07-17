@@ -35,10 +35,11 @@ import {
 } from "node:path";
 
 import { rawAll } from "../persistence/raw-query.js";
+import { isPluginDisabled } from "../plugins/disabled-state.js";
 import type { EditEngineResult } from "../tools/shared/filesystem/edit-engine.js";
 import { applyEdit } from "../tools/shared/filesystem/edit-engine.js";
 import { getLogger } from "../util/logger.js";
-import { getDataDir } from "../util/platform.js";
+import { getDataDir, getWorkspacePluginsDir } from "../util/platform.js";
 
 export interface AppDefinition {
   id: string;
@@ -53,7 +54,7 @@ export interface AppDefinition {
   pages?: Record<string, string>;
   createdAt: number;
   updatedAt: number;
-  /** App format version. undefined or 1 = legacy single-HTML, 2 = multi-file TSX. */
+  /** App format version; 2 = multi-file TSX (the only supported format). */
   formatVersion?: number;
   /** Filesystem directory/file stem. Frozen at creation -- never changes on rename. */
   dirName?: string;
@@ -62,25 +63,45 @@ export interface AppDefinition {
 }
 
 /**
- * Returns true if the app uses the multi-file TSX format (formatVersion 2).
+ * Fallback body served for apps in the retired single-file HTML format.
+ * These apps have no compilable `src/`, so there is nothing to build or serve.
  */
-export function isMultifileApp(app: AppDefinition): boolean {
-  return app.formatVersion === 2;
+export const UNSUPPORTED_LEGACY_APP_HTML = `<p>This app uses the retired single-file format and can no longer be opened. Ask the assistant to recreate it.</p>`;
+
+/**
+ * Detect an app directory in the retired single-file HTML format: a root
+ * `index.html` with no `src/` to compile. Used to serve a clear message
+ * instead of a misleading "compilation failed" fallback.
+ */
+export function isLegacySingleFileDir(sourceDir: string): boolean {
+  return (
+    !existsSync(join(sourceDir, "src")) &&
+    existsSync(join(sourceDir, "index.html"))
+  );
 }
 
 /**
- * Resolve the effective HTML for an app. For single-file apps this is
- * `htmlDefinition` (the root index.html). For multifile apps it reads the
- * compiled `dist/index.html` and inlines JS/CSS assets so the result is a
+ * Resolve the effective HTML for an app by reading the compiled
+ * `dist/index.html` and inlining JS/CSS assets so the result is a
  * self-contained HTML string suitable for `loadHTMLString`.
  */
 export function resolveEffectiveAppHtml(app: AppDefinition): string {
-  if (!isMultifileApp(app)) return app.htmlDefinition;
+  return resolveEffectiveAppHtmlFromDir(getAppDirPath(app.id));
+}
 
-  const appDir = getAppDirPath(app.id);
-  const distIndex = join(appDir, "dist", "index.html");
+/**
+ * Resolve the effective, self-contained HTML for an app given its source
+ * directory, without needing a loaded {@link AppDefinition}. Used to render
+ * apps addressed by path (e.g. plugin-bundled apps). Serves the compiled
+ * dist/index.html with JS/CSS inlined.
+ */
+export function resolveEffectiveAppHtmlFromDir(sourceDir: string): string {
+  const distIndex = join(sourceDir, "dist", "index.html");
   if (existsSync(distIndex)) {
-    return inlineDistAssets(appDir, readFileSync(distIndex, "utf-8"));
+    return inlineDistAssets(sourceDir, readFileSync(distIndex, "utf-8"));
+  }
+  if (isLegacySingleFileDir(sourceDir)) {
+    return UNSUPPORTED_LEGACY_APP_HTML;
   }
   return `<p>App compilation failed. Edit a source file to trigger a rebuild.</p>`;
 }
@@ -377,6 +398,16 @@ function invalidateDirNameCache(appId?: string): void {
  * Returns the resolved absolute path.
  */
 function validateFilePath(appId: string, path: string): string {
+  return validateFilePathInDir(getAppDirPath(appId), path);
+}
+
+/**
+ * Validate a relative file path within a known app directory (absolute path).
+ * Prevents path traversal and access to protected directories. Used when the
+ * app directory is already resolved (e.g. plugin-bundled apps addressed by
+ * path rather than by a workspace app id).
+ */
+function validateFilePathInDir(appDir: string, path: string): string {
   if (!path || path.trim() === "") {
     throw new Error(`Invalid file path: path is empty`);
   }
@@ -391,7 +422,6 @@ function validateFilePath(appId: string, path: string): string {
   if (normalized === "records" || normalized.startsWith("records/")) {
     throw new Error(`Invalid file path: 'records/' directory is protected`);
   }
-  const appDir = getAppDirPath(appId);
   const resolved = resolve(appDir, path);
   // Ensure the resolved path is still within the app directory
   if (!resolved.startsWith(appDir + "/") && resolved !== appDir) {
@@ -499,7 +529,6 @@ export function createApp(params: {
   htmlDefinition: string;
   version?: string;
   pages?: Record<string, string>;
-  formatVersion?: number;
 }): AppDefinition {
   const dir = getAppsDir();
   const now = Date.now();
@@ -519,7 +548,7 @@ export function createApp(params: {
     version: params.version,
     createdAt: now,
     updatedAt: now,
-    formatVersion: params.formatVersion,
+    formatVersion: 2,
     dirName,
   };
 
@@ -622,6 +651,250 @@ export function listApps(): AppDefinition[] {
   }
   apps.sort((a, b) => b.updatedAt - a.updatedAt);
   return apps;
+}
+
+// ---------------------------------------------------------------------------
+// Cross-source enumeration (workspace + plugin-bundled apps)
+// ---------------------------------------------------------------------------
+
+/**
+ * Where an app is provided from. Workspace apps are user-created and live under
+ * `<workspace>/data/apps/`; plugin apps are bundled by an installed plugin
+ * under `<workspace>/plugins/<name>/apps/`.
+ */
+export type AppOrigin =
+  | { readonly kind: "workspace" }
+  | { readonly kind: "plugin"; readonly pluginName: string };
+
+/**
+ * Id prefix marking a plugin-bundled app. A plugin app's id encodes its
+ * location: `plugins~<pluginName>~<appDir>`, which maps to
+ * `<workspace>/plugins/<pluginName>/apps/<appDir>` (the `apps/` segment is
+ * implied). Unlike workspace apps — whose id is an opaque UUID looked up by
+ * scanning — a plugin app is resolved by a direct path build.
+ *
+ * The delimiter is `~` (a URL-unreserved character), not `/`, so the id is a
+ * single URL path segment: it survives `:id` route params and proxies without
+ * percent-encoding (`%2F` in a path is widely mishandled).
+ */
+const PLUGIN_APP_ID_PREFIX = "plugins~";
+const PLUGIN_APP_ID_SEP = "~";
+
+/** Build the addressable id for a plugin-bundled app. */
+function pluginAppId(pluginName: string, appDir: string): string {
+  return `${PLUGIN_APP_ID_PREFIX}${pluginName}${PLUGIN_APP_ID_SEP}${appDir}`;
+}
+
+/** True when an app id addresses a plugin-bundled app (vs a workspace app). */
+export function isPluginAppId(id: string): boolean {
+  return id.startsWith(PLUGIN_APP_ID_PREFIX);
+}
+
+/** An app paired with the absolute path to its source and its origin. */
+export interface EnumeratedApp {
+  /**
+   * Addressable app id: an opaque UUID for workspace apps, or
+   * `plugins~<name>~<app>` for plugin-bundled apps.
+   */
+  readonly id: string;
+  /** Human-readable app name. */
+  readonly name: string;
+  /** Absolute path to the app's source directory. */
+  readonly sourcePath: string;
+  /** Where the app is provided from. */
+  readonly origin: AppOrigin;
+}
+
+/**
+ * Enumerate apps bundled under a single plugin's `apps/` directory. Each
+ * immediate subdirectory is one app: its directory name is the app name and
+ * its path is the source.
+ */
+function listAppsForPlugin(
+  pluginName: string,
+  pluginDir: string,
+): EnumeratedApp[] {
+  const appsDir = join(pluginDir, "apps");
+  let entries: string[];
+  try {
+    entries = readdirSync(appsDir);
+  } catch {
+    // No apps/ directory (or unreadable) — this plugin bundles no apps.
+    return [];
+  }
+  const apps: EnumeratedApp[] = [];
+  for (const entry of entries) {
+    const appDir = join(appsDir, entry);
+    try {
+      // statSync follows symlinks so a symlinked app directory still counts.
+      if (!statSync(appDir).isDirectory()) {
+        continue;
+      }
+    } catch {
+      continue;
+    }
+    apps.push({
+      id: pluginAppId(pluginName, entry),
+      name: entry,
+      sourcePath: appDir,
+      origin: { kind: "plugin", pluginName },
+    });
+  }
+  return apps;
+}
+
+/**
+ * Enumerate apps bundled by installed, enabled plugins under
+ * `<workspace>/plugins/<name>/apps/`.
+ *
+ * Plugin discovery mirrors the plugin loader's `scanPlugins`: a plugin is an
+ * entry that resolves to a directory (following symlinks) and carries a
+ * `package.json` manifest. Stray directories without a manifest are ignored,
+ * and disabled plugins (those with a `.disabled` sentinel) contribute nothing,
+ * matching how their other surfaces (tools, hooks, routes) are gated.
+ */
+export function listPluginApps(): EnumeratedApp[] {
+  const pluginsRoot = getWorkspacePluginsDir();
+  if (!existsSync(pluginsRoot)) {
+    return [];
+  }
+  let entries: string[];
+  try {
+    entries = readdirSync(pluginsRoot);
+  } catch {
+    return [];
+  }
+  const apps: EnumeratedApp[] = [];
+  for (const name of entries) {
+    const pluginDir = join(pluginsRoot, name);
+    try {
+      if (!statSync(pluginDir).isDirectory()) {
+        continue;
+      }
+    } catch {
+      continue;
+    }
+    if (!existsSync(join(pluginDir, "package.json"))) {
+      continue;
+    }
+    if (isPluginDisabled(name)) {
+      continue;
+    }
+    apps.push(...listAppsForPlugin(name, pluginDir));
+  }
+  return apps;
+}
+
+/**
+ * Enumerate every app the assistant can surface, tagged with its origin:
+ * workspace apps (user-created) followed by apps bundled by installed plugins.
+ */
+export function listAllApps(): EnumeratedApp[] {
+  const workspaceApps: EnumeratedApp[] = listApps().map((definition) => ({
+    id: definition.id,
+    name: definition.name,
+    sourcePath: getAppDirPath(definition.id),
+    origin: { kind: "workspace" as const },
+  }));
+  return [...workspaceApps, ...listPluginApps()];
+}
+
+/** An app id resolved to its on-disk source and metadata. */
+export interface ResolvedAppSource {
+  /** The id that was resolved (echoed back for the caller). */
+  readonly id: string;
+  /** Human-readable app name. */
+  readonly name: string;
+  /** Filesystem directory stem — the workspace slug or the plugin app dir. */
+  readonly dirName: string;
+  /** Absolute path to the app's source directory. */
+  readonly sourceDir: string;
+  /** Where the app is provided from. */
+  readonly origin: AppOrigin;
+}
+
+/**
+ * Validate a single plugin-app id path segment (plugin name or app directory).
+ * Rejects empty, traversal, separators, and untrimmed values so an id can be
+ * mapped to a filesystem path without escaping the plugins root.
+ */
+function isSafeIdSegment(segment: string): boolean {
+  return (
+    segment.length > 0 &&
+    segment === segment.trim() &&
+    !segment.includes("/") &&
+    !segment.includes("\\") &&
+    !segment.includes("..") &&
+    segment !== "."
+  );
+}
+
+/**
+ * Resolve an app id to its on-disk source, for both workspace apps (opaque
+ * UUID, looked up via {@link getApp}) and plugin-bundled apps
+ * (`plugins~<name>~<app>`, resolved by direct path build). Returns null when
+ * the app does not exist, or when a plugin id fails the same installed-plugin
+ * gates as discovery (directory, `package.json` manifest, not disabled).
+ */
+export function resolveAppSource(id: string): ResolvedAppSource | null {
+  if (id.startsWith(PLUGIN_APP_ID_PREFIX)) {
+    const rest = id.slice(PLUGIN_APP_ID_PREFIX.length);
+    // Split on the first delimiter: the plugin name is kebab-case (no `~`), so
+    // everything after it is the app directory (which may itself contain `~`).
+    const sep = rest.indexOf(PLUGIN_APP_ID_SEP);
+    if (sep === -1) {
+      return null;
+    }
+    const pluginName = rest.slice(0, sep);
+    const appDirName = rest.slice(sep + PLUGIN_APP_ID_SEP.length);
+    // Both must be safe single path components — the app segment, used as a
+    // directory name, must not smuggle in separators or traversal.
+    if (!isSafeIdSegment(pluginName) || !isSafeIdSegment(appDirName)) {
+      return null;
+    }
+    const pluginDir = join(getWorkspacePluginsDir(), pluginName);
+    try {
+      if (!statSync(pluginDir).isDirectory()) {
+        return null;
+      }
+    } catch {
+      return null;
+    }
+    if (!existsSync(join(pluginDir, "package.json"))) {
+      return null;
+    }
+    if (isPluginDisabled(pluginName)) {
+      return null;
+    }
+    const sourceDir = join(pluginDir, "apps", appDirName);
+    try {
+      if (!statSync(sourceDir).isDirectory()) {
+        return null;
+      }
+    } catch {
+      return null;
+    }
+    return {
+      id,
+      name: appDirName,
+      dirName: appDirName,
+      sourceDir,
+      origin: { kind: "plugin", pluginName },
+    };
+  }
+
+  const app = getApp(id);
+  if (!app) {
+    return null;
+  }
+  const { dirName } = resolveAppDir(id);
+  return {
+    id,
+    name: app.name,
+    dirName,
+    sourceDir: getAppDirPath(id),
+    origin: { kind: "workspace" },
+  };
 }
 
 export function updateApp(
@@ -863,6 +1136,38 @@ export function readAppFile(appId: string, path: string): string {
     throw new Error(`File not found: ${path}`);
   }
   return readFileSync(resolved, "utf-8");
+}
+
+/**
+ * Read a file from the app directory as raw bytes.
+ * Path is validated to prevent traversal. Use for binary assets (images,
+ * audio, video, fonts) where {@link readAppFile}'s utf-8 decoding corrupts
+ * the data.
+ */
+export function readAppFileBytes(appId: string, path: string): Buffer {
+  validateId(appId);
+  const resolved = validateFilePath(appId, path);
+  if (!existsSync(resolved)) {
+    throw new Error(`File not found: ${path}`);
+  }
+  return readFileSync(resolved);
+}
+
+/**
+ * Read a file as raw bytes from an app directory addressed by its absolute
+ * path (rather than by a workspace app id). Path is validated to prevent
+ * traversal. Used to serve assets for plugin-bundled apps, whose source dir is
+ * resolved via {@link resolveAppSource}.
+ */
+export function readAppFileBytesFromDir(
+  sourceDir: string,
+  path: string,
+): Buffer {
+  const resolved = validateFilePathInDir(sourceDir, path);
+  if (!existsSync(resolved)) {
+    throw new Error(`File not found: ${path}`);
+  }
+  return readFileSync(resolved);
 }
 
 /**

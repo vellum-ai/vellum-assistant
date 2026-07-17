@@ -1,29 +1,30 @@
 /**
  * Shared access-request creation and notification helper.
  *
- * Encapsulates the "create/dedupe canonical access request + emit notification"
+ * Encapsulates the "create/dedupe guardian access request + emit notification"
  * logic so both text-channel and voice-channel ingress paths use identical
  * guardian notification flows.
  *
- * Access requests are a special case: they always create a canonical request
+ * Access requests are a special case: they always create a guardian request
  * and emit a notification signal, even when no same-channel guardian binding
  * exists. Guardian identity resolution is anchored on the assistant's vellum
  * principal so access requests cannot bind to stale/cross-assistant contacts.
  */
 
-import type { ChannelId } from "../channels/types.js";
 import {
-  createCanonicalGuardianRequest,
-  listCanonicalGuardianRequests,
-} from "../contacts/canonical-guardian-store.js";
+  createGuardianRequest,
+  listGuardianRequestsOrEmpty,
+} from "../channels/gateway-guardian-requests.js";
+import type { ChannelId } from "../channels/types.js";
 import { getGuardianDelivery } from "../contacts/guardian-delivery-reader.js";
 import type { ChannelStatus } from "../contacts/types.js";
+import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import {
   recordApprovalCardDelivery,
   recordGuardianRequestDeliveries,
-} from "../notifications/canonical-delivery-recorder.js";
-import { emitNotificationSignal } from "../notifications/emit-signal.js";
+} from "../notifications/guardian-delivery-recorder.js";
 import type { GuardianResolutionSource } from "../notifications/signal.js";
+import { IntegrityError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import { resolveAnchoredGuardian } from "./anchored-guardian.js";
 import { CHALLENGE_TTL_MS } from "./channel-verification-service.js";
@@ -96,28 +97,31 @@ export function accessRequestConversationId(
  * Whether the guardian has already terminally denied an access request from
  * this actor on this channel. Callers use it to suppress re-engagement — both
  * the guardian prompt and the self-verify challenge — for a sender the guardian
- * explicitly rejected. Reads the retained `denied` canonical request scoped by
+ * explicitly rejected. Reads the retained `denied` guardian request scoped by
  * the assistant-scoped conversation id.
+ *
+ * Gateway-unreachable degrades to `false` (no suppression data): callers then
+ * proceed toward creation, where the fail-closed create throw is the backstop
+ * against prompting without a persisted request.
  */
-export function isAccessRequestDenied(params: {
+export async function isAccessRequestDenied(params: {
   canonicalAssistantId: string;
   sourceChannel: string;
   actorExternalId: string;
-}): boolean {
+}): Promise<boolean> {
   const conversationId = accessRequestConversationId(
     params.canonicalAssistantId,
     params.sourceChannel,
     params.actorExternalId,
   );
-  return (
-    listCanonicalGuardianRequests({
-      status: "denied",
-      requesterExternalUserId: params.actorExternalId,
-      sourceChannel: params.sourceChannel,
-      kind: "access_request",
-      conversationId,
-    }).length > 0
-  );
+  const denied = await listGuardianRequestsOrEmpty({
+    status: "denied",
+    requesterExternalUserId: params.actorExternalId,
+    sourceChannel: params.sourceChannel,
+    kind: "access_request",
+    sourceConversationId: conversationId,
+  });
+  return denied.length > 0;
 }
 
 /**
@@ -136,12 +140,16 @@ export function isAccessRequestDenied(params: {
  *
  * Voice is excluded: phone approvals activate the caller directly and never
  * mint a code.
+ *
+ * Gateway-unreachable degrades to `false` (window unknown → treat as closed);
+ * the worst case is a redundant re-prompt attempt whose create is itself
+ * fail-closed.
  */
-export function isApprovalHandshakeInProgress(params: {
+export async function isApprovalHandshakeInProgress(params: {
   canonicalAssistantId: string;
   sourceChannel: string;
   actorExternalId: string;
-}): boolean {
+}): Promise<boolean> {
   if (params.sourceChannel === "phone") {
     return false;
   }
@@ -151,13 +159,14 @@ export function isApprovalHandshakeInProgress(params: {
     params.actorExternalId,
   );
   const windowStart = Date.now() - CHALLENGE_TTL_MS;
-  return listCanonicalGuardianRequests({
+  const approved = await listGuardianRequestsOrEmpty({
     status: "approved",
     requesterExternalUserId: params.actorExternalId,
     sourceChannel: params.sourceChannel,
     kind: "access_request",
-    conversationId,
-  }).some((request) => request.updatedAt >= windowStart);
+    sourceConversationId: conversationId,
+  });
+  return approved.some((request) => request.updatedAt >= windowStart);
 }
 
 // ---------------------------------------------------------------------------
@@ -165,7 +174,7 @@ export function isApprovalHandshakeInProgress(params: {
 // ---------------------------------------------------------------------------
 
 /**
- * Create/dedupe a canonical access request and emit a notification signal
+ * Create/dedupe a guardian access request and emit a notification signal
  * so the guardian can approve or deny the unknown sender.
  *
  * Returns a result indicating whether the guardian was notified and whether
@@ -175,7 +184,7 @@ export function isApprovalHandshakeInProgress(params: {
  * trust anchor and only accepts source-channel contacts that match it. This
  * prevents stale or cross-assistant contacts from being bound to the request.
  *
- * The canonical store writes complete before this resolves; the notification
+ * The gateway guardian-request writes complete before this resolves; the notification
  * signal emission is fire-and-forget.
  */
 export async function notifyGuardianOfAccessRequest(
@@ -234,26 +243,27 @@ export async function notifyGuardianOfAccessRequest(
     actorExternalId,
   );
 
-  // Deduplicate: skip creation if there is already a pending canonical request
+  // Deduplicate: skip creation if there is already a pending guardian request
   // for the same requester on this channel *and* assistant. Still return
   // notified: true with the existing request ID so callers know the guardian
-  // was already notified.
-  const existingCanonical = listCanonicalGuardianRequests({
+  // was already notified. A degraded (empty) read falls through to creation,
+  // whose fail-closed throw prevents a prompt without a persisted request.
+  const existingPending = await listGuardianRequestsOrEmpty({
     status: "pending",
     requesterExternalUserId: actorExternalId,
     sourceChannel,
     kind: "access_request",
-    conversationId,
+    sourceConversationId: conversationId,
   });
-  if (existingCanonical.length > 0) {
+  if (existingPending.length > 0) {
     log.debug(
-      { sourceChannel, actorExternalId, existingId: existingCanonical[0].id },
+      { sourceChannel, actorExternalId, existingId: existingPending[0].id },
       "Skipping duplicate access request notification",
     );
     return {
       notified: true,
       created: false,
-      requestId: existingCanonical[0].id,
+      requestId: existingPending[0].id,
     };
   }
 
@@ -266,7 +276,7 @@ export async function notifyGuardianOfAccessRequest(
   // handshake window below so a standing deny always wins over an earlier
   // approval.
   if (
-    isAccessRequestDenied({
+    await isAccessRequestDenied({
       canonicalAssistantId,
       sourceChannel,
       actorExternalId,
@@ -285,7 +295,7 @@ export async function notifyGuardianOfAccessRequest(
   // request or re-notify the guardian; once the window lapses unconsumed,
   // re-prompting is allowed again.
   if (
-    isApprovalHandshakeInProgress({
+    await isApprovalHandshakeInProgress({
       canonicalAssistantId,
       sourceChannel,
       actorExternalId,
@@ -301,16 +311,23 @@ export async function notifyGuardianOfAccessRequest(
   const senderIdentifier = actorDisplayName || actorUsername || actorExternalId;
   const requestId = `access-req-${canonicalAssistantId}-${sourceChannel}-${actorExternalId}-${Date.now()}`;
 
-  const canonicalRequest = createCanonicalGuardianRequest({
+  // Access requests are decisionable: without a bound principal nobody could
+  // ever decide them (mirrors the gateway create's integrity guard).
+  if (!guardianPrincipalId) {
+    throw new IntegrityError(
+      "Cannot create access_request without guardianPrincipalId",
+    );
+  }
+
+  const guardianRequest = await createGuardianRequest({
     id: requestId,
     kind: "access_request",
-    sourceType: "channel",
     sourceChannel,
-    conversationId,
+    sourceConversationId: conversationId,
     requesterExternalUserId: actorExternalId,
     requesterChatId: conversationExternalId,
     guardianExternalUserId: guardianExternalUserId ?? undefined,
-    guardianPrincipalId: guardianPrincipalId ?? undefined,
+    guardianPrincipalId,
     toolName: "ingress_access_request",
     questionText: introductionMode(trigger).questionText(senderIdentifier),
     requesterSignals: serializeRequesterSignals({
@@ -320,11 +337,11 @@ export async function notifyGuardianOfAccessRequest(
     }),
     // Persisted so decision-time policy (resolvers, expiry sweep) can
     // suppress requester-facing lifecycle notices for admitted-mode nudges.
-    ...(trigger === "admitted" ? { trigger } : {}),
+    ...(trigger === "admitted" ? { requestTrigger: trigger } : {}),
     expiresAt: Date.now() + GUARDIAN_APPROVAL_TTL_MS,
   });
 
-  let vellumDeliveryId: string | undefined;
+  let vellumDeliveryIdPromise: Promise<string | undefined> | undefined;
   // When the access request originates from a text channel with
   // notification delivery support (Slack, Telegram) and the guardian was
   // resolved via a verified same-channel contact, route the notification
@@ -357,7 +374,7 @@ export async function notifyGuardianOfAccessRequest(
     },
     contextPayload: {
       requestId,
-      requestCode: canonicalRequest.requestCode ?? "",
+      requestCode: guardianRequest.requestCode ?? "",
       sourceChannel,
       conversationExternalId,
       actorExternalId,
@@ -374,43 +391,47 @@ export async function notifyGuardianOfAccessRequest(
       ...(messageTs ? { messageTs } : {}),
       ...(trigger === "admitted" ? { trigger } : {}),
     },
-    dedupeKey: `access-request:${canonicalRequest.id}`,
+    dedupeKey: `access-request:${guardianRequest.id}`,
+    // The returned promise is awaited by the broadcaster before the client
+    // can learn of the conversation, so the delivery row exists before the
+    // in-app card is actionable; the post-broadcast loop reuses its row id.
     onConversationCreated: (info) => {
       if (
         info.sourceEventName !== "ingress.access_request" ||
-        vellumDeliveryId
+        vellumDeliveryIdPromise
       ) {
         return;
       }
-      vellumDeliveryId = recordApprovalCardDelivery({
-        requestId: canonicalRequest.id,
+      vellumDeliveryIdPromise = recordApprovalCardDelivery({
+        requestId: guardianRequest.id,
         channel: "vellum",
         conversationId: info.conversationId,
-      })?.id;
+      }).then((delivery) => delivery?.id);
+      return vellumDeliveryIdPromise.then(() => undefined);
     },
   })
-    .then((signalResult) => {
-      vellumDeliveryId = recordGuardianRequestDeliveries({
-        requestId: canonicalRequest.id,
+    .then(async (signalResult) => {
+      const vellumDeliveryId = await recordGuardianRequestDeliveries({
+        requestId: guardianRequest.id,
         deliveryResults: signalResult.deliveryResults,
-        vellumDeliveryId,
+        vellumDeliveryId: await vellumDeliveryIdPromise,
       });
 
       if (!vellumDeliveryId && !sameChannelOnly) {
-        recordApprovalCardDelivery({
-          requestId: canonicalRequest.id,
+        await recordApprovalCardDelivery({
+          requestId: guardianRequest.id,
           channel: "vellum",
           status: "failed",
         });
         log.warn(
-          { requestId: canonicalRequest.id, reason: signalResult.reason },
+          { requestId: guardianRequest.id, reason: signalResult.reason },
           "Notification pipeline did not produce a vellum delivery result for access request",
         );
       }
     })
     .catch((err) => {
       log.error(
-        { err, requestId: canonicalRequest.id, sourceChannel, actorExternalId },
+        { err, requestId: guardianRequest.id, sourceChannel, actorExternalId },
         "Failed to persist access request delivery rows from notification pipeline",
       );
     });
@@ -426,7 +447,7 @@ export async function notifyGuardianOfAccessRequest(
     "Guardian notified of access request",
   );
 
-  return { notified: true, created: true, requestId: canonicalRequest.id };
+  return { notified: true, created: true, requestId: guardianRequest.id };
 }
 
 /**
@@ -461,12 +482,15 @@ export async function maybeNotifyGuardianOfAdmittedContact(
     params.sourceChannel,
     params.actorExternalId,
   );
-  const alreadyIntroducedHere = listCanonicalGuardianRequests({
+  // Degraded (empty) read lets the nudge proceed; the inner suppressions and
+  // the fail-closed create still bound it to at most one live card.
+  const priorRequests = await listGuardianRequestsOrEmpty({
     kind: "access_request",
     requesterExternalUserId: params.actorExternalId,
     sourceChannel: params.sourceChannel,
-    conversationId,
-  }).some(
+    sourceConversationId: conversationId,
+  });
+  const alreadyIntroducedHere = priorRequests.some(
     (request) => request.requesterChatId === params.conversationExternalId,
   );
   if (alreadyIntroducedHere) {

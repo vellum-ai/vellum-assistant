@@ -21,6 +21,7 @@ import type { Command } from "commander";
 
 import { getDbPath } from "../../../util/platform.js";
 import { dim, green, red } from "../../lib/cli-colors.js";
+import { subcommand } from "../../lib/cli-command-help.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
 import { integrityCheckStep } from "./repair-step-integrity.js";
 import type { RepairReport, RepairStep, StepResult } from "./repair-steps.js";
@@ -104,50 +105,47 @@ function renderSummary(report: RepairReport): string {
 // ---------------------------------------------------------------------------
 
 export function registerDbRepair(parent: Command): void {
-  parent
-    .command("repair")
-    .description("Run the database repair sequence (integrity check, …)")
-    .action(async function (this: Command) {
-      const dbPath = getDbPath();
+  subcommand(parent, "repair").action(async function (this: Command) {
+    const dbPath = getDbPath();
 
-      if (!existsSync(dbPath)) {
-        if (shouldOutputJson(this)) {
-          writeOutput(this, {
-            dbPath,
-            missing: true,
-            steps: [],
-            okCount: 0,
-            errorCount: 0,
-            halted: false,
-          });
-        } else {
-          process.stderr.write(renderMissingDb(dbPath));
-        }
-        process.exit(1);
-      }
-
-      const isJson = shouldOutputJson(this);
-
-      const report = await runRepairSteps(
-        { dbPath },
-        repairSteps(),
-        isJson
-          ? {}
-          : {
-              onStart: emitStepStart,
-              onFinish: emitStepFinish,
-            },
-      );
-
-      if (isJson) {
-        writeOutput(this, report);
+    if (!existsSync(dbPath)) {
+      if (shouldOutputJson(this)) {
+        writeOutput(this, {
+          dbPath,
+          missing: true,
+          steps: [],
+          okCount: 0,
+          errorCount: 0,
+          halted: false,
+        });
       } else {
-        process.stdout.write(renderSummary(report));
+        process.stderr.write(renderMissingDb(dbPath));
       }
+      process.exit(1);
+    }
 
-      // Exit non-zero if any step failed — makes the command scriptable.
-      if (report.errorCount > 0) {
-        process.exit(1);
-      }
-    });
+    const isJson = shouldOutputJson(this);
+
+    const report = await runRepairSteps(
+      { dbPath },
+      repairSteps(),
+      isJson
+        ? {}
+        : {
+            onStart: emitStepStart,
+            onFinish: emitStepFinish,
+          },
+    );
+
+    if (isJson) {
+      writeOutput(this, report);
+    } else {
+      process.stdout.write(renderSummary(report));
+    }
+
+    // Exit non-zero if any step failed — makes the command scriptable.
+    if (report.errorCount > 0) {
+      process.exit(1);
+    }
+  });
 }

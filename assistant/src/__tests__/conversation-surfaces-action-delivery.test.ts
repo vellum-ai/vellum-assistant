@@ -512,6 +512,7 @@ describe("surface action delivery to assistant", () => {
     expect(completeMsg?.conversationId).toBe("conv-1");
     expect(completeMsg?.summary).toBe("Connected Google: user@example.com");
     expect(ctx.pendingSurfaceActions.has(surfaceId)).toBe(false);
+    expect(ctx.processMessageCalls).toHaveLength(1);
   });
 
   test("table surface does NOT broadcast ui_surface_complete (not one-shot)", async () => {

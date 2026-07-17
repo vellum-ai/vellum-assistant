@@ -19,10 +19,23 @@ import {
 const AX_TREE_TAG = "<ax-tree>";
 
 /**
+ * Tools whose results are explicit, self-sized reads the model paginates
+ * itself: `web_fetch` takes `max_chars`/`start_index` and reports a
+ * "Character Window: X-Y of Z", so the model pages by character index against
+ * the window it requested. Stubbing such a result at result time hands the
+ * model ~a tenth of the window it just sized — and it keeps paging blind
+ * against content it never saw. Like the file-read tools, these explicit
+ * reads are honored in full for the turn that made them; the post-turn pass
+ * still truncates them at turn end, after the model has consumed the content.
+ */
+export const RESULT_TIME_SPOOL_EXEMPT_TOOLS = new Set<string>(["web_fetch"]);
+
+/**
  * Whether a tool result is eligible for the result-time spool/stub pass: the
  * post-turn pass's shared rules plus the AX-tree exemption, minus the file-read
- * tools ({@link FILE_READ_TOOL_NAMES}). The file-read tools are the model's only
- * way to page spooled content back into context: stubbing a read of a
+ * tools ({@link FILE_READ_TOOL_NAMES}) and the explicit self-sized reads
+ * ({@link RESULT_TIME_SPOOL_EXEMPT_TOOLS}). The file-read tools are the model's
+ * only way to page spooled content back into context: stubbing a read of a
  * `.tool-results/` file would spool a fresh copy and hand back another stub, so
  * oversized content could never be read at all. Explicit reads are therefore
  * honored in full; the post-turn pass still truncates them at turn end, after
@@ -32,11 +45,19 @@ function isSpoolEligible(
   tr: ToolResultContent,
   toolName: string | undefined,
 ): boolean {
-  if (!isTruncationEligible(tr, toolName)) return false;
-  if (toolName !== undefined && FILE_READ_TOOL_NAMES.has(toolName)) {
+  if (!isTruncationEligible(tr, toolName)) {
     return false;
   }
-  if (tr.content.includes(AX_TREE_TAG)) return false;
+  if (
+    toolName !== undefined &&
+    (FILE_READ_TOOL_NAMES.has(toolName) ||
+      RESULT_TIME_SPOOL_EXEMPT_TOOLS.has(toolName))
+  ) {
+    return false;
+  }
+  if (tr.content.includes(AX_TREE_TAG)) {
+    return false;
+  }
   return true;
 }
 

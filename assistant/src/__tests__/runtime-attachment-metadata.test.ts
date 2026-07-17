@@ -10,17 +10,6 @@ import {
 
 mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => true }));
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-
-    model: "test",
-    provider: "test",
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-  }),
-}));
-
 // The inbound handler imports processMessage directly — stub it so it doesn't
 // attempt to spin up an LLM turn. The background dispatch is fire-and-forget;
 // tests only assert on the synchronous HTTP response.
@@ -54,6 +43,11 @@ import {
   resolveLocalTrustVerdict,
   seedContactChannel,
 } from "./helpers/channel-test-adapter.js";
+import { setConfig } from "./helpers/set-config.js";
+
+// Tests call addMessage without skipIndexing — keep memory indexing off so no
+// background memory work runs against the test DB.
+setConfig("memory", { enabled: false, v2: { enabled: false } });
 
 await initializeDb();
 

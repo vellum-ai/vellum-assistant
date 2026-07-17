@@ -34,8 +34,8 @@ import {
   vectorToBlob,
 } from "../../../../persistence/job-utils.js";
 import {
-  enqueueMemoryJob,
   type MemoryJob,
+  upsertEmbedConceptPageJob,
 } from "../../../../persistence/jobs-store.js";
 import { memoryEmbeddings } from "../../../../persistence/schema/index.js";
 import { applyCorrectionIfCalibrated } from "../anisotropy.js";
@@ -415,10 +415,12 @@ function writeEmbeddingCache(
  * Enqueue an `embed_concept_page` job (async, fire-and-forget). Modeled on
  * `enqueuePkbIndexJob` — callers that want a slug re-embedded after a write
  * (or evicted after a delete) hand off to this helper instead of running the
- * embedding inline.
+ * embedding inline. Coalesces with an existing pending job for the same slug
+ * (see `upsertEmbedConceptPageJob`): the handler reads the page from disk at
+ * execution time, so one pending row covers any number of enqueues.
  */
 export function enqueueEmbedConceptPageJob(
   input: EmbedConceptPageJobInput,
 ): string {
-  return enqueueMemoryJob("embed_concept_page", { slug: input.slug });
+  return upsertEmbedConceptPageJob({ slug: input.slug });
 }

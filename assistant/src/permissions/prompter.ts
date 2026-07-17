@@ -7,7 +7,7 @@ import { redactSensitiveFields } from "../security/redaction.js";
 import type { ExecutionTarget } from "../tools/tool-types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
-import { createCanonicalRequestForConfirmation } from "./confirmation-canonical-request.js";
+import { createGuardianRequestForConfirmation } from "./confirmation-guardian-request.js";
 import type { AllowlistOption, ScopeOption, UserDecision } from "./types.js";
 
 const log = getLogger("permission-prompter");
@@ -72,7 +72,9 @@ export class PermissionPrompter {
     isContainerized?: boolean,
     directoryScopeOptions?: readonly { scope: string; label: string }[],
   ): Promise<ConfirmResult & { wasAbort?: boolean }> {
-    if (signal?.aborted) return { decision: "deny", wasAbort: true };
+    if (signal?.aborted) {
+      return { decision: "deny", wasAbort: true };
+    }
 
     const requestId = uuid();
 
@@ -176,10 +178,10 @@ export class PermissionPrompter {
       };
       this.sendToClient(confirmationMsg);
 
-      // Promote the confirmation to a canonical guardian request so channel
+      // Promote the confirmation to a guardian request so channel
       // guardian decisions (reactions, buttons, text) can resolve it.
       if (conversationId) {
-        void createCanonicalRequestForConfirmation(
+        void createGuardianRequestForConfirmation(
           confirmationMsg,
           conversationId,
         );

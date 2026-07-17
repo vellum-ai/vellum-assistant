@@ -13,69 +13,6 @@ mock.module("../providers/registry.js", () => ({
   initializeProviders: async () => {},
 }));
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-
-    llm: {
-      default: {
-        provider: "mock-provider",
-        model: "mock-model",
-        maxTokens: 4096,
-        effort: "max" as const,
-        speed: "standard" as const,
-        temperature: null,
-        thinking: { enabled: false, streamThinking: true },
-        contextWindow: {
-          enabled: true,
-          maxInputTokens: 100000,
-          targetBudgetRatio: 0.3,
-          compactThreshold: 0.8,
-          summaryBudgetRatio: 0.05,
-          overflowRecovery: {
-            enabled: true,
-            safetyMarginRatio: 0.05,
-            maxAttempts: 3,
-            interactiveLatestTurnCompression: "summarize",
-            nonInteractiveLatestTurnCompression: "truncate",
-          },
-        },
-      },
-      profiles: {},
-      callSites: {},
-      pricingOverrides: [],
-    },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    memory: {
-      v2: { enabled: false },
-      retrieval: { scratchpadInjection: { enabled: true } },
-    },
-    daemon: {
-      startupSocketWaitMs: 5000,
-      stopTimeoutMs: 5000,
-      sigkillGracePeriodMs: 2000,
-      titleGenerationMaxTokens: 30,
-      standaloneRecording: true,
-    },
-    services: {
-      inference: {
-        mode: "your-own",
-        provider: "anthropic",
-        model: "claude-opus-4-6",
-      },
-      "image-generation": {
-        mode: "your-own",
-        provider: "gemini",
-        model: "gemini-3.1-flash-image-preview",
-      },
-      "web-search": { mode: "your-own", provider: "inference-provider-native" },
-    },
-  }),
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  invalidateConfigCache: () => {},
-}));
-
 mock.module("../prompts/system-prompt.js", () => ({
   buildSystemPrompt: () => "system prompt",
 }));
@@ -277,25 +214,6 @@ mock.module("../agent/loop.js", () => ({
     }
   },
 }));
-mock.module("../contacts/canonical-guardian-store.js", () => ({
-  listPendingCanonicalGuardianRequestsByDestinationConversation: () => [],
-  listCanonicalGuardianRequests: () => [],
-  listPendingRequestsByConversationScope: () => [],
-  createCanonicalGuardianRequest: () => ({
-    id: "mock-cg-id",
-    code: "MOCK",
-    status: "pending",
-  }),
-  getCanonicalGuardianRequest: () => null,
-  getCanonicalGuardianRequestByCode: () => null,
-  updateCanonicalGuardianRequest: () => {},
-  resolveCanonicalGuardianRequest: () => {},
-  createCanonicalGuardianDelivery: () => ({ id: "mock-cgd-id" }),
-  listCanonicalGuardianDeliveries: () => [],
-  listPendingCanonicalGuardianRequestsByDestinationChat: () => [],
-  updateCanonicalGuardianDelivery: () => {},
-  generateCanonicalRequestCode: () => "MOCK-CODE",
-}));
 
 import { Conversation } from "../daemon/conversation.js";
 
@@ -410,17 +328,23 @@ describe("abort tool result persistence", () => {
     // by a user message with matching tool_result
     for (let i = 0; i < messages.length; i++) {
       const msg = messages[i];
-      if (msg.role !== "assistant") continue;
+      if (msg.role !== "assistant") {
+        continue;
+      }
 
       const toolUseBlocks = msg.content.filter((b) => b.type === "tool_use");
-      if (toolUseBlocks.length === 0) continue;
+      if (toolUseBlocks.length === 0) {
+        continue;
+      }
 
       const nextMsg = messages[i + 1];
       expect(nextMsg).toBeDefined();
       expect(nextMsg.role).toBe("user");
 
       for (const tu of toolUseBlocks) {
-        if (tu.type !== "tool_use") continue;
+        if (tu.type !== "tool_use") {
+          continue;
+        }
         const hasResult = nextMsg.content.some(
           (b) => b.type === "tool_result" && b.tool_use_id === tu.id,
         );

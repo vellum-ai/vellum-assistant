@@ -175,7 +175,6 @@ Use `syntax` + `expression` to specify the schedule type explicitly, or just `ex
 
 - **When the user specifies a name for the schedule, use it exactly as given.** Do not paraphrase, embellish, or generate a descriptive name.
 - Use `schedule_create` for both recurring automation ("every day at 9am") and one-time reminders ("remind me at 3pm").
-- For task tracking ("add to my tasks", "add to my queue"), use task_list_add instead.
 - `fire_at` must be a strict ISO 8601 timestamp with timezone offset or Z (e.g. `2025-03-15T09:00:00-05:00`).
 
 ### Anchored & Ambiguous Relative Time
@@ -193,7 +192,7 @@ Phrases like "at the 45 minute mark", "at the top of the hour", "at noon", or "2
 
 3. **Ask only if truly ambiguous** - if neither rule resolves, ask for clarification. Never silently default to "from now."
 
-- Timezones default to the system timezone if omitted. Use IANA timezone identifiers (e.g. "America/Los_Angeles").
+- Timezones default to your configured timezone (falling back to the zone your client last reported); the assistant's own clock is used only when none is known. Pass an explicit IANA timezone identifier (e.g. "America/Los_Angeles") to override.
 - Prefer RRULE for complex patterns that cron cannot express (e.g. "every other Tuesday", "last weekday of the month").
 
 ## Capability Preflight

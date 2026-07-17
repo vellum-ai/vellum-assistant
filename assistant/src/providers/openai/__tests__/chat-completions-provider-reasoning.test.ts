@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
+import OpenAI from "openai";
+
 import { isPlaceholderSentinelText } from "../../placeholder-sentinels.js";
 import {
   EMPTY_ASSISTANT_TURN_PLACEHOLDER,
@@ -26,6 +28,10 @@ type MockChunk = {
   usage?: {
     prompt_tokens: number;
     completion_tokens: number;
+    prompt_tokens_details?: {
+      cached_tokens?: number;
+      cache_write_tokens?: number;
+    };
   };
 };
 
@@ -595,6 +601,51 @@ describe("reasoning opt-out rejection fallback", () => {
     expect(text?.text).toBe("ok");
   });
 
+  test("retries once for an OpenRouter-wrapped reasoning rejection (detail in metadata.raw)", async () => {
+    // OpenRouter's SDK APIError.message is the generic wrapper
+    // ("400 Provider returned error"); the real reason lives only in
+    // error.error.metadata.raw, which normalizeOpenAIAPIError promotes into the
+    // normalized message. Matching error.message alone would miss it and the
+    // opt-out rejection would hard-fail instead of retrying.
+    const wrapped = new OpenAI.APIError(
+      400,
+      {
+        code: 400,
+        message: "Provider returned error",
+        metadata: {
+          raw: "reasoning_effort 'none' is not supported for this reasoning model",
+          provider_name: "deepseek",
+        },
+      },
+      undefined,
+      new Headers(),
+    );
+    // Guard: the wrapper message carries no reasoning signal, so the fallback
+    // can only fire off the normalized upstream detail.
+    expect(/reasoning/i.test(wrapped.message)).toBe(false);
+
+    const { provider, requests } = stubProviderWithErrors([wrapped], okChunks);
+
+    const response = await provider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+      { config: { effort: "none" } },
+    );
+
+    expect(requests).toHaveLength(2);
+    const first = requests[0] as { reasoning_effort?: string };
+    const second = requests[1] as {
+      reasoning_effort?: string;
+      reasoning?: unknown;
+    };
+    expect(first.reasoning_effort).toBe("none");
+    expect(second.reasoning_effort).toBeUndefined();
+    expect(second.reasoning).toBeUndefined();
+    const text = response.content.find((b) => b.type === "text") as
+      | { type: "text"; text: string }
+      | undefined;
+    expect(text?.text).toBe("ok");
+  });
+
   test("does not retry when the request did not opt out of reasoning", async () => {
     const { provider, requests } = stubProviderWithErrors(
       [rejection("reasoning_effort is invalid")],
@@ -638,5 +689,55 @@ describe("reasoning opt-out rejection fallback", () => {
       ),
     ).rejects.toThrow();
     expect(requests).toHaveLength(1);
+  });
+});
+
+describe("OpenAIChatCompletionsProvider cache usage parsing", () => {
+  test("maps prompt_tokens_details cache fields into usage", async () => {
+    // prompt_tokens is the inclusive total; the cached subset surfaces as
+    // cacheReadInputTokens and the written subset (GPT-5.6+
+    // cache_write_tokens, billed at 1.25x input) as cacheCreationInputTokens.
+    const { provider } = stubProvider([
+      { choices: [{ delta: { content: "ok" } }] },
+      {
+        choices: [{ delta: {}, finish_reason: "stop" }],
+        usage: {
+          prompt_tokens: 2_006,
+          completion_tokens: 300,
+          prompt_tokens_details: {
+            cached_tokens: 1_920,
+            cache_write_tokens: 64,
+          },
+        },
+      },
+    ]);
+
+    const response = await provider.sendMessage([
+      { role: "user", content: [{ type: "text", text: "hi" }] },
+    ]);
+
+    expect(response.usage).toEqual({
+      inputTokens: 2_006,
+      outputTokens: 300,
+      cacheReadInputTokens: 1_920,
+      cacheCreationInputTokens: 64,
+    });
+  });
+
+  test("omits cache fields when prompt_tokens_details is absent", async () => {
+    const { provider } = stubProvider([
+      { choices: [{ delta: { content: "ok" } }] },
+      {
+        choices: [{ delta: {}, finish_reason: "stop" }],
+        usage: { prompt_tokens: 10, completion_tokens: 2 },
+      },
+    ]);
+
+    const response = await provider.sendMessage([
+      { role: "user", content: [{ type: "text", text: "hi" }] },
+    ]);
+
+    expect(response.usage).not.toHaveProperty("cacheReadInputTokens");
+    expect(response.usage).not.toHaveProperty("cacheCreationInputTokens");
   });
 });

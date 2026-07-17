@@ -63,7 +63,7 @@ export function actorTrustContextFromVerdict(
     guardianPrincipalId: verdict.guardianPrincipalId,
     // Populate from the verdict so the voice path's ACL gates (which read
     // actorTrust.memberRecord.channel status/policy) enforce blocked/revoked/
-    // deny/escalate. Null for memberless verdicts. Text path is unaffected:
+    // deny. Null for memberless verdicts. Text path is unaffected:
     // toTrustContext derives the same member fields trustContextFromVerdict
     // already stamps.
     memberRecord: memberRecordFromVerdict(verdict),
@@ -178,6 +178,8 @@ export function verdictUsability(
 }
 
 // Allowed ACL enum values, kept in sync with the ContactChannel union types.
+// An unrecognized policy (e.g. a stale value from an un-migrated gateway)
+// yields an unresolvable member → the fail-closed deny backstop.
 const CHANNEL_STATUS_VALUES: readonly ChannelStatus[] = [
   "active",
   "pending",
@@ -185,11 +187,7 @@ const CHANNEL_STATUS_VALUES: readonly ChannelStatus[] = [
   "blocked",
   "unverified",
 ];
-const CHANNEL_POLICY_VALUES: readonly ChannelPolicy[] = [
-  "allow",
-  "deny",
-  "escalate",
-];
+const CHANNEL_POLICY_VALUES: readonly ChannelPolicy[] = ["allow", "deny"];
 
 function isChannelStatus(value: string): value is ChannelStatus {
   return (CHANNEL_STATUS_VALUES as readonly string[]).includes(value);

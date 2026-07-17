@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 // The `.voice-avatar-*` / `.voice-room-*` / `.voice-listening-waves` keyframes
 // are hand-written rules in the app's global stylesheet, not Tailwind utilities
@@ -12,14 +12,25 @@ import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 import { avatarQueryKey } from "@/hooks/use-assistant-avatar";
 import type { CharacterTraits } from "@/types/avatar";
 
+import { toneForBg } from "@/utils/avatar-tone";
+
 import { VoiceRoomAmbientBackground } from "./voice-room-ambient-background";
 import {
   VoiceListeningWaves,
   type VoiceWavePalette,
+  type VoiceWavePlacement,
   type VoiceWaveStyle,
 } from "./voice-listening-waves";
 import { VoiceAvatar } from "./voice-avatar";
 import type { VoiceAvatarVisual } from "./voice-avatar-state";
+import {
+  VoiceRespondingRings,
+  VoiceRoomColorLook,
+  VoiceStateCaption,
+  resolveVoiceRoomLook,
+  type VoiceEyePlacement,
+  type VoiceRespondingStyle,
+} from "./voice-room-eyes";
 
 /**
  * Iteration harness for the live-voice room's avatar + state animations. Scrub
@@ -27,11 +38,12 @@ import type { VoiceAvatarVisual } from "./voice-avatar-state";
  * with the `amplitude` slider or the `oscillate` "simulated speech" toggle — no
  * live mic / STT / TTS session required.
  *
- * `listening` renders the bottom-edge waves (energy coming *in* from the user)
- * and the avatar stays at rest; `responding` is the avatar's own outward pulse
- * (energy going *out*). Wave `waveStyle` (fill / line) and `palette` (aurora /
- * accent) are the design knobs. `realAvatar` swaps the "V" fallback for a real
- * bundled character.
+ * `listening` renders the top-edge waves (energy coming *in* from the user)
+ * and the avatar stays at rest; `responding` radiates the concentric rings from
+ * behind the avatar (energy going *out*, the same treatment the color look's
+ * eyes use). Wave `waveStyle` (fill / line) and `palette` (aurora / accent) are
+ * the design knobs. `realAvatar` swaps the "V" fallback for a real bundled
+ * character.
  *
  * Nothing hits the network: the real avatar is seeded into the query cache
  * below, on the room's own deep-dark `data-theme="dark"` void.
@@ -78,6 +90,12 @@ const VISUALS: VoiceAvatarVisual[] = [
   "responding",
   "reconnecting",
 ];
+
+// Bundled trait ids for the color-look knobs — the same palette the picker
+// draws from, so every avatar the app can render is scrubbable here.
+const COLOR_IDS = BUNDLED_COMPONENTS.colors.map((c) => c.id);
+const EYE_IDS = BUNDLED_COMPONENTS.eyeStyles.map((e) => e.id);
+const BODY_IDS = BUNDLED_COMPONENTS.bodyShapes.map((b) => b.id);
 
 /**
  * A stable `getAmplitude` backed by a ref: a static slider value, or a
@@ -128,8 +146,12 @@ interface RoomSceneProps {
 
 /**
  * A full room scene for one visual: the deep-dark void, ambient particles, the
- * bottom listening waves (only in `listening`), and the centered avatar — all
- * driven by one shared amplitude source so the avatar and waves move together.
+ * top-edge listening waves (only in `listening`), the responding rings behind
+ * the avatar (only in `responding`), the centered avatar, and the shared state
+ * caption below it — all driven by one shared amplitude source so the avatar,
+ * waves, and rings move together. Mirrors the app's void look, which shares the
+ * color look's foreground chrome (top waves + rings + caption) bar the
+ * full-screen color and eyes.
  */
 function RoomScene({
   visual,
@@ -142,8 +164,10 @@ function RoomScene({
   minHeight = 420,
 }: RoomSceneProps) {
   const getAmplitude = useAmplitudeDriver(amplitude, oscillate);
+  const { ref, size: box } = useBoxSize();
   return (
     <div
+      ref={ref}
       data-theme="dark"
       className="relative flex items-center justify-center overflow-hidden rounded-lg"
       style={{ background: "#05060b", minHeight, ["--avatar-accent" as string]: SAMPLE_ACCENT }}
@@ -154,7 +178,15 @@ function RoomScene({
           getAmplitude={getAmplitude}
           waveStyle={waveStyle}
           palette={palette}
+          // Same top edge as the color look — positional parity.
+          placement="top"
         />
+      ) : null}
+      {/* Responding: the same concentric rings the color look radiates from
+          behind the eyes, here behind the centered avatar. Sized against the
+          story box (not the window) so they match this frame. */}
+      {visual === "responding" && box.w > 0 ? (
+        <VoiceRespondingRings getAmplitude={getAmplitude} viewport={box} />
       ) : null}
       <div className="relative z-0 flex items-center justify-center">
         <VoiceAvatar
@@ -164,22 +196,204 @@ function RoomScene({
           size={size}
         />
       </div>
+      {/* Shared caption below the centered avatar (half its size from center,
+          plus a gap), matching the app's void look. */}
+      <VoiceStateCaption
+        visual={visual}
+        top={`calc(50% + ${size / 2}px + 1.25rem)`}
+      />
     </div>
   );
 }
 
-const meta: Meta<typeof RoomScene> = {
-  title: "Chat/Voice/VoiceAvatar",
-  component: RoomScene,
-  parameters: { layout: "fullscreen" },
-  args: {
-    amplitude: 0.5,
-    oscillate: true,
-    waveStyle: "fill",
-    palette: "accent",
-    realAvatar: true,
-    size: 200,
+/** Measure a box with a ResizeObserver — the color look sizes against it. */
+function useBoxSize() {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const [size, setSize] = useState({ w: 0, h: 0 });
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const measure = () => {
+      const r = el.getBoundingClientRect();
+      setSize({ w: r.width, h: r.height });
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  return { ref, size };
+}
+
+interface ColorLookSceneProps {
+  visual: VoiceAvatarVisual;
+  amplitude: number;
+  oscillate: boolean;
+  eyePlacement: VoiceEyePlacement;
+  wavePlacement: VoiceWavePlacement;
+  waveStyle: VoiceWaveStyle;
+  wavePalette: VoiceWavePalette;
+  respondingStyle: VoiceRespondingStyle;
+  colorId: string;
+  eyeStyle: string;
+  bodyShape: string;
+  /** Bump to remount and replay the entrance animation. */
+  replay: number;
+  minHeight?: number;
+}
+
+/**
+ * The color-with-eyes look for one avatar: the Introduction-step grow entrance
+ * (body springs to fill, color fades in, eyes grow into place), the mic
+ * waveform behind the eyes while `listening`, all in a measured box so the
+ * geometry sizes against the story frame rather than the window. The whole
+ * look remounts (replaying the entrance) whenever `replay` or any trait knob
+ * changes.
+ */
+function ColorLookScene({
+  visual,
+  amplitude,
+  oscillate,
+  eyePlacement,
+  wavePlacement,
+  waveStyle,
+  wavePalette,
+  respondingStyle,
+  colorId,
+  eyeStyle,
+  bodyShape,
+  replay,
+  minHeight = 520,
+}: ColorLookSceneProps) {
+  const driveAmplitude = useAmplitudeDriver(amplitude, oscillate);
+  // Only `listening` (mic) and `responding` (TTS) are audio-reactive in the
+  // real app; silence the driver in the other states so e.g. `thinking` shows
+  // the eyes held steady-low, not bobbing.
+  const getAmplitude = useCallback(
+    () =>
+      visual === "listening" || visual === "responding"
+        ? driveAmplitude()
+        : 0,
+    [driveAmplitude, visual],
+  );
+  const { ref, size } = useBoxSize();
+  const look = useMemo(
+    () =>
+      resolveVoiceRoomLook(
+        BUNDLED_COMPONENTS,
+        { bodyShape, eyeStyle, color: colorId },
+        null,
+      ),
+    [bodyShape, eyeStyle, colorId],
+  );
+  const tone = look ? toneForBg(look.bgHex) : null;
+  const toneVars = {
+    "--room-fg": tone?.fg ?? "#FFFFFF",
+    "--room-fg-muted": tone?.fgMuted ?? "rgba(255,255,255,0.7)",
+    "--room-wash": tone?.wash ?? "rgba(255,255,255,0.1)",
+    "--room-border": tone?.wash ?? "rgba(255,255,255,0.15)",
+  } as Record<string, string>;
+
+  return (
+    <div
+      ref={ref}
+      data-theme={tone?.isLight ? "light" : "dark"}
+      className="relative overflow-hidden rounded-lg"
+      style={{ minHeight, ...toneVars }}
+    >
+      {look && size.w > 0 ? (
+        <VoiceRoomColorLook
+          // Remount on any trait/replay change so the entrance plays again.
+          key={`${colorId}-${eyeStyle}-${bodyShape}-${eyePlacement}-${replay}`}
+          look={look}
+          visual={visual}
+          getAmplitude={getAmplitude}
+          eyePlacement={eyePlacement}
+          wavePlacement={wavePlacement}
+          waveStyle={waveStyle}
+          wavePalette={wavePalette}
+          respondingStyle={respondingStyle}
+          viewport={size}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Shared + color-look controls (the color-with-eyes look is the app default).
+// ---------------------------------------------------------------------------
+
+const sharedArgTypes = {
+  visual: { options: VISUALS, control: { type: "select" as const } },
+  amplitude: {
+    control: { type: "range" as const, min: 0, max: 1, step: 0.01 },
+    description: "Static level (0–1). Ignored while Oscillate is on.",
   },
+  oscillate: { control: { type: "boolean" as const } },
+  waveStyle: {
+    options: ["fill", "line"] satisfies VoiceWaveStyle[],
+    control: { type: "inline-radio" as const },
+    description: "Waveform: filled water vs stroked ribbon.",
+  },
+};
+
+/** Defaults for the color-look stories. */
+const colorArgs = {
+  visual: "listening" as VoiceAvatarVisual,
+  amplitude: 0.5,
+  oscillate: true,
+  waveStyle: "fill" as VoiceWaveStyle,
+  eyePlacement: "center" as VoiceEyePlacement,
+  wavePlacement: "top" as VoiceWavePlacement,
+  wavePalette: "tone" as VoiceWavePalette,
+  respondingStyle: "rings" as VoiceRespondingStyle,
+  colorId: SAMPLE_COLOR_ID,
+  eyeStyle: "grumpy",
+  bodyShape: "blob",
+  replay: 0,
+};
+
+const colorArgTypes = {
+  ...sharedArgTypes,
+  eyePlacement: {
+    options: ["center", "bottom"] satisfies VoiceEyePlacement[],
+    control: { type: "inline-radio" as const },
+    description: "Eyes rest centered, or cut off at the bottom edge.",
+  },
+  wavePlacement: {
+    options: ["top", "bottom", "center"] satisfies VoiceWavePlacement[],
+    control: { type: "inline-radio" as const },
+    description: "Waveform: sweeping in from the top edge, rising from the floor, or a centered band.",
+  },
+  wavePalette: {
+    options: ["tone", "accent", "aurora"] satisfies VoiceWavePalette[],
+    control: { type: "inline-radio" as const },
+    description: "tone follows the room fg; accent = avatar hue; aurora = cyan→indigo.",
+  },
+  respondingStyle: {
+    options: ["rings", "halo", "waveform", "pulse"] satisfies VoiceRespondingStyle[],
+    control: { type: "inline-radio" as const },
+    description: "Responding treatment (visible in the responding state).",
+  },
+  colorId: { options: COLOR_IDS, control: { type: "select" as const } },
+  eyeStyle: { options: EYE_IDS, control: { type: "select" as const } },
+  bodyShape: {
+    options: BODY_IDS,
+    control: { type: "select" as const },
+    description: "Body shape that grows to fill on entrance.",
+  },
+  replay: {
+    control: { type: "range" as const, min: 0, max: 20, step: 1 },
+    description: "Bump to remount and replay the grow-in entrance.",
+  },
+};
+
+const meta: Meta<typeof ColorLookScene> = {
+  title: "Chat/Voice/VoiceAvatar",
+  component: ColorLookScene,
+  parameters: { layout: "fullscreen" },
+  args: colorArgs,
   decorators: [
     (Story) => (
       <QueryClientProvider client={queryClient}>
@@ -189,51 +403,63 @@ const meta: Meta<typeof RoomScene> = {
       </QueryClientProvider>
     ),
   ],
-  argTypes: {
-    visual: { options: VISUALS, control: { type: "select" } },
-    amplitude: {
-      control: { type: "range", min: 0, max: 1, step: 0.01 },
-      description: "Static level (0–1). Ignored while Oscillate is on.",
-    },
-    oscillate: { control: { type: "boolean" } },
-    waveStyle: {
-      options: ["fill", "line"] satisfies VoiceWaveStyle[],
-      control: { type: "inline-radio" },
-      description: "Listening waves: filled water vs stroked ribbon.",
-    },
-    palette: {
-      options: ["aurora", "accent"] satisfies VoiceWavePalette[],
-      control: { type: "inline-radio" },
-      description: "Fixed cyan→indigo vs tinted from the avatar accent.",
-    },
-    realAvatar: {
-      control: { type: "boolean" },
-      description: "Real bundled character vs the “V” fallback.",
-    },
-    size: { control: { type: "range", min: 80, max: 320, step: 4 } },
-  },
+  argTypes: colorArgTypes,
 };
 
 export default meta;
-type Story = StoryObj<typeof RoomScene>;
-
-/** Playground — every knob live. Defaults to the listening state so the waves + wave controls are visible. */
-export const Playground: Story = {
-  args: { visual: "listening" },
-};
+type Story = StoryObj<typeof ColorLookScene>;
+type VoidStory = StoryObj<typeof RoomScene>;
 
 /**
- * The two audio-reactive states side by side (aurora / fill): `listening` reads
- * as energy coming *in* (waves rising toward a still, receptive avatar),
- * `responding` as energy going *out* (the avatar's own outward pulse).
+ * Playground for the room's color-with-eyes look — every knob live. Change any
+ * trait (or bump Replay) to replay the entrance: the body springs to fill, the
+ * color fades in, and the eyes grow into place. The eyes stay centered and
+ * change *size* per state; in `listening`, the mic waveform sweeps in from the
+ * top edge with the simulated-speech driver and a state caption fades in below.
  */
-export const ListeningVsResponding: Story = {
+export const Playground: Story = {};
+
+/**
+ * Every session state, all sharing the simulated-speech driver. The eyes stay
+ * centered throughout and express the state by size (a smooth scale tween);
+ * a soft caption names the beat below them:
+ * - `idle` — eyes centered at a resting size, no treatment or caption.
+ * - `listening` — eyes wide ("all ears"), the waveform sweeping in from the top
+ *   edge, "Listening" below.
+ * - `thinking` — eyes small, the dot triad just above them, "Thinking" below.
+ * - `responding` — eyes medium, the responding treatment radiating outward,
+ *   "Speaking" below.
+ * - `reconnecting` — eyes at the resting size but dimmed.
+ *
+ * Scrub `visual` in the Playground to watch the size + caption cross-fade.
+ */
+export const States: Story = {
   render: (args) => (
-    <div className="grid gap-4 sm:grid-cols-2">
-      {(["listening", "responding"] as const).map((visual) => (
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {VISUALS.map((visual) => (
         <div key={visual} className="flex flex-col gap-2">
           <span className="text-[13px] font-medium text-white/60">{visual}</span>
-          <RoomScene {...args} visual={visual} size={180} />
+          <ColorLookScene
+            {...args}
+            visual={visual}
+            eyePlacement="center"
+            wavePlacement="top"
+            minHeight={280}
+          />
+        </div>
+      ))}
+    </div>
+  ),
+};
+
+/** The look across every avatar color, entrance playing in each. */
+export const Colors: Story = {
+  render: (args) => (
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {COLOR_IDS.map((colorId) => (
+        <div key={colorId} className="flex flex-col gap-2">
+          <span className="text-[13px] font-medium text-white/60">{colorId}</span>
+          <ColorLookScene {...args} colorId={colorId} minHeight={300} />
         </div>
       ))}
     </div>
@@ -241,36 +467,85 @@ export const ListeningVsResponding: Story = {
 };
 
 /**
- * The four wave treatments to choose between — style (fill / line) × palette
- * (aurora / accent) — all in the listening state, sharing the simulated-speech
- * driver. The `accent` column is tinted from a sample avatar color.
+ * Responding-state sketches, all in the responding state on the same
+ * simulated-TTS driver — the eyes back up at center (engaged), each option a
+ * different way of radiating the assistant's voice outward. Pick one; the rest
+ * come out.
  */
-export const WaveVariants: Story = {
+export const RespondingSketches: Story = {
+  name: "Responding — Sketches",
+  args: { ...colorArgs, visual: "responding" },
+  argTypes: colorArgTypes,
   render: (args) => (
     <div className="grid gap-4 sm:grid-cols-2">
-      {(["fill", "line"] as const).flatMap((waveStyle) =>
-        (["aurora", "accent"] as const).map((palette) => (
-          <div key={`${waveStyle}-${palette}`} className="flex flex-col gap-2">
-            <span className="text-[13px] font-medium text-white/60">
-              {waveStyle} · {palette}
-            </span>
-            <RoomScene
-              {...args}
-              visual="listening"
-              waveStyle={waveStyle}
-              palette={palette}
-              size={150}
-              minHeight={300}
-            />
-          </div>
-        )),
-      )}
+      {(["rings", "halo", "waveform", "pulse"] as const).map((respondingStyle) => (
+        <div key={respondingStyle} className="flex flex-col gap-2">
+          <span className="text-[13px] font-medium text-white/60">
+            {respondingStyle}
+          </span>
+          <ColorLookScene
+            {...args}
+            visual="responding"
+            respondingStyle={respondingStyle}
+            minHeight={340}
+          />
+        </div>
+      ))}
     </div>
   ),
 };
 
-/** Every visual side by side, all driven by the same simulated-speech envelope. */
-export const AllStates: Story = {
+// ---------------------------------------------------------------------------
+// Void look — the deep-dark ambient fallback for custom-image / no-character
+// avatars (kept for reference; the color look above is the default).
+// ---------------------------------------------------------------------------
+
+const voidArgs = {
+  visual: "listening" as VoiceAvatarVisual,
+  amplitude: 0.5,
+  oscillate: true,
+  waveStyle: "fill" as VoiceWaveStyle,
+  palette: "accent" as VoiceWavePalette,
+  realAvatar: true,
+  size: 200,
+};
+
+const voidArgTypes = {
+  ...sharedArgTypes,
+  palette: {
+    options: ["aurora", "accent", "tone"] satisfies VoiceWavePalette[],
+    control: { type: "inline-radio" as const },
+    description: "Fixed cyan→indigo, tinted from the avatar accent, or room-fg tone.",
+  },
+  realAvatar: {
+    control: { type: "boolean" as const },
+    description: "Real bundled character vs the “V” fallback.",
+  },
+  size: { control: { type: "range" as const, min: 80, max: 320, step: 4 } },
+  // Color-look-only knobs — irrelevant to the void look.
+  eyePlacement: { table: { disable: true } },
+  wavePlacement: { table: { disable: true } },
+  wavePalette: { table: { disable: true } },
+  respondingStyle: { table: { disable: true } },
+  colorId: { table: { disable: true } },
+  eyeStyle: { table: { disable: true } },
+  bodyShape: { table: { disable: true } },
+  replay: { table: { disable: true } },
+};
+
+/** Void-look playground — the centered avatar, ambient void, and top waves. */
+export const VoidLookPlayground: VoidStory = {
+  name: "Void Look — Playground",
+  render: (args) => <RoomScene {...args} />,
+  args: voidArgs,
+  argTypes: voidArgTypes,
+};
+
+/** Every state in the void look, all driven by the same simulated-speech envelope. */
+export const VoidLookStates: VoidStory = {
+  name: "Void Look — States",
+  args: voidArgs,
+  argTypes: voidArgTypes,
   render: (args) => (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
       {VISUALS.map((visual) => (

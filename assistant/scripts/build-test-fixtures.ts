@@ -69,8 +69,9 @@ async function buildMigratedFixture(outWorkspaceDir: string): Promise<void> {
   mkdirSync(destDbDir, { recursive: true });
 
   // The four DBs are captured together: the migrated state spans them (e.g.
-  // llm_request_logs in `logs`, memory_jobs in `memory`, watchdog_events in
-  // `telemetry`), so a partial capture would leave a test with missing tables.
+  // llm_request_logs in `logs`, memory_jobs in `memory`, telemetry_events +
+  // flush_checkpoints in `telemetry`), so a partial capture would leave a test
+  // with missing tables.
   const captures = [
     [getSqlite(), getDbPath()],
     [getLogsSqlite(), getLogsDbPath()],

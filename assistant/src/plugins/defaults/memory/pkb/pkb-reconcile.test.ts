@@ -44,9 +44,6 @@ mock.module(
 mock.module("../../../../persistence/job-utils.js", () => ({
   embedAndUpsert: async () => {},
 }));
-mock.module("../../../../config/loader.js", () => ({
-  getConfig: () => ({ __stub: true }),
-}));
 
 import { reconcilePkbIndex } from "./pkb-reconcile.js";
 

@@ -9,7 +9,7 @@
  * - Cold projection (1000 msgs / 5 skills): < 100ms
  * - Incremental scan (10 new msgs):         < 20ms
  */
-import { describe, expect, mock, test } from "bun:test";
+import { beforeAll, describe, expect, mock, test } from "bun:test";
 
 import type { Message } from "../providers/types.js";
 
@@ -17,20 +17,8 @@ import type { Message } from "../providers/types.js";
 // Mocks — must be registered before importing the module under test
 // ---------------------------------------------------------------------------
 
-// Mock config loader and feature flags to avoid filesystem reads on CI.
+// Mock feature flags to avoid filesystem reads on CI.
 // The benchmark fixture treats every feature flag as enabled.
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({}),
-  loadConfig: () => ({}),
-  applyNestedDefaults: (c: unknown) => c,
-  invalidateConfigCache: () => {},
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  getNestedValue: () => undefined,
-  setNestedValue: () => {},
-  API_KEY_PROVIDERS: [],
-}));
-
 mock.module("../config/assistant-feature-flags.js", () => ({
   isAssistantFeatureFlagEnabled: () => true,
   loadDefaultsRegistry: () => ({}),
@@ -54,6 +42,8 @@ mock.module("../config/skills.js", () => ({
   resolveSkillSelector: () => ({ found: false }),
   loadSkillBySelector: () => ({ found: false }),
   readCachedSkillIcon: () => undefined,
+  // Pass-through: the benchmark doesn't exercise per-chat plugin scoping.
+  filterSkillsByEnabledPlugins: (skills: unknown) => skills,
 }));
 
 // Mock skill-state.js to break the transitive import chain — the benchmark
@@ -280,6 +270,16 @@ function timeMs(fn: () => void): number {
 // ---------------------------------------------------------------------------
 
 describe("Skill projection benchmark", () => {
+  beforeAll(() => {
+    // Prime the real config loader and JIT the projection path once so the
+    // first measured "cold" run reflects projection latency, not the one-time
+    // loader/module warmup cost that a trivial config mock used to hide.
+    const warmIds = ["warmup-skill"];
+    catalogSkillIds = warmIds;
+    projectSkillTools(buildHistory(20, warmIds));
+    catalogSkillIds = [];
+  });
+
   test("cold projection: 100 messages / 3 skills < 50ms", () => {
     const skillIds = ["skill-alpha", "skill-beta", "skill-gamma"];
     catalogSkillIds = skillIds;

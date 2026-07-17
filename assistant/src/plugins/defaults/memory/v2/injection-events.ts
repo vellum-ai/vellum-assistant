@@ -1,5 +1,5 @@
-import { getMemorySqlite } from "../../../../persistence/db-connection.js";
 import { getLogger } from "../logging.js";
+import { memorySqliteOrNull } from "../memory-db.js";
 
 const log = getLogger("memory-v2-injection-events");
 
@@ -22,23 +22,6 @@ const READ_WINDOW_MS = 6 * INJECTION_SCORE_HALF_LIFE_MS;
 
 function decayContribution(elapsedMs: number): number {
   return Math.exp(-INJECTION_SCORE_LAMBDA * elapsedMs);
-}
-
-/**
- * The dedicated memory connection (`assistant-memory.db`), where
- * `memory_v2_injection_events` lives. `null` when the file cannot be opened
- * — every caller here degrades rather than throwing: the event log is a
- * scoring signal, and losing it must never break routing or a turn.
- */
-function memorySqliteOrNull(context: string) {
-  const sqlite = getMemorySqlite();
-  if (!sqlite) {
-    log.warn(
-      { context },
-      "memory database unavailable; injection events degraded",
-    );
-  }
-  return sqlite;
 }
 
 /**

@@ -1,11 +1,4 @@
-/**
- * Declarative help for the `assistant backup` command.
- *
- * Plain data (no action handlers, imports only the help contract type) so the
- * memory capability indexer can read it without pulling in the daemon/IPC action
- * graph. The handlers live in `backup.ts`, which applies this via
- * `applyCommandHelp` and attaches them.
- */
+/** Declarative help for the `assistant backup` command. */
 
 import type { CliCommandHelp } from "../lib/cli-command-help.js";
 

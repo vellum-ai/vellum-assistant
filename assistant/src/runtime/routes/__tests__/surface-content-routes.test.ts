@@ -34,6 +34,7 @@ interface StoredSurface {
 interface StubConversation {
   id: string;
   surfaceState: Map<string, StoredSurface>;
+  contextCompactedMessageCount: number;
   currentTurnSurfaces?: Array<{
     surfaceId: string;
     surfaceType: string;
@@ -45,11 +46,13 @@ interface StubConversation {
 let memoryById: StubConversation | null = null;
 let rehydrated: StubConversation | null = null;
 let rawGetReturn: { conversation_id: string } | null = null;
+let rawAllReturn: Array<{ content: string; metadata?: string | null }> = [];
 
 const findConvCalls: string[] = [];
 const findBySurfaceCalls: string[] = [];
 const getOrCreateCalls: string[] = [];
 const rawGetCalls: Array<{ sql: string; params: unknown[] }> = [];
+const rawAllCalls: Array<{ sql: string; params: unknown[] }> = [];
 
 mock.module("../../../daemon/conversation-registry.js", () => ({
   findConversation: (id: string) => {
@@ -74,10 +77,22 @@ mock.module("../../../daemon/conversation-store.js", () => ({
   },
 }));
 
+let requesterTrustClass = "guardian";
+mock.module("../vellum-actor-trust.js", () => ({
+  resolveVellumActorTrustContext: async () => ({
+    trustClass: requesterTrustClass,
+    sourceChannel: "vellum",
+  }),
+}));
+
 mock.module("../../../persistence/raw-query.js", () => ({
   rawGet: (_label: string, sql: string, ...params: unknown[]) => {
     rawGetCalls.push({ sql, params });
     return rawGetReturn;
+  },
+  rawAll: (_label: string, sql: string, ...params: unknown[]) => {
+    rawAllCalls.push({ sql, params });
+    return rawAllReturn;
   },
 }));
 
@@ -92,8 +107,18 @@ function findHandler(operationId: string): RouteDefinition["handler"] {
   return route.handler;
 }
 
+/**
+ * Headers for a request from the guardian actor. The fallback fails closed
+ * without a verified actor id or local principal, so every test that means
+ * to exercise it as the guardian must send these.
+ */
+const GUARDIAN_HEADERS = {
+  "x-vellum-principal-type": "actor",
+  "x-vellum-actor-principal-id": "vellum-principal-guardian",
+};
+
 function makeStub(id: string): StubConversation {
-  return { id, surfaceState: new Map() };
+  return { id, surfaceState: new Map(), contextCompactedMessageCount: 0 };
 }
 
 // ---------------------------------------------------------------------------
@@ -101,13 +126,16 @@ function makeStub(id: string): StubConversation {
 // ---------------------------------------------------------------------------
 
 beforeEach(() => {
+  requesterTrustClass = "guardian";
   memoryById = null;
   rehydrated = null;
   rawGetReturn = null;
+  rawAllReturn = [];
   findConvCalls.length = 0;
   findBySurfaceCalls.length = 0;
   getOrCreateCalls.length = 0;
   rawGetCalls.length = 0;
+  rawAllCalls.length = 0;
 });
 
 // ---------------------------------------------------------------------------
@@ -203,6 +231,331 @@ describe("surfaces_get_content handler", () => {
     expect(rawGetCalls).toHaveLength(1);
     expect(rawGetCalls[0]!.params[0]).toBe(`%"surfaceId":"surf-restored"%`);
     expect(getOrCreateCalls).toEqual(["conv-evicted"]);
+  });
+
+  // -------------------------------------------------------------------------
+  // Out-of-band inserts: the conversation IS in memory but its surfaceState
+  // predates a surface appended straight to the messages table (`addMessage`
+  // on a loaded conversation — the memory retrospective's skill card).
+  // -------------------------------------------------------------------------
+  test("serves an out-of-band surface from persisted history without memoizing", async () => {
+    const conv = makeStub("conv-live"); // loaded, but surfaceState predates the insert
+    memoryById = conv;
+    rawAllReturn = [
+      {
+        content: JSON.stringify([
+          {
+            type: "ui_surface",
+            surfaceId: "surf-oob",
+            surfaceType: "skill_card",
+            title: "New skill learned",
+            display: "inline",
+            data: { skills: [{ skillId: "standup-drafter" }] },
+          },
+          {
+            type: "text",
+            text: "New skill learned: Standup",
+            _surfaceFallback: true,
+          },
+        ]),
+      },
+    ];
+
+    const handler = findHandler("surfaces_get_content");
+    const result = await handler({
+      pathParams: { surfaceId: "surf-oob" },
+      queryParams: { conversationId: "conv-live" },
+      headers: GUARDIAN_HEADERS,
+    });
+
+    expect(result).toEqual({
+      surfaceId: "surf-oob",
+      surfaceType: "skill_card",
+      title: "New skill learned",
+      data: { skills: [{ skillId: "standup-drafter" }] },
+    });
+    // The history scan is scoped to the caller's (validated) conversation
+    // and starts past the compaction boundary (0 here — nothing compacted).
+    expect(rawAllCalls).toHaveLength(1);
+    expect(rawAllCalls[0]!.params).toEqual([
+      "conv-live",
+      0,
+      `%"surfaceId":"surf-oob"%`,
+    ]);
+    // Never memoized: a cached hit would let a later request skip the
+    // requester filter via the unscoped surfaceState fast path.
+    expect(conv.surfaceState.has("surf-oob")).toBe(false);
+    // Never rehydrated — the conversation was already live.
+    expect(getOrCreateCalls).toEqual([]);
+  });
+
+  test("persisted-history scan starts past the conversation's compaction boundary", async () => {
+    // `restoreSurfaceStateFromHistory` never sees the compacted-away prefix
+    // (live history = rows.slice(contextCompactedMessageCount)), so the
+    // fallback must not resurrect a surface only that prefix owned — stale
+    // surface ids are not globally unique, and memoizing one would let
+    // later surface-action routing operate on state compaction dropped.
+    const conv = makeStub("conv-compacted");
+    conv.contextCompactedMessageCount = 42;
+    memoryById = conv;
+    rawAllReturn = [];
+
+    const handler = findHandler("surfaces_get_content");
+
+    let caught: unknown;
+    try {
+      await handler({
+        pathParams: { surfaceId: "surf-old" },
+        queryParams: { conversationId: "conv-compacted" },
+        headers: GUARDIAN_HEADERS,
+      });
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(NotFoundError);
+    // The boundary is threaded into the scan as its row offset.
+    expect(rawAllCalls).toHaveLength(1);
+    expect(rawAllCalls[0]!.params).toEqual([
+      "conv-compacted",
+      42,
+      `%"surfaceId":"surf-old"%`,
+    ]);
+  });
+
+  test("actor-scoped view never serves a surface the provenance filter dropped", async () => {
+    // Untrusted-actor views are built through
+    // `filterMessagesForUntrustedActor`, so guardian-authored and
+    // provenance-less rows are deliberately hidden from non-guardian
+    // actors. The fallback keys the same per-row predicate on the
+    // REQUESTER's trust (not the cached view's — a guardian-loaded
+    // conversation must not leak to a non-guardian caller): naming a
+    // hidden surface id must 404, not expose (and memoize) the payload.
+    const conv = makeStub("conv-actor"); // loaded under guardian view
+    requesterTrustClass = "unknown";
+    memoryById = conv;
+    rawAllReturn = [
+      {
+        content: JSON.stringify([
+          {
+            type: "ui_surface",
+            surfaceId: "surf-hidden",
+            surfaceType: "card",
+            title: "Guardian only",
+            data: { secret: true },
+          },
+        ]),
+        metadata: JSON.stringify({ provenanceTrustClass: "guardian" }),
+      },
+      {
+        content: JSON.stringify([
+          {
+            type: "ui_surface",
+            surfaceId: "surf-hidden",
+            surfaceType: "card",
+            title: "No provenance",
+            data: { secret: true },
+          },
+        ]),
+        metadata: null,
+      },
+    ];
+
+    const handler = findHandler("surfaces_get_content");
+
+    let caught: unknown;
+    try {
+      await handler({
+        pathParams: { surfaceId: "surf-hidden" },
+        queryParams: { conversationId: "conv-actor" },
+        headers: {
+          "x-vellum-principal-type": "actor",
+          "x-vellum-actor-principal-id": "vellum-principal-contact",
+        },
+      });
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(NotFoundError);
+    expect(conv.surfaceState.has("surf-hidden")).toBe(false);
+  });
+
+  test("actor-scoped view still serves actor-visible provenance rows", async () => {
+    const conv = makeStub("conv-actor-ok");
+    requesterTrustClass = "unknown";
+    memoryById = conv;
+    rawAllReturn = [
+      {
+        content: JSON.stringify([
+          {
+            type: "ui_surface",
+            surfaceId: "surf-visible",
+            surfaceType: "card",
+            title: "Contact-authored",
+            data: { ok: true },
+          },
+        ]),
+        metadata: JSON.stringify({ provenanceTrustClass: "trusted_contact" }),
+      },
+    ];
+
+    const handler = findHandler("surfaces_get_content");
+    const result = await handler({
+      pathParams: { surfaceId: "surf-visible" },
+      queryParams: { conversationId: "conv-actor-ok" },
+      headers: {
+        "x-vellum-principal-type": "actor",
+        "x-vellum-actor-principal-id": "vellum-principal-contact",
+      },
+    });
+
+    expect(result).toEqual({
+      surfaceId: "surf-visible",
+      surfaceType: "card",
+      title: "Contact-authored",
+      data: { ok: true },
+    });
+  });
+
+  test("service principals without a forwarded actor id fail closed", async () => {
+    // The route policy admits svc_gateway / svc_daemon with chat.read, and
+    // those AuthContexts carry no actor principal. Only local/IPC callers
+    // are the guardian by construction — a service token naming a
+    // guardian-provenance surface must be scoped to the untrusted filter,
+    // not defaulted to guardian.
+    const conv = makeStub("conv-svc");
+    memoryById = conv;
+    rawAllReturn = [
+      {
+        content: JSON.stringify([
+          {
+            type: "ui_surface",
+            surfaceId: "surf-g",
+            surfaceType: "card",
+            title: "Guardian payload",
+            data: { secret: true },
+          },
+        ]),
+        metadata: JSON.stringify({ provenanceTrustClass: "guardian" }),
+      },
+    ];
+
+    const handler = findHandler("surfaces_get_content");
+
+    let caught: unknown;
+    try {
+      await handler({
+        pathParams: { surfaceId: "surf-g" },
+        queryParams: { conversationId: "conv-svc" },
+        headers: { "x-vellum-principal-type": "svc_gateway" },
+      });
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(NotFoundError);
+    expect(conv.surfaceState.has("surf-g")).toBe(false);
+  });
+
+  test("local principals without an actor id resolve as the guardian", async () => {
+    // IPC/CLI callers get the injected local principal header and no actor
+    // id — they ARE the guardian and must not be fail-closed like service
+    // tokens.
+    const conv = makeStub("conv-local");
+    memoryById = conv;
+    rawAllReturn = [
+      {
+        content: JSON.stringify([
+          {
+            type: "ui_surface",
+            surfaceId: "surf-l",
+            surfaceType: "card",
+            title: "Guardian payload",
+            data: { ok: true },
+          },
+        ]),
+        metadata: JSON.stringify({ provenanceTrustClass: "guardian" }),
+      },
+    ];
+
+    const handler = findHandler("surfaces_get_content");
+    const result = await handler({
+      pathParams: { surfaceId: "surf-l" },
+      queryParams: { conversationId: "conv-local" },
+      headers: { "x-vellum-principal-type": "local" },
+    });
+
+    expect(result).toEqual({
+      surfaceId: "surf-l",
+      surfaceType: "card",
+      title: "Guardian payload",
+      data: { ok: true },
+    });
+  });
+
+  test("persisted-history fallback skips rows that merely quote the surfaceId", async () => {
+    // The LIKE probe is a candidate filter, not the match: a message whose
+    // TEXT quotes the surfaceId (e.g. a tool_result echoing JSON) parses to
+    // no ui_surface block and the scan moves to the next candidate row.
+    const conv = makeStub("conv-live");
+    memoryById = conv;
+    rawAllReturn = [
+      {
+        content: JSON.stringify([
+          { type: "text", text: 'log line: {"surfaceId":"surf-quoted"} seen' },
+        ]),
+      },
+      {
+        content: JSON.stringify([
+          {
+            type: "ui_surface",
+            surfaceId: "surf-quoted",
+            surfaceType: "card",
+            title: "Real",
+            data: { ok: true },
+          },
+        ]),
+      },
+    ];
+
+    const handler = findHandler("surfaces_get_content");
+    const result = await handler({
+      pathParams: { surfaceId: "surf-quoted" },
+      queryParams: { conversationId: "conv-live" },
+      headers: GUARDIAN_HEADERS,
+    });
+
+    expect(result).toEqual({
+      surfaceId: "surf-quoted",
+      surfaceType: "card",
+      title: "Real",
+      data: { ok: true },
+    });
+  });
+
+  test("404s when the conversation is live and no persisted block matches", async () => {
+    // Live conversation, empty surfaceState, no ui_surface row in history:
+    // the fallback must not invent a surface (nor rehydrate).
+    memoryById = makeStub("conv-live");
+    rawAllReturn = [];
+
+    const handler = findHandler("surfaces_get_content");
+
+    let caught: unknown;
+    try {
+      await handler({
+        pathParams: { surfaceId: "surf-nope" },
+        queryParams: { conversationId: "conv-live" },
+        headers: GUARDIAN_HEADERS,
+      });
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(NotFoundError);
+    expect(rawAllCalls).toHaveLength(1);
+    expect(getOrCreateCalls).toEqual([]);
   });
 
   test("400s when conversationId is missing", async () => {

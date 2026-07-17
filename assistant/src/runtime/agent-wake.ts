@@ -37,6 +37,11 @@
  *   - Tool calls produced → normal tool execution runs (the conversation's
  *     `AgentLoop` has its tool executor already wired). Returns
  *     `{ invoked: true, producedToolCalls: true }`.
+ *   - Loop threw before ANY output went live or was persisted → the wake did
+ *     no work. Returns `{ invoked: false, reason: "run_error" }` so callers
+ *     that advance state on success (memory retrospective watermark,
+ *     scheduler feed events) can retry instead of recording a phantom pass.
+ *     A throw after output went live still returns `invoked: true`.
  *
  * Concurrency:
  *   - If a user turn (or another wake) is currently in flight on the same
@@ -65,8 +70,6 @@ import type {
 import type { InterfaceId } from "../channels/types.js";
 import { resolveEffectiveContextWindow } from "../config/llm-context-resolution.js";
 import {
-  isOverrideOrDefaultResolutionEnabled,
-  resolveDefaultProfileKey,
   resolveProfilelessModelKey,
   selectWinningProfile,
 } from "../config/llm-resolver.js";
@@ -289,6 +292,14 @@ export interface WakeOptions {
    */
   toolContextPin?: WakeToolContextPin;
   /**
+   * Skill IDs to preactivate for the wake so their bundled tools join the
+   * turn's active set (`allowedToolNames`) without a prior `skill_load`.
+   * Applied and restored alongside `allowedTools`; ignored when `allowedTools`
+   * is absent. Used by fork-based memory retrospectives to make the
+   * skill-management authoring tools callable directly.
+   */
+  preactivateSkillIds?: readonly string[];
+  /**
    * Explicit persona/channel slugs for the wake's system-prompt build,
    * applied to the conversation for the duration of the run and restored
    * afterwards. Wakes bypass the orchestrator's turn-start persona snapshot,
@@ -369,7 +380,18 @@ export type WakeSkipReason =
    * run cannot proceed without the compaction it was told not to perform.
    * Only possible on suppressed wakes.
    */
-  | "context_overflow";
+  | "context_overflow"
+  /**
+   * The agent loop threw before producing ANY output — no checkpoint fired
+   * and no tail message was emitted or persisted (typically a provider
+   * failure on the run's first LLM call). The wake did no work, so callers
+   * that treat `invoked: true` as "the pass ran" (e.g. the memory
+   * retrospective, which advances its processed-message watermark and
+   * finalizes on success) must see a retryable failure rather than a
+   * silent no-op. A throw AFTER output went live keeps `invoked: true` —
+   * side effects have already landed and the run must not read as skipped.
+   */
+  | "run_error";
 
 export interface WakeResult {
   invoked: boolean;
@@ -423,7 +445,9 @@ async function defaultResolveTarget(
     await import("../daemon/conversation-store.js");
   try {
     const existing = getConversation(conversationId);
-    if (!existing) return null;
+    if (!existing) {
+      return null;
+    }
     if (existing.archivedAt != null) {
       log.info(
         { conversationId },
@@ -573,7 +597,9 @@ function inspectWakeOutput(
   let hasVisibleText = false;
   const toolUseNames: string[] = [];
   for (const msg of tailMessages) {
-    if (msg.role !== "assistant") continue;
+    if (msg.role !== "assistant") {
+      continue;
+    }
     const blocks = Array.isArray(msg.content) ? msg.content : [];
     for (const block of blocks) {
       if (block.type === "text" && typeof block.text === "string") {
@@ -733,21 +759,14 @@ export async function wakeAgentForOpportunity(
       overrideProfile,
       forceOverrideProfile,
     });
-    // Same winner-selection sourcing as the agent loop's key: under
-    // override-or-default semantics a hand-mirrored chain would disagree
-    // with dispatch (a non-forced override now wins on every call site).
+    // Same winner-selection sourcing as the agent loop's key: a hand-mirrored
+    // chain would disagree with dispatch (a non-forced override wins on every
+    // call site).
     const modelProfileKey =
-      (isOverrideOrDefaultResolutionEnabled()
-        ? selectWinningProfile(callSite, config.llm, {
-            ...(overrideProfile != null ? { overrideProfile } : {}),
-            selectionSeed: conversationId,
-          }).profileName
-        : ((forceOverrideProfile || callSite === "mainAgent"
-            ? overrideProfile
-            : undefined) ??
-          resolveDefaultProfileKey(callSite, config.llm) ??
-          overrideProfile ??
-          resolveDefaultProfileKey("mainAgent", config.llm))) ??
+      selectWinningProfile(callSite, config.llm, {
+        ...(overrideProfile != null ? { overrideProfile } : {}),
+        selectionSeed: conversationId,
+      }).profileName ??
       resolveProfilelessModelKey(callSite, config.llm, {
         ...(overrideProfile != null ? { overrideProfile } : {}),
         ...(forceOverrideProfile ? { forceOverrideProfile: true } : {}),
@@ -1107,7 +1126,9 @@ export async function wakeAgentForOpportunity(
     // and renames `text_delta` → `assistant_text_delta`; bypassing it
     // would ship malformed wire frames.
     const goLive = (currentHistory: Message[]): void => {
-      if (mode === "live") return;
+      if (mode === "live") {
+        return;
+      }
       if (!surfaceInjected) {
         if (!opts.suppressWakeSurface) {
           const tailStart = baselineLength + wakeHintMessageCount;
@@ -1170,7 +1191,9 @@ export async function wakeAgentForOpportunity(
       currentHistory: Message[],
     ): Promise<void> => {
       const start = baselineLength + wakeHintMessageCount + persistedTailIndex;
-      if (start >= currentHistory.length) return;
+      if (start >= currentHistory.length) {
+        return;
+      }
       const newMessages = currentHistory.slice(start);
       for (const msg of newMessages) {
         conversation.messages.push(msg);
@@ -1191,9 +1214,13 @@ export async function wakeAgentForOpportunity(
     let wakeToolScopeRestored = false;
     let restoreWakeToolScope: (() => void) | null = null;
     const restoreWakeAllowedTools = (): void => {
-      if (wakeToolScopeRestored) return;
+      if (wakeToolScopeRestored) {
+        return;
+      }
       wakeToolScopeRestored = true;
-      if (!restoreWakeToolScope) return;
+      if (!restoreWakeToolScope) {
+        return;
+      }
       try {
         restoreWakeToolScope();
       } catch (err) {
@@ -1204,13 +1231,16 @@ export async function wakeAgentForOpportunity(
       }
     };
     const applyWakeAllowedTools = (): boolean => {
-      if (!opts.allowedTools) return true;
+      if (!opts.allowedTools) {
+        return true;
+      }
       try {
         restoreWakeToolScope = scopeWakeAllowedTools(
           conversation,
           new Set(opts.allowedTools),
           opts.toolGateMode,
           opts.toolContextPin,
+          opts.preactivateSkillIds,
         );
         return true;
       } catch (err) {
@@ -1245,6 +1275,11 @@ export async function wakeAgentForOpportunity(
     // block skips its generic outcome log for this path — the failure
     // already logged its own dedicated warn line.
     let failedContextOverflow = false;
+    // Set when a mid-run throw was reported as `invoked: false` (reason
+    // "run_error") because nothing had gone live or been persisted. The
+    // finally's error log names the reported outcome so the line matches
+    // what the caller actually saw.
+    let reportedRunErrorAsFailure = false;
     // Shared failure path for an over-window condition on a
     // compaction-suppressed wake (reached from the pre-flight estimate, from
     // the run's catch when the rejection escaped as a throw, or post-run when
@@ -1321,7 +1356,9 @@ export async function wakeAgentForOpportunity(
       const priorTurnTrust = conversation.currentTurnTrustContext;
       conversation.currentCallSite = callSite;
       conversation.currentTurnOverrideProfile = overrideProfile;
-      if (opts.clientless) conversation.hasNoClient = true;
+      if (opts.clientless) {
+        conversation.hasNoClient = true;
+      }
       // Per-turn guardian elevation for the wake's tools, set after the pre-run
       // reads so a pre-run failure can't leak it; restored in the finally.
       if (opts.trustContext) {
@@ -1381,6 +1418,25 @@ export async function wakeAgentForOpportunity(
         // run threw mid-flight. The outer finally still runs to release
         // `processing` and drain the queue.
         runError = err instanceof Error ? err : new Error(String(err));
+        // Nothing went live and nothing was persisted: no checkpoint fired
+        // (mode never left "buffering") and no tail message was flushed.
+        // The run died before doing any work — typically a provider error
+        // on the first LLM call — so report a failure instead of a silent
+        // no-op. Callers gate real state transitions on `invoked` (the
+        // memory retrospective advances its processed-message watermark
+        // and finalizes on success; the scheduler emits a success feed
+        // event), and a no-op result here permanently consumes their
+        // trigger without a run ever happening. A throw after output went
+        // live keeps `invoked: true`: side effects have already landed,
+        // and the run must not read as skipped.
+        if (mode === "buffering" && persistedTailIndex === 0) {
+          reportedRunErrorAsFailure = true;
+          return {
+            invoked: false,
+            producedToolCalls: false,
+            reason: "run_error" as const,
+          };
+        }
         return { invoked: true, producedToolCalls: false };
       } finally {
         // Restore the pre-wake values so a queued user turn or background read
@@ -1515,7 +1571,9 @@ export async function wakeAgentForOpportunity(
             hintRole,
             err: runError,
           },
-          "agent-wake: agent loop threw; treating as no-op",
+          reportedRunErrorAsFailure
+            ? "agent-wake: agent loop threw before producing output; reported as run_error"
+            : "agent-wake: agent loop threw after output went live; treating as no-op",
         );
       } else if (tailMessageCount === 0) {
         log.info(

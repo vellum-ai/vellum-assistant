@@ -2,22 +2,26 @@
 // Memory v2 — `assistant` CLI subcommands → embedded capability entries
 // ---------------------------------------------------------------------------
 //
-// Enumerate the top-level `assistant` CLI subcommands, render each as a prose
-// capability statement that wraps the full `helpInformation()` output, embed
-// dense + sparse, and upsert into `memory_v2_concept_pages` under the slug
-// `cli-commands/<name>`. The router scores these alongside concept pages and
-// skill entries; the injection layer surfaces hits under `### CLI Commands
-// You Can Use` so the model can semantically discover a CLI capability it
-// would not otherwise know to reach for.
+// Enumerate the top-level `assistant` CLI commands from their declarative help
+// (`CLI_COMMAND_HELP`, exposed via `@vellumai/plugin-api`), render each as a
+// prose capability statement, embed dense + sparse, and upsert into
+// `memory_v2_concept_pages` under the slug `cli-commands/<name>`. The router
+// scores these alongside concept pages and skill entries; the injection layer
+// surfaces hits under `### CLI Commands You Can Use` so the model can
+// semantically discover a CLI capability it would not otherwise know to reach
+// for.
+//
+// The declarative help is pure data, so the seed reads it without importing the
+// CLI's action graph (`cli/program.ts`) — the graph pulls in provider and
+// workspace modules that were a recurring source of test-mock cascades and
+// circular imports.
 //
 // Mirrors `skill-store.ts` deliberately: same single-flight + generation
 // coalescing, same dense + sparse + corpus-stats-aware sparse encoding, same
 // payload-kind discriminator, same atomic cache replacement. Differences:
-//   - No remote catalog — the source of truth is the local Commander tree.
-//   - No per-entry feature-flag filter — flag gating already happens during
-//     `buildCliProgramTree` (e.g. email/plugins commands are conditionally
-//     registered).
-//   - No MCP-style augmentation — Commander's description is the canonical
+//   - No remote catalog — the source of truth is the declarative CLI help.
+//   - No per-entry feature-flag filter.
+//   - No MCP-style augmentation — the declared description is the canonical
 //     summary.
 
 import { CLI_COMMAND_HELP } from "@vellumai/plugin-api";
@@ -27,10 +31,7 @@ import { generateSparseEmbedding } from "../../../../persistence/embeddings/embe
 import { applyCorrectionIfCalibrated } from "../anisotropy.js";
 import { embedWithBackend } from "../embeddings.js";
 import { getLogger } from "../logging.js";
-import {
-  buildCliCommandContent,
-  buildCliCommandHelpContent,
-} from "./cli-command-content.js";
+import { buildCliCommandHelpContent } from "./cli-command-content.js";
 import { invalidatePageIndex } from "./page-index.js";
 import {
   backfillKindOnPointsWithPrefix,
@@ -110,8 +111,12 @@ export async function seedV2CliCommandEntries(
 }
 
 function startSeedDrainIfNeeded(): void {
-  if (activeSeedDrain) return;
-  if (processedSeedGeneration >= requestedSeedGeneration) return;
+  if (activeSeedDrain) {
+    return;
+  }
+  if (processedSeedGeneration >= requestedSeedGeneration) {
+    return;
+  }
 
   activeSeedDrain = drainSeedQueue().finally(() => {
     activeSeedDrain = null;
@@ -131,7 +136,9 @@ async function drainSeedQueue(): Promise<void> {
 function resolveSeedWaiters(): void {
   for (let i = seedWaiters.length - 1; i >= 0; i -= 1) {
     const waiter = seedWaiters[i]!;
-    if (waiter.generation > processedSeedGeneration) continue;
+    if (waiter.generation > processedSeedGeneration) {
+      continue;
+    }
     seedWaiters.splice(i, 1);
     waiter.resolve();
   }
@@ -141,43 +148,18 @@ async function runSeedV2CliCommandEntries(generation: number): Promise<void> {
   try {
     const config = getConfig();
     const seeds: CliCommandEntry[] = [];
-    const declarativeNames = new Set<string>();
 
-    // Commands that have adopted the static-help split are read from their
-    // declarative help (exposed via `@vellumai/plugin-api`) — pure data, no CLI
-    // action graph. Content is rendered from that data here in the plugin.
+    // Every top-level `assistant` CLI command declares its help as pure data
+    // (`CLI_COMMAND_HELP`, exposed via `@vellumai/plugin-api`); render each into
+    // a capability statement here in the plugin. Reading declarative help keeps
+    // the CLI's action graph — and the daemon/provider modules it imports — out
+    // of this plugin's import tree, so the seed never touches `cli/program.ts`.
     for (const help of CLI_COMMAND_HELP) {
-      declarativeNames.add(help.name);
       seeds.push({
         id: help.name,
         description: help.description,
         content: buildCliCommandHelpContent(help),
       });
-    }
-
-    // Remaining commands still come from the Commander tree. Dynamic import so
-    // callers that only need `getCliCommandCapability` or `listCliCommandEntries`
-    // (e.g. the render path inside `injection.ts` and the `page-index.ts`
-    // dependency loader) never drag the full CLI command graph into their import
-    // tree. The CLI tree pulls in many provider and workspace modules whose
-    // presence has been a recurring source of test-mock cascades and
-    // circular-import surprises.
-    const { buildCliProgramTree } = await import("../../../../cli/program.js");
-    const program = buildCliProgramTree();
-
-    for (const cmd of program.commands) {
-      const name = cmd.name();
-      // Skip the `help` builtin Commander adds automatically — it carries no
-      // capability information of its own — and commands already sourced
-      // declaratively above.
-      if (name === "help" || declarativeNames.has(name)) continue;
-      const description = cmd.description();
-      const content = buildCliCommandContent(
-        name,
-        description,
-        cmd.helpInformation(),
-      );
-      seeds.push({ id: name, description, content });
     }
 
     // Sparse (BM25/TF) encoding is computed locally; only the dense vectors
@@ -342,7 +324,9 @@ export function isCliCommandSlug(slug: string): boolean {
  * copies on each call.
  */
 export function listCliCommandEntries(): CliCommandEntry[] {
-  if (!entries) return [];
+  if (!entries) {
+    return [];
+  }
   return [...entries.values()]
     .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
     .map((entry) => Object.freeze({ ...entry }));

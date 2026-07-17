@@ -62,12 +62,6 @@ mock.module("../context/token-estimator.js", () => ({
   },
 }));
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    compaction: { enabled: true, autoThreshold: 0.7, prompt: null },
-  }),
-}));
-
 mock.module("../context/compactor.js", () => ({
   isSyntheticCompactionMessage: () => false,
   runAssistantDrivenCompaction: async (args: {

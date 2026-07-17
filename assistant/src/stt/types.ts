@@ -24,7 +24,8 @@ export type SttProviderId =
   | "openai-whisper"
   | "deepgram"
   | "google-gemini"
-  | "xai";
+  | "xai"
+  | "vellum";
 
 /**
  * Telephony-specific STT capability class.
@@ -149,10 +150,24 @@ export type SttErrorCategory =
 export class SttError extends Error {
   readonly category: SttErrorCategory;
 
-  constructor(category: SttErrorCategory, message: string) {
+  /**
+   * When true, {@link message} is already user-facing, provider-appropriate
+   * copy and must be surfaced verbatim rather than rewritten by
+   * `describeSttFailure`. Set by adapters (e.g. managed speech) whose failures
+   * carry specific remediation — a credit top-up or platform reconnect — that
+   * the generic BYOK "check your API key" copy would erase.
+   */
+  readonly userFacing: boolean;
+
+  constructor(
+    category: SttErrorCategory,
+    message: string,
+    options?: { userFacing?: boolean },
+  ) {
     super(message);
     this.name = "SttError";
     this.category = category;
+    this.userFacing = options?.userFacing ?? false;
   }
 }
 

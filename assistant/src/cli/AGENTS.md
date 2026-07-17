@@ -154,6 +154,23 @@ registerFooCommand(program);
    `console.log` results directly; that bypasses the convention and
    breaks downstream scripting.
 
+   **`--json` is global.** `registerGlobalJsonOption` (called once in
+   `program.ts` after every command is registered) attaches `--json` to
+   every **leaf** command in the tree, so a caller can append `--json` to
+   any command it actually invokes without hitting "unknown option". Only
+   leaves get it: Commander consumes a recognized option at the outermost
+   command that declares it, even when the flag appears after the
+   subcommand name, so a group-level `--json` would swallow
+   `clients list --json` before the `list` action reads `opts.json`. You
+   therefore do **not** need to declare `--json` yourself — but a command
+   only _honors_ it when its action routes output through
+   `writeOutput`/`shouldOutputJson` (or reads `opts.json`). When a command
+   emits bespoke human-readable text, branch on `shouldOutputJson(cmd)` and
+   emit a JSON object in the `--json` case (see `commands/status.ts`).
+   Declare `--json` explicitly in the command's `.help` module only when
+   you want a more specific description than the generic one; the global
+   registration skips any leaf that already declares it.
+
 ### Anti-patterns
 
 - ❌ Hoisting a daemon import — `import { x } from "../../runtime/foo.js"`

@@ -29,6 +29,7 @@ import {
   LatencyBreakdownSchema,
   LLMRequestLogEntrySchema,
 } from "../../api/responses/llm-request-log-entry.js";
+import { CALL_SITE_DEFAULTS } from "../../config/call-site-defaults.js";
 import {
   deepMergeOverwrite,
   fillContextDefaultsForMissingKeys,
@@ -46,6 +47,7 @@ import { AssistantConfigSchema } from "../../config/schema.js";
 import { getSchemaAtPath } from "../../config/schema-utils.js";
 import {
   DefaultProviderSchema,
+  type LLMCallSite,
   LLMConfigBase,
   LLMConfigFragment,
   ProfileEntry,
@@ -492,8 +494,8 @@ export function applyContextDefaultsToRawConfig(raw: unknown): unknown {
 
 /**
  * Backwards-compat wire field for `GET /v1/config`. PR removed
- * `services.inference.mode` from the typed schema (routing is now governed
- * by `provider_connections` rows + `llm.default.provider_connection`), but
+ * `services.inference.mode` from the typed schema (routing is governed by
+ * `provider_connections` rows + per-profile `provider_connection`), but
  * the macOS settings client (`SettingsStore.swift:loadServiceModes`) still
  * reads this field and falls back to its `@Published` default of "your-own"
  * when absent. On a platform-managed assistant served by a newer daemon and
@@ -695,7 +697,6 @@ const ConfigGetResponseSchema = z
           .optional(),
         "web-fetch": z
           .object({
-            mode: ServiceModeSchema.optional(),
             provider: z.string().optional(),
           })
           .passthrough()
@@ -800,7 +801,6 @@ const ConfigPatchRequestSchema = z
           .optional(),
         "web-fetch": z
           .object({
-            mode: ServiceModeSchema.optional(),
             provider: z.string().optional(),
           })
           .passthrough()
@@ -888,6 +888,53 @@ function stripWireOnlyProfileKeys(patch: unknown): void {
     }
     for (const key of WIRE_ONLY_PROFILE_KEYS) {
       delete entry[key];
+    }
+  }
+}
+
+/**
+ * Backfill shipped call-site tuning into NEWLY created `llm.callSites`
+ * entries in a config-write fragment, in place.
+ *
+ * The resolver's tweak layer is `llm.callSites[id] ?? CALL_SITE_DEFAULTS[id]`
+ * — an explicit entry replaces the shipped default wholesale. Workspace
+ * migrations that materialize entries therefore mirror the shipped tuning
+ * exactly (see 090-memory-router-cost-optimized-profile); a client writing a
+ * bare `{ profile }` for a site it has no entry for would silently drop
+ * shipped knobs like `memoryRouter`'s 1M input window or `recall`'s token/
+ * effort bounds. Enforce the same invariant here: when a patch creates an
+ * entry, copy in any shipped tuning key the patch doesn't set itself.
+ *
+ * `profile` is never backfilled — it is the selection discriminator, and
+ * stamping it onto a custom provider/model entry would change winner
+ * selection. Existing on-disk entries are never touched: deep-merge already
+ * preserves their keys, and their values may be deliberate customization.
+ */
+function backfillNewCallSiteEntries(
+  raw: Record<string, unknown>,
+  patch: unknown,
+): void {
+  const patchSites = readPlainObject(
+    readPlainObject(readPlainObject(patch)?.llm)?.callSites,
+  );
+  if (!patchSites) {
+    return;
+  }
+  const rawSites = readPlainObject(readPlainObject(raw.llm)?.callSites);
+  for (const [id, value] of Object.entries(patchSites)) {
+    const entry = readPlainObject(value);
+    if (!entry || rawSites?.[id] != null) {
+      continue;
+    }
+    const shipped = CALL_SITE_DEFAULTS[id as LLMCallSite];
+    if (!shipped) {
+      continue;
+    }
+    for (const [key, shippedValue] of Object.entries(shipped)) {
+      if (key === "profile" || key in entry) {
+        continue;
+      }
+      entry[key] = structuredClone(shippedValue);
     }
   }
 }
@@ -1241,8 +1288,8 @@ function mergePreservingUnknownKeys(
 
 /**
  * Custom profiles persist as complete overrides: any user-source, non-mix
- * profile entry this write creates or changes is completed against
- * `llm.default` (`completeCustomProfile`) before it lands on disk, so no
+ * profile entry this write creates or changes is completed against the
+ * workspace default base (`completeCustomProfile`) before it lands on disk, so no
  * write path can persist a new partial profile. Entries the write did not
  * touch are left byte-identical — an unrelated config write must not rewrite
  * profile entries. Entries that do not parse as a `ProfileEntry` are also
@@ -1368,6 +1415,7 @@ async function handlePatchConfig({ body }: RouteHandlerArgs) {
 
   const raw = loadRawConfig();
   const patch = body as Record<string, unknown>;
+  backfillNewCallSiteEntries(raw, patch);
   deepMergeOverwrite(raw, patch);
 
   await commitConfigWrite(raw, "patch");

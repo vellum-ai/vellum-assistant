@@ -1,34 +1,19 @@
-import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
-import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
-
-// Legacy-shaped fixtures (llm.default-centric resolution): pinned to the
-// flag-off cascade. Override-or-default (flag-on) semantics are pinned by
-// llm-resolver-override-or-default.test.ts and its companion suites.
-beforeAll(() => {
-  setOverridesForTesting({ "override-or-default-resolution": false });
-});
-
-let mockLlmConfig: Record<string, unknown> = {};
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    llm: mockLlmConfig,
-  }),
-}));
-
-import { LLMSchema } from "../config/schemas/llm.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { listUsageEvents } from "../persistence/llm-usage-store.js";
 import { CallSiteConfiguredProvider } from "../providers/provider-send-message.js";
 import type { Provider, ProviderResponse } from "../providers/types.js";
 import { UsageTrackingProvider } from "../providers/usage-tracking.js";
+import { setConfig } from "./helpers/set-config.js";
 
 await initializeDb();
 
+// Seed `llm` into the real workspace config; the loader schema-merges the
+// raw partial over defaults exactly as `LLMSchema.parse` did for the mock.
 function setLlmConfig(raw: unknown): void {
-  mockLlmConfig = LLMSchema.parse(raw) as Record<string, unknown>;
+  setConfig("llm", raw);
 }
 
 function makeProvider(response: ProviderResponse): Provider {
@@ -45,17 +30,20 @@ describe("UsageTrackingProvider", () => {
     const db = getDb();
     db.run(`DELETE FROM llm_usage_events`);
     setLlmConfig({
-      default: {
-        provider: "anthropic",
-        model: "claude-opus-4-7",
-      },
       profiles: {
+        // User-owned shadow of the default profile name: carries its own
+        // provider+model so it is a usable single-winner selection.
         balanced: {
           provider: "openai",
           model: "gpt-5.4-mini",
         },
       },
       activeProfile: "balanced",
+      // Pin the non-main-agent call site to the same profile — activeProfile
+      // only applies to mainAgent under single-winner selection.
+      callSites: {
+        conversationTitle: { profile: "balanced" },
+      },
       pricingOverrides: [],
     });
   });
@@ -97,7 +85,7 @@ describe("UsageTrackingProvider", () => {
       cacheReadInputTokens: 0,
       callSite: "conversationTitle",
       inferenceProfile: "balanced",
-      inferenceProfileSource: "active",
+      inferenceProfileSource: "call_site",
       pricingStatus: "priced",
     });
     expect(events[0].estimatedCostUsd ?? 0).toBeCloseTo(0.00975, 10);
@@ -105,10 +93,6 @@ describe("UsageTrackingProvider", () => {
 
   test("uses the transport provider when resolved attribution points elsewhere", async () => {
     setLlmConfig({
-      default: {
-        provider: "openai",
-        model: "gpt-5.4-mini",
-      },
       callSites: {
         conversationTitle: {
           provider: "fireworks",

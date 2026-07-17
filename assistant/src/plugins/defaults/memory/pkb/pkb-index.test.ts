@@ -30,12 +30,6 @@ mock.module("../../../../persistence/job-utils.js", () => ({
   },
 }));
 
-// Minimal stub for getConfig — indexPkbFile forwards it opaquely to the
-// mocked embedAndUpsert, so any sentinel value works.
-mock.module("../../../../config/loader.js", () => ({
-  getConfig: () => ({ __stub: true }),
-}));
-
 // Track Qdrant deletes by capturing the filter the client sends.
 const qdrantDeleteCalls: Array<{
   targetType: string;

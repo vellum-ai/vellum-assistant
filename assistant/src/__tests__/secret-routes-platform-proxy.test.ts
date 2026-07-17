@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { LLMSchema } from "../config/schemas/llm.js";
+import { getConfig } from "../config/loader.js";
 import { credentialKey } from "../security/credential-key.js";
 
 let lastGeminiConstructorOpts: Record<string, unknown> | null = null;
@@ -21,31 +21,6 @@ const MANAGED_PROVIDERS = [
 ] as const;
 
 let platformBaseUrlOverride: string | undefined;
-
-const baseLlm = LLMSchema.parse({});
-
-const mockConfig = {
-  services: {
-    inference: {},
-    "image-generation": {
-      mode: "your-own" as const,
-      provider: "gemini",
-      model: "gemini-3.1-flash-image-preview",
-    },
-    "web-search": {
-      mode: "your-own" as const,
-      provider: "inference-provider-native",
-    },
-  },
-  llm: {
-    ...baseLlm,
-    default: {
-      ...baseLlm.default,
-      provider: "anthropic" as const,
-      model: "test-model",
-    },
-  },
-};
 
 mock.module("@google/genai", () => ({
   GoogleGenAI: class MockGoogleGenAI {
@@ -75,11 +50,6 @@ mock.module("../config/env.js", () => ({
   setPlatformBaseUrl: (value: string | undefined) => {
     platformBaseUrlOverride = value;
   },
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => mockConfig,
-  invalidateConfigCache: () => {},
 }));
 
 mock.module("../providers/provider-secret-catalog.js", () => ({
@@ -180,7 +150,7 @@ describe("secret routes managed proxy registry sync", () => {
     lastGeminiConstructorOpts = null;
     platformBaseUrlOverride = undefined;
     providerRefreshCalls = 0;
-    await initializeProviders(mockConfig);
+    await initializeProviders(getConfig());
   });
 
   test("adding vellum:assistant_api_key bootstraps managed fallback providers immediately", async () => {
@@ -221,7 +191,7 @@ describe("secret routes managed proxy registry sync", () => {
 
   test("deleting vellum:assistant_api_key clears managed fallback providers immediately", async () => {
     secureKeyStore[ASSISTANT_API_KEY_PATH] = "ast-managed-key";
-    await initializeProviders(mockConfig);
+    await initializeProviders(getConfig());
 
     for (const provider of MANAGED_PROVIDERS) {
       expect(listProviders()).toContain(provider);

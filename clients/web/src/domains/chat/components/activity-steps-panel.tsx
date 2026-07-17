@@ -226,7 +226,6 @@ function TimelineStep({
         label={truncate(step.text, THINKING_PILL_MAX_CHARS)}
         ariaLabel="View thinking"
         active={false}
-        tone="default"
         onClick={() =>
           onOpenDetail({
             kind: "thinking",
@@ -259,11 +258,6 @@ function TimelineStep({
       iconName={step.iconName}
       label={step.activity || step.info || step.title}
       active={activeDetail?.toolCallId === step.toolCallId}
-      tone={
-        step.status === "error" || step.status === "denied"
-          ? "error"
-          : "default"
-      }
       onClick={() => {
         if (!tc) {
           return;

@@ -25,20 +25,6 @@ import type { AssistantConfig } from "../../../../../config/types.js";
 // Module-level mocks (registered before `await import("../activation.js")`).
 // ---------------------------------------------------------------------------
 
-const STUB_QDRANT_CONFIG = {
-  memory: {
-    qdrant: {
-      url: "http://127.0.0.1:6333",
-      vectorSize: 384,
-      onDisk: true,
-    },
-  },
-};
-mock.module("../../../../../config/loader.js", () => ({
-  getConfig: () => STUB_QDRANT_CONFIG,
-  loadConfig: () => STUB_QDRANT_CONFIG,
-}));
-
 const realQdrantClient =
   await import("../../../../../persistence/embeddings/qdrant-client.js");
 mock.module("../../../../../persistence/embeddings/qdrant-client.js", () => ({

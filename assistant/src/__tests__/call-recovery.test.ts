@@ -28,7 +28,9 @@ await initializeDb();
 /** Ensure a conversation row exists for the given ID so FK constraints pass. */
 let ensuredConvIds = new Set<string>();
 function ensureConversation(id: string): void {
-  if (ensuredConvIds.has(id)) return;
+  if (ensuredConvIds.has(id)) {
+    return;
+  }
   const db = getDb();
   const now = Date.now();
   db.insert(conversations)
@@ -44,8 +46,6 @@ function ensureConversation(id: string): void {
 
 function resetTables() {
   const db = getDb();
-  db.run("DELETE FROM guardian_action_deliveries");
-  db.run("DELETE FROM guardian_action_requests");
   db.run("DELETE FROM call_pending_questions");
   db.run("DELETE FROM call_events");
   db.run("DELETE FROM call_sessions");

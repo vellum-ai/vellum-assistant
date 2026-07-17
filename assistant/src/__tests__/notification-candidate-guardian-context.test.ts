@@ -3,25 +3,32 @@
  * candidates.
  *
  * `buildConversationCandidates` counts each candidate's pending guardian
- * requests through the canonical store's conversation-scope query, which
+ * requests through the gateway client's conversation-scope query, which
  * matches both a request's source conversation and any conversation its card
  * was delivered to. These tests lock that wiring — in particular that a
  * request delivered to a conversation different from its synthetic source is
  * still counted for the conversation that shows the card.
  */
 
-import { beforeEach, describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+// The recorder and candidate builder go through the gateway client; serve
+// that surface from the in-memory sim the tests seed.
 import {
-  createCanonicalGuardianDelivery,
-  createCanonicalGuardianRequest,
-  resolveCanonicalGuardianRequest,
-} from "../contacts/canonical-guardian-store.js";
-import { recordGuardianRequestDeliveries } from "../notifications/canonical-delivery-recorder.js";
+  bridgeState,
+  gatewayGuardianRequestsStoreBridge,
+} from "./helpers/gateway-guardian-requests-store-bridge.js";
+
+mock.module(
+  "../channels/gateway-guardian-requests.js",
+  () => gatewayGuardianRequestsStoreBridge,
+);
+
 import { buildConversationCandidates } from "../notifications/conversation-candidates.js";
 import { createDecision } from "../notifications/decisions-store.js";
 import { createDelivery } from "../notifications/deliveries-store.js";
 import { createEvent } from "../notifications/events-store.js";
+import { recordGuardianRequestDeliveries } from "../notifications/guardian-delivery-recorder.js";
 import type { NotificationChannel } from "../notifications/types.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
@@ -34,8 +41,7 @@ const CHANNEL = "vellum" as NotificationChannel;
 
 function resetTables(): void {
   const db = getDb();
-  db.run("DELETE FROM canonical_guardian_deliveries");
-  db.run("DELETE FROM canonical_guardian_requests");
+  bridgeState.reset();
   db.run("DELETE FROM notification_deliveries");
   db.run("DELETE FROM notification_decisions");
   db.run("DELETE FROM notification_events");
@@ -97,11 +103,11 @@ function seedCandidateConversation(
   });
 }
 
-function candidateFor(
+async function candidateFor(
   conversationId: string,
   channel: NotificationChannel = CHANNEL,
 ) {
-  const set = buildConversationCandidates([channel]);
+  const set = await buildConversationCandidates([channel]);
   return set[channel]?.find((c) => c.conversationId === conversationId);
 }
 
@@ -110,57 +116,60 @@ describe("buildConversationCandidates guardian enrichment", () => {
     resetTables();
   });
 
-  test("counts pending requests via both source and delivery conversation scope", () => {
+  test("counts pending requests via both source and delivery conversation scope", async () => {
     const convId = "conv-guardian";
     seedCandidateConversation(convId);
 
     // (1) pending request whose SOURCE conversation is the candidate.
-    createCanonicalGuardianRequest({
+    bridgeState.seedRequest({
       kind: "tool_approval",
       sourceType: "channel",
-      conversationId: convId,
+      sourceConversationId: convId,
       guardianPrincipalId: TEST_PRINCIPAL,
     });
 
     // (2) pending request with a synthetic source id whose card was DELIVERED
     // to the candidate conversation (a different conversation than its source).
-    const delivered = createCanonicalGuardianRequest({
+    const delivered = bridgeState.seedRequest({
       kind: "access_request",
       sourceType: "channel",
-      conversationId: "access-req-xyz",
+      sourceConversationId: "access-req-xyz",
       guardianPrincipalId: TEST_PRINCIPAL,
     });
-    createCanonicalGuardianDelivery({
+    bridgeState.seedDelivery({
       requestId: delivered.id,
       destinationChannel: CHANNEL,
       destinationConversationId: convId,
     });
 
     expect(
-      candidateFor(convId)?.guardianContext?.pendingUnresolvedRequestCount,
+      (await candidateFor(convId))?.guardianContext
+        ?.pendingUnresolvedRequestCount,
     ).toBe(2);
   });
 
-  test("omits guardian context when the conversation's only request is resolved", () => {
+  test("omits guardian context when the conversation's only request is resolved", async () => {
     const convId = "conv-resolved";
     seedCandidateConversation(convId);
 
-    const req = createCanonicalGuardianRequest({
+    const req = bridgeState.seedRequest({
       kind: "tool_approval",
       sourceType: "channel",
-      conversationId: convId,
+      sourceConversationId: convId,
       guardianPrincipalId: TEST_PRINCIPAL,
     });
-    resolveCanonicalGuardianRequest(req.id, "pending", { status: "approved" });
+    await bridgeState.module.updateGuardianRequest(req.id, {
+      status: "approved",
+    });
 
     // The conversation still surfaces as a candidate (it had a delivery), but
     // with no guardian context since nothing is pending.
-    const candidate = candidateFor(convId);
+    const candidate = await candidateFor(convId);
     expect(candidate).toBeDefined();
     expect(candidate?.guardianContext).toBeUndefined();
   });
 
-  test("counts a Slack channel card recorded through the real recorder", () => {
+  test("counts a Slack channel card recorded through the real recorder", async () => {
     const SLACK = "slack" as NotificationChannel;
     const convId = "conv-slack-card";
     seedCandidateConversation(convId, SLACK);
@@ -168,14 +177,14 @@ describe("buildConversationCandidates guardian enrichment", () => {
     // Channel-only access request: a synthetic source conversation, card
     // delivered to a Slack chat. The recorder records the card's internal
     // conversation, so the Slack candidate counts it.
-    const req = createCanonicalGuardianRequest({
+    const req = bridgeState.seedRequest({
       kind: "access_request",
       sourceType: "channel",
       sourceChannel: "slack",
-      conversationId: "access-req-synthetic",
+      sourceConversationId: "access-req-synthetic",
       guardianPrincipalId: TEST_PRINCIPAL,
     });
-    recordGuardianRequestDeliveries({
+    await recordGuardianRequestDeliveries({
       requestId: req.id,
       deliveryResults: [
         {
@@ -189,7 +198,7 @@ describe("buildConversationCandidates guardian enrichment", () => {
     });
 
     expect(
-      candidateFor(convId, SLACK)?.guardianContext
+      (await candidateFor(convId, SLACK))?.guardianContext
         ?.pendingUnresolvedRequestCount,
     ).toBe(1);
   });

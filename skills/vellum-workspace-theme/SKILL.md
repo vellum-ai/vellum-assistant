@@ -89,7 +89,23 @@ The runtime tells you exactly what it accepted or why it refused. Fetch `GET /v1
 - `source: "invalid"` — rejected; `issues` lists human-readable reasons (e.g. `"incomplete override group: setting tokens.background also requires tokens.text, …"` or `"tokens.text on tokens.background has contrast 1.02:1 — minimum is 3:1"`). Fix and re-check.
 - `source: "none"` — no theme file exists.
 
-To see the result visually, take a browser screenshot of the app, or ask the user — the change is already on their screen.
+## Seeing your work
+
+You do not need the user to screenshot the app for you. The desktop app can render a **staged view** of its own UI — fixed generic content, never real conversation data — with your current theme applied, capture it offscreen, and hand you the PNG:
+
+```bash
+assistant ui snapshot --view sampler --out /tmp/theme-sampler.png
+assistant ui snapshot --view chat --out /tmp/theme-chat.png
+```
+
+Then view the image file. Two views:
+
+- **`sampler`** — a dense style sheet: the text ramp, accent, buttons, a raised card, inputs, borders, and both chat bubbles in one frame. Use it while iterating — it answers "does the palette read".
+- **`chat`** — a staged conversation with a composer. Use it to judge the finished feel — it answers "does it look like home".
+
+The capture reflects `ui/theme.json` as it is on disk at that moment, so edit → snapshot → look → adjust is a tight private loop. If the theme file is invalid, the command prints the validation issues and the capture shows the built-in theme. The framing is fixed, so before/after snapshots align exactly.
+
+This requires the desktop app to be running; if the command times out or reports no connected client, fall back to taking a browser screenshot of the app or asking the user — the change is already on their screen.
 
 ## Removing the theme
 

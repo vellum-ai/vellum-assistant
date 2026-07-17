@@ -24,12 +24,6 @@ export interface ResolvedTtsConfig {
 }
 
 // ---------------------------------------------------------------------------
-// Defaults (must match the schema defaults in tts.ts)
-// ---------------------------------------------------------------------------
-
-const DEFAULT_TTS_PROVIDER: TtsProviderId = "elevenlabs";
-
-// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
@@ -43,7 +37,7 @@ const DEFAULT_TTS_PROVIDER: TtsProviderId = "elevenlabs";
 export function resolveTtsConfig(config: AssistantConfig): ResolvedTtsConfig {
   const ttsService = config.services.tts;
 
-  const provider: TtsProviderId = ttsService.provider ?? DEFAULT_TTS_PROVIDER;
+  const provider = ttsService.provider as TtsProviderId;
 
   // Resolve provider-specific config from the canonical providers map.
   const providerConfig = resolveProviderConfig(config, provider);
