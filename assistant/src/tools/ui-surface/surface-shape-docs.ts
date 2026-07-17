@@ -47,7 +47,7 @@ function isNonEmptyString(value: unknown): boolean {
   return typeof value === "string" && value.trim().length > 0;
 }
 
-function isNonEmptyArray(value: unknown): boolean {
+function isNonEmptyArray(value: unknown): value is unknown[] {
   return Array.isArray(value) && value.length > 0;
 }
 
@@ -123,10 +123,23 @@ export const SURFACE_SHAPE_DOCS: Record<string, SurfaceShapeDoc> = {
     purpose: "input form, single or multi-page",
     shape:
       '{ description?, fields: [{ id, type: "text"|"textarea"|"select"|"toggle"|"number"|"password", label, placeholder?, required?, defaultValue?, options?: [{ label, value }] }], submitLabel? }. Multi-page: { pages: [{ id, title, description?, fields }], pageLabels?: { next?, back?, submit? }, submitLabel? }',
-    missingContent: (data) =>
-      isNonEmptyArray(data.fields) || isNonEmptyArray(data.pages)
+    missingContent: (data) => {
+      // Mirror the renderer's precedence: a non-empty `pages` array selects
+      // multi-page mode and ignores top-level `fields`, so a valid top-level
+      // `fields` must not mask fieldless pages. A multi-page form with no
+      // fields anywhere renders blank, so require at least one page to carry
+      // a non-empty `fields` array.
+      if (isNonEmptyArray(data.pages)) {
+        return data.pages.some((page) =>
+          isNonEmptyArray(asRecord(page)?.fields),
+        )
+          ? null
+          : "multi-page `data.pages` needs at least one page with a non-empty `fields` array";
+      }
+      return isNonEmptyArray(data.fields)
         ? null
-        : "`data.fields` (or `data.pages`) must be a non-empty array",
+        : "`data.fields` (or `data.pages`) must be a non-empty array";
+    },
   },
   confirmation: {
     purpose: "confirm/cancel prompt",
