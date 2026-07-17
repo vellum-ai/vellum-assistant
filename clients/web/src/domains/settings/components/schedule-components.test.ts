@@ -7,6 +7,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { createElement } from "react";
+import type { NavigateFunction } from "react-router";
 
 import * as schedulesApi from "@/domains/settings/api/schedules";
 import { routes } from "@/utils/routes";
@@ -48,6 +49,15 @@ mock.module("@/domains/settings/api/schedules", () => ({
   ...schedulesApi,
   createSchedule: createScheduleMock,
   fetchScheduleUsageSummary: fetchScheduleUsageSummaryMock,
+}));
+mock.module("@/utils/conversation-navigation", () => ({
+  // Behavioral stub: performs the route change the navigation test asserts,
+  // without the real module's store resets and haptics.
+  navigateToConversation: mock(
+    (navigate: NavigateFunction, conversationId: string) => {
+      void navigate(routes.conversation(conversationId));
+    },
+  ),
 }));
 
 const {

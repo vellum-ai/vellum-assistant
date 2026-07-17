@@ -9,7 +9,7 @@ import { DebugControlsPanel } from "@/domains/settings/components/panels/debug-c
 import { DoctorPanel } from "@/domains/settings/components/panels/doctor-panel";
 import { resolveDebugTabParam } from "@/domains/settings/pages/debug-page.helpers";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
-import { routes } from "@/utils/routes";
+import { navigateToConversation } from "@/utils/conversation-navigation";
 import { Tabs } from "@vellumai/design-library/components/tabs";
 
 const ALL_TABS = [
@@ -30,7 +30,7 @@ export function DebugPage() {
 
   const handleOpenConversation = useCallback(
     (conversationId: string) => {
-      void navigate(routes.conversation(conversationId));
+      navigateToConversation(navigate, conversationId);
     },
     [navigate],
   );
