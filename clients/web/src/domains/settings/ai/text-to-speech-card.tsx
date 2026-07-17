@@ -123,10 +123,21 @@ export function TextToSpeechCard() {
     daemonTts?.providers?.vellum?.model ?? DEFAULT_MANAGED_VOICE;
   const [draftManagedVoice, setDraftManagedVoice] =
     useDraftOverride(serverManagedVoice);
+  const selectedManagedVoice =
+    MANAGED_VOICES.find((v) => v.model === draftManagedVoice) ??
+    MANAGED_VOICES[0]!;
 
   const selectedProvider = useMemo(() => {
     return providers.find((p) => p.id === draftProvider) ?? providers[0]!;
   }, [draftProvider, providers]);
+
+  // Written to config only when true: never writing on an untouched default
+  // keeps "unset = platform default" configs unset, and daemons that predate
+  // managed voice selection never receive a field they would silently drop.
+  const managedVoiceChanged =
+    draftProvider === "vellum" &&
+    selectedProvider.supportsVoiceSelection &&
+    draftManagedVoice !== serverManagedVoice;
 
   const loadProviderState = useCallback((providerId: string) => {
     const storedKey = getLocalSetting(LS_TTS_API_KEY_PREFIX + providerId, "");
@@ -148,10 +159,6 @@ export function TextToSpeechCard() {
     const providerChanged = draftProvider !== serverProvider;
     const hasNewKey = apiKeyText.trim().length > 0;
     const voiceIdChanged = voiceIdText.trim() !== initialVoiceId;
-    const managedVoiceChanged =
-      draftProvider === "vellum" &&
-      selectedProvider.supportsVoiceSelection &&
-      draftManagedVoice !== serverManagedVoice;
     return (
       providerChanged || hasNewKey || voiceIdChanged || managedVoiceChanged
     );
@@ -161,9 +168,7 @@ export function TextToSpeechCard() {
     apiKeyText,
     voiceIdText,
     initialVoiceId,
-    draftManagedVoice,
-    serverManagedVoice,
-    selectedProvider,
+    managedVoiceChanged,
   ]);
 
   const handleSave = useCallback(async () => {
@@ -234,13 +239,7 @@ export function TextToSpeechCard() {
               providers: { [activeProvider]: { [voiceField]: trimmedVoiceId } },
             }
           : {}),
-        // Only written when the daemon supports it AND the user changed it:
-        // never writing on an untouched default keeps "unset = platform
-        // default" configs unset, and old daemons never receive a field they
-        // would silently drop.
-        ...(activeProvider === "vellum" &&
-        selectedProvider.supportsVoiceSelection &&
-        draftManagedVoice !== serverManagedVoice
+        ...(managedVoiceChanged
           ? { providers: { vellum: { model: draftManagedVoice } } }
           : {}),
       };
@@ -277,7 +276,7 @@ export function TextToSpeechCard() {
     assistantId,
     draftProvider,
     draftManagedVoice,
-    serverManagedVoice,
+    managedVoiceChanged,
     apiKeyText,
     voiceIdText,
     selectedProvider,
@@ -290,13 +289,9 @@ export function TextToSpeechCard() {
   // no billing, works before saving.
   const [previewing, setPreviewing] = useState(false);
   const handlePreviewVoice = useCallback(async () => {
-    const voice = MANAGED_VOICES.find((v) => v.model === draftManagedVoice);
-    if (!voice) {
-      return;
-    }
     setPreviewing(true);
     try {
-      const audio = new Audio(voice.sampleUrl);
+      const audio = new Audio(selectedManagedVoice.sampleUrl);
       await audio.play();
       await new Promise<void>((resolve) => {
         audio.onended = () => resolve();
@@ -307,7 +302,7 @@ export function TextToSpeechCard() {
     } finally {
       setPreviewing(false);
     }
-  }, [draftManagedVoice]);
+  }, [selectedManagedVoice]);
 
   const handleReset = useCallback(() => {
     setLocalSetting(LS_TTS_API_KEY_PREFIX + draftProvider, "");
@@ -427,14 +422,8 @@ export function TextToSpeechCard() {
               aria-label="Managed voice"
             />
             <p className="text-body-small-default text-[var(--content-tertiary)]">
-              {`Voice by ${
-                MANAGED_VOICE_SOURCE_LABELS[
-                  (
-                    MANAGED_VOICES.find((v) => v.model === draftManagedVoice) ??
-                    MANAGED_VOICES[0]!
-                  ).source
-                ]
-              }`}
+              Voice by{" "}
+              {MANAGED_VOICE_SOURCE_LABELS[selectedManagedVoice.source]}
             </p>
           </div>
         )}
