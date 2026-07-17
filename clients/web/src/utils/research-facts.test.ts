@@ -352,6 +352,30 @@ describe("parseResearchResultStreaming — dropped aggregator-only claims", () =
 
     expect(droppedClaims).toEqual([]);
   });
+
+  test("a claim shown with a real source is not also reported as dropped", () => {
+    // The model can emit the same claim twice — once backed by a real source
+    // (shown/kept) and once aggregator-only. The shown copy wins: the text must
+    // not surface in droppedClaims, or a memory scrub would disregard a fact the
+    // user can still see and keep on the card.
+    const { claims, droppedClaims } = parseResearchResultStreaming(
+      payload([
+        {
+          claim: "Founder of Acme",
+          confidence: "confident",
+          sources: ["https://linkedin.com/in/example-user"],
+        },
+        {
+          claim: "Founder of Acme",
+          confidence: "confident",
+          sources: ["https://www.spokeo.com/example-user"],
+        },
+      ]),
+    );
+
+    expect(claims.map((c) => c.claim)).toEqual(["Founder of Acme"]);
+    expect(droppedClaims).toEqual([]);
+  });
 });
 
 describe("pluginDisplayName", () => {
