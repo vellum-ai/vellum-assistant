@@ -16,11 +16,13 @@
  *   4. Errors from sqlite3 surface as `ok: false` with the stderr
  *      preserved in `error`.
  */
-import { rmSync, statSync } from "node:fs";
+import { statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
 import { beforeEach, describe, expect, test } from "bun:test";
+
+import { removeTestDbFiles } from "../../../../__tests__/assert-not-live-db.js";
 
 const { getSqlite } = await import("../../../../persistence/db-connection.js");
 const { initializeDb } = await import("../../../../persistence/db-init.js");
@@ -185,12 +187,6 @@ function tempDbPath(tag: string): string {
   return join(tmpdir(), `async-attach-${tag}-${process.pid}-${Date.now()}.db`);
 }
 
-function removeDbFiles(path: string): void {
-  for (const suffix of ["", "-wal", "-shm"]) {
-    rmSync(`${path}${suffix}`, { force: true });
-  }
-}
-
 describe("runAsyncSqlite attach mode", () => {
   test("attachStatements attaches the alias and sets it to synchronous=NORMAL", () => {
     // Both backends build their ATTACH SQL from this one helper, so a unit
@@ -234,7 +230,7 @@ describe("runAsyncSqlite attach mode", () => {
         // report FULL === 2 (the default), fsyncing every cross-DB commit.
         expect(parseChangesFromStdout(result.stdout)).toBe(1);
       } finally {
-        removeDbFiles(targetPath);
+        removeTestDbFiles(targetPath);
       }
     },
   );
@@ -270,7 +266,7 @@ describe("runAsyncSqlite attach mode", () => {
       verify.close();
       expect(count).toBe(1);
     } finally {
-      removeDbFiles(targetPath);
+      removeTestDbFiles(targetPath);
     }
   });
 });
