@@ -2,9 +2,12 @@
  * Unit tests for the platform-hosted /reengage route handler.
  *
  * The route runs a background conversation turn and asks the assistant to write
- * `{ subject, body }` JSON to an injected file path, then reads it back. These
- * tests mock `runConversationTurn` to play the assistant's part: they extract
- * the injected path from the prompt and write (or don't write) a file there.
+ * `{ subject, body }` JSON to an injected file path under the plugin's data
+ * directory, then reads it back. These tests mock `@vellumai/plugin-api` to
+ * supply both a temp `getWorkspaceDir` (so the data dir is a throwaway temp
+ * location) and a `runConversationTurn` that plays the assistant's part —
+ * extracting the injected path from the prompt and writing (or not writing) a
+ * file there.
  *
  * Covers:
  * - Happy path: model writes valid JSON → structured subject/body, file cleaned up
@@ -14,17 +17,22 @@
  * - Model writes JSON missing a field → 502
  */
 
-import { existsSync } from "node:fs";
+import { existsSync, mkdtempSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { RunConversationTurnOptions } from "@vellumai/plugin-api";
 
 // ---------------------------------------------------------------------------
-// Mock — plays the assistant: writes whatever `fileContents` is set to (if not
-// null) to the path injected into the prompt.
+// Mock — supplies every named export reengage.ts imports from the plugin API:
+// a temp `getWorkspaceDir`, and a `runConversationTurn` that plays the
+// assistant (writes `fileContents`, if non-null, to the path injected into the
+// prompt).
 // ---------------------------------------------------------------------------
 
+let workspaceDir = mkdtempSync(join(tmpdir(), "reengage-test-"));
 let fileContents: string | null = JSON.stringify({
   subject: "Ready when you are",
   body: "Just picking up where we left off.",
@@ -40,6 +48,7 @@ function extractInjectedPath(prompt: string): string {
 }
 
 mock.module("@vellumai/plugin-api", () => ({
+  getWorkspaceDir: () => workspaceDir,
   runConversationTurn: async (options: RunConversationTurnOptions) => {
     lastOptions = options;
     const prompt = (options.content[0] as { text: string }).text;
@@ -61,6 +70,7 @@ function postRequest(): Request {
 
 describe("platform-hosted /reengage POST", () => {
   beforeEach(() => {
+    workspaceDir = mkdtempSync(join(tmpdir(), "reengage-test-"));
     lastOptions = undefined;
     fileContents = JSON.stringify({
       subject: "Ready when you are",
