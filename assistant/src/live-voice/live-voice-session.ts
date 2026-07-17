@@ -55,7 +55,7 @@ import type {
 import { getSubagentManager } from "../subagent/index.js";
 import { extractSpeakableSegments } from "../tts/speakable-segments.js";
 import { getLogger } from "../util/logger.js";
-import { pickAckPhrase } from "./ack-phrases.js";
+import { pickAckPhrase, pickToolAckPhrase } from "./ack-phrases.js";
 import type {
   LiveVoiceAudioArchiveResult,
   LiveVoiceAudioArchiveRole,
@@ -2135,6 +2135,18 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
             }
             current.toolUseStarted = true;
             log.debug({ turnId, toolName }, "Live voice turn started tool use");
+            // Definitive tool use means the turn is guaranteed slow: speak
+            // the floor-holding ack now instead of waiting out the
+            // first-delta timer (same one-ack-per-turn `ackSpoken` budget).
+            if (
+              this.streamTtsAudio &&
+              isVoiceFrontModelEnabled(getConfig()) &&
+              !current.firstDeltaSeen &&
+              !current.ackSpoken
+            ) {
+              this.clearAckTimer(current);
+              this.speakAck(current, "tool-use");
+            }
           },
         },
         onError: (message) => {
@@ -2316,7 +2328,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       ) {
         return;
       }
-      this.speakAck(activeTurn);
+      this.speakAck(activeTurn, "slow-first-delta");
     }, this.ackFirstDeltaTimeoutMs);
   }
 
@@ -2340,11 +2352,13 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // ordered TTS queue, so the model's audio always follows it cleanly; it
   // never consumes the eager first-clause flush reserved for the model's real
   // first segment.
-  private speakAck(activeTurn: ActiveAssistantTurn): void {
+  private speakAck(
+    activeTurn: ActiveAssistantTurn,
+    kind: "slow-first-delta" | "tool-use",
+  ): void {
     activeTurn.ackSpoken = true;
-    const phrase = sanitizeForTts(
-      pickAckPhrase(this.ackPhraseCounter++),
-    ).trim();
+    const pickPhrase = kind === "tool-use" ? pickToolAckPhrase : pickAckPhrase;
+    const phrase = sanitizeForTts(pickPhrase(this.ackPhraseCounter++)).trim();
     if (phrase.length === 0) {
       return;
     }
