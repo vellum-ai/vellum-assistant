@@ -1299,6 +1299,9 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: false,
         supportsVision: true,
         supportsToolUse: true,
+        // xAI's Grok 4.5 API accepts only low|medium|high reasoning effort;
+        // clamp Vellum's xhigh/max tiers down so inherited efforts don't 4xx.
+        maxEffort: "high",
         pricing: {
           inputPer1mTokens: 2,
           outputPer1mTokens: 6,
@@ -2026,6 +2029,23 @@ export const PROMPT_CACHE_BREAKPOINT_MODEL_IDS: ReadonlySet<string> = new Set(
     p.models.flatMap((m) => (m.supportsPromptCacheBreakpoints ? [m.id] : [])),
   ),
 );
+
+/**
+ * Per-model `reasoning_effort` ceilings for a provider, keyed by model ID and
+ * derived from each model's `maxEffort`. Providers whose per-model APIs accept
+ * a narrower effort range than the provider default (e.g. Fireworks, OpenRouter)
+ * consult this in `resolveMaxReasoningEffort` to clamp Vellum's xhigh/max tiers
+ * down. Models without `maxEffort` are absent and inherit the provider default.
+ */
+export function modelEffortCeilings(
+  providerId: string,
+): ReadonlyMap<string, "high" | "xhigh" | "max"> {
+  return new Map(
+    PROVIDER_CATALOG.find((p) => p.id === providerId)?.models.flatMap((m) =>
+      m.maxEffort ? ([[m.id, m.maxEffort]] as const) : [],
+    ) ?? [],
+  );
+}
 
 /**
  * Return the catalog provider that owns a model ID, if known. When multiple
