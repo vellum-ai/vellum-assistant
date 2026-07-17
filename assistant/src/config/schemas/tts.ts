@@ -273,23 +273,11 @@ for (const id of schemaKeys) {
 /**
  * Canonical TTS service configuration.
  *
- * Managed synthesis (through the user's Vellum account, billed to Vellum
- * credits) is selectable two ways: `provider: "vellum"` directly, or
- * `mode: "managed"` alongside a BYOK `provider` — the form the mode toggle
- * writes, which leaves the BYOK choice untouched so switching back to
- * `"your-own"` restores it. Use {@link effectiveTtsProvider} to resolve
- * which provider is actually active.
+ * `provider` is the only axis: `"vellum"` synthesizes through the platform,
+ * billed to Vellum credits; any other provider uses the user's own API key.
  */
 export const TtsServiceSchema = z
   .object({
-    mode: z
-      .enum(["your-own", "managed"], {
-        error: 'services.tts.mode must be "your-own" or "managed"',
-      })
-      .default("your-own" as const)
-      .describe(
-        'TTS service mode — "your-own" uses the configured provider with your API key; "managed" synthesizes through your Vellum account',
-      ),
     provider: z
       .enum(TTS_PROVIDER_IDS, {
         error: `services.tts.provider must be one of: ${TTS_PROVIDER_IDS.join(", ")}`,
@@ -303,24 +291,3 @@ export const TtsServiceSchema = z
   );
 
 export type TtsService = z.infer<typeof TtsServiceSchema>;
-
-/**
- * Resolve the provider that is actually active for the service config.
- *
- * `provider: "vellum"` selects managed synthesis directly. Otherwise
- * `mode: "managed"` routes to `vellum` while leaving the user's BYOK
- * `provider` choice untouched, so toggling back to `"your-own"` restores
- * their previous setup.
- */
-export function effectiveTtsProvider(service: {
-  mode: TtsService["mode"];
-  provider?: string;
-}): string {
-  if (service.provider === "vellum") {
-    return "vellum";
-  }
-  if (service.mode === "managed") {
-    return "vellum";
-  }
-  return service.provider ?? "elevenlabs";
-}

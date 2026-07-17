@@ -148,6 +148,15 @@ export const ConversationMessageToolCallSchema = z.object({
   input: z.record(z.string(), z.unknown()),
   result: z.string().optional(),
   isError: z.boolean().optional(),
+  /**
+   * Stable, machine-readable classification for an error result (only set when
+   * `isError`), mirroring the live `tool_result` event's `errorCode`. Lets a
+   * surface branch on a known failure (e.g. `acp_claude_oauth_missing`, which
+   * renders an inline "Connect Claude Code" affordance) rather than parsing the
+   * human `result` string. Currently threaded on the live event only; absent on
+   * reopened history rows until the daemon persists it.
+   */
+  errorCode: z.string().optional(),
   /** Base64-encoded image data from tool contentBlocks. @deprecated Use imageDataList. */
   imageData: z.string().optional(),
   /** Base64-encoded image data from tool contentBlocks (e.g. browser_screenshot, image generation). */

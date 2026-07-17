@@ -38,6 +38,17 @@ export interface NormalizedOpenAIAPIError {
 }
 
 /**
+ * All human-readable text from a normalized error — message, detail, and raw
+ * body — joined for case-insensitive substring/regex scanning. Classifying off
+ * the intact upstream payload (not the SDK's lossy `error.message`) is what lets
+ * OpenRouter's wrapped errors be matched, where the real reason lives in
+ * `metadata.raw`.
+ */
+export function normalizedErrorText(n: NormalizedOpenAIAPIError): string {
+  return `${n.message} ${n.detail ?? ""} ${n.rawBody ?? ""}`;
+}
+
+/**
  * Map an OpenAI-compatible error to a semantic {@link ProviderErrorReason}.
  * Order matters — the model-restriction check precedes the generic 401/403
  * credential branch, and billing precedes credentials.
@@ -46,7 +57,7 @@ export function deriveReason(
   n: NormalizedOpenAIAPIError,
   status: number | undefined,
 ): ProviderErrorReason {
-  const haystack = `${n.message} ${n.detail ?? ""} ${n.rawBody ?? ""}`;
+  const haystack = normalizedErrorText(n);
 
   if (
     status === 403 &&

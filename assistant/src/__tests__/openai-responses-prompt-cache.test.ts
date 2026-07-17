@@ -68,6 +68,23 @@ function userMsg(text: string): Message {
   return { role: "user", content: [{ type: "text", text }] };
 }
 
+/** A user turn whose only content is an image — no text part. */
+function imageUserMsg(): Message {
+  return {
+    role: "user",
+    content: [
+      {
+        type: "image",
+        source: {
+          type: "base64",
+          media_type: "image/png",
+          data: "iVBORw0KGgo=",
+        },
+      },
+    ],
+  };
+}
+
 function assistantMsg(text: string): Message {
   return { role: "assistant", content: [{ type: "text", text }] };
 }
@@ -158,6 +175,34 @@ describe("OpenAIResponsesProvider explicit prompt caching (GPT-5.6+)", () => {
     );
 
     expect(breakpointedItemIndexes()).toEqual([0, 2, 4]);
+  });
+
+  test("image-only user turn is anchored on its trailing image part", async () => {
+    const provider = makeProvider("gpt-5.6-sol");
+    await provider.sendMessage([imageUserMsg()], {
+      config: { promptCacheKey: "conv-1" },
+    });
+
+    // No text part, but the trailing input_image is stampable — so the turn
+    // anchors the ladder instead of dropping off it entirely.
+    expect(breakpointedItemIndexes()).toEqual([0]);
+    const input = (lastStreamParams?.input ?? []) as WireItem[];
+    const parts = input[0].content ?? [];
+    const last = parts[parts.length - 1];
+    expect(last?.type).toBe("input_image");
+    expect(last?.prompt_cache_breakpoint).toEqual({ mode: "explicit" });
+  });
+
+  test("multi-turn with an image-only turn: every user item is marked", async () => {
+    const provider = makeProvider("gpt-5.6-sol");
+    await provider.sendMessage(
+      [imageUserMsg(), assistantMsg("r1"), userMsg("t2")],
+      { config: { promptCacheKey: "conv-1" } },
+    );
+
+    // Wire items: [user image, assistant r1, user t2]. Both user items anchor
+    // the ladder even though the first carries no text.
+    expect(breakpointedItemIndexes()).toEqual([0, 2]);
   });
 
   test("marker ladder caps at 50 boundaries, dropping the oldest", async () => {

@@ -618,6 +618,7 @@ export class OpenAIResponsesProvider implements Provider {
       return {
         content,
         model: responseModel,
+        resolvedEndpoint: this.client.baseURL,
         usage: {
           inputTokens,
           outputTokens,
@@ -743,8 +744,9 @@ export class OpenAIResponsesProvider implements Provider {
 
   /**
    * Stamp explicit prompt-cache breakpoints onto the built Responses input
-   * items: the last stampable part of every user item carrying real text,
-   * newest first, up to {@link PROMPT_CACHE_MAX_BREAKPOINTS}.
+   * items: the last stampable part of every user item that carries real text
+   * or ends in an image/file attachment, newest first, up to
+   * {@link PROMPT_CACHE_MAX_BREAKPOINTS}.
    *
    * Cache reads only consider markers present in the *current* request —
    * boundaries written by earlier requests match only if re-marked here
@@ -779,18 +781,43 @@ export class OpenAIResponsesProvider implements Provider {
     opts: { mutableLatestUserMessage: boolean; disableTurnStartCache: boolean },
   ): void {
     const items = input as ResponsesMessageItem[];
-    // Marker candidates need a real text part (mirror of the Anthropic
-    // client's findUserTextMsgIdx).
-    const isUserTextItem = (it: ResponsesMessageItem | undefined): boolean =>
-      it?.type === "message" &&
-      it.role === "user" &&
-      Array.isArray(it.content) &&
-      it.content.some(
-        (p) =>
-          p.type === "input_text" &&
-          typeof p.text === "string" &&
-          p.text.length > 0,
+
+    // The item's final content part when it can carry a marker
+    // (STAMPABLE_PART_TYPES), else undefined. Selection and stamping both key
+    // off this, so the selector never nominates an item the stamper would skip.
+    const stampableLastPart = (
+      it: ResponsesMessageItem | undefined,
+    ): Record<string, unknown> | undefined => {
+      const content = it?.content;
+      if (!Array.isArray(content) || content.length === 0) {
+        return undefined;
+      }
+      const last = content[content.length - 1];
+      return last && STAMPABLE_PART_TYPES.has(last.type as string)
+        ? last
+        : undefined;
+    };
+
+    // A user item anchors when its trailing part is markable: a non-empty text
+    // part, or an image/file attachment. Attachment-only turns must anchor too,
+    // or an image-only turn drops off the ladder and the whole prefix before it
+    // re-bills every tool-loop iteration. Mirrors the Anthropic client's
+    // findUserTextMsgIdx.
+    const isMarkableUserItem = (
+      it: ResponsesMessageItem | undefined,
+    ): boolean => {
+      if (it?.type !== "message" || it.role !== "user") {
+        return false;
+      }
+      const last = stampableLastPart(it);
+      if (!last) {
+        return false;
+      }
+      return (
+        last.type !== "input_text" ||
+        (typeof last.text === "string" && last.text.length > 0)
       );
+    };
 
     const candidates: number[] = [];
     for (
@@ -798,7 +825,7 @@ export class OpenAIResponsesProvider implements Provider {
       i >= 0 && candidates.length < PROMPT_CACHE_MAX_BREAKPOINTS;
       i--
     ) {
-      if (isUserTextItem(items[i])) {
+      if (isMarkableUserItem(items[i])) {
         candidates.push(i);
       }
     }
@@ -819,19 +846,15 @@ export class OpenAIResponsesProvider implements Provider {
 
     for (const idx of candidates) {
       // `disableTurnStartCache` suppresses the marker on the turn-start
-      // (newest user-text) item — one-shot call sites whose prompts never
+      // (newest user) item — one-shot call sites whose prompts never
       // recur would otherwise pay a write with no future read. Older
       // boundaries stay marked, matching the Anthropic client's semantics
       // (its previous-turn anchor is not gated by this flag).
       if (opts.disableTurnStartCache && idx === candidates[0]) {
         continue;
       }
-      const content = items[idx]?.content;
-      if (!Array.isArray(content) || content.length === 0) {
-        continue;
-      }
-      const last = content[content.length - 1];
-      if (last && STAMPABLE_PART_TYPES.has(last.type as string)) {
+      const last = stampableLastPart(items[idx]);
+      if (last) {
         last.prompt_cache_breakpoint = { mode: "explicit" };
       }
     }

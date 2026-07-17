@@ -14,6 +14,17 @@ export const VISION_NOT_SUPPORTED_PATTERNS = [
   /multi-?modal.*not.*support/i,
 ];
 
+/**
+ * Whether a provider error message indicates the model can't accept image
+ * input. Providers wrap raw upstream rejections in their own prose (e.g.
+ * `Anthropic API error (400): …`, `Gemini API error (…): …`), so the classifier
+ * matches the full {@link VISION_NOT_SUPPORTED_PATTERNS} set rather than any
+ * single normalized phrase.
+ */
+export function isVisionNotSupportedError(message: string): boolean {
+  return VISION_NOT_SUPPORTED_PATTERNS.some((re) => re.test(message));
+}
+
 // Vendor-neutral (OpenRouter/Anthropic-style) credit-exhaustion prose. Also
 // covers per-key spend caps: OpenRouter returns 403 "Key limit exceeded" when a
 // key's configured credit limit is reached — a billing/budget condition that

@@ -138,7 +138,7 @@ Within these classes, sub-folders can emerge as a class gets dense (\`people/col
 
 The slug is the relative path under \`memory/concepts/\` minus \`.md\` — e.g. \`alice\`, \`people/alice\`, \`procs/git-flow\`, \`arcs/2025-04-cutover\`.
 
-Legacy pages whose slug uses the old prefix convention (\`person-alice\`, \`proc-git-flow\`, \`object-laptop\`, \`arc-…\`) are still valid — leave them alone unless you're already editing them. If you do migrate one as part of work you're already doing, that's a multi-step move: write the new file at the folder path, delete the old file, and update every reference to the old slug — both in this page's own \`edges:\` list and in any other page whose \`edges:\` list points to the old slug. Don't sweep old pages just to migrate — churning embeddings and activation state for marginal benefit isn't worth it.
+Legacy pages whose slug uses the old prefix convention (\`person-alice\`, \`proc-git-flow\`, \`object-laptop\`, \`arc-…\`) are still valid — leave them alone unless you're already editing them. If you do migrate one as part of work you're already doing, that's a multi-step move: write the new file at the folder path, delete the old page with \`delete_memory_page\` (pass the old slug), and update every reference to the old slug — both in this page's own \`edges:\` list and in any other page whose \`edges:\` list points to the old slug. Don't sweep old pages just to migrate — churning embeddings and activation state for marginal benefit isn't worth it.
 
 ---
 

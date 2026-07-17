@@ -52,8 +52,27 @@ export interface ToolExecutionResult {
   content: string;
   /** When true, the agent loop treats `content` as an error and may surface it / retry. */
   isError: boolean;
+  /**
+   * Stable, machine-readable classification for an error result (e.g.
+   * `acp_claude_oauth_missing`). Threaded to the client on the `tool_result`
+   * event so surfaces can render a structured affordance for a known failure
+   * instead of re-parsing the human `content` string. Only meaningful when
+   * `isError` is true.
+   */
+  errorCode?: string;
   /** Optional short status message for client display (e.g. `"truncated"`, `"timed out"`). */
   status?: string;
+  /**
+   * Typed side channel from the app-builder executors to their post-execution
+   * side-effect hooks (`daemon/tool-side-effects.ts`): the exact app id the
+   * executor operated on. `app_id` is optional for the fallback tools
+   * (`app_update`, `app_refresh`, `app_generate_icon`) — when the model omits
+   * it the skill script resolves the conversation's active app — so hooks read
+   * this authoritative id instead of re-parsing the LLM-facing `content`
+   * payload, whose shape must stay decoupled from daemon logic (see
+   * assistant/AGENTS.md § Post-execution hooks). Set only by the app_* executors.
+   */
+  resolvedAppId?: string;
   /**
    * When true, the agent loop should yield control back to the user after
    * returning this result — tool results are pushed to history and the loop

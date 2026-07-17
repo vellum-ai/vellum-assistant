@@ -159,9 +159,8 @@ const {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function applyConfig(overrides: { provider?: string; mode?: string }): void {
+function applyConfig(overrides: { provider?: string }): void {
   const provider = overrides.provider ?? "openai-whisper";
-  const mode = overrides.mode ?? "your-own";
   // Seed a schema-valid base so the loader caches a fresh config object, then
   // set the provider under test on that live cached object. `services.stt.
   // provider` is a strict enum, so the "unconfigured" cases (empty string /
@@ -170,7 +169,6 @@ function applyConfig(overrides: { provider?: string; mode?: string }): void {
   // path the raw mock did.
   setConfig("services", {
     stt: {
-      mode,
       provider: "openai-whisper",
       providers: {
         "openai-whisper": {},
@@ -969,25 +967,25 @@ describe("vellum managed resolution", () => {
     vellumStreamCtorCalls.length = 0;
   });
 
-  test("managed mode resolves the vellum batch transcriber when the platform connection exists", async () => {
+  test("the vellum provider resolves the batch transcriber when the platform connection exists", async () => {
     mockVellumAvailable = true;
-    applyConfig({ provider: "deepgram", mode: "managed" });
+    applyConfig({ provider: "vellum" });
 
     const transcriber = await resolveBatchTranscriber();
     expect(transcriber?.providerId).toBe("vellum");
   });
 
-  test("managed mode resolves null without a platform connection", async () => {
+  test("the vellum provider resolves null without a platform connection", async () => {
     mockVellumAvailable = false;
-    applyConfig({ provider: "deepgram", mode: "managed" });
+    applyConfig({ provider: "vellum" });
 
     expect(await resolveBatchTranscriber()).toBeNull();
   });
 
-  test("managed mode preserves the BYOK provider choice (effective provider is vellum)", async () => {
+  test("the vellum provider wins over a stored BYOK key", async () => {
     mockVellumAvailable = true;
     mockProviderKeys = { deepgram: "dg-key" };
-    applyConfig({ provider: "deepgram", mode: "managed" });
+    applyConfig({ provider: "vellum" });
 
     const capability = await resolveConversationStreamingSttCapability();
     expect(capability.status).toBe("supported");
@@ -1004,7 +1002,7 @@ describe("vellum managed resolution", () => {
       httpBaseUrl: "http://gateway.test",
       mintServiceToken: () => "vk-test",
     };
-    applyConfig({ provider: "openai-whisper", mode: "managed" });
+    applyConfig({ provider: "vellum" });
 
     const transcriber = await resolveStreamingTranscriber({
       sampleRate: 24000,
@@ -1025,7 +1023,7 @@ describe("vellum managed resolution", () => {
       httpBaseUrl: "http://gateway.test",
       mintServiceToken: () => "vk-test",
     };
-    applyConfig({ provider: "deepgram", mode: "managed" });
+    applyConfig({ provider: "vellum" });
 
     expect(await resolveStreamingTranscriber({ sampleRate: 16000 })).toBeNull();
     expect(vellumStreamCtorCalls).toHaveLength(0);
@@ -1034,7 +1032,7 @@ describe("vellum managed resolution", () => {
   test("streaming resolver returns null when the velay connection is missing", async () => {
     mockVellumAvailable = true;
     mockVelayConnection = null;
-    applyConfig({ provider: "deepgram", mode: "managed" });
+    applyConfig({ provider: "vellum" });
 
     expect(await resolveStreamingTranscriber({ sampleRate: 16000 })).toBeNull();
     expect(vellumStreamCtorCalls).toHaveLength(0);
@@ -1042,7 +1040,7 @@ describe("vellum managed resolution", () => {
 
   test("conversation streaming capability reports missing credentials without a connection", async () => {
     mockVellumAvailable = false;
-    applyConfig({ provider: "deepgram", mode: "managed" });
+    applyConfig({ provider: "vellum" });
 
     const capability = await resolveConversationStreamingSttCapability();
     expect(capability.status).toBe("missing-credentials");

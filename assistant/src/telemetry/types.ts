@@ -713,34 +713,3 @@ export const OUTBOX_TELEMETRY_EVENT_NAMES: readonly OutboxTelemetryEventName[] =
 /** Wire event type for one outbox event name. */
 export type OutboxTelemetryEventOf<N extends OutboxTelemetryEventName> =
   Extract<TelemetryEvent, { type: N }>;
-
-/**
- * Event names a CLIENT is allowed to report over `POST /v1/telemetry/ingest`.
- *
- * This is a deliberately curated allowlist — NOT every outbox-backed type. Most
- * outbox events are recorded by the daemon itself from trusted in-process state
- * (`config_setting`, `skill_loaded`, `auth_fallback`, `watchdog`, …), and the
- * watermark types (`turn`, `llm_usage`, `tool_executed`) come off their own
- * tables; letting an untrusted client inject any of those would corrupt the
- * event stream. A type joins this set only when a client is the sole party that
- * can observe the event it reports (client-orchestrated), like
- * `onboarding_research` — the daemon never detects that turn on its own.
- *
- * The `satisfies` clause pins every entry to a real outbox name, so a watermark
- * type (or a typo) can never be added here.
- */
-export const CLIENT_REPORTABLE_TELEMETRY_EVENT_NAMES = [
-  "onboarding_research",
-] as const satisfies readonly OutboxTelemetryEventName[];
-
-export type ClientReportableTelemetryEventName =
-  (typeof CLIENT_REPORTABLE_TELEMETRY_EVENT_NAMES)[number];
-
-/** Whether an arbitrary string is a client-reportable telemetry event name. */
-export function isClientReportableTelemetryEventName(
-  name: string,
-): name is ClientReportableTelemetryEventName {
-  return (
-    CLIENT_REPORTABLE_TELEMETRY_EVENT_NAMES as readonly string[]
-  ).includes(name);
-}

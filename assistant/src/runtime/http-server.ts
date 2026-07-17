@@ -22,7 +22,6 @@ import {
 } from "../config/env.js";
 import { getIsPlatform } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
-import { effectiveSttProvider } from "../config/schemas/stt.js";
 import {
   getDbMigrationReadiness,
   isDbMigrationGateBypassed,
@@ -236,9 +235,7 @@ export class RuntimeHttpServer {
             // reads config inside SttStreamSession.start()'s own guarded path.
             let configuredProvider: string | undefined;
             try {
-              configuredProvider = effectiveSttProvider(
-                getConfig().services.stt,
-              );
+              configuredProvider = getConfig().services.stt.provider;
 
               // Mismatch telemetry: when the optional requested provider
               // disagrees with the configured provider, log a warning so

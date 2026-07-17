@@ -105,6 +105,7 @@ mock.module("../daemon/date-context.js", () => ({
 
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { LLMSchema } from "../config/schemas/llm.js";
+import { REFUSAL_FALLBACK_TEXT } from "../context/refusal-quarantine.js";
 import {
   clearConversations,
   setConversation,
@@ -119,6 +120,7 @@ import {
   assembleSlackChronologicalMessages,
   buildSubagentStatusBlock,
   getSlackCompactionWatermarkForPrefix,
+  getSlackWatermarkAdvanceForRowPrefix,
   injectChannelCapabilityContext,
   injectChannelCommandContext,
   isGroupChatType,
@@ -4040,6 +4042,51 @@ describe("Slack channel chronological rendering — multi-thread", () => {
     expect(getSlackCompactionWatermarkForPrefix(result, 1)).toBe(T2);
   });
 
+  // A legacy kept-tail row carries no `channelTs`, so the guard must fall back
+  // to `createdAt/1000` — as the projection filter does — or it advances past a
+  // row the filter then drops while the summary never covered it: silent loss.
+  describe("getSlackWatermarkAdvanceForRowPrefix — legacy kept rows", () => {
+    test("skips the advance when a legacy kept row sits at or before the candidate", () => {
+      const rows: MessageRow[] = [
+        userRow({
+          id: "summarized-prefix",
+          createdAt: 1700000030_000,
+          text: "summarized prefix",
+          slackMeta: buildSlackMeta({ channelTs: T2, displayName: "carol" }),
+        }),
+        // No slackMeta → legacy row; createdAt/1000 = 1700000020 <= T2, so
+        // advancing to T2 would drop it from the projection uncovered.
+        userRow({
+          id: "legacy-kept-tail",
+          createdAt: 1700000020_000,
+          text: "legacy kept tail",
+        }),
+      ];
+
+      expect(getSlackWatermarkAdvanceForRowPrefix(rows, 1, null)).toBeNull();
+    });
+
+    test("advances when a legacy kept row sits strictly after the candidate", () => {
+      const rows: MessageRow[] = [
+        userRow({
+          id: "summarized-prefix",
+          createdAt: 1700000000_000,
+          text: "summarized prefix",
+          slackMeta: buildSlackMeta({ channelTs: T0, displayName: "alice" }),
+        }),
+        // No slackMeta → legacy row; createdAt/1000 = 1700000050 > T0, so the
+        // projection keeps it and the advance is safe.
+        userRow({
+          id: "legacy-kept-tail-after",
+          createdAt: 1700000050_000,
+          text: "legacy kept tail after",
+        }),
+      ];
+
+      expect(getSlackWatermarkAdvanceForRowPrefix(rows, 1, null)).toBe(T0);
+    });
+  });
+
   test("active-thread focus filters pre-watermark and legacy compacted rows", () => {
     const caps: ChannelCapabilities = {
       channel: "slack",
@@ -5232,6 +5279,59 @@ describe("assembleSlackActiveThreadFocusBlock", () => {
     expect(result!).toContain("Lone reply");
     expect(result!).toContain("<active_thread>");
   });
+
+  test("drops a previously-refused exchange from the focus block", () => {
+    // A refusal persisted inside the active thread (the flagged prompt plus the
+    // canned apology the empty-response plugin rewrote the turn into) must not
+    // survive into the `<active_thread>` block. The block is appended to the
+    // user tail, so a surviving refusal line would let the safety classifier
+    // re-refuse every turn — the same dead-end quarantined off Slack.
+    const FLAGGED_TS = "1700000010.000002";
+    const REFUSAL_TS = "1700000011.000003";
+    const BENIGN_TS = "1700000020.000004";
+    const rows: SlackTranscriptInputRow[] = [
+      buildRow(
+        "user",
+        "Parent",
+        1_000,
+        buildMeta({ channelTs: PARENT_TS, displayName: "@alice" }),
+      ),
+      buildRow(
+        "user",
+        "disallowed question",
+        2_000,
+        buildMeta({
+          channelTs: FLAGGED_TS,
+          threadTs: PARENT_TS,
+          displayName: "@alice",
+        }),
+      ),
+      buildRow(
+        "assistant",
+        REFUSAL_FALLBACK_TEXT,
+        2_100,
+        buildMeta({ channelTs: REFUSAL_TS, threadTs: PARENT_TS }),
+      ),
+      buildRow(
+        "user",
+        "back to normal",
+        3_000,
+        buildMeta({
+          channelTs: BENIGN_TS,
+          threadTs: PARENT_TS,
+          displayName: "@alice",
+        }),
+      ),
+    ];
+    const result = assembleSlackActiveThreadFocusBlock(rows, SLACK_CAPS);
+    expect(result).not.toBeNull();
+    // Surrounding benign turns survive …
+    expect(result!).toContain("Parent");
+    expect(result!).toContain("back to normal");
+    // … but the refusal and the prompt that tripped it are gone.
+    expect(result!).not.toContain(REFUSAL_FALLBACK_TEXT);
+    expect(result!).not.toContain("disallowed question");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -6068,6 +6168,237 @@ describe("assembleSlackChronologicalMessages", () => {
         },
       ],
     });
+  });
+
+  test("quarantines a previously-refused exchange from the transcript", () => {
+    // A safety-classifier refusal persisted in Slack history — the flagged
+    // prompt plus the canned apology the empty-response plugin rewrote the turn
+    // into — must not be replayed to the model. Left in, the classifier
+    // re-refuses every turn, the poisoned dead-end the plugin's turn-start
+    // sweep prevents off Slack. The whole exchange is excised here so it never
+    // reaches the model request.
+    const TS_14_30 = "1699972200.000400"; // 14:30 UTC
+    const meta = (channelTs: string): SlackMessageMetadata => ({
+      source: "slack",
+      channelId: DM_CHANNEL_ID,
+      channelTs,
+      eventKind: "message",
+      displayName: "@alice",
+    });
+    const rows: SlackTranscriptInputRow[] = [
+      row("user", "hi assistant", MS_14_25, metadataEnvelope(meta(TS_14_25))),
+      row(
+        "user",
+        "disallowed question",
+        MS_14_26,
+        metadataEnvelope(meta(TS_14_26)),
+      ),
+      row(
+        "assistant",
+        REFUSAL_FALLBACK_TEXT,
+        MS_14_28,
+        metadataEnvelope(meta(TS_14_28)),
+      ),
+      row("user", "back to normal", MS_14_30, metadataEnvelope(meta(TS_14_30))),
+    ];
+
+    const result = assembleSlackChronologicalMessages(rows, DM_CAPS);
+    const serialized = JSON.stringify(result);
+    // The refusal and the prompt that tripped it are both gone …
+    expect(serialized).not.toContain(REFUSAL_FALLBACK_TEXT);
+    expect(serialized).not.toContain("disallowed question");
+    // … while the benign turns on either side survive.
+    expect(serialized).toContain("hi assistant");
+    expect(serialized).toContain("back to normal");
+  });
+
+  test("quarantines the refused exchange across an interleaved sibling thread", () => {
+    // Multi-party channel: @alice's flagged prompt roots a thread, the
+    // assistant's refusal fallback replies inside it (`threadTs` = the prompt's
+    // ts), and @bob posts in a different thread in between. Chronological
+    // adjacency would pair the fallback with @bob's unrelated post — dropping
+    // it and stranding the actual refused prompt, which then re-trips the
+    // classifier every turn. Thread provenance pairs the fallback with @alice's
+    // prompt instead and leaves @bob's post in place.
+    const CHANNEL_ID = "C0MULTI01";
+    const SLACK_CAPS_CHANNEL: ChannelCapabilities = {
+      channel: "slack",
+      dashboardCapable: false,
+      supportsDynamicUi: false,
+      supportsVoiceInput: false,
+      chatType: "channel",
+    };
+    const T_HI = "1699971900.000100";
+    const T_PROMPT = "1699972000.000200"; // roots @alice's thread
+    const T_BOB = "1699972030.000300"; // sibling-thread post, interleaved
+    const T_FALLBACK = "1699972060.000400"; // assistant refusal, in @alice's thread
+    const T_LATER = "1699972200.000500";
+    const meta = (
+      channelTs: string,
+      displayName: string,
+      threadTs?: string,
+    ): SlackMessageMetadata => ({
+      source: "slack",
+      channelId: CHANNEL_ID,
+      channelTs,
+      ...(threadTs ? { threadTs } : {}),
+      eventKind: "message",
+      displayName,
+    });
+    const rows: SlackTranscriptInputRow[] = [
+      row(
+        "user",
+        "hi assistant",
+        1699971900_000,
+        metadataEnvelope(meta(T_HI, "@alice")),
+      ),
+      row(
+        "user",
+        "disallowed question",
+        1699972000_000,
+        metadataEnvelope(meta(T_PROMPT, "@alice")),
+      ),
+      row(
+        "user",
+        "what's for lunch",
+        1699972030_000,
+        metadataEnvelope(meta(T_BOB, "@bob")),
+      ),
+      row(
+        "assistant",
+        REFUSAL_FALLBACK_TEXT,
+        1699972060_000,
+        metadataEnvelope(meta(T_FALLBACK, "@assistant", T_PROMPT)),
+      ),
+      row(
+        "user",
+        "back to normal",
+        1699972200_000,
+        metadataEnvelope(meta(T_LATER, "@alice")),
+      ),
+    ];
+
+    const result = assembleSlackChronologicalMessages(rows, SLACK_CAPS_CHANNEL);
+    const serialized = JSON.stringify(result);
+    // The refusal and the prompt that tripped it are both gone …
+    expect(serialized).not.toContain(REFUSAL_FALLBACK_TEXT);
+    expect(serialized).not.toContain("disallowed question");
+    // … the interleaved sibling-thread post from another user is untouched …
+    expect(serialized).toContain("what's for lunch");
+    // … as are the benign turns on either side.
+    expect(serialized).toContain("hi assistant");
+    expect(serialized).toContain("back to normal");
+  });
+
+  test("quarantines a threaded refusal that followed a tool call, leaving no orphan tool churn", () => {
+    // @alice's flagged prompt roots a thread; the assistant posts an interim
+    // "let me check" reply carrying a `tool_use` (Slack-visible, so it keys to
+    // @alice's thread), the tool runs (a synthetic `tool_result` row with NO
+    // Slack provenance — it keys `null`), and the refusal fallback lands back
+    // in @alice's thread. @bob posts in a sibling thread in between.
+    //
+    // Thread-scoped pairing drops the prompt/fallback and the Slack-visible
+    // `tool_use`, but a naive walk skips the `null`-keyed synthetic
+    // `tool_result` as "another thread". Orphan-tool pruning already ran during
+    // rendering, so that stranded `tool_result` — now missing its `tool_use` —
+    // would ship to the provider and hard-fail the request. Null-keyed tool
+    // churn must be treated as part of the refused exchange and dropped.
+    const CHANNEL_ID = "C0MULTI02";
+    const SLACK_CAPS_CHANNEL: ChannelCapabilities = {
+      channel: "slack",
+      dashboardCapable: false,
+      supportsDynamicUi: false,
+      supportsVoiceInput: false,
+      chatType: "channel",
+    };
+    const T_HI = "1699971900.000100";
+    const T_PROMPT = "1699972000.000200"; // roots @alice's thread
+    const T_TOOLUSE = "1699972010.000250"; // assistant interim + tool_use, in @alice's thread
+    const T_BOB = "1699972020.000300"; // sibling-thread post, interleaved
+    const T_FALLBACK = "1699972060.000400"; // assistant refusal, in @alice's thread
+    const T_LATER = "1699972200.000500";
+    const meta = (
+      channelTs: string,
+      displayName: string,
+      threadTs?: string,
+    ): SlackMessageMetadata => ({
+      source: "slack",
+      channelId: CHANNEL_ID,
+      channelTs,
+      ...(threadTs ? { threadTs } : {}),
+      eventKind: "message",
+      displayName,
+    });
+    const rows: SlackTranscriptInputRow[] = [
+      row(
+        "user",
+        "hi assistant",
+        1699971900_000,
+        metadataEnvelope(meta(T_HI, "@alice")),
+      ),
+      row(
+        "user",
+        "disallowed question",
+        1699972000_000,
+        metadataEnvelope(meta(T_PROMPT, "@alice")),
+      ),
+      // Assistant interim reply + tool_use — Slack-visible, threaded under the
+      // prompt, so it keys to @alice's thread.
+      {
+        role: "assistant",
+        content: JSON.stringify([
+          { type: "text", text: "let me check" },
+          { type: "tool_use", id: "tu_ref", name: "search", input: { q: "x" } },
+        ]),
+        createdAt: 1699972010_000,
+        metadata: metadataEnvelope(meta(T_TOOLUSE, "@assistant", T_PROMPT)),
+      },
+      row(
+        "user",
+        "what's for lunch",
+        1699972020_000,
+        metadataEnvelope(meta(T_BOB, "@bob")),
+      ),
+      // Synthetic tool_result — NOT sent to Slack, so no slackMeta (keys null).
+      {
+        role: "user",
+        content: JSON.stringify([
+          { type: "tool_result", tool_use_id: "tu_ref", content: "result" },
+        ]),
+        createdAt: 1699972030_000,
+        metadata: metadataEnvelope(null),
+      },
+      row(
+        "assistant",
+        REFUSAL_FALLBACK_TEXT,
+        1699972060_000,
+        metadataEnvelope(meta(T_FALLBACK, "@assistant", T_PROMPT)),
+      ),
+      row(
+        "user",
+        "back to normal",
+        1699972200_000,
+        metadataEnvelope(meta(T_LATER, "@alice")),
+      ),
+    ];
+
+    const result = assembleSlackChronologicalMessages(rows, SLACK_CAPS_CHANNEL);
+    expect(result).not.toBeNull();
+    const blocks = result!.flatMap((m) => m.content);
+    // No tool churn from the refused turn survives — neither the orphaned
+    // tool_result nor its (now dropped) tool_use.
+    expect(blocks.some((b) => b.type === "tool_result")).toBe(false);
+    expect(blocks.some((b) => b.type === "tool_use")).toBe(false);
+    const serialized = JSON.stringify(result);
+    expect(serialized).not.toContain("tu_ref");
+    // The refusal and the prompt that tripped it are both gone …
+    expect(serialized).not.toContain(REFUSAL_FALLBACK_TEXT);
+    expect(serialized).not.toContain("disallowed question");
+    // … the interleaved sibling-thread post from another user is untouched …
+    expect(serialized).toContain("what's for lunch");
+    // … as are the benign turns on either side.
+    expect(serialized).toContain("hi assistant");
+    expect(serialized).toContain("back to normal");
   });
 });
 

@@ -66,6 +66,14 @@ export type ResearchStep =
 export interface PersistedResearchResults {
   status: Extract<ResearchStatus, "done">;
   claims: ResearchFact[];
+  /**
+   * Aggregator-only claim texts the parser dropped from `claims` (see
+   * `research-facts.ts`). Persisted so a refresh that resumes PAST the results
+   * step can still scrub these hidden wrong-person facts from the assistant's
+   * memory. Optional for back-compat with snapshots written before this field
+   * existed (defaulted to [] on read).
+   */
+  droppedClaims?: string[];
   suggestions: ResearchSuggestion[];
   installedPlugins: string[];
   /**
@@ -99,6 +107,23 @@ export interface ResearchOnboardingSnapshot {
    * starts.
    */
   researchConversationId?: string;
+  /**
+   * Claims the user explicitly KEPT on the results step (all claims minus the
+   * X-ed ones; [] after "this is not me"). Persisted so a refresh between the
+   * results review and the "Let's chat" handoff still hands the confirmed
+   * findings to the persona. Absent on older snapshots and before the user
+   * reviews the results — absent must stay distinct from [] (unreviewed vs
+   * rejected-all).
+   */
+  keptClaims?: string[] | null;
+  /**
+   * True once the aggregator-only drops have been scrubbed from the assistant's
+   * memory — the one-shot correction was dispatched, or subsumed by a
+   * results-step prune / "this is not me" rejection. Persisted so a refresh that
+   * resumes past the results correction re-fires the scrub only when it never
+   * happened. Absent on older snapshots and before research settles → false.
+   */
+  droppedClaimsScrubbed?: boolean;
 }
 
 function storageKey(userId: string | null): string | null {

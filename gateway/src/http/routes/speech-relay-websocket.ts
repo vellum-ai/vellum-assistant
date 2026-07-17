@@ -22,6 +22,8 @@
 
 import type { OutgoingHttpHeaders } from "node:http";
 
+import { velayHostForPlatformHost } from "@vellumai/service-contracts/ingress";
+
 import { validateEdgeToken } from "../../auth/token-exchange.js";
 import type { GatewayConfig } from "../../config.js";
 import type { CredentialCache } from "../../credential-cache.js";
@@ -36,8 +38,13 @@ const log = getLogger("speech-relay-ws");
 /** Default relay origin when VELAY_BASE_URL is not configured. */
 const DEFAULT_VELAY_BASE_URL = "https://velay.vellum.ai";
 
-// Cap buffered messages to prevent unbounded memory growth if upstream stalls
-const MAX_PENDING_MESSAGES = 100;
+// Cap buffered bytes to prevent unbounded memory growth if upstream stalls.
+// Counted in bytes, not messages: the daemon legally bursts thousands of
+// small audio frames while the velay leg is still dialing (it flushes up to
+// ~10s of buffered utterance audio and keeps streaming live mic frames for
+// the duration of the dial — 16 kHz PCM16 is ~32 KB/s, so the worst
+// legitimate burst is well under this cap).
+const MAX_PENDING_BYTES = 1024 * 1024;
 
 /**
  * The only principal allowed on this path: the daemon's self-minted
@@ -100,6 +107,8 @@ export type SpeechRelaySocketData = {
    */
   downstreamClosed?: boolean;
   pendingMessages?: (string | ArrayBuffer | Uint8Array)[];
+  /** Total bytes held in pendingMessages, checked against MAX_PENDING_BYTES. */
+  pendingBytes?: number;
 };
 
 function jsonError(status: number, code: string, detail: string): Response {
@@ -110,17 +119,13 @@ function jsonError(status: number, code: string, detail: string): Response {
 }
 
 /**
- * Map a Vellum platform host onto its environment's velay origin, following
- * the deployment naming convention (`platform.vellum.ai` → `velay.vellum.ai`,
- * `{env}-platform.vellum.ai` → `velay-{env}.vellum.ai`). Returns null for
- * hosts outside that convention (localhost, custom domains).
+ * Map a Vellum platform host onto its environment's velay origin. The
+ * host-naming convention lives in `@vellumai/service-contracts/ingress`,
+ * shared with the web live-voice client; this wrapper adds the scheme.
  */
 export function velayOriginForPlatformHost(host: string): string | null {
-  if (host === "platform.vellum.ai") {
-    return "https://velay.vellum.ai";
-  }
-  const match = /^([a-z0-9-]+)-platform\.vellum\.ai$/.exec(host);
-  return match ? `https://velay-${match[1]}.vellum.ai` : null;
+  const velayHost = velayHostForPlatformHost(host);
+  return velayHost ? `https://${velayHost}` : null;
 }
 
 /**
@@ -335,6 +340,7 @@ export function getSpeechRelayWebsocketHandlers() {
     async open(ws: import("bun").ServerWebSocket<SpeechRelaySocketData>) {
       const { deps, upstreamWsUrl, upstreamHttpUrl, operation } = ws.data;
       ws.data.pendingMessages = [];
+      ws.data.pendingBytes = 0;
       ws.data.upstreamOpened = false;
 
       const apiKey = await readAssistantApiKey(deps);
@@ -449,13 +455,18 @@ export function getSpeechRelayWebsocketHandlers() {
       if (upstream && upstream.readyState === WebSocket.OPEN) {
         upstream.send(message);
       } else if (ws.data.pendingMessages) {
-        if (ws.data.pendingMessages.length >= MAX_PENDING_MESSAGES) {
+        const size =
+          typeof message === "string"
+            ? Buffer.byteLength(message)
+            : message.byteLength;
+        if ((ws.data.pendingBytes ?? 0) + size > MAX_PENDING_BYTES) {
           log.warn(
             "Speech relay pending message buffer overflow — closing connection",
           );
           ws.close(1008, "Buffer overflow");
           return;
         }
+        ws.data.pendingBytes = (ws.data.pendingBytes ?? 0) + size;
         ws.data.pendingMessages.push(message);
       }
     },

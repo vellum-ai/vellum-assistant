@@ -22,6 +22,10 @@ import { isMemoryV3Live } from "../config/memory-v3-gate.js";
 import type { LLMCallSite, LLMConfig } from "../config/schemas/llm.js";
 import { findContactInfoById } from "../contacts/contact-store.js";
 import {
+  computeRefusedExchangeDrops,
+  quarantineRefusedExchanges,
+} from "../context/refusal-quarantine.js";
+import {
   NOW_SCRATCHPAD_STRIP_PREFIXES,
   stripSpotlightInjections,
   stripUserTextBlocksByPrefix,
@@ -1191,7 +1195,7 @@ function maxSlackTs(values: readonly (string | null)[]): string | null {
 }
 
 function legacyRowIsAfterWatermark(
-  row: SlackTranscriptInputRow,
+  row: { createdAt: number },
   watermarkTs: string,
 ): boolean {
   return compareSlackTs(String(row.createdAt / 1000), watermarkTs) > 0;
@@ -1260,10 +1264,13 @@ export function getSlackCompactionWatermarkForPrefix(
  * rows), so a kept-tail row past the boundary can carry an OLDER `channelTs`
  * than the prefix max. Advancing anyway would drop that row from every
  * future projection (`isSlackTsAfter` keeps strictly-after) while the
- * summary doesn't cover it either — silent loss. When any kept row's
- * `channelTs` sits at or before the candidate, the advance is skipped
- * entirely, degrading to bounded duplication of already-summarized rows: the
- * conservative direction.
+ * summary doesn't cover it either — silent loss. When any kept row sits at or
+ * before the candidate, the advance is skipped entirely, degrading to bounded
+ * duplication of already-summarized rows: the conservative direction. Legacy
+ * kept rows without `slackMeta` carry no `channelTs`, so they are compared via
+ * `createdAt/1000` — the same fallback `filterRowsAfterSlackCompactionBoundary`
+ * uses to drop them, keeping the guard and the filter from disagreeing about
+ * which legacy rows an advance would silently drop.
  */
 export function getSlackWatermarkAdvanceForRowPrefix(
   rows: MessageRow[],
@@ -1286,11 +1293,39 @@ export function getSlackWatermarkAdvanceForRowPrefix(
   }
   for (const row of rows.slice(endExclusive)) {
     const keptTs = channelTsForRow(row);
-    if (keptTs !== null && !isSlackTsAfter(keptTs, ts)) {
+    const survivesAdvance =
+      keptTs !== null
+        ? isSlackTsAfter(keptTs, ts)
+        : legacyRowIsAfterWatermark(row, ts);
+    if (!survivesAdvance) {
       return null;
     }
   }
   return ts;
+}
+
+/**
+ * Map each row's Slack `channelTs` to its thread key (`threadTs ?? channelTs`).
+ *
+ * A rendered transcript message carries its source row's `channelTs` in
+ * `sourceChannelTs`, so this map lets the refusal-exchange sweep resolve each
+ * rendered message's thread and pair a persisted refusal fallback with the
+ * prompt in its own thread — rather than the nearest chronological neighbour,
+ * which in a multi-party channel can be an unrelated sibling-thread post.
+ */
+function buildSlackThreadKeyByChannelTs(
+  rows: SlackTranscriptInputRow[],
+): Map<string, string> {
+  const byChannelTs = new Map<string, string>();
+  for (const row of rows) {
+    const meta = readSlackMetadataFromMessageMetadata(row.metadata, {
+      allowFlatLegacy: true,
+    });
+    if (meta?.channelTs) {
+      byChannelTs.set(meta.channelTs, meta.threadTs ?? meta.channelTs);
+    }
+  }
+  return byChannelTs;
 }
 
 function assembleSlackChronologicalContext(
@@ -1305,8 +1340,28 @@ function assembleSlackChronologicalContext(
   }
   const renderable = rowsToRenderableSlackMessages(rows);
   const rendered = renderSlackTranscriptWithProvenance(renderable);
+  // Drop previously-refused exchanges — a persisted safety-classifier refusal
+  // and the prompt that tripped it — so the model isn't re-fed a refusal it
+  // will just repeat (the dead-end `empty-response` sweeps off Slack turns).
+  // Pairing is thread-aware: each rendered message's Slack thread is resolved
+  // from its `sourceChannelTs`, so an interleaved sibling-thread post that
+  // landed between the refused prompt and the fallback is neither dropped nor
+  // mistaken for the prompt. `renderedMessages` is filtered by the same indices
+  // to stay aligned with the `messages` projection compaction slices.
+  const threadKeyByChannelTs = buildSlackThreadKeyByChannelTs(rows);
+  const threadKeys = rendered.renderedMessages.map((entry) =>
+    entry.sourceChannelTs !== null
+      ? (threadKeyByChannelTs.get(entry.sourceChannelTs) ?? null)
+      : null,
+  );
+  const { dropIndices } = computeRefusedExchangeDrops(rendered.messages, {
+    threadKeys,
+  });
+  const renderedMessages =
+    dropIndices.size > 0
+      ? rendered.renderedMessages.filter((_, i) => !dropIndices.has(i))
+      : rendered.renderedMessages;
   const contextSummary = options.contextSummary?.trim();
-  const renderedMessages = rendered.renderedMessages;
   if (contextSummary) {
     const withSummary: RenderedSlackTranscriptMessage[] = [
       {
@@ -1526,12 +1581,14 @@ function buildActiveThreadBlockFromRenderable(
   });
 
   const rendered = renderSlackTranscriptWithProvenance(labeledMembers);
-  if (rendered.renderedMessages.length === 0) {
+  // Exclude previously-refused exchanges: the block is appended to the user
+  // tail, so a surviving refusal line would let the model re-refuse just as
+  // replaying it in the chronological transcript would.
+  const { messages } = quarantineRefusedExchanges(rendered.messages);
+  if (messages.length === 0) {
     return null;
   }
-  const lines = rendered.renderedMessages
-    .map((entry) => extractTagLineTexts([entry.message])[0] ?? "")
-    .join("\n");
+  const lines = extractTagLineTexts(messages).join("\n");
   return `<active_thread>\n${lines}\n</active_thread>`;
 }
 

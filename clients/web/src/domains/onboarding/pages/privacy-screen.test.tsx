@@ -116,15 +116,14 @@ describe("PrivacyScreen — Start navigation", () => {
 
     clickStart();
 
-    // Developer "Replay Onboarding": the legacy pre-chat step that used to
-    // follow privacy is gone and hatching has real side effects, so preview
-    // Start is a no-op — it neither navigates nor persists consent.
+    // Developer "Replay Onboarding": preview mode allows only non-side-effecting
+    // routes, so Start is a no-op — it neither navigates nor persists consent.
     expect(navigateMock).not.toHaveBeenCalled();
     expect(saveConsentMock).not.toHaveBeenCalled();
     expect(emitFunnelStepCompletedMock).not.toHaveBeenCalled();
   });
 
-  test("web persists consent and advances to the research flow (now the default), preserving hosting", () => {
+  test("web persists consent and advances to the research flow, preserving hosting", () => {
     nativePlatform = false;
     searchParamsValue = new URLSearchParams("hosting=managed");
     render(<PrivacyScreen />);

@@ -130,7 +130,7 @@ export function LowBalanceAlertCard() {
   return (
     <div data-testid="low-balance-alert-card">
       <div className="flex flex-wrap items-start gap-3">
-        <div className="min-w-[12rem] flex-1">
+        <div className="w-60 max-w-full">
           <Input
             type="number"
             step="0.01"

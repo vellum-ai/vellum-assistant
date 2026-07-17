@@ -18,7 +18,15 @@ import type {
   PluginLogger,
   PostModelCallContext,
   StopContext,
+  ToolResultContent,
 } from "@vellumai/plugin-api";
+
+// The classifier and the current-turn boundary are the real host helpers the
+// hook reaches through `@vellumai/plugin-api`; wire them into the mock so the
+// tests exercise the shipped behavior (broad rejection patterns, media scope)
+// rather than a stand-in.
+import { lastToolResultUserMessageIndex } from "../../../../context/outbound-sanitize.js";
+import { isVisionNotSupportedError } from "../../../../util/provider-error-patterns.js";
 
 // ─── Mocks ──────────────────────────────────────────────────────────────────
 
@@ -43,6 +51,8 @@ mock.module("@vellumai/plugin-api", () => ({
   getModelProfiles: () => mockProfiles,
   resolveMediaSourceData: mockResolveMediaSourceData,
   getConfiguredProvider: async () => fakeProvider,
+  isVisionNotSupportedError,
+  lastToolResultUserMessageIndex,
 }));
 
 mock.module("../src/image-persist.js", () => ({
@@ -174,6 +184,58 @@ describe("image-fallback post-model-call vision recovery", () => {
     ).contentBlocks;
     expect(nested.some((b) => b.type === "image")).toBe(false);
     expect(nested[0].type).toBe("text");
+  });
+
+  test("recovers on provider-wrapped vision rejections the normalized phrase misses", async () => {
+    // Anthropic/Gemini wrap the raw upstream prose rather than emitting the
+    // normalized "doesn't support image input" phrase; the shared pattern set
+    // still classifies these as vision-not-supported.
+    for (const message of [
+      "Anthropic API error (400): messages.0.content.1.image: This model does not support image input.",
+      "Gemini API error (400): vision is not supported for this model.",
+    ]) {
+      resetVisionRecoveryStoreForTests();
+      const ctx = makeCtx({
+        messages: [userMessage(makeImage())],
+        error: new Error(message),
+      });
+
+      await postModelCall(ctx);
+
+      expect(ctx.decision).toBe("continue");
+      expect(ctx.messages[0].content[0].type).toBe("text");
+    }
+  });
+
+  test("captions current-turn tool-result media but leaves stale screenshots for the sanitizer's marker", async () => {
+    const messages = [
+      userMessage({
+        type: "tool_result",
+        tool_use_id: "tu-old",
+        content: "earlier screenshot",
+        contentBlocks: [makeImage()],
+      } as ContentBlock),
+      userMessage({
+        type: "tool_result",
+        tool_use_id: "tu-new",
+        content: "latest screenshot",
+        contentBlocks: [makeImage()],
+      } as ContentBlock),
+    ];
+    const ctx = makeCtx({ messages, error: new Error(VISION_ERROR_MESSAGE) });
+
+    await postModelCall(ctx);
+
+    expect(ctx.decision).toBe("continue");
+    // Stale tool-result media is left raw; the outbound sanitizer strips it to
+    // a compact removed-media marker on the retry rather than a full caption.
+    const stale = (ctx.messages[0].content[0] as ToolResultContent)
+      .contentBlocks!;
+    expect(stale[0].type).toBe("image");
+    // Current-turn tool-result media is captioned so the retry clears image input.
+    const fresh = (ctx.messages[1].content[0] as ToolResultContent)
+      .contentBlocks!;
+    expect(fresh[0].type).toBe("text");
   });
 
   test("substitutes a fail-open placeholder when no vision profile exists", async () => {

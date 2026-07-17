@@ -447,6 +447,8 @@ import { migrateMoveMemoryV2ActivationLogsToMemoryDb } from "./migrations/336-mo
 import { migrateMoveMemoryRecallLogsToMemoryDb } from "./migrations/337-move-memory-recall-logs-to-memory-db.js";
 import { migrateMoveMemoryV3SelectionsToMemoryDb } from "./migrations/338-move-memory-v3-selections-to-memory-db.js";
 import { migrateMoveActivationSessionsToMemoryDb } from "./migrations/339-move-activation-sessions-to-memory-db.js";
+import { migrateSweepOrphanedGraphNodeVectors } from "./migrations/340-sweep-orphaned-graph-node-vectors.js";
+import { migrateSweepCachelessGraphNodeVectors } from "./migrations/341-sweep-cacheless-graph-node-vectors.js";
 import type { MigrationStep } from "./migrations/run-migrations.js";
 
 export const migrationSteps: MigrationStep[] = [
@@ -1393,4 +1395,6 @@ export const migrationSteps: MigrationStep[] = [
     run: migrateMoveActivationSessionsToMemoryDb,
     dependsOn: ["createActivationSessionsTable"],
   },
+  migrateSweepOrphanedGraphNodeVectors,
+  migrateSweepCachelessGraphNodeVectors,
 ];

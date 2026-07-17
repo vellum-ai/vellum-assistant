@@ -16,6 +16,11 @@
 
 import { z } from "zod";
 
+import {
+  ACP_SERVICE,
+  AcpCredentialFormatError,
+  assertAcpCredentialFormat,
+} from "../../acp/acp-credentials.js";
 import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import { getConfig } from "../../config/loader.js";
 import {
@@ -453,6 +458,19 @@ async function handleCredentialsSet({ body }: RouteHandlerArgs) {
   const normalizedValue = normalizeSecretValue(value);
   if (normalizedValue.length === 0) {
     throw new BadRequestError("value is required");
+  }
+
+  // Reject an Anthropic API key pasted into the ACP OAuth-token field (a 401
+  // footgun) as a 400 rather than letting the guard surface as a 500.
+  if (service === ACP_SERVICE) {
+    try {
+      assertAcpCredentialFormat(field, normalizedValue);
+    } catch (err) {
+      if (err instanceof AcpCredentialFormatError) {
+        throw new BadRequestError(err.message);
+      }
+      throw err;
+    }
   }
 
   assertMetadataWritable();

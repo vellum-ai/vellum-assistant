@@ -40,6 +40,7 @@ export type MemoryJobType =
   | "backfill"
   | "rebuild_index"
   | "delete_qdrant_vectors"
+  | "sweep_orphaned_graph_node_points"
   | "media_processing"
   | "embed_media"
   | "embed_attachment"
@@ -797,6 +798,23 @@ export function deferMemoryJob(id: string): "deferred" | "failed" {
     .where(eq(memoryJobs.id, id))
     .run();
   return "deferred";
+}
+
+/**
+ * Move a running job back to pending after `delayMs` WITHOUT advancing the
+ * attempt or deferral counters. For a job intentionally postponed by a stable
+ * config condition rather than a failure: it must survive an unbounded number of
+ * postponements, so neither {@link failMemoryJob}'s attempt budget nor
+ * {@link deferMemoryJob}'s deferral cap may dead-letter it. It simply re-runs
+ * once the condition clears.
+ */
+export function rescheduleMemoryJob(id: string, delayMs: number): void {
+  const now = Date.now();
+  memoryDb()
+    .update(memoryJobs)
+    .set({ status: "pending", runAfter: now + delayMs, updatedAt: now })
+    .where(eq(memoryJobs.id, id))
+    .run();
 }
 
 export function failMemoryJob(

@@ -81,6 +81,12 @@ export interface ToolSetupContext extends SurfaceConversationContext {
   /** When set, the subagent/wake tool allowlist (see {@link subagentToolGateMode}). */
   subagentAllowedTools?: Set<string>;
   /**
+   * Collects tool names the subagent attempted but that
+   * {@link subagentAllowedTools} denied, for parent-visible reporting. The
+   * executor records into this Set (shared by reference with the Conversation).
+   */
+  subagentDeniedToolNames?: Set<string>;
+  /**
    * How {@link subagentAllowedTools} is enforced. Absent or `"wire"` keeps
    * the historical behavior (definitions filtered before the provider
    * request); `"execution"` keeps the full tool surface on the wire and

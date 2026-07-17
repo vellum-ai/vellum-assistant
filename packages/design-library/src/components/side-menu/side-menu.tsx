@@ -570,7 +570,10 @@ function SideMenuItem({
   const collapsed = isCollapsedRail(ctx);
 
   const rowClasses = cn(
-    "group relative flex items-center",
+    // `w-full` matters for the `<button>` render path: buttons keep
+    // fit-content sizing even as flex containers, so without it a
+    // button-backed item shrink-wraps while anchor-backed items fill the rail.
+    "group relative flex w-full items-center",
     "rounded-[6px]",
     "outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]",
     "cursor-pointer select-none",

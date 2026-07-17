@@ -128,7 +128,11 @@ these hold:
   mutate state a newer assistant ignores),
 - an older assistant's **404 degrades to exactly the feature-off
   state** — the UI renders identically to "feature absent," with no
-  error surfaced to the user, and
+  error surfaced to the user. Because React Query keeps the
+  last-successful data on error, a read that can succeed before a
+  later 404 (e.g. a rollback to a version without the route) must
+  **map the 404 to the feature-off value in its `queryFn`** rather
+  than let it throw, or the stale success is stranded, and
 - the request stays quiet under failure: the app QueryClient **never
   retries 4xx** (see `providers.tsx`), and the query disables refetch
   triggers that would re-issue the failing request (e.g.
@@ -159,6 +163,7 @@ Each module owns one feature's old/new split. Current registry:
 | `vision-attachment-gate.ts`         | `0.10.0-dev.202606211252.5cf8576` | Client filters images out for non-vision models                                                          | Allow any file type; the image-fallback plugin filters/captions server-side                |
 | `default-provider-settings.ts`      | `0.10.8`                          | No default-provider marker UI in the Providers modal; status query never fires                           | "Default" tag + "Set as default" via `GET/PUT /v1/config/llm/default-provider`             |
 | `complete-profile-snapshots.ts`     | `0.10.8`                          | Blank profile fields live-inherit (deep merge); no snapshot copy in the editor                            | Blanks are baked at save time; editor shows the snapshot helper line                        |
+| `use-supports-summarize-up-to-here.ts` | `0.10.8`                       | No `POST /v1/conversations/summarize`; the per-message "Summarize up to here" hover/long-press action is hidden | Endpoint exists; the action renders and posts to summarize working memory up to a message |
 | `use-supports-redacted-credential-chips.ts` | `0.10.10`                 | Sentinel-shaped transcript text renders as plain text (daemon neither mints nor neutralizes sentinels)   | Assistant-message sentinels upgrade to redacted-credential reveal chips                     |
 | `use-supports-noninteractive-voice-turns.ts` | `0.11.0`                 | Voice turns can raise `oauth_connect` surfaces mid-call; the voice room renders its own reachable connect card | Voice turns force `supportsDynamicUi: false` (no mid-call surfaces); the room card stays hidden |
 

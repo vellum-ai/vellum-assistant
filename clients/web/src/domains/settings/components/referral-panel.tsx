@@ -1,5 +1,5 @@
-import { Check, ChevronDown, Coins, Copy, Loader2, Users } from "lucide-react";
-import { useCallback, useState } from "react";
+import { Check, Coins, Copy, Loader2, Users } from "lucide-react";
+import { type ReactNode, useCallback, useState } from "react";
 
 import { useQuery } from "@tanstack/react-query";
 
@@ -10,65 +10,51 @@ import { Notice } from "@vellumai/design-library/components/notice";
 import { toast } from "@vellumai/design-library/components/toast";
 import { Typography } from "@vellumai/design-library/components/typography";
 
-/** Anchor ID on the referral panel so external links can scroll to it. */
 const REFERRAL_PANEL_ANCHOR_ID = "settings-referral-panel";
 
-/** Strip a trailing `.00` from a decimal-string credit amount. */
 function stripDecimals(amount: string): string {
   return amount.replace(/\.00$/, "");
 }
 
-/**
- * The referral program rules. This is the only place these terms are surfaced
- * in the product, so the panel keeps them reachable behind a disclosure. The
- * earning cap is interpolated from the referral code payload.
- */
-function ReferralTerms({ cap }: { cap: string }) {
-  const bullets = [
-    "This promotion is available to new users who sign up through your referral link only.",
-    "Rewards are earned once your invitee completes the creation of their Vellum account.",
-    `You may earn up to ${cap} free credits through the Referral Program. We may change this limit at any time.`,
-    "We do not grant credits for disposable or high-risk email accounts.",
-    "Each new user can generate only one (1) reward. No stacking or loophole hunting.",
-    "Please avoid spamming or misusing your referral link. Our systems actively monitor referral engagement.",
-    "If we detect suspicious or non-compliant activity, we reserve the right to withhold rewards or deactivate your referral link.",
-    "We may update, pause, or discontinue this program at any time.",
-  ];
+interface StatChipProps {
+  icon: ReactNode;
+  value: ReactNode;
+  label: string;
+}
 
+function StatChip({ icon, value, label }: StatChipProps) {
   return (
-    <ul className="!m-0 !list-none space-y-2 !p-0">
-      {bullets.map((text) => (
-        <li
-          key={text}
-          className="flex items-start gap-2 text-body-small-default"
-          style={{ color: "var(--content-secondary)" }}
-        >
-          <span aria-hidden="true" className="mt-0.5">
-            •
-          </span>
-          <span>{text}</span>
-        </li>
-      ))}
-    </ul>
+    <div className="flex h-8 min-w-0 flex-1 items-center gap-1.5 rounded-lg bg-[var(--surface-base)] px-2 py-1.5">
+      <span
+        aria-hidden="true"
+        className="flex h-3.5 w-3.5 shrink-0 items-center justify-center text-[var(--content-default)]"
+      >
+        {icon}
+      </span>
+      <Typography
+        variant="body-medium-default"
+        as="span"
+        className="text-[var(--content-default)]"
+      >
+        {value}
+      </Typography>
+      <Typography
+        variant="body-small-default"
+        as="span"
+        className="text-[var(--content-tertiary)]"
+      >
+        {label}
+      </Typography>
+    </div>
   );
 }
 
-/**
- * ReferralPanel — "Earn Free Credits" section on the billing settings tab.
- *
- * Surfaces the same data as the user/preferences-menu Earn Credits modal:
- * how many credits the user has earned, how many friends they've referred,
- * and a one-click way to copy their personal share link. The backend
- * lazily creates the referral code on first GET, so there's no explicit
- * creation step here.
- */
 export function ReferralPanel() {
   const { data, isLoading, isError } = useQuery(
     referralCodesMeRetrieveOptions(),
   );
 
   const [copied, setCopied] = useState(false);
-  const [showTerms, setShowTerms] = useState(false);
 
   const handleCopy = useCallback((url: string) => {
     void navigator.clipboard.writeText(url).then(() => {
@@ -93,29 +79,33 @@ export function ReferralPanel() {
   return (
     <Card padding="md" id={REFERRAL_PANEL_ANCHOR_ID}>
       <div className="flex flex-col gap-4">
-        <div>
+        <div className="flex flex-col gap-1">
           <Typography
             as="h2"
             variant="title-medium"
-            className="text-[var(--content-default)]"
+            className="text-[var(--content-emphasised)]"
           >
             Earn Free Credits
           </Typography>
           <Typography
             as="p"
-            variant="body-small-default"
-            className="mt-2 text-[var(--content-tertiary)]"
+            variant="body-medium-default"
+            className="text-[var(--content-tertiary)]"
           >
             {subtitle}
           </Typography>
         </div>
 
         {creditsGated && (
-          <Notice tone="info">
+          <Typography
+            as="p"
+            variant="body-medium-default"
+            className="text-[var(--content-tertiary)]"
+          >
             You're not currently earning referral credits. Buy credits or
             upgrade to Pro to start earning — your invite link still works in
             the meantime.
-          </Notice>
+          </Typography>
         )}
 
         {isLoading ? (
@@ -126,31 +116,20 @@ export function ReferralPanel() {
         ) : isError || !data ? (
           <Notice tone="error">Failed to load referral information.</Notice>
         ) : (
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="flex min-w-[200px] flex-1 items-center gap-1.5 rounded-lg bg-[var(--surface-base)] px-2 py-1.5">
-              <span aria-hidden className="flex h-6 w-6 shrink-0 items-center justify-center text-[var(--content-emphasised)]">
-                <Coins className="h-3.5 w-3.5" />
-              </span>
-              <span className="flex items-baseline gap-1 text-body-medium-default">
-                <span>{stripDecimals(data.total_earned)}</span>
-                <span className="text-body-small-default text-[var(--content-tertiary)]">
-                  Credits Earned
-                </span>
-              </span>
-            </div>
-            <div className="flex min-w-[200px] flex-1 items-center gap-1.5 rounded-lg bg-[var(--surface-base)] px-2 py-1.5">
-              <span aria-hidden className="flex h-6 w-6 shrink-0 items-center justify-center text-[var(--content-emphasised)]">
-                <Users className="h-3.5 w-3.5" />
-              </span>
-              <span className="flex items-baseline gap-1 text-body-medium-default">
-                <span>{data.referred_count}</span>
-                <span className="text-body-small-default text-[var(--content-tertiary)]">
-                  Friends Referred
-                </span>
-              </span>
-            </div>
+          <div className="flex flex-wrap items-start gap-2">
+            <StatChip
+              icon={<Coins className="h-3.5 w-3.5" />}
+              value={stripDecimals(data.total_earned)}
+              label="Credits Earned"
+            />
+            <StatChip
+              icon={<Users className="h-3.5 w-3.5" />}
+              value={data.referred_count}
+              label="Friends Referred"
+            />
             <Button
               variant="outlined"
+              className="shrink-0"
               onClick={() => handleCopy(data.referral_url)}
               leftIcon={
                 copied ? (
@@ -163,29 +142,6 @@ export function ReferralPanel() {
             >
               {copied ? "Copied!" : "Copy Share Link"}
             </Button>
-          </div>
-        )}
-
-        {data && (
-          <div className="border-t border-[var(--border-base)] pt-3">
-            <button
-              type="button"
-              onClick={() => setShowTerms((v) => !v)}
-              aria-expanded={showTerms}
-              className="flex items-center gap-1 text-body-small-default text-[var(--content-tertiary)] transition-colors hover:text-[var(--content-secondary)]"
-            >
-              <ChevronDown
-                className={`h-3.5 w-3.5 transition-transform ${
-                  showTerms ? "rotate-180" : ""
-                }`}
-              />
-              {showTerms ? "Hide Terms and Conditions" : "View Terms and Conditions"}
-            </button>
-            {showTerms && (
-              <div className="mt-3">
-                <ReferralTerms cap={stripDecimals(data.earning_cap)} />
-              </div>
-            )}
           </div>
         )}
       </div>

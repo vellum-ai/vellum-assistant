@@ -109,8 +109,12 @@ export class VellumManagedRealtimeTranscriber implements StreamingTranscriber {
       if (rejection) {
         // Typed so the stream session preserves the mapped category —
         // an auth/setup failure must not surface as a provider outage.
+        // `userFacing` keeps the mapped remediation (reconnect, top up
+        // credits) from being rewritten to BYOK "check your API key" copy.
         const mapped = mapVelayError(rejection);
-        throw new SttError(mapped.category, mapped.message);
+        throw new SttError(mapped.category, mapped.message, {
+          userFacing: true,
+        });
       }
       throw err;
     }
