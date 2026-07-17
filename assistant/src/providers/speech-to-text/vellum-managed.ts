@@ -33,17 +33,24 @@ export async function vellumManagedSpeechAvailable(): Promise<boolean> {
  * `insufficient_balance` gets a user-actionable message — the fix is topping
  * up Vellum credits, not editing provider config.
  *
- * Every returned error is flagged `userFacing`: managed speech has no provider
- * API key on this machine, so the messages here (reconnect the platform,
- * top up credits, the platform's own detail) already carry the correct
- * remediation. `describeSttFailure` surfaces them verbatim instead of
- * rewriting to the BYOK "check your API key" copy that never applies.
+ * Managed speech has no provider API key on this machine, so the BYOK "check
+ * your API key" rewrite never applies. A failure is flagged `userFacing` —
+ * surfaced verbatim by `describeSttFailure` — only when it already carries
+ * actionable remediation: a platform reconnect (`unavailable`), a credit
+ * top-up (`insufficient_balance`), or the platform's own `detail` message. A
+ * failure that fell back to a bare HTTP status (no `detail`) is left
+ * non-user-facing so `describeSttFailure` emits friendly category copy instead
+ * of leaking the raw status.
  */
 export function sttErrorFromManagedSpeech(
   failure: ManagedSpeechFailure,
 ): SttError {
+  const userFacing =
+    failure.kind === "unavailable" ||
+    failure.code === "insufficient_balance" ||
+    failure.detail !== undefined;
   const managed = (category: SttErrorCategory, message: string): SttError =>
-    new SttError(category, message, { userFacing: true });
+    new SttError(category, message, { userFacing });
 
   if (failure.kind === "unavailable") {
     return managed("auth", failure.message);
