@@ -148,7 +148,9 @@ export function TextToSpeechCard() {
     const hasNewKey = apiKeyText.trim().length > 0;
     const voiceIdChanged = voiceIdText.trim() !== initialVoiceId;
     const managedVoiceChanged =
-      draftProvider === "vellum" && draftManagedVoice !== serverManagedVoice;
+      draftProvider === "vellum" &&
+      selectedProvider.supportsVoiceSelection &&
+      draftManagedVoice !== serverManagedVoice;
     return (
       providerChanged || hasNewKey || voiceIdChanged || managedVoiceChanged
     );
@@ -160,6 +162,7 @@ export function TextToSpeechCard() {
     initialVoiceId,
     draftManagedVoice,
     serverManagedVoice,
+    selectedProvider,
   ]);
 
   const handleSave = useCallback(async () => {
@@ -230,7 +233,13 @@ export function TextToSpeechCard() {
               providers: { [activeProvider]: { [voiceField]: trimmedVoiceId } },
             }
           : {}),
-        ...(activeProvider === "vellum"
+        // Only written when the daemon supports it AND the user changed it:
+        // never writing on an untouched default keeps "unset = platform
+        // default" configs unset, and old daemons never receive a field they
+        // would silently drop.
+        ...(activeProvider === "vellum" &&
+        selectedProvider.supportsVoiceSelection &&
+        draftManagedVoice !== serverManagedVoice
           ? { providers: { vellum: { model: draftManagedVoice } } }
           : {}),
       };
@@ -267,6 +276,7 @@ export function TextToSpeechCard() {
     assistantId,
     draftProvider,
     draftManagedVoice,
+    serverManagedVoice,
     apiKeyText,
     voiceIdText,
     selectedProvider,
@@ -357,6 +367,13 @@ export function TextToSpeechCard() {
   // Vellum authenticates via the platform connection, so it has no key to enter
   // and nothing for the client-side Test path (a direct provider call) to use.
   const isManaged = draftProvider === "vellum";
+  // Managed voice selection needs a daemon that persists
+  // `services.tts.providers.vellum.model`. Old daemons (and the static
+  // fallback catalog used before the live catalog loads) report
+  // supportsVoiceSelection: false for vellum, hiding the selector so the UI
+  // never claims to save a voice the daemon would ignore.
+  const managedVoiceSupported =
+    isManaged && selectedProvider.supportsVoiceSelection;
 
   return (
     <ByoServiceCard
@@ -394,7 +411,7 @@ export function TextToSpeechCard() {
           </div>
         )}
 
-        {isManaged && (
+        {managedVoiceSupported && (
           <div className="space-y-1">
             <label className="block text-body-small-default text-[var(--content-tertiary)]">
               Voice
@@ -414,7 +431,7 @@ export function TextToSpeechCard() {
           </div>
         )}
 
-        {selectedProvider.supportsVoiceSelection && (
+        {selectedProvider.supportsVoiceSelection && !isManaged && (
           <div className="space-y-1">
             <label className="block text-body-small-default text-[var(--content-tertiary)]">
               Voice ID
@@ -437,7 +454,7 @@ export function TextToSpeechCard() {
               {testing ? "Testing…" : "Test"}
             </Button>
           )}
-          {isManaged && (
+          {managedVoiceSupported && (
             <Button
               variant="outlined"
               onClick={handlePreviewVoice}

@@ -167,10 +167,17 @@ async function performStreamingSynthesis(
     }
     // A rejected upgrade hides the relay's {code, detail}; replay the gate
     // as a plain GET (the gateway probes velay's own gate too) so auth and
-    // balance failures surface with their mapped messages.
-    const probeKey = encodeURIComponent(connection.mintServiceToken());
+    // balance failures surface with their mapped messages. The probe must
+    // carry the same voice model — a model-specific rejection (e.g.
+    // missing_price) only reproduces when the probe asks for that model.
+    const probeParams = new URLSearchParams({
+      key: connection.mintServiceToken(),
+    });
+    if (voice) {
+      probeParams.set("model", voice);
+    }
     const rejection = await probeVelayRejection(
-      `${connection.httpBaseUrl}${TTS_STREAM_PATH}?key=${probeKey}`,
+      `${connection.httpBaseUrl}${TTS_STREAM_PATH}?${probeParams.toString()}`,
     );
     if (rejection) {
       throw new Error(mapVelayError(rejection).message);
@@ -207,7 +214,10 @@ export const vellumTtsProviderDefinition: TtsProviderDefinition = {
   displayName: "Vellum Managed",
   subtitle:
     "Text-to-speech through your Vellum account — billed to Vellum credits, no separate API key needed.",
-  supportsVoiceSelection: false,
+  // Advertises managed voice selection (`services.tts.providers.vellum.model`)
+  // to clients; web gates its voice dropdown on this flag, so daemons that
+  // predate the field never show a selector whose writes they would ignore.
+  supportsVoiceSelection: true,
   apiKeyPlaceholder: "Connected via your Vellum account",
   credentialsGuide: {
     description:
