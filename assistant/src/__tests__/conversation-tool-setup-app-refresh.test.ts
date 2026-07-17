@@ -4,8 +4,8 @@
  *
  * Tests verify that app_refresh, app_update, app_create, app_delete, and
  * app_generate_icon hooks fire correctly — including recovering an omitted
- * app_id from the executor's echoed result — and that non-hooked tools
- * (app_file_edit, app_file_write) do not trigger side effects.
+ * app_id from the executor's typed `resolvedAppId` side channel — and that
+ * non-hooked tools (app_file_edit, app_file_write) do not trigger side effects.
  *
  * File-change detection for file_write/file_edit is handled by
  * AppSourceWatcher (see app-source-watcher.test.ts).
@@ -223,13 +223,15 @@ describe("session-tool-setup app refresh side effects", () => {
       expect(updatePublishedSpy).not.toHaveBeenCalled();
     });
 
-    test("recovers appId from the result when input omits app_id", async () => {
+    test("recovers appId from resolvedAppId when input omits app_id", async () => {
       // app_id is optional: the skill script resolves the active app and the
-      // executor echoes it back as `appId`. The hook must act on that resolved
-      // id so an omitted-id refresh still refreshes surfaces and re-deploys.
+      // executor reports the id it used via the typed `resolvedAppId` channel.
+      // The hook must act on that id — without parsing `content` — so an
+      // omitted-id refresh still refreshes surfaces and re-deploys.
       const ctx = makeCtx();
       const executor = makeFakeExecutor({
-        content: '{"refreshed":true,"appId":"app-resolved"}',
+        content: '{"refreshed":true}',
+        resolvedAppId: "app-resolved",
         isError: false,
       });
 
@@ -318,10 +320,11 @@ describe("session-tool-setup app refresh side effects", () => {
       expect(updatePublishedSpy).not.toHaveBeenCalled();
     });
 
-    test("recovers appId from the result when input omits app_id", async () => {
+    test("recovers appId from resolvedAppId when input omits app_id", async () => {
       const ctx = makeCtx();
       const executor = makeFakeExecutor({
-        content: '{"updated":true,"appId":"app-resolved-u"}',
+        content: '{"updated":true}',
+        resolvedAppId: "app-resolved-u",
         isError: false,
       });
 
@@ -370,6 +373,7 @@ describe("session-tool-setup app refresh side effects", () => {
       const ctx = makeCtx();
       const executor = makeFakeExecutor({
         content: JSON.stringify({ id: "new-app-1", name: "My App" }),
+        resolvedAppId: "new-app-1",
         isError: false,
       });
 
@@ -394,6 +398,7 @@ describe("session-tool-setup app refresh side effects", () => {
       const ctx = makeCtx({ allowedToolNames: new Set(["app_create"]) });
       const executor = makeFakeExecutor({
         content: JSON.stringify({ id: "alias-app-1", name: "Alias App" }),
+        resolvedAppId: "alias-app-1",
         isError: false,
       });
 
@@ -507,6 +512,7 @@ describe("session-tool-setup app refresh side effects", () => {
           compiled: false,
           compile_errors: [{ text: "syntax error" }],
         }),
+        resolvedAppId: "new-app-err",
         isError: false,
       });
 
@@ -594,10 +600,11 @@ describe("session-tool-setup app refresh side effects", () => {
       expect(updatePublishedSpy).not.toHaveBeenCalled();
     });
 
-    test("recovers appId from the result when input omits app_id", async () => {
+    test("recovers appId from resolvedAppId when input omits app_id", async () => {
       const ctx = makeCtx();
       const executor = makeFakeExecutor({
-        content: '{"generated":true,"appId":"icon-resolved"}',
+        content: '{"generated":true}',
+        resolvedAppId: "icon-resolved",
         isError: false,
       });
 

@@ -63,6 +63,17 @@ export interface ToolExecutionResult {
   /** Optional short status message for client display (e.g. `"truncated"`, `"timed out"`). */
   status?: string;
   /**
+   * Typed side channel from the app-builder executors to their post-execution
+   * side-effect hooks (`daemon/tool-side-effects.ts`): the exact app id the
+   * executor operated on. `app_id` is optional for the fallback tools
+   * (`app_update`, `app_refresh`, `app_generate_icon`) — when the model omits
+   * it the skill script resolves the conversation's active app — so hooks read
+   * this authoritative id instead of re-parsing the LLM-facing `content`
+   * payload, whose shape must stay decoupled from daemon logic (see
+   * assistant/AGENTS.md § Post-execution hooks). Set only by the app_* executors.
+   */
+  resolvedAppId?: string;
+  /**
    * When true, the agent loop should yield control back to the user after
    * returning this result — tool results are pushed to history and the loop
    * breaks without another LLM call. Two callers set this: interactive
