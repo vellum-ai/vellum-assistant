@@ -62,18 +62,34 @@ jobs:
           # register-release job succeeded; that run's head SHA is the last
           # released commit. (See notify-dev-release for why we key off the job
           # conclusion rather than the overall run conclusion.)
+          #
+          # Every gh api call here is best-effort. A transient GitHub API
+          # failure (rate limit, 5xx, or an HTML error page that makes `--jq`
+          # abort with "invalid character '<'") must not fail this gate — that
+          # would turn an idle no-op into a red workflow. When we cannot
+          # determine the last released SHA we fall back to proceeding with the
+          # build, which is always safe (at worst we rebuild an unchanged HEAD).
+          RUNS=$(gh api \
+            "repos/${REPO}/actions/workflows/dev-release.yaml/runs?branch=main&status=completed&per_page=30&exclude_pull_requests=true" \
+            --jq ".workflow_runs[] | select(.id != ${RUN_ID}) | \"\(.id) \(.head_sha)\"" 2>/dev/null) || {
+            echo "::warning::Could not list recent dev-release runs; proceeding with the build."
+            echo "has_new_commits=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          }
+
           PREV_SHA=""
           while read -r rid rsha; do
             [ -z "$rid" ] && continue
             CONCL=$(gh api "repos/${REPO}/actions/runs/${rid}/jobs" \
-              --jq '[.jobs[] | select(.name == "register-release") | .conclusion] | .[0] // empty')
+              --jq '[.jobs[] | select(.name == "register-release") | .conclusion] | .[0] // empty' 2>/dev/null) || {
+              echo "::warning::Could not fetch jobs for run ${rid}; skipping it."
+              continue
+            }
             if [ "$CONCL" = "success" ]; then
               PREV_SHA="$rsha"
               break
             fi
-          done < <(gh api \
-            "repos/${REPO}/actions/workflows/dev-release.yaml/runs?branch=main&status=completed&per_page=30&exclude_pull_requests=true" \
-            --jq ".workflow_runs[] | select(.id != ${RUN_ID}) | \"\(.id) \(.head_sha)\"")
+          done <<< "$RUNS"
 
           echo "Last successful dev release SHA: ${PREV_SHA:-<none>}"
           echo "Current SHA: ${HEAD_SHA}"
