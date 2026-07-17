@@ -74,7 +74,9 @@ function armDelayedEstablishedCheck() {
   });
 }
 const checkEstablishedAssistantMock = mock(async (_id: string) => {
-  if (establishedCheckGate) await establishedCheckGate;
+  if (establishedCheckGate) {
+    await establishedCheckGate;
+  }
   return establishedResult;
 });
 
@@ -266,7 +268,9 @@ mock.module("@/domains/onboarding/screens/research-result-steps", () => ({
         data-testid="letschat-start"
         disabled={props.disabled}
         onClick={() => {
-          if (props.disabled) return;
+          if (props.disabled) {
+            return;
+          }
           void props.onStart();
         }}
       >

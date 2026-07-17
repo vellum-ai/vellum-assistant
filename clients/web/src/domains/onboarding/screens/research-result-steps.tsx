@@ -987,7 +987,9 @@ export function LetsChatReadyStep({
   }, [noteY, flown]);
 
   const handleStart = () => {
-    if (starting || disabled) return;
+    if (starting || disabled) {
+      return;
+    }
     setStarting(true);
     // If the handoff rejects, re-enable the button so the user can retry.
     void Promise.resolve()
