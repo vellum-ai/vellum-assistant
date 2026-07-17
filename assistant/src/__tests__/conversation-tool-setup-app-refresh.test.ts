@@ -2,9 +2,10 @@
  * Regression tests for app surface refresh and eventing side effects in
  * createToolExecutor (conversation-tool-setup.ts).
  *
- * Tests verify that app_refresh, app_update, app_create, and app_delete hooks
- * fire correctly, and that non-hooked tools (app_file_edit, app_file_write) do
- * not trigger side effects.
+ * Tests verify that app_refresh, app_update, app_create, app_delete, and
+ * app_generate_icon hooks fire correctly — including recovering an omitted
+ * app_id from the executor's echoed result — and that non-hooked tools
+ * (app_file_edit, app_file_write) do not trigger side effects.
  *
  * File-change detection for file_write/file_edit is handled by
  * AppSourceWatcher (see app-source-watcher.test.ts).
@@ -222,7 +223,35 @@ describe("session-tool-setup app refresh side effects", () => {
       expect(updatePublishedSpy).not.toHaveBeenCalled();
     });
 
-    test("skips side effects when app_id is missing", async () => {
+    test("recovers appId from the result when input omits app_id", async () => {
+      // app_id is optional: the skill script resolves the active app and the
+      // executor echoes it back as `appId`. The hook must act on that resolved
+      // id so an omitted-id refresh still refreshes surfaces and re-deploys.
+      const ctx = makeCtx();
+      const executor = makeFakeExecutor({
+        content: '{"refreshed":true,"appId":"app-resolved"}',
+        isError: false,
+      });
+
+      const toolFn = createToolExecutor(
+        executor as unknown as ToolExecutor,
+        noopPrompter,
+        noopSecretPrompter,
+        ctx,
+      );
+
+      await toolFn("app_refresh", {});
+
+      expect(refreshSpy).toHaveBeenCalledTimes(1);
+      expect((refreshSpy.mock.calls as unknown[][])[0][1]).toBe("app-resolved");
+      expectAppChangeBroadcast("app-resolved");
+      expect(updatePublishedSpy).toHaveBeenCalledTimes(1);
+      expect((updatePublishedSpy.mock.calls as unknown[][])[0][0]).toBe(
+        "app-resolved",
+      );
+    });
+
+    test("skips side effects when app_id is absent from input and result", async () => {
       const ctx = makeCtx();
       const executor = makeFakeExecutor({ content: "{}", isError: false });
 
@@ -289,7 +318,34 @@ describe("session-tool-setup app refresh side effects", () => {
       expect(updatePublishedSpy).not.toHaveBeenCalled();
     });
 
-    test("skips side effects when app_id is missing", async () => {
+    test("recovers appId from the result when input omits app_id", async () => {
+      const ctx = makeCtx();
+      const executor = makeFakeExecutor({
+        content: '{"updated":true,"appId":"app-resolved-u"}',
+        isError: false,
+      });
+
+      const toolFn = createToolExecutor(
+        executor as unknown as ToolExecutor,
+        noopPrompter,
+        noopSecretPrompter,
+        ctx,
+      );
+
+      await toolFn("app_update", {});
+
+      expect(refreshSpy).toHaveBeenCalledTimes(1);
+      expect((refreshSpy.mock.calls as unknown[][])[0][1]).toBe(
+        "app-resolved-u",
+      );
+      expectAppChangeBroadcast("app-resolved-u");
+      expect(updatePublishedSpy).toHaveBeenCalledTimes(1);
+      expect((updatePublishedSpy.mock.calls as unknown[][])[0][0]).toBe(
+        "app-resolved-u",
+      );
+    });
+
+    test("skips side effects when app_id is absent from input and result", async () => {
       const ctx = makeCtx();
       const executor = makeFakeExecutor({ content: "{}", isError: false });
 
@@ -506,6 +562,70 @@ describe("session-tool-setup app refresh side effects", () => {
       );
 
       await toolFn("app_delete", { app_id: "del-err" });
+
+      expect(broadcastSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── app_generate_icon side effects ──────────────────────────────────
+
+  describe("app_generate_icon side effects", () => {
+    test("broadcasts app_files_changed with explicit app_id", async () => {
+      const ctx = makeCtx();
+      const executor = makeFakeExecutor({
+        content: '{"generated":true,"appId":"icon-app"}',
+        isError: false,
+      });
+
+      const toolFn = createToolExecutor(
+        executor as unknown as ToolExecutor,
+        noopPrompter,
+        noopSecretPrompter,
+        ctx,
+      );
+
+      await toolFn("app_generate_icon", { app_id: "icon-app" });
+
+      expect(broadcastSpy).toHaveBeenCalledTimes(2);
+      expectAppChangeBroadcast("icon-app");
+      // Icon regen only rebroadcasts the app list — it neither refreshes open
+      // surfaces nor re-deploys the published app.
+      expect(refreshSpy).not.toHaveBeenCalled();
+      expect(updatePublishedSpy).not.toHaveBeenCalled();
+    });
+
+    test("recovers appId from the result when input omits app_id", async () => {
+      const ctx = makeCtx();
+      const executor = makeFakeExecutor({
+        content: '{"generated":true,"appId":"icon-resolved"}',
+        isError: false,
+      });
+
+      const toolFn = createToolExecutor(
+        executor as unknown as ToolExecutor,
+        noopPrompter,
+        noopSecretPrompter,
+        ctx,
+      );
+
+      await toolFn("app_generate_icon", {});
+
+      expect(broadcastSpy).toHaveBeenCalledTimes(2);
+      expectAppChangeBroadcast("icon-resolved");
+    });
+
+    test("skips broadcast when app_id is absent from input and result", async () => {
+      const ctx = makeCtx();
+      const executor = makeFakeExecutor({ content: "{}", isError: false });
+
+      const toolFn = createToolExecutor(
+        executor as unknown as ToolExecutor,
+        noopPrompter,
+        noopSecretPrompter,
+        ctx,
+      );
+
+      await toolFn("app_generate_icon", {});
 
       expect(broadcastSpy).not.toHaveBeenCalled();
     });
