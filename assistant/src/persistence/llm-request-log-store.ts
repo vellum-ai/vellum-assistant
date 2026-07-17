@@ -15,7 +15,10 @@ import {
 } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
-import { CALL_SITE_SYNTHETIC_AGENT_ERROR_MESSAGE } from "../api/constants/call-sites.js";
+import {
+  CALL_SITE_COMPACTION_AGENT,
+  CALL_SITE_SYNTHETIC_AGENT_ERROR_MESSAGE,
+} from "../api/constants/call-sites.js";
 import { getConfigReadOnly } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { AssistantError, ProviderError } from "../util/errors.js";
@@ -656,7 +659,7 @@ export function getPreviousNonCompactionCallCreatedAt(
         lt(llmRequestLogs.createdAt, beforeCreatedAt),
         or(
           isNull(llmRequestLogs.callSite),
-          ne(llmRequestLogs.callSite, "compactionAgent"),
+          ne(llmRequestLogs.callSite, CALL_SITE_COMPACTION_AGENT),
         ),
       ),
     )
@@ -697,7 +700,7 @@ export function getCompactionLogsBetween(
   const db = logsDb();
   const predicates = [
     eq(llmRequestLogs.conversationId, conversationId),
-    eq(llmRequestLogs.callSite, "compactionAgent"),
+    eq(llmRequestLogs.callSite, CALL_SITE_COMPACTION_AGENT),
     lt(llmRequestLogs.createdAt, beforeCreatedAt),
   ];
   if (afterCreatedAt !== null) {
@@ -782,9 +785,12 @@ export function getRequestLogById(logId: string): LogRow | null {
  * Authoritative post-persist linkage: stamp `message_id` onto rows a flow
  * inserted unlinked because its user-facing message persists afterwards
  * (the /compact and summarize-up-to result cards). Dispatched through the
- * IS-NULL-guarded {@link LlmRequestLogWriter.backfillMessageIdOnRecoveredLogs}
- * so a concurrent inspector-recovery stamp is never overwritten. Non-fatal —
- * an unlinked row degrades to time-window recovery, not data loss.
+ * IS-NULL-guarded {@link LlmRequestLogWriter.backfillMessageIdOnRecoveredLogs}.
+ * The inspector's time-window recovery deliberately skips `compactionAgent`
+ * rows (see {@link getRequestLogsByMessageId}), so it can never durably stamp
+ * one onto an enclosing turn first and defeat this guarded link — the row is
+ * still NULL when this runs, so the link wins. Non-fatal — an unlinked row
+ * degrades to time-window recovery, not data loss.
  */
 export function linkRequestLogsToMessage(
   logIds: string[],
@@ -855,12 +861,21 @@ export function getRequestLogsByMessageId(messageId: string): LogRow[] {
       // hit the fast indexed-by-messageId path. Dispatched through the
       // active write backend like every other table writer — INSERT-only
       // backends no-op.
-      if (unlinkedLogs.length > 0 && turnMessageIds.length > 0) {
+      //
+      // Compaction rows are excluded: the /compact and summarize-up-to routes
+      // link them to their result card via the IS-NULL-guarded
+      // linkRequestLogsToMessage. Stamping one onto this enclosing turn here
+      // (swept in during the window before the card persists) would make that
+      // deliberate link a no-op and pin the call to the wrong turn forever.
+      // They still surface in this turn's view via the merge above.
+      const backfillIds = unlinkedLogs
+        .filter((l) => l.callSite !== CALL_SITE_COMPACTION_AGENT)
+        .map((l) => l.id);
+      if (backfillIds.length > 0 && turnMessageIds.length > 0) {
         try {
-          const ids = unlinkedLogs.map((l) => l.id);
           const targetMessageId = turnMessageIds[turnMessageIds.length - 1]!;
           resolveLlmRequestLogWriter().backfillMessageIdOnRecoveredLogs(
-            ids,
+            backfillIds,
             targetMessageId,
           );
         } catch {
