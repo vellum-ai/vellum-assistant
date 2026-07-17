@@ -166,26 +166,71 @@ function extractCompleteObjects(body: string): unknown[] {
   return objects;
 }
 
-function toFact(entry: unknown): ResearchFact | null {
+type ClassifiedClaim =
+  | { kind: "fact"; fact: ResearchFact }
+  | { kind: "dropped"; claim: string }
+  | null;
+
+/**
+ * Classify one raw claim entry: a card-worthy `fact`, an aggregator-only
+ * `dropped` claim (every source is a people-search directory), or `null` when
+ * there's no usable claim text. A drop keeps the claim text so callers can
+ * scrub the hidden wrong-person fact from memory, not just from the card.
+ */
+function classifyClaim(entry: unknown): ClassifiedClaim {
   if (!entry || typeof entry !== "object") return null;
   const claim = (entry as { claim?: unknown }).claim;
   if (typeof claim !== "string" || !claim.trim()) return null;
+  const trimmedClaim = claim.trim();
   const rawSources = normalizeSources((entry as { sources?: unknown }).sources);
   const sources = rawSources.filter((s) => !isAggregatorSource(s));
   // A web-sourced claim whose every source is an aggregator has no evidence
-  // worth showing — drop it rather than render it as if it were sourceless.
-  if (rawSources.length > 0 && sources.length === 0) return null;
+  // worth showing — drop it from the card, but keep its text so the flow can
+  // scrub it from assistant memory rather than silently leaving it there.
+  if (rawSources.length > 0 && sources.length === 0) {
+    return { kind: "dropped", claim: trimmedClaim };
+  }
   const confidence = normalizeConfidence(
     (entry as { confidence?: unknown }).confidence,
   );
   return {
-    claim: claim.trim(),
-    // Sourceless "confident" caps at "maybe" — the deterministic backstop for
-    // a model that inflates tiers past the prompt's evidence rubric.
-    confidence:
-      confidence === "confident" && sources.length === 0 ? "maybe" : confidence,
-    sources,
+    kind: "fact",
+    fact: {
+      claim: trimmedClaim,
+      // Sourceless "confident" caps at "maybe" — the deterministic backstop for
+      // a model that inflates tiers past the prompt's evidence rubric.
+      confidence:
+        confidence === "confident" && sources.length === 0
+          ? "maybe"
+          : confidence,
+      sources,
+    },
   };
+}
+
+/**
+ * Partition raw claim entries into the facts rendered on the card and the claim
+ * texts dropped from it because every source was an aggregator. Non-array input
+ * (or entries with no usable claim) contributes nothing.
+ */
+function collectClaims(raw: unknown): {
+  claims: ResearchFact[];
+  droppedClaims: string[];
+} {
+  const claims: ResearchFact[] = [];
+  const droppedClaims: string[] = [];
+  if (Array.isArray(raw)) {
+    for (const entry of raw) {
+      const classified = classifyClaim(entry);
+      if (!classified) continue;
+      if (classified.kind === "fact") {
+        claims.push(classified.fact);
+      } else {
+        droppedClaims.push(classified.claim);
+      }
+    }
+  }
+  return { claims, droppedClaims };
 }
 
 function toSuggestion(entry: unknown): ResearchSuggestion | null {
@@ -274,6 +319,14 @@ function arrayScopeFor(body: string, key: string): string | null {
 export interface ResearchResult {
   claims: ResearchFact[];
   /**
+   * Claim texts the parser dropped from `claims` because every source was a
+   * people-search aggregator (see `AGGREGATOR_SOURCE_DENYLIST`). Surfaced rather
+   * than silently discarded so the onboarding flow can scrub these hidden
+   * wrong-person facts from the assistant's memory — the research turn taught
+   * them, and hiding them from the card doesn't unteach them.
+   */
+  droppedClaims: string[];
+  /**
    * Concrete actions the assistant proposes it could do for the user. Each is
    * a `{ suggestion, prompt }` pair: the assistant-voiced offer shown on the
    * card and the user-voiced message sent when it's clicked.
@@ -342,6 +395,7 @@ export function parseResearchResultStreaming(text: string): ResearchResult {
   if (!text)
     return {
       claims: [],
+      droppedClaims: [],
       suggestions: [],
       plugins: [],
       pluginsResolved: false,
@@ -356,8 +410,10 @@ export function parseResearchResultStreaming(text: string): ResearchResult {
   // a half-written array.
   const whole = parseWholePayload(body);
   if (whole) {
+    const { claims, droppedClaims } = collectClaims(whole.claims);
     return {
-      claims: mapEntries(whole.claims, toFact),
+      claims,
+      droppedClaims,
       suggestions: mapEntries(whole.suggestions, toSuggestion),
       plugins: normalizePlugins(whole.plugins),
       pluginsResolved: true,
@@ -374,12 +430,9 @@ export function parseResearchResultStreaming(text: string): ResearchResult {
       const open = body.indexOf("[");
       return open === -1 ? null : body.slice(open + 1);
     })();
-  const claims =
-    claimsBody === null
-      ? []
-      : extractCompleteObjects(claimsBody)
-          .map(toFact)
-          .filter((f): f is ResearchFact => f !== null);
+  const { claims, droppedClaims } = collectClaims(
+    claimsBody === null ? [] : extractCompleteObjects(claimsBody),
+  );
 
   const suggestionsScope = arrayScopeFor(body, "suggestions");
   const suggestions =
@@ -392,6 +445,7 @@ export function parseResearchResultStreaming(text: string): ResearchResult {
   const closedPlugins = parseClosedPluginsArray(body);
   return {
     claims,
+    droppedClaims,
     suggestions,
     plugins: closedPlugins ?? [],
     pluginsResolved: closedPlugins !== null,
