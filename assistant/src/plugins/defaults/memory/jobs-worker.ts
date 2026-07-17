@@ -49,6 +49,7 @@ import {
   type MemoryJob,
   type MemoryJobType,
   MESSAGE_LEXICAL_JOB_TYPES,
+  rescheduleMemoryJob,
   resetRunningJobsToPending,
   SLOW_LLM_JOB_TYPES,
 } from "../../../persistence/jobs-store.js";
@@ -97,6 +98,13 @@ export const MIN_BUFFER_LINES_FOR_CONSOLIDATION = 10;
  * throw `BackendUnavailableError` and accumulate as a deferred backlog. Stale
  * rows from indexer.ts and other unguarded enqueue sites must short-circuit
  * here for the same reason `graph_extract` does below.
+ *
+ * Completing these as a no-op under v2 is safe: their live write paths keep
+ * re-enqueuing them, so nothing is lost. The one-shot
+ * `sweep_orphaned_graph_node_points` cleanup is deliberately NOT in this set —
+ * it has no re-enqueue, so `processJob` holds it pending under v2 (see
+ * {@link SweepPostponedUnderV2Error}) instead of losing it to a no-op
+ * completion.
  */
 const V1_QDRANT_JOB_TYPES = new Set<MemoryJobType>([
   "embed_segment",
@@ -107,8 +115,29 @@ const V1_QDRANT_JOB_TYPES = new Set<MemoryJobType>([
   "embed_pkb_file",
   "rebuild_index",
   "delete_qdrant_vectors",
-  "sweep_orphaned_graph_node_points",
 ]);
+
+/**
+ * The one-shot cacheless graph-node sweep (migration 341) can only run against
+ * the v1 Qdrant collection. Thrown from {@link processJob} when the job is
+ * claimed while `memory.v2.enabled` is on, so {@link handleJobError} reschedules
+ * it — keeping it pending with no attempt or deferral spent — until v1 is active
+ * again, rather than completing it as a no-op and losing the cleanup on a later
+ * v2→v1 rollback.
+ */
+class SweepPostponedUnderV2Error extends Error {
+  constructor() {
+    super("Cacheless graph-node sweep postponed while memory v2 is enabled");
+    this.name = "SweepPostponedUnderV2Error";
+  }
+}
+
+/**
+ * Reschedule window for the postponed cacheless graph-node sweep under v2: long
+ * enough that re-checking the flag costs only a trivial claim a few times a day,
+ * short enough that a v2→v1 rollback runs the cleanup within the same day.
+ */
+const SWEEP_POSTPONE_UNDER_V2_MS = 6 * 60 * 60 * 1000;
 
 /**
  * Job types whose handlers have been removed. Existing rows may still sit in
@@ -501,6 +530,15 @@ async function runLanePool(
 // ── Job error handling ─────────────────────────────────────────────
 
 function handleJobError(job: MemoryJob, err: unknown): void {
+  if (err instanceof SweepPostponedUnderV2Error) {
+    rescheduleMemoryJob(job.id, SWEEP_POSTPONE_UNDER_V2_MS);
+    log.debug(
+      { jobId: job.id, type: job.type },
+      "Cacheless graph-node sweep held pending while memory v2 is enabled",
+    );
+    return;
+  }
+
   if (err instanceof EmbeddingBillingBlockError) {
     const result = deferMemoryJob(job.id);
     if (result === "failed") {
@@ -591,8 +629,13 @@ async function processJob(
   job: MemoryJob,
   config: AssistantConfig,
 ): Promise<void> {
-  if (config.memory.v2.enabled && V1_QDRANT_JOB_TYPES.has(job.type)) {
-    return;
+  if (config.memory.v2.enabled) {
+    if (V1_QDRANT_JOB_TYPES.has(job.type)) {
+      return;
+    }
+    if (job.type === "sweep_orphaned_graph_node_points") {
+      throw new SweepPostponedUnderV2Error();
+    }
   }
   const handler = jobHandlers.get(job.type);
   if (handler) {
