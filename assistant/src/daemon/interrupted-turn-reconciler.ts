@@ -168,13 +168,16 @@ export async function resumeInterruptedConversations(
 ): Promise<void> {
   const { wakeAgentForOpportunity } = await import("../runtime/agent-wake.js");
   for (const { conversationId, trustContext } of targets) {
-    // Charge the attempt as the wake begins, before the turn runs. The cap
-    // exists to stop a resumed turn that keeps killing the process, so the
-    // counter must be durably incremented before that turn can crash the
-    // daemon; a sequential increment here also means a crash mid-resume never
-    // charges the conversations still queued behind it.
-    incrementProcessingResumeAttempts(conversationId);
     try {
+      // Charge the attempt before the wake runs. The cap exists to stop a
+      // resumed turn that keeps killing the process, so the counter must be
+      // durably incremented before that turn can crash the daemon; charging it
+      // per-conversation (never up-front for the batch) also means a crash
+      // mid-resume never burns the budget of conversations still queued behind
+      // it. Doing it inside this guarded block keeps a transient counter-write
+      // failure scoped to its own conversation instead of aborting every
+      // resume still queued.
+      incrementProcessingResumeAttempts(conversationId);
       const result = await wakeAgentForOpportunity({
         conversationId,
         hint: INTERRUPTED_TURN_RESUME_HINT,

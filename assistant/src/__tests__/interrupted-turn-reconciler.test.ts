@@ -19,6 +19,9 @@ import { initializeDb } from "../persistence/db-init.js";
 
 await initializeDb();
 
+const actualConversationCrud =
+  await import("../persistence/conversation-crud.js");
+
 function readRow(id: string): {
   processing_started_at: number | null;
   processing_resume_attempts: number;
@@ -252,6 +255,49 @@ describe("resumeInterruptedConversations", () => {
     // did not block the remaining conversation.
     expect(wakeCalls).toEqual(["conv-bad", "conv-good"]);
     expect(readRow("conv-bad").processing_resume_attempts).toBe(1);
+    expect(readRow("conv-good").processing_resume_attempts).toBe(1);
+  });
+
+  test("a failing counter write is isolated to its conversation and does not abort the rest", async () => {
+    createConversation({ id: "conv-bad" });
+    createConversation({ id: "conv-good" });
+
+    // A transient counter-write failure (e.g. a locked SQLite db during
+    // startup) must be logged and skipped for that conversation, exactly like a
+    // failing wake — never rejected out of the loop, which would strand every
+    // conversation queued behind it.
+    // Captured before mock.module: the namespace binding is live post-mock, so
+    // delegating through it would recurse into this override.
+    const realIncrement =
+      actualConversationCrud.incrementProcessingResumeAttempts;
+    mock.module("../persistence/conversation-crud.js", () => ({
+      ...actualConversationCrud,
+      incrementProcessingResumeAttempts: (id: string) => {
+        if (id === "conv-bad") {
+          throw new Error("counter write failed");
+        }
+        return realIncrement(id);
+      },
+    }));
+
+    const wakeCalls: string[] = [];
+    const wakeMock = mock(async (opts: Record<string, unknown>) => {
+      wakeCalls.push(opts.conversationId as string);
+      return { invoked: true, producedToolCalls: false };
+    });
+    mock.module("../runtime/agent-wake.js", () => ({
+      wakeAgentForOpportunity: wakeMock,
+    }));
+
+    await resumeInterruptedConversations([
+      guardianTarget("conv-bad"),
+      guardianTarget("conv-good"),
+    ]);
+
+    // conv-bad's counter threw before its wake ran, so it was skipped and never
+    // charged; conv-good still resumed and charged its own attempt.
+    expect(wakeCalls).toEqual(["conv-good"]);
+    expect(readRow("conv-bad").processing_resume_attempts).toBe(0);
     expect(readRow("conv-good").processing_resume_attempts).toBe(1);
   });
 });
