@@ -135,6 +135,7 @@ export async function runEmailInboundPipeline(
     event: gatewayEvent,
     eventId,
     recipientAddress,
+    senderAuthenticated,
     attachments,
   } = normalized;
   const senderAddress = gatewayEvent.actor.actorExternalId;
@@ -194,6 +195,9 @@ export async function runEmailInboundPipeline(
       replyCallbackUrl: undefined,
       traceId,
       routingOverride: routing,
+      // Provider SPF/DKIM/DMARC verdict (from the normalizer). `false` collapses
+      // a forged `From:` out of guardian/trusted_contact; `undefined` is a no-op.
+      senderAuthenticated,
       sourceMetadata: {
         emailProvider: source,
         emailSubject: vellumPayload.subject ?? undefined,

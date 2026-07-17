@@ -149,6 +149,93 @@ export function parseEmailAddress(raw: string): {
   return { address: raw.trim() };
 }
 
+/** Lowercased domain of an email address (the text after the last `@`). */
+function domainOfEmail(email: string): string {
+  const at = email.lastIndexOf("@");
+  if (at === -1) {
+    return "";
+  }
+  return email
+    .slice(at + 1)
+    .trim()
+    .replace(/^[<>]+|[<>]+$/g, "")
+    .toLowerCase();
+}
+
+/**
+ * Relaxed DMARC-style alignment between the visible `From:` domain and an
+ * authenticated domain: exact match or an organizational-domain (subdomain)
+ * relationship in either direction.
+ */
+function domainsAligned(fromDomain: string, authDomain: string): boolean {
+  if (!fromDomain || !authDomain) {
+    return false;
+  }
+  return (
+    fromDomain === authDomain ||
+    fromDomain.endsWith("." + authDomain) ||
+    authDomain.endsWith("." + fromDomain)
+  );
+}
+
+/**
+ * Decide whether an inbound message's `From:` address is authentic from the
+ * `Authentication-Results` header the receiving provider (Mailgun/Resend)
+ * stamps after running SPF/DKIM/DMARC. Trust classification keys on the `From:`
+ * address, which is trivially spoofable on its own; this binds that address to
+ * real authentication so a forged sender cannot inherit guardian/trusted-contact
+ * trust.
+ *
+ * Returns:
+ *  - `true`  — DMARC passed, or DKIM passed for a domain aligned with the
+ *              `From:` domain.
+ *  - `false` — authentication results were present but did not authenticate the
+ *              `From:` address (spoofable sender).
+ *  - `undefined` — no `Authentication-Results` header, so authentication could
+ *              not be evaluated (e.g. the receiving-API fetch failed). Callers
+ *              omit the signal so `handleInbound` preserves existing behavior
+ *              rather than downgrading every sender on missing data.
+ *
+ * SPF alone is intentionally NOT sufficient: it validates the envelope
+ * `MAIL FROM`, not the visible `From:` header a spoofer controls.
+ */
+export function evaluateSenderAuthentication(args: {
+  authResults: string | null | undefined;
+  fromEmail: string;
+}): boolean | undefined {
+  const raw = args.authResults;
+  if (!raw) {
+    return undefined;
+  }
+  const results = raw.toLowerCase();
+
+  // DMARC validates the visible RFC5322.From domain, so a pass is
+  // authoritative for "this From: is not spoofed".
+  const dmarc = results.match(/\bdmarc=(\w+)/);
+  if (dmarc && dmarc[1] === "pass") {
+    return true;
+  }
+
+  // Fallback: a DKIM pass whose signing domain aligns with the From: domain.
+  // Methods in Authentication-Results are `;`-separated (RFC 8601), so scope
+  // each DKIM verdict to the domain in its own method chunk.
+  const fromDomain = domainOfEmail(args.fromEmail);
+  for (const chunk of results.split(";")) {
+    const dkim = chunk.match(/\bdkim=(\w+)/);
+    if (!dkim || dkim[1] !== "pass") {
+      continue;
+    }
+    for (const m of chunk.matchAll(/header\.(?:d|i)=@?([^\s;]+)/g)) {
+      const authDomain = m[1].trim().replace(/>+$/, "");
+      if (domainsAligned(fromDomain, authDomain)) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
 /**
  * Normalize a Vellum email webhook payload into a GatewayInboundEvent.
  *
