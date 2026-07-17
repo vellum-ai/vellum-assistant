@@ -63,6 +63,7 @@ async function handleInferenceSend({ body = {} }: RouteHandlerArgs) {
       callSite: "inference",
       max_tokens: maxTokens,
       model,
+      overrideProfile: profile,
     },
   });
 

@@ -10,7 +10,10 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { ProviderResponse } from "../../../providers/types.js";
+import type {
+  ProviderResponse,
+  SendMessageOptions,
+} from "../../../providers/types.js";
 
 // ---------------------------------------------------------------------------
 // Mock: the handler resolves a provider and sends one message. We stub the
@@ -19,12 +22,25 @@ import type { ProviderResponse } from "../../../providers/types.js";
 // ---------------------------------------------------------------------------
 
 let nextResponse: ProviderResponse;
+let getConfiguredProviderOptions:
+  | { overrideProfile?: string; forceOverrideProfile?: boolean }
+  | undefined;
+let sendMessageOptions: SendMessageOptions | undefined;
 
 mock.module("../../../providers/provider-send-message.js", () => ({
-  getConfiguredProvider: async () => ({
-    name: "stub",
-    sendMessage: async () => nextResponse,
-  }),
+  getConfiguredProvider: async (
+    _callSite: string,
+    options: { overrideProfile?: string; forceOverrideProfile?: boolean },
+  ) => {
+    getConfiguredProviderOptions = options;
+    return {
+      name: "stub",
+      sendMessage: async (_messages: unknown, options: SendMessageOptions) => {
+        sendMessageOptions = options;
+        return nextResponse;
+      },
+    };
+  },
   extractAllText: (response: ProviderResponse) =>
     response.content.map((b) => (b.type === "text" ? b.text : "")).join(""),
   userMessage: (text: string) => ({
@@ -55,6 +71,23 @@ function baseResponse(overrides: Partial<ProviderResponse>): ProviderResponse {
 
 beforeEach(() => {
   nextResponse = baseResponse({});
+  getConfiguredProviderOptions = undefined;
+  sendMessageOptions = undefined;
+});
+
+describe("inference_send profile routing", () => {
+  test("forwards the requested profile through provider resolution and send options", async () => {
+    const requestedProfile = "quality-optimized";
+
+    await inferenceSendHandler()({
+      body: { message: "hi", profile: requestedProfile },
+    });
+
+    expect(getConfiguredProviderOptions?.overrideProfile).toBe(
+      requestedProfile,
+    );
+    expect(sendMessageOptions?.config?.overrideProfile).toBe(requestedProfile);
+  });
 });
 
 describe("inference_send evidence", () => {
