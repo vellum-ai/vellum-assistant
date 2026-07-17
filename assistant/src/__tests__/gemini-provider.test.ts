@@ -46,6 +46,7 @@ let fakeChunks: FakeChunk[] = [];
 let lastStreamParams: Record<string, unknown> | null = null;
 let lastConstructorOpts: Record<string, unknown> | null = null;
 let shouldThrow: Error | null = null;
+let listShouldThrow: Error | null = null;
 
 class FakeApiError extends Error {
   status: number;
@@ -74,6 +75,10 @@ mock.module("@google/genai", () => ({
           },
         };
       },
+      list: async () => {
+        if (listShouldThrow) throw listShouldThrow;
+        return { models: [] };
+      },
     };
   },
   ApiError: FakeApiError,
@@ -86,7 +91,10 @@ mock.module("@google/genai", () => ({
 }));
 
 // Import after mocking
-import { GeminiProvider } from "../providers/gemini/client.js";
+import {
+  GeminiProvider,
+  validateGeminiApiKey,
+} from "../providers/gemini/client.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -1738,5 +1746,30 @@ describe("GeminiProvider", () => {
       name: "file_read",
       input: { path: "/tmp/test" },
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// validateGeminiApiKey — empty-body 403 handling (proxy interception)
+// ---------------------------------------------------------------------------
+describe("validateGeminiApiKey", () => {
+  beforeEach(() => {
+    shouldThrow = null;
+    listShouldThrow = null;
+  });
+
+  test("returns valid for 403 with empty message (proxy interception)", async () => {
+    listShouldThrow = new FakeApiError(403, "");
+    const result = await validateGeminiApiKey("test-key");
+    expect(result.valid).toBe(true);
+  });
+
+  test("returns invalid for 403 with a real message", async () => {
+    listShouldThrow = new FakeApiError(403, "PERMISSION_DENIED");
+    const result = await validateGeminiApiKey("test-key");
+    expect(result.valid).toBe(false);
+    if (!result.valid) {
+      expect(result.reason).toContain("Gemini API error (403)");
+    }
   });
 });

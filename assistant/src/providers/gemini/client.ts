@@ -335,9 +335,19 @@ export async function validateGeminiApiKey(
         return { valid: false, reason: "API key is invalid or expired." };
       }
       if (error.status === 403) {
+        // An empty-body 403 likely came from a proxy, not Google's API.
+        // Treat it as inconclusive (allow key storage) rather than rejecting
+        // with a non-actionable "Gemini API error (403): " message.
+        if (hasEmptyMessage(error)) {
+          log.warn(
+            { status: 403 },
+            "Gemini API returned 403 with empty body during key validation — likely proxy interception, allowing key storage",
+          );
+          return { valid: true };
+        }
         return {
           valid: false,
-          reason: `Gemini API error (${error.status}): ${error.message}`,
+          reason: formatGeminiErrorMessage(error),
         };
       }
       // Transient errors (429, 5xx, etc.) — validation is inconclusive,
