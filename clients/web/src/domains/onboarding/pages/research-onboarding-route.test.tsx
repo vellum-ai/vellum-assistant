@@ -63,9 +63,20 @@ let establishedResult: { established: boolean; assistantName: string | null } =
     established: false,
     assistantName: null,
   };
-const checkEstablishedAssistantMock = mock(
-  async (_id: string) => establishedResult,
-);
+// When armed, the established-assistant check blocks on this gate so a test can
+// hold the verdict — exercising the window where the resumed terminal step is
+// already on screen but the guard hasn't settled — then release it on demand.
+let establishedCheckGate: Promise<void> | null = null;
+let releaseEstablishedCheck: () => void = () => {};
+function armDelayedEstablishedCheck() {
+  establishedCheckGate = new Promise<void>((resolve) => {
+    releaseEstablishedCheck = resolve;
+  });
+}
+const checkEstablishedAssistantMock = mock(async (_id: string) => {
+  if (establishedCheckGate) await establishedCheckGate;
+  return establishedResult;
+});
 
 const backgroundHatch = {
   start: () => {},
@@ -242,7 +253,27 @@ mock.module("@/domains/onboarding/screens/research-result-steps", () => ({
   FinishingUpStep: () => <div data-testid="finishing-step" />,
   ResearchResultsStep: () => <div data-testid="results-step" />,
   SuggestionsStep: () => <div data-testid="suggestions-step" />,
-  LetsChatReadyStep: () => <div data-testid="letschat-ready-step" />,
+  // Renders the real step's contract: a "Let's chat" CTA that the parent can
+  // hold via `disabled`. Mirrors the component's own guard (native disable +
+  // the handleStart no-op) so a disabled CTA can't fire the handoff.
+  LetsChatReadyStep: (props: {
+    onStart: () => void | Promise<void>;
+    disabled?: boolean;
+  }) => (
+    <div data-testid="letschat-ready-step">
+      <button
+        type="button"
+        data-testid="letschat-start"
+        disabled={props.disabled}
+        onClick={() => {
+          if (props.disabled) return;
+          void props.onStart();
+        }}
+      >
+        Let&apos;s chat
+      </button>
+    </div>
+  ),
 }));
 
 mock.module("@/domains/onboarding/screens/existing-assistant-step", () => ({
@@ -294,6 +325,8 @@ beforeEach(() => {
   localStorage.clear();
   researchStatus = "idle";
   establishedResult = { established: false, assistantName: null };
+  establishedCheckGate = null;
+  releaseEstablishedCheck = () => {};
   navigateMock.mockClear();
   startResearchMock.mockClear();
   hydrateResearchMock.mockClear();
@@ -390,6 +423,72 @@ describe("ResearchOnboardingRoute resume guard", () => {
     );
     // A fresh verdict must not divert, and a done journey never re-fires.
     expect(screen.queryByTestId("existing-step")).toBeNull();
+    expect(startResearchMock).not.toHaveBeenCalled();
+  });
+
+  // The completed snapshot lands on the terminal handoff synchronously, but the
+  // established check settles asynchronously. Until the verdict lands the "Let's
+  // chat" CTA must stay held — otherwise a click races past the guard, clears
+  // the snapshot, and navigates away before `setStep("existing")` can divert.
+  test("holds the 'Let's chat' handoff while a resumed done journey awaits the guard, then diverts when established", async () => {
+    armDelayedEstablishedCheck();
+    establishedResult = { established: true, assistantName: "Viper" };
+    researchStatus = "done";
+    writeResearchSnapshot(USER_ID, doneSnapshot());
+
+    render(<ResearchOnboardingRoute />);
+
+    // The terminal step is on screen, but the guard hasn't settled → CTA held.
+    await waitFor(() =>
+      expect(screen.getByTestId("letschat-start")).toBeTruthy(),
+    );
+    expect(
+      (screen.getByTestId("letschat-start") as HTMLButtonElement).disabled,
+    ).toBe(true);
+
+    // Clicking the held CTA does nothing: no handoff navigation, snapshot intact.
+    fireEvent.click(screen.getByTestId("letschat-start"));
+    expect(navigateMock).not.toHaveBeenCalled();
+    expect(readResearchSnapshot(USER_ID)).not.toBeNull();
+
+    // Releasing an established verdict still diverts to the keep/redo screen.
+    releaseEstablishedCheck();
+    await waitFor(() =>
+      expect(screen.getByTestId("existing-step")).toBeTruthy(),
+    );
+    expect(screen.getByTestId("existing-step").textContent).toBe("Viper");
+    expect(navigateMock).not.toHaveBeenCalled();
+    expect(startResearchMock).not.toHaveBeenCalled();
+  });
+
+  test("releases the held handoff once a resumed done journey's guard resolves fresh", async () => {
+    armDelayedEstablishedCheck();
+    establishedResult = { established: false, assistantName: null };
+    researchStatus = "done";
+    writeResearchSnapshot(USER_ID, doneSnapshot());
+
+    render(<ResearchOnboardingRoute />);
+
+    // Held while the verdict is pending.
+    await waitFor(() =>
+      expect(screen.getByTestId("letschat-start")).toBeTruthy(),
+    );
+    expect(
+      (screen.getByTestId("letschat-start") as HTMLButtonElement).disabled,
+    ).toBe(true);
+
+    // A fresh verdict releases the hold — no divert, and the CTA becomes usable.
+    releaseEstablishedCheck();
+    await waitFor(() =>
+      expect(
+        (screen.getByTestId("letschat-start") as HTMLButtonElement).disabled,
+      ).toBe(false),
+    );
+    expect(screen.queryByTestId("existing-step")).toBeNull();
+
+    // And now clicking it actually hands off to the chat.
+    fireEvent.click(screen.getByTestId("letschat-start"));
+    await waitFor(() => expect(navigateMock).toHaveBeenCalled());
     expect(startResearchMock).not.toHaveBeenCalled();
   });
 
