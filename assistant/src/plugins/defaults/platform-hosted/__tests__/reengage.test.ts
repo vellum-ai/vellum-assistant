@@ -1,47 +1,53 @@
 /**
  * Unit tests for the platform-hosted /reengage route handler.
  *
+ * The route runs a background conversation turn and asks the assistant to write
+ * `{ subject, body }` JSON to an injected file path, then reads it back. These
+ * tests mock `runConversationTurn` to play the assistant's part: they extract
+ * the injected path from the prompt and write (or don't write) a file there.
+ *
  * Covers:
- * - Happy path: forced tool_use → structured subject/body
- * - The compose tool is forced via tool_choice
- * - No provider configured → 503
- * - Missing / empty tool output → 502
+ * - Happy path: model writes valid JSON → structured subject/body, file cleaned up
+ * - Runs in a fresh background conversation
+ * - Fenced JSON in the file → still parsed
+ * - Model writes nothing → 502
+ * - Model writes JSON missing a field → 502
  */
 
+import { existsSync } from "node:fs";
+import { writeFile } from "node:fs/promises";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { Message } from "@vellumai/plugin-api";
+import type { RunConversationTurnOptions } from "@vellumai/plugin-api";
 
 // ---------------------------------------------------------------------------
-// Mock — defined before importing the module under test
+// Mock — plays the assistant: writes whatever `fileContents` is set to (if not
+// null) to the path injected into the prompt.
 // ---------------------------------------------------------------------------
 
-type SendMessage = (messages: Message[], options?: unknown) => Promise<unknown>;
+let fileContents: string | null = JSON.stringify({
+  subject: "Ready when you are",
+  body: "Just picking up where we left off.",
+});
+let lastOptions: RunConversationTurnOptions | undefined;
 
-let mockResponse: unknown = {
-  content: [
-    {
-      type: "tool_use",
-      id: "tu_1",
-      name: "compose_reengagement_email",
-      input: {
-        subject: "Ready when you are",
-        body: "Just picking up where we left off.",
-      },
-    },
-  ],
-  model: "test-model",
-  usage: { inputTokens: 10, outputTokens: 20 },
-  stopReason: "tool_use",
-};
-
-let mockProvider: { sendMessage: SendMessage } | null = null;
-let lastOptions:
-  | { config?: { tool_choice?: unknown }; tools?: unknown }
-  | undefined;
+function extractInjectedPath(prompt: string): string {
+  const match = prompt.match(/`([^`]+)`/);
+  if (!match) {
+    throw new Error("no injected path found in prompt");
+  }
+  return match[1];
+}
 
 mock.module("@vellumai/plugin-api", () => ({
-  getConfiguredProvider: async () => mockProvider,
+  runConversationTurn: async (options: RunConversationTurnOptions) => {
+    lastOptions = options;
+    const prompt = (options.content[0] as { text: string }).text;
+    if (fileContents !== null) {
+      await writeFile(extractInjectedPath(prompt), fileContents, "utf8");
+    }
+    return { content: [], userMessageId: "msg-1", conversationId: "conv-1" };
+  },
 }));
 
 const { POST } = await import("../routes/reengage.js");
@@ -56,59 +62,49 @@ function postRequest(): Request {
 describe("platform-hosted /reengage POST", () => {
   beforeEach(() => {
     lastOptions = undefined;
-    mockProvider = {
-      sendMessage: async (_messages, options) => {
-        lastOptions = options as typeof lastOptions;
-        return mockResponse;
-      },
-    };
-    mockResponse = {
-      content: [
-        {
-          type: "tool_use",
-          id: "tu_1",
-          name: "compose_reengagement_email",
-          input: {
-            subject: "Ready when you are",
-            body: "Just picking up where we left off.",
-          },
-        },
-      ],
-      model: "test-model",
-      usage: { inputTokens: 10, outputTokens: 20 },
-      stopReason: "tool_use",
-    };
+    fileContents = JSON.stringify({
+      subject: "Ready when you are",
+      body: "Just picking up where we left off.",
+    });
   });
 
-  test("returns the structured subject and body from the tool call", async () => {
+  test("returns the structured subject/body the model wrote, and cleans up", async () => {
     const response = await POST(postRequest());
     expect(response.status).toBe(200);
     const json = (await response.json()) as { subject: string; body: string };
     expect(json.subject).toBe("Ready when you are");
     expect(json.body).toBe("Just picking up where we left off.");
+
+    // The injected file is removed after the handler returns.
+    const injectedPath = extractInjectedPath(
+      (lastOptions?.content[0] as { text: string }).text,
+    );
+    expect(existsSync(injectedPath)).toBe(false);
   });
 
-  test("forces the compose_reengagement_email tool via tool_choice", async () => {
+  test("runs the turn in a fresh background conversation", async () => {
     await POST(postRequest());
-    expect(lastOptions?.config?.tool_choice).toEqual({
-      type: "tool",
-      name: "compose_reengagement_email",
-    });
+    expect(lastOptions?.conversationType).toBe("background");
+    expect(lastOptions?.conversationId).toBeUndefined();
   });
 
-  test("returns 503 when no provider is configured", async () => {
-    mockProvider = null;
+  test("tolerates JSON wrapped in a code fence", async () => {
+    fileContents =
+      '```json\n{"subject": "A quick nudge", "body": "Let me know."}\n```';
     const response = await POST(postRequest());
-    expect(response.status).toBe(503);
+    const json = (await response.json()) as { subject: string; body: string };
+    expect(json.subject).toBe("A quick nudge");
+    expect(json.body).toBe("Let me know.");
   });
 
-  test("returns 502 when the model returns no usable tool output", async () => {
-    mockResponse = {
-      content: [{ type: "text", text: "sorry, I can't" }],
-      model: "test-model",
-      usage: { inputTokens: 5, outputTokens: 5 },
-      stopReason: "end_turn",
-    };
+  test("returns 502 when the model writes no file", async () => {
+    fileContents = null;
+    const response = await POST(postRequest());
+    expect(response.status).toBe(502);
+  });
+
+  test("returns 502 when the written JSON is missing a field", async () => {
+    fileContents = JSON.stringify({ subject: "Only a subject" });
     const response = await POST(postRequest());
     expect(response.status).toBe(502);
   });
