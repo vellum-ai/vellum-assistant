@@ -16,7 +16,7 @@ export function CustomPlanRow({ className }: CustomPlanRowProps) {
       <p className="text-center text-[20px] font-medium text-[var(--content-tertiary)]">
         Need something more tailored to your needs?
       </p>
-      <div className="flex w-[840px] max-w-full items-center justify-between gap-4 rounded-2xl bg-[var(--surface-lift)] p-4">
+      <div className="flex w-[840px] max-w-full flex-col items-start gap-4 rounded-2xl bg-[var(--surface-lift)] p-4 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
         <div className="flex min-w-0 items-center gap-4">
           <div className="flex shrink-0 items-center justify-center rounded-xl bg-[var(--content-disabled)] p-[14px]">
             <SlidersHorizontal
