@@ -32,7 +32,7 @@ export interface TTSProvider {
 export const TTS_PROVIDERS: readonly TTSProvider[] = [
   {
     id: "vellum",
-    displayName: "Vellum Managed",
+    displayName: "Vellum",
     subtitle:
       "Text-to-speech through your Vellum account — billed to Vellum credits, no separate API key needed.",
     // Deliberately false in the static fallback: this entry stands in for

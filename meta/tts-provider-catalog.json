@@ -3,7 +3,7 @@
   "providers": [
     {
       "id": "vellum",
-      "displayName": "Vellum Managed",
+      "displayName": "Vellum",
       "subtitle": "Text-to-speech through your Vellum account \u2014 billed to Vellum credits, no separate API key needed.",
       "setupMode": "cli",
       "setupHint": "Connect your Vellum account to enable managed speech.",

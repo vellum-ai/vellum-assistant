@@ -211,7 +211,7 @@ export function createVellumProvider(): TtsProvider {
  */
 export const vellumTtsProviderDefinition: TtsProviderDefinition = {
   id: "vellum",
-  displayName: "Vellum Managed",
+  displayName: "Vellum",
   subtitle:
     "Text-to-speech through your Vellum account — billed to Vellum credits, no separate API key needed.",
   // Advertises managed voice selection (`services.tts.providers.vellum.model`)
