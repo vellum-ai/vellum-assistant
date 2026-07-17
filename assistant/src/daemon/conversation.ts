@@ -2059,7 +2059,7 @@ export class Conversation {
           mapped.content.some(
             (b) => b.type === "text" && b.text.includes(rowText),
           ));
-      if (tailIndex == null || !matches) {
+      if (rowToHistoryIndex == null || tailIndex == null || !matches) {
         log.warn(
           {
             conversationId: this.conversationId,
@@ -2078,36 +2078,37 @@ export class Conversation {
           "Conversation history is being reorganized — try again in a moment",
         );
       }
-      // When repair merged preceding continuation rows into the boundary's
-      // message, retreat the row watermark to the message's first
-      // contributing row. The summary call reads messages[0..tailIndex),
-      // which excludes the merged rows' content — advancing the watermark
-      // past them would hide rows the summary never covered.
-      let effectiveBoundaryRowIndex = boundaryRowIndex;
-      while (
-        effectiveBoundaryRowIndex > 0 &&
-        rowToHistoryIndex?.[effectiveBoundaryRowIndex - 1] === tailIndex
-      ) {
-        effectiveBoundaryRowIndex--;
-      }
       // Everything between the compacted watermark and the clicked turn
       // lives inside the boundary's own merged message (at most the summary
       // head precedes it) — there is no earlier content to summarize.
       if (tailIndex <= (this.contextSummary?.trim() ? 1 : 0)) {
         throw new UserError("Nothing to summarize before this message");
       }
+      // First persisted row contributing to each in-memory message — the
+      // inverse of `rowToHistoryIndex` (descending walk so the earliest row
+      // wins a merged message's slot; summary-head/synthetic entries stay
+      // null). The compaction pipeline derives its persisted and Slack
+      // watermarks from this against the cut the compactor ACTUALLY uses,
+      // which may retreat from the requested boundary for tool pairing.
+      const firstRowByHistoryIndex: (number | null)[] = new Array(
+        this.messages.length,
+      ).fill(null);
+      for (let rowIndex = rows.length - 1; rowIndex >= 0; rowIndex--) {
+        const historyIndex = rowToHistoryIndex[rowIndex];
+        if (historyIndex != null) {
+          firstRowByHistoryIndex[historyIndex] = rowIndex;
+        }
+      }
       return await this.runCompaction(true, undefined, {
         fixedTailStartIndex: tailIndex,
-        fixedBoundaryRowIndex: effectiveBoundaryRowIndex,
-        // Slack projections gate on the persisted watermark, not on
-        // `contextCompactedMessageCount` — without an advance, the summarized
-        // rows would reappear verbatim in the projection alongside the new
-        // summary. Null for non-Slack rows or a non-advancing boundary.
-        fixedBoundarySlackWatermarkTs: getSlackWatermarkAdvanceForRowPrefix(
-          rows,
-          effectiveBoundaryRowIndex,
-          this.slackContextCompactionWatermarkTs,
-        ),
+        // When repair merged preceding continuation rows into the boundary's
+        // message, the row boundary retreats to the message's first
+        // contributing row: the summary call reads messages[0..tailIndex),
+        // which excludes the merged rows' content, so the image manifest and
+        // watermarks must not treat them as summarized.
+        fixedBoundaryRowIndex:
+          firstRowByHistoryIndex[tailIndex] ?? boundaryRowIndex,
+        fixedBoundaryRowView: { rows, firstRowByHistoryIndex },
       });
     } finally {
       // Only undo the temporary guardian context this method installed. If
@@ -2152,9 +2153,11 @@ export class Conversation {
    * index ("summarize up to here") instead of the token-budget cut;
    * `opts.fixedBoundaryRowIndex` is the same boundary in row space, which
    * bounds the compactor's image manifest to rows being summarized away;
-   * `opts.fixedBoundarySlackWatermarkTs` is that path's row-space-derived
-   * Slack watermark (the auto/forced Slack path derives its own from the
-   * chronological projection).
+   * `opts.fixedBoundaryRowView` carries the load's row set and the
+   * first-contributing-row inverse of its row→history mapping, from which
+   * this pipeline derives row-exact persisted and Slack watermarks against
+   * the cut the compactor actually used (the requested cut may retreat to
+   * keep tool_use/tool_result pairs together).
    */
   private async runCompaction(
     force: boolean,
@@ -2162,7 +2165,10 @@ export class Conversation {
     opts?: {
       fixedTailStartIndex?: number;
       fixedBoundaryRowIndex?: number;
-      fixedBoundarySlackWatermarkTs?: string | null;
+      fixedBoundaryRowView?: {
+        rows: MessageRow[];
+        firstRowByHistoryIndex: (number | null)[];
+      };
     },
   ): Promise<ContextWindowResult> {
     const overrideProfile = resolveOverrideProfile(this) ?? null;
@@ -2195,9 +2201,9 @@ export class Conversation {
     // `this.messages`; the Slack chronological projection is a different
     // array (watermark-sliced, actor-filtered, re-rendered) whose indices
     // don't correspond. Fixed-boundary runs therefore always compact
-    // `this.messages`; their Slack watermark arrives pre-derived in
-    // row-space via `opts.fixedBoundarySlackWatermarkTs` (a null context
-    // makes `getSlackCompactionWatermarkForPrefix` return null below).
+    // `this.messages`; their Slack watermark is derived post-hoc in
+    // row-space from the compactor's actual cut (a null context makes
+    // `getSlackCompactionWatermarkForPrefix` return null below).
     const slackChronologicalContext =
       opts?.fixedTailStartIndex == null &&
       this.channelCapabilities?.channel === "slack"
@@ -2215,19 +2221,7 @@ export class Conversation {
         : null;
     const messagesToCompact =
       slackChronologicalContext?.messages ?? this.messages;
-    // Row-exact watermark advance for a caller-fixed boundary. The compactor's
-    // generic `compactedPersistedMessages` counts in-memory messages, which
-    // undercounts persisted rows whenever load-time history repair merged or
-    // the injection strip dropped rows in the summarized range — the watermark
-    // would land short of the caller's chosen row. The fixed boundary is
-    // already row-space, so the advance is derived from it directly.
-    const fixedPersistedRowCount =
-      opts?.fixedBoundaryRowIndex != null
-        ? Math.max(
-            0,
-            opts.fixedBoundaryRowIndex - this.contextCompactedMessageCount,
-          )
-        : null;
+    const compactedRowCountAtCall = this.contextCompactedMessageCount;
     let result = await defaultCompact({
       conversationId: this.conversationId,
       messages: messagesToCompact,
@@ -2238,11 +2232,41 @@ export class Conversation {
       fixedTailStartIndex: opts?.fixedTailStartIndex,
       fixedBoundaryRowIndex: opts?.fixedBoundaryRowIndex,
     });
-    if (result.compacted && fixedPersistedRowCount != null) {
+    // Row-exact watermark accounting for a caller-fixed boundary, derived
+    // from the cut the compactor ACTUALLY used (`result.compactedMessages`
+    // is the kept tail's history-space start): the compactor may retreat
+    // the requested cut to keep tool_use/tool_result pairs together, and
+    // pinning the watermark to the requested row would hide those
+    // kept-but-unsummarized rows from every future load. The compactor's
+    // message-space count is equally unusable as a row count — it
+    // undercounts whenever load-time repair merged (or the injection strip
+    // dropped) rows in the summarized range. Mapping the actual cut through
+    // the load's first-contributing-row inverse handles both. The null
+    // fallback (a cut landing on an unmapped synthetic message) degrades to
+    // a zero advance — conservative: rows get re-summarized later rather
+    // than hidden.
+    let fixedBoundarySlackWatermarkTs: string | null = null;
+    if (result.compacted && opts?.fixedBoundaryRowView != null) {
+      const { rows, firstRowByHistoryIndex } = opts.fixedBoundaryRowView;
+      const rowBoundary =
+        firstRowByHistoryIndex[result.compactedMessages] ??
+        compactedRowCountAtCall;
       result = {
         ...result,
-        compactedPersistedMessages: fixedPersistedRowCount,
+        compactedPersistedMessages: Math.max(
+          0,
+          rowBoundary - compactedRowCountAtCall,
+        ),
       };
+      // Slack projections gate on the persisted watermark, not on
+      // `contextCompactedMessageCount` — without an advance, the summarized
+      // rows would reappear verbatim in the projection alongside the new
+      // summary. Null for non-Slack rows or a non-advancing boundary.
+      fixedBoundarySlackWatermarkTs = getSlackWatermarkAdvanceForRowPrefix(
+        rows,
+        rowBoundary,
+        this.slackContextCompactionWatermarkTs,
+      );
     }
     // Track circuit-breaker state for every compaction that ran a summary
     // call — user-initiated `/compact`, other forced paths, and the wake's
@@ -2260,7 +2284,7 @@ export class Conversation {
     if (result.compacted) {
       await applyCompactionResult(this, result, this.sendToClient, null, {
         slackContextCompactionWatermarkTs:
-          opts?.fixedBoundarySlackWatermarkTs ??
+          fixedBoundarySlackWatermarkTs ??
           getSlackCompactionWatermarkForPrefix(
             slackChronologicalContext,
             result.compactedMessages,

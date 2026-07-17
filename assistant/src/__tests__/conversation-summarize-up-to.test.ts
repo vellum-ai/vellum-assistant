@@ -3,10 +3,11 @@
  *
  * Verifies the row→history boundary mapping (including the leading
  * context-summary message, the already-compacted row prefix, and load-time
- * history-repair merges/insertions), the row-exact watermark advance and
- * merged-boundary snap-back, the guardian trust swap around the fresh history
- * load, the fail-safe mapping verification, and that boundary-resolver
- * UserErrors propagate untouched.
+ * history-repair merges/insertions), the row-exact watermark accounting
+ * derived from the compactor's actual cut (merged boundaries, tool-pairing
+ * retreats), the guardian trust swap around the fresh history load, the
+ * fail-safe mapping verification, and that boundary-resolver UserErrors
+ * propagate untouched.
  * The compaction plugin entry (`defaultCompact`) is mocked so no summary LLM
  * runs — the assertions target the CompactionContext it receives.
  */
@@ -534,6 +535,55 @@ describe("Conversation.summarizeUpToMessage", () => {
     expect(slackWatermarkCalls).toHaveLength(2);
     expect(slackWatermarkCalls[1][0]).toBe("conv-1");
     expect(typeof slackWatermarkCalls[1][1]).toBe("string");
+  });
+
+  test("derives the row watermark from the compactor's actual cut when it retreats for tool pairing", async () => {
+    // The compactor walks a requested cut backward when the kept tail would
+    // open on a tool_result whose tool_use sits in the summarized prefix
+    // (adjustTailIndexForToolPairing), and reports the cut it actually used
+    // as `compactedMessages`. The persisted watermark must follow that cut —
+    // pinning it to the requested boundary row would hide the
+    // kept-but-unsummarized rows from every future load.
+    mockDbMessages = awaitingUserActionRows();
+    const conversation = makeConversation();
+    mockCompactResult = {
+      ...makeNoopResult(),
+      compacted: true,
+      // The compactor retreated from the requested cut (4) to 3.
+      compactedMessages: 3,
+      compactedPersistedMessages: 3,
+      summaryText: "retreated summary",
+    };
+
+    await conversation.summarizeUpToMessage("m5");
+
+    expect(compactCalls[0].fixedTailStartIndex).toBe(4);
+    // History index 3 (a2) first draws from row 4 — the merge-aware inverse,
+    // not the message-space count (3) nor the requested boundary row (5).
+    expect(mockConversation.contextCompactedMessageCount).toBe(4);
+  });
+
+  test("Slack: the watermark follows a retreated cut, not the requested boundary", async () => {
+    mockDbMessages = slackThreeTurnRows();
+    const conversation = makeConversation();
+    conversation.setChannelCapabilities(slackCapabilities);
+    mockCompactResult = {
+      ...makeNoopResult(),
+      compacted: true,
+      // The compactor retreated from the requested cut (4) to 2.
+      compactedMessages: 2,
+      compactedPersistedMessages: 2,
+      summaryText: "slack summary",
+    };
+
+    await conversation.summarizeUpToMessage("m4");
+
+    // The prefix the summary actually covers is rows[0..2), topping out at
+    // m1's channelTs — advancing to the requested boundary's prefix max
+    // (m3's 1000.000400) would exclude the kept rows m2/m3 from every
+    // future projection while the summary does not cover them.
+    expect(slackWatermarkCalls).toHaveLength(1);
+    expect(slackWatermarkCalls[0][1]).toBe("1000.000200");
   });
 
   test("Slack: a fixed boundary advances an existing older watermark", async () => {
