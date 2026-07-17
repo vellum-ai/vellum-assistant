@@ -46,6 +46,8 @@ let fakeChunks: FakeChunk[] = [];
 let lastStreamParams: Record<string, unknown> | null = null;
 let lastConstructorOpts: Record<string, unknown> | null = null;
 let shouldThrow: Error | null = null;
+let listShouldThrow: Error | null = null;
+let generateContentShouldThrow: Error | null = null;
 
 class FakeApiError extends Error {
   status: number;
@@ -74,6 +76,14 @@ mock.module("@google/genai", () => ({
           },
         };
       },
+      list: async () => {
+        if (listShouldThrow) throw listShouldThrow;
+        return { models: [] };
+      },
+      generateContent: async () => {
+        if (generateContentShouldThrow) throw generateContentShouldThrow;
+        return { text: "OK" };
+      },
     };
   },
   ApiError: FakeApiError,
@@ -86,7 +96,10 @@ mock.module("@google/genai", () => ({
 }));
 
 // Import after mocking
-import { GeminiProvider } from "../providers/gemini/client.js";
+import {
+  GeminiProvider,
+  validateGeminiApiKey,
+} from "../providers/gemini/client.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -174,6 +187,8 @@ describe("GeminiProvider", () => {
     lastStreamParams = null;
     lastConstructorOpts = null;
     shouldThrow = null;
+    listShouldThrow = null;
+    generateContentShouldThrow = null;
   });
 
   // -----------------------------------------------------------------------
@@ -1696,5 +1711,62 @@ describe("GeminiProvider", () => {
       name: "file_read",
       input: { path: "/tmp/test" },
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// validateGeminiApiKey — exercises both models.list() and generateContent()
+// ---------------------------------------------------------------------------
+describe("validateGeminiApiKey", () => {
+  beforeEach(() => {
+    listShouldThrow = null;
+    generateContentShouldThrow = null;
+  });
+
+  test("returns valid when both list and generateContent succeed", async () => {
+    const result = await validateGeminiApiKey("test-key");
+    expect(result.valid).toBe(true);
+  });
+
+  test("returns invalid when models.list() throws 401", async () => {
+    listShouldThrow = new FakeApiError(401, "API key not valid");
+    const result = await validateGeminiApiKey("test-key");
+    expect(result.valid).toBe(false);
+    if (!result.valid) {
+      expect(result.reason).toContain("invalid or expired");
+    }
+  });
+
+  test("returns invalid when models.list() throws 403", async () => {
+    listShouldThrow = new FakeApiError(403, "PERMISSION_DENIED");
+    const result = await validateGeminiApiKey("test-key");
+    expect(result.valid).toBe(false);
+  });
+
+  test("returns valid when models.list() throws a transient error (429)", async () => {
+    listShouldThrow = new FakeApiError(429, "RESOURCE_EXHAUSTED");
+    const result = await validateGeminiApiKey("test-key");
+    expect(result.valid).toBe(true);
+  });
+
+  test("returns invalid when list succeeds but generateContent throws 404", async () => {
+    generateContentShouldThrow = new FakeApiError(404, "");
+    const result = await validateGeminiApiKey("test-key");
+    expect(result.valid).toBe(false);
+    if (!result.valid) {
+      expect(result.reason).toContain("inference endpoint is unreachable");
+    }
+  });
+
+  test("returns valid when generateContent throws a transient error (429)", async () => {
+    generateContentShouldThrow = new FakeApiError(429, "RESOURCE_EXHAUSTED");
+    const result = await validateGeminiApiKey("test-key");
+    expect(result.valid).toBe(true);
+  });
+
+  test("returns valid when generateContent throws a 5xx error", async () => {
+    generateContentShouldThrow = new FakeApiError(503, "UNAVAILABLE");
+    const result = await validateGeminiApiKey("test-key");
+    expect(result.valid).toBe(true);
   });
 });

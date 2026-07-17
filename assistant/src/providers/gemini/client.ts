@@ -272,21 +272,37 @@ const log = getLogger("gemini-client");
 const VALIDATION_TIMEOUT_MS = 10_000;
 
 /**
- * Validate a Gemini API key by making a lightweight models.list() call.
+ * Cheapest cataloged Gemini model, used to probe the real inference
+ * (generateContent) path during key validation. Any model works here since
+ * the probe only checks reachability, not quality.
+ */
+const VALIDATION_PROBE_MODEL = "gemini-2.5-flash-lite";
+
+function isTransientApiError(error: ApiError): boolean {
+  return error.status === 429 || error.status >= 500;
+}
+
+/**
+ * Validate a Gemini API key by making a lightweight models.list() call to
+ * catch bad credentials fast, then a minimal generateContent() call to
+ * exercise the actual inference path. A proxy or egress filter can block the
+ * streaming POST inference endpoint while allowing the GET-based list, which
+ * would otherwise let a key that can't actually run inference pass
+ * validation.
  * Returns `{ valid: true }` on success or `{ valid: false, reason: string }` on failure.
  */
 export async function validateGeminiApiKey(
   apiKey: string,
 ): Promise<{ valid: true } | { valid: false; reason: string }> {
+  const client = new GoogleGenAI({ apiKey });
+
   try {
-    const client = new GoogleGenAI({ apiKey });
     await client.models.list({
       config: {
         pageSize: 1,
         httpOptions: { timeout: VALIDATION_TIMEOUT_MS },
       },
     });
-    return { valid: true };
   } catch (error) {
     if (error instanceof ApiError) {
       if (error.status === 401) {
@@ -312,6 +328,41 @@ export async function validateGeminiApiKey(
       "Network error during Gemini key validation — allowing key storage",
     );
     return { valid: true };
+  }
+
+  try {
+    await client.models.generateContent({
+      model: VALIDATION_PROBE_MODEL,
+      contents: [{ role: "user", parts: [{ text: "Reply with OK" }] }],
+      config: { httpOptions: { timeout: VALIDATION_TIMEOUT_MS } },
+    });
+    return { valid: true };
+  } catch (error) {
+    if (error instanceof ApiError && isTransientApiError(error)) {
+      // Transient errors (429, 5xx, etc.) — validation is inconclusive,
+      // allow the key to be stored rather than blocking the user.
+      log.warn(
+        { status: error.status },
+        "Gemini API returned a transient error during inference-path validation — allowing key storage",
+      );
+      return { valid: true };
+    }
+    // The key passed models.list() (credentials are valid) but the
+    // inference endpoint itself is unreachable — the exact false-positive
+    // scenario this probe exists to catch (e.g. a proxy blocking the
+    // streaming POST path while allowing the GET-based list).
+    const detail = error instanceof ApiError ? error.message : String(error);
+    log.warn(
+      { error: detail },
+      "Gemini key passed models.list() but generateContent failed during validation",
+    );
+    return {
+      valid: false,
+      reason:
+        "API key can list models but the Gemini inference endpoint is unreachable. " +
+        "This usually indicates a network or proxy issue blocking outbound requests " +
+        `to the generateContent API. Details: ${detail}`,
+    };
   }
 }
 
@@ -560,9 +611,7 @@ export class GeminiProvider implements Provider {
           error.status,
           // Skip reason on caller-abort: abortReason already carries the intent
           // and short-circuits classification/retry (mirrors the Anthropic client).
-          abortReason
-            ? { abortReason }
-            : { reason: deriveGeminiReason(error) },
+          abortReason ? { abortReason } : { reason: deriveGeminiReason(error) },
         );
       }
       throw new ProviderError(
