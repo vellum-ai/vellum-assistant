@@ -113,6 +113,11 @@ export const CALL_SITE_DEFAULTS: Record<LLMCallSite, CallSiteDefaultConfig> = {
     effort: "low",
     thinking: { enabled: false },
   },
+  voiceFrontDecision: {
+    profile: "cost-optimized",
+    effort: "low",
+    thinking: { enabled: false },
+  },
   inviteInstructionGenerator: {
     profile: "cost-optimized",
     effort: "low",
