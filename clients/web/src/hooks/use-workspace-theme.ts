@@ -7,9 +7,10 @@
  *
  *  1. Fetch the validated theme from `GET /v1/workspace/theme` and push its
  *     token overrides onto the document root. Deliberately not version-gated:
- *     an older assistant 404s the read-only query, which the app QueryClient
- *     never retries (4xx rule) and which degrades to exactly the unthemed
- *     state — see "When a gate is unnecessary" in BACKWARDS_COMPAT.md.
+ *     an assistant without the route (older, or rolled back from a themed
+ *     version) 404s the read, which `fetchWorkspaceTheme` maps to the unthemed
+ *     state so a rollback clears any applied theme rather than stranding a
+ *     stale one — see "When a gate is unnecessary" in BACKWARDS_COMPAT.md.
  *  2. Refetch on the `assistant:self:theme` sync tag and on non-fresh SSE
  *     reconnect, so a theme the assistant (or another client) writes shows up
  *     without a reload — the daemon's config watcher emits the invalidation.
@@ -27,10 +28,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { toast } from "@vellumai/design-library/components/toast";
 
-import {
-  workspaceThemeGetOptions,
-  workspaceThemeGetQueryKey,
-} from "@/generated/daemon/@tanstack/react-query.gen";
+import { workspaceThemeGet } from "@/generated/daemon/sdk.gen";
+import { workspaceThemeGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { SYNC_TAGS } from "@/lib/sync/types";
 import { getClientId } from "@/lib/telemetry/client-identity";
@@ -39,6 +38,31 @@ import {
   type WorkspaceTheme,
 } from "@/domains/settings/utils/workspace-theme-tokens";
 
+/**
+ * Read the validated workspace theme, mapping a 404 to the unthemed state.
+ *
+ * An assistant that lacks the route 404s this read, which resolves to `null` so
+ * a refetch overwrites the last-applied theme instead of stranding it. Other
+ * failures throw, so a transient error keeps the last-good theme and retries.
+ */
+export async function fetchWorkspaceTheme(
+  assistantId: string,
+  signal?: AbortSignal,
+): Promise<WorkspaceTheme | null> {
+  const { data, error, response } = await workspaceThemeGet({
+    path: { assistant_id: assistantId },
+    throwOnError: false,
+    signal,
+  });
+  if (!response || !response.ok) {
+    if (response?.status === 404) {
+      return null;
+    }
+    throw error ?? new Error("Failed to fetch workspace theme.");
+  }
+  return (data?.theme ?? null) as WorkspaceTheme | null;
+}
+
 export function useWorkspaceTheme(
   assistantId: string | null,
   isAssistantActive: boolean,
@@ -46,15 +70,14 @@ export function useWorkspaceTheme(
   const queryClient = useQueryClient();
   const enabled = isAssistantActive && !!assistantId;
 
-  const { data } = useQuery({
-    ...workspaceThemeGetOptions({
+  const { data: theme } = useQuery({
+    queryKey: workspaceThemeGetQueryKey({
       path: { assistant_id: assistantId ?? "" },
     }),
+    queryFn: ({ signal }) => fetchWorkspaceTheme(assistantId ?? "", signal),
     enabled,
     refetchOnWindowFocus: false,
   });
-
-  const theme = (data?.theme ?? null) as WorkspaceTheme | null;
 
   // Apply on every resolved theme; clearing when the theme is removed, or when
   // the hook is disabled (assistant inactive / switched away), reverts to the
