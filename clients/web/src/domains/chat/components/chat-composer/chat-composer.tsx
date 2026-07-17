@@ -47,7 +47,7 @@ import {
     useIsLiveVoiceSessionOwnedBy,
     useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
-import { preflightLiveVoice } from "@/domains/chat/voice/live-voice/use-live-voice-preflight";
+import { preflightLiveVoice } from "@/domains/chat/voice/live-voice/live-voice-preflight-api";
 import { useAudioAmplitude } from "@/domains/chat/voice/use-audio-amplitude";
 import { VoiceFirstRunCard } from "@/domains/chat/voice/voice-room/voice-first-run-card";
 import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-store";
