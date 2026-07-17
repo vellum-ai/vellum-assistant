@@ -264,7 +264,7 @@ function renderUsageTab(initialEntry: string) {
   const router = createMemoryRouter(
     [
       {
-        path: "/assistant/settings/billing",
+        path: "/assistant/settings/usage",
         element: createElement(UsageTab, { assistantId: "assistant-1" }),
       },
       {
@@ -295,7 +295,7 @@ function readLegendItems(container: HTMLElement) {
 describe("UsageTab", () => {
   test("renders URL-selected schedule filters as an active legend instead of picker controls", async () => {
     const { container } = renderUsageTab(
-      "/assistant/settings/billing?range=7d&groupBy=schedule&scheduleId=schedule-123",
+      "/assistant/settings/usage?range=7d&groupBy=schedule&scheduleId=schedule-123",
     );
 
     await waitFor(() =>
@@ -338,7 +338,7 @@ describe("UsageTab", () => {
       { id: "schedule-456", name: "Evening digest" } as AssistantSchedule,
     ];
     const { container } = renderUsageTab(
-      "/assistant/settings/billing?range=7d&groupBy=schedule&scheduleId=schedule-deleted",
+      "/assistant/settings/usage?range=7d&groupBy=schedule&scheduleId=schedule-deleted",
     );
 
     await waitFor(() =>
@@ -357,7 +357,7 @@ describe("UsageTab", () => {
   });
 
   test("reveals a Turns column when the Turns toggle is enabled", async () => {
-    renderUsageTab("/assistant/settings/billing?range=7d&groupBy=schedule");
+    renderUsageTab("/assistant/settings/usage?range=7d&groupBy=schedule");
 
     await waitFor(() =>
       expect(usageBreakdownGetMock.mock.calls.length).toBeGreaterThan(0),
@@ -380,7 +380,7 @@ describe("UsageTab", () => {
 
   test("links conversation breakdown rows to their conversations", async () => {
     renderUsageTab(
-      "/assistant/settings/billing?range=7d&groupBy=conversation",
+      "/assistant/settings/usage?range=7d&groupBy=conversation",
     );
 
     const conversationLink = await screen.findByRole("link", {
@@ -397,7 +397,7 @@ describe("UsageTab", () => {
 
   test("navigates to the conversation when a breakdown row is clicked", async () => {
     renderUsageTab(
-      "/assistant/settings/billing?range=7d&groupBy=conversation",
+      "/assistant/settings/usage?range=7d&groupBy=conversation",
     );
 
     const conversationLink = await screen.findByRole("link", {
@@ -412,7 +412,7 @@ describe("UsageTab", () => {
   });
 
   test("does not link rows for non-conversation groupings", async () => {
-    renderUsageTab("/assistant/settings/billing?range=7d&groupBy=schedule");
+    renderUsageTab("/assistant/settings/usage?range=7d&groupBy=schedule");
 
     await waitFor(() =>
       expect(usageBreakdownGetMock.mock.calls.length).toBeGreaterThan(0),

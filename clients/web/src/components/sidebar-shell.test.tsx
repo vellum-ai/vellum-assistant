@@ -77,7 +77,7 @@ describe("SidebarShell edge-swipe back", () => {
   test("arms the swipe on a sub-page and returns to the menu root", () => {
     // GIVEN a mobile viewport on a settings sub-page
     // WHEN the shell mounts
-    renderAt("/assistant/settings/billing");
+    renderAt("/assistant/settings/usage");
 
     // THEN the gesture is enabled
     expect(lastSwipeArgs?.enabled).toBe(true);
