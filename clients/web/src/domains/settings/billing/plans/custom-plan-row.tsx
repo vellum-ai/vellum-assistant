@@ -4,13 +4,15 @@ import { Button } from "@vellumai/design-library/components/button";
 
 export interface CustomPlanRowProps {
   className?: string;
+  onConfigure: () => void;
 }
 
 /**
- * "Custom Plan" prompt below the pricing columns. The Configure button is a
- * deliberate no-op — the self-serve customization flow isn't built yet.
+ * "Custom Plan" prompt below the pricing columns. The parent owns what
+ * Configure does (opening the custom plan modal, or routing Pro subscribers
+ * to the manage-plan modal).
  */
-export function CustomPlanRow({ className }: CustomPlanRowProps) {
+export function CustomPlanRow({ className, onConfigure }: CustomPlanRowProps) {
   return (
     <div className={`flex w-full flex-col items-center gap-8 ${className ?? ""}`}>
       <p className="text-center text-[20px] font-medium text-[var(--content-tertiary)]">
@@ -38,12 +40,7 @@ export function CustomPlanRow({ className }: CustomPlanRowProps) {
           <span className="text-[11px] font-medium text-[var(--content-tertiary)]">
             Billed monthly
           </span>
-          <Button
-            variant="outlined"
-            onClick={() => {
-              // Custom plan configuration flow isn't built yet.
-            }}
-          >
+          <Button variant="outlined" onClick={onConfigure}>
             Configure
           </Button>
         </div>

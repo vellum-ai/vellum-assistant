@@ -9,6 +9,10 @@ import {
   type ProPackage,
 } from "@/domains/settings/billing/package-types";
 import { FREE_STORAGE_GIB } from "@/domains/settings/billing/plan-tier-meta";
+import {
+  CustomPlanModal,
+  type CustomPlanSelection,
+} from "@/domains/settings/billing/plans/custom-plan-modal";
 import { CustomPlanRow } from "@/domains/settings/billing/plans/custom-plan-row";
 import { PlanColumnCard } from "@/domains/settings/billing/plans/plan-column-card";
 import { getPlanTierCopy } from "@/domains/settings/billing/plans/plans-copy";
@@ -21,7 +25,11 @@ import {
   organizationsBillingSubscriptionRetrieveQueryKey,
   organizationsBillingSubscriptionUpgradeCreateMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
-import type { MachineSizeEnum, ProPlan } from "@/generated/api/types.gen";
+import type {
+  MachineSizeEnum,
+  ProPlan,
+  SubscriptionUpgradeRequestRequest,
+} from "@/generated/api/types.gen";
 import {
   useActiveAssistantIsPlatformHosted,
   useActiveAssistantLifecycleIsLoading,
@@ -107,6 +115,7 @@ export function PlansPage() {
     organizationsBillingSubscriptionUpgradeCreateMutation(),
   );
   const [pending, setPending] = useState(false);
+  const [customPlanOpen, setCustomPlanOpen] = useState(false);
 
   const subscription = subscriptionQuery.data;
   const proPlan = plansQuery.data?.plans.find(
@@ -138,14 +147,10 @@ export function PlansPage() {
     }
   };
 
-  const startCheckout = async (packageKey: string) => {
+  const startCheckout = async (body: SubscriptionUpgradeRequestRequest) => {
     setPending(true);
     try {
-      // A package checkout resolves its own line items server-side; only the
-      // package key is sent (mirrors the plan-card upgrade path).
-      const result = await upgradeMutation.mutateAsync({
-        body: { target_plan_id: "pro", package: packageKey, confirm: true },
-      });
+      const result = await upgradeMutation.mutateAsync({ body });
       if (result.status === "redirect" && result.checkout_url) {
         openUrl(result.checkout_url);
       } else {
@@ -169,7 +174,7 @@ export function PlansPage() {
   };
 
   let body: ReactNode;
-  if (subscription && hasPackages) {
+  if (subscription && proPlan && hasPackages) {
     const isProUser = subscription.plan_id === "pro";
     const currentTierKey =
       subscription.plan_id === "base"
@@ -187,7 +192,32 @@ export function PlansPage() {
       if (tierKey === "free") {
         return;
       }
-      void startCheckout(tierKey);
+      // A package checkout resolves its own line items server-side; only the
+      // package key is sent (mirrors the plan-card upgrade path).
+      void startCheckout({
+        target_plan_id: "pro",
+        package: tierKey,
+        confirm: true,
+      });
+    };
+
+    const startCustomCheckout = (selection: CustomPlanSelection) =>
+      startCheckout({
+        target_plan_id: "pro",
+        confirm: true,
+        machine_tier: selection.machineTier,
+        storage_tier: selection.storageTier,
+        credit_tier: selection.creditTier,
+      });
+
+    const handleConfigure = () => {
+      if (isProUser) {
+        // Same rule as the plan-card CTAs: the upgrade endpoint no-ops for an
+        // active Pro org, so plan changes go through the manage-plan modal.
+        navigate(`${routes.settings.billing}?adjust_plan`);
+        return;
+      }
+      setCustomPlanOpen(true);
     };
 
     const orderedPackages = [...packages].sort(
@@ -256,7 +286,15 @@ export function PlansPage() {
           })}
         </div>
 
-        <CustomPlanRow className="mt-10" />
+        <CustomPlanRow className="mt-10" onConfigure={handleConfigure} />
+
+        <CustomPlanModal
+          open={customPlanOpen}
+          proPlan={proPlan}
+          pending={pending}
+          onClose={() => setCustomPlanOpen(false)}
+          onContinue={(selection) => void startCustomCheckout(selection)}
+        />
 
         <p className="mt-10 text-center text-[12px] font-medium text-[var(--content-tertiary)]">
           You can cancel or change your plan anytime you want. To learn more{" "}
