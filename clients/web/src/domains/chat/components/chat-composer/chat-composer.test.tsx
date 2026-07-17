@@ -15,6 +15,7 @@ import { act, cleanup, fireEvent, render } from "@testing-library/react";
 
 import { type ChatAttachment, useComposerStore } from "@/domains/chat/composer-store";
 import type { VoiceInputButtonHandle } from "@/domains/chat/components/voice-input-button";
+import type { LiveVoicePreflightVerdict } from "@/domains/chat/voice/live-voice/live-voice-preflight-api";
 import { INITIAL_TURN_STATE, useTurnStore } from "@/domains/chat/turn-store";
 import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
 
@@ -158,17 +159,12 @@ mock.module("@/domains/chat/voice/voice-recording-store", () => ({
 // room; mock it so no real daemon call is made and the verdict is controllable
 // per-test. Defaults to `ready` so every existing entry-point test keeps
 // starting the session. The not-ready cases below flip `mockPreflightVerdict`.
-type PreflightVerdict = {
-  status: "ready" | "not-ready";
-  missing?: Array<{ kind: "stt" | "tts"; providerId: string; reason: string }>;
-  userMessage?: string;
-};
-let mockPreflightVerdict: PreflightVerdict | null = { status: "ready" };
+let mockPreflightVerdict: LiveVoicePreflightVerdict | null = { status: "ready" };
 const preflightSpy = mock(
-  (_assistantId: string): Promise<PreflightVerdict | null> =>
+  (_assistantId: string): Promise<LiveVoicePreflightVerdict | null> =>
     Promise.resolve(mockPreflightVerdict),
 );
-mock.module("@/domains/chat/voice/live-voice/use-live-voice-preflight", () => ({
+mock.module("@/domains/chat/voice/live-voice/live-voice-preflight-api", () => ({
   preflightLiveVoice: preflightSpy,
 }));
 
