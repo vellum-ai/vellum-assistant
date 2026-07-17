@@ -2,7 +2,6 @@ import {
   CircleAlert,
   CircleCheck,
   Info,
-  Lightbulb,
   TriangleAlert,
   X,
   type LucideIcon,
@@ -12,7 +11,7 @@ import { type ComponentProps, type ReactNode } from "react";
 import { cn } from "../utils/cn";
 import { Typography } from "./typography";
 
-export type NoticeTone = "info" | "success" | "warning" | "error" | "neutral" | "hint";
+export type NoticeTone = "info" | "success" | "warning" | "error" | "neutral";
 
 export interface NoticeProps
   extends Omit<ComponentProps<"div">, "title" | "role"> {
@@ -59,12 +58,6 @@ const TONE_CLASSES: Record<NoticeTone, ToneClasses> = {
     container: "bg-[var(--surface-overlay)] border-[var(--border-base)]",
     icon: "text-[color:var(--content-secondary)]",
     DefaultIcon: null,
-  },
-  hint: {
-    container:
-      "bg-[var(--system-info-weak)] border-[color-mix(in_srgb,var(--system-info-strong)_25%,transparent)]",
-    icon: "text-[color:var(--system-info-strong)]",
-    DefaultIcon: Lightbulb,
   },
 };
 
