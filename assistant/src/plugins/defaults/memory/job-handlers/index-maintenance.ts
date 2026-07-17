@@ -2,11 +2,11 @@ import { selectedBackendSupportsMultimodal } from "@vellumai/plugin-api";
 import { and, eq, isNotNull, like, ne } from "drizzle-orm";
 
 import { getDb } from "../../../../persistence/db-connection.js";
+import { sweepOrphanedGraphNodePoints } from "../../../../persistence/embeddings/graph-node-orphan-sweep.js";
 import { withQdrantBreaker } from "../../../../persistence/embeddings/qdrant-circuit-breaker.js";
-import { getQdrantClient } from "../../../../persistence/embeddings/qdrant-client.js";
 import {
   asString,
-  BackendUnavailableError,
+  requireQdrantClient,
 } from "../../../../persistence/job-utils.js";
 import {
   enqueueMemoryJob,
@@ -108,16 +108,32 @@ export async function deleteQdrantVectorsJob(job: MemoryJob): Promise<void> {
     return;
   }
 
-  let qdrant;
-  try {
-    qdrant = getQdrantClient();
-  } catch {
-    throw new BackendUnavailableError("Qdrant client not initialized");
-  }
-
+  const qdrant = requireQdrantClient();
   await withQdrantBreaker(() => qdrant.deleteByTarget(targetType, targetId));
   log.info(
     { targetType, targetId },
     "Retried Qdrant vector deletion succeeded",
   );
+}
+
+/**
+ * Sweep `graph_node` Qdrant points whose backing `memory_graph_nodes` row no
+ * longer exists — the cacheless orphans migration 340's `memory_embeddings`
+ * cache-driven sweep cannot see (see `sweepOrphanedGraphNodePoints`). Enqueued
+ * once by migration 341 and drained here so the scroll runs after Qdrant is up.
+ *
+ * `requireQdrantClient` throws a retryable `BackendUnavailableError` when the v1
+ * Qdrant client is not initialized, so the job defers instead of failing; under
+ * memory v2 the worker short-circuits this type (`V1_QDRANT_JOB_TYPES`) before
+ * dispatch, so it never reaches here.
+ */
+export async function sweepOrphanedGraphNodePointsJob(): Promise<void> {
+  const qdrant = requireQdrantClient();
+  const { scanned, deleted } = await sweepOrphanedGraphNodePoints(qdrant);
+  if (deleted > 0) {
+    log.info(
+      { scanned, deleted },
+      "Swept cacheless orphaned graph-node Qdrant points",
+    );
+  }
 }

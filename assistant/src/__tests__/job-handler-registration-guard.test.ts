@@ -13,6 +13,7 @@ const MEMORY_JOB_TYPES = [
   "backfill",
   "rebuild_index",
   "delete_qdrant_vectors",
+  "sweep_orphaned_graph_node_points",
   "embed_media",
   "embed_attachment",
   "embed_graph_node",
