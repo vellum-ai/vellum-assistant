@@ -1,50 +1,43 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { describe, expect, it } from "bun:test";
 
 import {
-  PENDING_PLUGIN_INSTALL_KEY,
-  PENDING_PLUGIN_INSTALL_MAX_AGE_MS,
+  ATTRIBUTED_PLUGIN_PARAM,
   pluginsFromAttribution,
 } from "@/domains/onboarding/plugin-attribution";
 
-function write(value: string) {
-  localStorage.setItem(PENDING_PLUGIN_INSTALL_KEY, value);
-}
-
-beforeEach(() => localStorage.clear());
-afterEach(() => localStorage.clear());
-
 describe("pluginsFromAttribution", () => {
-  test("empty when nothing is stored", () => {
-    expect(pluginsFromAttribution()).toEqual([]);
+  it("returns the attributed plugin from the query string", () => {
+    expect(pluginsFromAttribution("?plugin=coffee-aficionado")).toEqual([
+      "coffee-aficionado",
+    ]);
   });
 
-  test("returns the attributed plugin for a fresh, well-formed record", () => {
-    write(JSON.stringify({ pluginId: "coffee-aficionado", ts: Date.now() }));
-    expect(pluginsFromAttribution()).toEqual(["coffee-aficionado"]);
+  it("reads it alongside other onboarding params (order-independent)", () => {
+    expect(
+      pluginsFromAttribution("?hosting=managed&plugin=coffee-aficionado"),
+    ).toEqual(["coffee-aficionado"]);
   });
 
-  test("empty for a malformed record", () => {
-    write("{ not json");
-    expect(pluginsFromAttribution()).toEqual([]);
-    write(JSON.stringify({ ts: Date.now() })); // missing pluginId
-    expect(pluginsFromAttribution()).toEqual([]);
-    write(JSON.stringify({ pluginId: "x" })); // missing ts
-    expect(pluginsFromAttribution()).toEqual([]);
+  it("is empty when the param is absent", () => {
+    expect(pluginsFromAttribution("")).toEqual([]);
+    expect(pluginsFromAttribution("?hosting=managed")).toEqual([]);
   });
 
-  test("empty for an expired record", () => {
-    write(
-      JSON.stringify({
-        pluginId: "coffee-aficionado",
-        ts: Date.now() - PENDING_PLUGIN_INSTALL_MAX_AGE_MS - 1,
-      }),
-    );
-    expect(pluginsFromAttribution()).toEqual([]);
+  it("is empty for a present-but-blank param", () => {
+    expect(pluginsFromAttribution("?plugin=")).toEqual([]);
+    expect(pluginsFromAttribution("?plugin=%20%20")).toEqual([]);
   });
 
-  test("reading does not clear — it's a signal, not a one-shot", () => {
-    write(JSON.stringify({ pluginId: "coffee-aficionado", ts: Date.now() }));
-    expect(pluginsFromAttribution()).toEqual(["coffee-aficionado"]);
-    expect(pluginsFromAttribution()).toEqual(["coffee-aficionado"]);
+  it("decodes a percent-encoded value", () => {
+    expect(pluginsFromAttribution("?plugin=git%2Dworkflow")).toEqual([
+      "git-workflow",
+    ]);
+  });
+
+  it("uses the constant the marketing side must match", () => {
+    expect(ATTRIBUTED_PLUGIN_PARAM).toBe("plugin");
+    expect(
+      pluginsFromAttribution(`?${ATTRIBUTED_PLUGIN_PARAM}=git-workflow`),
+    ).toEqual(["git-workflow"]);
   });
 });
