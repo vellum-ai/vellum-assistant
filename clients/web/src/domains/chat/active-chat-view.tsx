@@ -19,7 +19,6 @@ import { useParams, useSearchParams } from "react-router";
 
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { useAutoGreetGate } from "@/domains/chat/hooks/use-auto-greet-gate";
-import { useNavGateStore } from "@/domains/chat/nav-gate/nav-gate-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useAuthStore } from "@/stores/auth-store";
 import { useConversationStore } from "@/stores/conversation-store";
@@ -342,18 +341,6 @@ export function ActiveChatView() {
     useOnboardingFocusStore.getState().clearFollowup();
     void sendMessage(pendingFollowupMessage);
   }, [pendingFollowupMessage, sendMessage]);
-
-  // Sidenav-gating experiment: a gated item's bubble button staged a message
-  // to send on the user's behalf. Same one-shot channel as the follow-up
-  // above; tagged so analytics can tell these apart from typed messages.
-  const pendingNavGateSend = useNavGateStore.use.pendingSend();
-  useEffect(() => {
-    if (!pendingNavGateSend) return;
-    if (isSending(useTurnStore.getState().phase)) return;
-    const pending = useNavGateStore.getState().consumePendingSend();
-    if (!pending) return;
-    void sendMessage(pending.text, [], { source: "nav_redirect" });
-  }, [pendingNavGateSend, sendMessage]);
 
   // Post-hatch "Connecting…" overlay lifecycle — pre-chat detector,
   // messages-arrived clear, safety timer, conversation-switch clear.

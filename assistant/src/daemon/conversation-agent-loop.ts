@@ -254,16 +254,6 @@ async function withAbortWatchdog<T>(
 
 // ── runAgentLoop ─────────────────────────────────────────────────────
 
-/**
- * Steering block appended to the tail user message on turns whose
- * triggering message carries `messageSource: "nav_redirect"` — a UI
- * shortcut sent the message on the user's behalf while the user was
- * exploring the interface. Without it the model treats the canned prompt
- * as a hand-typed question and answers with a capability tour.
- */
-const NAV_REDIRECT_STEERING_BLOCK =
-  "<system_reminder>\nThis message was sent by a UI shortcut while the user explored the interface, not typed by hand. Reply in a few sentences at most and end with one concrete, specific next step or question — do not enumerate capabilities or give a tour.\n</system_reminder>";
-
 export async function runAgentLoopImpl(
   ctx: Conversation,
   content: string,
@@ -280,15 +270,6 @@ export async function runAgentLoopImpl(
      * the turn.
      */
     isHiddenPrompt?: boolean;
-    /**
-     * How the triggering message was initiated when it was sent on the
-     * user's behalf by the UI rather than typed by hand (`body.source` on
-     * `POST /v1/messages`, persisted as `metadata.userMessageSource`).
-     * Current value: `"nav_redirect"`, which steers the turn toward a
-     * brief, concrete reply. Forwarded onto the user-prompt-submit hook
-     * context. Unset for hand-typed messages.
-     */
-    messageSource?: string;
     /**
      * LLM call-site identifier threaded into the per-call provider config.
      * Adapter callers (heartbeat, filing, scheduler, etc.) pass their own
@@ -1000,9 +981,6 @@ export async function runAgentLoopImpl(
       requestId: reqId,
       prompt: options?.titleText ?? content,
       isHiddenPrompt: options?.isHiddenPrompt === true,
-      ...(options?.messageSource
-        ? { messageSource: options.messageSource }
-        : {}),
       originalMessages: Object.freeze([...ctx.messages]),
       latestMessages: ctx.messages,
       modelProfileKey,
@@ -1014,29 +992,7 @@ export async function runAgentLoopImpl(
       userPromptCtx,
     );
     latencyTracker.mark("prompt_hook_end");
-    let runMessages = finalUserPromptCtx.latestMessages;
-
-    // UI-shortcut steering: appended after the hook chain so it lands below
-    // the assembled runtime injections on the tail user message, mirroring
-    // the non-interactive block's placement in `applyRuntimeInjections`.
-    // Turn-scoped nudge, deliberately not persisted for byte-exact reload
-    // rehydration — losing it on reload costs one prefix-cache anchor, not
-    // context correctness.
-    if (options?.messageSource === "nav_redirect") {
-      const userTail = runMessages[runMessages.length - 1];
-      if (userTail && userTail.role === "user") {
-        runMessages = [
-          ...runMessages.slice(0, -1),
-          {
-            ...userTail,
-            content: [
-              ...userTail.content,
-              { type: "text" as const, text: NAV_REDIRECT_STEERING_BLOCK },
-            ],
-          },
-        ];
-      }
-    }
+    const runMessages = finalUserPromptCtx.latestMessages;
 
     // Reset the manager's turn-scoped overflow-recovery ladder at the turn
     // boundary so a new turn starts the ladder fresh from the emergency rung.
