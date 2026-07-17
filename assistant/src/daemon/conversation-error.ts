@@ -8,6 +8,7 @@ import {
 } from "../plugins/defaults/history-repair/terminal.js";
 import {
   isImageDimensionsTooLargeError,
+  isImageMediaTypeMismatchError,
   isImageUnprocessableError,
 } from "../plugins/defaults/image-recovery/detect.js";
 import { ConnectionResolutionError } from "../providers/connection-resolution.js";
@@ -471,6 +472,16 @@ function classifyCore(
             "An image in this conversation could not be processed by the AI provider — it may be below the provider's minimum image size. It was automatically adjusted where possible; send your message again to continue.",
           retryable: false,
           errorCategory: "image_unprocessable",
+        };
+      }
+      if (isImageMediaTypeMismatchError(message)) {
+        // Same wire-code reuse as image_unprocessable above.
+        return {
+          code: "IMAGE_TOO_LARGE",
+          userMessage:
+            "An image in this conversation was labeled with a format that doesn't match its actual contents. It was automatically corrected — send your message again to continue.",
+          retryable: false,
+          errorCategory: "image_media_type_mismatch",
         };
       }
       if (isVisionNotSupportedError(message)) {

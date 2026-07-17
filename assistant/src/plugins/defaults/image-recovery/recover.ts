@@ -30,6 +30,7 @@ import {
   getMessages,
   updateMessageContent,
 } from "../../../persistence/conversation-crud.js";
+import { sniffBase64ImageMimeType } from "../../../util/image-conversion.js";
 import { getLogger } from "../../../util/logger.js";
 
 const log = getLogger("image-recovery");
@@ -54,15 +55,19 @@ export const UNSENDABLE_IMAGE_NOTE =
 
 /**
  * Replacement for an image that violates a provider hard limit (per-side pixel
- * cap, payload size, or the minimum-size floor), or null when the image is
- * within limits and should be left untouched. Gating on the provider hard caps
- * is what keeps still-sendable images intact: a normally sized image is left
- * alone rather than being noted or needlessly rewritten.
+ * cap, payload size, the minimum-size floor, or a declared media type that
+ * disagrees with the actual bytes), or null when the image is within limits
+ * and should be left untouched. Gating on the provider hard caps is what
+ * keeps still-sendable images intact: a normally sized image is left alone
+ * rather than being noted or needlessly rewritten.
  *
- * An unsendable image that can be resized is rewritten to its resized form
- * (downscaled when oversized, upscaled to the minimum floor when undersized);
- * one that cannot be resized on this host (resize is a no-op, e.g. `sips` is
- * absent off macOS or the format is unsupported) is replaced with a text note.
+ * A mislabeled image (e.g. JPEG bytes declared `image/png` — clients derive
+ * the MIME from the filename extension) is relabeled with its sniffed type,
+ * bytes untouched. An unsendable image that can be resized is rewritten to
+ * its resized form (downscaled when oversized, upscaled to the minimum floor
+ * when undersized); one that cannot be resized on this host (resize is a
+ * no-op, e.g. `sips` is absent off macOS or the format is unsupported) is
+ * replaced with a text note.
  *
  * Shared by the in-memory recovery transform and the durable persist pass so
  * both apply the identical rule. Persisting the resized form is what lets a
@@ -80,8 +85,16 @@ export function unsendableImageReplacement(
   if (!resolved) {
     return null;
   }
+  const sniffed = sniffBase64ImageMimeType(resolved.data);
+  const mediaTypeMismatch = sniffed != null && sniffed !== resolved.media_type;
+  // The sniffed type also drives the resize paths: dimension parsing keyed on
+  // the wrong declared type fails, which would misroute a mislabeled image to
+  // the unsendable note.
+  const effectiveMediaType = sniffed ?? resolved.media_type;
   const payloadBytes = resolved.data.length;
-  const dims = parseImageDimensions(block.source);
+  const dims = mediaTypeMismatch
+    ? parseImageDimensions(resolved.data, effectiveMediaType)
+    : parseImageDimensions(block.source);
   const exceedsDimensionCap =
     dims != null &&
     (dims.width > PROVIDER_MAX_IMAGE_DIMENSION ||
@@ -89,6 +102,16 @@ export function unsendableImageReplacement(
   const exceedsPayloadCap = payloadBytes > PROVIDER_MAX_IMAGE_PAYLOAD_BYTES;
   const belowMinDimension = isBelowMinDimension(dims);
   if (!exceedsDimensionCap && !exceedsPayloadCap && !belowMinDimension) {
+    if (mediaTypeMismatch) {
+      return {
+        type: "image",
+        source: {
+          type: "base64",
+          media_type: effectiveMediaType,
+          data: resolved.data,
+        },
+      };
+    }
     return null;
   }
 
@@ -96,8 +119,8 @@ export function unsendableImageReplacement(
   // pre-send — the upscale runs only here, in response to an actual
   // provider rejection. Oversized images reuse the transport downscale.
   const optimized = belowMinDimension
-    ? upscaleImageToMinimum(resolved.data, resolved.media_type)
-    : optimizeImageForTransport(resolved.data, resolved.media_type);
+    ? upscaleImageToMinimum(resolved.data, effectiveMediaType)
+    : optimizeImageForTransport(resolved.data, effectiveMediaType);
   if (optimized && optimized.data !== resolved.data) {
     return {
       type: "image",
