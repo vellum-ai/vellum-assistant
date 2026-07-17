@@ -522,6 +522,84 @@ describe("createToolExecutor — execution-layer allowlist gate", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Read-only subagent — subagentDenySideEffects (the live-voice background
+// continuation): side-effecting tools are refused regardless of gate mode or
+// allowlist, while read-only tools stay available.
+// ---------------------------------------------------------------------------
+
+describe("subagentDenySideEffects — read-only continuation", () => {
+  test("filters side-effecting tool defs off the wire; read-only defs stay", () => {
+    const toolDefs = [makeToolDef("bash"), makeToolDef("tool_b")];
+    const ctx = makeProjectionCtx({ subagentDenySideEffects: true });
+    const resolve = createResolveToolsCallback(toolDefs, ctx)!;
+
+    const tools = resolve(EMPTY_HISTORY);
+
+    // `bash` is side-effecting and removed; `tool_b` (read-only) remains.
+    expect(tools.map((t) => t.name)).toEqual(["tool_b"]);
+  });
+
+  test("rejects a side-effecting call and never invokes the executor (wire/default gate mode)", async () => {
+    const denied = new Set<string>();
+    const { executor, calls } = makeCapturingExecutor();
+    // No subagentToolGateMode → "wire": the deny-side-effects gate must still
+    // reject, since it runs ahead of the gate-mode branch.
+    const toolFn = makeToolFn(
+      executor,
+      makeSetupCtx({
+        subagentDenySideEffects: true,
+        subagentDeniedToolNames: denied,
+      }),
+    );
+
+    const result = await toolFn("bash", { command: "echo hi" });
+
+    expect(result?.isError).toBe(true);
+    expect(result?.content).toContain("side effect");
+    // Safety invariant: the side-effecting tool's executor must never run.
+    expect(calls).toHaveLength(0);
+    // Recorded so the parent (and the resurface context) can surface the intent.
+    expect([...denied]).toEqual(["bash"]);
+  });
+
+  test("lets a read-only tool execute normally", async () => {
+    const { executor, calls } = makeCapturingExecutor();
+    const toolFn = makeToolFn(
+      executor,
+      makeSetupCtx({ subagentDenySideEffects: true }),
+    );
+
+    const result = await toolFn("remember", { content: "a fact" });
+
+    expect(result).toEqual({ content: "ok", isError: false });
+    expect(calls).toHaveLength(1);
+  });
+
+  test("rejects a side-effecting inner tool reached via skill_execute", async () => {
+    const denied = new Set<string>();
+    const { executor, calls } = makeCapturingExecutor();
+    const toolFn = makeToolFn(
+      executor,
+      makeSetupCtx({
+        subagentDenySideEffects: true,
+        subagentDeniedToolNames: denied,
+      }),
+    );
+
+    const result = await toolFn("skill_execute", {
+      tool: "bash",
+      input: { command: "echo hi" },
+    });
+
+    expect(result?.isError).toBe(true);
+    expect(calls).toHaveLength(0);
+    // The resolved inner tool is recorded, not the skill_execute wrapper.
+    expect(denied.has("bash")).toBe(true);
+    expect(denied.has("skill_execute")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Executor — per-chat plugin scope guard on the skill_execute dispatch path
 // ---------------------------------------------------------------------------
 

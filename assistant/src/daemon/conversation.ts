@@ -342,6 +342,13 @@ export class Conversation {
   /** @internal */ preactivatedSkillIds?: string[];
   /** @internal */ subagentAllowedTools?: Set<string>;
   /**
+   * When true, side-effecting tools are refused for this subagent regardless of
+   * trust class (the read-only background continuation). Enforced in the tool
+   * executor gate and filtered off the model's wire tool surface.
+   * @internal
+   */
+  subagentDenySideEffects?: boolean;
+  /**
    * Tool names a subagent attempted but that its role allowlist
    * ({@link subagentAllowedTools}) denied. Recorded by the tool executor;
    * surfaced to the parent in the terminal notification so it can re-spawn with
@@ -1495,6 +1502,10 @@ export class Conversation {
 
   setSubagentAllowedTools(tools: Set<string> | undefined): void {
     this.subagentAllowedTools = tools;
+  }
+
+  setSubagentDenySideEffects(deny: boolean): void {
+    this.subagentDenySideEffects = deny;
   }
 
   /**

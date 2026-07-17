@@ -390,7 +390,7 @@ function buildVoiceControlPrompt(turn: ActiveAssistantTurn): string {
 // the forked history.
 function buildDuplexContinuationObjective(interruptedRequest: string): string {
   const base =
-    "You were in the middle of responding to the user's most recent request when they interrupted you. Finish that response now. Do not repeat any tool calls whose results are already present in the conversation.";
+    "You were in the middle of responding to the user's most recent request when they interrupted you. Finish that response now. Do not repeat any tool calls whose results are already present in the conversation. You are running unattended in the background, so you cannot take any action that sends, writes, deletes, purchases, or otherwise changes anything outside this conversation - those tools are unavailable here. If finishing the request needs such an action, do not attempt it; instead say plainly which action you would take, so the user can approve it on their next turn.";
   return interruptedRequest.length > 0
     ? `${base} Their request was: "${interruptedRequest}".`
     : base;
@@ -3020,6 +3020,12 @@ async function defaultSpawnBackgroundContinuation(args: {
       objective: args.objective,
       fork: true,
       sendResultToUser: false,
+      // Read-only: the continuation runs unattended while the user talks to the
+      // live session, so it must never take an unapproved side effect. Any
+      // side-effecting tool is refused; the continuation surfaces the intended
+      // action for the user to approve on their next turn (via the resurface
+      // context) instead.
+      denySideEffectTools: true,
       parentMessages: [...parentConversation.messages],
       parentSystemPrompt: parentConversation.getCurrentSystemPrompt(),
     },

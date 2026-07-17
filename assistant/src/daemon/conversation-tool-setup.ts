@@ -36,6 +36,7 @@ import {
   ACTIVITY_SKIP_SET,
   injectActivityField,
 } from "../tools/schema-transforms.js";
+import { isSideEffectTool } from "../tools/side-effects.js";
 import {
   augmentSkillExecuteError,
   recoverSkillExecuteEnvelope,
@@ -199,6 +200,16 @@ export function createToolExecutor(
   const rejectNonAllowlistedTool = (
     toolName: string,
   ): ToolExecutionResult | null => {
+    // A read-only subagent refuses side-effecting tools regardless of gate mode
+    // or trust class, so no unapproved action can run in the background. Records
+    // the attempt for parent-visible surfacing, then rejects before dispatch.
+    if (ctx.subagentDenySideEffects && isSideEffectTool(toolName)) {
+      ctx.subagentDeniedToolNames?.add(toolName);
+      return {
+        content: `The "${toolName}" tool takes a side effect and cannot run in this background pass. State the action you would take so the user can approve it on their next turn.`,
+        isError: true,
+      };
+    }
     const allowlist = ctx.subagentAllowedTools;
     // Record any attempt at a tool outside the subagent's role allowlist — in
     // both wire and execution gate modes — so the parent can be told what the
@@ -611,6 +622,17 @@ export function isToolActiveForContext(
     ctx.subagentAllowedTools &&
     ctx.subagentToolGateMode !== "execution" &&
     !ctx.subagentAllowedTools.has(name)
+  ) {
+    return false;
+  }
+  // Read-only subagent: keep side-effecting tools off the wire so the model does
+  // not reach for an action it can't take (the executor gate above also rejects
+  // any that slip through via indirect dispatch). Skipped in execution gate mode,
+  // which deliberately keeps the full surface visible.
+  if (
+    ctx.subagentDenySideEffects &&
+    ctx.subagentToolGateMode !== "execution" &&
+    isSideEffectTool(name)
   ) {
     return false;
   }
