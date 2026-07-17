@@ -57,10 +57,10 @@ mock.module("@/stores/resolved-assistants-store", () => {
 
 import { NotificationsBell } from "@/domains/home/components/notifications-bell";
 
-// The same amber dot HomeRecapRow puts on unread rows, top-left of the bell,
+// The same amber dot HomeRecapRow puts on unread rows, top-right of the bell,
 // ringed in the top-bar surface color to separate it from the bell outline.
 const UNREAD_DOT_CLASS =
-  "-left-1 -top-1 h-3 w-3 rounded-full border-2 border-[var(--surface-base)] bg-[var(--system-mid-strong)]";
+  "-right-1 -top-1 h-3 w-3 rounded-full border-2 border-[var(--surface-base)] bg-[var(--system-mid-strong)]";
 
 function feedItem(overrides: Partial<FeedItem>): FeedItem {
   return {

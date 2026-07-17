@@ -113,12 +113,13 @@ export function NotificationsBell() {
         <span className="relative flex" aria-hidden>
           <Bell />
           {hasUnread ? (
-            // Same top-left amber dot as the unread rows inside
-            // (HomeRecapRow), ringed in the top-bar surface color to separate
-            // it from the bell outline. The 2px ring eats into the box
-            // (border-box), so size/offset grow by 2px each to keep the 8px
-            // amber core in place.
-            <span className="absolute -left-1 -top-1 h-3 w-3 rounded-full border-2 border-[var(--surface-base)] bg-[var(--system-mid-strong)]" />
+            // Same amber dot as the unread rows inside (HomeRecapRow), but
+            // top-right (the BellDot arrangement) and ringed in the top-bar
+            // surface color so the ring reads as a gap carved out of the bell
+            // outline. The 2px ring eats into the box (border-box), so
+            // size/offset grow by 2px each to keep the 8px amber core in
+            // place.
+            <span className="absolute -right-1 -top-1 h-3 w-3 rounded-full border-2 border-[var(--surface-base)] bg-[var(--system-mid-strong)]" />
           ) : null}
         </span>
       }
