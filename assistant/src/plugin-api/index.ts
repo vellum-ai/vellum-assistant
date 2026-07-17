@@ -182,6 +182,19 @@ export { resolveMediaSourceData } from "../providers/media-resolve.js";
 // hook reads it off `PostModelCallContext.stopReason` to decide whether to
 // continue a cut-off reply.
 export { isMaxTokensStopReason } from "../providers/stop-reasons.js";
+// Classify a provider error message: whether the model rejected image input (a
+// vision-not-supported rejection). Matches the raw provider prose the adapters
+// wrap their errors in, so a `post-model-call` hook can read
+// `PostModelCallContext.error` to decide whether to caption the request's
+// images and retry.
+export { isVisionNotSupportedError } from "../util/provider-error-patterns.js";
+// Index of the last user message carrying `tool_result` blocks — the
+// "current turn" boundary the host's outbound sanitizer keeps intact while it
+// strips media from older tool results. A plugin that mirrors that scope (e.g.
+// captioning only the media a rejected request would still carry) reads it to
+// avoid touching stale tool-result media the sanitizer will replace with its
+// removed-media marker.
+export { lastToolResultUserMessageIndex } from "../context/outbound-sanitize.js";
 // Identity reads — "who is the assistant and the user." A plugin that builds
 // its own prompts (e.g. for its own inference) names the actor via these.
 // Backed by the workspace `IDENTITY.md` / user profile; each returns null when

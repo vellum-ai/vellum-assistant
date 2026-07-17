@@ -20,7 +20,7 @@ import {
 } from "../util/errors.js";
 import {
   INSUFFICIENT_CREDITS_PATTERNS,
-  VISION_NOT_SUPPORTED_PATTERNS,
+  isVisionNotSupportedError,
 } from "../util/provider-error-patterns.js";
 
 /**
@@ -473,7 +473,7 @@ function classifyCore(
           errorCategory: "image_unprocessable",
         };
       }
-      if (isVisionNotSupported(message)) {
+      if (isVisionNotSupportedError(message)) {
         return visionNotSupportedClassification();
       }
       // Extract the provider detail after "API error (NNN): " prefix
@@ -614,10 +614,6 @@ function emptyRequestMessagesClassification(): Omit<
     retryable: true,
     errorCategory: "empty_request_messages",
   };
-}
-
-function isVisionNotSupported(message: string): boolean {
-  return VISION_NOT_SUPPORTED_PATTERNS.some((p) => p.test(message));
 }
 
 /** Check whether an error message indicates a web-search-specific ordering failure. */
