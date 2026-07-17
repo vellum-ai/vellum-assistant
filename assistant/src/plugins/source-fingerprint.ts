@@ -33,7 +33,6 @@
 import { realpathSync, statSync } from "node:fs";
 
 import {
-  EXCLUDED_DIRS_ANYWHERE,
   GENERATED_APP_BUILD_DIR,
   PRESERVED_ENTRIES,
   walkPluginTree,
@@ -81,7 +80,6 @@ export function snapshotPluginSource(pluginDir: string): SourceSnapshot {
     realRoot,
     {
       excludeRootEntries: [...PRESERVED_ENTRIES, GENERATED_APP_BUILD_DIR],
-      excludeDirsAnywhere: EXCLUDED_DIRS_ANYWHERE,
       excludeDotEntries: true,
       bestEffort: true,
     },

@@ -15,6 +15,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import {
+  DEPENDENCY_INSTALL_ARGS,
   type DependencyInstaller,
   installPluginDependencies,
 } from "../install-plugin-dependencies.js";
@@ -115,5 +116,21 @@ describe("installPluginDependencies", () => {
     // Resolves rather than rejecting — a dep-install failure must never abort
     // the install that already materialized the plugin tree.
     await expect(installPluginDependencies(dir, run)).resolves.toBeUndefined();
+  });
+
+  test("bun argv omits peer dependencies so it never plants a plugin-api shadow", () => {
+    // --omit=peer is load-bearing: without it bun resolves the
+    // `@vellumai/plugin-api` peer every adapted plugin declares and installs a
+    // detached registry copy that shadows the daemon-wired workspace shim.
+    expect(DEPENDENCY_INSTALL_ARGS).toContain("--omit=peer");
+    // Runtime deps only (no devDependencies), no lifecycle scripts, and no
+    // package.json/lockfile writes.
+    expect(DEPENDENCY_INSTALL_ARGS).toEqual([
+      "install",
+      "--omit=dev",
+      "--omit=peer",
+      "--ignore-scripts",
+      "--no-save",
+    ]);
   });
 });
