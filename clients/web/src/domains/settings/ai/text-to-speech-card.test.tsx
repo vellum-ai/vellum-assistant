@@ -328,6 +328,35 @@ describe("TextToSpeechCard — Vellum provider", () => {
     expect(options?.join(" ")).not.toContain("Thalia");
   });
 
+  test("a successful empty catalog hides the voice picker instead of falling back", () => {
+    // An empty catalog is authoritative ("nothing offered right now") — the
+    // static fallback must not resurface voices the platform would reject.
+    orgReady = true;
+    daemonConfigData = { services: { tts: { provider: "vellum" } } };
+    ttsCatalogData = {
+      providers: [
+        {
+          id: "vellum",
+          displayName: "Vellum",
+          subtitle: "Managed TTS.",
+          supportsVoiceSelection: true,
+          apiKeyPlaceholder: "",
+          credentialsGuide: { description: "", url: "", linkLabel: "" },
+        },
+      ],
+    };
+    managedVoicesData = { voices: [], defaultModel: null };
+    renderCard();
+
+    expect(
+      document.querySelector('button[aria-label="Managed voice"]'),
+    ).toBeNull();
+    expect(screen.queryByRole("button", { name: "Preview voice" })).toBeNull();
+    expect(
+      screen.getByText("No managed voices are currently available."),
+    ).toBeTruthy();
+  });
+
   test("grafts the Vellum option onto a fetched catalog that lacks it", () => {
     // A daemon serving the pre-vellum catalog omits the managed option; the
     // card must still offer it, or a legacy managed config has no selectable
