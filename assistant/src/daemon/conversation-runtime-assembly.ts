@@ -1304,6 +1304,30 @@ export function getSlackWatermarkAdvanceForRowPrefix(
   return ts;
 }
 
+/**
+ * Map each row's Slack `channelTs` to its thread key (`threadTs ?? channelTs`).
+ *
+ * A rendered transcript message carries its source row's `channelTs` in
+ * `sourceChannelTs`, so this map lets the refusal-exchange sweep resolve each
+ * rendered message's thread and pair a persisted refusal fallback with the
+ * prompt in its own thread — rather than the nearest chronological neighbour,
+ * which in a multi-party channel can be an unrelated sibling-thread post.
+ */
+function buildSlackThreadKeyByChannelTs(
+  rows: SlackTranscriptInputRow[],
+): Map<string, string> {
+  const byChannelTs = new Map<string, string>();
+  for (const row of rows) {
+    const meta = readSlackMetadataFromMessageMetadata(row.metadata, {
+      allowFlatLegacy: true,
+    });
+    if (meta?.channelTs) {
+      byChannelTs.set(meta.channelTs, meta.threadTs ?? meta.channelTs);
+    }
+  }
+  return byChannelTs;
+}
+
 function assembleSlackChronologicalContext(
   rows: SlackTranscriptInputRow[],
   capabilities: ChannelCapabilities,
@@ -1319,9 +1343,20 @@ function assembleSlackChronologicalContext(
   // Drop previously-refused exchanges — a persisted safety-classifier refusal
   // and the prompt that tripped it — so the model isn't re-fed a refusal it
   // will just repeat (the dead-end `empty-response` sweeps off Slack turns).
-  // `renderedMessages` is filtered by the same indices to stay aligned with the
-  // `messages` projection compaction slices.
-  const { dropIndices } = computeRefusedExchangeDrops(rendered.messages);
+  // Pairing is thread-aware: each rendered message's Slack thread is resolved
+  // from its `sourceChannelTs`, so an interleaved sibling-thread post that
+  // landed between the refused prompt and the fallback is neither dropped nor
+  // mistaken for the prompt. `renderedMessages` is filtered by the same indices
+  // to stay aligned with the `messages` projection compaction slices.
+  const threadKeyByChannelTs = buildSlackThreadKeyByChannelTs(rows);
+  const threadKeys = rendered.renderedMessages.map((entry) =>
+    entry.sourceChannelTs !== null
+      ? (threadKeyByChannelTs.get(entry.sourceChannelTs) ?? null)
+      : null,
+  );
+  const { dropIndices } = computeRefusedExchangeDrops(rendered.messages, {
+    threadKeys,
+  });
   const renderedMessages =
     dropIndices.size > 0
       ? rendered.renderedMessages.filter((_, i) => !dropIndices.has(i))

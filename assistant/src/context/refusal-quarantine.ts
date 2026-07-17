@@ -66,18 +66,56 @@ export function isRefusalFallbackMessage(message: Message): boolean {
 /**
  * Indices of every message belonging to a previously-refused exchange: for each
  * assistant message that is exactly the refusal fallback, its own index plus the
- * contiguous run back to (and including) the nearest genuine user prompt — the
+ * run back to (and including) the genuine user prompt that tripped it — the
  * flagged prompt and any tool exchange in that run.
+ *
+ * Pairing the fallback with its true prompt:
+ *
+ * - By default (no `threadKeys`) the walk-back is pure array adjacency: the
+ *   nearest preceding genuine user prompt. Correct for a single-party history
+ *   (the in-memory working set, a Slack DM) where turns strictly alternate.
+ * - In a multi-party Slack channel, another party's post can land between the
+ *   refused prompt and the fallback in chronological order, so adjacency would
+ *   pair the fallback with that unrelated post and leave the actual refused
+ *   prompt behind. `threadKeys` (a per-message Slack thread identity aligned
+ *   1:1 with `messages`, `threadTs ?? channelTs`) fixes this: when the
+ *   fallback's thread is shared by another message — i.e. it is a real thread,
+ *   not a lone top-level/DM row whose key is just its own `channelTs` — the
+ *   walk-back skips over messages from other threads and pairs the fallback
+ *   with the nearest genuine prompt in its own thread. A `null` key (non-Slack
+ *   / legacy rows with no provenance) always uses adjacency.
  *
  * Exposed as a set of indices (rather than only the filtered messages) so a
  * caller holding an array rendered in lockstep with `messages` — e.g. the Slack
  * chronological transcript, whose per-message compaction provenance rides in a
  * sibling array — can drop the same exchanges from both and keep them aligned.
  */
-export function computeRefusedExchangeDrops(messages: Message[]): {
+export function computeRefusedExchangeDrops(
+  messages: Message[],
+  opts: { threadKeys?: ReadonlyArray<string | null> } = {},
+): {
   dropIndices: Set<number>;
   droppedExchanges: number;
 } {
+  const { threadKeys } = opts;
+  // A thread key only carries pairing signal when it is shared: a lone
+  // top-level or DM row has its own `channelTs` as its key, so treating it as a
+  // one-message "thread" would strand the prompt. Count keys once so each
+  // fallback can tell whether it sits in a real (multi-row) thread.
+  const sharedThreadKeys = new Set<string>();
+  if (threadKeys) {
+    const seen = new Set<string>();
+    for (const key of threadKeys) {
+      if (key === null) {
+        continue;
+      }
+      if (seen.has(key)) {
+        sharedThreadKeys.add(key);
+      } else {
+        seen.add(key);
+      }
+    }
+  }
   const dropIndices = new Set<number>();
   let droppedExchanges = 0;
   for (let r = 0; r < messages.length; r++) {
@@ -85,17 +123,24 @@ export function computeRefusedExchangeDrops(messages: Message[]): {
       continue;
     }
     dropIndices.add(r);
-    // Walk back over tool-result / assistant tool churn to the genuine prompt.
-    let s = r - 1;
-    while (
-      s >= 0 &&
-      !(messages[s].role === "user" && !isToolResultMessage(messages[s]))
-    ) {
+    const fallbackThreadKey = threadKeys?.[r] ?? null;
+    // Scope the walk-back to the fallback's own thread only when that thread is
+    // real — shared by another row. A lone top-level/DM row (keyed by its own
+    // channelTs) or a provenance-less null key falls through to adjacency.
+    const threadScope =
+      fallbackThreadKey !== null && sharedThreadKeys.has(fallbackThreadKey)
+        ? threadKeys
+        : undefined;
+    // Walk back to the genuine prompt over tool-result / assistant tool churn,
+    // skipping (leaving in place) any interleaved message from another thread.
+    for (let s = r - 1; s >= 0; s--) {
+      if (threadScope && (threadScope[s] ?? null) !== fallbackThreadKey) {
+        continue;
+      }
       dropIndices.add(s);
-      s--;
-    }
-    if (s >= 0) {
-      dropIndices.add(s); // the genuine user prompt that was refused
+      if (messages[s].role === "user" && !isToolResultMessage(messages[s])) {
+        break; // the genuine user prompt that was refused
+      }
     }
     droppedExchanges++;
   }
