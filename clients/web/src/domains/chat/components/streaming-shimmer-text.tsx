@@ -150,7 +150,10 @@ export function StreamingShimmerText({
       return;
     }
     if (!supportsBackgroundClipText()) {
+      // Without clipping, the background paints as a rectangle behind the
+      // label — drop the color layer too, not just the image.
       el.style.removeProperty("background-image");
+      el.style.removeProperty("background-color");
       el.style.removeProperty("-webkit-text-fill-color");
       return;
     }
