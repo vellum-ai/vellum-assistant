@@ -72,6 +72,7 @@ import {
   GiveMeAFaceScreen,
   type GiveMeAFaceValues,
 } from "@/domains/onboarding/screens/give-me-a-face-screen";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { IntroductionScreen } from "@/domains/onboarding/screens/introduction-screen";
 import { PitchStep } from "@/domains/onboarding/screens/intro-pitch-steps";
 import { IntegrationStep } from "@/domains/onboarding/screens/integration-step";
@@ -140,6 +141,12 @@ export function ResearchOnboardingRoute() {
   // the legacy pre-chat funnel and is no longer flag-gated, so the route always
   // renders and the "Create my personality" step is always shown.
   const personalityEnabled = true;
+  // Surface the assistant's voice on the face/name step behind the assistant-
+  // scoped `voice-mode` flag (a "Hear my voice" audition — every assistant gets
+  // the default Vellum managed voice). The background hatch fires on mount, so by
+  // the face step the assistant's flags are usually hydrated; before that this
+  // reads the registry default (false), which fails safe (button just hidden).
+  const voiceEnabled = useAssistantFeatureFlagStore.use.voiceMode();
 
   // Sub-steps share this route: details form → avatar/name picker →
   // introduction → pitch (the "different" step, which carousels its lines to
@@ -698,6 +705,10 @@ export function ResearchOnboardingRoute() {
     // Stage the chosen avatar traits; OnboardingAvatarApplier applies them once
     // the assistant is hatched (they're not part of the pre-chat context).
     setPendingAvatarTraits(face?.traits ?? null);
+    // Onboarding assistants use the default Vellum managed voice via their TTS
+    // config; the face step's "Hear my voice" only auditions it. Per-voice
+    // selection is deferred until the managed-speech endpoint can take a Deepgram
+    // model override (needs platform work — see the follow-up ticket).
 
     // The research pass renders in the focused presentation; entering from a
     // suggestion (or skipping) is a normal chat, so only focus for research.
@@ -1157,6 +1168,10 @@ export function ResearchOnboardingRoute() {
   if (step === "face" && formValues) {
     return (
       <GiveMeAFaceScreen
+        // Surface the "Hear my voice" audition on this step when voice is on;
+        // it synthesizes the managed-voice sample against the hatched assistant.
+        voiceEnabled={voiceEnabled}
+        assistantId={hatchedAssistantId}
         onContinue={(face) => {
           setFaceValues(face);
           goForwardTo("intro");
