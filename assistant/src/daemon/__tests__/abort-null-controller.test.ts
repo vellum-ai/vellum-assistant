@@ -152,15 +152,22 @@ describe("abortConversation", () => {
     );
   });
 
-  test("is a no-op when the conversation is not processing", () => {
-    // GIVEN a conversation that is not processing
+  test("clears the persisted flag when in-memory reads idle (cancel with no live abort)", () => {
+    // GIVEN a conversation whose in-memory flag reads idle — e.g. reloaded
+    // after its owning turn was interrupted out-of-process, so a persisted
+    // `processing_started_at` can survive with no live turn or controller to
+    // signal and no agent-loop `finally` left to clear it.
     const h = makeContext({ processing: false, controller: null });
 
-    // WHEN an abort is requested
+    // WHEN a cancel arrives
     abortConversation(h.ctx);
 
-    // THEN nothing is torn down and the flag is never touched
-    expect(h.setProcessingCalls).toEqual([]);
+    // THEN `setProcessing(false)` is called unconditionally to null the
+    // persisted column, so the row is unwedged for cold readers and the next
+    // reload — cancel is not a silent no-op.
+    expect(h.setProcessingCalls).toEqual([false]);
+    // AND the live-turn teardown (prompters, queue) is left alone: there was no
+    // live turn holding them.
     expect(h.prompterDisposed()).toBe(false);
     expect(h.queueClearedCount()).toBe(0);
   });

@@ -182,6 +182,24 @@ export function abortConversation(
       });
     }
     ctx.queue.clear();
+  } else {
+    // The in-memory flag reads idle, but a cancel must still clear a persisted
+    // `processing_started_at` that outlived the turn that set it. This is the
+    // divergence a conversation carries after its owning turn was interrupted
+    // out-of-process (daemon crash / restart mid-turn): the row is reloaded
+    // with a fresh in-memory flag (`false`) while the persisted column stays
+    // non-NULL, and no agent-loop `finally` will ever run to clear it. Without
+    // this the user's Stop is a silent no-op — the first `if` is skipped
+    // because in-memory reads idle — and the conversation stays wedged for cold
+    // readers (`isConversationProcessing`) and the next reload.
+    //
+    // `setProcessing(false)` is idempotent — it nulls the persisted column —
+    // so clear unconditionally rather than reading the column first; a
+    // genuinely-idle conversation just rewrites NULL. It also skips the
+    // metadata sync-invalidation (its `wasProcessing && !value` guard is
+    // already false here), which is correct: the resident conversation already
+    // reports idle in-memory to clients, so no refetch needs to be pushed.
+    ctx.setProcessing(false);
   }
 }
 
