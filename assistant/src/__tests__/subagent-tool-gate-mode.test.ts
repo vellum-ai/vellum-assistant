@@ -706,7 +706,7 @@ describe("isRefusedInReadOnlyPass — strict read-only allowlist", () => {
       "bash", // core side-effect
       "file_write",
       "host_file_read", // host read (can leak local data)
-      "recall", // memory read is a plugin tool, no longer allowlisted
+      "recall", // memory read is a plugin tool, not on the allowlist
       "messaging_send", // extension tool
     ]) {
       expect(isRefusedInReadOnlyPass(name, "default")).toBe(true);
