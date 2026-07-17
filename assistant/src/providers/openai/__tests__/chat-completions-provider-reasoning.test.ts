@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
+import OpenAI from "openai";
+
 import { isPlaceholderSentinelText } from "../../placeholder-sentinels.js";
 import {
   EMPTY_ASSISTANT_TURN_PLACEHOLDER,
@@ -578,6 +580,51 @@ describe("reasoning opt-out rejection fallback", () => {
       [rejection("reasoning_effort 'none' is not supported for this model")],
       okChunks,
     );
+
+    const response = await provider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+      { config: { effort: "none" } },
+    );
+
+    expect(requests).toHaveLength(2);
+    const first = requests[0] as { reasoning_effort?: string };
+    const second = requests[1] as {
+      reasoning_effort?: string;
+      reasoning?: unknown;
+    };
+    expect(first.reasoning_effort).toBe("none");
+    expect(second.reasoning_effort).toBeUndefined();
+    expect(second.reasoning).toBeUndefined();
+    const text = response.content.find((b) => b.type === "text") as
+      | { type: "text"; text: string }
+      | undefined;
+    expect(text?.text).toBe("ok");
+  });
+
+  test("retries once for an OpenRouter-wrapped reasoning rejection (detail in metadata.raw)", async () => {
+    // OpenRouter's SDK APIError.message is the generic wrapper
+    // ("400 Provider returned error"); the real reason lives only in
+    // error.error.metadata.raw, which normalizeOpenAIAPIError promotes into the
+    // normalized message. Matching error.message alone would miss it and the
+    // opt-out rejection would hard-fail instead of retrying.
+    const wrapped = new OpenAI.APIError(
+      400,
+      {
+        code: 400,
+        message: "Provider returned error",
+        metadata: {
+          raw: "reasoning_effort 'none' is not supported for this reasoning model",
+          provider_name: "deepseek",
+        },
+      },
+      undefined,
+      new Headers(),
+    );
+    // Guard: the wrapper message carries no reasoning signal, so the fallback
+    // can only fire off the normalized upstream detail.
+    expect(/reasoning/i.test(wrapped.message)).toBe(false);
+
+    const { provider, requests } = stubProviderWithErrors([wrapped], okChunks);
 
     const response = await provider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "hi" }] }],
