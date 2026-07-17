@@ -48,9 +48,14 @@ export function emitCannedMessageComplete(
  *
  * Cards are announced with `message_complete` (persisted assistant id), the
  * persisted-seq anchor advance (so a stale /messages reseed cannot erase the
- * card), and the messages-changed sync invalidation that drives the client
- * refetch. No `assistant_text_delta` is emitted — a delta would stream the
- * card into the tail assistant bubble as if the persona were speaking.
+ * card), and the messages-changed sync invalidation that drives every client
+ * to refetch. That invalidation carries no origin-client id: the card body
+ * streams nowhere (`message_complete` is bodyless, no `assistant_text_delta`),
+ * so the initiating client materializes it only by refetching, and origin
+ * self-echo suppression (meant for content the origin already rendered) would
+ * otherwise hide the card from the initiator until a reload. A delta is
+ * deliberately omitted; it would stream the card into the tail assistant
+ * bubble as if the persona were speaking.
  *
  * Returns the persisted card's message id so callers can link related
  * records to it (e.g. the compaction `llm_request_logs` row).
@@ -60,9 +65,8 @@ export async function persistCannedAssistantCard(opts: {
   conversationId: string;
   text: string;
   metadata: Record<string, unknown>;
-  originClientId?: string;
 }): Promise<string> {
-  const { conversation, conversationId, text, metadata, originClientId } = opts;
+  const { conversation, conversationId, text, metadata } = opts;
   const assistantMsg = createAssistantMessage(text);
   const persistedAssistant = await addMessage(
     conversationId,
@@ -77,6 +81,6 @@ export async function persistCannedAssistantCard(opts: {
     persistedAssistant.id,
   );
   recordConversationPersistedSeq(conversationId, getCurrentSeq());
-  publishConversationMessagesChanged(conversationId, originClientId);
+  publishConversationMessagesChanged(conversationId);
   return persistedAssistant.id;
 }

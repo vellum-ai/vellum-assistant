@@ -194,10 +194,7 @@ async function handleForkConversation({
   }
 }
 
-async function handleSummarizeConversation({
-  body = {},
-  headers,
-}: RouteHandlerArgs) {
+async function handleSummarizeConversation({ body = {} }: RouteHandlerArgs) {
   const rawConversationId = body.conversationId;
   if (!rawConversationId || typeof rawConversationId !== "string") {
     throw new BadRequestError("Missing conversationId");
@@ -225,8 +222,6 @@ async function handleSummarizeConversation({
   }
   conversation.setProcessing(true);
 
-  const originClientId = headers?.["x-vellum-client-id"]?.trim() || undefined;
-
   // The summarize action only ships from the vellum web/desktop client; the
   // interface id is omitted because this management route (unlike the send
   // path) does not receive one from the client.
@@ -239,7 +234,6 @@ async function handleSummarizeConversation({
       conversationId,
       text,
       metadata: channelMeta,
-      originClientId,
     });
 
   // Fire-and-forget: return 202 immediately, run summarization async. The
