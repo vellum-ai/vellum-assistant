@@ -600,18 +600,25 @@ function useAssistantBannerConfig(): BannerConfig | null {
   // Suppress the brief "crash_loop" flash during a restart. The pod bounce
   // bumps the container restart counter, which the platform can briefly
   // classify as a crash loop before the assistant settles back to active.
-  const [wasRecentlyRestarting, setWasRecentlyRestarting] = useState(false);
+  // Keyed by assistant id so a polling-target switch can't carry the
+  // suppression over to a different assistant's genuine crash loop.
+  const [recentlyRestartingAssistantId, setRecentlyRestartingAssistantId] =
+    useState<string | null>(null);
   useEffect(() => {
+    if (!assistantId) return;
     if (operationalStatus?.state === "restarting") {
-      setWasRecentlyRestarting(true);
+      setRecentlyRestartingAssistantId(assistantId);
     } else if (
       operationalStatus?.state === "active" ||
       operationalStatus?.state === "sleeping" ||
       operationalStatus?.state === "not_found"
     ) {
-      setWasRecentlyRestarting(false);
+      setRecentlyRestartingAssistantId(null);
     }
-  }, [operationalStatus?.state]);
+  }, [assistantId, operationalStatus?.state]);
+  const wasRecentlyRestarting =
+    recentlyRestartingAssistantId !== null &&
+    recentlyRestartingAssistantId === assistantId;
 
   // Auto-clear after 60s so a genuine crash loop surfaces the fatal error.
   useEffect(() => {
@@ -619,7 +626,7 @@ function useAssistantBannerConfig(): BannerConfig | null {
       return;
     }
     const timeout = setTimeout(() => {
-      setWasRecentlyRestarting(false);
+      setRecentlyRestartingAssistantId(null);
     }, 60_000);
     return () => clearTimeout(timeout);
   }, [wasRecentlyRestarting, operationalStatus?.state]);
