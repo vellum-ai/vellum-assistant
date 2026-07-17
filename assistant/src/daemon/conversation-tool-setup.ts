@@ -43,7 +43,9 @@ import {
   resolveSkillExecuteInput,
 } from "../tools/skills/execute.js";
 import { resolveToolInvocationAlias } from "../tools/tool-name-aliases.js";
+import { RiskLevel } from "../tools/tool-types.js";
 import type {
+  ExecutionTarget,
   ProxyApprovalCallback,
   ProxyApprovalRequest,
 } from "../tools/tool-types.js";
@@ -169,6 +171,49 @@ export function getEffectiveEnabledPluginSet(conv: {
   return effective;
 }
 
+// ── read-only pass classification ────────────────────────────────────
+
+/**
+ * Whether a tool must be refused in a read-only subagent pass (the live-voice
+ * background continuation, `subagentDenySideEffects`). It refuses more than the
+ * core {@link isSideEffectTool} name list, because side-effecting skill / MCP /
+ * plugin tools (e.g. `messaging_send`, `app_create`, `run_workflow`) are not in
+ * that list. Refused: the core side-effect names; host-target execution (which
+ * can leak local data); and owned (skill/MCP/plugin) tools that are not declared
+ * low-risk — the metadata by which the system classifies the consequence of
+ * tools outside the core list (MCP defaults to high; consequential skills
+ * declare medium/high). Built-in read tools and low-risk owned tools stay
+ * available. Pure so the classification is unit-testable.
+ */
+export function isRefusedInReadOnlyPass(params: {
+  name: string;
+  executionTarget: ExecutionTarget | undefined;
+  defaultRiskLevel: RiskLevel | undefined;
+  hasOwner: boolean;
+}): boolean {
+  if (isSideEffectTool(params.name)) {
+    return true;
+  }
+  if (params.executionTarget === "host") {
+    return true;
+  }
+  if (params.hasOwner && params.defaultRiskLevel !== RiskLevel.Low) {
+    return true;
+  }
+  return false;
+}
+
+/** Resolve a tool's metadata from the registry and classify it (see above). */
+function readOnlyPassRefusesTool(name: string): boolean {
+  const def = getTool(name);
+  return isRefusedInReadOnlyPass({
+    name,
+    executionTarget: def?.executionTarget,
+    defaultRiskLevel: def?.defaultRiskLevel,
+    hasOwner: getToolOwner(name) !== undefined,
+  });
+}
+
 // ── createToolExecutor ───────────────────────────────────────────────
 
 /**
@@ -200,13 +245,15 @@ export function createToolExecutor(
   const rejectNonAllowlistedTool = (
     toolName: string,
   ): ToolExecutionResult | null => {
-    // A read-only subagent refuses side-effecting tools regardless of gate mode
-    // or trust class, so no unapproved action can run in the background. Records
-    // the attempt for parent-visible surfacing, then rejects before dispatch.
-    if (ctx.subagentDenySideEffects && isSideEffectTool(toolName)) {
+    // A read-only subagent refuses any consequential tool (core side-effects,
+    // host execution, or a non-low-risk skill/MCP/plugin tool) regardless of
+    // gate mode or trust class, so no unapproved action can run in the
+    // background. Records the attempt for parent-visible surfacing, then rejects
+    // before dispatch.
+    if (ctx.subagentDenySideEffects && readOnlyPassRefusesTool(toolName)) {
       ctx.subagentDeniedToolNames?.add(toolName);
       return {
-        content: `The "${toolName}" tool takes a side effect and cannot run in this background pass. State the action you would take so the user can approve it on their next turn.`,
+        content: `The "${toolName}" tool can change state and cannot run in this read-only background pass. State the action you would take so the user can approve it on their next turn.`,
         isError: true,
       };
     }
@@ -625,14 +672,15 @@ export function isToolActiveForContext(
   ) {
     return false;
   }
-  // Read-only subagent: keep side-effecting tools off the wire so the model does
-  // not reach for an action it can't take (the executor gate above also rejects
-  // any that slip through via indirect dispatch). Skipped in execution gate mode,
-  // which deliberately keeps the full surface visible.
+  // Read-only subagent: keep consequential tools (core side-effects, host
+  // execution, non-low-risk skill/MCP/plugin tools) off the wire so the model
+  // does not reach for an action it can't take (the executor gate above also
+  // rejects any that slip through via indirect dispatch). Skipped in execution
+  // gate mode, which deliberately keeps the full surface visible.
   if (
     ctx.subagentDenySideEffects &&
     ctx.subagentToolGateMode !== "execution" &&
-    isSideEffectTool(name)
+    readOnlyPassRefusesTool(name)
   ) {
     return false;
   }

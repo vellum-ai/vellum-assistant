@@ -75,12 +75,14 @@ import type { Conversation } from "../daemon/conversation.js";
 import {
   createResolveToolsCallback,
   createToolExecutor,
+  isRefusedInReadOnlyPass,
   type ToolSetupContext,
 } from "../daemon/conversation-tool-setup.js";
 import {
   __clearRegistryForTesting,
   registerPluginTools,
 } from "../tools/registry.js";
+import { RiskLevel } from "../tools/tool-types.js";
 import type { Tool } from "../tools/types.js";
 
 // ---------------------------------------------------------------------------
@@ -555,7 +557,7 @@ describe("subagentDenySideEffects — read-only continuation", () => {
     const result = await toolFn("bash", { command: "echo hi" });
 
     expect(result?.isError).toBe(true);
-    expect(result?.content).toContain("side effect");
+    expect(result?.content).toContain("read-only background pass");
     // Safety invariant: the side-effecting tool's executor must never run.
     expect(calls).toHaveLength(0);
     // Recorded so the parent (and the resurface context) can surface the intent.
@@ -596,6 +598,65 @@ describe("subagentDenySideEffects — read-only continuation", () => {
     // The resolved inner tool is recorded, not the skill_execute wrapper.
     expect(denied.has("bash")).toBe(true);
     expect(denied.has("skill_execute")).toBe(false);
+  });
+});
+
+describe("isRefusedInReadOnlyPass — read-only tool classification", () => {
+  test("refuses a core side-effect tool regardless of owner/risk", () => {
+    expect(
+      isRefusedInReadOnlyPass({
+        name: "bash",
+        executionTarget: "sandbox",
+        defaultRiskLevel: RiskLevel.Low,
+        hasOwner: false,
+      }),
+    ).toBe(true);
+  });
+
+  test("refuses any host-target tool (can leak local data)", () => {
+    expect(
+      isRefusedInReadOnlyPass({
+        name: "some_read_tool",
+        executionTarget: "host",
+        defaultRiskLevel: RiskLevel.Low,
+        hasOwner: false,
+      }),
+    ).toBe(true);
+  });
+
+  test("refuses a non-low-risk owned skill/MCP/plugin tool", () => {
+    for (const risk of [RiskLevel.Medium, RiskLevel.High, undefined]) {
+      expect(
+        isRefusedInReadOnlyPass({
+          name: "messaging_send",
+          executionTarget: "sandbox",
+          defaultRiskLevel: risk,
+          hasOwner: true,
+        }),
+      ).toBe(true);
+    }
+  });
+
+  test("allows a low-risk owned tool (declared read-only)", () => {
+    expect(
+      isRefusedInReadOnlyPass({
+        name: "search_docs",
+        executionTarget: "sandbox",
+        defaultRiskLevel: RiskLevel.Low,
+        hasOwner: true,
+      }),
+    ).toBe(false);
+  });
+
+  test("allows a built-in read tool even at medium risk (not owned, not host)", () => {
+    expect(
+      isRefusedInReadOnlyPass({
+        name: "file_read",
+        executionTarget: "sandbox",
+        defaultRiskLevel: RiskLevel.Medium,
+        hasOwner: false,
+      }),
+    ).toBe(false);
   });
 });
 
