@@ -52,6 +52,8 @@ let nextConversationConfig: FakeConversationConfig = {};
 let runLoopInvoked = false;
 /** The first user message persisted by the most recent FakeConversation. */
 let lastPersistedUserMessage: string | undefined;
+/** Records `setSubagentDenySideEffects` on the most recent FakeConversation. */
+let lastDenySideEffects: boolean | undefined;
 
 class FakeConversation {
   messages: Message[];
@@ -92,6 +94,9 @@ class FakeConversation {
   setAssistantId() {}
   setEnabledPlugins() {}
   setSubagentAllowedTools() {}
+  setSubagentDenySideEffects(deny: boolean) {
+    lastDenySideEffects = deny;
+  }
   setPreactivatedSkillIds() {}
   getCurrentSystemPrompt() {
     return "system";
@@ -214,6 +219,33 @@ function registerFakeParent(parentConversationId: string): {
 }
 
 describe("SubagentManager.spawnAndAwait", () => {
+  // Reset outside the test body so TypeScript does not narrow the module var to
+  // `undefined` across the opaque spawnAndAwait call.
+  beforeEach(() => {
+    lastDenySideEffects = undefined;
+  });
+
+  test("wires denySideEffectTools onto the subagent conversation (read-only)", async () => {
+    nextConversationConfig = {};
+
+    const manager = new SubagentManager();
+    await manager.spawnAndAwait(
+      makeConfig({ denySideEffectTools: true }),
+      () => {},
+    );
+
+    expect(lastDenySideEffects).toBe(true);
+  });
+
+  test("leaves denySideEffectTools off by default", async () => {
+    nextConversationConfig = {};
+
+    const manager = new SubagentManager();
+    await manager.spawnAndAwait(makeConfig(), () => {});
+
+    expect(lastDenySideEffects).toBeUndefined();
+  });
+
   test("resolves to the child's final assistant text", async () => {
     nextConversationConfig = {
       messages: [
