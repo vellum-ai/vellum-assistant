@@ -174,6 +174,24 @@ describe("managedSpeechSynthesize", () => {
     });
   });
 
+  test("includes the voice model in the body only when provided", async () => {
+    await managedSpeechSynthesize({
+      text: "hello",
+      format: "mp3",
+      model: "aura-2-zeus-en",
+    });
+    const [, init] = mockClient!.fetch.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toEqual({
+      text: "hello",
+      format: "mp3",
+      model: "aura-2-zeus-en",
+    });
+
+    await managedSpeechSynthesize({ text: "hello", format: "mp3" });
+    const [, second] = mockClient!.fetch.mock.calls[1] as [string, RequestInit];
+    expect(JSON.parse(second.body as string)).not.toHaveProperty("model");
+  });
+
   test("falls back to audio/mpeg when no content type is returned", async () => {
     mockClient!.fetch = mock(
       async () => new Response(new Uint8Array(MP3_BYTES), { status: 200 }),
