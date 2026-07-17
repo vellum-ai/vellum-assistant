@@ -6289,6 +6289,117 @@ describe("assembleSlackChronologicalMessages", () => {
     expect(serialized).toContain("hi assistant");
     expect(serialized).toContain("back to normal");
   });
+
+  test("quarantines a threaded refusal that followed a tool call, leaving no orphan tool churn", () => {
+    // @alice's flagged prompt roots a thread; the assistant posts an interim
+    // "let me check" reply carrying a `tool_use` (Slack-visible, so it keys to
+    // @alice's thread), the tool runs (a synthetic `tool_result` row with NO
+    // Slack provenance — it keys `null`), and the refusal fallback lands back
+    // in @alice's thread. @bob posts in a sibling thread in between.
+    //
+    // Thread-scoped pairing drops the prompt/fallback and the Slack-visible
+    // `tool_use`, but a naive walk skips the `null`-keyed synthetic
+    // `tool_result` as "another thread". Orphan-tool pruning already ran during
+    // rendering, so that stranded `tool_result` — now missing its `tool_use` —
+    // would ship to the provider and hard-fail the request. Null-keyed tool
+    // churn must be treated as part of the refused exchange and dropped.
+    const CHANNEL_ID = "C0MULTI02";
+    const SLACK_CAPS_CHANNEL: ChannelCapabilities = {
+      channel: "slack",
+      dashboardCapable: false,
+      supportsDynamicUi: false,
+      supportsVoiceInput: false,
+      chatType: "channel",
+    };
+    const T_HI = "1699971900.000100";
+    const T_PROMPT = "1699972000.000200"; // roots @alice's thread
+    const T_TOOLUSE = "1699972010.000250"; // assistant interim + tool_use, in @alice's thread
+    const T_BOB = "1699972020.000300"; // sibling-thread post, interleaved
+    const T_FALLBACK = "1699972060.000400"; // assistant refusal, in @alice's thread
+    const T_LATER = "1699972200.000500";
+    const meta = (
+      channelTs: string,
+      displayName: string,
+      threadTs?: string,
+    ): SlackMessageMetadata => ({
+      source: "slack",
+      channelId: CHANNEL_ID,
+      channelTs,
+      ...(threadTs ? { threadTs } : {}),
+      eventKind: "message",
+      displayName,
+    });
+    const rows: SlackTranscriptInputRow[] = [
+      row(
+        "user",
+        "hi assistant",
+        1699971900_000,
+        metadataEnvelope(meta(T_HI, "@alice")),
+      ),
+      row(
+        "user",
+        "disallowed question",
+        1699972000_000,
+        metadataEnvelope(meta(T_PROMPT, "@alice")),
+      ),
+      // Assistant interim reply + tool_use — Slack-visible, threaded under the
+      // prompt, so it keys to @alice's thread.
+      {
+        role: "assistant",
+        content: JSON.stringify([
+          { type: "text", text: "let me check" },
+          { type: "tool_use", id: "tu_ref", name: "search", input: { q: "x" } },
+        ]),
+        createdAt: 1699972010_000,
+        metadata: metadataEnvelope(meta(T_TOOLUSE, "@assistant", T_PROMPT)),
+      },
+      row(
+        "user",
+        "what's for lunch",
+        1699972020_000,
+        metadataEnvelope(meta(T_BOB, "@bob")),
+      ),
+      // Synthetic tool_result — NOT sent to Slack, so no slackMeta (keys null).
+      {
+        role: "user",
+        content: JSON.stringify([
+          { type: "tool_result", tool_use_id: "tu_ref", content: "result" },
+        ]),
+        createdAt: 1699972030_000,
+        metadata: metadataEnvelope(null),
+      },
+      row(
+        "assistant",
+        REFUSAL_FALLBACK_TEXT,
+        1699972060_000,
+        metadataEnvelope(meta(T_FALLBACK, "@assistant", T_PROMPT)),
+      ),
+      row(
+        "user",
+        "back to normal",
+        1699972200_000,
+        metadataEnvelope(meta(T_LATER, "@alice")),
+      ),
+    ];
+
+    const result = assembleSlackChronologicalMessages(rows, SLACK_CAPS_CHANNEL);
+    expect(result).not.toBeNull();
+    const blocks = result!.flatMap((m) => m.content);
+    // No tool churn from the refused turn survives — neither the orphaned
+    // tool_result nor its (now dropped) tool_use.
+    expect(blocks.some((b) => b.type === "tool_result")).toBe(false);
+    expect(blocks.some((b) => b.type === "tool_use")).toBe(false);
+    const serialized = JSON.stringify(result);
+    expect(serialized).not.toContain("tu_ref");
+    // The refusal and the prompt that tripped it are both gone …
+    expect(serialized).not.toContain(REFUSAL_FALLBACK_TEXT);
+    expect(serialized).not.toContain("disallowed question");
+    // … the interleaved sibling-thread post from another user is untouched …
+    expect(serialized).toContain("what's for lunch");
+    // … as are the benign turns on either side.
+    expect(serialized).toContain("hi assistant");
+    expect(serialized).toContain("back to normal");
+  });
 });
 
 // ---------------------------------------------------------------------------

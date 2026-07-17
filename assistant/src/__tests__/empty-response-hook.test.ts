@@ -30,7 +30,10 @@
 
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import { quarantineRefusedExchanges } from "../context/refusal-quarantine.js";
+import {
+  computeRefusedExchangeDrops,
+  quarantineRefusedExchanges,
+} from "../context/refusal-quarantine.js";
 import {
   HOOKS,
   INTERNAL_NUDGE_OUTPUT_SUPPRESSION,
@@ -663,6 +666,59 @@ describe("quarantineRefusedExchanges", () => {
     const { messages, droppedExchanges } = quarantineRefusedExchanges(history);
     expect(droppedExchanges).toBe(0);
     expect(messages).toBe(history);
+  });
+});
+
+describe("computeRefusedExchangeDrops — thread-scoped pairing", () => {
+  test("drops null-keyed tool churn from the refused exchange, leaving a sibling-thread post", () => {
+    // Slack thread P: flagged prompt → assistant interim tool_use (Slack-
+    // visible, keyed P) → sibling-thread post (keyed B) → synthetic tool_result
+    // (no provenance, keyed null) → refusal fallback (keyed P). The null-keyed
+    // tool_result belongs to this refused turn: dropping the tool_use but
+    // leaving the tool_result would strand a half-pair (the transcript's
+    // orphan-tool prune has already run), so it must be dropped too.
+    const messages = [
+      userPrompt("flagged prompt"),
+      toolUseTurn("tu_1"),
+      userPrompt("sibling-thread post"),
+      toolResultTurn("tu_1"),
+      refusalFallbackTurn,
+    ];
+    const threadKeys = ["P", "P", "B", null, "P"];
+    const { dropIndices, droppedExchanges } = computeRefusedExchangeDrops(
+      messages,
+      { threadKeys },
+    );
+    expect(droppedExchanges).toBe(1);
+    // Prompt, tool_use, synthetic tool_result, and fallback all go; only the
+    // sibling-thread post survives.
+    expect([...dropIndices].sort((a, b) => a - b)).toEqual([0, 1, 3, 4]);
+    const kept = messages.filter((_, i) => !dropIndices.has(i));
+    expect(kept).toEqual([userPrompt("sibling-thread post")]);
+    expect(
+      kept.some((m) => m.content.some((b) => b.type === "tool_result")),
+    ).toBe(false);
+  });
+
+  test("leaves a null-keyed genuine prompt in place and terminates on the same-thread prompt", () => {
+    // A provenance-less genuine prompt (legacy row, keyed null) sitting between
+    // the same-thread prompt and the fallback is someone else's turn, not the
+    // refused one — it must be left in place while the walk continues to the
+    // same-thread prompt.
+    const messages = [
+      userPrompt("same-thread flagged"),
+      userPrompt("legacy provenance-less prompt"),
+      refusalFallbackTurn,
+    ];
+    const threadKeys = ["P", null, "P"];
+    const { dropIndices, droppedExchanges } = computeRefusedExchangeDrops(
+      messages,
+      { threadKeys },
+    );
+    expect(droppedExchanges).toBe(1);
+    expect([...dropIndices].sort((a, b) => a - b)).toEqual([0, 2]);
+    const kept = messages.filter((_, i) => !dropIndices.has(i));
+    expect(kept).toEqual([userPrompt("legacy provenance-less prompt")]);
   });
 });
 
