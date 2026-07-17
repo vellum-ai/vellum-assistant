@@ -137,6 +137,21 @@ describe("ui_show missing-content teaching", () => {
       expectInError: "`data.columns`",
     },
     { surfaceType: "form", data: {}, expectInError: "`data.fields`" },
+    {
+      surfaceType: "form",
+      data: { pages: [{ id: "p1", title: "Page 1" }] },
+      expectInError: "at least one page with a non-empty",
+    },
+    {
+      // A valid top-level `fields` must not mask malformed pages: the renderer
+      // prefers `pages` when present, so a fieldless page still breaks.
+      surfaceType: "form",
+      data: {
+        fields: [{ id: "a", type: "text", label: "A" }],
+        pages: [{ id: "p1", title: "Page 1" }],
+      },
+      expectInError: "at least one page with a non-empty",
+    },
     { surfaceType: "confirmation", data: {}, expectInError: "confirmLabel" },
     { surfaceType: "work_result", data: {}, expectInError: "summary" },
     { surfaceType: "oauth_connect", data: {}, expectInError: "providerKey" },
@@ -186,6 +201,39 @@ describe("ui_show displayable payloads proxy through", () => {
         surfaceType:
           "card (lenient — top-level fields are normalized downstream)",
         input: { surface_type: "card", title: "Status", data: {} },
+      },
+      {
+        surfaceType: "form (multi-page with fields)",
+        input: {
+          surface_type: "form",
+          data: {
+            pages: [
+              {
+                id: "p1",
+                title: "Page 1",
+                fields: [{ id: "a", type: "text", label: "A" }],
+              },
+            ],
+          },
+        },
+      },
+      {
+        // At least one page carries fields; the renderer treats the fieldless
+        // page as empty rather than crashing, so the guard lets it through.
+        surfaceType: "form (mixed pages, one has fields)",
+        input: {
+          surface_type: "form",
+          data: {
+            pages: [
+              {
+                id: "p1",
+                title: "Page 1",
+                fields: [{ id: "a", type: "text", label: "A" }],
+              },
+              { id: "p2", title: "Page 2" },
+            ],
+          },
+        },
       },
       {
         surfaceType: "file_upload",

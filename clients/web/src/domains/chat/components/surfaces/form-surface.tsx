@@ -32,7 +32,7 @@ export interface FormPage {
   id: string;
   title: string;
   description?: string;
-  fields: FormField[];
+  fields?: FormField[];
 }
 
 interface FormSurfaceData {
@@ -186,7 +186,7 @@ export function FormSurface({ surface, onAction }: FormSurfaceProps) {
   const [values, setValues] = useState<Record<string, string | number | boolean>>(() => {
     const initial: Record<string, string | number | boolean> = {};
     for (const page of allPages) {
-      for (const field of page.fields) {
+      for (const field of page.fields ?? []) {
         if (field.defaultValue !== undefined) {
           initial[field.id] = field.defaultValue;
         } else if (field.type === "toggle") {
@@ -216,7 +216,7 @@ export function FormSurface({ surface, onAction }: FormSurfaceProps) {
       const page = allPages[pageIndex];
       if (!page) return true;
       const errors: Record<string, string> = {};
-      for (const field of page.fields) {
+      for (const field of page.fields ?? []) {
         if (field.required) {
           const val = values[field.id];
           if (val === undefined || val === "" || val === null) {
@@ -267,7 +267,7 @@ export function FormSurface({ surface, onAction }: FormSurfaceProps) {
   if (!currentPageData) return null;
   const isLastPage = currentPage === totalPages - 1;
   const hasPasswordFields = allPages.some((page) =>
-    page.fields.some((field) => field.type === "password"),
+    (page.fields ?? []).some((field) => field.type === "password"),
   );
 
   const nextLabel = formData.pageLabels?.next ?? "Next";
@@ -315,7 +315,7 @@ export function FormSurface({ surface, onAction }: FormSurfaceProps) {
       )}
 
       <form onSubmit={handleSubmit} className="space-y-3">
-        {currentPageData.fields.map((field) => (
+        {(currentPageData.fields ?? []).map((field) => (
           <div key={field.id}>
             <label className="mb-1 block text-body-medium-default text-[var(--content-strong)]">
               {field.label}
