@@ -128,7 +128,11 @@ these hold:
   mutate state a newer assistant ignores),
 - an older assistant's **404 degrades to exactly the feature-off
   state** — the UI renders identically to "feature absent," with no
-  error surfaced to the user, and
+  error surfaced to the user. Because React Query keeps the
+  last-successful data on error, a read that can succeed before a
+  later 404 (e.g. a rollback to a version without the route) must
+  **map the 404 to the feature-off value in its `queryFn`** rather
+  than let it throw, or the stale success is stranded, and
 - the request stays quiet under failure: the app QueryClient **never
   retries 4xx** (see `providers.tsx`), and the query disables refetch
   triggers that would re-issue the failing request (e.g.
