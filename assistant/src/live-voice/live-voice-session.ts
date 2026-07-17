@@ -56,6 +56,10 @@ import { getSubagentManager } from "../subagent/index.js";
 import { extractSpeakableSegments } from "../tts/speakable-segments.js";
 import { getLogger } from "../util/logger.js";
 import { pickAckPhrase } from "./ack-phrases.js";
+import {
+  createVoiceFrontDecider,
+  type VoiceFrontDecider,
+} from "./front-decision.js";
 import type {
   LiveVoiceAudioArchiveResult,
   LiveVoiceAudioArchiveRole,
@@ -215,6 +219,12 @@ export interface LiveVoiceSessionOptions {
    * back to in-code defaults.
    */
   frontModelConfig?: Partial<LiveVoiceFrontModelConfig>;
+  /**
+   * Front-model decision/phrasing service (LLM-phrased acks). The production
+   * factory constructs it from `liveVoice.frontModel` config when unset;
+   * `null` disables front-model LLM calls (static ack phrasing only).
+   */
+  frontDecider?: VoiceFrontDecider | null;
   /**
    * Spawns the background continuation for a barged-in turn when the
    * `voice-duplex-handoff` flag is on. The factory wires the real
@@ -550,6 +560,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   private readonly ackFirstDeltaTimeoutMs: number;
   // Rotates through the ack phrase list across the session's turns.
   private ackPhraseCounter = 0;
+  // LLM-phrased contextual acks (liveVoice.frontModel.llmAckText): when on
+  // and a decider is wired, the ack text comes from the front model with the
+  // static phrase as fallback.
+  private readonly llmAckText: boolean;
+  private readonly frontDecider: VoiceFrontDecider | null;
 
   constructor(
     context: LiveVoiceSessionFactoryContext,
@@ -591,6 +606,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     this.ackFirstDeltaTimeoutMs =
       options.frontModelConfig?.ackFirstDeltaTimeoutMs ??
       DEFAULT_ACK_FIRST_DELTA_TIMEOUT_MS;
+    this.llmAckText = options.frontModelConfig?.llmAckText ?? false;
+    this.frontDecider = options.frontDecider ?? null;
     const turnDetectorConfig: TurnDetectorConfig = {
       ...(options.turnDetectorConfig ?? {}),
       ...(context.startFrame.silenceThresholdMs !== undefined
@@ -2342,9 +2359,53 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // first segment.
   private speakAck(activeTurn: ActiveAssistantTurn): void {
     activeTurn.ackSpoken = true;
-    const phrase = sanitizeForTts(
-      pickAckPhrase(this.ackPhraseCounter++),
-    ).trim();
+    if (this.llmAckText && this.frontDecider) {
+      // Optimistic ackSpoken above keeps the one-per-turn budget honest for
+      // any other ack trigger while the generation is in flight; the async
+      // path undoes it if the ack turns out moot.
+      void this.speakGeneratedAck(activeTurn, this.frontDecider);
+      return;
+    }
+    this.enqueueAckPhrase(activeTurn, pickAckPhrase(this.ackPhraseCounter++));
+  }
+
+  // LLM-phrased ack (liveVoice.frontModel.llmAckText): ask the front model
+  // for one short contextual sentence, static phrase on null. The decider
+  // internally bounds the call by `ackGenerationTimeoutMs` and resolves null
+  // on every failure mode, so the enqueue never waits beyond that budget.
+  private async speakGeneratedAck(
+    activeTurn: ActiveAssistantTurn,
+    frontDecider: VoiceFrontDecider,
+  ): Promise<void> {
+    const { token } = activeTurn;
+    const transcript = activeTurn.utterance.finalTranscriptSegments
+      .join(" ")
+      .trim();
+    const generated = await frontDecider
+      .generateAckText(
+        { transcriptSoFar: transcript },
+        activeTurn.abortController.signal,
+      )
+      // The decider contract never rejects; belt-and-braces for a stub.
+      .catch(() => null);
+    // Liveness re-check after the await: the turn may have been cancelled or
+    // finalized while generating, or the brain's first delta may have arrived
+    // — in every such case the ack is moot and must not speak over real
+    // output. Undo the optimistic ackSpoken so the flag reflects reality.
+    if (!this.isActiveAssistantTurn(token) || activeTurn.firstDeltaSeen) {
+      activeTurn.ackSpoken = false;
+      return;
+    }
+    this.enqueueAckPhrase(
+      activeTurn,
+      generated ?? pickAckPhrase(this.ackPhraseCounter++),
+    );
+  }
+
+  // Sanitize and enqueue one ack sentence on the turn's ordered TTS queue
+  // (shared tail of the static and LLM-phrased ack paths).
+  private enqueueAckPhrase(activeTurn: ActiveAssistantTurn, raw: string): void {
+    const phrase = sanitizeForTts(raw).trim();
     if (phrase.length === 0) {
       return;
     }
@@ -3089,6 +3150,16 @@ export function createLiveVoiceSession(
     bargeInMinSpeechMs:
       options.bargeInMinSpeechMs ?? vadConfig?.bargeInMinSpeechMs,
     frontModelConfig: options.frontModelConfig ?? liveVoiceConfig?.frontModel,
+    // An explicit option (incl. `null`) wins — the test seam. Without a
+    // parsed `liveVoice.frontModel` config there is no decider (hand-built
+    // test configs may predate the namespace); its features are all off in
+    // that case anyway.
+    frontDecider:
+      options.frontDecider !== undefined
+        ? options.frontDecider
+        : liveVoiceConfig?.frontModel
+          ? createVoiceFrontDecider({ config: liveVoiceConfig.frontModel })
+          : null,
     resolveCredentialReadiness:
       options.resolveCredentialReadiness === undefined
         ? defaultResolveLiveVoiceCredentialReadiness
