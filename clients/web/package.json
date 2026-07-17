@@ -124,6 +124,6 @@
     "tailwindcss": "4.1.8",
     "typescript": "5.9.3",
     "typescript-eslint": "8.58.1",
-    "vite": "8.0.11"
+    "vite": "8.0.16"
   }
 }
