@@ -1191,7 +1191,7 @@ function maxSlackTs(values: readonly (string | null)[]): string | null {
 }
 
 function legacyRowIsAfterWatermark(
-  row: SlackTranscriptInputRow,
+  row: { createdAt: number },
   watermarkTs: string,
 ): boolean {
   return compareSlackTs(String(row.createdAt / 1000), watermarkTs) > 0;
@@ -1260,10 +1260,13 @@ export function getSlackCompactionWatermarkForPrefix(
  * rows), so a kept-tail row past the boundary can carry an OLDER `channelTs`
  * than the prefix max. Advancing anyway would drop that row from every
  * future projection (`isSlackTsAfter` keeps strictly-after) while the
- * summary doesn't cover it either — silent loss. When any kept row's
- * `channelTs` sits at or before the candidate, the advance is skipped
- * entirely, degrading to bounded duplication of already-summarized rows: the
- * conservative direction.
+ * summary doesn't cover it either — silent loss. When any kept row sits at or
+ * before the candidate, the advance is skipped entirely, degrading to bounded
+ * duplication of already-summarized rows: the conservative direction. Legacy
+ * kept rows without `slackMeta` carry no `channelTs`, so they are compared via
+ * `createdAt/1000` — the same fallback `filterRowsAfterSlackCompactionBoundary`
+ * uses to drop them, keeping the guard and the filter from disagreeing about
+ * which legacy rows an advance would silently drop.
  */
 export function getSlackWatermarkAdvanceForRowPrefix(
   rows: MessageRow[],
@@ -1286,7 +1289,11 @@ export function getSlackWatermarkAdvanceForRowPrefix(
   }
   for (const row of rows.slice(endExclusive)) {
     const keptTs = channelTsForRow(row);
-    if (keptTs !== null && !isSlackTsAfter(keptTs, ts)) {
+    const survivesAdvance =
+      keptTs !== null
+        ? isSlackTsAfter(keptTs, ts)
+        : legacyRowIsAfterWatermark(row, ts);
+    if (!survivesAdvance) {
       return null;
     }
   }
