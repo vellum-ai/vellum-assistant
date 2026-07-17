@@ -2605,6 +2605,7 @@ function makeFrontDecider(decisions: Array<"hold" | "release">): {
         calls.push(input);
         return { action: decisions[calls.length - 1] ?? "release" };
       },
+      generateAckText: async () => null,
     },
   };
 }
