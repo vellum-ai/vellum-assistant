@@ -269,14 +269,17 @@ export function ConceptGraphView({
   // Set while the pointer is over an EDGE (and no node) — the tooltip then
   // explains why two concepts connect. Node hover always wins (onPointerMove).
   const [edgeLabel, setEdgeLabel] = useState<string | null>(null);
-  // The concept opened into the detail drawer (null = graph only).
-  const [openNode, setOpenNode] = useState<ConceptDetailNode | null>(null);
+  // Navigable trail of opened concepts: each open pushes onto the stack, and the
+  // top (`trail.at(-1)`) is the concept the detail drawer shows. `back()` pops;
+  // emptying the trail returns to the overview (drawer closed).
+  const [trail, setTrail] = useState<ConceptDetailNode[]>([]);
+  const openNode = trail.at(-1) ?? null;
   // Opening a concept into the detail drawer (canvas click or search result)
   // is a tracked memory interaction. Route every open through here so
   // "node_opened" is emitted exactly once per open, from one place.
   const openNodeDetail = useCallback((node: ConceptDetailNode) => {
     emitMemoryEvent("node_opened");
-    setOpenNode(node);
+    setTrail((t) => [...t, node]);
   }, []);
 
   // First-run explainer: shown over the graph (empty or populated) until the
@@ -412,6 +415,30 @@ export function ConceptGraphView({
     view.current.lastInteractAt = performance.now();
     view.current.dirty = true;
   }, []);
+
+  // Travel to a concept: open it into the detail drawer (pushing it onto the
+  // trail, emitting "node_opened" once) and fly the camera to center it, reusing
+  // the search jump-to ease.
+  const travelTo = useCallback(
+    (node: ConceptDetailNode) => {
+      openNodeDetail(node);
+      focusOn(node.id);
+    },
+    [openNodeDetail, focusOn],
+  );
+
+  // Step back through the trail: pop the current concept and re-center the new
+  // top; emptying the trail clears the selection and returns to the overview.
+  const back = useCallback(() => {
+    const next = trail.slice(0, -1);
+    setTrail(next);
+    const top = next.at(-1);
+    if (top) {
+      focusOn(top.id);
+    } else {
+      setFocusLabel(null);
+    }
+  }, [trail, focusOn]);
 
   useEffect(() => {
     if (!ready) {return;}
@@ -873,10 +900,10 @@ export function ConceptGraphView({
         const { x, y } = localPoint(e);
         const hit = hitTest(x, y);
         if (hit) {
-          // Click a node → open its concept page in the detail drawer.
+          // Click a node → travel to it: center the camera and open its page.
           const n = layout.nodes.find((nn) => nn.id === hit);
           if (n) {
-            openNodeDetail({
+            travelTo({
               id: n.id,
               label: n.label,
               updatedAtMs: n.updatedAtMs,
@@ -887,7 +914,7 @@ export function ConceptGraphView({
         }
       }
     },
-    [hitTest, layout.nodes, openNodeDetail],
+    [hitTest, layout.nodes, travelTo],
   );
 
   // Hover is only ever rewritten by moves inside the container, so without
@@ -1085,14 +1112,13 @@ export function ConceptGraphView({
                   <li key={node.id}>
                     <button
                       type="button"
-                      onClick={() => {
-                        focusOn(node.id);
-                        openNodeDetail({
+                      onClick={() =>
+                        travelTo({
                           id: node.id,
                           label: node.label,
                           updatedAtMs: node.updatedAtMs,
-                        });
-                      }}
+                        })
+                      }
                       className="block w-full truncate px-3 py-1 text-left text-[12px] hover:bg-[color-mix(in_srgb,var(--content-tertiary)_14%,transparent)]"
                       style={{ color: "var(--content-default)" }}
                     >
@@ -1236,7 +1262,7 @@ export function ConceptGraphView({
         <ConceptDetailPanel
           assistantId={assistantId}
           node={openNode}
-          onClose={() => setOpenNode(null)}
+          onClose={back}
           onOpenThread={onOpenThread}
         />
       ) : null}
