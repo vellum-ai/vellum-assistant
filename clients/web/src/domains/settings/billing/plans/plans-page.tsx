@@ -217,7 +217,10 @@ export function PlansPage() {
           </p>
         </header>
 
-        <div className="mt-16 flex flex-wrap justify-center gap-4">
+        {/* Shrinks the four columns to fit as the viewport narrows, reflowing
+            to two-up then one-up; `items-start` keeps each card at its content
+            height so the four-feature Super/Ultra cards stay taller. */}
+        <div className="mt-16 grid w-full max-w-[1312px] grid-cols-1 items-start gap-6 sm:grid-cols-2 lg:grid-cols-4">
           <PlanColumnCard
             tierKey="free"
             name="Free"
@@ -253,7 +256,7 @@ export function PlansPage() {
           })}
         </div>
 
-        <CustomPlanRow className="mt-8" />
+        <CustomPlanRow className="mt-16" />
 
         <p className="mt-16 text-center text-[12px] font-medium text-[var(--content-tertiary)]">
           You can cancel or change your plan anytime you want. To learn more{" "}

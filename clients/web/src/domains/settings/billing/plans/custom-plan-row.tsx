@@ -12,7 +12,7 @@ export interface CustomPlanRowProps {
  */
 export function CustomPlanRow({ className }: CustomPlanRowProps) {
   return (
-    <div className={`flex flex-col items-center gap-4 ${className ?? ""}`}>
+    <div className={`flex flex-col items-center gap-8 ${className ?? ""}`}>
       <p className="text-center text-[20px] font-medium text-[var(--content-tertiary)]">
         Need something more tailored to your needs?
       </p>
