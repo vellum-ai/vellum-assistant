@@ -7,8 +7,15 @@ import type { DrizzleDb } from "../db-connection.js";
  * with non-default `scope_id` values (e.g. `subagent:<id>`). Reads query the
  * single workspace memory pool without filtering on `scope_id`, so these rows
  * would surface into recall, consolidation, and starter generation and inflate
- * node counts. Deleting them keeps them invisible, exactly matching the
- * behavior the `scope_id = 'default'` read filters produced.
+ * node counts. Deleting them removes them from every SQL read path, matching
+ * the behavior the `scope_id = 'default'` read filters produced.
+ *
+ * This SQL delete does not touch a graph node's Qdrant `graph_node` point or
+ * its cached `memory_embeddings` row — those persist and would still surface in
+ * `searchGraphNodes` (which has no scope filter). They are purged by the orphan
+ * sweep in migration 340 (`340-sweep-orphaned-graph-node-vectors.ts`), which
+ * runs later in the same boot and covers both the rows this migration deletes
+ * and any left behind on installs that already applied it.
  *
  * Deleting graph nodes cascades to their edges, triggers, and edits via the
  * `ON DELETE CASCADE` foreign keys (foreign_keys pragma is ON).
