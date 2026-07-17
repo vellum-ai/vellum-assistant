@@ -119,6 +119,7 @@ import {
   assembleSlackChronologicalMessages,
   buildSubagentStatusBlock,
   getSlackCompactionWatermarkForPrefix,
+  getSlackWatermarkAdvanceForRowPrefix,
   injectChannelCapabilityContext,
   injectChannelCommandContext,
   isGroupChatType,
@@ -4038,6 +4039,51 @@ describe("Slack channel chronological rendering — multi-thread", () => {
       result!.renderedMessages.map((entry) => entry.sourceChannelTs),
     ).toEqual([null, T2]);
     expect(getSlackCompactionWatermarkForPrefix(result, 1)).toBe(T2);
+  });
+
+  // A legacy kept-tail row carries no `channelTs`, so the guard must fall back
+  // to `createdAt/1000` — as the projection filter does — or it advances past a
+  // row the filter then drops while the summary never covered it: silent loss.
+  describe("getSlackWatermarkAdvanceForRowPrefix — legacy kept rows", () => {
+    test("skips the advance when a legacy kept row sits at or before the candidate", () => {
+      const rows: MessageRow[] = [
+        userRow({
+          id: "summarized-prefix",
+          createdAt: 1700000030_000,
+          text: "summarized prefix",
+          slackMeta: buildSlackMeta({ channelTs: T2, displayName: "carol" }),
+        }),
+        // No slackMeta → legacy row; createdAt/1000 = 1700000020 <= T2, so
+        // advancing to T2 would drop it from the projection uncovered.
+        userRow({
+          id: "legacy-kept-tail",
+          createdAt: 1700000020_000,
+          text: "legacy kept tail",
+        }),
+      ];
+
+      expect(getSlackWatermarkAdvanceForRowPrefix(rows, 1, null)).toBeNull();
+    });
+
+    test("advances when a legacy kept row sits strictly after the candidate", () => {
+      const rows: MessageRow[] = [
+        userRow({
+          id: "summarized-prefix",
+          createdAt: 1700000000_000,
+          text: "summarized prefix",
+          slackMeta: buildSlackMeta({ channelTs: T0, displayName: "alice" }),
+        }),
+        // No slackMeta → legacy row; createdAt/1000 = 1700000050 > T0, so the
+        // projection keeps it and the advance is safe.
+        userRow({
+          id: "legacy-kept-tail-after",
+          createdAt: 1700000050_000,
+          text: "legacy kept tail after",
+        }),
+      ];
+
+      expect(getSlackWatermarkAdvanceForRowPrefix(rows, 1, null)).toBe(T0);
+    });
   });
 
   test("active-thread focus filters pre-watermark and legacy compacted rows", () => {
