@@ -40,7 +40,6 @@ export function CustomPlanRow({ className }: CustomPlanRowProps) {
           </span>
           <Button
             variant="outlined"
-            className="rounded-lg"
             onClick={() => {
               // Custom plan configuration flow isn't built yet.
             }}

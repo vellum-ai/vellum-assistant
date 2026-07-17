@@ -82,7 +82,6 @@ export function PlanColumnCard({
       <Button
         variant="primary"
         fullWidth
-        className="rounded-lg"
         disabled={isCurrent || pending}
         onClick={onCta}
       >
