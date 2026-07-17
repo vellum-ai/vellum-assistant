@@ -42,6 +42,17 @@ mock.module("@vellumai/design-library/components/toast", () => ({
 mock.module("@/hooks/use-is-org-ready", () => ({
   useIsOrgReady: () => false,
 }));
+let platformGate = "full";
+mock.module("@/hooks/use-platform-gate", () => ({
+  usePlatformGate: () => platformGate,
+}));
+// The real notice pulls in the router + onboarding-login flow; the cards only
+// need its presence to be observable.
+mock.module("@/components/platform-login-notice", () => ({
+  PlatformLoginNotice: ({ children }: { children?: unknown }) => (
+    <div data-testid="platform-login-notice">{children as never}</div>
+  ),
+}));
 
 // Controllable daemon config the config-get query resolves to. `initialData`
 // makes it available even though the query is `enabled: isOrgReady` (false),
@@ -126,6 +137,7 @@ describe("SpeechToTextCard — macOS Native Dictation option", () => {
     nativeDictationSupported = false;
     credentialsSetCalls.length = 0;
     configPatchCalls.length = 0;
+    platformGate = "full";
     daemonConfigData = { services: {} };
   });
 
@@ -250,6 +262,7 @@ describe("SpeechToTextCard — Vellum provider", () => {
     nativeDictationSupported = false;
     credentialsSetCalls.length = 0;
     configPatchCalls.length = 0;
+    platformGate = "full";
     daemonConfigData = { services: {} };
   });
 
@@ -328,6 +341,37 @@ describe("SpeechToTextCard — Vellum provider", () => {
     expect(configPatchCalls[0]!.body).toMatchObject({
       services: { stt: { provider: "deepgram", mode: "your-own" } },
     });
+  });
+
+  test("a gated platform hides the Vellum option entirely", () => {
+    // "gated" = the platform API is off in local mode; logging in cannot
+    // help, so offering the managed option would be a dead end.
+    platformGate = "gated";
+    renderCard();
+
+    openProviderDropdown();
+    expect(visibleOptions()).not.toContain("Vellum");
+  });
+
+  test("selecting Vellum while logged out shows the login notice and blocks Save", () => {
+    platformGate = "disabled";
+    renderCard();
+
+    openProviderDropdown();
+    selectOption("Vellum");
+
+    expect(screen.getByTestId("platform-login-notice")).toBeTruthy();
+    // Saving would persist a provider that cannot work without a session.
+    const save = screen.getByRole("button", { name: "Save" });
+    expect(save.hasAttribute("disabled")).toBe(true);
+    expect(configPatchCalls).toHaveLength(0);
+  });
+
+  test("a logged-in session sees no login notice on Vellum", () => {
+    daemonConfigData = { services: { stt: { provider: "vellum" } } };
+    renderCard();
+
+    expect(screen.queryByTestId("platform-login-notice")).toBeNull();
   });
 
   test("leaving Vellum for native dictation writes a daemon-backed fallback", async () => {

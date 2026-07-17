@@ -12,6 +12,7 @@ import { configPatch, credentialsSetPost } from "@/generated/daemon/sdk.gen";
 import { useDraftOverride } from "@/domains/settings/ai/use-draft-override";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
+import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { synthesizeTTS } from "@/lib/tts-synthesize";
 import { getLocalSetting, setLocalSetting } from "@/utils/local-settings";
 import { Button } from "@vellumai/design-library/components/button";
@@ -19,6 +20,7 @@ import { Dropdown } from "@vellumai/design-library/components/dropdown";
 import { Input } from "@vellumai/design-library/components/input";
 import { toast } from "@vellumai/design-library/components/toast";
 
+import { PlatformLoginNotice } from "@/components/platform-login-notice";
 import {
   ByoServiceCard,
   CredentialsGuide,
@@ -57,20 +59,28 @@ export function TextToSpeechCard() {
     enabled: isOrgReady,
     staleTime: Infinity,
   });
+  const platformGate = usePlatformGate();
   const providers = useMemo(() => {
-    const fetched = catalogData?.providers;
-    if (!fetched) {
-      return TTS_PROVIDERS;
-    }
-    // Assistants running an older catalog omit vellum, but the managed option
-    // must still be offered (and a legacy managed config still renders as
-    // Vellum) — graft the static entry on.
-    if (fetched.some((p) => p.id === "vellum")) {
-      return fetched;
-    }
-    const vellum = TTS_PROVIDERS.find((p) => p.id === "vellum");
-    return vellum ? [vellum, ...fetched] : fetched;
-  }, [catalogData]);
+    const base = (() => {
+      const fetched = catalogData?.providers;
+      if (!fetched) {
+        return TTS_PROVIDERS;
+      }
+      // Assistants running an older catalog omit vellum, but the managed
+      // option must still be offered (and a legacy managed config still
+      // renders as Vellum) — graft the static entry on.
+      if (fetched.some((p) => p.id === "vellum")) {
+        return fetched;
+      }
+      const vellum = TTS_PROVIDERS.find((p) => p.id === "vellum");
+      return vellum ? [vellum, ...fetched] : fetched;
+    })();
+    // "gated" means the platform API is off entirely — logging in cannot
+    // help, so the managed option is withheld rather than shown dead.
+    return platformGate === "gated"
+      ? base.filter((p) => p.id !== "vellum")
+      : base;
+  }, [catalogData, platformGate]);
 
   // Seed the provider from the daemon's live config so a Save doesn't clobber a
   // provider configured elsewhere (CLI/other client) when localStorage is stale.
@@ -302,6 +312,9 @@ export function TextToSpeechCard() {
   // Vellum authenticates via the platform connection, so it has no key to enter
   // and nothing for the client-side Test path (a direct provider call) to use.
   const isManaged = draftProvider === "vellum";
+  // Without a platform session the save would persist a provider that cannot
+  // work, so it is blocked behind the login notice instead.
+  const vellumNeedsLogin = isManaged && platformGate === "disabled";
 
   return (
     <ByoServiceCard
@@ -356,6 +369,12 @@ export function TextToSpeechCard() {
 
         <CredentialsGuide guide={selectedProvider.credentialsGuide} />
 
+        {vellumNeedsLogin && (
+          <PlatformLoginNotice>
+            Log in to the Vellum platform to use managed speech synthesis.
+          </PlatformLoginNotice>
+        )}
+
         <div className="flex items-center gap-2">
           {!isManaged && (
             <Button variant="outlined" onClick={handleTest} disabled={testing}>
@@ -363,7 +382,10 @@ export function TextToSpeechCard() {
             </Button>
           )}
           <div className="ml-auto flex items-center gap-2">
-            <SaveButton onClick={handleSave} disabled={!hasChanges || saving} />
+            <SaveButton
+              onClick={handleSave}
+              disabled={!hasChanges || saving || vellumNeedsLogin}
+            />
             {providerHasKey && !isManaged && (
               <ResetButton onClick={handleReset} />
             )}
