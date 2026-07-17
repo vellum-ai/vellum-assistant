@@ -48,6 +48,7 @@ import type {
 } from "../tools/tool-types.js";
 import {
   isDiskPressureCleanupToolName,
+  type OwnerKind,
   type ToolContext,
   type ToolExecutionResult,
 } from "../tools/types.js";
@@ -182,25 +183,33 @@ export function getEffectiveEnabledPluginSet(conv: {
  *   can still write storage, call an API, or run arbitrary code.
  * So an unattended continuation must fail closed: run only these, and surface
  * the intended action for the user to approve on their next turn otherwise.
- * `skill_execute` is the dispatcher — its resolved inner tool is classified by
- * the same check in the executor gate, so exposing the wrapper is safe.
+ * These are all built-in tools owned by the runtime (`kind: "default"`); the
+ * gate verifies the owner so a workspace/plugin/skill tool REGISTERED UNDER one
+ * of these names (registerWorkspaceTools stashes the core tool and installs its
+ * own implementation) does not slip through. `skill_execute` is the dispatcher —
+ * its resolved inner tool is classified by the same check in the executor gate,
+ * so exposing the wrapper is safe.
  */
 const READ_ONLY_ALLOWED_TOOLS: ReadonlySet<string> = new Set([
   "file_read",
   "file_list",
   "code_search",
   "web_search",
-  "recall",
   "skill_execute",
 ]);
 
 /**
- * Whether a tool must be refused in a read-only subagent pass — true for
- * anything not on the {@link READ_ONLY_ALLOWED_TOOLS} allowlist. Pure and
- * name-based so the classification is trivially complete and unit-testable.
+ * Whether a tool must be refused in a read-only subagent pass. Allowed only when
+ * the name is on {@link READ_ONLY_ALLOWED_TOOLS} AND it is the trusted built-in
+ * implementation (`ownerKind === "default"`), so a workspace/plugin/skill tool
+ * overriding an allowlisted name is refused. Everything else fails closed. Pure
+ * so the classification is unit-testable.
  */
-export function isRefusedInReadOnlyPass(name: string): boolean {
-  return !READ_ONLY_ALLOWED_TOOLS.has(name);
+export function isRefusedInReadOnlyPass(
+  name: string,
+  ownerKind: OwnerKind | undefined,
+): boolean {
+  return !(READ_ONLY_ALLOWED_TOOLS.has(name) && ownerKind === "default");
 }
 
 // ── createToolExecutor ───────────────────────────────────────────────
@@ -239,7 +248,10 @@ export function createToolExecutor(
     // gate mode or trust class, so no unapproved action can run in the
     // background. Records the attempt for parent-visible surfacing, then rejects
     // before dispatch.
-    if (ctx.subagentDenySideEffects && isRefusedInReadOnlyPass(toolName)) {
+    if (
+      ctx.subagentDenySideEffects &&
+      isRefusedInReadOnlyPass(toolName, getToolOwner(toolName)?.kind)
+    ) {
       ctx.subagentDeniedToolNames?.add(toolName);
       return {
         content: `The "${toolName}" tool can change state and cannot run in this read-only background pass. State the action you would take so the user can approve it on their next turn.`,
@@ -669,7 +681,7 @@ export function isToolActiveForContext(
   if (
     ctx.subagentDenySideEffects &&
     ctx.subagentToolGateMode !== "execution" &&
-    isRefusedInReadOnlyPass(name)
+    isRefusedInReadOnlyPass(name, getToolOwner(name)?.kind)
   ) {
     return false;
   }
@@ -918,7 +930,7 @@ export function createResolveToolsCallback(
     const readOnlyHidesFromWire = (name: string): boolean =>
       ctx.subagentDenySideEffects === true &&
       ctx.subagentToolGateMode !== "execution" &&
-      isRefusedInReadOnlyPass(name);
+      isRefusedInReadOnlyPass(name, getToolOwner(name)?.kind);
     const scopedMcpDefs = (
       wireAllowlist
         ? currentMcpDefs.filter((d) => wireAllowlist.has(d.name))
