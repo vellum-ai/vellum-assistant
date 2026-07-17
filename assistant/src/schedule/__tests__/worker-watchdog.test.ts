@@ -183,6 +183,39 @@ describe("createWorkerSupervisor", () => {
     expect(killedPid).toBe(99);
   });
 
+  test("suppression mid-respawn kills the child and skips onRespawn (operator stop)", async () => {
+    let releaseRespawn: () => void = () => {};
+    const respawnGate = new Promise<void>((resolve) => {
+      releaseRespawn = resolve;
+    });
+    let suppressed = false;
+    let killedPid: number | undefined;
+    let onRespawnCalls = 0;
+    const sup = createWorkerSupervisor({
+      label: "t",
+      probe: () => NOT_RUNNING,
+      respawn: async () => {
+        await respawnGate;
+        return { pid: 77, alreadyRunning: false };
+      },
+      isSuppressed: () => suppressed,
+      killChild: (pid) => {
+        killedPid = pid;
+      },
+      onRespawn: () => {
+        onRespawnCalls++;
+      },
+    });
+
+    const inflight = sup.ensureAlive(); // probes dead, starts respawn, awaits gate
+    suppressed = true; // operator stop lands while the respawn is in flight
+    releaseRespawn(); // respawn resolves now
+    await inflight;
+
+    expect(killedPid).toBe(77);
+    expect(onRespawnCalls).toBe(0);
+  });
+
   test("concurrent ensureAlive calls do not double-spawn", async () => {
     let respawns = 0;
     let releaseRespawn: () => void = () => {};
