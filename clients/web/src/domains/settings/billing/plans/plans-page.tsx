@@ -220,7 +220,7 @@ export function PlansPage() {
         {/* Shrinks the four columns to fit as the viewport narrows, reflowing
             to two-up then one-up; `items-start` keeps each card at its content
             height so the four-feature Super/Ultra cards stay taller. */}
-        <div className="mt-16 grid w-full max-w-[1312px] grid-cols-1 items-start gap-6 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="mt-6 grid w-full max-w-[1312px] grid-cols-1 items-start gap-6 sm:grid-cols-2 lg:grid-cols-4">
           <PlanColumnCard
             tierKey="free"
             name="Free"
@@ -256,9 +256,9 @@ export function PlansPage() {
           })}
         </div>
 
-        <CustomPlanRow className="mt-16" />
+        <CustomPlanRow className="mt-6" />
 
-        <p className="mt-16 text-center text-[12px] font-medium text-[var(--content-tertiary)]">
+        <p className="mt-6 text-center text-[12px] font-medium text-[var(--content-tertiary)]">
           You can cancel or change your plan anytime you want. To learn more{" "}
           <a
             href={DOCS_URL}
@@ -292,7 +292,7 @@ export function PlansPage() {
           back out so it stays clickable over the drag surface. */}
       <div
         className="absolute left-8 z-10 [-webkit-app-region:no-drag]"
-        style={{ top: electron ? "3.75rem" : "2rem" }}
+        style={{ top: electron ? "3rem" : "1.5rem" }}
       >
         <Button
           variant="outlined"
@@ -305,8 +305,8 @@ export function PlansPage() {
       </div>
 
       <div
-        className="flex min-h-full flex-col items-center px-6 pb-16"
-        style={{ paddingTop: electron ? "6rem" : "4rem" }}
+        className="flex min-h-full flex-col items-center px-6 pb-6"
+        style={{ paddingTop: electron ? "5rem" : "3.5rem" }}
       >
         {body}
       </div>

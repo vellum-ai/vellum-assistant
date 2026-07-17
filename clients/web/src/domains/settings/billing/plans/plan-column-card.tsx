@@ -49,7 +49,7 @@ export function PlanColumnCard({
   return (
     <div
       data-theme={tone}
-      className="flex w-full flex-col gap-4 rounded-2xl bg-[var(--surface-lift)] p-4"
+      className="flex w-full flex-col gap-3 rounded-2xl bg-[var(--surface-lift)] p-4"
     >
       <PlanTierAvatar tier={tierKey} size={50} />
 
