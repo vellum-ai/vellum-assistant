@@ -35,20 +35,23 @@ export async function vellumManagedSpeechAvailable(): Promise<boolean> {
  *
  * Managed speech has no provider API key on this machine, so the BYOK "check
  * your API key" rewrite never applies. A failure is flagged `userFacing` —
- * surfaced verbatim by `describeSttFailure` — only when it already carries
- * actionable remediation: a platform reconnect (`unavailable`), a credit
- * top-up (`insufficient_balance`), or the platform's own `detail` message. A
- * failure that fell back to a bare HTTP status (no `detail`) is left
- * non-user-facing so `describeSttFailure` emits friendly category copy instead
- * of leaking the raw status.
+ * surfaced verbatim by `describeSttFailure` — when it carries actionable
+ * remediation: a platform reconnect (`unavailable`), a credit top-up
+ * (`insufficient_balance`), or the platform's own `detail` message. A failure
+ * that fell back to a bare HTTP status (no `detail`) is left non-user-facing so
+ * `describeSttFailure` emits friendly category copy instead of leaking the raw
+ * status — except a bare auth status (401/403), which would be rewritten to the
+ * wrong BYOK "check your API key" guidance, so it gets its own sanitized
+ * platform-connection message.
  */
 export function sttErrorFromManagedSpeech(
   failure: ManagedSpeechFailure,
 ): SttError {
+  const hasDetail = failure.detail !== undefined;
   const userFacing =
     failure.kind === "unavailable" ||
     failure.code === "insufficient_balance" ||
-    failure.detail !== undefined;
+    hasDetail;
   const managed = (category: SttErrorCategory, message: string): SttError =>
     new SttError(category, message, { userFacing });
 
@@ -64,7 +67,17 @@ export function sttErrorFromManagedSpeech(
   switch (failure.status) {
     case 401:
     case 403:
-      return managed("auth", failure.message);
+      // A bare auth failure must stay user-facing so describeSttFailure skips
+      // its BYOK "check your API key" rewrite — managed STT has no local key.
+      // `managed()` would be non-user-facing here (see `userFacing` above), so
+      // construct the sanitized platform-connection message directly.
+      return hasDetail
+        ? managed("auth", failure.message)
+        : new SttError(
+            "auth",
+            "Vellum couldn't authenticate with the platform while transcribing — reconnect your Vellum account, then retry.",
+            { userFacing: true },
+          );
     case 429:
       return managed("rate-limit", failure.message);
     case 413:

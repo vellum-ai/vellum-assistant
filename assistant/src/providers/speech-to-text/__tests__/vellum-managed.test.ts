@@ -71,6 +71,7 @@ describe("sttErrorFromManagedSpeech", () => {
     category: string;
     userFacing: boolean;
     messageIncludes?: string;
+    messageExcludes?: string[];
   }> = [
     {
       name: "unavailable → auth, user-facing reconnect copy",
@@ -134,9 +135,11 @@ describe("sttErrorFromManagedSpeech", () => {
     },
     // No platform `detail`: the generic "(platform returned N)" fallback stays
     // non-user-facing so describeSttFailure emits friendly category copy
-    // instead of leaking a raw HTTP status.
+    // instead of leaking a raw HTTP status — except a bare auth status, whose
+    // friendly copy would be the wrong BYOK "check your API key" guidance, so it
+    // gets a sanitized platform-connection message surfaced verbatim.
     {
-      name: "401 without detail → auth, not user-facing",
+      name: "401 without detail → auth, user-facing sanitized reconnect copy",
       failure: {
         ok: false,
         kind: "platform-error",
@@ -144,10 +147,12 @@ describe("sttErrorFromManagedSpeech", () => {
         message: "Managed speech transcription failed (platform returned 401).",
       },
       category: "auth",
-      userFacing: false,
+      userFacing: true,
+      messageIncludes: "reconnect your Vellum account",
+      messageExcludes: ["API key", "platform returned"],
     },
     {
-      name: "403 without detail → auth, not user-facing",
+      name: "403 without detail → auth, user-facing sanitized reconnect copy",
       failure: {
         ok: false,
         kind: "platform-error",
@@ -155,7 +160,9 @@ describe("sttErrorFromManagedSpeech", () => {
         message: "Managed speech transcription failed (platform returned 403).",
       },
       category: "auth",
-      userFacing: false,
+      userFacing: true,
+      messageIncludes: "reconnect your Vellum account",
+      messageExcludes: ["API key", "platform returned"],
     },
     {
       name: "429 without detail → rate-limit, not user-facing",
@@ -198,6 +205,7 @@ describe("sttErrorFromManagedSpeech", () => {
     category,
     userFacing,
     messageIncludes,
+    messageExcludes,
   } of cases) {
     test(name, () => {
       const err = sttErrorFromManagedSpeech(
@@ -205,11 +213,15 @@ describe("sttErrorFromManagedSpeech", () => {
       );
       expect(err).toBeInstanceOf(SttError);
       expect(err.category).toBe(category as SttError["category"]);
-      // Verbatim only when the failure carries real remediation; a bare
-      // HTTP-status fallback stays non-user-facing for friendly rewrite.
+      // User-facing when the failure carries real remediation (or a sanitized
+      // managed-auth message); a bare non-auth status stays non-user-facing for
+      // friendly category rewrite.
       expect(err.userFacing).toBe(userFacing);
       if (messageIncludes) {
         expect(err.message).toContain(messageIncludes);
+      }
+      for (const excluded of messageExcludes ?? []) {
+        expect(err.message).not.toContain(excluded);
       }
     });
   }
@@ -239,5 +251,21 @@ describe("describeSttFailure over managed STT failures", () => {
     const copy = describeSttFailure(err, "vellum");
     expect(copy).not.toContain("platform returned 429");
     expect(copy).toContain("rate-limiting");
+  });
+
+  test("bare auth failure gets sanitized reconnect copy, not the BYOK rewrite", () => {
+    const err = sttErrorFromManagedSpeech({
+      ok: false,
+      kind: "platform-error",
+      status: 401,
+      message: "Managed speech transcription failed (platform returned 401).",
+    });
+    const copy = describeSttFailure(err, "vellum");
+    // Managed STT holds no local key: the "check your API key in Settings →
+    // Voice" guidance is wrong, and the raw HTTP status must not leak.
+    expect(copy).toContain("reconnect your Vellum account");
+    expect(copy).not.toContain("API key");
+    expect(copy).not.toContain("Settings → Voice");
+    expect(copy).not.toContain("platform returned 401");
   });
 });
