@@ -14,8 +14,16 @@
  * `<pluginDir>/node_modules/` so Node-style resolution walking up from a
  * hook/tool file finds them. The install is:
  *
- * - **`--production`** — only runtime `dependencies`, never `devDependencies`
+ * - **`--omit=dev`** — only runtime `dependencies`, never `devDependencies`
  *   (a plugin's build-time tooling has no place in an installed copy).
+ * - **`--omit=peer`** — peer dependencies are the *host's* to satisfy, not the
+ *   plugin's. Every adapted plugin declares `@vellumai/plugin-api` as a peer
+ *   (see {@link ./install-from-github} `normalizeInstalledManifest`), but that
+ *   package is a workspace shim materialized at daemon startup
+ *   (`../../plugins/ensure-plugin-api-shim.ts`), not a registry package.
+ *   Resolving it would either fail (a dev/unpublished version) or plant a
+ *   detached registry copy under the plugin's `node_modules/` that *shadows*
+ *   the live, daemon-wired shim — so peers are omitted entirely.
  * - **`--ignore-scripts`** — no dependency (or root) lifecycle script runs, so
  *   installing a plugin never executes arbitrary `postinstall` code. Curated
  *   adapter transforms run through their own vetted path (see
@@ -47,6 +55,21 @@ const log = getLogger("plugin-deps");
 
 /** Cap on a single dependency install; a plugin's dependency set is small. */
 const DEPENDENCY_INSTALL_TIMEOUT_MS = 120_000;
+
+/**
+ * `bun install` argv for a plugin's dependencies. `--omit=peer` is load-bearing:
+ * without it bun resolves the `@vellumai/plugin-api` peer every adapted plugin
+ * declares and plants a detached registry copy that shadows the daemon-wired
+ * workspace shim (see the module docstring). Exported so a guard test pins the
+ * flag set against silent regressions.
+ */
+export const DEPENDENCY_INSTALL_ARGS: readonly string[] = Object.freeze([
+  "install",
+  "--omit=dev",
+  "--omit=peer",
+  "--ignore-scripts",
+  "--no-save",
+]);
 
 /**
  * Installs a staged plugin's dependencies in `cwd`. Injected so tests can
@@ -119,8 +142,9 @@ export async function installPluginDependencies(
 
 /**
  * Production dependency installer: runs `bun install` with a real `bun` binary
- * resolved via {@link ensureBun}, under a timeout. `--production` skips
- * devDependencies, `--ignore-scripts` blocks all lifecycle scripts, and
+ * resolved via {@link ensureBun}, under a timeout. `--omit=dev` skips
+ * devDependencies, `--omit=peer` skips peer dependencies (host-provided; see the
+ * module docstring), `--ignore-scripts` blocks all lifecycle scripts, and
  * `--no-save` leaves `package.json` untouched and writes no lockfile.
  *
  * `process.execPath` is unusable here: inside a `bun build --compile` binary it
@@ -132,17 +156,13 @@ export const defaultDependencyInstaller: DependencyInstaller = async ({
   cwd,
 }) => {
   const bun = await ensureBun();
-  await execFileAsync(
-    bun,
-    ["install", "--production", "--ignore-scripts", "--no-save"],
-    {
-      cwd,
-      encoding: "utf8",
-      timeout: DEPENDENCY_INSTALL_TIMEOUT_MS,
-      maxBuffer: 32 * 1024 * 1024,
-      env: dependencyInstallEnv(bun),
-    },
-  );
+  await execFileAsync(bun, [...DEPENDENCY_INSTALL_ARGS], {
+    cwd,
+    encoding: "utf8",
+    timeout: DEPENDENCY_INSTALL_TIMEOUT_MS,
+    maxBuffer: 32 * 1024 * 1024,
+    env: dependencyInstallEnv(bun),
+  });
 };
 
 /**
