@@ -11,6 +11,7 @@ import {
     useState,
 } from "react";
 import { flushSync } from "react-dom";
+import { useNavigate } from "react-router";
 
 import {
     AttachFileButton,
@@ -46,6 +47,7 @@ import {
     useIsLiveVoiceSessionOwnedBy,
     useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
+import { preflightLiveVoice } from "@/domains/chat/voice/live-voice/use-live-voice-preflight";
 import { useAudioAmplitude } from "@/domains/chat/voice/use-audio-amplitude";
 import { VoiceFirstRunCard } from "@/domains/chat/voice/voice-room/voice-first-run-card";
 import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-store";
@@ -55,6 +57,7 @@ import { isElectron } from "@/runtime/is-electron";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { isNativeIOS } from "@/runtime/platform-detection";
 import { isPointerCoarse } from "@/utils/pointer";
+import { routes } from "@/utils/routes";
 import { Button, Notice, Popover } from "@vellumai/design-library";
 
 import {
@@ -334,10 +337,47 @@ export function ChatComposer({
   // grows from the on-screen control, not screen-center. Stashed here because
   // the first-run card path defers the actual start to its own handler.
   const liveVoiceEntryOriginRef = useRef<{ x: number; y: number } | null>(null);
-  const startLiveVoiceSession = useCallback(() => {
-    if (!assistantId) {
+  const navigate = useNavigate();
+  // "Configure voice" copy surfaced when the pre-open preflight returns
+  // `not-ready` — the daemon's human-readable `userMessage`. Non-null renders
+  // the notice below (with a deep-link to voice settings) and the room stays
+  // closed. Cleared on dismiss or on the next successful start.
+  const [voiceConfigNotice, setVoiceConfigNotice] = useState<string | null>(
+    null,
+  );
+  // Re-entrancy guard: the preflight is awaited before the room opens, so a
+  // second click while it's in flight must be ignored (else two sessions could
+  // race to start). A ref, not state — this must gate synchronously and never
+  // trigger a re-render.
+  const liveVoicePreflightPendingRef = useRef(false);
+  const startLiveVoiceSession = useCallback(async () => {
+    if (!assistantId || liveVoicePreflightPendingRef.current) {
       return;
     }
+    // Gate the open on the daemon's readiness verdict BEFORE starting, so the
+    // room never flashes open then immediately closes for a user with no
+    // usable STT/TTS provider. The daemon runs managed-speech defaulting as
+    // part of the preflight, so a user who *can* be auto-configured comes back
+    // `ready` here.
+    liveVoicePreflightPendingRef.current = true;
+    let verdict;
+    try {
+      verdict = await preflightLiveVoice(assistantId);
+    } finally {
+      liveVoicePreflightPendingRef.current = false;
+    }
+    // Fail OPEN on a null verdict (preflight network/daemon error): a preflight
+    // outage must not block voice entirely — proceed to `starter` and let the
+    // WS-level start handshake surface any real credential problem via the
+    // existing failure `Notice`. Only an explicit `not-ready` keeps us closed.
+    if (verdict?.status === "not-ready") {
+      setVoiceConfigNotice(
+        verdict.userMessage ??
+          "Voice isn't set up yet. Configure a voice provider to start talking.",
+      );
+      return;
+    }
+    setVoiceConfigNotice(null);
     // Grow the room's entrance from the assistant avatar the user sees — the
     // empty-state greeting avatar, or the latest-turn avatar below the most
     // recent response (both tagged `data-voice-origin`). Fall back to the
@@ -519,6 +559,32 @@ export function ChatComposer({
         <div className="mb-2">
           <Notice tone="error" onDismiss={dismissLiveVoiceFailure}>
             {liveVoiceError}
+          </Notice>
+        </div>
+      )}
+      {/* Pre-open "configure voice" prompt — surfaced when the readiness
+          preflight returns `not-ready` (no usable STT/TTS provider that
+          couldn't be auto-configured). The room stays closed; the action
+          deep-links to voice settings so the user can wire a provider. */}
+      {showVoiceInput && voiceConfigNotice && (
+        <div className="mb-2">
+          <Notice
+            tone="warning"
+            onDismiss={() => setVoiceConfigNotice(null)}
+            actions={
+              <Button
+                variant="outlined"
+                size="compact"
+                onClick={() => {
+                  setVoiceConfigNotice(null);
+                  navigate(routes.settings.voice);
+                }}
+              >
+                Configure voice
+              </Button>
+            }
+          >
+            {voiceConfigNotice}
           </Notice>
         </div>
       )}

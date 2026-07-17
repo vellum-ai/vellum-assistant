@@ -11,7 +11,7 @@
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { createRef } from "react";
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render } from "@testing-library/react";
 
 import { type ChatAttachment, useComposerStore } from "@/domains/chat/composer-store";
 import type { VoiceInputButtonHandle } from "@/domains/chat/components/voice-input-button";
@@ -154,11 +154,50 @@ mock.module("@/domains/chat/voice/voice-recording-store", () => ({
   },
 }));
 
+// Live-voice readiness preflight. The composer awaits this BEFORE opening the
+// room; mock it so no real daemon call is made and the verdict is controllable
+// per-test. Defaults to `ready` so every existing entry-point test keeps
+// starting the session. The not-ready cases below flip `mockPreflightVerdict`.
+type PreflightVerdict = {
+  status: "ready" | "not-ready";
+  missing?: Array<{ kind: "stt" | "tts"; providerId: string; reason: string }>;
+  userMessage?: string;
+};
+let mockPreflightVerdict: PreflightVerdict | null = { status: "ready" };
+const preflightSpy = mock(
+  (_assistantId: string): Promise<PreflightVerdict | null> =>
+    Promise.resolve(mockPreflightVerdict),
+);
+mock.module("@/domains/chat/voice/live-voice/use-live-voice-preflight", () => ({
+  preflightLiveVoice: preflightSpy,
+}));
+
+// `useNavigate` — the composer deep-links to voice settings from the
+// "configure voice" prompt. Mock the whole module (the composer's only
+// react-router import is `useNavigate`) so the not-tree-mounted composer can
+// still call it, and so a test can assert the destination.
+const navigateSpy = mock((_to: string) => {});
+mock.module("react-router", () => ({
+  useNavigate: () => navigateSpy,
+}));
+
+// Flush the microtask/timer queue so the composer's awaited preflight
+// resolves and the follow-on `starter` call / notice render settle. Wrapped in
+// `act` to absorb the post-await state updates.
+async function flushPreflight() {
+  await act(async () => {
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  });
+}
+
 function resetLiveVoiceMocks() {
   mockIsElectron = false;
   mockIsNativeIOS = false;
   mockVoiceMode = false;
   mockVoicePhase = "idle";
+  mockPreflightVerdict = { status: "ready" };
+  preflightSpy.mockClear();
+  navigateSpy.mockClear();
   setAudioLevelSpy.mockClear();
   liveStarterSpy.mockClear();
   liveControls.stop.mockClear();
@@ -849,17 +888,67 @@ describe("ChatComposer — live-voice integration", () => {
     expect(queryByLabelText("Start voice mode")).toBeNull();
   });
 
-  test("clicking the live-voice button starts a session through the store-registered starter", () => {
-    // GIVEN the flag is on with no active session
+  test("clicking the live-voice button preflights, then starts a session through the store-registered starter", async () => {
+    // GIVEN the flag is on with no active session and a `ready` verdict
     useTurnStore.setState(INITIAL_TURN_STATE);
     mockVoiceMode = true;
+    mockPreflightVerdict = { status: "ready" };
 
     // WHEN the user clicks the entry-point mic
     const { getByLabelText } = renderVoiceComposer();
     fireEvent.click(getByLabelText("Start voice mode"));
+    await flushPreflight();
 
-    // THEN the layout-owned controller is asked to start with the bound
-    // context (the composer holds no controller of its own)
+    // THEN the readiness preflight ran first, and only then the layout-owned
+    // controller is asked to start with the bound context (the composer holds
+    // no controller of its own)
+    expect(preflightSpy).toHaveBeenCalledWith("asst_test");
+    expect(liveStarterSpy).toHaveBeenCalledTimes(1);
+    expect(liveStarterSpy).toHaveBeenCalledWith("asst_test", "conv_test");
+  });
+
+  test("a not-ready verdict keeps the room closed and surfaces the configure-voice prompt", async () => {
+    // GIVEN the flag is on but no usable STT/TTS provider can be configured
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockVoiceMode = true;
+    mockPreflightVerdict = {
+      status: "not-ready",
+      missing: [{ kind: "tts", providerId: "elevenlabs", reason: "no key" }],
+      userMessage: "Add a voice provider to start talking.",
+    };
+
+    // WHEN the user clicks the entry-point mic
+    const { getByLabelText, getByText, queryByText } = renderVoiceComposer();
+    fireEvent.click(getByLabelText("Start voice mode"));
+    await flushPreflight();
+
+    // THEN the session never starts (the room stays closed / idle) and the
+    // daemon's configure-voice message is shown instead
+    expect(preflightSpy).toHaveBeenCalledWith("asst_test");
+    expect(liveStarterSpy).not.toHaveBeenCalled();
+    expect(useLiveVoiceStore.getState().state).toBe("idle");
+    expect(getByText("Add a voice provider to start talking.")).toBeTruthy();
+
+    // AND the prompt's action deep-links to the voice settings page
+    fireEvent.click(getByText("Configure voice"));
+    expect(navigateSpy).toHaveBeenCalledWith("/assistant/settings/voice");
+    // ...and dismisses itself on navigation
+    expect(queryByText("Add a voice provider to start talking.")).toBeNull();
+  });
+
+  test("a preflight error fails OPEN — the session still starts", async () => {
+    // GIVEN the flag is on and the preflight call itself fails (returns null)
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockVoiceMode = true;
+    mockPreflightVerdict = null;
+
+    // WHEN the user clicks the entry-point mic
+    const { getByLabelText } = renderVoiceComposer();
+    fireEvent.click(getByLabelText("Start voice mode"));
+    await flushPreflight();
+
+    // THEN a preflight outage does not block voice — the session starts and
+    // the WS-level handshake surfaces any real credential problem
     expect(liveStarterSpy).toHaveBeenCalledTimes(1);
     expect(liveStarterSpy).toHaveBeenCalledWith("asst_test", "conv_test");
   });
@@ -883,7 +972,7 @@ describe("ChatComposer — live-voice integration", () => {
     expect(liveStarterSpy).not.toHaveBeenCalled();
   });
 
-  test("first-run card Start persists the flag then starts the session", () => {
+  test("first-run card Start persists the flag then starts the session", async () => {
     // GIVEN the first-run card is open
     useTurnStore.setState(INITIAL_TURN_STATE);
     mockVoiceMode = true;
@@ -893,8 +982,10 @@ describe("ChatComposer — live-voice integration", () => {
 
     // WHEN the user commits via Start
     fireEvent.click(getByText("first-run-start"));
+    await flushPreflight();
 
     // THEN the first run is consumed, the card closes, and the session starts
+    // (after the readiness preflight)
     expect(useVoicePrefsStore.getState().firstRunSeen).toBe(true);
     expect(queryByTestId("first-run-card")).toBeNull();
     expect(liveStarterSpy).toHaveBeenCalledTimes(1);
@@ -943,7 +1034,7 @@ describe("ChatComposer — live-voice integration", () => {
     expect(liveStarterSpy).not.toHaveBeenCalled();
   });
 
-  test("Capacitor iOS: returning-user entry still starts directly (unchanged)", () => {
+  test("Capacitor iOS: returning-user entry still starts directly (unchanged)", async () => {
     // GIVEN the native iOS shell with the first run already consumed
     useTurnStore.setState(INITIAL_TURN_STATE);
     mockVoiceMode = true;
@@ -953,6 +1044,7 @@ describe("ChatComposer — live-voice integration", () => {
     // WHEN the user clicks the entry-point mic
     const { getByLabelText, queryByTestId } = renderVoiceComposer();
     fireEvent.click(getByLabelText("Start voice mode"));
+    await flushPreflight();
 
     // THEN it behaves exactly like the returning-user path on any platform
     expect(queryByTestId("first-run-card")).toBeNull();
