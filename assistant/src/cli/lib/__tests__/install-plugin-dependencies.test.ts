@@ -3,13 +3,13 @@
  *
  * The dependency install is driven through an injected {@link DependencyInstaller}
  * so no real `bun install` subprocess is spawned: the fake records the directory
- * it was asked to install into (or throws to exercise the fail-soft path). Only
- * the decision to run — a plugin declares runtime `dependencies` — and the
- * fail-soft contract are under test here; the wiring into the install/upgrade
- * flow is covered by the install/upgrade suites.
+ * it was asked to install into (and can inspect the on-disk manifest mid-install)
+ * or throws to exercise the fail-soft path. Under test here: the decision to run,
+ * the plugin-api-peer strip/restore around the install, and the fail-soft
+ * contract; the wiring into the install/upgrade flow is covered by those suites.
  */
 
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
@@ -107,6 +107,79 @@ describe("installPluginDependencies", () => {
     expect(ran).toBe(false);
   });
 
+  test("skips when the only peer is the host-provided plugin-api shim", async () => {
+    writePkg({
+      name: "p",
+      peerDependencies: { "@vellumai/plugin-api": ">=0.8.0" },
+    });
+    let ran = false;
+    const run: DependencyInstaller = async () => {
+      ran = true;
+    };
+
+    await installPluginDependencies(dir, run);
+
+    // Nothing else to install once the shim peer is withheld, so no subprocess.
+    expect(ran).toBe(false);
+  });
+
+  test("installs a non-host peer (e.g. react) even with no dependencies", async () => {
+    writePkg({ name: "p", peerDependencies: { react: "^18.0.0" } });
+    let ran = false;
+    const run: DependencyInstaller = async () => {
+      ran = true;
+    };
+
+    await installPluginDependencies(dir, run);
+
+    // A non-host peer is a real runtime import; bun installs peers by default, so
+    // the install must run to resolve it.
+    expect(ran).toBe(true);
+  });
+
+  test("strips only the plugin-api peer during install, then restores the manifest", async () => {
+    writePkg({
+      name: "p",
+      dependencies: { "date-fns": "3.0.0" },
+      peerDependencies: { "@vellumai/plugin-api": ">=0.8.0", react: "^18.0.0" },
+    });
+    const pkgPath = join(dir, "package.json");
+    const original = readFileSync(pkgPath, "utf8");
+
+    let peersDuringInstall: Record<string, unknown> | undefined;
+    const run: DependencyInstaller = async ({ cwd }) => {
+      const parsed = JSON.parse(
+        readFileSync(join(cwd, "package.json"), "utf8"),
+      );
+      peersDuringInstall = parsed.peerDependencies;
+    };
+
+    await installPluginDependencies(dir, run);
+
+    // During the install the plugin-api shim is gone but every other peer stays.
+    expect(peersDuringInstall).toEqual({ react: "^18.0.0" });
+    // Afterward the manifest is restored byte-for-byte so it never reads as drift.
+    expect(readFileSync(pkgPath, "utf8")).toBe(original);
+  });
+
+  test("restores the manifest even when the install fails", async () => {
+    writePkg({
+      name: "p",
+      dependencies: { "date-fns": "3.0.0" },
+      peerDependencies: { "@vellumai/plugin-api": ">=0.8.0" },
+    });
+    const pkgPath = join(dir, "package.json");
+    const original = readFileSync(pkgPath, "utf8");
+
+    const run: DependencyInstaller = async () => {
+      throw new Error("network down");
+    };
+
+    await installPluginDependencies(dir, run);
+
+    expect(readFileSync(pkgPath, "utf8")).toBe(original);
+  });
+
   test("is fail-soft: an installer error is swallowed, not thrown", async () => {
     writePkg({ name: "p", dependencies: { "date-fns": "3.0.0" } });
     const run: DependencyInstaller = async () => {
@@ -118,17 +191,16 @@ describe("installPluginDependencies", () => {
     await expect(installPluginDependencies(dir, run)).resolves.toBeUndefined();
   });
 
-  test("bun argv omits peer dependencies so it never plants a plugin-api shadow", () => {
-    // --omit=peer is load-bearing: without it bun resolves the
-    // `@vellumai/plugin-api` peer every adapted plugin declares and installs a
-    // detached registry copy that shadows the daemon-wired workspace shim.
-    expect(DEPENDENCY_INSTALL_ARGS).toContain("--omit=peer");
+  test("bun argv keeps peers (installed by default) and does not blanket-omit them", () => {
+    // Peers must NOT be omitted wholesale — a plugin's non-host peer (e.g. react)
+    // is a real runtime import. The plugin-api shim is withheld by the manifest
+    // strip, not by a flag, so `--omit=peer` must be absent here.
+    expect(DEPENDENCY_INSTALL_ARGS).not.toContain("--omit=peer");
     // Runtime deps only (no devDependencies), no lifecycle scripts, and no
-    // package.json/lockfile writes.
+    // lockfile / manifest writes.
     expect(DEPENDENCY_INSTALL_ARGS).toEqual([
       "install",
       "--omit=dev",
-      "--omit=peer",
       "--ignore-scripts",
       "--no-save",
     ]);

@@ -16,21 +16,26 @@
  *
  * - **`--omit=dev`** — only runtime `dependencies`, never `devDependencies`
  *   (a plugin's build-time tooling has no place in an installed copy).
- * - **`--omit=peer`** — peer dependencies are the *host's* to satisfy, not the
- *   plugin's. Every adapted plugin declares `@vellumai/plugin-api` as a peer
- *   (see {@link ./install-from-github} `normalizeInstalledManifest`), but that
+ * - **peers installed, except the host shim** — bun installs `peerDependencies`
+ *   by default, and a plugin may legitimately declare a non-host peer (e.g.
+ *   `react`) it imports at runtime, so peers are kept. The sole exception is
+ *   `@vellumai/plugin-api`: every adapted plugin declares it as a peer (see
+ *   {@link ./install-from-github} `normalizeInstalledManifest`), but that
  *   package is a workspace shim materialized at daemon startup
  *   (`../../plugins/ensure-plugin-api-shim.ts`), not a registry package.
  *   Resolving it would either fail (a dev/unpublished version) or plant a
- *   detached registry copy under the plugin's `node_modules/` that *shadows*
- *   the live, daemon-wired shim — so peers are omitted entirely.
+ *   detached registry copy that *shadows* the live, daemon-wired shim. So the
+ *   plugin-api peer alone is stripped from a scratch copy of the manifest for
+ *   the duration of the install, then the original manifest is restored verbatim
+ *   (bun runs with `--no-save`, so it never writes the manifest itself).
  * - **`--ignore-scripts`** — no dependency (or root) lifecycle script runs, so
  *   installing a plugin never executes arbitrary `postinstall` code. Curated
  *   adapter transforms run through their own vetted path (see
  *   {@link ./install-from-github}), not here.
- * - **`--no-save`** — `package.json` is left byte-for-byte as materialized and
- *   no lockfile is written, so the only artifact is `node_modules/`, which every
- *   plugin-tree walk already excludes (see `../../plugins/plugin-tree-walk.ts`).
+ * - **`--no-save`** — no lockfile is written and bun does not touch the
+ *   manifest, so the only artifact is `node_modules/`, which every plugin-tree
+ *   walk already excludes (see `../../plugins/plugin-tree-walk.ts`). The
+ *   manifest ends byte-for-byte as materialized (restored after the strip above).
  *
  * `node_modules/` is intentionally *not* fingerprinted, preserved across
  * upgrades, or otherwise treated as source: it is derived from the pinned
@@ -42,7 +47,7 @@
  */
 
 import { execFile } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 
@@ -57,16 +62,22 @@ const log = getLogger("plugin-deps");
 const DEPENDENCY_INSTALL_TIMEOUT_MS = 120_000;
 
 /**
- * `bun install` argv for a plugin's dependencies. `--omit=peer` is load-bearing:
- * without it bun resolves the `@vellumai/plugin-api` peer every adapted plugin
- * declares and plants a detached registry copy that shadows the daemon-wired
- * workspace shim (see the module docstring). Exported so a guard test pins the
- * flag set against silent regressions.
+ * The workspace-shim peer stripped from the manifest for the duration of the
+ * install so bun never resolves it (see the module docstring). Other peers are
+ * kept and installed normally.
+ */
+const PLUGIN_API_PACKAGE = "@vellumai/plugin-api";
+
+/**
+ * `bun install` argv for a plugin's dependencies. Peers are installed (bun's
+ * default) so a plugin's non-host peers resolve; the `@vellumai/plugin-api`
+ * shim is withheld by stripping it from the manifest, not by omitting all peers
+ * (see the module docstring). Exported so a guard test pins the flag set against
+ * silent regressions.
  */
 export const DEPENDENCY_INSTALL_ARGS: readonly string[] = Object.freeze([
   "install",
   "--omit=dev",
-  "--omit=peer",
   "--ignore-scripts",
   "--no-save",
 ]);
@@ -82,37 +93,103 @@ export type DependencyInstaller = (opts: {
   readonly cwd: string;
 }) => Promise<void>;
 
-/**
- * Whether the plugin at `pluginDir` declares any runtime `dependencies`. A
- * missing/unparseable manifest, or one with no (or an empty) `dependencies`
- * object, means there is nothing to install — the common case for the many
- * plugins that import only the plugin-api and whitelisted shared deps.
- */
-function hasRuntimeDependencies(pluginDir: string): boolean {
-  const pkgPath = join(pluginDir, "package.json");
-  if (!existsSync(pkgPath)) {
-    return false;
+/** How a plugin's dependencies should be installed, or `null` to skip. */
+interface ManifestInstallPlan {
+  /** Original `package.json` bytes, restored verbatim after the install. */
+  readonly originalManifest: string;
+  /**
+   * Manifest bytes to write for the duration of the install — a copy with only
+   * the `@vellumai/plugin-api` peer removed — or `null` when the manifest needs
+   * no rewrite (it declares no plugin-api peer, so it installs as-is).
+   */
+  readonly installManifest: string | null;
+}
+
+/** A non-empty plain-object record at `value`, or `null`. */
+function nonEmptyRecord(value: unknown): Record<string, unknown> | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return null;
   }
-  try {
-    const parsed: unknown = JSON.parse(readFileSync(pkgPath, "utf8"));
-    if (typeof parsed !== "object" || parsed === null) {
-      return false;
-    }
-    const deps = (parsed as { dependencies?: unknown }).dependencies;
-    return (
-      typeof deps === "object" &&
-      deps !== null &&
-      !Array.isArray(deps) &&
-      Object.keys(deps).length > 0
-    );
-  } catch {
-    return false;
-  }
+  const record = value as Record<string, unknown>;
+  return Object.keys(record).length > 0 ? record : null;
 }
 
 /**
- * Install the plugin's declared runtime dependencies into
- * `<pluginDir>/node_modules/`, a no-op when it declares none.
+ * Decide whether — and how — to install `pluginDir`'s dependencies.
+ *
+ * Returns `null` when there is nothing to install: a missing/unparseable
+ * manifest, or one whose only installable declarations are the host-provided
+ * `@vellumai/plugin-api` peer (the common case for plugins that import only the
+ * plugin-api and whitelisted shared deps).
+ *
+ * Otherwise the plan carries the original manifest bytes and, when the manifest
+ * declares the plugin-api peer, a rewritten copy with *only* that peer removed.
+ * Every other peer (e.g. `react`) is kept so bun installs it as a normal install
+ * would; only the shim — which the daemon provides at runtime and which must
+ * never be shadowed by a registry copy — is withheld.
+ */
+function planManifestForInstall(pluginDir: string): ManifestInstallPlan | null {
+  const pkgPath = join(pluginDir, "package.json");
+  if (!existsSync(pkgPath)) {
+    return null;
+  }
+  let originalManifest: string;
+  let parsed: unknown;
+  try {
+    originalManifest = readFileSync(pkgPath, "utf8");
+    parsed = JSON.parse(originalManifest);
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    return null;
+  }
+  const manifest = parsed as Record<string, unknown>;
+
+  const peers = nonEmptyRecord(manifest.peerDependencies);
+  const hasPluginApiPeer = peers !== null && PLUGIN_API_PACKAGE in peers;
+  const hasNonApiPeer =
+    peers !== null &&
+    Object.keys(peers).some((name) => name !== PLUGIN_API_PACKAGE);
+
+  const hasDeps = nonEmptyRecord(manifest.dependencies) !== null;
+  const hasOptionalDeps =
+    nonEmptyRecord(manifest.optionalDependencies) !== null;
+
+  if (!hasDeps && !hasOptionalDeps && !hasNonApiPeer) {
+    // Only the plugin-api peer (or nothing) — bun would install nothing once it
+    // is stripped, so skip the subprocess entirely.
+    return null;
+  }
+
+  if (!hasPluginApiPeer) {
+    return { originalManifest, installManifest: null };
+  }
+
+  // Strip only the plugin-api peer; the install manifest need only be valid
+  // JSON bun can read, since the original is restored verbatim afterward.
+  const strippedPeers = { ...peers };
+  delete strippedPeers[PLUGIN_API_PACKAGE];
+  const installManifest: Record<string, unknown> = { ...manifest };
+  if (Object.keys(strippedPeers).length > 0) {
+    installManifest.peerDependencies = strippedPeers;
+  } else {
+    delete installManifest.peerDependencies;
+  }
+  return {
+    originalManifest,
+    installManifest: `${JSON.stringify(installManifest, null, 2)}\n`,
+  };
+}
+
+/**
+ * Install the plugin's declared dependencies (and non-host peers) into
+ * `<pluginDir>/node_modules/`, a no-op when it declares nothing installable.
+ *
+ * The `@vellumai/plugin-api` peer is stripped from the manifest for the duration
+ * of the install and restored afterward (see the module docstring), so the
+ * daemon-provided shim is never resolved or shadowed and `package.json` ends
+ * byte-for-byte as materialized.
  *
  * Fail-soft by design: a dependency-install failure (offline, an unresolvable
  * version, a registry outage) is logged and swallowed rather than aborting the
@@ -126,9 +203,26 @@ export async function installPluginDependencies(
   pluginDir: string,
   run: DependencyInstaller = defaultDependencyInstaller,
 ): Promise<void> {
-  if (!hasRuntimeDependencies(pluginDir)) {
+  const plan = planManifestForInstall(pluginDir);
+  if (!plan) {
     return;
   }
+
+  const pkgPath = join(pluginDir, "package.json");
+  if (plan.installManifest !== null) {
+    try {
+      writeFileSync(pkgPath, plan.installManifest);
+    } catch (err) {
+      // Could not stage the plugin-api-stripped manifest — skip rather than run
+      // an install that would resolve (and shadow) the shim.
+      log.warn(
+        { err, pluginDir },
+        "could not stage manifest for plugin dependency install — skipping",
+      );
+      return;
+    }
+  }
+
   try {
     await run({ cwd: pluginDir });
     log.info({ pluginDir }, "installed plugin dependencies");
@@ -137,15 +231,27 @@ export async function installPluginDependencies(
       { err, pluginDir },
       "plugin dependency install failed — imports of a missing dependency will fail at load; reinstall to retry",
     );
+  } finally {
+    if (plan.installManifest !== null) {
+      try {
+        writeFileSync(pkgPath, plan.originalManifest);
+      } catch (err) {
+        log.error(
+          { err, pluginDir },
+          "failed to restore plugin manifest after dependency install — package.json may be left with the plugin-api peer stripped",
+        );
+      }
+    }
   }
 }
 
 /**
  * Production dependency installer: runs `bun install` with a real `bun` binary
  * resolved via {@link ensureBun}, under a timeout. `--omit=dev` skips
- * devDependencies, `--omit=peer` skips peer dependencies (host-provided; see the
- * module docstring), `--ignore-scripts` blocks all lifecycle scripts, and
- * `--no-save` leaves `package.json` untouched and writes no lockfile.
+ * devDependencies, `--ignore-scripts` blocks all lifecycle scripts, and
+ * `--no-save` writes no lockfile and does not touch the manifest. Peers install
+ * by default; the plugin-api shim is withheld by the manifest strip in
+ * {@link installPluginDependencies}, not by a flag here.
  *
  * `process.execPath` is unusable here: inside a `bun build --compile` binary it
  * is the compiled assistant app, not the bun CLI (see `util/bun-runtime.ts`),
