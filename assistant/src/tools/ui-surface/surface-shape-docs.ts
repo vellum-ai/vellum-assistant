@@ -16,6 +16,8 @@
  * stay accepted, so card has no guard here.
  */
 
+import { FileUploadSurfaceDataSchema } from "../../api/surfaces.js";
+
 export function asRecord(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === "object"
     ? (value as Record<string, unknown>)
@@ -57,10 +59,10 @@ interface SurfaceShapeDoc {
   /** Full `data` shape spec, shown in per-type teaching errors. */
   shape: string;
   /**
-   * Returns a description of the missing load-bearing content, or null when
-   * the payload has enough to render. Absent for types the daemon normalizes
-   * leniently (card), that render fine with defaults (file_upload), or that
-   * have bespoke handling (dynamic_page).
+   * Returns a description of what keeps the payload from rendering as intended
+   * — missing load-bearing content, or keys that would be silently dropped —
+   * or null when the payload is fine. Absent for types the daemon normalizes
+   * leniently (card) or that have bespoke handling (dynamic_page).
    */
   missingContent?: (data: Record<string, unknown>) => string | null;
 }
@@ -68,6 +70,11 @@ interface SurfaceShapeDoc {
 /** templateData shape of a task_progress card (shared with channel variants). */
 export const TASK_PROGRESS_TEMPLATE_SHAPE =
   '{ title, status: "in_progress"|"completed"|"failed", steps: [{ label, status: "pending"|"in_progress"|"completed"|"failed", detail? }] }';
+
+/** Data keys the file_upload renderer reads; any other key is silently stripped. */
+const FILE_UPLOAD_KEYS = new Set<string>(
+  Object.keys(FileUploadSurfaceDataSchema.shape),
+);
 
 export const SURFACE_SHAPE_DOCS: Record<string, SurfaceShapeDoc> = {
   card: {
@@ -153,6 +160,23 @@ export const SURFACE_SHAPE_DOCS: Record<string, SurfaceShapeDoc> = {
   file_upload: {
     purpose: "prompt the user to upload files",
     shape: "{ prompt, acceptedTypes?, maxFiles? }",
+    missingContent: (data) => {
+      // As a cold type, file_upload's shape reaches the model only through this
+      // teaching error. The canonical schema strips unrecognized keys, so a
+      // best-guess payload that mis-names a constraint (snake_case
+      // `accepted_types`/`max_files`, or any other unknown key) would silently
+      // render an unconstrained uploader. Flag dropped keys so the model
+      // relearns the shape; a prompt-only or empty payload still renders
+      // (context can also come from the top-level `title`), so it passes.
+      const unknownKeys = Object.keys(data).filter(
+        (key) => !FILE_UPLOAD_KEYS.has(key),
+      );
+      if (unknownKeys.length === 0) {
+        return null;
+      }
+      const keyList = unknownKeys.map((key) => `\`${key}\``).join(", ");
+      return `${unknownKeys.length === 1 ? "key" : "keys"} ${keyList} would be dropped (file_upload reads only \`prompt\`, \`acceptedTypes\`, \`maxFiles\`)`;
+    },
   },
   dynamic_page: {
     purpose: "custom HTML page for transient UI only, never app-like builds",
