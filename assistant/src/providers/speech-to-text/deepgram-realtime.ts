@@ -24,7 +24,8 @@
  * - Provider WebSocket errors and unexpected closes are mapped to
  *   {@link SttStreamServerErrorEvent} with appropriate categories.
  * - A configurable inactivity timeout fires a `closed` event if the
- *   provider stops sending data mid-session.
+ *   provider stops responding to audio mid-session; an idle stream with
+ *   no audio owed a response never times out.
  * - All timers and listeners are cleaned up on close to prevent leaks.
  */
 
@@ -50,9 +51,11 @@ const DEFAULT_MODEL = "nova-2";
 const DEFAULT_CONNECT_TIMEOUT_MS = 10_000;
 
 /**
- * Default inactivity timeout (ms). If no message is received from Deepgram
- * for this duration after the session is open, the adapter closes with a
- * timeout error. This guards against provider-side hangs.
+ * Default inactivity timeout (ms). If audio has been sent but no message
+ * comes back from Deepgram for this long, the adapter closes with a
+ * timeout error. This guards against provider-side hangs. A stream with
+ * no audio awaiting a response (e.g. mic gated while the assistant
+ * speaks) is legitimately silent and never times out.
  */
 const DEFAULT_INACTIVITY_TIMEOUT_MS = 30_000;
 
@@ -382,6 +385,15 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
   /** Inactivity timer handle. */
   private inactivityTimer: ReturnType<typeof setTimeout> | null = null;
 
+  /**
+   * When the first audio frame went out after the last inbound provider
+   * message; null while nothing is owed a response. The inactivity
+   * watchdog only rules "hung" while this is set — Deepgram sends nothing
+   * for silence-only stretches (KeepAlives get no reply), so inbound
+   * quiet alone is not evidence of a hang.
+   */
+  private awaitingResponseSinceMs: number | null = null;
+
   /** Close grace timer handle. */
   private closeGraceTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -520,6 +532,7 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
 
     // Deepgram's live endpoint accepts raw audio bytes on the WebSocket.
     ws.send(new Uint8Array(audio));
+    this.awaitingResponseSinceMs ??= Date.now();
   }
 
   /**
@@ -946,6 +959,12 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
         // handleTranscriptFrame.
         this.fallbackSettledFinalizes += 1;
       }
+      // The settled request covers all audio sent so far — Deepgram had
+      // nothing significant buffered, so no response is owed anymore.
+      // Leaving the debt set would let the inactivity watchdog kill the
+      // now-idle stream ~30s after a short/noisy utterance that elicited
+      // no provider frames at all.
+      this.awaitingResponseSinceMs = null;
       this.settleOneFinalize();
     }, this.finalizeFallbackMs);
   }
@@ -1061,6 +1080,17 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
    * continuous audio from the caller must not mask a silent provider.
    */
   private resetInactivityTimer(): void {
+    this.awaitingResponseSinceMs = null;
+    this.armInactivityTimer(this.inactivityTimeoutMs);
+  }
+
+  /**
+   * (Re)arm the inactivity watchdog. On fire it only rules "hung" when
+   * audio has been awaiting a response for a full timeout window;
+   * otherwise the stream is just idle (or the audio is too fresh) and the
+   * timer re-arms for the remainder.
+   */
+  private armInactivityTimer(delayMs: number): void {
     if (this.closed || this.stopping) {
       return;
     }
@@ -1074,6 +1104,17 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
         return;
       }
 
+      const since = this.awaitingResponseSinceMs;
+      if (since === null) {
+        this.armInactivityTimer(this.inactivityTimeoutMs);
+        return;
+      }
+      const waitedMs = Date.now() - since;
+      if (waitedMs < this.inactivityTimeoutMs) {
+        this.armInactivityTimer(this.inactivityTimeoutMs - waitedMs);
+        return;
+      }
+
       log.warn("Deepgram realtime inactivity timeout");
       this.emitEvent({
         type: "error",
@@ -1081,7 +1122,7 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
         message: "Deepgram realtime session timed out due to inactivity",
       });
       this.emitClosedAndCleanup();
-    }, this.inactivityTimeoutMs);
+    }, delayMs);
   }
 
   /**

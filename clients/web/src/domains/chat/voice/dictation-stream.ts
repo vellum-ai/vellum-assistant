@@ -68,6 +68,7 @@ export interface DictationStreamOptions {
   captureFactory?: (options: LiveVoiceAudioCaptureOptions) => {
     start(): Promise<LiveVoiceCaptureResult>;
     shutdown(): void;
+    flush?(): void;
   };
 }
 
@@ -242,6 +243,10 @@ export function startDictationStream(
     isLive: () => live && !closed,
     stop: () => {
       if (!closed && ws.readyState === WebSocket.OPEN) {
+        // The last <50ms may still sit in the capture's batch accumulator;
+        // drain it (synchronously, via onChunk) before asking the provider
+        // to flush finals.
+        capture.flush?.();
         try {
           ws.send(JSON.stringify({ type: "stop" }));
         } catch {
