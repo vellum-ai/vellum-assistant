@@ -12,6 +12,7 @@ import { configPatch, credentialsSetPost } from "@/generated/daemon/sdk.gen";
 import { useDraftOverride } from "@/domains/settings/ai/use-draft-override";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
+import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { synthesizeTTS } from "@/lib/tts-synthesize";
 import { getLocalSetting, setLocalSetting } from "@/utils/local-settings";
 import { Button } from "@vellumai/design-library/components/button";
@@ -19,6 +20,7 @@ import { Dropdown } from "@vellumai/design-library/components/dropdown";
 import { Input } from "@vellumai/design-library/components/input";
 import { toast } from "@vellumai/design-library/components/toast";
 
+import { PlatformLoginNotice } from "@/components/platform-login-notice";
 import {
   ByoServiceCard,
   CredentialsGuide,
@@ -57,20 +59,28 @@ export function TextToSpeechCard() {
     enabled: isOrgReady,
     staleTime: Infinity,
   });
+  const platformGate = usePlatformGate();
   const providers = useMemo(() => {
-    const fetched = catalogData?.providers;
-    if (!fetched) {
-      return TTS_PROVIDERS;
-    }
-    // Assistants running an older catalog omit vellum, but the managed option
-    // must still be offered (and a legacy managed config still renders as
-    // Vellum) — graft the static entry on.
-    if (fetched.some((p) => p.id === "vellum")) {
-      return fetched;
-    }
-    const vellum = TTS_PROVIDERS.find((p) => p.id === "vellum");
-    return vellum ? [vellum, ...fetched] : fetched;
-  }, [catalogData]);
+    const base = (() => {
+      const fetched = catalogData?.providers;
+      if (!fetched) {
+        return TTS_PROVIDERS;
+      }
+      // Assistants running an older catalog omit vellum, but the managed
+      // option must still be offered (and a legacy managed config still
+      // renders as Vellum) — graft the static entry on.
+      if (fetched.some((p) => p.id === "vellum")) {
+        return fetched;
+      }
+      const vellum = TTS_PROVIDERS.find((p) => p.id === "vellum");
+      return vellum ? [vellum, ...fetched] : fetched;
+    })();
+    // "gated" means the platform API is off entirely — logging in cannot
+    // help, so the managed option is withheld rather than shown dead.
+    return platformGate === "gated"
+      ? base.filter((p) => p.id !== "vellum")
+      : base;
+  }, [catalogData, platformGate]);
 
   // Seed the provider from the daemon's live config so a Save doesn't clobber a
   // provider configured elsewhere (CLI/other client) when localStorage is stale.
@@ -93,11 +103,14 @@ export function TextToSpeechCard() {
   // not `providers[0]` — the catalog leads with Vellum, and an unconfigured
   // client must not claim the managed provider on its own.
   const defaultProviderId = "elevenlabs";
-  const serverProvider = useMemo(
-    () =>
-      daemonTtsProvider ?? getLocalSetting(LS_TTS_PROVIDER, defaultProviderId),
-    [daemonTtsProvider, defaultProviderId],
-  );
+  const serverProvider = useMemo(() => {
+    const stored =
+      daemonTtsProvider ?? getLocalSetting(LS_TTS_PROVIDER, defaultProviderId);
+    // Keep the dropdown on an offered value: under a gated platform the
+    // vellum option is withheld, and a config still pointing at it would
+    // otherwise select nothing while the card styles itself as managed.
+    return providers.some((p) => p.id === stored) ? stored : defaultProviderId;
+  }, [daemonTtsProvider, providers, defaultProviderId]);
   const daemonHasProvider = !!daemonTtsProvider;
   const [draftProvider, setDraftProvider] = useDraftOverride(serverProvider);
   const [apiKeyText, setApiKeyText] = useState("");
@@ -183,8 +196,17 @@ export function TextToSpeechCard() {
       // Only PATCH the provider when it truly diverges from the persisted
       // value (or the daemon has none yet); otherwise a re-save with just a new
       // key/voice would silently switch a provider set elsewhere.
+      // When the daemon points at a provider the dropdown does not offer
+      // (vellum under a gated platform), `serverProvider` was coerced away
+      // from it, so a draft-vs-server comparison can no longer see the
+      // divergence — the write must be forced or the daemon stays on vellum.
+      const escapingUnofferedVellum =
+        daemonTtsProvider === "vellum" &&
+        !providers.some((p) => p.id === "vellum");
       const shouldSetProvider =
-        draftProvider !== serverProvider || !daemonHasProvider;
+        draftProvider !== serverProvider ||
+        !daemonHasProvider ||
+        escapingUnofferedVellum;
       const ttsBody = {
         // The provider is always written as a pair with `mode`, which keeps
         // the write valid on every daemon version: older schemas reject
@@ -302,6 +324,9 @@ export function TextToSpeechCard() {
   // Vellum authenticates via the platform connection, so it has no key to enter
   // and nothing for the client-side Test path (a direct provider call) to use.
   const isManaged = draftProvider === "vellum";
+  // Without a platform session the save would persist a provider that cannot
+  // work, so it is blocked behind the login notice instead.
+  const vellumNeedsLogin = isManaged && platformGate === "disabled";
 
   return (
     <ByoServiceCard
@@ -356,6 +381,12 @@ export function TextToSpeechCard() {
 
         <CredentialsGuide guide={selectedProvider.credentialsGuide} />
 
+        {vellumNeedsLogin && (
+          <PlatformLoginNotice>
+            Log in to the Vellum platform to use managed speech synthesis.
+          </PlatformLoginNotice>
+        )}
+
         <div className="flex items-center gap-2">
           {!isManaged && (
             <Button variant="outlined" onClick={handleTest} disabled={testing}>
@@ -363,7 +394,10 @@ export function TextToSpeechCard() {
             </Button>
           )}
           <div className="ml-auto flex items-center gap-2">
-            <SaveButton onClick={handleSave} disabled={!hasChanges || saving} />
+            <SaveButton
+              onClick={handleSave}
+              disabled={!hasChanges || saving || vellumNeedsLogin}
+            />
             {providerHasKey && !isManaged && (
               <ResetButton onClick={handleReset} />
             )}

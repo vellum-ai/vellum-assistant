@@ -12,12 +12,14 @@ import {
 import { configPatch, credentialsSetPost } from "@/generated/daemon/sdk.gen";
 import { useDraftOverride } from "@/domains/settings/ai/use-draft-override";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
+import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { isNativeDictationSupported } from "@/runtime/native-dictation-partials";
 import { getLocalSetting, setLocalSetting } from "@/utils/local-settings";
 import { Dropdown } from "@vellumai/design-library/components/dropdown";
 import { Input } from "@vellumai/design-library/components/input";
 import { toast } from "@vellumai/design-library/components/toast";
 
+import { PlatformLoginNotice } from "@/components/platform-login-notice";
 import {
   ByoServiceCard,
   CredentialsGuide,
@@ -74,13 +76,20 @@ export function SpeechToTextCard() {
   const assistantId = useActiveAssistantId();
   const isOrgReady = useIsOrgReady();
   const queryClient = useQueryClient();
-  // Capability is fixed for the renderer's lifetime, so compute the offered
-  // list once: the native provider only exists inside the macOS Electron
-  // shell, where the helper's SFSpeechRecognizer bridge is wired.
-  const [providers] = useState(() =>
-    STT_PROVIDERS.filter(
-      (p) => !p.requiresNativeDictation || isNativeDictationSupported(),
-    ),
+  const platformGate = usePlatformGate();
+  // The native-dictation capability is fixed for the renderer's lifetime, but
+  // the platform gate is not (logging in flips "disabled" to "full"), so the
+  // offered list is derived per render. "gated" means the platform API is off
+  // entirely — logging in cannot help, so the managed option is withheld
+  // rather than shown dead.
+  const providers = useMemo(
+    () =>
+      STT_PROVIDERS.filter(
+        (p) =>
+          (!p.requiresNativeDictation || isNativeDictationSupported()) &&
+          (p.id !== "vellum" || platformGate !== "gated"),
+      ),
+    [platformGate],
   );
   const defaultProviderId = DEFAULT_PROVIDER_ID;
 
@@ -128,7 +137,9 @@ export function SpeechToTextCard() {
   // ONLY the capability-dependent native id is corrected — legacy aliases
   // like "whisper" must survive untouched for normalizeSttProviderId() /
   // migrateLegacyLocalSttSettings() in stt-api.ts to map at transcribe
-  // time. Both deps are set-once, so this runs only on mount.
+  // time. The provider list recomputes when the platform gate changes, so
+  // the effect can re-run — the correction is idempotent, so extra runs
+  // are no-ops.
   useEffect(() => {
     const stored = getLocalSetting(LS_STT_PROVIDER, defaultProviderId);
     if (
@@ -158,6 +169,12 @@ export function SpeechToTextCard() {
     const hasNewKey = apiKeyText.trim().length > 0;
     return providerChanged || hasNewKey;
   }, [draftProvider, serverProvider, apiKeyText]);
+
+  // Vellum authenticates via the platform session; without one the save
+  // would persist a provider that cannot work, so it is blocked behind the
+  // login notice instead.
+  const vellumNeedsLogin =
+    draftProvider === "vellum" && platformGate === "disabled";
 
   const handleSave = useCallback(async () => {
     const trimmedKey = apiKeyText.trim();
@@ -326,14 +343,22 @@ export function SpeechToTextCard() {
           <CredentialsGuide guide={selectedProvider.credentialsGuide} />
         )}
 
-        {draftProvider === "vellum" && (
-          <p className="text-body-medium-lighter text-[var(--content-tertiary)]">
-            Transcription runs through your Vellum account.
-          </p>
-        )}
+        {draftProvider === "vellum" &&
+          (vellumNeedsLogin ? (
+            <PlatformLoginNotice>
+              Log in to the Vellum platform to use managed transcription.
+            </PlatformLoginNotice>
+          ) : (
+            <p className="text-body-medium-lighter text-[var(--content-tertiary)]">
+              Transcription runs through your Vellum account.
+            </p>
+          ))}
 
         <div className="flex items-center justify-end gap-2">
-          <SaveButton onClick={handleSave} disabled={!hasChanges || saving} />
+          <SaveButton
+            onClick={handleSave}
+            disabled={!hasChanges || saving || vellumNeedsLogin}
+          />
           {providerHasKey && <ResetButton onClick={handleReset} />}
         </div>
       </div>

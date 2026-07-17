@@ -29,6 +29,17 @@ mock.module("@vellumai/design-library/components/toast", () => ({
   Toaster: () => null,
   ToastContent: () => null,
 }));
+let platformGate = "full";
+mock.module("@/hooks/use-platform-gate", () => ({
+  usePlatformGate: () => platformGate,
+}));
+// The real notice pulls in the router + onboarding-login flow; the cards only
+// need its presence to be observable.
+mock.module("@/components/platform-login-notice", () => ({
+  PlatformLoginNotice: ({ children }: { children?: unknown }) => (
+    <div data-testid="platform-login-notice">{children as never}</div>
+  ),
+}));
 let orgReady = false;
 mock.module("@/hooks/use-is-org-ready", () => ({
   useIsOrgReady: () => orgReady,
@@ -108,6 +119,7 @@ describe("TextToSpeechCard — daemon provisioning on Save", () => {
     localStorage.clear();
     credentialsSetCalls.length = 0;
     configPatchCalls.length = 0;
+    platformGate = "full";
     daemonConfigData = { services: {} };
     orgReady = false;
     ttsCatalogData = undefined;
@@ -196,6 +208,7 @@ describe("TextToSpeechCard — Vellum provider", () => {
     localStorage.clear();
     credentialsSetCalls.length = 0;
     configPatchCalls.length = 0;
+    platformGate = "full";
     daemonConfigData = { services: {} };
     orgReady = false;
     ttsCatalogData = undefined;
@@ -223,7 +236,7 @@ describe("TextToSpeechCard — Vellum provider", () => {
   test("selecting Vellum saves provider vellum and stores no credential", async () => {
     renderCard();
 
-    selectProvider("Vellum Managed");
+    selectProvider("Vellum");
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(configPatchCalls.length).toBe(1));
@@ -267,6 +280,65 @@ describe("TextToSpeechCard — Vellum provider", () => {
     });
   });
 
+  test("a gated platform hides the Vellum option, grafted or not", () => {
+    platformGate = "gated";
+    renderCard();
+
+    const trigger = document.querySelector<HTMLButtonElement>(
+      'button[role="combobox"][aria-label="TTS provider"]',
+    );
+    fireEvent.click(trigger!);
+    const options = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="option"]'),
+    ).map((o) => o.textContent?.trim());
+    expect(options).not.toContain("Vellum");
+  });
+
+  test("a gated platform coerces a vellum config to a representable provider", async () => {
+    // The gated filter withholds vellum from the options, so a config still
+    // pointing at it must coerce to an offered value — otherwise the dropdown
+    // selects nothing while the card styles itself as managed. Saving must
+    // then force the provider write: the coerced serverProvider hides the
+    // divergence from the daemon, which would otherwise stay on vellum.
+    platformGate = "gated";
+    daemonConfigData = { services: { tts: { provider: "vellum" } } };
+    renderCard();
+
+    const trigger = document.querySelector<HTMLButtonElement>(
+      'button[role="combobox"][aria-label="TTS provider"]',
+    );
+    expect(trigger?.textContent).toContain("ElevenLabs");
+    // BYOK controls are back — the card no longer styles itself as managed.
+    expect(screen.getByText("API Key")).toBeTruthy();
+
+    fireEvent.change(screen.getByPlaceholderText("sk_…"), {
+      target: { value: "el-secret" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(configPatchCalls.length).toBe(1));
+    expect(configPatchCalls[0]!.body).toMatchObject({
+      services: { tts: { provider: "elevenlabs", mode: "your-own" } },
+    });
+  });
+
+  test("a vellum selection while logged out shows the login notice and blocks Save", () => {
+    platformGate = "disabled";
+    daemonConfigData = { services: { tts: { provider: "vellum" } } };
+    renderCard();
+
+    expect(screen.getByTestId("platform-login-notice")).toBeTruthy();
+    const save = screen.getByRole("button", { name: "Save" });
+    expect(save.hasAttribute("disabled")).toBe(true);
+  });
+
+  test("a logged-in session sees no login notice on Vellum", () => {
+    daemonConfigData = { services: { tts: { provider: "vellum" } } };
+    renderCard();
+
+    expect(screen.queryByTestId("platform-login-notice")).toBeNull();
+  });
+
   test("grafts the Vellum option onto a fetched catalog that lacks it", () => {
     // A daemon serving the pre-vellum catalog omits the managed option; the
     // card must still offer it, or a legacy managed config has no selectable
@@ -294,7 +366,7 @@ describe("TextToSpeechCard — Vellum provider", () => {
     const options = Array.from(
       document.querySelectorAll<HTMLElement>('[role="option"]'),
     ).map((o) => o.textContent?.trim());
-    expect(options).toContain("Vellum Managed");
+    expect(options).toContain("Vellum");
     expect(options).toContain("ElevenLabs");
   });
 });
