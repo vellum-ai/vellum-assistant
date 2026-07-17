@@ -287,6 +287,43 @@ describe("image-recovery post-model-call hook — direct", () => {
     });
   });
 
+  test("media-type-mismatch on an unrecognized format → no retry, error surfaces", async () => {
+    // GIVEN a mismatch rejection for an image whose actual format the sniffer
+    // cannot identify (a renamed BMP: "BM" magic, not in the sniff set), so no
+    // relabel is possible and the image is within size limits.
+    const bmpData = Buffer.concat([
+      Buffer.from("BM"),
+      Buffer.alloc(64, 0),
+    ]).toString("base64");
+    const unrecognized: ContentBlock = {
+      type: "image",
+      source: { type: "base64", media_type: "image/png", data: bmpData },
+    };
+    const ctx = makePostModelCallCtx({
+      messages: [{ role: "user", content: [structuredClone(unrecognized)] }],
+      error: new Error(
+        'Anthropic API error (400): 400 {"type":"error","error":{"type":"invalid_request_error","message":"messages.0.content.0.image.source.base64.data: Image does not match the provided media type image/png"}}',
+      ),
+    });
+
+    // WHEN the hook runs.
+    await postModelCall(ctx);
+
+    // THEN it does not retry (nothing could be corrected) and leaves the
+    // history untouched, so the original error surfaces instead of a false
+    // "corrected — resend" loop.
+    expect(ctx.decision).toBe("stop");
+    expect(isImageRecoveryAttempted(ctx.conversationId)).toBe(false);
+    const image = ctx.messages[0].content[0] as Extract<
+      ContentBlock,
+      { type: "image" }
+    >;
+    expect(image.source).toMatchObject({
+      media_type: "image/png",
+      data: bmpData,
+    });
+  });
+
   test("durably persists the downgrade so the image cannot resurface", async () => {
     // GIVEN a conversation whose stored history holds an oversized image.
     const conv = createConversation();

@@ -475,11 +475,14 @@ function classifyCore(
         };
       }
       if (isImageMediaTypeMismatchError(message)) {
-        // Same wire-code reuse as image_unprocessable above.
+        // Same wire-code reuse as image_unprocessable above. This surfaces only
+        // when auto-correction could not resolve the mismatch — a recognized
+        // format is relabeled and the retry succeeds without ever reaching here,
+        // so the copy must not claim a fix that didn't happen.
         return {
           code: "IMAGE_TOO_LARGE",
           userMessage:
-            "An image in this conversation was labeled with a format that doesn't match its actual contents. It was automatically corrected — send your message again to continue.",
+            "An image in this conversation is in a format the AI provider can't read, and it couldn't be converted automatically. Re-save it as PNG or JPEG and upload it again.",
           retryable: false,
           errorCategory: "image_media_type_mismatch",
         };

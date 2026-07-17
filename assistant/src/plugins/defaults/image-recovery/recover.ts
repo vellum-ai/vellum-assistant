@@ -232,11 +232,20 @@ function messageHasImageBlock(content: ReadonlyArray<ContentBlock>): boolean {
  * stays intact rather than dropping the whole tool_result. Applies the same
  * provider-cap gate as {@link persistUnsendableImageDowngrades} so the in-memory
  * retry and the durable rewrite agree on which images are unsendable.
+ *
+ * Reports whether any block was actually rewritten. A provider rejection can
+ * be classified as recoverable yet leave nothing to fix — e.g. a media-type
+ * mismatch on a format {@link sniffBase64ImageMimeType} cannot identify (a
+ * renamed BMP/TIFF/SVG, or an unconvertible HEIF) yields no replacement. The
+ * caller must not retry an unchanged history: it would resend the identical
+ * rejected image and falsely report a correction.
  */
-export function recoverUnsendableImages(
-  messages: ReadonlyArray<Message>,
-): Message[] {
-  return messages.map((msg) => {
+export function recoverUnsendableImages(messages: ReadonlyArray<Message>): {
+  messages: Message[];
+  changed: boolean;
+} {
+  let changed = false;
+  const recovered = messages.map((msg) => {
     if (!Array.isArray(msg.content)) {
       return msg;
     }
@@ -247,17 +256,28 @@ export function recoverUnsendableImages(
       ...msg,
       content: msg.content.flatMap((b): ContentBlock[] => {
         if (b.type === "image") {
-          return [unsendableImageReplacement(b) ?? b];
+          const replacement = unsendableImageReplacement(b);
+          if (replacement) {
+            changed = true;
+            return [replacement];
+          }
+          return [b];
         }
         if (b.type === "tool_result" && b.contentBlocks?.length) {
           return [
             {
               ...b,
-              contentBlocks: b.contentBlocks.map((cb) =>
-                cb.type === "image"
-                  ? (unsendableImageReplacement(cb) ?? cb)
-                  : cb,
-              ),
+              contentBlocks: b.contentBlocks.map((cb) => {
+                if (cb.type !== "image") {
+                  return cb;
+                }
+                const replacement = unsendableImageReplacement(cb);
+                if (replacement) {
+                  changed = true;
+                  return replacement;
+                }
+                return cb;
+              }),
             },
           ];
         }
@@ -265,4 +285,5 @@ export function recoverUnsendableImages(
       }),
     };
   });
+  return { messages: recovered, changed };
 }
