@@ -17,7 +17,13 @@
  * then clicks "Continue" to drop into the full workspace on the same conversation.
  */
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
 import { lifecycleService } from "@/assistant/lifecycle-service";
@@ -347,6 +353,23 @@ export function ResearchOnboardingRoute() {
     void check.then(setEstablishedCheck);
   }, [awaitHatchReady]);
 
+  // Resolve the established-assistant verdict for a gate decision: race the
+  // in-flight check (kicked off at mount, above) against a short timeout so a
+  // slow daemon can't hold the flow. A null result — the check hasn't started
+  // yet or the race timed out — is the fail-open signal: the caller proceeds as
+  // if fresh, matching the check's own fail-open posture (the guard stops
+  // silent persona rewrites of real assistants, not onboarding on a hiccup).
+  const resolveEstablishedGate = useCallback(
+    (): Promise<EstablishedAssistantCheck | null> =>
+      Promise.race([
+        establishedCheckRef.current ?? Promise.resolve(null),
+        new Promise<null>((resolve) => {
+          setTimeout(() => resolve(null), ESTABLISHED_CHECK_SUBMIT_WAIT_MS);
+        }),
+      ]),
+    [],
+  );
+
   // Resume a journey saved by a previous session (a page refresh). Runs once,
   // as soon as the user id is known, BEFORE the persistence write / research
   // re-fire effects below (which gate on `restored`). useLayoutEffect so we
@@ -451,19 +474,43 @@ export function ResearchOnboardingRoute() {
   // until the form is submitted (which fires the search itself), and a completed
   // resume hydrates the status to "done". The meeting is never re-booked here:
   // that only fires from the calendar step, which a resume skips past.
+  //
+  // The same established-assistant guard the form submit applies runs first: a
+  // restored post-form snapshot (persisted before the verdict settled, or after
+  // a transient fail-open) must not silently re-run research against an
+  // assistant that already has a life. When established, divert to the same
+  // keep/redo decision screen instead of re-firing; fail open (resume) on a
+  // fresh/unknown verdict, so a genuinely-new user never sees the guard.
   useEffect(() => {
     if (!restored) return;
     if (!formValues || research.status !== "idle") return;
-    startResearch({
-      awaitAssistantId: awaitHatchReady,
-      subject: researchSubjectFrom(formValues),
-      conversationTitle: researchTitleFor(formValues),
-      ...(researchConversationId
-        ? { resumeConversationId: researchConversationId }
-        : {}),
-      onConversationCreated: setResearchConversationId,
-      includeSuggestions: !personalityEnabled,
-    });
+    const values = formValues;
+    let cancelled = false;
+    void (async () => {
+      if (!guardOverriddenRef.current) {
+        const check = await resolveEstablishedGate();
+        if (cancelled) return;
+        if (check?.established) {
+          setGatedFormValues(values);
+          setForwardStack([]);
+          setStep("existing");
+          return;
+        }
+      }
+      startResearch({
+        awaitAssistantId: awaitHatchReady,
+        subject: researchSubjectFrom(values),
+        conversationTitle: researchTitleFor(values),
+        ...(researchConversationId
+          ? { resumeConversationId: researchConversationId }
+          : {}),
+        onConversationCreated: setResearchConversationId,
+        includeSuggestions: !personalityEnabled,
+      });
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [
     restored,
     formValues,
@@ -472,6 +519,7 @@ export function ResearchOnboardingRoute() {
     startResearch,
     awaitHatchReady,
     personalityEnabled,
+    resolveEstablishedGate,
   ]);
 
   // If we're sitting on the results step when the research turn resolves empty
@@ -645,18 +693,11 @@ export function ResearchOnboardingRoute() {
 
   async function handleFormSubmit(values: ResearchOnboardingValues) {
     // Established-assistant guard: never run the flow's side effects against
-    // an assistant that already has a life without an explicit choice. Uses
-    // the settled verdict when available, otherwise waits briefly for the
-    // in-flight check — failing open so a slow daemon can't hold the form.
+    // an assistant that already has a life without an explicit choice. Awaits
+    // the (usually already-settled) verdict, failing open so a slow daemon
+    // can't hold the form.
     if (!guardOverriddenRef.current) {
-      const check =
-        establishedCheck ??
-        (await Promise.race([
-          establishedCheckRef.current ?? Promise.resolve(null),
-          new Promise<null>((resolve) => {
-            setTimeout(() => resolve(null), ESTABLISHED_CHECK_SUBMIT_WAIT_MS);
-          }),
-        ]));
+      const check = await resolveEstablishedGate();
       if (check?.established) {
         setGatedFormValues(values);
         goForwardTo("existing");
