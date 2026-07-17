@@ -1,8 +1,10 @@
-import { selectedBackendSupportsMultimodal } from "@vellumai/plugin-api";
+import {
+  selectedBackendSupportsMultimodal,
+  sweepOrphanedGraphNodePoints,
+} from "@vellumai/plugin-api";
 import { and, eq, isNotNull, like, ne } from "drizzle-orm";
 
 import { getDb } from "../../../../persistence/db-connection.js";
-import { sweepOrphanedGraphNodePoints } from "../../../../persistence/embeddings/graph-node-orphan-sweep.js";
 import { withQdrantBreaker } from "../../../../persistence/embeddings/qdrant-circuit-breaker.js";
 import {
   asString,
