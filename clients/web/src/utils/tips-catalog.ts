@@ -130,7 +130,7 @@ export const TIPS_CATALOG: readonly Tip[] = [
     kind: "info",
     source: "curated",
     eyebrow: "Personalize",
-    title: "Make me yours",
+    title: "Customize my look",
     body: "Pick a custom avatar, sounds, and theme.",
     learnMore: { label: "Personalize", to: routes.identity },
   },
