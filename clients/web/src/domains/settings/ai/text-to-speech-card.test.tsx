@@ -236,7 +236,7 @@ describe("TextToSpeechCard — Vellum provider", () => {
   test("selecting Vellum saves provider vellum and stores no credential", async () => {
     renderCard();
 
-    selectProvider("Vellum Managed");
+    selectProvider("Vellum");
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(configPatchCalls.length).toBe(1));
@@ -291,7 +291,7 @@ describe("TextToSpeechCard — Vellum provider", () => {
     const options = Array.from(
       document.querySelectorAll<HTMLElement>('[role="option"]'),
     ).map((o) => o.textContent?.trim());
-    expect(options).not.toContain("Vellum Managed");
+    expect(options).not.toContain("Vellum");
   });
 
   test("a vellum selection while logged out shows the login notice and blocks Save", () => {
@@ -338,7 +338,7 @@ describe("TextToSpeechCard — Vellum provider", () => {
     const options = Array.from(
       document.querySelectorAll<HTMLElement>('[role="option"]'),
     ).map((o) => o.textContent?.trim());
-    expect(options).toContain("Vellum Managed");
+    expect(options).toContain("Vellum");
     expect(options).toContain("ElevenLabs");
   });
 });
