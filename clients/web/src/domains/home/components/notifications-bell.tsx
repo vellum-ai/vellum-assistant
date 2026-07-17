@@ -104,8 +104,11 @@ export function NotificationsBell() {
     <Button
       variant="ghost"
       // The bell reads at 18px (vs. the Button's 14px icon-only default) so
-      // it holds its own in the top bar next to the dot.
-      iconOnlyGlyphClassName="[&_svg]:size-4.5"
+      // it holds its own in the top bar next to the dot. The touch-mobile
+      // variant must be repeated: expandOnMobile (on by default) adds a
+      // touch-mobile:[&_svg]:size-4 rule that would otherwise win over the
+      // unprefixed override inside the media query.
+      iconOnlyGlyphClassName="[&_svg]:size-4.5 touch-mobile:[&_svg]:size-4.5"
       iconOnly={
         <span className="relative flex" aria-hidden>
           <Bell />
