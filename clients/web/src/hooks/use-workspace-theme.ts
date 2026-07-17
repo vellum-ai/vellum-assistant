@@ -33,6 +33,7 @@ import { workspaceThemeGetQueryKey } from "@/generated/daemon/@tanstack/react-qu
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { SYNC_TAGS } from "@/lib/sync/types";
 import { getClientId } from "@/lib/telemetry/client-identity";
+import { toApiError } from "@/utils/api-errors";
 import {
   applyWorkspaceThemeTokens,
   type WorkspaceTheme,
@@ -43,7 +44,11 @@ import {
  *
  * An assistant that lacks the route 404s this read, which resolves to `null` so
  * a refetch overwrites the last-applied theme instead of stranding it. Other
- * failures throw, so a transient error keeps the last-good theme and retries.
+ * HTTP failures throw a status-carrying error via {@link toApiError} — the
+ * `throwOnError: false` read bypasses the client's error interceptor, so the
+ * status must be attached here for the global retry predicate to honour the
+ * no-retry-4xx policy (e.g. a 429 from the request limiter). A network error
+ * (no response) rethrows raw so it retries as a transient failure.
  */
 export async function fetchWorkspaceTheme(
   assistantId: string,
@@ -57,6 +62,9 @@ export async function fetchWorkspaceTheme(
   if (!response || !response.ok) {
     if (response?.status === 404) {
       return null;
+    }
+    if (response) {
+      throw toApiError(error, response);
     }
     throw error ?? new Error("Failed to fetch workspace theme.");
   }

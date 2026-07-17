@@ -2,12 +2,16 @@
  * Pins the read contract the workspace-theme hook leans on: an assistant
  * without the route (older, or rolled back from a themed version) 404s the
  * read, which resolves to `null` so a refetch overwrites the last-applied
- * theme and the hook clears the tokens. Every other failure throws so a
- * transient error keeps the last-good theme and retries.
+ * theme and the hook clears the tokens. Every other HTTP failure throws a
+ * status-carrying {@link ApiError} so the global retry predicate can honour the
+ * no-retry-4xx policy, while a network error (no response) rethrows raw and
+ * stays retryable.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { ApiError } from "@/utils/api-errors";
+import { httpStatusFromError, shouldRetryQuery } from "@/utils/query-retry";
 import type { WorkspaceTheme } from "@/domains/settings/utils/workspace-theme-tokens";
 
 const workspaceThemeGetMock = mock(
@@ -54,18 +58,35 @@ describe("fetchWorkspaceTheme", () => {
     expect(await fetchWorkspaceTheme("assistant-1")).toBeNull();
   });
 
-  test("throws on a non-404 failure so the query keeps the last-good theme", async () => {
+  test("throws a status-carrying error on a non-404 failure so the query keeps the last-good theme", async () => {
     workspaceThemeGetMock.mockResolvedValueOnce({
       error: { detail: "boom" },
       response: { ok: false, status: 500 },
     });
 
-    await expect(fetchWorkspaceTheme("assistant-1")).rejects.toThrow();
+    const err = await fetchWorkspaceTheme("assistant-1").catch((e) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect(httpStatusFromError(err)).toBe(500);
   });
 
-  test("throws on a network failure with no response", async () => {
+  test("a rate-limited (429) failure throws an error the global retry predicate won't retry", async () => {
+    workspaceThemeGetMock.mockResolvedValueOnce({
+      error: { detail: "Too Many Requests" },
+      response: { ok: false, status: 429 },
+    });
+
+    const err = await fetchWorkspaceTheme("assistant-1").catch((e) => e);
+    expect(httpStatusFromError(err)).toBe(429);
+    expect(shouldRetryQuery(0, err)).toBe(false);
+  });
+
+  test("rethrows a network failure (no response) as a retryable error", async () => {
     workspaceThemeGetMock.mockResolvedValueOnce({ response: undefined });
 
-    await expect(fetchWorkspaceTheme("assistant-1")).rejects.toThrow();
+    const err = await fetchWorkspaceTheme("assistant-1").catch((e) => e);
+    expect(err).toBeInstanceOf(Error);
+    // No HTTP status → the global retry predicate treats it as transient.
+    expect(httpStatusFromError(err)).toBeUndefined();
+    expect(shouldRetryQuery(0, err)).toBe(true);
   });
 });
