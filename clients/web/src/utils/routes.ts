@@ -196,8 +196,9 @@ export const routes = {
     // the Vellum platform).
     usageBilling: `${SETTINGS_USAGE_PATH}?tab=billing`,
     usageForSchedule: (scheduleId: string) => {
-      // Usage is the default tab on the Usage page, so no `tab` param needed.
+      // Billing is the default tab when available, so force the Usage tab.
       const params = new URLSearchParams({
+        tab: "usage",
         range: "7d",
         groupBy: "schedule",
         scheduleId,

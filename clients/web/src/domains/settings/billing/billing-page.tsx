@@ -182,15 +182,16 @@ export function BillingPage() {
     const showBillingTab = billingGate === "full";
 
     const [searchParams, setSearchParams] = useSearchParams();
-    // Usage is the default tab; Billing is opt-in via `?tab=billing` and only
-    // when it's actually shown.
+    // When Billing is available it leads the tab list and is the default;
+    // Usage is reached via `?tab=usage`. With no Billing tab, Usage is all
+    // there is.
     const activeTab =
-        showBillingTab && searchParams.get("tab") === "billing" ? "billing" : "usage";
+        showBillingTab && searchParams.get("tab") !== "usage" ? "billing" : "usage";
 
     const handleTabChange = (value: string) => {
         const next = new URLSearchParams(searchParams);
-        if (value === "billing") {
-            next.set("tab", "billing");
+        if (value === "usage") {
+            next.set("tab", "usage");
         } else {
             next.delete("tab");
         }
@@ -201,17 +202,17 @@ export function BillingPage() {
         <div className="space-y-6">
             <Tabs.Root value={activeTab} onValueChange={handleTabChange}>
                 <Tabs.List>
-                    <Tabs.Trigger value="usage">Usage</Tabs.Trigger>
                     {showBillingTab && <Tabs.Trigger value="billing">Billing</Tabs.Trigger>}
+                    <Tabs.Trigger value="usage">Usage</Tabs.Trigger>
                 </Tabs.List>
-                <Tabs.Panel value="usage" className="pt-4">
-                    <UsagePanel />
-                </Tabs.Panel>
                 {showBillingTab && (
                     <Tabs.Panel value="billing" className="pt-4">
                         <BillingTab />
                     </Tabs.Panel>
                 )}
+                <Tabs.Panel value="usage" className="pt-4">
+                    <UsagePanel />
+                </Tabs.Panel>
             </Tabs.Root>
         </div>
     );

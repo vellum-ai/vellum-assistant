@@ -10,13 +10,13 @@ import {
 describe("routes", () => {
   test("builds schedule-filtered usage URLs", () => {
     expect(routes.settings.usageForSchedule("schedule-123")).toBe(
-      "/assistant/settings/usage?range=7d&groupBy=schedule&scheduleId=schedule-123",
+      "/assistant/settings/usage?tab=usage&range=7d&groupBy=schedule&scheduleId=schedule-123",
     );
   });
 
   test("encodes schedule ids in usage URLs", () => {
     expect(routes.settings.usageForSchedule("schedule with spaces")).toBe(
-      "/assistant/settings/usage?range=7d&groupBy=schedule&scheduleId=schedule+with+spaces",
+      "/assistant/settings/usage?tab=usage&range=7d&groupBy=schedule&scheduleId=schedule+with+spaces",
     );
   });
 
