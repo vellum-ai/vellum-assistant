@@ -10,7 +10,10 @@ import {
 } from "../../credential-refresh.js";
 import { StringDedupCache } from "../../dedup-cache.js";
 import type { EmailReplySender } from "../../email/inbound-pipeline.js";
-import { runEmailInboundPipeline } from "../../email/inbound-pipeline.js";
+import {
+  resolveEmailCredentialOrRelease,
+  runEmailInboundPipeline,
+} from "../../email/inbound-pipeline.js";
 import type { VellumEmailPayload } from "../../email/normalize.js";
 import {
   evaluateSenderAuthentication,
@@ -359,10 +362,18 @@ export function createResendWebhookHandler(
     // The webhook payload only has metadata — we need the API to get
     // the actual email body and headers.
 
-    const apiKey = await resolveCredentialWithRefresh(
-      caches?.credentials,
-      credentialKey("resend", "api_key"),
-    );
+    const apiKeyResult = await resolveEmailCredentialOrRelease({
+      credentials: caches?.credentials,
+      key: credentialKey("resend", "api_key"),
+      dedupCache,
+      dedupKey: messageId,
+      log: tlog,
+      label: "Resend",
+    });
+    if (!apiKeyResult.ok) {
+      return apiKeyResult.response;
+    }
+    const apiKey = apiKeyResult.value;
 
     let emailContent: Awaited<ReturnType<typeof fetchResendEmailContent>> =
       null;

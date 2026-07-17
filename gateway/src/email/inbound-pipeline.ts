@@ -1,6 +1,8 @@
 import type { Logger } from "pino";
 import { buildEmailTransportMetadata } from "../channels/transport-hints.js";
 import type { GatewayConfig } from "../config.js";
+import type { CredentialCache } from "../credential-cache.js";
+import { resolveCredentialWithRefresh } from "../credential-refresh.js";
 import { recordDenialReplyIfAllowed } from "../db/denial-reply-rate-limiter.js";
 import type { StringDedupCache } from "../dedup-cache.js";
 import { handleInbound } from "../handlers/handle-inbound.js";
@@ -47,6 +49,46 @@ export interface EmailInboundPipelineOptions {
   sendReply: EmailReplySender | undefined;
   /** Extra fields for the received/forwarded log lines (e.g. Resend emailId). */
   logFields?: Record<string, unknown>;
+}
+
+/**
+ * Resolve a provider credential after the caller has already reserved
+ * `dedupKey`. `resolveCredentialWithRefresh` reads through the credential
+ * cache, which re-throws on a credential-backend failure; left unguarded that
+ * throw would strand the reservation — a {@link StringDedupCache} reservation
+ * has no TTL, so the provider's retries would dedup as duplicates and the
+ * email would be silently dropped. On a throw, release the reservation and
+ * return a 500 so the provider retries and the retry is processed. A missing
+ * credential is not an error: it resolves to `undefined` and the caller
+ * decides whether that is fatal.
+ */
+export async function resolveEmailCredentialOrRelease(opts: {
+  credentials: CredentialCache | undefined;
+  key: string;
+  dedupCache: StringDedupCache;
+  dedupKey: string;
+  log: Logger;
+  label: string;
+}): Promise<
+  { ok: true; value: string | undefined } | { ok: false; response: Response }
+> {
+  try {
+    const value = await resolveCredentialWithRefresh(
+      opts.credentials,
+      opts.key,
+    );
+    return { ok: true, value };
+  } catch (err) {
+    opts.log.error(
+      { err },
+      `Failed to resolve ${opts.label} credential — releasing dedup reservation for retry`,
+    );
+    opts.dedupCache.unreserve(opts.dedupKey);
+    return {
+      ok: false,
+      response: Response.json({ error: "Internal error" }, { status: 500 }),
+    };
+  }
 }
 
 /**

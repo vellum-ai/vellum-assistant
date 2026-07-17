@@ -10,7 +10,10 @@ import {
 } from "../../credential-refresh.js";
 import { StringDedupCache } from "../../dedup-cache.js";
 import type { EmailReplySender } from "../../email/inbound-pipeline.js";
-import { runEmailInboundPipeline } from "../../email/inbound-pipeline.js";
+import {
+  resolveEmailCredentialOrRelease,
+  runEmailInboundPipeline,
+} from "../../email/inbound-pipeline.js";
 import type { VellumEmailPayload } from "../../email/normalize.js";
 import {
   evaluateSenderAuthentication,
@@ -355,10 +358,18 @@ export function createMailgunWebhookHandler(
 
     // ── Forward through the shared email pipeline ───────────────────
 
-    const apiKey = await resolveCredentialWithRefresh(
-      caches?.credentials,
-      credentialKey("mailgun", "api_key"),
-    );
+    const apiKeyResult = await resolveEmailCredentialOrRelease({
+      credentials: caches?.credentials,
+      key: credentialKey("mailgun", "api_key"),
+      dedupCache,
+      dedupKey: token,
+      log: tlog,
+      label: "Mailgun",
+    });
+    if (!apiKeyResult.ok) {
+      return apiKeyResult.response;
+    }
+    const apiKey = apiKeyResult.value;
     if (!apiKey) {
       tlog.debug("Mailgun API key not configured — replies disabled");
     }
