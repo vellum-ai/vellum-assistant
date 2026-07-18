@@ -1,4 +1,10 @@
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 import { beforeEach, describe, expect, test } from "bun:test";
 
@@ -11,6 +17,7 @@ import {
   _peekStreamForTesting,
   _resetStreamStateForTesting,
   _simulateRestartForTesting,
+  disableStreamSeqStamping,
   floorSeqAbove,
   getCurrentSeq,
   getReplayWindow,
@@ -789,6 +796,50 @@ describe("assistant-stream-state", () => {
         join(process.env.VELLUM_WORKSPACE_DIR!, "data", "stream-seq.json"),
         { force: true },
       );
+      _simulateRestartForTesting();
+      const a = mkEvent();
+      stampAndBuffer(a);
+      expect(a.seq).toBe(1);
+    });
+  });
+
+  describe("disableStreamSeqStamping", () => {
+    const reservationPath = () =>
+      join(process.env.VELLUM_WORKSPACE_DIR!, "data", "stream-seq.json");
+
+    test("stamping is a complete no-op in a disabled process", () => {
+      disableStreamSeqStamping();
+      const a = mkEvent();
+      stampAndBuffer(a);
+      expect(a.seq).toBeUndefined();
+      expect(_peekStreamForTesting().ringLength).toBe(0);
+      expect(existsSync(reservationPath())).toBe(false);
+    });
+
+    test("getCurrentSeq reports no honest position in a disabled process", () => {
+      // A reservation exists on disk from an authoritative process; a
+      // disabled process must not adopt it as a reportable position.
+      stampAndBuffer(mkEvent());
+      disableStreamSeqStamping();
+      expect(getCurrentSeq()).toBe(0);
+    });
+
+    test("floorSeqAbove leaves the reservation file untouched in a disabled process", () => {
+      disableStreamSeqStamping();
+      floorSeqAbove(5_000);
+      expect(existsSync(reservationPath())).toBe(false);
+    });
+
+    test("_resetStreamStateForTesting restores stamping", () => {
+      disableStreamSeqStamping();
+      _resetStreamStateForTesting();
+      const a = mkEvent();
+      stampAndBuffer(a);
+      expect(a.seq).toBe(1);
+    });
+
+    test("_simulateRestartForTesting restores stamping (a fresh process defaults authoritative)", () => {
+      disableStreamSeqStamping();
       _simulateRestartForTesting();
       const a = mkEvent();
       stampAndBuffer(a);
