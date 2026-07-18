@@ -234,6 +234,16 @@ export interface LiveVoiceMetricsServerFrame extends LiveVoiceServerFrameBase {
    */
   readonly roundTripMs?: number | null;
   readonly totalMs: number | null;
+  /**
+   * Semantic-endpointing "hold" decisions taken during the turn. Present only
+   * when the voice-front-model endpoint decider was consulted (with the
+   * feature off the field is absent, keeping frames unchanged).
+   */
+  readonly endpointHoldCount?: number;
+  /** Worst endpoint-decision latency observed during the turn. */
+  readonly endpointDecisionMaxLatencyMs?: number;
+  /** Which floor-holding ack actually spoke during the turn, if any. */
+  readonly ackSpoken?: "first_delta" | "tool_use";
 }
 
 export interface LiveVoiceArchivedServerFrame extends LiveVoiceServerFrameBase {

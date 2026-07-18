@@ -271,6 +271,95 @@ describe("LiveVoiceMetricsCollector", () => {
     expect(turn.timestamps.utteranceEndAtMs).toBe(2_000);
   });
 
+  test("accumulates endpoint decisions and records the first ack kind", () => {
+    const clock = makeClock(0);
+    const collector = new LiveVoiceMetricsCollector({
+      sessionId: "session-ep",
+      conversationId: "conversation-ep",
+      clock: clock.now,
+    });
+
+    collector.startTurn("turn-ep");
+    collector.markEndpointDecision("turn-ep", {
+      action: "hold",
+      latencyMs: 120,
+    });
+    collector.markEndpointDecision("turn-ep", {
+      action: "hold",
+      latencyMs: 80,
+    });
+    collector.markEndpointDecision("turn-ep", {
+      action: "release",
+      latencyMs: 210,
+    });
+    collector.markAckSpoken("turn-ep", "tool_use");
+    // First ack kind wins — the per-turn budget allows one spoken ack, so a
+    // second mark must not overwrite the recorded kind.
+    collector.markAckSpoken("turn-ep", "first_delta");
+    const completed = collector.completeTurn();
+
+    expect(completed).toMatchObject({
+      turnId: "turn-ep",
+      endpointHoldCount: 2,
+      endpointDecisionMaxLatencyMs: 210,
+      ackSpoken: "tool_use",
+    });
+    expect(
+      getLiveVoiceMetricsAggregateFields(collector.getSnapshot(), "turn-ep"),
+    ).toMatchObject({
+      endpointHoldCount: 2,
+      endpointDecisionMaxLatencyMs: 210,
+      ackSpoken: "tool_use",
+    });
+  });
+
+  test("release-only decisions report zero holds with the observed latency", () => {
+    const clock = makeClock(0);
+    const collector = new LiveVoiceMetricsCollector({
+      sessionId: "session-rel",
+      conversationId: "conversation-rel",
+      clock: clock.now,
+    });
+
+    collector.startTurn("turn-rel");
+    collector.markEndpointDecision("turn-rel", {
+      action: "release",
+      latencyMs: 95,
+    });
+    const completed = collector.completeTurn();
+
+    expect(completed).toMatchObject({
+      endpointHoldCount: 0,
+      endpointDecisionMaxLatencyMs: 95,
+    });
+    expect(completed).not.toHaveProperty("ackSpoken");
+  });
+
+  test("omits endpoint and ack fields for turns that never touch the features", () => {
+    const clock = makeClock(0);
+    const collector = new LiveVoiceMetricsCollector({
+      sessionId: "session-off",
+      conversationId: "conversation-off",
+      clock: clock.now,
+    });
+
+    collector.startTurn("turn-off");
+    collector.markFirstAudio();
+    const completed = collector.completeTurn();
+
+    expect(completed).not.toHaveProperty("endpointHoldCount");
+    expect(completed).not.toHaveProperty("endpointDecisionMaxLatencyMs");
+    expect(completed).not.toHaveProperty("ackSpoken");
+
+    const aggregateFields = getLiveVoiceMetricsAggregateFields(
+      collector.getSnapshot(),
+      "turn-off",
+    );
+    expect(aggregateFields).not.toHaveProperty("endpointHoldCount");
+    expect(aggregateFields).not.toHaveProperty("endpointDecisionMaxLatencyMs");
+    expect(aggregateFields).not.toHaveProperty("ackSpoken");
+  });
+
   test("markBargeIn records a first-wins timestamp on the active turn", () => {
     const clock = makeClock(3_000);
     const collector = new LiveVoiceMetricsCollector({
