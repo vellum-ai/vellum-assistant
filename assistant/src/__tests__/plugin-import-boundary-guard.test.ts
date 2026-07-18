@@ -189,6 +189,7 @@ const BASELINE: Record<string, readonly string[]> = {
     "../../../prompts/template-detection.js",
     "../../../runtime/actor-trust-resolver.js",
     "../../../runtime/agent-wake.js",
+    "../../../runtime/assistant-stream-state.js",
     "../../../runtime/background-job-runner.js",
     "../../../runtime/capabilities.js",
     "../../../runtime/services/auto-analysis-guard.js",
