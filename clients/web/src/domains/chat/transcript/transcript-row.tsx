@@ -33,6 +33,7 @@ export interface TranscriptRowProps {
   ) => void;
   onForkConversation?: (messageId: string) => void;
   onSummarizeUpToHere?: (messageId: string) => void;
+  onRetryLatestTurn?: () => void;
   onInspectMessage?: (messageId: string) => void;
   /** Render-prop for `kind: "onboardingChoice"` items. Onboarding depends on
    *  props from the parent (sendMessage, didOnboarding, etc.) and has a
@@ -90,6 +91,7 @@ export const TranscriptRow = memo(function TranscriptRow({
   onSurfaceAction,
   onForkConversation,
   onSummarizeUpToHere,
+  onRetryLatestTurn,
   onInspectMessage,
   renderOnboardingChoice,
   onOpenRuleEditor,
@@ -122,6 +124,7 @@ export const TranscriptRow = memo(function TranscriptRow({
           onSurfaceAction={onSurfaceAction}
           onForkConversation={onForkConversation}
           onSummarizeUpToHere={onSummarizeUpToHere}
+          onRetryLatestTurn={onRetryLatestTurn}
           onInspectMessage={onInspectMessage}
           onOpenRuleEditor={onOpenRuleEditor}
           unknownNudgeToolCallIds={unknownNudgeToolCallIds}

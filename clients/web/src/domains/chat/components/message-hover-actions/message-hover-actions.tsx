@@ -1,5 +1,5 @@
 
-import { Bookmark, Check, Copy, ExternalLink, FileCode, GitBranch, ListCollapse } from "lucide-react";
+import { Bookmark, Check, Copy, ExternalLink, FileCode, GitBranch, ListCollapse, RotateCcw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { DisplayMessage } from "@/domains/chat/types/types";
@@ -24,6 +24,10 @@ export type MessageHoverActionsProps = {
   onSummarizeUpToHere?: () => void;
   /** Callback when "Inspect" is clicked. */
   onInspect?: () => void;
+  /** Callback when "Retry" is clicked. Only provided on the latest assistant
+   *  message while no turn is in flight — retry discards that response and
+   *  regenerates it. */
+  onRetry?: () => void;
 };
 
 function formatTimestamp(epoch: number): string {
@@ -95,6 +99,7 @@ export function MessageHoverActions({
   onFork,
   onSummarizeUpToHere,
   onInspect,
+  onRetry,
 }: MessageHoverActionsProps) {
   const { role } = message;
 
@@ -178,6 +183,17 @@ export function MessageHoverActions({
           ) : (
             <Copy className="h-3.5 w-3.5" />
           )}
+        </button>
+      )}
+
+      {onRetry && (
+        <button
+          type="button"
+          onClick={onRetry}
+          title="Retry"
+          className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-[var(--content-tertiary)] transition-colors hover:bg-[var(--surface-active)] hover:text-[var(--content-default)]"
+        >
+          <RotateCcw className="h-3.5 w-3.5" />
         </button>
       )}
 

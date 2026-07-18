@@ -49,6 +49,7 @@ import { useDraftPersistence } from "@/domains/chat/hooks/use-draft-persistence"
 import { useOnboardingOrchestrator } from "@/domains/chat/hooks/use-onboarding-orchestrator";
 
 import { useConversationSecondaryActions } from "@/domains/chat/hooks/use-conversation-secondary-actions";
+import { useAssistantCapability } from "@/hooks/use-assistant-capability";
 import { useSupportsSummarizeUpToHere } from "@/lib/backwards-compat/use-supports-summarize-up-to-here";
 import { useCanUseLlmInspector } from "@/domains/chat/inspector/access";
 import { useSendMessage } from "@/domains/chat/hooks/use-send-message";
@@ -402,6 +403,7 @@ export function ActiveChatView() {
     handleForkConversation,
     handleForkConversationFromMenu,
     handleSummarizeUpToMessage,
+    handleRetryLatestTurn,
     handleOpenInNewWindow,
     handleInspectConversation,
     handleInspectMessage,
@@ -436,6 +438,30 @@ export function ActiveChatView() {
   }, [pendingSummarizeMessageId, handleSummarizeUpToMessage]);
   const handleCancelSummarize = useCallback(() => {
     setPendingSummarizeMessageId(null);
+  }, []);
+
+  // "Retry" confirm dialog. Same shape as summarize: the hover action only
+  // opens the dialog; the POST fires from its confirm button — retry
+  // permanently discards the latest assistant response, so it always goes
+  // through an explicit confirmation. Capability-gated at the callback
+  // source: daemons without the retry endpoint get no `onRetryLatestTurn`,
+  // so the hover button never renders and the dialog is unreachable.
+  const supportsRetryTurn = useAssistantCapability("retryLastTurn");
+  const [retryConfirmOpen, setRetryConfirmOpen] = useState(false);
+  const [retryPending, setRetryPending] = useState(false);
+  const handleRetryLatestTurnRequested = useCallback(() => {
+    setRetryConfirmOpen(true);
+  }, []);
+  const handleConfirmRetry = useCallback(() => {
+    setRetryPending(true);
+    // Errors toast inside the handler; the dialog just closes.
+    void handleRetryLatestTurn().finally(() => {
+      setRetryPending(false);
+      setRetryConfirmOpen(false);
+    });
+  }, [handleRetryLatestTurn]);
+  const handleCancelRetry = useCallback(() => {
+    setRetryConfirmOpen(false);
   }, []);
 
   // Manual "Refresh" menu item — re-fetch the latest history page through the
@@ -505,6 +531,9 @@ export function ActiveChatView() {
     onSummarizeUpToHere: supportsSummarizeUpToHere
       ? handleSummarizeUpToHere
       : undefined,
+    onRetryLatestTurn: supportsRetryTurn
+      ? handleRetryLatestTurnRequested
+      : undefined,
     handleInspectMessage: showLlmInspector ? handleInspectMessage : undefined,
 
     // History pagination
@@ -559,6 +588,15 @@ export function ActiveChatView() {
         isPending={summarizePending}
         onConfirm={handleConfirmSummarize}
         onCancel={handleCancelSummarize}
+      />
+      <ConfirmDialog
+        open={retryConfirmOpen}
+        title="Retry this response?"
+        message="The latest response will be discarded and regenerated. This can't be undone."
+        confirmLabel="Retry"
+        isPending={retryPending}
+        onConfirm={handleConfirmRetry}
+        onCancel={handleCancelRetry}
       />
       <MobileChatOverlays />
     </>

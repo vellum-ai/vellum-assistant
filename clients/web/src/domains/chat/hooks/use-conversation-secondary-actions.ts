@@ -19,6 +19,7 @@ import { toast } from "@vellumai/design-library";
 
 import type { Conversation } from "@/types/conversation-types";
 import {
+  conversationsByIdRetryPost,
   conversationsForkPost,
   conversationsSummarizePost,
 } from "@/generated/daemon/sdk.gen";
@@ -51,6 +52,7 @@ export interface UseConversationSecondaryActionsReturn {
   handleForkConversation: (throughMessageId: string) => Promise<void>;
   handleForkConversationFromMenu: () => void;
   handleSummarizeUpToMessage: (beforeMessageId: string) => Promise<void>;
+  handleRetryLatestTurn: () => Promise<void>;
   handleOpenInNewWindow: (conversation: Conversation) => void;
   handleInspectConversation: (conversation: Conversation) => void;
   handleInspectMessage: (messageId: string) => void;
@@ -158,6 +160,34 @@ export function useConversationSecondaryActions({
     [],
   );
 
+  // Discards the latest assistant display turn and re-runs generation from
+  // its user message. Fire-and-forget like summarize: the daemon acknowledges
+  // with 202, the regenerated turn streams over the existing SSE events, and
+  // the discarded rows disappear via the messages sync invalidation — no
+  // local state to update here.
+  const handleRetryLatestTurn = useCallback(async () => {
+    const assistantId = useResolvedAssistantsStore.getState().activeAssistantId;
+    const activeConversationId = useConversationStore.getState().activeConversationId;
+    if (!assistantId || !activeConversationId) {
+      return;
+    }
+    haptic.light();
+
+    try {
+      await conversationsByIdRetryPost({
+        path: { assistant_id: assistantId, id: activeConversationId },
+        throwOnError: true,
+      });
+    } catch (err) {
+      captureError(err, { context: "retry_latest_turn" });
+      toast.error(
+        err instanceof ApiError && err.status === 409
+          ? "The assistant is busy — try again when the current response finishes"
+          : "Couldn't retry the response",
+      );
+    }
+  }, []);
+
   const handleForkConversationFromMenu = useCallback(() => {
     const latestPersisted = transcriptRef.current.findLast(
       (m) => m.id != null,
@@ -242,6 +272,7 @@ export function useConversationSecondaryActions({
     handleForkConversation,
     handleForkConversationFromMenu,
     handleSummarizeUpToMessage,
+    handleRetryLatestTurn,
     handleOpenInNewWindow,
     handleInspectConversation,
     handleInspectMessage,

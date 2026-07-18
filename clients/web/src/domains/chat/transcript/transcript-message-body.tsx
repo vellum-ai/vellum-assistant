@@ -100,6 +100,7 @@ export function TranscriptMessageBody({
   onSurfaceAction,
   onForkConversation,
   onSummarizeUpToHere,
+  onRetryLatestTurn,
   onInspectMessage,
   onOpenRuleEditor,
   unknownNudgeToolCallIds,
@@ -172,6 +173,16 @@ export function TranscriptMessageBody({
   const inspectHandler =
     inspectMessageId && onInspectMessage
       ? () => onInspectMessage(inspectMessageId)
+      : undefined;
+  // Retry only attaches to the latest persisted assistant message — the turn
+  // the daemon's retry endpoint would discard and re-run. Everything else
+  // (user rows, older assistant rows, optimistic rows) gets no button.
+  const retryHandler =
+    isLatestMessage &&
+    message.role === "assistant" &&
+    !message.isOptimistic &&
+    message.id
+      ? onRetryLatestTurn
       : undefined;
 
   const wrapperRef = useRef<HTMLDivElement | null>(null);
@@ -908,6 +919,7 @@ export function TranscriptMessageBody({
           onFork={forkHandler}
           onSummarizeUpToHere={summarizeHandler}
           onInspect={inspectHandler}
+          onRetry={retryHandler}
         />
       </div>
     </>
