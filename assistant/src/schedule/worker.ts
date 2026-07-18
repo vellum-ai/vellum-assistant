@@ -16,6 +16,7 @@ import { existsSync, unlinkSync, writeFileSync } from "node:fs";
 import { getConfig } from "../config/loader.js";
 import { rehydratePlatformCredentials } from "../config/platform-rehydration.js";
 import { resetDb } from "../persistence/db-connection.js";
+import { disableStreamSeqStamping } from "../runtime/assistant-stream-state.js";
 import { initializeTools } from "../tools/registry.js";
 import { getLogger } from "../util/logger.js";
 import { getScheduleWorkerPidPath } from "../util/platform.js";
@@ -38,6 +39,8 @@ function cleanupPidFile(): void {
 }
 
 async function main(): Promise<void> {
+  // Only the daemon stamps SSE seqs and writes the shared reservation file.
+  disableStreamSeqStamping();
   // Load config up front so a broken config fails the spawn (before the PID
   // file is written) instead of surfacing on the first tick.
   getConfig();

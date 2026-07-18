@@ -17,6 +17,7 @@ import { getConfig } from "../config/loader.js";
 import { rehydratePlatformCredentials } from "../config/platform-rehydration.js";
 import { resetDb } from "../persistence/db-connection.js";
 import { startConsentRefresh } from "../platform/consent-cache.js";
+import { disableStreamSeqStamping } from "../runtime/assistant-stream-state.js";
 import {
   startConfigSnapshotReporter,
   stopConfigSnapshotReporter,
@@ -54,6 +55,8 @@ function cleanupPidFile(): void {
 }
 
 async function main(): Promise<void> {
+  // Only the daemon stamps SSE seqs and writes the shared reservation file.
+  disableStreamSeqStamping();
   const config = getConfig();
   const pidPath = getMonitoringPidPath();
 

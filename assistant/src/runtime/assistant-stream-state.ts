@@ -160,12 +160,39 @@ const state: AssistantStreamState = {
   totalSizeBytes: 0,
 };
 
+/**
+ * Whether seq stamping is disabled in this process. The daemon is the
+ * sole seq authority: sidecar worker processes run their own instance of
+ * this module but share the workspace reservation file, so a worker that
+ * stamped would issue seqs from its own counter — overlapping the
+ * daemon's range (two different events carrying the same seq, which
+ * clients seq-dedupe into dropped real events) — and race the daemon's
+ * reservation writes. Worker-side hub publishes reach no SSE subscribers
+ * (those live in the daemon), so an unstamped event loses nothing.
+ */
+let stampingDisabled = false;
+
 // ── Public API ───────────────────────────────────────────────────────
+
+/**
+ * Mark this process as a non-authoritative seq bystander: stamping, ring
+ * buffering, reservation loads/writes, and {@link getCurrentSeq}
+ * snapshots all become inert. Worker-process entrypoints call this once
+ * at bootstrap, before any event can be published (enforced by
+ * `worker-seq-stamping-guard.test.ts`). `getCurrentSeq` then reports
+ * `0`, which persistence already treats as "no honest position"
+ * (`recordConversationPersistedSeq` ignores it; conversation creation
+ * stores it as NULL).
+ */
+export function disableStreamSeqStamping(): void {
+  stampingDisabled = true;
+}
 
 /**
  * Assign a monotonic global `seq` to a conversation-scoped event and push
  * it onto the ring buffer. No-op when `event.conversationId` is absent
- * (unscoped broadcasts are never replayable).
+ * (unscoped broadcasts are never replayable) and in processes where
+ * stamping is disabled ({@link disableStreamSeqStamping}).
  *
  * When `options.targeting` is provided, the metadata is stored on the
  * ring entry so that {@link getReplayWindow} can re-apply the same
@@ -179,6 +206,9 @@ export function stampAndBuffer(
   event: AssistantEvent,
   options?: { targeting?: EventTargeting },
 ): void {
+  if (stampingDisabled) {
+    return;
+  }
   if (event.conversationId == null) {
     return;
   }
@@ -292,6 +322,9 @@ export function getReplayWindow(
  * returning and this read on the single-threaded event loop.
  */
 export function getCurrentSeq(): number {
+  if (stampingDisabled) {
+    return 0;
+  }
   loadSeqReservation();
   return state.nextSeq - 1;
 }
@@ -313,6 +346,9 @@ export function getCurrentSeq(): number {
  * no-op.
  */
 export function floorSeqAbove(highestIssuedSeq: number): void {
+  if (stampingDisabled) {
+    return;
+  }
   loadSeqReservation();
   if (!Number.isFinite(highestIssuedSeq) || highestIssuedSeq < state.nextSeq) {
     return;
@@ -325,6 +361,7 @@ export function floorSeqAbove(highestIssuedSeq: number): void {
  * Reset all stream state. Test-only.
  */
 export function _resetStreamStateForTesting(): void {
+  stampingDisabled = false;
   state.nextSeq = 1;
   // Mark the reservation as loaded with no ceiling AND remove any
   // reservation file a previous test wrote into the (per-process temp)
@@ -343,6 +380,7 @@ export function _resetStreamStateForTesting(): void {
  * next stamp to reload the persisted seq reservation. Test-only.
  */
 export function _simulateRestartForTesting(): void {
+  stampingDisabled = false;
   state.nextSeq = 1;
   state.reservedSeqCeiling = 0;
   state.seqReservationLoaded = false;
