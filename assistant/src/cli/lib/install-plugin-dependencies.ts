@@ -47,7 +47,13 @@
  */
 
 import { execFile } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 
@@ -92,6 +98,43 @@ export type DependencyInstaller = (opts: {
   /** The staged plugin directory whose `dependencies` are installed. */
   readonly cwd: string;
 }) => Promise<void>;
+
+/**
+ * The plugin's `package.json` could not be restored to its original bytes after
+ * the dependency install temporarily stripped the `@vellumai/plugin-api` peer.
+ * Thrown so {@link ./install-from-github.finalizeStagedInstall} aborts rather
+ * than fingerprint and swap in a plugin whose manifest is left shim-stripped.
+ */
+export class PluginManifestRestoreError extends Error {
+  constructor(
+    readonly pluginDir: string,
+    readonly cause: unknown,
+  ) {
+    super(
+      `Failed to restore package.json for the plugin at ${pluginDir} after installing its dependencies; aborting to avoid installing a shim-stripped manifest.`,
+    );
+    this.name = "PluginManifestRestoreError";
+  }
+}
+
+/**
+ * Write `contents` to `path` atomically: a full write to a sibling temp file
+ * followed by a rename. `package.json` is therefore only ever the complete old
+ * bytes or the complete new bytes — never a truncated/partial write a failed
+ * `writeFileSync` could otherwise leave behind. The temp file shares `path`'s
+ * directory so the rename stays on one filesystem (atomic on POSIX); a failed
+ * write cleans the temp file up before rethrowing.
+ */
+function writeFileAtomic(path: string, contents: string): void {
+  const tmp = `${path}.deps-install.${process.pid}.tmp`;
+  try {
+    writeFileSync(tmp, contents);
+    renameSync(tmp, path);
+  } catch (err) {
+    rmSync(tmp, { force: true });
+    throw err;
+  }
+}
 
 /** How a plugin's dependencies should be installed, or `null` to skip. */
 interface ManifestInstallPlan {
@@ -191,13 +234,19 @@ function planManifestForInstall(pluginDir: string): ManifestInstallPlan | null {
  * daemon-provided shim is never resolved or shadowed and `package.json` ends
  * byte-for-byte as materialized.
  *
- * Fail-soft by design: a dependency-install failure (offline, an unresolvable
- * version, a registry outage) is logged and swallowed rather than aborting the
- * install. The plugin's code is already materialized; a plugin that then can't
- * resolve a missing dependency fails at load with a clear module-not-found the
- * user can act on by reinstalling once connectivity returns — strictly better
- * than throwing away a completed materialization over a transient network
- * error.
+ * Fail-soft by design for the *install* itself: a dependency-install failure
+ * (offline, an unresolvable version, a registry outage) is logged and swallowed
+ * rather than aborting the install. The plugin's code is already materialized; a
+ * plugin that then can't resolve a missing dependency fails at load with a clear
+ * module-not-found the user can act on by reinstalling once connectivity returns
+ * — strictly better than throwing away a completed materialization over a
+ * transient network error.
+ *
+ * Manifest integrity is *not* fail-soft. The stripped copy is written and
+ * restored atomically, so `package.json` is never a truncated/partial write. If
+ * the manifest cannot be restored to its original bytes afterward, this throws
+ * {@link PluginManifestRestoreError} so the caller aborts rather than swap in a
+ * plugin whose manifest is left shim-stripped.
  */
 export async function installPluginDependencies(
   pluginDir: string,
@@ -211,10 +260,11 @@ export async function installPluginDependencies(
   const pkgPath = join(pluginDir, "package.json");
   if (plan.installManifest !== null) {
     try {
-      writeFileSync(pkgPath, plan.installManifest);
+      writeFileAtomic(pkgPath, plan.installManifest);
     } catch (err) {
-      // Could not stage the plugin-api-stripped manifest — skip rather than run
-      // an install that would resolve (and shadow) the shim.
+      // The atomic stage failed, so package.json is untouched (still the
+      // original) — skip the install rather than resolve (and shadow) the shim.
+      // Nothing to restore.
       log.warn(
         { err, pluginDir },
         "could not stage manifest for plugin dependency install — skipping",
@@ -234,12 +284,12 @@ export async function installPluginDependencies(
   } finally {
     if (plan.installManifest !== null) {
       try {
-        writeFileSync(pkgPath, plan.originalManifest);
+        writeFileAtomic(pkgPath, plan.originalManifest);
       } catch (err) {
-        log.error(
-          { err, pluginDir },
-          "failed to restore plugin manifest after dependency install — package.json may be left with the plugin-api peer stripped",
-        );
+        // The manifest is left with the plugin-api peer stripped (a complete
+        // file — the write is atomic — but not the materialized bytes). Abort
+        // finalization rather than swap a shim-stripped plugin into place.
+        throw new PluginManifestRestoreError(pluginDir, err);
       }
     }
   }

@@ -9,7 +9,13 @@
  * contract; the wiring into the install/upgrade flow is covered by those suites.
  */
 
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
@@ -18,6 +24,7 @@ import {
   DEPENDENCY_INSTALL_ARGS,
   type DependencyInstaller,
   installPluginDependencies,
+  PluginManifestRestoreError,
 } from "../install-plugin-dependencies.js";
 
 describe("installPluginDependencies", () => {
@@ -178,6 +185,39 @@ describe("installPluginDependencies", () => {
     await installPluginDependencies(dir, run);
 
     expect(readFileSync(pkgPath, "utf8")).toBe(original);
+  });
+
+  test("leaves no temp file behind after a strip/restore cycle", async () => {
+    writePkg({
+      name: "p",
+      dependencies: { "date-fns": "3.0.0" },
+      peerDependencies: { "@vellumai/plugin-api": ">=0.8.0" },
+    });
+    const run: DependencyInstaller = async () => {};
+
+    await installPluginDependencies(dir, run);
+
+    // The atomic write renames its temp file into place; none must linger.
+    const leftovers = readdirSync(dir).filter((n) => n.includes(".tmp"));
+    expect(leftovers).toEqual([]);
+  });
+
+  test("throws to abort finalization when the manifest cannot be restored", async () => {
+    writePkg({
+      name: "p",
+      dependencies: { "date-fns": "3.0.0" },
+      peerDependencies: { "@vellumai/plugin-api": ">=0.8.0" },
+    });
+    // Simulate the manifest becoming unrestorable during the install (e.g. the
+    // dir vanished / the disk filled) by removing the plugin directory, so the
+    // post-install atomic restore write fails.
+    const run: DependencyInstaller = async ({ cwd }) => {
+      rmSync(cwd, { recursive: true, force: true });
+    };
+
+    await expect(installPluginDependencies(dir, run)).rejects.toBeInstanceOf(
+      PluginManifestRestoreError,
+    );
   });
 
   test("is fail-soft: an installer error is swallowed, not thrown", async () => {
