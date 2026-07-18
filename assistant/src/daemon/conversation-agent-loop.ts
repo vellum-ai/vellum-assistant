@@ -119,7 +119,11 @@ import type {
 } from "./message-protocol.js";
 import type { TrustContext } from "./trust-context-types.js";
 import { resolveTurnCallSite } from "./turn-call-site.js";
-import { TurnLatencyTracker } from "./turn-latency-tracker.js";
+import { runWithLatencySubSpans } from "./turn-latency-sub-spans.js";
+import {
+  MEMORY_CONTEXT_PHASE_KEY,
+  TurnLatencyTracker,
+} from "./turn-latency-tracker.js";
 
 const log = getLogger("conversation-agent-loop");
 
@@ -987,9 +991,13 @@ export async function runAgentLoopImpl(
       isNonInteractive,
     };
     latencyTracker.mark("prompt_hook_start");
-    const finalUserPromptCtx = await runHook(
-      HOOKS.USER_PROMPT_SUBMIT,
-      userPromptCtx,
+    // The scope lets instrumented steps deep inside the hook chain (memory
+    // retrieval, injectors) record sub-spans of the memory_context phase
+    // without the tracker being threaded through the plugin contracts.
+    const finalUserPromptCtx = await runWithLatencySubSpans(
+      latencyTracker,
+      MEMORY_CONTEXT_PHASE_KEY,
+      () => runHook(HOOKS.USER_PROMPT_SUBMIT, userPromptCtx),
     );
     latencyTracker.mark("prompt_hook_end");
     const runMessages = finalUserPromptCtx.latestMessages;

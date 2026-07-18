@@ -44,6 +44,7 @@ import {
 } from "../../../../daemon/conversation-runtime-assembly.js";
 import type { MemoryRecalled } from "../../../../daemon/message-types/memory.js";
 import { resolveTrustClass } from "../../../../daemon/trust-context.js";
+import { timeLatencySubSpan } from "../../../../daemon/turn-latency-sub-spans.js";
 import { broadcastMessage } from "../../../../runtime/assistant-event-hub.js";
 import type { GraphMemoryResult } from "../graph/conversation-graph-memory.js";
 import { recordMemoryRecallLog } from "../memory-recall-log-store.js";
@@ -297,11 +298,16 @@ const userPromptSubmitMemoryRetrieval: HookFunction<
     // publish to the shared `broadcastMessage` hub — the sink every turn
     // publisher converges to — rather than a threaded event callback. This
     // keeps any raw client-emit capability off the hook contract.
-    const graphResult = await conversation.graphMemory.prepareMemory(
-      ctx.latestMessages,
-      config,
-      abortSignal,
-      broadcastMessage,
+    const graphResult = await timeLatencySubSpan(
+      "graph_memory",
+      "Graph memory retrieval",
+      () =>
+        conversation.graphMemory.prepareMemory(
+          ctx.latestMessages,
+          config,
+          abortSignal,
+          broadcastMessage,
+        ),
     );
 
     await recordRecallSideEffects(graphResult, ctx);

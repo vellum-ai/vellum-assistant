@@ -109,6 +109,7 @@ const BASELINE: Record<string, readonly string[]> = {
     "../../../../daemon/message-protocol.js",
     "../../../../daemon/message-types/memory.js",
     "../../../../daemon/trust-context.js",
+    "../../../../daemon/turn-latency-sub-spans.js",
     "../../../../notifications/emit-signal.js",
     "../../../../persistence/checkpoints.js",
     "../../../../persistence/db-connection.js",
