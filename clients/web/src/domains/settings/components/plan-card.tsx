@@ -1,4 +1,4 @@
-import { Computer, HardDrive, Loader2, Microchip, Sparkles } from "lucide-react";
+import { Coins, Computer, HardDrive, Loader2, Rocket, Sparkles } from "lucide-react";
 
 import { useState } from "react";
 
@@ -27,7 +27,7 @@ import {
     organizationsBillingSubscriptionUpgradeCreateMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
 import type { MachineSizeEnum, ProPlan } from "@/generated/api/types.gen";
-import { SIZE_DESCRIPTION, SIZE_LABEL } from "@/lib/billing/machine-sizes";
+import { SIZE_LABEL } from "@/lib/billing/machine-sizes";
 import { openUrl } from "@/runtime/browser";
 import { routes } from "@/utils/routes";
 import type { ButtonProps } from "@vellumai/design-library/components/button";
@@ -81,25 +81,18 @@ function PlanHeading() {
 }
 
 /**
- * The "standard" machine a package with no `machine_size` runs on — 2 vCPU per
- * `SIZE_DESCRIPTION.small`, not an invented spec.
+ * The "standard" machine a package with no `machine_size` runs on — the small
+ * baseline that Free and machine-less Pro packages (e.g. Mighty) share.
  */
-const STANDARD_MACHINE = { sizeLabel: "Small", vcpu: "2" } as const;
+const STANDARD_MACHINE_LABEL = "Small";
 
-/** Machine size label + vCPU count for a package (or the standard machine). */
-function machineInfo(pkg: ProPackage | null): {
-    sizeLabel: string;
-    vcpu: string;
-} {
+/** Machine size label for a package (or the standard small machine). */
+function machineLabel(pkg: ProPackage | null): string {
     if (!pkg?.machine_size) {
-        return STANDARD_MACHINE;
+        return STANDARD_MACHINE_LABEL;
     }
     const size = pkg.machine_size as MachineSizeEnum;
-    const vcpuMatch = SIZE_DESCRIPTION[size]?.match(/(\d+\.?\d*)\s*vCPU/);
-    return {
-        sizeLabel: SIZE_LABEL[size] ?? pkg.machine_size,
-        vcpu: vcpuMatch ? vcpuMatch[1] : STANDARD_MACHINE.vcpu,
-    };
+    return SIZE_LABEL[size] ?? pkg.machine_size;
 }
 
 interface ResourceDelta {
@@ -112,24 +105,49 @@ function arrow(from: string, to: string): string {
     return from === to ? to : `${from} → ${to}`;
 }
 
+/**
+ * The (max three) chips shown on the recommended-upgrade card. Credits and
+ * storage change at every step of the catalog, so they anchor the first two
+ * slots. The third slot shows the machine `from → to` when the tier steps up;
+ * on the Free → Pro step the machine stays on the small baseline, but Pro
+ * unlocks the `LARGER_MACHINE` entitlement, so it advertises that scale-up
+ * headroom instead of a no-op "Small Machine" chip. A step that changes neither
+ * (not in the current catalog) simply shows the two anchor chips.
+ */
 function buildDeltas(
     recommended: ProPackage,
     currentPackage: ProPackage | null,
 ): ResourceDelta[] {
-    const from = machineInfo(currentPackage);
-    const to = machineInfo(recommended);
+    const fromCredits = currentPackage?.credits_usd ?? 0;
+    const toCredits = recommended.credits_usd ?? 0;
     const fromStorage = currentPackage?.storage_gib ?? FREE_STORAGE_GIB;
-    return [
-        { icon: Computer, label: `${arrow(from.sizeLabel, to.sizeLabel)} Machine` },
+
+    const deltas: ResourceDelta[] = [
         {
-            icon: Microchip,
-            label: `${arrow(from.vcpu, to.vcpu)} vCPU${to.vcpu === "1" ? "" : "'s"}`,
+            icon: Coins,
+            label: `${arrow(`$${fromCredits}`, `$${toCredits}`)} credits/mo`,
         },
         {
             icon: HardDrive,
             label: `${arrow(String(fromStorage), String(recommended.storage_gib))} GB`,
         },
     ];
+
+    const fromMachine = machineLabel(currentPackage);
+    const toMachine = machineLabel(recommended);
+    if (fromMachine !== toMachine) {
+        deltas.push({
+            icon: Computer,
+            label: `${fromMachine} → ${toMachine} Machine`,
+        });
+    } else if (currentPackage === null) {
+        // Free → Pro keeps the small baseline machine, but Pro unlocks the
+        // ability to scale to larger machines — surface that capability rather
+        // than a static "Small Machine" chip that reads as no upgrade.
+        deltas.push({ icon: Rocket, label: "Larger machines" });
+    }
+
+    return deltas;
 }
 
 interface RecommendedUpgradeProps {
@@ -326,7 +344,12 @@ export function PlanCard({ onManage }: PlanCardProps) {
     }
 
     const display = PLAN_DISPLAY[currentPlan.id] ?? DEFAULT_DISPLAY;
-    const planName = currentPlan.name ?? currentPlan.id;
+    // Prefer the pinned package name (e.g. "Mighty") over the generic plan name
+    // ("Pro"). A plan whose tiers have diverged from the pinned package is
+    // flagged custom so it doesn't masquerade as the stock package.
+    const planName = subscription.package
+        ? `${subscription.package.name}${subscription.package.customized ? " (Custom)" : ""}`
+        : (currentPlan.name ?? currentPlan.id);
 
     const isCancelling =
         display.showsRenewal &&

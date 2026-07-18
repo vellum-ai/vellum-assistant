@@ -84,6 +84,48 @@ function baseSubscription(): SubscriptionResponse {
   };
 }
 
+/** Catalog with both Mighty and Super, so `nextPackageUp("mighty")` → Super. */
+function plansWithSuper(): PlanListResponse {
+  const plans = basePlansResponse();
+  const pro = plans.plans.find((p) => p.id === "pro");
+  if (pro && "packages" in pro && pro.packages) {
+    pro.packages.push({
+      key: "super",
+      name: "Super",
+      description:
+        "Medium machine, 30 GB of storage, and $45 in monthly credits.",
+      version: 1,
+      machine_tier: "medium",
+      storage_tier: "s",
+      credit_tier: "credits_45",
+      machine_size: "medium",
+      storage_gib: 30,
+      credits_usd: 45,
+      include_platform_fee: true,
+      base_price_cents: 1000,
+      machine_price_cents: 3500,
+      storage_price_cents: 1000,
+      credit_price_cents: 4500,
+      total_price_cents: 10000,
+    });
+  }
+  return plans;
+}
+
+/** A subscriber currently on the Mighty Pro package. */
+function proMightySubscription(): SubscriptionResponse {
+  return {
+    plan_id: "pro",
+    status: "active",
+    renewal_date: null,
+    current_period_end: "2026-08-10T00:00:00Z",
+    cancel_at_period_end: false,
+    cancel_at: null,
+    package: { key: "mighty", name: "Mighty", version: 1, customized: false },
+    entitlements: { managed_email: false, phone_number: false },
+  };
+}
+
 function renderCard(
   subscription: SubscriptionResponse,
   plans: PlanListResponse,
@@ -147,19 +189,54 @@ describe("PlanCard", () => {
     expect(html).not.toContain("Recommended Upgrade");
   });
 
-  test("delta labels are data-faithful (no bogus arrows, no fake 'Standard')", () => {
+  test("Free → Mighty chips: credits, storage, and the larger-machines unlock", () => {
     const html = renderCard(baseSubscription(), basePlansResponse());
-    // Mighty keeps the standard machine (machine_size null): the machine and
-    // vCPU chips must show a bare value, not an invented "X → Y" arrow, and
-    // never the literal word "Standard" as a fake upgrade target. (The `'` in
-    // "vCPU's" is HTML-escaped by renderToStaticMarkup, so match the stem.)
-    expect(html).toContain("Small Machine");
-    expect(html).toContain("2 vCPU");
-    expect(html).not.toContain("Small →");
+    // Mighty keeps the small baseline machine (machine_size null), so the third
+    // chip advertises the Pro larger-machines unlock rather than a no-op
+    // "Small Machine" row. The vCPU chip is gone entirely.
+    expect(html).toContain("Larger machines");
+    expect(html).not.toContain("vCPU");
+    expect(html).not.toContain("Small Machine");
     expect(html).not.toContain("Standard");
-    // Storage really changes (free's 4 GiB baseline → Mighty's 10), so the
-    // arrow form is kept.
+    // Credits step from Free's $0 to Mighty's $25 (arrow form, real change),
+    // labelled per-month.
+    expect(html).toContain("$0 → $25 credits/mo");
+    // Storage really changes (free's 4 GiB baseline → Mighty's 10 GB).
     expect(html).toContain("4 → 10 GB");
     expect(html).not.toContain("0 → 10 GB");
+  });
+
+  test("Mighty → Super: recommends Super with a machine step-up chip", () => {
+    const html = renderCard(proMightySubscription(), plansWithSuper());
+    // On Mighty, the recommended upgrade is the next catalog package, Super.
+    expect(html).toContain("recommended-upgrade-button");
+    expect(html).toContain("Recommended Upgrade");
+    expect(html).toContain("Super");
+    // The machine tier actually changes here, so the third chip is the machine
+    // arrow — NOT the larger-machines unlock (that's only the Free → Pro step).
+    expect(html).toContain("Small → Medium Machine");
+    expect(html).not.toContain("Larger machines");
+    // Credits and storage step up from Mighty's values.
+    expect(html).toContain("$25 → $45 credits/mo");
+    expect(html).toContain("10 → 30 GB");
+    // The current-plan row shows the actual package name "Mighty" (not the
+    // generic plan name "Pro").
+    expect(html).toContain("plan-card-name");
+    expect(html).toContain("Mighty");
+    expect(html).not.toContain("Pro");
+  });
+
+  test("current-plan row labels a customized package as custom", () => {
+    const subscription = proMightySubscription();
+    subscription.package = {
+      key: "mighty",
+      name: "Mighty",
+      version: 1,
+      customized: true,
+    };
+    const html = renderCard(subscription, plansWithSuper());
+    // A plan whose tiers diverged from the pinned package reads "Mighty
+    // (Custom)" so it doesn't masquerade as the stock package.
+    expect(html).toContain("Mighty (Custom)");
   });
 });
