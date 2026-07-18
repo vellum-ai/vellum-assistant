@@ -1,4 +1,10 @@
-import { Download, ExternalLink, Loader2 } from "lucide-react";
+import {
+    ChevronDown,
+    ChevronUp,
+    Download,
+    ExternalLink,
+    Loader2,
+} from "lucide-react";
 import { useState } from "react";
 
 import { useQuery } from "@tanstack/react-query";
@@ -66,10 +72,14 @@ function downloadPdf(url: string): void {
 }
 
 export function InvoicesTable() {
+    const [expanded, setExpanded] = useState(false);
     const [showAll, setShowAll] = useState(false);
     const [isDownloadingAll, setIsDownloadingAll] = useState(false);
 
     const invoicesQuery = useQuery({
+        // The table hides behind the Show invoices toggle, so don't fetch
+        // billing history for a section the user may never open.
+        enabled: expanded,
         queryKey: organizationsBillingInvoicesRetrieveQueryKey(),
         queryFn: async ({ signal }: { signal: AbortSignal }) => {
             const { data, response } = await organizationsBillingInvoicesRetrieve({
@@ -135,26 +145,42 @@ export function InvoicesTable() {
                             Your billing history.
                         </Typography>
                     </div>
-                    {invoices.length > 0 && (
+                    <div className="flex shrink-0 items-center gap-2">
+                        {expanded && invoices.length > 0 && (
+                            <Button
+                                variant="outlined"
+                                leftIcon={
+                                    isDownloadingAll ? (
+                                        <Loader2 className="animate-spin" />
+                                    ) : (
+                                        <Download className="h-4 w-4" />
+                                    )
+                                }
+                                onClick={downloadAllInvoices}
+                                disabled={isDownloadingAll}
+                                data-testid="invoices-download-all"
+                            >
+                                Download all
+                            </Button>
+                        )}
                         <Button
                             variant="outlined"
                             leftIcon={
-                                isDownloadingAll ? (
-                                    <Loader2 className="animate-spin" />
+                                expanded ? (
+                                    <ChevronUp className="h-4 w-4" />
                                 ) : (
-                                    <Download className="h-4 w-4" />
+                                    <ChevronDown className="h-4 w-4" />
                                 )
                             }
-                            onClick={downloadAllInvoices}
-                            disabled={isDownloadingAll}
-                            data-testid="invoices-download-all"
+                            onClick={() => setExpanded((v) => !v)}
+                            data-testid="invoices-toggle"
                         >
-                            Download all
+                            {expanded ? "Hide invoices" : "Show invoices"}
                         </Button>
-                    )}
+                    </div>
                 </div>
 
-                {invoicesQuery.isLoading ? (
+                {!expanded ? null : invoicesQuery.isLoading ? (
                     <div className="flex items-center gap-2 py-6 text-[var(--content-tertiary)]">
                         <Loader2 className="h-4 w-4 animate-spin" />
                         <Typography as="span" variant="body-small-default">
