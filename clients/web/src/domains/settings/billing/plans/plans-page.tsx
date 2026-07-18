@@ -134,7 +134,7 @@ export function PlansPage() {
     notPlatformHosted || subscriptionQuery.isError || catalogEmpty;
   useEffect(() => {
     if (cannotResolve) {
-      navigate(routes.settings.billing, { replace: true });
+      navigate(routes.settings.usageBilling, { replace: true });
     }
   }, [cannotResolve, navigate]);
 
@@ -143,7 +143,7 @@ export function PlansPage() {
     if (idx > 0) {
       navigate(-1);
     } else {
-      navigate(routes.settings.billing);
+      navigate(routes.settings.usageBilling);
     }
   };
 
@@ -186,7 +186,7 @@ export function PlansPage() {
         // The upgrade endpoint no-ops for an active Pro org, so plan changes
         // for existing subscribers go through the billing "manage plan" modal,
         // which auto-opens on the `adjust_plan` param.
-        navigate(`${routes.settings.billing}?adjust_plan`);
+        navigate(`${routes.settings.usage}?tab=billing&adjust_plan`);
         return;
       }
       if (tierKey === "free") {
@@ -214,7 +214,7 @@ export function PlansPage() {
       if (isProUser) {
         // Same rule as the plan-card CTAs: the upgrade endpoint no-ops for an
         // active Pro org, so plan changes go through the manage-plan modal.
-        navigate(`${routes.settings.billing}?adjust_plan`);
+        navigate(`${routes.settings.usage}?tab=billing&adjust_plan`);
         return;
       }
       setCustomPlanOpen(true);

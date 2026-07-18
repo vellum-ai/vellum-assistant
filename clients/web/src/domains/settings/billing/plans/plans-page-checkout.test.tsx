@@ -233,7 +233,7 @@ describe("PlansPage checkout — Pro subscriber", () => {
 
     await waitFor(() => {
       expect(getByTestId("loc").textContent).toBe(
-        "/assistant/settings/billing?adjust_plan",
+        "/assistant/settings/usage?tab=billing&adjust_plan",
       );
     });
     // The upgrade endpoint no-ops for an active Pro org, so no checkout fires.

@@ -389,7 +389,7 @@ describe("CustomPlanModal — Pro subscriber", () => {
 
     await waitFor(() => {
       expect(getByTestId("loc").textContent).toBe(
-        "/assistant/settings/billing?adjust_plan",
+        "/assistant/settings/usage?tab=billing&adjust_plan",
       );
     });
     expect(queryByText("Create a custom plan")).toBeNull();
