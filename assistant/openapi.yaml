@@ -7459,6 +7459,55 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/conversations/{id}/retry:
+    post:
+      operationId: conversations_by_id_retry_post
+      summary: Retry the last assistant turn
+      description:
+        Permanently discard the most recent assistant display turn (the assistant rows and tool-result rows after
+        the last turn-starting user message), keep that user message, and re-run generation from it. Accepted
+        immediately; the regenerated turn streams over SSE like a normal send.
+      tags:
+        - conversations
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "202":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accepted:
+                    type: boolean
+                    const: true
+                  conversationId:
+                    type: string
+                  userMessageId:
+                    type: string
+                    description: The user message the turn is re-running from
+                  discardedCount:
+                    type: integer
+                    minimum: -9007199254740991
+                    maximum: 9007199254740991
+                    description: Number of message rows discarded from the tail
+                required:
+                  - accepted
+                  - conversationId
+                  - userMessageId
+                  - discardedCount
+                additionalProperties: false
+        "404":
+          description: Conversation not found
+        "409":
+          description: The assistant is currently responding
+        "422":
+          description: No user message exists to retry from
   /v1/conversations/{id}/slash:
     post:
       operationId: conversations_by_id_slash_post
@@ -12125,8 +12174,11 @@ paths:
                     properties:
                       memoryOptOut:
                         type: boolean
+                      retryLastTurn:
+                        type: boolean
                     required:
                       - memoryOptOut
+                      - retryLastTurn
                     additionalProperties: false
                   profiler:
                     type: object
@@ -12324,8 +12376,11 @@ paths:
                     properties:
                       memoryOptOut:
                         type: boolean
+                      retryLastTurn:
+                        type: boolean
                     required:
                       - memoryOptOut
+                      - retryLastTurn
                     additionalProperties: false
                   profiler:
                     type: object
