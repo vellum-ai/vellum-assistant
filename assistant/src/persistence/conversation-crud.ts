@@ -2707,6 +2707,22 @@ export function recordConversationPersistedSeq(id: string, seq: number): void {
 }
 
 /**
+ * Highest `conversations.seq` anchor across all conversations, or 0 when
+ * none is recorded. Every anchor is a `getCurrentSeq()` snapshot that has
+ * been served to clients on `/messages`, so at startup the stream seq
+ * counter is floored above this value (`floorSeqAbove` in
+ * `runtime/assistant-stream-state`) — resuming below it would re-issue
+ * seqs that clients already treat as applied.
+ */
+export function getMaxPersistedConversationSeq(): number {
+  const row = rawGet<{ maxSeq: number | null }>(
+    "conversation:maxPersistedSeq",
+    "SELECT MAX(seq) AS maxSeq FROM conversations",
+  );
+  return row?.maxSeq ?? 0;
+}
+
+/**
  * Set or clear the `surfaced_at` promotion marker for a conversation.
  *
  * A non-null `surfaced_at` promotes a background/scheduled conversation

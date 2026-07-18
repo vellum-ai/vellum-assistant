@@ -1,4 +1,4 @@
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { beforeEach, describe, expect, test } from "bun:test";
 
@@ -11,6 +11,7 @@ import {
   _peekStreamForTesting,
   _resetStreamStateForTesting,
   _simulateRestartForTesting,
+  floorSeqAbove,
   getCurrentSeq,
   getReplayWindow,
   stampAndBuffer,
@@ -572,6 +573,106 @@ describe("assistant-stream-state", () => {
   // Per-conversation persisted seq now lives on the `conversations.seq`
   // column (see conversation-crud `getConversationPersistedSeq` /
   // `recordConversationPersistedSeq`); its tests live with that module.
+
+  describe("seq re-issue guards", () => {
+    const reservationPath = () =>
+      join(process.env.VELLUM_WORKSPACE_DIR!, "data", "stream-seq.json");
+
+    test("reservation writes are raise-only: a higher on-disk ceiling is adopted, not overwritten", () => {
+      // GIVEN this process reserved 1..1024 and another writer then
+      // persisted a higher ceiling
+      stampAndBuffer(mkEvent());
+      writeFileSync(
+        reservationPath(),
+        JSON.stringify({ reservedSeqCeiling: 5000 }),
+      );
+
+      // WHEN the counter crosses its in-memory ceiling and re-reserves
+      for (let i = 0; i < 1023; i++) {
+        stampAndBuffer(mkEvent());
+      }
+      const crossing = mkEvent();
+      stampAndBuffer(crossing);
+
+      // THEN issuance jumps above the on-disk ceiling instead of
+      // regressing the file below seqs the other writer may have issued
+      expect(crossing.seq).toBe(5001);
+      const persisted = JSON.parse(readFileSync(reservationPath(), "utf8")) as {
+        reservedSeqCeiling: number;
+      };
+      expect(persisted.reservedSeqCeiling).toBeGreaterThan(5000);
+    });
+
+    test("floorSeqAbove raises the counter above a persisted anchor and the floor survives restart", () => {
+      stampAndBuffer(mkEvent());
+
+      floorSeqAbove(907779);
+
+      // getCurrentSeq now claims exactly through the floored anchor
+      expect(getCurrentSeq()).toBe(907779);
+      const a = mkEvent();
+      stampAndBuffer(a);
+      expect(a.seq).toBe(907780);
+
+      // The floor is persisted: a restart resumes above it
+      _simulateRestartForTesting();
+      const b = mkEvent();
+      stampAndBuffer(b);
+      expect(b.seq).toBeGreaterThan(907780);
+    });
+
+    test("floorSeqAbove at or below the current counter is a no-op", () => {
+      stampAndBuffer(mkEvent());
+      stampAndBuffer(mkEvent());
+
+      floorSeqAbove(1);
+      floorSeqAbove(2);
+      floorSeqAbove(Number.NaN);
+      floorSeqAbove(Number.POSITIVE_INFINITY);
+
+      const a = mkEvent();
+      stampAndBuffer(a);
+      expect(a.seq).toBe(3);
+    });
+
+    test("a counter that outran failed reservation writes cannot re-issue anchored seqs once floored", () => {
+      /**
+       * Incident shape (2026-07-18): reservation writes fail (e.g. disk
+       * pressure) while the counter keeps issuing; anchors served to
+       * clients then exceed the on-disk ceiling, and a restarted counter
+       * resumes below them. The startup floor repairs the resume point.
+       */
+      // GIVEN a process whose reservation writes start failing (the
+      // reservation path is occupied by a directory, so the atomic
+      // rename fails) while stamping continues past the last persisted
+      // ceiling
+      stampAndBuffer(mkEvent());
+      rmSync(reservationPath(), { force: true });
+      mkdirSync(reservationPath(), { recursive: true });
+      for (let i = 0; i < 1200; i++) {
+        stampAndBuffer(mkEvent());
+      }
+      const issuedMax = getCurrentSeq();
+      expect(issuedMax).toBeGreaterThan(1024);
+
+      // AND only stale reservation state survives to the next boot
+      rmSync(reservationPath(), { recursive: true, force: true });
+      writeFileSync(
+        reservationPath(),
+        JSON.stringify({ reservedSeqCeiling: 1024 }),
+      );
+      _simulateRestartForTesting();
+
+      // WHEN startup floors the counter at the highest persisted anchor
+      floorSeqAbove(issuedMax);
+
+      // THEN issuance resumes strictly above every seq the previous
+      // process handed out
+      const a = mkEvent();
+      stampAndBuffer(a);
+      expect(a.seq).toBeGreaterThan(issuedMax);
+    });
+  });
 
   describe("seq persistence across restarts", () => {
     test("counter resumes above the persisted reservation after a restart", () => {
