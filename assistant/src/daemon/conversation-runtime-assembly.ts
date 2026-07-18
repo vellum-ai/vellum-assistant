@@ -83,6 +83,7 @@ import type {
 } from "./message-protocol.js";
 import { filterMessagesForUntrustedActor } from "./message-provenance.js";
 import type { TrustContext } from "./trust-context-types.js";
+import { timeLatencySubSpan } from "./turn-latency-sub-spans.js";
 
 // The compaction strip lives in the compaction layer (`context/`) so the agent
 // loop can own it; re-exported here for this module's existing consumers.
@@ -1753,9 +1754,22 @@ export interface RuntimeInjectionResult {
 }
 
 /**
+ * Injectors whose interior records its own latency sub-spans (the `v3_*`
+ * spans in the memory-v3 orchestration) — timing the injector wrapper too
+ * would double-count the same wall clock. Sub-spans must stay
+ * non-overlapping so the inspector's "Other" remainder is honest. The
+ * names are pinned by `injector-registry-order-guard.test.ts`.
+ */
+const SELF_INSTRUMENTED_INJECTORS = new Set([
+  "memory-v3-shadow",
+  "memory-v3-spotlight",
+]);
+
+/**
  * Run every {@link Injector} in the chain ({@link getRegisteredInjectors},
  * already sorted by ascending `order`) and return every non-null block it
- * produced.
+ * produced, timing each non-self-instrumented injector as a latency
+ * sub-span.
  *
  * `runMessages` is the turn's working message array, forwarded to each
  * injector so producers that need the current prompt contents read it from a
@@ -1774,7 +1788,13 @@ async function collectInjectorBlocks(
 ): Promise<InjectionBlock[]> {
   const out: InjectionBlock[] = [];
   for (const injector of getRegisteredInjectors()) {
-    const block = await injector.produce(ctx, runMessages);
+    const block = SELF_INSTRUMENTED_INJECTORS.has(injector.name)
+      ? await injector.produce(ctx, runMessages)
+      : await timeLatencySubSpan(
+          `injector:${injector.name}`,
+          `Injector: ${injector.name}`,
+          () => injector.produce(ctx, runMessages),
+        );
     if (block) {
       out.push(block);
     }

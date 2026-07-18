@@ -21,14 +21,31 @@
 import { z } from "zod";
 
 /**
+ * One instrumented sub-step inside a phase (`graph_memory`, `v3_lanes`,
+ * `injector:<name>`, …). Sub-steps are leaf measurements — chosen to be
+ * non-overlapping so the inspector can render an honest "Other" remainder
+ * against the phase total. Nesting stops at this level by design.
+ */
+export const LatencySubPhaseSchema = z.object({
+  key: z.string(),
+  label: z.string(),
+  ms: z.number(),
+});
+
+export type LatencySubPhase = z.infer<typeof LatencySubPhaseSchema>;
+
+/**
  * One segment of the turn's first-token latency waterfall. `key` is a
  * stable machine id (`queue`, `memory_context`, `ttft`, …); `label` is
  * the human row title; `ms` is the wall-clock duration of that phase.
+ * `subPhases` lists the phase's instrumented sub-steps in execution
+ * order (today only the memory & context retrieval phase records them).
  */
 export const LatencyPhaseSchema = z.object({
   key: z.string(),
   label: z.string(),
   ms: z.number(),
+  subPhases: z.array(LatencySubPhaseSchema).optional(),
 });
 
 export type LatencyPhase = z.infer<typeof LatencyPhaseSchema>;

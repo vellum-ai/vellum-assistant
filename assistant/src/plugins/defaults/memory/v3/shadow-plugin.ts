@@ -30,6 +30,10 @@ import {
 
 import { getConfig } from "../../../../config/loader.js";
 import type { AssistantConfig } from "../../../../config/schema.js";
+import {
+  recordLatencySubSpan,
+  timeLatencySubSpan,
+} from "../../../../daemon/turn-latency-sub-spans.js";
 import { stripCommentLines } from "../host-utils.js";
 import { getLogger } from "../logging.js";
 import { memorySqliteOrNull } from "../memory-db.js";
@@ -623,7 +627,14 @@ export async function observeTurn(
     if (cfg.memory.enabled === false) {
       return null;
     }
-    const lanes = await getLanes(cfg);
+    // Lane init is module-memoized: the first turn after daemon start pays
+    // the full build (section index, BM25/entity lanes, prefix cards) here;
+    // warm turns record ~0ms and are floored away by the recorder.
+    const lanes = await timeLatencySubSpan(
+      "v3_lanes_init",
+      "Memory lane init",
+      () => getLanes(cfg),
+    );
     const v3 = cfg.memory.v3;
     // Resolve the effective gate enable once for the turn: the feature flag
     // AND the `memory.v3.gate.enabled` config kill-switch. Tuning lives in
@@ -686,8 +697,14 @@ export async function observeTurn(
       );
     }
 
+    const persistStartedAt = Date.now();
     const rows = attributeSelections(result);
     writeSelections(conversationId, turnIndex, rows);
+    recordLatencySubSpan(
+      "v3_persist",
+      "Selection persistence",
+      Date.now() - persistStartedAt,
+    );
     return result;
   } catch (err) {
     // Infrastructure failures are surfaced to callers that want distinct
