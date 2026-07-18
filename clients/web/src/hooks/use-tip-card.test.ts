@@ -6,7 +6,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { act, cleanup, renderHook } from "@testing-library/react";
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import {
   createElement,
   Fragment,
@@ -227,13 +227,17 @@ describe("useTipCard rotation", () => {
       });
     });
 
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 120));
-    });
+    // The boundary timer's fire time is scheduler-dependent, so poll for the
+    // restamp rather than sleeping a fixed interval it could overshoot.
+    await waitFor(
+      () => {
+        expect(tipRecordsStorage.load()[FIRST_TIP_ID]?.shownCount).toBe(2);
+      },
+      { timeout: 4000 },
+    );
 
     expect(result.current.tip?.id).toBe(FIRST_TIP_ID);
     const record = tipRecordsStorage.load()[FIRST_TIP_ID];
-    expect(record?.shownCount).toBe(2);
     expect(Date.now() - (record?.lastShownAt ?? 0)).toBeLessThan(
       TIP_ROTATION_INTERVAL_MS,
     );
@@ -268,13 +272,15 @@ describe("useTipCard rotation", () => {
     // Still within the window: the slot stays blank until the boundary.
     expect(result.current.tip).toBeNull();
 
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 120));
-    });
-
-    // No remount: the boundary timer refreshed the clock and the successor
-    // took the slot (and stamped its own impression).
-    expect(result.current.tip?.id).toBe(SECOND_UNGATED_TIP_ID);
+    // No remount: the boundary timer refreshes the clock and the successor
+    // takes the slot (and stamps its own impression). Its fire time is
+    // scheduler-dependent, so poll rather than sleeping a fixed interval.
+    await waitFor(
+      () => {
+        expect(result.current.tip?.id).toBe(SECOND_UNGATED_TIP_ID);
+      },
+      { timeout: 4000 },
+    );
     expect(
       tipRecordsStorage.load()[SECOND_UNGATED_TIP_ID]?.lastShownAt,
     ).toBeGreaterThan(0);
