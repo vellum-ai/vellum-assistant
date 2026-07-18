@@ -446,10 +446,6 @@ export function createTelegramWebhookHandler(
         threadId: topicThreadId,
         logger: tlog,
       });
-      acknowledgeCallbackQuery(
-        normalized.message.callbackQueryId,
-        "fork_command",
-      );
       return respond({ ok: true });
     }
 
@@ -461,10 +457,6 @@ export function createTelegramWebhookHandler(
         threadId: topicThreadId,
         logger: tlog,
       });
-      acknowledgeCallbackQuery(
-        normalized.message.callbackQueryId,
-        "archive_command",
-      );
       return respond({ ok: true });
     }
 
@@ -476,10 +468,6 @@ export function createTelegramWebhookHandler(
         threadId: topicThreadId,
         logger: tlog,
       });
-      acknowledgeCallbackQuery(
-        normalized.message.callbackQueryId,
-        "stop_command",
-      );
       return respond({ ok: true });
     }
 
@@ -494,10 +482,6 @@ export function createTelegramWebhookHandler(
         name: renameCmd.name,
         logger: tlog,
       });
-      acknowledgeCallbackQuery(
-        normalized.message.callbackQueryId,
-        "rename_command",
-      );
       return respond({ ok: true });
     }
 
@@ -509,10 +493,6 @@ export function createTelegramWebhookHandler(
         threadId: topicThreadId,
         logger: tlog,
       });
-      acknowledgeCallbackQuery(
-        normalized.message.callbackQueryId,
-        "profile_command",
-      );
       return respond({ ok: true });
     }
 
@@ -525,10 +505,6 @@ export function createTelegramWebhookHandler(
         actorExternalId: normalized.actor.actorExternalId,
         logger: tlog,
       });
-      acknowledgeCallbackQuery(
-        normalized.message.callbackQueryId,
-        "access_command",
-      );
       return respond({ ok: true });
     }
 
@@ -540,10 +516,6 @@ export function createTelegramWebhookHandler(
         threadId: topicThreadId,
         logger: tlog,
       });
-      acknowledgeCallbackQuery(
-        normalized.message.callbackQueryId,
-        "help_command",
-      );
       return respond({ ok: true });
     }
 
