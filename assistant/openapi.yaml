@@ -8745,6 +8745,22 @@ paths:
                                         type: string
                                       ms:
                                         type: number
+                                      subPhases:
+                                        type: array
+                                        items:
+                                          type: object
+                                          properties:
+                                            key:
+                                              type: string
+                                            label:
+                                              type: string
+                                            ms:
+                                              type: number
+                                          required:
+                                            - key
+                                            - label
+                                            - ms
+                                          additionalProperties: false
                                     required:
                                       - key
                                       - label
@@ -16526,6 +16542,22 @@ paths:
                                   type: string
                                 ms:
                                   type: number
+                                subPhases:
+                                  type: array
+                                  items:
+                                    type: object
+                                    properties:
+                                      key:
+                                        type: string
+                                      label:
+                                        type: string
+                                      ms:
+                                        type: number
+                                    required:
+                                      - key
+                                      - label
+                                      - ms
+                                    additionalProperties: false
                               required:
                                 - key
                                 - label
@@ -19532,6 +19564,22 @@ paths:
                                         type: string
                                       ms:
                                         type: number
+                                      subPhases:
+                                        type: array
+                                        items:
+                                          type: object
+                                          properties:
+                                            key:
+                                              type: string
+                                            label:
+                                              type: string
+                                            ms:
+                                              type: number
+                                          required:
+                                            - key
+                                            - label
+                                            - ms
+                                          additionalProperties: false
                                     required:
                                       - key
                                       - label
