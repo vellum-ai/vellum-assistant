@@ -311,39 +311,50 @@ export function createTelegramWebhookHandler(
     // "Verification" topic. Delete the topic (removing the now-consumed code)
     // and re-post the success confirmation to the main chat so it survives the
     // topic removal.
-    const closeVerificationTopic = (
+    const closeVerificationTopic = async (
       chatId: string,
       threadId: string,
       trustClass: "guardian" | "trusted_contact" | undefined,
-    ): void => {
+    ): Promise<void> => {
       const parsedThreadId = Number(threadId);
       if (!Number.isFinite(parsedThreadId)) return;
       const opts = {
         credentials: caches?.credentials,
         configFile: caches?.configFile,
       };
-      callTelegramApi(
-        "deleteForumTopic",
-        { chat_id: chatId, message_thread_id: parsedThreadId },
-        opts,
-      ).catch((err) => {
+      // Await the topic deletion before confirming in the main chat so the
+      // success reply can never land before the consumed code's topic is torn
+      // down. Running them concurrently made message ordering unpredictable —
+      // the "verified" confirmation could appear while the code was still
+      // visible in a not-yet-deleted topic. A delete failure is logged but not
+      // fatal: verification already succeeded, so the confirmation is still
+      // sent.
+      try {
+        await callTelegramApi(
+          "deleteForumTopic",
+          { chat_id: chatId, message_thread_id: parsedThreadId },
+          opts,
+        );
+      } catch (err) {
         tlog.error(
           { err, chatId, threadId },
           "Failed to delete Telegram verification topic",
         );
-      });
-      sendTelegramReply(
-        config,
-        chatId,
-        composeVerificationSuccessReply(trustClass),
-        undefined,
-        opts,
-      ).catch((err) => {
+      }
+      try {
+        await sendTelegramReply(
+          config,
+          chatId,
+          composeVerificationSuccessReply(trustClass),
+          undefined,
+          opts,
+        );
+      } catch (err) {
         tlog.error(
           { err, chatId },
           "Failed to send verification success confirmation to main chat",
         );
-      });
+      }
     };
 
     // Normalize the update
@@ -996,8 +1007,10 @@ export function createTelegramWebhookHandler(
           result.verificationOutcome === "verified" &&
           topicThreadId
         ) {
-          // Threaded verification: delete the topic and confirm in the main chat.
-          closeVerificationTopic(
+          // Threaded verification: delete the topic and confirm in the main
+          // chat. Fire-and-forget — the helper sequences delete-then-reply and
+          // handles its own errors, so the webhook response is not blocked.
+          void closeVerificationTopic(
             chatId,
             topicThreadId,
             result.verificationTrustClass,
