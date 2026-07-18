@@ -51,6 +51,12 @@ export const SAFE_ENV_VARS = [
   "CES_CREDENTIAL_URL",
   "CES_MANAGED_MODE",
   "CES_LOCAL_SOCKET",
+  // Per-instance port of the assistant-managed Qdrant sidecar, so skill and
+  // bash-tool subprocesses that use the vector helpers (e.g. embed/search over
+  // `@vellumai/plugin-api`) resolve the same local sidecar as the daemon
+  // (127.0.0.1:<port>). `QDRANT_URL` is intentionally excluded — it flips
+  // QdrantManager into external mode and bypasses the local managed lifecycle.
+  "QDRANT_HTTP_PORT",
   "IS_CONTAINERIZED",
   "IS_PLATFORM",
   "VELLUM_CLOUD",
