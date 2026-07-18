@@ -1504,12 +1504,17 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     latestPartial: string | null,
   ): Promise<boolean> {
     const generation = this.vadSpeechGeneration;
+    const decisionStartedAtMs = this.metricsClock();
     const decision = await decider.decideEndpoint({
       transcriptSoFar,
       latestPartial,
       silenceThresholdMs: this.silenceThresholdMs,
       extensionCount: utterance.endpointExtensionCount,
     });
+    const decisionLatencyMs = Math.max(
+      0,
+      this.metricsClock() - decisionStartedAtMs,
+    );
     // Re-check the world after the await: the decision window is bounded but
     // real, and a release based on a stale snapshot could cut off speech.
     if (
@@ -1521,9 +1526,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     }
     if (generation !== this.vadSpeechGeneration) {
       // Speech resumed during the decision: the utterance keeps accumulating
-      // and the detector's next turn-end re-runs the whole decision.
+      // and the detector's next turn-end re-runs the whole decision. The
+      // discarded decision is not recorded — only acted-on outcomes count.
       return true;
     }
+    this.markEndpointDecision(utterance, decision.action, decisionLatencyMs);
     if (decision.action !== "hold") {
       return false;
     }
@@ -2562,7 +2569,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       void this.speakGeneratedAck(activeTurn, this.frontDecider, kind);
       return;
     }
-    this.enqueueAckPhrase(activeTurn, this.pickStaticAckPhrase(kind));
+    this.enqueueAckPhrase(activeTurn, this.pickStaticAckPhrase(kind), kind);
   }
 
   private pickStaticAckPhrase(kind: "slow-first-delta" | "tool-use"): string {
@@ -2601,12 +2608,18 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     this.enqueueAckPhrase(
       activeTurn,
       generated ?? this.pickStaticAckPhrase(kind),
+      kind,
     );
   }
 
   // Sanitize and enqueue one ack sentence on the turn's ordered TTS queue
-  // (shared tail of the static and LLM-phrased ack paths).
-  private enqueueAckPhrase(activeTurn: ActiveAssistantTurn, raw: string): void {
+  // (shared tail of the static and LLM-phrased ack paths). Records the
+  // ack-spoken metric only when a phrase actually enqueues.
+  private enqueueAckPhrase(
+    activeTurn: ActiveAssistantTurn,
+    raw: string,
+    kind: "slow-first-delta" | "tool-use",
+  ): void {
     const phrase = sanitizeForTts(raw).trim();
     if (phrase.length === 0) {
       return;
@@ -2614,6 +2627,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     this.enqueueTtsSegment(activeTurn.token, phrase, {
       countsAsFirstSegment: false,
     });
+    this.markAckSpoken(
+      activeTurn,
+      kind === "tool-use" ? "tool_use" : "first_delta",
+    );
   }
 
   private bufferAssistantTextForTts(token: symbol, text: string): void {
@@ -2995,6 +3012,29 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       return;
     }
     this.metrics.markFirstAssistantDelta(turnId);
+  }
+
+  private markEndpointDecision(
+    utterance: UtteranceCycle,
+    action: "hold" | "release",
+    latencyMs: number,
+  ): void {
+    const turnId = this.ensureTurnId(utterance);
+    if (!this.startMetricsTurnIfNeeded(utterance, turnId)) {
+      return;
+    }
+    this.metrics.markEndpointDecision(turnId, { action, latencyMs });
+  }
+
+  private markAckSpoken(
+    activeTurn: ActiveAssistantTurn,
+    kind: "first_delta" | "tool_use",
+  ): void {
+    const { utterance } = activeTurn;
+    if (!this.startMetricsTurnIfNeeded(utterance, activeTurn.turnId)) {
+      return;
+    }
+    this.metrics.markAckSpoken(activeTurn.turnId, kind);
   }
 
   private ensureTurnId(utterance: UtteranceCycle): string {
