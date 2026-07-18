@@ -140,6 +140,8 @@ export async function managedSpeechTranscribe(input: {
 export async function managedSpeechSynthesize(input: {
   text: string;
   format: ManagedSpeechTtsFormat;
+  /** Voice model (e.g. "aura-2-thalia-en"); omitted = platform default. */
+  model?: string;
   signal?: AbortSignal;
 }): Promise<ManagedSpeechResult<ManagedSpeechSynthesis>> {
   const resolved = await resolveClient();
@@ -153,7 +155,11 @@ export async function managedSpeechSynthesize(input: {
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: input.text, format: input.format }),
+      body: JSON.stringify({
+        text: input.text,
+        format: input.format,
+        ...(input.model !== undefined ? { model: input.model } : {}),
+      }),
       signal: input.signal,
     },
   );

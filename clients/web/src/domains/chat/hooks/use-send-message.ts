@@ -70,7 +70,6 @@ import {
 } from "@/domains/chat/utils/send-message-utils";
 import type { UIContext } from "@/domains/chat/turn-selectors";
 import { useComposerStore } from "@/domains/chat/composer-store";
-import { useNavGateStore } from "@/domains/chat/nav-gate/nav-gate-store";
 import { getSoundManager } from "@/lib/sounds/sound-manager";
 import { useMessageQueue } from "@/domains/chat/hooks/use-message-queue";
 import { conversationsByIdCancelPost } from "@/generated/daemon/sdk.gen";
@@ -259,7 +258,7 @@ export function useSendMessage({
   // sendMessageViaStream — low-level POST + polling fallback
   // -------------------------------------------------------------------------
   const sendMessageViaStream = useCallback(
-    async (content: string, epoch: number, turnId: string, attachmentIds: string[] = [], isDraft = false, clientMessageId?: string, isHidden = false, source?: string): Promise<SendStreamResult> => {
+    async (content: string, epoch: number, turnId: string, attachmentIds: string[] = [], isDraft = false, clientMessageId?: string, isHidden = false): Promise<SendStreamResult> => {
       if (!activeConversationId || !assistantId) {
         return {
           status: "failed",
@@ -332,7 +331,6 @@ export function useSendMessage({
           inferenceProfile: inferenceProfileForSend,
           enabledPlugins: enabledPluginsForSend,
           hidden: isHidden,
-          source,
         },
       );
       if (
@@ -549,7 +547,7 @@ export function useSendMessage({
     async (
       content: string,
       attachments: DisplayAttachment[] = [],
-      opts: { hidden?: boolean; source?: string } = {},
+      opts: { hidden?: boolean } = {},
     ) => {
       // A hidden send (e.g. the onboarding "Let's chat" kickoff) drives a turn
       // and the assistant's reply, but renders NO user bubble: skip the
@@ -557,10 +555,6 @@ export function useSendMessage({
       // always a fresh first message (conversation idle), so they never take the
       // queue path below.
       const isHidden = opts.hidden === true;
-      // System-initiated sends (e.g. the sidenav-gate bubbles) tag their
-      // origin so the daemon can steer the reply and analytics can separate
-      // them from typed messages. They still render a user bubble.
-      const source = opts.source;
       if (!activeConversationId || !assistantId) {
         setError({ message: "No active conversation. Please try again." });
         return;
@@ -665,7 +659,7 @@ export function useSendMessage({
             assistantId,
             activeConversationId,
             content,
-            { attachmentIds, clientMessageId, hidden: isHidden, source },
+            { attachmentIds, clientMessageId, hidden: isHidden },
           );
           if (!postResult.ok) {
             revertQueuedMessage(userMessage.id);
@@ -677,11 +671,6 @@ export function useSendMessage({
             setError({ message: detail, code: postResult.error.code ?? undefined });
             return;
           }
-          // Sidenav-gating experiment: the daemon accepted the message, so
-          // it advances the unlock thresholds — including tagged nav_redirect
-          // sends, which are real intent. Counted only on accepted POSTs so a
-          // failed send can't unlock chrome or mute the bounce signal.
-          if (!isHidden) useNavGateStore.getState().recordMessageSent();
           void surfaceConversationAfterUserSend(postResult.conversationId).catch(
             (err) => {
               captureError(err, {
@@ -764,7 +753,6 @@ export function useSendMessage({
           isDraft,
           clientMessageId,
           isHidden,
-          source,
         );
 
         if (result.status === "failed") {
@@ -797,11 +785,6 @@ export function useSendMessage({
           // Scope changed mid-flight; the new scope owns UI state from here.
           return;
         }
-
-        // Sidenav-gating experiment counter — see the queue-path note above.
-        // The "ignored" return skips counting: scope flipped mid-flight, so
-        // undercounting one edge send beats crediting an uncertain one.
-        if (!isHidden) useNavGateStore.getState().recordMessageSent();
 
         resolvedId = result.resolvedConversationId;
 

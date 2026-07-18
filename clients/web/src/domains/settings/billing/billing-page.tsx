@@ -8,6 +8,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { PlatformLoginNotice } from "@/components/platform-login-notice";
 import { BillingOnboardingModal } from "@/domains/settings/billing/pro-onboarding/billing-onboarding-modal";
+import { shouldShowBillingTab } from "@/domains/settings/billing/billing-tab-visibility";
 import { UsageTab } from "@/domains/settings/billing/usage/usage-tab";
 import { AdjustPlanModal } from "@/domains/settings/components/adjust-plan-modal";
 import { BillingPanel } from "@/domains/settings/components/billing-panel";
@@ -24,6 +25,7 @@ import {
     useActiveAssistantLifecycleIsLoading,
     usePlatformGate,
 } from "@/hooks/use-platform-gate";
+import { useIsPlatformSessionSettled } from "@/stores/auth-store";
 import { routes } from "@/utils/routes";
 import { Notice } from "@vellumai/design-library/components/notice";
 import { Tabs } from "@vellumai/design-library/components/tabs";
@@ -57,7 +59,7 @@ function BillingStatusHandler() {
             });
         }
 
-        navigate(routes.settings.billing, { replace: true });
+        navigate(routes.settings.usageBilling, { replace: true });
     }, [searchParams, navigate, queryClient]);
 
     return null;
@@ -77,6 +79,13 @@ function BillingTab() {
     const onTierUpgraded = useCallback(() => setResizeModalOpen(true), []);
 
     useEffect(() => {
+        // Only consume `adjust_plan` once billing is usable (signed in). While
+        // the tab shows the login notice (`"disabled"`), leave the param in the
+        // URL so PlatformLoginNotice carries it through sign-in and the
+        // manage-plan modal opens on return instead of being silently dropped.
+        if (billingGate !== "full") {
+            return;
+        }
         if (searchParams.has("adjust_plan")) {
             setPlanModalOpen(true);
             setSearchParams((prev) => {
@@ -85,7 +94,7 @@ function BillingTab() {
                 return next;
             }, { replace: true });
         }
-    }, [searchParams, setSearchParams]);
+    }, [billingGate, searchParams, setSearchParams]);
 
     const hasSessionId = searchParams.has("session_id");
     const closeOnboarding = useCallback(() => {
@@ -176,19 +185,45 @@ function UsagePanel() {
 
 export function BillingPage() {
     const billingGate = usePlatformGate();
-    const showBillingTab = billingGate !== "gated";
-
     const [searchParams, setSearchParams] = useSearchParams();
+    // Shown when signed in (`"full"`); for a signed-out-but-reachable viewer
+    // (`"disabled"`) it stays reachable only when the URL carries billing intent
+    // (a deeplink / upgrade CTA / Stripe return), so the BillingTab login notice
+    // can carry those params through sign-in. Normal signed-out browsing and
+    // self-hosted (`"gated"`) see the Usage tab alone. See
+    // `billing-tab-visibility.ts`.
+    const showBillingTab = shouldShowBillingTab(billingGate, searchParams);
+
+    // When Billing is available it leads the tab list and is the default;
+    // Usage is reached via `?tab=usage`. With no Billing tab, Usage is all
+    // there is.
     const activeTab =
-        !showBillingTab || searchParams.get("tab") === "usage" ? "usage" : "billing";
+        showBillingTab && searchParams.get("tab") !== "usage" ? "billing" : "usage";
+
+    // Keep the active tab explicit in the URL so both tabs are symmetric and
+    // the address bar always names what's shown: a bare `/settings/usage` — or
+    // a stale `?tab=billing` after signing out — is rewritten to the resolved
+    // tab. Gate on the *platform-session* probe settling, not just session
+    // status: the local-gateway path flips `sessionStatus` to authenticated
+    // while `platformSession` is still `"unknown"` (so `usePlatformGate()`
+    // reads no session and Billing hasn't resolved as the default). Rewriting
+    // in that window would lock `?tab=usage` and strand a signed-in viewer on
+    // Usage once the session confirms.
+    const isPlatformSessionSettled = useIsPlatformSessionSettled();
+    useEffect(() => {
+        if (!isPlatformSessionSettled) {
+            return;
+        }
+        if (searchParams.get("tab") !== activeTab) {
+            const next = new URLSearchParams(searchParams);
+            next.set("tab", activeTab);
+            setSearchParams(next, { replace: true });
+        }
+    }, [isPlatformSessionSettled, searchParams, activeTab, setSearchParams]);
 
     const handleTabChange = (value: string) => {
         const next = new URLSearchParams(searchParams);
-        if (value === "usage") {
-            next.set("tab", "usage");
-        } else {
-            next.delete("tab");
-        }
+        next.set("tab", value);
         setSearchParams(next, { replace: true });
     };
 

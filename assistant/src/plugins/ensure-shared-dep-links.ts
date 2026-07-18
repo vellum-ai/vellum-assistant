@@ -5,12 +5,14 @@
  *
  *     import { z } from "zod";
  *
- * The plugin installer never runs `bun install`, so an installed plugin's
- * runtime dependencies are unresolvable — bare imports resolve Node-style
- * walking up from the plugin directory, and the assistant's own copies are
- * not on that path. This module bridges that gap by linking the real
- * package directories, not re-export shims: a plugin gets the actual zod
- * the assistant uses, subpaths and internal resolution included.
+ * A plugin's own declared dependencies are installed at install time (see
+ * `../cli/lib/install-plugin-dependencies.ts`). The whitelisted deps here are
+ * the ones a plugin may import *without* declaring — `zod` is de-facto plugin
+ * SDK surface the config-validation idiom leans on — so their bare imports
+ * resolve Node-style walking up from the plugin directory, where the
+ * assistant's own copies are not on the path. This module bridges that gap by
+ * linking the real package directories, not re-export shims: a plugin gets the
+ * actual zod the assistant uses, subpaths and internal resolution included.
  *
  * ## Why symlinks (not generated re-export shims)
  *

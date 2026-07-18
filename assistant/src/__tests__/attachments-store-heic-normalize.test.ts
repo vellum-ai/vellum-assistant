@@ -31,7 +31,10 @@ mock.module("../util/image-conversion.js", () => ({
   normalizeImageBase64: (mimeType: string, dataBase64: string) =>
     mimeType === "image/heic"
       ? { mimeType: "image/jpeg", dataBase64: FAKE_JPEG_B64, converted: true }
-      : { mimeType, dataBase64, converted: false },
+      : mimeType === "image/mislabeled"
+        ? // Sniff-corrected declared MIME: payload untouched, converted false.
+          { mimeType: "image/png", dataBase64, converted: false }
+        : { mimeType, dataBase64, converted: false },
 }));
 
 import {
@@ -129,6 +132,16 @@ describe("HEIC upload normalization wiring", () => {
     expect(stored.originalFilename).toBe("photo.png");
     expect(stored.mimeType).toBe("image/png");
     expect(stored.sizeBytes).toBe(HEIC_BYTES.length);
+  });
+
+  test("uploadAttachment (base64) propagates a MIME-only sniff correction", () => {
+    const stored = uploadAttachment("photo.png", "image/mislabeled", HEIC_B64);
+
+    // Corrected MIME is stored; filename and payload stay verbatim.
+    expect(stored.originalFilename).toBe("photo.png");
+    expect(stored.mimeType).toBe("image/png");
+    const row = getAttachmentById(stored.id);
+    expect(row?.dataBase64).toBe(HEIC_B64);
   });
 
   test("attachInlineAttachmentToMessage normalizes only when opted in", async () => {

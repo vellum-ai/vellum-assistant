@@ -56,21 +56,6 @@ export interface TurnEvent {
    */
   channelId: string | null;
   /**
-   * Send-source tag for messages the UI sent on the user's behalf
-   * (`"nav_redirect"` — a navigation shortcut redirected the user into
-   * chat with a pre-filled message). Sourced from
-   * `messages.metadata.userMessageSource`, stamped by `handleSendMessage`
-   * when the request body carries `source`. Null for hand-typed messages
-   * and rows predating the field. Lets activation-funnel analytics
-   * separate UI-initiated turns from organic ones.
-   *
-   * Daemon-side projection only for now: the platform's turn serializer
-   * does not yet accept a `source` wire field, so `turnSource` must not
-   * emit it until the platform serializer lands and the wire sync PR
-   * updates `telemetry-wire.generated.ts` (see `src/telemetry/AGENTS.md`).
-   */
-  source: string | null;
-  /**
    * Flexible client metadata stashed under `messages.metadata.client` by
    * the HTTP header middleware. Carries optional `browserFamily`,
    * `browserVersion`, `os`, `interfaceVersion` (and is extensible without
@@ -174,11 +159,6 @@ export function queryUnreportedTurnEvents(
         string | null
       >`json_extract(${messages.metadata}, '$.userMessageChannel')`.as(
         "channel_id",
-      ),
-      source: sql<
-        string | null
-      >`json_extract(${messages.metadata}, '$.userMessageSource')`.as(
-        "source",
       ),
       clientMetadata: sql<
         string | null

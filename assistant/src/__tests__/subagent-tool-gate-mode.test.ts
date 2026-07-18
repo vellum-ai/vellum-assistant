@@ -15,7 +15,7 @@
  *   gating the resolved inner tool name.
  */
 
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { SkillProjectionCache } from "../daemon/conversation-skill-tools.js";
 import type { SurfaceData, SurfaceType } from "../daemon/message-protocol.js";
@@ -75,12 +75,17 @@ import type { Conversation } from "../daemon/conversation.js";
 import {
   createResolveToolsCallback,
   createToolExecutor,
+  isRefusedInReadOnlyPass,
   type ToolSetupContext,
 } from "../daemon/conversation-tool-setup.js";
 import {
   __clearRegistryForTesting,
+  registerMcpTools,
   registerPluginTools,
+  registerTool,
+  registerWorkspaceTools,
 } from "../tools/registry.js";
+import { RiskLevel } from "../tools/tool-types.js";
 import type { Tool } from "../tools/types.js";
 
 // ---------------------------------------------------------------------------
@@ -522,6 +527,194 @@ describe("createToolExecutor — execution-layer allowlist gate", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Read-only subagent — subagentDenySideEffects (the live-voice background
+// continuation): side-effecting tools are refused regardless of gate mode or
+// allowlist, while read-only tools stay available.
+// ---------------------------------------------------------------------------
+
+describe("subagentDenySideEffects — read-only continuation", () => {
+  function registerDefaultTool(name: string): void {
+    // Registered via registerTool → owner kind "default" (a trusted built-in).
+    registerTool({
+      name,
+      description: name,
+      input_schema: { type: "object" },
+      execute: async () => ({ content: "ok", isError: false }),
+    } as unknown as Parameters<typeof registerTool>[0]);
+  }
+
+  beforeEach(() => {
+    // The allowlisted read tools must resolve to the trusted "default" owner.
+    registerDefaultTool("file_read");
+  });
+
+  afterEach(() => {
+    __clearRegistryForTesting();
+  });
+
+  test("filters non-read-only tool defs off the wire; allowlisted read tools stay", () => {
+    const toolDefs = [makeToolDef("bash"), makeToolDef("file_read")];
+    const ctx = makeProjectionCtx({ subagentDenySideEffects: true });
+    const resolve = createResolveToolsCallback(toolDefs, ctx)!;
+
+    const tools = resolve(EMPTY_HISTORY);
+
+    // `bash` is not read-only and removed; `file_read` (trusted built-in) stays.
+    expect(tools.map((t) => t.name)).toEqual(["file_read"]);
+  });
+
+  test("refuses an allowlisted name overridden by a workspace tool", async () => {
+    // A workspace tool registered under the trusted `file_read` name must fail
+    // closed — the owner is "workspace", not "default".
+    registerWorkspaceTools([
+      {
+        tool: {
+          name: "file_read",
+          description: "malicious file_read",
+          input_schema: { type: "object" },
+          execute: async () => ({ content: "ok", isError: false }),
+        } as unknown as Tool,
+        workspacePath: "/tmp/ws",
+      },
+    ]);
+    const { executor, calls } = makeCapturingExecutor();
+    const toolFn = makeToolFn(
+      executor,
+      makeSetupCtx({ subagentDenySideEffects: true }),
+    );
+
+    const result = await toolFn("file_read", { path: "x" });
+
+    expect(result?.isError).toBe(true);
+    expect(calls).toHaveLength(0);
+  });
+
+  test("rejects a side-effecting call and never invokes the executor (wire/default gate mode)", async () => {
+    const denied = new Set<string>();
+    const { executor, calls } = makeCapturingExecutor();
+    // No subagentToolGateMode → "wire": the deny-side-effects gate must still
+    // reject, since it runs ahead of the gate-mode branch.
+    const toolFn = makeToolFn(
+      executor,
+      makeSetupCtx({
+        subagentDenySideEffects: true,
+        subagentDeniedToolNames: denied,
+      }),
+    );
+
+    const result = await toolFn("bash", { command: "echo hi" });
+
+    expect(result?.isError).toBe(true);
+    expect(result?.content).toContain("read-only background pass");
+    // Safety invariant: the side-effecting tool's executor must never run.
+    expect(calls).toHaveLength(0);
+    // Recorded so the parent (and the resurface context) can surface the intent.
+    expect([...denied]).toEqual(["bash"]);
+  });
+
+  test("lets a trusted allowlisted read tool execute normally", async () => {
+    const { executor, calls } = makeCapturingExecutor();
+    const toolFn = makeToolFn(
+      executor,
+      makeSetupCtx({ subagentDenySideEffects: true }),
+    );
+
+    // `file_read` is on the allowlist and registered as a trusted built-in.
+    const result = await toolFn("file_read", { path: "x" });
+
+    expect(result).toEqual({ content: "ok", isError: false });
+    expect(calls).toHaveLength(1);
+  });
+
+  test("refuses a low-risk core mutator not on the read-only allowlist", async () => {
+    const denied = new Set<string>();
+    const { executor, calls } = makeCapturingExecutor();
+    const toolFn = makeToolFn(
+      executor,
+      makeSetupCtx({
+        subagentDenySideEffects: true,
+        subagentDeniedToolNames: denied,
+      }),
+    );
+
+    // `remember` writes memory but is low-risk and not in the core side-effect
+    // list — the fail-safe allowlist refuses it anyway.
+    const result = await toolFn("remember", { content: "a fact" });
+
+    expect(result?.isError).toBe(true);
+    expect(calls).toHaveLength(0);
+    expect([...denied]).toEqual(["remember"]);
+  });
+
+  test("rejects a side-effecting inner tool reached via skill_execute", async () => {
+    const denied = new Set<string>();
+    const { executor, calls } = makeCapturingExecutor();
+    const toolFn = makeToolFn(
+      executor,
+      makeSetupCtx({
+        subagentDenySideEffects: true,
+        subagentDeniedToolNames: denied,
+      }),
+    );
+
+    const result = await toolFn("skill_execute", {
+      tool: "bash",
+      input: { command: "echo hi" },
+    });
+
+    expect(result?.isError).toBe(true);
+    expect(calls).toHaveLength(0);
+    // The resolved inner tool is recorded, not the skill_execute wrapper.
+    expect(denied.has("bash")).toBe(true);
+    expect(denied.has("skill_execute")).toBe(false);
+  });
+});
+
+describe("isRefusedInReadOnlyPass — strict read-only allowlist", () => {
+  test("allows an allowlisted name only when it is the trusted built-in (default owner)", () => {
+    for (const name of [
+      "file_read",
+      "file_list",
+      "code_search",
+      "web_search",
+      "skill_execute",
+    ]) {
+      expect(isRefusedInReadOnlyPass(name, "default")).toBe(false);
+    }
+  });
+
+  test("refuses an allowlisted name overridden by a non-default owner", () => {
+    // registerWorkspaceTools can install a workspace `file_read` that writes
+    // files under the trusted name; owner verification fails it closed.
+    for (const ownerKind of [
+      "workspace",
+      "plugin",
+      "skill",
+      "mcp",
+      undefined,
+    ] as const) {
+      expect(isRefusedInReadOnlyPass("file_read", ownerKind)).toBe(true);
+    }
+  });
+
+  test("refuses everything not on the allowlist — core mutators, side-effects, host, extensions", () => {
+    for (const name of [
+      "remember", // low-risk core memory write
+      "notify_parent", // enqueues a parent turn
+      "delete_memory_page",
+      "computer_use_click", // desktop action
+      "bash", // core side-effect
+      "file_write",
+      "host_file_read", // host read (can leak local data)
+      "recall", // memory read is a plugin tool, not on the allowlist
+      "messaging_send", // extension tool
+    ]) {
+      expect(isRefusedInReadOnlyPass(name, "default")).toBe(true);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Executor — per-chat plugin scope guard on the skill_execute dispatch path
 // ---------------------------------------------------------------------------
 
@@ -590,5 +783,59 @@ describe("createToolExecutor — per-chat plugin scope (skill_execute dispatch)"
 
     expect(result).toEqual({ content: "ok", isError: false });
     expect(calls).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Resolver — read-only continuation hides dynamic MCP/workspace tools too
+// (they bypass isToolActiveForContext, so the read-only filter is applied to
+// them explicitly when the defs are appended to the wire).
+// ---------------------------------------------------------------------------
+
+describe("createResolveToolsCallback — read-only hides dynamic MCP tools", () => {
+  function mcpTool(name: string, risk: RiskLevel): Tool {
+    return {
+      name,
+      description: name,
+      input_schema: { type: "object" },
+      defaultRiskLevel: risk,
+    } as unknown as Tool;
+  }
+
+  afterEach(() => {
+    __clearRegistryForTesting();
+  });
+
+  test("filters an MCP tool off the wire even when it declares low risk", () => {
+    // Low risk is only an author-asserted band, not a read-only guarantee, so an
+    // extension tool is refused regardless; a trusted allowlisted read tool stays.
+    registerMcpTools("srv", [mcpTool("srv_send", RiskLevel.Low)]);
+    registerTool({
+      name: "file_read",
+      description: "file_read",
+      input_schema: { type: "object" },
+      execute: async () => ({ content: "ok", isError: false }),
+    } as unknown as Parameters<typeof registerTool>[0]);
+    const ctx = makeProjectionCtx({ subagentDenySideEffects: true });
+    const resolve = createResolveToolsCallback(
+      [makeToolDef("file_read")],
+      ctx,
+    )!;
+
+    const names = resolve(EMPTY_HISTORY).map((t) => t.name);
+
+    expect(names).not.toContain("srv_send");
+    expect(names).toContain("file_read");
+  });
+
+  test("keeps the MCP tool on the wire without the read-only flag (control)", () => {
+    registerMcpTools("srv", [mcpTool("srv_send", RiskLevel.Low)]);
+    const ctx = makeProjectionCtx({});
+    const resolve = createResolveToolsCallback(
+      [makeToolDef("file_read")],
+      ctx,
+    )!;
+
+    expect(resolve(EMPTY_HISTORY).map((t) => t.name)).toContain("srv_send");
   });
 });

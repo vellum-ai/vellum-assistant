@@ -779,10 +779,11 @@ function normalizeUploadedImageBase64(
   dataBase64: string,
 ): { filename: string; mimeType: string; dataBase64: string } {
   const norm = normalizeImageBase64(mimeType, dataBase64);
-  if (
-    !norm.converted ||
-    computeSizeBytesFromBase64(norm.dataBase64) > MAX_UPLOAD_BYTES
-  ) {
+  if (!norm.converted) {
+    // Bytes untouched, but the declared MIME may have been sniff-corrected.
+    return { filename, mimeType: norm.mimeType, dataBase64 };
+  }
+  if (computeSizeBytesFromBase64(norm.dataBase64) > MAX_UPLOAD_BYTES) {
     return { filename, mimeType, dataBase64 };
   }
   return {

@@ -566,6 +566,13 @@ export class SubagentManager {
       conversation.setSubagentAllowedTools(new Set(roleConfig.allowedTools));
     }
 
+    // A read-only subagent (e.g. the live-voice background continuation) refuses
+    // side-effecting tools regardless of trust class; the executor gate rejects
+    // any such dispatch and they are kept off the model's tool surface.
+    if (config.denySideEffectTools) {
+      conversation.setSubagentDenySideEffects(true);
+    }
+
     // Pre-activate skills defined by the role config, merged with any caller-provided skill IDs.
     const mergedSkillIds = mergeSkillIds(
       roleConfig.skillIds,

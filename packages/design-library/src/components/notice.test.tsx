@@ -28,3 +28,4 @@ describe("Notice — error tone icon", () => {
     expect(html).not.toContain("lucide-triangle-alert");
   });
 });
+

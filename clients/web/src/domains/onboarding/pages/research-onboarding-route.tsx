@@ -72,6 +72,7 @@ import {
   GiveMeAFaceScreen,
   type GiveMeAFaceValues,
 } from "@/domains/onboarding/screens/give-me-a-face-screen";
+import { useOnboardingVoiceFlag } from "@/domains/onboarding/use-onboarding-voice-flag";
 import { IntroductionScreen } from "@/domains/onboarding/screens/introduction-screen";
 import { PitchStep } from "@/domains/onboarding/screens/intro-pitch-steps";
 import { IntegrationStep } from "@/domains/onboarding/screens/integration-step";
@@ -297,6 +298,12 @@ export function ResearchOnboardingRoute() {
     adoptExisting: adoptExistingAssistant,
     adoptAssistantId,
   });
+  // Gate the face-step "Hear my voice" audition on the HATCHED assistant's
+  // voice-mode flag — not the app's active assistant. Onboarding hatches a
+  // separate assistant and only selects it at handoff, so the shared flag store
+  // would report the wrong assistant (or the default for a brand-new user with
+  // nothing selected). Fails safe to hidden until the hatch id + flags land.
+  const voiceEnabled = useOnboardingVoiceFlag(hatchedAssistantId);
   const research = useResearchRunner();
   // Stable across renders (useCallback in the runner); safe as effect deps.
   const { start: startResearch, hydrate: hydrateResearch } = research;
@@ -698,6 +705,10 @@ export function ResearchOnboardingRoute() {
     // Stage the chosen avatar traits; OnboardingAvatarApplier applies them once
     // the assistant is hatched (they're not part of the pre-chat context).
     setPendingAvatarTraits(face?.traits ?? null);
+    // Onboarding assistants use the default Vellum managed voice via their TTS
+    // config; the face step's "Hear my voice" only auditions it. Per-voice
+    // selection is deferred until the managed-speech endpoint can take a Deepgram
+    // model override (needs platform work — see the follow-up ticket).
 
     // The research pass renders in the focused presentation; entering from a
     // suggestion (or skipping) is a normal chat, so only focus for research.
@@ -1157,6 +1168,10 @@ export function ResearchOnboardingRoute() {
   if (step === "face" && formValues) {
     return (
       <GiveMeAFaceScreen
+        // Surface the "Hear my voice" audition on this step when voice is on;
+        // it synthesizes the managed-voice sample against the hatched assistant.
+        voiceEnabled={voiceEnabled}
+        assistantId={hatchedAssistantId}
         onContinue={(face) => {
           setFaceValues(face);
           goForwardTo("intro");

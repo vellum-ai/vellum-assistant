@@ -19152,13 +19152,6 @@ paths:
                     snapshots, emits no echo, and does not supersede pending interactions. Honored on the standard send
                     path only — slash-command content bypasses it."
                   type: boolean
-                source:
-                  description:
-                    'How the send was initiated when the message was sent on the user''s behalf by the UI rather than typed by
-                    hand. Current value: "nav_redirect" (a navigation shortcut redirected the user into chat with a
-                    pre-filled message). Persisted onto the message metadata for analytics attribution and used to steer
-                    the assistant toward a brief, concrete reply. Omit for messages the user typed.'
-                  type: string
                 onboarding:
                   type: object
                   properties:

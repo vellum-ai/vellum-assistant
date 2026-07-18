@@ -25,9 +25,13 @@ export function SettingsLayout() {
   const platformNotifications = useClientFeatureFlagStore.use.platformNotifications();
   const bookmarksEnabled = useClientFeatureFlagStore.use.bookmarks();
   const platformGate = usePlatformGate({ platformHostedOnly: true });
-  // Billing & Usage is never hidden: the Usage tab reads from the local
-  // daemon and works for every assistant; the page gates its
-  // billing-specific tab internally.
+  // The Usage item is never hidden: the Usage tab reads from the local daemon
+  // and works for every assistant. Its label only gains "Billing &" when the
+  // Billing tab is actually shown — i.e. signed in to the Vellum platform
+  // (`usePlatformGate() === "full"`), matching billing-page.tsx's
+  // `showBillingTab`. Signed-out / self-hosted users see just "Usage".
+  const billingGate = usePlatformGate();
+  const billingLabel = billingGate === "full" ? "Billing & Usage" : "Usage";
   const { pathname } = useLocation();
   const navigate = useNavigate();
   // Show Log Out when a platform session exists, Log In otherwise.
@@ -53,12 +57,15 @@ export function SettingsLayout() {
           return false;
         }
         return true;
-      }),
+      }).map((item) =>
+        item.id === "billing" ? { ...item, label: billingLabel } : item,
+      ),
     [
       platformNotifications,
       platformGate,
       bookmarksEnabled,
       credentialsSettingsEnabled,
+      billingLabel,
     ],
   );
 
@@ -92,9 +99,9 @@ export function SettingsLayout() {
       (item) =>
         pathname === item.href || pathname.startsWith(item.href + "/"),
     );
-    if (match) {return match.label;}
+    if (match) {return match.id === "billing" ? billingLabel : match.label;}
     return "Settings";
-  }, [pathname]);
+  }, [pathname, billingLabel]);
 
   return (
     <SidebarShell

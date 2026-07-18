@@ -199,7 +199,7 @@ function PreferencesMenuContent({
             balance={formatWholeCredits(effectiveBalance)}
             onAddCredits={() => {
               onClose();
-              navigate(routes.settings.billing);
+              navigate(routes.settings.usageBilling);
             }}
           />
         </div>

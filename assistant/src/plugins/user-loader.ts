@@ -89,10 +89,11 @@ export async function loadUserPlugins(
     );
   }
 
-  // Same treatment for whitelisted shared deps (zod, …): the installer never
-  // runs `bun install`, so a plugin's bare `import { z } from "zod"` only
-  // resolves if we symlink the assistant's own copy into the workspace's
-  // node_modules. ensureSharedDepLinks never throws for a single dep, but is
+  // Same treatment for whitelisted shared deps (zod, …): these are deps a
+  // plugin may use *without* declaring, so a plugin's bare `import { z } from
+  // "zod"` only resolves if we symlink the assistant's own copy into the
+  // workspace's node_modules (a plugin's own declared deps are installed at
+  // install time). ensureSharedDepLinks never throws for a single dep, but is
   // wrapped for the same never-block-startup reason as above.
   try {
     await ensureSharedDepLinks();

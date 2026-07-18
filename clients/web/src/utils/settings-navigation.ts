@@ -9,12 +9,12 @@
 
 import type { LucideIcon } from "lucide-react";
 import {
+  BarChart3,
   Bell,
   Bookmark,
   Bug,
   Code,
   Cpu,
-  CreditCard,
   KeyRound,
   Mic,
   Users,
@@ -76,7 +76,7 @@ export const SETTINGS_SIDEBAR: SidebarItem[] = [
   { id: "voice", label: "Voice & Sounds", href: routes.settings.voice, icon: Mic },
   { id: "privacy", label: "Permissions & Privacy", href: routes.settings.privacy, icon: ShieldCheck },
   { id: "bookmarks", label: "Bookmarks", href: routes.settings.bookmarks, icon: Bookmark },
-  { id: "billing", label: "Billing & Usage", href: routes.settings.billing, icon: CreditCard },
+  { id: "billing", label: "Usage", href: routes.settings.usage, icon: BarChart3 },
   { id: "community", label: "Community", href: routes.settings.community, icon: Users },
   { id: "debug", label: "Debug", href: routes.settings.debug, icon: Bug },
   { id: "developer", label: "Developer", href: routes.settings.developer, icon: Code },
@@ -113,6 +113,15 @@ const SETTINGS_TAB_ROUTE_ALIASES: Record<string, string> = {
   // Archive is an in-page tab on the Debug page; the bare Debug route opens
   // General, so the archive alias carries the ?tab= param.
   archive: `${routes.settings.debug}?tab=archive`,
+  // The Billing & Usage page moved to `/assistant/settings/usage`, which has
+  // both a Billing and a Usage in-page tab (Billing is the default for a
+  // signed-in viewer). Route each client-tab lookup straight to its sub-tab so
+  // model- and native-driven navigation lands on the requested tab regardless
+  // of the page default. The sidebar item's own bare href is left untouched, so
+  // clicking the nav entry still opens the default tab.
+  billing: routes.settings.usageBilling,
+  "billing & usage": routes.settings.usageBilling,
+  usage: `${routes.settings.usage}?tab=usage`,
 };
 
 function normalizeSettingsTabName(tab: string): string {
