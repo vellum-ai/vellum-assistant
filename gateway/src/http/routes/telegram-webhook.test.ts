@@ -34,6 +34,15 @@ mock.module("../../runtime/client.js", () => ({
   uploadAttachment: mock(() => Promise.resolve({ id: "att-1" })),
   AttachmentValidationError: class extends Error {},
   CircuitBreakerOpenError: class extends Error {},
+  createTelegramVerificationThread: mock(() => Promise.resolve(undefined)),
+  applyTelegramTopicTitleFromTelegram: mock(() => Promise.resolve()),
+  archiveTelegramTopic: mock(() => Promise.resolve({ title: null })),
+  forkTelegramTopic: mock(() => Promise.resolve()),
+  getTelegramTopicAccessMode: mock(() => Promise.resolve({})),
+  listTelegramTopicProfiles: mock(() => Promise.resolve([])),
+  renameTelegramTopic: mock(() => Promise.resolve()),
+  setTelegramTopicAccessMode: mock(() => Promise.resolve({})),
+  setTelegramTopicProfile: mock(() => Promise.resolve({})),
 }));
 
 mock.module("../../telegram/verify.js", () => ({
@@ -289,6 +298,44 @@ describe("telegram-webhook callback query acknowledgment", () => {
       (c) => c[0] === "answerCallbackQuery",
     );
     expect(answerCalls.length).toBe(0);
+  });
+
+  it("sends verification success reply directly when intercepted in normal mode", async () => {
+    handleInboundMock.mockImplementation(() =>
+      Promise.resolve({
+        forwarded: false,
+        rejected: false,
+        verificationIntercepted: true,
+        verificationOutcome: "verified",
+        verificationTrustClass: "guardian",
+        verificationReplyText:
+          "Verification successful. You are now set as the guardian for this channel.",
+      }),
+    );
+    const { handler } = createTelegramWebhookHandler(baseConfig, makeCaches());
+    const body = JSON.stringify({
+      update_id: 350,
+      message: {
+        message_id: 12,
+        text: "269374",
+        chat: { id: 42, type: "private" },
+        from: { id: 42, first_name: "Alice" },
+      },
+    });
+    const res = await handler(postRequest(body));
+
+    expect(res.status).toBe(200);
+    // The gateway owns Telegram outbound — the success reply is sent directly,
+    // not proxied to a non-existent /deliver/telegram endpoint.
+    expect(sendTelegramReplyMock).toHaveBeenCalledTimes(1);
+    const replyArgs = sendTelegramReplyMock.mock.calls[0] as unknown[];
+    expect(replyArgs[2]).toBe(
+      "Verification successful. You are now set as the guardian for this channel.",
+    );
+    const opts = handleInboundMock.mock.calls[0][2] as {
+      deliverInterceptRepliesViaCaller?: boolean;
+    };
+    expect(opts.deliverInterceptRepliesViaCaller).toBe(true);
   });
 
   it("clears inline approval buttons after a standard approval decision", async () => {

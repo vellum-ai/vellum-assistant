@@ -8,6 +8,7 @@ import {
   setNestedValue,
 } from "../../config/loader.js";
 import { registerCallbackRoute } from "../../inbound/platform-callback-registration.js";
+import { resetTelegramThreadedModeCache } from "../../messaging/providers/telegram-bot/verification-topic.js";
 import {
   ensureManualTokenConnection,
   removeManualTokenConnection,
@@ -190,6 +191,9 @@ export async function setTelegramConfig(
   saveRawConfig(raw);
   invalidateConfigCache();
 
+  // A new/changed bot may have a different threaded-mode setting.
+  resetTelegramThreadedModeCache();
+
   // Ensure webhook secret exists (generate if missing)
   let hasWebhookSecret = !!(await getSecureKeyAsync(
     credentialKey("telegram", "webhook_secret"),
@@ -318,6 +322,8 @@ export async function clearTelegramConfig(): Promise<TelegramConfigResult> {
   saveRawConfig(raw);
   invalidateConfigCache();
 
+  resetTelegramThreadedModeCache();
+
   return {
     success: true,
     hasBotToken: false,
@@ -342,12 +348,27 @@ export async function setTelegramCommands(
     };
   }
 
+  // Keep in sync with the gateway's canonical list
+  // (gateway/src/telegram/commands.ts TELEGRAM_BOT_COMMANDS) — the two live in
+  // separate packages and cannot share a module across the import boundary.
   const resolvedCommands = commands ?? [
     { command: "new", description: "Start a new conversation" },
+    { command: "stop", description: "Interrupt the running assistant" },
+    { command: "fork", description: "Fork this topic into a new topic" },
+    { command: "rename", description: "Rename this topic (guardian)" },
+    { command: "archive", description: "Archive this topic and close it" },
+    { command: "profile", description: "Choose inference profile" },
+    { command: "access", description: "Assistant access mode (guardian)" },
     { command: "help", description: "Show available commands" },
   ];
 
   try {
+    // Clear any previously-registered commands first so a renamed or removed
+    // command can't linger in the client's command menu.
+    await fetch(`https://api.telegram.org/bot${storedToken}/deleteMyCommands`, {
+      method: "POST",
+    }).catch(() => {});
+
     const res = await fetch(
       `https://api.telegram.org/bot${storedToken}/setMyCommands`,
       {

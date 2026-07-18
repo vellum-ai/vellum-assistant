@@ -42,7 +42,9 @@ function buildScopedConversationKeyForAssistant(
   sourceThreadId?: string | null,
 ): string {
   const threadId = sourceThreadId?.trim();
-  if (sourceChannel === "slack" && threadId) {
+  const threadScopedChannel =
+    sourceChannel === "slack" || sourceChannel === "telegram";
+  if (threadScopedChannel && threadId) {
     return `asst:${assistantId}:${sourceChannel}:${externalChatId}:thread:${threadId}`;
   }
   return `asst:${assistantId}:${sourceChannel}:${externalChatId}`;

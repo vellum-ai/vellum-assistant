@@ -73,6 +73,7 @@ import { getLogger } from "../../util/logger.js";
 import { silentlyWithLog } from "../../util/silently.js";
 import { broadcastMessage } from "../assistant-event-hub.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
+import { deleteBoundChannelThread } from "../channel-thread-cleanup.js";
 import { resolveActorPrincipalIdForLocalGuardian } from "../local-actor-identity.js";
 import { buildConversationDetailResponse } from "../services/conversation-serializer.js";
 import {
@@ -104,7 +105,9 @@ const log = getLogger("conversation-management-routes");
 
 function resolveOrThrow(rawId: string): string {
   const id = resolveConversationId(rawId);
-  if (!id) throw new NotFoundError(`Conversation ${rawId} not found`);
+  if (!id) {
+    throw new NotFoundError(`Conversation ${rawId} not found`);
+  }
   return id;
 }
 
@@ -521,6 +524,7 @@ function handleArchiveConversation({
   if (!archived) {
     throw new NotFoundError(`Conversation ${pathParams.id} not found`);
   }
+  void deleteBoundChannelThread(resolvedId);
   publishConversationListAndMetadataChanged(
     "reordered",
     resolvedId,
@@ -564,6 +568,7 @@ function handleArchiveConversationsBulk({
       const archived = archiveConversation(conversationId);
       if (archived) {
         archivedIds.push(conversationId);
+        void deleteBoundChannelThread(conversationId);
       }
     } catch (err) {
       log.error(

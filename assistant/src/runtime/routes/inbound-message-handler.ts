@@ -673,12 +673,12 @@ export async function handleChannelInbound({
     typeof sourceMetadata?.messageId === "string"
       ? sourceMetadata.messageId
       : undefined;
-  const slackThreadTs =
-    sourceChannel === "slack" &&
+  const channelThreadId =
     typeof sourceMetadata?.threadId === "string" &&
     sourceMetadata.threadId.trim().length > 0
       ? sourceMetadata.threadId.trim()
       : undefined;
+  const slackThreadTs = sourceChannel === "slack" ? channelThreadId : undefined;
 
   if (isEdit && !sourceMessageId) {
     throw new BadRequestError("sourceMetadata.messageId is required for edits");
@@ -691,7 +691,7 @@ export async function handleChannelInbound({
       conversationExternalId,
       externalMessageId,
       sourceMessageId,
-      sourceThreadId: slackThreadTs,
+      sourceThreadId: channelThreadId,
       canonicalAssistantId,
       assistantId,
       content,
@@ -707,7 +707,7 @@ export async function handleChannelInbound({
     {
       sourceMessageId,
       assistantId: canonicalAssistantId,
-      sourceThreadId: slackThreadTs,
+      sourceThreadId: channelThreadId,
     },
   );
 
@@ -722,7 +722,7 @@ export async function handleChannelInbound({
       sourceChannel,
       externalChatId: conversationExternalId,
       externalChatName: slackChannelName,
-      externalThreadId: slackThreadTs ?? null,
+      externalThreadId: channelThreadId ?? null,
       externalUserId: canonicalSenderId ?? rawSenderId ?? null,
       displayName: body.actorDisplayName ?? null,
       username: body.actorUsername ?? null,

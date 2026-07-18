@@ -26,6 +26,7 @@ import {
 import type { ChannelId } from "../channels/types.js";
 import { sendSlackReply } from "../messaging/providers/slack/send.js";
 import { sendTelegramReply } from "../messaging/providers/telegram-bot/send.js";
+import { resolveVerificationThreadId } from "../messaging/providers/telegram-bot/verification-topic.js";
 import { getTelegramBotUsername } from "../telegram/bot-username.js";
 import { getLogger } from "../util/logger.js";
 import { normalizePhoneNumber } from "../util/phone.js";
@@ -155,7 +156,13 @@ export function deliverVerificationTelegram(
 ): void {
   (async () => {
     try {
-      await sendTelegramReply(chatId, text);
+      const messageThreadId = await resolveVerificationThreadId(chatId);
+      await sendTelegramReply(
+        chatId,
+        text,
+        undefined,
+        messageThreadId ? { messageThreadId } : undefined,
+      );
       log.info(
         { chatId, assistantId },
         "Verification Telegram message delivered",
