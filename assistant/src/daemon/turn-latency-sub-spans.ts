@@ -61,7 +61,9 @@ export function recordLatencySubSpan(
   ms: number,
 ): void {
   const scope = storage.getStore();
-  if (!scope || ms < MIN_SUB_SPAN_MS) return;
+  if (!scope || ms < MIN_SUB_SPAN_MS) {
+    return;
+  }
   scope.tracker.recordSubSpan(scope.parentKey, key, label, ms);
 }
 
