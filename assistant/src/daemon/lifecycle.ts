@@ -21,6 +21,7 @@ import { startGatewayFlagListener } from "../ipc/gateway-flag-listener.js";
 import { startMonitoring } from "../monitoring/control.js";
 import { backfillManualTokenConnections } from "../oauth/manual-token-connection.js";
 import { seedOAuthProviders } from "../oauth/seed-providers.js";
+import { getMaxPersistedConversationSeq } from "../persistence/conversation-crud.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { startEmbeddingRuntimeManager } from "../persistence/embeddings/embedding-backend.js";
@@ -30,6 +31,7 @@ import { syncWorkspaceIdentityToPlatform } from "../platform/sync-identity.js";
 import { ensurePromptFiles } from "../prompts/system-prompt.js";
 import { runProviderConnectionsBackfill } from "../providers/inference/backfill.js";
 import { initializeProviders } from "../providers/registry.js";
+import { floorSeqAbove } from "../runtime/assistant-stream-state.js";
 import {
   initAuthSigningKey,
   resolveSigningKey,
@@ -230,6 +232,22 @@ export async function runDaemon(): Promise<void> {
   try {
     const { migrationsOk } = await initializeDb();
     dbReady = true;
+    // Floor the stream seq counter above every persisted conversation
+    // anchor before turns can stamp events. Anchors are getCurrentSeq()
+    // snapshots already served to clients, and a crashed process can have
+    // outrun its last successful seq-reservation write — resuming below an
+    // anchor re-issues seqs, and anchored clients then discard every live
+    // event as an already-applied replay. Own try/catch: on a
+    // failed-migration DB the column may be unreadable, and that must not
+    // flip startup into the migration-failed path.
+    try {
+      floorSeqAbove(getMaxPersistedConversationSeq());
+    } catch (err) {
+      log.warn(
+        { err },
+        "stream seq floor from persisted anchors failed — continuing startup",
+      );
+    }
     if (migrationsOk) {
       setDbReady(true);
       log.info("Daemon startup: DB initialized");
