@@ -11,7 +11,7 @@
  * user-facing traffic, and keep running during a main-thread freeze in the
  * daemon.
  */
-import { existsSync, unlinkSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 
 import { getConfig } from "../config/loader.js";
 import { rehydratePlatformCredentials } from "../config/platform-rehydration.js";
@@ -20,23 +20,16 @@ import { disableStreamSeqStamping } from "../runtime/assistant-stream-state.js";
 import { initializeTools } from "../tools/registry.js";
 import { getLogger } from "../util/logger.js";
 import { getScheduleWorkerPidPath } from "../util/platform.js";
+import {
+  cleanupWorkerPidFile,
+  startWorkerPidFileGuard,
+} from "../util/worker-process.js";
 import { runDueSchedulesOnce } from "./scheduler.js";
 
 const log = getLogger("schedule-worker-process");
 
 /** Same cadence as the daemon scheduler's tick. */
 const TICK_INTERVAL_MS = 15_000;
-
-function cleanupPidFile(): void {
-  const pidPath = getScheduleWorkerPidPath();
-  try {
-    if (existsSync(pidPath)) {
-      unlinkSync(pidPath);
-    }
-  } catch {
-    // best-effort
-  }
-}
 
 async function main(): Promise<void> {
   // Only the daemon stamps SSE seqs and writes the shared reservation file.
@@ -99,16 +92,28 @@ async function main(): Promise<void> {
   }, TICK_INTERVAL_MS);
   void tick();
 
+  let disposePidGuard: (() => void) | null = null;
   const shutdown = (signal: string) => {
     log.info({ signal }, "Schedule worker process shutting down");
     stopped = true;
     clearInterval(timer);
-    cleanupPidFile();
+    disposePidGuard?.();
+    cleanupWorkerPidFile(pidPath);
     process.exit(0);
   };
 
   process.on("SIGTERM", () => shutdown("SIGTERM"));
   process.on("SIGINT", () => shutdown("SIGINT"));
+
+  disposePidGuard = startWorkerPidFileGuard(pidPath, {
+    onEvicted: (reason) => {
+      log.warn(
+        { reason },
+        "Evicted — the PID file no longer names this worker",
+      );
+      shutdown("pid-file-eviction");
+    },
+  });
 
   process.on("SIGUSR1", () => {
     log.info("Received SIGUSR1 — refreshing database connections");
@@ -122,13 +127,13 @@ async function main(): Promise<void> {
   // but this gives us structured logging and graceful shutdown.
   process.on("uncaughtException", (err) => {
     log.error({ err }, "Uncaught exception in schedule worker process");
-    cleanupPidFile();
+    cleanupWorkerPidFile(getScheduleWorkerPidPath());
     process.exit(1);
   });
 
   process.on("unhandledRejection", (reason) => {
     log.error({ reason }, "Unhandled rejection in schedule worker process");
-    cleanupPidFile();
+    cleanupWorkerPidFile(getScheduleWorkerPidPath());
     process.exit(1);
   });
 
@@ -136,12 +141,12 @@ async function main(): Promise<void> {
   process.on("exit", () => {
     stopped = true;
     clearInterval(timer);
-    cleanupPidFile();
+    cleanupWorkerPidFile(getScheduleWorkerPidPath());
   });
 }
 
 void main().catch((err) => {
   log.error({ err }, "Schedule worker process failed to start");
-  cleanupPidFile();
+  cleanupWorkerPidFile(getScheduleWorkerPidPath());
   process.exit(1);
 });

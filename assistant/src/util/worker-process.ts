@@ -275,6 +275,74 @@ export function stopWorkerProcess(pidPath: string): WorkerProcessStatus {
 }
 
 // ---------------------------------------------------------------------------
+// PID-file identity
+// ---------------------------------------------------------------------------
+
+/**
+ * Remove the worker PID file only while it still names this process. A
+ * successor worker overwrites the file with its own PID at startup, so an
+ * exiting predecessor that unlinked unconditionally would delete the
+ * successor's entry — the liveness supervisor would then respawn a
+ * duplicate and orphan the successor.
+ */
+export function cleanupWorkerPidFile(pidPath: string): void {
+  try {
+    const raw = readFileSync(pidPath, "utf-8").trim();
+    if (parseInt(raw, 10) === process.pid) {
+      unlinkSync(pidPath);
+    }
+  } catch {
+    // best-effort — a missing or unreadable file needs no cleanup
+  }
+}
+
+/**
+ * Watch the worker PID file and evict this process when the file stops
+ * naming it. The PID file is a worker's sole tracking handle: stop
+ * commands and daemon shutdown signal only the PID it names, so a worker
+ * the file does not name can never be stopped externally — it must stop
+ * itself. Eviction fires when the file names another process (a successor
+ * spawned over this one) or is missing (untracked). A worker a successor
+ * daemon reuses via the `alreadyRunning` path is still named by the file,
+ * so the guard never fires for it.
+ *
+ * Checks every `intervalMs` (default 15s) on an unref'd timer so the
+ * guard never keeps the process alive, calls `onEvicted` at most once,
+ * and stops checking after eviction. Returns a disposer; call it before
+ * {@link cleanupWorkerPidFile} on the normal shutdown path so shutdown
+ * never reads as an eviction. The eviction path must not delete the PID
+ * file — it names the successor.
+ */
+export function startWorkerPidFileGuard(
+  pidPath: string,
+  opts: { onEvicted: (reason: string) => void; intervalMs?: number },
+): () => void {
+  const intervalMs = opts.intervalMs ?? 15_000;
+  let evicted = false;
+  const timer = setInterval(() => {
+    if (evicted) {
+      return;
+    }
+    let reason: string | null = null;
+    try {
+      const raw = readFileSync(pidPath, "utf-8").trim();
+      if (parseInt(raw, 10) !== process.pid) {
+        reason = `PID file names ${raw || "nothing"}, not this process (${process.pid})`;
+      }
+    } catch {
+      reason = "PID file is missing";
+    }
+    if (reason != null) {
+      evicted = true;
+      clearInterval(timer);
+      opts.onEvicted(reason);
+    }
+  }, intervalMs);
+  timer.unref();
+  return () => clearInterval(timer);
+}
+
+// ---------------------------------------------------------------------------
 // Liveness supervisor
 // ---------------------------------------------------------------------------
 
