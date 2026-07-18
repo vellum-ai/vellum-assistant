@@ -83,7 +83,9 @@ export class TurnLatencyTracker {
     label: string,
     ms: number,
   ): void {
-    if (ms < 0) return;
+    if (ms < 0) {
+      return;
+    }
     const existing = this.subSpansByPhase.get(parentPhaseKey);
     if (existing) {
       existing.push({ key, label, ms });
