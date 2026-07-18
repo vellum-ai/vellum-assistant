@@ -309,6 +309,17 @@ describe("CustomPlanModal — base subscriber", () => {
     expect(labels.some((l) => l.startsWith("250 GiB"))).toBe(false);
   });
 
+  test("recap opens with just the labeled base fee", () => {
+    const { getByRole, getByText } = renderPage(freeSubscription());
+
+    fireEvent.click(getByRole("button", { name: "Configure" }));
+
+    // Nothing selected yet — the total is the bare base fee, and the recap's
+    // permanent first row labels where it comes from.
+    getByText("$20/mo");
+    getByText("Pro base plan — $20/mo");
+  });
+
   test("recap totals the base price plus the selected tiers", () => {
     const { getByRole, getByText } = renderPage(freeSubscription());
 
@@ -329,6 +340,7 @@ describe("CustomPlanModal — base subscriber", () => {
       (li) => li.textContent?.trim() ?? "",
     );
     expect(rows).toEqual([
+      "Pro base plan — $20/mo",
       "Large machine (4 vCPU, 8 GiB)",
       "30 GiB storage",
       "$50 of bundled credits",

@@ -143,7 +143,11 @@ export function CustomPlanModal({
     (selectedStorage?.price_cents ?? 0) +
     (selectedCredit?.price_cents ?? 0);
 
+  // The base platform fee is always charged, so it permanently leads the
+  // recap — the total above then reconciles with the visible rows even
+  // before anything is selected.
   const selectionRows = [
+    `Pro base plan — ${formatMonthly(proPlan.base_price_cents)}`,
     selectedMachine?.description,
     selectedStorage ? `${selectedStorage.storage_gib} GiB storage` : null,
     creditChoice === NO_EXTRA_CREDITS
@@ -263,25 +267,19 @@ export function CustomPlanModal({
                 Your selection:
               </span>
 
-              {selectionRows.length > 0 ? (
-                <ul className="flex flex-col gap-2">
-                  {selectionRows.map((row) => (
-                    <li key={row} className="flex items-start gap-2">
-                      <CircleCheck
-                        className="mt-0.5 h-4 w-4 shrink-0 text-[var(--content-secondary)]"
-                        aria-hidden
-                      />
-                      <span className="text-[14px] font-medium leading-[18px] text-[var(--content-secondary)]">
-                        {row}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <span className="text-[14px] font-medium text-[var(--content-tertiary)]">
-                  Nothing selected yet.
-                </span>
-              )}
+              <ul className="flex flex-col gap-2">
+                {selectionRows.map((row) => (
+                  <li key={row} className="flex items-start gap-2">
+                    <CircleCheck
+                      className="mt-0.5 h-4 w-4 shrink-0 text-[var(--content-secondary)]"
+                      aria-hidden
+                    />
+                    <span className="text-[14px] font-medium leading-[18px] text-[var(--content-secondary)]">
+                      {row}
+                    </span>
+                  </li>
+                ))}
+              </ul>
 
               <Button
                 variant="primary"
