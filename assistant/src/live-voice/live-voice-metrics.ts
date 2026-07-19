@@ -1,4 +1,5 @@
 import { getLogger } from "../util/logger.js";
+import type { VoiceEndpointAction } from "./front-decision.js";
 
 const log = getLogger("live-voice-metrics");
 
@@ -24,8 +25,8 @@ export type LiveVoiceMetricsEvent =
   | "session_ended";
 
 // Semantic-endpointing decision on a silence boundary (voice-front-model).
-export interface LiveVoiceEndpointDecisionMark {
-  action: "hold" | "release";
+interface LiveVoiceEndpointDecisionMark {
+  action: VoiceEndpointAction;
   latencyMs: number;
 }
 

@@ -45,7 +45,12 @@ export interface VoiceEndpointDecisionInput {
   extensionCount: number;
 }
 
-export type VoiceEndpointDecision = { action: "release" } | { action: "hold" };
+// The one spelling of the endpoint outcome, shared with the metrics mark and
+// the session's decision recording.
+export type VoiceEndpointAction = "release" | "hold";
+
+// Kept as an object shape (callers destructure it; it allows future payloads).
+export type VoiceEndpointDecision = { action: VoiceEndpointAction };
 
 export interface VoiceAckTextInput {
   /** Final transcript of the utterance the ack acknowledges. */

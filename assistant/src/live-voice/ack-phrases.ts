@@ -1,8 +1,10 @@
+import type { LiveVoiceSpokenAckKind } from "./live-voice-metrics.js";
+
 // Short, persona-neutral phrases spoken to hold the floor when the model is
 // slow to produce its first delta (voice-front-model). Pure floor-holders:
 // they must never carry content or require domain knowledge, and they stay
 // short (≤ 6 words) so they finish before the real reply's audio arrives.
-export const ACK_PHRASES: readonly string[] = [
+const ACK_PHRASES: readonly string[] = [
   "One sec — let me think.",
   "Let me look into that.",
   "Give me a moment.",
@@ -13,7 +15,7 @@ export const ACK_PHRASES: readonly string[] = [
 // Tool-flavored variant spoken the moment a turn starts tool use (a
 // guaranteed-slow turn). Same rules as ACK_PHRASES: persona-neutral, no
 // domain content, ≤ 6 words.
-export const TOOL_ACK_PHRASES: readonly string[] = [
+const TOOL_ACK_PHRASES: readonly string[] = [
   "Let me check that.",
   "Looking that up now.",
   "Let me pull that up.",
@@ -21,13 +23,18 @@ export const TOOL_ACK_PHRASES: readonly string[] = [
   "Give me a second here.",
 ];
 
-// Deterministic rotation through ACK_PHRASES: callers hold a nonnegative
-// monotonic counter, so consecutive acks vary while tests stay reproducible.
-export function pickAckPhrase(counter: number): string {
-  return ACK_PHRASES[counter % ACK_PHRASES.length];
-}
+const PHRASES_BY_KIND: Record<LiveVoiceSpokenAckKind, readonly string[]> = {
+  first_delta: ACK_PHRASES,
+  tool_use: TOOL_ACK_PHRASES,
+};
 
-// Same deterministic rotation over the tool-flavored list.
-export function pickToolAckPhrase(counter: number): string {
-  return TOOL_ACK_PHRASES[counter % TOOL_ACK_PHRASES.length];
+// Deterministic rotation through the kind's phrase list: callers hold a
+// nonnegative monotonic counter, so consecutive acks vary while tests stay
+// reproducible.
+export function pickAckPhrase(
+  kind: LiveVoiceSpokenAckKind,
+  counter: number,
+): string {
+  const phrases = PHRASES_BY_KIND[kind];
+  return phrases[counter % phrases.length];
 }

@@ -14,7 +14,7 @@ import type {
   StreamingTranscriber,
   SttStreamServerEvent,
 } from "../../stt/types.js";
-import { pickAckPhrase, pickToolAckPhrase } from "../ack-phrases.js";
+import { pickAckPhrase } from "../ack-phrases.js";
 import {
   LiveVoiceSession,
   type LiveVoiceTtsStreamer,
@@ -465,8 +465,10 @@ describe("LiveVoiceSession tool-use spoken ack (voice-front-model)", () => {
   const ACK_TIMEOUT_MS = 40;
   // Acks pass through the same TTS sanitizer as regular segments; each fresh
   // session's phrase counter starts at 0.
-  const EXPECTED_TOOL_ACK = sanitizeForTts(pickToolAckPhrase(0)).trim();
-  const EXPECTED_FIRST_DELTA_ACK = sanitizeForTts(pickAckPhrase(0)).trim();
+  const EXPECTED_TOOL_ACK = sanitizeForTts(pickAckPhrase("tool_use", 0)).trim();
+  const EXPECTED_FIRST_DELTA_ACK = sanitizeForTts(
+    pickAckPhrase("first_delta", 0),
+  ).trim();
 
   function enableFrontModel(): void {
     setCachedOverrides({ "voice-front-model": true }, { fromGateway: true });

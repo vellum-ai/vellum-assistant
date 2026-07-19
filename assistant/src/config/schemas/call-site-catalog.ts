@@ -294,7 +294,7 @@ const CATALOG_RECORD: CatalogRecord = {
     displayName: "Voice Front Decision",
     description:
       "Fast turn-taking and presence decisions during live voice (semantic endpointing, ack generation).",
-    domain: "skills",
+    domain: "agentLoop",
   },
   homeGreeting: {
     id: "homeGreeting",

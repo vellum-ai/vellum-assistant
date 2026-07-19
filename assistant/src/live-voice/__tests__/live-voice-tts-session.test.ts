@@ -770,7 +770,7 @@ describe("LiveVoiceSession spoken ack (voice-front-model)", () => {
 
   const ACK_TIMEOUT_MS = 40;
   // The ack passes through the same TTS sanitizer as regular segments.
-  const EXPECTED_ACK = sanitizeForTts(pickAckPhrase(0)).trim();
+  const EXPECTED_ACK = sanitizeForTts(pickAckPhrase("first_delta", 0)).trim();
 
   function enableFrontModel(): void {
     setCachedOverrides({ "voice-front-model": true }, { fromGateway: true });
