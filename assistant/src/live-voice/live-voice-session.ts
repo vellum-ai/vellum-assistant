@@ -58,9 +58,10 @@ import type {
 import { getSubagentManager } from "../subagent/index.js";
 import { extractSpeakableSegments } from "../tts/speakable-segments.js";
 import { getLogger } from "../util/logger.js";
-import { pickAckPhrase, pickToolAckPhrase } from "./ack-phrases.js";
+import { pickAckPhrase } from "./ack-phrases.js";
 import {
   createVoiceFrontDecider,
+  type VoiceEndpointAction,
   type VoiceFrontDecider,
 } from "./front-decision.js";
 import type {
@@ -73,6 +74,7 @@ import {
   type LiveVoiceMetricsClock,
   LiveVoiceMetricsCollector,
   type LiveVoiceMetricsEvent,
+  type LiveVoiceSpokenAckKind,
   type LiveVoiceTurnSeedMarks,
 } from "./live-voice-metrics.js";
 import {
@@ -121,17 +123,6 @@ const FINALIZE_GRACE_MS = 1_000;
 // liveVoice.vad.bargeInMinSpeechMs schema default; 0 disables the guard for
 // instant barge-in.
 const DEFAULT_BARGE_IN_MIN_SPEECH_MS = 250;
-// Budget (ms) for the model's first delta before a spoken ack holds the floor
-// (voice-front-model). Mirrors the `liveVoice.frontModel.ackFirstDeltaTimeoutMs`
-// schema default.
-const DEFAULT_ACK_FIRST_DELTA_TIMEOUT_MS = 2_500;
-// How long (ms) a semantic-endpointing "hold" keeps the utterance open before
-// the silence turn-end replays (voice-front-model). Mirrors the
-// `liveVoice.frontModel.endpointExtensionMs` schema default.
-const DEFAULT_ENDPOINT_EXTENSION_MS = 1_500;
-// Cap on consecutive "hold" extensions per utterance (voice-front-model).
-// Mirrors the `liveVoice.frontModel.endpointMaxExtensions` schema default.
-const DEFAULT_ENDPOINT_MAX_EXTENSIONS = 2;
 // Mirrors MediaTurnDetector's DEFAULT_SILENCE_THRESHOLD_MS: the session
 // tracks the effective trailing-silence threshold (the detector keeps its own
 // copy private) so the endpoint decider can report the pause length.
@@ -230,7 +221,8 @@ export interface LiveVoiceSessionOptions {
   /**
    * Front-model presence tuning (semantic endpointing + spoken acks). The
    * production factory seeds this from `liveVoice.frontModel` config when
-   * unset; absent fields fall back to in-code defaults.
+   * unset; absent fields fall back to the schema defaults (the constructor
+   * schema-parses the partial into a complete config).
    */
   frontModelConfig?: Partial<LiveVoiceFrontModelConfig>;
   /**
@@ -579,19 +571,16 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   /** The cycle whose grace timer is armed (only the newest release has one). */
   private finalizeGraceCycle: UtteranceCycle | null = null;
   private readonly finalizeGraceMs: number;
-  private readonly ackFirstDeltaTimeoutMs: number;
   // Rotates through the ack phrase list across the session's turns.
   private ackPhraseCounter = 0;
   // Front-model service (voice-front-model): semantic endpointing on
   // silence-fired turn-ends and LLM-phrased acks; null disables both LLM
   // capabilities (energy endpointing + static ack phrasing remain).
   private readonly frontDecider: VoiceFrontDecider | null;
-  // LLM-phrased contextual acks (liveVoice.frontModel.llmAckText): when on
-  // and a decider is wired, the ack text comes from the front model with the
-  // static phrase as fallback.
-  private readonly llmAckText: boolean;
-  private readonly endpointExtensionMs: number;
-  private readonly endpointMaxExtensions: number;
+  // Complete front-model tunables: the constructor schema-parses the partial
+  // option once, so every field carries its `liveVoice.frontModel` schema
+  // default when unset.
+  private readonly frontModelConfig: LiveVoiceFrontModelConfig;
   // Effective trailing-silence threshold, mirroring the detector's private
   // copy (constructor seed + update_config), reported to the endpoint decider.
   private silenceThresholdMs: number;
@@ -650,17 +639,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       options.bargeInMinSpeechMs ??
       DEFAULT_BARGE_IN_MIN_SPEECH_MS;
     this.finalizeGraceMs = options.finalizeGraceMs ?? FINALIZE_GRACE_MS;
-    this.ackFirstDeltaTimeoutMs =
-      options.frontModelConfig?.ackFirstDeltaTimeoutMs ??
-      DEFAULT_ACK_FIRST_DELTA_TIMEOUT_MS;
     this.frontDecider = options.frontDecider ?? null;
-    this.llmAckText = options.frontModelConfig?.llmAckText ?? false;
-    this.endpointExtensionMs =
-      options.frontModelConfig?.endpointExtensionMs ??
-      DEFAULT_ENDPOINT_EXTENSION_MS;
-    this.endpointMaxExtensions =
-      options.frontModelConfig?.endpointMaxExtensions ??
-      DEFAULT_ENDPOINT_MAX_EXTENSIONS;
+    this.frontModelConfig = LiveVoiceFrontModelConfigSchema.parse(
+      options.frontModelConfig ?? {},
+    );
     const turnDetectorConfig: TurnDetectorConfig = {
       ...(options.turnDetectorConfig ?? {}),
       ...(context.startFrame.silenceThresholdMs !== undefined
@@ -1496,7 +1478,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     if (!decider || !isVoiceFrontModelEnabled(getConfig())) {
       return null;
     }
-    if (utterance.endpointExtensionCount >= this.endpointMaxExtensions) {
+    if (
+      utterance.endpointExtensionCount >=
+      this.frontModelConfig.endpointMaxExtensions
+    ) {
       return null;
     }
     const transcriptSoFar = utterance.finalTranscriptSegments.join(" ").trim();
@@ -1579,7 +1564,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         return;
       }
       this.handleVadUtteranceEnd("silence");
-    }, this.endpointExtensionMs);
+    }, this.frontModelConfig.endpointExtensionMs);
   }
 
   private clearEndpointExtensionTimer(): void {
@@ -2376,7 +2361,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
               !current.ackSpoken
             ) {
               this.clearAckTimer(current);
-              this.speakAck(current, "tool-use", toolName);
+              this.speakAck(current, "tool_use", toolName);
             }
           },
         },
@@ -2559,8 +2544,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       ) {
         return;
       }
-      this.speakAck(activeTurn, "slow-first-delta");
-    }, this.ackFirstDeltaTimeoutMs);
+      this.speakAck(activeTurn, "first_delta");
+    }, this.frontModelConfig.ackFirstDeltaTimeoutMs);
   }
 
   private clearAckTimer(turn: ActiveAssistantTurn): void {
@@ -2585,11 +2570,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // first segment.
   private speakAck(
     activeTurn: ActiveAssistantTurn,
-    kind: "slow-first-delta" | "tool-use",
+    kind: LiveVoiceSpokenAckKind,
     toolName?: string,
   ): void {
     activeTurn.ackSpoken = true;
-    if (this.llmAckText && this.frontDecider) {
+    if (this.frontModelConfig.llmAckText && this.frontDecider) {
       // Optimistic ackSpoken above keeps the one-per-turn budget honest for
       // any other ack trigger while the generation is in flight; the async
       // path undoes it if the ack turns out moot.
@@ -2604,9 +2589,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     this.enqueueAckPhrase(activeTurn, this.pickStaticAckPhrase(kind), kind);
   }
 
-  private pickStaticAckPhrase(kind: "slow-first-delta" | "tool-use"): string {
-    const pickPhrase = kind === "tool-use" ? pickToolAckPhrase : pickAckPhrase;
-    return pickPhrase(this.ackPhraseCounter++);
+  private pickStaticAckPhrase(kind: LiveVoiceSpokenAckKind): string {
+    return pickAckPhrase(kind, this.ackPhraseCounter++);
   }
 
   // LLM-phrased ack (liveVoice.frontModel.llmAckText): ask the front model
@@ -2616,7 +2600,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   private async speakGeneratedAck(
     activeTurn: ActiveAssistantTurn,
     frontDecider: VoiceFrontDecider,
-    kind: "slow-first-delta" | "tool-use",
+    kind: LiveVoiceSpokenAckKind,
     toolName?: string,
   ): Promise<void> {
     const { token } = activeTurn;
@@ -2664,7 +2648,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   private enqueueAckPhrase(
     activeTurn: ActiveAssistantTurn,
     raw: string,
-    kind: "slow-first-delta" | "tool-use",
+    kind: LiveVoiceSpokenAckKind,
   ): void {
     const phrase = sanitizeForTts(raw).trim();
     if (phrase.length === 0) {
@@ -2673,10 +2657,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     this.enqueueTtsSegment(activeTurn.token, phrase, {
       countsAsFirstSegment: false,
     });
-    this.markAckSpoken(
-      activeTurn,
-      kind === "tool-use" ? "tool_use" : "first_delta",
-    );
+    this.markAckSpoken(activeTurn, kind);
   }
 
   private bufferAssistantTextForTts(token: symbol, text: string): void {
@@ -3062,7 +3043,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
 
   private markEndpointDecision(
     utterance: UtteranceCycle,
-    action: "hold" | "release",
+    action: VoiceEndpointAction,
     latencyMs: number,
   ): void {
     const turnId = this.ensureTurnId(utterance);
@@ -3074,7 +3055,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
 
   private markAckSpoken(
     activeTurn: ActiveAssistantTurn,
-    kind: "first_delta" | "tool_use",
+    kind: LiveVoiceSpokenAckKind,
   ): void {
     const { utterance } = activeTurn;
     if (!this.startMetricsTurnIfNeeded(utterance, activeTurn.turnId)) {
@@ -3449,10 +3430,9 @@ export function createLiveVoiceSession(
       options.frontDecider !== undefined
         ? options.frontDecider
         : createVoiceFrontDecider({
-            config: {
-              ...LiveVoiceFrontModelConfigSchema.parse({}),
-              ...frontModelConfig,
-            },
+            config: LiveVoiceFrontModelConfigSchema.parse(
+              frontModelConfig ?? {},
+            ),
           }),
     resolveCredentialReadiness:
       options.resolveCredentialReadiness === undefined
