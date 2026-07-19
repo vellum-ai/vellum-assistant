@@ -189,9 +189,12 @@ function raceAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
 }
 
 /**
- * One bounded front-model call with a forced tool: resolve the provider, race
- * the request against `timeoutMs` (and the caller's signal, when given), and
- * return the response's tool_use block. `undefined` when no provider is
+ * One bounded front-model call with a forced tool: arm the `timeoutMs` bound
+ * first, then resolve the provider and the request both raced against it (and
+ * the caller's signal, when given), and return the response's tool_use block.
+ * Provider resolution can await lazy initialization, so it must sit inside
+ * the timeout — otherwise a stalled resolver would breach the contract that
+ * every call settles within `timeoutMs`. `undefined` when no provider is
  * configured or the response carries no tool block; throws on provider
  * failure, timeout, or abort — callers map every failure to their fail-open
  * value.
@@ -204,15 +207,15 @@ async function requestForcedToolUse(args: {
   prompt: string;
   signal?: AbortSignal;
 }): Promise<ToolUseContent | undefined> {
-  const provider = await args.getProvider();
-  if (!provider) {
-    return undefined;
-  }
   const { signal: timeoutSignal, cleanup } = createTimeout(args.timeoutMs);
   const combinedSignal = args.signal
     ? AbortSignal.any([args.signal, timeoutSignal])
     : timeoutSignal;
   try {
+    const provider = await raceAbort(args.getProvider(), combinedSignal);
+    if (!provider) {
+      return undefined;
+    }
     const response = await raceAbort(
       provider.sendMessage([userMessage(args.prompt)], {
         tools: [args.tool],

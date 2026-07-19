@@ -1505,12 +1505,18 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   ): Promise<boolean> {
     const generation = this.vadSpeechGeneration;
     const decisionStartedAtMs = this.metricsClock();
-    const decision = await decider.decideEndpoint({
-      transcriptSoFar,
-      latestPartial,
-      silenceThresholdMs: this.silenceThresholdMs,
-      extensionCount: utterance.endpointExtensionCount,
-    });
+    const decision = await decider
+      .decideEndpoint({
+        transcriptSoFar,
+        latestPartial,
+        silenceThresholdMs: this.silenceThresholdMs,
+        extensionCount: utterance.endpointExtensionCount,
+      })
+      // The decider contract never rejects, but the enclosing boundary flow
+      // swallows rejections — a rejecting decider (a buggy stub, a future
+      // regression) would silently drop the silence boundary. Belt and
+      // braces: rejection degrades to release, mirroring speakGeneratedAck.
+      .catch(() => ({ action: "release" as const }));
     const decisionLatencyMs = Math.max(
       0,
       this.metricsClock() - decisionStartedAtMs,

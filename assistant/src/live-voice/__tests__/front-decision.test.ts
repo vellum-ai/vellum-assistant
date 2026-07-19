@@ -106,6 +106,20 @@ describe("createVoiceFrontDecider — decideEndpoint", () => {
     expect(await decider.decideEndpoint(input)).toEqual({ action: "release" });
   });
 
+  test("getProvider that never resolves → release after endpointDecisionTimeoutMs", async () => {
+    const decider = createVoiceFrontDecider({
+      config: LiveVoiceFrontModelConfigSchema.parse({
+        endpointDecisionTimeoutMs: 20,
+      }),
+      // Stalled lazy provider initialization — the timeout must bound the
+      // whole call including resolution, not just sendMessage.
+      getProvider: () => new Promise<Provider | null>(() => {}),
+    });
+    const start = Date.now();
+    expect(await decider.decideEndpoint(input)).toEqual({ action: "release" });
+    expect(Date.now() - start).toBeLessThan(1000);
+  });
+
   test("sendMessage that never resolves → release after endpointDecisionTimeoutMs", async () => {
     const decider = createVoiceFrontDecider({
       config: LiveVoiceFrontModelConfigSchema.parse({
@@ -233,6 +247,20 @@ describe("createVoiceFrontDecider — generateAckText", () => {
       },
     });
     expect(await decider.generateAckText(ackInput)).toBeNull();
+  });
+
+  test("getProvider that never resolves → null after ackGenerationTimeoutMs", async () => {
+    const decider = createVoiceFrontDecider({
+      config: LiveVoiceFrontModelConfigSchema.parse({
+        ackGenerationTimeoutMs: 20,
+      }),
+      // Stalled lazy provider initialization — the timeout must bound the
+      // whole call including resolution, not just sendMessage.
+      getProvider: () => new Promise<Provider | null>(() => {}),
+    });
+    const start = Date.now();
+    expect(await decider.generateAckText(ackInput)).toBeNull();
+    expect(Date.now() - start).toBeLessThan(1000);
   });
 
   test("sendMessage that never resolves → null after ackGenerationTimeoutMs", async () => {
