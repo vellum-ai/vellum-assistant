@@ -17342,6 +17342,7 @@ paths:
                                           - brave
                                           - perplexity
                                           - tavily
+                                          - keenable
                                           - firecrawl
                                       resultCount:
                                         type: number
@@ -17774,6 +17775,7 @@ paths:
                                                   - brave
                                                   - perplexity
                                                   - tavily
+                                                  - keenable
                                                   - firecrawl
                                               resultCount:
                                                 type: number
