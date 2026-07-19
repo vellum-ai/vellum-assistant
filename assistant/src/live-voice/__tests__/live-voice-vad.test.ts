@@ -2747,6 +2747,94 @@ describe("LiveVoiceSession semantic endpointing", () => {
     ).toMatchObject({ reason: "silence" });
   });
 
+  test("a rejecting decider still releases the boundary with the normal frame sequence", async () => {
+    enableFrontModel();
+    // The decider contract never rejects, but a buggy injected stub (or a
+    // future regression) must not silently drop the silence boundary: the
+    // session's belt catches the rejection and releases.
+    const calls: VoiceEndpointDecisionInput[] = [];
+    const decider: VoiceFrontDecider = {
+      decideEndpoint: async (input) => {
+        calls.push(input);
+        throw new Error("stub decider boom");
+      },
+      generateAckText: async () => null,
+    };
+    const turnStarter = makeAutoCompletingTurnStarter(["Hi there."]);
+    const { frames, session, transcribers } = createHarness({
+      finals: ["hello world"],
+      startVoiceTurn: turnStarter.startVoiceTurn,
+      frontDecider: decider,
+    });
+
+    await startWithPartial(session, transcribers);
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    expect(calls).toHaveLength(1);
+    expect(frameTypes(frames)).toEqual([
+      "ready",
+      "stt_partial",
+      "speech_started",
+      "utterance_end",
+      "stt_final",
+      "thinking",
+      "assistant_text_delta",
+      "tts_done",
+    ]);
+    expect(
+      frames.find((frame) => frame.type === "utterance_end"),
+    ).toMatchObject({ reason: "silence" });
+    expect(turnStarter.calls[0]).toMatchObject({ content: "hello world" });
+  });
+
+  test("a slow decider adds only its own bounded delay and then releases normally", async () => {
+    enableFrontModel();
+    // Resolves "release" only after a delay comfortably longer than every
+    // other timer in the flow — the boundary must wait it out and then run
+    // the unchanged release sequence.
+    const calls: VoiceEndpointDecisionInput[] = [];
+    const decider: VoiceFrontDecider = {
+      decideEndpoint: async (input) => {
+        calls.push(input);
+        await new Promise((resolve) => setTimeout(resolve, 150));
+        return { action: "release" };
+      },
+      generateAckText: async () => null,
+    };
+    const turnStarter = makeAutoCompletingTurnStarter(["Hi there."]);
+    const { frames, session, transcribers } = createHarness({
+      finals: ["hello world"],
+      startVoiceTurn: turnStarter.startVoiceTurn,
+      frontDecider: decider,
+    });
+
+    await startWithPartial(session, transcribers);
+    await session.handleBinaryAudio(LOUD_CHUNK);
+
+    // While the decision is pending, the boundary stays unreleased.
+    await waitFor(() => calls.length === 1);
+    expect(countType(frames, "utterance_end")).toBe(0);
+    expect(countType(frames, "thinking")).toBe(0);
+
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+    expect(calls).toHaveLength(1);
+    expect(frameTypes(frames)).toEqual([
+      "ready",
+      "stt_partial",
+      "speech_started",
+      "utterance_end",
+      "stt_final",
+      "thinking",
+      "assistant_text_delta",
+      "tts_done",
+    ]);
+    expect(
+      frames.find((frame) => frame.type === "utterance_end"),
+    ).toMatchObject({ reason: "silence" });
+    expect(turnStarter.calls[0]).toMatchObject({ content: "hello world" });
+  });
+
   test("endpointMaxExtensions caps consecutive holds and forces the release", async () => {
     enableFrontModel();
     const { decider, calls } = makeFrontDecider(["hold", "hold", "hold"]);
