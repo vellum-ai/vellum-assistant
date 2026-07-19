@@ -605,6 +605,13 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // after speech resumed defers to the detector's fresh boundary instead of
   // releasing an utterance the user is still adding to.
   private vadSpeechGeneration = 0;
+  // Latched by releaseFromClient just before it forces the detector's
+  // turn-end. The forced boundary shares the "silence" reason with genuine
+  // VAD silences (the reason is wire-visible, so it stays "silence"), but an
+  // explicit client release must never be second-guessed by the semantic-
+  // endpointing decider. forceEnd fires its turn-end callback synchronously,
+  // so the very next handleVadUtteranceEnd consumes the latch.
+  private manualReleaseForced = false;
 
   constructor(
     context: LiveVoiceSessionFactoryContext,
@@ -900,7 +907,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       await this.stopUtteranceForRelease(utterance);
     } else if (replayTurnEnd) {
       // The parked utterance completed during the window (detector already
-      // idle): replay its boundary so it turns without more speech.
+      // idle): replay its boundary so it turns without more speech. Parked
+      // replays deliberately bypass semantic endpointing — the boundary was
+      // already accepted in a previous cycle, so it is not re-judged here.
       await this.sendFrame({ type: "utterance_end", reason: replayTurnEnd });
       await this.releaseUtterance();
     }
@@ -1420,6 +1429,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // VAD closed the utterance — the analog of ptt_release: emit
   // utterance_end, then run the standard release path.
   private handleVadUtteranceEnd(reason: "silence" | "max-duration"): void {
+    // Consume the manual-release latch before any async hop: it belongs to
+    // exactly this boundary (forceEnd fired this callback synchronously), and
+    // it must not leak into a later genuine silence even when the early-exit
+    // guards below skip the release.
+    const manualRelease = this.manualReleaseForced;
+    this.manualReleaseForced = false;
     void (async () => {
       if (this.isClosed || this.state === "failed") {
         return;
@@ -1445,12 +1460,13 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       }
       // Semantic endpointing (voice-front-model): a silence boundary may be a
       // thinking pause — let the front decider hold the utterance open. Only
-      // silence boundaries qualify; max-duration always releases. The gate is
-      // synchronous (null) whenever the decider is not consulted, so the
-      // flag-off release path keeps its exact event ordering — an extra await
-      // here would shift utterance release across the persistent-transcriber
-      // flush attribution.
-      if (reason === "silence") {
+      // detector-timer silences qualify; max-duration always releases, and a
+      // manual client release (ptt_release forced the boundary) is the user
+      // saying "answer now" — never second-guess it. The gate is synchronous
+      // (null) whenever the decider is not consulted, so the flag-off release
+      // path keeps its exact event ordering — an extra await here would shift
+      // utterance release across the persistent-transcriber flush attribution.
+      if (reason === "silence" && !manualRelease) {
         const holdDecision = this.maybeHoldUtteranceOpen(utterance);
         if (holdDecision && (await holdDecision)) {
           return;
@@ -1573,6 +1589,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // to a plain release.
   private async releaseFromClient(): Promise<void> {
     if (this.turnDetector?.isActive) {
+      // Latch first: the forced boundary reports "silence", and this marks
+      // it as a manual release the semantic-endpointing decider must not
+      // hold (see the manualReleaseForced field doc).
+      this.manualReleaseForced = true;
       this.turnDetector.forceEnd();
       await this.drainOutboundFrames();
       return;
