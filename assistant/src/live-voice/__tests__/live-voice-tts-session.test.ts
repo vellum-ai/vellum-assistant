@@ -776,6 +776,19 @@ describe("LiveVoiceSession spoken ack (voice-front-model)", () => {
     setCachedOverrides({ "voice-front-model": true }, { fromGateway: true });
   }
 
+  const EXPECTED_BRIDGE = sanitizeForTts(FALLBACK_ESCALATION_BRIDGE).trim();
+
+  function enableFrontModelWithEscalation(): void {
+    setCachedOverrides(
+      {
+        "voice-front-model": true,
+        "voice-mode": true,
+        [VOICE_TRIAGE_ESCALATE_FLAG]: true,
+      },
+      { fromGateway: true },
+    );
+  }
+
   function createCapturingTurnStarter(): {
     startVoiceTurn: LiveVoiceTurnStarter;
     getCallbacks: () => VoiceTurnCallbacks | undefined;
@@ -1118,15 +1131,7 @@ describe("LiveVoiceSession spoken ack (voice-front-model)", () => {
   });
 
   test("llmAckText on: a generation resolving after escalation hand-off speaks no ack", async () => {
-    const EXPECTED_BRIDGE = sanitizeForTts(FALLBACK_ESCALATION_BRIDGE).trim();
-    setCachedOverrides(
-      {
-        "voice-front-model": true,
-        "voice-mode": true,
-        [VOICE_TRIAGE_ESCALATE_FLAG]: true,
-      },
-      { fromGateway: true },
-    );
+    enableFrontModelWithEscalation();
     let resolveGeneration!: (text: string | null) => void;
     const generateAckText = mock(
       () =>
@@ -1162,6 +1167,71 @@ describe("LiveVoiceSession spoken ack (voice-front-model)", () => {
 
     // The escalated leg (whose callbacks the capturing starter now holds)
     // finishes the turn normally.
+    getCallbacks()?.assistant_text_delta?.(
+      makeTextDelta("Here is the careful answer."),
+    );
+    getCallbacks()?.message_complete?.(makeMessageComplete());
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+    expect(ttsTexts).toEqual([EXPECTED_BRIDGE, "Here is the careful answer."]);
+  });
+
+  test("static ack: a tool started on the escalated leg speaks nothing past the bridge", async () => {
+    enableFrontModelWithEscalation();
+    const { startVoiceTurn, getCallbacks } = createCapturingTurnStarter();
+    const { streamTtsAudio, ttsTexts } = createRecordingTtsStreamer();
+    const { frames, session } = createSessionHarness({
+      startVoiceTurn,
+      streamTtsAudio,
+      // Long first-delta budget so only the tool-use trigger could speak.
+      frontModelConfig: { ackFirstDeltaTimeoutMs: 5_000 },
+    });
+
+    await startReleasedTurn(session);
+    // A bare hand-off enqueues the canned bridge, which holds the floor.
+    getCallbacks()?.assistant_text_delta?.(makeTextDelta("[ESCALATE]"));
+    await waitFor(() => ttsTexts.length === 1);
+    expect(ttsTexts).toEqual([EXPECTED_BRIDGE]);
+
+    // The escalated leg starts a tool before its first delta: no static ack
+    // may stack on the bridge.
+    getCallbacks()?.tool_use_start?.("web_search");
+    await flushAsyncCallbacks();
+    expect(ttsTexts).toEqual([EXPECTED_BRIDGE]);
+
+    getCallbacks()?.assistant_text_delta?.(
+      makeTextDelta("Here is the careful answer."),
+    );
+    getCallbacks()?.message_complete?.(makeMessageComplete());
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+    expect(ttsTexts).toEqual([EXPECTED_BRIDGE, "Here is the careful answer."]);
+  });
+
+  test("llmAckText on: tools started on the escalated leg trigger no ack generation", async () => {
+    enableFrontModelWithEscalation();
+    const generateAckText = mock(async () => "Never spoken.");
+    const { startVoiceTurn, getCallbacks } = createCapturingTurnStarter();
+    const { streamTtsAudio, ttsTexts } = createRecordingTtsStreamer();
+    const { frames, session } = createSessionHarness({
+      startVoiceTurn,
+      streamTtsAudio,
+      // Long first-delta budget so only the tool-use trigger could generate.
+      frontModelConfig: { ackFirstDeltaTimeoutMs: 5_000, llmAckText: true },
+      frontDecider: makeStubFrontDecider(generateAckText),
+    });
+
+    await startReleasedTurn(session);
+    getCallbacks()?.assistant_text_delta?.(makeTextDelta("[ESCALATE]"));
+    await waitFor(() => ttsTexts.length === 1);
+    expect(ttsTexts).toEqual([EXPECTED_BRIDGE]);
+
+    // Post-handoff tool starts must not each burn a generation call whose
+    // result is always discarded.
+    getCallbacks()?.tool_use_start?.("web_search");
+    getCallbacks()?.tool_use_start?.("file_read");
+    await flushAsyncCallbacks();
+    expect(generateAckText).not.toHaveBeenCalled();
+    expect(ttsTexts).toEqual([EXPECTED_BRIDGE]);
+
     getCallbacks()?.assistant_text_delta?.(
       makeTextDelta("Here is the careful answer."),
     );

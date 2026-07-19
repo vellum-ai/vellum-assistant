@@ -2354,11 +2354,15 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
             // Definitive tool use means the turn is guaranteed slow: speak
             // the floor-holding ack now instead of waiting out the
             // first-delta timer (same one-ack-per-turn `ackSpoken` budget).
+            // Post-handoff the escalation bridge phrase holds the floor and
+            // front-door deltas never set firstDeltaSeen, so the escalated
+            // leg's tool starts must not stack another filler on the bridge.
             if (
               this.streamTtsAudio &&
               isVoiceFrontModelEnabled(getConfig()) &&
               !current.firstDeltaSeen &&
-              !current.ackSpoken
+              !current.ackSpoken &&
+              !current.escalationHandedOff
             ) {
               this.clearAckTimer(current);
               this.speakAck(current, "tool_use", toolName);
@@ -2611,7 +2615,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       .generateAckText(
         {
           transcriptSoFar: transcript,
-          ...(toolName !== undefined ? { toolName } : {}),
+          toolName,
         },
         activeTurn.abortController.signal,
       )
@@ -2629,8 +2633,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       !this.isActiveAssistantTurn(token) ||
       activeTurn.firstDeltaSeen ||
       activeTurn.escalationHandedOff ||
-      activeTurn.assistantCompleted ||
-      activeTurn.ttsDone
+      activeTurn.assistantCompleted
     ) {
       activeTurn.ackSpoken = false;
       return;
@@ -3404,8 +3407,11 @@ export function createLiveVoiceSession(
   // absent config falls through to the in-code defaults.
   const liveVoiceConfig = getConfig().liveVoice;
   const vadConfig = liveVoiceConfig?.vad;
-  const frontModelConfig =
-    options.frontModelConfig ?? liveVoiceConfig?.frontModel;
+  // Parsed once here into a complete config, shared by the decider and the
+  // session (the constructor's own parse is then a no-op re-validation).
+  const frontModelConfig = LiveVoiceFrontModelConfigSchema.parse(
+    options.frontModelConfig ?? liveVoiceConfig?.frontModel ?? {},
+  );
   return new LiveVoiceSession(context, {
     ...options,
     turnDetectorConfig:
@@ -3429,11 +3435,7 @@ export function createLiveVoiceSession(
     frontDecider:
       options.frontDecider !== undefined
         ? options.frontDecider
-        : createVoiceFrontDecider({
-            config: LiveVoiceFrontModelConfigSchema.parse(
-              frontModelConfig ?? {},
-            ),
-          }),
+        : createVoiceFrontDecider({ config: frontModelConfig }),
     resolveCredentialReadiness:
       options.resolveCredentialReadiness === undefined
         ? defaultResolveLiveVoiceCredentialReadiness
