@@ -2350,7 +2350,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
               !current.ackSpoken
             ) {
               this.clearAckTimer(current);
-              this.speakAck(current, "tool-use");
+              this.speakAck(current, "tool-use", toolName);
             }
           },
         },
@@ -2560,13 +2560,19 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   private speakAck(
     activeTurn: ActiveAssistantTurn,
     kind: "slow-first-delta" | "tool-use",
+    toolName?: string,
   ): void {
     activeTurn.ackSpoken = true;
     if (this.llmAckText && this.frontDecider) {
       // Optimistic ackSpoken above keeps the one-per-turn budget honest for
       // any other ack trigger while the generation is in flight; the async
       // path undoes it if the ack turns out moot.
-      void this.speakGeneratedAck(activeTurn, this.frontDecider, kind);
+      void this.speakGeneratedAck(
+        activeTurn,
+        this.frontDecider,
+        kind,
+        toolName,
+      );
       return;
     }
     this.enqueueAckPhrase(activeTurn, this.pickStaticAckPhrase(kind), kind);
@@ -2585,6 +2591,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     activeTurn: ActiveAssistantTurn,
     frontDecider: VoiceFrontDecider,
     kind: "slow-first-delta" | "tool-use",
+    toolName?: string,
   ): Promise<void> {
     const { token } = activeTurn;
     const transcript = activeTurn.utterance.finalTranscriptSegments
@@ -2592,16 +2599,29 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       .trim();
     const generated = await frontDecider
       .generateAckText(
-        { transcriptSoFar: transcript },
+        {
+          transcriptSoFar: transcript,
+          ...(toolName !== undefined ? { toolName } : {}),
+        },
         activeTurn.abortController.signal,
       )
       // The decider contract never rejects; belt-and-braces for a stub.
       .catch(() => null);
-    // Liveness re-check after the await: the turn may have been cancelled or
-    // finalized while generating, or the brain's first delta may have arrived
-    // — in every such case the ack is moot and must not speak over real
-    // output. Undo the optimistic ackSpoken so the flag reflects reality.
-    if (!this.isActiveAssistantTurn(token) || activeTurn.firstDeltaSeen) {
+    // Liveness re-check after the await: while generating, the turn may have
+    // been cancelled or finalized, the brain's first delta may have arrived,
+    // an escalation hand-off may have enqueued its bridge phrase (which holds
+    // the floor itself), or the turn may have completed outright — a
+    // tool-only/no-text turn completes with firstDeltaSeen still false. In
+    // every such case the ack is moot and must not speak over real output,
+    // stack on the escalation bridge, or voice a finished turn. Undo the
+    // optimistic ackSpoken so the flag reflects reality.
+    if (
+      !this.isActiveAssistantTurn(token) ||
+      activeTurn.firstDeltaSeen ||
+      activeTurn.escalationHandedOff ||
+      activeTurn.assistantCompleted ||
+      activeTurn.ttsDone
+    ) {
       activeTurn.ackSpoken = false;
       return;
     }
