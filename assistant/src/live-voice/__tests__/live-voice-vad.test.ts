@@ -2819,6 +2819,51 @@ describe("LiveVoiceSession semantic endpointing", () => {
     expect(turnStarter.calls).toHaveLength(1);
   });
 
+  test("a ptt_release forced boundary bypasses the decider and releases immediately", async () => {
+    enableFrontModel();
+    // A hold-happy decider: if the manual release were routed through it,
+    // the boundary would be deferred and the frame sequence below would gain
+    // an extension delay (or stall entirely).
+    const { decider, calls } = makeFrontDecider(["hold", "hold"]);
+    const turnStarter = makeAutoCompletingTurnStarter(["Hi there."]);
+    const { frames, session, transcribers } = createHarness({
+      finals: ["hello world"],
+      startVoiceTurn: turnStarter.startVoiceTurn,
+      frontDecider: decider,
+      // A genuine silence boundary can never fire during the test; only the
+      // client's explicit release ends the turn.
+      turnDetectorConfig: { silenceThresholdMs: 10_000 },
+    });
+
+    await startWithPartial(session, transcribers);
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() =>
+      frames.some((frame) => frame.type === "speech_started"),
+    );
+
+    await session.handleClientFrame({ type: "ptt_release" });
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    // The explicit release was never second-guessed: no decider consult, and
+    // the boundary produced the normal utterance_end → turn-launch sequence.
+    expect(calls).toHaveLength(0);
+    expect(frameTypes(frames)).toEqual([
+      "ready",
+      "stt_partial",
+      "speech_started",
+      "utterance_end",
+      "stt_final",
+      "thinking",
+      "assistant_text_delta",
+      "tts_done",
+    ]);
+    expect(
+      frames.find((frame) => frame.type === "utterance_end"),
+    ).toMatchObject({ reason: "silence" });
+    expect(turnStarter.calls).toHaveLength(1);
+    expect(turnStarter.calls[0]).toMatchObject({ content: "hello world" });
+  });
+
   test("session close during a hold clears the extension timer", async () => {
     enableFrontModel();
     const { decider, calls } = makeFrontDecider(["hold", "hold"]);
