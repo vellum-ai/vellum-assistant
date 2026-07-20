@@ -40,18 +40,19 @@ export const PROGRESS_FALLBACK_PHRASES: readonly string[] = [
   "Almost there — thanks for waiting.",
 ];
 
-// Deterministic rotation through the kind's phrase list: callers hold a
-// nonnegative monotonic counter, so consecutive acks vary while tests stay
-// reproducible.
+// Deterministic rotation through a phrase list: callers hold a nonnegative
+// monotonic counter, so consecutive picks vary while tests stay reproducible.
+function pickPhrase(phrases: readonly string[], counter: number): string {
+  return phrases[counter % phrases.length];
+}
+
 export function pickAckPhrase(
   kind: LiveVoiceSpokenAckKind,
   counter: number,
 ): string {
-  const phrases = PHRASES_BY_KIND[kind];
-  return phrases[counter % phrases.length];
+  return pickPhrase(PHRASES_BY_KIND[kind], counter);
 }
 
-// Same rotation contract as pickAckPhrase, over the progress fallbacks.
 export function pickProgressPhrase(counter: number): string {
-  return PROGRESS_FALLBACK_PHRASES[counter % PROGRESS_FALLBACK_PHRASES.length];
+  return pickPhrase(PROGRESS_FALLBACK_PHRASES, counter);
 }
