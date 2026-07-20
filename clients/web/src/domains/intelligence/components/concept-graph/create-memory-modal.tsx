@@ -4,6 +4,7 @@ import { useCallback, useState } from "react";
 
 import { createMemory } from "@/domains/intelligence/memory-graph/create-memory";
 import { memoryGraphOptions } from "@/domains/intelligence/memory-graph/get-memory-graph";
+import { memoryStatsOptions } from "@/domains/intelligence/memory-graph/get-memory-stats";
 import { Button, Modal, toast, Typography } from "@vellumai/design-library";
 import { Textarea } from "@vellumai/design-library/components/input";
 
@@ -49,10 +50,17 @@ export function CreateMemoryModal({
       setContent("");
       onOpenChange(false);
       // The node materializes on the next consolidation, not now — invalidate
-      // so the graph refetches and the memory appears as the map updates.
-      await queryClient.invalidateQueries({
-        queryKey: memoryGraphOptions(assistantId).queryKey,
-      });
+      // the graph so it refetches and the memory appears as the map updates, and
+      // the stats query so the identity Memory card's count refreshes too (it's
+      // a separate query with a 5-min staleTime that wouldn't otherwise refire).
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: memoryGraphOptions(assistantId).queryKey,
+        }),
+        queryClient.invalidateQueries({
+          queryKey: memoryStatsOptions(assistantId).queryKey,
+        }),
+      ]);
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Failed to create memory.";
