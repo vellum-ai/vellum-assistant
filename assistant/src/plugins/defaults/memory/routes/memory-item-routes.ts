@@ -1005,6 +1005,9 @@ export const ROUTES: RouteDefinition[] = [
       if (!parsed.success) {
         throw new BadRequestError("content (string) is required");
       }
+      if (parsed.data.content.trim().length === 0) {
+        throw new BadRequestError("content (non-empty string) is required");
+      }
       return handleRemember(
         { content: parsed.data.content },
         "web",
