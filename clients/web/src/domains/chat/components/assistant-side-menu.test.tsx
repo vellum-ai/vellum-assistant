@@ -476,7 +476,7 @@ describe("AssistantSideMenu · new conversation affordance", () => {
     onSelectConversation: () => {},
   };
 
-  test("renders the new-conversation pencil button when onStartNewConversation is supplied", () => {
+  test("renders the New Chat row (under the assistant row) when onStartNewConversation is supplied", () => {
     const html = renderToStaticMarkup(
       createElement(AssistantSideMenu, {
         ...baseProps,
@@ -484,17 +484,17 @@ describe("AssistantSideMenu · new conversation affordance", () => {
       }),
     );
 
-    expect(html).toContain('aria-label="New conversation"');
-    // It is a plain icon button, not a navigation link.
-    expect(html).not.toContain('<a aria-label="New conversation"');
+    expect(html).toContain(">New Chat<");
+    // It is a button row, not a navigation link.
+    expect(html).not.toContain("<a aria-label=\"New Chat\"");
   });
 
-  test("omits the new-conversation button when onStartNewConversation is absent", () => {
+  test("omits the New Chat row when onStartNewConversation is absent", () => {
     const html = renderToStaticMarkup(
       createElement(AssistantSideMenu, { ...baseProps }),
     );
 
-    expect(html).not.toContain('aria-label="New conversation"');
+    expect(html).not.toContain(">New Chat<");
   });
 });
 
