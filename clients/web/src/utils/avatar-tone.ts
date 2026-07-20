@@ -27,11 +27,13 @@ export interface AvatarTone {
   /** A subtle hover/fill wash at the matching tone. */
   wash: string;
   /**
-   * Solid raised-surface fill for a user speech bubble that contrasts the
-   * avatar color: white over dark/saturated avatars, dark over the light one.
+   * Soft raised-surface fill for a user speech bubble — the room's analog of
+   * the app's `--surface-lift`: a translucent lift of the foreground over the
+   * avatar color (a subtle white wash over dark/saturated avatars, a subtle
+   * dark wash over the light one), not an opaque max-contrast chip.
    */
   bubbleBg: string;
-  /** Text color drawn on that bubble (the inverse of {@link bubbleBg}). */
+  /** Text color drawn on that bubble — the room's own foreground ({@link fg}). */
   bubbleFg: string;
 }
 
@@ -100,8 +102,10 @@ export function toneForBg(bg: string): AvatarTone {
     fgDeep: darkenHex(bg, 0.6),
     fgMuted: isLight ? "rgba(0,0,0,0.6)" : "rgba(255,255,255,0.65)",
     wash: isLight ? "rgba(0,0,0,0.08)" : "rgba(255,255,255,0.12)",
-    // A raised surface reads as the foreground tone; its text is the inverse.
-    bubbleBg: fg,
-    bubbleFg: isLight ? FG_LIGHT : FG_DARK,
+    // A soft raised surface (the room's analog of the app's --surface-lift user
+    // bubble): a translucent lift of the foreground over the avatar color, with
+    // the room's own foreground text — not an opaque max-contrast chip.
+    bubbleBg: isLight ? "rgba(0,0,0,0.10)" : "rgba(255,255,255,0.16)",
+    bubbleFg: fg,
   };
 }
