@@ -300,10 +300,11 @@ describe("TextToSpeechCard — Vellum provider", () => {
     managedVoicesData = {
       voices: [
         {
-          model: "21m00Tcm4TlvDq8ikWAM",
-          label: "Rachel",
-          description: "American · calm, expressive, natural",
-          sampleUrl: "",
+          model: "EXAVITQu4vr4xnSDxMaL",
+          label: "Sarah",
+          description: "American · professional, reassuring, confident",
+          sampleUrl:
+            "https://storage.googleapis.com/eleven-public-prod/premade/voices/EXAVITQu4vr4xnSDxMaL/sample.mp3",
           source: "elevenlabs",
         },
         {
@@ -314,7 +315,7 @@ describe("TextToSpeechCard — Vellum provider", () => {
           source: "deepgram",
         },
       ],
-      defaultModel: "21m00Tcm4TlvDq8ikWAM",
+      defaultModel: "EXAVITQu4vr4xnSDxMaL",
     };
     renderCard();
 
@@ -331,19 +332,20 @@ describe("TextToSpeechCard — Vellum provider", () => {
     // Each option carries its upstream source as a suffix badge so users
     // can tell providers apart while browsing, not only after selecting.
     expect(options).toContain(
-      "Rachel (default) — American · calm, expressive, naturalElevenLabs",
+      "Sarah (default) — American · professional, reassuring, confidentElevenLabs",
     );
     expect(options).toContain(
       "Zeus — American · deep, trustworthy, smoothDeepgram",
     );
     // Static-catalog-only voices must not appear once the fetch supplies data.
     expect(options?.join(" ")).not.toContain("Thalia");
-    // The selected default (Rachel) has no hosted preview; the preview
-    // button must not render a control that can only error.
-    expect(screen.queryByRole("button", { name: "Preview voice" })).toBeNull();
+    // The selected default has a hosted preview, so the button renders.
+    expect(
+      screen.queryByRole("button", { name: "Preview voice" }),
+    ).not.toBeNull();
   });
 
-  test("the preview button renders only for voices with a hosted sample", () => {
+  test("the preview button is hidden for voices without a hosted sample", () => {
     orgReady = true;
     daemonConfigData = { services: { tts: { provider: "vellum" } } };
     ttsCatalogData = {
@@ -361,20 +363,18 @@ describe("TextToSpeechCard — Vellum provider", () => {
     managedVoicesData = {
       voices: [
         {
-          model: "aura-2-zeus-en",
-          label: "Zeus",
-          description: "American · deep, trustworthy, smooth",
-          sampleUrl: "https://static.deepgram.com/examples/Aura-2-zeus.wav",
-          source: "deepgram",
+          model: "voice-without-preview",
+          label: "Nova",
+          description: "A voice the platform serves without a hosted sample",
+          sampleUrl: "",
+          source: "elevenlabs",
         },
       ],
-      defaultModel: "aura-2-zeus-en",
+      defaultModel: "voice-without-preview",
     };
     renderCard();
 
-    expect(
-      screen.queryByRole("button", { name: "Preview voice" }),
-    ).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "Preview voice" })).toBeNull();
   });
 
   test("a successful empty catalog hides the voice picker instead of falling back", () => {
