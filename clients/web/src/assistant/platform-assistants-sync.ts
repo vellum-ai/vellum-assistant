@@ -2,14 +2,10 @@
  * Platform assistants sync.
  *
  * Loads the platform assistants list into the resolved-assistants store as a
- * reaction to the platform session becoming present, rather than baking the
- * load into a single session action. Every path that confirms a platform
- * session — cold `initSession`, the OAuth provider callback's `refreshSession`,
- * app-resume revalidation — flips `platformSession` to `"present"`, so one
- * subscription repopulates the list on all of them. This is the fix for the
- * re-login case (ATL-1100): after logout and a fresh sign-in the provider
- * callback's refresh repopulates the list, so an established user is no longer
- * routed into create-an-assistant onboarding.
+ * reaction to the platform session becoming present. `initSession`,
+ * `refreshSession`, and app-resume revalidation all flip `platformSession` to
+ * `"present"` when they confirm a session, so one subscription repopulates the
+ * list on every path.
  *
  * Pure platform/cloud only. Local mode drives the resolved store from the
  * lockfile subscription (see resolved-assistants-store.ts), and the gateway /
@@ -24,21 +20,44 @@ import { useAuthStore } from "@/stores/auth-store";
 import { useOrganizationStore } from "@/stores/organization-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
+// Monotonic id stamped on each reload. The load is fire-and-forget and awaits
+// two network hops, so a logout or account switch can land while it's in
+// flight; only the newest reload for the still-present same-user session is
+// allowed to write the resolved store, mirroring the auth store's own
+// `latestPlatformProbe` guard.
+let latestReload = 0;
+
 /**
  * Load the platform assistants list into the resolved-assistants store.
  *
  * No-ops outside pure platform/cloud mode: local mode's list is lockfile-driven
  * and the gateway modes have none, so writing the resolved store there would
- * clobber correct state. On failure it still marks the list hydrated so the
- * route guard's hydration wait can't stall navigation forever.
+ * clobber correct state. On failure it marks the list hydrated so the route
+ * guard's hydration wait can't stall navigation forever.
+ *
+ * Every write to the resolved store is gated on the reload still being current:
+ * the same session (`platformSession` still `"present"`, same `user.id`) and
+ * not superseded by a newer reload. A stale reload writes nothing — a
+ * signed-out session's route guard doesn't wait on `assistantsHydrated`, so
+ * skipping the write there is correct.
  */
 export async function reloadPlatformAssistants(): Promise<void> {
   if (isLocalMode() || isRemoteGatewayMode() || isGatewayAuthEnabled()) {
     return;
   }
+  const gen = ++latestReload;
+  const startUserId = useAuthStore.getState().user?.id ?? null;
+  const isStale = (): boolean =>
+    gen !== latestReload ||
+    useAuthStore.getState().platformSession !== "present" ||
+    (useAuthStore.getState().user?.id ?? null) !== startUserId;
+
   try {
     await useOrganizationStore.getState().fetchOrganizations();
     const apiAssistants = await listAssistants();
+    if (isStale()) {
+      return;
+    }
     if (apiAssistants.ok) {
       useResolvedAssistantsStore.getState().setFromApi(apiAssistants.data);
     } else {
@@ -49,6 +68,9 @@ export async function reloadPlatformAssistants(): Promise<void> {
       context: "reloadPlatformAssistants",
       bestEffort: true,
     });
+    if (isStale()) {
+      return;
+    }
     useResolvedAssistantsStore.getState().markHydrated();
   }
 }
