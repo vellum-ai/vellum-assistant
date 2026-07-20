@@ -33,6 +33,10 @@ mock.module("./utils", () => ({
   PRO_POLL_TIMEOUT_MS: TEST_CONFIRM_TIMEOUT_MS,
 }));
 
+mock.module("@/hooks/use-is-org-ready", () => ({
+  useIsOrgReady: () => true,
+}));
+
 const realDateNow = Date.now.bind(Date);
 let dateNowOffsetMs = 0;
 Date.now = () => realDateNow() + dateNowOffsetMs;
@@ -100,7 +104,11 @@ let onboardingResponse = makeOnboarding();
 let assistantResponse = makeAssistant("small", 10);
 let operationalStatusResponse = makeOperationalStatus("active");
 let onboardingFails = false;
+/** When set, onboarding responses hold until this promise resolves. */
+let onboardingHold: Promise<void> | null = null;
 let resizeCall: Captured | null = null;
+/** When set, the resize mutation rejects with this error body. */
+let resizeError: unknown = null;
 
 mock.module("@/generated/api/sdk.gen", () => ({
   ...sdkGen,
@@ -109,10 +117,15 @@ mock.module("@/generated/api/sdk.gen", () => ({
       data: makeSubscription(subscriptionPlanId),
       response: { ok: true },
     }),
-  organizationsBillingSubscriptionOnboardingRetrieve: () =>
-    onboardingFails
-      ? Promise.reject(new Error("500 Internal Server Error"))
-      : Promise.resolve({ data: onboardingResponse, response: { ok: true } }),
+  organizationsBillingSubscriptionOnboardingRetrieve: () => {
+    if (onboardingFails) {
+      return Promise.reject(new Error("500 Internal Server Error"));
+    }
+    const result = { data: onboardingResponse, response: { ok: true } };
+    return onboardingHold
+      ? onboardingHold.then(() => result)
+      : Promise.resolve(result);
+  },
   assistantsActiveRetrieve: () =>
     Promise.resolve({ data: assistantResponse, response: { ok: true } }),
   assistantsOperationalStatusDetailRead: () =>
@@ -122,6 +135,9 @@ mock.module("@/generated/api/sdk.gen", () => ({
     }),
   assistantsResize: (opts: Captured) => {
     resizeCall = opts;
+    if (resizeError != null) {
+      return Promise.reject(resizeError);
+    }
     return Promise.resolve({
       data: { machine_size: "large", provisioned_storage_gib: 50 },
       response: { ok: true },
@@ -164,7 +180,9 @@ beforeEach(() => {
   assistantResponse = makeAssistant("small", 10);
   operationalStatusResponse = makeOperationalStatus("active");
   onboardingFails = false;
+  onboardingHold = null;
   resizeCall = null;
+  resizeError = null;
   dateNowOffsetMs = 0;
   sessionStorage.clear();
 });
@@ -245,7 +263,10 @@ describe("BillingOnboardingModal", () => {
       () => expect(getByText("Setting up your new resources…")).toBeTruthy(),
       { timeout: 5000 },
     );
-    expect(getByText("Storage")).toBeTruthy();
+    // The resource cards appear once the onboarding targets land.
+    await waitFor(() => expect(getByText("Storage")).toBeTruthy(), {
+      timeout: 5000,
+    });
     expect(queryByText("Machine")).toBeNull();
 
     assistantResponse = makeAssistant("small", 50);
@@ -347,9 +368,14 @@ describe("BillingOnboardingModal", () => {
     subscriptionPlanId = "pro";
     const { client, getByText, getByTestId, getByLabelText } = renderModal();
 
-    // The escape hatch appears once the onboarding fetch settles (routing on
-    // stale domain_setup_available is never allowed), one render after the
-    // waiting copy.
+    await waitFor(
+      () => expect(getByText("Setting up your new resources…")).toBeTruthy(),
+      { timeout: 5000 },
+    );
+
+    // The escape hatch is a late fallback: it appears only once the watch has
+    // run past the escape window (and the onboarding fetch has settled).
+    dateNowOffsetMs = 61_000;
     await waitFor(
       () => expect(getByTestId("provisioning-escape")).toBeTruthy(),
       { timeout: 5000 },
@@ -391,6 +417,11 @@ describe("BillingOnboardingModal", () => {
     const { client, getByText, getByTestId, queryByText } = renderModal();
 
     await waitFor(
+      () => expect(getByText("Setting up your new resources…")).toBeTruthy(),
+      { timeout: 5000 },
+    );
+    dateNowOffsetMs = 61_000;
+    await waitFor(
       () => expect(getByTestId("provisioning-escape")).toBeTruthy(),
       { timeout: 5000 },
     );
@@ -404,5 +435,169 @@ describe("BillingOnboardingModal", () => {
     await waitFor(() => expect(queryByText(BACKGROUND_LINE)).toBeNull(), {
       timeout: 5000,
     });
+  });
+
+  test("escape hatch stays hidden until the escape window elapses", async () => {
+    subscriptionPlanId = "pro";
+    const { getByText, getByTestId, queryByTestId } = renderModal();
+
+    await waitFor(
+      () => expect(getByText("Setting up your new resources…")).toBeTruthy(),
+      { timeout: 5000 },
+    );
+    // Give the routing latch time to settle: still no escape hatch, because
+    // the watch hasn't run long enough.
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+    expect(queryByTestId("provisioning-escape")).toBeNull();
+
+    dateNowOffsetMs = 61_000;
+    await waitFor(
+      () => expect(getByTestId("provisioning-escape")).toBeTruthy(),
+      { timeout: 5000 },
+    );
+  });
+
+  test("escape hatch waits for fresh routing data even once time-eligible", async () => {
+    let releaseOnboarding!: () => void;
+    onboardingHold = new Promise((resolve) => {
+      releaseOnboarding = resolve;
+    });
+    subscriptionPlanId = "pro";
+    const { getByText, getByTestId, queryByTestId } = renderModal();
+
+    await waitFor(
+      () => expect(getByText("Setting up your new resources…")).toBeTruthy(),
+      { timeout: 5000 },
+    );
+    dateNowOffsetMs = 61_000;
+    // Time-eligible, but domain_setup_available could still be stale — the
+    // hatch must wait for the onboarding fetch to settle.
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+    expect(queryByTestId("provisioning-escape")).toBeNull();
+
+    releaseOnboarding();
+    await waitFor(
+      () => expect(getByTestId("provisioning-escape")).toBeTruthy(),
+      { timeout: 5000 },
+    );
+  });
+
+  test("apply racing the still-running platform resize is treated as success", async () => {
+    subscriptionPlanId = "pro";
+    resizeError = {
+      detail: "Another assistant operation is already in progress.",
+    };
+    const { client, getByText, getByTestId } = renderModal();
+
+    await waitFor(
+      () => expect(getByText("Setting up your new resources…")).toBeTruthy(),
+      { timeout: 5000 },
+    );
+    dateNowOffsetMs = 200_000;
+    await waitFor(() => expect(getByText("One more step")).toBeTruthy(), {
+      timeout: 5000,
+    });
+
+    // The concurrent-operation rejection means the server resize is still
+    // running — observation resumes instead of surfacing an error.
+    fireEvent.click(getByTestId("provisioning-apply"));
+    await waitFor(() => expect(resizeCall).not.toBeNull());
+    await waitFor(
+      () => expect(getByText("Resizing your assistant…")).toBeTruthy(),
+      { timeout: 5000 },
+    );
+
+    assistantResponse = makeAssistant("large", 50);
+    await client.invalidateQueries();
+    await waitFor(
+      () => expect(getByText("Your upgrade is ready")).toBeTruthy(),
+      { timeout: 5000 },
+    );
+  });
+
+  test("a stall after escaping to complete offers Apply & Restart there", async () => {
+    subscriptionPlanId = "pro";
+    onboardingResponse = makeOnboarding({ domain_setup_available: false });
+    const { client, getByText, getByTestId, queryByText, queryByTestId } =
+      renderModal();
+
+    await waitFor(
+      () => expect(getByText("Setting up your new resources…")).toBeTruthy(),
+      { timeout: 5000 },
+    );
+    dateNowOffsetMs = 61_000;
+    await waitFor(
+      () => expect(getByTestId("provisioning-escape")).toBeTruthy(),
+      { timeout: 5000 },
+    );
+    fireEvent.click(getByTestId("provisioning-escape"));
+    await waitFor(() => expect(getByText("You're all set")).toBeTruthy());
+    expect(getByText(BACKGROUND_LINE)).toBeTruthy();
+
+    // The backgrounded resize stalls: the finishing line swaps for a warning
+    // with a manual apply.
+    dateNowOffsetMs = 200_000;
+    await waitFor(
+      () => expect(getByTestId("complete-stalled-apply")).toBeTruthy(),
+      { timeout: 5000 },
+    );
+    expect(queryByText(BACKGROUND_LINE)).toBeNull();
+
+    // Applying resumes observation — the finishing line returns…
+    fireEvent.click(getByTestId("complete-stalled-apply"));
+    await waitFor(() => expect(resizeCall).not.toBeNull());
+    await waitFor(() => expect(getByText(BACKGROUND_LINE)).toBeTruthy(), {
+      timeout: 5000,
+    });
+
+    // …and the resize landing clears it.
+    assistantResponse = makeAssistant("large", 50);
+    await client.invalidateQueries();
+    await waitFor(() => expect(queryByText(BACKGROUND_LINE)).toBeNull(), {
+      timeout: 5000,
+    });
+    expect(queryByTestId("complete-stalled-apply")).toBeNull();
+  });
+
+  test("a stall while the user is on the domain step keeps the submit locked", async () => {
+    subscriptionPlanId = "pro";
+    const { client, getByText, getByTestId, getByLabelText } = renderModal();
+
+    await waitFor(
+      () => expect(getByText("Setting up your new resources…")).toBeTruthy(),
+      { timeout: 5000 },
+    );
+    dateNowOffsetMs = 61_000;
+    await waitFor(
+      () => expect(getByTestId("provisioning-escape")).toBeTruthy(),
+      { timeout: 5000 },
+    );
+    fireEvent.click(getByTestId("provisioning-escape"));
+    await waitFor(() => expect(getByText("Assistant email")).toBeTruthy());
+    await waitFor(() =>
+      expect((getByLabelText("Subdomain") as HTMLInputElement).value).toBe(
+        "casey",
+      ),
+    );
+
+    // The flow stalls while the user is on the domain step: the machine may
+    // still be mid-restart, so the guardian-channel submit stays locked.
+    dateNowOffsetMs = 200_000;
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+    expect(
+      (getByTestId("onboarding-domain-set") as HTMLButtonElement).disabled,
+    ).toBe(true);
+
+    // Polling stays alive through the stall, so the resize landing late
+    // self-recovers and lifts the guard.
+    assistantResponse = makeAssistant("large", 50);
+    await client.invalidateQueries();
+    await waitFor(
+      () =>
+        expect(
+          (getByTestId("onboarding-domain-set") as HTMLButtonElement).disabled,
+        ).toBe(false),
+      { timeout: 5000 },
+    );
   });
 });

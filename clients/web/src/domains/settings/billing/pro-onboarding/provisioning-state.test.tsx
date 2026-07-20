@@ -27,7 +27,7 @@ function baseProps(
     escapeAvailable: false,
     onEscape: () => {},
     stalledAction: { onApply: () => {}, pending: false, error: null },
-    confirm: { expired: false, onRetry: () => {}, onGoToBilling: () => {} },
+    confirm: { onRetry: () => {}, onGoToBilling: () => {} },
     ...overrides,
   };
 }
@@ -81,21 +81,6 @@ describe("confirming", () => {
     expect(getByText("50 credits")).toBeTruthy();
   });
 
-  test("shows the payment-safe timeout screen once confirm.expired is set", () => {
-    const onRetry = mock(() => {});
-    const { getByText, getByTestId } = renderState({
-      state: "CONFIRMING",
-      confirm: { expired: true, onRetry, onGoToBilling: () => {} },
-    });
-
-    expect(
-      getByText(
-        "Your payment went through safely — we're still confirming your upgrade with Stripe. This can take a minute.",
-      ),
-    ).toBeTruthy();
-    fireEvent.click(getByTestId("onboarding-retry"));
-    expect(onRetry).toHaveBeenCalledTimes(1);
-  });
 });
 
 describe("waiting / resizing", () => {
@@ -243,10 +228,11 @@ describe("stalled", () => {
 
 describe("confirm_timeout", () => {
   test("renders the payment-safety reassurance with retry and billing actions", () => {
+    const onRetry = mock(() => {});
     const onGoToBilling = mock(() => {});
     const { getByText, getByTestId } = renderState({
       state: "CONFIRM_TIMEOUT",
-      confirm: { expired: false, onRetry: () => {}, onGoToBilling },
+      confirm: { onRetry, onGoToBilling },
     });
 
     expect(
@@ -254,6 +240,8 @@ describe("confirm_timeout", () => {
         "Your payment went through safely — we're still confirming your upgrade with Stripe. This can take a minute.",
       ),
     ).toBeTruthy();
+    fireEvent.click(getByTestId("onboarding-retry"));
+    expect(onRetry).toHaveBeenCalledTimes(1);
     fireEvent.click(getByTestId("onboarding-go-to-billing"));
     expect(onGoToBilling).toHaveBeenCalledTimes(1);
   });

@@ -230,6 +230,20 @@ describe("deriveProvisioningState — STALLED", () => {
     ).toBe("WAITING");
   });
 
+  test("actuals meeting targets past the stall threshold → DONE (late resize self-recovers)", () => {
+    // Targets-met is checked before the stall clock, so a resize that lands
+    // after the stall threshold still resolves the flow.
+    expect(
+      deriveProvisioningState(
+        baseInput({
+          actuals: { machineSize: "large", storageGib: 50 },
+          sawOperation: true,
+          msSinceWatchStart: PROVISION_STALL_MS + 1,
+        }),
+      ),
+    ).toEqual({ state: "DONE", softWaiting: false });
+  });
+
   test("re-based watch clock with a seen operation leaves STALLED for RESIZING", () => {
     // The manual-apply resume path: the hook re-bases msSinceWatchStart to the
     // resume instant and latches sawOperation.

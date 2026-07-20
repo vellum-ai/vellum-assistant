@@ -7,19 +7,10 @@ import type {
     StorageTier,
     StorageTierEnum,
 } from "@/generated/api/types.gen";
+import { MACHINE_TIER_LABEL } from "@/lib/billing/machine-sizes";
 import { Dropdown } from "@vellumai/design-library/components/dropdown";
 import { Typography } from "@vellumai/design-library/components/typography";
 import { formatDelta, formatMonthly } from "./tier-pricing";
-
-/**
- * Display labels for the Pro machine tiers. Uses a static label map so casing
- * is stable regardless of what the API returns in `tier.label`.
- */
-const MACHINE_TIER_LABEL: Record<string, string> = {
-  medium: "Medium",
-  large: "Large",
-  xl: "XL",
-};
 
 /**
  * `disabled` is not (yet) part of the generated MachineTier/StorageTier

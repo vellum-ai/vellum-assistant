@@ -1,12 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 
-import {
-    assistantsActiveRetrieveOptions,
-    assistantsResizeMutation,
-    organizationsBillingSubscriptionOnboardingRetrieveOptions,
-} from "@/generated/api/@tanstack/react-query.gen";
+import { assistantsResizeMutation } from "@/generated/api/@tanstack/react-query.gen";
 import {
     clearCheckoutIntent,
     readCheckoutIntent,
@@ -21,6 +17,7 @@ import { FetchErrorState } from "./error-states";
 import type { ProvisioningDimensions } from "./provisioning-machine";
 import { ProvisioningState } from "./provisioning-state";
 import { useProProvisioning } from "./use-pro-provisioning";
+import { isOperationAlreadyInProgressError } from "./utils";
 
 type WizardStep = "provisioning" | "domain" | "complete";
 
@@ -63,35 +60,27 @@ export function BillingOnboardingModal({
     if (step === "complete") clearCheckoutIntent();
   }, [step]);
 
-  const proConfirmed =
-    provisioning.state !== "CONFIRMING" &&
-    provisioning.state !== "CONFIRM_TIMEOUT";
   // Domain/email/guardian registration must run while the assistant's machine
   // is online: registering the email triggers a guardian-channel write to the
   // machine's gateway. The platform auto-resizes (and restarts) the machine
-  // right after checkout, so while that resize is in flight the domain step
-  // stays guarded — submit disabled — until the machine is back.
+  // right after checkout, so the domain step stays guarded (submit disabled)
+  // while that resize is in flight — including a stall, where the machine may
+  // still be mid-restart.
   const machineBusy =
-    provisioning.state === "WAITING" || provisioning.state === "RESIZING";
+    provisioning.state === "WAITING" ||
+    provisioning.state === "RESIZING" ||
+    provisioning.state === "STALLED";
   const provisioningSettled =
     provisioning.state === "DONE" || provisioning.state === "NOT_APPLICABLE";
 
-  // Mirrors the hook's onboarding query (same key, shared fetch) so the modal
-  // can route on domain_setup_available.
-  const onboardingQuery = useQuery({
-    ...organizationsBillingSubscriptionOnboardingRetrieveOptions(),
-    enabled: open && proConfirmed,
-  });
-  const domainSetupAvailable = onboardingQuery.data?.domain_setup_available;
+  const { targets, assistantId, domainSetupAvailable, onboardingSettled } =
+    provisioning;
   // Routing must never use a stale domain_setup_available: until the first
   // post-confirm fetch settles, TanStack may still serve pre-checkout cached
-  // data (isPending covers the cold load; isFetching the refetch from the
-  // hook's on-open invalidation). Both the celebration dwell and the escape
-  // hatch wait on this. Latched: once fresh data has landed, a later
-  // background refetch must not yank the escape hatch or restart the dwell.
+  // data. Both the celebration dwell and the escape hatch wait on this.
+  // Latched: once fresh data has landed, a later background refetch must not
+  // yank the escape hatch or restart the dwell.
   const [routingSettled, setRoutingSettled] = useState(false);
-  const onboardingSettled =
-    proConfirmed && !onboardingQuery.isPending && !onboardingQuery.isFetching;
   useEffect(() => {
     if (!open) {
       setRoutingSettled(false);
@@ -99,11 +88,6 @@ export function BillingOnboardingModal({
     }
     if (onboardingSettled) setRoutingSettled(true);
   }, [open, onboardingSettled]);
-
-  const { data: activeAssistant } = useQuery({
-    ...assistantsActiveRetrieveOptions(),
-    enabled: open,
-  });
 
   const advanceFromProvisioning = useCallback(() => {
     setStep(domainSetupAvailable === false ? "complete" : "domain");
@@ -115,12 +99,11 @@ export function BillingOnboardingModal({
   }, [advanceFromProvisioning]);
 
   const resizeMutation = useMutation(assistantsResizeMutation());
-  const { targets } = provisioning;
   const applyStalledResize = () => {
-    if (resizeMutation.isPending || !activeAssistant?.id || !targets) return;
+    if (resizeMutation.isPending || !assistantId || !targets) return;
     resizeMutation.mutate(
       {
-        path: { id: activeAssistant.id },
+        path: { id: assistantId },
         body: {
           ...(targets.machineSize != null
             ? { machine_size: targets.machineSize }
@@ -130,10 +113,31 @@ export function BillingOnboardingModal({
             : {}),
         },
       },
-      // A manual apply un-stalls the flow: the hook goes back to RESIZING and
-      // resumes its actuals polling so the normal DONE path can complete.
-      { onSuccess: () => provisioning.resumeAfterManualApply() },
+      {
+        // A manual apply un-stalls the flow: the hook goes back to RESIZING
+        // and resumes its actuals polling so the normal DONE path can
+        // complete.
+        onSuccess: () => provisioning.resumeAfterManualApply(),
+        onError: (error) => {
+          // The platform's concurrent-operation guard rejecting the apply
+          // means the resize we stalled on is in fact still running — that is
+          // success-equivalent, so resume observing instead of surfacing it.
+          if (isOperationAlreadyInProgressError(error)) {
+            provisioning.resumeAfterManualApply();
+          }
+        },
+      },
     );
+  };
+  const stalledApplyError = isOperationAlreadyInProgressError(
+    resizeMutation.error,
+  )
+    ? null
+    : resizeMutation.error;
+  const stalledAction = {
+    onApply: applyStalledResize,
+    pending: resizeMutation.isPending,
+    error: stalledApplyError,
   };
 
   const handleClose = () => {
@@ -177,15 +181,12 @@ export function BillingOnboardingModal({
           fromSnapshot={provisioning.actualsSnapshot ?? EMPTY_DIMENSIONS}
           celebrating={routingSettled}
           onCelebrationEnd={advanceFromProvisioning}
-          escapeAvailable={machineBusy && routingSettled}
+          escapeAvailable={
+            machineBusy && routingSettled && provisioning.escapeEligible
+          }
           onEscape={escapeProvisioning}
-          stalledAction={{
-            onApply: applyStalledResize,
-            pending: resizeMutation.isPending,
-            error: resizeMutation.error,
-          }}
+          stalledAction={stalledAction}
           confirm={{
-            expired: provisioning.confirmExpired,
             onRetry: provisioning.retryConfirm,
             onGoToBilling: onClose,
           }}
@@ -206,6 +207,8 @@ export function BillingOnboardingModal({
     return (
       <CompleteState
         finishedInBackground={finishedInBackground && !provisioningSettled}
+        stalled={provisioning.state === "STALLED"}
+        stalledAction={stalledAction}
       />
     );
   }
