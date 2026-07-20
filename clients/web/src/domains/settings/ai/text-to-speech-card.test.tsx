@@ -300,6 +300,13 @@ describe("TextToSpeechCard — Vellum provider", () => {
     managedVoicesData = {
       voices: [
         {
+          model: "21m00Tcm4TlvDq8ikWAM",
+          label: "Rachel",
+          description: "American · calm, expressive, natural",
+          sampleUrl: "",
+          source: "elevenlabs",
+        },
+        {
           model: "aura-2-zeus-en",
           label: "Zeus",
           description: "American · deep, trustworthy, smooth",
@@ -307,7 +314,7 @@ describe("TextToSpeechCard — Vellum provider", () => {
           source: "deepgram",
         },
       ],
-      defaultModel: "aura-2-zeus-en",
+      defaultModel: "21m00Tcm4TlvDq8ikWAM",
     };
     renderCard();
 
@@ -321,8 +328,13 @@ describe("TextToSpeechCard — Vellum provider", () => {
         '[role="option"]:not([aria-label])',
       ),
     ).map((o) => o.textContent?.trim());
+    // Each option carries its upstream source as a suffix badge so users
+    // can tell providers apart while browsing, not only after selecting.
     expect(options).toContain(
-      "Zeus (default) — American · deep, trustworthy, smooth",
+      "Rachel (default) — American · calm, expressive, naturalElevenLabs",
+    );
+    expect(options).toContain(
+      "Zeus — American · deep, trustworthy, smoothDeepgram",
     );
     // Static-catalog-only voices must not appear once the fetch supplies data.
     expect(options?.join(" ")).not.toContain("Thalia");

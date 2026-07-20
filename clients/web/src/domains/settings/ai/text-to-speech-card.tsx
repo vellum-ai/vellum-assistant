@@ -446,6 +446,14 @@ export function TextToSpeechCard() {
                 label: `${v.label}${
                   v.model === defaultManagedVoice ? " (default)" : ""
                 } — ${v.description}`,
+                // Voices come from different upstream providers; the badge
+                // makes the source visible while browsing, not only after
+                // selecting.
+                suffix: (
+                  <span className="text-body-small-default text-[var(--content-tertiary)]">
+                    {MANAGED_VOICE_SOURCE_LABELS[v.source] ?? v.source}
+                  </span>
+                ),
               }))}
               aria-label="Managed voice"
             />

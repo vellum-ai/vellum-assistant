@@ -9,16 +9,16 @@
  */
 
 /**
- * Upstream provider a managed voice is synthesized by. Extend as the
- * managed catalog grows (e.g. "elevenlabs").
+ * Upstream provider a managed voice is synthesized by.
  */
-export type ManagedVoiceSource = "deepgram";
+export type ManagedVoiceSource = "deepgram" | "elevenlabs";
 
 // Keyed loosely (not by ManagedVoiceSource) so labels also resolve for
 // sources that arrive from the platform voices endpoint before this file
 // learns about them; callers fall back to the raw source string on a miss.
 export const MANAGED_VOICE_SOURCE_LABELS: Record<string, string> = {
   deepgram: "Deepgram",
+  elevenlabs: "ElevenLabs",
 };
 
 export interface ManagedVoice {
@@ -30,13 +30,41 @@ export interface ManagedVoice {
   source: ManagedVoiceSource;
 }
 
-export const DEFAULT_MANAGED_VOICE = "aura-2-thalia-en";
+export const DEFAULT_MANAGED_VOICE = "21m00Tcm4TlvDq8ikWAM";
 
 function sample(name: string): string {
   return `https://static.deepgram.com/examples/Aura-2-${name}.wav`;
 }
 
+// ElevenLabs premade voices have no hosted preview yet; an empty sampleUrl
+// means "no preview available".
+function elevenlabs(
+  model: string,
+  label: string,
+  description: string,
+): ManagedVoice {
+  return { model, label, description, source: "elevenlabs", sampleUrl: "" };
+}
+
 export const MANAGED_VOICES: ManagedVoice[] = [
+  elevenlabs(
+    "21m00Tcm4TlvDq8ikWAM",
+    "Rachel",
+    "American · calm, expressive, natural",
+  ),
+  elevenlabs("EXAVITQu4vr4xnSDxMaL", "Sarah", "American · soft, warm, gentle"),
+  elevenlabs(
+    "AZnzlk1XvdvUeBnXmlld",
+    "Domi",
+    "American · strong, confident, crisp",
+  ),
+  elevenlabs("pNInz6obpgDQGcFmaJgB", "Adam", "American · deep, authoritative"),
+  elevenlabs("TxGEqnHWrfWFTfGW9XjX", "Josh", "American · deep, calm, grounded"),
+  elevenlabs(
+    "ErXwobaYiN019PkySvjV",
+    "Antoni",
+    "American · warm, well-rounded, friendly",
+  ),
   {
     model: "aura-2-thalia-en",
     label: "Thalia",
