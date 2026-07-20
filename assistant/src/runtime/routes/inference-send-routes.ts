@@ -48,8 +48,10 @@ async function handleInferenceSend({ body = {} }: RouteHandlerArgs) {
     }
   }
 
+  const selectionSeed = crypto.randomUUID();
   const provider = await getConfiguredProvider("inference", {
     overrideProfile: profile,
+    selectionSeed,
   });
   if (!provider) {
     throw new BadRequestError(
@@ -63,6 +65,8 @@ async function handleInferenceSend({ body = {} }: RouteHandlerArgs) {
       callSite: "inference",
       max_tokens: maxTokens,
       model,
+      overrideProfile: profile,
+      selectionSeed,
     },
   });
 
