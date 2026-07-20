@@ -342,6 +342,13 @@ export class Conversation {
   /** @internal */ preactivatedSkillIds?: string[];
   /** @internal */ subagentAllowedTools?: Set<string>;
   /**
+   * When true, side-effecting tools are refused for this subagent regardless of
+   * trust class (the read-only background continuation). Enforced in the tool
+   * executor gate and filtered off the model's wire tool surface.
+   * @internal
+   */
+  subagentDenySideEffects?: boolean;
+  /**
    * Tool names a subagent attempted but that its role allowlist
    * ({@link subagentAllowedTools}) denied. Recorded by the tool executor;
    * surfaced to the parent in the terminal notification so it can re-spawn with
@@ -1497,6 +1504,10 @@ export class Conversation {
     this.subagentAllowedTools = tools;
   }
 
+  setSubagentDenySideEffects(deny: boolean): void {
+    this.subagentDenySideEffects = deny;
+  }
+
   /**
    * Set the conversation's per-chat plugin scope, updating both the persisted
    * `enabled_plugins` row and the live instance (source of truth for the
@@ -2492,8 +2503,6 @@ export class Conversation {
       titleText?: string;
       /** See {@link runAgentLoopImpl} — hidden machine-signal turn marker. */
       isHiddenPrompt?: boolean;
-      /** See {@link runAgentLoopImpl} — UI-initiated send-source tag. */
-      messageSource?: string;
       callSite?: LLMCallSite;
       /**
        * Optional ad-hoc inference-profile override applied to every LLM call

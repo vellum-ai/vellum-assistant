@@ -21,6 +21,7 @@ import {
   isSessionSettled,
   isSettledSessionRejection,
   hasLivePlatformSession,
+  isPlatformSessionSettled,
   isConfirmedPlatformSession,
   type PlatformSessionStatus,
   type SessionStatus,
@@ -1109,6 +1110,16 @@ export const useIsSessionInitializing = (): boolean =>
 
 export const useHasPlatformSession = (): boolean =>
   hasLivePlatformSession(useAuthStore.use.platformSession());
+
+/**
+ * Reactive: the platform-session probe has settled (`platformSession` is no
+ * longer `"unknown"`). Gate behavior that must not act on the pre-settle
+ * window — where {@link useHasPlatformSession} still reads `false` for a
+ * session that will resolve to `"present"` — on this rather than on
+ * {@link useIsSessionInitializing}, which can clear first.
+ */
+export const useIsPlatformSessionSettled = (): boolean =>
+  isPlatformSessionSettled(useAuthStore.use.platformSession());
 
 /**
  * A platform session a live probe confirmed — excludes the believed offline

@@ -300,7 +300,8 @@ export const routeTree = [
                 { path: "security", lazy: { Component: () => import("@/domains/settings/pages/security-redirect-page").then((m) => m.SecurityRedirectPage) } },
                 { path: "archive", lazy: { Component: () => import("@/domains/settings/pages/archive-redirect-page").then((m) => m.ArchiveRedirectPage) } },
                 { path: "bookmarks", lazy: { Component: () => import("@/domains/settings/pages/bookmarks-page").then((m) => m.BookmarksPage) } },
-                { path: "billing", lazy: { Component: () => import("@/domains/settings/billing/billing-page").then((m) => m.BillingPage) } },
+                { path: "usage", lazy: { Component: () => import("@/domains/settings/billing/billing-page").then((m) => m.BillingPage) } },
+                { path: "billing", lazy: { Component: () => import("@/domains/settings/pages/billing-redirect-page").then((m) => m.BillingRedirectPage) } },
                 { path: "billing/upgrade/cancel", lazy: { Component: () => import("@/domains/settings/billing/upgrade-cancel-page").then((m) => m.UpgradeCancelPage) } },
                 { path: "billing/upgrade/success", lazy: { Component: () => import("@/domains/settings/billing/upgrade-success-page").then((m) => m.UpgradeSuccessPage) } },
                 { path: "community", lazy: { Component: () => import("@/domains/settings/pages/community-page").then((m) => m.CommunityPage) } },
@@ -312,6 +313,10 @@ export const routeTree = [
                 { path: "system-events", lazy: { Component: () => import("@/domains/settings/pages/system-events-redirect-page").then((m) => m.SystemEventsRedirectPage) } },
               ],
             },
+
+            // View Plans — full-screen pricing takeover. Like settings/logs it
+            // renders its own dark shell outside ChatLayout chrome.
+            { path: "plans", lazy: { Component: () => import("@/domains/settings/billing/plans/plans-page").then((m) => m.PlansPage) } },
 
             // Logs routes — full-screen overlay panel (like SettingsLayout).
             // LogsLayout reuses SidebarShell for visual consistency.

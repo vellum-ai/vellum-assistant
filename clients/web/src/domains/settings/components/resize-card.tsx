@@ -406,7 +406,7 @@ export function ResizeCard({
             <Button
               onClick={() => {
                 setUpgradeModalOpen(null);
-                void navigate(`${routes.settings.billing}?adjust_plan=1`);
+                void navigate(`${routes.settings.usage}?tab=billing&adjust_plan=1`);
               }}
             >
               Upgrade
@@ -475,7 +475,7 @@ export function ResizeCard({
             <span className="text-label-small-default text-[var(--content-tertiary)]">
               Need more?{" "}
               <Link
-                to={`${routes.settings.billing}?adjust_plan=1`}
+                to={`${routes.settings.usage}?tab=billing&adjust_plan=1`}
                 className="text-[var(--content-secondary)] underline decoration-[var(--border-element)] underline-offset-2 transition-colors hover:text-[var(--content-default)]"
                 onClick={() => setResizeModalOpen(false)}
               >

@@ -6,7 +6,7 @@
  * (`../cli/lib/plugin-fingerprint.ts`, drift detection against the pinned
  * commit) and the live-reload source fingerprint
  * (`./source-fingerprint.ts`, change detection for redeploys). This module
- * owns the walk and the excluded-entry constants so the two can't drift.
+ * owns the walk and its excluded-entry rules so the two can't drift.
  *
  * Symlinks are never followed, at any depth: install never materializes
  * them, and following a symlinked directory would let a link like
@@ -41,6 +41,20 @@ export const PRESERVED_ENTRIES = [
 ] as const;
 
 /**
+ * Directory names {@link walkPluginTree} skips at any depth, unconditionally.
+ * `node_modules` holds a plugin's installed dependencies — derived from the
+ * pinned `package.json` and re-installed on every (re)install and upgrade (see
+ * `../cli/lib/install-plugin-dependencies.ts`), never tracked source. Excluding
+ * it keeps installed dependencies out of the install fingerprint / content hash
+ * (`../cli/lib/plugin-fingerprint.ts`) and the live-reload source fingerprint
+ * (`./source-fingerprint.ts`), so a re-materialized baseline — which has no
+ * `node_modules/` — still matches what install recorded. It is baked into the
+ * walk rather than opted into per call because no plugin-tree walk ever wants
+ * to descend it.
+ */
+const ALWAYS_EXCLUDED_DIRS: ReadonlySet<string> = new Set(["node_modules"]);
+
+/**
  * Generated app build output: `apps/<app>/dist`. This is compiled output (the
  * plugin source watcher builds each multi-file app's `src/` into its sibling
  * `dist/`), never tracked source, so — like {@link PRESERVED_ENTRIES} — every
@@ -68,8 +82,6 @@ export interface PluginTreeWalkOptions {
    * GENERATED_APP_BUILD_DIR}).
    */
   readonly excludeRootEntries?: Iterable<string | RegExp>;
-  /** Directory names skipped at any depth (e.g. `node_modules`). */
-  readonly excludeDirsAnywhere?: ReadonlySet<string>;
   /** Skip entries whose name starts with `.`, at any depth. */
   readonly excludeDotEntries?: boolean;
   /**
@@ -130,7 +142,7 @@ export function walkPluginTree(
         continue;
       }
       if (entry.isDirectory()) {
-        if (options.excludeDirsAnywhere?.has(name) === true) {
+        if (ALWAYS_EXCLUDED_DIRS.has(name)) {
           continue;
         }
         walk(rel);

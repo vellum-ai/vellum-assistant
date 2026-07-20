@@ -26,6 +26,10 @@ interface OverviewTabProps {
 interface MetadataRow {
   label: string;
   value: string;
+  /** Render inset under the preceding top-level row (latency sub-steps). */
+  indent?: boolean;
+  /** Explicit render key for rows whose label isn't unique in the card. */
+  rowKey?: string;
 }
 
 /**
@@ -109,10 +113,20 @@ function formatMs(ms: number): string {
 }
 
 /**
+ * The daemon floors recorded sub-spans at 10ms (`MIN_SUB_SPAN_MS` in
+ * `assistant/src/daemon/turn-latency-sub-spans.ts`); the remainder row uses
+ * the same threshold so a residue made purely of floored-away noise stays
+ * hidden.
+ */
+const OTHER_MIN_MS = 10;
+
+/**
  * Build the first-token latency waterfall rows: the total-to-first-token
  * headline (first call of a turn only), then one row per phase
  * (queue → memory/context → setup → request prep → time-to-first-token →
- * generation), and the streamed first-token kind when known.
+ * generation), and the streamed first-token kind when known. A phase with
+ * instrumented sub-steps gets an indented row per sub-step (execution
+ * order) plus an "Other" remainder for wall clock no sub-step claimed.
  */
 function buildLatencyRows(latency: LatencyBreakdown): MetadataRow[] {
   const rows: MetadataRow[] = [];
@@ -127,6 +141,27 @@ function buildLatencyRows(latency: LatencyBreakdown): MetadataRow[] {
   }
   for (const phase of latency.phases) {
     rows.push({ label: phase.label, value: formatMs(phase.ms) });
+    const subPhases = phase.subPhases ?? [];
+    for (const sub of subPhases) {
+      rows.push({
+        label: sub.label,
+        value: formatMs(sub.ms),
+        indent: true,
+        rowKey: `${phase.key}:${sub.key}`,
+      });
+    }
+    if (subPhases.length > 0) {
+      const attributed = subPhases.reduce((total, sub) => total + sub.ms, 0);
+      const remainder = phase.ms - attributed;
+      if (remainder >= OTHER_MIN_MS) {
+        rows.push({
+          label: "Other",
+          value: formatMs(remainder),
+          indent: true,
+          rowKey: `${phase.key}:other`,
+        });
+      }
+    }
   }
   if (latency.firstTokenKind) {
     rows.push({ label: "First token kind", value: latency.firstTokenKind });
@@ -262,7 +297,7 @@ function MetadataCard({
         <CardHeader title={title} subtitle={subtitle} />
         <div className="flex flex-col gap-2">
           {rows.map((row) => (
-            <MetadataRowItem key={row.label} row={row} />
+            <MetadataRowItem key={row.rowKey ?? row.label} row={row} />
           ))}
         </div>
       </div>
@@ -291,10 +326,20 @@ function FallbackCard({ message }: { message: string }): ReactNode {
 
 function MetadataRowItem({ row }: { row: MetadataRow }): ReactNode {
   return (
-    <div className="flex items-baseline gap-3">
+    <div
+      className={
+        row.indent
+          ? "flex items-baseline gap-3 pl-4"
+          : "flex items-baseline gap-3"
+      }
+    >
       <span
         className="shrink-0 text-label-default"
-        style={{ color: "var(--content-secondary)" }}
+        style={{
+          color: row.indent
+            ? "var(--content-tertiary)"
+            : "var(--content-secondary)",
+        }}
       >
         {row.label}
       </span>

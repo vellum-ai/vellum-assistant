@@ -45,6 +45,10 @@ import { ensureBun } from "../../util/bun-runtime.js";
 import { getWorkspacePluginsDir } from "../../util/platform.js";
 import type { FetchLike } from "./fetch-like.js";
 import {
+  type DependencyInstaller,
+  installPluginDependencies,
+} from "./install-plugin-dependencies.js";
+import {
   computeContentHash,
   computeFingerprint,
   type Fingerprint,
@@ -159,6 +163,8 @@ export interface InstallPluginDeps {
   readonly runGit?: GitRunner;
   /** Override the runner used to execute a plugin's postinstall adapter. Falls back to {@link defaultPostinstallRunner}. */
   readonly runPostinstall?: PostinstallRunner;
+  /** Override the runner used to install a plugin's dependencies. Falls back to {@link defaultDependencyInstaller}. */
+  readonly runInstallDeps?: DependencyInstaller;
 }
 
 /** Successful install result. */
@@ -486,13 +492,14 @@ export async function installPlugin(
     throw new PluginNotFoundError(name, ref, sourceLabel(effectiveSource));
   }
 
-  finalizeStagedInstall(stagingDir, {
+  await finalizeStagedInstall(stagingDir, {
     name,
     source: effectiveSource,
     ref,
     commit,
     committedAt,
     pluginsDir,
+    installDependencies: deps.runInstallDeps,
   });
 
   return { name, target, fileCount, ref, commit, committedAt };
@@ -512,18 +519,24 @@ export interface FinalizeStagedInstallParams {
   readonly etag?: string;
   /** Served plugins directory; the staging dir is swapped into `<pluginsDir>/<name>`. */
   readonly pluginsDir: string;
+  /** Override the runner used to install the plugin's dependencies. Falls back to {@link defaultDependencyInstaller}. */
+  readonly installDependencies?: DependencyInstaller;
 }
 
 /**
- * Fingerprint a fully-populated `stagingDir`, write its provenance sidecar, and
- * atomically swap it into `<pluginsDir>/<name>`. Returns the final install path
- * and the fingerprint that was recorded.
+ * Install the plugin's declared dependencies, fingerprint the fully-populated
+ * `stagingDir`, write its provenance sidecar, and atomically swap it into
+ * `<pluginsDir>/<name>`. Returns the final install path and the fingerprint that
+ * was recorded.
  *
- * Shared by {@link installPlugin} (fresh materialization) and the merge-based
- * `plugins upgrade --strategy` path so both record identical provenance and use
- * the same atomic rm+rename swap.
+ * Shared by {@link installPlugin} (fresh materialization), the platform-endpoint
+ * install, and the merge-based `plugins upgrade --strategy` path so all record
+ * identical provenance, install dependencies the same way, and use the same
+ * atomic rm+rename swap. Dependencies land in `<stagingDir>/node_modules/` — a
+ * derived directory every plugin-tree walk excludes — so it does not pollute the
+ * fingerprint computed just below and rides the swap into place atomically.
  */
-export function finalizeStagedInstall(
+export async function finalizeStagedInstall(
   stagingDir: string,
   {
     name,
@@ -533,8 +546,21 @@ export function finalizeStagedInstall(
     committedAt,
     etag,
     pluginsDir,
+    installDependencies,
   }: FinalizeStagedInstallParams,
-): { target: string; fingerprint: Fingerprint } {
+): Promise<{ target: string; fingerprint: Fingerprint }> {
+  // Install the plugin's own runtime dependencies into the staged tree before
+  // it is fingerprinted and swapped, so its hooks/tools can resolve their bare
+  // imports. A no-op for a plugin that declares none. A hard failure here (e.g.
+  // the manifest could not be restored to its materialized bytes) must not leave
+  // the half-finalized staging dir behind, so drop it before propagating.
+  try {
+    await installPluginDependencies(stagingDir, installDependencies);
+  } catch (err) {
+    rmSync(stagingDir, { recursive: true, force: true });
+    throw err;
+  }
+
   // Hash the materialized tree before the sidecar is written (so the sidecar
   // never hashes itself) — the baseline `plugins inspect` uses to detect later
   // local edits. The per-file fingerprint answers "which files changed"; the
@@ -752,10 +778,7 @@ export async function materializePluginTree(
   if (cloned.fileCount > 0 && opts.stubRef !== null) {
     await applyAdapterStub(opts.name, opts.stubRef, opts.destDir, deps);
   }
-  if (
-    cloned.fileCount > 0 &&
-    !existsSync(join(opts.destDir, "package.json"))
-  ) {
+  if (cloned.fileCount > 0 && !existsSync(join(opts.destDir, "package.json"))) {
     synthesizeMinimalPackageJson(opts.name, opts.destDir);
   }
   return cloned;

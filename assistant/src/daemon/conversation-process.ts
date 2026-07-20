@@ -23,7 +23,6 @@ import { extractPreferences } from "../notifications/preference-extractor.js";
 import { createPreference } from "../notifications/preferences-store.js";
 import {
   addMessage,
-  getUserMessageSourceMetadata,
   isHiddenMessageMetadata,
   provenanceFromTrustContext,
   recordConversationPersistedSeq,
@@ -83,7 +82,7 @@ const log = getLogger("conversation-process");
  * skips their echo, and the persisted `hidden` metadata keeps them out of
  * the fetched transcript.
  */
-function isEchoSuppressedUserMessage(
+export function isEchoSuppressedUserMessage(
   metadata: Record<string, unknown> | undefined,
 ): boolean {
   return (
@@ -1050,7 +1049,6 @@ async function drainSingleMessage(
     isUserMessage?: boolean;
     titleText?: string;
     isHiddenPrompt?: boolean;
-    messageSource?: string;
   } = { isUserMessage: true };
   if (next.isInteractive !== undefined) {
     drainLoopOptions.isInteractive = next.isInteractive;
@@ -1060,10 +1058,6 @@ async function drainSingleMessage(
   }
   if (isHiddenMessageMetadata(next.metadata)) {
     drainLoopOptions.isHiddenPrompt = true;
-  }
-  const queuedMessageSource = getUserMessageSourceMetadata(next.metadata);
-  if (queuedMessageSource !== undefined) {
-    drainLoopOptions.messageSource = queuedMessageSource;
   }
 
   conversation
@@ -1506,7 +1500,6 @@ async function drainBatch(
     isUserMessage?: boolean;
     titleText?: string;
     isHiddenPrompt?: boolean;
-    messageSource?: string;
   } = { isUserMessage: true };
   // Source interactive flag from the last successfully-persisted sibling so
   // a trailing failed tail doesn't flip the agent loop's interactivity.
@@ -1525,21 +1518,6 @@ async function drainBatch(
     successfulBatch.every((qm) => isHiddenMessageMetadata(qm.metadata))
   ) {
     drainLoopOptions.isHiddenPrompt = true;
-  }
-  // Same all-or-nothing rule for the send-source steering: a batch counts
-  // as UI-initiated only when every message in it carries the same source
-  // tag — one hand-typed message justifies a full answer.
-  const batchMessageSource =
-    successfulBatch.length > 0
-      ? getUserMessageSourceMetadata(successfulBatch[0].metadata)
-      : undefined;
-  if (
-    batchMessageSource !== undefined &&
-    successfulBatch.every(
-      (qm) => getUserMessageSourceMetadata(qm.metadata) === batchMessageSource,
-    )
-  ) {
-    drainLoopOptions.messageSource = batchMessageSource;
   }
 
   // Fire-and-forget: runAgentLoop's finally block recursively calls drainQueue

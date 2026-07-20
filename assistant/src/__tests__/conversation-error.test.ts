@@ -379,6 +379,24 @@ describe("classifyConversationError", () => {
       expect(result.retryable).toBe(false);
     });
 
+    it("classifies Anthropic 400 media-type mismatch as image_media_type_mismatch (non-retryable)", () => {
+      // The rejection for an image whose declared media type disagrees with
+      // its bytes (e.g. a JPEG renamed to .png before upload). It must route
+      // to the image-recovery classification so the relabel path fires, not
+      // loop through the generic PROVIDER_API branch.
+      const err = new ProviderError(
+        'Anthropic API error (400): 400 {"type":"error","error":{"type":"invalid_request_error","message":"messages.50.content.0.image.source.base64.data: Image does not match the provided media type image/png"},"request_id":"req_011Ccs00000000000000000"}',
+        "anthropic",
+        400,
+      );
+      const result = classifyConversationError(err, baseCtx);
+      expect(result.code).toBe("IMAGE_TOO_LARGE");
+      expect(result.errorCategory).toBe("image_media_type_mismatch");
+      expect(result.retryable).toBe(false);
+      expect(result.userMessage).not.toContain("invalid_request_error");
+      expect(result.userMessage.toLowerCase()).toContain("image");
+    });
+
     it("classifies Anthropic 400 'Could not process image' as image_unprocessable (non-retryable)", () => {
       // The rejection Anthropic returns for images below its minimum size
       // floor (e.g. a 16×14 px upload). It must route to the image-recovery

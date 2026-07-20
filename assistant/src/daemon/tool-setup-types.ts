@@ -81,6 +81,12 @@ export interface ToolSetupContext extends SurfaceConversationContext {
   /** When set, the subagent/wake tool allowlist (see {@link subagentToolGateMode}). */
   subagentAllowedTools?: Set<string>;
   /**
+   * When true, side-effecting tools are refused for this subagent regardless of
+   * trust class (the read-only background continuation): kept off the wire tool
+   * surface and rejected in the executor gate. Independent of the allowlist.
+   */
+  subagentDenySideEffects?: boolean;
+  /**
    * Collects tool names the subagent attempted but that
    * {@link subagentAllowedTools} denied, for parent-visible reporting. The
    * executor records into this Set (shared by reference with the Conversation).

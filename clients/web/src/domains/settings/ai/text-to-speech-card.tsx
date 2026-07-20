@@ -30,6 +30,11 @@ import {
   LS_TTS_PROVIDER,
   LS_TTS_VOICE_ID_PREFIX,
 } from "@/domains/settings/ai/local-storage-keys";
+import {
+  DEFAULT_MANAGED_VOICE,
+  MANAGED_VOICE_SOURCE_LABELS,
+  MANAGED_VOICES,
+} from "@/domains/settings/ai/managed-voice-catalog";
 import { TTS_PROVIDERS } from "@/domains/settings/ai/provider-catalogs";
 
 /**
@@ -82,7 +87,12 @@ export function TextToSpeechCard() {
   // `services.tts` falls under the ConfigGetResponse index signature (`unknown`),
   // so narrow it explicitly to read the provider.
   const daemonTts = daemonConfig?.services?.tts as
-    { provider?: string; mode?: string } | undefined;
+    | {
+        provider?: string;
+        mode?: string;
+        providers?: { vellum?: { model?: string } };
+      }
+    | undefined;
   // A config written by the legacy mode toggle marks managed via `mode` while
   // `provider` holds the BYOK restore value — the daemon routes it to Vellum,
   // so the card must render it as Vellum too.
@@ -107,9 +117,27 @@ export function TextToSpeechCard() {
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
 
+  // Managed (Vellum) voice selection. Server value comes from daemon config;
+  // absent means the platform default voice.
+  const serverManagedVoice =
+    daemonTts?.providers?.vellum?.model ?? DEFAULT_MANAGED_VOICE;
+  const [draftManagedVoice, setDraftManagedVoice] =
+    useDraftOverride(serverManagedVoice);
+  const selectedManagedVoice =
+    MANAGED_VOICES.find((v) => v.model === draftManagedVoice) ??
+    MANAGED_VOICES[0]!;
+
   const selectedProvider = useMemo(() => {
     return providers.find((p) => p.id === draftProvider) ?? providers[0]!;
   }, [draftProvider, providers]);
+
+  // Written to config only when true: never writing on an untouched default
+  // keeps "unset = platform default" configs unset, and daemons that predate
+  // managed voice selection never receive a field they would silently drop.
+  const managedVoiceChanged =
+    draftProvider === "vellum" &&
+    selectedProvider.supportsVoiceSelection &&
+    draftManagedVoice !== serverManagedVoice;
 
   const loadProviderState = useCallback((providerId: string) => {
     const storedKey = getLocalSetting(LS_TTS_API_KEY_PREFIX + providerId, "");
@@ -131,8 +159,17 @@ export function TextToSpeechCard() {
     const providerChanged = draftProvider !== serverProvider;
     const hasNewKey = apiKeyText.trim().length > 0;
     const voiceIdChanged = voiceIdText.trim() !== initialVoiceId;
-    return providerChanged || hasNewKey || voiceIdChanged;
-  }, [draftProvider, serverProvider, apiKeyText, voiceIdText, initialVoiceId]);
+    return (
+      providerChanged || hasNewKey || voiceIdChanged || managedVoiceChanged
+    );
+  }, [
+    draftProvider,
+    serverProvider,
+    apiKeyText,
+    voiceIdText,
+    initialVoiceId,
+    managedVoiceChanged,
+  ]);
 
   const handleSave = useCallback(async () => {
     const trimmedKey = apiKeyText.trim();
@@ -202,6 +239,9 @@ export function TextToSpeechCard() {
               providers: { [activeProvider]: { [voiceField]: trimmedVoiceId } },
             }
           : {}),
+        ...(managedVoiceChanged
+          ? { providers: { vellum: { model: draftManagedVoice } } }
+          : {}),
       };
       if (Object.keys(ttsBody).length > 0) {
         const { response: cfgRes } = await configPatch({
@@ -235,6 +275,8 @@ export function TextToSpeechCard() {
   }, [
     assistantId,
     draftProvider,
+    draftManagedVoice,
+    managedVoiceChanged,
     apiKeyText,
     voiceIdText,
     selectedProvider,
@@ -242,6 +284,25 @@ export function TextToSpeechCard() {
     daemonHasProvider,
     queryClient,
   ]);
+
+  // Managed voices preview via Deepgram's public hosted samples — no key,
+  // no billing, works before saving.
+  const [previewing, setPreviewing] = useState(false);
+  const handlePreviewVoice = useCallback(async () => {
+    setPreviewing(true);
+    try {
+      const audio = new Audio(selectedManagedVoice.sampleUrl);
+      await audio.play();
+      await new Promise<void>((resolve) => {
+        audio.onended = () => resolve();
+        audio.onerror = () => resolve();
+      });
+    } catch {
+      toast.error("Could not play the voice sample.");
+    } finally {
+      setPreviewing(false);
+    }
+  }, [selectedManagedVoice]);
 
   const handleReset = useCallback(() => {
     setLocalSetting(LS_TTS_API_KEY_PREFIX + draftProvider, "");
@@ -302,6 +363,13 @@ export function TextToSpeechCard() {
   // Vellum authenticates via the platform connection, so it has no key to enter
   // and nothing for the client-side Test path (a direct provider call) to use.
   const isManaged = draftProvider === "vellum";
+  // Managed voice selection needs a daemon that persists
+  // `services.tts.providers.vellum.model`. Old daemons (and the static
+  // fallback catalog used before the live catalog loads) report
+  // supportsVoiceSelection: false for vellum, hiding the selector so the UI
+  // never claims to save a voice the daemon would ignore.
+  const managedVoiceSupported =
+    isManaged && selectedProvider.supportsVoiceSelection;
 
   return (
     <ByoServiceCard
@@ -339,7 +407,28 @@ export function TextToSpeechCard() {
           </div>
         )}
 
-        {selectedProvider.supportsVoiceSelection && (
+        {managedVoiceSupported && (
+          <div className="space-y-1">
+            <label className="block text-body-small-default text-[var(--content-tertiary)]">
+              Voice
+            </label>
+            <Dropdown
+              value={draftManagedVoice}
+              onChange={setDraftManagedVoice}
+              options={MANAGED_VOICES.map((v) => ({
+                value: v.model,
+                label: `${v.label} — ${v.description}`,
+              }))}
+              aria-label="Managed voice"
+            />
+            <p className="text-body-small-default text-[var(--content-tertiary)]">
+              Voice by{" "}
+              {MANAGED_VOICE_SOURCE_LABELS[selectedManagedVoice.source]}
+            </p>
+          </div>
+        )}
+
+        {selectedProvider.supportsVoiceSelection && !isManaged && (
           <div className="space-y-1">
             <label className="block text-body-small-default text-[var(--content-tertiary)]">
               Voice ID
@@ -360,6 +449,15 @@ export function TextToSpeechCard() {
           {!isManaged && (
             <Button variant="outlined" onClick={handleTest} disabled={testing}>
               {testing ? "Testing…" : "Test"}
+            </Button>
+          )}
+          {managedVoiceSupported && (
+            <Button
+              variant="outlined"
+              onClick={handlePreviewVoice}
+              disabled={previewing}
+            >
+              {previewing ? "Playing…" : "Preview voice"}
             </Button>
           )}
           <div className="ml-auto flex items-center gap-2">

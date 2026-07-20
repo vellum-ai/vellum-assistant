@@ -24,6 +24,7 @@ mock.module("../daemon/identity-helpers.js", () => ({
 import { writeSlackMetadata } from "../messaging/providers/slack/message-metadata.js";
 import {
   createConversation,
+  getMaxPersistedConversationSeq,
   recordConversationPersistedSeq,
   setConversationProcessingStartedAt,
 } from "../persistence/conversation-crud.js";
@@ -147,6 +148,19 @@ describe("handleListMessages page=latest", () => {
   });
 
   describe("persisted seq", () => {
+    test("getMaxPersistedConversationSeq reports the highest anchor across conversations", () => {
+      /**
+       * The startup seq floor resumes issuance above this value, so it
+       * must reflect the highest anchor any conversation has served.
+       */
+      const a = createConversation();
+      const b = createConversation();
+      recordConversationPersistedSeq(a.id, 41);
+      recordConversationPersistedSeq(b.id, 907779);
+
+      expect(getMaxPersistedConversationSeq()).toBe(907779);
+    });
+
     test("returns the recorded persisted seq for the conversation", () => {
       /**
        * The snapshot must advertise the `seq` of the last durably-persisted

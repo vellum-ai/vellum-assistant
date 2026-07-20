@@ -26,6 +26,26 @@ describe("getSettingsRouteForClientTab — Debug page", () => {
     );
   });
 
+  test("routes the Billing tab to the Usage page's Billing sub-tab", () => {
+    // The Billing & Usage page moved to /assistant/settings/usage; model- and
+    // native-driven "Billing" navigation must carry ?tab=billing to reach the
+    // Billing panel rather than the page's default tab.
+    expect(getSettingsRouteForClientTab("Billing")).toBe(
+      "/assistant/settings/usage?tab=billing",
+    );
+    expect(getSettingsRouteForClientTab("Billing & Usage")).toBe(
+      "/assistant/settings/usage?tab=billing",
+    );
+  });
+
+  test("routes the Usage tab to the Usage sub-tab, not the page default", () => {
+    // The bare Usage page defaults to the Billing sub-tab for a signed-in
+    // viewer, so a "Usage" lookup must carry ?tab=usage to land on Usage.
+    expect(getSettingsRouteForClientTab("Usage")).toBe(
+      "/assistant/settings/usage?tab=usage",
+    );
+  });
+
   test("resolves the Debug sidebar label to the Debug page without ambiguity", () => {
     expect(getSettingsRouteForClientTab("Debug")).toBe(
       "/assistant/settings/debug",

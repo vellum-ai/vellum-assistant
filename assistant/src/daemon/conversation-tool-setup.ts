@@ -48,6 +48,7 @@ import type {
 } from "../tools/tool-types.js";
 import {
   isDiskPressureCleanupToolName,
+  type OwnerKind,
   type ToolContext,
   type ToolExecutionResult,
 } from "../tools/types.js";
@@ -168,6 +169,49 @@ export function getEffectiveEnabledPluginSet(conv: {
   return effective;
 }
 
+// ── read-only pass classification ────────────────────────────────────
+
+/**
+ * The ONLY tools allowed in a read-only subagent pass (the live-voice background
+ * continuation, `subagentDenySideEffects`). This is a strict fail-safe allowlist
+ * of tools known to be read-only. Everything else is refused, because:
+ * - A side-effect denylist is inherently incomplete — low-risk core mutators
+ *   (`remember`, `notify_parent`, `computer_use_*`, `delete_memory_page`, …) are
+ *   not on the core side-effect name list.
+ * - `defaultRiskLevel` on skill/MCP/plugin/workspace tools is an author-asserted
+ *   permission band, NOT a read-only guarantee; a "low" sandbox extension tool
+ *   can still write storage, call an API, or run arbitrary code.
+ * So an unattended continuation must fail closed: run only these, and surface
+ * the intended action for the user to approve on their next turn otherwise.
+ * These are all built-in tools owned by the runtime (`kind: "default"`); the
+ * gate verifies the owner so a workspace/plugin/skill tool REGISTERED UNDER one
+ * of these names (registerWorkspaceTools stashes the core tool and installs its
+ * own implementation) does not slip through. `skill_execute` is the dispatcher —
+ * its resolved inner tool is classified by the same check in the executor gate,
+ * so exposing the wrapper is safe.
+ */
+const READ_ONLY_ALLOWED_TOOLS: ReadonlySet<string> = new Set([
+  "file_read",
+  "file_list",
+  "code_search",
+  "web_search",
+  "skill_execute",
+]);
+
+/**
+ * Whether a tool must be refused in a read-only subagent pass. Allowed only when
+ * the name is on {@link READ_ONLY_ALLOWED_TOOLS} AND it is the trusted built-in
+ * implementation (`ownerKind === "default"`), so a workspace/plugin/skill tool
+ * overriding an allowlisted name is refused. Everything else fails closed. Pure
+ * so the classification is unit-testable.
+ */
+export function isRefusedInReadOnlyPass(
+  name: string,
+  ownerKind: OwnerKind | undefined,
+): boolean {
+  return !(READ_ONLY_ALLOWED_TOOLS.has(name) && ownerKind === "default");
+}
+
 // ── createToolExecutor ───────────────────────────────────────────────
 
 /**
@@ -199,6 +243,21 @@ export function createToolExecutor(
   const rejectNonAllowlistedTool = (
     toolName: string,
   ): ToolExecutionResult | null => {
+    // A read-only subagent refuses any consequential tool (core side-effects,
+    // host execution, or a non-low-risk skill/MCP/plugin tool) regardless of
+    // gate mode or trust class, so no unapproved action can run in the
+    // background. Records the attempt for parent-visible surfacing, then rejects
+    // before dispatch.
+    if (
+      ctx.subagentDenySideEffects &&
+      isRefusedInReadOnlyPass(toolName, getToolOwner(toolName)?.kind)
+    ) {
+      ctx.subagentDeniedToolNames?.add(toolName);
+      return {
+        content: `The "${toolName}" tool can change state and cannot run in this read-only background pass. State the action you would take so the user can approve it on their next turn.`,
+        isError: true,
+      };
+    }
     const allowlist = ctx.subagentAllowedTools;
     // Record any attempt at a tool outside the subagent's role allowlist — in
     // both wire and execution gate modes — so the parent can be told what the
@@ -614,6 +673,18 @@ export function isToolActiveForContext(
   ) {
     return false;
   }
+  // Read-only subagent: keep consequential tools (core side-effects, host
+  // execution, non-low-risk skill/MCP/plugin tools) off the wire so the model
+  // does not reach for an action it can't take (the executor gate above also
+  // rejects any that slip through via indirect dispatch). Skipped in execution
+  // gate mode, which deliberately keeps the full surface visible.
+  if (
+    ctx.subagentDenySideEffects &&
+    ctx.subagentToolGateMode !== "execution" &&
+    isRefusedInReadOnlyPass(name, getToolOwner(name)?.kind)
+  ) {
+    return false;
+  }
   // `createResolveToolsCallback` returns an empty tool list when tools are
   // disabled (e.g. pointer-generation turns) and restricts to cleanup-safe
   // tools under disk pressure. Mirror both here so this helper reports the
@@ -850,12 +921,26 @@ export function createResolveToolsCallback(
       },
       "MCP and workspace tools resolved for turn",
     );
-    const scopedMcpDefs = wireAllowlist
-      ? currentMcpDefs.filter((d) => wireAllowlist.has(d.name))
-      : currentMcpDefs;
-    const scopedWorkspaceDefs = wireAllowlist
-      ? currentWorkspaceDefs.filter((d) => wireAllowlist.has(d.name))
-      : currentWorkspaceDefs;
+    // Dynamic MCP/workspace defs are appended straight to the wire (they do not
+    // pass through isToolActiveForContext), so apply the read-only pass filter
+    // here too — otherwise a read-only continuation would still see consequential
+    // MCP/workspace tools and select them, producing denial loops instead of
+    // being steered to state the deferred action. The executor gate rejects them
+    // regardless; this just keeps them off the model's tool surface (wire mode).
+    const readOnlyHidesFromWire = (name: string): boolean =>
+      ctx.subagentDenySideEffects === true &&
+      ctx.subagentToolGateMode !== "execution" &&
+      isRefusedInReadOnlyPass(name, getToolOwner(name)?.kind);
+    const scopedMcpDefs = (
+      wireAllowlist
+        ? currentMcpDefs.filter((d) => wireAllowlist.has(d.name))
+        : currentMcpDefs
+    ).filter((d) => !readOnlyHidesFromWire(d.name));
+    const scopedWorkspaceDefs = (
+      wireAllowlist
+        ? currentWorkspaceDefs.filter((d) => wireAllowlist.has(d.name))
+        : currentWorkspaceDefs
+    ).filter((d) => !readOnlyHidesFromWire(d.name));
     const excluded = new Set(getConfig().tools.exclude);
     // Swap UI surface tools for channel-appropriate variants (e.g. Slack's
     // task_progress-only ui_show). Mirrors the pin handling in

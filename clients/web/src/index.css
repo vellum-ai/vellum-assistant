@@ -47,6 +47,30 @@ body {
   100% { transform: none; opacity: 1; }
 }
 
+/* View Plans takeover entrance — the route swaps straight onto a full-dark
+   canvas, so fade the canvas in while the pricing content rises into place.
+   The canvas fade is opacity-only: translating it would drag the page
+   background along and expose whatever sits behind the route. */
+@keyframes fadeIn {
+  0% { opacity: 0; }
+  100% { opacity: 1; }
+}
+
+.plans-takeover-canvas-enter {
+  animation: fadeIn 0.25s ease-out both;
+}
+
+.plans-takeover-content-enter {
+  animation: fadeInUp 0.35s ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .plans-takeover-canvas-enter,
+  .plans-takeover-content-enter {
+    animation: none;
+  }
+}
+
 /* Onboarding edge characters popping into place — a quick scale-up with a soft
    overshoot (paired with a spring-ish cubic-bezier at the call site). */
 @keyframes character-pop-in {

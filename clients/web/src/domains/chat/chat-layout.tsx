@@ -46,11 +46,6 @@ import { useChatLayoutShortcuts } from "@/domains/chat/hooks/use-chat-layout-sho
 import { useConversationActions } from "@/domains/chat/hooks/use-conversation-actions";
 import { useConversationGroupActions } from "@/domains/chat/hooks/use-conversation-group-actions";
 import { useCanUseLlmInspector } from "@/domains/chat/inspector/access";
-import { NavGateBubble } from "@/domains/chat/nav-gate/nav-gate-bubble";
-import {
-  useNavGateArm,
-  useNavGateExperimentEffects,
-} from "@/domains/chat/nav-gate/use-nav-gate";
 import {
   navigateToConversation,
   navigateToNewConversation,
@@ -75,6 +70,8 @@ import { requestComposerFocus } from "./composer-focus";
 import { LazyBoundary } from "@/components/lazy-boundary";
 import { RuntimeUpgradeBanner } from "@/components/runtime-upgrade-banner";
 import { StatusBanner } from "@/components/status-banner";
+import { SidebarTipCard } from "@/components/tips/sidebar-tip-card";
+import { ensureTipsFirstSeenAt } from "@/utils/tips-storage";
 import { AssistantSideMenu } from "@/domains/chat/components/assistant-side-menu";
 import { PreferencesMenu } from "@/domains/chat/components/preferences-menu";
 import { useCommandPaletteOrchestrator } from "@/domains/chat/hooks/use-command-palette-orchestrator";
@@ -173,11 +170,6 @@ export function ChatLayout({
     (s) => s.assistantState.kind,
   );
   const isAssistantActive = assistantStateKind === "active";
-
-  // SPIKE — first-session sidenav-gating experiment: one-shot sidebar
-  // collapse for the gated arm + the session-end counter-metric signal.
-  const navGateArm = useNavGateArm();
-  useNavGateExperimentEffects(navGateArm);
 
   // Live-voice session controller. Owned at layout scope — not by the
   // composer — so a session survives every chat-side navigation (thread
@@ -321,6 +313,13 @@ export function ChatLayout({
   useEffect(() => {
     setDrawerOpen(false);
   }, [location.key]);
+
+  // The tips new-user grace clock anchors to first app use. Stamping here
+  // (not only in the tip hook) covers mobile, where the drawer-gated tip
+  // card may not mount for days.
+  useEffect(() => {
+    ensureTipsFirstSeenAt();
+  }, []);
 
   useEffect(() => {
     if (!sidebarCollapseRequested) {
@@ -730,6 +729,14 @@ export function ChatLayout({
           triggerVariant={args.variant === "overlay" ? "pill" : "item"}
         />
       }
+      // The overlay subtree mounts mid edge-swipe while still off-screen;
+      // mounting the tip card there stamps an impression for a tip never
+      // seen, so the overlay only gets it once the drawer settles open.
+      tipCard={
+        args.variant === "overlay" && !drawerOpen ? undefined : (
+          <SidebarTipCard />
+        )
+      }
       onClose={args.onClose}
     />
   );
@@ -892,12 +899,6 @@ export function ChatLayout({
       {/* Applies the research-onboarding picker's avatar once the assistant is
           hatched (avatar isn't part of the pre-chat handoff context). */}
       <OnboardingAvatarApplier />
-      {/* Avatar bubble for gated sidenav items — one layout-scope instance
-          anchored (virtual ref) to whichever side-menu mount took the click. */}
-      <NavGateBubble
-        assistantId={assistantId}
-        onAfterAction={() => setDrawerOpen(false)}
-      />
 
       <RenameDialogFromStore assistantId={assistantId} />
       {commandPalette.isOpen ? (

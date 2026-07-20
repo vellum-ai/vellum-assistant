@@ -27,7 +27,11 @@
  * above every seq the previous process could have emitted. Clients
  * therefore never observe the counter moving backwards — a restart
  * shows up as (at most) a bounded forward gap, which the normal
- * gap-reconcile / snapshot-resync path already handles. The ring is
+ * gap-reconcile / snapshot-resync path already handles. Reservation
+ * writes are raise-only, and at startup the counter is additionally
+ * floored above the highest persisted conversation anchor
+ * ({@link floorSeqAbove}), so even a process that outran its last
+ * successful reservation write cannot cause seq re-issue. The ring is
  * sized generously enough that a typical refresh round-trip (~1-3s)
  * is well within window.
  *
@@ -50,7 +54,13 @@
  * the new process assigns -- never ambiguous against it.
  */
 
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 
 import {
@@ -150,12 +160,39 @@ const state: AssistantStreamState = {
   totalSizeBytes: 0,
 };
 
+/**
+ * Whether seq stamping is disabled in this process. The daemon is the
+ * sole seq authority: sidecar worker processes run their own instance of
+ * this module but share the workspace reservation file, so a worker that
+ * stamped would issue seqs from its own counter — overlapping the
+ * daemon's range (two different events carrying the same seq, which
+ * clients seq-dedupe into dropped real events) — and race the daemon's
+ * reservation writes. Worker-side hub publishes reach no SSE subscribers
+ * (those live in the daemon), so an unstamped event loses nothing.
+ */
+let stampingDisabled = false;
+
 // ── Public API ───────────────────────────────────────────────────────
+
+/**
+ * Mark this process as a non-authoritative seq bystander: stamping, ring
+ * buffering, reservation loads/writes, and {@link getCurrentSeq}
+ * snapshots all become inert. Worker-process entrypoints call this once
+ * at bootstrap, before any event can be published (enforced by
+ * `worker-seq-stamping-guard.test.ts`). `getCurrentSeq` then reports
+ * `0`, which persistence already treats as "no honest position"
+ * (`recordConversationPersistedSeq` ignores it; conversation creation
+ * stores it as NULL).
+ */
+export function disableStreamSeqStamping(): void {
+  stampingDisabled = true;
+}
 
 /**
  * Assign a monotonic global `seq` to a conversation-scoped event and push
  * it onto the ring buffer. No-op when `event.conversationId` is absent
- * (unscoped broadcasts are never replayable).
+ * (unscoped broadcasts are never replayable) and in processes where
+ * stamping is disabled ({@link disableStreamSeqStamping}).
  *
  * When `options.targeting` is provided, the metadata is stored on the
  * ring entry so that {@link getReplayWindow} can re-apply the same
@@ -169,6 +206,9 @@ export function stampAndBuffer(
   event: AssistantEvent,
   options?: { targeting?: EventTargeting },
 ): void {
+  if (stampingDisabled) {
+    return;
+  }
   if (event.conversationId == null) {
     return;
   }
@@ -282,18 +322,52 @@ export function getReplayWindow(
  * returning and this read on the single-threaded event loop.
  */
 export function getCurrentSeq(): number {
+  if (stampingDisabled) {
+    return 0;
+  }
   loadSeqReservation();
   return state.nextSeq - 1;
+}
+
+/**
+ * Raise the counter so the next issued seq is strictly above
+ * `highestIssuedSeq`, persisting a fresh reservation block over the new
+ * floor.
+ *
+ * Called at daemon startup (once the DB is open) with the highest
+ * per-conversation persisted anchor (`MAX(conversations.seq)`). Anchors
+ * are {@link getCurrentSeq} snapshots served to clients on `/messages`,
+ * so the counter must resume above every one of them: a previous process
+ * can outrun its last successful reservation write (the write is
+ * best-effort — e.g. under disk pressure) and persist anchors beyond the
+ * on-disk ceiling. Resuming below such an anchor re-issues seqs, and a
+ * client holding the anchor then discards every live event as an
+ * already-applied replay. A floor at or below the current counter is a
+ * no-op.
+ */
+export function floorSeqAbove(highestIssuedSeq: number): void {
+  if (stampingDisabled) {
+    return;
+  }
+  loadSeqReservation();
+  if (!Number.isFinite(highestIssuedSeq) || highestIssuedSeq < state.nextSeq) {
+    return;
+  }
+  state.nextSeq = Math.floor(highestIssuedSeq) + 1;
+  reserveSeqCapacity();
 }
 
 /**
  * Reset all stream state. Test-only.
  */
 export function _resetStreamStateForTesting(): void {
+  stampingDisabled = false;
   state.nextSeq = 1;
-  // Mark the reservation as loaded with no ceiling so the next stamp
-  // re-reserves from 1, ignoring any reservation file a previous test
-  // wrote into the (per-process temp) workspace.
+  // Mark the reservation as loaded with no ceiling AND remove any
+  // reservation file a previous test wrote into the (per-process temp)
+  // workspace — reservation writes re-read the file and are raise-only,
+  // so a leftover file would leak one test's ceiling into the next.
+  rmSync(seqReservationPath(), { force: true });
   state.reservedSeqCeiling = 0;
   state.seqReservationLoaded = true;
   state.firstStampedSeq = 0;
@@ -306,6 +380,7 @@ export function _resetStreamStateForTesting(): void {
  * next stamp to reload the persisted seq reservation. Test-only.
  */
 export function _simulateRestartForTesting(): void {
+  stampingDisabled = false;
   state.nextSeq = 1;
   state.reservedSeqCeiling = 0;
   state.seqReservationLoaded = false;
@@ -374,6 +449,18 @@ function reserveSeqCapacity(): void {
     return;
   }
 
+  // Raise-only write: re-read the file first, and when it holds a ceiling
+  // at or above this instance's counter, jump the counter over it instead
+  // of overwriting. The on-disk ceiling is a promise that every seq at or
+  // below it may already have been handed out — a writer with a lower
+  // in-memory counter regressing the file would let the next process
+  // re-issue seqs, which poisons every client holding an anchor from the
+  // higher range.
+  const onDisk = readReservedCeiling();
+  if (onDisk >= state.nextSeq) {
+    state.nextSeq = onDisk + 1;
+  }
+
   const ceiling = state.nextSeq + SEQ_RESERVATION_BLOCK - 1;
   try {
     const path = seqReservationPath();
@@ -381,8 +468,15 @@ function reserveSeqCapacity(): void {
     const tmp = `${path}.tmp`;
     writeFileSync(tmp, JSON.stringify({ reservedSeqCeiling: ceiling }));
     renameSync(tmp, path);
-  } catch {
-    // Degraded mode: keep stamping from memory.
+  } catch (err) {
+    // Degraded mode: keep stamping from memory. Seqs issued past the last
+    // successfully persisted ceiling are not crash-safe — after a restart
+    // the counter re-issues them unless the persisted-anchor floor
+    // ({@link floorSeqAbove} at daemon startup) repairs the resume point.
+    log.warn(
+      { err },
+      "seq reservation write failed — seqs issued beyond the persisted ceiling are not crash-safe",
+    );
   }
   state.reservedSeqCeiling = ceiling;
 }
