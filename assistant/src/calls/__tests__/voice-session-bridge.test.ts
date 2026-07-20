@@ -27,7 +27,10 @@ mock.module("../../daemon/conversation-store.js", () => ({
 import { setConfig } from "../../__tests__/helpers/set-config.js";
 import { ABORT_WATCHDOG_MS } from "../../daemon/abort-watchdog.js";
 import { CALL_OPENING_MARKER } from "../voice-control-protocol.js";
-import { startVoiceTurn } from "../voice-session-bridge.js";
+import {
+  startVoiceTurn,
+  TOOL_RESULT_PREVIEW_MAX_CHARS,
+} from "../voice-session-bridge.js";
 import {
   escalatedContinuationRule,
   ESCALATION_CONTINUATION_CONTENT,
@@ -1064,8 +1067,8 @@ describe("startVoiceTurn tool-event forwarding", () => {
     ]);
   });
 
-  test("tool_result delivers name, id, isError, and a 200-char-truncated preview", async () => {
-    const longResult = "x".repeat(500);
+  test("tool_result delivers name, id, isError, and a preview truncated to the max preview length", async () => {
+    const longResult = "x".repeat(TOOL_RESULT_PREVIEW_MAX_CHARS + 100);
     makeEventEmittingConversation([
       {
         type: "tool_result",
@@ -1085,14 +1088,19 @@ describe("startVoiceTurn tool-event forwarding", () => {
     });
     await flushMicrotasks();
 
+    // The shared `truncate` util caps at the max preview length including
+    // its "..." truncation marker.
+    const truncationMarker = "...";
+    const expectedPreview =
+      "x".repeat(TOOL_RESULT_PREVIEW_MAX_CHARS - truncationMarker.length) +
+      truncationMarker;
+    expect(expectedPreview).toHaveLength(TOOL_RESULT_PREVIEW_MAX_CHARS);
     expect(results).toEqual([
       {
         toolName: "web_search",
         toolUseId: "toolu-1",
         isError: true,
-        // The shared `truncate` util caps at 200 chars including its "..."
-        // truncation marker.
-        resultPreview: `${"x".repeat(197)}...`,
+        resultPreview: expectedPreview,
       },
     ]);
   });

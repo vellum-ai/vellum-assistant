@@ -157,6 +157,19 @@ export function getConversationTurnTeardown(
 export const TOOL_RESULT_PREVIEW_MAX_CHARS = 200;
 
 /**
+ * A finished tool invocation as forwarded to the voice layer.
+ * `resultPreview` is the result truncated to
+ * {@link TOOL_RESULT_PREVIEW_MAX_CHARS} at the bridge — the raw result can
+ * be huge and must never travel further into the voice layer.
+ */
+export interface VoiceToolResultEvent {
+  toolName: string;
+  toolUseId?: string;
+  isError?: boolean;
+  resultPreview: string;
+}
+
+/**
  * Real-time event sink for voice TTS streaming. Agent-loop events are
  * forwarded here for real-time text-to-speech without modifying the
  * standard channel path.
@@ -177,13 +190,7 @@ export interface VoiceRunEventSink {
     input: Record<string, unknown>,
     toolUseId?: string,
   ): void;
-  /** Optional: sinks that don't consume tool results can omit this. */
-  onToolResult?(
-    toolName: string,
-    toolUseId: string | undefined,
-    isError: boolean | undefined,
-    resultPreview: string,
-  ): void;
+  onToolResult(event: VoiceToolResultEvent): void;
 }
 
 export interface VoiceTurnCallbacks {
@@ -203,18 +210,8 @@ export interface VoiceTurnCallbacks {
     toolName: string,
     detail?: { input: Record<string, unknown>; toolUseId?: string },
   ) => void;
-  /**
-   * Fired when a tool invocation finishes. `resultPreview` is the result
-   * truncated to {@link TOOL_RESULT_PREVIEW_MAX_CHARS} at the bridge — the
-   * raw result can be huge and must never travel further into the voice
-   * layer.
-   */
-  tool_result?: (event: {
-    toolName: string;
-    toolUseId?: string;
-    isError?: boolean;
-    resultPreview: string;
-  }) => void;
+  /** Fired when a tool invocation finishes. */
+  tool_result?: (event: VoiceToolResultEvent) => void;
 }
 
 export interface VoiceTurnOptions {
@@ -457,13 +454,8 @@ export async function startVoiceTurn(
       log.debug({ toolName, input }, "Voice turn tool_use event");
       opts.callbacks?.tool_use_start?.(toolName, { input, toolUseId });
     },
-    onToolResult: (toolName, toolUseId, isError, resultPreview) => {
-      opts.callbacks?.tool_result?.({
-        toolName,
-        toolUseId,
-        isError,
-        resultPreview,
-      });
+    onToolResult: (event) => {
+      opts.callbacks?.tool_result?.(event);
     },
   };
 
@@ -1054,12 +1046,15 @@ export async function startVoiceTurn(
           } else if (msg.type === "tool_use_start") {
             eventSink.onToolUse(msg.toolName, msg.input, msg.toolUseId);
           } else if (msg.type === "tool_result") {
-            eventSink.onToolResult?.(
-              msg.toolName,
-              msg.toolUseId,
-              msg.isError,
-              truncate(msg.result, TOOL_RESULT_PREVIEW_MAX_CHARS),
-            );
+            eventSink.onToolResult({
+              toolName: msg.toolName,
+              toolUseId: msg.toolUseId,
+              isError: msg.isError,
+              resultPreview: truncate(
+                msg.result,
+                TOOL_RESULT_PREVIEW_MAX_CHARS,
+              ),
+            });
           }
           // Note: tool_use_preview_start is intentionally not handled here.
           // Voice only reacts to the definitive tool_use_start event.
