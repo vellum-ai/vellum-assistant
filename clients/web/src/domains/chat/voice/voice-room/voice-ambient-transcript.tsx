@@ -61,11 +61,11 @@ export function VoiceAmbientTranscript() {
   const showAssistantHalf =
     showAssistant && assistantTranscript.length > 0 && visual !== "listening";
 
-  // Text-free contract: with both halves gated off there is no rail at all, so
-  // the room renders nothing.
-  if (!showUserHalf && !showAssistantHalf) {
-    return null;
-  }
+  // The rail shows whenever either half is present. An empty rail renders no DOM
+  // (the text-free room), and presence-managing the container through the outer
+  // AnimatePresence below lets the last remaining half fade out instead of
+  // popping when it clears.
+  const railVisible = showUserHalf || showAssistantHalf;
 
   const fade = {
     initial: reduce ? false : { opacity: 0 },
@@ -86,51 +86,56 @@ export function VoiceAmbientTranscript() {
     "calc(1.5rem + var(--safe-area-inset-right, env(safe-area-inset-right, 0px)))";
 
   return (
-    <div
-      className="pointer-events-none absolute right-0 top-0 bottom-0 z-0 flex w-[min(30rem,42vw)] flex-col justify-end gap-3 overflow-hidden pl-4 pt-20 pb-28"
-      style={{
-        paddingRight: railRightPad,
-        maskImage: fadeMask,
-        WebkitMaskImage: fadeMask,
-      }}
-    >
-      <AnimatePresence>
-        {showUserHalf ? (
-          <motion.div
-            key="user"
-            data-testid="voice-ambient-user"
-            aria-live="polite"
-            className="flex justify-end"
-            {...fade}
-          >
-            <div
-              data-testid="voice-ambient-user-bubble"
-              className="max-w-[85%] break-words rounded-2xl px-4 py-2.5 text-[clamp(15px,2vmin,19px)] leading-snug"
-              style={{ backgroundColor: "var(--room-bubble-bg)" }}
-            >
-              <VoiceTranscriptText
-                text={userText}
-                leadingColor="var(--room-bubble-fg)"
-                baseColor="var(--room-bubble-fg)"
-              />
-            </div>
-          </motion.div>
-        ) : null}
+    <AnimatePresence>
+      {railVisible ? (
+        <motion.div
+          key="rail"
+          className="pointer-events-none absolute right-0 top-0 bottom-0 z-0 flex w-[min(30rem,42vw)] flex-col justify-end gap-3 overflow-hidden pl-4 pt-20 pb-28"
+          style={{
+            paddingRight: railRightPad,
+            maskImage: fadeMask,
+            WebkitMaskImage: fadeMask,
+          }}
+          {...fade}
+        >
+          <AnimatePresence>
+            {showUserHalf ? (
+              <motion.div
+                key="user"
+                data-testid="voice-ambient-user"
+                aria-live="polite"
+                className="flex justify-end"
+                {...fade}
+              >
+                <div
+                  data-testid="voice-ambient-user-bubble"
+                  className="max-w-[85%] break-words rounded-2xl px-4 py-2.5 text-[clamp(15px,2vmin,19px)] leading-snug"
+                  style={{ backgroundColor: "var(--room-bubble-bg)" }}
+                >
+                  <VoiceTranscriptText
+                    text={userText}
+                    color="var(--room-bubble-fg)"
+                  />
+                </div>
+              </motion.div>
+            ) : null}
 
-        {showAssistantHalf ? (
-          <motion.div
-            key="assistant"
-            data-testid="voice-ambient-assistant"
-            aria-live="polite"
-            className="flex justify-start"
-            {...fade}
-          >
-            <div className="max-w-[95%] break-words text-[clamp(15px,2vmin,19px)] leading-relaxed">
-              <VoiceTranscriptText text={assistantTranscript} />
-            </div>
-          </motion.div>
-        ) : null}
-      </AnimatePresence>
-    </div>
+            {showAssistantHalf ? (
+              <motion.div
+                key="assistant"
+                data-testid="voice-ambient-assistant"
+                aria-live="polite"
+                className="flex justify-start"
+                {...fade}
+              >
+                <div className="max-w-[95%] break-words text-[clamp(15px,2vmin,19px)] leading-relaxed">
+                  <VoiceTranscriptText text={assistantTranscript} />
+                </div>
+              </motion.div>
+            ) : null}
+          </AnimatePresence>
+        </motion.div>
+      ) : null}
+    </AnimatePresence>
   );
 }
