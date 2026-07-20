@@ -2903,6 +2903,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       progress.opsSinceNarration = 0;
       progress.updatesSpoken += 1;
       progress.lastFloorHolderAtMs = Date.now();
+      // Like the ack mark, recorded only when narration audio actually
+      // enqueued (decider text or static fallback alike).
+      this.markProgressSpoken(turn);
       // Restart the dead-air countdown from this narration.
       this.armProgressIdleTimer(turn);
     } finally {
@@ -3418,6 +3421,14 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       return;
     }
     this.metrics.markAckSpoken(activeTurn.turnId, kind);
+  }
+
+  private markProgressSpoken(activeTurn: ActiveAssistantTurn): void {
+    const { utterance } = activeTurn;
+    if (!this.startMetricsTurnIfNeeded(utterance, activeTurn.turnId)) {
+      return;
+    }
+    this.metrics.markProgressSpoken(activeTurn.turnId);
   }
 
   private ensureTurnId(utterance: UtteranceCycle): string {

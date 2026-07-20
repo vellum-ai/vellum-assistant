@@ -153,6 +153,7 @@ function progressConfig(
 function createProgressHarness(options: {
   frontModelConfig: Partial<LiveVoiceFrontModelConfig>;
   frontDecider: VoiceFrontDecider;
+  emitMetrics?: boolean;
 }) {
   const { startVoiceTurn, getCallbacks } = createCapturingTurnStarter();
   const { streamTtsAudio, ttsTexts } = createRecordingTtsStreamer();
@@ -164,6 +165,7 @@ function createProgressHarness(options: {
     frontModelConfig: options.frontModelConfig,
     frontDecider: options.frontDecider,
     createTurnId: () => "live-turn-1",
+    emitMetrics: options.emitMetrics ?? false,
   });
 
   return { frames, session, getCallbacks, ttsTexts };
@@ -536,6 +538,35 @@ describe("LiveVoiceSession progress narration", () => {
 
     expect(generateProgressText).toHaveBeenCalledTimes(1);
     expect(ttsTexts).toEqual([]);
+  });
+
+  test("a spoken narration lands progressUpdatesSpoken on the turn's metrics frame", async () => {
+    const generateProgressText = mock(async () => GENERATED_NARRATION);
+    const { frames, session, getCallbacks, ttsTexts } = createProgressHarness({
+      frontModelConfig: progressConfig({ idleIntervalMs: 40, maxPerTurn: 1 }),
+      frontDecider: makeProgressDecider(generateProgressText),
+      emitMetrics: true,
+    });
+
+    await startReleasedTurn(session, getCallbacks);
+    await waitFor(() => ttsTexts.length === 1);
+    expect(ttsTexts).toEqual([GENERATED_NARRATION]);
+
+    emitMessageComplete(getCallbacks);
+    await waitFor(() =>
+      frames.some(
+        (frame) => frame.type === "metrics" && frame.event === "turn_completed",
+      ),
+    );
+
+    const completedMetrics = frames.find(
+      (frame) => frame.type === "metrics" && frame.event === "turn_completed",
+    );
+    expect(completedMetrics).toMatchObject({
+      type: "metrics",
+      turnId: "live-turn-1",
+      progressUpdatesSpoken: 1,
+    });
   });
 
   test("progress.enabled false: zero narrations and zero decider calls", async () => {
