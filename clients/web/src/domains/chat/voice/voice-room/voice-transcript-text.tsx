@@ -51,7 +51,10 @@ export function VoiceTranscriptText({
         return (
           <Fragment key={i}>
             <motion.span
-              className="inline-block"
+              // `max-w-full` + break-anywhere so a single long token (URL, code)
+              // wraps within its container instead of overflowing the narrow
+              // transcript rail and being clipped.
+              className="inline-block max-w-full [overflow-wrap:anywhere]"
               style={{
                 color: leading ? leadingColor : baseColor,
                 // The leading-edge tone eases back to the base as the next word

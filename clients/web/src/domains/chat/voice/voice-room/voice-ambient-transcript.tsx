@@ -78,10 +78,21 @@ export function VoiceAmbientTranscript() {
   // bottom-anchored column.
   const fadeMask = "linear-gradient(to bottom, transparent, #000 12%)";
 
+  // Absolute children are positioned against the padding box, so the overlay's
+  // safe-area padding does not inset this rail — fold the right inset into the
+  // rail's own right padding (as the room's corner controls do) so transcript
+  // text clears the notch / rounded edge in landscape on notched shells.
+  const railRightPad =
+    "calc(1.5rem + var(--safe-area-inset-right, env(safe-area-inset-right, 0px)))";
+
   return (
     <div
-      className="pointer-events-none absolute right-0 top-0 bottom-0 z-0 flex w-[min(30rem,42vw)] flex-col justify-end gap-3 overflow-hidden pl-4 pr-6 pt-20 pb-28"
-      style={{ maskImage: fadeMask, WebkitMaskImage: fadeMask }}
+      className="pointer-events-none absolute right-0 top-0 bottom-0 z-0 flex w-[min(30rem,42vw)] flex-col justify-end gap-3 overflow-hidden pl-4 pt-20 pb-28"
+      style={{
+        paddingRight: railRightPad,
+        maskImage: fadeMask,
+        WebkitMaskImage: fadeMask,
+      }}
     >
       <AnimatePresence>
         {showUserHalf ? (
@@ -94,7 +105,7 @@ export function VoiceAmbientTranscript() {
           >
             <div
               data-testid="voice-ambient-user-bubble"
-              className="max-w-[85%] rounded-2xl px-4 py-2.5 text-[clamp(15px,2vmin,19px)] leading-snug"
+              className="max-w-[85%] break-words rounded-2xl px-4 py-2.5 text-[clamp(15px,2vmin,19px)] leading-snug"
               style={{ backgroundColor: "var(--room-bubble-bg)" }}
             >
               <VoiceTranscriptText
@@ -114,7 +125,7 @@ export function VoiceAmbientTranscript() {
             className="flex justify-start"
             {...fade}
           >
-            <div className="max-w-[95%] text-[clamp(15px,2vmin,19px)] leading-relaxed">
+            <div className="max-w-[95%] break-words text-[clamp(15px,2vmin,19px)] leading-relaxed">
               <VoiceTranscriptText text={assistantTranscript} />
             </div>
           </motion.div>
