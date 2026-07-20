@@ -191,6 +191,7 @@ export function BillingOnboardingModal({
         <DomainStep
           machineBusy={machineBusy}
           stalledAction={stalledActionIfStalled}
+          assistantId={assistantId}
           onExit={() => setStep("complete")}
         />
       );
@@ -200,6 +201,7 @@ export function BillingOnboardingModal({
       <CompleteState
         finishedInBackground={finishedInBackground && !provisioningSettled}
         stalledAction={stalledActionIfStalled}
+        assistantId={assistantId}
       />
     );
   }

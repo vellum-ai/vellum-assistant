@@ -6,7 +6,7 @@
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { useEffect } from "react";
-import { cleanup, render } from "@testing-library/react";
+import { act, cleanup, render } from "@testing-library/react";
 
 import * as authStore from "@/stores/auth-store";
 
@@ -77,5 +77,23 @@ describe("useIsOrgReady", () => {
     hasPlatformSessionMock = false;
     render(<Probe />);
     expect(latest).toBe(true);
+  });
+
+  test("clearOrganization revokes fallback-only readiness", () => {
+    // Readiness comes solely from the sessionStorage fallback — the store's
+    // id slice is null and stays null through clearOrganization(), so only
+    // the status subscription can deliver the re-render.
+    sessionStorage.setItem(STORAGE_KEY, "org-1");
+    useOrganizationStore.setState({
+      status: "error",
+      error: "Failed to load organizations.",
+    });
+    render(<Probe />);
+    expect(latest).toBe(true);
+
+    act(() => {
+      useOrganizationStore.getState().clearOrganization();
+    });
+    expect(latest).toBe(false);
   });
 });

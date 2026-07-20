@@ -1,9 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 
-import {
-  assistantsActiveRetrieveOptions,
-  assistantsDomainsListOptions,
-} from "@/generated/api/@tanstack/react-query.gen";
+import { assistantsDomainsListOptions } from "@/generated/api/@tanstack/react-query.gen";
+
+import { usePreferredOrActiveAssistant } from "./use-preferred-or-active-assistant";
 
 /**
  * The assistant targeted by domain setup and its registered email domains —
@@ -13,21 +12,20 @@ import {
  *
  * `preferredAssistantId` (the onboarding payload's `primary_assistant_id`)
  * wins over the active assistant when the two diverge (multi-assistant orgs).
+ * The returned `assistant` is resolved by the same preference so it always
+ * matches the domains being read.
  */
 export function useAssistantDomains(
   enabled = true,
   preferredAssistantId?: string | null,
 ) {
-  const { data: activeAssistant } = useQuery({
-    ...assistantsActiveRetrieveOptions(),
-    enabled,
-  });
-  const assistantId = preferredAssistantId ?? activeAssistant?.id;
+  const assistant = usePreferredOrActiveAssistant(preferredAssistantId, enabled);
+  const assistantId = preferredAssistantId ?? assistant?.id;
   const { data: domains } = useQuery({
     ...assistantsDomainsListOptions({
       path: { assistant_id: assistantId ?? "" },
     }),
     enabled: enabled && !!assistantId,
   });
-  return { activeAssistant, assistantId, domains };
+  return { assistant, assistantId, domains };
 }

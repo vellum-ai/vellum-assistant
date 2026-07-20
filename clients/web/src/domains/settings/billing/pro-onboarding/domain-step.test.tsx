@@ -3,9 +3,9 @@
  * the "Finish Pro setup" nudge reads (domains list + onboarding state) in
  * addition to the assistants list.
  *
- * Strategy mirrors billing-page.test.tsx: mock the generated SDK so the active
- * assistant loads (prefilling the subdomain from its handle) and the domain
- * mutation resolves, then spy on the query client's invalidations.
+ * Strategy mirrors billing-page.test.tsx: mock the generated SDK so the
+ * targeted assistant loads (prefilling the subdomain from its handle) and the
+ * domain mutation resolves, then spy on the query client's invalidations.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
@@ -18,24 +18,21 @@ import {
   organizationsBillingSubscriptionOnboardingRetrieveQueryKey,
 } from "@/generated/api/@tanstack/react-query.gen";
 import * as sdkGen from "@/generated/api/sdk.gen";
-import type {
-  Assistant,
-  OnboardingStateResponse,
-} from "@/generated/api/types.gen";
+import type { Assistant } from "@/generated/api/types.gen";
 
 let domainCreateCalls = 0;
-let primaryAssistantId: string | null = "assistant-1";
 let domainsListPaths: string[] = [];
-
-mock.module("@/hooks/use-is-org-ready", () => ({
-  useIsOrgReady: () => true,
-}));
 
 mock.module("@/generated/api/sdk.gen", () => ({
   ...sdkGen,
   assistantsActiveRetrieve: () =>
     Promise.resolve({
       data: { id: "assistant-1", handle: "velly" } as unknown as Assistant,
+      response: { ok: true },
+    }),
+  assistantsRetrieve: (opts: { path: { id: string } }) =>
+    Promise.resolve({
+      data: { id: opts.path.id, handle: "velly" } as unknown as Assistant,
       response: { ok: true },
     }),
   assistantsDomainsList: (opts: { path?: { assistant_id?: string } }) => {
@@ -47,18 +44,6 @@ mock.module("@/generated/api/sdk.gen", () => ({
       response: { ok: true },
     });
   },
-  organizationsBillingSubscriptionOnboardingRetrieve: () =>
-    Promise.resolve({
-      data: {
-        max_machine_tier: "large",
-        selected_storage_tier: "md",
-        selected_storage_gib: 50,
-        pvc_ready: true,
-        domain_setup_available: true,
-        primary_assistant_id: primaryAssistantId,
-      } satisfies OnboardingStateResponse,
-      response: { ok: true },
-    }),
   organizationsBillingSubscriptionOnboardingDomainCreate: () => {
     domainCreateCalls += 1;
     return Promise.resolve({ data: {}, response: { ok: true } });
@@ -69,7 +54,6 @@ const { DomainStep } = await import("./domain-step");
 
 beforeEach(() => {
   domainCreateCalls = 0;
-  primaryAssistantId = "assistant-1";
   domainsListPaths = [];
 });
 
@@ -120,20 +104,20 @@ describe("DomainStep domain registration", () => {
     );
   });
 
-  test("checks domains on the onboarding payload's primary assistant", async () => {
-    primaryAssistantId = "assistant-2";
+  test("checks domains on the assistant id the wizard passes in", async () => {
     const client = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
 
     render(
       <QueryClientProvider client={client}>
-        <DomainStep onExit={() => {}} />
+        <DomainStep onExit={() => {}} assistantId="assistant-2" />
       </QueryClientProvider>,
     );
 
-    // The onboarding payload's primary assistant wins over the active one.
+    // The provisioning target assistant wins over the active one.
     await waitFor(() => expect(domainsListPaths).toContain("assistant-2"));
+    expect(domainsListPaths).not.toContain("assistant-1");
   });
 });
 
