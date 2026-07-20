@@ -19,7 +19,8 @@ import { psHelp } from "./ps.help.js";
 interface ProcessEntry {
   name: string;
   status: "running" | "not_running" | "unreachable";
-  origin: "plugin" | "workspace";
+  /** `workspace`, or `plugin:<name>` when spawned from a plugin. */
+  origin: "workspace" | `plugin:${string}`;
   children?: ProcessEntry[];
   info?: string;
 }

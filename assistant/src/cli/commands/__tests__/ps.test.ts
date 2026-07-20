@@ -144,7 +144,11 @@ describe("ps command — tree rendering", () => {
             origin: "workspace",
             children: [
               { name: "qdrant", status: "running", origin: "workspace" },
-              { name: "memory-worker", status: "running", origin: "plugin" },
+              {
+                name: "memory-worker",
+                status: "running",
+                origin: "plugin:default-memory",
+              },
             ],
           },
         ],
@@ -164,7 +168,8 @@ describe("ps command — tree rendering", () => {
     expect(qdrant).toMatch(/^ {2}qdrant/);
     expect(root).toContain("workspace");
     expect(qdrant).toContain("workspace");
-    expect(worker).toContain("plugin");
+    // The plugin's name is shown alongside the plugin tag.
+    expect(worker).toContain("plugin:default-memory");
 
     // The status label is gone — no [running] anywhere.
     expect(logLines.join("\n")).not.toContain("[running]");
@@ -188,7 +193,7 @@ describe("ps command — tree rendering", () => {
                   {
                     name: "deeply-nested-child",
                     status: "running",
-                    origin: "plugin",
+                    origin: "plugin:cognee",
                   },
                 ],
               },
