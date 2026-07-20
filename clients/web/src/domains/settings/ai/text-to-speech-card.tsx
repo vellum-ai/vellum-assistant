@@ -35,7 +35,7 @@ import {
   DEFAULT_MANAGED_VOICE,
   MANAGED_VOICE_SOURCE_LABELS,
   MANAGED_VOICES,
-} from "@/domains/settings/ai/managed-voice-catalog";
+} from "@/lib/tts/managed-voice-catalog";
 import { TTS_PROVIDERS } from "@/domains/settings/ai/provider-catalogs";
 
 /**

@@ -332,7 +332,10 @@ function VoiceRoomOverlay() {
         }}
         className="absolute z-10 flex items-center gap-1"
       >
-        <VoiceRoomSettingsMenu triggerClassName={ROOM_CONTROL_CLASS} />
+        <VoiceRoomSettingsMenu
+          triggerClassName={ROOM_CONTROL_CLASS}
+          assistantId={assistantId}
+        />
         <Tooltip content="End voice session (Esc)">
           <button
             type="button"
