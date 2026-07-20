@@ -89,10 +89,9 @@ const HOLD: VoiceEndpointDecision = { action: "hold" };
 // Single-token wire protocol: the model answers with one bare character
 // instead of a forced tool call. A tool call spends 10-15 output tokens on
 // name + JSON scaffolding to convey one bit; a bare digit is one token, and
-// dropping the tool schema also shrinks the prompt. Only an exact (trimmed)
-// "0" holds — every other output, including prose that merely starts with
-// "0" (a truncated label echo like "0 if the speaker..."), releases, so
-// protocol non-compliance always lands on the fail-open side.
+// dropping the tool schema also shrinks the prompt. Only an exact leading
+// "0" holds — every other output (including non-compliance) releases, so the
+// fail-open contract carries the parsing risk.
 const HOLD_TOKEN = "0";
 
 // Output budget for the single-character answer: one token for the digit
@@ -310,7 +309,7 @@ export function createVoiceFrontDecider(options: {
           },
         });
         const answer = response ? extractText(response) : "";
-        const held = answer === HOLD_TOKEN;
+        const held = answer.startsWith(HOLD_TOKEN);
         log.info(
           {
             action: held ? "hold" : "release",
@@ -333,7 +332,7 @@ export function createVoiceFrontDecider(options: {
           return HOLD;
         }
         // No provider, "1", an empty response, or any non-protocol output
-        // all release — only an exact "0" answer holds.
+        // all release — only an explicit leading "0" holds.
         return RELEASE;
       } catch (error) {
         // providerResolveMs null here means resolution itself never settled
