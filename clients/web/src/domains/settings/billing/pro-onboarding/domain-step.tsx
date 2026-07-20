@@ -1,13 +1,13 @@
 import { Mail } from "lucide-react";
 import { useEffect, useState } from "react";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import {
-    assistantsActiveRetrieveOptions,
-    assistantsDomainsListOptions,
+    assistantsDomainsListQueryKey,
     assistantsListQueryKey,
     organizationsBillingSubscriptionOnboardingDomainCreateMutation,
+    organizationsBillingSubscriptionOnboardingRetrieveQueryKey,
 } from "@/generated/api/@tanstack/react-query.gen";
 import { useEnvironmentStore } from "@/stores/environment-store";
 import { Button } from "@vellumai/design-library/components/button";
@@ -16,7 +16,8 @@ import { Notice } from "@vellumai/design-library/components/notice";
 import { Typography } from "@vellumai/design-library/components/typography";
 
 import { DomainField } from "@/domains/settings/components/domain-field";
-import { IconBadge, StepDots } from "./primitives";
+import { IconBadge } from "./primitives";
+import { useAssistantDomains } from "./use-assistant-domains";
 import { DOMAIN_EXIT_DELAY_MS, extractOnboardingErrorMessage } from "./utils";
 
 export function DomainStep({
@@ -29,16 +30,8 @@ export function DomainStep({
 }) {
   const queryClient = useQueryClient();
   const emailRootDomain = useEnvironmentStore.use.emailRootDomain();
-  const { data: activeAssistant } = useQuery(assistantsActiveRetrieveOptions());
-  const assistantId = activeAssistant?.id;
-
-  const { data: domainsData } = useQuery({
-    ...assistantsDomainsListOptions({
-      path: { assistant_id: assistantId ?? "" },
-    }),
-    enabled: !!assistantId,
-  });
-  const existingDomain = domainsData?.results?.[0];
+  const { activeAssistant, assistantId, domains } = useAssistantDomains();
+  const existingDomain = domains?.results[0];
 
   const [subdomain, setSubdomain] = useState("");
   const [emailUsername, setEmailUsername] = useState("hi");
@@ -87,6 +80,14 @@ export function DomainStep({
           setErrorMsg(null);
           setConfirmed(true);
           void queryClient.invalidateQueries({ queryKey: assistantsListQueryKey() });
+          void queryClient.invalidateQueries({
+            queryKey: assistantsDomainsListQueryKey({
+              path: { assistant_id: assistantId ?? "" },
+            }),
+          });
+          void queryClient.invalidateQueries({
+            queryKey: organizationsBillingSubscriptionOnboardingRetrieveQueryKey(),
+          });
         },
         onError: (err) => {
           setErrorMsg(
@@ -110,10 +111,7 @@ export function DomainStep({
 
   return (
     <>
-      <Modal.Body
-        className="min-h-[320px] space-y-5 pt-10 pb-4"
-        style={{ animation: "onboarding-step-in 350ms ease-out" }}
-      >
+      <Modal.Body className="min-h-[320px] animate-[onboarding-step-in_350ms_ease-out] space-y-5 pt-10 pb-4 motion-reduce:animate-none">
         <div className="flex flex-col items-center gap-3 pb-2 text-center">
           <IconBadge icon={Mail} />
           <div className="space-y-2">
@@ -184,40 +182,35 @@ export function DomainStep({
           <Notice tone="success">Domain set — redirecting…</Notice>
         ) : null}
       </Modal.Body>
-      <Modal.Footer className="relative items-center justify-end">
-        <div className="pointer-events-none absolute inset-x-0 flex justify-center">
-          <StepDots current={0} />
-        </div>
-        <div className="flex items-center gap-2">
-          {isLocked ? (
+      <Modal.Footer className="items-center">
+        {isLocked ? (
+          <Button
+            variant="primary"
+            data-testid="onboarding-domain-continue"
+            onClick={onExit}
+          >
+            Continue
+          </Button>
+        ) : (
+          <>
+            <Button
+              variant="ghost"
+              data-testid="onboarding-domain-skip"
+              disabled={busy}
+              onClick={handleSkip}
+            >
+              Do later
+            </Button>
             <Button
               variant="primary"
-              data-testid="onboarding-domain-continue"
-              onClick={onExit}
+              data-testid="onboarding-domain-set"
+              disabled={!subdomain || busy || machineBusy}
+              onClick={handleSet}
             >
-              Continue
+              Set domain
             </Button>
-          ) : (
-            <>
-              <Button
-                variant="ghost"
-                data-testid="onboarding-domain-skip"
-                disabled={busy}
-                onClick={handleSkip}
-              >
-                Do later
-              </Button>
-              <Button
-                variant="primary"
-                data-testid="onboarding-domain-set"
-                disabled={!subdomain || busy || machineBusy}
-                onClick={handleSet}
-              >
-                Set domain
-              </Button>
-            </>
-          )}
-        </div>
+          </>
+        )}
       </Modal.Footer>
     </>
   );

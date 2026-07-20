@@ -1,26 +1,6 @@
 import type { LucideIcon } from "lucide-react";
 import { ArrowRight, Loader2 } from "lucide-react";
 
-export function StepDots({ current, total = 2 }: { current: number; total?: number }) {
-  return (
-    <div className="flex items-center justify-center gap-1.5">
-      {Array.from({ length: total }, (_, i) => (
-        <div
-          key={i}
-          className="h-1.5 rounded-full transition-all duration-300"
-          style={{
-            width: i === current ? 20 : 6,
-            backgroundColor:
-              i <= current
-                ? "var(--content-default)"
-                : "var(--border-element)",
-          }}
-        />
-      ))}
-    </div>
-  );
-}
-
 export function IconBadge({
   icon: Icon,
   tone = "positive",
@@ -54,20 +34,18 @@ export function GlowSpinner() {
   return (
     <div className="relative flex h-11 w-11 items-center justify-center">
       <div
-        className="absolute h-14 w-14 rounded-full"
+        className="absolute h-14 w-14 animate-[onboarding-glow_2.4s_ease-in-out_infinite] rounded-full motion-reduce:animate-none"
         style={{
           backgroundColor:
             "color-mix(in oklab, var(--system-positive-strong) 10%, transparent)",
-          animation: "onboarding-glow 2.4s ease-in-out infinite",
         }}
         aria-hidden="true"
       />
       <div
-        className="absolute h-9 w-9 rounded-full"
+        className="absolute h-9 w-9 animate-[onboarding-glow_2.4s_ease-in-out_infinite_0.4s] rounded-full motion-reduce:animate-none"
         style={{
           backgroundColor:
             "color-mix(in oklab, var(--system-positive-strong) 8%, transparent)",
-          animation: "onboarding-glow 2.4s ease-in-out infinite 0.4s",
         }}
         aria-hidden="true"
       />
