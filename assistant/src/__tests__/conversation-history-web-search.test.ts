@@ -652,6 +652,13 @@ describe("web_search_tool_result structural guard", () => {
     // provider, not the local tool executor, so they never flow here.
     "agent/loop.ts",
 
+    // Matches the `tool_result` ServerMessage SSE event (api/events/
+    // tool-result.ts), not a conversation content block. There is no
+    // web_search_tool_result SSE event — web-search activity travels as
+    // activityMetadata on the same tool_result event. Same event-vs-block
+    // distinction as agent/loop.ts, one hop downstream.
+    "calls/voice-session-bridge.ts",
+
     // Counts consecutive errors for locally-executed tools to bound retry
     // coaching. Server-side web search results (web_search_tool_result) carry
     // no is_error flag and are not produced by the tool executor, so only
