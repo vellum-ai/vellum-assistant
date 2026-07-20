@@ -403,12 +403,13 @@ export function ConceptGraphView({
   }, [edgeFilter]);
   // Reset every lens when the active assistant changes: this component is reused
   // across assistants (IdentityTab doesn't key it), so a stale search, recency
-  // window, or hidden edge kind would otherwise ghost/blank the new assistant's
-  // freshly-loaded graph.
+  // window, hidden edge kind, or open selection would otherwise ghost/blank the
+  // new assistant's freshly-loaded graph.
   useEffect(() => {
     setSearch("");
     setRecency("all");
     setEdgeFilter({ link: true, learned: true });
+    setTrail([]);
     searchEmittedRef.current = false;
   }, [assistantId]);
 
@@ -486,6 +487,10 @@ export function ConceptGraphView({
     const nodeClusters = clusters;
     const hubIds = clusterHubs;
     const adj = adjacency;
+    // Ids present in the current graph — used to ignore a stale selection (e.g.
+    // a same-assistant refetch that drops the open node) so focus-dim never
+    // blanks the whole map against a node that no longer exists.
+    const presentNodeIds = new Set(nodes.map((n) => n.id));
     const R = massRadius;
 
     const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -609,8 +614,8 @@ export function ConceptGraphView({
       // selected ego-network overrides the recency window and edge-kind filter
       // so it always reads and stays interactive; search still narrows normally.
       const selectedId = selectedIdRef.current;
-      const selectionActive = selectedId != null;
-      const inSelectedEgo = makeEgoTest(adj, selectedId);
+      const selectionActive = selectedId != null && presentNodeIds.has(selectedId);
+      const inSelectedEgo = makeEgoTest(adj, selectionActive ? selectedId : null);
 
       // Density fog: fade the resting learned-edge web as the corpus grows.
       const learnedFog =
