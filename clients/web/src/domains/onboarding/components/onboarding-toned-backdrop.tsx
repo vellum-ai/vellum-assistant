@@ -74,6 +74,7 @@ export function OnboardingTonedBackdrop({
   darkBg = false,
   showBottomEyes = true,
   showTopTeam = false,
+  eyesEntrance = false,
 }: {
   /** How many edge characters to reveal — grows one per onboarding step. */
   peekLevel?: number;
@@ -85,6 +86,13 @@ export function OnboardingTonedBackdrop({
   showBottomEyes?: boolean;
   /** Show the little team peeking in from the top edge (off by default). */
   showTopTeam?: boolean;
+  /**
+   * Play the bottom eyes' grow-in entrance instead of popping in at rest.
+   * Pass `true` only on the step where the eyes first mount (e.g. the handoff
+   * from a step that hides them) — every later toned step should leave this
+   * off so the eyes stay put across the rest of the sequence.
+   */
+  eyesEntrance?: boolean;
 }) {
   const components = useBundledAvatarComponents();
   const characters = useOnboardingAvatarPoolStore.use.characters();
@@ -125,7 +133,11 @@ export function OnboardingTonedBackdrop({
       {/* The assistant's eyes peek up from the bottom (until they collapse into
           the small avatar at the calendar step). */}
       {showBottomEyes && (
-        <OnboardingPeekingEyes bumpNonce={eyesBumpNonce} settleBlink={false} />
+        <OnboardingPeekingEyes
+          bumpNonce={eyesBumpNonce}
+          settleBlink={eyesEntrance}
+          entrance={eyesEntrance}
+        />
       )}
 
       {/* The team peeks in from the top-right — three larger avatars, overlapping

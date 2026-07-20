@@ -442,7 +442,7 @@ export function CreatePersonalityStep({
           className="w-full min-h-14 shrink-[4]"
           style={{ flexBasis: Math.round(stageH * 0.14) }}
         />
-        <div className="flex shrink-0 flex-col items-center gap-2">
+        <div className="flex shrink-0 flex-col items-center gap-4">
           <h1
             className="text-center text-[2.6rem] leading-none"
             style={{ fontFamily: "var(--font-serif)" }}
@@ -454,17 +454,12 @@ export function CreatePersonalityStep({
               Personality locked — chat with your assistant to make any more
               updates
             </p>
-          ) : (
-            <p
-              className="hidden max-w-md text-center text-[15px] sm:block"
-              style={{ color: tone.fgMuted }}
-            >
-              How do you want me to talk to you? You can always ask me to change
-              my personality later.
-            </p>
-          )}
+          ) : null}
         </div>
-        <div className="w-full min-h-3 shrink-[2] basis-10" />
+        <div
+          className="w-full min-h-3 shrink-[2]"
+          style={{ flexBasis: Math.round(40 + stageH * 0.03) }}
+        />
 
         {PERSONALITY_AXES.map((axis, i) => (
           <Fragment key={axis.id}>
