@@ -109,14 +109,14 @@ const FINALIZE_GRACE_MS = 1_000;
 // liveVoice.vad.bargeInMinSpeechMs schema default; 0 disables the guard for
 // instant barge-in.
 const DEFAULT_BARGE_IN_MIN_SPEECH_MS = 250;
-// Brief sub-threshold gaps within a barge-in run must NOT reset the accumulated
-// speech: a syllable boundary, or the choppy energy the browser's half-duplex
-// echo canceller produces while the assistant is still playing (it ducks the
-// user's near-end voice, so post-AEC user speech arrives as intermittent
-// above-gate chunks). Only a continuous silence longer than this (a real end of
-// speech, or an isolated cough) resets the run. Without this tolerance, a single
-// quiet chunk zeroes the run, so speech during playback never reaches
-// bargeInMinSpeechMs and the interruption never lands.
+// Longest continuous sub-threshold gap the sustained-speech barge-in run
+// tolerates without resetting. A gap this short is a syllable boundary, or the
+// choppy energy the browser's half-duplex echo canceller produces while the
+// assistant is still playing (it ducks the user's near-end voice, so post-AEC
+// user speech arrives as intermittent above-gate chunks) — so the run keeps
+// accumulating across it and a barge-in during playback still lands. Only a
+// longer continuous silence (a real end of speech, or an isolated cough) resets
+// the run.
 const BARGE_IN_GAP_TOLERANCE_MS = 200;
 // At most this many TTS segment jobs are open (provider stream started,
 // frames not yet fully emitted) per turn: the emitting job plus one
