@@ -28,6 +28,15 @@ const PHRASES_BY_KIND: Record<LiveVoiceSpokenAckKind, readonly string[]> = {
   tool_use: TOOL_ACK_PHRASES,
 };
 
+// Static fallbacks for an idle-triggered progress narration whose LLM
+// phrasing failed — the one case where prolonged silence is actively harmful.
+// Same rules as the ack lists: persona-neutral, no domain content, ≤ 8 words.
+const PROGRESS_FALLBACK_PHRASES: readonly string[] = [
+  "Still on it — running a few things.",
+  "Working through it, one moment.",
+  "Still working — almost there.",
+];
+
 // Deterministic rotation through the kind's phrase list: callers hold a
 // nonnegative monotonic counter, so consecutive acks vary while tests stay
 // reproducible.
@@ -37,4 +46,9 @@ export function pickAckPhrase(
 ): string {
   const phrases = PHRASES_BY_KIND[kind];
   return phrases[counter % phrases.length];
+}
+
+// Same rotation contract as pickAckPhrase, over the progress fallbacks.
+export function pickProgressPhrase(counter: number): string {
+  return PROGRESS_FALLBACK_PHRASES[counter % PROGRESS_FALLBACK_PHRASES.length];
 }
