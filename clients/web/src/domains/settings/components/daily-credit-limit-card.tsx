@@ -167,6 +167,10 @@ export function DailyCreditLimitCard() {
         <Toggle
           checked={enabled}
           onChange={handleToggleChange}
+          // Locked while a save is in flight: toggling off during a pending
+          // enable would skip the clearing PUT, then the save's onSuccess
+          // would re-enable the limit against the user's last action.
+          disabled={updateMutation.isPending}
           label="Set a daily credit limit"
         />
 
