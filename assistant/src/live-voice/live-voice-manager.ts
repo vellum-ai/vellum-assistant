@@ -9,19 +9,33 @@
  * share one busy lock instead of racing for the mic.
  */
 
-import { createLiveVoiceSession } from "./live-voice-session.js";
+import { createRequire } from "node:module";
+
 import { LiveVoiceSessionManager } from "./live-voice-session-manager.js";
+
+const require = createRequire(import.meta.url);
 
 let manager: LiveVoiceSessionManager | null = null;
 
 /**
  * The daemon-wide live voice session manager, lazily constructed on first
- * use. Sessions are produced by {@link createLiveVoiceSession}.
+ * use. Sessions are produced by `createLiveVoiceSession`.
  */
 export function getLiveVoiceSessionManager(): LiveVoiceSessionManager {
   if (manager === null) {
     manager = new LiveVoiceSessionManager({
-      createSession: (context) => createLiveVoiceSession(context),
+      // `live-voice-session` is loaded lazily, on first session creation,
+      // rather than statically imported. It drags in a large graph (subagent
+      // manager, providers, persistence), and this module is reachable from
+      // `@vellumai/plugin-api` via the connection factory — a static edge
+      // would pull that whole graph into every plugin-api consumer at
+      // module-load time. `require` keeps the factory synchronous, so the
+      // manager still claims its single-session slot without an await gap.
+      createSession: (context) => {
+        const { createLiveVoiceSession } =
+          require("./live-voice-session.js") as typeof import("./live-voice-session.js");
+        return createLiveVoiceSession(context);
+      },
     });
   }
   return manager;

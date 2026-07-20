@@ -5,6 +5,8 @@
  * configured port (default: 7821).
  */
 
+import type { ServerWebSocket } from "bun";
+
 import {
   activeMediaStreamSessions,
   MediaStreamCallSession,
@@ -153,12 +155,6 @@ interface SttStreamWebSocketData {
  */
 interface LiveVoiceWebSocketData {
   wsType: "live-voice";
-  /**
-   * The per-connection live voice handler. Created in the WebSocket `open`
-   * handler (once `ws` exists to bind the frame sender), so it is absent for
-   * the brief window between upgrade and open.
-   */
-  connection?: LiveVoiceConnection;
 }
 
 export class RuntimeHttpServer {
@@ -169,6 +165,17 @@ export class RuntimeHttpServer {
   private retrySweepTimer: ReturnType<typeof setInterval> | null = null;
   private sweepInProgress = false;
   private sweepsStarted = false;
+
+  /**
+   * Live voice handlers, one per open `/v1/live-voice` socket, keyed by the
+   * socket. The server owns this registry (mirroring the media-stream / STT
+   * session maps) rather than parking the handler on `ws.data`; the manager's
+   * single-active-session lock still bounds how many can hold a session.
+   */
+  private readonly liveVoiceConnections = new Map<
+    ServerWebSocket<LiveVoiceWebSocketData>,
+    LiveVoiceConnection
+  >();
 
   private router: HttpRouter;
 
@@ -287,11 +294,15 @@ export class RuntimeHttpServer {
             return;
           }
           if (data.wsType === "live-voice") {
-            data.connection = createLiveVoiceConnection({
-              send: (frame) => {
-                ws.send(JSON.stringify(frame));
-              },
-            });
+            const liveVoiceWs = ws as ServerWebSocket<LiveVoiceWebSocketData>;
+            this.liveVoiceConnections.set(
+              liveVoiceWs,
+              createLiveVoiceConnection({
+                send: (frame) => {
+                  ws.send(JSON.stringify(frame));
+                },
+              }),
+            );
             log.info("Live voice WebSocket opened");
             return;
           }
@@ -327,7 +338,10 @@ export class RuntimeHttpServer {
             return;
           }
           if (data.wsType === "live-voice") {
-            void data.connection?.handleMessage(message);
+            const connection = this.liveVoiceConnections.get(
+              ws as ServerWebSocket<LiveVoiceWebSocketData>,
+            );
+            void connection?.handleMessage(message);
             return;
           }
           log.warn("WebSocket message on unknown data type — closing");
@@ -386,15 +400,18 @@ export class RuntimeHttpServer {
             return;
           }
           if (data.wsType === "live-voice") {
+            const liveVoiceWs = ws as ServerWebSocket<LiveVoiceWebSocketData>;
+            const connection = this.liveVoiceConnections.get(liveVoiceWs);
+            this.liveVoiceConnections.delete(liveVoiceWs);
             log.info(
               {
-                sessionId: data.connection?.sessionId,
+                sessionId: connection?.sessionId,
                 code,
                 reason: reason?.toString(),
               },
               "Live voice WebSocket closed",
             );
-            data.connection?.release();
+            connection?.release();
             return;
           }
           log.warn(
