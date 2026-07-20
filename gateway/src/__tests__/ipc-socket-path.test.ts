@@ -5,10 +5,13 @@ import { resolveIpcSocketPath } from "../ipc/socket-path.js";
 
 let savedWorkspaceDir: string | undefined;
 let savedGatewayIpcSocketDir: string | undefined;
+let savedAbstract: string | undefined;
 
 beforeEach(() => {
   savedWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;
   savedGatewayIpcSocketDir = process.env.GATEWAY_IPC_SOCKET_DIR;
+  savedAbstract = process.env.VELLUM_IPC_ABSTRACT;
+  delete process.env.VELLUM_IPC_ABSTRACT;
 });
 
 afterEach(() => {
@@ -21,6 +24,11 @@ afterEach(() => {
     delete process.env.GATEWAY_IPC_SOCKET_DIR;
   } else {
     process.env.GATEWAY_IPC_SOCKET_DIR = savedGatewayIpcSocketDir;
+  }
+  if (savedAbstract === undefined) {
+    delete process.env.VELLUM_IPC_ABSTRACT;
+  } else {
+    process.env.VELLUM_IPC_ABSTRACT = savedAbstract;
   }
 });
 
@@ -76,5 +84,16 @@ describe("resolveIpcSocketPath", () => {
     expect(resolved.path).toBe("/run/assistant-ipc/assistant.sock");
 
     delete process.env.ASSISTANT_IPC_SOCKET_DIR;
+  });
+
+  test("abstract mode wins over the dir override", () => {
+    process.env.VELLUM_IPC_ABSTRACT = "1";
+    process.env.GATEWAY_IPC_SOCKET_DIR = "/run/gateway-ipc";
+    process.env.VELLUM_WORKSPACE_DIR = "/tmp/vellum-workspace-test";
+
+    const resolved = resolveIpcSocketPath("gateway");
+
+    expect(resolved.source).toBe("abstract");
+    expect(resolved.path).toBe("\0vellum-ipc/gateway.sock");
   });
 });

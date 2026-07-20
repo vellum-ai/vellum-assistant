@@ -2,6 +2,11 @@ import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import {
+  abstractSocketPath,
+  isAbstractIpcEnabled,
+} from "@vellumai/ipc-server-utils";
+
 import { getWorkspaceDir } from "../util/platform.js";
 
 const DARWIN_UNIX_SOCKET_MAX_PATH_BYTES = 103;
@@ -9,6 +14,7 @@ const DEFAULT_UNIX_SOCKET_MAX_PATH_BYTES = 107;
 const IPC_TMP_DIR_NAME = "vellum-ipc";
 
 export type IpcSocketPathSource =
+  | "abstract"
   | "env-override"
   | "workspace"
   | "tmp-hash"
@@ -50,11 +56,14 @@ function deriveSocketNames(socketName: string): {
  * Resolve the path to an IPC socket file.
  *
  * Resolution order:
- *   1. `${SOCKET_NAME}_IPC_SOCKET_DIR` env var override — used in
+ *   1. `VELLUM_IPC_ABSTRACT=1` — abstract-namespace name (Linux only; managed
+ *      pods). Takes precedence over the dir override so the pod template can
+ *      keep exporting `*_IPC_SOCKET_DIR` for older images during rollout.
+ *   2. `${SOCKET_NAME}_IPC_SOCKET_DIR` env var override — used in
  *      containerized deployments (emptyDir volume) and by hatch on macOS
  *      when the workspace path would exceed the AF_UNIX limit.
- *   2. `{workspaceDir}/{socketName}.sock` — default for local dev.
- *   3. tmpdir fallback — if the workspace path exceeds the platform's
+ *   3. `{workspaceDir}/{socketName}.sock` — default for local dev.
+ *   4. tmpdir fallback — if the workspace path exceeds the platform's
  *      AF_UNIX path limit (103 bytes on macOS, 107 on Linux).
  */
 export function resolveIpcSocketPath(
@@ -62,6 +71,13 @@ export function resolveIpcSocketPath(
 ): IpcSocketPathResolution {
   const workspaceDir = getWorkspaceDir();
   const { envVar, fileName } = deriveSocketNames(socketName);
+
+  if (isAbstractIpcEnabled()) {
+    return {
+      path: abstractSocketPath(fileName),
+      source: "abstract",
+    };
+  }
 
   // Explicit override via env var.
   const envSocketDir = process.env[envVar]?.trim();
