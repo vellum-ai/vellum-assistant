@@ -6,6 +6,13 @@ export const DOMAIN_EXIT_DELAY_MS = 800;
 export const PRO_POLL_INTERVAL_MS = 1000;
 export const PRO_POLL_TIMEOUT_MS = 10_000;
 
+/** How long WAITING can run before the UI softens its copy ("still working…"). */
+export const PROVISION_WAIT_GRACE_MS = 30_000;
+/** How long WAITING/RESIZING can run before we give up and show STALLED. */
+export const PROVISION_STALL_MS = 90_000;
+/** Minimum time a provisioning phase stays on screen so it doesn't flash. */
+export const PROVISION_MIN_DWELL_MS = 2_500;
+
 export const RESTART_NOTICE =
   "Your assistant will briefly restart and be unreachable while this is set up.";
 
