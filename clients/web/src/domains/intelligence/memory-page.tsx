@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { ConceptGraphView } from "@/domains/intelligence/components/concept-graph/concept-graph-view";
 import { CreateMemoryModal } from "@/domains/intelligence/components/concept-graph/create-memory-modal";
+import { memoryGraphOptions } from "@/domains/intelligence/memory-graph/get-memory-graph";
 import { memoryStatsOptions } from "@/domains/intelligence/memory-graph/get-memory-stats";
 import { emitMemoryEvent } from "@/domains/intelligence/memory-telemetry";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
@@ -35,18 +36,32 @@ export function MemoryPage({ onOpenThread }: MemoryPageProps) {
   const memoryFlag = useAssistantFeatureFlagStore.use.memoryConceptGraph();
   const flagGate = flagsHydrated && memoryFlag;
 
-  // The `memory-concept-graph` flag predates the write route the button posts
-  // to (`POST /memory/remember`), so the flag alone can be on against a daemon
-  // that would 404 the create. The write route and `GET /memory/stats` shipped
-  // in the same release, so the stats route's availability is a reliable
-  // capability proxy for the write route — only reveal the CTA once stats reads
-  // `ready`. React Query dedupes this with the identity card's own stats query.
-  // Gated on `flagGate` so no request fires while the flag/tab is off.
+  // Two backend conditions must hold before revealing the CTA, beyond the flag:
+  //  1. The graph backend is actually supported. The `memory-concept-graph`
+  //     flag can be on against a backend that doesn't expose the graph (e.g.
+  //     `memory.v3.live` is false), where `ConceptGraphView` renders its
+  //     "not available" copy. `GET /memory/stats` still reads `ready` there —
+  //     it only counts page-index entries and doesn't check graph support — so
+  //     it can't stand in for graph readiness. Gate on the graph query's own
+  //     `ready` state (React Query dedupes it with the view's query) so the CTA
+  //     never sits over an unsupported page promising a map that can't update.
+  //  2. The write route exists. The flag also predates `POST /memory/remember`;
+  //     that route and `GET /memory/stats` shipped together, so stats-route
+  //     availability is a reliable capability proxy for the write route on
+  //     daemons that support the graph but predate the create route.
+  // Both gated on `flagGate` so no request fires while the flag/tab is off.
+  const memoryGraph = useQuery({
+    ...memoryGraphOptions(assistantId),
+    enabled: flagGate,
+  });
   const memoryStats = useQuery({
     ...memoryStatsOptions(assistantId),
     enabled: flagGate,
   });
-  const showCreate = flagGate && memoryStats.data?.kind === "ready";
+  const showCreate =
+    flagGate &&
+    memoryGraph.data?.kind === "ready" &&
+    memoryStats.data?.kind === "ready";
 
   // Report the tab open exactly once per mount. The ref guard keeps React
   // strict-mode's double-invoke (dev) from emitting a duplicate.
