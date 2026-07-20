@@ -191,6 +191,8 @@ function VoiceRoomOverlay() {
     "--room-fg-muted": tone?.fgMuted ?? "rgba(255,255,255,0.7)",
     "--room-wash": tone?.wash ?? "rgba(255,255,255,0.1)",
     "--room-border": tone?.wash ?? "rgba(255,255,255,0.15)",
+    "--room-bubble-bg": tone?.bubbleBg ?? "#FFFFFF",
+    "--room-bubble-fg": tone?.bubbleFg ?? "#1A1A1A",
   } as CSSProperties;
 
   // Global Escape, live only while the room is mounted: ends the session,
@@ -250,10 +252,10 @@ function VoiceRoomOverlay() {
           visual={visual}
           getAmplitude={getLiveVoiceInputAmplitude}
           getResponseAmplitude={getLiveVoiceOutputAmplitude}
-          // Only the *assistant* transcript occupies the space below the eyes
-          // (the user transcript floats above), so the state caption stands down
-          // for that pref alone — enabling only user captions must not blank the
-          // lower zone the caption fills.
+          // While assistant captions are on, the right-side transcript rail
+          // already narrates the turn, so the centered state caption stands down
+          // to avoid doubling it. The user-only caption pref leaves the caption
+          // up (a user bubble alone doesn't name the assistant's state).
           showStateCaption={!showAssistantTranscript}
           entryOrigin={entryOrigin}
         />
@@ -277,19 +279,19 @@ function VoiceRoomOverlay() {
           {visual === "responding" ? (
             <VoiceRespondingRings getAmplitude={getLiveVoiceOutputAmplitude} />
           ) : null}
-          {/* Same state caption + gating as the color look (stands down only for
-              the assistant-transcript pref), anchored below the centered avatar
-              instead of the eyes. */}
+          {/* Same state caption + gating as the color look (stands down while
+              the assistant transcript rail is on), anchored below the centered
+              avatar instead of the eyes. */}
           {!showAssistantTranscript ? (
             <VoiceStateCaption visual={visual} top={VOID_CAPTION_TOP} />
           ) : null}
         </>
       )}
 
-      {/* Optional muted echo of the live transcript, floating above (user) and
-          below (assistant) the centered avatar. Pref-gated (the captions
-          control above) and absolutely positioned, so it never shifts the
-          avatar and stays absent by default. */}
+      {/* Optional live transcript, rendered as a right-side chat rail (user
+          bubbles, assistant plain text). Pref-gated (the captions control
+          above) and absolutely positioned in the right margin, so it never
+          shifts the centered avatar and stays absent by default. */}
       <VoiceAmbientTranscript />
 
       {/* Backwards-compat fallback card for assistants that can still raise

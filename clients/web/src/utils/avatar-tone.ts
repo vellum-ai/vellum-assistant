@@ -26,6 +26,13 @@ export interface AvatarTone {
   fgMuted: string;
   /** A subtle hover/fill wash at the matching tone. */
   wash: string;
+  /**
+   * Solid raised-surface fill for a user speech bubble that contrasts the
+   * avatar color: white over dark/saturated avatars, dark over the light one.
+   */
+  bubbleBg: string;
+  /** Text color drawn on that bubble (the inverse of {@link bubbleBg}). */
+  bubbleFg: string;
 }
 
 const FG_DARK = "#1A1A1A";
@@ -85,12 +92,16 @@ export function contrastForeground(bg: string): string {
 /** Build a tone object from a background hex. */
 export function toneForBg(bg: string): AvatarTone {
   const isLight = brightness(bg) > 0.6;
+  const fg = isLight ? FG_DARK : FG_LIGHT;
   return {
     bg,
     isLight,
-    fg: isLight ? FG_DARK : FG_LIGHT,
+    fg,
     fgDeep: darkenHex(bg, 0.6),
     fgMuted: isLight ? "rgba(0,0,0,0.6)" : "rgba(255,255,255,0.65)",
     wash: isLight ? "rgba(0,0,0,0.08)" : "rgba(255,255,255,0.12)",
+    // A raised surface reads as the foreground tone; its text is the inverse.
+    bubbleBg: fg,
+    bubbleFg: isLight ? FG_LIGHT : FG_DARK,
   };
 }
