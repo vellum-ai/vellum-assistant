@@ -182,8 +182,12 @@ export function IdentityOverview({ assistantId }: IdentityOverviewProps) {
   });
   const sectionStats: Record<string, IdentitySectionStat | undefined> = {
     ...stats,
+    // Only show a count when the daemon actually answered one (`ready`). An
+    // older daemon predating `/memory/stats` reads `unsupported`, and a loading
+    // query is `undefined` — both leave the measurement off (as the card was
+    // before this feature) rather than render a wrong "0 memories".
     memory:
-      memoryStats.data !== undefined
+      memoryStats.data?.kind === "ready"
         ? {
             value: memoryStats.data.concepts,
             label: memoryStats.data.concepts === 1 ? "memory" : "memories",

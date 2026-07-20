@@ -1,9 +1,11 @@
+import { useQuery } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { ConceptGraphView } from "@/domains/intelligence/components/concept-graph/concept-graph-view";
 import { CreateMemoryModal } from "@/domains/intelligence/components/concept-graph/create-memory-modal";
+import { memoryStatsOptions } from "@/domains/intelligence/memory-graph/get-memory-stats";
 import { emitMemoryEvent } from "@/domains/intelligence/memory-telemetry";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { Button } from "@vellumai/design-library";
@@ -31,7 +33,20 @@ export function MemoryPage({ onOpenThread }: MemoryPageProps) {
   // then hide it (or vice-versa) on load. See the store's `hasHydrated` docs.
   const flagsHydrated = useAssistantFeatureFlagStore.use.hasHydrated();
   const memoryFlag = useAssistantFeatureFlagStore.use.memoryConceptGraph();
-  const showCreate = flagsHydrated && memoryFlag;
+  const flagGate = flagsHydrated && memoryFlag;
+
+  // The `memory-concept-graph` flag predates the write route the button posts
+  // to (`POST /memory/remember`), so the flag alone can be on against a daemon
+  // that would 404 the create. The write route and `GET /memory/stats` shipped
+  // in the same release, so the stats route's availability is a reliable
+  // capability proxy for the write route — only reveal the CTA once stats reads
+  // `ready`. React Query dedupes this with the identity card's own stats query.
+  // Gated on `flagGate` so no request fires while the flag/tab is off.
+  const memoryStats = useQuery({
+    ...memoryStatsOptions(assistantId),
+    enabled: flagGate,
+  });
+  const showCreate = flagGate && memoryStats.data?.kind === "ready";
 
   // Report the tab open exactly once per mount. The ref guard keeps React
   // strict-mode's double-invoke (dev) from emitting a duplicate.

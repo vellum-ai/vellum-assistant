@@ -7,7 +7,7 @@ import {
   Sparkles,
   X,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { FileMarkdown } from "@/components/file-markdown";
 import { memoryGraphNodeOptions } from "@/domains/intelligence/memory-graph/get-memory-graph-node";
@@ -72,31 +72,38 @@ function formatUpdated(ms: number | undefined): string | null {
   });
 }
 
-// Only clamp once a note runs past roughly a screenful. Character count is a
+// Only preview once a note runs past roughly a screenful. Character count is a
 // cheap proxy for rendered height that avoids measuring the markdown; below
 // this the note renders whole with no toggle.
 const LONG_NOTE_THRESHOLD = 600;
 
 /**
- * The concept's own markdown body. Long notes clamp to a preview with a fade
- * and a "Read full note" / "Show less" toggle; short notes render whole with
- * no toggle.
+ * Slice a long note down to a preview of at most ~`LONG_NOTE_THRESHOLD` chars.
+ * Prefer cutting at the last newline before the threshold so we don't slice
+ * through mid-markdown syntax (a link, a heading, a list marker); fall back to
+ * a hard character slice when there's no usable newline. Only honor a newline
+ * that keeps a substantial preview, so a stray early line break doesn't
+ * collapse it to almost nothing.
+ */
+function buildNotePreview(content: string): string {
+  const hardSlice = content.slice(0, LONG_NOTE_THRESHOLD);
+  const lastNewline = hardSlice.lastIndexOf("\n");
+  if (lastNewline > LONG_NOTE_THRESHOLD / 2) {
+    return content.slice(0, lastNewline);
+  }
+  return hardSlice;
+}
+
+/**
+ * The concept's own markdown body. Long notes render a sliced preview with a
+ * "Read full note" / "Show less" toggle; short notes render whole with no
+ * toggle. Because only the currently-shown content is in the DOM (a real
+ * content slice rather than a clipped-and-hidden full body), everything visible
+ * is in the a11y tree and nothing off-screen is focusable — the preview reads
+ * the same for screen-reader and sighted users.
  */
 function ConceptNote({ content }: { content: string }) {
   const [expanded, setExpanded] = useState(false);
-  const clampRef = useRef<HTMLDivElement>(null);
-
-  // The collapse is visual only (overflow-hidden), so keep the clipped content
-  // out of the tab order and AT tree while collapsed — otherwise links below
-  // the fold stay focusable. `inert` is set imperatively so it works regardless
-  // of the installed React version's prop typing; the toggle button lives
-  // outside this container, so it remains reachable.
-  useEffect(() => {
-    const el = clampRef.current;
-    if (el) {
-      el.inert = !expanded;
-    }
-  }, [expanded]);
 
   if (content.length <= LONG_NOTE_THRESHOLD) {
     return <FileMarkdown content={content} />;
@@ -104,25 +111,7 @@ function ConceptNote({ content }: { content: string }) {
 
   return (
     <>
-      <div
-        ref={clampRef}
-        className="relative overflow-hidden"
-        style={expanded ? undefined : { maxHeight: "18rem" }}
-      >
-        <FileMarkdown content={content} />
-        {expanded ? null : (
-          // Fade the clamped edge into the drawer surface so the cut reads as
-          // "there's more" rather than an abrupt crop.
-          <div
-            aria-hidden
-            className="pointer-events-none absolute inset-x-0 bottom-0 h-16"
-            style={{
-              background:
-                "linear-gradient(to bottom, transparent, var(--surface-lift))",
-            }}
-          />
-        )}
-      </div>
+      <FileMarkdown content={expanded ? content : buildNotePreview(content)} />
       <Button
         variant="ghost"
         size="compact"
