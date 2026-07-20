@@ -7,7 +7,7 @@ import {
   Sparkles,
   X,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { FileMarkdown } from "@/components/file-markdown";
 import { memoryGraphNodeOptions } from "@/domains/intelligence/memory-graph/get-memory-graph-node";
@@ -84,6 +84,19 @@ const LONG_NOTE_THRESHOLD = 600;
  */
 function ConceptNote({ content }: { content: string }) {
   const [expanded, setExpanded] = useState(false);
+  const clampRef = useRef<HTMLDivElement>(null);
+
+  // The collapse is visual only (overflow-hidden), so keep the clipped content
+  // out of the tab order and AT tree while collapsed — otherwise links below
+  // the fold stay focusable. `inert` is set imperatively so it works regardless
+  // of the installed React version's prop typing; the toggle button lives
+  // outside this container, so it remains reachable.
+  useEffect(() => {
+    const el = clampRef.current;
+    if (el) {
+      el.inert = !expanded;
+    }
+  }, [expanded]);
 
   if (content.length <= LONG_NOTE_THRESHOLD) {
     return <FileMarkdown content={content} />;
@@ -92,6 +105,7 @@ function ConceptNote({ content }: { content: string }) {
   return (
     <>
       <div
+        ref={clampRef}
         className="relative overflow-hidden"
         style={expanded ? undefined : { maxHeight: "18rem" }}
       >
