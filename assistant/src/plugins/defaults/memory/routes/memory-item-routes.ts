@@ -67,6 +67,8 @@ import type {
   NewNode,
 } from "../graph/types.js";
 import { getLogger } from "../logging.js";
+import { getWorkspaceDir } from "../paths.js";
+import { getPageIndex } from "../v2/page-index.js";
 
 const log = getLogger("memory-item-routes");
 
@@ -463,6 +465,22 @@ function handleGetMemoryItem(id: string) {
   return { item: nodeToPayload(node) };
 }
 
+/**
+ * Cheap concept count for glanceable surfaces (the identity Memory card).
+ *
+ * Read straight from the CACHED page index and count only real concept pages:
+ * those carry a real file mtime (`modifiedAt > 0`), while synthetic rows
+ * (seeded skills and CLI commands) carry `modifiedAt: 0`. This mirrors the
+ * concepts-only filter in `build-memory-graph.ts`, but never triggers the
+ * expensive `getMemoryGraph` build (edge / learned / cluster graph) — the
+ * concept graph is deliberately kept off identity-page load.
+ */
+async function handleGetMemoryStats(): Promise<{ concepts: number }> {
+  const pageIndex = await getPageIndex(getWorkspaceDir());
+  const concepts = pageIndex.entries.filter((e) => e.modifiedAt > 0).length;
+  return { concepts };
+}
+
 async function handleCreateMemoryItem(body: Record<string, unknown>) {
   const { kind, subject, statement, importance } = body as {
     kind?: string;
@@ -735,6 +753,26 @@ export const ROUTES: RouteDefinition[] = [
         .describe("Memory item with graph metadata"),
     }),
     handler: ({ pathParams }) => handleGetMemoryItem(pathParams!.id),
+  },
+
+  {
+    operationId: "getMemoryStats",
+    endpoint: "memory/stats",
+    method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Get lightweight memory stats",
+    description:
+      "Return a cheap count of concept pages from the cached memory page " +
+      "index, for glanceable surfaces like the identity Memory card. Counts " +
+      "concept pages only and never builds the memory-concept graph.",
+    tags: ["memory"],
+    responseBody: z.object({
+      concepts: z.number().describe("Number of concept pages in memory"),
+    }),
+    handler: () => handleGetMemoryStats(),
   },
 
   {
