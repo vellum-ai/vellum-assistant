@@ -1,4 +1,4 @@
-import { ArrowLeft, ArrowRight, Cpu, HardDrive, Server } from "lucide-react";
+import { ArrowLeft, Cpu, HardDrive } from "lucide-react";
 import { useState } from "react";
 
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -17,68 +17,11 @@ import { Modal } from "@vellumai/design-library/components/modal";
 import { Notice } from "@vellumai/design-library/components/notice";
 import { Typography } from "@vellumai/design-library/components/typography";
 
-import { IconBadge, StepDots } from "./primitives";
+import { IconBadge, ResourceCard, StepDots } from "./primitives";
 import {
     allowedMachineSizesForTier,
     extractOnboardingErrorMessage,
 } from "./utils";
-
-function ResourceCard({
-  icon: Icon,
-  label,
-  from,
-  fromDetail,
-  to,
-  toDetail,
-}: {
-  icon: typeof Server;
-  label: string;
-  from: string;
-  fromDetail?: string;
-  to: string;
-  toDetail?: string;
-}) {
-  return (
-    <div className="flex items-center gap-3 rounded-lg bg-[var(--surface-base)] p-3">
-      <span
-        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg"
-        style={{
-          backgroundColor: "color-mix(in oklab, var(--system-positive-strong) 10%, transparent)",
-        }}
-      >
-        <Icon className="h-4 w-4 text-[var(--system-positive-strong)]" />
-      </span>
-      <div className="flex min-w-0 flex-1 flex-col gap-1">
-        <span className="text-label-small-default text-[var(--content-tertiary)]">
-          {label}
-        </span>
-        <div className="flex items-center gap-2">
-          <div className="flex flex-col">
-            <span className="text-label-medium-default text-[var(--content-tertiary)] line-through">
-              {from}
-            </span>
-            {fromDetail && (
-              <span className="text-label-small-default text-[var(--content-tertiary)] line-through">
-                {fromDetail}
-              </span>
-            )}
-          </div>
-          <ArrowRight className="h-3 w-3 shrink-0 text-[var(--content-tertiary)]" />
-          <div className="flex flex-col">
-            <span className="text-label-medium-default text-[var(--content-default)]">
-              {to}
-            </span>
-            {toDetail && (
-              <span className="text-label-small-default text-[var(--content-tertiary)]">
-                {toDetail}
-              </span>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 export function SetupStep({
   storageGib,
@@ -111,7 +54,9 @@ export function SetupStep({
   const resizeMutation = useMutation(assistantsResizeMutation());
 
   const handleContinue = () => {
-    if (resizeMutation.isPending || !activeAssistant?.id) return;
+    if (resizeMutation.isPending || !activeAssistant?.id) {
+      return;
+    }
     resizeMutation.mutate(
       {
         path: { id: activeAssistant.id },
