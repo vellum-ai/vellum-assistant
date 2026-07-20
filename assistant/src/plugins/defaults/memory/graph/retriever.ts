@@ -13,6 +13,7 @@ import {
 } from "@vellumai/plugin-api";
 import { selectedBackendSupportsMultimodal } from "@vellumai/plugin-api";
 
+import { usesConceptPageMemory } from "../../../../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../../../../config/types.js";
 import { embedWithRetry } from "../../../../persistence/embeddings/embed.js";
 import { generateSparseEmbedding } from "../../../../persistence/embeddings/embedding-backend.js";
@@ -435,12 +436,12 @@ interface ContextLoadResult {
 export async function loadContextMemory(
   opts: ContextLoadOpts,
 ): Promise<ContextLoadResult> {
-  // v2 owns the read path when enabled. The v1 collection is in active
-  // retirement and querying it can OOM-crash Qdrant via a corrupted sparse
-  // segment, so we skip the embedding work and downstream searches
+  // Concept-page memory owns the read path when active. The v1 collection is
+  // in active retirement and querying it can OOM-crash Qdrant via a corrupted
+  // sparse segment, so we skip the embedding work and downstream searches
   // entirely. Caller (`runContextLoad`) sees zero nodes and routes to the
-  // v2 activation pipeline.
-  if (opts.config.memory.v2.enabled) {
+  // concept-page pipeline.
+  if (usesConceptPageMemory(opts.config.memory)) {
     return {
       nodes: [],
       serendipityNodes: [],

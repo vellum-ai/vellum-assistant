@@ -158,14 +158,18 @@ function makeConfig(v2Enabled: boolean): AssistantConfig {
 }
 
 /**
- * Drain all microtasks so any `void`-prefixed promise inside
+ * Drain all pending async work so any `void`-prefixed promise inside
  * `maybeSeedMemoryV2Skills` settles before the test asserts. The fire-and-
  * forget chain involves: dynamic-import settle → `.then` callback →
- * inner `seedV2SkillEntries` resolution → `.catch` settle. We yield
- * generously to cover that whole chain regardless of the bundler's task
- * scheduling.
+ * inner `seedV2SkillEntries` resolution → `.catch` settle. Dynamic-import
+ * settlement can take a macrotask (not just microtasks), so yield through
+ * a timer with microtask drains on both sides.
  */
 async function flushMicrotasks(): Promise<void> {
+  for (let i = 0; i < 10; i++) {
+    await Promise.resolve();
+  }
+  await new Promise((resolve) => setTimeout(resolve, 0));
   for (let i = 0; i < 10; i++) {
     await Promise.resolve();
   }

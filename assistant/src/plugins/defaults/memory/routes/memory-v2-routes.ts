@@ -9,6 +9,7 @@ import { z } from "zod";
 
 import { getEffectiveProfiles } from "../../../../config/default-profile-catalog.js";
 import { loadConfig } from "../../../../config/loader.js";
+import { usesConceptPageMemory } from "../../../../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../../../../config/types.js";
 import { getDb } from "../../../../persistence/db-connection.js";
 import {
@@ -50,22 +51,23 @@ import { seedV2SkillEntries } from "../v2/skill-store.js";
 const log = getLogger("memory-v2-routes");
 
 /**
- * Wire-format error code emitted when v2 routes reject a request because
- * `memory.v2.enabled` is false. Exported so tests and the macOS client can
- * reference the same string without drift.
+ * Wire-format error code emitted when concept-page routes reject a request
+ * because concept-page memory is not active. Exported so tests and the macOS
+ * client can reference the same string without drift; the literal keeps its
+ * historical `MEMORY_V2` spelling because clients match on it.
  */
 export const MEMORY_V2_DISABLED_CODE = "MEMORY_V2_DISABLED";
 
 /**
- * Reject the request when memory v2 is not active. Returning 409 (rather
- * than serving a partial response) keeps clients honest — the desktop
+ * Reject the request when concept-page memory is not active. Returning 409
+ * (rather than serving a partial response) keeps clients honest — the desktop
  * Memories panel reads this code to render an explicit "disabled in
  * config" empty state.
  */
 function requireMemoryV2Enabled(): void {
-  if (!loadConfig().memory.v2.enabled) {
+  if (!usesConceptPageMemory(loadConfig().memory)) {
     throw new RouteError(
-      "Memory v2 is not enabled — set memory.v2.enabled to true to use this command.",
+      "Concept-page memory is not active — enable memory.v3.live (or memory.v2.enabled) to use this command.",
       MEMORY_V2_DISABLED_CODE,
       409,
     );
@@ -747,7 +749,7 @@ export const ROUTES: RouteDefinition[] = [
     handler: handleReembedSkills,
     summary: "Re-seed v2 skill entries from the current skill catalog",
     description:
-      "Synchronously re-runs seedV2SkillEntries against the current skill catalog. Gated on config.memory.v2.enabled.",
+      "Synchronously re-runs seedV2SkillEntries against the current skill catalog. Gated on concept-page memory being active.",
     tags: ["memory"],
     requestBody: MemoryV2ReembedSkillsParams,
   },

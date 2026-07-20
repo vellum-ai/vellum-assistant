@@ -1,7 +1,10 @@
 import { join } from "node:path";
 
 import { getConfig } from "../../../config/loader.js";
-import { isMemoryV3Live } from "../../../config/memory-v3-gate.js";
+import {
+  isMemoryV3Live,
+  usesConceptPageMemory,
+} from "../../../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../../../config/types.js";
 import {
   checkDiskPressureBackgroundGate,
@@ -93,16 +96,16 @@ export const MIN_BUFFER_LINES_FOR_CONSOLIDATION = 10;
 
 /**
  * V1 job types that read or write the v1 Qdrant collection via
- * `getQdrantClient()`. When `memory.v2.enabled` is true, the v1 client is
+ * `getQdrantClient()`. While concept-page memory is active, the v1 client is
  * intentionally left uninitialized in `lifecycle.ts`, so these handlers would
  * throw `BackendUnavailableError` and accumulate as a deferred backlog. Stale
  * rows from indexer.ts and other unguarded enqueue sites must short-circuit
  * here for the same reason `graph_extract` does below.
  *
- * Completing these as a no-op under v2 is safe: their live write paths keep
- * re-enqueuing them, so nothing is lost. The one-shot
+ * Completing these as a no-op in that state is safe: their live write paths
+ * keep re-enqueuing them, so nothing is lost. The one-shot
  * `sweep_orphaned_graph_node_points` cleanup is deliberately NOT in this set —
- * it has no re-enqueue, so `processJob` holds it pending under v2 (see
+ * it has no re-enqueue, so `processJob` holds it pending (see
  * {@link SweepPostponedUnderV2Error}) instead of losing it to a no-op
  * completion.
  */
@@ -120,22 +123,24 @@ const V1_QDRANT_JOB_TYPES = new Set<MemoryJobType>([
 /**
  * The one-shot cacheless graph-node sweep (migration 341) can only run against
  * the v1 Qdrant collection. Thrown from {@link processJob} when the job is
- * claimed while `memory.v2.enabled` is on, so {@link handleJobError} reschedules
- * it — keeping it pending with no attempt or deferral spent — until v1 is active
- * again, rather than completing it as a no-op and losing the cleanup on a later
- * v2→v1 rollback.
+ * claimed while concept-page memory is active, so {@link handleJobError}
+ * reschedules it — keeping it pending with no attempt or deferral spent —
+ * until v1 is active again, rather than completing it as a no-op and losing
+ * the cleanup on a later rollback to v1.
  */
 class SweepPostponedUnderV2Error extends Error {
   constructor() {
-    super("Cacheless graph-node sweep postponed while memory v2 is enabled");
+    super(
+      "Cacheless graph-node sweep postponed while concept-page memory is active",
+    );
     this.name = "SweepPostponedUnderV2Error";
   }
 }
 
 /**
- * Reschedule window for the postponed cacheless graph-node sweep under v2: long
- * enough that re-checking the flag costs only a trivial claim a few times a day,
- * short enough that a v2→v1 rollback runs the cleanup within the same day.
+ * Reschedule window for the postponed cacheless graph-node sweep: long enough
+ * that re-checking the gate costs only a trivial claim a few times a day,
+ * short enough that a rollback to v1 runs the cleanup within the same day.
  */
 const SWEEP_POSTPONE_UNDER_V2_MS = 6 * 60 * 60 * 1000;
 
@@ -629,7 +634,7 @@ async function processJob(
   job: MemoryJob,
   config: AssistantConfig,
 ): Promise<void> {
-  if (config.memory.v2.enabled) {
+  if (usesConceptPageMemory(config.memory)) {
     if (V1_QDRANT_JOB_TYPES.has(job.type)) {
       return;
     }
@@ -823,19 +828,19 @@ export const GRAPH_MAINTENANCE_CHECKPOINTS = {
 /**
  * Enqueue periodic graph maintenance jobs.
  *
- * Mutually exclusive between v1 and v2:
- *   - v2 active (`memory.v2.enabled` on) → only one buffer-drainer is
- *     scheduled (see below).
- *   - v2 inactive → the four v1 entries (decay, consolidate, pattern_scan,
+ * Mutually exclusive between v1 and concept-page memory:
+ *   - concept-page memory active ({@link usesConceptPageMemory}) → only one
+ *     buffer-drainer is scheduled (see below).
+ *   - inactive → the four v1 entries (decay, consolidate, pattern_scan,
  *     narrative) are scheduled instead.
  *
  * The `memory/buffer.md` is shared, so exactly one consolidator owns the drain
- * at a time. When v2 is active, the v2 consolidator (`memory_v2_consolidate`)
- * is the sole buffer-drainer.
+ * at a time. When concept-page memory is active, the concept-page consolidator
+ * (`memory_v2_consolidate`) is the sole buffer-drainer.
  *
- * Read/write paths route to v2 when the flag is on, so v1 graph data goes
- * unread; running v1 maintenance alongside v2 is wasted compute and LLM
- * spend. The v1 code path remains live so flipping the flag back to off
+ * Read/write paths route to concept pages when the gate is on, so v1 graph
+ * data goes unread; running v1 maintenance alongside it is wasted compute and
+ * LLM spend. The v1 code path remains live so disabling concept-page memory
  * fully re-engages v1.
  *
  * Uses durable checkpoints so intervals survive daemon restarts — jobs only
@@ -844,9 +849,10 @@ export const GRAPH_MAINTENANCE_CHECKPOINTS = {
  * live `graph_extract` trigger path (see `indexMessageNow` in `indexer.ts`)
  * so it runs on the same idle/message-count cadence.
  *
- * Independently of the v1/v2 split, a flag-gated `memory_v3_maintain` backstop
- * is appended when a v3 path is active so the topic tree self-heals even if the
- * primary post-consolidation follow-up enqueue is missed.
+ * Independently of the v1/concept-page split, a flag-gated
+ * `memory_v3_maintain` backstop is appended when a v3 path is active so the
+ * topic tree self-heals even if the primary post-consolidation follow-up
+ * enqueue is missed.
  */
 /**
  * Whether `hour` falls inside the PKB jobs' configured active window. A `null`
@@ -945,10 +951,10 @@ export function maybeEnqueueGraphMaintenanceJobs(
     return;
   }
 
-  const v2Active = config.memory.v2.enabled;
+  const conceptPagesActive = usesConceptPageMemory(config.memory);
 
-  // The single buffer-drainer entry for the v2-active branch. Referenced again
-  // below by the size-based trigger.
+  // The single buffer-drainer entry for the concept-page branch. Referenced
+  // again below by the size-based trigger.
   const consolidateEntry = {
     key: GRAPH_MAINTENANCE_CHECKPOINTS.memoryV2Consolidate,
     intervalMs: config.memory.v2.consolidation_interval_hours * 60 * 60 * 1000,
@@ -959,7 +965,7 @@ export function maybeEnqueueGraphMaintenanceJobs(
     key: string;
     intervalMs: number;
     jobType: MemoryJobType;
-  }> = v2Active
+  }> = conceptPagesActive
     ? [consolidateEntry]
     : [
         {
@@ -984,8 +990,8 @@ export function maybeEnqueueGraphMaintenanceJobs(
         },
       ];
 
-  // v3 self-maintenance backstop. Orthogonal to the v1/v2 mutual exclusion
-  // above: it owns its own checkpoint and operates on the v3 topic tree, so it
+  // v3 self-maintenance backstop. Orthogonal to the mutual exclusion above:
+  // it owns its own checkpoint and operates on the v3 topic tree, so it
   // runs under either branch. Gated on the same config that gates the v3 plugin
   // so it stays inert when v3 is off. The post-consolidation follow-up in
   // `consolidation-job.ts` remains the primary trigger; this interval only
@@ -1056,7 +1062,7 @@ export function maybeEnqueueGraphMaintenanceJobs(
   // backoff skip leaves the checkpoint alone.
   const maxLines = config.memory.v2.consolidation_max_buffer_lines;
   if (
-    v2Active &&
+    conceptPagesActive &&
     !enqueuedConsolidate &&
     maxLines !== null &&
     !hasActiveJobOfType(consolidateEntry.jobType)
@@ -1082,8 +1088,8 @@ export function maybeEnqueueGraphMaintenanceJobs(
   }
 
   // PKB filing/compaction — v1-only, like the v1 graph entries above (under
-  // v2 the consolidation job owns periodic background memory processing).
-  // Same durable-checkpoint pattern, with four PKB-specific gates:
+  // concept-page memory the consolidation job owns periodic background memory
+  // processing). Same durable-checkpoint pattern, with four PKB-specific gates:
   //  - no checkpoint yet (fresh workspace, or the first tick after an
   //    upgrade): seed it to now WITHOUT enqueuing, so the first run lands a
   //    full interval later instead of an LLM job firing at boot;
@@ -1095,7 +1101,7 @@ export function maybeEnqueueGraphMaintenanceJobs(
   //  - either PKB job already pending/running: skip WITHOUT advancing, so the
   //    next worker tick retries. Filing and compaction both rewrite the PKB
   //    tree, so at most one of the two is ever in the queue.
-  if (!v2Active) {
+  if (!conceptPagesActive) {
     const filingConfig = config.filing;
     const withinActiveHours = isWithinPkbActiveHours(
       new Date(nowMs).getHours(),

@@ -12,6 +12,7 @@
  * the underlying handler is honored.
  */
 
+import { usesConceptPageMemory } from "../../../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../../../config/types.js";
 import type { MemoryJob } from "../../../persistence/jobs-store.js";
 import type { JobHandlerEntry } from "../../types.js";
@@ -150,9 +151,9 @@ export const memoryJobHandlers: readonly JobHandlerEntry[] = [
   {
     type: "graph_extract",
     handler: async (job, config) => {
-      // Stale rows enqueued before v2 was enabled (or by any unguarded v1
-      // path) must not consume embedding/extraction budget when v2 is on.
-      if (config.memory.v2.enabled) {
+      // Stale rows enqueued by any unguarded v1 path must not consume
+      // embedding/extraction budget while concept-page memory is active.
+      if (usesConceptPageMemory(config.memory)) {
         return;
       }
       await graphExtractJob(job, config);

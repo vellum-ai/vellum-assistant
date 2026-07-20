@@ -18,6 +18,7 @@
 // matching the existing PKB auto-inject pattern.
 
 import type { ChannelId } from "../../../../channels/types.js";
+import { usesConceptPageMemory } from "../../../../config/memory-v3-gate.js";
 import { readPromptFile } from "../../../../prompts/system-prompt.js";
 import { getMemoryConfig } from "../config.js";
 import { getWorkspacePromptPath } from "../paths.js";
@@ -35,9 +36,9 @@ const MEMORY_V2_STATIC_BLOCKS: readonly MemoryV2StaticBlock[] = [
 ];
 
 /**
- * Build the v2 static memory block, gated on the memory config's `enabled`
- * and `v2.enabled`. Empty/missing files are skipped; returns `null` when
- * either gate is off or every file is empty.
+ * Build the static memory block, gated on concept-page memory being active
+ * ({@link usesConceptPageMemory}). Empty/missing files are skipped; returns
+ * `null` when the gate is off or every file is empty.
  *
  * `excludeBuffer` drops the `## Buffer` section. The consolidation run sets
  * it: the agent's contract there is the `memory/buffer.md` FILE — it reads,
@@ -50,7 +51,7 @@ export function readMemoryV2StaticContent(
   options: { excludeBuffer?: boolean } = {},
 ): string | null {
   const memoryConfig = getMemoryConfig();
-  if (memoryConfig.enabled === false || !memoryConfig.v2.enabled) {
+  if (!usesConceptPageMemory(memoryConfig)) {
     return null;
   }
 

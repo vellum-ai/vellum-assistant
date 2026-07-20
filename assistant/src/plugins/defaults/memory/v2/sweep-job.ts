@@ -13,10 +13,10 @@
  * extraction-trigger path. Until then this handler is invoked only by
  * `memory_v2_sweep` rows enqueued explicitly (tests, future CLI).
  *
- * Skipped entirely when `config.memory.v2.enabled` is false, or when
+ * Skipped entirely when concept-page memory is not active, or when
  * `config.memory.v2.sweep_enabled` is false — keeps the sweep dormant in
- * v1-only workspaces and in v2 workspaces that haven't opted in, even if a
- * stale row sits in the queue when v2 is disabled.
+ * v1-only workspaces and in concept-page workspaces that haven't opted in,
+ * even if a stale row sits in the queue when the gate is off.
  */
 
 import { readFileSync } from "node:fs";
@@ -31,6 +31,7 @@ import {
 import { and, desc, eq, gt, notInArray } from "drizzle-orm";
 import { z } from "zod";
 
+import { usesConceptPageMemory } from "../../../../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../../../../config/types.js";
 import { emitNotificationSignal } from "../../../../notifications/emit-signal.js";
 import { getDb } from "../../../../persistence/db-connection.js";
@@ -114,8 +115,8 @@ export async function memoryV2SweepJob(
   job: MemoryJob,
   config: AssistantConfig,
 ): Promise<number> {
-  if (!config.memory?.v2?.enabled) {
-    log.debug("memory.v2.enabled is false; sweep skipped");
+  if (!usesConceptPageMemory(config.memory)) {
+    log.debug("concept-page memory is not active; sweep skipped");
     return 0;
   }
 

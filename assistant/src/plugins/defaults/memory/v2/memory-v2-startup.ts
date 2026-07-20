@@ -7,6 +7,7 @@
 // capability reseed, from the secrets route). Lives in its own file so the unit
 // test for the gate does not have to mount the entire lifecycle import graph.
 
+import { usesConceptPageMemory } from "../../../../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../../../../config/schema.js";
 import { getLogger } from "../logging.js";
 import { getWorkspaceDir } from "../paths.js";
@@ -22,7 +23,7 @@ const log = getLogger("memory-v2-startup");
  * `assistant/CLAUDE.md` daemon startup philosophy).
  */
 export function maybeSeedMemoryV2Skills(config: AssistantConfig): void {
-  if (!config.memory.v2.enabled) return;
+  if (!usesConceptPageMemory(config.memory)) return;
   void import("./skill-store.js")
     .then(({ seedV2SkillEntries }) => seedV2SkillEntries())
     .catch((err) => log.warn({ err }, "Failed to seed v2 skill entries"));
@@ -43,7 +44,7 @@ export function maybeSeedMemoryV2Skills(config: AssistantConfig): void {
  * startup graph when the gate is off. Never awaits — startup must not block.
  */
 export function maybeSeedMemoryV2CliCommands(config: AssistantConfig): void {
-  if (!config.memory.v2.enabled) return;
+  if (!usesConceptPageMemory(config.memory)) return;
   void import("./cli-command-store.js")
     .then(({ seedV2CliCommandEntries }) => seedV2CliCommandEntries())
     .catch((err) => log.warn({ err }, "Failed to seed v2 CLI-command entries"));
@@ -131,7 +132,7 @@ export async function maybeReseedCapabilitiesAfterManagedCredential(
   config: AssistantConfig,
   opts: { reseedTimeoutMs?: number } = {},
 ): Promise<void> {
-  if (!config.memory.v2.enabled) return;
+  if (!usesConceptPageMemory(config.memory)) return;
 
   const { hasManagedProxyPrereqs } =
     await import("../../../../providers/platform-proxy/context.js");
@@ -259,7 +260,7 @@ export async function maybeReseedCapabilitiesAfterManagedCredential(
 export async function rebuildBm25CorpusStatsAndReseedSkills(
   config: AssistantConfig,
 ): Promise<void> {
-  if (!config.memory.v2.enabled) return;
+  if (!usesConceptPageMemory(config.memory)) return;
 
   try {
     const { rebuildConceptPageCorpusStats } = await import("./sparse-bm25.js");
@@ -325,7 +326,7 @@ export async function rebuildBm25CorpusStatsAndReseedSkills(
 export async function maybeRebuildMemoryV2Concepts(
   config: AssistantConfig,
 ): Promise<void> {
-  if (!config.memory.v2.enabled) return;
+  if (!usesConceptPageMemory(config.memory)) return;
 
   try {
     const {
