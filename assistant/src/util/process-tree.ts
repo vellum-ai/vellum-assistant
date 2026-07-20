@@ -16,11 +16,14 @@ import { promisify } from "node:util";
 const execFileAsync = promisify(execFile);
 
 /**
- * Whether a process runs plugin-owned code (`plugin`) or is the daemon itself
- * / one of its workspace subsystems (`workspace`). Classified at collection
- * time from the raw command line via {@link deriveOrigin}.
+ * Whether a process runs plugin-owned code or is the daemon itself / one of its
+ * workspace subsystems. Classified at collection time from the raw command line
+ * via {@link deriveOrigin}. Plugin processes carry their plugin identity as
+ * `plugin:<name>` — bundled defaults read as `plugin:default-<name>` (e.g.
+ * `plugin:default-memory`), user plugins as `plugin:<name>` (e.g.
+ * `plugin:cognee`).
  */
-export type ProcessOrigin = "plugin" | "workspace";
+export type ProcessOrigin = "workspace" | `plugin:${string}`;
 
 export interface ProcInfo {
   pid: number;
@@ -113,25 +116,38 @@ export function deriveName(command: string): string {
 }
 
 /**
- * Marks a command whose executable/script path lives under a `plugins/<name>/`
- * directory. Matches both user plugins (`<workspaceDir>/plugins/<name>/`) and
- * bundled defaults (`.../plugins/defaults/<name>/`). The `plugins-data/` state
- * directory is deliberately not matched — the trailing slash after `plugins`
- * excludes it.
+ * Captures the plugin path segment(s) from a command whose executable/script
+ * path lives under a `plugins/<name>/` directory. Group 1 is the first segment
+ * after `plugins/`; group 2 is the next segment (present for bundled defaults,
+ * where the layout is `plugins/defaults/<name>/`). Matches both user plugins
+ * (`<workspaceDir>/plugins/<name>/`) and bundled defaults
+ * (`.../plugins/defaults/<name>/`). The `plugins-data/` state directory is
+ * deliberately not matched — the slash after `plugins` excludes it.
  */
-const PLUGIN_PATH_RE = /(?:^|\/)plugins\/[^/\s]+/;
+const PLUGIN_PATH_RE = /(?:^|\/)plugins\/([^/\s]+)(?:\/([^/\s]+))?/;
 
 /**
- * Classify whether a raw command line belongs to plugin-owned code. A process
- * spawned from a plugin runs an entry script that lives under a
- * `plugins/<name>/` directory (e.g. the memory worker at
- * `…/plugins/defaults/memory/worker.ts`); the daemon itself and its workspace
- * subsystems (qdrant, the embed worker, the resource monitor) do not. This is
- * a best-effort heuristic on the command path — a plugin that shells out to a
- * bare binary with no plugin path in its argv reads as `workspace`.
+ * Classify whether a raw command line belongs to plugin-owned code, and if so
+ * which plugin. A process spawned from a plugin runs an entry script that lives
+ * under a `plugins/<name>/` directory; the daemon itself and its workspace
+ * subsystems (qdrant, the embed worker, the resource monitor) do not.
+ *
+ * Plugin identity is folded into the origin:
+ *   - bundled defaults at `…/plugins/defaults/memory/worker.ts` → `plugin:default-memory`
+ *   - user plugins at `…/plugins/cognee/server.ts`             → `plugin:cognee`
+ *
+ * This is a best-effort heuristic on the command path — a plugin that shells
+ * out to a bare binary with no plugin path in its argv reads as `workspace`.
  */
 export function deriveOrigin(command: string): ProcessOrigin {
-  return PLUGIN_PATH_RE.test(command) ? "plugin" : "workspace";
+  const m = PLUGIN_PATH_RE.exec(command);
+  if (!m) {
+    return "workspace";
+  }
+  const [, first, second] = m;
+  // Bundled defaults nest the plugin name one level deeper under `defaults/`.
+  const name = first === "defaults" && second ? `default-${second}` : first;
+  return `plugin:${name}`;
 }
 
 /**
