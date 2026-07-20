@@ -8,12 +8,18 @@ import {
 } from "./constants";
 import type { ConceptNodeKind } from "./types";
 
+/** Cap the theme list so a big graph's legend stays compact. */
+const MAX_THEMES = 8;
+
 interface ConceptGraphLegendProps {
   /** Node kinds actually present in the graph, in display order. */
   nodeKinds: ConceptNodeKind[];
   /** When true (concept-only graph), nodes are colored by cluster/theme, so a
-   * lone kind swatch would be meaningless — show a caption instead. */
+   * lone kind swatch would be meaningless — show the theme list instead. */
   coloredByTheme?: boolean;
+  /** Named themes (hub concept + cluster color), largest first. When present
+   * with `coloredByTheme`, the legend lists them so color maps to a theme. */
+  themes?: readonly { color: string; name: string }[];
   hasLinks: boolean;
   hasLearned: boolean;
   /** When provided (both edge kinds present), the Link / Learned rows become
@@ -29,6 +35,7 @@ interface ConceptGraphLegendProps {
 export function ConceptGraphLegend({
   nodeKinds,
   coloredByTheme,
+  themes,
   hasLinks,
   hasLearned,
   onToggleLink,
@@ -59,11 +66,41 @@ export function ConceptGraphLegend({
           </span>
         </div>
       ))}
-      {coloredByTheme && (
-        <span className="text-[11px]" style={{ color: "var(--content-tertiary)" }}>
-          Colored by theme
-        </span>
-      )}
+      {coloredByTheme &&
+        (themes && themes.length > 0 ? (
+          <>
+            {themes.slice(0, MAX_THEMES).map((theme, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <span
+                  className="inline-block h-2.5 w-2.5 shrink-0 rounded-full"
+                  style={{ backgroundColor: theme.color }}
+                />
+                <span
+                  className="max-w-[9rem] truncate text-[11px]"
+                  style={{ color: "var(--content-tertiary)" }}
+                  title={theme.name}
+                >
+                  {theme.name}
+                </span>
+              </div>
+            ))}
+            {themes.length > MAX_THEMES && (
+              <span
+                className="text-[11px]"
+                style={{ color: "var(--content-tertiary)" }}
+              >
+                +{themes.length - MAX_THEMES} more
+              </span>
+            )}
+          </>
+        ) : (
+          <span
+            className="text-[11px]"
+            style={{ color: "var(--content-tertiary)" }}
+          >
+            Colored by theme
+          </span>
+        ))}
       {(nodeKinds.length > 0 || coloredByTheme) && (hasLinks || hasLearned) && (
         <div
           className="mt-0.5 border-t pt-1.5"

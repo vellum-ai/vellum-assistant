@@ -202,13 +202,15 @@ export function ConceptGraphView({
   // force-labels these ids so a theme always reads with at least one word.
   // Disconnected nodes (degree 0) each form their own singleton cluster; they're
   // not themes, so skipping them keeps orphans from turning into label soup.
-  const clusterHubs = useMemo(() => {
+  const themes = useMemo(() => {
     const bestByCluster = new Map<number, GraphLayoutNode>();
+    const sizeByCluster = new Map<number, number>();
     for (const node of layout.nodes) {
       const cluster = clusters.get(node.id);
       if (cluster == null || node.degree === 0) {
         continue;
       }
+      sizeByCluster.set(cluster, (sizeByCluster.get(cluster) ?? 0) + 1);
       const current = bestByCluster.get(cluster);
       if (
         !current ||
@@ -218,12 +220,23 @@ export function ConceptGraphView({
         bestByCluster.set(cluster, node);
       }
     }
-    const hubIds = new Set<string>();
-    for (const node of bestByCluster.values()) {
-      hubIds.add(node.id);
-    }
-    return hubIds;
+    // Largest themes first; each named by its hub concept and colored to match
+    // the cluster palette, so the legend can map color → theme.
+    return [...bestByCluster.entries()]
+      .map(([cluster, hub]) => ({
+        hubId: hub.id,
+        color: CLUSTER_PALETTE[cluster % CLUSTER_PALETTE.length],
+        name: hub.label,
+        size: sizeByCluster.get(cluster) ?? 0,
+      }))
+      .sort((a, b) => b.size - a.size);
   }, [clusters, layout.nodes]);
+
+  // Hub node ids the render loop force-labels (one per theme).
+  const clusterHubs = useMemo(
+    () => new Set(themes.map((t) => t.hubId)),
+    [themes],
+  );
 
   // Neighbor adjacency for hover highlighting.
   const adjacency = useMemo(() => {
@@ -1316,6 +1329,7 @@ export function ConceptGraphView({
         <ConceptGraphLegend
           nodeKinds={presentKinds.filter((k) => k !== "concept")}
           coloredByTheme={presentKinds.includes("concept")}
+          themes={themes}
           hasLinks={hasLinks}
           hasLearned={hasLearned}
           {...(hasLinks && hasLearned
