@@ -17,7 +17,7 @@ function baseInput(
     initialActuals: { machineSize: "small", storageGib: 10 },
     resizeOperationInFlight: false,
     sawOperation: false,
-    msSinceProConfirmed: 1000,
+    msSinceWatchStart: 1000,
     confirmExpired: false,
     serverVerdict: null,
     ...overrides,
@@ -70,7 +70,7 @@ describe("deriveProvisioningState — WAITING", () => {
   test("past the grace window → still WAITING but softWaiting", () => {
     expect(
       deriveProvisioningState(
-        baseInput({ msSinceProConfirmed: PROVISION_WAIT_GRACE_MS }),
+        baseInput({ msSinceWatchStart: PROVISION_WAIT_GRACE_MS }),
       ),
     ).toEqual({ state: "WAITING", softWaiting: true });
   });
@@ -206,7 +206,7 @@ describe("deriveProvisioningState — STALLED", () => {
   test("WAITING past the stall threshold → STALLED", () => {
     expect(
       deriveProvisioningState(
-        baseInput({ msSinceProConfirmed: PROVISION_STALL_MS }),
+        baseInput({ msSinceWatchStart: PROVISION_STALL_MS }),
       ),
     ).toEqual({ state: "STALLED", softWaiting: false });
   });
@@ -216,7 +216,7 @@ describe("deriveProvisioningState — STALLED", () => {
       deriveProvisioningState(
         baseInput({
           resizeOperationInFlight: true,
-          msSinceProConfirmed: PROVISION_STALL_MS,
+          msSinceWatchStart: PROVISION_STALL_MS,
         }),
       ).state,
     ).toBe("STALLED");
@@ -225,9 +225,19 @@ describe("deriveProvisioningState — STALLED", () => {
   test("just under the stall threshold stays WAITING", () => {
     expect(
       deriveProvisioningState(
-        baseInput({ msSinceProConfirmed: PROVISION_STALL_MS - 1 }),
+        baseInput({ msSinceWatchStart: PROVISION_STALL_MS - 1 }),
       ).state,
     ).toBe("WAITING");
+  });
+
+  test("re-based watch clock with a seen operation leaves STALLED for RESIZING", () => {
+    // The manual-apply resume path: the hook re-bases msSinceWatchStart to the
+    // resume instant and latches sawOperation.
+    expect(
+      deriveProvisioningState(
+        baseInput({ sawOperation: true, msSinceWatchStart: 0 }),
+      ),
+    ).toEqual({ state: "RESIZING", softWaiting: false });
   });
 });
 

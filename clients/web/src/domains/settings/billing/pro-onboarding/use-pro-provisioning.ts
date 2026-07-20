@@ -9,8 +9,9 @@
  *
  * While WAITING/RESIZING the assistant pod is restarting, so errors from the
  * assistant endpoints are expected — the hook keeps last-known data and never
- * surfaces them. Only a CONFIRMING-phase subscription error maps to
- * `confirmError`.
+ * surfaces them. Platform-side fetches are different: a CONFIRMING-phase
+ * subscription error maps to `confirmError`, and a post-confirm onboarding
+ * fetch failure with no cached data maps to `targetsError`.
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -80,10 +81,18 @@ export interface ProProvisioningResult {
   actualsSnapshot: ProvisioningDimensions | null;
   /** The CONFIRMING-phase subscription fetch failed. */
   confirmError: boolean;
+  /** The post-confirm onboarding fetch failed with no cached data. */
+  targetsError: boolean;
   /** The CONFIRMING-phase poll timed out without observing plan_id "pro". */
   confirmExpired: boolean;
   /** Reset the confirm timeout and re-poll the subscription. */
   retryConfirm: () => void;
+  /**
+   * Resume observation after a manual STALLED-state resize succeeds: latches
+   * the operation as seen (back to RESIZING) and re-bases the stall clock so
+   * polling and the stall timeout start over.
+   */
+  resumeAfterManualApply: () => void;
 }
 
 export function useProProvisioning({
@@ -94,6 +103,8 @@ export function useProProvisioning({
   const [confirmExpired, setConfirmExpired] = useState(false);
   const [confirmGeneration, setConfirmGeneration] = useState(0);
   const [proConfirmedAt, setProConfirmedAt] = useState<number | null>(null);
+  // Stall-clock re-base set by resumeAfterManualApply; proConfirmedAt otherwise.
+  const [resumedAt, setResumedAt] = useState<number | null>(null);
   const [sawOperation, setSawOperation] = useState(false);
   const [actualsSnapshot, setActualsSnapshot] =
     useState<ProvisioningDimensions | null>(null);
@@ -110,6 +121,7 @@ export function useProProvisioning({
     setConfirmExpired(false);
     setConfirmGeneration(0);
     setProConfirmedAt(null);
+    setResumedAt(null);
     setSawOperation(false);
     setActualsSnapshot(null);
     setTracking(true);
@@ -162,6 +174,13 @@ export function useProProvisioning({
       queryKey: organizationsBillingSubscriptionRetrieveQueryKey(),
     });
   }, [queryClient]);
+
+  const resumeAfterManualApply = useCallback(() => {
+    const t = Date.now();
+    setSawOperation(true);
+    setResumedAt(t);
+    setNow(t);
+  }, []);
 
   const onboardingQuery = useQuery({
     ...organizationsBillingSubscriptionOnboardingRetrieveOptions(),
@@ -222,6 +241,7 @@ export function useProProvisioning({
     setActualsSnapshot((prev) => prev ?? actuals);
   }, [open, actuals]);
 
+  const watchStartedAt = resumedAt ?? proConfirmedAt;
   const { state, softWaiting } = deriveProvisioningState({
     planId: proConfirmed ? "pro" : observedPlanId,
     targets,
@@ -229,8 +249,8 @@ export function useProProvisioning({
     initialActuals: actualsSnapshot,
     resizeOperationInFlight,
     sawOperation,
-    msSinceProConfirmed:
-      proConfirmedAt == null ? null : Math.max(0, now - proConfirmedAt),
+    msSinceWatchStart:
+      watchStartedAt == null ? null : Math.max(0, now - watchStartedAt),
     confirmExpired,
     serverVerdict,
   });
@@ -254,7 +274,12 @@ export function useProProvisioning({
     targets,
     actualsSnapshot,
     confirmError: !proConfirmed && subscriptionQuery.isError,
+    // The onboarding endpoint is platform-side (not the restarting assistant
+    // machine), so its failure is surfaced — but only when there's no cached
+    // data to keep driving the flow.
+    targetsError: proConfirmed && onboardingQuery.isError && !onboarding,
     confirmExpired,
     retryConfirm,
+    resumeAfterManualApply,
   };
 }

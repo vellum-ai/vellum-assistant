@@ -7,9 +7,9 @@
  * instead of waiting out real refetch intervals.
  */
 
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { useEffect } from "react";
-import { cleanup, render, waitFor } from "@testing-library/react";
+import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import * as sdkGen from "@/generated/api/sdk.gen";
@@ -20,6 +20,12 @@ import type {
   SubscriptionResponse,
 } from "@/generated/api/types.gen";
 import type { ProProvisioningResult } from "./use-pro-provisioning";
+
+// Stall detection compares wall-clock time against the 90s threshold; the
+// stall tests jump this offset instead of waiting it out.
+const realDateNow = Date.now.bind(Date);
+let dateNowOffsetMs = 0;
+Date.now = () => realDateNow() + dateNowOffsetMs;
 
 function makeSubscription(
   planId: SubscriptionResponse["plan_id"],
@@ -77,6 +83,7 @@ let onboardingResponse = makeOnboarding();
 let assistantResponse = makeAssistant("small", 10);
 let operationalStatusResponse = makeOperationalStatus("active");
 let assistantEndpointsFail = false;
+let onboardingFails = false;
 let assistantCalls = 0;
 let operationalStatusCalls = 0;
 let subscriptionCalls = 0;
@@ -91,7 +98,9 @@ mock.module("@/generated/api/sdk.gen", () => ({
     });
   },
   organizationsBillingSubscriptionOnboardingRetrieve: () =>
-    Promise.resolve({ data: onboardingResponse, response: { ok: true } }),
+    onboardingFails
+      ? Promise.reject(new Error("500 Internal Server Error"))
+      : Promise.resolve({ data: onboardingResponse, response: { ok: true } }),
   assistantsActiveRetrieve: () => {
     assistantCalls += 1;
     if (assistantEndpointsFail) {
@@ -162,14 +171,20 @@ beforeEach(() => {
   assistantResponse = makeAssistant("small", 10);
   operationalStatusResponse = makeOperationalStatus("active");
   assistantEndpointsFail = false;
+  onboardingFails = false;
   assistantCalls = 0;
   operationalStatusCalls = 0;
   subscriptionCalls = 0;
+  dateNowOffsetMs = 0;
   latest = null;
 });
 
 afterEach(() => {
   cleanup();
+});
+
+afterAll(() => {
+  Date.now = realDateNow;
 });
 
 describe("useProProvisioning", () => {
@@ -271,5 +286,68 @@ describe("useProProvisioning", () => {
     expect(operationalStatusCalls).toBe(settledStatusCalls);
     expect(subscriptionCalls).toBe(settledSubscriptionCalls);
     expect(latest!.state).toBe("DONE");
+  });
+
+  test(
+    "resumeAfterManualApply leaves STALLED for RESIZING, restarts polling, and can reach DONE",
+    async () => {
+      const client = renderProbe();
+      await reachResizing(client);
+
+      // Jump the wall clock past the stall threshold; the next 1s clock tick
+      // re-derives the state as STALLED.
+      dateNowOffsetMs = 200_000;
+      await waitFor(() => expect(latest!.state).toBe("STALLED"), {
+        timeout: 5000,
+      });
+
+      // STALLED is terminal: let in-flight refetches drain, then confirm the
+      // actuals polls stopped.
+      await new Promise((resolve) => setTimeout(resolve, 1100));
+      const stalledAssistantCalls = assistantCalls;
+      await new Promise((resolve) => setTimeout(resolve, 2600));
+      expect(assistantCalls).toBe(stalledAssistantCalls);
+
+      act(() => latest!.resumeAfterManualApply());
+      await waitFor(() => expect(latest!.state).toBe("RESIZING"));
+
+      // Polling resumes on its own — no cache invalidation here.
+      await waitFor(
+        () => expect(assistantCalls).toBeGreaterThan(stalledAssistantCalls),
+        { timeout: 5000 },
+      );
+
+      assistantResponse = makeAssistant("large", 50);
+      await refetchAll(client);
+      await waitFor(() => expect(latest!.state).toBe("DONE"), {
+        timeout: 5000,
+      });
+    },
+    20_000,
+  );
+
+  test("onboarding fetch failure after confirm sets targetsError", async () => {
+    subscriptionPlanId = "pro";
+    onboardingFails = true;
+    renderProbe();
+
+    await waitFor(() => expect(latest!.targetsError).toBe(true), {
+      timeout: 5000,
+    });
+    expect(latest!.confirmError).toBe(false);
+    expect(latest!.targets).toBeNull();
+  });
+
+  test("onboarding refetch failure with cached targets does not set targetsError", async () => {
+    const client = renderProbe();
+    await reachResizing(client);
+
+    onboardingFails = true;
+    await refetchAll(client);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    expect(latest!.targetsError).toBe(false);
+    expect(latest!.targets).toEqual({ machineSize: "large", storageGib: 50 });
+    expect(latest!.state).toBe("RESIZING");
   });
 });

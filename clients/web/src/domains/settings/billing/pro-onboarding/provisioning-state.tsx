@@ -1,57 +1,30 @@
 import { AlertCircle, Check, Cpu, HardDrive, PartyPopper } from "lucide-react";
 import { useEffect, useRef } from "react";
 
-import type {
-    CreditTierEnum,
-    MachineSizeEnum,
-    MachineTierEnum,
-    StorageTierEnum,
-} from "@/generated/api/types.gen";
+import type { MachineTierEnum } from "@/generated/api/types.gen";
+import type { CheckoutIntent } from "@/lib/billing/checkout-intent";
 import { SIZE_DESCRIPTION, SIZE_LABEL } from "@/lib/billing/machine-sizes";
 import { Button } from "@vellumai/design-library/components/button";
 import { Notice } from "@vellumai/design-library/components/notice";
 import { Typography } from "@vellumai/design-library/components/typography";
 
+import type {
+    ProvisioningDimensions,
+    ProvisioningStateKind,
+} from "./provisioning-machine";
 import { TimeoutState } from "./error-states";
 import { GlowSpinner, IconBadge, ResourceCard } from "./primitives";
-import { extractOnboardingErrorMessage } from "./utils";
-
-/** Minimum time the celebration beat stays on screen before advancing. */
-const PROVISION_MIN_DWELL_MS = 2_500;
-
-export type ProvisioningStateKind =
-  | "confirming"
-  | "waiting"
-  | "resizing"
-  | "done"
-  | "not_applicable"
-  | "stalled"
-  | "confirm_timeout";
-
-/** The checkout selection stashed before the Stripe redirect. */
-export type ProvisioningCheckoutIntent =
-  | { kind: "package"; packageKey: string }
-  | {
-      kind: "custom";
-      machineTier: MachineTierEnum;
-      storageTier: StorageTierEnum;
-      creditTier: CreditTierEnum | null;
-    };
-
-/** Machine/storage dimensions; a null dimension means "not changing". */
-export interface ProvisioningResources {
-  machineSize: MachineSizeEnum | null;
-  storageGib: number | null;
-}
+import { extractOnboardingErrorMessage, PROVISION_MIN_DWELL_MS } from "./utils";
 
 export interface ProvisioningStateProps {
   state: ProvisioningStateKind;
   /** Softens the waiting sub-copy once the grace period has elapsed. */
   softWaiting: boolean;
-  intent: ProvisioningCheckoutIntent | null;
-  targets: ProvisioningResources;
+  /** The checkout selection stashed before the Stripe redirect. */
+  intent: CheckoutIntent | null;
+  targets: ProvisioningDimensions;
   /** Pre-resize actuals rendered as the "from" side of the resource cards. */
-  fromSnapshot: ProvisioningResources;
+  fromSnapshot: ProvisioningDimensions;
   celebrating: boolean;
   onCelebrationEnd: () => void;
   escapeAvailable: boolean;
@@ -68,23 +41,26 @@ const MACHINE_TIER_LABEL: Record<MachineTierEnum, string> = {
   xl: "XL",
 };
 
-function intentChipLabels(intent: ProvisioningCheckoutIntent): string[] {
+function intentChipLabels(intent: CheckoutIntent): string[] {
   if (intent.kind === "package") {
     const name =
       intent.packageKey.charAt(0).toUpperCase() + intent.packageKey.slice(1);
     return [`${name} package`];
   }
-  const labels = [
-    `${MACHINE_TIER_LABEL[intent.machineTier]} machine`,
-    `${intent.storageTier.toUpperCase()} storage`,
-  ];
+  const labels: string[] = [];
+  if (intent.machineTier != null) {
+    labels.push(`${MACHINE_TIER_LABEL[intent.machineTier]} machine`);
+  }
+  if (intent.storageTier != null) {
+    labels.push(`${intent.storageTier.toUpperCase()} storage`);
+  }
   if (intent.creditTier != null) {
     labels.push(`${intent.creditTier.replace("credits_", "")} credits`);
   }
   return labels;
 }
 
-function IntentChips({ intent }: { intent: ProvisioningCheckoutIntent }) {
+function IntentChips({ intent }: { intent: CheckoutIntent }) {
   return (
     <div className="flex flex-wrap items-center justify-center gap-1.5">
       {intentChipLabels(intent).map((label) => (
@@ -103,8 +79,8 @@ function ResourceCardList({
   targets,
   fromSnapshot,
 }: {
-  targets: ProvisioningResources;
-  fromSnapshot: ProvisioningResources;
+  targets: ProvisioningDimensions;
+  fromSnapshot: ProvisioningDimensions;
 }) {
   return (
     <div className="flex w-full flex-col gap-2">
@@ -181,7 +157,7 @@ export function ProvisioningState({
   }, [onCelebrationEnd]);
 
   const dwelling =
-    celebrating && (state === "done" || state === "not_applicable");
+    celebrating && (state === "DONE" || state === "NOT_APPLICABLE");
   useEffect(() => {
     if (!dwelling) {
       return;
@@ -191,8 +167,8 @@ export function ProvisioningState({
   }, [dwelling, dwellMs]);
 
   if (
-    state === "confirm_timeout" ||
-    (state === "confirming" && confirm.expired)
+    state === "CONFIRM_TIMEOUT" ||
+    (state === "CONFIRMING" && confirm.expired)
   ) {
     return (
       <TimeoutState
@@ -222,7 +198,7 @@ export function ProvisioningState({
   );
 
   function renderPhase() {
-    if (state === "confirming") {
+    if (state === "CONFIRMING") {
       return (
         <>
           <GlowSpinner />
@@ -239,13 +215,13 @@ export function ProvisioningState({
       );
     }
 
-    if (state === "waiting" || state === "resizing") {
+    if (state === "WAITING" || state === "RESIZING") {
       return (
         <>
           <GlowSpinner />
           <Headline
             title={
-              state === "resizing"
+              state === "RESIZING"
                 ? "Resizing your assistant…"
                 : "Setting up your new resources…"
             }
@@ -264,7 +240,7 @@ export function ProvisioningState({
       );
     }
 
-    if (state === "done") {
+    if (state === "DONE") {
       return (
         <>
           <div style={{ animation: "welcome-reveal 600ms ease-out both" }}>
@@ -280,7 +256,7 @@ export function ProvisioningState({
       );
     }
 
-    if (state === "not_applicable") {
+    if (state === "NOT_APPLICABLE") {
       return (
         <>
           <div style={{ animation: "welcome-reveal 600ms ease-out both" }}>
@@ -296,7 +272,7 @@ export function ProvisioningState({
       );
     }
 
-    if (state === "stalled") {
+    if (state === "STALLED") {
       return (
         <>
           <IconBadge icon={AlertCircle} tone="warning" />
