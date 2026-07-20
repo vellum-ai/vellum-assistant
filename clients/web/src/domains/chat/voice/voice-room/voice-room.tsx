@@ -343,7 +343,7 @@ function VoiceRoomOverlay() {
             type="button"
             onClick={endLiveVoiceSession}
             aria-label="Exit voice session"
-            className={ROOM_CONTROL_CLASS}
+            className={cn(ROOM_CONTROL_CLASS, "size-12")}
           >
             <X className="size-5" />
           </button>
