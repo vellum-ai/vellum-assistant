@@ -90,7 +90,7 @@ export function VoiceAmbientTranscript() {
       {railVisible ? (
         <motion.div
           key="rail"
-          className="pointer-events-none absolute right-0 top-0 bottom-0 z-0 flex w-[min(30rem,42vw)] flex-col justify-end gap-3 overflow-hidden pl-4 pt-20 pb-28"
+          className="pointer-events-none absolute right-0 top-0 bottom-0 z-10 flex w-[min(30rem,42vw)] flex-col justify-end gap-3 overflow-hidden pl-4 pt-20 pb-28"
           style={{
             paddingRight: railRightPad,
             maskImage: fadeMask,
