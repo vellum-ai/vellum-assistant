@@ -291,8 +291,9 @@ export function ConceptGraphView({
   // explains why two concepts connect. Node hover always wins (onPointerMove).
   const [edgeLabel, setEdgeLabel] = useState<string | null>(null);
   // Navigable trail of opened concepts: each open pushes onto the stack, and the
-  // top (`trail.at(-1)`) is the concept the detail drawer shows. `back()` pops;
-  // emptying the trail returns to the overview (drawer closed).
+  // top (`trail.at(-1)`) is the concept the detail drawer shows. Crumbs pop back
+  // to a level; dismiss empties the trail, returning to the overview (drawer
+  // closed).
   const [trail, setTrail] = useState<ConceptDetailNode[]>([]);
   const openNode = trail.at(-1) ?? null;
   // Opening a concept into the detail drawer (canvas click or search result)
@@ -459,25 +460,26 @@ export function ConceptGraphView({
     [openNodeDetail, focusOn],
   );
 
-  // Step back through the trail: pop the current concept and re-center the new
-  // top; emptying the trail clears the selection and returns to the overview.
-  const back = useCallback(() => {
-    const next = trail.slice(0, -1);
-    setTrail(next);
-    const top = next.at(-1);
-    if (top) {
-      focusOn(top.id);
-    } else {
-      setFocusLabel(null);
-    }
-  }, [trail, focusOn]);
+  // Fully dismiss the detail drawer back to the overview: empty the trail
+  // (closing the drawer), clear any active search (the box hides behind the
+  // drawer, so a stale search would ghost the map after close), and drop the
+  // focus label. Wired to the panel's X / Escape / backdrop so any of those
+  // closes the whole drawer from any trail depth — not just one level.
+  const dismiss = useCallback(() => {
+    setTrail([]);
+    setSearch("");
+    setFocusLabel(null);
+  }, []);
 
-  // Jump to a breadcrumb: truncate the trail to `index` (keep 0..index) and
-  // re-center on that concept — mirrors back()'s trail-truncation + focus ease.
-  // Unlike back() this keeps the panel open (index stays >= 0 for a real crumb),
-  // so crumb clicks rewind the multi-level trail without closing the drawer.
+  // Jump to a breadcrumb (the ‹ back control and crumb clicks): truncate the
+  // trail to `index` (keep 0..index) and re-center on that concept. A real crumb
+  // index is always >= 0, so the panel stays open — crumb clicks rewind the
+  // multi-level trail without closing the drawer. Clears any active search first:
+  // the box is hidden behind the open drawer, so a stale search would leave a
+  // traveled-to non-match node centered but ghosted with no way to clear it.
   const goToCrumb = useCallback(
     (index: number) => {
+      setSearch("");
       const next = trail.slice(0, index + 1);
       setTrail(next);
       const top = next.at(-1);
@@ -490,24 +492,18 @@ export function ConceptGraphView({
     [trail, focusOn],
   );
 
-  // In-panel navigation (WIRED-TO neighbors, breadcrumbs) clears any active
-  // search first: the search box is hidden behind the open drawer, so a stale
-  // search would leave a traveled-to non-match node centered but ghosted with
-  // no way to clear it. Canvas + search-result travel keep the box visible, so
-  // they intentionally don't clear it.
+  // WIRED-TO travel from the panel clears any active search first: the search
+  // box is hidden behind the open drawer, so a stale search would leave a
+  // traveled-to non-match node centered but ghosted with no way to clear it.
+  // Canvas + search-result travel keep the box visible, so they intentionally
+  // don't clear it (that's plain travelTo). Breadcrumb navigation clears the
+  // search too, but does so inside goToCrumb itself.
   const travelFromPanel = useCallback(
     (node: ConceptDetailNode) => {
       setSearch("");
       travelTo(node);
     },
     [travelTo],
-  );
-  const crumbFromPanel = useCallback(
-    (index: number) => {
-      setSearch("");
-      goToCrumb(index);
-    },
-    [goToCrumb],
   );
 
   // Direct neighbors of the open concept, resolved to { id, label, kind } for the
@@ -1428,8 +1424,8 @@ export function ConceptGraphView({
           trail={trail}
           neighbors={neighbors}
           onTravel={travelFromPanel}
-          onCrumb={crumbFromPanel}
-          onClose={back}
+          onCrumb={goToCrumb}
+          onClose={dismiss}
           onOpenThread={onOpenThread}
         />
       ) : null}
