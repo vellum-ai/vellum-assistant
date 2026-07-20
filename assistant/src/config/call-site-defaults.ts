@@ -8,6 +8,14 @@ type CallSiteDefaultConfig = {
    * rather than pinning a profile that may be unavailable.
    */
   profile?: string;
+  /**
+   * Direct model pin overriding the resolved profile's model. The resolver
+   * treats a bare model pin as catalog-implied: it stamps the model's
+   * catalog provider and keeps the provider-agnostic Vellum managed
+   * connection (see `resolveOverrideOrDefault`). Reserve for call sites
+   * whose latency envelope the profile's model cannot meet.
+   */
+  model?: string;
   maxTokens?: number;
   effort?: "none" | "low" | "medium" | "high" | "xhigh" | "max";
   temperature?: number | null;
@@ -115,6 +123,14 @@ export const CALL_SITE_DEFAULTS: Record<LLMCallSite, CallSiteDefaultConfig> = {
   },
   voiceFrontDecision: {
     profile: "cost-optimized",
+    // Endpoint decisions gate live-voice turn-end latency, and the Speed
+    // profile's upstream (~1s+ per forced tool call) cannot fit any usable
+    // decision budget. Pin the latency-optimized Anthropic model instead —
+    // the bare model pin lets the catalog imply the provider, which
+    // preserves the provider-agnostic Vellum managed connection. Gemini
+    // Flash-Lite benches faster still, but managed inference has no Gemini
+    // key provisioned in any environment today.
+    model: "claude-haiku-4-5-20251001",
     effort: "low",
     thinking: { enabled: false },
   },
