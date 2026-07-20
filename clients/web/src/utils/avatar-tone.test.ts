@@ -3,8 +3,8 @@
  *
  * Pins the contract that the bubble is a raised surface contrasting the
  * avatar color — white/near-black over dark or saturated avatars, inverted
- * to dark/white over the one light avatar color (yellow) — and that adding
- * these fields left the pre-existing tone values untouched.
+ * to dark/white over the one light avatar color (yellow) — while the base
+ * tone fields (`fg`/`fgMuted`) keep their established values.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -29,7 +29,7 @@ describe("toneForBg bubble tokens", () => {
     expect(tone.bubbleFg).toBe("#FFFFFF");
   });
 
-  test("pre-existing fields are unchanged (additive-only)", () => {
+  test("base tone fields keep their established values", () => {
     const tone = toneForBg("#17191C");
     expect(tone.fg).toBe("#FFFFFF");
     expect(tone.fgMuted).toBe("rgba(255,255,255,0.65)");
