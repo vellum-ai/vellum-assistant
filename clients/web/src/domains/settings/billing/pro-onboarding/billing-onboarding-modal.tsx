@@ -17,7 +17,6 @@ import { FetchErrorState } from "./error-states";
 import type { ProvisioningDimensions } from "./provisioning-machine";
 import { ProvisioningState } from "./provisioning-state";
 import { useProProvisioning } from "./use-pro-provisioning";
-import { isOperationAlreadyInProgressError } from "./utils";
 
 type WizardStep = "provisioning" | "domain" | "complete";
 
@@ -118,27 +117,19 @@ export function BillingOnboardingModal({
         // and resumes its actuals polling so the normal DONE path can
         // complete.
         onSuccess: () => provisioning.resumeAfterManualApply(),
-        onError: (error) => {
-          // The platform's concurrent-operation guard rejecting the apply
-          // means the resize we stalled on is in fact still running — that is
-          // success-equivalent, so resume observing instead of surfacing it.
-          if (isOperationAlreadyInProgressError(error)) {
-            provisioning.resumeAfterManualApply();
-          }
-        },
       },
     );
   };
-  const stalledApplyError = isOperationAlreadyInProgressError(
-    resizeMutation.error,
-  )
-    ? null
-    : resizeMutation.error;
+  // Apply errors surface as-is; if a server-side resize is actually still
+  // running, the actuals polling converges to DONE and replaces the stalled
+  // UI regardless.
   const stalledAction = {
     onApply: applyStalledResize,
     pending: resizeMutation.isPending,
-    error: stalledApplyError,
+    error: resizeMutation.error,
   };
+  const stalledActionIfStalled =
+    provisioning.state === "STALLED" ? stalledAction : undefined;
 
   const handleClose = () => {
     if (step === "provisioning" && machineBusy) {
@@ -199,6 +190,7 @@ export function BillingOnboardingModal({
       return (
         <DomainStep
           machineBusy={machineBusy}
+          stalledAction={stalledActionIfStalled}
           onExit={() => setStep("complete")}
         />
       );
@@ -207,8 +199,7 @@ export function BillingOnboardingModal({
     return (
       <CompleteState
         finishedInBackground={finishedInBackground && !provisioningSettled}
-        stalled={provisioning.state === "STALLED"}
-        stalledAction={stalledAction}
+        stalledAction={stalledActionIfStalled}
       />
     );
   }

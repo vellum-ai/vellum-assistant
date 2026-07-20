@@ -37,6 +37,12 @@ mock.module("@/hooks/use-is-org-ready", () => ({
   useIsOrgReady: () => true,
 }));
 
+mock.module("@/stores/organization-store", () => ({
+  useOrganizationStore: {
+    getState: () => ({ fetchOrganizations: () => Promise.resolve() }),
+  },
+}));
+
 const realDateNow = Date.now.bind(Date);
 let dateNowOffsetMs = 0;
 Date.now = () => realDateNow() + dateNowOffsetMs;
@@ -482,7 +488,7 @@ describe("BillingOnboardingModal", () => {
     );
   });
 
-  test("apply racing the still-running platform resize is treated as success", async () => {
+  test("a failed apply surfaces its error and a late-landing resize still recovers", async () => {
     subscriptionPlanId = "pro";
     resizeError = {
       detail: "Another assistant operation is already in progress.",
@@ -498,15 +504,18 @@ describe("BillingOnboardingModal", () => {
       timeout: 5000,
     });
 
-    // The concurrent-operation rejection means the server resize is still
-    // running — observation resumes instead of surfacing an error.
+    // The rejection renders as-is on the stalled screen.
     fireEvent.click(getByTestId("provisioning-apply"));
     await waitFor(() => expect(resizeCall).not.toBeNull());
-    await waitFor(
-      () => expect(getByText("Resizing your assistant…")).toBeTruthy(),
-      { timeout: 5000 },
+    await waitFor(() =>
+      expect(
+        getByText("Another assistant operation is already in progress."),
+      ).toBeTruthy(),
     );
+    expect(getByText("One more step")).toBeTruthy();
 
+    // If a server-side resize was in fact still running, its landing is
+    // observed by the actuals polling and replaces the stalled UI.
     assistantResponse = makeAssistant("large", 50);
     await client.invalidateQueries();
     await waitFor(
@@ -559,9 +568,10 @@ describe("BillingOnboardingModal", () => {
     expect(queryByTestId("complete-stalled-apply")).toBeNull();
   });
 
-  test("a stall while the user is on the domain step keeps the submit locked", async () => {
+  test("a stall while the user is on the domain step offers the apply controls and keeps the submit locked", async () => {
     subscriptionPlanId = "pro";
-    const { client, getByText, getByTestId, getByLabelText } = renderModal();
+    const { client, getByText, getByTestId, getByLabelText, queryByText, queryByTestId } =
+      renderModal();
 
     await waitFor(
       () => expect(getByText("Setting up your new resources…")).toBeTruthy(),
@@ -581,15 +591,36 @@ describe("BillingOnboardingModal", () => {
     );
 
     // The flow stalls while the user is on the domain step: the machine may
-    // still be mid-restart, so the guardian-channel submit stays locked.
+    // still be mid-restart, so the guardian-channel submit stays locked and
+    // the neutral busy notice swaps for the stalled warning + manual apply.
     dateNowOffsetMs = 200_000;
-    await new Promise((resolve) => setTimeout(resolve, 1200));
+    await waitFor(
+      () => expect(getByTestId("domain-stalled-apply")).toBeTruthy(),
+      { timeout: 5000 },
+    );
+    expect(
+      queryByText(
+        "Your assistant is restarting — you can set the domain in a moment.",
+      ),
+    ).toBeNull();
     expect(
       (getByTestId("onboarding-domain-set") as HTMLButtonElement).disabled,
     ).toBe(true);
 
-    // Polling stays alive through the stall, so the resize landing late
-    // self-recovers and lifts the guard.
+    // Applying resumes observation: the stalled controls give way to the
+    // neutral busy notice while the resize is re-observed…
+    fireEvent.click(getByTestId("domain-stalled-apply"));
+    await waitFor(() => expect(resizeCall).not.toBeNull());
+    await waitFor(() =>
+      expect(
+        getByText(
+          "Your assistant is restarting — you can set the domain in a moment.",
+        ),
+      ).toBeTruthy(),
+    );
+    expect(queryByTestId("domain-stalled-apply")).toBeNull();
+
+    // …and the resize landing lifts the guard.
     assistantResponse = makeAssistant("large", 50);
     await client.invalidateQueries();
     await waitFor(

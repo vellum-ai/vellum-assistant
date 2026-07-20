@@ -38,6 +38,7 @@ let onboardingResponse: OnboardingStateResponse;
 let domainsResponse: PaginatedAssistantDomainList;
 let onboardingCalls = 0;
 let domainsCalls = 0;
+let domainsListPaths: string[] = [];
 
 const ACTIVE_ASSISTANT = { id: "assistant-1" } as unknown as Assistant;
 
@@ -54,8 +55,11 @@ mock.module("@/generated/api/sdk.gen", () => ({
     },
     assistantsActiveRetrieve: () =>
         Promise.resolve({ data: ACTIVE_ASSISTANT, response: { ok: true } }),
-    assistantsDomainsList: () => {
+    assistantsDomainsList: (opts: { path?: { assistant_id?: string } }) => {
         domainsCalls += 1;
+        if (opts?.path?.assistant_id) {
+            domainsListPaths.push(opts.path.assistant_id);
+        }
         return Promise.resolve({ data: domainsResponse, response: { ok: true } });
     },
 }));
@@ -190,6 +194,7 @@ beforeEach(() => {
     domainsResponse = makeDomains(false);
     onboardingCalls = 0;
     domainsCalls = 0;
+    domainsListPaths = [];
 });
 
 afterEach(() => {
@@ -262,6 +267,21 @@ describe("Finish Pro setup nudge", () => {
         expect(queryByTestId("finish-pro-setup-notice")).toBeNull();
         expect(onboardingCalls).toBe(0);
         expect(domainsCalls).toBe(0);
+    });
+
+    test("checks domains on the onboarding payload's primary assistant", async () => {
+        onboardingResponse = {
+            ...makeOnboarding(true),
+            primary_assistant_id: "assistant-2",
+        };
+        const { getByTestId } = renderPage();
+
+        // The onboarding payload names the wizard's server-side target; the
+        // nudge must check that assistant's domains, not the active one's.
+        await waitFor(() => expect(domainsListPaths).toContain("assistant-2"));
+        await waitFor(() =>
+            expect(getByTestId("finish-pro-setup-notice")).toBeTruthy(),
+        );
     });
 
     test("hidden for Pro when domain setup is unavailable, without querying domains", async () => {

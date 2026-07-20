@@ -29,6 +29,7 @@ import {
 import type { OperationalStatus } from "@/generated/api/types.gen";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { allowedMachineSizesForTier } from "@/lib/billing/machine-sizes";
+import { useOrganizationStore } from "@/stores/organization-store";
 
 import {
   deriveProvisioningState,
@@ -82,7 +83,11 @@ export interface ProProvisioningResult {
   targets: ProvisioningDimensions | null;
   /** First actuals observed, frozen — the "from" side of before/after cards. */
   actualsSnapshot: ProvisioningDimensions | null;
-  /** Last-known active assistant id from the actuals poll. */
+  /**
+   * The assistant provisioning targets: the onboarding payload's primary
+   * assistant when known, else the active assistant from the actuals poll.
+   * Drives the operational-status poll and the stalled manual resize.
+   */
   assistantId: string | null;
   /** `domain_setup_available` from the onboarding state, once loaded. */
   domainSetupAvailable: boolean | undefined;
@@ -119,10 +124,15 @@ export function useProProvisioning({
   const queryClient = useQueryClient();
   // Every query here is org-scoped (needs the Vellum-Organization-Id header).
   // On the cold return from Stripe the org store may not be hydrated yet, so
-  // hold all fetches — and the confirm timeout they feed — until it is.
+  // hold the fetches until it is. The confirm timeout deliberately runs
+  // regardless: if org readiness never arrives, the user still lands on the
+  // payment-safe retry screen instead of an indefinite spinner.
   const orgReady = useIsOrgReady();
   const [confirmExpired, setConfirmExpired] = useState(false);
   const [confirmGeneration, setConfirmGeneration] = useState(0);
+  // Wall-clock fence for confirm latching: only subscription data fetched
+  // after this instant may confirm pro.
+  const [openedAt, setOpenedAt] = useState<number | null>(null);
   const [proConfirmedAt, setProConfirmedAt] = useState<number | null>(null);
   // Stall-clock re-base set by resumeAfterManualApply; proConfirmedAt otherwise.
   const [resumedAt, setResumedAt] = useState<number | null>(null);
@@ -141,6 +151,7 @@ export function useProProvisioning({
     if (open) return;
     setConfirmExpired(false);
     setConfirmGeneration(0);
+    setOpenedAt(null);
     setProConfirmedAt(null);
     setResumedAt(null);
     setSawOperation(false);
@@ -148,10 +159,12 @@ export function useProProvisioning({
     setTracking(true);
   }, [open]);
 
-  // Drop pre-checkout caches so we never confirm on a stale plan_id or read a
-  // pre-upgrade tier ceiling as the resize target.
+  // Refetch pre-checkout caches on open. Invalidation keeps serving cached
+  // data while the refetch is in flight, so `openedAt` fences confirm
+  // latching to data that actually landed after this open.
   useEffect(() => {
     if (!open) return;
+    setOpenedAt(Date.now());
     void queryClient.invalidateQueries({
       queryKey: organizationsBillingSubscriptionRetrieveQueryKey(),
     });
@@ -173,7 +186,12 @@ export function useProProvisioning({
     enabled: open && orgReady && !proConfirmed,
   });
 
-  const observedPlanId = subscriptionQuery.data?.plan_id ?? null;
+  // Reopening the wizard can serve a cached pre-downgrade "pro" while the
+  // on-open refetch is still in flight; only post-open data may confirm.
+  const subscriptionFresh =
+    openedAt != null && subscriptionQuery.dataUpdatedAt >= openedAt;
+  const observedPlanId =
+    (subscriptionFresh ? subscriptionQuery.data?.plan_id : null) ?? null;
 
   useEffect(() => {
     if (!open || proConfirmed || observedPlanId !== "pro") return;
@@ -183,16 +201,19 @@ export function useProProvisioning({
   }, [open, proConfirmed, observedPlanId]);
 
   useEffect(() => {
-    if (!open || !orgReady || proConfirmed) {
+    if (!open || proConfirmed) {
       return;
     }
     const t = setTimeout(() => setConfirmExpired(true), PRO_POLL_TIMEOUT_MS);
     return () => clearTimeout(t);
-  }, [open, orgReady, proConfirmed, confirmGeneration]);
+  }, [open, proConfirmed, confirmGeneration]);
 
   const retryConfirm = useCallback(() => {
     setConfirmExpired(false);
     setConfirmGeneration((g) => g + 1);
+    // A failed org-list fetch leaves every org-gated query here disabled;
+    // refetching it lets the retry heal that alongside the subscription poll.
+    void useOrganizationStore.getState().fetchOrganizations();
     void queryClient.invalidateQueries({
       queryKey: organizationsBillingSubscriptionRetrieveQueryKey(),
     });
@@ -218,7 +239,12 @@ export function useProProvisioning({
     refetchInterval: pollInterval,
     retry: false,
   });
-  const assistantId = activeAssistantQuery.data?.id ?? null;
+  // The onboarding payload names the server-side provisioning target; it wins
+  // over the active assistant when the two diverge (multi-assistant orgs).
+  const assistantId =
+    onboardingQuery.data?.primary_assistant_id ??
+    activeAssistantQuery.data?.id ??
+    null;
 
   const operationalStatusQuery = useQuery({
     ...assistantsOperationalStatusDetailReadOptions({

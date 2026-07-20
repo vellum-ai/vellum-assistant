@@ -10,18 +10,16 @@ import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
 import { Notice } from "@vellumai/design-library/components/notice";
 
-import type { StalledApplyAction } from "./provisioning-state";
-import { extractOnboardingErrorMessage } from "./utils";
+import type { StalledApplyAction } from "./primitives";
+import { STALLED_UPGRADE_WARNING, StalledApplyControls } from "./primitives";
 
 export function CompleteState({
   finishedInBackground = false,
-  stalled = false,
   stalledAction,
 }: {
   /** The user backgrounded the machine resize; hidden once it completes. */
   finishedInBackground?: boolean;
-  /** The backgrounded resize stalled — offer the manual apply instead. */
-  stalled?: boolean;
+  /** Set only while the backgrounded resize is stalled — offers manual apply. */
   stalledAction?: StalledApplyAction;
 }) {
   const navigate = useNavigate();
@@ -83,28 +81,16 @@ export function CompleteState({
         Your assistant just got a serious upgrade.
       </p>
 
-      {stalled && stalledAction ? (
+      {stalledAction ? (
         <div className="relative -mt-4 mb-6 flex w-full flex-col items-center gap-2 [animation:welcome-reveal_600ms_ease-out_350ms_both] motion-reduce:[animation:none]">
           <Notice tone="warning" className="w-full text-left">
-            We couldn&apos;t finish your machine upgrade automatically. Apply
-            it now to finish — your assistant will briefly restart.
+            {STALLED_UPGRADE_WARNING}
           </Notice>
-          {stalledAction.error != null && (
-            <Notice tone="error" className="w-full text-left">
-              {extractOnboardingErrorMessage(
-                stalledAction.error,
-                "Couldn't apply changes. Please try again.",
-              )}
-            </Notice>
-          )}
-          <Button
-            variant="outlined"
-            data-testid="complete-stalled-apply"
-            disabled={stalledAction.pending}
-            onClick={stalledAction.onApply}
-          >
-            Apply &amp; Restart
-          </Button>
+          <StalledApplyControls
+            action={stalledAction}
+            buttonVariant="outlined"
+            buttonTestId="complete-stalled-apply"
+          />
         </div>
       ) : (
         finishedInBackground && (

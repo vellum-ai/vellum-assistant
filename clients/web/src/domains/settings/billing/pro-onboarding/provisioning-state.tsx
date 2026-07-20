@@ -16,15 +16,14 @@ import type {
     ProvisioningStateKind,
 } from "./provisioning-machine";
 import { TimeoutState } from "./error-states";
-import { GlowSpinner, IconBadge, ResourceCard } from "./primitives";
-import { extractOnboardingErrorMessage, PROVISION_MIN_DWELL_MS } from "./utils";
-
-/** The manual Apply & Restart recovery threaded down from the modal. */
-export interface StalledApplyAction {
-  onApply: () => void;
-  pending: boolean;
-  error: unknown;
-}
+import type { StalledApplyAction } from "./primitives";
+import {
+    GlowSpinner,
+    IconBadge,
+    ResourceCard,
+    StalledApplyControls,
+} from "./primitives";
+import { PROVISION_MIN_DWELL_MS } from "./utils";
 
 export interface ProvisioningStateProps {
   state: ProvisioningStateKind;
@@ -281,22 +280,10 @@ export function ProvisioningState({
             to finish setting up your upgrade.
           </Notice>
           <ResourceCardList targets={targets} fromSnapshot={fromSnapshot} />
-          {stalledAction.error != null && (
-            <Notice tone="error" className="w-full text-left">
-              {extractOnboardingErrorMessage(
-                stalledAction.error,
-                "Couldn't apply changes. Please try again.",
-              )}
-            </Notice>
-          )}
-          <Button
-            variant="primary"
-            data-testid="provisioning-apply"
-            disabled={stalledAction.pending}
-            onClick={stalledAction.onApply}
-          >
-            Apply &amp; Restart
-          </Button>
+          <StalledApplyControls
+            action={stalledAction}
+            buttonTestId="provisioning-apply"
+          />
         </>
       );
     }

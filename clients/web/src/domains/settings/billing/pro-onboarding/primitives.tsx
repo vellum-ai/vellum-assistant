@@ -1,6 +1,59 @@
 import type { LucideIcon } from "lucide-react";
 import { ArrowRight, Loader2 } from "lucide-react";
 
+import type { ButtonVariant } from "@vellumai/design-library/components/button";
+import { Button } from "@vellumai/design-library/components/button";
+import { Notice } from "@vellumai/design-library/components/notice";
+
+import { extractOnboardingErrorMessage } from "./utils";
+
+/** The manual Apply & Restart recovery threaded down from the modal. */
+export interface StalledApplyAction {
+  onApply: () => void;
+  pending: boolean;
+  error: unknown;
+}
+
+/** Warning shown when a backgrounded resize stalls mid-wizard. */
+export const STALLED_UPGRADE_WARNING =
+  "We couldn't finish your machine upgrade automatically. Apply it now to finish — your assistant will briefly restart.";
+
+/**
+ * Error notice + Apply & Restart button for recovering a stalled resize.
+ * Shared by the provisioning screen, the complete screen, and the domain
+ * step so the recovery affordance can't drift between them.
+ */
+export function StalledApplyControls({
+  action,
+  buttonVariant = "primary",
+  buttonTestId,
+}: {
+  action: StalledApplyAction;
+  buttonVariant?: ButtonVariant;
+  buttonTestId: string;
+}) {
+  return (
+    <>
+      {action.error != null && (
+        <Notice tone="error" className="w-full text-left">
+          {extractOnboardingErrorMessage(
+            action.error,
+            "Couldn't apply changes. Please try again.",
+          )}
+        </Notice>
+      )}
+      <Button
+        variant={buttonVariant}
+        data-testid={buttonTestId}
+        disabled={action.pending}
+        onClick={action.onApply}
+      >
+        Apply &amp; Restart
+      </Button>
+    </>
+  );
+}
+
 export function IconBadge({
   icon: Icon,
   tone = "positive",
