@@ -21,6 +21,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   assistantsActiveRetrieveOptions,
   assistantsOperationalStatusDetailReadOptions,
+  assistantsRetrieveOptions,
   organizationsBillingSubscriptionOnboardingRetrieveOptions,
   organizationsBillingSubscriptionOnboardingRetrieveQueryKey,
   organizationsBillingSubscriptionRetrieveOptions,
@@ -85,8 +86,8 @@ export interface ProProvisioningResult {
   actualsSnapshot: ProvisioningDimensions | null;
   /**
    * The assistant provisioning targets: the onboarding payload's primary
-   * assistant when known, else the active assistant from the actuals poll.
-   * Drives the operational-status poll and the stalled manual resize.
+   * assistant when named, else the active assistant. Drives the actuals and
+   * operational-status polls and the stalled manual resize.
    */
   assistantId: string | null;
   /** `domain_setup_available` from the onboarding state, once loaded. */
@@ -233,18 +234,33 @@ export function useProProvisioning({
 
   const pollInterval = tracking ? ACTUALS_POLL_INTERVAL_MS : false;
 
+  // Only resolves the fallback id when the onboarding payload doesn't name a
+  // primary assistant; polls just until an id lands (transient failures while
+  // the pod restarts would otherwise leave the id — and the flow — unresolved).
   const activeAssistantQuery = useQuery({
     ...assistantsActiveRetrieveOptions(),
     enabled: open && orgReady && proConfirmed,
-    refetchInterval: pollInterval,
+    refetchInterval: (query) =>
+      query.state.data?.id != null ? false : pollInterval,
     retry: false,
   });
   // The onboarding payload names the server-side provisioning target; it wins
   // over the active assistant when the two diverge (multi-assistant orgs).
+  // The fallback waits for the onboarding fetch to settle so a slow payload
+  // can't briefly point the polls (and the actuals snapshot) at the wrong
+  // assistant.
   const assistantId =
     onboardingQuery.data?.primary_assistant_id ??
-    activeAssistantQuery.data?.id ??
-    null;
+    (onboardingQuery.isPending ? null : (activeAssistantQuery.data?.id ?? null));
+
+  // Actuals must track the same assistant the wizard targets — under
+  // multi-assistant the active assistant may not be the one being resized.
+  const assistantQuery = useQuery({
+    ...assistantsRetrieveOptions({ path: { id: assistantId ?? "unresolved" } }),
+    enabled: open && orgReady && proConfirmed && assistantId != null,
+    refetchInterval: pollInterval,
+    retry: false,
+  });
 
   const operationalStatusQuery = useQuery({
     ...assistantsOperationalStatusDetailReadOptions({
@@ -276,7 +292,7 @@ export function useProProvisioning({
     };
   }, [onboarding]);
 
-  const assistant = activeAssistantQuery.data;
+  const assistant = assistantQuery.data;
   const actuals = useMemo<ProvisioningDimensions | null>(() => {
     if (!assistant) return null;
     return {

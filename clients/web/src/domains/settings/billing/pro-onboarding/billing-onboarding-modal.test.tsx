@@ -134,6 +134,8 @@ mock.module("@/generated/api/sdk.gen", () => ({
   },
   assistantsActiveRetrieve: () =>
     Promise.resolve({ data: assistantResponse, response: { ok: true } }),
+  assistantsRetrieve: () =>
+    Promise.resolve({ data: assistantResponse, response: { ok: true } }),
   assistantsOperationalStatusDetailRead: () =>
     Promise.resolve({
       data: operationalStatusResponse,
@@ -249,6 +251,12 @@ describe("BillingOnboardingModal", () => {
       () => expect(getByText("Setting up your new resources…")).toBeTruthy(),
       { timeout: 5000 },
     );
+    // Wait for the pre-resize actuals to land (the "from" card) before
+    // mutating: an invalidate that races the initial actuals fetch is
+    // swallowed, leaving the update to the next 2s poll.
+    await waitFor(() => expect(getByText("10 GiB")).toBeTruthy(), {
+      timeout: 5000,
+    });
 
     assistantResponse = makeAssistant("large", 50);
     await client.invalidateQueries();
@@ -274,6 +282,12 @@ describe("BillingOnboardingModal", () => {
       timeout: 5000,
     });
     expect(queryByText("Machine")).toBeNull();
+    // Wait for the pre-resize actuals to land (the "from" card) before
+    // mutating: an invalidate that races the initial actuals fetch is
+    // swallowed, leaving the update to the next 2s poll.
+    await waitFor(() => expect(getByText("10 GiB")).toBeTruthy(), {
+      timeout: 5000,
+    });
 
     assistantResponse = makeAssistant("small", 50);
     await client.invalidateQueries();
@@ -417,51 +431,59 @@ describe("BillingOnboardingModal", () => {
     );
   });
 
-  test("escape advances to complete with the background-finishing line, which clears on DONE", async () => {
-    subscriptionPlanId = "pro";
-    onboardingResponse = makeOnboarding({ domain_setup_available: false });
-    const { client, getByText, getByTestId, queryByText } = renderModal();
+  test(
+    "escape advances to complete with the background-finishing line, which clears on DONE",
+    async () => {
+      subscriptionPlanId = "pro";
+      onboardingResponse = makeOnboarding({ domain_setup_available: false });
+      const { client, getByText, getByTestId, queryByText } = renderModal();
 
-    await waitFor(
-      () => expect(getByText("Setting up your new resources…")).toBeTruthy(),
-      { timeout: 5000 },
-    );
-    dateNowOffsetMs = 61_000;
-    await waitFor(
-      () => expect(getByTestId("provisioning-escape")).toBeTruthy(),
-      { timeout: 5000 },
-    );
-    fireEvent.click(getByTestId("provisioning-escape"));
+      await waitFor(
+        () => expect(getByText("Setting up your new resources…")).toBeTruthy(),
+        { timeout: 5000 },
+      );
+      dateNowOffsetMs = 61_000;
+      await waitFor(
+        () => expect(getByTestId("provisioning-escape")).toBeTruthy(),
+        { timeout: 5000 },
+      );
+      fireEvent.click(getByTestId("provisioning-escape"));
 
-    await waitFor(() => expect(getByText("You're all set")).toBeTruthy());
-    expect(getByText(BACKGROUND_LINE)).toBeTruthy();
+      await waitFor(() => expect(getByText("You're all set")).toBeTruthy());
+      expect(getByText(BACKGROUND_LINE)).toBeTruthy();
 
-    assistantResponse = makeAssistant("large", 50);
-    await client.invalidateQueries();
-    await waitFor(() => expect(queryByText(BACKGROUND_LINE)).toBeNull(), {
-      timeout: 5000,
-    });
-  });
+      assistantResponse = makeAssistant("large", 50);
+      await client.invalidateQueries();
+      await waitFor(() => expect(queryByText(BACKGROUND_LINE)).toBeNull(), {
+        timeout: 5000,
+      });
+    },
+    20_000,
+  );
 
-  test("escape hatch stays hidden until the escape window elapses", async () => {
-    subscriptionPlanId = "pro";
-    const { getByText, getByTestId, queryByTestId } = renderModal();
+  test(
+    "escape hatch stays hidden until the escape window elapses",
+    async () => {
+      subscriptionPlanId = "pro";
+      const { getByText, getByTestId, queryByTestId } = renderModal();
 
-    await waitFor(
-      () => expect(getByText("Setting up your new resources…")).toBeTruthy(),
-      { timeout: 5000 },
-    );
-    // Give the routing latch time to settle: still no escape hatch, because
-    // the watch hasn't run long enough.
-    await new Promise((resolve) => setTimeout(resolve, 1200));
-    expect(queryByTestId("provisioning-escape")).toBeNull();
+      await waitFor(
+        () => expect(getByText("Setting up your new resources…")).toBeTruthy(),
+        { timeout: 5000 },
+      );
+      // Give the routing latch time to settle: still no escape hatch, because
+      // the watch hasn't run long enough.
+      await new Promise((resolve) => setTimeout(resolve, 1200));
+      expect(queryByTestId("provisioning-escape")).toBeNull();
 
-    dateNowOffsetMs = 61_000;
-    await waitFor(
-      () => expect(getByTestId("provisioning-escape")).toBeTruthy(),
-      { timeout: 5000 },
-    );
-  });
+      dateNowOffsetMs = 61_000;
+      await waitFor(
+        () => expect(getByTestId("provisioning-escape")).toBeTruthy(),
+        { timeout: 5000 },
+      );
+    },
+    20_000,
+  );
 
   test("escape hatch waits for fresh routing data even once time-eligible", async () => {
     let releaseOnboarding!: () => void;
@@ -524,111 +546,126 @@ describe("BillingOnboardingModal", () => {
     );
   });
 
-  test("a stall after escaping to complete offers Apply & Restart there", async () => {
-    subscriptionPlanId = "pro";
-    onboardingResponse = makeOnboarding({ domain_setup_available: false });
-    const { client, getByText, getByTestId, queryByText, queryByTestId } =
-      renderModal();
+  test(
+    "a stall after escaping to complete offers Apply & Restart there",
+    async () => {
+      subscriptionPlanId = "pro";
+      onboardingResponse = makeOnboarding({ domain_setup_available: false });
+      const { client, getByText, getByTestId, queryByText, queryByTestId } =
+        renderModal();
 
-    await waitFor(
-      () => expect(getByText("Setting up your new resources…")).toBeTruthy(),
-      { timeout: 5000 },
-    );
-    dateNowOffsetMs = 61_000;
-    await waitFor(
-      () => expect(getByTestId("provisioning-escape")).toBeTruthy(),
-      { timeout: 5000 },
-    );
-    fireEvent.click(getByTestId("provisioning-escape"));
-    await waitFor(() => expect(getByText("You're all set")).toBeTruthy());
-    expect(getByText(BACKGROUND_LINE)).toBeTruthy();
+      await waitFor(
+        () => expect(getByText("Setting up your new resources…")).toBeTruthy(),
+        { timeout: 5000 },
+      );
+      dateNowOffsetMs = 61_000;
+      await waitFor(
+        () => expect(getByTestId("provisioning-escape")).toBeTruthy(),
+        { timeout: 5000 },
+      );
+      fireEvent.click(getByTestId("provisioning-escape"));
+      await waitFor(() => expect(getByText("You're all set")).toBeTruthy());
+      expect(getByText(BACKGROUND_LINE)).toBeTruthy();
 
-    // The backgrounded resize stalls: the finishing line swaps for a warning
-    // with a manual apply.
-    dateNowOffsetMs = 200_000;
-    await waitFor(
-      () => expect(getByTestId("complete-stalled-apply")).toBeTruthy(),
-      { timeout: 5000 },
-    );
-    expect(queryByText(BACKGROUND_LINE)).toBeNull();
+      // The backgrounded resize stalls: the finishing line swaps for a warning
+      // with a manual apply.
+      dateNowOffsetMs = 200_000;
+      await waitFor(
+        () => expect(getByTestId("complete-stalled-apply")).toBeTruthy(),
+        { timeout: 5000 },
+      );
+      expect(queryByText(BACKGROUND_LINE)).toBeNull();
 
-    // Applying resumes observation — the finishing line returns…
-    fireEvent.click(getByTestId("complete-stalled-apply"));
-    await waitFor(() => expect(resizeCall).not.toBeNull());
-    await waitFor(() => expect(getByText(BACKGROUND_LINE)).toBeTruthy(), {
-      timeout: 5000,
-    });
+      // Applying resumes observation — the finishing line returns…
+      fireEvent.click(getByTestId("complete-stalled-apply"));
+      await waitFor(() => expect(resizeCall).not.toBeNull());
+      await waitFor(() => expect(getByText(BACKGROUND_LINE)).toBeTruthy(), {
+        timeout: 5000,
+      });
 
-    // …and the resize landing clears it.
-    assistantResponse = makeAssistant("large", 50);
-    await client.invalidateQueries();
-    await waitFor(() => expect(queryByText(BACKGROUND_LINE)).toBeNull(), {
-      timeout: 5000,
-    });
-    expect(queryByTestId("complete-stalled-apply")).toBeNull();
-  });
+      // …and the resize landing clears it.
+      assistantResponse = makeAssistant("large", 50);
+      await client.invalidateQueries();
+      await waitFor(() => expect(queryByText(BACKGROUND_LINE)).toBeNull(), {
+        timeout: 5000,
+      });
+      expect(queryByTestId("complete-stalled-apply")).toBeNull();
+    },
+    20_000,
+  );
 
-  test("a stall while the user is on the domain step offers the apply controls and keeps the submit locked", async () => {
-    subscriptionPlanId = "pro";
-    const { client, getByText, getByTestId, getByLabelText, queryByText, queryByTestId } =
-      renderModal();
+  test(
+    "a stall while the user is on the domain step offers the apply controls and keeps the submit locked",
+    async () => {
+      subscriptionPlanId = "pro";
+      const {
+        client,
+        getByText,
+        getByTestId,
+        getByLabelText,
+        queryByText,
+        queryByTestId,
+      } = renderModal();
 
-    await waitFor(
-      () => expect(getByText("Setting up your new resources…")).toBeTruthy(),
-      { timeout: 5000 },
-    );
-    dateNowOffsetMs = 61_000;
-    await waitFor(
-      () => expect(getByTestId("provisioning-escape")).toBeTruthy(),
-      { timeout: 5000 },
-    );
-    fireEvent.click(getByTestId("provisioning-escape"));
-    await waitFor(() => expect(getByText("Assistant email")).toBeTruthy());
-    await waitFor(() =>
-      expect((getByLabelText("Subdomain") as HTMLInputElement).value).toBe(
-        "casey",
-      ),
-    );
+      await waitFor(
+        () => expect(getByText("Setting up your new resources…")).toBeTruthy(),
+        { timeout: 5000 },
+      );
+      dateNowOffsetMs = 61_000;
+      await waitFor(
+        () => expect(getByTestId("provisioning-escape")).toBeTruthy(),
+        { timeout: 5000 },
+      );
+      fireEvent.click(getByTestId("provisioning-escape"));
+      await waitFor(() => expect(getByText("Assistant email")).toBeTruthy());
+      await waitFor(() =>
+        expect((getByLabelText("Subdomain") as HTMLInputElement).value).toBe(
+          "casey",
+        ),
+      );
 
-    // The flow stalls while the user is on the domain step: the machine may
-    // still be mid-restart, so the guardian-channel submit stays locked and
-    // the neutral busy notice swaps for the stalled warning + manual apply.
-    dateNowOffsetMs = 200_000;
-    await waitFor(
-      () => expect(getByTestId("domain-stalled-apply")).toBeTruthy(),
-      { timeout: 5000 },
-    );
-    expect(
-      queryByText(
-        "Your assistant is restarting — you can set the domain in a moment.",
-      ),
-    ).toBeNull();
-    expect(
-      (getByTestId("onboarding-domain-set") as HTMLButtonElement).disabled,
-    ).toBe(true);
-
-    // Applying resumes observation: the stalled controls give way to the
-    // neutral busy notice while the resize is re-observed…
-    fireEvent.click(getByTestId("domain-stalled-apply"));
-    await waitFor(() => expect(resizeCall).not.toBeNull());
-    await waitFor(() =>
+      // The flow stalls while the user is on the domain step: the machine may
+      // still be mid-restart, so the guardian-channel submit stays locked and
+      // the neutral busy notice swaps for the stalled warning + manual apply.
+      dateNowOffsetMs = 200_000;
+      await waitFor(
+        () => expect(getByTestId("domain-stalled-apply")).toBeTruthy(),
+        { timeout: 5000 },
+      );
       expect(
-        getByText(
+        queryByText(
           "Your assistant is restarting — you can set the domain in a moment.",
         ),
-      ).toBeTruthy(),
-    );
-    expect(queryByTestId("domain-stalled-apply")).toBeNull();
+      ).toBeNull();
+      expect(
+        (getByTestId("onboarding-domain-set") as HTMLButtonElement).disabled,
+      ).toBe(true);
 
-    // …and the resize landing lifts the guard.
-    assistantResponse = makeAssistant("large", 50);
-    await client.invalidateQueries();
-    await waitFor(
-      () =>
+      // Applying resumes observation: the stalled controls give way to the
+      // neutral busy notice while the resize is re-observed…
+      fireEvent.click(getByTestId("domain-stalled-apply"));
+      await waitFor(() => expect(resizeCall).not.toBeNull());
+      await waitFor(() =>
         expect(
-          (getByTestId("onboarding-domain-set") as HTMLButtonElement).disabled,
-        ).toBe(false),
-      { timeout: 5000 },
-    );
-  });
+          getByText(
+            "Your assistant is restarting — you can set the domain in a moment.",
+          ),
+        ).toBeTruthy(),
+      );
+      expect(queryByTestId("domain-stalled-apply")).toBeNull();
+
+      // …and the resize landing lifts the guard.
+      assistantResponse = makeAssistant("large", 50);
+      await client.invalidateQueries();
+      await waitFor(
+        () =>
+          expect(
+            (getByTestId("onboarding-domain-set") as HTMLButtonElement)
+              .disabled,
+          ).toBe(false),
+        { timeout: 5000 },
+      );
+    },
+    20_000,
+  );
 });

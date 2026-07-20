@@ -1,16 +1,14 @@
 import { Mail } from "lucide-react";
 import { useEffect, useState } from "react";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import {
     assistantsDomainsListQueryKey,
     assistantsListQueryKey,
     organizationsBillingSubscriptionOnboardingDomainCreateMutation,
-    organizationsBillingSubscriptionOnboardingRetrieveOptions,
     organizationsBillingSubscriptionOnboardingRetrieveQueryKey,
 } from "@/generated/api/@tanstack/react-query.gen";
-import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { useEnvironmentStore } from "@/stores/environment-store";
 import { Button } from "@vellumai/design-library/components/button";
 import { Modal } from "@vellumai/design-library/components/modal";
@@ -31,25 +29,21 @@ export function DomainStep({
   onExit,
   machineBusy = false,
   stalledAction,
+  assistantId: preferredAssistantId,
 }: {
   onExit: () => void;
   /** The assistant machine is restarting (webhook-driven resize in flight). */
   machineBusy?: boolean;
   /** Set only while the resize is stalled — offers the manual apply here. */
   stalledAction?: StalledApplyAction;
+  /** The provisioning target assistant (onboarding primary, else active). */
+  assistantId?: string | null;
 }) {
   const queryClient = useQueryClient();
   const emailRootDomain = useEnvironmentStore.use.emailRootDomain();
-  const isOrgReady = useIsOrgReady();
-  // The onboarding payload names the assistant the domain registration
-  // targets server-side; prefer it over the active assistant.
-  const { data: onboarding } = useQuery({
-    ...organizationsBillingSubscriptionOnboardingRetrieveOptions(),
-    enabled: isOrgReady,
-  });
-  const { activeAssistant, assistantId, domains } = useAssistantDomains(
+  const { assistant, assistantId, domains } = useAssistantDomains(
     true,
-    onboarding?.primary_assistant_id,
+    preferredAssistantId,
   );
   const existingDomain = domains?.results[0];
 
@@ -64,10 +58,12 @@ export function DomainStep({
       setPrefilled(true);
       return;
     }
-    if (!activeAssistant?.handle || subdomain) return;
-    setSubdomain(activeAssistant.handle);
+    if (!assistant?.handle || subdomain) {
+      return;
+    }
+    setSubdomain(assistant.handle);
     setPrefilled(true);
-  }, [activeAssistant?.handle, existingDomain, prefilled, subdomain]);
+  }, [assistant?.handle, existingDomain, prefilled, subdomain]);
 
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [confirmed, setConfirmed] = useState(false);

@@ -55,6 +55,11 @@ mock.module("@/generated/api/sdk.gen", () => ({
     },
     assistantsActiveRetrieve: () =>
         Promise.resolve({ data: ACTIVE_ASSISTANT, response: { ok: true } }),
+    assistantsRetrieve: (opts: { path: { id: string } }) =>
+        Promise.resolve({
+            data: { id: opts.path.id } as unknown as Assistant,
+            response: { ok: true },
+        }),
     assistantsDomainsList: (opts: { path?: { assistant_id?: string } }) => {
         domainsCalls += 1;
         if (opts?.path?.assistant_id) {

@@ -14,9 +14,12 @@ import {
  * can't wedge gated queries when a previous session already knows the org.
  */
 export function useIsOrgReady(): boolean {
-  // Subscribed for reactivity: the sessionStorage fallback only changes
-  // through store actions, so store updates cover every readiness change.
+  // Reactivity: the sessionStorage fallback only changes through store
+  // actions, but not every readiness-affecting action moves the id slice —
+  // `clearOrganization()` while the fallback carried readiness is null → null.
+  // The status slice changes on those transitions, so subscribe to both.
   const currentOrgId = useOrganizationStore.use.currentOrganizationId();
+  useOrganizationStore.use.status();
   const hasPlatformSession = useHasPlatformSession();
   if (!hasPlatformSession) {
     return true;

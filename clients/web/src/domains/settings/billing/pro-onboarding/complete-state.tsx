@@ -2,9 +2,6 @@ import { PartyPopper } from "lucide-react";
 
 import { useNavigate } from "react-router";
 
-import { useQuery } from "@tanstack/react-query";
-
-import { assistantsActiveRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
@@ -12,23 +9,24 @@ import { Notice } from "@vellumai/design-library/components/notice";
 
 import type { StalledApplyAction } from "./primitives";
 import { STALLED_UPGRADE_WARNING, StalledApplyControls } from "./primitives";
+import { usePreferredOrActiveAssistant } from "./use-preferred-or-active-assistant";
 
 export function CompleteState({
   finishedInBackground = false,
   stalledAction,
+  assistantId,
 }: {
   /** The user backgrounded the machine resize; hidden once it completes. */
   finishedInBackground?: boolean;
   /** Set only while the backgrounded resize is stalled — offers manual apply. */
   stalledAction?: StalledApplyAction;
+  /** The provisioning target assistant (onboarding primary, else active). */
+  assistantId?: string | null;
 }) {
   const navigate = useNavigate();
   const isOrgReady = useIsOrgReady();
-  const { data: activeAssistant } = useQuery({
-    ...assistantsActiveRetrieveOptions(),
-    enabled: isOrgReady,
-  });
-  const assistantName = activeAssistant?.name || "your assistant";
+  const assistant = usePreferredOrActiveAssistant(assistantId, isOrgReady);
+  const assistantName = assistant?.name || "your assistant";
 
   return (
     <div className="relative flex min-h-[320px] flex-col items-center justify-center overflow-hidden px-8 text-center">

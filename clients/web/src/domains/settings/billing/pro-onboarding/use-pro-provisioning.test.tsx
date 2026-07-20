@@ -92,10 +92,13 @@ function makeOperationalStatus(
 let subscriptionPlanId: SubscriptionResponse["plan_id"] = "base";
 let onboardingResponse = makeOnboarding();
 let assistantResponse = makeAssistant("small", 10);
+/** Per-id overrides for the by-id retrieve; falls back to assistantResponse. */
+let assistantsById: Record<string, Assistant> = {};
 let operationalStatusResponse = makeOperationalStatus("active");
 let assistantEndpointsFail = false;
 let onboardingFails = false;
 let assistantCalls = 0;
+let assistantByIdCalls = 0;
 let operationalStatusCalls = 0;
 let subscriptionCalls = 0;
 let isOrgReadyMock = true;
@@ -135,6 +138,16 @@ mock.module("@/generated/api/sdk.gen", () => ({
       return Promise.reject(new Error("502 Bad Gateway"));
     }
     return Promise.resolve({ data: assistantResponse, response: { ok: true } });
+  },
+  assistantsRetrieve: (opts: { path: { id: string } }) => {
+    assistantByIdCalls += 1;
+    if (assistantEndpointsFail) {
+      return Promise.reject(new Error("502 Bad Gateway"));
+    }
+    return Promise.resolve({
+      data: assistantsById[opts.path.id] ?? assistantResponse,
+      response: { ok: true },
+    });
   },
   assistantsOperationalStatusDetailRead: () => {
     operationalStatusCalls += 1;
@@ -201,10 +214,12 @@ beforeEach(() => {
   subscriptionPlanId = "base";
   onboardingResponse = makeOnboarding();
   assistantResponse = makeAssistant("small", 10);
+  assistantsById = {};
   operationalStatusResponse = makeOperationalStatus("active");
   assistantEndpointsFail = false;
   onboardingFails = false;
   assistantCalls = 0;
+  assistantByIdCalls = 0;
   operationalStatusCalls = 0;
   subscriptionCalls = 0;
   isOrgReadyMock = true;
@@ -298,28 +313,36 @@ describe("useProProvisioning", () => {
     await waitFor(() => expect(latest!.state).toBe("DONE"), { timeout: 5000 });
   });
 
-  test("polling stops once DONE", async () => {
-    const { client } = renderProbe();
-    await reachResizing(client);
+  test(
+    "polling stops once DONE",
+    async () => {
+      const { client } = renderProbe();
+      await reachResizing(client);
 
-    assistantResponse = makeAssistant("large", 50);
-    operationalStatusResponse = makeOperationalStatus("active");
-    await refetchAll(client);
-    await waitFor(() => expect(latest!.state).toBe("DONE"), { timeout: 5000 });
+      assistantResponse = makeAssistant("large", 50);
+      operationalStatusResponse = makeOperationalStatus("active");
+      await refetchAll(client);
+      await waitFor(() => expect(latest!.state).toBe("DONE"), {
+        timeout: 5000,
+      });
 
-    // One clock tick may still be in flight when DONE lands; let it drain,
-    // then assert no further polls fire across a full poll interval.
-    await new Promise((resolve) => setTimeout(resolve, 1100));
-    const settledAssistantCalls = assistantCalls;
-    const settledStatusCalls = operationalStatusCalls;
-    const settledSubscriptionCalls = subscriptionCalls;
-    await new Promise((resolve) => setTimeout(resolve, 2600));
+      // One clock tick may still be in flight when DONE lands; let it drain,
+      // then assert no further polls fire across a full poll interval.
+      await new Promise((resolve) => setTimeout(resolve, 1100));
+      const settledAssistantCalls = assistantCalls;
+      const settledByIdCalls = assistantByIdCalls;
+      const settledStatusCalls = operationalStatusCalls;
+      const settledSubscriptionCalls = subscriptionCalls;
+      await new Promise((resolve) => setTimeout(resolve, 2600));
 
-    expect(assistantCalls).toBe(settledAssistantCalls);
-    expect(operationalStatusCalls).toBe(settledStatusCalls);
-    expect(subscriptionCalls).toBe(settledSubscriptionCalls);
-    expect(latest!.state).toBe("DONE");
-  });
+      expect(assistantCalls).toBe(settledAssistantCalls);
+      expect(assistantByIdCalls).toBe(settledByIdCalls);
+      expect(operationalStatusCalls).toBe(settledStatusCalls);
+      expect(subscriptionCalls).toBe(settledSubscriptionCalls);
+      expect(latest!.state).toBe("DONE");
+    },
+    20_000,
+  );
 
   test(
     "resumeAfterManualApply leaves STALLED for RESIZING and can reach DONE",
@@ -359,9 +382,9 @@ describe("useProProvisioning", () => {
 
       // STALLED is not terminal: the actuals polls keep firing so a
       // late-completing server resize can still be observed.
-      const stalledAssistantCalls = assistantCalls;
+      const stalledByIdCalls = assistantByIdCalls;
       await waitFor(
-        () => expect(assistantCalls).toBeGreaterThan(stalledAssistantCalls),
+        () => expect(assistantByIdCalls).toBeGreaterThan(stalledByIdCalls),
         { timeout: 5000 },
       );
 
@@ -484,6 +507,43 @@ describe("useProProvisioning", () => {
     await waitFor(() => expect(latest!.assistantId).toBe("assistant-1"), {
       timeout: 5000,
     });
+  });
+
+  test("actuals track the primary assistant, not the active one", async () => {
+    subscriptionPlanId = "pro";
+    onboardingResponse = {
+      ...makeOnboarding(),
+      primary_assistant_id: "assistant-2",
+    };
+    // The active assistant already satisfies the targets; judging DONE against
+    // it would falsely complete while the primary is still being resized.
+    assistantResponse = makeAssistant("large", 50);
+    assistantsById["assistant-2"] = {
+      ...makeAssistant("small", 10),
+      id: "assistant-2",
+    };
+    const { client } = renderProbe();
+
+    await waitFor(() => expect(latest!.assistantId).toBe("assistant-2"), {
+      timeout: 5000,
+    });
+    await waitFor(
+      () =>
+        expect(latest!.actualsSnapshot).toEqual({
+          machineSize: "small",
+          storageGib: 10,
+        }),
+      { timeout: 5000 },
+    );
+    expect(latest!.state).toBe("WAITING");
+
+    // The resize lands on the primary — only then does the wizard converge.
+    assistantsById["assistant-2"] = {
+      ...makeAssistant("large", 50),
+      id: "assistant-2",
+    };
+    await refetchAll(client);
+    await waitFor(() => expect(latest!.state).toBe("DONE"), { timeout: 5000 });
   });
 
   test("unknown machine tier from a newer backend yields no machine target", async () => {
