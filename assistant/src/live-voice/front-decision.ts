@@ -192,8 +192,7 @@ const PROGRESS_TOOL: ToolDefinition = {
     properties: {
       update: {
         type: "string",
-        description:
-          "One short spoken sentence describing progress so far. Call this exactly once.",
+        description: "One short spoken sentence describing progress so far.",
       },
     },
     required: ["update"],
@@ -213,12 +212,15 @@ const PROGRESS_SYSTEM_PROMPT =
 
 /**
  * Fence a raw tool-result preview as the untrusted data the system prompt
- * declares. Any embedded copy of the delimiter (either side, any casing) is
- * stripped first so a hostile result can't close its own fence and smuggle
- * text outside it.
+ * declares. Any embedded copy of the delimiter — either side, any casing,
+ * including perturbed spellings with whitespace or attribute junk inside the
+ * brackets (`</result-snippet >`, `< /result-snippet>`, `</result-snippet x>`)
+ * that a model could still read as the tag — is stripped first so a hostile
+ * result can't close its own fence and smuggle text outside it. Angle-bracket
+ * content that isn't a delimiter (`<div>`, `a < b`) passes through untouched.
  */
 function fenceResultPreview(preview: string): string {
-  const sanitized = preview.replace(/<\/?result-snippet>/gi, "");
+  const sanitized = preview.replace(/<\s*\/?\s*result-snippet[^>]*>/gi, "");
   return `<result-snippet>${sanitized}</result-snippet>`;
 }
 
