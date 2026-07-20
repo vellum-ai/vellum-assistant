@@ -283,6 +283,9 @@ export function ConceptGraphView({
   // Set by search jump-to. While non-null the render loop eases the camera each
   // frame to center this concept, then clears it once the view has settled.
   const focusTargetRef = useRef<string | null>(null);
+  // Set on dismiss so the 60fps loop eases the camera back out to the overview
+  // framing (zoom + pitch), then clears itself once settled.
+  const resetViewRef = useRef(false);
 
   // Bumped only when the focused node changes, so the DOM tooltip re-renders.
   // The canvas itself never needs React state.
@@ -414,16 +417,6 @@ export function ConceptGraphView({
     searchEmittedRef.current = false;
   }, [assistantId]);
 
-  const labelFor = useCallback(
-    (id: string | null): string | null => {
-      if (!id) {return null;}
-      const node = layout.nodes.find((n) => n.id === id);
-      if (!node) {return null;}
-      return node.summary ? `${node.label} — ${node.summary}` : node.label;
-    },
-    [layout.nodes],
-  );
-
   const resetView = useCallback(() => {
     const v = view.current;
     v.yaw = 0.5;
@@ -469,6 +462,10 @@ export function ConceptGraphView({
     setTrail([]);
     setSearch("");
     setFocusLabel(null);
+    // Zoom back out to the overview after closing the drawer: clear any focus
+    // target (so it doesn't fight the ease) and let the loop ease zoom/pitch home.
+    focusTargetRef.current = null;
+    resetViewRef.current = true;
   }, []);
 
   // Jump to a breadcrumb (the ‹ back control and crumb clicks): truncate the
@@ -632,6 +629,19 @@ export function ConceptGraphView({
           ) {
             focusTargetRef.current = null;
           }
+        }
+      }
+
+      // After the drawer is dismissed, ease the camera back out to the overview
+      // framing (default zoom + pitch); yaw keeps its idle drift. Skipped while
+      // dragging so a manual orbit isn't fought; clears itself once settled.
+      if (resetViewRef.current && !v.dragging) {
+        const k = reduceMotion ? 1 : 0.15;
+        v.pitch += (0.32 - v.pitch) * k;
+        v.zoom += (1 - v.zoom) * k;
+        v.dirty = true;
+        if (Math.abs(0.32 - v.pitch) < 0.01 && Math.abs(1 - v.zoom) < 0.02) {
+          resetViewRef.current = false;
         }
       }
 
@@ -1029,7 +1039,6 @@ export function ConceptGraphView({
       if (hit !== v.hoveredId) {
         v.hoveredId = hit;
         v.dirty = true;
-        setFocusLabel(labelFor(hit));
       }
       // Node hover wins: only probe edges when no node is under the cursor.
       if (hit) {
@@ -1039,7 +1048,7 @@ export function ConceptGraphView({
         setEdgeLabel(edge ? labelForEdge(edge) : null);
       }
     },
-    [hitTest, labelFor, edgeHitTest],
+    [hitTest, edgeHitTest],
   );
 
   const onPointerUp = useCallback(
