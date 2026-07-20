@@ -18,7 +18,8 @@ worker (when the daemon owns it), MCP servers, and any other live children.
 The tree is built from the native process table (/proc on Linux, ps on
 macOS), so it reflects what is actually running, not a fixed subsystem list.
 
-Each node shows its PID; every listed process is live by definition.
+Each node shows whether it was spawned from a plugin or from the workspace,
+plus its PID. Every listed process is live by definition.
 
 Examples:
   $ assistant ps

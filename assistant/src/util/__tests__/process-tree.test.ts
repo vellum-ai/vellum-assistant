@@ -10,6 +10,7 @@ import { describe, expect, test } from "bun:test";
 import {
   buildProcessTree,
   deriveName,
+  deriveOrigin,
   type ProcInfo,
 } from "../process-tree.js";
 
@@ -57,13 +58,60 @@ describe("deriveName", () => {
   });
 });
 
+describe("deriveOrigin", () => {
+  test("classifies commands running plugin-owned code as plugin", () => {
+    expect(
+      deriveOrigin(
+        "bun --smol run /home/u/.vellum/workspace/plugins/foo/server.ts",
+      ),
+    ).toBe("plugin");
+    // Bundled default plugins live under a plugins/ dir too.
+    expect(
+      deriveOrigin("bun --smol run /app/src/plugins/defaults/memory/worker.ts"),
+    ).toBe("plugin");
+  });
+
+  test("classifies the daemon and workspace subsystems as workspace", () => {
+    expect(deriveOrigin("bun run /app/daemon/main.ts")).toBe("workspace");
+    expect(deriveOrigin("bun --smol run /app/monitoring/worker.ts")).toBe(
+      "workspace",
+    );
+    expect(deriveOrigin("/usr/local/bin/qdrant --config foo")).toBe(
+      "workspace",
+    );
+  });
+
+  test("does not match the plugins-data state directory", () => {
+    expect(
+      deriveOrigin(
+        "bun run /home/u/.vellum/workspace/plugins-data/foo/index.ts",
+      ),
+    ).toBe("workspace");
+  });
+});
+
 describe("buildProcessTree", () => {
   const procs: ProcInfo[] = [
-    { pid: 100, ppid: 1, command: "bun run /app/daemon/main.ts" },
-    { pid: 200, ppid: 100, command: "/usr/bin/qdrant" },
-    { pid: 300, ppid: 100, command: "bun run /app/jobs/worker.ts" },
-    { pid: 400, ppid: 300, command: "/usr/bin/embed-helper" },
-    { pid: 999, ppid: 1, command: "unrelated" },
+    {
+      pid: 100,
+      ppid: 1,
+      command: "bun run /app/daemon/main.ts",
+      origin: "workspace",
+    },
+    { pid: 200, ppid: 100, command: "/usr/bin/qdrant", origin: "workspace" },
+    {
+      pid: 300,
+      ppid: 100,
+      command: "bun run /app/jobs/worker.ts",
+      origin: "plugin",
+    },
+    {
+      pid: 400,
+      ppid: 300,
+      command: "/usr/bin/embed-helper",
+      origin: "workspace",
+    },
+    { pid: 999, ppid: 1, command: "unrelated", origin: "workspace" },
   ];
 
   test("builds the subtree rooted at the daemon PID", () => {
@@ -83,6 +131,18 @@ describe("buildProcessTree", () => {
     expect(worker.children[0].name).toBe("embed-helper");
   });
 
+  test("propagates each process's origin onto its tree node", () => {
+    const tree = buildProcessTree(procs, 100);
+    expect(tree.origin).toBe("workspace");
+    expect(tree.children.find((c) => c.pid === 200)!.origin).toBe("workspace");
+    expect(tree.children.find((c) => c.pid === 300)!.origin).toBe("plugin");
+  });
+
+  test("synthesizes a workspace origin when the root PID is absent", () => {
+    const tree = buildProcessTree(procs, 55555);
+    expect(tree.origin).toBe("workspace");
+  });
+
   test("excludes processes not descended from the root", () => {
     const tree = buildProcessTree(procs, 100);
     const allPids = (n: typeof tree): number[] => [
@@ -94,10 +154,10 @@ describe("buildProcessTree", () => {
 
   test("orders children by PID", () => {
     const shuffled: ProcInfo[] = [
-      { pid: 1, ppid: 0, command: "root" },
-      { pid: 30, ppid: 1, command: "c" },
-      { pid: 10, ppid: 1, command: "a" },
-      { pid: 20, ppid: 1, command: "b" },
+      { pid: 1, ppid: 0, command: "root", origin: "workspace" },
+      { pid: 30, ppid: 1, command: "c", origin: "workspace" },
+      { pid: 10, ppid: 1, command: "a", origin: "workspace" },
+      { pid: 20, ppid: 1, command: "b", origin: "workspace" },
     ];
     const tree = buildProcessTree(shuffled, 1);
     expect(tree.children.map((c) => c.pid)).toEqual([10, 20, 30]);
@@ -111,7 +171,9 @@ describe("buildProcessTree", () => {
   });
 
   test("does not loop on a self-parented process", () => {
-    const cyclic: ProcInfo[] = [{ pid: 7, ppid: 7, command: "weird" }];
+    const cyclic: ProcInfo[] = [
+      { pid: 7, ppid: 7, command: "weird", origin: "workspace" },
+    ];
     const tree = buildProcessTree(cyclic, 7);
     expect(tree.pid).toBe(7);
     expect(tree.children).toEqual([]);
@@ -119,8 +181,8 @@ describe("buildProcessTree", () => {
 
   test("does not loop on a parent/child cycle", () => {
     const cyclic: ProcInfo[] = [
-      { pid: 1, ppid: 2, command: "a" },
-      { pid: 2, ppid: 1, command: "b" },
+      { pid: 1, ppid: 2, command: "a", origin: "workspace" },
+      { pid: 2, ppid: 1, command: "b", origin: "workspace" },
     ];
     const tree = buildProcessTree(cyclic, 1);
     // 1 -> 2 -> (1 already visited, stop)
