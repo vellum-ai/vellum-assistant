@@ -58,9 +58,9 @@ export const LiveVoiceFrontModelConfigSchema = z
       .positive(
         "liveVoice.frontModel.endpointDecisionTimeoutMs must be a positive integer",
       )
-      .default(250)
+      .default(1200)
       .describe(
-        "Hard budget (ms) for the endpoint decision LLM call. This adds to end-of-turn latency when semantic endpointing is on, so keep it tight.",
+        "Hard budget (ms) for the endpoint decision LLM call. This adds to end-of-turn latency when semantic endpointing is on, so keep it as tight as the decider model's real roundtrip allows — measured Haiku roundtrips through the managed proxy run ~670-1130ms (dev), so tighter budgets turn the feature into a fail-open no-op.",
       ),
     endpointExtensionMs: z
       .number({

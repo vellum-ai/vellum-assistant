@@ -8,7 +8,7 @@ import {
 } from "../live-voice.js";
 
 const FRONT_MODEL_DEFAULTS = {
-  endpointDecisionTimeoutMs: 250,
+  endpointDecisionTimeoutMs: 1200,
   endpointExtensionMs: 1500,
   endpointMaxExtensions: 2,
   ackFirstDeltaTimeoutMs: 2500,

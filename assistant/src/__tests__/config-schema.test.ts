@@ -827,7 +827,7 @@ describe("AssistantConfigSchema", () => {
         bargeInMinSpeechMs: 250,
       },
       frontModel: {
-        endpointDecisionTimeoutMs: 250,
+        endpointDecisionTimeoutMs: 1200,
         endpointExtensionMs: 1500,
         endpointMaxExtensions: 2,
         ackFirstDeltaTimeoutMs: 2500,
