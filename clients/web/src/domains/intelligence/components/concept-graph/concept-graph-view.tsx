@@ -472,6 +472,57 @@ export function ConceptGraphView({
     }
   }, [trail, focusOn]);
 
+  // Jump to a breadcrumb: truncate the trail to `index` (keep 0..index) and
+  // re-center on that concept — mirrors back()'s trail-truncation + focus ease.
+  // Unlike back() this keeps the panel open (index stays >= 0 for a real crumb),
+  // so crumb clicks rewind the multi-level trail without closing the drawer.
+  const goToCrumb = useCallback(
+    (index: number) => {
+      const next = trail.slice(0, index + 1);
+      setTrail(next);
+      const top = next.at(-1);
+      if (top) {
+        focusOn(top.id);
+      } else {
+        setFocusLabel(null);
+      }
+    },
+    [trail, focusOn],
+  );
+
+  // Direct neighbors of the open concept, resolved to { id, label, kind } for the
+  // detail panel's WIRED-TO list. Neighbor ids come from the adjacency map;
+  // labels from layout.nodes; the connecting edge's kind (link vs learned) tags
+  // each neighbor without grouping them. Sorted by label so the list is scannable.
+  const neighbors = useMemo(() => {
+    const currentId = openNode?.id;
+    if (!currentId) {
+      return [];
+    }
+    const ids = adjacency.get(currentId);
+    if (!ids || ids.size === 0) {
+      return [];
+    }
+    const labelById = new Map(layout.nodes.map((n) => [n.id, n.label]));
+    const kindById = new Map<string, string>();
+    for (const e of layout.edges) {
+      if (e.fromId === currentId) {
+        kindById.set(e.toId, e.kind);
+      } else if (e.toId === currentId) {
+        kindById.set(e.fromId, e.kind);
+      }
+    }
+    const out: { id: string; label: string; kind?: string }[] = [];
+    for (const id of ids) {
+      const label = labelById.get(id);
+      if (label != null) {
+        out.push({ id, label, kind: kindById.get(id) });
+      }
+    }
+    out.sort((a, b) => a.label.localeCompare(b.label));
+    return out;
+  }, [openNode?.id, adjacency, layout.nodes, layout.edges]);
+
   useEffect(() => {
     if (!ready) {return;}
     const canvas = canvasRef.current;
@@ -1354,6 +1405,10 @@ export function ConceptGraphView({
         <ConceptDetailPanel
           assistantId={assistantId}
           node={openNode}
+          trail={trail}
+          neighbors={neighbors}
+          onTravel={travelTo}
+          onCrumb={goToCrumb}
           onClose={back}
           onOpenThread={onOpenThread}
         />
