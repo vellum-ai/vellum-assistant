@@ -119,6 +119,7 @@ export type ProviderErrorReason =
   | "vision_unsupported"
   | "bad_request"
   | "server_error"
+  | "network_error"
   | "unknown";
 
 export class ProviderError extends AssistantError {
