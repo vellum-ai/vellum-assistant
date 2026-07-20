@@ -23,6 +23,10 @@ import {
   stopConfigSnapshotReporter,
 } from "../telemetry/config-setting-snapshot.js";
 import {
+  startMemoryTierReporter,
+  stopMemoryTierReporter,
+} from "../telemetry/memory-tier-reporter.js";
+import {
   startMonitorUsageTelemetryReporter,
   stopUsageTelemetryReporter,
 } from "../telemetry/usage-telemetry-reporter.js";
@@ -94,6 +98,9 @@ async function main(): Promise<void> {
   // process flushes.
   startConfigSnapshotReporter();
 
+  // Emit the coarse memory tier as a periodic per-assistant watchdog heartbeat.
+  startMemoryTierReporter();
+
   let shuttingDown = false;
   let disposePidGuard: (() => void) | null = null;
   const shutdown = async (signal: string) => {
@@ -104,6 +111,7 @@ async function main(): Promise<void> {
     log.info({ signal }, "Resource monitor process shutting down");
     recovery.stop();
     stopConfigSnapshotReporter();
+    stopMemoryTierReporter();
     sourceWatch.stop();
     sampler.stop();
     // Bounded final telemetry flush, mirroring the daemon's shutdown. This
