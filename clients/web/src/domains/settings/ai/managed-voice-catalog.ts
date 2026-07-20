@@ -14,7 +14,10 @@
  */
 export type ManagedVoiceSource = "deepgram";
 
-export const MANAGED_VOICE_SOURCE_LABELS: Record<ManagedVoiceSource, string> = {
+// Keyed loosely (not by ManagedVoiceSource) so labels also resolve for
+// sources that arrive from the platform voices endpoint before this file
+// learns about them; callers fall back to the raw source string on a miss.
+export const MANAGED_VOICE_SOURCE_LABELS: Record<string, string> = {
   deepgram: "Deepgram",
 };
 
@@ -36,7 +39,7 @@ function sample(name: string): string {
 export const MANAGED_VOICES: ManagedVoice[] = [
   {
     model: "aura-2-thalia-en",
-    label: "Thalia (default)",
+    label: "Thalia",
     description: "American · clear, confident, energetic",
     source: "deepgram",
     sampleUrl: sample("thalia"),

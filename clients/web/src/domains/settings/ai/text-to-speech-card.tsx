@@ -6,6 +6,7 @@ import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import {
   configGetOptions,
   configGetQueryKey,
+  ttsManagedvoicesGetOptions,
   ttsProvidersGetOptions,
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import { configPatch, credentialsSetPost } from "@/generated/daemon/sdk.gen";
@@ -117,15 +118,37 @@ export function TextToSpeechCard() {
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  // Managed (Vellum) voice selection. Server value comes from daemon config;
-  // absent means the platform default voice.
+  // Managed (Vellum) voices, fetched live from the platform via the daemon so
+  // the offered list and default track the platform's rate card. The static
+  // catalog stands in while loading and for daemons that predate the route.
+  const { data: managedVoiceData } = useQuery({
+    ...ttsManagedvoicesGetOptions({ path: { assistant_id: assistantId } }),
+    enabled: isOrgReady && draftProvider === "vellum",
+    staleTime: 60_000,
+    // Old daemons 404 this route; the static fallback covers them.
+    retry: false,
+  });
+  // A successful response is authoritative even when empty — an empty
+  // catalog means the platform offers nothing right now, and substituting
+  // the static list would show voices the platform would reject. The static
+  // catalog only stands in when there is no response at all (loading,
+  // errors, daemons that predate the route).
+  const managedVoices = managedVoiceData
+    ? managedVoiceData.voices
+    : MANAGED_VOICES;
+  const defaultManagedVoice = managedVoiceData
+    ? managedVoiceData.defaultModel
+    : DEFAULT_MANAGED_VOICE;
+
+  // Managed voice selection. Server value comes from daemon config; absent
+  // means the platform default voice.
   const serverManagedVoice =
-    daemonTts?.providers?.vellum?.model ?? DEFAULT_MANAGED_VOICE;
+    daemonTts?.providers?.vellum?.model ?? defaultManagedVoice ?? "";
   const [draftManagedVoice, setDraftManagedVoice] =
     useDraftOverride(serverManagedVoice);
   const selectedManagedVoice =
-    MANAGED_VOICES.find((v) => v.model === draftManagedVoice) ??
-    MANAGED_VOICES[0]!;
+    managedVoices.find((v) => v.model === draftManagedVoice) ??
+    managedVoices[0];
 
   const selectedProvider = useMemo(() => {
     return providers.find((p) => p.id === draftProvider) ?? providers[0]!;
@@ -289,6 +312,9 @@ export function TextToSpeechCard() {
   // no billing, works before saving.
   const [previewing, setPreviewing] = useState(false);
   const handlePreviewVoice = useCallback(async () => {
+    if (!selectedManagedVoice) {
+      return;
+    }
     setPreviewing(true);
     try {
       const audio = new Audio(selectedManagedVoice.sampleUrl);
@@ -407,7 +433,7 @@ export function TextToSpeechCard() {
           </div>
         )}
 
-        {managedVoiceSupported && (
+        {managedVoiceSupported && selectedManagedVoice && (
           <div className="space-y-1">
             <label className="block text-body-small-default text-[var(--content-tertiary)]">
               Voice
@@ -415,17 +441,25 @@ export function TextToSpeechCard() {
             <Dropdown
               value={draftManagedVoice}
               onChange={setDraftManagedVoice}
-              options={MANAGED_VOICES.map((v) => ({
+              options={managedVoices.map((v) => ({
                 value: v.model,
-                label: `${v.label} — ${v.description}`,
+                label: `${v.label}${
+                  v.model === defaultManagedVoice ? " (default)" : ""
+                } — ${v.description}`,
               }))}
               aria-label="Managed voice"
             />
             <p className="text-body-small-default text-[var(--content-tertiary)]">
               Voice by{" "}
-              {MANAGED_VOICE_SOURCE_LABELS[selectedManagedVoice.source]}
+              {MANAGED_VOICE_SOURCE_LABELS[selectedManagedVoice.source] ??
+                selectedManagedVoice.source}
             </p>
           </div>
+        )}
+        {managedVoiceSupported && !selectedManagedVoice && (
+          <p className="text-body-small-default text-[var(--content-tertiary)]">
+            No managed voices are currently available.
+          </p>
         )}
 
         {selectedProvider.supportsVoiceSelection && !isManaged && (
@@ -451,7 +485,7 @@ export function TextToSpeechCard() {
               {testing ? "Testing…" : "Test"}
             </Button>
           )}
-          {managedVoiceSupported && (
+          {managedVoiceSupported && selectedManagedVoice && (
             <Button
               variant="outlined"
               onClick={handlePreviewVoice}

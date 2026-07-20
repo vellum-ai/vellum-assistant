@@ -121,12 +121,16 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("tts-routes", () => {
-  test("exports route definitions for tts/providers, tts/synthesize, and tts/synthesize-cli", () => {
-    expect(ROUTES).toHaveLength(3);
+  test("exports route definitions for tts/providers, tts/managed-voices, tts/synthesize, and tts/synthesize-cli", () => {
+    expect(ROUTES).toHaveLength(4);
 
     const providers = getRoute("tts/providers");
     expect(providers.method).toBe("GET");
     expect(providers.policy?.requiredScopes).toContain("settings.read");
+
+    const managedVoices = getRoute("tts/managed-voices");
+    expect(managedVoices.method).toBe("GET");
+    expect(managedVoices.policy?.requiredScopes).toContain("settings.read");
 
     const synthesize = getRoute("tts/synthesize");
     expect(synthesize.method).toBe("POST");
