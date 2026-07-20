@@ -1,6 +1,5 @@
 import {
     Clock,
-    LayoutGrid,
     Pin,
     Search,
     SquarePen,
@@ -56,8 +55,6 @@ export interface AssistantSideMenuProps extends UseSidebarStateParams {
   onSelectConversation: (key: string) => void;
   isIntelligenceActive?: boolean;
   onOpenIntelligence?: () => void;
-  isLibraryActive?: boolean;
-  onOpenLibrary?: () => void;
   onOpenApp?: (appId: string) => void;
   activeAppId?: string;
   onStartNewConversation?: () => void;
@@ -121,7 +118,7 @@ function SearchButton() {
  *     • ───────────────
  *   Body · Pinned section (when non-empty)
  *     • pinned thread
- *   Body · Conversations section
+ *   Body · Chats section
  *     • thread …       — recent conversations inline
  *     • …
  *     • Show more/less — page through recent conversations
@@ -149,8 +146,6 @@ export function AssistantSideMenu({
   onSelectConversation,
   isIntelligenceActive = false,
   onOpenIntelligence,
-  isLibraryActive = false,
-  onOpenLibrary,
   onOpenApp,
   activeAppId,
   onStartNewConversation,
@@ -296,8 +291,8 @@ export function AssistantSideMenu({
       variant="ghost"
       size="compact"
       iconOnly={<SquarePen />}
-      aria-label="New conversation"
-      tooltip="New conversation"
+      aria-label="New Chat"
+      tooltip="New Chat"
       tooltipSide="right"
       className="text-[var(--content-tertiary)]"
       onClick={() => {
@@ -331,26 +326,25 @@ export function AssistantSideMenu({
           <SideMenu.Separator />
         </>
       ) : null}
-      {/* 4px row gap to match the conversation list. */}
-      <div className="flex flex-col gap-[4px]">
+      {/* The assistant cluster: the avatar-colored assistant row with the
+          New Chat row beneath it (one component — the eyes migrate
+          between the two rows). No divider; breathing room below instead.
+          The overlay drawer skips the New Chat row — its floating New Chat
+          pill already owns that action in the thumb zone. */}
+      <div className="mb-4">
         <AssistantNavItem
           assistantId={assistantId ?? null}
           label={assistantName || "Your Assistant"}
           active={isIntelligenceActive}
           collapsed={collapsed}
           onSelect={onOpenIntelligence ? () => { onOpenIntelligence(); onClose?.(); } : undefined}
+          onNewConversation={
+            variant === "rail" && onStartNewConversation
+              ? () => { onStartNewConversation(); onClose?.(); }
+              : undefined
+          }
         />
-        {onOpenLibrary ? (
-          <SideMenu.Item
-            icon={LayoutGrid}
-            label="Library"
-            showCollapsedTooltip
-            active={isLibraryActive}
-            onSelect={onOpenLibrary ? () => { onOpenLibrary(); onClose?.(); } : undefined}
-          />
-        ) : null}
       </div>
-      <SideMenu.Separator />
     </>
   );
 
@@ -465,11 +459,9 @@ export function AssistantSideMenu({
                 </SideMenu.Section>
               ) : null}
 
-              <SideMenu.Section
-                title="Conversations"
-                className="gap-1"
-                actions={variant === "overlay" ? undefined : headerActions}
-              >
+              {/* New Chat lives in the assistant cluster above, not as a
+                  section-header action. */}
+              <SideMenu.Section title="Chats" className="gap-1">
                 <ConversationRowList
                   items={sidebar.recents.items}
                   pagination={sidebar.recents}
