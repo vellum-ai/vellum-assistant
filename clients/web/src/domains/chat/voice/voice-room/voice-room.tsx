@@ -112,7 +112,7 @@ const SAFE_AREA_RIGHT =
  * tone-derived over an avatar color).
  */
 const ROOM_CONTROL_CLASS =
-  "flex size-10 items-center justify-center rounded-full text-[var(--room-fg-muted)] transition hover:bg-[var(--room-wash)] hover:text-[var(--room-fg)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--room-fg-muted)]";
+  "flex size-12 items-center justify-center rounded-full text-[var(--room-fg-muted)] transition hover:bg-[var(--room-wash)] hover:text-[var(--room-fg)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--room-fg-muted)]";
 
 /** Bottom-row circular session controls (mute / ■ stop), same toning. */
 const SESSION_CONTROL_CLASS =
