@@ -1,6 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
-import { ChevronLeft, MessageCircle, Sparkles, X } from "lucide-react";
-import { useEffect } from "react";
+import {
+  ChevronDown,
+  ChevronLeft,
+  ChevronUp,
+  MessageCircle,
+  Sparkles,
+  X,
+} from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 
 import { FileMarkdown } from "@/components/file-markdown";
 import { memoryGraphNodeOptions } from "@/domains/intelligence/memory-graph/get-memory-graph-node";
@@ -63,6 +70,76 @@ function formatUpdated(ms: number | undefined): string | null {
     month: "short",
     year: "numeric",
   });
+}
+
+// Only clamp once a note runs past roughly a screenful. Character count is a
+// cheap proxy for rendered height that avoids measuring the markdown; below
+// this the note renders whole with no toggle.
+const LONG_NOTE_THRESHOLD = 600;
+
+/**
+ * The concept's own markdown body. Long notes clamp to a preview with a fade
+ * and a "Read full note" / "Show less" toggle; short notes render whole with
+ * no toggle.
+ */
+function ConceptNote({ content }: { content: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const clampRef = useRef<HTMLDivElement>(null);
+
+  // The collapse is visual only (overflow-hidden), so keep the clipped content
+  // out of the tab order and AT tree while collapsed — otherwise links below
+  // the fold stay focusable. `inert` is set imperatively so it works regardless
+  // of the installed React version's prop typing; the toggle button lives
+  // outside this container, so it remains reachable.
+  useEffect(() => {
+    const el = clampRef.current;
+    if (el) {
+      el.inert = !expanded;
+    }
+  }, [expanded]);
+
+  if (content.length <= LONG_NOTE_THRESHOLD) {
+    return <FileMarkdown content={content} />;
+  }
+
+  return (
+    <>
+      <div
+        ref={clampRef}
+        className="relative overflow-hidden"
+        style={expanded ? undefined : { maxHeight: "18rem" }}
+      >
+        <FileMarkdown content={content} />
+        {expanded ? null : (
+          // Fade the clamped edge into the drawer surface so the cut reads as
+          // "there's more" rather than an abrupt crop.
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-x-0 bottom-0 h-16"
+            style={{
+              background:
+                "linear-gradient(to bottom, transparent, var(--surface-lift))",
+            }}
+          />
+        )}
+      </div>
+      <Button
+        variant="ghost"
+        size="compact"
+        className="-ml-2 mt-1"
+        onClick={() => setExpanded((prev) => !prev)}
+        rightIcon={
+          expanded ? (
+            <ChevronUp size={16} aria-hidden />
+          ) : (
+            <ChevronDown size={16} aria-hidden />
+          )
+        }
+      >
+        {expanded ? "Show less" : "Read full note"}
+      </Button>
+    </>
+  );
 }
 
 /**
@@ -220,7 +297,9 @@ export function ConceptDetailPanel({
               Couldn't load this concept. Try again in a moment.
             </p>
           ) : detail?.found && detail.content?.trim() ? (
-            <FileMarkdown content={detail.content} />
+            // Keyed by node id so travelling to a new concept remounts the note
+            // and starts it collapsed again.
+            <ConceptNote key={node.id} content={detail.content} />
           ) : (
             <p className="text-body-medium-lighter" style={{ color: "var(--content-tertiary)" }}>
               This concept doesn't have written content yet — it exists as a link
