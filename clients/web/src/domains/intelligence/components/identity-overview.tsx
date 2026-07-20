@@ -10,7 +10,7 @@
  * small stat line).
  */
 
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Brain,
   CalendarClock,
@@ -39,6 +39,7 @@ import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
 import { contrastForeground } from "@/utils/avatar-tone";
 
 import { applyRename } from "../identity-actions/apply-rename";
+import { memoryStatsOptions } from "../memory-graph/get-memory-stats";
 import {
   assistantIdentityDetailsQueryKey,
   useAssistantIdentityDetails,
@@ -171,6 +172,24 @@ export function IdentityOverview({ assistantId }: IdentityOverviewProps) {
     supportsPlugins,
     showChannels,
   });
+  // The Memory card's measurement is the cheap page-index concept count
+  // (get-memory-stats) — NOT the concept-graph build, which is kept off
+  // identity-page load. Gated on `showMemory` so no request fires while the
+  // Memory card is hidden.
+  const memoryStats = useQuery({
+    ...memoryStatsOptions(assistantId),
+    enabled: showMemory,
+  });
+  const sectionStats: Record<string, IdentitySectionStat | undefined> = {
+    ...stats,
+    memory:
+      memoryStats.data !== undefined
+        ? {
+            value: memoryStats.data.concepts,
+            label: memoryStats.data.concepts === 1 ? "memory" : "memories",
+          }
+        : undefined,
+  };
 
   const [modalOpen, setModalOpen] = useState(false);
   const [isRenaming, setIsRenaming] = useState(false);
@@ -234,7 +253,7 @@ export function IdentityOverview({ assistantId }: IdentityOverviewProps) {
           customImageUrl={customImageUrl}
           name={identityQuery.data?.identity?.name || "Assistant"}
           sections={sections}
-          stats={stats}
+          stats={sectionStats}
           avatarHex={avatarHex}
           isRenaming={isRenaming}
           onOpenAvatarModal={() => setModalOpen(true)}
