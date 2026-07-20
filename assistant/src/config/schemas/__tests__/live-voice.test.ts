@@ -7,6 +7,15 @@ import {
   VALID_LIVE_VOICE_MODES,
 } from "../live-voice.js";
 
+const PROGRESS_DEFAULTS = {
+  enabled: true,
+  opsThreshold: 3,
+  idleIntervalMs: 5_000,
+  minGapMs: 6_000,
+  maxPerTurn: 3,
+  generationTimeoutMs: 1_500,
+};
+
 const FRONT_MODEL_DEFAULTS = {
   endpointDecisionTimeoutMs: 1200,
   endpointExtensionMs: 1500,
@@ -14,6 +23,7 @@ const FRONT_MODEL_DEFAULTS = {
   ackFirstDeltaTimeoutMs: 2500,
   ackGenerationTimeoutMs: 600,
   llmAckText: false,
+  progress: PROGRESS_DEFAULTS,
 };
 
 describe("LiveVoiceVadConfigSchema", () => {
@@ -111,6 +121,58 @@ describe("LiveVoiceFrontModelConfigSchema", () => {
       const msgs = result.error.issues.map((i) => i.message);
       expect(
         msgs.some((m) => m.includes("liveVoice.frontModel.llmAckText")),
+      ).toBe(true);
+    }
+  });
+
+  test("absent progress namespace parses to full progress defaults", () => {
+    const parsed = LiveVoiceFrontModelConfigSchema.parse({});
+    expect(parsed.progress).toEqual(PROGRESS_DEFAULTS);
+  });
+
+  test("partial progress overrides merge with defaults", () => {
+    const parsed = LiveVoiceFrontModelConfigSchema.parse({
+      progress: { enabled: false, opsThreshold: 5 },
+    });
+    expect(parsed.progress.enabled).toBe(false);
+    expect(parsed.progress.opsThreshold).toBe(5);
+    // Unspecified progress fields still get defaults
+    expect(parsed.progress.idleIntervalMs).toBe(5_000);
+    expect(parsed.progress.minGapMs).toBe(6_000);
+    expect(parsed.progress.maxPerTurn).toBe(3);
+    expect(parsed.progress.generationTimeoutMs).toBe(1_500);
+  });
+
+  test("accepts a progress.maxPerTurn of 0 (narration disabled by cap)", () => {
+    const parsed = LiveVoiceFrontModelConfigSchema.parse({
+      progress: { maxPerTurn: 0 },
+    });
+    expect(parsed.progress.maxPerTurn).toBe(0);
+  });
+
+  test("rejects negative progress.maxPerTurn", () => {
+    const result = LiveVoiceFrontModelConfigSchema.safeParse({
+      progress: { maxPerTurn: -1 },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test("rejects non-positive progress.opsThreshold", () => {
+    const result = LiveVoiceFrontModelConfigSchema.safeParse({
+      progress: { opsThreshold: 0 },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test("rejects a non-boolean progress.enabled", () => {
+    const result = LiveVoiceFrontModelConfigSchema.safeParse({
+      progress: { enabled: "yes" },
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const msgs = result.error.issues.map((i) => i.message);
+      expect(
+        msgs.some((m) => m.includes("liveVoice.frontModel.progress.enabled")),
       ).toBe(true);
     }
   });
