@@ -13,7 +13,11 @@ import type {
   StreamingTranscriber,
   SttStreamServerEvent,
 } from "../../stt/types.js";
-import { pickAckPhrase, pickProgressPhrase } from "../ack-phrases.js";
+import {
+  pickAckPhrase,
+  pickProgressPhrase,
+  PROGRESS_FALLBACK_PHRASES,
+} from "../ack-phrases.js";
 import type {
   VoiceFrontDecider,
   VoiceProgressTextInput,
@@ -327,6 +331,31 @@ describe("LiveVoiceSession progress narration", () => {
     emitMessageComplete(getCallbacks);
   });
 
+  test("no-ops idle fallback stays neutral: no phrase claims tool activity", async () => {
+    // List invariant: the fallback can speak on a slow turn with zero tool
+    // activity, so no phrase may claim tools or tasks are running.
+    for (const phrase of PROGRESS_FALLBACK_PHRASES) {
+      expect(phrase.toLowerCase()).not.toMatch(
+        /\b(run|runs|running|tool|tools|thing|things|task|tasks|check|checking|look|looking|search|searching)\b/,
+      );
+    }
+
+    // Behavior: a slow turn with no tool events falls back to that list.
+    const generateProgressText = mock(async () => null);
+    const { session, getCallbacks, ttsTexts } = createProgressHarness({
+      frontModelConfig: progressConfig({ idleIntervalMs: 40, maxPerTurn: 1 }),
+      frontDecider: makeProgressDecider(generateProgressText),
+    });
+
+    await startReleasedTurn(session, getCallbacks);
+    await waitFor(() => ttsTexts.length === 1);
+    expect(
+      PROGRESS_FALLBACK_PHRASES.map((phrase) => sanitizeForTts(phrase).trim()),
+    ).toContain(ttsTexts[0]);
+
+    emitMessageComplete(getCallbacks);
+  });
+
   test("ops trigger with a null decider result stays silent and keeps the update budget", async () => {
     const generateProgressText = mock(async () => null);
     const { session, getCallbacks, ttsTexts } = createProgressHarness({
@@ -380,6 +409,54 @@ describe("LiveVoiceSession progress narration", () => {
     await waitFor(() => ttsTexts.length === 2);
     expect(ttsTexts).toEqual([EXPECTED_TOOL_ACK, GENERATED_NARRATION]);
     expect(generateProgressText).toHaveBeenCalledTimes(1);
+
+    emitMessageComplete(getCallbacks);
+  });
+
+  test("llmAckText: narration resolving during ack generation bails instead of stacking filler", async () => {
+    const ackGeneration = deferred<string | null>();
+    const generateAckText = mock(() => ackGeneration.promise);
+    const generateProgressText = mock(async () => GENERATED_NARRATION);
+    const frontDecider: VoiceFrontDecider = {
+      decideEndpoint: async () => ({ action: "release" }),
+      generateAckText,
+      generateProgressText,
+    };
+    const { session, getCallbacks, ttsTexts } = createProgressHarness({
+      frontModelConfig: {
+        llmAckText: true,
+        ...progressConfig({ opsThreshold: 1, minGapMs: 150 }),
+      },
+      frontDecider,
+    });
+
+    await startReleasedTurn(session, getCallbacks);
+    // The tool start speaks a generated ack (generation still pending) and
+    // simultaneously crosses the ops threshold; with no floor-holder stamped
+    // yet, the entry guard lets a narration generation start concurrently.
+    emitToolStart(getCallbacks, "web_search", "tool-1");
+    await waitFor(() => generateProgressText.mock.calls.length === 1);
+    // The narration resolves while the ack is still generating: it must bail
+    // rather than enqueue ahead of (and back-to-back with) the ack.
+    await sleep(30);
+    expect(ttsTexts).toEqual([]);
+
+    ackGeneration.resolve("Generated ack.");
+    await waitFor(() => ttsTexts.length === 1);
+    expect(ttsTexts).toEqual(["Generated ack."]);
+
+    // Inside the ack's minGapMs window nothing else speaks even as tool
+    // activity continues.
+    emitToolResult(getCallbacks, "web_search", "tool-1");
+    await sleep(30);
+    expect(ttsTexts).toEqual(["Generated ack."]);
+
+    // The bail preserved the update budget: once the gap elapses, the next
+    // ops trigger narrates normally.
+    await sleep(150);
+    emitToolStart(getCallbacks, "file_read", "tool-2");
+    await waitFor(() => ttsTexts.length === 2);
+    expect(ttsTexts).toEqual(["Generated ack.", GENERATED_NARRATION]);
 
     emitMessageComplete(getCallbacks);
   });

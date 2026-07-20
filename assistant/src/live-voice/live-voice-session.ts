@@ -437,6 +437,11 @@ interface ActiveAssistantTurn {
   // A spoken ack was enqueued this turn. Every ack trigger shares this
   // one-per-turn budget so a slow turn never stacks fillers.
   ackSpoken: boolean;
+  // An LLM-phrased ack generation is awaiting the decider (llmAckText).
+  // While true, the ack has not yet stamped `lastFloorHolderAtMs`, so
+  // narration must treat it as a floor-holder-in-waiting and stand down —
+  // otherwise a progress phrase could land back-to-back with the ack.
+  ackGenerationPending: boolean;
   // Pending slow-first-delta ack timer; null once cleared or fired.
   ackTimer: ReturnType<typeof setTimeout> | null;
   // Triage-and-escalate (Voice Mode): the front-door leg emitted [ESCALATE]
@@ -2254,6 +2259,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       toolUseStarted: false,
       firstDeltaSeen: false,
       ackSpoken: false,
+      ackGenerationPending: false,
       ackTimer: null,
       escalationHandedOff: false,
       ttsBuffer: "",
@@ -2862,12 +2868,23 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       // have been cancelled or finalized, the brain's first delta may have
       // arrived, an escalation hand-off may have enqueued its bridge phrase,
       // or the turn may have completed outright — in every such case the
-      // narration is moot and must not speak over real output.
+      // narration is moot and must not speak over real output. The floor
+      // re-check covers a generated ack (llmAckText) that raced this
+      // generation: while the ack is pending it has not yet stamped
+      // `lastFloorHolderAtMs` (so the entry guard could not see it), and once
+      // it enqueues the minGapMs spacing must be re-applied from that stamp —
+      // either way, enqueueing now would stack back-to-back filler. A bail
+      // here is silent and keeps the update budget, exactly like the
+      // stale-turn bail.
       if (
         !this.isActiveAssistantTurn(token) ||
         turn.firstDeltaSeen ||
         turn.escalationHandedOff ||
-        turn.assistantCompleted
+        turn.assistantCompleted ||
+        turn.ackGenerationPending ||
+        (progress.lastFloorHolderAtMs !== null &&
+          Date.now() - progress.lastFloorHolderAtMs <
+            this.frontModelConfig.progress.minGapMs)
       ) {
         return;
       }
@@ -2936,41 +2953,46 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     toolName?: string,
   ): Promise<void> {
     const { token } = activeTurn;
-    const transcript = activeTurn.utterance.finalTranscriptSegments
-      .join(" ")
-      .trim();
-    const generated = await frontDecider
-      .generateAckText(
-        {
-          transcriptSoFar: transcript,
-          toolName,
-        },
-        activeTurn.abortController.signal,
-      )
-      // The decider contract never rejects; belt-and-braces for a stub.
-      .catch(() => null);
-    // Liveness re-check after the await: while generating, the turn may have
-    // been cancelled or finalized, the brain's first delta may have arrived,
-    // an escalation hand-off may have enqueued its bridge phrase (which holds
-    // the floor itself), or the turn may have completed outright — a
-    // tool-only/no-text turn completes with firstDeltaSeen still false. In
-    // every such case the ack is moot and must not speak over real output,
-    // stack on the escalation bridge, or voice a finished turn. Undo the
-    // optimistic ackSpoken so the flag reflects reality.
-    if (
-      !this.isActiveAssistantTurn(token) ||
-      activeTurn.firstDeltaSeen ||
-      activeTurn.escalationHandedOff ||
-      activeTurn.assistantCompleted
-    ) {
-      activeTurn.ackSpoken = false;
-      return;
+    activeTurn.ackGenerationPending = true;
+    try {
+      const transcript = activeTurn.utterance.finalTranscriptSegments
+        .join(" ")
+        .trim();
+      const generated = await frontDecider
+        .generateAckText(
+          {
+            transcriptSoFar: transcript,
+            toolName,
+          },
+          activeTurn.abortController.signal,
+        )
+        // The decider contract never rejects; belt-and-braces for a stub.
+        .catch(() => null);
+      // Liveness re-check after the await: while generating, the turn may have
+      // been cancelled or finalized, the brain's first delta may have arrived,
+      // an escalation hand-off may have enqueued its bridge phrase (which holds
+      // the floor itself), or the turn may have completed outright — a
+      // tool-only/no-text turn completes with firstDeltaSeen still false. In
+      // every such case the ack is moot and must not speak over real output,
+      // stack on the escalation bridge, or voice a finished turn. Undo the
+      // optimistic ackSpoken so the flag reflects reality.
+      if (
+        !this.isActiveAssistantTurn(token) ||
+        activeTurn.firstDeltaSeen ||
+        activeTurn.escalationHandedOff ||
+        activeTurn.assistantCompleted
+      ) {
+        activeTurn.ackSpoken = false;
+        return;
+      }
+      this.enqueueAckPhrase(
+        activeTurn,
+        generated ?? this.pickStaticAckPhrase(kind),
+        kind,
+      );
+    } finally {
+      activeTurn.ackGenerationPending = false;
     }
-    this.enqueueAckPhrase(
-      activeTurn,
-      generated ?? this.pickStaticAckPhrase(kind),
-      kind,
-    );
   }
 
   // Sanitize and enqueue one ack sentence on the turn's ordered TTS queue
