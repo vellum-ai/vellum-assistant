@@ -337,6 +337,31 @@ describe("sseService.attach — visibility-driven bounce", () => {
     expect(checkAssistantMock).toHaveBeenCalledTimes(1);
   });
 
+  test("app.resume inside the dedup window still reopens a torn-down SSE (hidden between two resumes)", () => {
+    // A quick tab-out-and-back can complete inside the 1s dedup window:
+    // hidden → resume(open) → hidden → resume(deduped). The first hidden
+    // opened a fresh SSE; the second hidden tore it down. The deduped
+    // second resume MUST reopen it — a blanket early-return would strand
+    // the connection torn-down until the next foreground, which surfaces
+    // to the user as a frozen transcript that only a refresh recovers.
+    sseService.attach("asst-1");
+    eventBus.publish("app.hidden", { signal: "visibility" });
+    eventBus.publish("app.resume", { signal: "visibility" });
+    expect(subscribeEventsMock).toHaveBeenCalledTimes(2);
+    expect(checkAssistantMock).toHaveBeenCalledTimes(1);
+
+    // Second hidden→resume cycle, synchronous so it lands inside the
+    // dedup window against the first resume.
+    eventBus.publish("app.hidden", { signal: "visibility" });
+    expect(cancelMock).toHaveBeenCalledTimes(2);
+    eventBus.publish("app.resume", { signal: "app_state" });
+
+    // The torn-down socket is reopened despite the dedup window...
+    expect(subscribeEventsMock).toHaveBeenCalledTimes(3);
+    // ...but the redundant daemon health check stays deduped.
+    expect(checkAssistantMock).toHaveBeenCalledTimes(1);
+  });
+
   test("does NOT reopen the SSE on app.resume while a connection is still live", () => {
     sseService.attach("asst-1");
     expect(subscribeEventsMock).toHaveBeenCalledTimes(1);

@@ -169,7 +169,20 @@ export const sseService: SseService = {
     // close succession on foregrounding the iOS native shell).
     const handleAppResume = () => {
       const now = Date.now();
-      if (now - lastAppResumeAt < RESUME_DEDUP_WINDOW_MS) return;
+      if (now - lastAppResumeAt < RESUME_DEDUP_WINDOW_MS) {
+        // Inside the dedup window. This collapses the iOS double-fire
+        // (visibilitychange + Capacitor appStateChange deliver two
+        // resumes ms apart for a single foreground) so the health check
+        // below runs once. But the window must NOT suppress a genuine
+        // reopen: an `app.hidden` can land *between* two resumes and tear
+        // the socket down (`current === null`), and a blanket early-return
+        // would then strand the connection torn-down until the next
+        // foreground — the user sees a frozen transcript and has to
+        // refresh to get streaming back. Reopen whenever the connection is
+        // down; only the redundant health check is skipped here.
+        if (!current) open();
+        return;
+      }
       lastAppResumeAt = now;
       // Daemon health check via the lifecycle store. The no-op
       // default covers the pre-registration window but no
