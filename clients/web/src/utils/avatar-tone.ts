@@ -92,14 +92,16 @@ export function contrastForeground(bg: string): string {
 /** Build a tone object from a background hex. */
 export function toneForBg(bg: string): AvatarTone {
   const isLight = brightness(bg) > 0.6;
+  const fg = isLight ? FG_DARK : FG_LIGHT;
   return {
     bg,
     isLight,
-    fg: isLight ? FG_DARK : FG_LIGHT,
+    fg,
     fgDeep: darkenHex(bg, 0.6),
     fgMuted: isLight ? "rgba(0,0,0,0.6)" : "rgba(255,255,255,0.65)",
     wash: isLight ? "rgba(0,0,0,0.08)" : "rgba(255,255,255,0.12)",
-    bubbleBg: isLight ? FG_DARK : FG_LIGHT,
+    // A raised surface reads as the foreground tone; its text is the inverse.
+    bubbleBg: fg,
     bubbleFg: isLight ? FG_LIGHT : FG_DARK,
   };
 }

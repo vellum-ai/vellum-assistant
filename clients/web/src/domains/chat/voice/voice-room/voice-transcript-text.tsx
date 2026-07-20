@@ -28,16 +28,21 @@ import { motion, useReducedMotion } from "motion/react";
 
 export function VoiceTranscriptText({
   text,
-  leadingColor = "var(--room-fg, var(--content-secondary))",
-  baseColor = "var(--room-fg-muted, var(--content-tertiary))",
+  color,
 }: {
   text: string;
-  /** Tone for the most recent ("leading edge") word. */
-  leadingColor?: string;
-  /** Tone for the settled words trailing the leading edge. */
-  baseColor?: string;
+  /**
+   * Paints every word this single tone (a flat reveal). Omit to keep the
+   * two-tone look — the leading-edge word brighter (`--room-fg`), the settled
+   * words muted (`--room-fg-muted`).
+   */
+  color?: string;
 }) {
   const reduce = useReducedMotion();
+  // A caller-supplied `color` flattens the reveal to one tone; otherwise the
+  // leading edge reads brighter than the settled words.
+  const leadingColor = color ?? "var(--room-fg, var(--content-secondary))";
+  const baseColor = color ?? "var(--room-fg-muted, var(--content-tertiary))";
   // Collapse runs of whitespace to single spaces — the words are laid out with
   // real space text nodes between them (so they wrap and select naturally, and
   // `textContent` reads back as the plain sentence).

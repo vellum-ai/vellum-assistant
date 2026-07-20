@@ -73,7 +73,7 @@ describe("VoiceAmbientTranscript — pref gating", () => {
     expect(assistantText()).toBeNull();
   });
 
-  test("shows the user text (above) only when showUserTranscript is ON", () => {
+  test("shows the user text only when showUserTranscript is ON", () => {
     seedUser("hello there");
     seedAssistant("hi, how can I help");
     setPrefs({ user: true, assistant: false });
@@ -82,7 +82,7 @@ describe("VoiceAmbientTranscript — pref gating", () => {
     expect(assistantText()).toBeNull();
   });
 
-  test("shows the assistant text (below) only when showAssistantTranscript is ON", () => {
+  test("shows the assistant text only when showAssistantTranscript is ON", () => {
     seedUser("hello there");
     seedAssistant("hi, how can I help");
     setPrefs({ user: false, assistant: true });
