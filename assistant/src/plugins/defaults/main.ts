@@ -1,5 +1,5 @@
-import { readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 
 /**
  * Filesystem-backed access to the first-party default plugins. This module
@@ -32,7 +32,9 @@ export function getAllDefaultPluginNames(): readonly string[] {
   if (cachedNames === null) {
     const names: string[] = [];
     for (const entry of readdirSync(DEFAULTS_DIR, { withFileTypes: true })) {
-      if (!entry.isDirectory()) continue;
+      if (!entry.isDirectory()) {
+        continue;
+      }
       let manifest: { name?: unknown };
       try {
         manifest = JSON.parse(
@@ -49,4 +51,51 @@ export function getAllDefaultPluginNames(): readonly string[] {
     cachedNames = names.sort();
   }
   return cachedNames;
+}
+
+/**
+ * Absolute path to a default plugin's `routes/` directory in the source tree,
+ * or `null` when `<name>` is not a default plugin.
+ *
+ * A default plugin's route namespace is its *directory* name (e.g.
+ * `platform-hosted`), matching how a workspace plugin's namespace is its
+ * directory name — not the `default-…` manifest name. The path is derived
+ * from this module's own location (`import.meta.dir`), so it resolves relative
+ * to the app source, which the assistant always ships and runs un-bundled.
+ *
+ * `name` is taken from a URL path segment, so the resolved directory is
+ * required to sit directly under `plugins/defaults/` — a `..` or nested
+ * segment that escapes the defaults tree returns `null`.
+ */
+export function getDefaultPluginRoutesDir(name: string): string | null {
+  const pluginDir = resolve(join(DEFAULTS_DIR, name));
+  if (dirname(pluginDir) !== resolve(DEFAULTS_DIR)) {
+    return null;
+  }
+  if (!existsSync(pluginDir) || !statSync(pluginDir).isDirectory()) {
+    return null;
+  }
+  return join(pluginDir, "routes");
+}
+
+/**
+ * Enumerate default plugins that ship a `routes/` directory, keyed by their
+ * directory name (the route namespace). Mirrors {@link getDefaultPluginRoutesDir}
+ * so route discovery and dispatch agree on which default plugin routes exist.
+ */
+export function getDefaultPluginRouteRoots(): {
+  pluginName: string;
+  routesDir: string;
+}[] {
+  const roots: { pluginName: string; routesDir: string }[] = [];
+  for (const entry of readdirSync(DEFAULTS_DIR, { withFileTypes: true })) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+    const routesDir = join(DEFAULTS_DIR, entry.name, "routes");
+    if (existsSync(routesDir) && statSync(routesDir).isDirectory()) {
+      roots.push({ pluginName: entry.name, routesDir });
+    }
+  }
+  return roots;
 }
