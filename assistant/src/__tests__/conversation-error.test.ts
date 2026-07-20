@@ -1033,7 +1033,10 @@ describe("classifyConversationError", () => {
       expect(result.userMessage).toContain("Billing settings");
     });
 
-    it("falls back to provider_billing for reason=daily_limit_reached under a user key", () => {
+    it("classifies reason=daily_limit_reached as daily_limit_reached even when the routing map says user-key", () => {
+      // Per-connection platform-auth routes can leave the global routing map
+      // at user-key; the stamped reason comes only from the platform proxy's
+      // body code, so it must win regardless of the map.
       providerRoutingSources.openai = "user-key";
       const err = new ProviderError(
         'OpenAI API error (402): {"code":"daily_limit_reached","detail":"Daily credit limit reached"}',
@@ -1045,7 +1048,7 @@ describe("classifyConversationError", () => {
       const result = classifyConversationError(err, baseCtx);
 
       expect(result.code).toBe("PROVIDER_BILLING");
-      expect(result.errorCategory).toBe("provider_billing");
+      expect(result.errorCategory).toBe("daily_limit_reached");
       expect(result.retryable).toBe(false);
     });
 

@@ -563,11 +563,11 @@ function reasonToClassification(
         ? managedBalanceClassification()
         : providerBillingClassification();
     case "daily_limit_reached":
-      // Only the managed proxy emits the daily-credit-limit code; a user-key
-      // route never produces it, so fall back to the generic billing surface.
-      return managed
-        ? dailyLimitClassification()
-        : providerBillingClassification();
+      // The reason is stamped only from the platform proxy's
+      // `"code":"daily_limit_reached"` body, so it is authoritative on its
+      // own — the global routing map can lag per-connection platform-auth
+      // routes and must not downgrade this to the generic billing surface.
+      return dailyLimitClassification();
     case "overloaded":
       return providerOverloadedClassification();
     case "server_error":
