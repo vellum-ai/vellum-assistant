@@ -202,7 +202,7 @@ function emitToolStart(
   toolName: string,
   toolUseId: string,
 ): void {
-  getCallbacks()?.tool_use_start?.(toolName, { input: {}, toolUseId });
+  getCallbacks()?.tool_use_start?.(toolName, { toolUseId });
 }
 
 function emitToolResult(
