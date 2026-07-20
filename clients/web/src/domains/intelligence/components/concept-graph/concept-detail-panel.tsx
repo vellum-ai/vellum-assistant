@@ -1,10 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
-import { MessageCircle, Sparkles, X } from "lucide-react";
+import { ChevronLeft, MessageCircle, Sparkles, X } from "lucide-react";
 import { useEffect } from "react";
 
 import { FileMarkdown } from "@/components/file-markdown";
 import { memoryGraphNodeOptions } from "@/domains/intelligence/memory-graph/get-memory-graph-node";
 import { Button } from "@vellumai/design-library";
+
+import { EDGE_LEARNED_COLOR } from "./constants";
 
 export interface ConceptDetailNode {
   id: string;
@@ -15,6 +17,20 @@ export interface ConceptDetailNode {
 interface ConceptDetailPanelProps {
   assistantId: string;
   node: ConceptDetailNode;
+  /**
+   * The navigable trail of opened concepts (root → current). Rendered as a
+   * clickable breadcrumb header so deeper travels can be rewound in place.
+   */
+  trail: ConceptDetailNode[];
+  /**
+   * Direct neighbors of the open concept for the flat WIRED-TO list. `kind`
+   * (link vs learned) tags each row without grouping them.
+   */
+  neighbors: { id: string; label: string; kind?: string }[];
+  /** Travel to a neighbor: pushes the trail and re-centers, panel stays open. */
+  onTravel: (node: ConceptDetailNode) => void;
+  /** Jump to a breadcrumb: truncates the trail to `index` and re-centers. */
+  onCrumb: (index: number) => void;
   onClose: () => void;
   /**
    * Opens a fresh chat seeded with a message about this concept. When absent,
@@ -22,6 +38,22 @@ interface ConceptDetailPanelProps {
    * identity page, which navigates to a draft conversation and auto-sends.
    */
   onOpenThread?: (message: string) => void;
+}
+
+type Crumb = { node: ConceptDetailNode; index: number };
+
+// Collapse a deep trail to first + last few so the breadcrumb never overflows:
+// A › … › X › Y › Z. The "ellipsis" marker is inert; every rendered crumb keeps
+// its original trail index so clicking one truncates to exactly that node.
+function buildCrumbs(trail: ConceptDetailNode[]): (Crumb | "ellipsis")[] {
+  const TAIL = 3;
+  if (trail.length <= TAIL + 1) {
+    return trail.map((node, index) => ({ node, index }));
+  }
+  const tail: Crumb[] = trail
+    .slice(-TAIL)
+    .map((node, i) => ({ node, index: trail.length - TAIL + i }));
+  return [{ node: trail[0], index: 0 }, "ellipsis", ...tail];
 }
 
 function formatUpdated(ms: number | undefined): string | null {
@@ -35,12 +67,18 @@ function formatUpdated(ms: number | undefined): string | null {
 
 /**
  * Slide-over drawer that renders a concept's own page (its markdown) when a
- * node is opened from the graph. The brain keeps rotating behind the translucent
- * backdrop; click the backdrop, the close button, or Escape to return.
+ * node is opened from the graph. A clickable breadcrumb header rewinds the
+ * travel trail, and a flat WIRED-TO list travels to a neighbor without closing
+ * the drawer. The brain keeps rotating behind the light backdrop; click the
+ * backdrop, the close button, or Escape to return.
  */
 export function ConceptDetailPanel({
   assistantId,
   node,
+  trail,
+  neighbors,
+  onTravel,
+  onCrumb,
   onClose,
   onOpenThread,
 }: ConceptDetailPanelProps) {
@@ -48,6 +86,7 @@ export function ConceptDetailPanel({
   const detail = query.data;
   const updated = formatUpdated(node.updatedAtMs);
   const title = detail?.title ?? node.label;
+  const crumbs = buildCrumbs(trail);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -66,9 +105,12 @@ export function ConceptDetailPanel({
       onPointerMove={(e) => e.stopPropagation()}
       onPointerUp={(e) => e.stopPropagation()}
     >
+      {/* Light scrim — kept clickable (backdrop-to-close) but barely tinted so
+          the ego-dimmed focused node + its labeled neighbors stay visible on the
+          canvas beside the drawer instead of being blacked out. */}
       <div
         className="absolute inset-0"
-        style={{ backgroundColor: "color-mix(in srgb, var(--surface-base) 55%, transparent)" }}
+        style={{ backgroundColor: "color-mix(in srgb, var(--surface-base) 16%, transparent)" }}
         onClick={onClose}
       />
       <aside
@@ -78,6 +120,57 @@ export function ConceptDetailPanel({
           borderLeft: "1px solid var(--border-base)",
         }}
       >
+        {/* Breadcrumb header — only when the trail runs deeper than the current
+            node (the single-crumb case just repeats the title below). Crumbs
+            jump back + re-center via onCrumb; the ‹ back control mirrors it. */}
+        {trail.length > 1 ? (
+          <nav
+            aria-label="Concept trail"
+            className="flex shrink-0 items-center gap-1 overflow-hidden border-b px-5 py-2 text-body-small-default"
+            style={{ borderColor: "var(--border-base)", color: "var(--content-tertiary)" }}
+          >
+            <button
+              type="button"
+              onClick={() => onCrumb(trail.length - 2)}
+              aria-label="Back"
+              className="-ml-1 mr-0.5 flex shrink-0 items-center rounded p-0.5 hover:bg-[color-mix(in_srgb,var(--content-tertiary)_14%,transparent)]"
+              style={{ color: "var(--content-tertiary)" }}
+            >
+              <ChevronLeft size={16} aria-hidden />
+            </button>
+            {crumbs.map((crumb, i) => (
+              // Key by trail position, not node id: travel is push-only, so the
+              // same concept can sit at more than one depth (A › B › A).
+              <span
+                key={crumb === "ellipsis" ? "ellipsis" : crumb.index}
+                className="flex min-w-0 items-center gap-1"
+              >
+                {i > 0 ? <span aria-hidden>›</span> : null}
+                {crumb === "ellipsis" ? (
+                  <span aria-hidden>…</span>
+                ) : crumb.index === trail.length - 1 ? (
+                  <span
+                    aria-current="page"
+                    className="max-w-[9rem] truncate"
+                    style={{ color: "var(--content-default)" }}
+                  >
+                    {crumb.node.label}
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => onCrumb(crumb.index)}
+                    className="max-w-[8rem] truncate rounded hover:underline"
+                    style={{ color: "var(--content-tertiary)" }}
+                  >
+                    {crumb.node.label}
+                  </button>
+                )}
+              </span>
+            ))}
+          </nav>
+        ) : null}
+
         <header
           className="flex shrink-0 items-start justify-between gap-3 border-b px-5 py-4"
           style={{ borderColor: "var(--border-base)" }}
@@ -134,6 +227,57 @@ export function ConceptDetailPanel({
               in the graph, but its page is empty.
             </p>
           )}
+
+          {/* WIRED-TO — a flat neighbor list (no category grouping) with a
+              connection count. Clicking a neighbor travels to it: pushes the
+              trail and re-centers the canvas without closing the drawer. */}
+          {neighbors.length > 0 ? (
+            <section
+              className="mt-6 border-t pt-4"
+              style={{ borderColor: "var(--border-base)" }}
+            >
+              <div className="mb-2 flex items-baseline justify-between gap-2">
+                <h3
+                  className="text-body-small-default uppercase tracking-wide"
+                  style={{ color: "var(--content-tertiary)" }}
+                >
+                  Wired to
+                </h3>
+                <span
+                  className="text-body-small-default tabular-nums"
+                  style={{ color: "var(--content-tertiary)" }}
+                >
+                  {neighbors.length} connection{neighbors.length === 1 ? "" : "s"}
+                </span>
+              </div>
+              <ul className="flex list-none flex-col gap-0.5">
+                {neighbors.map((neighbor) => (
+                  <li key={neighbor.id}>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onTravel({ id: neighbor.id, label: neighbor.label })
+                      }
+                      className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-body-medium-default hover:bg-[color-mix(in_srgb,var(--content-tertiary)_12%,transparent)]"
+                      style={{ color: "var(--content-default)" }}
+                    >
+                      <span
+                        aria-hidden
+                        className="h-1.5 w-1.5 shrink-0 rounded-full"
+                        style={{
+                          backgroundColor:
+                            neighbor.kind === "learned"
+                              ? EDGE_LEARNED_COLOR
+                              : "var(--content-tertiary)",
+                        }}
+                      />
+                      <span className="truncate">{neighbor.label}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
         </div>
 
         {onOpenThread ? (
