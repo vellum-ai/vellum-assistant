@@ -272,6 +272,14 @@ interface SessionContext {
    */
   speechEndedAtMs: number | null;
   /**
+   * Whether a hands-free utterance is open (a `speech_started` arrived with
+   * no `utterance_end`/`utterance_discarded` yet). Semantic endpointing can
+   * hold an utterance across a pause: speech resuming re-fires
+   * `speech_started` for the SAME utterance, and the transcript prefix
+   * already finalized for it must not be cleared as if a new turn began.
+   */
+  utteranceOpen: boolean;
+  /**
    * The end-of-speech stamp bound to the in-flight response — moved from
    * `speechEndedAtMs` when that response's `thinking` frame arrives.
    * Consumed by the response's FIRST `tts_audio` frame to derive
@@ -609,6 +617,7 @@ export function useLiveVoice(
         releaseInFlight: false,
         speechMs: 0,
         silenceMs: 0,
+        utteranceOpen: false,
         speechEndedAtMs: null,
         turnHeardStampMs: null,
         clientHeardLatencyMs: null,
@@ -669,12 +678,18 @@ export function useLiveVoice(
           if (!live() || !session.handsFree) return;
           // Server VAD heard the user: flush tail playback unconditionally
           // (even mid-`thinking`, when no cancellation follows) and open the
-          // next utterance.
-          useLiveVoiceStore.getState().clearUserTranscripts();
+          // next utterance. Speech resuming inside a HELD utterance (semantic
+          // endpointing suppressed the boundary) re-fires speech_started for
+          // the same utterance — its finalized transcript prefix must stay.
+          if (!session.utteranceOpen) {
+            useLiveVoiceStore.getState().clearUserTranscripts();
+          }
+          session.utteranceOpen = true;
           flushPlaybackToListening(session);
         }),
         client.on("utteranceEnd", () => {
           if (!live() || !session.handsFree) return;
+          session.utteranceOpen = false;
           // End of user speech: stamp the client-heard latency start; the
           // response's first tts_audio consumes it (see
           // beginAssistantAudioIfNeeded). Manual mode stamps at the
@@ -685,6 +700,7 @@ export function useLiveVoice(
         }),
         client.on("utteranceDiscarded", () => {
           if (!live() || !session.handsFree) return;
+          session.utteranceOpen = false;
           // The discarded utterance never becomes a turn — drop its
           // end-of-speech stamp so it can't pair with a later turn's audio.
           session.speechEndedAtMs = null;
@@ -725,6 +741,12 @@ export function useLiveVoice(
             // be discarded); stay in `transcribing` so `utterance_discarded`
             // can safely return to `listening` without racing a real turn.
             if (frame.text.trim().length === 0) return;
+            // Semantic endpointing (voice-front-model) can hold the
+            // utterance open past a final: the daemon suppresses
+            // `utterance_end`, so we never left `listening`. Only a closed
+            // utterance (`transcribing`) advances to `thinking` — a held
+            // pause must keep reading as "still your turn".
+            if (s.state !== "transcribing") return;
             // The next turn now owns the state: a prior turn's drain waiter
             // must not reset it to `listening` if it resolves before the
             // server's `thinking` frame (which re-bumps; the guard only

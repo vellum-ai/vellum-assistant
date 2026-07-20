@@ -1,13 +1,28 @@
-import { describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 
+import { sanitizeForTts } from "../../calls/tts-text-sanitizer.js";
 import type {
   VoiceTurnCallbacks,
   VoiceTurnOptions,
 } from "../../calls/voice-session-bridge.js";
+import {
+  FALLBACK_ESCALATION_BRIDGE,
+  VOICE_TRIAGE_ESCALATE_FLAG,
+} from "../../calls/voice-triage-escalate.js";
+import {
+  clearCachedOverrides,
+  setCachedOverrides,
+} from "../../config/feature-flag-cache.js";
+import type { LiveVoiceFrontModelConfig } from "../../config/schemas/live-voice.js";
 import type {
   StreamingTranscriber,
   SttStreamServerEvent,
 } from "../../stt/types.js";
+import { pickAckPhrase } from "../ack-phrases.js";
+import type {
+  VoiceAckTextInput,
+  VoiceFrontDecider,
+} from "../front-decision.js";
 import {
   LiveVoiceSession,
   type LiveVoiceTtsStreamer,
@@ -85,7 +100,9 @@ function createContext(): {
 
 function createSessionHarness(options: {
   startVoiceTurn: LiveVoiceTurnStarter;
-  streamTtsAudio: LiveVoiceTtsStreamer;
+  streamTtsAudio: LiveVoiceTtsStreamer | null;
+  frontModelConfig?: Partial<LiveVoiceFrontModelConfig>;
+  frontDecider?: VoiceFrontDecider | null;
 }) {
   const transcriber = new MockStreamingTranscriber();
   const { context, frames } = createContext();
@@ -93,6 +110,12 @@ function createSessionHarness(options: {
     resolveTranscriber: mock(async () => transcriber),
     startVoiceTurn: options.startVoiceTurn,
     streamTtsAudio: options.streamTtsAudio,
+    ...(options.frontModelConfig
+      ? { frontModelConfig: options.frontModelConfig }
+      : {}),
+    ...(options.frontDecider !== undefined
+      ? { frontDecider: options.frontDecider }
+      : {}),
     createTurnId: () => "live-turn-1",
   });
 
@@ -739,5 +762,516 @@ describe("LiveVoiceSession TTS", () => {
       type: "tts_done",
       turnId: "live-turn-1",
     });
+  });
+});
+
+describe("LiveVoiceSession spoken ack (voice-front-model)", () => {
+  afterEach(() => clearCachedOverrides());
+
+  const ACK_TIMEOUT_MS = 40;
+  // The ack passes through the same TTS sanitizer as regular segments.
+  const EXPECTED_ACK = sanitizeForTts(pickAckPhrase("first_delta", 0)).trim();
+
+  function enableFrontModel(): void {
+    setCachedOverrides({ "voice-front-model": true }, { fromGateway: true });
+  }
+
+  const EXPECTED_BRIDGE = sanitizeForTts(FALLBACK_ESCALATION_BRIDGE).trim();
+
+  function enableFrontModelWithEscalation(): void {
+    setCachedOverrides(
+      {
+        "voice-front-model": true,
+        "voice-mode": true,
+        [VOICE_TRIAGE_ESCALATE_FLAG]: true,
+      },
+      { fromGateway: true },
+    );
+  }
+
+  function createCapturingTurnStarter(): {
+    startVoiceTurn: LiveVoiceTurnStarter;
+    getCallbacks: () => VoiceTurnCallbacks | undefined;
+  } {
+    let callbacks: VoiceTurnCallbacks | undefined;
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      callbacks = options.callbacks;
+      return { turnId: "bridge-turn-1", abort: mock() };
+    });
+    return { startVoiceTurn, getCallbacks: () => callbacks };
+  }
+
+  function createRecordingTtsStreamer(): {
+    streamTtsAudio: LiveVoiceTtsStreamer;
+    ttsTexts: string[];
+  } {
+    const ttsTexts: string[] = [];
+    const streamTtsAudio = mock(async (options: LiveVoiceTtsOptions) => {
+      ttsTexts.push(options.text);
+      options.onAudioChunk(makeTtsChunk(`audio:${options.text}`));
+      return makeTtsResult(options.text);
+    });
+    return { streamTtsAudio, ttsTexts };
+  }
+
+  test("speaks exactly one audio-only ack before agent audio on a slow first delta", async () => {
+    enableFrontModel();
+    const { startVoiceTurn, getCallbacks } = createCapturingTurnStarter();
+    const { streamTtsAudio, ttsTexts } = createRecordingTtsStreamer();
+    const { frames, session } = createSessionHarness({
+      startVoiceTurn,
+      streamTtsAudio,
+      frontModelConfig: { ackFirstDeltaTimeoutMs: ACK_TIMEOUT_MS },
+    });
+
+    await startReleasedTurn(session);
+    await waitFor(() =>
+      frames.some(
+        (frame) =>
+          frame.type === "tts_audio" &&
+          frame.dataBase64 === b64(`audio:${EXPECTED_ACK}`),
+      ),
+    );
+
+    // Audio-only: no caption frame carries the ack text, and the turn is
+    // still open (no tts_done).
+    expect(ttsTexts).toEqual([EXPECTED_ACK]);
+    expect(frames.some((frame) => frame.type === "assistant_text_delta")).toBe(
+      false,
+    );
+    expect(frames.some((frame) => frame.type === "tts_done")).toBe(false);
+
+    getCallbacks()?.assistant_text_delta?.(makeTextDelta("Hello there."));
+    getCallbacks()?.message_complete?.(makeMessageComplete());
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    expect(ttsTexts).toEqual([EXPECTED_ACK, "Hello there."]);
+    expect(ttsAudioPayloads(frames)).toEqual([
+      b64(`audio:${EXPECTED_ACK}`),
+      b64("audio:Hello there."),
+    ]);
+    expect(frames.filter((frame) => frame.type === "tts_done")).toHaveLength(1);
+    expect(frames.at(-1)).toMatchObject({
+      type: "tts_done",
+      turnId: "live-turn-1",
+    });
+  });
+
+  test("speaks no ack when the first delta beats the timeout", async () => {
+    enableFrontModel();
+    const { startVoiceTurn, getCallbacks } = createCapturingTurnStarter();
+    const { streamTtsAudio, ttsTexts } = createRecordingTtsStreamer();
+    const { frames, session } = createSessionHarness({
+      startVoiceTurn,
+      streamTtsAudio,
+      frontModelConfig: { ackFirstDeltaTimeoutMs: ACK_TIMEOUT_MS },
+    });
+
+    await startReleasedTurn(session);
+    getCallbacks()?.assistant_text_delta?.(makeTextDelta("Hello there."));
+    getCallbacks()?.message_complete?.(makeMessageComplete());
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+    await new Promise((resolve) => setTimeout(resolve, ACK_TIMEOUT_MS + 40));
+
+    expect(ttsTexts).toEqual(["Hello there."]);
+    expect(ttsAudioPayloads(frames)).toEqual([b64("audio:Hello there.")]);
+  });
+
+  test("interrupt before the timeout clears the timer and speaks no ack", async () => {
+    enableFrontModel();
+    const { startVoiceTurn } = createCapturingTurnStarter();
+    const { streamTtsAudio, ttsTexts } = createRecordingTtsStreamer();
+    const { frames, session } = createSessionHarness({
+      startVoiceTurn,
+      streamTtsAudio,
+      frontModelConfig: { ackFirstDeltaTimeoutMs: ACK_TIMEOUT_MS },
+    });
+
+    await startReleasedTurn(session);
+    await session.handleClientFrame({ type: "interrupt" });
+    await new Promise((resolve) => setTimeout(resolve, ACK_TIMEOUT_MS + 40));
+
+    expect(ttsTexts).toEqual([]);
+    expect(frames.some((frame) => frame.type === "tts_audio")).toBe(false);
+  });
+
+  test("arms no ack when the flag is off", async () => {
+    const { startVoiceTurn, getCallbacks } = createCapturingTurnStarter();
+    const { streamTtsAudio, ttsTexts } = createRecordingTtsStreamer();
+    const { frames, session } = createSessionHarness({
+      startVoiceTurn,
+      streamTtsAudio,
+      frontModelConfig: { ackFirstDeltaTimeoutMs: ACK_TIMEOUT_MS },
+    });
+
+    await startReleasedTurn(session);
+    await new Promise((resolve) => setTimeout(resolve, ACK_TIMEOUT_MS + 40));
+    expect(ttsTexts).toEqual([]);
+
+    getCallbacks()?.assistant_text_delta?.(makeTextDelta("Hello there."));
+    getCallbacks()?.message_complete?.(makeMessageComplete());
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+    expect(ttsTexts).toEqual(["Hello there."]);
+  });
+
+  test("arms no ack without a TTS streamer", async () => {
+    enableFrontModel();
+    const { startVoiceTurn, getCallbacks } = createCapturingTurnStarter();
+    const { frames, session } = createSessionHarness({
+      startVoiceTurn,
+      streamTtsAudio: null,
+      frontModelConfig: { ackFirstDeltaTimeoutMs: ACK_TIMEOUT_MS },
+    });
+
+    await startReleasedTurn(session);
+    await new Promise((resolve) => setTimeout(resolve, ACK_TIMEOUT_MS + 40));
+    expect(frames.some((frame) => frame.type === "tts_audio")).toBe(false);
+
+    getCallbacks()?.assistant_text_delta?.(makeTextDelta("Hello there."));
+    getCallbacks()?.message_complete?.(makeMessageComplete());
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+    expect(frames.some((frame) => frame.type === "tts_audio")).toBe(false);
+  });
+
+  test("keeps the eager first-clause flush for the model's first segment after an ack", async () => {
+    enableFrontModel();
+    const { startVoiceTurn, getCallbacks } = createCapturingTurnStarter();
+    const { streamTtsAudio, ttsTexts } = createRecordingTtsStreamer();
+    const { frames, session } = createSessionHarness({
+      startVoiceTurn,
+      streamTtsAudio,
+      frontModelConfig: { ackFirstDeltaTimeoutMs: ACK_TIMEOUT_MS },
+    });
+
+    await startReleasedTurn(session);
+    await waitFor(() => ttsTexts.length === 1);
+    expect(ttsTexts).toEqual([EXPECTED_ACK]);
+
+    getCallbacks()?.assistant_text_delta?.(
+      makeTextDelta(
+        "Sure, I can help with that, and here is more text to say.",
+      ),
+    );
+    await waitFor(() => ttsTexts.length === 3);
+
+    // The ack did not consume the eager first-segment flush: the model's
+    // opening clause still splits at the comma instead of buffering to a
+    // full sentence.
+    expect(ttsTexts).toEqual([
+      EXPECTED_ACK,
+      "Sure, I can help with that,",
+      "and here is more text to say.",
+    ]);
+
+    getCallbacks()?.message_complete?.(makeMessageComplete());
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+    expect(frames.at(-1)).toMatchObject({
+      type: "tts_done",
+      turnId: "live-turn-1",
+    });
+  });
+
+  function makeStubFrontDecider(
+    generateAckText: VoiceFrontDecider["generateAckText"],
+  ): VoiceFrontDecider {
+    return {
+      decideEndpoint: async () => ({ action: "release" }),
+      generateAckText,
+    };
+  }
+
+  test("llmAckText on: speaks the front-model-phrased ack", async () => {
+    enableFrontModel();
+    const GENERATED = "Sure — one moment.";
+    // The generated text passes through the same TTS sanitizer as the
+    // static phrase.
+    const EXPECTED_GENERATED = sanitizeForTts(GENERATED).trim();
+    const generateAckText = mock(async (ackInput: VoiceAckTextInput) => {
+      expect(ackInput.transcriptSoFar).toBe("hello");
+      return GENERATED;
+    });
+    const { startVoiceTurn, getCallbacks } = createCapturingTurnStarter();
+    const { streamTtsAudio, ttsTexts } = createRecordingTtsStreamer();
+    const { frames, session } = createSessionHarness({
+      startVoiceTurn,
+      streamTtsAudio,
+      frontModelConfig: {
+        ackFirstDeltaTimeoutMs: ACK_TIMEOUT_MS,
+        llmAckText: true,
+      },
+      frontDecider: makeStubFrontDecider(generateAckText),
+    });
+
+    await startReleasedTurn(session);
+    await waitFor(() => ttsTexts.length === 1);
+    expect(ttsTexts).toEqual([EXPECTED_GENERATED]);
+    expect(generateAckText).toHaveBeenCalledTimes(1);
+
+    getCallbacks()?.assistant_text_delta?.(makeTextDelta("Hello there."));
+    getCallbacks()?.message_complete?.(makeMessageComplete());
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+    expect(ttsTexts).toEqual([EXPECTED_GENERATED, "Hello there."]);
+  });
+
+  test("llmAckText on: null generation falls back to the static phrase", async () => {
+    enableFrontModel();
+    const generateAckText = mock(async () => null);
+    const { startVoiceTurn, getCallbacks } = createCapturingTurnStarter();
+    const { streamTtsAudio, ttsTexts } = createRecordingTtsStreamer();
+    const { frames, session } = createSessionHarness({
+      startVoiceTurn,
+      streamTtsAudio,
+      frontModelConfig: {
+        ackFirstDeltaTimeoutMs: ACK_TIMEOUT_MS,
+        llmAckText: true,
+      },
+      frontDecider: makeStubFrontDecider(generateAckText),
+    });
+
+    await startReleasedTurn(session);
+    await waitFor(() => ttsTexts.length === 1);
+    expect(ttsTexts).toEqual([EXPECTED_ACK]);
+    expect(generateAckText).toHaveBeenCalledTimes(1);
+
+    getCallbacks()?.assistant_text_delta?.(makeTextDelta("Hello there."));
+    getCallbacks()?.message_complete?.(makeMessageComplete());
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+  });
+
+  test("llmAckText off (default): the decider is never consulted", async () => {
+    enableFrontModel();
+    const generateAckText = mock(async () => "Never spoken.");
+    const { startVoiceTurn, getCallbacks } = createCapturingTurnStarter();
+    const { streamTtsAudio, ttsTexts } = createRecordingTtsStreamer();
+    const { frames, session } = createSessionHarness({
+      startVoiceTurn,
+      streamTtsAudio,
+      frontModelConfig: { ackFirstDeltaTimeoutMs: ACK_TIMEOUT_MS },
+      frontDecider: makeStubFrontDecider(generateAckText),
+    });
+
+    await startReleasedTurn(session);
+    await waitFor(() => ttsTexts.length === 1);
+    expect(ttsTexts).toEqual([EXPECTED_ACK]);
+    expect(generateAckText).not.toHaveBeenCalled();
+
+    getCallbacks()?.assistant_text_delta?.(makeTextDelta("Hello there."));
+    getCallbacks()?.message_complete?.(makeMessageComplete());
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+  });
+
+  test("llmAckText on: a generation resolving around turn completion speaks no ack", async () => {
+    enableFrontModel();
+    let resolveGeneration!: (text: string | null) => void;
+    const generateAckText = mock(
+      () =>
+        new Promise<string | null>((resolve) => {
+          resolveGeneration = resolve;
+        }),
+    );
+    const { startVoiceTurn, getCallbacks } = createCapturingTurnStarter();
+    const { streamTtsAudio, ttsTexts } = createRecordingTtsStreamer();
+    const { frames, session } = createSessionHarness({
+      startVoiceTurn,
+      streamTtsAudio,
+      frontModelConfig: {
+        ackFirstDeltaTimeoutMs: ACK_TIMEOUT_MS,
+        llmAckText: true,
+      },
+      frontDecider: makeStubFrontDecider(generateAckText),
+    });
+
+    await startReleasedTurn(session);
+    await waitFor(() => generateAckText.mock.calls.length === 1);
+
+    // A tool-only/no-text turn completes while the ack text is still
+    // generating: the resolving generation must not become the turn's only
+    // audible output (nor enqueue behind the finale).
+    resolveGeneration("Too late to say this.");
+    getCallbacks()?.message_complete?.(makeMessageComplete());
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+    await flushAsyncCallbacks();
+
+    // No ack synthesized or sent — and since the ack-spoken metric only
+    // records on an actual enqueue, no phantom ack metric either.
+    expect(ttsTexts).toEqual([]);
+    expect(frames.some((frame) => frame.type === "tts_audio")).toBe(false);
+  });
+
+  test("llmAckText on: a tool-use ack passes the tool name to the decider", async () => {
+    enableFrontModel();
+    const GENERATED = "Let me search for that.";
+    const generateAckText = mock(
+      async (_input: VoiceAckTextInput) => GENERATED,
+    );
+    const { startVoiceTurn, getCallbacks } = createCapturingTurnStarter();
+    const { streamTtsAudio, ttsTexts } = createRecordingTtsStreamer();
+    const { frames, session } = createSessionHarness({
+      startVoiceTurn,
+      streamTtsAudio,
+      // Long first-delta budget so only the tool-use trigger can speak.
+      frontModelConfig: { ackFirstDeltaTimeoutMs: 5_000, llmAckText: true },
+      frontDecider: makeStubFrontDecider(generateAckText),
+    });
+
+    await startReleasedTurn(session);
+    getCallbacks()?.tool_use_start?.("web_search");
+    await waitFor(() => ttsTexts.length === 1);
+
+    expect(generateAckText).toHaveBeenCalledTimes(1);
+    expect(generateAckText.mock.calls[0]?.[0]).toEqual({
+      transcriptSoFar: "hello",
+      toolName: "web_search",
+    });
+    expect(ttsTexts).toEqual([sanitizeForTts(GENERATED).trim()]);
+
+    getCallbacks()?.assistant_text_delta?.(makeTextDelta("Hello there."));
+    getCallbacks()?.message_complete?.(makeMessageComplete());
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+  });
+
+  test("llmAckText on: a generation resolving after escalation hand-off speaks no ack", async () => {
+    enableFrontModelWithEscalation();
+    let resolveGeneration!: (text: string | null) => void;
+    const generateAckText = mock(
+      () =>
+        new Promise<string | null>((resolve) => {
+          resolveGeneration = resolve;
+        }),
+    );
+    const { startVoiceTurn, getCallbacks } = createCapturingTurnStarter();
+    const { streamTtsAudio, ttsTexts } = createRecordingTtsStreamer();
+    const { frames, session } = createSessionHarness({
+      startVoiceTurn,
+      streamTtsAudio,
+      frontModelConfig: {
+        ackFirstDeltaTimeoutMs: ACK_TIMEOUT_MS,
+        llmAckText: true,
+      },
+      frontDecider: makeStubFrontDecider(generateAckText),
+    });
+
+    await startReleasedTurn(session);
+    await waitFor(() => generateAckText.mock.calls.length === 1);
+
+    // The front-door leg escalates with no holding phrase of its own, so the
+    // canned bridge is enqueued — exactly the case where a late-resolving
+    // generation would stack a second filler on top of it.
+    getCallbacks()?.assistant_text_delta?.(makeTextDelta("[ESCALATE]"));
+    await waitFor(() => ttsTexts.length === 1);
+    expect(ttsTexts).toEqual([EXPECTED_BRIDGE]);
+
+    resolveGeneration("Stacked filler.");
+    await flushAsyncCallbacks();
+    expect(ttsTexts).toEqual([EXPECTED_BRIDGE]);
+
+    // The escalated leg (whose callbacks the capturing starter now holds)
+    // finishes the turn normally.
+    getCallbacks()?.assistant_text_delta?.(
+      makeTextDelta("Here is the careful answer."),
+    );
+    getCallbacks()?.message_complete?.(makeMessageComplete());
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+    expect(ttsTexts).toEqual([EXPECTED_BRIDGE, "Here is the careful answer."]);
+  });
+
+  test("static ack: a tool started on the escalated leg speaks nothing past the bridge", async () => {
+    enableFrontModelWithEscalation();
+    const { startVoiceTurn, getCallbacks } = createCapturingTurnStarter();
+    const { streamTtsAudio, ttsTexts } = createRecordingTtsStreamer();
+    const { frames, session } = createSessionHarness({
+      startVoiceTurn,
+      streamTtsAudio,
+      // Long first-delta budget so only the tool-use trigger could speak.
+      frontModelConfig: { ackFirstDeltaTimeoutMs: 5_000 },
+    });
+
+    await startReleasedTurn(session);
+    // A bare hand-off enqueues the canned bridge, which holds the floor.
+    getCallbacks()?.assistant_text_delta?.(makeTextDelta("[ESCALATE]"));
+    await waitFor(() => ttsTexts.length === 1);
+    expect(ttsTexts).toEqual([EXPECTED_BRIDGE]);
+
+    // The escalated leg starts a tool before its first delta: no static ack
+    // may stack on the bridge.
+    getCallbacks()?.tool_use_start?.("web_search");
+    await flushAsyncCallbacks();
+    expect(ttsTexts).toEqual([EXPECTED_BRIDGE]);
+
+    getCallbacks()?.assistant_text_delta?.(
+      makeTextDelta("Here is the careful answer."),
+    );
+    getCallbacks()?.message_complete?.(makeMessageComplete());
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+    expect(ttsTexts).toEqual([EXPECTED_BRIDGE, "Here is the careful answer."]);
+  });
+
+  test("llmAckText on: tools started on the escalated leg trigger no ack generation", async () => {
+    enableFrontModelWithEscalation();
+    const generateAckText = mock(async () => "Never spoken.");
+    const { startVoiceTurn, getCallbacks } = createCapturingTurnStarter();
+    const { streamTtsAudio, ttsTexts } = createRecordingTtsStreamer();
+    const { frames, session } = createSessionHarness({
+      startVoiceTurn,
+      streamTtsAudio,
+      // Long first-delta budget so only the tool-use trigger could generate.
+      frontModelConfig: { ackFirstDeltaTimeoutMs: 5_000, llmAckText: true },
+      frontDecider: makeStubFrontDecider(generateAckText),
+    });
+
+    await startReleasedTurn(session);
+    getCallbacks()?.assistant_text_delta?.(makeTextDelta("[ESCALATE]"));
+    await waitFor(() => ttsTexts.length === 1);
+    expect(ttsTexts).toEqual([EXPECTED_BRIDGE]);
+
+    // Post-handoff tool starts must not each burn a generation call whose
+    // result is always discarded.
+    getCallbacks()?.tool_use_start?.("web_search");
+    getCallbacks()?.tool_use_start?.("file_read");
+    await flushAsyncCallbacks();
+    expect(generateAckText).not.toHaveBeenCalled();
+    expect(ttsTexts).toEqual([EXPECTED_BRIDGE]);
+
+    getCallbacks()?.assistant_text_delta?.(
+      makeTextDelta("Here is the careful answer."),
+    );
+    getCallbacks()?.message_complete?.(makeMessageComplete());
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+    expect(ttsTexts).toEqual([EXPECTED_BRIDGE, "Here is the careful answer."]);
+  });
+
+  test("llmAckText on: a first delta during generation skips the ack entirely", async () => {
+    enableFrontModel();
+    let resolveGeneration!: (text: string | null) => void;
+    const generateAckText = mock(
+      () =>
+        new Promise<string | null>((resolve) => {
+          resolveGeneration = resolve;
+        }),
+    );
+    const { startVoiceTurn, getCallbacks } = createCapturingTurnStarter();
+    const { streamTtsAudio, ttsTexts } = createRecordingTtsStreamer();
+    const { frames, session } = createSessionHarness({
+      startVoiceTurn,
+      streamTtsAudio,
+      frontModelConfig: {
+        ackFirstDeltaTimeoutMs: ACK_TIMEOUT_MS,
+        llmAckText: true,
+      },
+      frontDecider: makeStubFrontDecider(generateAckText),
+    });
+
+    await startReleasedTurn(session);
+    await waitFor(() => generateAckText.mock.calls.length === 1);
+
+    // The brain's first delta lands while the ack text is still generating —
+    // a late generation must not speak over real output.
+    getCallbacks()?.assistant_text_delta?.(makeTextDelta("Hello there."));
+    resolveGeneration("Too late to say this.");
+    getCallbacks()?.message_complete?.(makeMessageComplete());
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    expect(ttsTexts).toEqual(["Hello there."]);
+    expect(ttsAudioPayloads(frames)).toEqual([b64("audio:Hello there.")]);
   });
 });

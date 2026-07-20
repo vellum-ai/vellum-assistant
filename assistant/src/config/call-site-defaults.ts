@@ -8,6 +8,14 @@ type CallSiteDefaultConfig = {
    * rather than pinning a profile that may be unavailable.
    */
   profile?: string;
+  /**
+   * Direct model pin overriding the resolved profile's model. The resolver
+   * treats a bare model pin as catalog-implied: it stamps the model's
+   * catalog provider and keeps the provider-agnostic Vellum managed
+   * connection (see `resolveOverrideOrDefault`). Reserve for call sites
+   * whose latency envelope the profile's model cannot meet.
+   */
+  model?: string;
   maxTokens?: number;
   effort?: "none" | "low" | "medium" | "high" | "xhigh" | "max";
   temperature?: number | null;
@@ -110,6 +118,18 @@ export const CALL_SITE_DEFAULTS: Record<LLMCallSite, CallSiteDefaultConfig> = {
   },
   interactionClassifier: {
     profile: "cost-optimized",
+    effort: "low",
+    thinking: { enabled: false },
+  },
+  voiceFrontDecision: {
+    profile: "cost-optimized",
+    // Endpoint decisions gate live-voice turn-end latency, and the default
+    // profile's upstream cannot fit any usable decision budget (~1s+ per
+    // forced tool call). Pin a latency-optimized model instead — the bare
+    // model pin lets the catalog imply the provider, which preserves the
+    // provider-agnostic managed connection. Replace only with a model whose
+    // managed credentials are provisioned in every environment.
+    model: "claude-haiku-4-5-20251001",
     effort: "low",
     thinking: { enabled: false },
   },
