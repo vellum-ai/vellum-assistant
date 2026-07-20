@@ -10,6 +10,7 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import type { ConfiguredProviderOptions } from "../../../providers/provider-send-message.js";
 import type {
   ProviderResponse,
   SendMessageOptions,
@@ -22,15 +23,13 @@ import type {
 // ---------------------------------------------------------------------------
 
 let nextResponse: ProviderResponse;
-let getConfiguredProviderOptions:
-  | { overrideProfile?: string; forceOverrideProfile?: boolean }
-  | undefined;
+let getConfiguredProviderOptions: ConfiguredProviderOptions | undefined;
 let sendMessageOptions: SendMessageOptions | undefined;
 
 mock.module("../../../providers/provider-send-message.js", () => ({
   getConfiguredProvider: async (
     _callSite: string,
-    options: { overrideProfile?: string; forceOverrideProfile?: boolean },
+    options: ConfiguredProviderOptions,
   ) => {
     getConfiguredProviderOptions = options;
     return {
@@ -76,7 +75,7 @@ beforeEach(() => {
 });
 
 describe("inference_send profile routing", () => {
-  test("forwards the requested profile through provider resolution and send options", async () => {
+  test("forwards the requested profile and one selection seed through both resolution stages", async () => {
     const requestedProfile = "quality-optimized";
 
     await inferenceSendHandler()({
@@ -87,6 +86,12 @@ describe("inference_send profile routing", () => {
       requestedProfile,
     );
     expect(sendMessageOptions?.config?.overrideProfile).toBe(requestedProfile);
+    expect(getConfiguredProviderOptions?.selectionSeed).toEqual(
+      expect.any(String),
+    );
+    expect(sendMessageOptions?.config?.selectionSeed).toBe(
+      getConfiguredProviderOptions?.selectionSeed,
+    );
   });
 });
 
