@@ -500,6 +500,43 @@ describe("hands-free mode", () => {
     expect(h.view.result.current.state).toBe("listening");
   });
 
+  test("a final during a held pause (no utterance_end) stays listening", async () => {
+    const h = renderController();
+    await startListening(h, { handsFree: true });
+
+    // Semantic endpointing held the utterance open: the daemon forwards the
+    // segment's final but suppresses `utterance_end`. The UI must keep
+    // reading as the user's turn, not flip to thinking.
+    act(() => {
+      h.client.emit("speechStarted", { type: "speech_started", seq: 2 });
+      h.client.emit("sttFinal", {
+        type: "stt_final",
+        seq: 3,
+        text: "can you tell me about",
+      });
+    });
+    expect(h.view.result.current.finalTranscript).toBe("can you tell me about");
+    expect(h.view.result.current.state).toBe("listening");
+
+    // The real release closes the utterance, and the next final advances.
+    act(() => {
+      h.client.emit("utteranceEnd", {
+        type: "utterance_end",
+        seq: 4,
+        reason: "silence",
+      });
+    });
+    expect(h.view.result.current.state).toBe("transcribing");
+    act(() => {
+      h.client.emit("sttFinal", {
+        type: "stt_final",
+        seq: 5,
+        text: "can you tell me about the weather",
+      });
+    });
+    expect(h.view.result.current.state).toBe("thinking");
+  });
+
   test("sends the user's pause + interrupt-sensitivity settings on a hands-free connect", async () => {
     useVoicePrefsStore.setState({
       pauseBeforeReplyMs: 1500,

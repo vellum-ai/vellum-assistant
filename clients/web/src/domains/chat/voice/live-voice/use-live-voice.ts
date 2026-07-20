@@ -725,6 +725,12 @@ export function useLiveVoice(
             // be discarded); stay in `transcribing` so `utterance_discarded`
             // can safely return to `listening` without racing a real turn.
             if (frame.text.trim().length === 0) return;
+            // Semantic endpointing (voice-front-model) can hold the
+            // utterance open past a final: the daemon suppresses
+            // `utterance_end`, so we never left `listening`. Only a closed
+            // utterance (`transcribing`) advances to `thinking` — a held
+            // pause must keep reading as "still your turn".
+            if (s.state !== "transcribing") return;
             // The next turn now owns the state: a prior turn's drain waiter
             // must not reset it to `listening` if it resolves before the
             // server's `thinking` frame (which re-bumps; the guard only
