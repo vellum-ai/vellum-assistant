@@ -1558,10 +1558,10 @@ paths:
   /v1/assistants/{assistant_id}/managed-speech/tts/synthesize/:
     post:
       operationId: assistants_managed_speech_tts_synthesize_create
-      description: Synthesize speech audio from text through Vellum's managed Deepgram
-        text-to-speech proxy. Vellum validates the request, checks billing eligibility,
-        calls Deepgram with managed credentials, bills the input character count,
-        and returns the synthesized audio bytes.
+      description: Synthesize speech audio from text through Vellum's managed text-to-speech
+        proxy. Vellum validates the request, checks billing eligibility, calls the
+        speech provider for the selected voice with managed credentials, bills the
+        input character count, and returns the synthesized audio bytes.
       parameters:
       - in: path
         name: assistant_id
