@@ -335,7 +335,30 @@ describe("LiveVoiceMetricsCollector", () => {
     expect(completed).not.toHaveProperty("ackSpoken");
   });
 
-  test("omits endpoint and ack fields for turns that never touch the features", () => {
+  test("accumulates spoken progress updates on the turn and aggregate fields", () => {
+    const clock = makeClock(0);
+    const collector = new LiveVoiceMetricsCollector({
+      sessionId: "session-prog",
+      conversationId: "conversation-prog",
+      clock: clock.now,
+    });
+
+    collector.startTurn("turn-prog");
+    const frame = collector.markProgressSpoken("turn-prog");
+    expect(frame.event).toBe("progress_spoken");
+    collector.markProgressSpoken("turn-prog");
+    const completed = collector.completeTurn();
+
+    expect(completed).toMatchObject({
+      turnId: "turn-prog",
+      progressUpdatesSpoken: 2,
+    });
+    expect(
+      getLiveVoiceMetricsAggregateFields(collector.getSnapshot(), "turn-prog"),
+    ).toMatchObject({ progressUpdatesSpoken: 2 });
+  });
+
+  test("omits endpoint, ack, and progress fields for turns that never touch the features", () => {
     const clock = makeClock(0);
     const collector = new LiveVoiceMetricsCollector({
       sessionId: "session-off",
@@ -350,6 +373,7 @@ describe("LiveVoiceMetricsCollector", () => {
     expect(completed).not.toHaveProperty("endpointHoldCount");
     expect(completed).not.toHaveProperty("endpointDecisionMaxLatencyMs");
     expect(completed).not.toHaveProperty("ackSpoken");
+    expect(completed).not.toHaveProperty("progressUpdatesSpoken");
 
     const aggregateFields = getLiveVoiceMetricsAggregateFields(
       collector.getSnapshot(),
@@ -358,6 +382,7 @@ describe("LiveVoiceMetricsCollector", () => {
     expect(aggregateFields).not.toHaveProperty("endpointHoldCount");
     expect(aggregateFields).not.toHaveProperty("endpointDecisionMaxLatencyMs");
     expect(aggregateFields).not.toHaveProperty("ackSpoken");
+    expect(aggregateFields).not.toHaveProperty("progressUpdatesSpoken");
   });
 
   test("markBargeIn records a first-wins timestamp on the active turn", () => {
