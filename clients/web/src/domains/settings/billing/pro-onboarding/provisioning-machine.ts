@@ -51,8 +51,11 @@ export interface DeriveProvisioningInput {
   resizeOperationInFlight: boolean;
   /** A resize operation was observed at some point (latched by the hook). */
   sawOperation: boolean;
-  /** Elapsed ms since plan_id was first observed as "pro"; null before then. */
-  msSinceProConfirmed: number | null;
+  /**
+   * Elapsed ms since the current observation window began — pro confirm, or
+   * the latest stalled-resize resume. Null before pro is confirmed.
+   */
+  msSinceWatchStart: number | null;
   /** The confirm-phase poll timed out without observing plan_id == "pro". */
   confirmExpired: boolean;
   serverVerdict?: ProvisioningServerVerdict | null;
@@ -95,7 +98,7 @@ export function deriveProvisioningState(
     initialActuals,
     resizeOperationInFlight,
     sawOperation,
-    msSinceProConfirmed,
+    msSinceWatchStart,
     confirmExpired,
     serverVerdict = null,
   } = input;
@@ -137,10 +140,7 @@ export function deriveProvisioningState(
     return { state: "NOT_APPLICABLE", softWaiting: false };
   }
 
-  if (
-    msSinceProConfirmed != null &&
-    msSinceProConfirmed >= PROVISION_STALL_MS
-  ) {
+  if (msSinceWatchStart != null && msSinceWatchStart >= PROVISION_STALL_MS) {
     return { state: "STALLED", softWaiting: false };
   }
 
@@ -155,7 +155,6 @@ export function deriveProvisioningState(
   return {
     state: "WAITING",
     softWaiting:
-      msSinceProConfirmed != null &&
-      msSinceProConfirmed >= PROVISION_WAIT_GRACE_MS,
+      msSinceWatchStart != null && msSinceWatchStart >= PROVISION_WAIT_GRACE_MS,
   };
 }

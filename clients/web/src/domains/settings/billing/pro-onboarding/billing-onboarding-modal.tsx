@@ -118,17 +118,22 @@ export function BillingOnboardingModal({
   const { targets } = provisioning;
   const applyStalledResize = () => {
     if (resizeMutation.isPending || !activeAssistant?.id || !targets) return;
-    resizeMutation.mutate({
-      path: { id: activeAssistant.id },
-      body: {
-        ...(targets.machineSize != null
-          ? { machine_size: targets.machineSize }
-          : {}),
-        ...(targets.storageGib != null
-          ? { storage_gib: targets.storageGib }
-          : {}),
+    resizeMutation.mutate(
+      {
+        path: { id: activeAssistant.id },
+        body: {
+          ...(targets.machineSize != null
+            ? { machine_size: targets.machineSize }
+            : {}),
+          ...(targets.storageGib != null
+            ? { storage_gib: targets.storageGib }
+            : {}),
+        },
       },
-    });
+      // A manual apply un-stalls the flow: the hook goes back to RESIZING and
+      // resumes its actuals polling so the normal DONE path can complete.
+      { onSuccess: () => provisioning.resumeAfterManualApply() },
+    );
   };
 
   const handleClose = () => {
@@ -160,7 +165,7 @@ export function BillingOnboardingModal({
 
   function renderStep() {
     if (step === "provisioning") {
-      if (provisioning.confirmError) {
+      if (provisioning.confirmError || provisioning.targetsError) {
         return <FetchErrorState onGoToBilling={onClose} />;
       }
       return (

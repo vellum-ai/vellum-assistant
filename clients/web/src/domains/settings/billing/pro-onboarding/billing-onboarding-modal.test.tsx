@@ -99,6 +99,7 @@ let subscriptionPlanId: SubscriptionResponse["plan_id"] = "base";
 let onboardingResponse = makeOnboarding();
 let assistantResponse = makeAssistant("small", 10);
 let operationalStatusResponse = makeOperationalStatus("active");
+let onboardingFails = false;
 let resizeCall: Captured | null = null;
 
 mock.module("@/generated/api/sdk.gen", () => ({
@@ -109,7 +110,9 @@ mock.module("@/generated/api/sdk.gen", () => ({
       response: { ok: true },
     }),
   organizationsBillingSubscriptionOnboardingRetrieve: () =>
-    Promise.resolve({ data: onboardingResponse, response: { ok: true } }),
+    onboardingFails
+      ? Promise.reject(new Error("500 Internal Server Error"))
+      : Promise.resolve({ data: onboardingResponse, response: { ok: true } }),
   assistantsActiveRetrieve: () =>
     Promise.resolve({ data: assistantResponse, response: { ok: true } }),
   assistantsOperationalStatusDetailRead: () =>
@@ -160,6 +163,7 @@ beforeEach(() => {
   onboardingResponse = makeOnboarding();
   assistantResponse = makeAssistant("small", 10);
   operationalStatusResponse = makeOperationalStatus("active");
+  onboardingFails = false;
   resizeCall = null;
   dateNowOffsetMs = 0;
   sessionStorage.clear();
@@ -265,9 +269,9 @@ describe("BillingOnboardingModal", () => {
     expect(resizeCall).toBeNull();
   });
 
-  test("stall surfaces Apply & Restart, which fires the resize with the targets", async () => {
+  test("stall surfaces Apply & Restart; a successful apply resumes resizing through DONE", async () => {
     subscriptionPlanId = "pro";
-    const { getByText, getByTestId } = renderModal();
+    const { client, getByText, getByTestId } = renderModal();
 
     await waitFor(
       () => expect(getByText("Setting up your new resources…")).toBeTruthy(),
@@ -285,6 +289,37 @@ describe("BillingOnboardingModal", () => {
     await waitFor(() => expect(resizeCall).not.toBeNull());
     expect(resizeCall!.path).toEqual({ id: "assistant-1" });
     expect(resizeCall!.body).toEqual({ machine_size: "large", storage_gib: 50 });
+
+    // The successful apply resumes observation: back to the resizing UI…
+    await waitFor(
+      () => expect(getByText("Resizing your assistant…")).toBeTruthy(),
+      { timeout: 5000 },
+    );
+
+    // …and the resize landing completes the normal DONE → advance flow.
+    assistantResponse = makeAssistant("large", 50);
+    await client.invalidateQueries();
+    await waitFor(
+      () => expect(getByText("Your upgrade is ready")).toBeTruthy(),
+      { timeout: 5000 },
+    );
+    await waitFor(() => expect(getByText("Assistant email")).toBeTruthy(), {
+      timeout: 5000,
+    });
+  });
+
+  test("onboarding fetch failure after confirm shows the fetch-error state", async () => {
+    subscriptionPlanId = "pro";
+    onboardingFails = true;
+    const { getByText, getByTestId, onClose } = renderModal();
+
+    await waitFor(
+      () => expect(getByText("Couldn't reach billing")).toBeTruthy(),
+      { timeout: 5000 },
+    );
+
+    fireEvent.click(getByTestId("onboarding-go-to-billing"));
+    expect(onClose).toHaveBeenCalled();
   });
 
   test("confirm timeout shows the payment-safe copy and retry restarts polling", async () => {
