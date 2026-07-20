@@ -74,7 +74,10 @@ const ALLOWED_PARAMS: Record<SpeechRelayOperation, ReadonlySet<string>> = {
     "vad_events",
     "punctuate",
   ]),
-  tts: new Set(["encoding", "sample_rate", "container"]),
+  // `model` is the client-selected TTS voice; velay only dials it after
+  // Django's rate-card guard prices and echoes that exact model, so
+  // forwarding it does not widen what the assistant API key can spend on.
+  tts: new Set(["encoding", "sample_rate", "container", "model"]),
 };
 
 type WebSocketConstructorWithHeaders = new (
