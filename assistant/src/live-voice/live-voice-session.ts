@@ -109,6 +109,15 @@ const FINALIZE_GRACE_MS = 1_000;
 // liveVoice.vad.bargeInMinSpeechMs schema default; 0 disables the guard for
 // instant barge-in.
 const DEFAULT_BARGE_IN_MIN_SPEECH_MS = 250;
+// Brief sub-threshold gaps within a barge-in run must NOT reset the accumulated
+// speech: a syllable boundary, or the choppy energy the browser's half-duplex
+// echo canceller produces while the assistant is still playing (it ducks the
+// user's near-end voice, so post-AEC user speech arrives as intermittent
+// above-gate chunks). Only a continuous silence longer than this (a real end of
+// speech, or an isolated cough) resets the run. Without this tolerance, a single
+// quiet chunk zeroes the run, so speech during playback never reaches
+// bargeInMinSpeechMs and the interruption never lands.
+const BARGE_IN_GAP_TOLERANCE_MS = 200;
 // At most this many TTS segment jobs are open (provider stream started,
 // frames not yet fully emitted) per turn: the emitting job plus one
 // prefetching job. The prefetch buffers its chunks in memory until promoted;
@@ -457,15 +466,20 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // sensitivity" live (see applyConfigUpdate).
   private bargeInMinSpeechMs: number;
   // Sustained-speech barge-in guard, armed at speech onset while the
-  // assistant turn is audibly speaking: consecutive speech-chunk duration
+  // assistant turn is audibly speaking: above-gate speech-chunk duration
   // accumulates until it reaches bargeInMinSpeechMs, then the deferred
-  // speech_started + barge-in fire (at most once per onset). A non-speech
-  // chunk zeroes the run; the detector's utterance end discards the guard.
+  // speech_started + barge-in fire (at most once per onset). Brief sub-threshold
+  // gaps are tolerated (see BARGE_IN_GAP_TOLERANCE_MS); only a continuous
+  // silence longer than that resets the run. The detector's utterance end
+  // discards the guard.
   private pendingBargeIn: {
     // Null when guarding only the post-tts_done drain window (the turn is
     // already finalized but the client is still playing its tail).
     turn: ActiveAssistantTurn | null;
     speechMs: number;
+    // Consecutive sub-threshold (non-speech) time since the last speech chunk;
+    // resets speechMs once it exceeds BARGE_IN_GAP_TOLERANCE_MS.
+    silenceMs: number;
   } | null = null;
   // Estimated wall-clock ms until the client finishes draining the
   // assistant audio sent so far. The server clears the turn right after
@@ -1091,7 +1105,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     if ((bargeableTurn || drainingPlayback) && this.bargeInMinSpeechMs > 0) {
       // Onset audio keeps flowing into the cycle/pre-roll while the guard
       // accumulates (trackBargeInGuard), so no speech is lost either way.
-      this.pendingBargeIn = { turn: bargeableTurn, speechMs: 0 };
+      this.pendingBargeIn = { turn: bargeableTurn, speechMs: 0, silenceMs: 0 };
       return;
     }
 
@@ -1104,22 +1118,29 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   }
 
   // Advances the sustained-speech barge-in guard by one server-VAD chunk:
-  // consecutive speech accumulates toward bargeInMinSpeechMs (a non-speech
-  // chunk zeroes the run) and, once met, the deferred speech_started +
-  // barge-in fire.
+  // above-gate speech accumulates toward bargeInMinSpeechMs while brief
+  // sub-threshold gaps are tolerated (only a continuous silence longer than
+  // BARGE_IN_GAP_TOLERANCE_MS zeroes the run), and once met the deferred
+  // speech_started + barge-in fire.
   private trackBargeInGuard(hasSpeech: boolean, chunk: Buffer): void {
     const guard = this.pendingBargeIn;
     if (!guard) {
       return;
     }
-    if (!hasSpeech) {
-      guard.speechMs = 0;
-      return;
-    }
-    guard.speechMs += pcm16DurationMs(
+    const chunkMs = pcm16DurationMs(
       chunk.byteLength,
       this.context.startFrame.audio.sampleRate,
     );
+    if (!hasSpeech) {
+      guard.silenceMs += chunkMs;
+      if (guard.silenceMs >= BARGE_IN_GAP_TOLERANCE_MS) {
+        guard.speechMs = 0;
+        guard.silenceMs = 0;
+      }
+      return;
+    }
+    guard.silenceMs = 0;
+    guard.speechMs += chunkMs;
     if (guard.speechMs < this.bargeInMinSpeechMs) {
       return;
     }
