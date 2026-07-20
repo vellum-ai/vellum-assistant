@@ -681,6 +681,8 @@ export function applyDiff(
       if (c.confidence !== undefined) updates.confidence = c.confidence;
       if (c.significance !== undefined) updates.significance = c.significance;
       if (c.stability !== undefined) updates.stability = c.stability;
+      if (c.reinforcementCount !== undefined)
+        updates.reinforcementCount = c.reinforcementCount;
       if (c.narrativeRole !== undefined)
         updates.narrativeRole = c.narrativeRole;
       if (c.partOfStory !== undefined) updates.partOfStory = c.partOfStory;
