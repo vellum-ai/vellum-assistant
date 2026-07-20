@@ -6,6 +6,7 @@
  * - handleToolUsePreviewStart emits activity state with "tool_running" phase
  * - handleInputJsonDelta includes toolUseId in emitted tool_input_delta
  * - handleToolResult includes toolUseId in emitted tool_result
+ * - handleToolResult resolves toolName from the tool_use correlation map
  * - Event ordering: tool_use_preview_start → input_json_delta → tool_use
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -795,6 +796,110 @@ describe("tool preview lifecycle", () => {
       expect(state.pendingToolResults.size).toBe(0);
       expect(state.pendingToolResultRowReservation).toBeUndefined();
       expect(state.persistedToolUseIds.has("toolu_a")).toBe(true);
+    });
+  });
+
+  describe("tool_result toolName resolution", () => {
+    /** Deps wired to a fresh collector. */
+    function makeCollectingDeps(): {
+      deps: EventHandlerDeps;
+      events: ServerMessage[];
+    } {
+      const collector = createEventCollector();
+      const deps = createMockDeps({
+        onEvent: collector.onEvent,
+        ctx: {
+          ...createMockDeps().ctx,
+          emitActivityState: collector.emitActivityState,
+        } as unknown as EventHandlerDeps["ctx"],
+      });
+      return { deps, events: collector.events };
+    }
+
+    function emittedToolResult(
+      events: ServerMessage[],
+    ): Record<string, unknown> {
+      const toolResult = events.find((e) => e.type === "tool_result");
+      expect(toolResult).toBeDefined();
+      return toolResult as unknown as Record<string, unknown>;
+    }
+
+    test("a result following its tool_use carries the resolved tool name", async () => {
+      // GIVEN a tool whose tool_use event was observed
+      const { deps, events } = makeCollectingDeps();
+      handleToolUse(state, deps, {
+        type: "tool_use",
+        id: "toolu_named",
+        name: "web_search",
+        input: { query: "weather" },
+      });
+
+      // WHEN its result arrives
+      await handleToolResult(state, deps, {
+        type: "tool_result",
+        toolUseId: "toolu_named",
+        content: "sunny",
+        isError: false,
+      });
+
+      // THEN the emitted event carries the name from the correlation map
+      expect(emittedToolResult(events).toolName).toBe("web_search");
+    });
+
+    test("a result for a never-observed toolUseId carries an empty toolName", async () => {
+      // GIVEN no tool_use event was ever observed for the id
+      const { deps, events } = makeCollectingDeps();
+
+      // WHEN a result arrives anyway
+      await handleToolResult(state, deps, {
+        type: "tool_result",
+        toolUseId: "toolu_unobserved",
+        content: "orphan",
+        isError: false,
+      });
+
+      // THEN the emitted event falls back to the empty name
+      expect(emittedToolResult(events).toolName).toBe("");
+    });
+
+    test("a cancelled synthesis resolves the name when its tool_use was observed", async () => {
+      // GIVEN a tool whose tool_use event was observed
+      const { deps, events } = makeCollectingDeps();
+      handleToolUse(state, deps, {
+        type: "tool_use",
+        id: "toolu_cancelled",
+        name: "bash",
+        input: { command: "sleep 60" },
+      });
+
+      // WHEN a synthesized cancellation result arrives (the tool never ran)
+      await handleToolResult(state, deps, {
+        type: "tool_result",
+        toolUseId: "toolu_cancelled",
+        content: "cancelled by user",
+        isError: true,
+        cancelled: true,
+      });
+
+      // THEN the cancellation-path emit still resolves the real name
+      expect(emittedToolResult(events).toolName).toBe("bash");
+    });
+
+    test("a cancelled synthesis for a never-observed toolUseId carries an empty toolName", async () => {
+      // GIVEN no tool_use event was ever observed for the id
+      const { deps, events } = makeCollectingDeps();
+
+      // WHEN a synthesized cancellation result arrives
+      await handleToolResult(state, deps, {
+        type: "tool_result",
+        toolUseId: "toolu_cancelled_unobserved",
+        content: "cancelled by user",
+        isError: true,
+        cancelled: true,
+      });
+
+      // THEN the emitted event falls back to the empty name
+      expect(emittedToolResult(events).toolName).toBe("");
     });
   });
 
