@@ -11,7 +11,7 @@ CALLER_CWD="$2"
 PIP_BIN="$3"
 shift 3
 
-for dir in /workspace /data; do
+for dir in /workspace /data /tmp /var/tmp; do
   [ -d "${dir}" ] || continue
   mkdir -p "${DATA_ROOT}${dir}"
   mount --bind "${dir}" "${DATA_ROOT}${dir}" 2>/dev/null || true

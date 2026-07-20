@@ -141,11 +141,13 @@ function kataPythonPaths(dataRoot: string): string[] {
       // Directory missing (e.g. chroot not bootstrapped yet) — skip.
     }
   }
+  // pip's /usr/local dirs must precede the apt dir, mirroring Debian's
+  // sys.path order, so a pip-upgraded package wins over an older apt one.
   return [
-    `${dataRoot}/usr/lib/python3/dist-packages`,
     ...[...versions].map(
       (version) => `${dataRoot}/usr/local/lib/${version}/dist-packages`,
     ),
+    `${dataRoot}/usr/lib/python3/dist-packages`,
   ];
 }
 

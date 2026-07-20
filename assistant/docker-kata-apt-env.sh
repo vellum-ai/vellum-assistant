@@ -55,12 +55,14 @@ export LD_LIBRARY_PATH
 # Make python packages installed into the chroot importable by the image
 # python: apt packages land in the unversioned dist-packages dir, chroot pip
 # installs in the versioned /usr/local one. The chroot suite matches the image
-# suite, so the image python's version selects the right pip dir.
+# suite, so the image python's version selects the right pip dir. The pip dir
+# must precede the apt dir, mirroring Debian's sys.path order, so a
+# pip-upgraded package wins over an older apt one.
 _vellum_kata_python_version="$(/usr/bin/python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>/dev/null || true)"
-_vellum_kata_append_pythonpath "${VELLUM_APT_DATA_ROOT}/usr/lib/python3/dist-packages"
 if [ -n "${_vellum_kata_python_version}" ]; then
   _vellum_kata_append_pythonpath "${VELLUM_APT_DATA_ROOT}/usr/local/lib/python${_vellum_kata_python_version}/dist-packages"
 fi
+_vellum_kata_append_pythonpath "${VELLUM_APT_DATA_ROOT}/usr/lib/python3/dist-packages"
 unset _vellum_kata_python_version
 export PYTHONPATH
 
