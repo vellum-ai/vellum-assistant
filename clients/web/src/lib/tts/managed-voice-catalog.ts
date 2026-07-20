@@ -30,6 +30,26 @@ export interface ManagedVoice {
   source: ManagedVoiceSource;
 }
 
+/**
+ * Split a voice `description` ("American · calm, smooth, professional") into its
+ * character traits and its accent. The traits are the distinguishing part, so
+ * UIs lead with them and de-emphasize the accent; `traits` is also the natural
+ * sort key. Falls back to the whole string as `traits` (empty accent) if the
+ * expected " · " separator is absent.
+ */
+export function splitVoiceDescription(description: string): {
+  traits: string;
+  accent: string;
+} {
+  const separator = " · ";
+  const index = description.indexOf(separator);
+  if (index === -1) return { traits: description, accent: "" };
+  return {
+    accent: description.slice(0, index),
+    traits: description.slice(index + separator.length),
+  };
+}
+
 export const DEFAULT_MANAGED_VOICE = "EXAVITQu4vr4xnSDxMaL";
 
 function sample(name: string): string {
