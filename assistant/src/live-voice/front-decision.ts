@@ -215,12 +215,20 @@ const PROGRESS_SYSTEM_PROMPT =
  * declares. Any embedded copy of the delimiter — either side, any casing,
  * including perturbed spellings with whitespace or attribute junk inside the
  * brackets (`</result-snippet >`, `< /result-snippet>`, `</result-snippet x>`)
- * that a model could still read as the tag — is stripped first so a hostile
- * result can't close its own fence and smuggle text outside it. Angle-bracket
+ * that a model could still read as the tag — is replaced with the inert
+ * `[snippet-tag]` placeholder so a hostile result can't close its own fence
+ * and smuggle text outside it. Substitution (not deletion) is what makes a
+ * single pass sufficient: deleting a match can splice its neighbors into a
+ * well-formed delimiter (`</result-<result-snippet junk>snippet>` →
+ * `</result-snippet>`), while the placeholder contains no angle brackets and
+ * can never combine with adjacent text into a new match. Angle-bracket
  * content that isn't a delimiter (`<div>`, `a < b`) passes through untouched.
  */
 function fenceResultPreview(preview: string): string {
-  const sanitized = preview.replace(/<\s*\/?\s*result-snippet[^>]*>/gi, "");
+  const sanitized = preview.replace(
+    /<\s*\/?\s*result-snippet[^>]*>/gi,
+    "[snippet-tag]",
+  );
   return `<result-snippet>${sanitized}</result-snippet>`;
 }
 
