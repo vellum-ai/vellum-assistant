@@ -30,10 +30,7 @@ import {
   needsFallbackBridge,
   type VoiceRoutingLeg,
 } from "../calls/voice-triage-escalate.js";
-import {
-  isAssistantFeatureFlagEnabled,
-  isVoiceFrontModelEnabled,
-} from "../config/assistant-feature-flags.js";
+import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
 import {
   type LiveVoiceFrontModelConfig,
@@ -305,7 +302,7 @@ interface UtteranceCycle {
   pendingAudioBytes: number;
   finalTranscriptSegments: string[];
   // Latest non-final STT partial trailing the finals, fed to the semantic
-  // endpoint decider (voice-front-model). Cleared when a final commits it.
+  // endpoint decider. Cleared when a final commits it.
   latestPartialText: string | null;
   // Consecutive semantic-endpointing "hold" extensions this utterance has
   // consumed, bounded by `endpointMaxExtensions`.
@@ -382,7 +379,7 @@ interface ActiveAssistantTurn {
   // a guaranteed-slow turn, so acknowledgment logic can key off this.
   toolUseStarted: boolean;
   // The model's first streamed delta reached this session — the spoken-ack
-  // timer (voice-front-model) is moot once real output is flowing.
+  // timer is moot once real output is flowing.
   firstDeltaSeen: boolean;
   // A spoken ack was enqueued this turn. Every ack trigger shares this
   // one-per-turn budget so a slow turn never stacks fillers.
@@ -602,7 +599,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   private readonly finalizeGraceMs: number;
   // Rotates through the ack phrase list across the session's turns.
   private ackPhraseCounter = 0;
-  // Front-model service (voice-front-model): semantic endpointing on
+  // Front-model service: semantic endpointing on
   // silence-fired turn-ends and LLM-phrased acks; null disables both LLM
   // capabilities (energy endpointing + static ack phrasing remain).
   private readonly frontDecider: VoiceFrontDecider | null;
@@ -1500,14 +1497,14 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         }
         return;
       }
-      // Semantic endpointing (voice-front-model): a silence boundary may be a
-      // thinking pause — let the front decider hold the utterance open. Only
-      // detector-timer silences qualify; max-duration always releases, and a
-      // manual client release (ptt_release forced the boundary) is the user
-      // saying "answer now" — never second-guess it. The gate is synchronous
-      // (null) whenever the decider is not consulted, so the flag-off release
-      // path keeps its exact event ordering — an extra await here would shift
-      // utterance release across the persistent-transcriber flush attribution.
+      // Semantic endpointing: a silence boundary may be a thinking pause —
+      // let the front decider hold the utterance open. Only detector-timer
+      // silences qualify; max-duration always releases, and a manual client
+      // release (ptt_release forced the boundary) is the user saying "answer
+      // now" — never second-guess it. The gate is synchronous (null) whenever
+      // the decider is not consulted, so that release path keeps its exact
+      // event ordering — an extra await here would shift utterance release
+      // across the persistent-transcriber flush attribution.
       if (reason === "silence" && !manualRelease) {
         const holdDecision = this.maybeHoldUtteranceOpen(utterance);
         if (holdDecision && (await holdDecision)) {
@@ -1521,7 +1518,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
 
   /**
    * Semantic-endpointing gate for a silence-fired turn-end. Returns `null`
-   * synchronously when the decider is not consulted (feature off, no decider,
+   * synchronously when the decider is not consulted (no decider,
    * extension cap reached, nothing transcribed) — the boundary then releases
    * exactly as before. Otherwise resolves `true` when the boundary must NOT
    * release the utterance now: either the decider held it open (the extension
@@ -1535,7 +1532,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     utterance: UtteranceCycle,
   ): Promise<boolean> | null {
     const decider = this.frontDecider;
-    if (!decider || !isVoiceFrontModelEnabled(getConfig())) {
+    if (!decider) {
       return null;
     }
     if (
@@ -2211,11 +2208,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
 
     const cfg = getConfig();
 
-    // Slow-first-delta spoken ack (voice-front-model): if the model produces
-    // no delta within the budget, a short static phrase holds the floor.
-    // Only meaningful on TTS sessions — a text-only session has no audio gap
-    // to bridge.
-    if (this.streamTtsAudio && isVoiceFrontModelEnabled(cfg)) {
+    // Slow-first-delta spoken ack: if the model produces no delta within the
+    // budget, a short static phrase holds the floor. Only meaningful on TTS
+    // sessions — a text-only session has no audio gap to bridge.
+    if (this.streamTtsAudio) {
       this.armAckTimer(activeTurn);
     }
 
@@ -2437,7 +2433,6 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
             // leg's tool starts must not stack another filler on the bridge.
             if (
               this.streamTtsAudio &&
-              isVoiceFrontModelEnabled(getConfig()) &&
               !current.firstDeltaSeen &&
               !current.ackSpoken &&
               !current.escalationHandedOff
@@ -3509,11 +3504,9 @@ export function createLiveVoiceSession(
     bargeInMinSpeechMs:
       options.bargeInMinSpeechMs ?? vadConfig?.bargeInMinSpeechMs,
     frontModelConfig,
-    // The decider only runs when the voice-front-model flag allows it (the
-    // session checks per boundary), so eager construction is flag-safe even
-    // when the `liveVoice.frontModel` config namespace is absent (schema
-    // defaults fill the tunables). An explicit option (incl. `null`) always
-    // wins — the test seam.
+    // Eager construction is safe even when the `liveVoice.frontModel` config
+    // namespace is absent — schema defaults fill the tunables. An explicit
+    // option (incl. `null`) always wins — the test seam.
     frontDecider:
       options.frontDecider !== undefined
         ? options.frontDecider

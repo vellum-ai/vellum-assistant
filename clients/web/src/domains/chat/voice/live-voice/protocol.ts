@@ -236,7 +236,7 @@ export interface LiveVoiceMetricsServerFrame extends LiveVoiceServerFrameBase {
   readonly totalMs: number | null;
   /**
    * Semantic-endpointing "hold" decisions taken during the turn. Present only
-   * when the voice-front-model endpoint decider was consulted (with the
+   * when the endpoint decider was consulted (with the
    * feature off the field is absent, keeping frames unchanged).
    */
   readonly endpointHoldCount?: number;

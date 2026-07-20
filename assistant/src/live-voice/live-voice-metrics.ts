@@ -24,13 +24,13 @@ export type LiveVoiceMetricsEvent =
   | "turn_cancelled"
   | "session_ended";
 
-// Semantic-endpointing decision on a silence boundary (voice-front-model).
+// Semantic-endpointing decision on a silence boundary.
 interface LiveVoiceEndpointDecisionMark {
   action: VoiceEndpointAction;
   latencyMs: number;
 }
 
-// Which floor-holding ack actually spoke during a turn (voice-front-model).
+// Which floor-holding ack actually spoke during a turn.
 export type LiveVoiceSpokenAckKind = "first_delta" | "tool_use";
 
 type LiveVoiceTurnStatus = "active" | "completed" | "cancelled";
@@ -103,8 +103,8 @@ interface LiveVoiceTurnMetrics {
   timestamps: LiveVoiceTurnTimestamps;
   durations: LiveVoiceTurnDurations;
   // Present only when the semantic-endpointing decider was consulted for the
-  // turn (voice-front-model on) / when an ack actually spoke, so turns that
-  // never touch the features carry no trace of them.
+  // turn / when an ack actually spoke, so turns that never touch the
+  // features carry no trace of them.
   endpointHoldCount?: number;
   endpointDecisionMaxLatencyMs?: number;
   ackSpoken?: LiveVoiceSpokenAckKind;
@@ -144,8 +144,8 @@ interface LiveVoiceMetricsAggregateFields {
   ttsFirstAudioMs: number | null;
   roundTripMs: number | null;
   totalMs: number | null;
-  // Optional so metrics frames stay byte-identical when the voice-front-model
-  // features are off (see the matching fields on LiveVoiceTurnMetrics).
+  // Optional so metrics frames stay byte-identical when the front-model
+  // features never engaged (see the matching fields on LiveVoiceTurnMetrics).
   endpointHoldCount?: number;
   endpointDecisionMaxLatencyMs?: number;
   ackSpoken?: LiveVoiceSpokenAckKind;
@@ -529,9 +529,9 @@ function aggregateFieldsForTurn(
   };
 }
 
-// Shared optional voice-front-model fields for turn snapshots and aggregate
+// Shared optional front-model fields for turn snapshots and aggregate
 // frame fields: absent unless the endpoint decider was consulted / an ack
-// spoke, so flag-off turns and frames are unchanged.
+// spoke, so turns that never touch the features are unchanged.
 function endpointAndAckFields(
   // Accepts both MutableTurn (null = unset) and snapshot (absent = unset).
   turn: {
