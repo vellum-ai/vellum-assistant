@@ -18,6 +18,7 @@
 import type {
   LatencyBreakdown,
   LatencyPhase,
+  LatencySubPhase,
 } from "../api/responses/llm-request-log-entry.js";
 
 /** Canonical mark names, in the order they fire on the first call of a turn. */
@@ -31,6 +32,13 @@ export type LatencyMark =
   | "call_complete";
 
 /**
+ * Phase key for the memory & context retrieval span. Exported so the
+ * orchestrator can open a sub-span recording scope
+ * (`turn-latency-sub-spans.ts`) keyed to this phase around the hook chain.
+ */
+export const MEMORY_CONTEXT_PHASE_KEY = "memory_context";
+
+/**
  * Phase metadata keyed by the mark that closes the span. A mark with no
  * entry here (e.g. `turn_start`, which only opens the first phase) emits
  * no phase of its own.
@@ -38,7 +46,7 @@ export type LatencyMark =
 const PHASE_BY_CLOSING_MARK: Record<string, { key: string; label: string }> = {
   prompt_hook_start: { key: "queue", label: "Queue & turn setup" },
   prompt_hook_end: {
-    key: "memory_context",
+    key: MEMORY_CONTEXT_PHASE_KEY,
     label: "Memory & context retrieval",
   },
   tools_resolved: { key: "setup", label: "Budget gate & tool resolution" },
@@ -53,6 +61,38 @@ export class TurnLatencyTracker {
     at: number;
     kind?: "thinking" | "text";
   }[] = [];
+
+  /**
+   * Sub-spans accumulated against a phase key, attached to that phase the
+   * first time it serializes (consume-on-attach, so multi-call turns emit
+   * them exactly once). Entries for a phase that never serializes die with
+   * the per-turn tracker.
+   */
+  private readonly subSpansByPhase = new Map<string, LatencySubPhase[]>();
+
+  /**
+   * Record a caller-measured sub-span inside the phase identified by
+   * `parentPhaseKey` (e.g. {@link MEMORY_CONTEXT_PHASE_KEY}). Insertion
+   * order is preserved — the inspector renders sub-steps in execution
+   * order. A negative duration (non-monotonic clock) is dropped, mirroring
+   * the phase-level guard in {@link serializeSince}.
+   */
+  recordSubSpan(
+    parentPhaseKey: string,
+    key: string,
+    label: string,
+    ms: number,
+  ): void {
+    if (ms < 0) {
+      return;
+    }
+    const existing = this.subSpansByPhase.get(parentPhaseKey);
+    if (existing) {
+      existing.push({ key, label, ms });
+    } else {
+      this.subSpansByPhase.set(parentPhaseKey, [{ key, label, ms }]);
+    }
+  }
 
   /** Stamp a point-in-time mark. Cheap (`Date.now()`); safe to over-call. */
   mark(name: LatencyMark): void {
@@ -131,7 +171,13 @@ export class TurnLatencyTracker {
       // A non-monotonic clock would yield a negative span; drop it rather
       // than render misleading noise.
       if (ms < 0) continue;
-      phases.push({ key: meta.key, label: meta.label, ms });
+      const phase: LatencyPhase = { key: meta.key, label: meta.label, ms };
+      const subPhases = this.subSpansByPhase.get(meta.key);
+      if (subPhases) {
+        phase.subPhases = subPhases;
+        this.subSpansByPhase.delete(meta.key);
+      }
+      phases.push(phase);
     }
     if (phases.length === 0) return { breakdown: null, cursor: end };
 

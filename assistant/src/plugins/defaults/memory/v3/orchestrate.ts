@@ -55,6 +55,10 @@
  */
 
 import type { AssistantConfig } from "../../../../config/schema.js";
+import {
+  recordLatencySubSpan,
+  timeLatencySubSpan,
+} from "../../../../daemon/turn-latency-sub-spans.js";
 import { recordWatchdogEvent } from "../../../../telemetry/watchdog-events-store.js";
 import { getLogger } from "../logging.js";
 import { denseLaneScored } from "./dense.js";
@@ -323,9 +327,11 @@ export async function orchestrate(
   // profile). Shared by the normal step-3 selection and the gate's
   // bypass-to-stable path so the two cannot diverge.
   const runSelection = async (pool: SelectorPool): Promise<SelectedPage[]> =>
-    deps.selectorEnabled === false
-      ? selectAllPoolCandidates(pool)
-      : selectPool(pool, turn, deps.selectorPrompt);
+    timeLatencySubSpan("v3_selection", "Memory selection", () =>
+      deps.selectorEnabled === false
+        ? selectAllPoolCandidates(pool)
+        : selectPool(pool, turn, deps.selectorPrompt),
+    );
 
   // Step 1: needle (sync BM25) and the enabled dense lane (async embed +
   // Qdrant) run in parallel. Both return distinct articles each tagged with
@@ -340,18 +346,31 @@ export async function orchestrate(
   const replyQuery =
     replyK > 0 ? (turn.previousAssistantMessage ?? "").trim() : "";
   const denseEnabled = denseK > 0;
-  const [needled, densed, replyNeedled, replyDensed] = await Promise.all([
-    Promise.resolve(deps.needle.queryScored(turn.currentMessage, needleK)),
-    denseEnabled
-      ? denseLaneScored(deps.denseConfig, turn.currentMessage, denseK)
-      : Promise.resolve([]),
-    Promise.resolve(
-      replyQuery.length > 0 ? deps.needle.queryScored(replyQuery, replyK) : [],
-    ),
-    replyQuery.length > 0 && denseEnabled
-      ? denseLaneScored(deps.denseConfig, replyQuery, replyK)
-      : Promise.resolve([]),
-  ]);
+  const [needled, densed, replyNeedled, replyDensed] = await timeLatencySubSpan(
+    "v3_lanes",
+    "Memory search",
+    () =>
+      Promise.all([
+        Promise.resolve(deps.needle.queryScored(turn.currentMessage, needleK)),
+        denseEnabled
+          ? denseLaneScored(deps.denseConfig, turn.currentMessage, denseK)
+          : Promise.resolve([]),
+        Promise.resolve(
+          replyQuery.length > 0
+            ? deps.needle.queryScored(replyQuery, replyK)
+            : [],
+        ),
+        replyQuery.length > 0 && denseEnabled
+          ? denseLaneScored(deps.denseConfig, replyQuery, replyK)
+          : Promise.resolve([]),
+      ]),
+  );
+  // Everything from here to the step-3 selection — finder assembly, the
+  // entity lane, the injection gate, edge + learned-edge expansion, pool
+  // assembly — is synchronous in-memory work, measured as one `v3_expand`
+  // region rather than wrapped calls. Gate-closed early returns skip the
+  // record on purpose: the expansion work didn't happen on those turns.
+  const expandStartedAt = Date.now();
 
   // Dense hits restricted to pages still in the live section index. A deleted
   // page's points can linger in Qdrant; the candidate pool already drops those
@@ -717,6 +736,11 @@ export async function orchestrate(
   // contract. `selectorPrompt` is the (optionally overridden) instruction
   // scaffold; `undefined` falls through to the bundled default.
   const pool = { stable, finder: finderTail };
+  recordLatencySubSpan(
+    "v3_expand",
+    "Gate & edge expansion",
+    Date.now() - expandStartedAt,
+  );
   const selections = await runSelection(pool);
   recordSelection(selections, stable.length + finderTail.length);
 

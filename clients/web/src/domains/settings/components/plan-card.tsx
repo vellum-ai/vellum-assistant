@@ -1,14 +1,20 @@
-import { Computer, HardDrive, Loader2, Microchip, Sparkles } from "lucide-react";
+import { Coins, Computer, HardDrive, Loader2, Rocket, Sparkles } from "lucide-react";
 
 import { useState } from "react";
 
+import { useNavigate } from "react-router";
+
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { AvatarRenderer } from "@/components/avatar-renderer";
 import {
     nextPackageUp,
     type ProPackage,
 } from "@/domains/settings/billing/package-types";
+import {
+    FREE_STORAGE_GIB,
+    PlanTierAvatar,
+    TIER_ACCENT,
+} from "@/domains/settings/billing/plan-tier-meta";
 import {
     formatGraceDate,
     getEffectiveCancelDate,
@@ -21,9 +27,9 @@ import {
     organizationsBillingSubscriptionUpgradeCreateMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
 import type { MachineSizeEnum, ProPlan } from "@/generated/api/types.gen";
-import { SIZE_DESCRIPTION, SIZE_LABEL } from "@/lib/billing/machine-sizes";
+import { SIZE_LABEL } from "@/lib/billing/machine-sizes";
 import { openUrl } from "@/runtime/browser";
-import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
+import { routes } from "@/utils/routes";
 import type { ButtonProps } from "@vellumai/design-library/components/button";
 import { Button } from "@vellumai/design-library/components/button";
 import { Card } from "@vellumai/design-library/components/card";
@@ -62,49 +68,6 @@ export interface PlanCardProps {
     onManage: () => void;
 }
 
-/** Accent color per Pro package tier, keyed by `ProPackage.key` ("free" for the base plan). */
-const TIER_ACCENT: Record<string, string> = {
-    free: "#E9C91A",
-    mighty: "#4C9B50",
-    super: "#0E9B8B",
-    ultra: "#EF4300",
-};
-
-/** Vellum creature traits per plan tier, matching the Figma 6982-157482 creatures. */
-const TIER_TRAITS: Record<
-    string,
-    { bodyShape: string; eyeStyle: string; color: string }
-> = {
-    free: { bodyShape: "ninja", eyeStyle: "angry", color: "yellow" },
-    mighty: { bodyShape: "blob", eyeStyle: "grumpy", color: "green" },
-    super: { bodyShape: "urchin", eyeStyle: "goofy", color: "teal" },
-    ultra: { bodyShape: "sprout", eyeStyle: "curious", color: "orange" },
-};
-
-/**
- * Vellum creature avatar for a plan tier. The ~48 kB bundled component payload
- * loads lazily; a same-size placeholder holds the layout until it resolves.
- */
-function PlanTierAvatar({ tier, size = 40 }: { tier: string; size?: number }) {
-    const traits = TIER_TRAITS[tier] ?? TIER_TRAITS.free;
-    const components = useBundledAvatarComponents();
-    return (
-        <div aria-hidden className="inline-flex shrink-0">
-            {components ? (
-                <AvatarRenderer
-                    components={components}
-                    bodyShapeId={traits.bodyShape}
-                    eyeStyleId={traits.eyeStyle}
-                    colorId={traits.color}
-                    size={size}
-                />
-            ) : (
-                <div style={{ width: size, height: size }} />
-            )}
-        </div>
-    );
-}
-
 function PlanHeading() {
     return (
         <Typography
@@ -118,32 +81,18 @@ function PlanHeading() {
 }
 
 /**
- * The "standard" machine a package with no `machine_size` runs on — 2 vCPU per
- * `SIZE_DESCRIPTION.small`, not an invented spec.
+ * The "standard" machine a package with no `machine_size` runs on — the small
+ * baseline that Free and machine-less Pro packages (e.g. Mighty) share.
  */
-const STANDARD_MACHINE = { sizeLabel: "Small", vcpu: "2" } as const;
+const STANDARD_MACHINE_LABEL = "Small";
 
-/**
- * Storage included with the free/base plan. The plan catalog's BasePlan entry
- * carries no storage field, so the baseline comes from the pricing spec
- * (Free = 4 GiB).
- */
-const FREE_STORAGE_GIB = 4;
-
-/** Machine size label + vCPU count for a package (or the standard machine). */
-function machineInfo(pkg: ProPackage | null): {
-    sizeLabel: string;
-    vcpu: string;
-} {
+/** Machine size label for a package (or the standard small machine). */
+function machineLabel(pkg: ProPackage | null): string {
     if (!pkg?.machine_size) {
-        return STANDARD_MACHINE;
+        return STANDARD_MACHINE_LABEL;
     }
     const size = pkg.machine_size as MachineSizeEnum;
-    const vcpuMatch = SIZE_DESCRIPTION[size]?.match(/(\d+\.?\d*)\s*vCPU/);
-    return {
-        sizeLabel: SIZE_LABEL[size] ?? pkg.machine_size,
-        vcpu: vcpuMatch ? vcpuMatch[1] : STANDARD_MACHINE.vcpu,
-    };
+    return SIZE_LABEL[size] ?? pkg.machine_size;
 }
 
 interface ResourceDelta {
@@ -156,24 +105,49 @@ function arrow(from: string, to: string): string {
     return from === to ? to : `${from} → ${to}`;
 }
 
+/**
+ * The (max three) chips shown on the recommended-upgrade card. Credits and
+ * storage change at every step of the catalog, so they anchor the first two
+ * slots. The third slot shows the machine `from → to` when the tier steps up;
+ * on the Free → Pro step the machine stays on the small baseline, but Pro
+ * unlocks the `LARGER_MACHINE` entitlement, so it advertises that scale-up
+ * headroom instead of a no-op "Small Machine" chip. A step that changes neither
+ * (not in the current catalog) simply shows the two anchor chips.
+ */
 function buildDeltas(
     recommended: ProPackage,
     currentPackage: ProPackage | null,
 ): ResourceDelta[] {
-    const from = machineInfo(currentPackage);
-    const to = machineInfo(recommended);
+    const fromCredits = currentPackage?.credits_usd ?? 0;
+    const toCredits = recommended.credits_usd ?? 0;
     const fromStorage = currentPackage?.storage_gib ?? FREE_STORAGE_GIB;
-    return [
-        { icon: Computer, label: `${arrow(from.sizeLabel, to.sizeLabel)} Machine` },
+
+    const deltas: ResourceDelta[] = [
         {
-            icon: Microchip,
-            label: `${arrow(from.vcpu, to.vcpu)} vCPU${to.vcpu === "1" ? "" : "'s"}`,
+            icon: Coins,
+            label: `${arrow(`$${fromCredits}`, `$${toCredits}`)} credits/mo`,
         },
         {
             icon: HardDrive,
             label: `${arrow(String(fromStorage), String(recommended.storage_gib))} GB`,
         },
     ];
+
+    const fromMachine = machineLabel(currentPackage);
+    const toMachine = machineLabel(recommended);
+    if (fromMachine !== toMachine) {
+        deltas.push({
+            icon: Computer,
+            label: `${fromMachine} → ${toMachine} Machine`,
+        });
+    } else if (currentPackage === null) {
+        // Free → Pro keeps the small baseline machine, but Pro unlocks the
+        // ability to scale to larger machines — surface that capability rather
+        // than a static "Small Machine" chip that reads as no upgrade.
+        deltas.push({ icon: Rocket, label: "Larger machines" });
+    }
+
+    return deltas;
 }
 
 interface RecommendedUpgradeProps {
@@ -335,6 +309,7 @@ function RecommendedUpgrade({
 }
 
 export function PlanCard({ onManage }: PlanCardProps) {
+    const navigate = useNavigate();
     const subscriptionQuery = useQuery(
         organizationsBillingSubscriptionRetrieveOptions(),
     );
@@ -369,7 +344,12 @@ export function PlanCard({ onManage }: PlanCardProps) {
     }
 
     const display = PLAN_DISPLAY[currentPlan.id] ?? DEFAULT_DISPLAY;
-    const planName = currentPlan.name ?? currentPlan.id;
+    // Prefer the pinned package name (e.g. "Mighty") over the generic plan name
+    // ("Pro"). A plan whose tiers have diverged from the pinned package is
+    // flagged custom so it doesn't masquerade as the stock package.
+    const planName = subscription.package
+        ? `${subscription.package.name}${subscription.package.customized ? " (Custom)" : ""}`
+        : (currentPlan.name ?? currentPlan.id);
 
     const isCancelling =
         display.showsRenewal &&
@@ -398,7 +378,14 @@ export function PlanCard({ onManage }: PlanCardProps) {
                     <PlanHeading />
                     <Button
                         variant={display.actionVariant}
-                        onClick={onManage}
+                        onClick={
+                            // Base plan with a live catalog opens the full-screen
+                            // plans takeover; Pro "Manage" (and the flag-off empty
+                            // catalog) keep the modal.
+                            currentPlan.id === "base" && packages.length > 0
+                                ? () => navigate(routes.plans)
+                                : onManage
+                        }
                         data-testid={display.actionTestId}
                         className="shrink-0"
                     >

@@ -78,6 +78,12 @@ const LOUD_CHUNK = pcm(8_000);
 // chunk trips barge-in. Must stay above that default.
 const SUSTAINED_LOUD_CHUNK = pcm(8_000, 7_200);
 const SILENT_CHUNK = pcm(0);
+// A sub-threshold "ducked" chunk. While the assistant is audibly playing, the
+// browser's half-duplex echo canceller attenuates the user's near-end voice, so
+// the server classifies the post-AEC audio as below the speech-energy gate:
+// a barge-in mid-playback arrives as loud runs split by these ducked gaps.
+// 10 ms at 24 kHz, mean amplitude well under the 800 threshold.
+const DUCKED_CHUNK = pcm(200);
 
 class MockStreamingTranscriber implements StreamingTranscriber {
   readonly providerId = "deepgram" as const;
@@ -288,7 +294,11 @@ async function waitFor(
   predicate: () => boolean,
   message = "Timed out waiting for live voice VAD test condition",
 ): Promise<void> {
-  for (let attempt = 0; attempt < 80; attempt += 1) {
+  // 5ms timers stretch under CI load, so the budget is wall-clock rather
+  // than a poll count. 4s stays under bun's 5s per-test timeout so this
+  // message, not bun's, reports a failure.
+  const deadline = Date.now() + 4_000;
+  while (Date.now() < deadline) {
     if (predicate()) return;
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
@@ -2452,29 +2462,116 @@ describe("LiveVoiceSession sustained-speech barge-in guard", () => {
     await waitFor(() => abort.mock.calls.length === 1);
   });
 
-  test("a non-speech chunk resets the sustained-speech run", async () => {
-    const { frames, session, speakFirstReply } = createSpeakingTurnHarness({
-      bargeInMinSpeechMs: 60,
-    });
+  test("a brief sub-threshold gap does not reset the sustained-speech run", async () => {
+    const { frames, session, abort, speakFirstReply } =
+      createSpeakingTurnHarness({ bargeInMinSpeechMs: 60 });
     await speakFirstReply();
 
-    // 50 ms of speech, a silence blip, then 50 ms more: neither run reaches
-    // the guard because the blip zeroes the accumulator.
+    // 50 ms of speech, then one ducked gap: while the assistant is playing, the
+    // half-duplex echo canceller attenuates the user's voice, so the server
+    // sees a sub-threshold chunk mid-utterance. The gap (10 ms) is far shorter
+    // than BARGE_IN_GAP_TOLERANCE_MS, so it must NOT zero the run.
     for (let index = 0; index < 5; index += 1) {
       await session.handleBinaryAudio(LOUD_CHUNK);
     }
-    await session.handleBinaryAudio(SILENT_CHUNK);
+    await session.handleBinaryAudio(DUCKED_CHUNK);
+    await flushAsyncCallbacks();
+    expect(countType(frames, "turn_cancelled")).toBe(0);
+
+    // A single further speech chunk carries the retained 50 ms run across the
+    // gap to the 60 ms guard and cancels: the gap left the accumulator intact,
+    // so one more 10 ms chunk is enough rather than a fresh 60 ms run.
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() =>
+      frames.some((frame) => frame.type === "turn_cancelled"),
+    );
+    expect(
+      frames.find((frame) => frame.type === "turn_cancelled"),
+    ).toMatchObject({ type: "turn_cancelled", turnId: "live-turn-1" });
+    await waitFor(() => abort.mock.calls.length === 1);
+  });
+
+  test("a gap longer than the tolerance resets the sustained-speech run", async () => {
+    const { frames, session, abort, speakFirstReply } =
+      createSpeakingTurnHarness({ bargeInMinSpeechMs: 60 });
+    await speakFirstReply();
+
+    // 50 ms of speech, then a ducked gap longer than BARGE_IN_GAP_TOLERANCE_MS
+    // (25 chunks = 250 ms): a real pause rather than a syllable boundary, so the
+    // run resets. The harness silence threshold is 5 s, so the detector never
+    // ends the utterance here — the reset is the gap-tolerance logic, not
+    // utterance end.
+    for (let index = 0; index < 5; index += 1) {
+      await session.handleBinaryAudio(LOUD_CHUNK);
+    }
+    for (let index = 0; index < 25; index += 1) {
+      await session.handleBinaryAudio(DUCKED_CHUNK);
+    }
+    // 50 ms more speech: because the run reset, this accumulates from zero and
+    // stays under the 60 ms guard — the two stretches do not sum across the long
+    // gap into a false barge-in.
     for (let index = 0; index < 5; index += 1) {
       await session.handleBinaryAudio(LOUD_CHUNK);
     }
     await flushAsyncCallbacks();
     expect(countType(frames, "turn_cancelled")).toBe(0);
+    expect(abort).not.toHaveBeenCalled();
 
-    // A 6th consecutive speech chunk completes a full 60 ms run.
+    // A 6th consecutive speech chunk (with the 5 above) completes a fresh 60 ms
+    // run after the reset and cancels normally.
     await session.handleBinaryAudio(LOUD_CHUNK);
     await waitFor(() =>
       frames.some((frame) => frame.type === "turn_cancelled"),
     );
+  });
+
+  test("a gap of exactly the tolerance is tolerated and does not reset the run", async () => {
+    const { frames, session, abort, speakFirstReply } =
+      createSpeakingTurnHarness({ bargeInMinSpeechMs: 60 });
+    await speakFirstReply();
+
+    // 50 ms of speech, then a ducked gap of exactly BARGE_IN_GAP_TOLERANCE_MS
+    // (20 chunks = 200 ms). The tolerance is inclusive — the web client batches
+    // PCM into 50 ms frames, so a ducked run lands on the boundary exactly — so
+    // this gap does not reset the accumulated speech.
+    for (let index = 0; index < 5; index += 1) {
+      await session.handleBinaryAudio(LOUD_CHUNK);
+    }
+    for (let index = 0; index < 20; index += 1) {
+      await session.handleBinaryAudio(DUCKED_CHUNK);
+    }
+    // One more speech chunk carries the retained 50 ms run to the 60 ms guard
+    // and cancels — proof the exactly-200 ms gap left the accumulator intact.
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() =>
+      frames.some((frame) => frame.type === "turn_cancelled"),
+    );
+    expect(
+      frames.find((frame) => frame.type === "turn_cancelled"),
+    ).toMatchObject({ type: "turn_cancelled", turnId: "live-turn-1" });
+    await waitFor(() => abort.mock.calls.length === 1);
+  });
+
+  test("sparse periodic blips separated by boundary gaps do not accumulate into a barge-in", async () => {
+    const { frames, session, abort, speakFirstReply } =
+      createSpeakingTurnHarness({ bargeInMinSpeechMs: 60 });
+    await speakFirstReply();
+
+    // A 10 ms blip every 200 ms models residual echo/noise, not sustained
+    // speech: each blip clears the consecutive-gap timer while the boundary gap
+    // (20 chunks = 200 ms) escapes the per-gap reset. Enough cycles to reach the
+    // 60 ms guard by pure blip-summing (6 blips) plus margin. The duty-cycle
+    // ceiling (cumulative tolerated silence > bargeInMinSpeechMs * 4 = 240 ms)
+    // resets the run every few cycles, so the blips never sum into a barge-in.
+    for (let cycle = 0; cycle < 9; cycle += 1) {
+      await session.handleBinaryAudio(LOUD_CHUNK);
+      for (let index = 0; index < 20; index += 1) {
+        await session.handleBinaryAudio(DUCKED_CHUNK);
+      }
+    }
+    await flushAsyncCallbacks();
+    expect(countType(frames, "turn_cancelled")).toBe(0);
+    expect(abort).not.toHaveBeenCalled();
   });
 
   test("bargeInMinSpeechMs 0 restores instant barge-in", async () => {

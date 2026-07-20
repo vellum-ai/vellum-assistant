@@ -1,13 +1,12 @@
-import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 
-import { getAssistantHealthz } from "@/assistant/api";
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { DetailDrawer, MobileDetailOverlay } from "@/components/detail-drawer";
 import { CreateScheduleModal } from "@/domains/settings/components/create-schedule-modal";
 import { SystemTasksSection } from "@/domains/settings/components/system-tasks-section";
 import { useSystemTasks } from "@/domains/settings/hooks/use-system-tasks";
+import { useAssistantCapability } from "@/hooks/use-assistant-capability";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { navigateToNewConversation } from "@/utils/conversation-navigation";
@@ -42,15 +41,7 @@ export function SchedulesPage() {
 
   // Gates the consolidation/retrospective "Memory settings" link the same way
   // the schedules surface always has.
-  const { data: hasMemoryOptOutCapability = false } = useQuery({
-    queryKey: ["assistant-memory-opt-out-capability", assistantId],
-    queryFn: async () => {
-      const result = await getAssistantHealthz(assistantId);
-      return result.ok && result.data.capabilities?.memoryOptOut === true;
-    },
-    retry: false,
-    staleTime: 10_000,
-  });
+  const hasMemoryOptOutCapability = useAssistantCapability("memoryOptOut");
   // The memory toggle lives on the Memory tab of the flag-gated Developer
   // page, so the link is only offered when that destination is reachable.
   const settingsDeveloperNav =

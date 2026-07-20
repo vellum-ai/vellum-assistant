@@ -551,8 +551,15 @@ export async function finalizeStagedInstall(
 ): Promise<{ target: string; fingerprint: Fingerprint }> {
   // Install the plugin's own runtime dependencies into the staged tree before
   // it is fingerprinted and swapped, so its hooks/tools can resolve their bare
-  // imports. A no-op for a plugin that declares none.
-  await installPluginDependencies(stagingDir, installDependencies);
+  // imports. A no-op for a plugin that declares none. A hard failure here (e.g.
+  // the manifest could not be restored to its materialized bytes) must not leave
+  // the half-finalized staging dir behind, so drop it before propagating.
+  try {
+    await installPluginDependencies(stagingDir, installDependencies);
+  } catch (err) {
+    rmSync(stagingDir, { recursive: true, force: true });
+    throw err;
+  }
 
   // Hash the materialized tree before the sidecar is written (so the sidecar
   // never hashes itself) — the baseline `plugins inspect` uses to detect later

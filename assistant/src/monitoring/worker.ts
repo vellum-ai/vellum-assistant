@@ -11,12 +11,13 @@
  * and telemetry keeps flushing while the daemon is busy or stalled.
  */
 
-import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 
 import { getConfig } from "../config/loader.js";
 import { rehydratePlatformCredentials } from "../config/platform-rehydration.js";
 import { resetDb } from "../persistence/db-connection.js";
 import { startConsentRefresh } from "../platform/consent-cache.js";
+import { disableStreamSeqStamping } from "../runtime/assistant-stream-state.js";
 import {
   startConfigSnapshotReporter,
   stopConfigSnapshotReporter,
@@ -31,6 +32,10 @@ import {
   getMonitoringPidPath,
 } from "../util/platform.js";
 import {
+  cleanupWorkerPidFile,
+  startWorkerPidFileGuard,
+} from "../util/worker-process.js";
+import {
   type PluginSourceWatchHandle,
   startPluginSourceWatch,
 } from "./plugin-source-watch.js";
@@ -42,18 +47,9 @@ import {
 
 const log = getLogger("monitoring-worker");
 
-function cleanupPidFile(): void {
-  const pidPath = getMonitoringPidPath();
-  try {
-    if (existsSync(pidPath)) {
-      unlinkSync(pidPath);
-    }
-  } catch {
-    // best-effort
-  }
-}
-
 async function main(): Promise<void> {
+  // Only the daemon stamps SSE seqs and writes the shared reservation file.
+  disableStreamSeqStamping();
   const config = getConfig();
   const pidPath = getMonitoringPidPath();
 
@@ -99,6 +95,7 @@ async function main(): Promise<void> {
   startConfigSnapshotReporter();
 
   let shuttingDown = false;
+  let disposePidGuard: (() => void) | null = null;
   const shutdown = async (signal: string) => {
     if (shuttingDown) {
       return;
@@ -123,12 +120,23 @@ async function main(): Promise<void> {
     } catch (err) {
       log.warn({ err }, "Telemetry reporter shutdown failed (non-fatal)");
     }
-    cleanupPidFile();
+    disposePidGuard?.();
+    cleanupWorkerPidFile(pidPath);
     process.exit(0);
   };
 
   process.on("SIGTERM", () => void shutdown("SIGTERM"));
   process.on("SIGINT", () => void shutdown("SIGINT"));
+
+  disposePidGuard = startWorkerPidFileGuard(pidPath, {
+    onEvicted: (reason) => {
+      log.warn(
+        { reason },
+        "Evicted — the PID file no longer names this worker",
+      );
+      void shutdown("pid-file-eviction");
+    },
+  });
 
   process.on("SIGUSR1", () => {
     log.info("Received SIGUSR1 — refreshing database connections");
@@ -140,7 +148,7 @@ async function main(): Promise<void> {
     recovery.stop();
     sourceWatch.stop();
     sampler.stop();
-    cleanupPidFile();
+    cleanupWorkerPidFile(getMonitoringPidPath());
     process.exit(1);
   });
 
@@ -149,7 +157,7 @@ async function main(): Promise<void> {
     recovery.stop();
     sourceWatch.stop();
     sampler.stop();
-    cleanupPidFile();
+    cleanupWorkerPidFile(getMonitoringPidPath());
     process.exit(1);
   });
 
@@ -157,12 +165,12 @@ async function main(): Promise<void> {
     recovery.stop();
     sourceWatch.stop();
     sampler.stop();
-    cleanupPidFile();
+    cleanupWorkerPidFile(getMonitoringPidPath());
   });
 }
 
 void main().catch((err) => {
   log.error({ err }, "Resource monitor process failed to start");
-  cleanupPidFile();
+  cleanupWorkerPidFile(getMonitoringPidPath());
   process.exit(1);
 });

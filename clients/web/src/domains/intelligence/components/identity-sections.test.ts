@@ -17,6 +17,7 @@ describe("buildIdentitySections", () => {
       "schedules",
       "superpowers",
       "memory",
+      "library",
       "workspace",
       "contacts",
       "channels",
@@ -34,6 +35,7 @@ describe("buildIdentitySections", () => {
       "personality",
       "schedules",
       "superpowers",
+      "library",
       "workspace",
       "contacts",
     ]);

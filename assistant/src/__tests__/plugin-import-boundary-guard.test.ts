@@ -109,6 +109,7 @@ const BASELINE: Record<string, readonly string[]> = {
     "../../../../daemon/message-protocol.js",
     "../../../../daemon/message-types/memory.js",
     "../../../../daemon/trust-context.js",
+    "../../../../daemon/turn-latency-sub-spans.js",
     "../../../../notifications/emit-signal.js",
     "../../../../persistence/checkpoints.js",
     "../../../../persistence/db-connection.js",
@@ -188,6 +189,7 @@ const BASELINE: Record<string, readonly string[]> = {
     "../../../prompts/template-detection.js",
     "../../../runtime/actor-trust-resolver.js",
     "../../../runtime/agent-wake.js",
+    "../../../runtime/assistant-stream-state.js",
     "../../../runtime/background-job-runner.js",
     "../../../runtime/capabilities.js",
     "../../../runtime/services/auto-analysis-guard.js",
@@ -224,6 +226,7 @@ const BASELINE: Record<string, readonly string[]> = {
     "yaml",
     "zod",
   ],
+  "platform-hosted": ["node:fs/promises", "node:path"],
   session: [
     "../../../config/loader.js",
     "../../types.js",

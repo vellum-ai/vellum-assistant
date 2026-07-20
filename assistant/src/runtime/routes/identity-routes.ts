@@ -299,6 +299,7 @@ function getDetailedHealth() {
     },
     capabilities: {
       memoryOptOut: true,
+      retryLastTurn: true,
     },
     ...(profiler ? { profiler } : {}),
     ...migrationHealthFields,
@@ -420,6 +421,7 @@ const cesHealthSchema = z.object({
 
 const healthCapabilitiesSchema = z.object({
   memoryOptOut: z.boolean(),
+  retryLastTurn: z.boolean(),
 });
 
 const healthDiskSchema = z.object({

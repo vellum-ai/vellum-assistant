@@ -10,14 +10,21 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
 
+const realChildProcess = { ...childProcess };
 const execFileSyncMock = mock(childProcess.execFileSync);
 
 mock.module("node:child_process", () => ({
   ...childProcess,
   execFileSync: execFileSyncMock,
 }));
+
+// Restore the real module once this file finishes so the mock does not leak
+// into sibling test files in the same `bun test` run.
+afterAll(() => {
+  mock.module("node:child_process", () => realChildProcess);
+});
 
 import {
   buildIngressNginxConfig,

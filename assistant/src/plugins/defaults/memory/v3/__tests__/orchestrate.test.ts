@@ -15,10 +15,23 @@
  * end-to-end.
  */
 
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  spyOn,
+  test,
+} from "bun:test";
 
 import type { Message, Provider, ProviderResponse } from "@vellumai/plugin-api";
 
+import { runWithLatencySubSpans } from "../../../../../daemon/turn-latency-sub-spans.js";
+import {
+  MEMORY_CONTEXT_PHASE_KEY,
+  TurnLatencyTracker,
+} from "../../../../../daemon/turn-latency-tracker.js";
 import type { PageIndexEntry } from "../../v2/page-index.js";
 import { renderCard } from "../card.js";
 import type { EdgeGraph } from "../edge.js";
@@ -1591,5 +1604,73 @@ describe("orchestrate — injection gate", () => {
     await orchestrate(makeTurn(2, "apple"), depsOf(lanes));
 
     expect(recordedGateEvents).toEqual([]);
+  });
+});
+
+describe("latency sub-spans", () => {
+  test("orchestration inside a sub-span scope records v3_lanes / v3_expand / v3_selection", async () => {
+    // Each `Date.now()` call advances the clock 20ms so every measured span
+    // clears the recorder's floor without real waiting. Scoped to this test.
+    let clock = 0;
+    const nowSpy = spyOn(Date, "now").mockImplementation(() => (clock += 20));
+    try {
+      const lanes = await buildLanes();
+      denseHits = [{ article: "topic-b", section: 0 }];
+      providerStub = selectProvider(["topic-a"]);
+      const tracker = new TurnLatencyTracker();
+
+      await runWithLatencySubSpans(tracker, MEMORY_CONTEXT_PHASE_KEY, () =>
+        orchestrate(
+          makeTurn(1, "apple banana"),
+          depsOf(lanes, { denseK: 100 }),
+        ),
+      );
+
+      tracker.mark("turn_start");
+      tracker.mark("prompt_hook_start");
+      tracker.mark("prompt_hook_end");
+      const memory = tracker
+        .serializeSince(0)
+        .breakdown?.phases.find((p) => p.key === MEMORY_CONTEXT_PHASE_KEY);
+      expect(memory?.subPhases?.map((s) => s.key)).toEqual([
+        "v3_lanes",
+        "v3_expand",
+        "v3_selection",
+      ]);
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
+  test("a gate hard-skip records no v3_expand and no v3_selection", async () => {
+    let clock = 0;
+    const nowSpy = spyOn(Date, "now").mockImplementation(() => (clock += 20));
+    try {
+      const lanes = await buildLanes();
+      // Low dense score against a high threshold closes the gate; no bypass.
+      denseHits = [{ article: "topic-b", section: 0, score: 0.01 }];
+      providerStub = selectProvider(["topic-a"]);
+      const tracker = new TurnLatencyTracker();
+
+      await runWithLatencySubSpans(tracker, MEMORY_CONTEXT_PHASE_KEY, () =>
+        orchestrate(
+          makeTurn(1, "apple banana"),
+          depsOf(lanes, {
+            denseK: 100,
+            gateConfig: gateConfigOf({ enabled: true, bypassForCore: false }),
+          }),
+        ),
+      );
+
+      tracker.mark("turn_start");
+      tracker.mark("prompt_hook_start");
+      tracker.mark("prompt_hook_end");
+      const memory = tracker
+        .serializeSince(0)
+        .breakdown?.phases.find((p) => p.key === MEMORY_CONTEXT_PHASE_KEY);
+      expect(memory?.subPhases?.map((s) => s.key)).toEqual(["v3_lanes"]);
+    } finally {
+      nowSpy.mockRestore();
+    }
   });
 });

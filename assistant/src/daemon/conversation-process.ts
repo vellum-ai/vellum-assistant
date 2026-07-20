@@ -82,7 +82,7 @@ const log = getLogger("conversation-process");
  * skips their echo, and the persisted `hidden` metadata keeps them out of
  * the fetched transcript.
  */
-function isEchoSuppressedUserMessage(
+export function isEchoSuppressedUserMessage(
   metadata: Record<string, unknown> | undefined,
 ): boolean {
   return (
