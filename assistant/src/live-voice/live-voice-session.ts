@@ -2810,6 +2810,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       turn.firstDeltaSeen ||
       turn.escalationHandedOff ||
       turn.assistantCompleted ||
+      // A pending ack generation is a floor-holder-in-waiting: starting a
+      // narration generation now would only be discarded by the post-await
+      // re-check once the ack enqueues — a guaranteed wasted provider call.
+      turn.ackGenerationPending ||
       progress.narrationInFlight ||
       progress.updatesSpoken >= cfg.maxPerTurn ||
       (progress.lastFloorHolderAtMs !== null &&
@@ -2843,7 +2847,13 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
           .join(" ")
           .trim(),
         completedOps: progress.ops
-          .filter((op) => op.completedAtMs !== undefined)
+          .filter(
+            (op): op is TurnProgressOp & { completedAtMs: number } =>
+              op.completedAtMs !== undefined,
+          )
+          // `ops` is in start order; the decider contract wants completion
+          // order, which differs when parallel tools finish out of order.
+          .sort((a, b) => a.completedAtMs - b.completedAtMs)
           .map((op) => ({
             toolName: op.toolName,
             ...(op.isError !== undefined ? { isError: op.isError } : {}),
@@ -2868,13 +2878,15 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       // have been cancelled or finalized, the brain's first delta may have
       // arrived, an escalation hand-off may have enqueued its bridge phrase,
       // or the turn may have completed outright — in every such case the
-      // narration is moot and must not speak over real output. The floor
-      // re-check covers a generated ack (llmAckText) that raced this
-      // generation: while the ack is pending it has not yet stamped
-      // `lastFloorHolderAtMs` (so the entry guard could not see it), and once
-      // it enqueues the minGapMs spacing must be re-applied from that stamp —
-      // either way, enqueueing now would stack back-to-back filler. A bail
-      // here is silent and keeps the update budget, exactly like the
+      // narration is moot and must not speak over real output. The
+      // ack-generation and floor re-checks close the race with a generated
+      // ack (llmAckText) that STARTED after this generation did — the entry
+      // guard rejects a narration while an ack generation is already
+      // pending, but cannot see one that begins mid-generation: while that
+      // ack is pending it has not yet stamped `lastFloorHolderAtMs`, and
+      // once it enqueues the minGapMs spacing must be re-applied from that
+      // stamp — either way, enqueueing now would stack back-to-back filler.
+      // A bail here is silent and keeps the update budget, exactly like the
       // stale-turn bail.
       if (
         !this.isActiveAssistantTurn(token) ||

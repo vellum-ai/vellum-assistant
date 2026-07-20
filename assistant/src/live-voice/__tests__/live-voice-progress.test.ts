@@ -289,6 +289,77 @@ describe("LiveVoiceSession progress narration", () => {
     emitMessageComplete(getCallbacks);
   });
 
+  test("tool_result without a toolUseId completes the op via the name fallback", async () => {
+    // Prod tool_result events may omit toolUseId (optional on the wire), so
+    // correlation must succeed on the tool name alone.
+    const inputs: VoiceProgressTextInput[] = [];
+    const generateProgressText = mock(async (input: VoiceProgressTextInput) => {
+      inputs.push(input);
+      return GENERATED_NARRATION;
+    });
+    const { session, getCallbacks, ttsTexts } = createProgressHarness({
+      frontModelConfig: progressConfig({ opsThreshold: 3, minGapMs: 10 }),
+      frontDecider: makeProgressDecider(generateProgressText),
+    });
+
+    await startReleasedTurn(session, getCallbacks);
+    emitToolStart(getCallbacks, "web_search", "tool-1");
+    await waitFor(() => ttsTexts.length === 1);
+
+    // Name-only result: no toolUseId to correlate by.
+    getCallbacks()?.tool_result?.({
+      toolName: "web_search",
+      resultPreview: "found it",
+    });
+    emitToolStart(getCallbacks, "file_read", "tool-2");
+    // Let the ack's minGapMs spacing elapse before the threshold-crossing op.
+    await sleep(30);
+    emitToolStart(getCallbacks, "bash", "tool-3");
+    await waitFor(() => ttsTexts.length === 2);
+    expect(ttsTexts).toEqual([EXPECTED_TOOL_ACK, GENERATED_NARRATION]);
+
+    // The name fallback completed the web_search op: it reports as completed
+    // (with its preview) rather than lingering incomplete.
+    expect(inputs[0]?.completedOps).toEqual([
+      { toolName: "web_search", resultPreview: "found it" },
+    ]);
+    expect(inputs[0]?.currentOp?.toolName).toBe("bash");
+
+    emitMessageComplete(getCallbacks);
+  });
+
+  test("completedOps reach the decider in completion order, not start order", async () => {
+    const inputs: VoiceProgressTextInput[] = [];
+    const generateProgressText = mock(async (input: VoiceProgressTextInput) => {
+      inputs.push(input);
+      return GENERATED_NARRATION;
+    });
+    const { session, getCallbacks, ttsTexts } = createProgressHarness({
+      frontModelConfig: progressConfig({ opsThreshold: 3, minGapMs: 10 }),
+      frontDecider: makeProgressDecider(generateProgressText),
+    });
+
+    await startReleasedTurn(session, getCallbacks);
+    // Two parallel tools start in one order…
+    emitToolStart(getCallbacks, "web_search", "tool-1");
+    await waitFor(() => ttsTexts.length === 1);
+    emitToolStart(getCallbacks, "file_read", "tool-2");
+    // …and complete in the other. The sleep separates the completion
+    // timestamps (millisecond clock) and lets the ack's minGapMs elapse.
+    emitToolResult(getCallbacks, "file_read", "tool-2", "file contents");
+    await sleep(30);
+    emitToolResult(getCallbacks, "web_search", "tool-1", "found 3 results");
+    emitToolStart(getCallbacks, "bash", "tool-3");
+    await waitFor(() => ttsTexts.length === 2);
+
+    expect(inputs[0]?.completedOps).toEqual([
+      { toolName: "file_read", resultPreview: "file contents" },
+      { toolName: "web_search", resultPreview: "found 3 results" },
+    ]);
+
+    emitMessageComplete(getCallbacks);
+  });
+
   test("idle trigger: dead air narrates with the decider text, audio-only", async () => {
     const inputs: VoiceProgressTextInput[] = [];
     const generateProgressText = mock(async (input: VoiceProgressTextInput) => {
@@ -415,7 +486,7 @@ describe("LiveVoiceSession progress narration", () => {
     emitMessageComplete(getCallbacks);
   });
 
-  test("llmAckText: narration resolving during ack generation bails instead of stacking filler", async () => {
+  test("llmAckText: no narration generation launches while an ack generation is pending", async () => {
     const ackGeneration = deferred<string | null>();
     const generateAckText = mock(() => ackGeneration.promise);
     const generateProgressText = mock(async () => GENERATED_NARRATION);
@@ -434,13 +505,12 @@ describe("LiveVoiceSession progress narration", () => {
 
     await startReleasedTurn(session, getCallbacks);
     // The tool start speaks a generated ack (generation still pending) and
-    // simultaneously crosses the ops threshold; with no floor-holder stamped
-    // yet, the entry guard lets a narration generation start concurrently.
+    // simultaneously crosses the ops threshold; the entry guard must stand
+    // down instead of launching a narration generation whose result the
+    // post-await re-check would only discard.
     emitToolStart(getCallbacks, "web_search", "tool-1");
-    await waitFor(() => generateProgressText.mock.calls.length === 1);
-    // The narration resolves while the ack is still generating: it must bail
-    // rather than enqueue ahead of (and back-to-back with) the ack.
     await sleep(30);
+    expect(generateProgressText).not.toHaveBeenCalled();
     expect(ttsTexts).toEqual([]);
 
     ackGeneration.resolve("Generated ack.");
@@ -451,14 +521,16 @@ describe("LiveVoiceSession progress narration", () => {
     // activity continues.
     emitToolResult(getCallbacks, "web_search", "tool-1");
     await sleep(30);
+    expect(generateProgressText).not.toHaveBeenCalled();
     expect(ttsTexts).toEqual(["Generated ack."]);
 
-    // The bail preserved the update budget: once the gap elapses, the next
-    // ops trigger narrates normally.
+    // The stand-down preserved the update budget: once the gap elapses, the
+    // next ops trigger narrates normally.
     await sleep(150);
     emitToolStart(getCallbacks, "file_read", "tool-2");
     await waitFor(() => ttsTexts.length === 2);
     expect(ttsTexts).toEqual(["Generated ack.", GENERATED_NARRATION]);
+    expect(generateProgressText).toHaveBeenCalledTimes(1);
 
     emitMessageComplete(getCallbacks);
   });
