@@ -57,6 +57,7 @@ import type {
 } from "../stt/types.js";
 import { getSubagentManager } from "../subagent/index.js";
 import { extractSpeakableSegments } from "../tts/speakable-segments.js";
+import { createAbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
 import { pickAckPhrase } from "./ack-phrases.js";
 import {
@@ -1255,7 +1256,13 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // immediately invalidates every earlier still-running continuation.
     const detachSeq = ++this.detachSequence;
     this.clearAckTimer(turn);
-    turn.abortController.abort();
+    // Tagged reason: provider catch-sites classify untagged caller aborts as
+    // retryable transport failures (ERROR log + futile retry against the
+    // aborted signal). This signal reaches the brain leg and, with llmAckText
+    // on, in-flight ack generation.
+    turn.abortController.abort(
+      createAbortReason("voice_session_aborted", "live-voice-barge-in"),
+    );
     this.metrics.markBargeIn(turn.turnId);
     // Capture the interrupted turn's teardown promise synchronously, before the
     // barge-in utterance's own startVoiceTurn overwrites the bridge's
@@ -1587,6 +1594,24 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       this.turnDetector.forceEnd();
       await this.drainOutboundFrames();
       return;
+    }
+    // Server VAD with no active detector turn but a still-open utterance is
+    // a held pause (semantic endpointing suppressed the boundary's
+    // utterance_end and the detector's turn already ended). The manual
+    // release must still emit the frame — the hands-free client only leaves
+    // `listening` on `utterance_end` — and drop the pending hold replay it
+    // supersedes. Reason stays "silence": the manual-release convention
+    // everywhere else (forceEnd) reports the same, and the client ignores
+    // the value. Manual mode (no detector) emits no VAD frames — skip.
+    const utterance = this.currentUtterance;
+    if (
+      this.turnDetector &&
+      utterance &&
+      !utterance.released &&
+      !utterance.completed
+    ) {
+      this.clearEndpointExtensionTimer();
+      await this.sendFrame({ type: "utterance_end", reason: "silence" });
     }
     await this.releaseUtterance();
   }
@@ -2477,7 +2502,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     this.activeAssistantTurn = null;
     if (turn) {
       this.clearAckTimer(turn);
-      turn.abortController.abort();
+      // Tagged for the same reason as the barge-in abort: untagged caller
+      // aborts misclassify as retryable transport failures downstream.
+      turn.abortController.abort(
+        createAbortReason("voice_session_aborted", `live-voice-${reason}`),
+      );
       turn.handle?.abort();
       if (!turn.finalized) {
         await this.finalizeAssistantTurn(turn, "cancelled", reason);

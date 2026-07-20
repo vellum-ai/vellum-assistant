@@ -2676,6 +2676,34 @@ describe("LiveVoiceSession semantic endpointing", () => {
     expect(turnStarter.calls[0]).toMatchObject({ content: "hello world" });
   });
 
+  test("ptt_release during a held pause still emits utterance_end", async () => {
+    enableFrontModel();
+    const { decider, calls } = makeFrontDecider(["hold"]);
+    const turnStarter = makeAutoCompletingTurnStarter(["Hi."]);
+    const { frames, session, transcribers } = createHarness({
+      finals: ["hello world"],
+      startVoiceTurn: turnStarter.startVoiceTurn,
+      frontDecider: decider,
+      // Long extension so the pending replay cannot race the manual release.
+      frontModelConfig: { endpointExtensionMs: 5_000 },
+    });
+
+    await startWithPartial(session, transcribers);
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => calls.length === 1);
+    expect(countType(frames, "utterance_end")).toBe(0);
+
+    // The detector's turn already ended (the hold suppressed its boundary),
+    // so this release takes the no-active-detector path — the client must
+    // still receive the utterance_end frame it uses to leave `listening`.
+    await session.handleClientFrame({ type: "ptt_release" });
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+    expect(countType(frames, "utterance_end")).toBe(1);
+    // Manual release never re-consults the decider.
+    expect(calls).toHaveLength(1);
+    expect(turnStarter.calls[0]).toMatchObject({ content: "hello world" });
+  });
+
   test("speech resuming during a hold cancels the replay and the utterance keeps accumulating", async () => {
     enableFrontModel();
     const { decider, calls } = makeFrontDecider(["hold", "release"]);
