@@ -27,6 +27,7 @@ import type {
     ProPlan,
     StorageTierEnum,
 } from "@/generated/api/types.gen";
+import { saveCheckoutIntent } from "@/lib/billing/checkout-intent";
 import { openUrl, openUrlFinishedListener } from "@/runtime/browser";
 import { Button } from "@vellumai/design-library/components/button";
 import { Modal } from "@vellumai/design-library/components/modal";
@@ -233,6 +234,14 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
       {
         onSuccess: (data) => {
           if (data.checkout_url) {
+            // Stash the selection so the post-checkout provisioning screen
+            // can show the purchased upgrade before the webhook lands.
+            saveCheckoutIntent({
+              kind: "custom",
+              machineTier: selectedMachineTier,
+              storageTier: selectedStorageTier,
+              creditTier: displayCreditTier,
+            });
             void openUrl(data.checkout_url);
             return;
           }

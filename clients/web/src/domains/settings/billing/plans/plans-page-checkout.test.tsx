@@ -35,6 +35,7 @@ import type {
   ProPackage,
   SubscriptionResponse,
 } from "@/generated/api/types.gen";
+import { readCheckoutIntent } from "@/lib/billing/checkout-intent";
 
 const CHECKOUT_URL = "https://stripe.test/checkout/session";
 
@@ -195,6 +196,7 @@ function renderPage(subscription: SubscriptionResponse) {
 beforeEach(() => {
   upgradeCall = null;
   openedUrl = null;
+  sessionStorage.clear();
 });
 
 afterEach(() => {
@@ -221,6 +223,10 @@ describe("PlansPage checkout — base subscriber", () => {
         confirm: true,
       });
       await waitFor(() => expect(openedUrl).toBe(CHECKOUT_URL));
+      expect(readCheckoutIntent()).toMatchObject({
+        kind: "package",
+        packageKey: pkg,
+      });
     });
   }
 });
@@ -239,5 +245,6 @@ describe("PlansPage checkout — Pro subscriber", () => {
     // The upgrade endpoint no-ops for an active Pro org, so no checkout fires.
     expect(upgradeCall).toBeNull();
     expect(openedUrl).toBeNull();
+    expect(readCheckoutIntent()).toBeNull();
   });
 });
