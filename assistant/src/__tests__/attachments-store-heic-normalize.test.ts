@@ -18,10 +18,21 @@ mock.module("../config/env.js", () => ({
 
 const FAKE_JPEG = Buffer.from("fake-jpeg-master-bytes");
 const FAKE_JPEG_B64 = FAKE_JPEG.toString("base64");
+const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
 
 mock.module("../util/image-conversion.js", () => ({
   convertImageToJpeg: () => FAKE_JPEG,
   isHeifImage: (bytes: Uint8Array) => bytes.length >= 12,
+  // Minimal stand-in for the real on-disk sniff (covered in
+  // image-conversion.test.ts) — only PNG, which is all these wiring cases need.
+  sniffImageFileMimeType: (path: string) => {
+    try {
+      const head = readFileSync(path).subarray(0, 4);
+      return head.equals(PNG_MAGIC) ? "image/png" : null;
+    } catch {
+      return null;
+    }
+  },
   jpegFilenameFor: (filename: string) =>
     `${filename.replace(/\.[^./\\]+$/, "")}.jpg`,
   normalizeImageBytes: (mimeType: string, bytes: Uint8Array) =>
@@ -65,7 +76,7 @@ import {
 } from "../runtime/routes/attachment-routes.js";
 import type { RouteHandlerArgs } from "../runtime/routes/types.js";
 import { getWorkspaceDir } from "../util/platform.js";
-import { fakeHeifHeaderBytes } from "./heic-fixture.js";
+import { fakeHeifHeaderBytes, PNG_1PX_BYTES } from "./heic-fixture.js";
 
 const uploadRoute = ROUTES.find((r) => r.operationId === "attachment_upload")!;
 const registerRoute = ROUTES.find(
@@ -226,5 +237,27 @@ describe("HEIC upload normalization wiring", () => {
     // Registered files are referenced in place, never rewritten.
     expect(existsSync(registeredPath)).toBe(true);
     expect(readFileSync(registeredPath).equals(HEIC_BYTES)).toBe(true);
+  });
+
+  test("attachment register corrects a mislabeled image MIME", async () => {
+    // A PNG named .jpg — callers hand this path an extension-derived MIME, and
+    // the stored value becomes the media_type on every replay of the message.
+    const registerDir = join(getWorkspaceDir(), "register-fixtures");
+    mkdirSync(registerDir, { recursive: true });
+    const registeredPath = join(registerDir, "renamed.jpg");
+    writeFileSync(registeredPath, PNG_1PX_BYTES);
+
+    const result = (await registerRoute.handler(
+      jsonUploadArgs({
+        path: registeredPath,
+        mimeType: "image/jpeg",
+        filename: "renamed.jpg",
+      }),
+    )) as { id: string; mimeType: string };
+
+    expect(result.mimeType).toBe("image/png");
+    expect(getAttachmentById(result.id)?.mimeType).toBe("image/png");
+    // Only the label is corrected — the registered file is left in place.
+    expect(readFileSync(registeredPath).equals(PNG_1PX_BYTES)).toBe(true);
   });
 });
