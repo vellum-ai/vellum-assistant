@@ -118,6 +118,15 @@ const DEFAULT_BARGE_IN_MIN_SPEECH_MS = 250;
 // longer continuous silence (a real end of speech, or an isolated cough) resets
 // the run.
 const BARGE_IN_GAP_TOLERANCE_MS = 200;
+// Ceiling on cumulative sub-threshold time across a whole barge-in run, as a
+// multiple of bargeInMinSpeechMs. Per-gap tolerance alone lets sparse isolated
+// blips (e.g. a 10 ms echo spike every 200 ms) each clear the consecutive-gap
+// timer while retaining prior speech, so they would sum to the guard over
+// several seconds and fire a barge-in with no sustained user speech. Capping the
+// run's total tolerated silence imposes a minimum above-gate duty cycle
+// (1 / (1 + ratio) ≈ 20%): once the run is mostly silence it resets, so genuine
+// choppy speech still lands but periodic noise cannot accumulate into one.
+const BARGE_IN_MAX_TOLERATED_SILENCE_RATIO = 4;
 // At most this many TTS segment jobs are open (provider stream started,
 // frames not yet fully emitted) per turn: the emitting job plus one
 // prefetching job. The prefetch buffers its chunks in memory until promoted;
@@ -469,9 +478,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // assistant turn is audibly speaking: above-gate speech-chunk duration
   // accumulates until it reaches bargeInMinSpeechMs, then the deferred
   // speech_started + barge-in fire (at most once per onset). Brief sub-threshold
-  // gaps are tolerated (see BARGE_IN_GAP_TOLERANCE_MS); only a continuous
-  // silence longer than that resets the run. The detector's utterance end
-  // discards the guard.
+  // gaps are tolerated (see BARGE_IN_GAP_TOLERANCE_MS); the run resets on a
+  // single longer continuous silence, or once cumulative tolerated silence
+  // exceeds the duty-cycle ceiling (see BARGE_IN_MAX_TOLERATED_SILENCE_RATIO).
+  // The detector's utterance end discards the guard.
   private pendingBargeIn: {
     // Null when guarding only the post-tts_done drain window (the turn is
     // already finalized but the client is still playing its tail).
@@ -480,6 +490,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // Consecutive sub-threshold (non-speech) time since the last speech chunk;
     // resets speechMs once it exceeds BARGE_IN_GAP_TOLERANCE_MS.
     silenceMs: number;
+    // Cumulative sub-threshold time over the whole run (not reset by speech
+    // chunks); resets speechMs once it exceeds the duty-cycle ceiling so sparse
+    // periodic blips cannot sum into a barge-in.
+    toleratedSilenceMs: number;
   } | null = null;
   // Estimated wall-clock ms until the client finishes draining the
   // assistant audio sent so far. The server clears the turn right after
@@ -1105,7 +1119,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     if ((bargeableTurn || drainingPlayback) && this.bargeInMinSpeechMs > 0) {
       // Onset audio keeps flowing into the cycle/pre-roll while the guard
       // accumulates (trackBargeInGuard), so no speech is lost either way.
-      this.pendingBargeIn = { turn: bargeableTurn, speechMs: 0, silenceMs: 0 };
+      this.pendingBargeIn = {
+        turn: bargeableTurn,
+        speechMs: 0,
+        silenceMs: 0,
+        toleratedSilenceMs: 0,
+      };
       return;
     }
 
@@ -1119,8 +1138,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
 
   // Advances the sustained-speech barge-in guard by one server-VAD chunk:
   // above-gate speech accumulates toward bargeInMinSpeechMs while brief
-  // sub-threshold gaps are tolerated (only a continuous silence longer than
-  // BARGE_IN_GAP_TOLERANCE_MS zeroes the run), and once met the deferred
+  // sub-threshold gaps are tolerated (a single continuous silence longer than
+  // BARGE_IN_GAP_TOLERANCE_MS, or cumulative tolerated silence past the
+  // duty-cycle ceiling, zeroes the run), and once met the deferred
   // speech_started + barge-in fire.
   private trackBargeInGuard(hasSpeech: boolean, chunk: Buffer): void {
     const guard = this.pendingBargeIn;
@@ -1133,13 +1153,21 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     );
     if (!hasSpeech) {
       guard.silenceMs += chunkMs;
-      // Strictly greater: a gap of exactly BARGE_IN_GAP_TOLERANCE_MS is still
-      // tolerated. The web client batches PCM into 50 ms frames, so a run of
-      // ducked frames lands on the boundary exactly (e.g. four frames = 200 ms);
-      // only a longer continuous silence resets the accumulated speech.
-      if (guard.silenceMs > BARGE_IN_GAP_TOLERANCE_MS) {
+      guard.toleratedSilenceMs += chunkMs;
+      // Strictly greater on the per-gap check: a gap of exactly
+      // BARGE_IN_GAP_TOLERANCE_MS is still tolerated. The web client batches PCM
+      // into 50 ms frames, so a run of ducked frames lands on the boundary
+      // exactly (e.g. four frames = 200 ms). The run also resets once its total
+      // tolerated silence outweighs the speech by the duty-cycle ceiling, so
+      // sparse periodic blips can never sum to the guard.
+      if (
+        guard.silenceMs > BARGE_IN_GAP_TOLERANCE_MS ||
+        guard.toleratedSilenceMs >
+          this.bargeInMinSpeechMs * BARGE_IN_MAX_TOLERATED_SILENCE_RATIO
+      ) {
         guard.speechMs = 0;
         guard.silenceMs = 0;
+        guard.toleratedSilenceMs = 0;
       }
       return;
     }

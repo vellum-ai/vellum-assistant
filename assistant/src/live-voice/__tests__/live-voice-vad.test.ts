@@ -2535,6 +2535,28 @@ describe("LiveVoiceSession sustained-speech barge-in guard", () => {
     await waitFor(() => abort.mock.calls.length === 1);
   });
 
+  test("sparse periodic blips separated by boundary gaps do not accumulate into a barge-in", async () => {
+    const { frames, session, abort, speakFirstReply } =
+      createSpeakingTurnHarness({ bargeInMinSpeechMs: 60 });
+    await speakFirstReply();
+
+    // A 10 ms blip every 200 ms models residual echo/noise, not sustained
+    // speech: each blip clears the consecutive-gap timer while the boundary gap
+    // (20 chunks = 200 ms) escapes the per-gap reset. Enough cycles to reach the
+    // 60 ms guard by pure blip-summing (6 blips) plus margin. The duty-cycle
+    // ceiling (cumulative tolerated silence > bargeInMinSpeechMs * 4 = 240 ms)
+    // resets the run every few cycles, so the blips never sum into a barge-in.
+    for (let cycle = 0; cycle < 9; cycle += 1) {
+      await session.handleBinaryAudio(LOUD_CHUNK);
+      for (let index = 0; index < 20; index += 1) {
+        await session.handleBinaryAudio(DUCKED_CHUNK);
+      }
+    }
+    await flushAsyncCallbacks();
+    expect(countType(frames, "turn_cancelled")).toBe(0);
+    expect(abort).not.toHaveBeenCalled();
+  });
+
   test("bargeInMinSpeechMs 0 restores instant barge-in", async () => {
     const { frames, session, abort, speakFirstReply } =
       createSpeakingTurnHarness({ bargeInMinSpeechMs: 0 });
