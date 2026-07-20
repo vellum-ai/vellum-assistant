@@ -24,23 +24,34 @@ const log = getLogger("ps-routes");
 
 type ProcessStatus = "running" | "not_running" | "unreachable";
 
-type ProcessOrigin = "plugin" | "workspace";
+/**
+ * `workspace` for the daemon and its subsystems; `plugin:<name>` for a
+ * process spawned from a plugin (e.g. `plugin:default-memory`, `plugin:cognee`).
+ */
+type ProcessOrigin = "workspace" | `plugin:${string}`;
 
 interface ProcessEntry {
   name: string;
   status: ProcessStatus;
-  /** Whether the process was spawned from a plugin or from the workspace. */
+  /** `workspace`, or `plugin:<name>` when spawned from a plugin. */
   origin: ProcessOrigin;
   children?: ProcessEntry[];
   info?: string;
 }
+
+const processOriginSchema = z
+  .string()
+  .regex(/^(workspace|plugin:.+)$/)
+  .describe(
+    "Process origin: 'workspace' for the daemon and its subsystems, or 'plugin:<name>' for a process spawned from a plugin (e.g. 'plugin:default-memory', 'plugin:cognee').",
+  ) as z.ZodType<ProcessOrigin>;
 
 const processEntrySchema: z.ZodType<ProcessEntry> = z
   .lazy(() =>
     z.object({
       name: z.string(),
       status: z.enum(["running", "not_running", "unreachable"]),
-      origin: z.enum(["plugin", "workspace"]),
+      origin: processOriginSchema,
       children: z.array(processEntrySchema).optional(),
       info: z.string().optional(),
     }),

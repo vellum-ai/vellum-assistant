@@ -35,7 +35,7 @@ mock.module("../../../util/process-tree.js", () => ({
         pid: 300,
         name: "memory-worker",
         command: "bun run /app/plugins/defaults/memory/worker.ts",
-        origin: "plugin",
+        origin: "plugin:default-memory",
         children: [
           {
             pid: 400,
@@ -114,7 +114,7 @@ describe("ps route handler", () => {
     walk(root as never);
 
     expect(byName.get("qdrant")).toBe("workspace");
-    expect(byName.get("memory-worker")).toBe("plugin");
+    expect(byName.get("memory-worker")).toBe("plugin:default-memory");
     expect(byName.get("embed-helper")).toBe("workspace");
   });
 

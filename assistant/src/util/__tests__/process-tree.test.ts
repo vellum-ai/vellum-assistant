@@ -59,16 +59,18 @@ describe("deriveName", () => {
 });
 
 describe("deriveOrigin", () => {
-  test("classifies commands running plugin-owned code as plugin", () => {
+  test("tags a user plugin with its name", () => {
     expect(
       deriveOrigin(
-        "bun --smol run /home/u/.vellum/workspace/plugins/foo/server.ts",
+        "bun --smol run /home/u/.vellum/workspace/plugins/cognee/server.ts",
       ),
-    ).toBe("plugin");
-    // Bundled default plugins live under a plugins/ dir too.
+    ).toBe("plugin:cognee");
+  });
+
+  test("tags a bundled default plugin as default-<name>", () => {
     expect(
       deriveOrigin("bun --smol run /app/src/plugins/defaults/memory/worker.ts"),
-    ).toBe("plugin");
+    ).toBe("plugin:default-memory");
   });
 
   test("classifies the daemon and workspace subsystems as workspace", () => {
@@ -103,7 +105,7 @@ describe("buildProcessTree", () => {
       pid: 300,
       ppid: 100,
       command: "bun run /app/jobs/worker.ts",
-      origin: "plugin",
+      origin: "plugin:default-memory",
     },
     {
       pid: 400,
@@ -135,7 +137,9 @@ describe("buildProcessTree", () => {
     const tree = buildProcessTree(procs, 100);
     expect(tree.origin).toBe("workspace");
     expect(tree.children.find((c) => c.pid === 200)!.origin).toBe("workspace");
-    expect(tree.children.find((c) => c.pid === 300)!.origin).toBe("plugin");
+    expect(tree.children.find((c) => c.pid === 300)!.origin).toBe(
+      "plugin:default-memory",
+    );
   });
 
   test("synthesizes a workspace origin when the root PID is absent", () => {

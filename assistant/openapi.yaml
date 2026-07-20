@@ -33664,9 +33664,10 @@ components:
             - unreachable
         origin:
           type: string
-          enum:
-            - plugin
-            - workspace
+          pattern: ^(workspace|plugin:.+)$
+          description:
+            "Process origin: 'workspace' for the daemon and its subsystems, or 'plugin:<name>' for a process spawned
+            from a plugin (e.g. 'plugin:default-memory', 'plugin:cognee')."
         children:
           type: array
           items:
