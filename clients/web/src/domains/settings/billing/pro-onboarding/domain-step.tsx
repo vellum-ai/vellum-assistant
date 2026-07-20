@@ -1,4 +1,4 @@
-import { ArrowLeft, Mail } from "lucide-react";
+import { Mail } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -19,7 +19,14 @@ import { DomainField } from "@/domains/settings/components/domain-field";
 import { IconBadge, StepDots } from "./primitives";
 import { DOMAIN_EXIT_DELAY_MS, extractOnboardingErrorMessage } from "./utils";
 
-export function DomainStep({ onBack, onExit }: { onBack: () => void; onExit: () => void }) {
+export function DomainStep({
+  onExit,
+  machineBusy = false,
+}: {
+  onExit: () => void;
+  /** The assistant machine is restarting (webhook-driven resize in flight). */
+  machineBusy?: boolean;
+}) {
   const queryClient = useQueryClient();
   const emailRootDomain = useEnvironmentStore.use.emailRootDomain();
   const { data: activeAssistant } = useQuery(assistantsActiveRetrieveOptions());
@@ -65,7 +72,9 @@ export function DomainStep({ onBack, onExit }: { onBack: () => void; onExit: () 
   }, [confirmed, onExit]);
 
   const handleSet = () => {
-    if (busy || !subdomain) return;
+    // Registering the email writes to the machine's gateway over the guardian
+    // channel, so it must wait until the machine is back online.
+    if (busy || machineBusy || !subdomain) return;
     domainMutation.mutate(
       {
         body: {
@@ -160,6 +169,11 @@ export function DomainStep({ onBack, onExit }: { onBack: () => void; onExit: () 
           />
         </div>
 
+        {machineBusy && !isLocked && (
+          <Notice tone="neutral">
+            Your assistant is restarting — you can set the domain in a moment.
+          </Notice>
+        )}
         {!isLocked && (
           <Notice tone="info">
             <span className="font-mono">{subdomain || "<subdomain>"}</span> will also become your assistant&apos;s public handle.
@@ -170,16 +184,7 @@ export function DomainStep({ onBack, onExit }: { onBack: () => void; onExit: () 
           <Notice tone="success">Domain set — redirecting…</Notice>
         ) : null}
       </Modal.Body>
-      <Modal.Footer className="relative items-center justify-between">
-        <Button
-          variant="ghost"
-          data-testid="onboarding-domain-back"
-          disabled={busy}
-          onClick={onBack}
-          leftIcon={<ArrowLeft className="h-4 w-4" />}
-        >
-          Back
-        </Button>
+      <Modal.Footer className="relative items-center justify-end">
         <div className="pointer-events-none absolute inset-x-0 flex justify-center">
           <StepDots current={0} />
         </div>
@@ -205,7 +210,7 @@ export function DomainStep({ onBack, onExit }: { onBack: () => void; onExit: () 
               <Button
                 variant="primary"
                 data-testid="onboarding-domain-set"
-                disabled={!subdomain || busy}
+                disabled={!subdomain || busy || machineBusy}
                 onClick={handleSet}
               >
                 Set domain

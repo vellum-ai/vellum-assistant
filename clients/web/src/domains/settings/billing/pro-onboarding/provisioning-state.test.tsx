@@ -17,7 +17,7 @@ function baseProps(
   overrides: Partial<ProvisioningStateProps> = {},
 ): ProvisioningStateProps {
   return {
-    state: "confirming",
+    state: "CONFIRMING",
     softWaiting: false,
     intent: null,
     targets: { machineSize: null, storageGib: null },
@@ -39,8 +39,8 @@ function renderState(overrides: Partial<ProvisioningStateProps> = {}) {
 describe("confirming", () => {
   test("renders the payment-confirmed headline with a package chip", () => {
     const { getByText } = renderState({
-      state: "confirming",
-      intent: { kind: "package", packageKey: "mighty" },
+      state: "CONFIRMING",
+      intent: { kind: "package", packageKey: "mighty", savedAt: Date.now() },
     });
 
     expect(
@@ -51,12 +51,13 @@ describe("confirming", () => {
 
   test("renders custom-intent tier chips, omitting the credits chip when null", () => {
     const { getByText, queryByText } = renderState({
-      state: "confirming",
+      state: "CONFIRMING",
       intent: {
         kind: "custom",
         machineTier: "large",
         storageTier: "xl",
         creditTier: null,
+        savedAt: Date.now(),
       },
     });
 
@@ -67,12 +68,13 @@ describe("confirming", () => {
 
   test("renders a credits chip when the custom intent bundles credits", () => {
     const { getByText } = renderState({
-      state: "confirming",
+      state: "CONFIRMING",
       intent: {
         kind: "custom",
         machineTier: "medium",
         storageTier: "s",
         creditTier: "credits_50",
+        savedAt: Date.now(),
       },
     });
 
@@ -82,7 +84,7 @@ describe("confirming", () => {
   test("shows the payment-safe timeout screen once confirm.expired is set", () => {
     const onRetry = mock(() => {});
     const { getByText, getByTestId } = renderState({
-      state: "confirming",
+      state: "CONFIRMING",
       confirm: { expired: true, onRetry, onGoToBilling: () => {} },
     });
 
@@ -99,7 +101,7 @@ describe("confirming", () => {
 describe("waiting / resizing", () => {
   test("renders machine and storage cards with the from-snapshot and restart warning", () => {
     const { getByText } = renderState({
-      state: "waiting",
+      state: "WAITING",
       targets: { machineSize: "large", storageGib: 100 },
       fromSnapshot: { machineSize: "small", storageGib: 30 },
     });
@@ -120,7 +122,7 @@ describe("waiting / resizing", () => {
 
   test("storage-only targets render a single storage card and no machine card", () => {
     const { getByText, queryByText } = renderState({
-      state: "resizing",
+      state: "RESIZING",
       targets: { machineSize: null, storageGib: 100 },
       fromSnapshot: { machineSize: "small", storageGib: 30 },
     });
@@ -132,7 +134,7 @@ describe("waiting / resizing", () => {
 
   test("softWaiting swaps in the softened sub-copy", () => {
     const { getByText, rerender } = renderState({
-      state: "waiting",
+      state: "WAITING",
       targets: { machineSize: "medium", storageGib: null },
     });
 
@@ -141,7 +143,7 @@ describe("waiting / resizing", () => {
     rerender(
       <ProvisioningState
         {...baseProps({
-          state: "waiting",
+          state: "WAITING",
           softWaiting: true,
           targets: { machineSize: "medium", storageGib: null },
         })}
@@ -159,7 +161,7 @@ describe("done / not_applicable", () => {
   test("done renders the celebration headline and fires onCelebrationEnd after the dwell", async () => {
     const onCelebrationEnd = mock(() => {});
     const { getByText } = renderState({
-      state: "done",
+      state: "DONE",
       celebrating: true,
       onCelebrationEnd,
       dwellMs: 10,
@@ -172,7 +174,7 @@ describe("done / not_applicable", () => {
   test("done does not fire onCelebrationEnd when not celebrating", async () => {
     const onCelebrationEnd = mock(() => {});
     renderState({
-      state: "done",
+      state: "DONE",
       celebrating: false,
       onCelebrationEnd,
       dwellMs: 10,
@@ -185,7 +187,7 @@ describe("done / not_applicable", () => {
   test("not_applicable renders the plan-ready notice without cards or an Apply button", async () => {
     const onCelebrationEnd = mock(() => {});
     const { getByText, queryByText, queryByTestId } = renderState({
-      state: "not_applicable",
+      state: "NOT_APPLICABLE",
       celebrating: true,
       onCelebrationEnd,
       dwellMs: 10,
@@ -205,7 +207,7 @@ describe("stalled", () => {
   test("renders the amber notice and Apply & Restart invokes the callback", () => {
     const onApply = mock(() => {});
     const { getByText, getByTestId } = renderState({
-      state: "stalled",
+      state: "STALLED",
       targets: { machineSize: "large", storageGib: null },
       fromSnapshot: { machineSize: "small", storageGib: null },
       stalledAction: { onApply, pending: false, error: null },
@@ -223,7 +225,7 @@ describe("stalled", () => {
   test("disables the Apply button while pending and renders the extracted error", () => {
     const onApply = mock(() => {});
     const { getByText, getByTestId } = renderState({
-      state: "stalled",
+      state: "STALLED",
       stalledAction: {
         onApply,
         pending: true,
@@ -243,7 +245,7 @@ describe("confirm_timeout", () => {
   test("renders the payment-safety reassurance with retry and billing actions", () => {
     const onGoToBilling = mock(() => {});
     const { getByText, getByTestId } = renderState({
-      state: "confirm_timeout",
+      state: "CONFIRM_TIMEOUT",
       confirm: { expired: false, onRetry: () => {}, onGoToBilling },
     });
 
@@ -261,7 +263,7 @@ describe("escape hatch", () => {
   test("renders the background-continue button only when available", () => {
     const onEscape = mock(() => {});
     const { getByTestId } = renderState({
-      state: "waiting",
+      state: "WAITING",
       targets: { machineSize: "medium", storageGib: null },
       escapeAvailable: true,
       onEscape,
@@ -272,7 +274,7 @@ describe("escape hatch", () => {
 
     cleanup();
     const { queryByTestId } = renderState({
-      state: "waiting",
+      state: "WAITING",
       targets: { machineSize: "medium", storageGib: null },
       escapeAvailable: false,
     });

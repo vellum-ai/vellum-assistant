@@ -1,4 +1,4 @@
-import { ArrowLeft, PartyPopper } from "lucide-react";
+import { PartyPopper } from "lucide-react";
 
 import { useNavigate } from "react-router";
 
@@ -8,7 +8,12 @@ import { assistantsActiveRetrieveOptions } from "@/generated/api/@tanstack/react
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
 
-export function CompleteState({ onBack }: { onBack: () => void }) {
+export function CompleteState({
+  finishedInBackground = false,
+}: {
+  /** The user backgrounded the machine resize; hidden once it completes. */
+  finishedInBackground?: boolean;
+}) {
   const navigate = useNavigate();
   const { data: activeAssistant } = useQuery(assistantsActiveRetrieveOptions());
   const assistantName = activeAssistant?.name || "your assistant";
@@ -73,6 +78,15 @@ export function CompleteState({ onBack }: { onBack: () => void }) {
         Your assistant just got a serious upgrade.
       </p>
 
+      {finishedInBackground && (
+        <p
+          className="relative -mt-4 mb-6 max-w-[320px] text-body-small-default text-[var(--content-tertiary)]"
+          style={{ animation: "welcome-reveal 600ms ease-out 350ms both" }}
+        >
+          We&apos;re finishing your machine upgrade in the background.
+        </p>
+      )}
+
       <div style={{ animation: "welcome-reveal 600ms ease-out 450ms both" }}>
         <Button
           variant="primary"
@@ -80,17 +94,6 @@ export function CompleteState({ onBack }: { onBack: () => void }) {
           onClick={() => navigate(routes.assistant, { replace: true })}
         >
           Return to {assistantName}
-        </Button>
-      </div>
-
-      <div className="absolute bottom-4 left-4">
-        <Button
-          variant="ghost"
-          data-testid="onboarding-complete-back"
-          onClick={onBack}
-          leftIcon={<ArrowLeft className="h-4 w-4" />}
-        >
-          Back
         </Button>
       </div>
     </div>
