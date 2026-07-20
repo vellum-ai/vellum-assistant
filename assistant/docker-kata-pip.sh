@@ -34,7 +34,14 @@ if [ "$(id -u)" = "0" ]; then
       # (inside a private mount namespace) and restores the caller's cwd, so
       # path-based installs (pip install ., -r requirements.txt) and --user
       # installs into $PYTHONUSERBASE resolve to the same files as outside.
-      exec unshare -m /app/assistant/docker-kata-pip-chroot.sh "${DATA_ROOT}" "${PWD}" "/usr/bin/${PIP_NAME}" "$@"
+      # Platform kata pods are privileged inside their per-assistant VM, so
+      # unshare -m works there; if this environment can't create a mount
+      # namespace, fall back to a bare chroot — index installs still persist,
+      # only caller-path installs lose visibility.
+      if unshare -m true 2>/dev/null; then
+        exec unshare -m /app/assistant/docker-kata-pip-chroot.sh "${DATA_ROOT}" "${PWD}" "/usr/bin/${PIP_NAME}" "$@"
+      fi
+      exec chroot "${DATA_ROOT}" /bin/sh -c 'cd "$1" 2>/dev/null || cd /; shift; exec "$@"' sh "${PWD}" "/usr/bin/${PIP_NAME}" "$@"
     fi
   fi
   echo "Warning: persistent pip root unavailable; falling back to the image pip (installs will not survive a save)" >&2
