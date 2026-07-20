@@ -23,10 +23,13 @@ export type CheckoutIntent =
       savedAt: number;
     };
 
+/** `Omit` distributed over each member of a union. */
+type DistributiveOmit<T, K extends PropertyKey> = T extends unknown
+  ? Omit<T, K>
+  : never;
+
 /** A `CheckoutIntent` before `saveCheckoutIntent` stamps `savedAt`. */
-export type UnsavedCheckoutIntent =
-  | Omit<Extract<CheckoutIntent, { kind: "package" }>, "savedAt">
-  | Omit<Extract<CheckoutIntent, { kind: "custom" }>, "savedAt">;
+type UnsavedCheckoutIntent = DistributiveOmit<CheckoutIntent, "savedAt">;
 
 const STORAGE_KEY = "vellum.pro-checkout-intent";
 const MAX_AGE_MS = 30 * 60 * 1000;

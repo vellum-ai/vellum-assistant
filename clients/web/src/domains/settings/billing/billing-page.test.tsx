@@ -3,7 +3,9 @@
  *
  * `?pro_onboarding` reopens the post-checkout onboarding wizard without a
  * Stripe `session_id`, and the "Finish Pro setup" nudge renders only for a
- * Pro subscription whose domain setup is still available.
+ * Pro subscription with no assistant email domain registered yet (the
+ * platform's `domain_setup_available` flag stays true forever, so the domains
+ * list is the real signal).
  *
  * Strategy mirrors plans-page-checkout.test.tsx: mock the generated SDK with
  * mutable responses, force the platform-hosted gate open, and stub the heavy
@@ -17,12 +19,15 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, useLocation } from "react-router";
 
 import {
+    assistantsDomainsListQueryKey,
     organizationsBillingSubscriptionOnboardingRetrieveQueryKey,
     organizationsBillingSubscriptionRetrieveQueryKey,
 } from "@/generated/api/@tanstack/react-query.gen";
 import * as sdkGen from "@/generated/api/sdk.gen";
 import type {
+    Assistant,
     OnboardingStateResponse,
+    PaginatedAssistantDomainList,
     SubscriptionResponse,
 } from "@/generated/api/types.gen";
 import * as platformGate from "@/hooks/use-platform-gate";
@@ -30,7 +35,11 @@ import * as authStore from "@/stores/auth-store";
 
 let subscriptionResponse: SubscriptionResponse;
 let onboardingResponse: OnboardingStateResponse;
+let domainsResponse: PaginatedAssistantDomainList;
 let onboardingCalls = 0;
+let domainsCalls = 0;
+
+const ACTIVE_ASSISTANT = { id: "assistant-1" } as unknown as Assistant;
 
 mock.module("@/generated/api/sdk.gen", () => ({
     ...sdkGen,
@@ -42,6 +51,12 @@ mock.module("@/generated/api/sdk.gen", () => ({
             data: onboardingResponse,
             response: { ok: true },
         });
+    },
+    assistantsActiveRetrieve: () =>
+        Promise.resolve({ data: ACTIVE_ASSISTANT, response: { ok: true } }),
+    assistantsDomainsList: () => {
+        domainsCalls += 1;
+        return Promise.resolve({ data: domainsResponse, response: { ok: true } });
     },
 }));
 
@@ -128,6 +143,27 @@ function makeOnboarding(domainSetupAvailable: boolean): OnboardingStateResponse 
     };
 }
 
+function makeDomains(hasDomain: boolean): PaginatedAssistantDomainList {
+    return {
+        count: hasDomain ? 1 : 0,
+        next: null,
+        previous: null,
+        results: hasDomain
+            ? [
+                  {
+                      id: "domain-1",
+                      subdomain: "velly",
+                      created: "2026-07-01T00:00:00Z",
+                      modified: "2026-07-01T00:00:00Z",
+                  },
+              ]
+            : [],
+    };
+}
+
+const domainsQueryKey = () =>
+    assistantsDomainsListQueryKey({ path: { assistant_id: "assistant-1" } });
+
 function LocationProbe() {
     const location = useLocation();
     return <div data-testid="loc">{location.pathname + location.search}</div>;
@@ -151,7 +187,9 @@ function renderPage(search = "?tab=billing") {
 beforeEach(() => {
     subscriptionResponse = makeSubscription("pro");
     onboardingResponse = makeOnboarding(true);
+    domainsResponse = makeDomains(false);
     onboardingCalls = 0;
+    domainsCalls = 0;
 });
 
 afterEach(() => {
@@ -174,7 +212,7 @@ describe("BillingTab ?pro_onboarding param", () => {
 });
 
 describe("Finish Pro setup nudge", () => {
-    test("renders for Pro with domain setup available and reopens the wizard", async () => {
+    test("renders for Pro with no domain registered and reopens the wizard", async () => {
         const { getByTestId } = renderPage();
 
         await waitFor(() =>
@@ -197,7 +235,20 @@ describe("Finish Pro setup nudge", () => {
         );
     });
 
-    test("hidden on the base plan, and the onboarding endpoint is never queried", async () => {
+    test("hidden for Pro when a domain is already registered", async () => {
+        // `domain_setup_available` is still true (the platform hard-codes it
+        // for every active-Pro org) — the registered domain alone must hide
+        // the nudge.
+        domainsResponse = makeDomains(true);
+        const { client, queryByTestId } = renderPage();
+
+        await waitFor(() =>
+            expect(client.getQueryData(domainsQueryKey())).toBeTruthy(),
+        );
+        expect(queryByTestId("finish-pro-setup-notice")).toBeNull();
+    });
+
+    test("hidden on the base plan; onboarding and domains endpoints are never queried", async () => {
         subscriptionResponse = makeSubscription("base");
         const { client, queryByTestId } = renderPage();
 
@@ -210,9 +261,10 @@ describe("Finish Pro setup nudge", () => {
         );
         expect(queryByTestId("finish-pro-setup-notice")).toBeNull();
         expect(onboardingCalls).toBe(0);
+        expect(domainsCalls).toBe(0);
     });
 
-    test("hidden for Pro when domain setup is unavailable", async () => {
+    test("hidden for Pro when domain setup is unavailable, without querying domains", async () => {
         onboardingResponse = makeOnboarding(false);
         const { client, queryByTestId } = renderPage();
 
@@ -224,5 +276,6 @@ describe("Finish Pro setup nudge", () => {
             ).toBeTruthy(),
         );
         expect(queryByTestId("finish-pro-setup-notice")).toBeNull();
+        expect(domainsCalls).toBe(0);
     });
 });

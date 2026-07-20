@@ -19,6 +19,7 @@ import { InvoicesTable } from "@/domains/settings/components/invoices-table";
 import { PlanCard } from "@/domains/settings/components/plan-card";
 import { ReferralPanel } from "@/domains/settings/components/referral-panel";
 import { TierUpgradeResizeModal } from "@/domains/settings/components/tier-upgrade-resize-modal";
+import { useAssistantDomains } from "@/domains/settings/billing/pro-onboarding/use-assistant-domains";
 import {
     organizationsBillingSubscriptionOnboardingRetrieveOptions,
     organizationsBillingSubscriptionRetrieveOptions,
@@ -72,8 +73,7 @@ function BillingStatusHandler() {
 
 /**
  * Re-entry nudge into the pro onboarding wizard: shown while the org is on Pro
- * but the assistant email/subdomain offered by the onboarding flow is still
- * unconfigured (`domain_setup_available`).
+ * with domain setup offered but no assistant email domain registered yet.
  */
 function FinishProSetupNotice({ onFinishSetup }: { onFinishSetup: () => void }) {
     const { data: subscription } = useQuery(
@@ -84,8 +84,15 @@ function FinishProSetupNotice({ onFinishSetup }: { onFinishSetup: () => void }) 
         ...organizationsBillingSubscriptionOnboardingRetrieveOptions(),
         enabled: isPro,
     });
+    // `domain_setup_available` only says the platform offers domain setup — it
+    // stays true after a domain is registered, so the real "still unconfigured"
+    // signal is the assistant's domains list being loaded and empty.
+    const domainSetupOffered =
+        isPro && onboarding?.domain_setup_available === true;
+    const { domains } = useAssistantDomains(domainSetupOffered);
+    const domainMissing = domains !== undefined && domains.results.length === 0;
 
-    if (!isPro || onboarding?.domain_setup_available !== true) {
+    if (!domainSetupOffered || !domainMissing) {
         return null;
     }
 
