@@ -1133,7 +1133,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     );
     if (!hasSpeech) {
       guard.silenceMs += chunkMs;
-      if (guard.silenceMs >= BARGE_IN_GAP_TOLERANCE_MS) {
+      // Strictly greater: a gap of exactly BARGE_IN_GAP_TOLERANCE_MS is still
+      // tolerated. The web client batches PCM into 50 ms frames, so a run of
+      // ducked frames lands on the boundary exactly (e.g. four frames = 200 ms);
+      // only a longer continuous silence resets the accumulated speech.
+      if (guard.silenceMs > BARGE_IN_GAP_TOLERANCE_MS) {
         guard.speechMs = 0;
         guard.silenceMs = 0;
       }
