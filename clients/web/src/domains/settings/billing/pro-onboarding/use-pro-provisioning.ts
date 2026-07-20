@@ -226,6 +226,7 @@ export function useProProvisioning({
     planId: proConfirmed ? "pro" : observedPlanId,
     targets,
     actuals,
+    initialActuals: actualsSnapshot,
     resizeOperationInFlight,
     sawOperation,
     msSinceProConfirmed:

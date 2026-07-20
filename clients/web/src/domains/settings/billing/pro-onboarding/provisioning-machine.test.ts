@@ -14,6 +14,7 @@ function baseInput(
     planId: "pro",
     targets: { machineSize: "large", storageGib: 50 },
     actuals: { machineSize: "small", storageGib: 10 },
+    initialActuals: { machineSize: "small", storageGib: 10 },
     resizeOperationInFlight: false,
     sawOperation: false,
     msSinceProConfirmed: 1000,
@@ -146,6 +147,16 @@ describe("deriveProvisioningState — DONE", () => {
       ).state,
     ).toBe("DONE");
   });
+
+  test("resize that completed without ever being observed → DONE", () => {
+    // The first observed actuals were below the targets, so a resize must
+    // have run even though no operation was caught between polls.
+    expect(
+      deriveProvisioningState(
+        baseInput({ actuals: { machineSize: "large", storageGib: 50 } }),
+      ),
+    ).toEqual({ state: "DONE", softWaiting: false });
+  });
 });
 
 describe("deriveProvisioningState — NOT_APPLICABLE", () => {
@@ -164,6 +175,28 @@ describe("deriveProvisioningState — NOT_APPLICABLE", () => {
     expect(
       deriveProvisioningState(
         baseInput({ targets: { machineSize: null, storageGib: null } }),
+      ).state,
+    ).toBe("NOT_APPLICABLE");
+  });
+
+  test("first observed actuals already met the targets → NOT_APPLICABLE", () => {
+    expect(
+      deriveProvisioningState(
+        baseInput({
+          actuals: { machineSize: "large", storageGib: 50 },
+          initialActuals: { machineSize: "large", storageGib: 50 },
+        }),
+      ).state,
+    ).toBe("NOT_APPLICABLE");
+  });
+
+  test("no snapshot yet and targets met on the first observation → NOT_APPLICABLE", () => {
+    expect(
+      deriveProvisioningState(
+        baseInput({
+          actuals: { machineSize: "large", storageGib: 50 },
+          initialActuals: null,
+        }),
       ).state,
     ).toBe("NOT_APPLICABLE");
   });

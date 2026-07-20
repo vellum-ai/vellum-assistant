@@ -45,6 +45,8 @@ export interface DeriveProvisioningInput {
   targets: ProvisioningDimensions | null;
   /** Last-known assistant machine size / provisioned storage. */
   actuals: ProvisioningDimensions | null;
+  /** First non-null actuals ever observed (frozen by the hook). */
+  initialActuals: ProvisioningDimensions | null;
   /** A resize operation is currently observed in flight. */
   resizeOperationInFlight: boolean;
   /** A resize operation was observed at some point (latched by the hook). */
@@ -90,6 +92,7 @@ export function deriveProvisioningState(
     planId,
     targets,
     actuals,
+    initialActuals,
     resizeOperationInFlight,
     sawOperation,
     msSinceProConfirmed,
@@ -107,14 +110,20 @@ export function deriveProvisioningState(
   const operationObserved = sawOperation || resizeOperationInFlight;
 
   if (targetsMet(targets, actuals)) {
-    // DONE-by-actuals wins over a stale in_progress/started verdict. Without
-    // any observed operation or a verdict saying one ran, the targets resolved
-    // to nothing above the current actuals — nothing was ever needed.
+    // DONE-by-actuals wins over a stale in_progress/started verdict. A quick
+    // resize can also finish between polls (or behind transient endpoint
+    // failures) without ever being observed, so when no operation was seen,
+    // disambiguate by the first actuals ever observed: if they were below the
+    // targets, a resize must have run → DONE. NOT_APPLICABLE is reserved for
+    // first-observed actuals that already met the targets (null initialActuals
+    // means the current actuals ARE the first observation — the hook freezes
+    // them as the snapshot one render later).
     if (
       operationObserved ||
       serverVerdict === "already_done" ||
       serverVerdict === "started" ||
-      serverVerdict === "in_progress"
+      serverVerdict === "in_progress" ||
+      (initialActuals != null && !targetsMet(targets, initialActuals))
     ) {
       return { state: "DONE", softWaiting: false };
     }

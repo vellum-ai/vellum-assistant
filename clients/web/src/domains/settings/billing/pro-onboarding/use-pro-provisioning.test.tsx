@@ -198,6 +198,34 @@ describe("useProProvisioning", () => {
     expect(latest!.confirmExpired).toBe(false);
   });
 
+  test("resize completing between polls (never observed) → DONE, not NOT_APPLICABLE", async () => {
+    const client = renderProbe();
+    await waitFor(() => expect(latest!.state).toBe("CONFIRMING"));
+
+    subscriptionPlanId = "pro";
+    await refetchAll(client);
+    await waitFor(() => expect(latest!.state).toBe("WAITING"), {
+      timeout: 5000,
+    });
+    // Below-target actuals must be frozen as the snapshot before the jump.
+    await waitFor(() =>
+      expect(latest!.actualsSnapshot).toEqual({
+        machineSize: "small",
+        storageGib: 10,
+      }),
+    );
+
+    // The resize starts and finishes entirely between two polls, so the
+    // operational status never reports it — actuals just jump to the targets.
+    assistantResponse = makeAssistant("large", 50);
+    await refetchAll(client);
+    await waitFor(() => expect(latest!.state).toBe("DONE"), { timeout: 5000 });
+    expect(latest!.actualsSnapshot).toEqual({
+      machineSize: "small",
+      storageGib: 10,
+    });
+  });
+
   test("transient 5xx from assistant endpoints during RESIZING does not error", async () => {
     const client = renderProbe();
     await reachResizing(client);
