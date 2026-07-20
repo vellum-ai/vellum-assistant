@@ -490,6 +490,26 @@ export function ConceptGraphView({
     [trail, focusOn],
   );
 
+  // In-panel navigation (WIRED-TO neighbors, breadcrumbs) clears any active
+  // search first: the search box is hidden behind the open drawer, so a stale
+  // search would leave a traveled-to non-match node centered but ghosted with
+  // no way to clear it. Canvas + search-result travel keep the box visible, so
+  // they intentionally don't clear it.
+  const travelFromPanel = useCallback(
+    (node: ConceptDetailNode) => {
+      setSearch("");
+      travelTo(node);
+    },
+    [travelTo],
+  );
+  const crumbFromPanel = useCallback(
+    (index: number) => {
+      setSearch("");
+      goToCrumb(index);
+    },
+    [goToCrumb],
+  );
+
   // Direct neighbors of the open concept, resolved to { id, label, kind } for the
   // detail panel's WIRED-TO list. Neighbor ids come from the adjacency map;
   // labels from layout.nodes; the connecting edge's kind (link vs learned) tags
@@ -1407,8 +1427,8 @@ export function ConceptGraphView({
           node={openNode}
           trail={trail}
           neighbors={neighbors}
-          onTravel={travelTo}
-          onCrumb={goToCrumb}
+          onTravel={travelFromPanel}
+          onCrumb={crumbFromPanel}
           onClose={back}
           onOpenThread={onOpenThread}
         />
