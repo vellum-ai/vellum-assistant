@@ -26,7 +26,17 @@
 import { Fragment, useMemo } from "react";
 import { motion, useReducedMotion } from "motion/react";
 
-export function VoiceTranscriptText({ text }: { text: string }) {
+export function VoiceTranscriptText({
+  text,
+  leadingColor = "var(--room-fg, var(--content-secondary))",
+  baseColor = "var(--room-fg-muted, var(--content-tertiary))",
+}: {
+  text: string;
+  /** Tone for the most recent ("leading edge") word. */
+  leadingColor?: string;
+  /** Tone for the settled words trailing the leading edge. */
+  baseColor?: string;
+}) {
   const reduce = useReducedMotion();
   // Collapse runs of whitespace to single spaces — the words are laid out with
   // real space text nodes between them (so they wrap and select naturally, and
@@ -43,9 +53,7 @@ export function VoiceTranscriptText({ text }: { text: string }) {
             <motion.span
               className="inline-block"
               style={{
-                color: leading
-                  ? "var(--room-fg, var(--content-secondary))"
-                  : "var(--room-fg-muted, var(--content-tertiary))",
+                color: leading ? leadingColor : baseColor,
                 // The leading-edge tone eases back to the base as the next word
                 // takes over (the motion entrance below owns transform/opacity).
                 transition: "color 0.45s ease",
