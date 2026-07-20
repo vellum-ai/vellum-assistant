@@ -446,6 +446,14 @@ export function TextToSpeechCard() {
                 label: `${v.label}${
                   v.model === defaultManagedVoice ? " (default)" : ""
                 } — ${v.description}`,
+                // Voices come from different upstream providers; the badge
+                // makes the source visible while browsing, not only after
+                // selecting.
+                suffix: (
+                  <span className="text-body-small-default text-[var(--content-tertiary)]">
+                    {MANAGED_VOICE_SOURCE_LABELS[v.source] ?? v.source}
+                  </span>
+                ),
               }))}
               aria-label="Managed voice"
             />
@@ -485,15 +493,19 @@ export function TextToSpeechCard() {
               {testing ? "Testing…" : "Test"}
             </Button>
           )}
-          {managedVoiceSupported && selectedManagedVoice && (
-            <Button
-              variant="outlined"
-              onClick={handlePreviewVoice}
-              disabled={previewing}
-            >
-              {previewing ? "Playing…" : "Preview voice"}
-            </Button>
-          )}
+          {managedVoiceSupported &&
+            selectedManagedVoice &&
+            // An empty sampleUrl means no hosted preview exists for this
+            // voice; a button that can only error is worse than none.
+            selectedManagedVoice.sampleUrl !== "" && (
+              <Button
+                variant="outlined"
+                onClick={handlePreviewVoice}
+                disabled={previewing}
+              >
+                {previewing ? "Playing…" : "Preview voice"}
+              </Button>
+            )}
           <div className="ml-auto flex items-center gap-2">
             <SaveButton onClick={handleSave} disabled={!hasChanges || saving} />
             {providerHasKey && !isManaged && (
