@@ -8,7 +8,9 @@
  */
 
 import { existsSync, unlinkSync } from "node:fs";
-import { connect } from "node:net";
+import { Socket } from "node:net";
+
+import { isAbstractSocketPath } from "@vellumai/ipc-server-utils";
 
 /**
  * Maximum time to wait for the probe `connect()` to settle before declaring
@@ -33,23 +35,45 @@ function makeAddrInUseError(message: string): NodeJS.ErrnoException {
 
 /**
  * Probe-connect to `socketPath`. Behavior:
- *   - Path doesn't exist → return.
+ *   - Path doesn't exist → return. (Abstract-namespace names can't be
+ *     stat'ed, so they always probe — duplicate-daemon detection must not
+ *     silently disappear in abstract mode.)
  *   - Connect succeeds (live listener) → throw `EADDRINUSE` so the caller can
  *     surface the structured "already running" error.
  *   - Connect fails with `ECONNREFUSED`/`ENOENT` (stale leftover) → unlink
- *     the file and return.
+ *     the file (filesystem sockets only; abstract names have nothing to
+ *     unlink) and return.
  *   - Connect doesn't settle within {@link PROBE_CONNECT_TIMEOUT_MS} → throw
  *     `EADDRINUSE` (no fallback to blind unlink — the whole point of this
  *     helper is to keep the silent-orphan defense).
  *   - Any other socket error → propagate.
  */
 export async function ensureSocketPathFree(socketPath: string): Promise<void> {
-  if (!existsSync(socketPath)) return;
+  const abstract = isAbstractSocketPath(socketPath);
+  if (!abstract && !existsSync(socketPath)) {
+    return;
+  }
   await new Promise<void>((resolve, reject) => {
-    const client = connect(socketPath);
+    const resolveStale = (): void => {
+      if (!abstract) {
+        try {
+          unlinkSync(socketPath);
+        } catch {
+          // Ignore — may already be gone
+        }
+      }
+      resolve();
+    };
+    // Construct the socket and attach handlers BEFORE calling connect():
+    // a doomed connect can emit its error during the connect() call itself
+    // (observed with abstract names under Bun's test runner), and an
+    // unhandled 'error' event would escape the probe entirely.
+    const client = new Socket();
     let settled = false;
     const settle = (action: () => void): void => {
-      if (settled) return;
+      if (settled) {
+        return;
+      }
       settled = true;
       clearTimeout(timer);
       client.removeAllListeners();
@@ -76,17 +100,22 @@ export async function ensureSocketPathFree(socketPath: string): Promise<void> {
     });
     client.once("error", (err: NodeJS.ErrnoException) => {
       if (err.code === "ECONNREFUSED" || err.code === "ENOENT") {
-        settle(() => {
-          try {
-            unlinkSync(socketPath);
-          } catch {
-            // Ignore — may already be gone
-          }
-          resolve();
-        });
+        settle(resolveStale);
       } else {
         settle(() => reject(err));
       }
     });
+    try {
+      client.connect(socketPath);
+    } catch (err) {
+      // Synchronous-throw fallback for runtimes that reject the path before
+      // starting the connect at all.
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === "ECONNREFUSED" || code === "ENOENT") {
+        settle(resolveStale);
+      } else {
+        settle(() => reject(err as Error));
+      }
+    }
   });
 }
