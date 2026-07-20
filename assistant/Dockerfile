@@ -98,6 +98,7 @@ RUN apt-get update && apt-get install -y \
     openssl \
     procps \
     python3 \
+    python3-pip \
     sqlite3 \
     sudo \
     util-linux \
@@ -232,6 +233,11 @@ RUN printf '%s\n' \
     > /usr/local/bin/dpkg && \
     chmod +x /usr/local/bin/dpkg
 
+# pip must persist like apt: on Kata-family runtimes the wrapper routes root
+# installs into the persistent apt chroot.
+RUN ln -s /app/assistant/docker-kata-pip.sh /usr/local/bin/pip && \
+    ln -s /app/assistant/docker-kata-pip.sh /usr/local/bin/pip3
+
 # Ensure the CES bootstrap socket volume is writable by the non-root CES user.
 RUN mkdir -p /run/ces-bootstrap && chmod 777 /run/ces-bootstrap
 
@@ -248,6 +254,7 @@ RUN chmod +x \
     /app/assistant/docker-entrypoint.sh \
     /app/assistant/docker-init-apt-root.sh \
     /app/assistant/docker-kata-apt-env.sh \
+    /app/assistant/docker-kata-pip.sh \
     /app/assistant/docker-kata-runtime-family.sh \
     /usr/local/bin/vellum-block-volume-common.sh \
     /usr/local/bin/vellum-block-volume-init.sh \

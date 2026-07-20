@@ -5,6 +5,8 @@
  *
  * Shared by the sandbox bash tool and skill sandbox runner.
  */
+import { readdirSync } from "node:fs";
+
 import { getGatewayInternalBaseUrl } from "../../config/env.js";
 import { getDataDir, getWorkspaceDir } from "../../util/platform.js";
 
@@ -80,7 +82,12 @@ export const KATA_SAFE_ENV_VARS = [
   "VELLUM_APT_DATA_MIRROR",
 ] as const;
 
-export const KATA_INJECTED_ENV_VARS = ["LD_LIBRARY_PATH"] as const;
+export const KATA_INJECTED_ENV_VARS = [
+  "LD_LIBRARY_PATH",
+  "PYTHONPATH",
+  "PYTHONUSERBASE",
+  "BUN_INSTALL",
+] as const;
 
 const KATA_APT_DATA_ROOT = "/data/system";
 const KATA_FAMILY_SANDBOX_RUNTIMES = new Set([
@@ -113,6 +120,24 @@ function kataAptLibraryPaths(dataRoot: string): string[] {
     `${dataRoot}/usr/lib/x86_64-linux-gnu`,
     `${dataRoot}/usr/lib/aarch64-linux-gnu`,
   ];
+}
+
+// Python packages installed into the chroot: apt packages land in the
+// unversioned dist-packages dir, chroot pip installs in versioned
+// /usr/local/lib/python3.X dirs (discovered on disk since they only exist
+// after the first install).
+function kataPythonPaths(dataRoot: string): string[] {
+  const paths = [`${dataRoot}/usr/lib/python3/dist-packages`];
+  try {
+    for (const entry of readdirSync(`${dataRoot}/usr/local/lib`)) {
+      if (/^python3(\.\d+)?$/.test(entry)) {
+        paths.push(`${dataRoot}/usr/local/lib/${entry}/dist-packages`);
+      }
+    }
+  } catch {
+    // Chroot not bootstrapped yet — the unversioned apt path is enough.
+  }
+  return paths;
 }
 
 /**
@@ -159,6 +184,21 @@ export function buildSanitizedEnv(): Record<string, string> {
       undefined,
       kataAptLibraryPaths(kataAptDataRoot),
     );
+    env.PYTHONPATH = appendUniquePathEntries(
+      undefined,
+      kataPythonPaths(kataAptDataRoot),
+    );
+    // The image bakes these under ephemeral /home/assistant; $HOME is the
+    // persistent data volume on kata pods, so user-level installs survive
+    // machine saves.
+    if (env.HOME) {
+      env.PYTHONUSERBASE = `${env.HOME}/.python`;
+      env.BUN_INSTALL = `${env.HOME}/.bun`;
+      env.PATH = appendUniquePathEntries(
+        `${env.PYTHONUSERBASE}/bin:${env.BUN_INSTALL}/bin`,
+        env.PATH.split(":").filter(Boolean),
+      );
+    }
   }
   // Always inject an internal gateway base for local control-plane/API calls.
   const internalGatewayBase = getGatewayInternalBaseUrl();
