@@ -118,7 +118,7 @@ function SearchButton() {
  *     • ───────────────
  *   Body · Pinned section (when non-empty)
  *     • pinned thread
- *   Body · Conversations section
+ *   Body · Chats section
  *     • thread …       — recent conversations inline
  *     • …
  *     • Show more/less — page through recent conversations
@@ -328,7 +328,9 @@ export function AssistantSideMenu({
       ) : null}
       {/* The assistant cluster: the avatar-colored assistant row with the
           New Chat row beneath it (one component — the eyes migrate
-          between the two rows). No divider; breathing room below instead. */}
+          between the two rows). No divider; breathing room below instead.
+          The overlay drawer skips the New Chat row — its floating New Chat
+          pill already owns that action in the thumb zone. */}
       <div className="mb-4">
         <AssistantNavItem
           assistantId={assistantId ?? null}
@@ -337,7 +339,7 @@ export function AssistantSideMenu({
           collapsed={collapsed}
           onSelect={onOpenIntelligence ? () => { onOpenIntelligence(); onClose?.(); } : undefined}
           onNewConversation={
-            onStartNewConversation
+            variant === "rail" && onStartNewConversation
               ? () => { onStartNewConversation(); onClose?.(); }
               : undefined
           }
@@ -459,7 +461,7 @@ export function AssistantSideMenu({
 
               {/* New Chat lives in the assistant cluster above, not as a
                   section-header action. */}
-              <SideMenu.Section title="Conversations" className="gap-1">
+              <SideMenu.Section title="Chats" className="gap-1">
                 <ConversationRowList
                   items={sidebar.recents.items}
                   pagination={sidebar.recents}
