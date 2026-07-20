@@ -211,13 +211,22 @@ async function requestForcedToolUse(args: {
   systemPrompt: string;
   prompt: string;
   signal?: AbortSignal;
+  /**
+   * Timing probe: fired once when provider resolution settles, with the
+   * elapsed ms and the resolved provider (null = none configured). Lets
+   * callers' diagnostic logs split "resolution was slow" from "the LLM
+   * roundtrip was slow" without changing this function's return contract.
+   */
+  onProviderResolved?: (elapsedMs: number, provider: Provider | null) => void;
 }): Promise<ToolUseContent | undefined> {
   const { signal: timeoutSignal, cleanup } = createTimeout(args.timeoutMs);
   const combinedSignal = args.signal
     ? AbortSignal.any([args.signal, timeoutSignal])
     : timeoutSignal;
+  const startedAt = performance.now();
   try {
     const provider = await raceAbort(args.getProvider(), combinedSignal);
+    args.onProviderResolved?.(performance.now() - startedAt, provider);
     if (!provider) {
       return undefined;
     }
@@ -258,6 +267,9 @@ export function createVoiceFrontDecider(options: {
       if (signal?.aborted) {
         return RELEASE;
       }
+      const startedAt = performance.now();
+      let providerResolveMs: number | null = null;
+      let providerName: string | null = null;
       try {
         const toolBlock = await requestForcedToolUse({
           getProvider,
@@ -266,19 +278,50 @@ export function createVoiceFrontDecider(options: {
           systemPrompt: SYSTEM_PROMPT,
           prompt: buildPrompt(input),
           signal,
+          onProviderResolved: (elapsedMs, provider) => {
+            providerResolveMs = Math.round(elapsedMs);
+            providerName = provider?.name ?? null;
+          },
         });
-        if (
+        const held =
           toolBlock?.name === TURN_DECISION_TOOL_NAME &&
-          (toolBlock.input as { complete?: unknown }).complete === false
-        ) {
+          (toolBlock.input as { complete?: unknown }).complete === false;
+        log.info(
+          {
+            action: held ? "hold" : "release",
+            // "model" = the LLM answered; "no-provider" = call site resolved
+            // nothing; "no-tool-block" = provider answered without the tool.
+            cause: toolBlock
+              ? "model"
+              : providerName === null
+                ? "no-provider"
+                : "no-tool-block",
+            providerName,
+            providerResolveMs,
+            totalMs: Math.round(performance.now() - startedAt),
+            timeoutMs: config.endpointDecisionTimeoutMs,
+            extensionCount: input.extensionCount,
+          },
+          "voice endpoint decision",
+        );
+        if (held) {
           return HOLD;
         }
         // No provider, `complete: true`, a missing/foreign tool block, or a
         // malformed input all release — only an explicit "not finished" holds.
         return RELEASE;
       } catch (error) {
-        log.debug(
-          { error, extensionCount: input.extensionCount },
+        // providerResolveMs null here means resolution itself never settled
+        // inside the budget; set-but-timed-out means the LLM roundtrip did.
+        log.info(
+          {
+            error,
+            providerName,
+            providerResolveMs,
+            totalMs: Math.round(performance.now() - startedAt),
+            timeoutMs: config.endpointDecisionTimeoutMs,
+            extensionCount: input.extensionCount,
+          },
           "Endpoint decision failed — releasing turn",
         );
         return RELEASE;
@@ -289,6 +332,8 @@ export function createVoiceFrontDecider(options: {
       if (signal?.aborted) {
         return null;
       }
+      const startedAt = performance.now();
+      let providerResolveMs: number | null = null;
       try {
         const toolBlock = await requestForcedToolUse({
           getProvider,
@@ -297,6 +342,9 @@ export function createVoiceFrontDecider(options: {
           systemPrompt: ACK_SYSTEM_PROMPT,
           prompt: buildAckPrompt(input),
           signal,
+          onProviderResolved: (elapsedMs) => {
+            providerResolveMs = Math.round(elapsedMs);
+          },
         });
         if (toolBlock?.name !== ACK_TOOL_NAME) {
           return null;
@@ -311,7 +359,15 @@ export function createVoiceFrontDecider(options: {
         }
         return trimmed;
       } catch (error) {
-        log.debug({ error }, "Ack generation failed — static phrase fallback");
+        log.info(
+          {
+            error,
+            providerResolveMs,
+            totalMs: Math.round(performance.now() - startedAt),
+            timeoutMs: config.ackGenerationTimeoutMs,
+          },
+          "Ack generation failed — static phrase fallback",
+        );
         return null;
       }
     },
