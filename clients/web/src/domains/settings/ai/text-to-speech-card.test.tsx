@@ -338,6 +338,43 @@ describe("TextToSpeechCard — Vellum provider", () => {
     );
     // Static-catalog-only voices must not appear once the fetch supplies data.
     expect(options?.join(" ")).not.toContain("Thalia");
+    // The selected default (Rachel) has no hosted preview; the preview
+    // button must not render a control that can only error.
+    expect(screen.queryByRole("button", { name: "Preview voice" })).toBeNull();
+  });
+
+  test("the preview button renders only for voices with a hosted sample", () => {
+    orgReady = true;
+    daemonConfigData = { services: { tts: { provider: "vellum" } } };
+    ttsCatalogData = {
+      providers: [
+        {
+          id: "vellum",
+          displayName: "Vellum",
+          subtitle: "Managed TTS.",
+          supportsVoiceSelection: true,
+          apiKeyPlaceholder: "",
+          credentialsGuide: { description: "", url: "", linkLabel: "" },
+        },
+      ],
+    };
+    managedVoicesData = {
+      voices: [
+        {
+          model: "aura-2-zeus-en",
+          label: "Zeus",
+          description: "American · deep, trustworthy, smooth",
+          sampleUrl: "https://static.deepgram.com/examples/Aura-2-zeus.wav",
+          source: "deepgram",
+        },
+      ],
+      defaultModel: "aura-2-zeus-en",
+    };
+    renderCard();
+
+    expect(
+      screen.queryByRole("button", { name: "Preview voice" }),
+    ).not.toBeNull();
   });
 
   test("a successful empty catalog hides the voice picker instead of falling back", () => {

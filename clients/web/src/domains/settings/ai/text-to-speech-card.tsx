@@ -493,15 +493,19 @@ export function TextToSpeechCard() {
               {testing ? "Testing…" : "Test"}
             </Button>
           )}
-          {managedVoiceSupported && selectedManagedVoice && (
-            <Button
-              variant="outlined"
-              onClick={handlePreviewVoice}
-              disabled={previewing}
-            >
-              {previewing ? "Playing…" : "Preview voice"}
-            </Button>
-          )}
+          {managedVoiceSupported &&
+            selectedManagedVoice &&
+            // An empty sampleUrl means no hosted preview exists for this
+            // voice; a button that can only error is worse than none.
+            selectedManagedVoice.sampleUrl !== "" && (
+              <Button
+                variant="outlined"
+                onClick={handlePreviewVoice}
+                disabled={previewing}
+              >
+                {previewing ? "Playing…" : "Preview voice"}
+              </Button>
+            )}
           <div className="ml-auto flex items-center gap-2">
             <SaveButton onClick={handleSave} disabled={!hasChanges || saving} />
             {providerHasKey && !isManaged && (
