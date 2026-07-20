@@ -2461,9 +2461,9 @@ describe("LiveVoiceSession sustained-speech barge-in guard", () => {
     await flushAsyncCallbacks();
     expect(countType(frames, "turn_cancelled")).toBe(0);
 
-    // A single further speech chunk carries the retained 50 ms run to the 60 ms
-    // guard and cancels — proof the gap did not reset it (the old hard-reset
-    // guard would have needed a fresh 60 ms run and never cancelled).
+    // A single further speech chunk carries the retained 50 ms run across the
+    // gap to the 60 ms guard and cancels: the gap left the accumulator intact,
+    // so one more 10 ms chunk is enough rather than a fresh 60 ms run.
     await session.handleBinaryAudio(LOUD_CHUNK);
     await waitFor(() =>
       frames.some((frame) => frame.type === "turn_cancelled"),
