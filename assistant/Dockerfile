@@ -238,6 +238,22 @@ RUN printf '%s\n' \
 RUN ln -s /app/assistant/docker-kata-pip.sh /usr/local/bin/pip && \
     ln -s /app/assistant/docker-kata-pip.sh /usr/local/bin/pip3
 
+# .pth files (pip install -e) are only processed for site directories, not
+# PYTHONPATH entries — register the persistent chroot dirs as site dirs.
+RUN cp /app/assistant/docker-sitecustomize.py /usr/lib/python3/dist-packages/sitecustomize.py
+
+# Reword Debian's externally-managed refusal: `python3 -m pip install` bypasses
+# the pip wrappers and would install into the ephemeral image rootfs, so steer
+# users to the persisting paths instead.
+RUN printf '%s\n' \
+    '[externally-managed]' \
+    'Error=Installing into the image Python is disabled: the image rootfs is' \
+    ' ephemeral on managed machines, so packages installed here are lost on' \
+    ' every save. Use `pip install <pkg>` (persists via the system root) or a' \
+    ' virtualenv under /workspace. Pass --break-system-packages to override' \
+    ' (the install will NOT survive a save).' \
+    > "/usr/lib/python$(python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])')/EXTERNALLY-MANAGED"
+
 # Ensure the CES bootstrap socket volume is writable by the non-root CES user.
 RUN mkdir -p /run/ces-bootstrap && chmod 777 /run/ces-bootstrap
 
