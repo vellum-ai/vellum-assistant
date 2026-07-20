@@ -1,14 +1,16 @@
 import { Mail } from "lucide-react";
 import { useEffect, useState } from "react";
 
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
     assistantsDomainsListQueryKey,
     assistantsListQueryKey,
     organizationsBillingSubscriptionOnboardingDomainCreateMutation,
+    organizationsBillingSubscriptionOnboardingRetrieveOptions,
     organizationsBillingSubscriptionOnboardingRetrieveQueryKey,
 } from "@/generated/api/@tanstack/react-query.gen";
+import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { useEnvironmentStore } from "@/stores/environment-store";
 import { Button } from "@vellumai/design-library/components/button";
 import { Modal } from "@vellumai/design-library/components/modal";
@@ -16,21 +18,39 @@ import { Notice } from "@vellumai/design-library/components/notice";
 import { Typography } from "@vellumai/design-library/components/typography";
 
 import { DomainField } from "@/domains/settings/components/domain-field";
-import { IconBadge } from "./primitives";
+import type { StalledApplyAction } from "./primitives";
+import {
+    IconBadge,
+    STALLED_UPGRADE_WARNING,
+    StalledApplyControls,
+} from "./primitives";
 import { useAssistantDomains } from "./use-assistant-domains";
 import { DOMAIN_EXIT_DELAY_MS, extractOnboardingErrorMessage } from "./utils";
 
 export function DomainStep({
   onExit,
   machineBusy = false,
+  stalledAction,
 }: {
   onExit: () => void;
   /** The assistant machine is restarting (webhook-driven resize in flight). */
   machineBusy?: boolean;
+  /** Set only while the resize is stalled — offers the manual apply here. */
+  stalledAction?: StalledApplyAction;
 }) {
   const queryClient = useQueryClient();
   const emailRootDomain = useEnvironmentStore.use.emailRootDomain();
-  const { activeAssistant, assistantId, domains } = useAssistantDomains();
+  const isOrgReady = useIsOrgReady();
+  // The onboarding payload names the assistant the domain registration
+  // targets server-side; prefer it over the active assistant.
+  const { data: onboarding } = useQuery({
+    ...organizationsBillingSubscriptionOnboardingRetrieveOptions(),
+    enabled: isOrgReady,
+  });
+  const { activeAssistant, assistantId, domains } = useAssistantDomains(
+    true,
+    onboarding?.primary_assistant_id,
+  );
   const existingDomain = domains?.results[0];
 
   const [subdomain, setSubdomain] = useState("");
@@ -167,10 +187,25 @@ export function DomainStep({
           />
         </div>
 
-        {machineBusy && !isLocked && (
-          <Notice tone="neutral">
-            Your assistant is restarting — you can set the domain in a moment.
-          </Notice>
+        {stalledAction && !isLocked ? (
+          <div className="flex flex-col items-center gap-2">
+            <Notice tone="warning" className="w-full text-left">
+              {STALLED_UPGRADE_WARNING}
+            </Notice>
+            <StalledApplyControls
+              action={stalledAction}
+              buttonVariant="outlined"
+              buttonTestId="domain-stalled-apply"
+            />
+          </div>
+        ) : (
+          machineBusy &&
+          !isLocked && (
+            <Notice tone="neutral">
+              Your assistant is restarting — you can set the domain in a
+              moment.
+            </Notice>
+          )
         )}
         {!isLocked && (
           <Notice tone="info">

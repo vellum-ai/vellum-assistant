@@ -12,6 +12,7 @@ import { useEffect } from "react";
 import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
+import { organizationsBillingSubscriptionRetrieveQueryKey } from "@/generated/api/@tanstack/react-query.gen";
 import * as sdkGen from "@/generated/api/sdk.gen";
 import type {
   Assistant,
@@ -20,6 +21,16 @@ import type {
   SubscriptionResponse,
 } from "@/generated/api/types.gen";
 import type { ProProvisioningResult } from "./use-pro-provisioning";
+
+import * as proOnboardingUtils from "./utils";
+
+/** Shrunk so confirm-timeout reachability doesn't wait out the real 10s poll. */
+const TEST_CONFIRM_TIMEOUT_MS = 800;
+
+mock.module("./utils", () => ({
+  ...proOnboardingUtils,
+  PRO_POLL_TIMEOUT_MS: TEST_CONFIRM_TIMEOUT_MS,
+}));
 
 // Stall detection compares wall-clock time against the 90s threshold; the
 // stall tests jump this offset instead of waiting it out.
@@ -88,9 +99,21 @@ let assistantCalls = 0;
 let operationalStatusCalls = 0;
 let subscriptionCalls = 0;
 let isOrgReadyMock = true;
+let fetchOrganizationsCalls = 0;
 
 mock.module("@/hooks/use-is-org-ready", () => ({
   useIsOrgReady: () => isOrgReadyMock,
+}));
+
+mock.module("@/stores/organization-store", () => ({
+  useOrganizationStore: {
+    getState: () => ({
+      fetchOrganizations: () => {
+        fetchOrganizationsCalls += 1;
+        return Promise.resolve();
+      },
+    }),
+  },
 }));
 
 mock.module("@/generated/api/sdk.gen", () => ({
@@ -137,10 +160,13 @@ function Probe() {
   return null;
 }
 
-function renderProbe() {
-  const client = new QueryClient({
+function makeClient() {
+  return new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
+}
+
+function renderProbe(client = makeClient()) {
   const ui = () => (
     <QueryClientProvider client={client}>
       <Probe />
@@ -182,6 +208,7 @@ beforeEach(() => {
   operationalStatusCalls = 0;
   subscriptionCalls = 0;
   isOrgReadyMock = true;
+  fetchOrganizationsCalls = 0;
   dateNowOffsetMs = 0;
   latest = null;
 });
@@ -376,7 +403,7 @@ describe("useProProvisioning", () => {
     20_000,
   );
 
-  test("org-scoped queries hold until the org store is ready", async () => {
+  test("org-scoped queries hold until the org id is available", async () => {
     isOrgReadyMock = false;
     const { rerender } = renderProbe();
 
@@ -393,6 +420,70 @@ describe("useProProvisioning", () => {
       timeout: 5000,
     });
     expect(subscriptionCalls).toBeGreaterThan(0);
+  });
+
+  test("org never ready: confirm timeout still fires and retry kicks the org fetch", async () => {
+    isOrgReadyMock = false;
+    renderProbe();
+
+    // The confirm timer runs regardless of org readiness, so a wedged org
+    // hydration still lands on the payment-safe retry screen.
+    await waitFor(() => expect(latest!.state).toBe("CONFIRM_TIMEOUT"), {
+      timeout: TEST_CONFIRM_TIMEOUT_MS + 3000,
+    });
+    expect(subscriptionCalls).toBe(0);
+
+    // Retry also refetches the org list so it can heal a failed hydration.
+    act(() => latest!.retryConfirm());
+    expect(fetchOrganizationsCalls).toBe(1);
+    await waitFor(() => expect(latest!.state).toBe("CONFIRMING"));
+  });
+
+  test("reopen with a stale cached pro plan never confirms from cache", async () => {
+    const client = makeClient();
+    // A pre-downgrade "pro" response is still cached from an earlier session
+    // of the wizard; the live subscription is back on base.
+    client.setQueryData(
+      organizationsBillingSubscriptionRetrieveQueryKey(),
+      makeSubscription("pro"),
+      { updatedAt: realDateNow() - 60_000 },
+    );
+    subscriptionPlanId = "base";
+    renderProbe(client);
+
+    // The on-open refetch lands base; the stale cached pro must not latch.
+    await waitFor(() => expect(subscriptionCalls).toBeGreaterThan(0));
+    expect(latest!.state).toBe("CONFIRMING");
+    expect(latest!.targets).toBeNull();
+
+    // No wedge: the flow still reaches the payment-safe timeout screen.
+    await waitFor(() => expect(latest!.state).toBe("CONFIRM_TIMEOUT"), {
+      timeout: TEST_CONFIRM_TIMEOUT_MS + 3000,
+    });
+    expect(latest!.targets).toBeNull();
+  });
+
+  test("assistantId prefers the onboarding primary assistant over the active one", async () => {
+    subscriptionPlanId = "pro";
+    onboardingResponse = {
+      ...makeOnboarding(),
+      primary_assistant_id: "assistant-2",
+    };
+    renderProbe();
+
+    await waitFor(() => expect(latest!.assistantId).toBe("assistant-2"), {
+      timeout: 5000,
+    });
+  });
+
+  test("assistantId falls back to the active assistant without a primary", async () => {
+    subscriptionPlanId = "pro";
+    onboardingResponse = { ...makeOnboarding(), primary_assistant_id: null };
+    renderProbe();
+
+    await waitFor(() => expect(latest!.assistantId).toBe("assistant-1"), {
+      timeout: 5000,
+    });
   });
 
   test("unknown machine tier from a newer backend yields no machine target", async () => {

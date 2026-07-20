@@ -89,7 +89,10 @@ function FinishProSetupNotice({ onFinishSetup }: { onFinishSetup: () => void }) 
     // signal is the assistant's domains list being loaded and empty.
     const domainSetupOffered =
         isPro && onboarding?.domain_setup_available === true;
-    const { domains } = useAssistantDomains(domainSetupOffered);
+    const { domains } = useAssistantDomains(
+        domainSetupOffered,
+        onboarding?.primary_assistant_id,
+    );
     const domainMissing = domains !== undefined && domains.results.length === 0;
 
     if (!domainSetupOffered || !domainMissing) {

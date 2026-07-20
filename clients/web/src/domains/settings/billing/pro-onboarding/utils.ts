@@ -27,24 +27,6 @@ export const ONBOARDING_ERROR_CODE_MESSAGES: Record<string, string> = {
   exceeds_machine_tier: "That machine size isn't available on your plan.",
 };
 
-/**
- * The platform's concurrent-operation guard: a resize submitted while another
- * assistant operation (e.g. the webhook-driven auto-resize) is still running is
- * rejected with this detail. For the stalled Apply & Restart flow that
- * rejection means the resize we were waiting on is in fact in progress, so
- * callers treat it as success-equivalent.
- */
-export function isOperationAlreadyInProgressError(error: unknown): boolean {
-  if (!error || typeof error !== "object") {
-    return false;
-  }
-  const detail = (error as Record<string, unknown>).detail;
-  return (
-    typeof detail === "string" &&
-    detail.toLowerCase().includes("operation is already in progress")
-  );
-}
-
 export function extractOnboardingErrorMessage(
   error: unknown,
   fallback: string,
