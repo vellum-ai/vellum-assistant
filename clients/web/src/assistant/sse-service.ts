@@ -41,6 +41,28 @@ import { useSSEConnectedStore } from "@/stores/sse-connected-store";
 
 const RESUME_DEDUP_WINDOW_MS = 1000;
 
+// Grace window before a hidden tab tears its SSE connection down. A
+// brief tab-out — alt-tab, a glance at another window, tapping a
+// notification — shouldn't kill a live streaming turn: tearing down
+// forces a cold reopen + reconcile on return, which the user perceives
+// as a frozen transcript they have to refresh to clear. Only a tab that
+// stays hidden past this window is treated as real backgrounding and
+// torn down; a resume inside the window cancels the pending teardown and
+// keeps the socket. `power.suspend` (system sleep) is deliberately NOT
+// debounced — it still tears down immediately so the daemon sees a clean
+// disconnect.
+let hiddenTeardownGraceMs = 5_000;
+
+/**
+ * Override the hidden-teardown grace window. Test-only seam so specs can
+ * exercise the debounce without real-time waits; never call from
+ * production code.
+ * @internal
+ */
+export function __setHiddenTeardownGraceMsForTesting(ms: number): void {
+  hiddenTeardownGraceMs = ms;
+}
+
 export interface SseService {
   /**
    * Open the SSE connection for `assistantId`, wire the bounce-policy
@@ -60,8 +82,9 @@ export const sseService: SseService = {
     // so this attachment starts cold (like a fresh page load): the first
     // connect omits `lastSeenSeq` and the conversation's snapshot
     // watermark re-anchors the cursor via `anchorColdStartReplay`. A
-    // transport reconnect within this attachment goes through `open()`,
-    // not `attach()`, so a live cursor is preserved across reconnects.
+    // transport reconnect within this attachment goes through
+    // `openConnection()`, not `attach()`, so a live cursor is preserved
+    // across reconnects.
     resetReconnectCursor();
 
     let current: EventStream | null = null;
@@ -106,8 +129,17 @@ export const sseService: SseService = {
     // Pending timer for a delayed debug-triggered reconnect, so detach
     // can cancel a reconnect that hasn't fired yet.
     let debugReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    // Pending grace timer for a hidden-tab teardown, so a resume within
+    // the grace window (or a detach / other teardown) can cancel it.
+    let hiddenTeardownTimer: ReturnType<typeof setTimeout> | null = null;
+    const clearHiddenTeardownTimer = () => {
+      if (hiddenTeardownTimer !== null) {
+        clearTimeout(hiddenTeardownTimer);
+        hiddenTeardownTimer = null;
+      }
+    };
 
-    const open = () => {
+    const openConnection = () => {
       if (cancelled || current) return;
       const causeAtOpen = nextOpenCause;
       nextOpenCause = "resume";
@@ -157,30 +189,44 @@ export const sseService: SseService = {
     };
 
     const teardown = () => {
+      // A teardown by any path (grace timer, power, reachability, debug,
+      // detach) makes a still-pending grace teardown moot — clear it so a
+      // late fire can't cancel a connection opened after it.
+      clearHiddenTeardownTimer();
       current?.cancel();
       setCurrent(null);
       setConnected(false);
     };
 
-    // App lifecycle (renderer-visibility resume): tear down on
-    // hidden, reopen on resume IF the connection was already torn
-    // down. The self-dedup window collapses double-fires from
-    // visibilitychange + Capacitor appStateChange (both arrive in
-    // close succession on foregrounding the iOS native shell).
+    // App lifecycle (renderer-visibility): a hidden tab does NOT tear the
+    // connection down immediately — see `handleAppHidden`, which debounces
+    // it behind `hiddenTeardownGraceMs`. On resume we cancel any pending
+    // grace teardown (so a brief tab-out keeps its live socket) and reopen
+    // only if the connection was actually torn down. The self-dedup window
+    // collapses double-fires from visibilitychange + Capacitor
+    // appStateChange (both arrive in close succession on foregrounding the
+    // iOS native shell).
     const handleAppResume = () => {
+      // Resumed within the grace window → the socket was never torn down;
+      // cancel the pending teardown and keep it. Resumed after it fired →
+      // no-op here, and the reopen below handles the down connection.
+      clearHiddenTeardownTimer();
       const now = Date.now();
       if (now - lastAppResumeAt < RESUME_DEDUP_WINDOW_MS) {
         // Inside the dedup window. This collapses the iOS double-fire
         // (visibilitychange + Capacitor appStateChange deliver two
         // resumes ms apart for a single foreground) so the health check
         // below runs once. But the window must NOT suppress a genuine
-        // reopen: an `app.hidden` can land *between* two resumes and tear
-        // the socket down (`current === null`), and a blanket early-return
-        // would then strand the connection torn-down until the next
-        // foreground — the user sees a frozen transcript and has to
-        // refresh to get streaming back. Reopen whenever the connection is
-        // down; only the redundant health check is skipped here.
-        if (!current) open();
+        // reopen: an `app.hidden` can land *between* two resumes and (once
+        // its grace elapses) tear the socket down (`current === null`),
+        // and a blanket early-return would then strand the connection
+        // torn-down until the next foreground — the user sees a frozen
+        // transcript and has to refresh to get streaming back. Reopen
+        // whenever the connection is down; only the redundant health check
+        // is skipped here.
+        if (!current) {
+          openConnection();
+        }
         return;
       }
       lastAppResumeAt = now;
@@ -193,7 +239,26 @@ export const sseService: SseService = {
       // connection is already live, it was either never torn down
       // or just opened moments ago — either way, leave it alone.
       if (current) return;
-      open();
+      openConnection();
+    };
+
+    // Renderer went hidden. Debounce the teardown: schedule it behind the
+    // grace window instead of cancelling the stream now, so a brief
+    // tab-out doesn't drop a live turn. A resume inside the window clears
+    // this timer; if the tab is still hidden when it fires, tear down for
+    // real. Idempotent — a repeat `app.hidden` while already scheduled is
+    // ignored.
+    const handleAppHidden = () => {
+      if (!current) {
+        return;
+      }
+      if (hiddenTeardownTimer !== null) {
+        return;
+      }
+      hiddenTeardownTimer = setTimeout(() => {
+        hiddenTeardownTimer = null;
+        teardownIfOpen();
+      }, hiddenTeardownGraceMs);
     };
 
     // System-level resume (Electron host): bounce the connection
@@ -212,7 +277,7 @@ export const sseService: SseService = {
       lastPowerActionAt = now;
       void lifecycleService.checkAssistant();
       teardown();
-      open();
+      openConnection();
     };
 
     const teardownIfOpen = () => {
@@ -241,7 +306,7 @@ export const sseService: SseService = {
           return;
         }
         nextOpenCause = "debug";
-        open();
+        openConnection();
       };
       if (delayMs <= 0) {
         reopen();
@@ -250,10 +315,10 @@ export const sseService: SseService = {
       }
     };
 
-    open();
+    openConnection();
     setSseReconnectHandler(reconnectForDebug);
 
-    const unsubHidden = subscribe("app.hidden", teardownIfOpen);
+    const unsubHidden = subscribe("app.hidden", handleAppHidden);
     // System-level suspend: gracefully close the SSE so the daemon
     // sees us go away cleanly instead of waiting for TCP timeouts.
     // The resume / unlock handlers above will reopen on wake; if
@@ -272,7 +337,7 @@ export const sseService: SseService = {
         // tab-foreground recovery from a reachability-driven retry.
         teardown();
         nextOpenCause = "error";
-        open();
+        openConnection();
       },
     );
     // Cold-start anchored replay (see `cold-anchor.ts`): the cold
@@ -290,7 +355,7 @@ export const sseService: SseService = {
       }
       teardown();
       nextOpenCause = "anchor";
-      open();
+      openConnection();
     });
 
     return () => {
@@ -300,6 +365,7 @@ export const sseService: SseService = {
         clearTimeout(debugReconnectTimer);
         debugReconnectTimer = null;
       }
+      clearHiddenTeardownTimer();
       unsubHidden();
       unsubPowerSuspend();
       unsubResume();
