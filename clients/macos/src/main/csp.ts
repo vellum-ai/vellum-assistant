@@ -43,7 +43,10 @@ export const CSP_POLICY = [
   "style-src 'self' 'unsafe-inline'",
   `connect-src 'self' blob: data: https://${WILDCARD_HOST} wss://${WILDCARD_HOST} https://*.ingest.sentry.io https://*.ingest.us.sentry.io https://api.elevenlabs.io https://api.deepgram.com https://storage.googleapis.com https://*.storage.googleapis.com ws://localhost:* ws://127.0.0.1:*`,
   "img-src 'self' https: data: blob:",
-  "media-src 'self' blob:",
+  // Hosted voice-preview samples: ElevenLabs premades live in the
+  // eleven-public-prod GCS bucket (path-scoped so the rest of GCS stays
+  // blocked for media), Deepgram Aura previews on static.deepgram.com.
+  "media-src 'self' blob: https://storage.googleapis.com/eleven-public-prod/ https://static.deepgram.com/",
   "worker-src 'self' blob: https://cdn.jsdelivr.net",
   "font-src 'self' data:",
   "object-src 'none'",
