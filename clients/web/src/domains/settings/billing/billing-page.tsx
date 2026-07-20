@@ -3,7 +3,7 @@ import { Suspense, useCallback, useEffect, useState } from "react";
 
 import { useNavigate, useSearchParams } from "react-router";
 
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { PlatformLoginNotice } from "@/components/platform-login-notice";
@@ -19,7 +19,11 @@ import { InvoicesTable } from "@/domains/settings/components/invoices-table";
 import { PlanCard } from "@/domains/settings/components/plan-card";
 import { ReferralPanel } from "@/domains/settings/components/referral-panel";
 import { TierUpgradeResizeModal } from "@/domains/settings/components/tier-upgrade-resize-modal";
-import { organizationsBillingSummaryRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen";
+import {
+    organizationsBillingSubscriptionOnboardingRetrieveOptions,
+    organizationsBillingSubscriptionRetrieveOptions,
+    organizationsBillingSummaryRetrieveOptions,
+} from "@/generated/api/@tanstack/react-query.gen";
 import {
     useActiveAssistantIsPlatformHosted,
     useActiveAssistantLifecycleIsLoading,
@@ -27,6 +31,7 @@ import {
 } from "@/hooks/use-platform-gate";
 import { useIsPlatformSessionSettled } from "@/stores/auth-store";
 import { routes } from "@/utils/routes";
+import { Button } from "@vellumai/design-library/components/button";
 import { Notice } from "@vellumai/design-library/components/notice";
 import { Tabs } from "@vellumai/design-library/components/tabs";
 import { toast } from "@vellumai/design-library/components/toast";
@@ -65,6 +70,46 @@ function BillingStatusHandler() {
     return null;
 }
 
+/**
+ * Re-entry nudge into the pro onboarding wizard: shown while the org is on Pro
+ * but the assistant email/subdomain offered by the onboarding flow is still
+ * unconfigured (`domain_setup_available`).
+ */
+function FinishProSetupNotice({ onFinishSetup }: { onFinishSetup: () => void }) {
+    const { data: subscription } = useQuery(
+        organizationsBillingSubscriptionRetrieveOptions(),
+    );
+    const isPro = subscription?.plan_id === "pro";
+    const { data: onboarding } = useQuery({
+        ...organizationsBillingSubscriptionOnboardingRetrieveOptions(),
+        enabled: isPro,
+    });
+
+    if (!isPro || onboarding?.domain_setup_available !== true) {
+        return null;
+    }
+
+    return (
+        <Notice
+            tone="info"
+            title="Finish setting up your Pro plan"
+            actions={
+                <Button
+                    variant="outlined"
+                    size="compact"
+                    onClick={onFinishSetup}
+                    data-testid="finish-pro-setup-button"
+                >
+                    Finish setup
+                </Button>
+            }
+            data-testid="finish-pro-setup-notice"
+        >
+            Your assistant&apos;s email address hasn&apos;t been set up yet.
+        </Notice>
+    );
+}
+
 function BillingTab() {
     const platformGate = usePlatformGate({ platformHostedOnly: true });
     const billingGate = usePlatformGate();
@@ -77,30 +122,50 @@ function BillingTab() {
     const closePlanModal = useCallback(() => setPlanModalOpen(false), []);
     const [resizeModalOpen, setResizeModalOpen] = useState(false);
     const onTierUpgraded = useCallback(() => setResizeModalOpen(true), []);
+    const [proOnboardingOpen, setProOnboardingOpen] = useState(false);
 
     useEffect(() => {
-        // Only consume `adjust_plan` once billing is usable (signed in). While
-        // the tab shows the login notice (`"disabled"`), leave the param in the
-        // URL so PlatformLoginNotice carries it through sign-in and the
-        // manage-plan modal opens on return instead of being silently dropped.
+        // Only consume the modal-opening params once billing is usable (signed
+        // in). While the tab shows the login notice (`"disabled"`), leave them
+        // in the URL so PlatformLoginNotice carries them through sign-in and
+        // the target modal opens on return instead of being silently dropped.
         if (billingGate !== "full") {
             return;
         }
-        if (searchParams.has("adjust_plan")) {
-            setPlanModalOpen(true);
-            setSearchParams((prev) => {
-                const next = new URLSearchParams(prev);
-                next.delete("adjust_plan");
-                return next;
-            }, { replace: true });
+        const hasAdjustPlan = searchParams.has("adjust_plan");
+        const hasProOnboarding = searchParams.has("pro_onboarding");
+        if (!hasAdjustPlan && !hasProOnboarding) {
+            return;
         }
+        if (hasAdjustPlan) {
+            setPlanModalOpen(true);
+        }
+        if (hasProOnboarding) {
+            setProOnboardingOpen(true);
+        }
+        setSearchParams((prev) => {
+            const next = new URLSearchParams(prev);
+            next.delete("adjust_plan");
+            next.delete("pro_onboarding");
+            return next;
+        }, { replace: true });
     }, [billingGate, searchParams, setSearchParams]);
 
     const hasSessionId = searchParams.has("session_id");
     const closeOnboarding = useCallback(() => {
+        setProOnboardingOpen(false);
         setSearchParams((prev) => {
             const next = new URLSearchParams(prev);
             next.delete("session_id");
+            return next;
+        }, { replace: true });
+    }, [setSearchParams]);
+    // Routed through `?pro_onboarding` (rather than opening state directly) so
+    // the nudge exercises the same path as a deeplink.
+    const openProOnboarding = useCallback(() => {
+        setSearchParams((prev) => {
+            const next = new URLSearchParams(prev);
+            next.set("pro_onboarding", "");
             return next;
         }, { replace: true });
     }, [setSearchParams]);
@@ -145,6 +210,9 @@ function BillingTab() {
                 <BillingPortalReturnHandler />
             </Suspense>
             {showPlanManagement && <GracePeriodBanner />}
+            {showPlanManagement && (
+                <FinishProSetupNotice onFinishSetup={openProOnboarding} />
+            )}
             {showPlanManagement && <PlanCard onManage={openPlanModal} />}
             {showPlanManagement && (
                 <AdjustPlanModal open={planModalOpen} onClose={closePlanModal} onTierUpgraded={onTierUpgraded} />
@@ -157,7 +225,10 @@ function BillingTab() {
                 <InvoicesTable />
             </Suspense>
             {showPlanManagement && (
-                <BillingOnboardingModal open={hasSessionId} onClose={closeOnboarding} />
+                <BillingOnboardingModal
+                    open={hasSessionId || proOnboardingOpen}
+                    onClose={closeOnboarding}
+                />
             )}
             {showPlanManagement && (
                 <TierUpgradeResizeModal
