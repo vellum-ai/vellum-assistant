@@ -217,7 +217,10 @@ const PROGRESS_SYSTEM_PROMPT =
  * brackets (`</result-snippet >`, `< /result-snippet>`, `</result-snippet x>`)
  * that a model could still read as the tag — is replaced with the inert
  * `[snippet-tag]` placeholder so a hostile result can't close its own fence
- * and smuggle text outside it. Substitution (not deletion) is what makes a
+ * and smuggle text outside it. A trailing prefix left unterminated (no `>`
+ * anywhere after, e.g. `</result-snippet SMUGGLED…`) is substituted through
+ * end-of-input too — otherwise the wrapper's own appended closing delimiter
+ * would complete it. Substitution (not deletion) is what makes a
  * single pass sufficient: deleting a match can splice its neighbors into a
  * well-formed delimiter (`</result-<result-snippet junk>snippet>` →
  * `</result-snippet>`), while the placeholder contains no angle brackets and
@@ -225,8 +228,11 @@ const PROGRESS_SYSTEM_PROMPT =
  * content that isn't a delimiter (`<div>`, `a < b`) passes through untouched.
  */
 function fenceResultPreview(preview: string): string {
+  // No `m` flag: `[^>]*` crosses newlines, so `$` must mean end-of-input —
+  // a later line can still supply the `>` that terminates a delimiter, and
+  // only a prefix with no `>` at all is consumed to the end.
   const sanitized = preview.replace(
-    /<\s*\/?\s*result-snippet[^>]*>/gi,
+    /<\s*\/?\s*result-snippet[^>]*(?:>|$)/gi,
     "[snippet-tag]",
   );
   return `<result-snippet>${sanitized}</result-snippet>`;
