@@ -242,16 +242,19 @@ RUN ln -s /app/assistant/docker-kata-pip.sh /usr/local/bin/pip && \
 # PYTHONPATH entries — register the persistent chroot dirs as site dirs.
 RUN cp /app/assistant/docker-sitecustomize.py /usr/lib/python3/dist-packages/sitecustomize.py
 
-# Reword Debian's externally-managed refusal: `python3 -m pip install` bypasses
-# the pip wrappers and would install into the ephemeral image rootfs, so steer
-# users to the persisting paths instead.
+# Reword Debian's stock externally-managed refusal (shipped with python3, so
+# this refusal exists on every runtime regardless): `python3 -m pip install`
+# bypasses the pip wrappers, so its error must steer users to paths that
+# actually work. Venv advice is correct everywhere; the bare `pip install`
+# route only persists on kata-family machines, so it is worded conditionally.
 RUN printf '%s\n' \
     '[externally-managed]' \
-    'Error=Installing into the image Python is disabled: the image rootfs is' \
-    ' ephemeral on managed machines, so packages installed here are lost on' \
-    ' every save. Use `pip install <pkg>` (persists via the system root) or a' \
-    ' virtualenv under /workspace. Pass --break-system-packages to override' \
-    ' (the install will NOT survive a save).' \
+    'Error=This Python environment is part of the container image and does not' \
+    ' persist. Create a virtualenv under a persistent directory instead, e.g.' \
+    ' `python3 -m venv /workspace/.venv`. On managed machines with a' \
+    ' persistent system root, `sudo pip install <pkg>` (not `python3 -m pip`)' \
+    ' also persists. Passing --break-system-packages installs into the image' \
+    ' rootfs and will NOT survive a machine save or container restart.' \
     > "/usr/lib/python$(python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])')/EXTERNALLY-MANAGED"
 
 # Ensure the CES bootstrap socket volume is writable by the non-root CES user.
