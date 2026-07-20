@@ -1105,6 +1105,50 @@ describe("startVoiceTurn tool-event forwarding", () => {
     ]);
   });
 
+  test("tool_result forwards prod-shaped local-tool payloads, including one without a toolUseId", async () => {
+    // Local tools emit tool_result with the tool's real name; toolUseId is
+    // optional on the wire, so the name must survive the bridge for the
+    // session's name-fallback correlation.
+    makeEventEmittingConversation([
+      {
+        type: "tool_result",
+        toolName: "bash",
+        result: "total 4",
+        isError: false,
+        toolUseId: "toolu-1",
+      },
+      {
+        type: "tool_result",
+        toolName: "file_read",
+        result: "file contents",
+      },
+    ]);
+
+    const results: unknown[] = [];
+    await startVoiceTurn({
+      ...makeTurnOptions(),
+      callbacks: {
+        tool_result: (event) => results.push(event),
+      },
+    });
+    await flushMicrotasks();
+
+    expect(results).toEqual([
+      {
+        toolName: "bash",
+        toolUseId: "toolu-1",
+        isError: false,
+        resultPreview: "total 4",
+      },
+      {
+        toolName: "file_read",
+        toolUseId: undefined,
+        isError: undefined,
+        resultPreview: "file contents",
+      },
+    ]);
+  });
+
   test("a callbacks object without the tool-event members doesn't throw", async () => {
     makeEventEmittingConversation([
       {

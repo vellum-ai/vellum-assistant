@@ -158,7 +158,11 @@ export const TOOL_RESULT_PREVIEW_MAX_CHARS = 200;
 
 /**
  * A finished tool invocation as forwarded to the voice layer.
- * `resultPreview` is the result truncated to
+ * `toolName` is the name of the tool that produced the result; it is empty
+ * only when the daemon loop never observed a tool_use event for the id
+ * (e.g. a tool cancelled before it was proposed). `toolUseId` is optional
+ * on the wire, so consumers correlate by id when present and fall back to
+ * the name. `resultPreview` is the result truncated to
  * {@link TOOL_RESULT_PREVIEW_MAX_CHARS} at the bridge — the raw result can
  * be huge and must never travel further into the voice layer.
  */
