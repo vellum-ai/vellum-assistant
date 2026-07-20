@@ -95,7 +95,10 @@ async function dispatchUserMessage(params: {
         resolvedAttachments.push({
           id: stored.id,
           filename: a.filename,
-          mimeType: a.mimeType,
+          // The stored MIME, not the declared one: the store corrects a
+          // declared type that disagrees with the file's magic bytes, and the
+          // queued turn must send what the persisted row says.
+          mimeType: stored.mimeType,
           data: "",
           filePath: a.path,
         });
