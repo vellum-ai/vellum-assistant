@@ -1130,6 +1130,20 @@ describe("Memory Item Routes", () => {
       });
       expect(res.status).toBe(400);
     });
+
+    test("rejects empty content as 400", async () => {
+      const res = await callHandler(getRoute("memory/remember", "POST"), {
+        body: { content: "" },
+      });
+      expect(res.status).toBe(400);
+    });
+
+    test("rejects whitespace-only content as 400", async () => {
+      const res = await callHandler(getRoute("memory/remember", "POST"), {
+        body: { content: "   " },
+      });
+      expect(res.status).toBe(400);
+    });
   });
 
   // ── Memory stats (page-index concept count) ───────────────────────────────
