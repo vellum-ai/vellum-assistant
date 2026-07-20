@@ -20,7 +20,6 @@
 
 import type { LiveVoiceFrontModelConfig } from "../config/schemas/live-voice.js";
 import {
-  createTimeout,
   extractToolUse,
   getConfiguredProvider,
   userMessage,
@@ -30,6 +29,7 @@ import type {
   ToolDefinition,
   ToolUseContent,
 } from "../providers/types.js";
+import { createAbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("voice-front-decision");
@@ -219,7 +219,21 @@ async function requestForcedToolUse(args: {
    */
   onProviderResolved?: (elapsedMs: number, provider: Provider | null) => void;
 }): Promise<ToolUseContent | undefined> {
-  const { signal: timeoutSignal, cleanup } = createTimeout(args.timeoutMs);
+  // Deadline abort carries a tagged AbortReason: the provider catch-site
+  // classifies untagged caller aborts as retryable transport failures, so a
+  // plain-signal timeout would log an ERROR per expired budget and then be
+  // futilely retried against the already-aborted signal. The tag makes the
+  // abort read as the intentional cancellation it is (info log, no retry).
+  const timeoutController = new AbortController();
+  const timeoutTimer = setTimeout(
+    () =>
+      timeoutController.abort(
+        createAbortReason("voice_session_aborted", "voice-front-decision"),
+      ),
+    args.timeoutMs,
+  );
+  const timeoutSignal = timeoutController.signal;
+  const cleanup = () => clearTimeout(timeoutTimer);
   const combinedSignal = args.signal
     ? AbortSignal.any([args.signal, timeoutSignal])
     : timeoutSignal;
