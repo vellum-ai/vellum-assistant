@@ -205,6 +205,15 @@ describe("createVoiceFrontDecider — decideEndpoint", () => {
     });
     expect(await decider.decideEndpoint(input)).toEqual({ action: "release" });
   });
+
+  test('prose starting with "0" (truncated label echo) → release', async () => {
+    const decider = createVoiceFrontDecider({
+      config,
+      getProvider: async () =>
+        stubProvider(async () => textResponse("0 if the speaker")),
+    });
+    expect(await decider.decideEndpoint(input)).toEqual({ action: "release" });
+  });
 });
 
 describe("createVoiceFrontDecider — generateAckText", () => {
