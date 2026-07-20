@@ -31,6 +31,7 @@ export const LLMProvider = z
     "minimax",
     "atlascloud",
     "together",
+    "litellm",
     "baseten",
   ])
   .meta({ id: "LLMProvider" });
