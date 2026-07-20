@@ -30,6 +30,7 @@ import { publishConversationMessagesChanged } from "../runtime/sync/resource-syn
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
 import { createAbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
+import { truncate } from "../util/truncate.js";
 import {
   CALL_OPENING_MARKER,
   CALL_VERIFICATION_COMPLETE_MARKER,
@@ -150,6 +151,12 @@ export function getConversationTurnTeardown(
 // ---------------------------------------------------------------------------
 
 /**
+ * Max length of the tool-result preview forwarded to voice callbacks. The
+ * single truncation point for tool results entering the voice layer.
+ */
+export const TOOL_RESULT_PREVIEW_MAX_CHARS = 200;
+
+/**
  * Real-time event sink for voice TTS streaming. Agent-loop events are
  * forwarded here for real-time text-to-speech without modifying the
  * standard channel path.
@@ -165,7 +172,18 @@ export interface VoiceRunEventSink {
     >,
   ): void;
   onError(message: string): void;
-  onToolUse(toolName: string, input: Record<string, unknown>): void;
+  onToolUse(
+    toolName: string,
+    input: Record<string, unknown>,
+    toolUseId?: string,
+  ): void;
+  /** Optional: sinks that don't consume tool results can omit this. */
+  onToolResult?(
+    toolName: string,
+    toolUseId: string | undefined,
+    isError: boolean | undefined,
+    resultPreview: string,
+  ): void;
 }
 
 export interface VoiceTurnCallbacks {
@@ -181,7 +199,22 @@ export interface VoiceTurnCallbacks {
   persisted_user_message_id?: (messageId: string) => void;
   persisted_assistant_message_id?: (messageId: string) => void;
   /** Fired when the agent run starts a definitive tool use this turn. */
-  tool_use_start?: (toolName: string) => void;
+  tool_use_start?: (
+    toolName: string,
+    detail?: { input: Record<string, unknown>; toolUseId?: string },
+  ) => void;
+  /**
+   * Fired when a tool invocation finishes. `resultPreview` is the result
+   * truncated to {@link TOOL_RESULT_PREVIEW_MAX_CHARS} at the bridge — the
+   * raw result can be huge and must never travel further into the voice
+   * layer.
+   */
+  tool_result?: (event: {
+    toolName: string;
+    toolUseId?: string;
+    isError?: boolean;
+    resultPreview: string;
+  }) => void;
 }
 
 export interface VoiceTurnOptions {
@@ -420,9 +453,17 @@ export async function startVoiceTurn(
     onError: (message) => {
       opts.onError?.(message);
     },
-    onToolUse: (toolName, input) => {
+    onToolUse: (toolName, input, toolUseId) => {
       log.debug({ toolName, input }, "Voice turn tool_use event");
-      opts.callbacks?.tool_use_start?.(toolName);
+      opts.callbacks?.tool_use_start?.(toolName, { input, toolUseId });
+    },
+    onToolResult: (toolName, toolUseId, isError, resultPreview) => {
+      opts.callbacks?.tool_result?.({
+        toolName,
+        toolUseId,
+        isError,
+        resultPreview,
+      });
     },
   };
 
@@ -1011,7 +1052,14 @@ export async function startVoiceTurn(
           } else if (msg.type === "conversation_error") {
             eventSink.onError(msg.userMessage);
           } else if (msg.type === "tool_use_start") {
-            eventSink.onToolUse(msg.toolName, msg.input);
+            eventSink.onToolUse(msg.toolName, msg.input, msg.toolUseId);
+          } else if (msg.type === "tool_result") {
+            eventSink.onToolResult?.(
+              msg.toolName,
+              msg.toolUseId,
+              msg.isError,
+              truncate(msg.result, TOOL_RESULT_PREVIEW_MAX_CHARS),
+            );
           }
           // Note: tool_use_preview_start is intentionally not handled here.
           // Voice only reacts to the definitive tool_use_start event.

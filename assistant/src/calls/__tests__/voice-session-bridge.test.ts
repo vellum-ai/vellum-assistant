@@ -1018,3 +1018,107 @@ describe("startVoiceTurn race-loss state restore", () => {
     expect(waited.assistantId).toBe(winnerState.assistantId);
   });
 });
+
+describe("startVoiceTurn tool-event forwarding", () => {
+  // The agent loop's tool_use_start / tool_result events reach the voice
+  // callbacks so the session can track per-turn tool activity. The bridge is
+  // the single truncation point for tool results — the raw result can be
+  // huge and must never travel further into the voice layer.
+
+  /** Scripts runAgentLoop to emit the given agent-loop events in order. */
+  function makeEventEmittingConversation(events: unknown[]) {
+    const fake = makeFakeConversation({ processing: false });
+    fake.conversation.runAgentLoop = async (...args: unknown[]) => {
+      const { onEvent } = args[2] as { onEvent: (msg: unknown) => void };
+      for (const event of events) {
+        onEvent(event);
+      }
+    };
+    fakeConversation = fake.conversation;
+  }
+
+  test("tool_use_start delivers the tool name with input and toolUseId", async () => {
+    makeEventEmittingConversation([
+      {
+        type: "tool_use_start",
+        toolName: "web_search",
+        input: { query: "weather" },
+        toolUseId: "toolu-1",
+      },
+    ]);
+
+    const starts: Array<{ toolName: string; detail?: unknown }> = [];
+    await startVoiceTurn({
+      ...makeTurnOptions(),
+      callbacks: {
+        tool_use_start: (toolName, detail) => starts.push({ toolName, detail }),
+      },
+    });
+    await flushMicrotasks();
+
+    expect(starts).toEqual([
+      {
+        toolName: "web_search",
+        detail: { input: { query: "weather" }, toolUseId: "toolu-1" },
+      },
+    ]);
+  });
+
+  test("tool_result delivers name, id, isError, and a 200-char-truncated preview", async () => {
+    const longResult = "x".repeat(500);
+    makeEventEmittingConversation([
+      {
+        type: "tool_result",
+        toolName: "web_search",
+        result: longResult,
+        isError: true,
+        toolUseId: "toolu-1",
+      },
+    ]);
+
+    const results: unknown[] = [];
+    await startVoiceTurn({
+      ...makeTurnOptions(),
+      callbacks: {
+        tool_result: (event) => results.push(event),
+      },
+    });
+    await flushMicrotasks();
+
+    expect(results).toEqual([
+      {
+        toolName: "web_search",
+        toolUseId: "toolu-1",
+        isError: true,
+        // The shared `truncate` util caps at 200 chars including its "..."
+        // truncation marker.
+        resultPreview: `${"x".repeat(197)}...`,
+      },
+    ]);
+  });
+
+  test("a callbacks object without the tool-event members doesn't throw", async () => {
+    makeEventEmittingConversation([
+      {
+        type: "tool_use_start",
+        toolName: "web_search",
+        input: {},
+        toolUseId: "toolu-1",
+      },
+      {
+        type: "tool_result",
+        toolName: "web_search",
+        result: "ok",
+        toolUseId: "toolu-1",
+      },
+    ]);
+
+    const handle = await startVoiceTurn({
+      ...makeTurnOptions(),
+      callbacks: {},
+    });
+    await flushMicrotasks();
+
+    expect(handle.turnId).toBeString();
+  });
+});
