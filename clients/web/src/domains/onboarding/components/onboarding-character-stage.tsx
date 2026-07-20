@@ -27,7 +27,7 @@ import { useOnboardingStageSize } from "@/domains/onboarding/hooks/use-onboardin
 import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
 
 /** Where the centered avatar sits, as viewport fractions. */
-const CENTER_POINT = { x: 0.5, y: 0.4 };
+const CENTER_POINT = { x: 0.5, y: 0.42 };
 
 /**
  * Slight per-slot tilt (degrees) so the edge cast isn't all bolt-upright. Some

@@ -202,7 +202,7 @@ export function GiveMeAFaceScreen({
 
       {/* Title */}
       <h1
-        className="absolute left-1/2 top-[19%] z-10 -translate-x-1/2 whitespace-nowrap text-center text-[2.6rem] leading-none"
+        className="absolute left-1/2 top-[21%] z-10 -translate-x-1/2 whitespace-nowrap text-center text-[2.6rem] leading-none"
         style={{
           fontFamily: "var(--font-serif)",
           animation: "fadeInUp 0.4s ease-out both",
@@ -216,7 +216,7 @@ export function GiveMeAFaceScreen({
         type="button"
         aria-label="Previous character"
         onClick={goPrev}
-        className={`absolute left-[calc(50%-170px)] top-[40%] -translate-y-1/2 ${arrowClass}`}
+        className={`absolute left-[calc(50%-170px)] top-[42%] -translate-y-1/2 ${arrowClass}`}
       >
         <ArrowLeft className="h-4 w-4" />
       </button>
@@ -224,13 +224,13 @@ export function GiveMeAFaceScreen({
         type="button"
         aria-label="Next character"
         onClick={goNext}
-        className={`absolute right-[calc(50%-170px)] top-[40%] -translate-y-1/2 ${arrowClass}`}
+        className={`absolute right-[calc(50%-170px)] top-[42%] -translate-y-1/2 ${arrowClass}`}
       >
         <ArrowRight className="h-4 w-4" />
       </button>
 
       {/* Name (view ↔ edit) + Continue, grouped with room between them. */}
-      <div className="absolute left-1/2 top-[51%] z-10 flex -translate-x-1/2 flex-col items-center gap-12">
+      <div className="absolute left-1/2 top-[57%] z-10 flex -translate-x-1/2 flex-col items-center gap-12">
         {editingName ? (
           <input
             ref={nameInputRef}
