@@ -15,6 +15,7 @@ import {
   createVoiceFrontDecider,
   type VoiceAckTextInput,
   type VoiceEndpointDecisionInput,
+  type VoiceProgressTextInput,
 } from "../front-decision.js";
 
 const config = LiveVoiceFrontModelConfigSchema.parse({});
@@ -340,5 +341,233 @@ describe("createVoiceFrontDecider — generateAckText", () => {
         stubProvider(async () => toolResponse({ ack: 42 }, "ack")),
     });
     expect(await decider.generateAckText(ackInput)).toBeNull();
+  });
+});
+
+describe("createVoiceFrontDecider — generateProgressText", () => {
+  const progressInput: VoiceProgressTextInput = {
+    transcriptSoFar: "compare flight prices for next month",
+    completedOps: [
+      {
+        toolName: "web_search",
+        resultPreview: "Found 3 fare comparison pages",
+      },
+      { toolName: "web_fetch", isError: true },
+    ],
+    currentOp: { toolName: "file_read", elapsedMs: 2100 },
+    turnElapsedMs: 9500,
+    updateIndex: 2,
+  };
+
+  test("generated text returned in time → trimmed text", async () => {
+    const decider = createVoiceFrontDecider({
+      config,
+      getProvider: async () =>
+        stubProvider(async () =>
+          toolResponse(
+            { update: "  Searched the web, reading the results now.  " },
+            "progress_update",
+          ),
+        ),
+    });
+    expect(await decider.generateProgressText(progressInput)).toBe(
+      "Searched the web, reading the results now.",
+    );
+  });
+
+  test("sends ops context, forced progress_update tool, and call-site config", async () => {
+    let captured: Parameters<Provider["sendMessage"]> | undefined;
+    const decider = createVoiceFrontDecider({
+      config,
+      getProvider: async () =>
+        stubProvider(async (...args) => {
+          captured = args;
+          return toolResponse({ update: "Still working." }, "progress_update");
+        }),
+    });
+    await decider.generateProgressText(progressInput);
+
+    const [messages, options] = captured!;
+    expect(messages).toHaveLength(1);
+    const text = (messages[0].content[0] as { text: string }).text;
+    expect(text).toContain("compare flight prices for next month");
+    expect(text).toContain("1. web_search — Found 3 fare comparison pages");
+    expect(text).toContain("2. web_fetch (failed)");
+    expect(text).toContain("Currently running: file_read (2100ms so far)");
+    expect(text).toContain("9500ms");
+    expect(text).toContain("update #2");
+    expect(options?.config).toMatchObject({
+      max_tokens: 64,
+      callSite: "voiceFrontDecision",
+      tool_choice: { type: "tool", name: "progress_update" },
+      disableCache: true,
+    });
+    expect(options?.tools?.map((t) => t.name)).toEqual(["progress_update"]);
+    // The prompt constrains narration to activity-only: the brain owns all
+    // answers.
+    expect(options?.systemPrompt).toContain("what has been done");
+    expect(options?.systemPrompt).toContain("never state");
+  });
+
+  test("no completed ops and no current op → placeholder prompt lines", async () => {
+    let captured: Parameters<Provider["sendMessage"]> | undefined;
+    const decider = createVoiceFrontDecider({
+      config,
+      getProvider: async () =>
+        stubProvider(async (...args) => {
+          captured = args;
+          return toolResponse({ update: "On it." }, "progress_update");
+        }),
+    });
+    await decider.generateProgressText({
+      ...progressInput,
+      completedOps: [],
+      currentOp: null,
+    });
+
+    const text = (captured![0][0].content[0] as { text: string }).text;
+    expect(text).toContain("Completed operations: (none yet)");
+    expect(text).toContain("Currently running: (nothing in flight)");
+  });
+
+  test("null provider → null", async () => {
+    const decider = createVoiceFrontDecider({
+      config,
+      getProvider: async () => null,
+    });
+    expect(await decider.generateProgressText(progressInput)).toBeNull();
+  });
+
+  test("provider resolution throws → null", async () => {
+    const decider = createVoiceFrontDecider({
+      config,
+      getProvider: async () => {
+        throw new Error("resolution boom");
+      },
+    });
+    expect(await decider.generateProgressText(progressInput)).toBeNull();
+  });
+
+  test("getProvider that never resolves → null after progress.generationTimeoutMs", async () => {
+    const decider = createVoiceFrontDecider({
+      config: LiveVoiceFrontModelConfigSchema.parse({
+        progress: { generationTimeoutMs: 20 },
+      }),
+      // Stalled lazy provider initialization — the timeout must bound the
+      // whole call including resolution, not just sendMessage.
+      getProvider: () => new Promise<Provider | null>(() => {}),
+    });
+    const start = Date.now();
+    expect(await decider.generateProgressText(progressInput)).toBeNull();
+    expect(Date.now() - start).toBeLessThan(1000);
+  });
+
+  test("sendMessage that never resolves → null after progress.generationTimeoutMs", async () => {
+    const decider = createVoiceFrontDecider({
+      config: LiveVoiceFrontModelConfigSchema.parse({
+        progress: { generationTimeoutMs: 20 },
+      }),
+      // Never settles and ignores the abort signal entirely — the decider's
+      // own timeout race must still bound the call.
+      getProvider: async () =>
+        stubProvider(() => new Promise<ProviderResponse>(() => {})),
+    });
+    const start = Date.now();
+    expect(await decider.generateProgressText(progressInput)).toBeNull();
+    expect(Date.now() - start).toBeLessThan(1000);
+  });
+
+  test("sendMessage throws → null", async () => {
+    const decider = createVoiceFrontDecider({
+      config,
+      getProvider: async () =>
+        stubProvider(async () => {
+          throw new Error("provider boom");
+        }),
+    });
+    expect(await decider.generateProgressText(progressInput)).toBeNull();
+  });
+
+  test("caller-signal abort → null promptly", async () => {
+    const decider = createVoiceFrontDecider({
+      // Long timeout so only the caller's abort can end the call early.
+      config: LiveVoiceFrontModelConfigSchema.parse({
+        progress: { generationTimeoutMs: 60_000 },
+      }),
+      getProvider: async () =>
+        stubProvider(() => new Promise<ProviderResponse>(() => {})),
+    });
+    const controller = new AbortController();
+    const pending = decider.generateProgressText(
+      progressInput,
+      controller.signal,
+    );
+    controller.abort();
+    const start = Date.now();
+    expect(await pending).toBeNull();
+    expect(Date.now() - start).toBeLessThan(1000);
+  });
+
+  test("pre-aborted signal → null without calling the provider", async () => {
+    let providerRequested = false;
+    const decider = createVoiceFrontDecider({
+      config,
+      getProvider: async () => {
+        providerRequested = true;
+        return stubProvider(async () =>
+          toolResponse({ update: "On it." }, "progress_update"),
+        );
+      },
+    });
+    const controller = new AbortController();
+    controller.abort();
+    expect(
+      await decider.generateProgressText(progressInput, controller.signal),
+    ).toBeNull();
+    expect(providerRequested).toBe(false);
+  });
+
+  test("empty/whitespace update → null", async () => {
+    const decider = createVoiceFrontDecider({
+      config,
+      getProvider: async () =>
+        stubProvider(async () =>
+          toolResponse({ update: "   " }, "progress_update"),
+        ),
+    });
+    expect(await decider.generateProgressText(progressInput)).toBeNull();
+  });
+
+  test("overlong update (> 160 chars) → null", async () => {
+    const decider = createVoiceFrontDecider({
+      config,
+      getProvider: async () =>
+        stubProvider(async () =>
+          toolResponse({ update: "x".repeat(161) }, "progress_update"),
+        ),
+    });
+    expect(await decider.generateProgressText(progressInput)).toBeNull();
+  });
+
+  test("missing/foreign tool block → null", async () => {
+    const decider = createVoiceFrontDecider({
+      config,
+      getProvider: async () =>
+        stubProvider(async () =>
+          toolResponse({ update: "Still working." }, "other_tool"),
+        ),
+    });
+    expect(await decider.generateProgressText(progressInput)).toBeNull();
+  });
+
+  test("malformed tool input (update not a string) → null", async () => {
+    const decider = createVoiceFrontDecider({
+      config,
+      getProvider: async () =>
+        stubProvider(async () =>
+          toolResponse({ update: 42 }, "progress_update"),
+        ),
+    });
+    expect(await decider.generateProgressText(progressInput)).toBeNull();
   });
 });

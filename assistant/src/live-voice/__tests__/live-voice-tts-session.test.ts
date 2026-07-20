@@ -948,6 +948,7 @@ describe("LiveVoiceSession spoken ack", () => {
     return {
       decideEndpoint: async () => ({ action: "release" }),
       generateAckText,
+      generateProgressText: async () => null,
     };
   }
 
