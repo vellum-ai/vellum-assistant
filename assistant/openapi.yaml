@@ -33662,6 +33662,11 @@ components:
             - running
             - not_running
             - unreachable
+        origin:
+          type: string
+          enum:
+            - plugin
+            - workspace
         children:
           type: array
           items:
@@ -33671,6 +33676,7 @@ components:
       required:
         - name
         - status
+        - origin
       additionalProperties: false
     AuthOutput:
       oneOf:
