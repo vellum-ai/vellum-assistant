@@ -30,7 +30,11 @@ if [ "$(id -u)" = "0" ]; then
       chroot "${DATA_ROOT}" sh -c "apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq python3-pip" >&2 || true
     fi
     if [ -x "${DATA_ROOT}/usr/bin/${PIP_NAME}" ]; then
-      exec chroot "${DATA_ROOT}" "/usr/bin/${PIP_NAME}" "$@"
+      # The helper bind-mounts /workspace and /data into the chroot (inside a
+      # private mount namespace) and restores the caller's cwd, so path-based
+      # installs (pip install ., -r requirements.txt) and --user installs into
+      # $PYTHONUSERBASE resolve to the same files as outside the chroot.
+      exec unshare -m /app/assistant/docker-kata-pip-chroot.sh "${DATA_ROOT}" "${PWD}" "/usr/bin/${PIP_NAME}" "$@"
     fi
   fi
   echo "Warning: persistent pip root unavailable; falling back to the image pip (installs will not survive a save)" >&2

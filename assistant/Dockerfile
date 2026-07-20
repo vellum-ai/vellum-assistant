@@ -255,6 +255,7 @@ RUN chmod +x \
     /app/assistant/docker-init-apt-root.sh \
     /app/assistant/docker-kata-apt-env.sh \
     /app/assistant/docker-kata-pip.sh \
+    /app/assistant/docker-kata-pip-chroot.sh \
     /app/assistant/docker-kata-runtime-family.sh \
     /usr/local/bin/vellum-block-volume-common.sh \
     /usr/local/bin/vellum-block-volume-init.sh \

@@ -124,20 +124,29 @@ function kataAptLibraryPaths(dataRoot: string): string[] {
 
 // Python packages installed into the chroot: apt packages land in the
 // unversioned dist-packages dir, chroot pip installs in versioned
-// /usr/local/lib/python3.X dirs (discovered on disk since they only exist
-// after the first install).
+// /usr/local/lib/python3.X dirs. Versions come from the image's /usr/lib
+// (present before any install, so the path works within the same tool call
+// that first runs pip) plus the chroot's /usr/local/lib as a fallback for
+// any version drift between image and chroot.
 function kataPythonPaths(dataRoot: string): string[] {
-  const paths = [`${dataRoot}/usr/lib/python3/dist-packages`];
-  try {
-    for (const entry of readdirSync(`${dataRoot}/usr/local/lib`)) {
-      if (/^python3(\.\d+)?$/.test(entry)) {
-        paths.push(`${dataRoot}/usr/local/lib/${entry}/dist-packages`);
+  const versions = new Set<string>();
+  for (const libDir of ["/usr/lib", `${dataRoot}/usr/local/lib`]) {
+    try {
+      for (const entry of readdirSync(libDir)) {
+        if (/^python3\.\d+$/.test(entry)) {
+          versions.add(entry);
+        }
       }
+    } catch {
+      // Directory missing (e.g. chroot not bootstrapped yet) — skip.
     }
-  } catch {
-    // Chroot not bootstrapped yet — the unversioned apt path is enough.
   }
-  return paths;
+  return [
+    `${dataRoot}/usr/lib/python3/dist-packages`,
+    ...[...versions].map(
+      (version) => `${dataRoot}/usr/local/lib/${version}/dist-packages`,
+    ),
+  ];
 }
 
 /**
