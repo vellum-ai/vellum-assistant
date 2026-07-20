@@ -537,6 +537,41 @@ describe("hands-free mode", () => {
     expect(h.view.result.current.state).toBe("thinking");
   });
 
+  test("speech resuming inside a held utterance keeps the finalized transcript", async () => {
+    const h = renderController();
+    await startListening(h, { handsFree: true });
+
+    // A held pause: speech started, a segment finalized, no utterance_end.
+    act(() => {
+      h.client.emit("speechStarted", { type: "speech_started", seq: 2 });
+      h.client.emit("sttFinal", {
+        type: "stt_final",
+        seq: 3,
+        text: "can you tell me about",
+      });
+    });
+    expect(h.view.result.current.finalTranscript).toBe("can you tell me about");
+
+    // The user resumes: the daemon re-fires speech_started for the SAME
+    // utterance. The finalized prefix must survive — clearing belongs to
+    // the first onset after the utterance closed, not a hold resume.
+    act(() => {
+      h.client.emit("speechStarted", { type: "speech_started", seq: 4 });
+    });
+    expect(h.view.result.current.finalTranscript).toBe("can you tell me about");
+
+    // Once the utterance closes, the NEXT onset is a new turn and clears.
+    act(() => {
+      h.client.emit("utteranceEnd", {
+        type: "utterance_end",
+        seq: 5,
+        reason: "silence",
+      });
+      h.client.emit("speechStarted", { type: "speech_started", seq: 6 });
+    });
+    expect(h.view.result.current.finalTranscript).toBe("");
+  });
+
   test("sends the user's pause + interrupt-sensitivity settings on a hands-free connect", async () => {
     useVoicePrefsStore.setState({
       pauseBeforeReplyMs: 1500,
