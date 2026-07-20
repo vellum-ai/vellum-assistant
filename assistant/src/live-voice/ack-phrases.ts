@@ -1,7 +1,7 @@
 import type { LiveVoiceSpokenAckKind } from "./live-voice-metrics.js";
 
 // Short, persona-neutral phrases spoken to hold the floor when the model is
-// slow to produce its first delta (voice-front-model). Pure floor-holders:
+// slow to produce its first delta. Pure floor-holders:
 // they must never carry content or require domain knowledge, and they stay
 // short (≤ 6 words) so they finish before the real reply's audio arrives.
 const ACK_PHRASES: readonly string[] = [

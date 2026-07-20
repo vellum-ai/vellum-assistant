@@ -1,14 +1,10 @@
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 
 import { sanitizeForTts } from "../../calls/tts-text-sanitizer.js";
 import type {
   VoiceTurnCallbacks,
   VoiceTurnOptions,
 } from "../../calls/voice-session-bridge.js";
-import {
-  clearCachedOverrides,
-  setCachedOverrides,
-} from "../../config/feature-flag-cache.js";
 import type { LiveVoiceFrontModelConfig } from "../../config/schemas/live-voice.js";
 import type {
   StreamingTranscriber,
@@ -459,9 +455,7 @@ describe("LiveVoiceSession assistant turn", () => {
   });
 });
 
-describe("LiveVoiceSession tool-use spoken ack (voice-front-model)", () => {
-  afterEach(() => clearCachedOverrides());
-
+describe("LiveVoiceSession tool-use spoken ack", () => {
   const ACK_TIMEOUT_MS = 40;
   // Acks pass through the same TTS sanitizer as regular segments; each fresh
   // session's phrase counter starts at 0.
@@ -469,10 +463,6 @@ describe("LiveVoiceSession tool-use spoken ack (voice-front-model)", () => {
   const EXPECTED_FIRST_DELTA_ACK = sanitizeForTts(
     pickAckPhrase("first_delta", 0),
   ).trim();
-
-  function enableFrontModel(): void {
-    setCachedOverrides({ "voice-front-model": true }, { fromGateway: true });
-  }
 
   function createCapturingTurnStarter(): {
     startVoiceTurn: LiveVoiceTurnStarter;
@@ -546,7 +536,6 @@ describe("LiveVoiceSession tool-use spoken ack (voice-front-model)", () => {
   }
 
   test("tool_use_start before any delta speaks an immediate tool ack and cancels the timer", async () => {
-    enableFrontModel();
     const { frames, session, getCallbacks, ttsTexts } = createAckHarness();
 
     await startReleasedTurn(session, getCallbacks);
@@ -571,7 +560,6 @@ describe("LiveVoiceSession tool-use spoken ack (voice-front-model)", () => {
   });
 
   test("tool_use_start after the first delta speaks no ack", async () => {
-    enableFrontModel();
     const { frames, session, getCallbacks, ttsTexts } = createAckHarness();
 
     await startReleasedTurn(session, getCallbacks);
@@ -585,7 +573,6 @@ describe("LiveVoiceSession tool-use spoken ack (voice-front-model)", () => {
   });
 
   test("tool_use_start after a first-delta ack already spoke adds no second ack", async () => {
-    enableFrontModel();
     const { frames, session, getCallbacks, ttsTexts } = createAckHarness();
 
     await startReleasedTurn(session, getCallbacks);
@@ -601,19 +588,5 @@ describe("LiveVoiceSession tool-use spoken ack (voice-front-model)", () => {
     emitMessageComplete(getCallbacks);
     await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
     expect(ttsTexts).toEqual([EXPECTED_FIRST_DELTA_ACK, "Hello there."]);
-  });
-
-  test("tool_use_start speaks no ack when the flag is off", async () => {
-    const { frames, session, getCallbacks, ttsTexts } = createAckHarness();
-
-    await startReleasedTurn(session, getCallbacks);
-    getCallbacks()?.tool_use_start?.("web_search");
-    await new Promise((resolve) => setTimeout(resolve, ACK_TIMEOUT_MS + 40));
-    expect(ttsTexts).toEqual([]);
-
-    emitTextDelta(getCallbacks, "Hello there.");
-    emitMessageComplete(getCallbacks);
-    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
-    expect(ttsTexts).toEqual(["Hello there."]);
   });
 });

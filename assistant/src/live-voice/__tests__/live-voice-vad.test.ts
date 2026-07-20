@@ -2708,11 +2708,6 @@ function makeFrontDecider(decisions: Array<"hold" | "release">): {
 }
 
 describe("LiveVoiceSession semantic endpointing", () => {
-  afterEach(() => clearCachedOverrides());
-
-  const enableFrontModel = () =>
-    setCachedOverrides({ "voice-front-model": true }, { fromGateway: true });
-
   // Arms the harness session, waits for its transcriber, and seeds a partial
   // so the silence boundary has transcript text for the decider to judge.
   async function startWithPartial(
@@ -2728,7 +2723,6 @@ describe("LiveVoiceSession semantic endpointing", () => {
   }
 
   test("a held silence boundary sends no utterance_end and replays after the extension", async () => {
-    enableFrontModel();
     const { decider, calls } = makeFrontDecider(["hold", "release"]);
     const turnStarter = makeAutoCompletingTurnStarter(["Hi there."]);
     const { frames, session, transcribers } = createHarness({
@@ -2774,7 +2768,6 @@ describe("LiveVoiceSession semantic endpointing", () => {
   });
 
   test("ptt_release during a held pause still emits utterance_end", async () => {
-    enableFrontModel();
     const { decider, calls } = makeFrontDecider(["hold"]);
     const turnStarter = makeAutoCompletingTurnStarter(["Hi."]);
     const { frames, session, transcribers } = createHarness({
@@ -2802,7 +2795,6 @@ describe("LiveVoiceSession semantic endpointing", () => {
   });
 
   test("speech resuming during a hold cancels the replay and the utterance keeps accumulating", async () => {
-    enableFrontModel();
     const { decider, calls } = makeFrontDecider(["hold", "release"]);
     const turnStarter = makeAutoCompletingTurnStarter(["Okay."]);
     const { frames, session, transcribers } = createHarness({
@@ -2843,7 +2835,6 @@ describe("LiveVoiceSession semantic endpointing", () => {
   });
 
   test("a release decision produces the same frame sequence as the flag-off path", async () => {
-    enableFrontModel();
     const { decider, calls } = makeFrontDecider(["release"]);
     const turnStarter = makeAutoCompletingTurnStarter(["Hi there."]);
     const { frames, session, transcribers } = createHarness({
@@ -2873,7 +2864,6 @@ describe("LiveVoiceSession semantic endpointing", () => {
   });
 
   test("a rejecting decider still releases the boundary with the normal frame sequence", async () => {
-    enableFrontModel();
     // The decider contract never rejects, but a buggy injected stub (or a
     // future regression) must not silently drop the silence boundary: the
     // session's belt catches the rejection and releases.
@@ -2914,7 +2904,6 @@ describe("LiveVoiceSession semantic endpointing", () => {
   });
 
   test("a slow decider adds only its own bounded delay and then releases normally", async () => {
-    enableFrontModel();
     // Resolves "release" only after a delay comfortably longer than every
     // other timer in the flow — the boundary must wait it out and then run
     // the unchanged release sequence.
@@ -2961,7 +2950,6 @@ describe("LiveVoiceSession semantic endpointing", () => {
   });
 
   test("endpointMaxExtensions caps consecutive holds and forces the release", async () => {
-    enableFrontModel();
     const { decider, calls } = makeFrontDecider(["hold", "hold", "hold"]);
     const turnStarter = makeAutoCompletingTurnStarter(["Hi there."]);
     const { frames, session, transcribers } = createHarness({
@@ -2983,34 +2971,7 @@ describe("LiveVoiceSession semantic endpointing", () => {
     expect(turnStarter.calls[0]).toMatchObject({ content: "hello world" });
   });
 
-  test("with the voice-front-model flag off the decider is never consulted", async () => {
-    const { decider, calls } = makeFrontDecider(["hold"]);
-    const turnStarter = makeAutoCompletingTurnStarter(["Hi there."]);
-    const { frames, session, transcribers } = createHarness({
-      finals: ["hello world"],
-      startVoiceTurn: turnStarter.startVoiceTurn,
-      frontDecider: decider,
-    });
-
-    await startWithPartial(session, transcribers);
-    await session.handleBinaryAudio(LOUD_CHUNK);
-    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
-
-    expect(calls).toHaveLength(0);
-    expect(frameTypes(frames)).toEqual([
-      "ready",
-      "stt_partial",
-      "speech_started",
-      "utterance_end",
-      "stt_final",
-      "thinking",
-      "assistant_text_delta",
-      "tts_done",
-    ]);
-  });
-
   test("a max-duration boundary bypasses the decider entirely", async () => {
-    enableFrontModel();
     const { decider, calls } = makeFrontDecider(["hold"]);
     const turnStarter = makeAutoCompletingTurnStarter(["Hi there."]);
     const { frames, session, transcribers } = createHarness({
@@ -3033,7 +2994,6 @@ describe("LiveVoiceSession semantic endpointing", () => {
   });
 
   test("a ptt_release forced boundary bypasses the decider and releases immediately", async () => {
-    enableFrontModel();
     // A hold-happy decider: if the manual release were routed through it,
     // the boundary would be deferred and the frame sequence below would gain
     // an extension delay (or stall entirely).
@@ -3078,7 +3038,6 @@ describe("LiveVoiceSession semantic endpointing", () => {
   });
 
   test("session close during a hold clears the extension timer", async () => {
-    enableFrontModel();
     const { decider, calls } = makeFrontDecider(["hold", "hold"]);
     const { frames, session, transcribers } = createHarness({
       finals: ["hello world"],
