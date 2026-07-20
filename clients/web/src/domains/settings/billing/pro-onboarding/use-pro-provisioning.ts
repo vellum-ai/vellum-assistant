@@ -26,10 +26,9 @@ import {
   organizationsBillingSubscriptionRetrieveOptions,
   organizationsBillingSubscriptionRetrieveQueryKey,
 } from "@/generated/api/@tanstack/react-query.gen";
-import type {
-  MachineTierEnum,
-  OperationalStatus,
-} from "@/generated/api/types.gen";
+import type { OperationalStatus } from "@/generated/api/types.gen";
+import { useIsOrgReady } from "@/hooks/use-is-org-ready";
+import { allowedMachineSizesForTier } from "@/lib/billing/machine-sizes";
 
 import {
   deriveProvisioningState,
@@ -38,19 +37,23 @@ import {
   type ProvisioningStateKind,
 } from "./provisioning-machine";
 import {
-  allowedMachineSizesForTier,
   PRO_POLL_INTERVAL_MS,
   PRO_POLL_TIMEOUT_MS,
+  PROVISION_ESCAPE_MS,
 } from "./utils";
 
 const ACTUALS_POLL_INTERVAL_MS = 2000;
 /** Re-derive elapsed-time transitions (grace/stall) between poll responses. */
 const CLOCK_TICK_MS = 1000;
 
+/**
+ * STALLED is deliberately NOT terminal: the server-side resize may still be
+ * running, so polling and the clock stay alive and a late-completing resize
+ * self-recovers to DONE.
+ */
 const TERMINAL_STATES: readonly ProvisioningStateKind[] = [
   "DONE",
   "NOT_APPLICABLE",
-  "STALLED",
   "CONFIRM_TIMEOUT",
 ];
 
@@ -79,12 +82,26 @@ export interface ProProvisioningResult {
   targets: ProvisioningDimensions | null;
   /** First actuals observed, frozen — the "from" side of before/after cards. */
   actualsSnapshot: ProvisioningDimensions | null;
+  /** Last-known active assistant id from the actuals poll. */
+  assistantId: string | null;
+  /** `domain_setup_available` from the onboarding state, once loaded. */
+  domainSetupAvailable: boolean | undefined;
+  /**
+   * The post-confirm onboarding fetch has settled — neither the cold load nor
+   * the refetch from the on-open invalidation is in flight, so
+   * `domainSetupAvailable` is safe to route on.
+   */
+  onboardingSettled: boolean;
   /** The CONFIRMING-phase subscription fetch failed. */
   confirmError: boolean;
   /** The post-confirm onboarding fetch failed with no cached data. */
   targetsError: boolean;
-  /** The CONFIRMING-phase poll timed out without observing plan_id "pro". */
-  confirmExpired: boolean;
+  /**
+   * The watch has run long enough (without resolving) that the "continue in
+   * the background" escape hatch may be offered. Re-bases with the stall clock
+   * after a manual-apply resume.
+   */
+  escapeEligible: boolean;
   /** Reset the confirm timeout and re-poll the subscription. */
   retryConfirm: () => void;
   /**
@@ -100,6 +117,10 @@ export function useProProvisioning({
   serverVerdict = null,
 }: UseProProvisioningOptions): ProProvisioningResult {
   const queryClient = useQueryClient();
+  // Every query here is org-scoped (needs the Vellum-Organization-Id header).
+  // On the cold return from Stripe the org store may not be hydrated yet, so
+  // hold all fetches — and the confirm timeout they feed — until it is.
+  const orgReady = useIsOrgReady();
   const [confirmExpired, setConfirmExpired] = useState(false);
   const [confirmGeneration, setConfirmGeneration] = useState(0);
   const [proConfirmedAt, setProConfirmedAt] = useState<number | null>(null);
@@ -149,7 +170,7 @@ export function useProProvisioning({
       return PRO_POLL_INTERVAL_MS;
     },
     refetchIntervalInBackground: false,
-    enabled: open && !proConfirmed,
+    enabled: open && orgReady && !proConfirmed,
   });
 
   const observedPlanId = subscriptionQuery.data?.plan_id ?? null;
@@ -162,10 +183,12 @@ export function useProProvisioning({
   }, [open, proConfirmed, observedPlanId]);
 
   useEffect(() => {
-    if (!open || proConfirmed) return;
+    if (!open || !orgReady || proConfirmed) {
+      return;
+    }
     const t = setTimeout(() => setConfirmExpired(true), PRO_POLL_TIMEOUT_MS);
     return () => clearTimeout(t);
-  }, [open, proConfirmed, confirmGeneration]);
+  }, [open, orgReady, proConfirmed, confirmGeneration]);
 
   const retryConfirm = useCallback(() => {
     setConfirmExpired(false);
@@ -184,14 +207,14 @@ export function useProProvisioning({
 
   const onboardingQuery = useQuery({
     ...organizationsBillingSubscriptionOnboardingRetrieveOptions(),
-    enabled: open && proConfirmed,
+    enabled: open && orgReady && proConfirmed,
   });
 
   const pollInterval = tracking ? ACTUALS_POLL_INTERVAL_MS : false;
 
   const activeAssistantQuery = useQuery({
     ...assistantsActiveRetrieveOptions(),
-    enabled: open && proConfirmed,
+    enabled: open && orgReady && proConfirmed,
     refetchInterval: pollInterval,
     retry: false,
   });
@@ -201,7 +224,7 @@ export function useProProvisioning({
     ...assistantsOperationalStatusDetailReadOptions({
       path: { id: assistantId ?? "unresolved" },
     }),
-    enabled: open && proConfirmed && assistantId != null,
+    enabled: open && orgReady && proConfirmed && assistantId != null,
     refetchInterval: pollInterval,
     retry: false,
   });
@@ -217,12 +240,12 @@ export function useProProvisioning({
   const onboarding = onboardingQuery.data;
   const targets = useMemo<ProvisioningDimensions | null>(() => {
     if (!onboarding) return null;
-    const tier = (onboarding.max_machine_tier ?? null) as MachineTierEnum | null;
     return {
-      // No machine tier on the package (e.g. Mighty) → no machine target.
-      machineSize: tier
-        ? (allowedMachineSizesForTier(tier).at(-1) ?? null)
-        : null,
+      // No machine tier on the package (e.g. Mighty), or a tier this bundle
+      // doesn't know, yields no machine target; the machine treats a null
+      // dimension as satisfied, so version skew never computes a wrong target.
+      machineSize:
+        allowedMachineSizesForTier(onboarding.max_machine_tier).at(-1) ?? null,
       storageGib: onboarding.selected_storage_gib ?? null,
     };
   }, [onboarding]);
@@ -242,6 +265,8 @@ export function useProProvisioning({
   }, [open, actuals]);
 
   const watchStartedAt = resumedAt ?? proConfirmedAt;
+  const msSinceWatchStart =
+    watchStartedAt == null ? null : Math.max(0, now - watchStartedAt);
   const { state, softWaiting } = deriveProvisioningState({
     planId: proConfirmed ? "pro" : observedPlanId,
     targets,
@@ -249,8 +274,7 @@ export function useProProvisioning({
     initialActuals: actualsSnapshot,
     resizeOperationInFlight,
     sawOperation,
-    msSinceWatchStart:
-      watchStartedAt == null ? null : Math.max(0, now - watchStartedAt),
+    msSinceWatchStart,
     confirmExpired,
     serverVerdict,
   });
@@ -273,12 +297,17 @@ export function useProProvisioning({
     softWaiting,
     targets,
     actualsSnapshot,
+    assistantId,
+    domainSetupAvailable: onboarding?.domain_setup_available,
+    onboardingSettled:
+      proConfirmed && !onboardingQuery.isPending && !onboardingQuery.isFetching,
     confirmError: !proConfirmed && subscriptionQuery.isError,
     // The onboarding endpoint is platform-side (not the restarting assistant
     // machine), so its failure is surfaced — but only when there's no cached
     // data to keep driving the flow.
     targetsError: proConfirmed && onboardingQuery.isError && !onboarding,
-    confirmExpired,
+    escapeEligible:
+      msSinceWatchStart != null && msSinceWatchStart >= PROVISION_ESCAPE_MS,
     retryConfirm,
     resumeAfterManualApply,
   };

@@ -1,9 +1,12 @@
 import { AlertCircle, Check, Cpu, HardDrive, PartyPopper } from "lucide-react";
 import { useEffect, useRef } from "react";
 
-import type { MachineTierEnum } from "@/generated/api/types.gen";
 import type { CheckoutIntent } from "@/lib/billing/checkout-intent";
-import { SIZE_DESCRIPTION, SIZE_LABEL } from "@/lib/billing/machine-sizes";
+import {
+    MACHINE_TIER_LABEL,
+    SIZE_DESCRIPTION,
+    SIZE_LABEL,
+} from "@/lib/billing/machine-sizes";
 import { Button } from "@vellumai/design-library/components/button";
 import { Notice } from "@vellumai/design-library/components/notice";
 import { Typography } from "@vellumai/design-library/components/typography";
@@ -15,6 +18,13 @@ import type {
 import { TimeoutState } from "./error-states";
 import { GlowSpinner, IconBadge, ResourceCard } from "./primitives";
 import { extractOnboardingErrorMessage, PROVISION_MIN_DWELL_MS } from "./utils";
+
+/** The manual Apply & Restart recovery threaded down from the modal. */
+export interface StalledApplyAction {
+  onApply: () => void;
+  pending: boolean;
+  error: unknown;
+}
 
 export interface ProvisioningStateProps {
   state: ProvisioningStateKind;
@@ -29,17 +39,11 @@ export interface ProvisioningStateProps {
   onCelebrationEnd: () => void;
   escapeAvailable: boolean;
   onEscape: () => void;
-  stalledAction: { onApply: () => void; pending: boolean; error: unknown };
-  confirm: { expired: boolean; onRetry: () => void; onGoToBilling: () => void };
+  stalledAction: StalledApplyAction;
+  confirm: { onRetry: () => void; onGoToBilling: () => void };
   /** Test hook — overrides the celebration min dwell. */
   dwellMs?: number;
 }
-
-const MACHINE_TIER_LABEL: Record<MachineTierEnum, string> = {
-  medium: "Medium",
-  large: "Large",
-  xl: "XL",
-};
 
 function intentChipLabels(intent: CheckoutIntent): string[] {
   if (intent.kind === "package") {
@@ -49,7 +53,8 @@ function intentChipLabels(intent: CheckoutIntent): string[] {
   }
   const labels: string[] = [];
   if (intent.machineTier != null) {
-    labels.push(`${MACHINE_TIER_LABEL[intent.machineTier]} machine`);
+    const tierLabel = MACHINE_TIER_LABEL[intent.machineTier] ?? intent.machineTier;
+    labels.push(`${tierLabel} machine`);
   }
   if (intent.storageTier != null) {
     labels.push(`${intent.storageTier.toUpperCase()} storage`);
@@ -166,10 +171,7 @@ export function ProvisioningState({
     return () => clearTimeout(t);
   }, [dwelling, dwellMs]);
 
-  if (
-    state === "CONFIRM_TIMEOUT" ||
-    (state === "CONFIRMING" && confirm.expired)
-  ) {
+  if (state === "CONFIRM_TIMEOUT") {
     return (
       <TimeoutState
         message="Your payment went through safely — we're still confirming your upgrade with Stripe. This can take a minute."
@@ -180,10 +182,7 @@ export function ProvisioningState({
   }
 
   return (
-    <div
-      className="flex min-h-[320px] flex-col items-center justify-center gap-4 px-6 py-10 text-center"
-      style={{ animation: "onboarding-step-in 350ms ease-out" }}
-    >
+    <div className="flex min-h-[320px] flex-col items-center justify-center gap-4 px-6 py-10 text-center [animation:onboarding-step-in_350ms_ease-out] motion-reduce:[animation:none]">
       {renderPhase()}
       {escapeAvailable && (
         <Button
@@ -207,7 +206,7 @@ export function ProvisioningState({
             body="We're getting your new plan's resources ready. This usually takes a few seconds."
           />
           {intent && (
-            <div style={{ animation: "welcome-reveal 600ms ease-out 150ms both" }}>
+            <div className="[animation:welcome-reveal_600ms_ease-out_150ms_both] motion-reduce:[animation:none]">
               <IntentChips intent={intent} />
             </div>
           )}
@@ -243,10 +242,10 @@ export function ProvisioningState({
     if (state === "DONE") {
       return (
         <>
-          <div style={{ animation: "welcome-reveal 600ms ease-out both" }}>
+          <div className="[animation:welcome-reveal_600ms_ease-out_both] motion-reduce:[animation:none]">
             <IconBadge icon={PartyPopper} />
           </div>
-          <div style={{ animation: "welcome-reveal 600ms ease-out 150ms both" }}>
+          <div className="[animation:welcome-reveal_600ms_ease-out_150ms_both] motion-reduce:[animation:none]">
             <Headline
               title="Your upgrade is ready"
               body="Your assistant is back online with its new resources."
@@ -259,10 +258,10 @@ export function ProvisioningState({
     if (state === "NOT_APPLICABLE") {
       return (
         <>
-          <div style={{ animation: "welcome-reveal 600ms ease-out both" }}>
+          <div className="[animation:welcome-reveal_600ms_ease-out_both] motion-reduce:[animation:none]">
             <IconBadge icon={Check} />
           </div>
-          <div style={{ animation: "welcome-reveal 600ms ease-out 150ms both" }}>
+          <div className="[animation:welcome-reveal_600ms_ease-out_150ms_both] motion-reduce:[animation:none]">
             <Headline title="Your plan is ready" />
           </div>
           <Notice tone="neutral" className="w-full text-left">

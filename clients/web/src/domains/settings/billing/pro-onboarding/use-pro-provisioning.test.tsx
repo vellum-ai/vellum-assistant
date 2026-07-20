@@ -87,6 +87,11 @@ let onboardingFails = false;
 let assistantCalls = 0;
 let operationalStatusCalls = 0;
 let subscriptionCalls = 0;
+let isOrgReadyMock = true;
+
+mock.module("@/hooks/use-is-org-ready", () => ({
+  useIsOrgReady: () => isOrgReadyMock,
+}));
 
 mock.module("@/generated/api/sdk.gen", () => ({
   ...sdkGen,
@@ -136,12 +141,13 @@ function renderProbe() {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  render(
+  const ui = () => (
     <QueryClientProvider client={client}>
       <Probe />
-    </QueryClientProvider>,
+    </QueryClientProvider>
   );
-  return client;
+  const view = render(ui());
+  return { client, rerender: () => view.rerender(ui()) };
 }
 
 async function refetchAll(client: QueryClient) {
@@ -175,6 +181,7 @@ beforeEach(() => {
   assistantCalls = 0;
   operationalStatusCalls = 0;
   subscriptionCalls = 0;
+  isOrgReadyMock = true;
   dateNowOffsetMs = 0;
   latest = null;
 });
@@ -189,7 +196,7 @@ afterAll(() => {
 
 describe("useProProvisioning", () => {
   test("progresses CONFIRMING → WAITING → RESIZING → DONE as polls land", async () => {
-    const client = renderProbe();
+    const { client } = renderProbe();
     await reachResizing(client);
 
     expect(latest!.targets).toEqual({ machineSize: "large", storageGib: 50 });
@@ -210,11 +217,10 @@ describe("useProProvisioning", () => {
       storageGib: 10,
     });
     expect(latest!.confirmError).toBe(false);
-    expect(latest!.confirmExpired).toBe(false);
   });
 
   test("resize completing between polls (never observed) → DONE, not NOT_APPLICABLE", async () => {
-    const client = renderProbe();
+    const { client } = renderProbe();
     await waitFor(() => expect(latest!.state).toBe("CONFIRMING"));
 
     subscriptionPlanId = "pro";
@@ -242,7 +248,7 @@ describe("useProProvisioning", () => {
   });
 
   test("transient 5xx from assistant endpoints during RESIZING does not error", async () => {
-    const client = renderProbe();
+    const { client } = renderProbe();
     await reachResizing(client);
 
     assistantEndpointsFail = true;
@@ -266,7 +272,7 @@ describe("useProProvisioning", () => {
   });
 
   test("polling stops once DONE", async () => {
-    const client = renderProbe();
+    const { client } = renderProbe();
     await reachResizing(client);
 
     assistantResponse = makeAssistant("large", 50);
@@ -289,9 +295,9 @@ describe("useProProvisioning", () => {
   });
 
   test(
-    "resumeAfterManualApply leaves STALLED for RESIZING, restarts polling, and can reach DONE",
+    "resumeAfterManualApply leaves STALLED for RESIZING and can reach DONE",
     async () => {
-      const client = renderProbe();
+      const { client } = renderProbe();
       await reachResizing(client);
 
       // Jump the wall clock past the stall threshold; the next 1s clock tick
@@ -301,21 +307,8 @@ describe("useProProvisioning", () => {
         timeout: 5000,
       });
 
-      // STALLED is terminal: let in-flight refetches drain, then confirm the
-      // actuals polls stopped.
-      await new Promise((resolve) => setTimeout(resolve, 1100));
-      const stalledAssistantCalls = assistantCalls;
-      await new Promise((resolve) => setTimeout(resolve, 2600));
-      expect(assistantCalls).toBe(stalledAssistantCalls);
-
       act(() => latest!.resumeAfterManualApply());
       await waitFor(() => expect(latest!.state).toBe("RESIZING"));
-
-      // Polling resumes on its own — no cache invalidation here.
-      await waitFor(
-        () => expect(assistantCalls).toBeGreaterThan(stalledAssistantCalls),
-        { timeout: 5000 },
-      );
 
       assistantResponse = makeAssistant("large", 50);
       await refetchAll(client);
@@ -325,6 +318,97 @@ describe("useProProvisioning", () => {
     },
     20_000,
   );
+
+  test(
+    "STALLED keeps polling and self-recovers to DONE when the resize lands late",
+    async () => {
+      const { client } = renderProbe();
+      await reachResizing(client);
+
+      dateNowOffsetMs = 200_000;
+      await waitFor(() => expect(latest!.state).toBe("STALLED"), {
+        timeout: 5000,
+      });
+
+      // STALLED is not terminal: the actuals polls keep firing so a
+      // late-completing server resize can still be observed.
+      const stalledAssistantCalls = assistantCalls;
+      await waitFor(
+        () => expect(assistantCalls).toBeGreaterThan(stalledAssistantCalls),
+        { timeout: 5000 },
+      );
+
+      // The resize lands with no manual apply — the flow self-recovers.
+      assistantResponse = makeAssistant("large", 50);
+      await refetchAll(client);
+      await waitFor(() => expect(latest!.state).toBe("DONE"), {
+        timeout: 5000,
+      });
+    },
+    20_000,
+  );
+
+  test(
+    "escapeEligible flips after the escape window and re-bases on manual-apply resume",
+    async () => {
+      const { client } = renderProbe();
+      await reachResizing(client);
+      expect(latest!.escapeEligible).toBe(false);
+
+      // Past the 60s escape window but under the 90s stall threshold.
+      dateNowOffsetMs = 61_000;
+      await waitFor(() => expect(latest!.escapeEligible).toBe(true), {
+        timeout: 5000,
+      });
+      expect(latest!.state).toBe("RESIZING");
+
+      dateNowOffsetMs = 200_000;
+      await waitFor(() => expect(latest!.state).toBe("STALLED"), {
+        timeout: 5000,
+      });
+      expect(latest!.escapeEligible).toBe(true);
+
+      // The resume re-bases the watch clock, so eligibility starts over.
+      act(() => latest!.resumeAfterManualApply());
+      await waitFor(() => expect(latest!.escapeEligible).toBe(false));
+      expect(latest!.state).toBe("RESIZING");
+    },
+    20_000,
+  );
+
+  test("org-scoped queries hold until the org store is ready", async () => {
+    isOrgReadyMock = false;
+    const { rerender } = renderProbe();
+
+    await waitFor(() => expect(latest).not.toBeNull());
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(subscriptionCalls).toBe(0);
+    expect(latest!.state).toBe("CONFIRMING");
+    expect(latest!.confirmError).toBe(false);
+
+    isOrgReadyMock = true;
+    subscriptionPlanId = "pro";
+    rerender();
+    await waitFor(() => expect(latest!.state).toBe("WAITING"), {
+      timeout: 5000,
+    });
+    expect(subscriptionCalls).toBeGreaterThan(0);
+  });
+
+  test("unknown machine tier from a newer backend yields no machine target", async () => {
+    subscriptionPlanId = "pro";
+    onboardingResponse = { ...makeOnboarding(), max_machine_tier: "xxl" };
+    renderProbe();
+
+    // A null machine target is treated as satisfied (skew-safe): the storage
+    // dimension alone drives the flow.
+    await waitFor(
+      () =>
+        expect(latest!.targets).toEqual({ machineSize: null, storageGib: 50 }),
+      { timeout: 5000 },
+    );
+    expect(latest!.state).toBe("WAITING");
+  });
 
   test("onboarding fetch failure after confirm sets targetsError", async () => {
     subscriptionPlanId = "pro";
@@ -339,7 +423,7 @@ describe("useProProvisioning", () => {
   });
 
   test("onboarding refetch failure with cached targets does not set targetsError", async () => {
-    const client = renderProbe();
+    const { client } = renderProbe();
     await reachResizing(client);
 
     onboardingFails = true;

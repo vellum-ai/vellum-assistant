@@ -1,6 +1,3 @@
-import type { MachineSizeEnum, MachineTierEnum } from "@/generated/api/types.gen";
-import { TIER_TO_SIZES } from "@/lib/billing/machine-sizes";
-
 export const DOMAIN_EXIT_DELAY_MS = 800;
 
 export const PRO_POLL_INTERVAL_MS = 1000;
@@ -10,17 +7,10 @@ export const PRO_POLL_TIMEOUT_MS = 10_000;
 export const PROVISION_WAIT_GRACE_MS = 30_000;
 /** How long WAITING/RESIZING can run before we give up and show STALLED. */
 export const PROVISION_STALL_MS = 90_000;
+/** How long the watch must run before the background escape hatch is offered. */
+export const PROVISION_ESCAPE_MS = (PROVISION_STALL_MS * 2) / 3;
 /** Minimum time a provisioning phase stays on screen so it doesn't flash. */
 export const PROVISION_MIN_DWELL_MS = 2_500;
-
-export const RESTART_NOTICE =
-  "Your assistant will briefly restart and be unreachable while this is set up.";
-
-export function allowedMachineSizesForTier(
-  tier: MachineTierEnum | null | undefined,
-): MachineSizeEnum[] {
-  return TIER_TO_SIZES[tier as string] ?? TIER_TO_SIZES.medium!;
-}
 
 const ONBOARDING_MACHINE_DRF_FIELD_KEYS = [
   "machine_size",
@@ -36,6 +26,24 @@ export const ONBOARDING_ERROR_CODE_MESSAGES: Record<string, string> = {
     "We couldn't find an assistant to attach this domain to.",
   exceeds_machine_tier: "That machine size isn't available on your plan.",
 };
+
+/**
+ * The platform's concurrent-operation guard: a resize submitted while another
+ * assistant operation (e.g. the webhook-driven auto-resize) is still running is
+ * rejected with this detail. For the stalled Apply & Restart flow that
+ * rejection means the resize we were waiting on is in fact in progress, so
+ * callers treat it as success-equivalent.
+ */
+export function isOperationAlreadyInProgressError(error: unknown): boolean {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+  const detail = (error as Record<string, unknown>).detail;
+  return (
+    typeof detail === "string" &&
+    detail.toLowerCase().includes("operation is already in progress")
+  );
+}
 
 export function extractOnboardingErrorMessage(
   error: unknown,
