@@ -11,6 +11,12 @@ export const PROVISION_STALL_MS = 90_000;
 export const PROVISION_ESCAPE_MS = (PROVISION_STALL_MS * 2) / 3;
 /** Minimum time a provisioning phase stays on screen so it doesn't flash. */
 export const PROVISION_MIN_DWELL_MS = 2_500;
+/**
+ * How long to wait before re-asking ensure-provisioned when it answered
+ * `not_applicable` / `no_active_pro` — the subscription flipped to Pro but the
+ * entitlement wasn't visible to the reconcile yet. One retry only.
+ */
+export const ENSURE_PROVISIONED_RACE_RETRY_MS = 2_000;
 
 const ONBOARDING_MACHINE_DRF_FIELD_KEYS = [
   "machine_size",
@@ -25,6 +31,10 @@ export const ONBOARDING_ERROR_CODE_MESSAGES: Record<string, string> = {
   no_assistant_to_attach_domain:
     "We couldn't find an assistant to attach this domain to.",
   exceeds_machine_tier: "That machine size isn't available on your plan.",
+  provisioning_submission_failed:
+    "We couldn't queue your upgrade just now. Try again in a moment.",
+  no_active_pro:
+    "We couldn't confirm your Pro plan yet. Try again in a moment.",
 };
 
 export function extractOnboardingErrorMessage(

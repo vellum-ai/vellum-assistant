@@ -139,6 +139,40 @@ describe("deeplink.openThread", () => {
   });
 });
 
+describe("deeplink.billingCheckoutComplete", () => {
+  test("success navigates to billing carrying the session id so the wizard opens", () => {
+    renderHook(() => useGlobalDeepLinkConsumer());
+
+    act(() => {
+      publish("deeplink.billingCheckoutComplete", {
+        status: "success",
+        sessionId: "cs_test_a1B2",
+      });
+    });
+
+    expect(navigateMock).toHaveBeenCalledWith(
+      "/assistant/settings/usage?tab=billing&session_id=cs_test_a1B2",
+    );
+    expect(ensureMainWindowVisibleMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("cancel lands on the upgrade-cancel page — no session id, no wizard", () => {
+    renderHook(() => useGlobalDeepLinkConsumer());
+
+    act(() => {
+      publish("deeplink.billingCheckoutComplete", {
+        status: "cancel",
+        sessionId: null,
+      });
+    });
+
+    expect(navigateMock).toHaveBeenCalledWith(
+      "/assistant/settings/billing/upgrade/cancel",
+    );
+    expect(ensureMainWindowVisibleMock).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("deeplink.unknown", () => {
   test("Sentry breadcrumb only — no navigation or window activation", () => {
     renderHook(() => useGlobalDeepLinkConsumer());
