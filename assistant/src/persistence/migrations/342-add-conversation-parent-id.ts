@@ -14,12 +14,16 @@ const COLUMN_DEFINITION = "parent_conversation_id TEXT";
  * a watermark that can trail the parent conversation's lifetime, so the
  * linkage must survive parent deletion without cascade churn.
  *
- * No backfill is needed — all existing rows default to NULL (not spawned by
- * another conversation), which is correct for any pre-migration conversation.
+ * Backfills from the `subagents` table (migration 311), which stores the
+ * same parent ↔ child linkage for subagents that have not yet been disposed
+ * (rows are deleted on TTL sweep / parent eviction). This links unflushed
+ * usage rows of pre-migration subagents; long-disposed subagents have no
+ * surviving linkage anywhere and correctly stay NULL.
  *
  * Idempotent: guarded with `tableHasColumn` so a crash between the `ALTER
  * TABLE` and the checkpoint write doesn't cause a duplicate-column error on
- * the next boot. The index uses `IF NOT EXISTS` for the same reason.
+ * the next boot. The index uses `IF NOT EXISTS` and the backfill only fills
+ * NULL rows for the same reason.
  */
 export function migrateAddConversationParentId(database: DrizzleDb): void {
   if (!tableHasColumn(database, "conversations", COLUMN_NAME)) {
@@ -28,4 +32,15 @@ export function migrateAddConversationParentId(database: DrizzleDb): void {
   database.run(
     `CREATE INDEX IF NOT EXISTS idx_conversations_parent_conversation_id ON conversations(parent_conversation_id)`,
   );
+  database.run(`
+    UPDATE conversations
+    SET parent_conversation_id = (
+      SELECT s.parent_conversation_id FROM subagents s
+      WHERE s.conversation_id = conversations.id
+    )
+    WHERE parent_conversation_id IS NULL
+      AND EXISTS (
+        SELECT 1 FROM subagents s WHERE s.conversation_id = conversations.id
+      )
+  `);
 }
