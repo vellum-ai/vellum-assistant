@@ -20,6 +20,7 @@ import { toast } from "@vellumai/design-library/components/toast";
 
 import {
   CredentialsGuide,
+  type ProviderFormSaveHandle,
   ResetButton,
   SaveButton,
 } from "@/components/service-form-controls";
@@ -86,13 +87,26 @@ export interface SttProviderFormProps {
    * card), where the two can diverge.
    */
   assistantId?: string;
-  /** Called after a successful save — e.g. to return to the previous view. */
-  onSaved?: () => void;
+  /**
+   * Hide the built-in Save. The parent renders its own and drives it through
+   * the handle from `onSaveStateChange` — used where several provider forms
+   * share one Save.
+   */
+  hideSaveButton?: boolean;
+  /**
+   * Hide the "where do I get a key" guide. Set where the surrounding surface
+   * already explains the choice and the extra block is noise.
+   */
+  hideCredentialsGuide?: boolean;
+  /** Publishes this form's save state whenever it changes. Must be stable. */
+  onSaveStateChange?: (handle: ProviderFormSaveHandle) => void;
 }
 
 export function SttProviderForm({
   assistantId: assistantIdProp,
-  onSaved,
+  hideSaveButton = false,
+  hideCredentialsGuide = false,
+  onSaveStateChange,
 }: SttProviderFormProps = {}) {
   const activeAssistantId = useActiveAssistantId();
   const assistantId = assistantIdProp ?? activeAssistantId;
@@ -183,7 +197,7 @@ export function SttProviderForm({
     return providerChanged || hasNewKey;
   }, [draftProvider, serverProvider, apiKeyText]);
 
-  const handleSave = useCallback(async () => {
+  const handleSave = useCallback(async (): Promise<boolean> => {
     const trimmedKey = apiKeyText.trim();
 
     // Local settings back the client-side voice path; keep them in sync.
@@ -273,13 +287,14 @@ export function SttProviderForm({
         queryKey: configGetQueryKey({ path: { assistant_id: assistantId } }),
       });
       toast.success("Speech-to-text settings saved");
-      onSaved?.();
+      return true;
     } catch (err) {
       toast.error(
         err instanceof Error
           ? err.message
           : "Failed to save speech-to-text settings",
       );
+      return false;
     } finally {
       setSaving(false);
     }
@@ -292,8 +307,13 @@ export function SttProviderForm({
     daemonHasProvider,
     daemonSttProvider,
     queryClient,
-    onSaved,
   ]);
+
+  // Publish save state so a parent rendering its own Save (see
+  // `hideSaveButton`) can enable it and commit this form.
+  useEffect(() => {
+    onSaveStateChange?.({ hasChanges, saving, save: handleSave });
+  }, [onSaveStateChange, hasChanges, saving, handleSave]);
 
   const handleReset = useCallback(() => {
     setLocalSetting(LS_STT_API_KEY_PREFIX + draftProvider, "");
@@ -344,7 +364,7 @@ export function SttProviderForm({
         </div>
       )}
 
-      {selectedProvider.credentialsGuide && (
+      {!hideCredentialsGuide && selectedProvider.credentialsGuide && (
         <CredentialsGuide guide={selectedProvider.credentialsGuide} />
       )}
 
@@ -354,10 +374,14 @@ export function SttProviderForm({
         </p>
       )}
 
-      <div className="flex items-center justify-end gap-2">
-        <SaveButton onClick={handleSave} disabled={!hasChanges || saving} />
-        {providerHasKey && <ResetButton onClick={handleReset} />}
-      </div>
+      {(!hideSaveButton || providerHasKey) && (
+        <div className="flex items-center justify-end gap-2">
+          {!hideSaveButton && (
+            <SaveButton onClick={handleSave} disabled={!hasChanges || saving} />
+          )}
+          {providerHasKey && <ResetButton onClick={handleReset} />}
+        </div>
+      )}
     </div>
   );
 }

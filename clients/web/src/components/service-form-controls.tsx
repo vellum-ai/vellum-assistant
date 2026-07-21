@@ -12,6 +12,21 @@ import { Button } from "@vellumai/design-library/components/button";
 
 import type { ProviderCredentialsGuide } from "@/lib/provider-catalogs";
 
+/**
+ * A provider form's save state, published to a parent that renders the Save
+ * action itself. Lets one Save commit several forms — the live-voice first-run
+ * card drives its speech-to-text and text-to-speech forms from a single button.
+ *
+ * `save` resolves `true` when the write succeeded, so the parent can decide
+ * what to do next (navigate away only on success, keeping a rejected key on
+ * screen). Forms report their own failures.
+ */
+export interface ProviderFormSaveHandle {
+  hasChanges: boolean;
+  saving: boolean;
+  save: () => Promise<boolean>;
+}
+
 interface SaveButtonProps {
   onClick: () => void;
   disabled?: boolean;

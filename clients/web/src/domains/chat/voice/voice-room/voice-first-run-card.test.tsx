@@ -16,9 +16,11 @@
  *   - the bring-your-own-key detour is a VIEW of this one modal, not a modal
  *     stacked on it, and returns to the intro.
  */
+import { useEffect } from "react";
+
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render } from "@testing-library/react";
 
 // Stub the avatar hook so the card renders without the assistant-avatar React
 // Query graph — irrelevant to the card's preference behavior.
@@ -33,21 +35,48 @@ mock.module("@/hooks/use-assistant-avatar", () => ({
 }));
 
 // The BYOK forms own the daemon config/credential graph and are covered by the
-// settings-page tests; here they stand in as a save affordance so the card's
-// navigation is what's under test.
+// settings-page tests. Here they stand in as save handles: each publishes a
+// dirty flag and a `save` the card's single footer button has to drive, which
+// is what's under test.
+type StubFormProps = {
+  hideSaveButton?: boolean;
+  onSaveStateChange?: (handle: {
+    hasChanges: boolean;
+    saving: boolean;
+    save: () => Promise<boolean>;
+  }) => void;
+};
+
+/** Per-service stub behavior, set by each test before render. */
+const formState = {
+  stt: { dirty: false, saveOk: true },
+  tts: { dirty: false, saveOk: true },
+};
+const saveCalls: string[] = [];
+
+function makeStubForm(kind: "stt" | "tts") {
+  return function StubForm({ onSaveStateChange }: StubFormProps) {
+    const { dirty, saveOk } = formState[kind];
+    // Mirrors the real form: republish whenever the state it reports changes.
+    useEffect(() => {
+      onSaveStateChange?.({
+        hasChanges: dirty,
+        saving: false,
+        save: async () => {
+          saveCalls.push(kind);
+          return saveOk;
+        },
+      });
+    }, [onSaveStateChange, dirty, saveOk]);
+    return <div data-testid={`${kind}-form`} />;
+  };
+}
+
 mock.module("@/components/speech/stt-provider-form", () => ({
-  SttProviderForm: ({ onSaved }: { onSaved?: () => void }) => (
-    <button type="button" onClick={onSaved}>
-      Save STT
-    </button>
-  ),
+  SttProviderForm: makeStubForm("stt"),
 }));
 mock.module("@/components/speech/tts-provider-form", () => ({
-  TtsProviderForm: ({ onSaved }: { onSaved?: () => void }) => (
-    <button type="button" onClick={onSaved}>
-      Save TTS
-    </button>
-  ),
+  TtsProviderForm: makeStubForm("tts"),
 }));
 
 import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
@@ -67,6 +96,9 @@ beforeEach(() => {
     showAssistantTranscript: false,
     firstRunSeen: false,
   });
+  formState.stt = { dirty: false, saveOk: true };
+  formState.tts = { dirty: false, saveOk: true };
+  saveCalls.length = 0;
 });
 
 describe("VoiceFirstRunCard", () => {
@@ -150,8 +182,13 @@ describe("VoiceFirstRunCard", () => {
       fireEvent.click(getByText(BYOK_LINK));
 
       expect(getByText("Use your own API keys")).toBeTruthy();
-      expect(getByText("Speech to text")).toBeTruthy();
-      expect(getByText("Text to speech")).toBeTruthy();
+      // Section copy matches Settings → Services so the two read as one.
+      expect(getByText("Text-to-Speech")).toBeTruthy();
+      expect(getByText("Configure how your assistant speaks")).toBeTruthy();
+      expect(getByText("Speech-to-Text")).toBeTruthy();
+      expect(
+        getByText("Configure how your assistant transcribes speech"),
+      ).toBeTruthy();
       // The intro's forward action is gone — this is a view swap, not an
       // overlay on top of the intro.
       expect(queryByText("Start talking")).toBeNull();
@@ -172,15 +209,61 @@ describe("VoiceFirstRunCard", () => {
       expect(useVoicePrefsStore.getState().firstRunSeen).toBe(false);
     });
 
-    test("saving a key lands back on the Start talking view", () => {
+    test("one Save commits both forms and lands back on Start talking", async () => {
+      formState.stt = { dirty: true, saveOk: true };
+      formState.tts = { dirty: true, saveOk: true };
       const { getByText } = render(
         <VoiceFirstRunCard assistantId="asst_test" onStart={() => {}} />,
       );
 
       fireEvent.click(getByText(BYOK_LINK));
-      fireEvent.click(getByText("Save STT"));
+      await act(async () => {
+        fireEvent.click(getByText("Save"));
+      });
 
+      expect(saveCalls.sort()).toEqual(["stt", "tts"]);
       expect(getByText("Start talking")).toBeTruthy();
+    });
+
+    test("Save writes only the forms that changed", async () => {
+      formState.tts = { dirty: true, saveOk: true };
+      const { getByText } = render(
+        <VoiceFirstRunCard assistantId="asst_test" onStart={() => {}} />,
+      );
+
+      fireEvent.click(getByText(BYOK_LINK));
+      await act(async () => {
+        fireEvent.click(getByText("Save"));
+      });
+
+      // Entering a TTS key must not re-write the untouched STT service.
+      expect(saveCalls).toEqual(["tts"]);
+    });
+
+    test("Save stays disabled until something changes", () => {
+      const { getByText } = render(
+        <VoiceFirstRunCard assistantId="asst_test" onStart={() => {}} />,
+      );
+
+      fireEvent.click(getByText(BYOK_LINK));
+      expect((getByText("Save") as HTMLButtonElement).disabled).toBe(true);
+    });
+
+    test("a failed save keeps the user on the key view", async () => {
+      // The typed key has to stay on screen with its failure toast, not
+      // vanish behind the intro.
+      formState.tts = { dirty: true, saveOk: false };
+      const { getByText, queryByText } = render(
+        <VoiceFirstRunCard assistantId="asst_test" onStart={() => {}} />,
+      );
+
+      fireEvent.click(getByText(BYOK_LINK));
+      await act(async () => {
+        fireEvent.click(getByText("Save"));
+      });
+
+      expect(getByText("Use your own API keys")).toBeTruthy();
+      expect(queryByText("Start talking")).toBeNull();
     });
 
     test("the link is reachable under the iOS lock too", () => {

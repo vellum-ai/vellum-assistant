@@ -1,11 +1,13 @@
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 
 import { ArrowLeft, AudioLines, Captions, MicOff } from "lucide-react";
 
+import { cn } from "@vellumai/design-library";
 import { Button } from "@vellumai/design-library/components/button";
 import { Modal } from "@vellumai/design-library/components/modal";
 
 import { ChatAvatar } from "@/components/avatar/chat-avatar";
+import type { ProviderFormSaveHandle } from "@/components/service-form-controls";
 import { SttProviderForm } from "@/components/speech/stt-provider-form";
 import { TtsProviderForm } from "@/components/speech/tts-provider-form";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
@@ -88,6 +90,25 @@ export function VoiceFirstRunCard({
 
   const [view, setView] = useState<FirstRunView>("intro");
   const backToIntro = () => setView("intro");
+
+  // One Save commits both provider forms. Each publishes its own state here;
+  // the footer button derives from the pair and only the dirty ones are
+  // written, so saving a key for one service doesn't touch the other.
+  const [sttSave, setSttSave] = useState<ProviderFormSaveHandle | null>(null);
+  const [ttsSave, setTtsSave] = useState<ProviderFormSaveHandle | null>(null);
+  const keysDirty = !!sttSave?.hasChanges || !!ttsSave?.hasChanges;
+  const keysSaving = !!sttSave?.saving || !!ttsSave?.saving;
+  const saveKeys = async () => {
+    const results = await Promise.all([
+      ttsSave?.hasChanges ? ttsSave.save() : Promise.resolve(true),
+      sttSave?.hasChanges ? sttSave.save() : Promise.resolve(true),
+    ]);
+    // Only leave on a clean save — a rejected key has to stay on screen with
+    // the failure toast, not vanish behind the intro.
+    if (results.every(Boolean)) {
+      backToIntro();
+    }
+  };
 
   return (
     <Modal.Root
@@ -211,31 +232,81 @@ export function VoiceFirstRunCard({
             </Modal.Header>
             <Modal.Body className="space-y-6">
               {/* The same forms Settings → AI renders, minus that page's card
-                  chrome. Saving either one returns to the intro so the user
-                  lands back on "Start talking". */}
-              <section className="space-y-3">
-                <h3 className="text-label-medium-default text-[var(--content-secondary)]">
-                  Speech to text
-                </h3>
-                <SttProviderForm
-                  assistantId={assistantId ?? undefined}
-                  onSaved={backToIntro}
-                />
-              </section>
-              <section className="space-y-3 border-t border-[var(--border-subtle)] pt-5">
-                <h3 className="text-label-medium-default text-[var(--content-secondary)]">
-                  Text to speech
-                </h3>
+                  chrome and its per-card Save — the footer commits both. Copy
+                  matches Settings → Services so the two read as one surface. */}
+              <ProviderSection
+                title="Text-to-Speech"
+                subtitle="Configure how your assistant speaks"
+              >
                 <TtsProviderForm
                   assistantId={assistantId ?? undefined}
-                  onSaved={backToIntro}
+                  hideSaveButton
+                  hideCredentialsGuide
+                  onSaveStateChange={setTtsSave}
                 />
-              </section>
+              </ProviderSection>
+              <ProviderSection
+                title="Speech-to-Text"
+                subtitle="Configure how your assistant transcribes speech"
+                divided
+              >
+                <SttProviderForm
+                  assistantId={assistantId ?? undefined}
+                  hideSaveButton
+                  hideCredentialsGuide
+                  onSaveStateChange={setSttSave}
+                />
+              </ProviderSection>
             </Modal.Body>
+            <Modal.Footer>
+              <Button
+                variant="primary"
+                onClick={saveKeys}
+                disabled={!keysDirty || keysSaving}
+              >
+                {keysSaving ? "Saving…" : "Save"}
+              </Button>
+            </Modal.Footer>
           </>
         )}
       </Modal.Content>
     </Modal.Root>
+  );
+}
+
+/**
+ * One titled provider block in the key-entry view — the modal-scale echo of a
+ * Settings → Services card, sharing its title and subtitle copy so the two
+ * surfaces read as one. `divided` rules off the block from the one above it.
+ */
+function ProviderSection({
+  title,
+  subtitle,
+  divided = false,
+  children,
+}: {
+  title: string;
+  subtitle: string;
+  divided?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <section
+      className={cn(
+        "space-y-3",
+        divided && "border-t border-[var(--border-subtle)] pt-5",
+      )}
+    >
+      <div className="flex flex-col gap-0.5">
+        <h3 className="text-body-medium-default text-[var(--content-emphasised)]">
+          {title}
+        </h3>
+        <p className="text-label-small-default text-[var(--content-tertiary)]">
+          {subtitle}
+        </p>
+      </div>
+      {children}
+    </section>
   );
 }
 

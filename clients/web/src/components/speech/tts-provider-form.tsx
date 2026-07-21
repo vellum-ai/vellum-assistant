@@ -21,6 +21,7 @@ import { toast } from "@vellumai/design-library/components/toast";
 
 import {
   CredentialsGuide,
+  type ProviderFormSaveHandle,
   ResetButton,
   SaveButton,
 } from "@/components/service-form-controls";
@@ -62,13 +63,26 @@ export interface TtsProviderFormProps {
    * card), where the two can diverge.
    */
   assistantId?: string;
-  /** Called after a successful save — e.g. to return to the previous view. */
-  onSaved?: () => void;
+  /**
+   * Hide the built-in Save. The parent renders its own and drives it through
+   * the handle from `onSaveStateChange` — used where several provider forms
+   * share one Save.
+   */
+  hideSaveButton?: boolean;
+  /**
+   * Hide the "where do I get a key" guide. Set where the surrounding surface
+   * already explains the choice and the extra block is noise.
+   */
+  hideCredentialsGuide?: boolean;
+  /** Publishes this form's save state whenever it changes. Must be stable. */
+  onSaveStateChange?: (handle: ProviderFormSaveHandle) => void;
 }
 
 export function TtsProviderForm({
   assistantId: assistantIdProp,
-  onSaved,
+  hideSaveButton = false,
+  hideCredentialsGuide = false,
+  onSaveStateChange,
 }: TtsProviderFormProps = {}) {
   const activeAssistantId = useActiveAssistantId();
   const assistantId = assistantIdProp ?? activeAssistantId;
@@ -202,7 +216,7 @@ export function TtsProviderForm({
     managedVoiceChanged,
   ]);
 
-  const handleSave = useCallback(async () => {
+  const handleSave = useCallback(async (): Promise<boolean> => {
     const trimmedKey = apiKeyText.trim();
     const trimmedVoiceId = voiceIdText.trim();
 
@@ -294,13 +308,14 @@ export function TtsProviderForm({
         queryKey: configGetQueryKey({ path: { assistant_id: assistantId } }),
       });
       toast.success("Text-to-speech settings saved");
-      onSaved?.();
+      return true;
     } catch (err) {
       toast.error(
         err instanceof Error
           ? err.message
           : "Failed to save text-to-speech settings",
       );
+      return false;
     } finally {
       setSaving(false);
     }
@@ -315,7 +330,6 @@ export function TtsProviderForm({
     serverProvider,
     daemonHasProvider,
     queryClient,
-    onSaved,
   ]);
 
   // Managed voices preview via Deepgram's public hosted samples — no key,
@@ -339,6 +353,12 @@ export function TtsProviderForm({
       setPreviewing(false);
     }
   }, [selectedManagedVoice]);
+
+  // Publish save state so a parent rendering its own Save (see
+  // `hideSaveButton`) can enable it and commit this form.
+  useEffect(() => {
+    onSaveStateChange?.({ hasChanges, saving, save: handleSave });
+  }, [onSaveStateChange, hasChanges, saving, handleSave]);
 
   const handleReset = useCallback(() => {
     setLocalSetting(LS_TTS_API_KEY_PREFIX + draftProvider, "");
@@ -492,7 +512,9 @@ export function TtsProviderForm({
         </div>
       )}
 
-      <CredentialsGuide guide={selectedProvider.credentialsGuide} />
+      {!hideCredentialsGuide && (
+        <CredentialsGuide guide={selectedProvider.credentialsGuide} />
+      )}
 
       <div className="flex items-center gap-2">
         {!isManaged && (
@@ -514,7 +536,9 @@ export function TtsProviderForm({
             </Button>
           )}
         <div className="ml-auto flex items-center gap-2">
-          <SaveButton onClick={handleSave} disabled={!hasChanges || saving} />
+          {!hideSaveButton && (
+            <SaveButton onClick={handleSave} disabled={!hasChanges || saving} />
+          )}
           {providerHasKey && !isManaged && <ResetButton onClick={handleReset} />}
         </div>
       </div>
