@@ -30,6 +30,10 @@ import {
   ContextOverflowError,
   extractOverflowTokensFromMessage,
 } from "../types.js";
+import {
+  type ShadowStreamEvent,
+  StreamContentShadow,
+} from "./stream-content-shadow.js";
 
 const log = getLogger("anthropic-client");
 
@@ -1314,6 +1318,11 @@ export class AnthropicProvider implements Provider {
                 requestOptions,
               ) as unknown as UnifiedStream);
 
+        // Shadow the streamed content blocks so a mid-stream SDK accumulator
+        // failure on malformed tool-argument JSON can be salvaged instead of
+        // discarding the whole response (see StreamContentShadow).
+        const contentShadow = new StreamContentShadow();
+
         // Buffer streaming text until it's clear the accumulated text isn't
         // going to form a placeholder sentinel. Sentinels are injected into
         // outbound requests for role alternation and are sometimes echoed by
@@ -1357,6 +1366,7 @@ export class AnthropicProvider implements Provider {
         >();
 
         stream.on("streamEvent", (event) => {
+          contentShadow.handleEvent(event as ShadowStreamEvent);
           // Reset the text sentinel buffer at each content-block boundary.
           // A new block starts fresh; at the end of a block, flush any
           // buffered text that is NOT a complete sentinel, and drop it if
@@ -1512,7 +1522,32 @@ export class AnthropicProvider implements Provider {
           }
         });
 
-        response = await stream.finalMessage();
+        try {
+          response = await stream.finalMessage();
+        } catch (error) {
+          // The SDK rejects finalMessage() the moment a tool_use block's
+          // argument JSON stops parsing, discarding everything it streamed.
+          // Salvage the observed prefix instead: completed blocks plus the
+          // malformed call wrapped under `_raw`, which the tool layer bounces
+          // back to the model as an error tool_result so it can self-correct
+          // in the next iteration. Any other rejection rethrows untouched.
+          const salvaged = contentShadow.salvage(error);
+          if (salvaged === undefined) {
+            throw error;
+          }
+          log.warn(
+            {
+              model: params.model,
+              toolName: salvaged.toolName,
+              rawArgsLength: salvaged.rawArgsLength,
+            },
+            "Salvaged stream with unparseable tool-call arguments; returning _raw-wrapped tool call",
+          );
+          response = {
+            ...salvaged.message,
+            model: params.model,
+          } as unknown as Anthropic.Message;
+        }
       } finally {
         cleanupTimeout();
       }

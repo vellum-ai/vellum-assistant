@@ -14,6 +14,15 @@
  */
 const UNPARSEABLE_TOOL_ARGS_KEY = "_raw";
 
+/**
+ * Message emitted by the Anthropic SDK's stream accumulator when a tool_use
+ * block's argument JSON stops parsing mid-stream. Shared by the salvage path
+ * (`anthropic/stream-content-shadow.ts`) and the retry classifier
+ * (`retry.ts`), which both key off this exact text.
+ */
+export const UNPARSEABLE_TOOL_ARGS_SDK_MESSAGE =
+  "Unable to parse tool parameter JSON";
+
 /** Wrap raw, unparseable tool-call argument text in the marker shape. */
 export function wrapUnparseableToolArgs(raw: string): Record<string, unknown> {
   return { [UNPARSEABLE_TOOL_ARGS_KEY]: raw };
