@@ -1,19 +1,20 @@
 /**
- * Regression test for the memory worker's startup orphan sweep choking on a
- * not-yet-migrated logs/telemetry DB.
+ * Invariant: deleting a conversation tolerates a logs/telemetry DB whose target
+ * table is not present yet, and never fabricates a table-less file.
  *
- * The sweep runs in a separate process (`memory worker`) that can race ahead of
- * the daemon's async migrations. Its per-orphan delete clears `llm_request_logs`
- * (logs DB) and pending `telemetry_events` (telemetry DB). Before the fix,
- * opening either connection created an empty, table-less file on disk, so every
- * delete threw `no such table: llm_request_logs` (observed ~2,752×/boot).
- *
- * The sweep reaches `@vellumai/plugin-api.deleteConversation`, which routes to
- * `deleteConversationGently` — so BOTH delete variants are exercised here: the
+ * The memory worker's startup orphan sweep runs in a separate process that can
+ * race ahead of the daemon's async migrations. Its per-orphan delete clears
+ * `llm_request_logs` (logs DB) and pending `telemetry_events` (telemetry DB),
+ * and reaches `@vellumai/plugin-api.deleteConversation`, which routes to
+ * `deleteConversationGently`. So BOTH delete variants are exercised here: the
  * synchronous `deleteConversation` (used by the HTTP route) and the off-loop
- * `deleteConversationGently` (used by the sweep). Both must skip the dedicated
- * sub-deletes when the file is absent (no file → no rows) and must not
- * fabricate an empty file. The conversation itself (main DB) still deletes.
+ * `deleteConversationGently` (used by the sweep).
+ *
+ * Each dedicated file can be in three pre-migration states — absent, an empty
+ * create-on-open shell, or present-with-other-tables (the files accrue tables
+ * over several migrations). In all three the target table is missing, so the
+ * sub-delete must be skipped (no table → no rows) without creating or querying
+ * a table-less file. The conversation itself (main DB) still deletes.
  */
 
 import { existsSync } from "node:fs";
@@ -79,6 +80,18 @@ function dropDedicatedLogFiles(): void {
   removeTestDbFiles(getTelemetryDbPath());
 }
 
+/**
+ * Simulate the mid-migration state where the dedicated files exist but their
+ * target tables do not yet: drop the files, then re-open them via the default
+ * open-or-create path, which runs no DDL — so both files exist as empty,
+ * table-less shells.
+ */
+function createTableLessDedicatedShells(): void {
+  dropDedicatedLogFiles();
+  getLogsDb();
+  getTelemetryDb();
+}
+
 beforeEach(() => {
   getRawDb().run("DELETE FROM messages");
   getRawDb().run("DELETE FROM conversations");
@@ -119,6 +132,20 @@ describe("synchronous deleteConversation with a missing logs/telemetry DB", () =
     expect(existsSync(getTelemetryDbPath())).toBe(false);
   });
 
+  test("does not throw when the files exist without their tables", () => {
+    const conv = createConversation("orphan-retrospective");
+    createTableLessDedicatedShells();
+
+    // The files exist (create-on-open shells), but the tables were never
+    // migrated in — a file-existence guard alone would still run the DELETE and
+    // throw `no such table`. The table-existence guard skips it.
+    expect(existsSync(getLogsDbPath())).toBe(true);
+    expect(existsSync(getTelemetryDbPath())).toBe(true);
+
+    expect(() => deleteConversation(conv.id)).not.toThrow();
+    expect(getConversation(conv.id)).toBeNull();
+  });
+
   test("getLogsDb/getTelemetryDb return null for a missing file without creating it", () => {
     dropDedicatedLogFiles();
 
@@ -154,5 +181,18 @@ describe("deleteConversationGently (sweep path) with a missing logs/telemetry DB
     // the batch subprocess creating the file and then failing on it.
     expect(existsSync(getLogsDbPath())).toBe(false);
     expect(existsSync(getTelemetryDbPath())).toBe(false);
+  });
+
+  test("does not throw when the files exist without their tables", async () => {
+    const conv = createConversation("orphan-retrospective");
+    createTableLessDedicatedShells();
+
+    // File-present-but-table-absent: the batched logs drain must be skipped on
+    // the table-existence check, not run against the shell and fail.
+    expect(existsSync(getLogsDbPath())).toBe(true);
+    expect(existsSync(getTelemetryDbPath())).toBe(true);
+
+    await expect(deleteConversationGently(conv.id)).resolves.toBeDefined();
+    expect(getConversation(conv.id)).toBeNull();
   });
 });

@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, rmSync } from "node:fs";
+import { mkdirSync, rmSync } from "node:fs";
 
 import {
   and,
@@ -134,25 +134,45 @@ function logsDb(): DrizzleDb {
 // ---------------------------------------------------------------------------
 //
 // `llm_request_logs` (logs DB) and pending `telemetry_events` (telemetry DB)
-// live in their own files, created and schema-migrated by the daemon's
-// migration runner. Both conversation-delete variants — the synchronous
+// live in their own files. Both conversation-delete variants — the synchronous
 // `deleteConversation` and the off-loop `deleteConversationGently` — must clear
-// them, and both must tolerate the file not existing yet: the memory worker's
-// startup orphan sweep runs as a separate process that can race ahead of the
-// daemon's async migrations, so a dedicated file may be absent (or, if opened
-// with create-on-open, an empty table-less shell). A missing file means there
-// are no rows to delete, so these helpers skip rather than fabricate an empty
-// file that then throws `no such table` on every orphan the sweep processes.
+// them, and both must tolerate the target table not existing yet. The memory
+// worker's startup orphan sweep runs as a separate process that can race ahead
+// of the daemon's async migrations, and a dedicated file accrues its tables
+// over several migrations — so the file can be absent, an empty create-on-open
+// shell, or present-with-other-tables (e.g. the telemetry file exists for an
+// earlier table before `telemetry_events` is created). In every one of those
+// states there are no rows to delete, so the helpers below skip when the table
+// is not yet present rather than fabricate/hit a table-less file and throw
+// `no such table` on every orphan the sweep processes.
+
+/**
+ * Whether `table` exists on the given dedicated connection. Cheap
+ * `sqlite_master` lookup that distinguishes "file present but this migration
+ * has not created the table yet" from "table ready" — checking file existence
+ * alone is not enough because the dedicated logs/telemetry files hold tables
+ * created across several migrations.
+ */
+function dedicatedTableExists(db: DrizzleDb, table: string): boolean {
+  return (
+    getSqliteFrom(db)
+      .query<
+        { name: string },
+        [string]
+      >(`SELECT name FROM sqlite_master WHERE type='table' AND name = ? LIMIT 1`)
+      .get(table) != null
+  );
+}
 
 /**
  * Delete a conversation's pending `telemetry_events` rows from the dedicated
- * telemetry DB, or skip when that file does not exist yet. Telemetry redaction
+ * telemetry DB, or skip when that table does not exist yet. Telemetry redaction
  * keys on `conversation_id` regardless of event name, so this covers every
  * conversation-scoped pending event.
  */
 function deletePendingTelemetryEventsForConversation(id: string): void {
   const telemetry = getTelemetryDb({ createIfMissing: false });
-  if (!telemetry) {
+  if (!telemetry || !dedicatedTableExists(telemetry, "telemetry_events")) {
     return;
   }
   telemetry
@@ -163,14 +183,14 @@ function deletePendingTelemetryEventsForConversation(id: string): void {
 
 /**
  * Delete a conversation's `llm_request_logs` rows in-process from the dedicated
- * logs DB, or skip when that file does not exist yet. Used by the synchronous
+ * logs DB, or skip when that table does not exist yet. Used by the synchronous
  * delete path; {@link deleteConversationGently} drains the same table off the
- * event loop in batches (guarded by the same file-existence check) because its
+ * event loop in batches (guarded by the same table-existence check) because its
  * rows can be bulky.
  */
 function deleteRequestLogsForConversation(id: string): void {
   const logs = getLogsDb({ createIfMissing: false });
-  if (!logs) {
+  if (!logs || !dedicatedTableExists(logs, "llm_request_logs")) {
     return;
   }
   logs
@@ -1876,12 +1896,18 @@ export async function deleteConversationGently(
 
   // llm_request_logs lives in the dedicated logs connection, and each row is
   // bulky, so drain it off the event loop in batches against the logs DB file.
-  // Skip entirely when the file does not exist yet: the batch runs a sqlite3
+  // Skip entirely when the table does not exist yet: the batch runs a sqlite3
   // subprocess (or in-process fallback) against getLogsDbPath(), which would
-  // otherwise create an empty, table-less file and fail with `no such table`
-  // on every orphan the worker's startup sweep processes before the daemon's
-  // async migrations create the table. No file, nothing to drain.
-  if (existsSync(getLogsDbPath())) {
+  // otherwise hit (or create) a table-less file and fail with `no such table`
+  // on every orphan the worker's startup sweep processes before migration 297
+  // lands. The in-process connection sees the same committed schema as the
+  // subprocess, so it is the authority on whether the table is ready. No table,
+  // nothing to drain.
+  const logsDbForBatch = getLogsDb({ createIfMissing: false });
+  if (
+    logsDbForBatch &&
+    dedicatedTableExists(logsDbForBatch, "llm_request_logs")
+  ) {
     const logsDel = await deleteConversationRowsInBatches({
       conversationId: id,
       table: "llm_request_logs",
