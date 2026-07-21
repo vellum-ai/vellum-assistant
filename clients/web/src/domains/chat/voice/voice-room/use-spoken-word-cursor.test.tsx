@@ -198,11 +198,29 @@ describe("useSpokenWordCursor — rate cap", () => {
     }
 
     // Underrun sweep: the fraction jumps near 1 (candidate 97) while only
-    // 0.5s more audio played. The bank is clamped to one second of
-    // advancement, so the cursor moves at most 5 words past its floor.
+    // 0.5s more audio played. Spendable this frame = the stored bank
+    // (clamped to 5 words) + the 0.5s of newly played audio (2.5 words), so
+    // the cursor moves at most 7 words past its floor instead of sweeping to
+    // the candidate.
     progress = { playedSeconds: 16.5, totalSeconds: 17 };
     raf.pumpFrame();
-    expect(result.current).toBe(45);
+    expect(result.current).toBe(47);
+  });
+
+  test("a delayed frame spends its full earned allowance at once", () => {
+    // Adoption zeroes the bank.
+    progress = { playedSeconds: 0.4, totalSeconds: 40 };
+    const { result } = renderHook(() => useSpokenWordCursor(100));
+    raf.pumpFrame();
+    expect(result.current).toBe(1);
+
+    // A 2s gap between frames (throttled tab while audio plays on) earns
+    // 2 × 5 = 10 words, all spendable in the frame that observes it — even
+    // against a near-1 fraction (candidate 96) the cursor advances by the
+    // full earned allowance instead of crawling at the stored-bank ceiling.
+    progress = { playedSeconds: 2.4, totalSeconds: 2.5 };
+    raf.pumpFrame();
+    expect(result.current).toBe(11);
   });
 
   test("the adoption jump is uncapped", () => {
