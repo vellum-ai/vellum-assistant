@@ -42,7 +42,6 @@ const DEFAULT_PLUGIN_MANIFEST = getDefaultPluginManifestName(DEFAULT_PLUGIN)!;
 function makeDispatcher(): UserRouteDispatcher {
   const context: UserRouteContext = {
     assistantEventHub: new AssistantEventHub(),
-    assistantId: "test-assistant",
     conversations: { postMessage: async () => ({ messageId: "m" }) },
   };
   return new UserRouteDispatcher({ context });
