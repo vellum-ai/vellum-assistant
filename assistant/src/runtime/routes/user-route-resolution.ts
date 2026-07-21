@@ -68,11 +68,15 @@ export function resolveRouteLocation(routePath: string): RouteLocation | null {
   const segments = routePath.split("/");
   if (segments[0] === PLUGIN_ROUTE_SEGMENT) {
     const pluginName = segments[1];
-    if (!pluginName || isPluginNamespaceDisabled(pluginName)) {
+    if (!pluginName) {
+      return null;
+    }
+    const { routesDir, isDefault } = resolvePluginRoutesDir(pluginName);
+    if (isPluginRouteDirDisabled(pluginName, isDefault)) {
       return null;
     }
     return {
-      routesDir: resolvePluginRoutesDir(pluginName),
+      routesDir,
       subPath: segments.slice(2).join("/"),
     };
   }
@@ -80,17 +84,24 @@ export function resolveRouteLocation(routePath: string): RouteLocation | null {
 }
 
 /**
- * Whether a plugin route namespace is disabled by a `.disabled` sentinel.
+ * Whether the `.disabled` sentinel disables the resolved route directory.
  *
- * The sentinel is keyed by directory name for installed plugins but by the
- * `default-…` manifest name for default plugins (the CLI/bootstrap write it as
- * `<workspace>/plugins/<manifest-name>/.disabled`). A route namespace is the
- * plugin's *directory* name, so a default plugin is checked under both its
- * namespace and its manifest name; installed plugins only match the first.
+ * The sentinel is keyed by the plugin's directory name for installed plugins
+ * but by the `default-…` manifest name for default plugins (the CLI/bootstrap
+ * write it as `<workspace>/plugins/<manifest-name>/.disabled`). The manifest
+ * check therefore applies *only* when the resolved directory is a default
+ * plugin's source routes — so disabling a bundled default never takes down an
+ * installed workspace plugin that shadows the same namespace, and vice versa.
  */
-function isPluginNamespaceDisabled(pluginName: string): boolean {
+function isPluginRouteDirDisabled(
+  pluginName: string,
+  isDefault: boolean,
+): boolean {
   if (isPluginDisabled(pluginName)) {
     return true;
+  }
+  if (!isDefault) {
+    return false;
   }
   const manifestName = getDefaultPluginManifestName(pluginName);
   return manifestName !== null && isPluginDisabled(manifestName);
@@ -98,26 +109,30 @@ function isPluginNamespaceDisabled(pluginName: string): boolean {
 
 /**
  * Resolve the `routes/` directory that backs a plugin's `/x/plugins/<name>/`
- * namespace. An installed plugin that ships a `routes/` directory takes
- * precedence (so it can override a same-named default); otherwise a default
- * plugin's source `routes/` directory is used. Falls back to the (missing)
- * workspace path when the name matches neither, so {@link resolveHandlerFile}
- * reports a 404.
+ * namespace, and whether that directory is a first-party default's source
+ * tree. An installed plugin that ships a `routes/` directory takes precedence
+ * (so it can override a same-named default); otherwise a default plugin's
+ * source `routes/` directory is used. Falls back to the (missing) workspace
+ * path when the name matches neither, so {@link resolveHandlerFile} reports a
+ * 404.
  */
-function resolvePluginRoutesDir(pluginName: string): string {
+function resolvePluginRoutesDir(pluginName: string): {
+  routesDir: string;
+  isDefault: boolean;
+} {
   const workspaceRoutesDir = join(
     getWorkspacePluginsDir(),
     pluginName,
     "routes",
   );
   if (existsSync(workspaceRoutesDir)) {
-    return workspaceRoutesDir;
+    return { routesDir: workspaceRoutesDir, isDefault: false };
   }
   const defaultRoutesDir = getDefaultPluginRoutesDir(pluginName);
   if (defaultRoutesDir && existsSync(defaultRoutesDir)) {
-    return defaultRoutesDir;
+    return { routesDir: defaultRoutesDir, isDefault: true };
   }
-  return workspaceRoutesDir;
+  return { routesDir: workspaceRoutesDir, isDefault: false };
 }
 
 /**
@@ -185,7 +200,7 @@ export function listPluginRouteRoots(): {
   const byName = new Map<string, string>();
 
   for (const { pluginName, routesDir } of getDefaultPluginRouteRoots()) {
-    if (!isPluginNamespaceDisabled(pluginName)) {
+    if (!isPluginRouteDirDisabled(pluginName, true)) {
       byName.set(pluginName, routesDir);
     }
   }
@@ -193,7 +208,7 @@ export function listPluginRouteRoots(): {
   const pluginsDir = getWorkspacePluginsDir();
   if (existsSync(pluginsDir)) {
     for (const entry of readdirSync(pluginsDir, { withFileTypes: true })) {
-      if (!entry.isDirectory() || isPluginNamespaceDisabled(entry.name)) {
+      if (!entry.isDirectory() || isPluginRouteDirDisabled(entry.name, false)) {
         continue;
       }
       const routesDir = join(pluginsDir, entry.name, "routes");

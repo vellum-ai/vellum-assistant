@@ -199,7 +199,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-02T21:39:37.000Z"
+      "updatedAt": "2026-07-21T14:41:00.000Z"
     },
     {
       "id": "email-setup",
@@ -716,7 +716,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-16T14:06:51.000Z"
+      "updatedAt": "2026-07-16T14:25:01.000Z"
     },
     {
       "id": "public-ingress",
