@@ -14300,7 +14300,7 @@ paths:
             type: string
           description:
             "Filter by provider id. One of: anthropic, openai, gemini, ollama, fireworks, together, openrouter,
-            vercel-ai-gateway, openai-compatible, minimax, atlascloud, baseten"
+            vercel-ai-gateway, litellm, openai-compatible, minimax, atlascloud, baseten"
       responses:
         "200":
           description: Successful response
@@ -14531,7 +14531,7 @@ paths:
             type: string
           description:
             "Filter by provider. One of: anthropic, openai, gemini, ollama, fireworks, together, openrouter,
-            vercel-ai-gateway, openai-compatible, minimax, atlascloud, baseten, vellum"
+            vercel-ai-gateway, litellm, openai-compatible, minimax, atlascloud, baseten, vellum"
       responses:
         "200":
           description: Successful response
@@ -17426,8 +17426,9 @@ paths:
       operationId: memory_remember_post
       summary: Create a memory by remembering a fact
       description:
-        Append a user-authored fact to the memory buffer via handleRemember; it is materialized into a graph node
-        later by consolidation.
+        Append a user-authored fact to the memory buffer via handleRemember. The fact surfaces in the memory graph
+        immediately as a pending node, and a consolidation run is nudged (deduped, backoff-respecting) so it files into
+        concept pages promptly.
       tags:
         - memory
       requestBody:
@@ -17703,7 +17704,9 @@ paths:
     post:
       operationId: memory_v2_reembedskills_post
       summary: Re-seed v2 skill entries from the current skill catalog
-      description: Synchronously re-runs seedV2SkillEntries against the current skill catalog. Gated on config.memory.v2.enabled.
+      description:
+        Synchronously re-runs seedV2SkillEntries against the current skill catalog. Gated on concept-page memory
+        being active.
       tags:
         - memory
       requestBody:
@@ -32337,6 +32340,7 @@ components:
         - minimax
         - atlascloud
         - together
+        - litellm
         - baseten
     ProfilePatchEntry:
       type: object
@@ -32711,6 +32715,7 @@ components:
         - together
         - openrouter
         - vercel-ai-gateway
+        - litellm
         - openai-compatible
         - minimax
         - atlascloud

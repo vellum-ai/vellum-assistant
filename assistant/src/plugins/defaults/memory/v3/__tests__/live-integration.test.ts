@@ -34,12 +34,12 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 import { migrateAddMemoryV3EverInjected } from "../../../../../persistence/migrations/277-add-memory-v3-ever-injected.js";
 import * as schema from "../../../../../persistence/schema/index.js";
 import { wrapMemoryBlock } from "../../memory-marker.js";
-import type { PageIndexEntry } from "../../v2/page-index.js";
 import { cardBytes, renderCard } from "../card.js";
 import type { EdgeGraph } from "../edge.js";
 import { buildEdgeGraph } from "../edge.js";
 import { buildSectionNeedle } from "../section-needle.js";
 import { buildSectionIndex } from "../sections.js";
+import type { PageIndexEntry } from "../substrate/page-index.js";
 import type { MemoryRoutingTurn, SectionIndex, Slug } from "../types.js";
 
 // ---------------------------------------------------------------------------

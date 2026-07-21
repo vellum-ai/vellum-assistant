@@ -78,11 +78,15 @@
  *   so it is skipped rather than re-applied — re-running a delta handler
  *   would double-append. This is the stream-side half of the monotonic
  *   merge: the frontier is what tells the snapshot/stream reconcile how
- *   far the stream has carried the conversation. A frontier further
- *   ahead of a live event than the replay ring can re-deliver is not a
- *   replay but a stale-generation anchor (recorded from a snapshot of a
- *   pre-reset seq space) — it is dropped and re-seeded from the live
- *   event rather than allowed to swallow the stream.
+ *   far the stream has carried the conversation. A snapshot legitimately
+ *   advances the frontier far past the live cursor (a bursty turn or a
+ *   main-thread stall), so a large under-frontier gap is an ordinary
+ *   idempotent replay — dropped, frontier held. The exception is a
+ *   stale-generation anchor (a snapshot of a pre-reset seq space recorded
+ *   onto the frontier by a `/messages` request that raced a counter
+ *   reset): provable only inside the re-climb window of an observed
+ *   generation reset, where the frontier is dropped and re-seeded from the
+ *   live event rather than allowed to swallow the stream.
  *
  * Reconnect handling:
  *   On reconnect the transport sends the cursor as `lastSeenSeq` and
@@ -109,7 +113,9 @@ import {
 } from "@/lib/streaming/local-seq";
 import {
   advanceReconnectCursor,
+  getAbandonedGenerationCeiling,
   getReconnectCursor,
+  recordAbandonedGeneration,
   replaceReconnectCursor,
 } from "@/lib/streaming/reconnect-cursor";
 import type { AssistantEvent } from "@/types/event-types";
@@ -200,6 +206,11 @@ export function createSseEventConsumer(
             observed: eventSeq,
           });
           replaceReconnectCursor(eventSeq);
+          // Remember the abandoned generation's ceiling so the stale-frontier
+          // guard below can tell a dead-generation anchor (recorded from a
+          // `/messages` snapshot that raced this reset) from an ordinary
+          // large snapshot overlap.
+          recordAbandonedGeneration(stored);
           resetLocalSeqs();
           gapDeferred = true;
           // Fire-and-forget: cursor is already replaced above (the old
@@ -310,20 +321,11 @@ export function createSseEventConsumer(
         eventConversationId === deps.activeConversationIdRef.current
       ) {
         // Idempotent apply: an event whose seq is at or below the
-        // conversation's local seq has already been applied to
-        // the transcript (a replay after reconnect, or overlap with an
-        // in-flight reconcile). Re-applying would double-append deltas,
-        // so skip it and leave the frontier untouched.
-        //
-        // Stale-frontier guard: a genuine replay can only trail the
-        // frontier by what the daemon's ring can re-deliver
-        // (`SSE_REPLAY_RING_COUNT_LIMIT`). A frontier further ahead of a
-        // live event than that was recorded against a stale seq
-        // generation — a `/messages` snapshot anchor persisted before the
-        // daemon's counter reset — and treating the live stream as
-        // replayed against it would silently drop every event until the
-        // counter re-passes the stale anchor. Drop the frontier and apply
-        // the live event as the conversation's new frontier instead.
+        // conversation's local seq has already been applied to the
+        // transcript (a replay after reconnect, or overlap with an
+        // in-flight reconcile). Re-applying would double-append deltas, so
+        // skip it and leave the frontier untouched — unless the frontier is
+        // a stale-generation anchor (see the guard below).
         const localSeq = getLocalSeq(eventConversationId);
         const applyAndAdvance = () => {
           deps.handleStreamEvent(event, useStreamStore.getState().streamEpoch);
@@ -345,7 +347,33 @@ export function createSseEventConsumer(
             eventSeq,
             localSeq,
           };
-          if (localSeq - eventSeq >= SSE_REPLAY_RING_COUNT_LIMIT) {
+          // Stale-frontier guard. A `/messages` snapshot legitimately
+          // advances the frontier far past the live cursor whenever a
+          // conversation is caught up out-of-band — a bursty turn or a
+          // main-thread stall lets the snapshot jump ahead while live frames
+          // queue in the browser, so the queued backlog trails the frontier
+          // by MORE than the replay ring. That overlap is an idempotent
+          // replay the snapshot already contains, so dropping it (frontier
+          // held) is correct; clearing the frontier would re-run old
+          // delta/completion handlers and duplicate or roll back chat state.
+          // Gap SIZE is therefore not the signal.
+          //
+          // The frontier is genuinely new content — a stale-generation
+          // anchor recorded by a `/messages` request that raced the daemon's
+          // counter reset — only inside the re-climb window of an OBSERVED
+          // generation reset: the reset abandoned a seq ceiling the live
+          // cursor has not yet climbed back to, and the frontier sits at or
+          // above it. There, a replay drop would silently swallow every live
+          // event until the counter re-passes the stale anchor, so clear the
+          // frontier and apply the live event as the new frontier instead.
+          const abandonedCeiling = getAbandonedGenerationCeiling();
+          const liveCursor = getReconnectCursor();
+          const frontierFromDeadGeneration =
+            abandonedCeiling != null &&
+            liveCursor != null &&
+            liveCursor < abandonedCeiling &&
+            localSeq >= abandonedCeiling;
+          if (frontierFromDeadGeneration) {
             recordDiagnostic("sse_local_seq_stale_generation", seqDiagnostic);
             clearLocalSeq(eventConversationId);
             applyAndAdvance();

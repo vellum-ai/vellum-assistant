@@ -16,11 +16,12 @@ export interface CreateMemoryModalProps {
 
 /**
  * "New memory" modal on the Memory tab: a user types a fact and we POST it to
- * the daemon `memory/remember` route. Consolidation materializes it into a
- * graph node LATER, so the memory does not appear instantly — on success we
- * invalidate the `memory-graph` query so the node surfaces on the next map
- * update rather than promising an immediate node. Mirrors the controlled
- * `open`/`onOpenChange` + local `isSaving` pattern of `vercel-token-dialog.tsx`.
+ * the daemon `memory/remember` route. The saved fact surfaces on the map right
+ * away as a dash-ringed `pending` node (the graph renders buffer entries), and
+ * the route nudges a consolidation run that files it into a concept page — on
+ * success we invalidate the `memory-graph` query so the pending node appears
+ * on the refetch. Mirrors the controlled `open`/`onOpenChange` + local
+ * `isSaving` pattern of `vercel-token-dialog.tsx`.
  */
 export function CreateMemoryModal({
   open,
@@ -46,13 +47,13 @@ export function CreateMemoryModal({
         toast.error(result.message || "Couldn't save that memory.");
         return;
       }
-      toast.success("Got it — I'll remember that.");
+      toast.success("Got it — it's on your map while I file it away.");
       setContent("");
       onOpenChange(false);
-      // The node materializes on the next consolidation, not now — invalidate
-      // the graph so it refetches and the memory appears as the map updates, and
-      // the stats query so the identity Memory card's count refreshes too (it's
-      // a separate query with a 5-min staleTime that wouldn't otherwise refire).
+      // Invalidate the graph so the refetch shows the fact as a pending node
+      // immediately (it becomes a concept node once consolidation files it),
+      // and the stats query so the identity Memory card's count refreshes too
+      // (a separate query with a 5-min staleTime that wouldn't otherwise refire).
       await Promise.all([
         queryClient.invalidateQueries({
           queryKey: memoryGraphOptions(assistantId).queryKey,
@@ -92,7 +93,8 @@ export function CreateMemoryModal({
               variant="body-medium-lighter"
               className="text-(--content-secondary)"
             >
-              A new memory is forming — it'll appear as the map updates.
+              It lands on the map right away, then settles into a concept as
+              it's filed.
             </Typography>
           </div>
         </Modal.Body>

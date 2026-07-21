@@ -32,7 +32,7 @@ function stubProvider(sendMessage: Provider["sendMessage"]): Provider {
 
 function toolResponse(
   inputBlock: Record<string, unknown>,
-  name = "turn_decision",
+  name = "ack",
 ): ProviderResponse {
   return {
     content: [{ type: "tool_use", id: "tu_1", name, input: inputBlock }],
@@ -42,33 +42,48 @@ function toolResponse(
   };
 }
 
+function textResponse(text: string): ProviderResponse {
+  return {
+    content: [{ type: "text", text }],
+    model: "stub-model",
+    usage: { inputTokens: 1, outputTokens: 1 },
+    stopReason: "end_turn",
+  };
+}
+
 describe("createVoiceFrontDecider — decideEndpoint", () => {
-  test("tool result complete:false → hold", async () => {
+  test('answer "0" → hold', async () => {
     const decider = createVoiceFrontDecider({
       config,
-      getProvider: async () =>
-        stubProvider(async () => toolResponse({ complete: false })),
+      getProvider: async () => stubProvider(async () => textResponse("0")),
     });
     expect(await decider.decideEndpoint(input)).toEqual({ action: "hold" });
   });
 
-  test("tool result complete:true → release", async () => {
+  test('answer "1" → release', async () => {
     const decider = createVoiceFrontDecider({
       config,
-      getProvider: async () =>
-        stubProvider(async () => toolResponse({ complete: true })),
+      getProvider: async () => stubProvider(async () => textResponse("1")),
     });
     expect(await decider.decideEndpoint(input)).toEqual({ action: "release" });
   });
 
-  test("sends transcript, forced turn_decision tool, and call-site config", async () => {
+  test('answer "0" with trailing delimiter → hold', async () => {
+    const decider = createVoiceFrontDecider({
+      config,
+      getProvider: async () => stubProvider(async () => textResponse(" 0\n")),
+    });
+    expect(await decider.decideEndpoint(input)).toEqual({ action: "hold" });
+  });
+
+  test("sends transcript, tight token budget, no tools, and call-site config", async () => {
     let captured: Parameters<Provider["sendMessage"]> | undefined;
     const decider = createVoiceFrontDecider({
       config,
       getProvider: async () =>
         stubProvider(async (...args) => {
           captured = args;
-          return toolResponse({ complete: true });
+          return textResponse("1");
         }),
     });
     await decider.decideEndpoint({ ...input, latestPartial: "and then" });
@@ -79,12 +94,14 @@ describe("createVoiceFrontDecider — decideEndpoint", () => {
     expect(text).toContain("so what I was thinking is");
     expect(text).toContain("and then");
     expect(options?.config).toMatchObject({
-      max_tokens: 64,
+      max_tokens: 4,
       callSite: "voiceFrontDecision",
-      tool_choice: { type: "tool", name: "turn_decision" },
       disableCache: true,
     });
-    expect(options?.tools?.map((t) => t.name)).toEqual(["turn_decision"]);
+    // Single-token text protocol: no tool schema in the prompt, no forced
+    // tool call in the output — the latency-critical path stays minimal.
+    expect(options?.tools).toBeUndefined();
+    expect(options?.config?.tool_choice).toBeUndefined();
     expect(options?.systemPrompt).toContain("finished");
   });
 
@@ -163,21 +180,28 @@ describe("createVoiceFrontDecider — decideEndpoint", () => {
     expect(Date.now() - start).toBeLessThan(1000);
   });
 
-  test("missing/foreign tool block → release", async () => {
+  test("response without a text block → release", async () => {
     const decider = createVoiceFrontDecider({
       config,
       getProvider: async () =>
-        stubProvider(async () =>
-          toolResponse({ complete: false }, "some_other_tool"),
-        ),
+        stubProvider(async () => toolResponse({ complete: false })),
     });
     expect(await decider.decideEndpoint(input)).toEqual({ action: "release" });
   });
 
-  test("malformed tool input (complete not boolean) → release", async () => {
+  test("empty text answer → release", async () => {
     const decider = createVoiceFrontDecider({
       config,
-      getProvider: async () => stubProvider(async () => toolResponse({})),
+      getProvider: async () => stubProvider(async () => textResponse("   ")),
+    });
+    expect(await decider.decideEndpoint(input)).toEqual({ action: "release" });
+  });
+
+  test("non-protocol prose answer → release (fail-open)", async () => {
+    const decider = createVoiceFrontDecider({
+      config,
+      getProvider: async () =>
+        stubProvider(async () => textResponse("The speaker seems unsure")),
     });
     expect(await decider.decideEndpoint(input)).toEqual({ action: "release" });
   });

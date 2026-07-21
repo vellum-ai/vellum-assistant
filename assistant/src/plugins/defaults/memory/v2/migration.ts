@@ -32,8 +32,13 @@ import {
 import { upsertEmbedConceptPageJob } from "../../../../persistence/jobs-store.js";
 import { extractText, userMessage } from "../llm-helpers.js";
 import { getLogger } from "../logging.js";
-import { deletePage, listPages, slugify, writePage } from "./page-store.js";
-import type { ConceptPage } from "./types.js";
+import {
+  deletePage,
+  listPages,
+  slugify,
+  writePage,
+} from "../v3/substrate/page-store.js";
+import type { ConceptPage } from "../v3/substrate/types.js";
 
 const log = getLogger("memory-v2-migration");
 

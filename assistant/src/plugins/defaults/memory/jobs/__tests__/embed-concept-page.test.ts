@@ -91,7 +91,7 @@ const upsertCalls: Array<{
 
 const deleteCalls: string[] = [];
 
-mock.module("../../v2/qdrant.js", () => ({
+mock.module("../../v3/substrate/qdrant.js", () => ({
   upsertConceptPageEmbedding: async (params: {
     slug: string;
     dense: number[];
@@ -151,7 +151,7 @@ type MemoryJobMod = typeof import("../../../../../persistence/jobs-store.js");
 type MemoryJob = ReturnType<MemoryJobMod["claimMemoryJobs"]>[number];
 const { embedConceptPageJob, enqueueEmbedConceptPageJob } =
   await import("../embed-concept-page.js");
-const { writePage } = await import("../../v2/page-store.js");
+const { writePage } = await import("../../v3/substrate/page-store.js");
 const { _resetQdrantBreaker, isQdrantBreakerOpen, withQdrantBreaker } =
   await import("../../../../../persistence/embeddings/qdrant-circuit-breaker.js");
 

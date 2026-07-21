@@ -311,6 +311,13 @@ let mockProcToSkillsActive = false;
 mock.module("../../../../config/memory-v3-gate.js", () => ({
   isProcToSkillsActive: () => mockProcToSkillsActive,
   isMemoryV3Live: () => mockProcToSkillsActive,
+  usesConceptPageMemory: (memory?: {
+    enabled?: boolean;
+    v2?: { enabled?: boolean };
+    v3?: { live?: boolean };
+  }) =>
+    memory?.enabled !== false &&
+    (memory?.v3?.live === true || memory?.v2?.enabled === true),
 }));
 
 import type { MemoryJob } from "../../../../persistence/jobs-store.js";

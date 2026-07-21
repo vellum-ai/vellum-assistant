@@ -9,18 +9,21 @@
  * orchestrator only sequences them and isolates one step's failure from the
  * next.
  *
- * Today the only step is in-flight message content. New reconciliations plug
- * in by adding a {@link RecoveryStep} to `RECOVERY_STEPS`.
+ * Steps run in order; new reconciliations plug in by adding a
+ * {@link RecoveryStep} to `RECOVERY_STEPS`. `clear-stale-processing` runs
+ * first because `inflight-content`'s "is this a live turn" guard reads the
+ * `processing_started_at` state it resets.
  */
 
 import { getLogger } from "../../util/logger.js";
 import { recoverInflightContent } from "./inflight-content.js";
+import { clearStaleProcessing } from "./stale-processing.js";
 
 const log = getLogger("recovery");
 
 /**
  * Delay before the one-shot recovery run, giving the daemon time to finish
- * migrations and clear stale processing flags before recovery reads them.
+ * migrations before recovery reads the schema.
  */
 const RECOVERY_DELAY_MS = 15_000;
 
@@ -31,6 +34,7 @@ export interface RecoveryStep {
 }
 
 const RECOVERY_STEPS: RecoveryStep[] = [
+  { name: "clear-stale-processing", run: clearStaleProcessing },
   { name: "inflight-content", run: recoverInflightContent },
 ];
 

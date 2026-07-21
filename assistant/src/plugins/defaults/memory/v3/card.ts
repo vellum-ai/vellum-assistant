@@ -1,5 +1,5 @@
 import { FRONTMATTER_REGEX, parseFrontmatterFields } from "../frontmatter.js";
-import { injectedConceptHeader } from "../v2/injected-block-slugs.js";
+import { injectedConceptHeader } from "./substrate/injected-block-slugs.js";
 import type { Slug } from "./types.js";
 
 /**

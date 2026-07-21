@@ -9,6 +9,7 @@ import {
   formatStoredPathAnnotation,
 } from "../agent/attachments.js";
 import { getConfig } from "../config/loader.js";
+import { usesConceptPageMemory } from "../config/memory-v3-gate.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
 import {
@@ -224,18 +225,18 @@ export function disposeConversation(ctx: DisposeContext): void {
       // Best-effort — don't block conversation disposal
     }
     if (!isAutoAnalysis) {
-      // Suppress v1 graph extraction when memory v2 is active — v2 reads
-      // from buffer.md and concept pages, so the v1 graph would be stale
-      // data nobody consumes. Mirrors the gate applied in `indexer.ts`
+      // Suppress v1 graph extraction when concept-page memory is active —
+      // it reads from buffer.md and concept pages, so the v1 graph would be
+      // stale data nobody consumes. Mirrors the gate applied in `indexer.ts`
       // for the per-message indexing path. Fail open to v1 if config
       // can't load, since the worker handler also short-circuits.
-      let v2Enabled = false;
+      let conceptPagesActive = false;
       try {
-        v2Enabled = getConfig().memory.v2.enabled;
+        conceptPagesActive = usesConceptPageMemory(getConfig().memory);
       } catch {
         // Best-effort — fall through to legacy v1 enqueue
       }
-      if (!v2Enabled && isMemoryEnabled()) {
+      if (!conceptPagesActive && isMemoryEnabled()) {
         try {
           enqueueMemoryJob("graph_extract", {
             conversationId: ctx.conversationId,

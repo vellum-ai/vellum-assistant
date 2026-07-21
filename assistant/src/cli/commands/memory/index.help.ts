@@ -364,10 +364,10 @@ Examples:
       name: "v2",
       description: "Memory v2 subsystem operations (concept-page model)",
       helpText: `
-The v2 memory subsystem stores prose concept pages with directed edges in
-each page's frontmatter and uses activation-based retrieval. Pages live
-under /workspace/memory/concepts/ and are gated behind the
-memory.v2.enabled config field.
+The concept-page memory subsystem stores prose concept pages with directed
+edges in each page's frontmatter. Pages live under
+/workspace/memory/concepts/ and are active when memory.v3.live or
+memory.v2.enabled is set.
 
 Mutating subcommands return a jobId enqueued on the memory job queue,
 except reembed-skills which runs synchronously inside the assistant.
@@ -408,7 +408,7 @@ changes the enabled-skill set, or to recover corrupted skill embeddings.
 
 Unlike 'reembed' (concept pages), this runs synchronously inside the
 assistant — the command returns only once the seed completes. Requires
-memory.v2.enabled to be true.
+concept-page memory to be active (memory.v3.live or memory.v2.enabled).
 
 Examples:
   $ assistant memory v2 reembed-skills`,

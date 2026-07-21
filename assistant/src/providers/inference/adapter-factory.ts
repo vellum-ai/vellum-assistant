@@ -121,6 +121,13 @@ const ADAPTER_FACTORIES: Record<string, AdapterFactory> = {
       streamTimeoutMs,
       ...(baseURL ? { baseURL } : {}),
     }),
+  litellm: ({ apiKey, model, streamTimeoutMs, baseURL }) =>
+    new OpenAIChatCompletionsProvider(apiKey, model, {
+      providerName: "litellm",
+      providerLabel: "LiteLLM",
+      streamTimeoutMs,
+      ...(baseURL ? { baseURL } : {}),
+    }),
   // Keyless openai-compatible endpoints (e.g. LM Studio) ignore the key; the
   // placeholder satisfies the OpenAI SDK, which requires a non-empty key.
   "openai-compatible": ({ apiKey, model, streamTimeoutMs, baseURL }) =>

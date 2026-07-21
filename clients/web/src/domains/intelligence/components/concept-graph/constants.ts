@@ -6,11 +6,15 @@ import type { ConceptNodeKind } from "./types";
  * - concept    → `--system-info-strong` (brand blue)
  * - skill      → `--feed-nudge-strong` (brand pink accent)
  * - capability → `--credits-accent` / `--feed-digest-strong` (brand teal)
+ * - pending    → `--system-mid-strong` (warm amber, shared with learned
+ *                edges — both mark not-yet-solidified structure); the dashed
+ *                ring is the primary discriminator from cluster golds
  * - other      → `--content-quiet` / stone-500 (brand neutral) */
 export const NODE_KIND_COLORS: Record<ConceptNodeKind, string> = {
   concept: "#467CC8",
   skill: "#DB4B77",
   capability: "#0E9B8B",
+  pending: "#F1B21E",
   other: "#8D99A5",
 };
 
@@ -48,6 +52,7 @@ export const NODE_KIND_LABELS: Record<ConceptNodeKind, string> = {
   concept: "Concept",
   skill: "Skill",
   capability: "Capability",
+  pending: "Pending",
   other: "Other",
 };
 

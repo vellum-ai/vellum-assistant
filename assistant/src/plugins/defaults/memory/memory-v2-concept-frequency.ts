@@ -1,6 +1,6 @@
 import { memorySqliteOrNull } from "./memory-db.js";
 import type { MemoryV2ConceptRowRecord } from "./memory-v2-activation-log-store.js";
-import { listPages } from "./v2/page-store.js";
+import { listPages } from "./v3/substrate/page-store.js";
 
 type ConceptStatus = MemoryV2ConceptRowRecord["status"];
 

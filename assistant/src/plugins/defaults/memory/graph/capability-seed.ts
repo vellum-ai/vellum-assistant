@@ -26,7 +26,7 @@ import {
   getCatalog,
 } from "../../../../skills/catalog-cache.js";
 import { getLogger } from "../logging.js";
-import type { SkillCapabilityInput } from "../v2/skill-content.js";
+import type { SkillCapabilityInput } from "../v3/substrate/skill-content.js";
 import { createNode } from "./store.js";
 
 const log = getLogger("graph-capability-seed");

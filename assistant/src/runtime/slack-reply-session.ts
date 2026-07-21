@@ -114,6 +114,14 @@ export function createSlackReplySession(params: {
   recipientTeamId?: string;
   /** Gap between coalesced `appendStream` calls. Defaults to {@link STREAM_COALESCE_MS}. */
   coalesceMs?: number;
+  /**
+   * Invoked once with the streamed message `ts` the moment the Slack stream
+   * opens. Lets the caller durably record the `ts` before delivery finalizes,
+   * so a crash mid-turn leaves a breadcrumb: a retry or deduplicated
+   * redelivery reconciles against the already-visible message instead of
+   * posting a duplicate reply.
+   */
+  onStreamOpen?: (streamTs: string) => void;
 }): SlackReplySession | undefined {
   if (!shouldStreamSlackReply(params) || !params.replyCallbackUrl) {
     return undefined;
@@ -226,6 +234,7 @@ export function createSlackReplySession(params: {
           confirmedLength = firstChunk.length;
           deliveredProgressKey = progressKey(title, tasks);
           state = "streaming";
+          params.onStreamOpen?.(result.ts);
         } else {
           state = "fallback";
         }

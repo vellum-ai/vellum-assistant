@@ -84,5 +84,38 @@ Examples:
   $ assistant tts synthesize --text "hi" --use-case phone-call
   $ assistant tts synthesize --text "hi" --json`,
     },
+    {
+      name: "voice",
+      description:
+        "Set the TTS voice for the currently active provider (routes to the right config key automatically)",
+      arguments: [
+        {
+          name: "[id...]",
+          description:
+            "Voice/model id to set (joined with spaces). ElevenLabs voice id for elevenlabs; managed voice model id (ElevenLabs id or Deepgram Aura model like aura-2-thalia-en) for vellum; Aura model id for deepgram",
+        },
+      ],
+      options: [
+        {
+          flags: "--json",
+          description:
+            "Output a single-line JSON object on stdout instead of a plain message",
+        },
+      ],
+      helpText: `
+Set the assistant's TTS voice on whichever provider is currently active
+(services.tts.provider). This writes to the config key that provider actually
+reads — e.g. services.tts.providers.vellum.model for managed speech — so the
+change takes effect on the next spoken turn.
+
+Prefer this over 'assistant config set services.tts.providers.elevenlabs.voiceId'
+directly: on a managed (vellum) assistant that field is ignored, so the voice
+would silently not change.
+
+Examples:
+  $ assistant tts voice pqHfZKP75CvOlQylNhV4      # ElevenLabs voice id (also valid on managed)
+  $ assistant tts voice aura-2-thalia-en          # Deepgram Aura model (managed/deepgram)
+  $ assistant tts voice aura-2-zeus-en --json`,
+    },
   ],
 };

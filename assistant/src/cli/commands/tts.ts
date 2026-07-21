@@ -192,6 +192,86 @@ export function registerTtsCommand(program: Command): void {
           }
         },
       );
+
+      // ── voice ───────────────────────────────────────────────────────────
+
+      subcommand(ttsCmd, "voice").action(
+        async (
+          positionalParts: string[],
+          opts: { json?: boolean },
+          cmd: Command,
+        ) => {
+          const jsonOutput = opts.json ?? false;
+          const emitError = (msg: string): void => {
+            if (jsonOutput) {
+              process.stdout.write(
+                JSON.stringify({ ok: false, error: msg }) + "\n",
+              );
+            } else {
+              log.error(msg);
+            }
+          };
+
+          const voiceId = positionalParts.join(" ").trim();
+          if (!voiceId) {
+            emitError(
+              "No voice id provided. Usage: assistant tts voice <voice-id>",
+            );
+            process.exitCode = 1;
+            return;
+          }
+
+          // Read the active TTS provider so the voice lands on the field that
+          // provider actually reads. Writing the ElevenLabs field while the
+          // active provider is `vellum` is a silent no-op.
+          const cfg = await cliIpcCall<{
+            services?: { tts?: { provider?: string } };
+          }>("config_get");
+          if (!cfg.ok) {
+            return exitFromIpcResult(
+              { ok: false, error: cfg.error, statusCode: cfg.statusCode },
+              cmd,
+            );
+          }
+          const provider = cfg.result?.services?.tts?.provider ?? "elevenlabs";
+          // Lazy-import to keep this daemon-internal module out of the CLI's
+          // static graph (cli/no-daemon-internals — see src/cli/AGENTS.md).
+          const { ttsVoiceFieldFor } =
+            await import("../../tts/tts-voice-field.js");
+          const field = ttsVoiceFieldFor(provider);
+
+          const r = await cliIpcCall("config_set", {
+            body: { path: field.path, value: voiceId },
+          });
+          if (!r.ok) {
+            if (jsonOutput) {
+              emitError(r.error ?? "Failed to set voice");
+              process.exitCode = 1;
+              return;
+            }
+            return exitFromIpcResult(
+              { ok: false, error: r.error, statusCode: r.statusCode },
+              cmd,
+            );
+          }
+
+          if (jsonOutput) {
+            process.stdout.write(
+              JSON.stringify({
+                ok: true,
+                provider,
+                path: field.path,
+                voiceId,
+              }) + "\n",
+            );
+          } else {
+            process.stdout.write(
+              `Set ${field.label} to "${voiceId}" (${field.path}). ` +
+                "Takes effect on the next spoken turn.\n",
+            );
+          }
+        },
+      );
     },
   });
 }

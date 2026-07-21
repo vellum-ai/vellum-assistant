@@ -306,12 +306,15 @@ export function cleanupWorkerPidFile(pidPath: string): void {
  * daemon reuses via the `alreadyRunning` path is still named by the file,
  * so the guard never fires for it.
  *
- * Checks every `intervalMs` (default 15s) on an unref'd timer so the
- * guard never keeps the process alive, calls `onEvicted` at most once,
- * and stops checking after eviction. Returns a disposer; call it before
- * {@link cleanupWorkerPidFile} on the normal shutdown path so shutdown
- * never reads as an eviction. The eviction path must not delete the PID
- * file — it names the successor.
+ * Checks immediately on arm and then every `intervalMs` (default 15s) on an
+ * unref'd timer so the guard never keeps the process alive, calls `onEvicted`
+ * at most once, and stops checking after eviction. The synchronous on-arm
+ * check is what closes the startup window: a worker superseded before it
+ * begins work evicts during arm — so callers arm the guard just before their
+ * first tick — instead of running one orphaned interval's work first. Returns
+ * a disposer; call it before {@link cleanupWorkerPidFile} on the normal
+ * shutdown path so shutdown never reads as an eviction. The eviction path must
+ * not delete the PID file — it names the successor.
  */
 export function startWorkerPidFileGuard(
   pidPath: string,
@@ -319,7 +322,8 @@ export function startWorkerPidFileGuard(
 ): () => void {
   const intervalMs = opts.intervalMs ?? 15_000;
   let evicted = false;
-  const timer = setInterval(() => {
+
+  const check = (): void => {
     if (evicted) {
       return;
     }
@@ -337,8 +341,15 @@ export function startWorkerPidFileGuard(
       clearInterval(timer);
       opts.onEvicted(reason);
     }
-  }, intervalMs);
+  };
+
+  const timer = setInterval(check, intervalMs);
   timer.unref();
+
+  // Synchronous check on arm: a worker already superseded at startup evicts
+  // here, before its caller starts work, rather than waiting a full interval.
+  check();
+
   return () => clearInterval(timer);
 }
 

@@ -230,6 +230,13 @@ export interface OrchestrateDeps {
    *  `MEMORY_V3_FULL_PROFILE_MIN_PAGES`; omitted drops the field from the
    *  telemetry detail (the gate itself never reads it). */
   realConceptPageCount?: number;
+  /** Slugs already live in this conversation (prior turns' injected cards). Used
+   *  ONLY to compute the `net_new_count` telemetry field — selections minus this
+   *  set are what the injector actually renders. Read-only and side-effect-free:
+   *  selection never consults it, and omitting it just drops the field. The
+   *  injector reads the same store, so the two agree for a turn that has not yet
+   *  committed. */
+  activeSlugs?: ReadonlySet<Slug>;
 }
 
 /** A finder-lane candidate: the slug, the descriptor that justified it, and
@@ -325,13 +332,24 @@ export async function orchestrate(
   // Run the selector over a pool, or pass its candidates straight through when
   // the selector LLM is disabled (`selectorEnabled: false`, the new-user
   // profile). Shared by the normal step-3 selection and the gate's
-  // bypass-to-stable path so the two cannot diverge.
-  const runSelection = async (pool: SelectorPool): Promise<SelectedPage[]> =>
-    timeLatencySubSpan("v3_selection", "Memory selection", () =>
-      deps.selectorEnabled === false
-        ? selectAllPoolCandidates(pool)
-        : selectPool(pool, turn, deps.selectorPrompt),
-    );
+  // bypass-to-stable path so the two cannot diverge. `keptAll` marks the
+  // selector's recall-safe fallback ONLY — the disabled passthrough is not a
+  // selector judgment, so it reports `false` (its turns are excluded from any
+  // relevance read by `selector_ran` anyway).
+  const runSelection = (
+    pool: SelectorPool,
+  ): Promise<{ selections: SelectedPage[]; keptAll: boolean }> =>
+    timeLatencySubSpan("v3_selection", "Memory selection", async () => {
+      if (deps.selectorEnabled === false) {
+        return { selections: selectAllPoolCandidates(pool), keptAll: false };
+      }
+      const { pages, keptAll } = await selectPool(
+        pool,
+        turn,
+        deps.selectorPrompt,
+      );
+      return { selections: pages, keptAll };
+    });
 
   // Step 1: needle (sync BM25) and the enabled dense lane (async embed +
   // Qdrant) run in parallel. Both return distinct articles each tagged with
@@ -545,17 +563,35 @@ export async function orchestrate(
   // The last is why `poolSize` decides this rather than each call site: an empty
   // pool is not a judgment that nothing was relevant, and no caller has to
   // remember that.
+  // `selector_kept_all` and `net_new_count` separate what the selector JUDGED
+  // from what actually reaches the turn, which `selected_count` alone conflates:
+  //   - kept_all: the recall-safe fallback fired (model omitted `ids`), so every
+  //     candidate was kept without a real judgment. Distinguishes "kept the whole
+  //     pool because it gave up" from "explicitly selected a large set", which
+  //     otherwise look identical and inflate the same way.
+  //   - net_new: selections not already live in the conversation — the injector
+  //     renders only these (prior turns' cards ride history), so it is the real
+  //     incremental injection, where `selected_count` re-counts the whole
+  //     standing set every turn. Omitted when the caller did not supply
+  //     `activeSlugs` (tests, shadow-less paths).
   const recordSelection = (
     selections: SelectedPage[],
     poolSize: number,
+    keptAll: boolean,
   ): void => {
     const detail: Record<string, unknown> = {
       gate_reason: gateOutcome?.reason ?? null,
       gate_pass: gateOutcome?.pass ?? null,
       selector_ran: deps.selectorEnabled !== false && poolSize > 0,
+      selector_kept_all: keptAll,
       selected_count: selections.length,
       pool_size: poolSize,
     };
+    if (deps.activeSlugs !== undefined) {
+      detail.net_new_count = selections.filter(
+        (s) => !deps.activeSlugs!.has(s.slug),
+      ).length;
+    }
     if (deps.realConceptPageCount !== undefined) {
       detail.real_concept_page_count = deps.realConceptPageCount;
     }
@@ -633,17 +669,17 @@ export async function orchestrate(
             // `denseK > 0` (the dense-gated gate only runs with dense hits; the
             // new-user profile sets `denseK: 0`, so the gate never runs for it).
             const stableOnly = buildStable();
-            const bypassed = await runSelection({
+            const { selections: bypassed, keptAll } = await runSelection({
               stable: stableOnly,
               finder: [],
             });
-            recordSelection(bypassed, stableOnly.length);
+            recordSelection(bypassed, stableOnly.length, keptAll);
             return closed(bypassed);
           }
           // Hard skip: the selector is never consulted, so this is a zero
           // selection BY CONSTRUCTION, not a judgment that nothing was relevant.
           // `selector_ran: false` keeps it out of any relevance rate.
-          recordSelection([], 0);
+          recordSelection([], 0, false);
           return closed([]);
         }
       }
@@ -741,8 +777,8 @@ export async function orchestrate(
     "Gate & edge expansion",
     Date.now() - expandStartedAt,
   );
-  const selections = await runSelection(pool);
-  recordSelection(selections, stable.length + finderTail.length);
+  const { selections, keptAll } = await runSelection(pool);
+  recordSelection(selections, stable.length + finderTail.length, keptAll);
 
   return {
     selections,

@@ -57,6 +57,7 @@ import { ComposerNotices } from "@/domains/chat/components/composer-notices";
 import { ComposerSettingsMenu } from "@/domains/chat/components/composer-settings-menu";
 import { ContextWindowIndicator } from "@/domains/chat/components/context-window-indicator";
 import { CreditsExhaustedBanner } from "@/domains/chat/components/credits-exhausted-banner";
+import { DailyLimitBanner } from "@/domains/chat/components/daily-limit-banner";
 import { MicPermissionPrimer } from "@/domains/chat/components/mic-permission-primer";
 import { OnboardingChoiceCard } from "@/domains/chat/components/onboarding-choice-card";
 import { ProviderBillingBanner } from "@/domains/chat/components/provider-billing-banner";
@@ -370,6 +371,10 @@ export function ChatMainPanel({
 
   const pushToAiSettings = useCallback(() => {
     void navigate(routes.settings.ai);
+  }, [navigate]);
+
+  const pushToBillingSettings = useCallback(() => {
+    void navigate(routes.settings.usageBilling);
   }, [navigate]);
 
   const checkAssistant = useCallback(() => lifecycleService.checkAssistant(), []);
@@ -978,7 +983,9 @@ export function ChatMainPanel({
           onOpenMicSettings={handleOpenMicSettings}
           onOpenTextInsertionSettings={handleOpenTextInsertionSettings}
           billingBannerSlot={
-            billingBannerDecision === "managed_credits" ? (
+            billingBannerDecision === "daily_limit" ? (
+              <DailyLimitBanner onAdjustLimit={pushToBillingSettings} />
+            ) : billingBannerDecision === "managed_credits" ? (
               <CreditsExhaustedBanner
                 onAddFunds={() => setShowAddCreditsModal(true)}
               />
