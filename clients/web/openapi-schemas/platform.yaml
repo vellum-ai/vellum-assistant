@@ -6371,6 +6371,7 @@ components:
       - connection_not_found
       - oauth_start_failed
       - insufficient_balance
+      - daily_limit_reached
       - missing_price
       type: string
       description: |-
@@ -6390,6 +6391,7 @@ components:
         * `connection_not_found` - connection_not_found
         * `oauth_start_failed` - oauth_start_failed
         * `insufficient_balance` - insufficient_balance
+        * `daily_limit_reached` - daily_limit_reached
         * `missing_price` - missing_price
     ComputeTierChangeRequestRequest:
       type: object
