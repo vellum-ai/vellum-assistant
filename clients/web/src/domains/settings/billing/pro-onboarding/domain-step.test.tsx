@@ -1,11 +1,16 @@
 /**
- * DomainStep query invalidation: registering a domain must refresh the caches
- * the "Finish Pro setup" nudge reads (domains list + onboarding state) in
- * addition to the assistants list.
+ * DomainStep behavior: registering a domain must refresh the caches the
+ * "Finish Pro setup" nudge reads (domains list + onboarding state) in addition
+ * to the assistants list, and the prefix/handle fields must submit as the
+ * domain body. The serif-card restyle is presentation-only — every behavioral
+ * assertion here (endpoints, validation, skip/advance, restart guard) is
+ * unchanged.
  *
  * Strategy mirrors billing-page.test.tsx: mock the generated SDK so the
  * targeted assistant loads (prefilling the subdomain from its handle) and the
- * domain mutation resolves, then spy on the query client's invalidations.
+ * domain mutation resolves, then spy on the query client's invalidations. The
+ * bundled-avatar hook is stubbed so the decorative CreatureCorners layer stays
+ * a no-op instead of loading the SVG payload.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
@@ -22,6 +27,12 @@ import type { Assistant } from "@/generated/api/types.gen";
 
 let domainCreateCalls = 0;
 let domainsListPaths: string[] = [];
+let lastDomainCreateBody: Record<string, unknown> | null = null;
+
+mock.module("@/utils/use-bundled-avatar-components", () => ({
+  preloadBundledAvatarComponents: () => {},
+  useBundledAvatarComponents: () => null,
+}));
 
 mock.module("@/generated/api/sdk.gen", () => ({
   ...sdkGen,
@@ -44,8 +55,11 @@ mock.module("@/generated/api/sdk.gen", () => ({
       response: { ok: true },
     });
   },
-  organizationsBillingSubscriptionOnboardingDomainCreate: () => {
+  organizationsBillingSubscriptionOnboardingDomainCreate: (opts: {
+    body?: Record<string, unknown>;
+  }) => {
     domainCreateCalls += 1;
+    lastDomainCreateBody = opts?.body ?? null;
     return Promise.resolve({ data: {}, response: { ok: true } });
   },
 }));
@@ -55,10 +69,31 @@ const { DomainStep } = await import("./domain-step");
 beforeEach(() => {
   domainCreateCalls = 0;
   domainsListPaths = [];
+  lastDomainCreateBody = null;
 });
 
 afterEach(() => {
   cleanup();
+});
+
+describe("DomainStep chrome", () => {
+  test("renders the serif heading, immutability notice, and footer buttons", () => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    const { getByText, getByTestId } = render(
+      <QueryClientProvider client={client}>
+        <DomainStep onExit={() => {}} />
+      </QueryClientProvider>,
+    );
+
+    expect(getByText("Assistant Email")).toBeTruthy();
+    expect(getByText("Set up an email for your assistant.")).toBeTruthy();
+    expect(getByText(/be able to change the handle once set/)).toBeTruthy();
+    expect(getByTestId("onboarding-domain-skip")).toBeTruthy();
+    expect(getByTestId("onboarding-domain-set")).toBeTruthy();
+  });
 });
 
 describe("DomainStep domain registration", () => {
@@ -102,6 +137,58 @@ describe("DomainStep domain registration", () => {
         organizationsBillingSubscriptionOnboardingRetrieveQueryKey(),
       ),
     );
+  });
+
+  test("submits the prefix and handle fields as the domain body", async () => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    const { getByTestId, getByLabelText } = render(
+      <QueryClientProvider client={client}>
+        <DomainStep onExit={() => {}} />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      const btn = getByTestId("onboarding-domain-set") as HTMLButtonElement;
+      if (btn.disabled) {
+        throw new Error("button not enabled yet");
+      }
+    });
+
+    fireEvent.change(getByLabelText("Prefix"), {
+      target: { value: "hello" },
+    });
+    fireEvent.change(getByLabelText("Handle (public)"), {
+      target: { value: "MyBot" },
+    });
+    fireEvent.click(getByTestId("onboarding-domain-set"));
+
+    await waitFor(() => expect(domainCreateCalls).toBe(1));
+    expect(lastDomainCreateBody).toEqual({
+      subdomain: "mybot",
+      email_username: "hello",
+    });
+  });
+
+  test("Skip submits the skipped flag and exits", async () => {
+    const onExit = mock(() => {});
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    const { getByTestId } = render(
+      <QueryClientProvider client={client}>
+        <DomainStep onExit={onExit} />
+      </QueryClientProvider>,
+    );
+
+    fireEvent.click(getByTestId("onboarding-domain-skip"));
+
+    await waitFor(() => expect(domainCreateCalls).toBe(1));
+    expect(lastDomainCreateBody).toEqual({ skipped: true });
+    await waitFor(() => expect(onExit).toHaveBeenCalledTimes(1));
   });
 
   test("checks domains on the assistant id the wizard passes in", async () => {
@@ -161,12 +248,12 @@ describe("DomainStep stalled resize", () => {
     );
   });
 
-  test("plain machine-busy keeps the neutral notice without apply controls", async () => {
+  test("plain machine-busy keeps the neutral notice and disables Next", async () => {
     const client = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
 
-    const { getByText, queryByTestId } = render(
+    const { getByText, getByTestId, queryByTestId } = render(
       <QueryClientProvider client={client}>
         <DomainStep onExit={() => {}} machineBusy />
       </QueryClientProvider>,
@@ -180,5 +267,9 @@ describe("DomainStep stalled resize", () => {
       ).toBeTruthy(),
     );
     expect(queryByTestId("domain-stalled-apply")).toBeNull();
+    // The restart guard keeps Next disabled while the machine is busy.
+    expect(
+      (getByTestId("onboarding-domain-set") as HTMLButtonElement).disabled,
+    ).toBe(true);
   });
 });
