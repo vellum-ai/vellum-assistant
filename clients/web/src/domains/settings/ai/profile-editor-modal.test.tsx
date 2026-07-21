@@ -721,7 +721,7 @@ describe("ProfileEditorModal create mode — provider-first", () => {
     // ...and the hint below spells out why and what to do about it.
     expect(document.body.textContent).toContain(
       "No models are available for this provider in this app version. " +
-        "Update the app, or use an OpenAI-compatible connection to enter a custom model.",
+        "Update the app, or enter a custom model ID.",
     );
   });
 
@@ -1090,6 +1090,73 @@ describe("ProfileEditorModal edit mode — catalog-absent bound model", () => {
     });
     expect(optionLabels).toContain("GPT-5.5");
     expect(optionLabels).not.toContain("GPT-5.5 Pro");
+  });
+
+  test("lets the user enter a custom model ID the catalog omits and saves it verbatim", async () => {
+    // The static OpenRouter catalog can't track every routable model, so the
+    // Model field offers a free-text escape hatch. Picking it and typing an id
+    // the build doesn't list must produce a saveable profile bound to that id.
+
+    // GIVEN an OpenRouter profile open in the editor, bound to a catalog model
+    const saveCalls: { name: string; entry: Record<string, unknown> }[] = [];
+    render(
+      <Wrapper>
+        <ProfileEditorModal
+          isOpen
+          mode="edit"
+          profileName="fusion"
+          initialValues={
+            {
+              name: "fusion",
+              label: "Fusion",
+              provider: "openrouter",
+              model: "anthropic/claude-opus-4.8",
+              provider_connection: "openrouter",
+              status: "active",
+            } as unknown as never
+          }
+          existingNames={["fusion"]}
+          connections={[makeConnection("openrouter", "openrouter")]}
+          assistantId={ASSISTANT_ID}
+          onSave={(name, entry) => {
+            saveCalls.push({ name, entry: entry as Record<string, unknown> });
+            return Promise.resolve();
+          }}
+          onCancel={() => {}}
+        />
+      </Wrapper>,
+    );
+
+    // WHEN the user picks the free-text option (the Model dropdown is the only
+    // one offering it) and types an id absent from the catalog, then saves
+    let pickedCustom = false;
+    for (const trigger of dropdownTriggers()) {
+      fireEvent.click(trigger);
+      const customOption = Array.from(
+        document.querySelectorAll<HTMLElement>('[role="option"]'),
+      ).find((o) => o.textContent?.trim() === "Enter a custom model ID…");
+      if (customOption) {
+        fireEvent.click(customOption);
+        pickedCustom = true;
+        break;
+      }
+      fireEvent.click(trigger);
+    }
+    expect(pickedCustom).toBe(true);
+
+    const modelInput = getInputByPlaceholder("provider/model-id");
+    fireEvent.change(modelInput, { target: { value: "tencent/hy3" } });
+
+    await waitFor(() => {
+      expect(getSaveBtn().disabled).toBe(false);
+    });
+    fireEvent.click(getSaveBtn());
+
+    // THEN the typed id is persisted exactly as entered
+    await waitFor(() => {
+      expect(saveCalls.length).toBe(1);
+    });
+    expect(saveCalls[0].entry.model).toBe("tencent/hy3");
   });
 });
 
