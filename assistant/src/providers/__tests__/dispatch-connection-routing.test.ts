@@ -283,9 +283,8 @@ describe("dispatch routes through provider_connection (Phase 1: connection-only)
 });
 
 // ---------------------------------------------------------------------------
-// Routing identities ("vellum"/"chatgpt") — resolution-unit coverage. The
-// config write-lock keeps identity providers out of stored profiles, so
-// config-driven dispatch of them is untestable here by construction.
+// Routing identities ("vellum"/"chatgpt") — resolution-unit coverage plus
+// config-driven dispatch through the real loader.
 // ---------------------------------------------------------------------------
 
 describe("routing identities", () => {
@@ -294,6 +293,55 @@ describe("routing identities", () => {
     resolveProviderOpts.length = 0;
     fakeConnections.clear();
     fakeProviders.clear();
+    setConfig("llm", {});
+  });
+
+  test("a stored vellum profile dispatches end-to-end through the real config loader", async () => {
+    registerConnection(
+      { name: "vellum", provider: "vellum", auth: { type: "platform" } },
+      { name: "anthropic", tag: "managed-stub" },
+    );
+    setLlmConfig({
+      profiles: {
+        managed: { provider: "vellum", model: "claude-opus-4-8" },
+      },
+    });
+
+    const result = await getConfiguredProvider("mainAgent", {
+      overrideProfile: "managed",
+    });
+
+    expect(result).not.toBeNull();
+    expect(resolveProviderCalls.length).toBe(1);
+    expect(resolveProviderCalls[0]?.name).toBe("vellum");
+    expect(resolveProviderOpts[0]?.providerOverride).toBe("anthropic");
+  });
+
+  test("a stored chatgpt profile dispatches end-to-end through the real config loader", async () => {
+    registerConnection(
+      {
+        name: "chatgpt-subscription",
+        provider: "openai",
+        auth: {
+          type: "oauth_subscription",
+          credential: "credential/chatgpt/access_token",
+        },
+      },
+      { name: "openai", tag: "subscription-stub" },
+    );
+    setLlmConfig({
+      profiles: {
+        subscription: { provider: "chatgpt", model: "gpt-5.5" },
+      },
+    });
+
+    const result = await getConfiguredProvider("mainAgent", {
+      overrideProfile: "subscription",
+    });
+
+    expect(result).not.toBeNull();
+    expect(resolveProviderCalls.length).toBe(1);
+    expect(resolveProviderCalls[0]?.name).toBe("chatgpt-subscription");
   });
 
   test("resolveRoutingIdentity derives the vellum upstream from the model", () => {

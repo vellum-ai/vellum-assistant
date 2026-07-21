@@ -28,11 +28,7 @@ import {
   getConfigReadOnly,
   loadRawConfig,
 } from "../../config/loader.js";
-import {
-  LLMProvider,
-  ProfileEntry,
-  WRITE_LOCKED_PROVIDERS,
-} from "../../config/schemas/llm.js";
+import { LLMProvider, ProfileEntry } from "../../config/schemas/llm.js";
 import { getDb } from "../../persistence/db-connection.js";
 import {
   ConnectionResolutionError,
@@ -42,6 +38,8 @@ import { ROUTING_IDENTITY_PROVIDERS } from "../../providers/inference/auth.js";
 import { computeConnectionAvailability } from "../../providers/inference/connection-availability.js";
 import { getConnection } from "../../providers/inference/connections.js";
 import { isModelInCatalog } from "../../providers/model-catalog.js";
+import { isCodexSubscriptionModel } from "../../providers/openai/codex-models.js";
+import { getManagedUpstream } from "../../providers/vellum-model-routing.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
   commitConfigWrite,
@@ -145,14 +143,6 @@ function assertValidProvider(provider: string): void {
       `Invalid provider "${provider}". Valid providers: ${LLMProvider.options.join(", ")}.`,
     );
   }
-  // Write-locked routing identities: dispatch cannot resolve them to a real
-  // upstream, so a stored profile carrying one cannot serve requests.
-  // Consults the same set as the schema and commitConfigWrite guards.
-  if (WRITE_LOCKED_PROVIDERS.has(provider)) {
-    throw new BadRequestError(
-      `Provider "${provider}" is not yet enabled for profiles.`,
-    );
-  }
 }
 
 /**
@@ -165,6 +155,36 @@ function validateModel(
   model: string,
   allowUnlisted: boolean,
 ): string[] {
+  // Routing identities key no catalog entries; they validate against their
+  // route's actual reach — the same checks dispatch applies per-request.
+  if (provider === "vellum") {
+    if (getManagedUpstream(model) !== null) {
+      return [];
+    }
+    const issue = `Model "${model}" is not served by the Vellum managed route.`;
+    if (!allowUnlisted) {
+      throw new BadRequestError(
+        `${issue} Pick a model from the Vellum catalog, or pass allowUnlisted to create it anyway.`,
+      );
+    }
+    return [
+      `${issue} Created anyway (allowUnlisted); requests with this profile fail as unroutable.`,
+    ];
+  }
+  if (provider === "chatgpt") {
+    if (isCodexSubscriptionModel(model)) {
+      return [];
+    }
+    const issue = `Model "${model}" is not served by the ChatGPT subscription (Codex models only).`;
+    if (!allowUnlisted) {
+      throw new BadRequestError(
+        `${issue} Pick a Codex model, or pass allowUnlisted to create it anyway.`,
+      );
+    }
+    return [
+      `${issue} Created anyway (allowUnlisted); requests with this profile fail as incompatible.`,
+    ];
+  }
   if (isModelInCatalog(provider, model)) {
     return [];
   }

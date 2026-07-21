@@ -8,9 +8,9 @@
  *   - missing provider connection
  *   - managed-profile create / update / delete rejection
  *
- * The happy-path write is intentionally not exercised here — it flows through
- * `commitConfigWrite` (disk write + provider reinit), which is covered by the
- * config-write tests.
+ * Routing-identity creates exercise the happy-path write end-to-end (through
+ * `commitConfigWrite` with the registry reinit stubbed); other happy-path
+ * writes are covered by the config-write tests.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -94,18 +94,56 @@ describe("POST inference/profiles (create) validation", () => {
     ).rejects.toBeInstanceOf(BadRequestError);
   });
 
-  test("rejects the schema-admitted routing identities until dispatch handles them", async () => {
-    for (const provider of ["vellum", "chatgpt"]) {
-      await expect(
-        call("inference_profiles_create", {
-          body: {
-            name: "my-profile",
-            provider,
-            model: "claude-opus-4-8",
-          },
-        }),
-      ).rejects.toThrow(/not yet enabled for profiles/);
-    }
+  test("creates a vellum profile for a managed-routable model", async () => {
+    const result = (await call("inference_profiles_create", {
+      body: {
+        name: "my-managed",
+        provider: "vellum",
+        model: "claude-opus-4-8",
+      },
+    })) as { entry: Record<string, unknown> };
+    expect(result.entry.provider).toBe("vellum");
+    expect(result.entry.model).toBe("claude-opus-4-8");
+    expect(loadRawConfig().llm).toMatchObject({
+      profiles: { "my-managed": { provider: "vellum" } },
+    });
+  });
+
+  test("rejects a vellum profile whose model has no managed upstream", async () => {
+    await expect(
+      call("inference_profiles_create", {
+        body: {
+          name: "my-managed",
+          provider: "vellum",
+          model: "not-a-real-model",
+        },
+      }),
+    ).rejects.toThrow(
+      /"not-a-real-model" is not served by the Vellum managed route/,
+    );
+  });
+
+  test("creates a chatgpt profile for a Codex model", async () => {
+    const result = (await call("inference_profiles_create", {
+      body: {
+        name: "my-subscription",
+        provider: "chatgpt",
+        model: "gpt-5.5",
+      },
+    })) as { entry: Record<string, unknown> };
+    expect(result.entry.provider).toBe("chatgpt");
+  });
+
+  test("rejects a chatgpt profile with a non-Codex model", async () => {
+    await expect(
+      call("inference_profiles_create", {
+        body: {
+          name: "my-subscription",
+          provider: "chatgpt",
+          model: "gpt-5",
+        },
+      }),
+    ).rejects.toThrow(/Codex models only/);
   });
 
   test("rejects an uncataloged model without allowUnlisted", async () => {
