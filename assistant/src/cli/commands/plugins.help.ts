@@ -51,7 +51,7 @@ Examples:
         { flags: "--force", description: "Overwrite an existing install" },
         {
           flags: "--ref <ref>",
-          description: `Marketplace manifest revision to read the pin from (default: ${DEFAULT_PLUGIN_REF}). Marketplace installs only — for a GitHub URL, put the ref in the URL (.../tree/<ref>/...)`,
+          description: `For a marketplace install, the manifest revision to read the pin from (default: ${DEFAULT_PLUGIN_REF}). For a GitHub URL, the git ref (branch/tag/SHA) to clone — required for a ref whose name contains a slash (e.g. feature/x), which the /tree/<ref>/ URL cannot express on its own`,
         },
         {
           flags: "--pin <sha>",
@@ -75,11 +75,13 @@ bypassing the marketplace whitelist. Such a plugin is UNTRUSTED — it has not
 been reviewed and its hooks/tools run with full assistant access — so the
 install prints a warning. Use it for a plugin still under development that is
 not in the catalog yet. The ref comes from the URL's /tree/<ref>/ segment, or
-defaults to the repository's default branch.
+defaults to the repository's default branch. A ref whose name contains a slash
+(e.g. feature/x) can't be read from the URL alone — pass it with --ref.
 
 Examples:
   $ assistant plugins install https://github.com/owner/repo
   $ assistant plugins install https://github.com/owner/repo/tree/my-branch/path/to/plugin
+  $ assistant plugins install https://github.com/owner/repo/tree/feat/results-viewer/path --ref feat/results-viewer
   $ assistant plugins install owner/repo --name my-plugin --force`,
     },
     {

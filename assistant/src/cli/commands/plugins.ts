@@ -832,10 +832,11 @@ async function resolveInstallOptions(
  * untrusted direct install, or `null` when the URL or flag combination is
  * invalid (a message is printed in that case, and the caller exits non-zero).
  *
- * The marketplace-only flags (`--ref`, `--pin`, `--allow-unreviewed`) do not
- * apply to a direct install — the ref lives in the URL — so combining them is
- * rejected. The install name defaults to the repo / sub-path leaf and can be
- * overridden with `--name`.
+ * `--ref` names the git ref to clone from; it is the only way to install from a
+ * ref whose name contains a slash (`feature/x`), which GitHub's
+ * `/tree/<ref>/<path>` URL cannot express unambiguously. `--pin` and
+ * `--allow-unreviewed` are marketplace-only and rejected here. The install name
+ * defaults to the repo / sub-path leaf and can be overridden with `--name`.
  */
 function resolveDirectInstallOptions(
   spec: string,
@@ -847,12 +848,6 @@ function resolveDirectInstallOptions(
     name?: string;
   },
 ): InstallPluginOptions | null {
-  if (opts.ref) {
-    console.error(
-      "--ref does not apply to a GitHub-URL install; put the ref in the URL (e.g. .../tree/<ref>/...).",
-    );
-    return null;
-  }
   if (opts.pin || opts.allowUnreviewed) {
     console.error(
       "--pin and --allow-unreviewed only apply to marketplace installs by name, not a GitHub URL.",
@@ -862,7 +857,7 @@ function resolveDirectInstallOptions(
 
   let parsed;
   try {
-    parsed = parseGitHubPluginSpec(spec);
+    parsed = parseGitHubPluginSpec(spec, opts.ref);
   } catch (err) {
     if (err instanceof InvalidGitHubPluginSpecError) {
       console.error(err.message);

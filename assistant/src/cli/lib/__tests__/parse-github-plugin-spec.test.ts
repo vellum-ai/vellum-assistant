@@ -118,4 +118,58 @@ describe("parseGitHubPluginSpec", () => {
       parseGitHubPluginSpec("github.com/owner/repo/tree/main/../etc"),
     ).toThrow(InvalidGitHubPluginSpecError);
   });
+
+  describe("with an explicit refOverride", () => {
+    test("recovers a slash-containing ref from a copied /tree/ URL, stripping it from the sub-path", () => {
+      const spec = parseGitHubPluginSpec(
+        "https://github.com/ZeebBoyBlue/virlo-integrations/tree/feat/results-viewer/integrations/vellum",
+        "feat/results-viewer",
+      );
+      expect(spec).toEqual({
+        owner: "ZeebBoyBlue",
+        repo: "virlo-integrations",
+        path: "integrations/vellum",
+        ref: "feat/results-viewer",
+        defaultName: "vellum",
+      });
+    });
+
+    test("applies the ref to the non-tree form, keeping all trailing segments as the sub-path", () => {
+      const spec = parseGitHubPluginSpec(
+        "github.com/owner/repo/integrations/vellum",
+        "feature/x",
+      );
+      expect(spec.ref).toBe("feature/x");
+      expect(spec.path).toBe("integrations/vellum");
+    });
+
+    test("wins over a single-segment ref present in the URL", () => {
+      const spec = parseGitHubPluginSpec(
+        "https://github.com/owner/repo/tree/main/pkg",
+        "release/2.0",
+      );
+      // The URL's `main` is not a prefix of the override, so it is treated as
+      // part of the sub-path rather than silently dropped.
+      expect(spec.ref).toBe("release/2.0");
+      expect(spec.path).toBe("main/pkg");
+    });
+
+    test("strips a matching single-segment ref just like the URL-only path would", () => {
+      const spec = parseGitHubPluginSpec(
+        "https://github.com/owner/repo/tree/main/pkg",
+        "main",
+      );
+      expect(spec.ref).toBe("main");
+      expect(spec.path).toBe("pkg");
+    });
+
+    test("is ignored when blank, falling back to the URL-derived ref", () => {
+      const spec = parseGitHubPluginSpec(
+        "https://github.com/owner/repo/tree/my-branch/pkg",
+        "   ",
+      );
+      expect(spec.ref).toBe("my-branch");
+      expect(spec.path).toBe("pkg");
+    });
+  });
 });
