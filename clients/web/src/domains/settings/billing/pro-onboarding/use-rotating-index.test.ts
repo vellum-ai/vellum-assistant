@@ -111,6 +111,23 @@ describe("useRotatingIndex", () => {
     expect(result.current).toBeLessThanOrEqual(1);
   });
 
+  test("returns 0 on the render where rotation is disabled", () => {
+    const { result, rerender } = renderHook(
+      ({ enabled }) => useRotatingIndex(3, { intervalMs: 1000, enabled }),
+      { initialProps: { enabled: true } },
+    );
+
+    tick();
+    tick();
+    expect(result.current).toBe(2);
+
+    // Disabling rotation must expose the static first item immediately; the
+    // reset effect only runs after commit, so the returned value cannot be the
+    // stale advanced index.
+    rerender({ enabled: false });
+    expect(result.current).toBe(0);
+  });
+
   test("clears the interval on unmount — no advance afterwards", () => {
     const { result, unmount } = renderHook(() =>
       useRotatingIndex(3, { intervalMs: 1000, enabled: true }),

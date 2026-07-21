@@ -27,8 +27,11 @@ export function useRotatingIndex(
     };
   }, [count, intervalMs, enabled]);
 
-  // Clamp to the current count so the returned index satisfies `0..count-1`
-  // even on the render where `count` shrinks below `index`, before the reset
-  // effect commits.
-  return count > 0 ? Math.min(index, count - 1) : 0;
+  // Satisfy the documented contract on the same render that disables rotation
+  // or shrinks the list, before the reset effect commits: return 0 whenever
+  // rotation is inactive, otherwise clamp to the current count.
+  if (!enabled || count <= 1) {
+    return 0;
+  }
+  return Math.min(index, count - 1);
 }
