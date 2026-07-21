@@ -26,6 +26,7 @@ import {
 import { ApiError } from "@/utils/api-errors";
 import { isElectron } from "@/runtime/is-electron";
 import { openPopoutWindow } from "@/runtime/popout-window";
+import { navigateToConversation } from "@/utils/conversation-navigation";
 import { routes } from "@/utils/routes";
 import { haptic } from "@/utils/haptics";
 import { messagePlainText } from "@/domains/chat/utils/message-plain-text";
@@ -120,7 +121,11 @@ export function useConversationSecondaryActions({
           throwOnError: true,
         });
         refreshConversations();
-        void navigate(routes.conversation(data.conversation.id));
+        // The haptic already fired at action start; silence the navigator's
+        // own tap so forking doesn't double-buzz.
+        navigateToConversation(navigate, data.conversation.id, {
+          silent: true,
+        });
       } catch (err) {
         captureError(err, { context: "fork_conversation" });
       }

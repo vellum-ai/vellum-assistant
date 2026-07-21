@@ -17421,6 +17421,65 @@ paths:
                   - confident
                   - notes
                 additionalProperties: false
+  /v1/memory/remember:
+    post:
+      operationId: memory_remember_post
+      summary: Create a memory by remembering a fact
+      description:
+        Append a user-authored fact to the memory buffer via handleRemember; it is materialized into a graph node
+        later by consolidation.
+      tags:
+        - memory
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                content:
+                  type: string
+              required:
+                - content
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  success:
+                    type: boolean
+                required:
+                  - message
+                  - success
+                additionalProperties: false
+  /v1/memory/stats:
+    get:
+      operationId: memory_stats_get
+      summary: Get lightweight memory stats
+      description:
+        Return a cheap count of concept pages from the cached memory page index, for glanceable surfaces like the
+        identity Memory card. Counts concept pages only and never builds the memory-concept graph.
+      tags:
+        - memory
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  concepts:
+                    type: number
+                    description: Number of concept pages in memory
+                required:
+                  - concepts
+                additionalProperties: false
   /v1/memory/v2/backfill:
     post:
       operationId: memory_v2_backfill_post
@@ -30188,6 +30247,53 @@ paths:
                   - description
                   - scopeOptions
                 additionalProperties: false
+  /v1/tts/managed-voices:
+    get:
+      operationId: tts_managedvoices_get
+      summary: List managed TTS voices
+      description:
+        Return the voices offered by Vellum managed TTS, fetched live from the platform. Only currently-usable
+        voices are returned; defaultModel is always one of them (null when none are offered).
+      tags:
+        - tts
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  voices:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        model:
+                          type: string
+                        label:
+                          type: string
+                        description:
+                          type: string
+                        sampleUrl:
+                          type: string
+                        source:
+                          type: string
+                      required:
+                        - model
+                        - label
+                        - description
+                        - sampleUrl
+                        - source
+                      additionalProperties: false
+                  defaultModel:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                required:
+                  - voices
+                  - defaultModel
+                additionalProperties: false
   /v1/tts/providers:
     get:
       operationId: tts_providers_get
@@ -33556,6 +33662,12 @@ components:
             - running
             - not_running
             - unreachable
+        origin:
+          type: string
+          pattern: ^(workspace|plugin:.+)$
+          description:
+            "Process origin: 'workspace' for the daemon and its subsystems, or 'plugin:<name>' for a process spawned
+            from a plugin (e.g. 'plugin:default-memory', 'plugin:cognee')."
         children:
           type: array
           items:
@@ -33565,6 +33677,7 @@ components:
       required:
         - name
         - status
+        - origin
       additionalProperties: false
     AuthOutput:
       oneOf:

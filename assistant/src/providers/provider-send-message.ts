@@ -4,7 +4,10 @@
  * and response extraction helpers.
  */
 
-import { resolveCallSiteConfig } from "../config/llm-resolver.js";
+import {
+  resolveCallSiteConfig,
+  type ResolveCallSiteOpts,
+} from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { getDb } from "../persistence/db-connection.js";
@@ -31,6 +34,11 @@ export interface ConfiguredProviderResult {
   provider: Provider;
   configuredProviderName: string;
 }
+
+export type ConfiguredProviderOptions = Pick<
+  ResolveCallSiteOpts,
+  "overrideProfile" | "forceOverrideProfile" | "selectionSeed"
+>;
 
 /**
  * Cached promise for the lazy initialization path inside
@@ -111,7 +119,7 @@ export class CallSiteConfiguredProvider implements Provider {
  */
 export async function resolveConfiguredProvider(
   callSite: LLMCallSite,
-  opts: { overrideProfile?: string; forceOverrideProfile?: boolean } = {},
+  opts: ConfiguredProviderOptions = {},
 ): Promise<ConfiguredProviderResult | null> {
   const config = getConfig();
 
@@ -223,7 +231,7 @@ export async function resolveConfiguredProvider(
  */
 export async function getConfiguredProvider(
   callSite: LLMCallSite,
-  opts: { overrideProfile?: string; forceOverrideProfile?: boolean } = {},
+  opts: ConfiguredProviderOptions = {},
 ): Promise<Provider | null> {
   const result = await resolveConfiguredProvider(callSite, opts);
   return result?.provider ?? null;

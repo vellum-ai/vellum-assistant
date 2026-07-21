@@ -9,6 +9,7 @@ import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "../../prompts/cache-boundary.js";
 import { isAbortReason } from "../../util/abort-reasons.js";
 import { ProviderError, type ProviderErrorReason } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
+import { DAILY_LIMIT_PATTERNS } from "../../util/provider-error-patterns.js";
 import { base64Source, resolveMediaReferences } from "../media-resolve.js";
 import { PROVIDER_CATALOG } from "../model-catalog.js";
 import { createStreamTimeout } from "../stream-timeout.js";
@@ -241,6 +242,11 @@ export function deriveGeminiReason(error: ApiError): ProviderErrorReason {
   const upper = message.toUpperCase();
   const hasName = (name: string) => upper.includes(name);
 
+  // The managed proxy's daily-limit 402 body carries a specific code; match it
+  // before the status branches so it isn't classified as a generic 4xx.
+  if (DAILY_LIMIT_PATTERNS.some((re) => re.test(message))) {
+    return "daily_limit_reached";
+  }
   if (status === 401 || hasName("UNAUTHENTICATED")) {
     return "invalid_credentials";
   }
@@ -560,9 +566,7 @@ export class GeminiProvider implements Provider {
           error.status,
           // Skip reason on caller-abort: abortReason already carries the intent
           // and short-circuits classification/retry (mirrors the Anthropic client).
-          abortReason
-            ? { abortReason }
-            : { reason: deriveGeminiReason(error) },
+          abortReason ? { abortReason } : { reason: deriveGeminiReason(error) },
         );
       }
       throw new ProviderError(

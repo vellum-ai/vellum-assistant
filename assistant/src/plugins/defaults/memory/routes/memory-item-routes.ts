@@ -56,6 +56,7 @@ import { createNode, deleteNode, getNode, updateNode } from "../graph/store.js";
 import {
   handleDeleteMemory,
   handleListMemory,
+  handleRemember,
   handleUpdateMemory,
 } from "../graph/tool-handlers.js";
 import type {
@@ -66,6 +67,8 @@ import type {
   NewNode,
 } from "../graph/types.js";
 import { getLogger } from "../logging.js";
+import { getWorkspaceDir } from "../paths.js";
+import { getPageIndex } from "../v2/page-index.js";
 
 const log = getLogger("memory-item-routes");
 
@@ -462,6 +465,22 @@ function handleGetMemoryItem(id: string) {
   return { item: nodeToPayload(node) };
 }
 
+/**
+ * Cheap concept count for glanceable surfaces (the identity Memory card).
+ *
+ * Read straight from the CACHED page index and count only real concept pages:
+ * those carry a real file mtime (`modifiedAt > 0`), while synthetic rows
+ * (seeded skills and CLI commands) carry `modifiedAt: 0`. This mirrors the
+ * concepts-only filter in `build-memory-graph.ts`, but never triggers the
+ * expensive `getMemoryGraph` build (edge / learned / cluster graph) — the
+ * concept graph is deliberately kept off identity-page load.
+ */
+async function handleGetMemoryStats(): Promise<{ concepts: number }> {
+  const pageIndex = await getPageIndex(getWorkspaceDir());
+  const concepts = pageIndex.entries.filter((e) => e.modifiedAt > 0).length;
+  return { concepts };
+}
+
 async function handleCreateMemoryItem(body: Record<string, unknown>) {
   const { kind, subject, statement, importance } = body as {
     kind?: string;
@@ -737,6 +756,26 @@ export const ROUTES: RouteDefinition[] = [
   },
 
   {
+    operationId: "getMemoryStats",
+    endpoint: "memory/stats",
+    method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Get lightweight memory stats",
+    description:
+      "Return a cheap count of concept pages from the cached memory page " +
+      "index, for glanceable surfaces like the identity Memory card. Counts " +
+      "concept pages only and never builds the memory-concept graph.",
+    tags: ["memory"],
+    responseBody: z.object({
+      concepts: z.number().describe("Number of concept pages in memory"),
+    }),
+    handler: () => handleGetMemoryStats(),
+  },
+
+  {
     operationId: "createMemoryItem",
     endpoint: "memory-items",
     method: "POST",
@@ -942,6 +981,36 @@ export const ROUTES: RouteDefinition[] = [
           new_content: parsed.data.newContent,
         },
         "cli",
+        getConfig(),
+      );
+    },
+  },
+
+  {
+    operationId: "createMemory",
+    endpoint: "memory/remember",
+    method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Create a memory by remembering a fact",
+    description:
+      "Append a user-authored fact to the memory buffer via handleRemember; it is materialized into a graph node later by consolidation.",
+    tags: ["memory"],
+    requestBody: z.object({ content: z.string() }),
+    responseBody: z.object({ message: z.string(), success: z.boolean() }),
+    handler: ({ body }) => {
+      const parsed = z.object({ content: z.string() }).safeParse(body ?? {});
+      if (!parsed.success) {
+        throw new BadRequestError("content (string) is required");
+      }
+      if (parsed.data.content.trim().length === 0) {
+        throw new BadRequestError("content (non-empty string) is required");
+      }
+      return handleRemember(
+        { content: parsed.data.content },
+        "web",
         getConfig(),
       );
     },

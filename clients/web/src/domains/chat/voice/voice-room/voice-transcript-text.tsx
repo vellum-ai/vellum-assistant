@@ -26,8 +26,23 @@
 import { Fragment, useMemo } from "react";
 import { motion, useReducedMotion } from "motion/react";
 
-export function VoiceTranscriptText({ text }: { text: string }) {
+export function VoiceTranscriptText({
+  text,
+  color,
+}: {
+  text: string;
+  /**
+   * Paints every word this single tone (a flat reveal). Omit to keep the
+   * two-tone look — the leading-edge word brighter (`--room-fg`), the settled
+   * words muted (`--room-fg-muted`).
+   */
+  color?: string;
+}) {
   const reduce = useReducedMotion();
+  // A caller-supplied `color` flattens the reveal to one tone; otherwise the
+  // leading edge reads brighter than the settled words.
+  const leadingColor = color ?? "var(--room-fg, var(--content-secondary))";
+  const baseColor = color ?? "var(--room-fg-muted, var(--content-tertiary))";
   // Collapse runs of whitespace to single spaces — the words are laid out with
   // real space text nodes between them (so they wrap and select naturally, and
   // `textContent` reads back as the plain sentence).
@@ -41,11 +56,12 @@ export function VoiceTranscriptText({ text }: { text: string }) {
         return (
           <Fragment key={i}>
             <motion.span
-              className="inline-block"
+              // `max-w-full` + break-anywhere so a single long token (URL, code)
+              // wraps within its container instead of overflowing the narrow
+              // transcript rail and being clipped.
+              className="inline-block max-w-full [overflow-wrap:anywhere]"
               style={{
-                color: leading
-                  ? "var(--room-fg, var(--content-secondary))"
-                  : "var(--room-fg-muted, var(--content-tertiary))",
+                color: leading ? leadingColor : baseColor,
                 // The leading-edge tone eases back to the base as the next word
                 // takes over (the motion entrance below owns transform/opacity).
                 transition: "color 0.45s ease",

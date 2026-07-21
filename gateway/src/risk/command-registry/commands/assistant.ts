@@ -195,6 +195,7 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "memory v3 eval",
   "memory retrospective",
   "memory retrospective run",
+  "memory retrospective list",
   "memory worker",
   "memory worker start",
   "memory worker stop",

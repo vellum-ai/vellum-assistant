@@ -28,6 +28,17 @@ mock.module("@/hooks/use-assistant-avatar", () => ({
     invalidate: () => {},
   }),
 }));
+// The voice picker's own tests cover it; here it stays collapsed (unavailable)
+// so the card renders without the daemon query graph / a QueryClient.
+mock.module("@/domains/chat/voice/voice-room/use-managed-voice-selection", () => ({
+  useManagedVoiceSelection: () => ({
+    available: false,
+    voices: [],
+    currentModel: "",
+    selectModel: () => {},
+    selecting: false,
+  }),
+}));
 
 import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
 

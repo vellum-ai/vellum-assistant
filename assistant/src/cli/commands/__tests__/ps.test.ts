@@ -133,7 +133,7 @@ describe("ps command — IPC wiring", () => {
 });
 
 describe("ps command — tree rendering", () => {
-  test("renders parent, indented children, and status labels", async () => {
+  test("renders parent, indented children, and plugin/workspace origin", async () => {
     mockResponse = {
       ok: true,
       result: {
@@ -141,9 +141,14 @@ describe("ps command — tree rendering", () => {
           {
             name: "assistant",
             status: "running",
+            origin: "workspace",
             children: [
-              { name: "qdrant", status: "running" },
-              { name: "embed-worker", status: "not_running" },
+              { name: "qdrant", status: "running", origin: "workspace" },
+              {
+                name: "memory-worker",
+                status: "running",
+                origin: "plugin:default-memory",
+              },
             ],
           },
         ],
@@ -151,27 +156,83 @@ describe("ps command — tree rendering", () => {
     };
 
     await runPsCommand();
-    const out = logLines.join("\n");
+    const lines = logLines.filter((l) => l.trim().length > 0);
 
-    expect(out).toContain("assistant  [running]");
-    expect(out).toContain("  qdrant  [running]");
-    expect(out).toContain("  embed-worker  [not running]");
+    // Column 1 keeps the hierarchy indentation; the origin column follows.
+    const root = lines.find((l) => l.startsWith("assistant"))!;
+    const qdrant = lines.find((l) => l.trimStart().startsWith("qdrant"))!;
+    const worker = lines.find((l) =>
+      l.trimStart().startsWith("memory-worker"),
+    )!;
+
+    expect(qdrant).toMatch(/^ {2}qdrant/);
+    expect(root).toContain("workspace");
+    expect(qdrant).toContain("workspace");
+    // The plugin's name is shown alongside the plugin tag.
+    expect(worker).toContain("plugin:default-memory");
+
+    // The status label is gone — no [running] anywhere.
+    expect(logLines.join("\n")).not.toContain("[running]");
   });
 
-  test("appends info text when present", async () => {
+  test("aligns column 2 to the same start index across all rows", async () => {
     mockResponse = {
       ok: true,
       result: {
         processes: [
-          { name: "qdrant", status: "unreachable", info: "probe timed out" },
+          {
+            name: "assistant",
+            status: "running",
+            origin: "workspace",
+            children: [
+              {
+                name: "qdrant",
+                status: "running",
+                origin: "workspace",
+                children: [
+                  {
+                    name: "deeply-nested-child",
+                    status: "running",
+                    origin: "plugin:cognee",
+                  },
+                ],
+              },
+            ],
+          },
         ],
       },
     };
 
     await runPsCommand();
-    expect(logLines.join("\n")).toContain(
-      "qdrant  [unreachable] — probe timed out",
+    const lines = logLines.filter((l) => l.trim().length > 0);
+
+    // The origin word starts at the same column on every row regardless of
+    // the depth-driven indentation in column 1.
+    const originStarts = lines.map((l) =>
+      l.indexOf("workspace") === -1
+        ? l.indexOf("plugin")
+        : l.indexOf("workspace"),
     );
+    expect(new Set(originStarts).size).toBe(1);
+  });
+
+  test("shows the pid info column", async () => {
+    mockResponse = {
+      ok: true,
+      result: {
+        processes: [
+          {
+            name: "qdrant",
+            status: "running",
+            origin: "workspace",
+            info: "pid 4242",
+          },
+        ],
+      },
+    };
+
+    await runPsCommand();
+    expect(logLines.join("\n")).toContain("pid 4242");
   });
 
   test("prints a placeholder when no processes are reported", async () => {

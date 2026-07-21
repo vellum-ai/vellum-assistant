@@ -826,6 +826,14 @@ describe("AssistantConfigSchema", () => {
         maxTurnDurationMs: 30000,
         bargeInMinSpeechMs: 250,
       },
+      frontModel: {
+        endpointDecisionTimeoutMs: 1200,
+        endpointExtensionMs: 1500,
+        endpointMaxExtensions: 2,
+        ackFirstDeltaTimeoutMs: 2500,
+        ackGenerationTimeoutMs: 600,
+        llmAckText: false,
+      },
       maxSessionDurationSeconds: 1800,
       archiveAudio: false,
     });
@@ -1371,9 +1379,9 @@ describe("AssistantConfigSchema", () => {
     expect(TtsServiceSchema.safeParse({ provider: "vellum" }).success).toBe(
       true,
     );
-    expect(TtsServiceSchema.safeParse({ provider: "self-hosted" }).success).toBe(
-      false,
-    );
+    expect(
+      TtsServiceSchema.safeParse({ provider: "self-hosted" }).success,
+    ).toBe(false);
   });
 
   // ── services.stt config ──────────────────────────────────────────────

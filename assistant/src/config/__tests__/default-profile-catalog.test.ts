@@ -151,7 +151,9 @@ describe("resolver integration", () => {
       }
       const expected = CODE_DEFAULT_PROFILE_ENTRIES[dflt.profile];
       const resolved = resolveCallSiteConfig(callSite as LLMCallSite, llm);
-      expect(resolved.model).toBe(expected.model as string);
+      // A site-level model pin (e.g. voiceFrontDecision's latency pin)
+      // legitimately overrides the profile's model.
+      expect(resolved.model).toBe((dflt.model ?? expected.model) as string);
     }
   });
 

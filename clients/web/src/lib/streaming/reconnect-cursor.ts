@@ -31,11 +31,52 @@
 let reconnectCursor: number | null = null;
 
 /**
+ * The ceiling of the most recently abandoned seq generation, or `null` when
+ * no generation reset has been observed on this connection's seq space.
+ *
+ * A generation reset (the daemon's counter restarting below the live cursor)
+ * proves every seq up to the pre-reset cursor belonged to a now-dead
+ * generation. A `/messages` request that raced the reset can still land a
+ * dead-generation anchor on a per-conversation frontier afterwards; that
+ * poisoned frontier sits at or above this ceiling while the new generation
+ * re-climbs toward it. That re-climb window is the only place a live event
+ * trailing its conversation's frontier is a stale-generation anchor rather
+ * than an ordinary snapshot-overlap replay — see the stale-frontier guard in
+ * `sse-event-consumer`. Held monotonically (highest ceiling wins) so a second
+ * reset never narrows the window, and cleared with the cursor on an assistant
+ * switch, which is a fresh seq space.
+ */
+let abandonedGenerationCeiling: number | null = null;
+
+/**
  * The highest global seq applied so far, or `null` if no event with a
  * seq has been seen yet.
  */
 export function getReconnectCursor(): number | null {
   return reconnectCursor;
+}
+
+/**
+ * Record a seq-generation reset that abandoned every seq up to
+ * `abandonedCeiling` — the cursor value observed immediately before the
+ * daemon's counter restarted lower. Monotonic: retains the highest ceiling
+ * seen so a later, smaller reset never narrows the stale-frontier window.
+ */
+export function recordAbandonedGeneration(abandonedCeiling: number): void {
+  if (
+    abandonedGenerationCeiling === null ||
+    abandonedCeiling > abandonedGenerationCeiling
+  ) {
+    abandonedGenerationCeiling = abandonedCeiling;
+  }
+}
+
+/**
+ * The ceiling of the most recent abandoned seq generation, or `null` when no
+ * generation reset has been observed on this connection's seq space.
+ */
+export function getAbandonedGenerationCeiling(): number | null {
+  return abandonedGenerationCeiling;
 }
 
 /**
@@ -68,4 +109,5 @@ export function replaceReconnectCursor(seq: number): void {
  */
 export function resetReconnectCursor(): void {
   reconnectCursor = null;
+  abandonedGenerationCeiling = null;
 }

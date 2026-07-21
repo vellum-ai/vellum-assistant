@@ -611,12 +611,6 @@ export function ChatLayout({
     },
   });
 
-  const handleOpenLibrary = useCallback(() => {
-    navigate(routes.library.root);
-  }, [navigate]);
-
-  const isLibraryActive = location.pathname.startsWith(routes.library.root);
-
   // Only highlight a conversation row in the sidebar when the user is
   // actually viewing it. On non-conversation routes (Identity, Library,
   // Home, etc.) no conversation row should appear active. The store value
@@ -704,8 +698,6 @@ export function ChatLayout({
       onStartNewConversation={startNewConversation}
       isIntelligenceActive={isIdentityActive}
       onOpenIntelligence={handleOpenIdentity}
-      isLibraryActive={isLibraryActive}
-      onOpenLibrary={handleOpenLibrary}
       activeAppId={activeAppId ?? undefined}
       onOpenApp={handleOpenAppFromSidebar}
       onPinConversation={handleTogglePinConversation}

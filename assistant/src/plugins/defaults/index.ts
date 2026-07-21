@@ -78,6 +78,7 @@ import {
   memoryV3Injector,
   memoryV3SpotlightInjector,
 } from "./memory/v3/injector.js";
+import platformHostedPkg from "./platform-hosted/package.json" with { type: "json" };
 import { sessionInjectors } from "./session/injectors.js";
 import sessionPkg from "./session/package.json" with { type: "json" };
 import surfaceCompletionNudgePostModelCall from "./surface-completion-nudge/hooks/post-model-call.js";
@@ -275,6 +276,19 @@ export const defaultSessionPlugin: Plugin = {
 };
 
 /**
+ * `platform-hosted` — contributes the platform-hosted `/reengage` route. It
+ * ships no hooks, tools, or injectors, so it registers as a manifest only;
+ * the route source is served once the assistant dispatches default-plugin
+ * routes.
+ */
+export const defaultPlatformHostedPlugin: Plugin = {
+  manifest: {
+    name: platformHostedPkg.name,
+    version: platformHostedPkg.version,
+  },
+};
+
+/**
  * `history-repair` — normalizes the working message history (tool-use/tool-result
  * pairing, role alternation). The `user-prompt-submit` hook normalizes the
  * history before each provider call; the `post-model-call` hook handles the
@@ -448,6 +462,7 @@ export function getAllDefaultPlugins(): readonly Plugin[] {
     defaultDocumentsPlugin,
     defaultChannelPlugin,
     defaultSessionPlugin,
+    defaultPlatformHostedPlugin,
     defaultImageFallbackPlugin,
     defaultToolResultTruncatePlugin,
     defaultEmptyResponsePlugin,
