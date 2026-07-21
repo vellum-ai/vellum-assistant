@@ -743,6 +743,51 @@ describe("useProProvisioning", () => {
   });
 
   test(
+    "the targets-met latch is re-keyed when the provisioning target changes",
+    async () => {
+      // Both assistants already satisfy the targets, so `currentTargetsMet`
+      // never flips false across the switch. Without re-keying, the first
+      // assistant's timestamp would survive and any status reading merely
+      // postdating it could confirm a rollout for the second that nobody
+      // observed. Status is held at `active` so `sawOperation` never latches.
+      ensureResponse = makeEnsureResponse("started");
+      subscriptionPlanId = "pro";
+      onboardingResponse = { ...makeOnboarding(), primary_assistant_id: null };
+      assistantResponse = makeAssistant("large", 50);
+      assistantsById["assistant-2"] = {
+        ...makeAssistant("large", 50),
+        id: "assistant-2",
+      };
+      const { client } = renderProbe();
+
+      // Settles on the active assistant and completes against it.
+      await waitFor(() => expect(latest!.state).toBe("DONE"), {
+        timeout: 5000,
+      });
+
+      // The primary lands and re-points the polls at a different assistant.
+      onboardingResponse = {
+        ...makeOnboarding(),
+        primary_assistant_id: "assistant-2",
+      };
+      await refetchAll(client);
+      await waitFor(() => expect(latest!.assistantId).toBe("assistant-2"), {
+        timeout: 5000,
+      });
+
+      // The latch now describes assistant-2, so its confirmation had to come
+      // from a status reading taken after *its* actuals were seen to meet the
+      // targets — not from the previous assistant's stale timestamp.
+      const callsAfterSwitch = operationalStatusCalls;
+      await waitFor(() => expect(latest!.state).toBe("DONE"), {
+        timeout: 5000,
+      });
+      expect(operationalStatusCalls).toBeGreaterThanOrEqual(callsAfterSwitch);
+    },
+    20_000,
+  );
+
+  test(
     "background onboarding refetch keeps the fresh primary selected (no flip to active)",
     async () => {
       subscriptionPlanId = "pro";

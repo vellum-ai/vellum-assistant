@@ -170,6 +170,15 @@ export function useProProvisioning({
   // queues the resize on a worker, so a status read right after it can precede
   // the marker's creation entirely.
   const [targetsMetAt, setTargetsMetAt] = useState<number | null>(null);
+  // The assistant that latch describes. Without it, switching to a different
+  // provisioning target that *also* already meets the targets would never flip
+  // `currentTargetsMet` false, so the previous assistant's timestamp would
+  // survive — and a status reading for the new assistant that merely postdates
+  // it could confirm a rollout nobody has observed. Mirrors how the actuals
+  // snapshot is keyed to `snapshotAssistantId`.
+  const [targetsMetAssistantId, setTargetsMetAssistantId] = useState<
+    string | null
+  >(null);
   // Only ever set by a user-initiated reconcile — see runEnsureProvisioned.
   const [ensureError, setEnsureError] = useState<unknown>(null);
   // Pending state for the *manual* reconcile only. The mutation's own
@@ -219,6 +228,7 @@ export function useProProvisioning({
     setTracking(true);
     setServerVerdict(null);
     setTargetsMetAt(null);
+    setTargetsMetAssistantId(null);
     setEnsureError(null);
     setManualPending(false);
     setRaceRetryScheduled(false);
@@ -503,14 +513,19 @@ export function useProProvisioning({
   // the targets (a re-keyed assistant), so the anchor always describes the
   // observation the completion check is about to be made against.
   const currentTargetsMet = targetsMet(targets, actuals);
+  const targetsMetMatchesAssistant = targetsMetAssistantId === assistantId;
   useEffect(() => {
     if (!open) return;
     if (currentTargetsMet) {
-      setTargetsMetAt((prev) => prev ?? Date.now());
+      setTargetsMetAt((prev) =>
+        prev != null && targetsMetMatchesAssistant ? prev : Date.now(),
+      );
+      setTargetsMetAssistantId(assistantId);
     } else {
       setTargetsMetAt(null);
+      setTargetsMetAssistantId(null);
     }
-  }, [open, currentTargetsMet]);
+  }, [open, currentTargetsMet, assistantId, targetsMetMatchesAssistant]);
 
   // Freeze the first non-null actuals as the before/after "from" side, keyed to
   // the assistant it describes. When assistantId changes (e.g. a stale primary
@@ -547,8 +562,12 @@ export function useProProvisioning({
     // "we have read the operational status since the actuals reached the
     // targets". A status query stuck erroring never advances it, which
     // correctly withholds completion rather than guessing.
+    // The latch must also still describe the assistant being provisioned —
+    // otherwise the render before the re-keying effect runs could confirm
+    // against the previous target's timestamp.
     statusObservedSinceTargetsMet:
       targetsMetAt != null &&
+      targetsMetMatchesAssistant &&
       operationalStatusQuery.dataUpdatedAt > targetsMetAt,
   });
 
