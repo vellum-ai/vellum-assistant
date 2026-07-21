@@ -326,6 +326,19 @@ describe("routing identities", () => {
     });
   });
 
+  test("resolveRoutingIdentity rejects non-Codex models on the chatgpt route", () => {
+    expect(() => resolveRoutingIdentity("chatgpt", "gpt-5")).toThrow(
+      ConnectionResolutionError,
+    );
+    try {
+      resolveRoutingIdentity("chatgpt", "gpt-5");
+    } catch (err) {
+      expect((err as ConnectionResolutionError).reason).toBe(
+        "model_incompatible",
+      );
+    }
+  });
+
   test("resolveRoutingIdentity passes real providers through untouched", () => {
     expect(resolveRoutingIdentity("anthropic", "claude-opus-4-8")).toBeNull();
     expect(resolveRoutingIdentity(undefined, "claude-opus-4-8")).toBeNull();

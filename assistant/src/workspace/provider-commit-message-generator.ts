@@ -160,8 +160,14 @@ class ProviderCommitMessageGenerator {
     const provider = resolved.provider;
     const providerName = resolved.configuredProviderName;
 
-    // Step 2b: API key preflight for the configured provider (skip keyless).
-    if (!KEYLESS_PROVIDERS.has(providerName)) {
+    // Step 2b: API key preflight for the configured provider. Skipped for
+    // keyless providers and for routing identities ("vellum"/"chatgpt"),
+    // which authenticate through their connection row (platform token /
+    // ChatGPT OAuth) — no provider API key exists for them, and resolution
+    // already verified the connection credential.
+    const isRoutingIdentity =
+      providerName === "vellum" || providerName === "chatgpt";
+    if (!KEYLESS_PROVIDERS.has(providerName) && !isRoutingIdentity) {
       const providerApiKey = await getProviderKeyAsync(providerName);
       if (!providerApiKey) {
         log.debug(

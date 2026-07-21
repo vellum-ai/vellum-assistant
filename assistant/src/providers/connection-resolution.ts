@@ -41,6 +41,7 @@ import {
 } from "./connection-model-compat.js";
 import { CHATGPT_SUBSCRIPTION_CONNECTION_NAME } from "./inference/auth.js";
 import { getConnection, listConnections } from "./inference/connections.js";
+import { isCodexSubscriptionModel } from "./openai/codex-models.js";
 import { resolveManagedProxyContext } from "./platform-proxy/context.js";
 import { checkCredentialPresence } from "./provider-availability.js";
 import type { ProvidersConfig } from "./registry.js";
@@ -93,8 +94,9 @@ export class ConnectionResolutionError extends ConfigError {
  * canonical vellum connection; "chatgpt" routes through the
  * chatgpt-subscription connection with an openai upstream. Returns null for
  * real providers. Throws `unroutable_managed_model` when a vellum model has
- * no managed upstream — loud and explainable, never a soft fall-through to
- * the (possibly platform-billed) default transport.
+ * no managed upstream, and `model_incompatible` when a chatgpt model is
+ * outside the Codex subscription set — loud and explainable, never a soft
+ * fall-through to the (possibly platform-billed) default transport.
  */
 export function resolveRoutingIdentity(
   provider: string | undefined,
@@ -116,6 +118,17 @@ export function resolveRoutingIdentity(
     };
   }
   if (provider === "chatgpt") {
+    // The subscription endpoint rejects non-Codex models with HTTP 400;
+    // gate here so the misconfiguration surfaces as a config error instead
+    // of an upstream request failure.
+    if (model && !isCodexSubscriptionModel(model)) {
+      throw new ConnectionResolutionError(
+        CHATGPT_SUBSCRIPTION_CONNECTION_NAME,
+        "model_incompatible",
+        `provider "chatgpt" cannot route model "${model}" — the ChatGPT subscription serves Codex models only. Pick a Codex model or set a concrete provider.`,
+        { model },
+      );
+    }
     return {
       connectionName: CHATGPT_SUBSCRIPTION_CONNECTION_NAME,
       expectedProvider: "openai",
