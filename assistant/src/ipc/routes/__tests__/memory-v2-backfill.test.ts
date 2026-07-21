@@ -57,7 +57,7 @@ mock.module("../../../persistence/jobs-store.js", () => ({
 }));
 
 const { ROUTES: memoryV2Routes } =
-  await import("../../../plugins/defaults/memory/routes/memory-v2-routes.js");
+  await import("../../../plugins/defaults/memory/src/memory-v2-routes.js");
 
 // ---------------------------------------------------------------------------
 // Helpers

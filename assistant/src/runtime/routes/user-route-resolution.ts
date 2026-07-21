@@ -23,6 +23,7 @@ import { existsSync, readdirSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 import {
+  getDefaultPluginManifestName,
   getDefaultPluginRouteRoots,
   getDefaultPluginRoutesDir,
 } from "../../plugins/defaults/main.js";
@@ -67,7 +68,7 @@ export function resolveRouteLocation(routePath: string): RouteLocation | null {
   const segments = routePath.split("/");
   if (segments[0] === PLUGIN_ROUTE_SEGMENT) {
     const pluginName = segments[1];
-    if (!pluginName || isPluginDisabled(pluginName)) {
+    if (!pluginName || isPluginNamespaceDisabled(pluginName)) {
       return null;
     }
     return {
@@ -76,6 +77,23 @@ export function resolveRouteLocation(routePath: string): RouteLocation | null {
     };
   }
   return { routesDir: getWorkspaceRoutesDir(), subPath: routePath };
+}
+
+/**
+ * Whether a plugin route namespace is disabled by a `.disabled` sentinel.
+ *
+ * The sentinel is keyed by directory name for installed plugins but by the
+ * `default-…` manifest name for default plugins (the CLI/bootstrap write it as
+ * `<workspace>/plugins/<manifest-name>/.disabled`). A route namespace is the
+ * plugin's *directory* name, so a default plugin is checked under both its
+ * namespace and its manifest name; installed plugins only match the first.
+ */
+function isPluginNamespaceDisabled(pluginName: string): boolean {
+  if (isPluginDisabled(pluginName)) {
+    return true;
+  }
+  const manifestName = getDefaultPluginManifestName(pluginName);
+  return manifestName !== null && isPluginDisabled(manifestName);
 }
 
 /**
@@ -167,7 +185,7 @@ export function listPluginRouteRoots(): {
   const byName = new Map<string, string>();
 
   for (const { pluginName, routesDir } of getDefaultPluginRouteRoots()) {
-    if (!isPluginDisabled(pluginName)) {
+    if (!isPluginNamespaceDisabled(pluginName)) {
       byName.set(pluginName, routesDir);
     }
   }
@@ -175,7 +193,7 @@ export function listPluginRouteRoots(): {
   const pluginsDir = getWorkspacePluginsDir();
   if (existsSync(pluginsDir)) {
     for (const entry of readdirSync(pluginsDir, { withFileTypes: true })) {
-      if (!entry.isDirectory() || isPluginDisabled(entry.name)) {
+      if (!entry.isDirectory() || isPluginNamespaceDisabled(entry.name)) {
         continue;
       }
       const routesDir = join(pluginsDir, entry.name, "routes");

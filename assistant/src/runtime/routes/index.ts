@@ -8,12 +8,12 @@
  * into this shared array.
  */
 
-import { ROUTES as MEMORY_EVAL_ROUTES } from "../../plugins/defaults/memory/routes/memory-eval-routes.js";
-import { ROUTES as MEMORY_GRAPH_ROUTES } from "../../plugins/defaults/memory/routes/memory-graph-routes.js";
-import { ROUTES as MEMORY_ITEM_ROUTES } from "../../plugins/defaults/memory/routes/memory-item-routes.js";
-import { ROUTES as MEMORY_V2_ROUTES } from "../../plugins/defaults/memory/routes/memory-v2-routes.js";
-import { ROUTES as MEMORY_V3_ROUTES } from "../../plugins/defaults/memory/routes/memory-v3-routes.js";
-import { ROUTES as MEMORY_WORKER_ROUTES } from "../../plugins/defaults/memory/routes/memory-worker-routes.js";
+import { ROUTES as MEMORY_EVAL_ROUTES } from "../../plugins/defaults/memory/src/memory-eval-routes.js";
+import { ROUTES as MEMORY_GRAPH_ROUTES } from "../../plugins/defaults/memory/src/memory-graph-routes.js";
+import { ROUTES as MEMORY_ITEM_ROUTES } from "../../plugins/defaults/memory/src/memory-item-routes.js";
+import { ROUTES as MEMORY_V2_ROUTES } from "../../plugins/defaults/memory/src/memory-v2-routes.js";
+import { ROUTES as MEMORY_V3_ROUTES } from "../../plugins/defaults/memory/src/memory-v3-routes.js";
+import { ROUTES as MEMORY_WORKER_ROUTES } from "../../plugins/defaults/memory/src/memory-worker-routes.js";
 import { ROUTES as ACP_CLAUDE_AUTH_ROUTES } from "./acp-claude-auth-routes.js";
 import { ROUTES as ACP_ROUTES } from "./acp-routes.js";
 import { ROUTES as APP_MANAGEMENT_ROUTES } from "./app-management-routes.js";
