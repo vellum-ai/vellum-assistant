@@ -230,12 +230,16 @@ describe("PlansPage — current-plan state", () => {
     expect(count(html, /disabled=""/g)).toBe(1);
   });
 
-  test("pro subscriber on Mighty: Mighty is current, Free reverts to Start Free", () => {
+  test("pro subscriber on Mighty: Mighty is current, lower tiers downgrade, higher tiers upgrade", () => {
     const html = renderPage(proMightySubscription(), fullCatalog());
     // Only the Mighty column is the current plan.
     expect(count(html, /Current Plan/g)).toBe(1);
-    // Free is no longer current, so it shows its own CTA again.
-    expect(html).toContain("Start Free");
+    // Free sits below Mighty, so its CTA becomes a downgrade.
+    expect(html).toContain("Downgrade to Free");
+    expect(html).not.toContain("Start Free");
+    // Super and Ultra sit above Mighty, so they keep their upgrade CTAs.
+    expect(html).toContain("Go Super");
+    expect(html).toContain("Unleash Ultra");
     expect(count(html, /disabled=""/g)).toBe(1);
   });
 });

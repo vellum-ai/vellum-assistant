@@ -7,6 +7,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   PACKAGE_ORDER,
   type ProPackage,
+  tierRelation,
 } from "@/domains/settings/billing/package-types";
 import { FREE_STORAGE_GIB } from "@/domains/settings/billing/plan-tier-meta";
 import {
@@ -15,7 +16,10 @@ import {
 } from "@/domains/settings/billing/plans/custom-plan-modal";
 import { CustomPlanRow } from "@/domains/settings/billing/plans/custom-plan-row";
 import { PlanColumnCard } from "@/domains/settings/billing/plans/plan-column-card";
-import { getPlanTierCopy } from "@/domains/settings/billing/plans/plans-copy";
+import {
+  downgradeLabel,
+  getPlanTierCopy,
+} from "@/domains/settings/billing/plans/plans-copy";
 import { extractMutationError } from "@/domains/settings/components/adjust-plan-utils";
 import { formatDollars } from "@/domains/settings/components/tier-pricing";
 import {
@@ -242,6 +246,7 @@ export function PlansPage() {
         PACKAGE_ORDER.indexOf(b.key as (typeof PACKAGE_ORDER)[number]),
     );
     const freeCopy = getPlanTierCopy("free");
+    const freeRelation = tierRelation(currentTierKey, "free");
 
     body = (
       <div className="my-auto flex w-full flex-col items-center">
@@ -273,15 +278,21 @@ export function PlansPage() {
             tagline={freeCopy?.tagline ?? ""}
             priceLabel="$0/month"
             priceCaption={freeCopy?.priceCaption ?? "Forever"}
-            ctaLabel={freeCopy?.cta ?? "Start Free"}
+            ctaLabel={
+              freeRelation === "downgrade"
+                ? downgradeLabel("Free")
+                : (freeCopy?.cta ?? "Start Free")
+            }
             features={FREE_FEATURES}
             tone="dark"
             isCurrent={currentTierKey === "free"}
+            intent={freeRelation}
             pending={pending}
             onCta={() => selectTier("free")}
           />
           {orderedPackages.map((pkg) => {
             const copy = getPlanTierCopy(pkg.key);
+            const relation = tierRelation(currentTierKey, pkg.key);
             return (
               <PlanColumnCard
                 key={pkg.key}
@@ -290,11 +301,16 @@ export function PlansPage() {
                 tagline={copy?.tagline ?? ""}
                 priceLabel={priceLabelFromCents(pkg.total_price_cents)}
                 priceCaption={copy?.priceCaption ?? "Billed monthly"}
-                ctaLabel={copy?.cta ?? pkg.name}
+                ctaLabel={
+                  relation === "downgrade"
+                    ? downgradeLabel(pkg.name)
+                    : (copy?.cta ?? pkg.name)
+                }
                 features={packageFeatures(pkg, copy?.extraFeatures ?? [])}
                 mostPopular={copy?.mostPopular}
                 tone={copy?.mostPopular ? "light" : "dark"}
                 isCurrent={currentTierKey === pkg.key}
+                intent={relation}
                 pending={pending}
                 onCta={() => selectTier(pkg.key)}
               />
