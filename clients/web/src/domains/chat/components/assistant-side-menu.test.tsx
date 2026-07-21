@@ -476,7 +476,7 @@ describe("AssistantSideMenu · new conversation affordance", () => {
     onSelectConversation: () => {},
   };
 
-  test("renders the New Chat row (under the assistant row) when onStartNewConversation is supplied", () => {
+  test("renders the New Chat row (above the assistant row) when onStartNewConversation is supplied", () => {
     const html = renderToStaticMarkup(
       createElement(AssistantSideMenu, {
         ...baseProps,
@@ -487,6 +487,10 @@ describe("AssistantSideMenu · new conversation affordance", () => {
     expect(html).toContain(">New Chat<");
     // It is a button row, not a navigation link.
     expect(html).not.toContain("<a aria-label=\"New Chat\"");
+    // New Chat sits above the assistant row.
+    expect(html.indexOf(">New Chat<")).toBeLessThan(
+      html.indexOf("Your Assistant"),
+    );
   });
 
   test("omits the New Chat row when onStartNewConversation is absent", () => {
