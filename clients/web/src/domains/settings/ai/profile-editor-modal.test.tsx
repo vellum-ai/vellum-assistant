@@ -1158,6 +1158,45 @@ describe("ProfileEditorModal edit mode — catalog-absent bound model", () => {
     });
     expect(saveCalls[0].entry.model).toBe("tencent/hy3");
   });
+
+  test("withholds the custom-model option from a subscription-restricted connection", () => {
+    // A ChatGPT-subscription OpenAI connection only accepts the Codex model
+    // set, so the free-text escape hatch must not appear — a typed id the
+    // endpoint rejects would otherwise be saveable.
+    const subscriptionConnection = {
+      name: "openai-chatgpt",
+      label: null,
+      provider: "openai",
+      auth: {
+        type: "oauth_subscription",
+        credential: "credential/openai/oauth_subscription",
+      },
+      models: null,
+    } as unknown as ProviderConnection;
+
+    renderEdit(
+      {
+        name: "codex",
+        label: "Codex",
+        provider: "openai",
+        model: "gpt-5.5",
+        provider_connection: "openai-chatgpt",
+        status: "active",
+      },
+      subscriptionConnection,
+    );
+
+    const optionLabels = dropdownTriggers().flatMap((trigger) => {
+      fireEvent.click(trigger);
+      const labels = Array.from(
+        document.querySelectorAll<HTMLElement>('[role="option"]'),
+      ).map((o) => o.textContent?.trim());
+      fireEvent.click(trigger);
+      return labels;
+    });
+    expect(optionLabels).toContain("GPT-5.5");
+    expect(optionLabels).not.toContain("Enter a custom model ID…");
+  });
 });
 
 describe("ProfileEditorModal — Top P wiring", () => {

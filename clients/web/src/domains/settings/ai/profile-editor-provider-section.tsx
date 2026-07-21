@@ -42,6 +42,38 @@ function connectionModelsToCatalog(
 }
 
 /**
+ * Whether the current connection restricts a catalog-backed provider to the
+ * Codex-compatible subscription model set. A ChatGPT `oauth_subscription`
+ * connection only accepts `CODEX_SUBSCRIPTION_MODEL_IDS`, so both the model
+ * list and the free-text escape hatch must respect that limit — a typed id
+ * the endpoint rejects would otherwise be saveable.
+ */
+function restrictsToSubscriptionModels(
+  provider: ConnectionProvider | "",
+  providerConnection: string,
+  availableConnectionsForProvider: ProviderConnection[],
+): boolean {
+  if (!provider || getModelsForProvider(provider).length === 0) {
+    return false;
+  }
+  const selectedConn = providerConnection
+    ? availableConnectionsForProvider.find(
+        (c) => c.name === providerConnection,
+      )
+    : undefined;
+  if (selectedConn?.auth.type === "oauth_subscription") {
+    return true;
+  }
+  return (
+    !providerConnection &&
+    availableConnectionsForProvider.length > 0 &&
+    availableConnectionsForProvider.every(
+      (c) => c.auth.type === "oauth_subscription",
+    )
+  );
+}
+
+/**
  * Copy for the Model field's empty states, keyed by the `modelEmptyState`
  * discriminator. The "no-provider" hint is `null` because the hint only
  * renders once a provider is selected.
@@ -124,13 +156,25 @@ export function ProfileEditorProviderSection({
   // Free-text model entry. Catalog and connection lists can't cover every id a
   // pass-through provider (e.g. OpenRouter) accepts, so the Model field offers
   // an explicit escape hatch: picking the sentinel option swaps the dropdown
-  // for a text input whose value is sent to the connection verbatim.
+  // for a text input whose value is sent to the connection verbatim. It's
+  // withheld from subscription-restricted connections, which only accept a
+  // fixed model set.
   const [isEnteringCustomModel, setIsEnteringCustomModel] = useState(false);
 
-  // Switching providers reopens the field on the new provider's model list.
+  const subscriptionRestricted = restrictsToSubscriptionModels(
+    provider,
+    providerConnection,
+    availableConnectionsForProvider,
+  );
+  const allowsCustomModel = provider !== "" && !subscriptionRestricted;
+
+  // Switching providers reopens the field on the new provider's model list;
+  // a connection that bars custom ids also closes the free-text input.
   useEffect(() => {
-    setIsEnteringCustomModel(false);
-  }, [provider]);
+    if (!allowsCustomModel) {
+      setIsEnteringCustomModel(false);
+    }
+  }, [provider, allowsCustomModel]);
 
   function handleModelSelection(value: string) {
     if (value === CUSTOM_MODEL_OPTION_VALUE) {
@@ -187,21 +231,11 @@ export function ProfileEditorProviderSection({
       }
       const catalogModels = getModelsForProvider(provider);
       if (catalogModels.length > 0) {
-        const selectedConn = providerConnection
-          ? availableConnectionsForProvider.find(
-              (c) => c.name === providerConnection,
-            )
-          : undefined;
-        if (selectedConn?.auth.type === "oauth_subscription") {
-          return catalogModels.filter((m) =>
-            CODEX_SUBSCRIPTION_MODEL_IDS.has(m.id),
-          );
-        }
         if (
-          !providerConnection &&
-          availableConnectionsForProvider.length > 0 &&
-          availableConnectionsForProvider.every(
-            (c) => c.auth.type === "oauth_subscription",
+          restrictsToSubscriptionModels(
+            provider,
+            providerConnection,
+            availableConnectionsForProvider,
           )
         ) {
           return catalogModels.filter((m) =>
@@ -432,7 +466,7 @@ export function ProfileEditorProviderSection({
                 value: m.id,
                 label: m.displayName,
               })),
-              ...(provider
+              ...(allowsCustomModel
                 ? [
                     {
                       value: CUSTOM_MODEL_OPTION_VALUE,
