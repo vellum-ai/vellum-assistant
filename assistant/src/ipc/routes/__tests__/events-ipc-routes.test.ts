@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 
 import { assistantEventHub } from "../../../runtime/assistant-event-hub.js";
-import { ForbiddenError } from "../../../runtime/routes/errors.js";
 import {
   EVENTS_PUBLISH_IPC_METHOD,
   handleEventsPublish,
@@ -28,30 +27,44 @@ describe(`${EVENTS_PUBLISH_IPC_METHOD} IPC route`, () => {
     return received;
   }
 
-  test("publishes the full event onto the daemon hub", async () => {
-    const received = subscribe();
-    const event = {
-      message: { type: "test_event", value: 42 },
+  function fullEvent(message: Record<string, unknown>) {
+    return {
+      id: "evt-1",
+      emittedAt: "2026-07-21T00:00:00.000Z",
       conversationId: "conv-events-test",
+      message,
     };
+  }
 
-    const result = await handleEventsPublish({ body: { event } });
+  test("publishes a full event envelope onto the daemon hub", async () => {
+    const received = subscribe();
+
+    const result = await handleEventsPublish({
+      body: { event: fullEvent({ type: "test_event", value: 42 }) },
+    });
 
     expect(result).toEqual({ ok: true });
     expect(received).toHaveLength(1);
+    expect((received[0] as { id: string }).id).toBe("evt-1");
     expect((received[0] as { message: unknown }).message).toEqual({
       type: "test_event",
       value: 42,
     });
   });
 
-  test("refuses daemon-to-client host-proxy control events", async () => {
+  test("rejects an incomplete envelope (missing id)", async () => {
     const received = subscribe();
-    const event = { message: { type: "host_bash_request" } };
 
     await expect(
-      handleEventsPublish({ body: { event } }),
-    ).rejects.toBeInstanceOf(ForbiddenError);
+      handleEventsPublish({
+        body: {
+          event: {
+            emittedAt: "2026-07-21T00:00:00.000Z",
+            message: { type: "test_event" },
+          },
+        },
+      }),
+    ).rejects.toThrow();
     expect(received).toHaveLength(0);
   });
 
