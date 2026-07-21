@@ -1,13 +1,41 @@
 /**
- * Tests for the pure-props `ProvisioningState` screen. Renders via
- * `@testing-library/react` (happy-dom registered in test-setup.ts); no
- * network mocks — every phase is driven entirely through props.
+ * Tests for the pure-props `ProvisioningState` takeover. Renders via
+ * `@testing-library/react` (happy-dom registered in test-setup.ts) wrapped in
+ * a `QueryClientProvider`. The takeover avatar hook is mocked to record the id
+ * it's queried with — the avatar resolves to its neutral fallback (null
+ * components) — so every phase stays driven through props while the
+ * avatar-target wiring can be asserted directly.
  */
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+
 import type { ProvisioningStateProps } from "./provisioning-state";
-import { ProvisioningState } from "./provisioning-state";
+
+/** The id handed to the avatar hook, captured so the target-selection wiring
+ *  can be asserted without a network fetch. */
+let avatarQueryId: string | null | undefined;
+mock.module("@/hooks/use-assistant-avatar", () => ({
+  useAssistantAvatar: (assistantId: string | null) => {
+    avatarQueryId = assistantId;
+    return {
+      components: null,
+      traits: null,
+      customImageUrl: null,
+      isLoading: false,
+      invalidate: () => {},
+    };
+  },
+}));
+
+const { ProvisioningState } = await import("./provisioning-state");
+
+beforeEach(() => {
+  avatarQueryId = undefined;
+  useResolvedAssistantsStore.setState({ activeAssistantId: null });
+});
 
 afterEach(() => {
   cleanup();
@@ -33,23 +61,34 @@ function baseProps(
 }
 
 function renderState(overrides: Partial<ProvisioningStateProps> = {}) {
-  return render(<ProvisioningState {...baseProps(overrides)} />);
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return render(
+    <QueryClientProvider client={client}>
+      <ProvisioningState {...baseProps(overrides)} />
+    </QueryClientProvider>,
+  );
 }
 
 describe("confirming", () => {
-  test("renders the payment-confirmed headline with a package chip", () => {
+  test("renders the confirming status line and caption", () => {
+    const { getByText } = renderState({ state: "CONFIRMING" });
+
+    expect(getByText("Confirming your upgrade…")).toBeTruthy();
+    expect(getByText("This might take a couple seconds.")).toBeTruthy();
+  });
+
+  test("renders a package chip from the stashed intent", () => {
     const { getByText } = renderState({
       state: "CONFIRMING",
       intent: { kind: "package", packageKey: "mighty", savedAt: Date.now() },
     });
 
-    expect(
-      getByText("Payment confirmed — setting up your upgrade…"),
-    ).toBeTruthy();
     expect(getByText("Mighty package")).toBeTruthy();
   });
 
-  test("renders custom-intent tier chips, omitting the credits chip when null", () => {
+  test("renders custom-intent machine/storage chips, omitting credits when null", () => {
     const { getByText, queryByText } = renderState({
       state: "CONFIRMING",
       intent: {
@@ -61,8 +100,10 @@ describe("confirming", () => {
       },
     });
 
-    expect(getByText("Large machine")).toBeTruthy();
-    expect(getByText("XL storage")).toBeTruthy();
+    expect(getByText("Machine")).toBeTruthy();
+    expect(getByText("Large")).toBeTruthy();
+    expect(getByText("Storage")).toBeTruthy();
+    expect(getByText("XL")).toBeTruthy();
     expect(queryByText(/credits/)).toBeNull();
   });
 
@@ -80,39 +121,33 @@ describe("confirming", () => {
 
     expect(getByText("50 credits")).toBeTruthy();
   });
-
 });
 
 describe("waiting / resizing", () => {
-  test("renders machine and storage cards with the from-snapshot and restart warning", () => {
+  test("renders the upgrading status with machine and storage from→to chips", () => {
     const { getByText } = renderState({
       state: "WAITING",
       targets: { machineSize: "large", storageGib: 100 },
       fromSnapshot: { machineSize: "small", storageGib: 30 },
     });
 
-    expect(getByText("Setting up your new resources…")).toBeTruthy();
+    expect(getByText("Upgrading your assistant…")).toBeTruthy();
     expect(getByText("Machine")).toBeTruthy();
     expect(getByText("Small")).toBeTruthy();
     expect(getByText("Large")).toBeTruthy();
     expect(getByText("Storage")).toBeTruthy();
     expect(getByText("30 GiB")).toBeTruthy();
     expect(getByText("100 GiB")).toBeTruthy();
-    expect(
-      getByText(
-        "Your assistant is restarting itself — it may look offline for a minute.",
-      ),
-    ).toBeTruthy();
   });
 
-  test("storage-only targets render a single storage card and no machine card", () => {
+  test("storage-only targets render a single storage chip and no machine chip", () => {
     const { getByText, queryByText } = renderState({
       state: "RESIZING",
       targets: { machineSize: null, storageGib: 100 },
       fromSnapshot: { machineSize: "small", storageGib: 30 },
     });
 
-    expect(getByText("Resizing your assistant…")).toBeTruthy();
+    expect(getByText("Upgrading your assistant…")).toBeTruthy();
     expect(getByText("Storage")).toBeTruthy();
     expect(queryByText("Machine")).toBeNull();
   });
@@ -123,36 +158,44 @@ describe("waiting / resizing", () => {
       targets: { machineSize: "medium", storageGib: null },
     });
 
-    expect(getByText("This usually takes under a minute.")).toBeTruthy();
+    expect(getByText("This might take a couple seconds.")).toBeTruthy();
 
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
     rerender(
-      <ProvisioningState
-        {...baseProps({
-          state: "WAITING",
-          softWaiting: true,
-          targets: { machineSize: "medium", storageGib: null },
-        })}
-      />,
+      <QueryClientProvider client={client}>
+        <ProvisioningState
+          {...baseProps({
+            state: "WAITING",
+            softWaiting: true,
+            targets: { machineSize: "medium", storageGib: null },
+          })}
+        />
+      </QueryClientProvider>,
     );
     expect(
-      getByText(
-        "Still working — this can take a few minutes. Everything is on track.",
-      ),
+      getByText("Still working — this can take a minute or two."),
     ).toBeTruthy();
   });
 });
 
 describe("done / not_applicable", () => {
-  test("done renders the celebration headline and fires onCelebrationEnd after the dwell", async () => {
+  test("done renders the all-done status, target chips, and fires onCelebrationEnd after the dwell", async () => {
     const onCelebrationEnd = mock(() => {});
     const { getByText } = renderState({
       state: "DONE",
+      targets: { machineSize: "large", storageGib: 100 },
+      fromSnapshot: { machineSize: "small", storageGib: 30 },
       celebrating: true,
       onCelebrationEnd,
       dwellMs: 10,
     });
 
-    expect(getByText("Your upgrade is ready")).toBeTruthy();
+    expect(getByText("All done!")).toBeTruthy();
+    expect(getByText("Large")).toBeTruthy();
+    expect(getByText("100 GiB")).toBeTruthy();
+    // The "from" side is dropped once done — only the achieved target shows.
     await waitFor(() => expect(onCelebrationEnd).toHaveBeenCalledTimes(1));
   });
 
@@ -169,7 +212,7 @@ describe("done / not_applicable", () => {
     expect(onCelebrationEnd).not.toHaveBeenCalled();
   });
 
-  test("not_applicable renders the plan-ready notice without cards or an Apply button", async () => {
+  test("not_applicable renders the plan-ready status without chips or an Apply button", async () => {
     const onCelebrationEnd = mock(() => {});
     const { getByText, queryByText, queryByTestId } = renderState({
       state: "NOT_APPLICABLE",
@@ -179,17 +222,15 @@ describe("done / not_applicable", () => {
     });
 
     expect(getByText("Your plan is ready")).toBeTruthy();
-    expect(
-      getByText("No resource changes were needed — you're all set."),
-    ).toBeTruthy();
     expect(queryByText("Machine")).toBeNull();
+    expect(queryByText("Storage")).toBeNull();
     expect(queryByTestId("provisioning-apply")).toBeNull();
     await waitFor(() => expect(onCelebrationEnd).toHaveBeenCalledTimes(1));
   });
 });
 
 describe("stalled", () => {
-  test("renders the amber notice and Apply & Restart invokes the callback", () => {
+  test("renders the stalled status, keeps the chips, and Apply & Restart invokes the callback", () => {
     const onApply = mock(() => {});
     const { getByText, getByTestId } = renderState({
       state: "STALLED",
@@ -198,16 +239,18 @@ describe("stalled", () => {
       stalledAction: { onApply, pending: false, error: null },
     });
 
+    expect(getByText("We couldn't finish this automatically")).toBeTruthy();
     expect(
       getByText(
-        "We couldn't finish this automatically. Apply the changes below to finish setting up your upgrade.",
+        "Apply the changes below to finish setting up your upgrade.",
       ),
     ).toBeTruthy();
+    expect(getByText("Machine")).toBeTruthy();
     fireEvent.click(getByTestId("provisioning-apply"));
     expect(onApply).toHaveBeenCalledTimes(1);
   });
 
-  test("disables the Apply button while pending and renders the extracted error", () => {
+  test("disables the Apply button while pending and renders the extracted error as the caption", () => {
     const onApply = mock(() => {});
     const { getByText, getByTestId } = renderState({
       state: "STALLED",
@@ -227,7 +270,7 @@ describe("stalled", () => {
 });
 
 describe("confirm_timeout", () => {
-  test("renders the payment-safety reassurance with retry and billing actions", () => {
+  test("renders the still-confirming reassurance with retry and billing actions", () => {
     const onRetry = mock(() => {});
     const onGoToBilling = mock(() => {});
     const { getByText, getByTestId } = renderState({
@@ -235,9 +278,10 @@ describe("confirm_timeout", () => {
       confirm: { onRetry, onGoToBilling },
     });
 
+    expect(getByText("Still confirming your upgrade")).toBeTruthy();
     expect(
       getByText(
-        "Your payment went through safely — we're still confirming your upgrade with Stripe. This can take a minute.",
+        "Your payment went through safely — this can take a minute.",
       ),
     ).toBeTruthy();
     fireEvent.click(getByTestId("onboarding-retry"));
@@ -267,5 +311,25 @@ describe("escape hatch", () => {
       escapeAvailable: false,
     });
     expect(queryByTestId("provisioning-escape")).toBeNull();
+  });
+});
+
+describe("takeover avatar", () => {
+  test("queries the avatar for the passed provisioning target assistant", () => {
+    useResolvedAssistantsStore.setState({
+      activeAssistantId: "active-assistant",
+    });
+    renderState({ assistantId: "primary-assistant" });
+
+    expect(avatarQueryId).toBe("primary-assistant");
+  });
+
+  test("falls back to the active-store assistant when no target is passed", () => {
+    useResolvedAssistantsStore.setState({
+      activeAssistantId: "active-assistant",
+    });
+    renderState();
+
+    expect(avatarQueryId).toBe("active-assistant");
   });
 });

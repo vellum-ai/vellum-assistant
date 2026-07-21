@@ -1,29 +1,29 @@
-import { AlertCircle, Check, Cpu, HardDrive, PartyPopper } from "lucide-react";
-import { useEffect, useRef } from "react";
+import type { LucideIcon } from "lucide-react";
+import { ArrowRight, Check, Cpu, HardDrive } from "lucide-react";
+import { useEffect, useRef, type ReactNode } from "react";
 
+import { ChatAvatar } from "@/components/avatar/chat-avatar";
+import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import type { CheckoutIntent } from "@/lib/billing/checkout-intent";
-import {
-    MACHINE_TIER_LABEL,
-    SIZE_DESCRIPTION,
-    SIZE_LABEL,
-} from "@/lib/billing/machine-sizes";
+import { MACHINE_TIER_LABEL, SIZE_LABEL } from "@/lib/billing/machine-sizes";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
 import { Button } from "@vellumai/design-library/components/button";
-import { Notice } from "@vellumai/design-library/components/notice";
 import { Typography } from "@vellumai/design-library/components/typography";
 
 import type {
     ProvisioningDimensions,
     ProvisioningStateKind,
 } from "./provisioning-machine";
-import { TimeoutState } from "./error-states";
 import type { StalledApplyAction } from "./primitives";
-import {
-    GlowSpinner,
-    IconBadge,
-    ResourceCard,
-    StalledApplyControls,
-} from "./primitives";
-import { PROVISION_MIN_DWELL_MS } from "./utils";
+import { extractOnboardingErrorMessage, PROVISION_MIN_DWELL_MS } from "./utils";
+
+// The mock's takeover tint, matched to the green Vellum creature. No token
+// holds this, so it follows the plans-page PAGE_BACKGROUND raw-hex precedent.
+const TAKEOVER_BACKGROUND = "#1D271E";
+
+const CHIP_BACKGROUND =
+  "color-mix(in srgb, var(--content-emphasised) 10%, transparent)";
 
 export interface ProvisioningStateProps {
   state: ProvisioningStateKind;
@@ -32,10 +32,12 @@ export interface ProvisioningStateProps {
   /** The checkout selection stashed before the Stripe redirect. */
   intent: CheckoutIntent | null;
   targets: ProvisioningDimensions;
-  /** Pre-resize actuals rendered as the "from" side of the resource cards. */
+  /** Pre-resize actuals rendered as the "from" side of the resource chips. */
   fromSnapshot: ProvisioningDimensions;
   celebrating: boolean;
   onCelebrationEnd: () => void;
+  /** The assistant being provisioned — drives the takeover avatar. */
+  assistantId?: string | null;
   escapeAvailable: boolean;
   onEscape: () => void;
   stalledAction: StalledApplyAction;
@@ -44,100 +46,207 @@ export interface ProvisioningStateProps {
   dwellMs?: number;
 }
 
-function intentChipLabels(intent: CheckoutIntent): string[] {
-  if (intent.kind === "package") {
-    const name =
-      intent.packageKey.charAt(0).toUpperCase() + intent.packageKey.slice(1);
-    return [`${name} package`];
-  }
-  const labels: string[] = [];
-  if (intent.machineTier != null) {
-    const tierLabel = MACHINE_TIER_LABEL[intent.machineTier] ?? intent.machineTier;
-    labels.push(`${tierLabel} machine`);
-  }
-  if (intent.storageTier != null) {
-    labels.push(`${intent.storageTier.toUpperCase()} storage`);
-  }
-  if (intent.creditTier != null) {
-    labels.push(`${intent.creditTier.replace("credits_", "")} credits`);
-  }
-  return labels;
-}
-
-function IntentChips({ intent }: { intent: CheckoutIntent }) {
+/**
+ * The user's assistant avatar, centered and oversized as the takeover's focal
+ * point. Falls back to a neutral bundled creature (and finally the "V") while
+ * the avatar resolves or when none is configured. The idle breathe + reduced
+ * -motion gating come from `AnimatedAvatar` inside `ChatAvatar`.
+ */
+function TakeoverAvatar({ assistantId }: { assistantId?: string | null }) {
+  const activeId = useResolvedAssistantsStore.use.activeAssistantId();
+  const resolvedId = assistantId ?? activeId;
+  const { components, traits, customImageUrl } = useAssistantAvatar(resolvedId);
+  const fallbackComponents = useBundledAvatarComponents();
   return (
-    <div className="flex flex-wrap items-center justify-center gap-1.5">
-      {intentChipLabels(intent).map((label) => (
-        <span
-          key={label}
-          className="rounded-full border border-[var(--border-element)] bg-[var(--surface-base)] px-2.5 py-1 text-label-small-default text-[var(--content-secondary)]"
-        >
-          {label}
-        </span>
-      ))}
+    <div aria-hidden className="flex flex-col items-center">
+      <ChatAvatar
+        components={components ?? fallbackComponents}
+        traits={traits}
+        customImageUrl={customImageUrl}
+        size={240}
+      />
+      <div
+        className="mt-1 h-4 w-40"
+        style={{
+          background:
+            "radial-gradient(ellipse at center, rgba(0, 0, 0, 0.45), transparent 70%)",
+        }}
+      />
     </div>
   );
 }
 
-function ResourceCardList({
-  targets,
-  fromSnapshot,
-}: {
-  targets: ProvisioningDimensions;
-  fromSnapshot: ProvisioningDimensions;
-}) {
+function Copy({ status, caption }: { status: string; caption?: string }) {
   return (
-    <div className="flex w-full flex-col gap-2">
-      {targets.machineSize != null && (
-        <ResourceCard
-          icon={Cpu}
-          label="Machine"
-          from={
-            fromSnapshot.machineSize != null
-              ? SIZE_LABEL[fromSnapshot.machineSize]
-              : "—"
-          }
-          fromDetail={
-            fromSnapshot.machineSize != null
-              ? SIZE_DESCRIPTION[fromSnapshot.machineSize]
-              : undefined
-          }
-          to={SIZE_LABEL[targets.machineSize]}
-          toDetail={SIZE_DESCRIPTION[targets.machineSize]}
-        />
-      )}
-      {targets.storageGib != null && (
-        <ResourceCard
-          icon={HardDrive}
-          label="Storage"
-          from={
-            fromSnapshot.storageGib != null
-              ? `${fromSnapshot.storageGib} GiB`
-              : "—"
-          }
-          to={`${targets.storageGib} GiB`}
-        />
-      )}
-    </div>
-  );
-}
-
-function Headline({ title, body }: { title: string; body?: string }) {
-  return (
-    <div className="space-y-1.5">
-      <Typography variant="title-small" as="h1">
-        {title}
-      </Typography>
-      {body && (
+    <div className="flex flex-col items-center gap-1.5">
+      <h1
+        className="text-[var(--content-emphasised)]"
+        style={{
+          fontFamily: "var(--font-serif)",
+          fontSize: "32px",
+          fontWeight: 400,
+          letterSpacing: "0.64px",
+          lineHeight: 1.2,
+        }}
+      >
+        {status}
+      </h1>
+      {caption && (
         <Typography
           variant="body-medium-lighter"
           as="p"
-          className="text-[var(--content-secondary)]"
+          className="max-w-sm text-[var(--content-secondary)]"
         >
-          {body}
+          {caption}
         </Typography>
       )}
     </div>
+  );
+}
+
+function DimensionChip({
+  icon: Icon,
+  label,
+  from,
+  to,
+  done = false,
+}: {
+  icon: LucideIcon;
+  label: string;
+  from?: string;
+  to: string;
+  done?: boolean;
+}) {
+  return (
+    <div
+      className="flex items-center gap-2.5 rounded-lg px-3 py-2"
+      style={{ backgroundColor: CHIP_BACKGROUND }}
+    >
+      <Icon
+        className="h-6 w-6 shrink-0 text-[var(--content-secondary)]"
+        aria-hidden="true"
+      />
+      <div className="flex flex-col text-left">
+        <span className="text-[12px] leading-tight text-[var(--content-tertiary)]">
+          {label}
+        </span>
+        <span className="flex items-center gap-1.5 text-[14px] leading-tight text-[var(--content-emphasised)]">
+          {from && (
+            <>
+              <span>{from}</span>
+              <ArrowRight
+                className="h-3 w-3 shrink-0 text-[var(--content-tertiary)]"
+                aria-hidden="true"
+              />
+            </>
+          )}
+          <span>{to}</span>
+          {done && (
+            <Check
+              className="h-3.5 w-3.5 shrink-0 text-[var(--system-positive-strong)]"
+              aria-hidden="true"
+            />
+          )}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function TextChip({ label }: { label: string }) {
+  return (
+    <span
+      className="rounded-lg px-3 py-2 text-[14px] text-[var(--content-emphasised)]"
+      style={{ backgroundColor: CHIP_BACKGROUND }}
+    >
+      {label}
+    </span>
+  );
+}
+
+function ChipRow({ children }: { children: ReactNode }) {
+  return (
+    <div className="flex flex-wrap items-center justify-center gap-2">
+      {children}
+    </div>
+  );
+}
+
+/** CONFIRMING chips: derived from the stashed intent before any API data lands. */
+function IntentChips({ intent }: { intent: CheckoutIntent }) {
+  if (intent.kind === "package") {
+    const name =
+      intent.packageKey.charAt(0).toUpperCase() + intent.packageKey.slice(1);
+    return (
+      <ChipRow>
+        <TextChip label={`${name} package`} />
+      </ChipRow>
+    );
+  }
+  return (
+    <ChipRow>
+      {intent.machineTier != null && (
+        <DimensionChip
+          icon={Cpu}
+          label="Machine"
+          to={MACHINE_TIER_LABEL[intent.machineTier] ?? intent.machineTier}
+        />
+      )}
+      {intent.storageTier != null && (
+        <DimensionChip
+          icon={HardDrive}
+          label="Storage"
+          to={intent.storageTier.toUpperCase()}
+        />
+      )}
+      {intent.creditTier != null && (
+        <TextChip
+          label={`${intent.creditTier.replace("credits_", "")} credits`}
+        />
+      )}
+    </ChipRow>
+  );
+}
+
+/** Machine/Storage from→to chips, driven by the resolved provisioning targets. */
+function TargetChips({
+  targets,
+  fromSnapshot,
+  done = false,
+}: {
+  targets: ProvisioningDimensions;
+  fromSnapshot: ProvisioningDimensions;
+  done?: boolean;
+}) {
+  return (
+    <ChipRow>
+      {targets.machineSize != null && (
+        <DimensionChip
+          icon={Cpu}
+          label="Machine"
+          from={
+            !done && fromSnapshot.machineSize != null
+              ? SIZE_LABEL[fromSnapshot.machineSize]
+              : undefined
+          }
+          to={SIZE_LABEL[targets.machineSize]}
+          done={done}
+        />
+      )}
+      {targets.storageGib != null && (
+        <DimensionChip
+          icon={HardDrive}
+          label="Storage"
+          from={
+            !done && fromSnapshot.storageGib != null
+              ? `${fromSnapshot.storageGib} GiB`
+              : undefined
+          }
+          to={`${targets.storageGib} GiB`}
+          done={done}
+        />
+      )}
+    </ChipRow>
   );
 }
 
@@ -149,6 +258,7 @@ export function ProvisioningState({
   fromSnapshot,
   celebrating,
   onCelebrationEnd,
+  assistantId,
   escapeAvailable,
   onEscape,
   stalledAction,
@@ -170,45 +280,44 @@ export function ProvisioningState({
     return () => clearTimeout(t);
   }, [dwelling, dwellMs]);
 
-  if (state === "CONFIRM_TIMEOUT") {
-    return (
-      <TimeoutState
-        message="Your payment went through safely — we're still confirming your upgrade with Stripe. This can take a minute."
-        onRetry={confirm.onRetry}
-        onGoToBilling={confirm.onGoToBilling}
-      />
-    );
-  }
-
   return (
-    <div className="flex min-h-[320px] flex-col items-center justify-center gap-4 px-6 py-10 text-center [animation:onboarding-step-in_350ms_ease-out] motion-reduce:[animation:none]">
-      {renderPhase()}
-      {escapeAvailable && (
-        <Button
-          variant="ghost"
-          data-testid="provisioning-escape"
-          onClick={onEscape}
-        >
-          Continue in the background
-        </Button>
-      )}
+    <div
+      data-theme="dark"
+      className="relative flex h-full min-h-[420px] w-full flex-col items-center justify-center gap-6 px-6 py-10 text-center"
+      style={{ backgroundColor: TAKEOVER_BACKGROUND }}
+    >
+      <TakeoverAvatar assistantId={assistantId} />
+      <div className="flex flex-col items-center gap-2 [animation:onboarding-step-in_350ms_ease-out] motion-reduce:[animation:none]">
+        {renderPhase()}
+      </div>
     </div>
   );
+
+  function escapeButton() {
+    if (!escapeAvailable) {
+      return null;
+    }
+    return (
+      <Button
+        variant="ghost"
+        data-testid="provisioning-escape"
+        onClick={onEscape}
+      >
+        Continue in the background
+      </Button>
+    );
+  }
 
   function renderPhase() {
     if (state === "CONFIRMING") {
       return (
         <>
-          <GlowSpinner />
-          <Headline
-            title="Payment confirmed — setting up your upgrade…"
-            body="We're getting your new plan's resources ready. This usually takes a few seconds."
+          <Copy
+            status="Confirming your upgrade…"
+            caption="This might take a couple seconds."
           />
-          {intent && (
-            <div className="[animation:welcome-reveal_600ms_ease-out_150ms_both] motion-reduce:[animation:none]">
-              <IntentChips intent={intent} />
-            </div>
-          )}
+          {intent && <IntentChips intent={intent} />}
+          {escapeButton()}
         </>
       );
     }
@@ -216,24 +325,16 @@ export function ProvisioningState({
     if (state === "WAITING" || state === "RESIZING") {
       return (
         <>
-          <GlowSpinner />
-          <Headline
-            title={
-              state === "RESIZING"
-                ? "Resizing your assistant…"
-                : "Setting up your new resources…"
-            }
-            body={
+          <Copy
+            status="Upgrading your assistant…"
+            caption={
               softWaiting
-                ? "Still working — this can take a few minutes. Everything is on track."
-                : "This usually takes under a minute."
+                ? "Still working — this can take a minute or two."
+                : "This might take a couple seconds."
             }
           />
-          <ResourceCardList targets={targets} fromSnapshot={fromSnapshot} />
-          <Notice tone="neutral" className="w-full text-left">
-            Your assistant is restarting itself — it may look offline for a
-            minute.
-          </Notice>
+          <TargetChips targets={targets} fromSnapshot={fromSnapshot} />
+          {escapeButton()}
         </>
       );
     }
@@ -241,49 +342,63 @@ export function ProvisioningState({
     if (state === "DONE") {
       return (
         <>
-          <div className="[animation:welcome-reveal_600ms_ease-out_both] motion-reduce:[animation:none]">
-            <IconBadge icon={PartyPopper} />
-          </div>
-          <div className="[animation:welcome-reveal_600ms_ease-out_150ms_both] motion-reduce:[animation:none]">
-            <Headline
-              title="Your upgrade is ready"
-              body="Your assistant is back online with its new resources."
-            />
-          </div>
+          <Copy status="All done!" />
+          <TargetChips targets={targets} fromSnapshot={fromSnapshot} done />
         </>
       );
     }
 
     if (state === "NOT_APPLICABLE") {
-      return (
-        <>
-          <div className="[animation:welcome-reveal_600ms_ease-out_both] motion-reduce:[animation:none]">
-            <IconBadge icon={Check} />
-          </div>
-          <div className="[animation:welcome-reveal_600ms_ease-out_150ms_both] motion-reduce:[animation:none]">
-            <Headline title="Your plan is ready" />
-          </div>
-          <Notice tone="neutral" className="w-full text-left">
-            No resource changes were needed — you&apos;re all set.
-          </Notice>
-        </>
-      );
+      return <Copy status="Your plan is ready" />;
     }
 
     if (state === "STALLED") {
       return (
         <>
-          <IconBadge icon={AlertCircle} tone="warning" />
-          <Headline title="One more step" />
-          <Notice tone="warning" className="w-full text-left">
-            We couldn&apos;t finish this automatically. Apply the changes below
-            to finish setting up your upgrade.
-          </Notice>
-          <ResourceCardList targets={targets} fromSnapshot={fromSnapshot} />
-          <StalledApplyControls
-            action={stalledAction}
-            buttonTestId="provisioning-apply"
+          <Copy
+            status="We couldn't finish this automatically"
+            caption={extractOnboardingErrorMessage(
+              stalledAction.error,
+              "Apply the changes below to finish setting up your upgrade.",
+            )}
           />
+          <TargetChips targets={targets} fromSnapshot={fromSnapshot} />
+          <Button
+            variant="primary"
+            data-testid="provisioning-apply"
+            disabled={stalledAction.pending}
+            onClick={stalledAction.onApply}
+          >
+            Apply &amp; Restart
+          </Button>
+          {escapeButton()}
+        </>
+      );
+    }
+
+    if (state === "CONFIRM_TIMEOUT") {
+      return (
+        <>
+          <Copy
+            status="Still confirming your upgrade"
+            caption="Your payment went through safely — this can take a minute."
+          />
+          <div className="flex items-center gap-2 pt-1">
+            <Button
+              variant="outlined"
+              data-testid="onboarding-go-to-billing"
+              onClick={confirm.onGoToBilling}
+            >
+              Go to billing
+            </Button>
+            <Button
+              variant="primary"
+              data-testid="onboarding-retry"
+              onClick={confirm.onRetry}
+            >
+              Try again
+            </Button>
+          </div>
         </>
       );
     }
