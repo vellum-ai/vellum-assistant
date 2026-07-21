@@ -28,8 +28,9 @@
  * prefs, and the low-frequency `state`/`reconnecting` (per-turn, for the
  * listening gate) — so the high-frequency `inputAmplitude` churn on the
  * live-voice store never re-renders this component. The spoken-word cursor
- * keeps that invariant: it polls playback progress outside React and re-renders
- * only when the word index changes. The full transcript still lands in the chat
+ * keeps that invariant: it polls playback progress outside React, re-renders
+ * only when the word index changes, and idles entirely (no frames scheduled)
+ * while assistant captions are off. The full transcript still lands in the chat
  * thread on exit via the engine path; this is a live, ambient echo of the
  * current turn only.
  */
@@ -68,7 +69,12 @@ export function VoiceAmbientTranscript() {
     () => splitTranscriptWords(assistantTranscript),
     [assistantTranscript],
   );
-  const spokenIndex = useSpokenWordCursor(assistantWords.length);
+  // A word count of 0 idles the cursor's rAF loop while assistant captions
+  // are off, so the hidden caption costs no per-frame work; toggling the pref
+  // on mid-response re-syncs on the next frame via the cursor's adoption path.
+  const spokenIndex = useSpokenWordCursor(
+    showAssistant ? assistantWords.length : 0,
+  );
 
   // In-flight partial wins over the last finalized transcript — same precedence
   // as the underneath composer transcript (`VoiceLiveTranscript`).

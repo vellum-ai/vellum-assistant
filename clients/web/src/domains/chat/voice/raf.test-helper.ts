@@ -10,10 +10,12 @@
  * lifecycle (started, rescheduled, canceled on unmount).
  *
  * Install in `beforeEach` and call `restore` in `afterEach` to reinstate the
- * real globals. Callers whose frame callbacks update React state wrap
- * `fireFrame` in `act()` themselves — the harness stays render-library
- * agnostic.
+ * real globals. Callers whose frame callbacks update React state pump through
+ * `pumpFrame`, which wraps `fireFrame` in `act()`; `fireFrame` stays raw for
+ * loops with no React state involved (canvas draw loops).
  */
+
+import { act } from "@testing-library/react";
 
 export interface RafTestHarness {
   /**
@@ -21,6 +23,8 @@ export interface RafTestHarness {
    * (defaults to `performance.now()`).
    */
   fireFrame(timestamp?: number): void;
+  /** `fireFrame` wrapped in `act()`, for callbacks that update React state. */
+  pumpFrame(timestamp?: number): void;
   /** Callbacks scheduled but not yet fired or canceled. */
   pendingCallbacks(): FrameRequestCallback[];
   /** Total `requestAnimationFrame` calls since install. */
@@ -50,13 +54,20 @@ export function installRafTestHarness(): RafTestHarness {
     callbacks.delete(id);
   }) as typeof globalThis.cancelAnimationFrame;
 
+  const fireFrame = (timestamp = performance.now()) => {
+    const pending = [...callbacks.values()];
+    callbacks.clear();
+    for (const cb of pending) {
+      cb(timestamp);
+    }
+  };
+
   return {
-    fireFrame(timestamp = performance.now()) {
-      const pending = [...callbacks.values()];
-      callbacks.clear();
-      for (const cb of pending) {
-        cb(timestamp);
-      }
+    fireFrame,
+    pumpFrame(timestamp?: number) {
+      act(() => {
+        fireFrame(timestamp);
+      });
     },
     pendingCallbacks: () => [...callbacks.values()],
     requestCount: () => requests,

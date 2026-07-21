@@ -19,16 +19,25 @@
  * during the final buffer's playback, carrying the cursor onto the last word
  * before the drain.
  *
- * Until the current response schedules audio the hook returns `null`, letting
- * the caller keep its default highlight — a response that produces no TTS
- * audio at all (text streaming through a TTS failure) is not pinned to the
- * first word.
+ * Until the loop observes audio still scheduled the hook returns `null`,
+ * letting the caller keep its default highlight. Adoption (the `null` →
+ * numeric transition) requires a frame with `playedSeconds < totalSeconds`: a
+ * first read that is already drained keeps the `null` cursor, so a response
+ * whose audio finished before the loop ever saw it (a short ack under a
+ * throttled or busy main thread) — like one that produces no TTS audio at all
+ * — is not pinned to an early word.
  *
- * Accepted bias: scheduled audio corresponds to *synthesized* text, which can
- * lag the displayed LLM text mid-stream, so the fraction maps a shorter spoken
- * prefix onto the longer displayed transcript and can overshoot the truly
- * spoken word slightly. The error is bounded by the synthesis lag and
- * self-corrects as synthesis catches up.
+ * Advancement is rate-capped to a plausible speaking cadence. Each frame
+ * accrues a fractional word budget from the played-audio delta
+ * ({@link MAX_CURSOR_WORDS_PER_SECOND}), and the cursor moves at most the
+ * accrued whole words past its current position, consuming the budget it uses.
+ * While displayed text leads synthesis the mapped fraction can sweep far ahead
+ * of real speech (approaching an underrun it lands near the end of the
+ * displayed transcript); the cap keeps the highlight near the truly spoken
+ * word instead of letting the monotonic floor pin the overshoot. The adoption
+ * frame is exempt — a mid-response mount (a caption toggle) jumps straight to
+ * the playhead — and the budget resets on adoption and with the per-response
+ * reset.
  *
  * The cursor is monotonic within a response: a smaller fraction (e.g. the
  * played/total ratio dipping when a new audio burst grows the total) never
@@ -50,10 +59,18 @@ import { useEffect, useRef, useState } from "react";
 import { getLiveVoicePlaybackProgress } from "@/domains/chat/voice/live-voice/live-voice-store";
 
 /**
+ * Ceiling on cursor advancement, in words per second of played audio.
+ * Comfortably above real speech (~2–3 words/sec) so the cap never binds while
+ * the mapping tracks actual playback; it only clamps the sweep when the
+ * fraction maps a short spoken prefix onto a much longer displayed transcript.
+ */
+const MAX_CURSOR_WORDS_PER_SECOND = 5;
+
+/**
  * Index (into the caller's word segmentation) of the word the TTS playhead is
  * speaking, or `null` while the current response has produced no audio (the
  * caller keeps its default highlight). `wordCount` of 0 idles the loop
- * entirely (the assistant caption unmounts on an empty transcript).
+ * entirely (the caller passes 0 for an empty or hidden caption).
  */
 export function useSpokenWordCursor(wordCount: number): number | null {
   const [index, setIndex] = useState<number | null>(null);
@@ -61,6 +78,10 @@ export function useSpokenWordCursor(wordCount: number): number | null {
   // last returned value, serving as both the monotonic floor and the guard
   // that skips the state write when a frame leaves the index unchanged.
   const cursorRef = useRef<number | null>(null);
+  // Rate-cap state: playedSeconds at the previous frame, and the fractional
+  // word budget accrued from played-audio deltas since the last consumption.
+  const prevPlayedRef = useRef<number | null>(null);
+  const budgetRef = useRef(0);
   const prevCountRef = useRef(wordCount);
 
   // Declared before the loop effect so a shrink (transcript cleared for a new
@@ -69,6 +90,8 @@ export function useSpokenWordCursor(wordCount: number): number | null {
   useEffect(() => {
     if (wordCount < prevCountRef.current) {
       cursorRef.current = null;
+      prevPlayedRef.current = null;
+      budgetRef.current = 0;
       setIndex(null);
     }
     prevCountRef.current = wordCount;
@@ -85,18 +108,45 @@ export function useSpokenWordCursor(wordCount: number): number | null {
       let next = cursorRef.current;
       const progress = getLiveVoicePlaybackProgress();
       if (progress !== null && progress.totalSeconds > 0) {
-        // Audio exists for this response, so the cursor is numeric from here:
-        // at least the floor (0 for a fresh response), advancing only while
-        // audio remains scheduled — a caught-up queue (played == total) holds
-        // rather than mapping the drained fraction onto unspoken words.
-        const floor = cursorRef.current ?? 0;
-        next = floor;
-        if (progress.playedSeconds < progress.totalSeconds) {
-          const mapped = Math.floor(
-            (progress.playedSeconds / progress.totalSeconds) * wordCount,
-          );
-          if (Number.isFinite(mapped)) {
-            next = Math.max(Math.min(mapped, wordCount - 1), floor);
+        // A caught-up queue (played == total) yields no candidate: the drained
+        // fraction of 1.0 says nothing about displayed words with no
+        // synthesized audio yet, so a null cursor stays null (default
+        // highlight) and a numeric one holds its floor.
+        const mapped = Math.floor(
+          (progress.playedSeconds / progress.totalSeconds) * wordCount,
+        );
+        const candidate =
+          progress.playedSeconds < progress.totalSeconds &&
+          Number.isFinite(mapped)
+            ? Math.min(mapped, wordCount - 1)
+            : null;
+        if (cursorRef.current === null) {
+          if (candidate !== null) {
+            // Adoption: jump straight to the playhead, uncapped, so a
+            // mid-response mount (a caption toggle) syncs instantly. The rate
+            // cap applies from here on.
+            next = candidate;
+            prevPlayedRef.current = progress.playedSeconds;
+            budgetRef.current = 0;
+          }
+        } else {
+          // Accrue advancement budget from real played audio. A non-positive
+          // delta (a fresh player restarting the clock) accrues nothing.
+          if (prevPlayedRef.current !== null) {
+            const playedDelta = progress.playedSeconds - prevPlayedRef.current;
+            if (playedDelta > 0) {
+              budgetRef.current += playedDelta * MAX_CURSOR_WORDS_PER_SECOND;
+            }
+          }
+          prevPlayedRef.current = progress.playedSeconds;
+          const floor = cursorRef.current;
+          if (candidate !== null && candidate > floor) {
+            const advance = Math.min(
+              candidate - floor,
+              Math.floor(budgetRef.current),
+            );
+            next = floor + advance;
+            budgetRef.current -= advance;
           }
         }
       }
