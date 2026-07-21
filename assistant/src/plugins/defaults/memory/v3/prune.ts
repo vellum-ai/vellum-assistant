@@ -66,16 +66,16 @@ import { getLogger } from "../logging.js";
 import { memorySqliteOrNull } from "../memory-db.js";
 import { unwrapMemoryBlock, wrapMemoryBlock } from "../memory-marker.js";
 import {
-  INJECTED_CONCEPT_HEADER_REGEX,
-  readInjectedBlock,
-} from "../v2/injected-block-slugs.js";
-import {
   getActiveEntries,
   getPrunedSlugs,
   markPruned,
   MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
   residentBytes,
 } from "./ever-injected-store.js";
+import {
+  INJECTED_CONCEPT_HEADER_REGEX,
+  readInjectedBlock,
+} from "./substrate/injected-block-slugs.js";
 
 const log = getLogger("memory-v3-shadow");
 

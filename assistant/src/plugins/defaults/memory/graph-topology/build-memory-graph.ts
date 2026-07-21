@@ -18,15 +18,18 @@
 import { isMemoryV3Live } from "../../../../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../../../../config/types.js";
 import { getWorkspaceDir } from "../paths.js";
-import { getPageIndex, type PageIndexEntry } from "../v2/page-index.js";
-import { readPage, renderPageContent } from "../v2/page-store.js";
-import { isSkillSlug } from "../v2/skill-store.js";
 import {
   isCapabilitySlug,
   renderCapabilityContent,
 } from "../v3/capabilities.js";
 import { buildEdgeGraph } from "../v3/edge.js";
 import { computeLearnedEdgeGraph } from "../v3/learned-edges.js";
+import {
+  getPageIndex,
+  type PageIndexEntry,
+} from "../v3/substrate/page-index.js";
+import { readPage, renderPageContent } from "../v3/substrate/page-store.js";
+import { isSkillSlug } from "../v3/substrate/skill-store.js";
 import type { Slug } from "../v3/types.js";
 import { isMemoryConceptGraphEnabled } from "./flag.js";
 import {

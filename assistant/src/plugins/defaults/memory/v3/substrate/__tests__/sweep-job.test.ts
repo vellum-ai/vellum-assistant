@@ -62,7 +62,7 @@ mock.module("@vellumai/plugin-api", () => ({
 // so the failure-path test can assert on `activity.failed` shape and dedupe.
 const emitCalls: Array<Record<string, unknown>> = [];
 
-mock.module("../../../../../notifications/emit-signal.js", () => ({
+mock.module("../../../../../../notifications/emit-signal.js", () => ({
   emitNotificationSignal: async (params: Record<string, unknown>) => {
     emitCalls.push(params);
     return {
@@ -95,12 +95,14 @@ afterAll(() => {
   rmSync(tmpWorkspace, { recursive: true, force: true });
 });
 
-const { getDb } = await import("../../../../../persistence/db-connection.js");
+const { getDb } =
+  await import("../../../../../../persistence/db-connection.js");
 const { resetDbForTesting } =
-  await import("../../../../../__tests__/db-test-helpers.js");
-const { initializeDb } = await import("../../../../../persistence/db-init.js");
+  await import("../../../../../../__tests__/db-test-helpers.js");
+const { initializeDb } =
+  await import("../../../../../../persistence/db-init.js");
 const { messages, conversations } =
-  await import("../../../../../persistence/schema/index.js");
+  await import("../../../../../../persistence/schema/index.js");
 const { memoryV2SweepJob } = await import("../sweep-job.js");
 
 // The handler reads `config.memory.v2.enabled` and `sweep_enabled`, so we

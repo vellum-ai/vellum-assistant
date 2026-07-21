@@ -30,15 +30,15 @@ import { embedWithRetry } from "../../../../../persistence/embeddings/embed.js";
 import { getLogger } from "../../logging.js";
 import { isPathInsideRoot } from "../../path-containment.js";
 import { spreadActivation } from "../../v2/activation.js";
-import { getEdgeIndex } from "../../v2/edge-index.js";
+import { getEdgeIndex } from "../../v3/substrate/edge-index.js";
 import {
   getConceptsDir,
   readPage,
   slugFromConceptPath,
-} from "../../v2/page-store.js";
-import { hybridQueryConceptPages } from "../../v2/qdrant.js";
-import { fuseHalf } from "../../v2/sim.js";
-import { generateBm25QueryEmbedding } from "../../v2/sparse-bm25.js";
+} from "../../v3/substrate/page-store.js";
+import { hybridQueryConceptPages } from "../../v3/substrate/qdrant.js";
+import { fuseHalf } from "../../v3/substrate/sim.js";
+import { generateBm25QueryEmbedding } from "../../v3/substrate/sparse-bm25.js";
 import type {
   RecallEvidence,
   RecallSearchContext,

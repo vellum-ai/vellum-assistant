@@ -25,11 +25,11 @@ import { dirname, join } from "node:path";
 import { QdrantClient as QdrantRestClient } from "@qdrant/js-client-rest";
 import { v5 as uuidv5 } from "uuid";
 
-import { getConfig } from "../../../../config/loader.js";
-import type { SparseEmbedding } from "../../../../persistence/embeddings/embedding-types.js";
-import { resolveQdrantUrl } from "../embeddings.js";
-import { getLogger } from "../logging.js";
-import { getDataDir } from "../paths.js";
+import { getConfig } from "../../../../../config/loader.js";
+import type { SparseEmbedding } from "../../../../../persistence/embeddings/embedding-types.js";
+import { resolveQdrantUrl } from "../../embeddings.js";
+import { getLogger } from "../../logging.js";
+import { getDataDir } from "../../paths.js";
 
 const log = getLogger("memory-v2-qdrant");
 

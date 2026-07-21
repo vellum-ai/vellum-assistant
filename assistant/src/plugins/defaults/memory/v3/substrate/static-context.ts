@@ -17,11 +17,11 @@
 // content through when `mode === "full"` (first turn / post-compaction),
 // matching the existing PKB auto-inject pattern.
 
-import type { ChannelId } from "../../../../channels/types.js";
-import { usesConceptPageMemory } from "../../../../config/memory-v3-gate.js";
-import { readPromptFile } from "../../../../prompts/system-prompt.js";
-import { getMemoryConfig } from "../config.js";
-import { getWorkspacePromptPath } from "../paths.js";
+import type { ChannelId } from "../../../../../channels/types.js";
+import { usesConceptPageMemory } from "../../../../../config/memory-v3-gate.js";
+import { readPromptFile } from "../../../../../prompts/system-prompt.js";
+import { getMemoryConfig } from "../../config.js";
+import { getWorkspacePromptPath } from "../../paths.js";
 
 interface MemoryV2StaticBlock {
   heading: string;

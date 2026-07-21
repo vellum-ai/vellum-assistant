@@ -9,13 +9,13 @@ import {
 } from "../../../../../persistence/db-connection.js";
 import { migrateActivationState } from "../../../../../persistence/migrations/232-activation-state.js";
 import * as schema from "../../../../../persistence/schema/index.js";
+import type { ActivationState } from "../../v3/substrate/types.js";
 import {
   clearEverInjected,
   forkActivationState,
   hydrate,
   save,
 } from "../activation-store.js";
-import type { ActivationState } from "../types.js";
 
 function createTestDb(): DrizzleDb {
   const sqlite = new Database(":memory:");

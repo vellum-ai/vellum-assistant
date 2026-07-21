@@ -1,6 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
 
-import type { AssistantConfig } from "../../../../../config/schema.js";
+import type { AssistantConfig } from "../../../../../../config/schema.js";
 
 function fakeConfig(): AssistantConfig {
   return {
@@ -30,7 +30,7 @@ async function withMocks(opts: { reembedInFlight: boolean }) {
     hasConceptPages: mock(async () => true),
   };
 
-  mock.module("../../../../../persistence/jobs-store.js", () => ({
+  mock.module("../../../../../../persistence/jobs-store.js", () => ({
     enqueueMemoryJob: spies.enqueueMemoryJob,
     hasActiveJobOfType: spies.hasActiveJobOfType,
   }));
@@ -42,8 +42,8 @@ async function withMocks(opts: { reembedInFlight: boolean }) {
   mock.module("../page-store.js", () => ({
     hasConceptPages: spies.hasConceptPages,
   }));
-  const realPlatform = await import("../../../../../util/platform.js");
-  mock.module("../../../../../util/platform.js", () => ({
+  const realPlatform = await import("../../../../../../util/platform.js");
+  mock.module("../../../../../../util/platform.js", () => ({
     ...realPlatform,
     getWorkspaceDir: () => "/tmp/workspace",
   }));

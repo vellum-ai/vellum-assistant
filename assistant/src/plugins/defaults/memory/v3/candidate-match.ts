@@ -31,8 +31,8 @@ import {
 } from "../../../../persistence/embeddings/embed.js";
 import { abortableSleep, computeRetryDelay } from "../host-utils.js";
 import { getLogger } from "../logging.js";
-import { simBatch } from "../v2/sim.js";
-import { skillSlugFor } from "../v2/skill-store.js";
+import { simBatch } from "./substrate/sim.js";
+import { skillSlugFor } from "./substrate/skill-store.js";
 
 const log = getLogger("memory-v3-candidate-match");
 

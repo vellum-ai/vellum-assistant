@@ -4,7 +4,7 @@
  */
 import { describe, expect, test } from "bun:test";
 
-import { setConfig } from "../../../../../__tests__/helpers/set-config.js";
+import { setConfig } from "../../../../../../__tests__/helpers/set-config.js";
 import type { SkillCapabilityInput } from "../skill-content.js";
 
 describe("buildSkillContent", () => {

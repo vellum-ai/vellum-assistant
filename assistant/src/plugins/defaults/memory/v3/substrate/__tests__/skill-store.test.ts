@@ -25,9 +25,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { ResolvedSkill } from "../../../../../config/skill-state.js";
-import type { SkillSummary } from "../../../../../config/skills.js";
-import type { CatalogSkill } from "../../../../../skills/catalog-install.js";
+import type { ResolvedSkill } from "../../../../../../config/skill-state.js";
+import type { SkillSummary } from "../../../../../../config/skills.js";
+import type { CatalogSkill } from "../../../../../../skills/catalog-install.js";
 
 // ---------------------------------------------------------------------------
 // Programmable test state — drives every mocked dependency below.
@@ -89,11 +89,11 @@ const state: TestState = {
   callSequence: [],
 };
 
-mock.module("../../../../../config/skills.js", () => ({
+mock.module("../../../../../../config/skills.js", () => ({
   loadSkillCatalog: () => state.catalog ?? [],
 }));
 
-mock.module("../../../../../config/skill-state.js", () => ({
+mock.module("../../../../../../config/skill-state.js", () => ({
   resolveSkillStates: (
     catalog: SkillSummary[],
     config: { skills?: { allowBundled?: string[] | null } },
@@ -122,13 +122,13 @@ mock.module("../../../../../config/skill-state.js", () => ({
   },
 }));
 
-mock.module("../../../../../config/assistant-feature-flags.js", () => ({
+mock.module("../../../../../../config/assistant-feature-flags.js", () => ({
   isAssistantFeatureFlagEnabled: (key: string) =>
     state.flagsEnabled[key] ?? true,
 }));
 
 mock.module(
-  "../../../../../persistence/embeddings/embedding-backend.js",
+  "../../../../../../persistence/embeddings/embedding-backend.js",
   () => ({
     embedWithBackend: async (_config: unknown, inputs: unknown[]) => {
       if (state.embedThrows) {
@@ -174,7 +174,7 @@ mock.module("../qdrant.js", () => ({
   },
 }));
 
-mock.module("../../../../../skills/catalog-cache.js", () => ({
+mock.module("../../../../../../skills/catalog-cache.js", () => ({
   getCatalog: async () => {
     if (state.fullCatalogThrows) {
       throw state.fullCatalogThrows;

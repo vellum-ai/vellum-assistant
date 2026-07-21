@@ -80,24 +80,24 @@ import { dirname, join } from "node:path";
 import {
   isMemoryV3Live,
   usesConceptPageMemory,
-} from "../../../../config/memory-v3-gate.js";
-import type { AssistantConfig } from "../../../../config/types.js";
+} from "../../../../../config/memory-v3-gate.js";
+import type { AssistantConfig } from "../../../../../config/types.js";
 import {
   deleteMemoryCheckpoint,
   getMemoryCheckpoint,
   setMemoryCheckpoint,
-} from "../../../../persistence/checkpoints.js";
+} from "../../../../../persistence/checkpoints.js";
 import {
   enqueueMemoryJob,
   hasPendingJobOfType,
   type MemoryJob,
   type MemoryJobType,
-} from "../../../../persistence/jobs-store.js";
-import { runBackgroundJob } from "../../../../runtime/background-job-runner.js";
-import { formatBufferTimestamp } from "../graph/tool-handlers.js";
-import { isProcessAlive } from "../host-utils.js";
-import { getLogger } from "../logging.js";
-import { getWorkspaceDir } from "../paths.js";
+} from "../../../../../persistence/jobs-store.js";
+import { runBackgroundJob } from "../../../../../runtime/background-job-runner.js";
+import { formatBufferTimestamp } from "../../graph/tool-handlers.js";
+import { isProcessAlive } from "../../host-utils.js";
+import { getLogger } from "../../logging.js";
+import { getWorkspaceDir } from "../../paths.js";
 import { MEMORY_V2_CONSOLIDATION_SOURCE } from "./constants.js";
 import { resolveConsolidationPrompt } from "./prompts/consolidation.js";
 

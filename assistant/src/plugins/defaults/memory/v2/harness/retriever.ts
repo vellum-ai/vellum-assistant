@@ -10,8 +10,8 @@
  */
 
 import type { AssistantConfig } from "../../../../../config/types.js";
+import type { EverInjectedEntry } from "../../v3/substrate/types.js";
 import type { RouterTurnPair } from "../router.js";
-import type { EverInjectedEntry } from "../types.js";
 import type { RetrievalCost } from "./harness-types.js";
 import type { DescentTrace } from "./trace.js";
 

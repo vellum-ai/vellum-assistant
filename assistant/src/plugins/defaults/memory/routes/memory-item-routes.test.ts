@@ -68,7 +68,7 @@ mock.module(
 // stats test seed synthetic (modifiedAt: 0) rows and assert they're excluded.
 let mockSkillEntries: Array<{ id: string; content: string }> = [];
 
-mock.module("../v2/skill-store.js", () => ({
+mock.module("../v3/substrate/skill-store.js", () => ({
   SKILL_SLUG_PREFIX: "skills/",
   listSkillEntries: () => mockSkillEntries,
 }));
@@ -92,9 +92,9 @@ import {
   NotFoundError,
 } from "../../../../runtime/routes/errors.js";
 import type { RouteDefinition } from "../../../../runtime/routes/types.js";
-import { invalidatePageIndex } from "../v2/page-index.js";
-import { writePage } from "../v2/page-store.js";
-import type { ConceptPage } from "../v2/types.js";
+import { invalidatePageIndex } from "../v3/substrate/page-index.js";
+import { writePage } from "../v3/substrate/page-store.js";
+import type { ConceptPage } from "../v3/substrate/types.js";
 import { ROUTES } from "./memory-item-routes.js";
 
 // ---------------------------------------------------------------------------

@@ -15,7 +15,7 @@ import {
   type ActivationState,
   ActivationStateSchema,
   type EverInjectedEntry,
-} from "./types.js";
+} from "../v3/substrate/types.js";
 
 /**
  * Load the activation state for a conversation, or `null` if no row exists.

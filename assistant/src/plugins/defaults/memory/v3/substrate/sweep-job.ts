@@ -31,26 +31,26 @@ import {
 import { and, desc, eq, gt, notInArray } from "drizzle-orm";
 import { z } from "zod";
 
-import { usesConceptPageMemory } from "../../../../config/memory-v3-gate.js";
-import type { AssistantConfig } from "../../../../config/types.js";
-import { emitNotificationSignal } from "../../../../notifications/emit-signal.js";
-import { getDb } from "../../../../persistence/db-connection.js";
-import type { MemoryJob } from "../../../../persistence/jobs-store.js";
+import { usesConceptPageMemory } from "../../../../../config/memory-v3-gate.js";
+import type { AssistantConfig } from "../../../../../config/types.js";
+import { emitNotificationSignal } from "../../../../../notifications/emit-signal.js";
+import { getDb } from "../../../../../persistence/db-connection.js";
+import type { MemoryJob } from "../../../../../persistence/jobs-store.js";
 import {
   conversations,
   messages,
-} from "../../../../persistence/schema/index.js";
+} from "../../../../../persistence/schema/index.js";
 import {
   appendBufferAndArchive,
   formatRememberEntry,
-} from "../graph/tool-handlers.js";
+} from "../../graph/tool-handlers.js";
 import {
   extractToolUse,
   type ToolDefinition,
   userMessage,
-} from "../llm-helpers.js";
-import { getLogger } from "../logging.js";
-import { getWorkspaceDir } from "../paths.js";
+} from "../../llm-helpers.js";
+import { getLogger } from "../../logging.js";
+import { getWorkspaceDir } from "../../paths.js";
 import { renderSweepPrompt } from "./prompts/sweep.js";
 
 const log = getLogger("memory-v2-sweep");

@@ -41,7 +41,7 @@ import { getPkbAutoInjectList } from "./pkb/autoinject.js";
 import { readPkbContext } from "./pkb/context.js";
 import { searchPkbFiles } from "./pkb/pkb-search.js";
 import { getPkbRoot } from "./pkb/types.js";
-import { readMemoryV2StaticContent } from "./v2/static-context.js";
+import { readMemoryV2StaticContent } from "./v3/substrate/static-context.js";
 
 const pkbReminderLog = getLogger("pkb-reminder");
 

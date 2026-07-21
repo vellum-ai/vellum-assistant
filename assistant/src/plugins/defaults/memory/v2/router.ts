@@ -47,16 +47,16 @@ import {
   type ToolDefinition,
 } from "../llm-helpers.js";
 import { getLogger } from "../logging.js";
-import { computeInjectionScores } from "./injection-events.js";
-import type { PageIndex } from "./page-index.js";
+import type { PageIndex } from "../v3/substrate/page-index.js";
 import {
   getPageIndex,
   partitionPageIndex,
   splitTier1,
   splitTier2,
-} from "./page-index.js";
+} from "../v3/substrate/page-index.js";
+import type { EverInjectedEntry } from "../v3/substrate/types.js";
+import { computeInjectionScores } from "./injection-events.js";
 import { resolveRouterPrompt } from "./prompts/router.js";
-import type { EverInjectedEntry } from "./types.js";
 
 const log = getLogger("memory-v2-router");
 

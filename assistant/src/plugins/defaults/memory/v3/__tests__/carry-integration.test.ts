@@ -62,13 +62,13 @@ import { migrateAddMemoryV3EverInjected } from "../../../../../persistence/migra
 import { ensureMemoryV3SelectionsSchema } from "../../../../../persistence/migrations/338-move-memory-v3-selections-to-memory-db.js";
 import * as schema from "../../../../../persistence/schema/index.js";
 import { unwrapMemoryBlock, wrapMemoryBlock } from "../../memory-marker.js";
-import type { PageIndexEntry } from "../../v2/page-index.js";
 import { cardBytes, renderCard } from "../card.js";
 import { loadCoreSet } from "../core-set.js";
 import type { EdgeGraph } from "../edge.js";
 import { buildEdgeGraph } from "../edge.js";
 import { buildSectionNeedle } from "../section-needle.js";
 import { buildSectionIndex } from "../sections.js";
+import type { PageIndexEntry } from "../substrate/page-index.js";
 import {
   MEMORY_V3_COMMIT_META_KEY,
   type SectionIndex,

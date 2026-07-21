@@ -19,7 +19,7 @@
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { CliCommandHelp } from "../../../../../cli/lib/cli-command-help.js";
+import type { CliCommandHelp } from "../../../../../../cli/lib/cli-command-help.js";
 
 // ---------------------------------------------------------------------------
 // Programmable test state
@@ -94,12 +94,12 @@ function setCommands(...commands: CliCommandHelp[]): void {
 // `CLI_COMMAND_HELP` from `@vellumai/plugin-api`, which re-exports it from
 // `cli/index.help.js` — mocking that module drives the seed with pure data,
 // so no test wires the Commander action graph.
-mock.module("../../../../../cli/index.help.js", () => ({
+mock.module("../../../../../../cli/index.help.js", () => ({
   CLI_COMMAND_HELP: state.commands,
 }));
 
 mock.module(
-  "../../../../../persistence/embeddings/embedding-backend.js",
+  "../../../../../../persistence/embeddings/embedding-backend.js",
   () => ({
     embedWithBackend: async (_config: unknown, inputs: unknown[]) => {
       if (state.embedThrows) throw state.embedThrows;
@@ -117,7 +117,7 @@ mock.module("../sparse-bm25.js", () => ({
   getConceptPageCorpusStats: () => null,
 }));
 
-mock.module("../../../../../memory/v2/anisotropy.js", () => ({
+mock.module("../../../../../../memory/v2/anisotropy.js", () => ({
   applyCorrectionIfCalibrated: async (v: number[]) => v,
 }));
 

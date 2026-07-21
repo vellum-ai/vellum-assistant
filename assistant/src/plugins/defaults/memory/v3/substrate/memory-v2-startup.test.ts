@@ -17,7 +17,7 @@
  */
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
-import type { AssistantConfig } from "../../../../config/schema.js";
+import type { AssistantConfig } from "../../../../../config/schema.js";
 
 const proxyState = { prereqs: true };
 const v3State = { live: true };
@@ -27,11 +27,11 @@ const enqueueJob = mock(
   (_type: string, _payload: Record<string, unknown>) => 1,
 );
 
-mock.module("../../../../providers/platform-proxy/context.js", () => ({
+mock.module("../../../../../providers/platform-proxy/context.js", () => ({
   hasManagedProxyPrereqs: async () => proxyState.prereqs,
 }));
 
-mock.module("../../../../config/memory-v3-gate.js", () => ({
+mock.module("../../../../../config/memory-v3-gate.js", () => ({
   isMemoryV3Live: () => v3State.live,
   usesConceptPageMemory: (memory?: {
     enabled?: boolean;
@@ -42,7 +42,7 @@ mock.module("../../../../config/memory-v3-gate.js", () => ({
     (memory?.v3?.live === true || memory?.v2?.enabled === true),
 }));
 
-mock.module("../../../../persistence/jobs-store.js", () => ({
+mock.module("../../../../../persistence/jobs-store.js", () => ({
   enqueueMemoryJob: enqueueJob,
 }));
 

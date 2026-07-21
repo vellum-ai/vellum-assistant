@@ -73,7 +73,7 @@ let runnerImpl: () => Promise<{
   skipReason?: string;
 }> = runnerTrimsBuffer;
 
-mock.module("../../../../../runtime/background-job-runner.js", () => ({
+mock.module("../../../../../../runtime/background-job-runner.js", () => ({
   runBackgroundJob: async (opts: Record<string, unknown>) => {
     runnerCalls += 1;
     runnerLastArgs = opts;
@@ -90,7 +90,7 @@ mock.module("../../../../../runtime/background-job-runner.js", () => ({
 // emitting a signal as a result of consolidation failure.
 const emitCalls: Array<Record<string, unknown>> = [];
 
-mock.module("../../../../../notifications/emit-signal.js", () => ({
+mock.module("../../../../../../notifications/emit-signal.js", () => ({
   emitNotificationSignal: async (params: Record<string, unknown>) => {
     emitCalls.push(params);
     return {
@@ -113,7 +113,7 @@ let nextJobIdCounter = 0;
 // enqueue-coalescing branch (`hasPendingJobOfType`).
 let pendingJobTypes = new Set<string>();
 
-mock.module("../../../../../persistence/jobs-store.js", () => ({
+mock.module("../../../../../../persistence/jobs-store.js", () => ({
   enqueueMemoryJob: (
     type: string,
     payload: Record<string, unknown>,
@@ -133,7 +133,7 @@ mock.module("../../../../../persistence/jobs-store.js", () => ({
 // can assert what the handler wrote without initializing sqlite.
 const checkpointStore = new Map<string, string>();
 
-mock.module("../../../../../persistence/checkpoints.js", () => ({
+mock.module("../../../../../../persistence/checkpoints.js", () => ({
   getMemoryCheckpoint: (key: string): string | null =>
     checkpointStore.get(key) ?? null,
   setMemoryCheckpoint: (key: string, value: string): void => {
@@ -153,14 +153,14 @@ mock.module("../../../../../persistence/checkpoints.js", () => ({
 // for the article-shape tests.
 let v3FlagOn = false;
 let flagStates: Record<string, boolean> = {};
-mock.module("../../../../../config/assistant-feature-flags.js", () => ({
+mock.module("../../../../../../config/assistant-feature-flags.js", () => ({
   isAssistantFeatureFlagEnabled: (key: string) => flagStates[key] ?? v3FlagOn,
 }));
 
 // The v3-live gate lives in config (`config.memory.v3.live`), read via
 // `isMemoryV3Live`; drive it through `flagStates["memory-v3-live"]` (and
 // `v3FlagOn` for the existing on/off tests).
-mock.module("../../../../../config/memory-v3-gate.js", () => ({
+mock.module("../../../../../../config/memory-v3-gate.js", () => ({
   isMemoryV3Live: () => flagStates["memory-v3-live"] ?? v3FlagOn,
   usesConceptPageMemory: (memory?: {
     enabled?: boolean;

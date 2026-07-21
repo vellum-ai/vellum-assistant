@@ -185,7 +185,8 @@ const { migrateAddMemoryV3EverInjected } =
 const { getActiveSlugs: getV3ActiveSlugs, recordInjected: recordV3Injected } =
   await import("../../v3/ever-injected-store.js");
 const schema = await import("../../../../../persistence/schema/index.js");
-const { _resetMemoryV2QdrantForTests } = await import("../../v2/qdrant.js");
+const { _resetMemoryV2QdrantForTests } =
+  await import("../../v3/substrate/qdrant.js");
 const { hydrate: hydrateActivationState, save: saveActivationState } =
   await import("../../v2/activation-store.js");
 

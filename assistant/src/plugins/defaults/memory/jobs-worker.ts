@@ -66,7 +66,7 @@ import {
   type ConsolidationFailureKind,
   countBufferLines,
   readConsolidationFailureState,
-} from "./v2/consolidation-job.js";
+} from "./v3/substrate/consolidation-job.js";
 import { spawnMemoryWorkerProcess } from "./worker-control.js";
 
 const log = getLogger("memory-jobs-worker");
