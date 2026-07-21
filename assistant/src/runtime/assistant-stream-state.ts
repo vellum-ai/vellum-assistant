@@ -189,6 +189,17 @@ export function disableStreamSeqStamping(): void {
 }
 
 /**
+ * Whether seq stamping is disabled in this process ({@link
+ * disableStreamSeqStamping}). `true` in sidecar worker processes, `false` in
+ * the daemon. Callers use it to route seq/anchor authority to the daemon
+ * instead of acting on this process's inert counter — a worker's
+ * `getCurrentSeq()` reports `0` and its hub publishes reach no SSE subscriber.
+ */
+export function isStreamSeqStampingDisabled(): boolean {
+  return stampingDisabled;
+}
+
+/**
  * Assign a monotonic global `seq` to a conversation-scoped event and push
  * it onto the ring buffer. No-op when `event.conversationId` is absent
  * (unscoped broadcasts are never replayable) and in processes where
