@@ -1015,6 +1015,59 @@ describe("classifyConversationError", () => {
       expect(result.errorCategory).toBe("context_too_large");
     });
 
+    it("routes reason=daily_limit_reached to PROVIDER_BILLING/daily_limit_reached under managed-proxy", () => {
+      providerRoutingSources["vercel-ai-gateway"] = "managed-proxy";
+      const err = new ProviderError(
+        'Vercel AI Gateway API error (402): {"code":"daily_limit_reached","detail":"Daily credit limit reached"}',
+        "vercel-ai-gateway",
+        402,
+        { reason: "daily_limit_reached" },
+      );
+
+      const result = classifyConversationError(err, baseCtx);
+
+      expect(result.code).toBe("PROVIDER_BILLING");
+      expect(result.errorCategory).toBe("daily_limit_reached");
+      expect(result.retryable).toBe(false);
+      expect(result.userMessage).toContain("daily credit limit");
+      expect(result.userMessage).toContain("Billing settings");
+    });
+
+    it("classifies reason=daily_limit_reached as daily_limit_reached even when the routing map says user-key", () => {
+      // Per-connection platform-auth routes can leave the global routing map
+      // at user-key; the stamped reason comes only from the platform proxy's
+      // body code, so it must win regardless of the map.
+      providerRoutingSources.openai = "user-key";
+      const err = new ProviderError(
+        'OpenAI API error (402): {"code":"daily_limit_reached","detail":"Daily credit limit reached"}',
+        "openai",
+        402,
+        { reason: "daily_limit_reached" },
+      );
+
+      const result = classifyConversationError(err, baseCtx);
+
+      expect(result.code).toBe("PROVIDER_BILLING");
+      expect(result.errorCategory).toBe("daily_limit_reached");
+      expect(result.retryable).toBe(false);
+    });
+
+    it("keeps a plain managed-proxy 402 without the daily-limit code as credits_exhausted", () => {
+      providerRoutingSources.openrouter = "managed-proxy";
+      const err = new ProviderError(
+        "OpenRouter API error (402): Payment Required",
+        "openrouter",
+        402,
+        { reason: "insufficient_credits" },
+      );
+
+      const result = classifyConversationError(err, baseCtx);
+
+      expect(result.code).toBe("PROVIDER_BILLING");
+      expect(result.errorCategory).toBe("credits_exhausted");
+      expect(result.retryable).toBe(false);
+    });
+
     it("honors a stamped reason on a statusless ProviderError (no HTTP status)", () => {
       // SDK streaming failures throw with statusCode undefined but can still
       // carry a reason; it must classify semantically, not fall to the fallback.

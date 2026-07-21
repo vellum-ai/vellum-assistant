@@ -2,6 +2,7 @@ import type OpenAI from "openai";
 
 import type { ProviderErrorReason } from "../../util/errors.js";
 import {
+  DAILY_LIMIT_PATTERNS,
   INSUFFICIENT_CREDITS_PATTERNS,
   VISION_NOT_SUPPORTED_PATTERNS,
 } from "../../util/provider-error-patterns.js";
@@ -78,6 +79,12 @@ export function deriveReason(
 
   if (VISION_NOT_SUPPORTED_PATTERNS.some((re) => re.test(haystack))) {
     return "vision_unsupported";
+  }
+
+  // The managed proxy's daily-limit 402 shares the status with generic credit
+  // exhaustion; match its specific body code first so it isn't swallowed.
+  if (DAILY_LIMIT_PATTERNS.some((re) => re.test(haystack))) {
+    return "daily_limit_reached";
   }
 
   if (

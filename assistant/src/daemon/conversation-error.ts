@@ -562,6 +562,12 @@ function reasonToClassification(
       return managed
         ? managedBalanceClassification()
         : providerBillingClassification();
+    case "daily_limit_reached":
+      // The reason is stamped only from the platform proxy's
+      // `"code":"daily_limit_reached"` body, so it is authoritative on its
+      // own — the global routing map can lag per-connection platform-auth
+      // routes and must not downgrade this to the generic billing surface.
+      return dailyLimitClassification();
     case "overloaded":
       return providerOverloadedClassification();
     case "server_error":
@@ -695,6 +701,19 @@ function providerBillingClassification(): Omit<
       "Your API provider account or key needs credits. Add funds with the provider or update the key in Settings → Models & Services.",
     retryable: false,
     errorCategory: "provider_billing",
+  };
+}
+
+function dailyLimitClassification(): Omit<
+  ClassifiedConversationError,
+  "debugDetails"
+> {
+  return {
+    code: "PROVIDER_BILLING",
+    userMessage:
+      "You've hit your daily credit limit. Raise the limit in Billing settings to keep going today.",
+    retryable: false,
+    errorCategory: "daily_limit_reached",
   };
 }
 
