@@ -2703,6 +2703,7 @@ function makeFrontDecider(decisions: Array<"hold" | "release">): {
         return { action: decisions[calls.length - 1] ?? "release" };
       },
       generateAckText: async () => null,
+      generateProgressText: async () => null,
     },
   };
 }
@@ -2874,6 +2875,7 @@ describe("LiveVoiceSession semantic endpointing", () => {
         throw new Error("stub decider boom");
       },
       generateAckText: async () => null,
+      generateProgressText: async () => null,
     };
     const turnStarter = makeAutoCompletingTurnStarter(["Hi there."]);
     const { frames, session, transcribers } = createHarness({
@@ -2915,6 +2917,7 @@ describe("LiveVoiceSession semantic endpointing", () => {
         return { action: "release" };
       },
       generateAckText: async () => null,
+      generateProgressText: async () => null,
     };
     const turnStarter = makeAutoCompletingTurnStarter(["Hi there."]);
     const { frames, session, transcribers } = createHarness({

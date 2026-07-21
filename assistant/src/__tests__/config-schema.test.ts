@@ -833,6 +833,13 @@ describe("AssistantConfigSchema", () => {
         ackFirstDeltaTimeoutMs: 2500,
         ackGenerationTimeoutMs: 600,
         llmAckText: false,
+        progress: {
+          enabled: true,
+          opsThreshold: 3,
+          idleIntervalMs: 5000,
+          minGapMs: 6000,
+          generationTimeoutMs: 1500,
+        },
       },
       maxSessionDurationSeconds: 1800,
       archiveAudio: false,

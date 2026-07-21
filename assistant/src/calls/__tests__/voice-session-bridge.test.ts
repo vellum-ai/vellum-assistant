@@ -27,7 +27,10 @@ mock.module("../../daemon/conversation-store.js", () => ({
 import { setConfig } from "../../__tests__/helpers/set-config.js";
 import { ABORT_WATCHDOG_MS } from "../../daemon/abort-watchdog.js";
 import { CALL_OPENING_MARKER } from "../voice-control-protocol.js";
-import { startVoiceTurn } from "../voice-session-bridge.js";
+import {
+  startVoiceTurn,
+  TOOL_RESULT_PREVIEW_MAX_CHARS,
+} from "../voice-session-bridge.js";
 import {
   escalatedContinuationRule,
   ESCALATION_CONTINUATION_CONTENT,
@@ -1016,5 +1019,155 @@ describe("startVoiceTurn race-loss state restore", () => {
     expect(waited.channelCapabilities).toBe(winnerState.channelCapabilities);
     expect(waited.callSessionId).toBe(winnerState.callSessionId);
     expect(waited.assistantId).toBe(winnerState.assistantId);
+  });
+});
+
+describe("startVoiceTurn tool-event forwarding", () => {
+  // The agent loop's tool_use_start / tool_result events reach the voice
+  // callbacks so the session can track per-turn tool activity. The bridge is
+  // the single truncation point for tool results — the raw result can be
+  // huge and must never travel further into the voice layer.
+
+  /** Scripts runAgentLoop to emit the given agent-loop events in order. */
+  function makeEventEmittingConversation(events: unknown[]) {
+    const fake = makeFakeConversation({ processing: false });
+    fake.conversation.runAgentLoop = async (...args: unknown[]) => {
+      const { onEvent } = args[2] as { onEvent: (msg: unknown) => void };
+      for (const event of events) {
+        onEvent(event);
+      }
+    };
+    fakeConversation = fake.conversation;
+  }
+
+  test("tool_use_start delivers the tool name and toolUseId", async () => {
+    makeEventEmittingConversation([
+      {
+        type: "tool_use_start",
+        toolName: "web_search",
+        input: { query: "weather" },
+        toolUseId: "toolu-1",
+      },
+    ]);
+
+    const starts: Array<{ toolName: string; detail?: unknown }> = [];
+    await startVoiceTurn({
+      ...makeTurnOptions(),
+      callbacks: {
+        tool_use_start: (toolName, detail) => starts.push({ toolName, detail }),
+      },
+    });
+    await flushMicrotasks();
+
+    expect(starts).toEqual([
+      { toolName: "web_search", detail: { toolUseId: "toolu-1" } },
+    ]);
+  });
+
+  test("tool_result delivers name, id, isError, and a preview truncated to the max preview length", async () => {
+    const longResult = "x".repeat(TOOL_RESULT_PREVIEW_MAX_CHARS + 100);
+    makeEventEmittingConversation([
+      {
+        type: "tool_result",
+        toolName: "web_search",
+        result: longResult,
+        isError: true,
+        toolUseId: "toolu-1",
+      },
+    ]);
+
+    const results: unknown[] = [];
+    await startVoiceTurn({
+      ...makeTurnOptions(),
+      callbacks: {
+        tool_result: (event) => results.push(event),
+      },
+    });
+    await flushMicrotasks();
+
+    // The shared `truncate` util caps at the max preview length including
+    // its "..." truncation marker.
+    const truncationMarker = "...";
+    const expectedPreview =
+      "x".repeat(TOOL_RESULT_PREVIEW_MAX_CHARS - truncationMarker.length) +
+      truncationMarker;
+    expect(expectedPreview).toHaveLength(TOOL_RESULT_PREVIEW_MAX_CHARS);
+    expect(results).toEqual([
+      {
+        toolName: "web_search",
+        toolUseId: "toolu-1",
+        isError: true,
+        resultPreview: expectedPreview,
+      },
+    ]);
+  });
+
+  test("tool_result forwards prod-shaped local-tool payloads, including one without a toolUseId", async () => {
+    // Local tools emit tool_result with the tool's real name; toolUseId is
+    // optional on the wire, so the name must survive the bridge for the
+    // session's name-fallback correlation.
+    makeEventEmittingConversation([
+      {
+        type: "tool_result",
+        toolName: "bash",
+        result: "total 4",
+        isError: false,
+        toolUseId: "toolu-1",
+      },
+      {
+        type: "tool_result",
+        toolName: "file_read",
+        result: "file contents",
+      },
+    ]);
+
+    const results: unknown[] = [];
+    await startVoiceTurn({
+      ...makeTurnOptions(),
+      callbacks: {
+        tool_result: (event) => results.push(event),
+      },
+    });
+    await flushMicrotasks();
+
+    expect(results).toEqual([
+      {
+        toolName: "bash",
+        toolUseId: "toolu-1",
+        isError: false,
+        resultPreview: "total 4",
+      },
+      {
+        toolName: "file_read",
+        toolUseId: undefined,
+        isError: undefined,
+        resultPreview: "file contents",
+      },
+    ]);
+  });
+
+  test("a callbacks object without the tool-event members doesn't throw", async () => {
+    makeEventEmittingConversation([
+      {
+        type: "tool_use_start",
+        toolName: "web_search",
+        input: {},
+        toolUseId: "toolu-1",
+      },
+      {
+        type: "tool_result",
+        toolName: "web_search",
+        result: "ok",
+        toolUseId: "toolu-1",
+      },
+    ]);
+
+    const handle = await startVoiceTurn({
+      ...makeTurnOptions(),
+      callbacks: {},
+    });
+    await flushMicrotasks();
+
+    expect(handle.turnId).toBeString();
   });
 });
