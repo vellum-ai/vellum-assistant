@@ -264,9 +264,9 @@ export async function getMemoryGraph(
     hubDegree: config.memory.v3.edge.hubDegree,
   });
 
-  // Learned (co-selection) edges are intentionally not surfaced in the graph —
-  // only authored `link` edges are drawn. assembleMemoryGraph still accepts an
-  // optional learnedAdjacency, but this endpoint no longer computes one.
+  // The graph surfaces only authored `link` edges; learned (co-selection)
+  // associations are intentionally omitted here. assembleMemoryGraph accepts an
+  // optional learned adjacency, but this endpoint does not build one.
   const assembled = assembleMemoryGraph({
     entries,
     staticAdjacency: staticGraph.adjacency,

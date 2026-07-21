@@ -217,9 +217,10 @@ export function ConceptGraphView({
         byCluster.set(cluster, [node]);
       }
     }
-    // Name each theme by its 2–3 most-connected concepts (not just the single
-    // hub) so the legend label conveys what the theme is about. Colored to match
-    // the cluster palette; largest themes first; ties break to lowest id.
+    // Each theme takes its hub concept (highest degree) as the compact legend
+    // name, and carries its top few concepts along for the hover tooltip.
+    // Colored to match the cluster palette; largest themes first; ties break to
+    // lowest id.
     return [...byCluster.entries()]
       .map(([cluster, nodes]) => {
         const top = [...nodes]
@@ -228,7 +229,8 @@ export function ConceptGraphView({
         return {
           hubId: top[0].id,
           color: CLUSTER_PALETTE[cluster % CLUSTER_PALETTE.length],
-          name: top.map((n) => n.label).join(", "),
+          name: top[0].label,
+          concepts: top.map((n) => n.label),
           size: nodes.length,
         };
       })
