@@ -122,10 +122,15 @@ export function BillingOnboardingModal({
   // actions) live inside the step content.
   const isTakeover = step === "provisioning" && !provisioningError;
 
-  // Lock Esc/backdrop only while provisioning is active — the terminal ready
-  // states unlock dismissal, so a hung routing refetch that blocks the
-  // auto-advance is never a dead-end.
-  const lockTakeover = isTakeover && !provisioningSettled;
+  // Lock Esc/backdrop while provisioning is active, with two escape valves so a
+  // hung routing refetch never strands the user behind the removed X: terminal
+  // ready states unlock, and a busy state stuck past the escape grace with
+  // routing still hung unlocks to a plain background-dismiss (the in-content
+  // escape hatch needs routing to have settled).
+  const stuckAwaitingRouting =
+    machineBusy && provisioning.escapeEligible && !routingSettled;
+  const lockTakeover =
+    isTakeover && !provisioningSettled && !stuckAwaitingRouting;
 
   // Full-bleed dark content that fills the viewport for the takeover.
   const provisioningContentClass =
