@@ -468,15 +468,15 @@ function SectionCard({
     section.key === "personality" || section.key === "schedules";
 
   return (
-    // The feature cards float flat on the page — no border, no shadow;
-    // the other tiles keep the standard raised card chrome.
+    // The feature cards sit flat on the page (no shadow) with a hairline
+    // theme border; the other tiles keep the standard raised card chrome.
     <Card.Root
       asChild
       bordered={!isFeatureCard}
       elevated={!isFeatureCard}
       className={`${SECTION_RADII[section.key] ?? ""} ${
         isFeatureCard
-          ? "border-0 bg-[var(--card-feature-bg,var(--card-bg))]"
+          ? "border border-[var(--border-base)] bg-[var(--card-feature-bg,var(--card-bg))]"
           : "bg-[var(--card-bg)]"
       }`}
       style={{
@@ -965,7 +965,6 @@ function OverviewBento({
               customImageUrl={customImageUrl}
               size={heroAvatarSize}
               interactive
-              trackCursor
             />
             <span
               aria-hidden="true"

@@ -202,7 +202,7 @@ export function AmoebaPeekTab({
         animate={{
           x: anchor.x - TAB_DIAMETER / 2 + (active ? 0 : retract.x),
           y: anchor.y - TAB_DIAMETER / 2 + (active ? 0 : retract.y),
-          opacity: active ? 0.8 : 0,
+          opacity: active ? 1 : 0,
         }}
         transition={transition}
       />
@@ -214,7 +214,7 @@ export function AmoebaPeekTab({
           y: eyeCenter.y - eyeH / 2 + (active ? 0 : retract.y),
           width: eyeW,
           height: eyeH,
-          opacity: active ? 0.8 : 0,
+          opacity: active ? 1 : 0,
         }}
         transition={transition}
       >
