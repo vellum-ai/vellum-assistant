@@ -37,12 +37,18 @@ import type { ContentBlock, Message } from "../providers/types.js";
 export const REFUSAL_FALLBACK_TEXT =
   "Sorry — I wasn't able to generate a response to that. Please try rephrasing or asking in a different way.";
 
-/** A user-role message carrying only tool results, not a fresh prompt. */
+/**
+ * A user-role message carrying only tool results — local `tool_result` or
+ * server `web_search_tool_result` — not a fresh prompt.
+ */
 export function isToolResultMessage(message: Message): boolean {
   return (
     message.role === "user" &&
     message.content.length > 0 &&
-    message.content.every((block) => block.type === "tool_result")
+    message.content.every(
+      (block) =>
+        block.type === "tool_result" || block.type === "web_search_tool_result",
+    )
   );
 }
 
@@ -64,14 +70,14 @@ export function isRefusalFallbackMessage(message: Message): boolean {
 }
 
 /**
- * Whether a synthetic (always null-keyed) `tool_result` row pairs with a
- * `tool_use` produced in a *sibling* Slack thread — a non-null thread other than
- * the refused fallback's. Such a result belongs to that sibling exchange, so the
- * thread-scoped walk-back must leave it in place: it keeps the sibling
- * `tool_use`, and dropping only the result would strand a half-pair past the
- * transcript's earlier orphan-tool prune. Returns false for a result whose
- * `tool_use` is same-thread, itself null-keyed, or absent — that churn is the
- * refused exchange's and is dropped.
+ * Whether a synthetic (always null-keyed) tool-result row pairs with a
+ * `tool_use` / `server_tool_use` produced in a *sibling* Slack thread — a
+ * non-null thread other than the refused fallback's. Such a result belongs to
+ * that sibling exchange, so the thread-scoped walk-back must leave it in place:
+ * it keeps the sibling use block, and dropping only the result would strand a
+ * half-pair past the transcript's earlier orphan-tool prune. Returns false for
+ * a result whose use block is same-thread, itself null-keyed, or absent — that
+ * churn is the refused exchange's and is dropped.
  */
 function pairsWithSiblingThreadToolUse(
   message: Message,
@@ -82,7 +88,10 @@ function pairsWithSiblingThreadToolUse(
     return false;
   }
   return message.content.some((block) => {
-    if (block.type !== "tool_result") {
+    if (
+      block.type !== "tool_result" &&
+      block.type !== "web_search_tool_result"
+    ) {
       return false;
     }
     const toolUseKey = toolUseThreadKey.get(block.tool_use_id);
@@ -144,9 +153,9 @@ export function computeRefusedExchangeDrops(
   //    only carries pairing signal when it is shared — a lone top-level/DM row
   //    keys by its own `channelTs`, so treating it as a one-message "thread"
   //    would strand the prompt.
-  //  - `toolUseThreadKey`: each `tool_use` id → the thread key of the row that
-  //    produced it, so a synthetic (always null-keyed) `tool_result` can be tied
-  //    back to the thread its `tool_use` belongs to.
+  //  - `toolUseThreadKey`: each `tool_use` / `server_tool_use` id → the thread
+  //    key of the row that produced it, so a synthetic (always null-keyed)
+  //    result row can be tied back to the thread its use block belongs to.
   const sharedThreadKeys = new Set<string>();
   const toolUseThreadKey = new Map<string, string | null>();
   if (threadKeys) {
@@ -161,7 +170,7 @@ export function computeRefusedExchangeDrops(
         }
       }
       for (const block of messages[i].content) {
-        if (block.type === "tool_use") {
+        if (block.type === "tool_use" || block.type === "server_tool_use") {
           toolUseThreadKey.set(block.id, key);
         }
       }
