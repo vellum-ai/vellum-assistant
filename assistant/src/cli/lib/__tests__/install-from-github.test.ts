@@ -33,6 +33,7 @@ import {
   PluginSourceUnavailableError,
   type PostinstallRunner,
   readInstallMeta,
+  resolveTreeRefPath,
   sanitizePluginName,
 } from "../install-from-github.js";
 
@@ -1402,4 +1403,119 @@ describe("sanitizePluginName", () => {
       );
     },
   );
+});
+
+describe("resolveTreeRefPath", () => {
+  // A slashed branch parses into two candidate splits, longest ref first: the
+  // whole thing as a branch (root path), or `feat` as a branch + a sub-path.
+  const SLASH_BRANCH_CANDIDATES = [
+    { ref: "feat/results-viewer", path: "", defaultName: "repo" },
+    { ref: "feat", path: "results-viewer", defaultName: "results-viewer" },
+  ] as const;
+
+  /** A fake `ls-remote` that reports the given short-name refs as heads/tags. */
+  function lsRemoteRunner(
+    refs: { heads?: string[]; tags?: string[] },
+    opts: { calls?: string[][] } = {},
+  ): GitRunner {
+    return async (args) => {
+      opts.calls?.push([...args]);
+      if (args[0] !== "ls-remote") {
+        throw new Error(`unexpected git ${args.join(" ")}`);
+      }
+      const lines = [
+        ...(refs.heads ?? []).map(
+          (r, i) => `${String(i).padStart(40, "0")}\trefs/heads/${r}`,
+        ),
+        ...(refs.tags ?? []).map(
+          (r, i) => `${String(i).padStart(40, "1")}\trefs/tags/${r}`,
+        ),
+      ];
+      return { stdout: `${lines.join("\n")}\n` };
+    };
+  }
+
+  test("picks the slashed branch when it exists on the remote", async () => {
+    const runGit = lsRemoteRunner({ heads: ["main", "feat/results-viewer"] });
+    const chosen = await resolveTreeRefPath(
+      "owner",
+      "repo",
+      SLASH_BRANCH_CANDIDATES,
+      runGit,
+    );
+    expect(chosen).toEqual(SLASH_BRANCH_CANDIDATES[0]);
+  });
+
+  test("falls back to the shorter branch + sub-path when only `feat` exists", async () => {
+    const runGit = lsRemoteRunner({ heads: ["main", "feat"] });
+    const chosen = await resolveTreeRefPath(
+      "owner",
+      "repo",
+      SLASH_BRANCH_CANDIDATES,
+      runGit,
+    );
+    expect(chosen).toEqual(SLASH_BRANCH_CANDIDATES[1]);
+  });
+
+  test("matches a slashed tag, ignoring its peeled `^{}` line", async () => {
+    const runGit: GitRunner = async () => ({
+      stdout:
+        "0000000000000000000000000000000000000000\trefs/tags/feat/results-viewer\n" +
+        "1111111111111111111111111111111111111111\trefs/tags/feat/results-viewer^{}\n",
+    });
+    const chosen = await resolveTreeRefPath(
+      "owner",
+      "repo",
+      SLASH_BRANCH_CANDIDATES,
+      runGit,
+    );
+    expect(chosen?.ref).toBe("feat/results-viewer");
+  });
+
+  test("returns null when the remote names none of the candidates", async () => {
+    const runGit = lsRemoteRunner({ heads: ["main", "other"] });
+    const chosen = await resolveTreeRefPath(
+      "owner",
+      "repo",
+      SLASH_BRANCH_CANDIDATES,
+      runGit,
+    );
+    expect(chosen).toBeNull();
+  });
+
+  test("returns null (fall back) when the remote is unreachable", async () => {
+    const runGit: GitRunner = async () => {
+      throw new Error("fatal: unable to access remote: network is unreachable");
+    };
+    const chosen = await resolveTreeRefPath(
+      "owner",
+      "repo",
+      SLASH_BRANCH_CANDIDATES,
+      runGit,
+    );
+    expect(chosen).toBeNull();
+  });
+
+  test("lists heads and tags in a single ls-remote round-trip", async () => {
+    const calls: string[][] = [];
+    const runGit = lsRemoteRunner(
+      { heads: ["feat/results-viewer"] },
+      { calls },
+    );
+    await resolveTreeRefPath("owner", "repo", SLASH_BRANCH_CANDIDATES, runGit);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toEqual([
+      "ls-remote",
+      "--heads",
+      "--tags",
+      "https://github.com/owner/repo.git",
+    ]);
+  });
+
+  test("returns null for an empty candidate list without touching git", async () => {
+    const runGit: GitRunner = async () => {
+      throw new Error("git should not run");
+    };
+    expect(await resolveTreeRefPath("owner", "repo", [], runGit)).toBeNull();
+  });
 });

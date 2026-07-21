@@ -1367,6 +1367,71 @@ export async function resolveRefCommit(
   return peeled ?? direct;
 }
 
+/**
+ * Confirm the real ref/path split of an ambiguous `/tree/<ref>/<path>` locator
+ * against the remote.
+ *
+ * GitHub joins the ref and sub-path after `/tree/` with a bare `/`, so a branch
+ * whose name contains slashes (`feat/results-viewer`) is indistinguishable from
+ * a shorter ref plus a leading path segment by string parsing alone. Only the
+ * remote knows which ref exists, so we list its heads and tags once with
+ * `git ls-remote` and return the first candidate whose ref is real. Candidates
+ * arrive longest-ref-first, so that first hit is the longest matching ref —
+ * exactly how GitHub itself resolves the URL. This is safe because git forbids
+ * one branch name being a path-prefix of another (a directory/file conflict in
+ * `refs/heads/`), so at most one candidate can exist.
+ *
+ * Returns `null` — signalling the caller to fall back to the parser's default
+ * (shortest-ref) split — when the remote is unreachable/offline or names none
+ * of the candidates. A genuine problem then resurfaces when the subsequent
+ * clone runs against that ref, where transient-vs-hard failures are classified.
+ */
+export async function resolveTreeRefPath<T extends { readonly ref: string }>(
+  owner: string,
+  repo: string,
+  candidates: readonly T[],
+  runGit: GitRunner = defaultGitRunner,
+): Promise<T | null> {
+  if (candidates.length === 0) {
+    return null;
+  }
+
+  const repoUrl = `https://github.com/${owner}/${repo}.git`;
+  let stdout: string;
+  try {
+    // `--heads --tags` trims pull/merge refs we'd never install from, and the
+    // explicit URL means the cwd is irrelevant — the always-present temp dir is
+    // a safe choice, mirroring {@link resolveRefCommit}.
+    ({ stdout } = await runGit(["ls-remote", "--heads", "--tags", repoUrl], {
+      cwd: tmpdir(),
+    }));
+  } catch {
+    return null;
+  }
+
+  // Each line is `<sha>\t<refname>`; collect the branch/tag short-names.
+  const existing = new Set<string>();
+  for (const line of stdout.split("\n")) {
+    const [, refName] = line.trim().split(/\s+/);
+    if (refName === undefined) {
+      continue;
+    }
+    const peeled = refName.endsWith("^{}") ? refName.slice(0, -3) : refName;
+    for (const prefix of ["refs/heads/", "refs/tags/"]) {
+      if (peeled.startsWith(prefix)) {
+        existing.add(peeled.slice(prefix.length));
+      }
+    }
+  }
+
+  for (const candidate of candidates) {
+    if (existing.has(candidate.ref)) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
 /** Inputs for {@link writeInstallMeta}, resolved during a fresh install. */
 interface WriteInstallMetaParams {
   readonly name: string;

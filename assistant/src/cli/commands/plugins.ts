@@ -195,7 +195,7 @@ export function registerPluginsCommand(program: Command): void {
               }
             } else {
               const installOpts = direct
-                ? resolveDirectInstallOptions(nameOrUrl, opts)
+                ? await resolveDirectInstallOptions(nameOrUrl, opts)
                 : await resolveInstallOptions(nameOrUrl, opts);
               if (installOpts === null) {
                 process.exitCode = 1;
@@ -837,7 +837,7 @@ async function resolveInstallOptions(
  * rejected. The install name defaults to the repo / sub-path leaf and can be
  * overridden with `--name`.
  */
-function resolveDirectInstallOptions(
+async function resolveDirectInstallOptions(
   spec: string,
   opts: {
     force?: boolean;
@@ -846,7 +846,7 @@ function resolveDirectInstallOptions(
     allowUnreviewed?: boolean;
     name?: string;
   },
-): InstallPluginOptions | null {
+): Promise<InstallPluginOptions | null> {
   if (opts.ref) {
     console.error(
       "--ref does not apply to a GitHub-URL install; put the ref in the URL (e.g. .../tree/<ref>/...).",
@@ -871,7 +871,24 @@ function resolveDirectInstallOptions(
     throw err;
   }
 
-  const requested = opts.name ?? parsed.defaultName;
+  // A `/tree/<ref>/<path>` locator whose branch name may contain slashes has an
+  // ambiguous ref/path boundary. Confirm the real split against the remote,
+  // falling back to the parser's default (shortest-ref) split when the remote
+  // can't be reached. The chosen split also decides the default install name,
+  // since it depends on the resolved sub-path leaf.
+  let chosen: { ref: string; path: string; defaultName: string } = parsed;
+  if (parsed.refCandidates) {
+    const resolved = await libs.installGitHub.resolveTreeRefPath(
+      parsed.owner,
+      parsed.repo,
+      parsed.refCandidates,
+    );
+    if (resolved) {
+      chosen = resolved;
+    }
+  }
+
+  const requested = opts.name ?? chosen.defaultName;
   let name: string;
   try {
     name = libs.installGitHub.sanitizePluginName(requested);
@@ -880,7 +897,7 @@ function resolveDirectInstallOptions(
       console.error(
         opts.name
           ? err.message
-          : `Could not derive a valid plugin name from "${parsed.defaultName}". ` +
+          : `Could not derive a valid plugin name from "${chosen.defaultName}". ` +
               "Pass --name <name> to choose one (lowercase letters, digits, '-', '_').",
       );
       return null;
@@ -891,8 +908,8 @@ function resolveDirectInstallOptions(
   const directSource: PluginFetchSource = {
     owner: parsed.owner,
     repo: parsed.repo,
-    rootPath: parsed.path,
-    ref: parsed.ref,
+    rootPath: chosen.path,
+    ref: chosen.ref,
   };
   return { name, force: opts.force ?? false, directSource };
 }

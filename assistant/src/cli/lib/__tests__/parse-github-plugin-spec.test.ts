@@ -50,13 +50,57 @@ describe("parseGitHubPluginSpec", () => {
     const spec = parseGitHubPluginSpec(
       "https://github.com/owner/repo/tree/my-branch/packages/cool-plugin",
     );
-    expect(spec).toEqual({
-      owner: "owner",
-      repo: "repo",
-      path: "packages/cool-plugin",
-      ref: "my-branch",
-      defaultName: "cool-plugin",
-    });
+    expect(spec.owner).toBe("owner");
+    expect(spec.repo).toBe("repo");
+    // The shortest-ref split is the default; the caller confirms the real split
+    // against the remote via `refCandidates`.
+    expect(spec.path).toBe("packages/cool-plugin");
+    expect(spec.ref).toBe("my-branch");
+    expect(spec.defaultName).toBe("cool-plugin");
+  });
+
+  test("enumerates every ref/path split, longest-ref-first, for an ambiguous /tree form", () => {
+    const spec = parseGitHubPluginSpec(
+      "https://github.com/owner/repo/tree/feat/results-viewer",
+    );
+    // `feat/results-viewer` could be branch `feat` + path `results-viewer`, or
+    // branch `feat/results-viewer` at the repo root. Both are offered, longer
+    // ref first, each carrying the install name derived from its sub-path.
+    expect(spec.refCandidates).toEqual([
+      { ref: "feat/results-viewer", path: "", defaultName: "repo" },
+      { ref: "feat", path: "results-viewer", defaultName: "results-viewer" },
+    ]);
+    // The default (shortest ref) mirrors the pre-resolution behavior.
+    expect(spec.ref).toBe("feat");
+    expect(spec.path).toBe("results-viewer");
+  });
+
+  test("carries candidates when a slashed branch precedes a real sub-path", () => {
+    const spec = parseGitHubPluginSpec(
+      "github.com/owner/repo/tree/feat/results-viewer/integrations/vellum",
+    );
+    expect(spec.refCandidates).toEqual([
+      {
+        ref: "feat/results-viewer/integrations/vellum",
+        path: "",
+        defaultName: "repo",
+      },
+      {
+        ref: "feat/results-viewer/integrations",
+        path: "vellum",
+        defaultName: "vellum",
+      },
+      {
+        ref: "feat/results-viewer",
+        path: "integrations/vellum",
+        defaultName: "vellum",
+      },
+      {
+        ref: "feat",
+        path: "results-viewer/integrations/vellum",
+        defaultName: "vellum",
+      },
+    ]);
   });
 
   test("a /tree/<ref> with no sub-path keeps the root and uses the repo name", () => {
@@ -66,6 +110,13 @@ describe("parseGitHubPluginSpec", () => {
     expect(spec.path).toBe("");
     expect(spec.ref).toBe("v1.2.3");
     expect(spec.defaultName).toBe("repo");
+    // A single post-`tree` segment is unambiguous — no candidate list.
+    expect(spec.refCandidates).toBeUndefined();
+  });
+
+  test("a non-tree sub-path carries no ref candidates", () => {
+    const spec = parseGitHubPluginSpec("github.com/owner/repo/sub/leaf");
+    expect(spec.refCandidates).toBeUndefined();
   });
 
   test("treats a non-tree trailing segment as the sub-path", () => {
