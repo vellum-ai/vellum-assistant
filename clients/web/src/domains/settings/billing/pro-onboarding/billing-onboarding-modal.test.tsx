@@ -172,7 +172,8 @@ mock.module("@/generated/api/sdk.gen", () => ({
 
 const { BillingOnboardingModal } = await import("./billing-onboarding-modal");
 
-const BACKGROUND_LINE = "We're finishing your machine upgrade in the background.";
+const BACKGROUND_LINE =
+  "Assistant will go offline briefly while it resizes. Chat might not work during that time.";
 
 /**
  * Fast celebration dwell. Long enough for waitFor (50ms polls) to reliably
@@ -249,7 +250,7 @@ describe("BillingOnboardingModal", () => {
       timeout: 5000,
     });
     // The celebration dwell elapses and the wizard advances to the domain step.
-    await waitFor(() => expect(getByText("Assistant email")).toBeTruthy(), {
+    await waitFor(() => expect(getByText("Assistant Email")).toBeTruthy(), {
       timeout: 5000,
     });
   });
@@ -273,10 +274,10 @@ describe("BillingOnboardingModal", () => {
 
     assistantResponse = makeAssistant("large", 50);
     await client.invalidateQueries();
-    await waitFor(() => expect(getByText("You're all set")).toBeTruthy(), {
+    await waitFor(() => expect(getByText("You're all set!")).toBeTruthy(), {
       timeout: 5000,
     });
-    expect(queryByText("Assistant email")).toBeNull();
+    expect(queryByText("Assistant Email")).toBeNull();
     expect(queryByText(BACKGROUND_LINE)).toBeNull();
     expect(readCheckoutIntent()).toBeNull();
   });
@@ -304,7 +305,7 @@ describe("BillingOnboardingModal", () => {
 
     assistantResponse = makeAssistant("small", 50);
     await client.invalidateQueries();
-    await waitFor(() => expect(getByText("Assistant email")).toBeTruthy(), {
+    await waitFor(() => expect(getByText("Assistant Email")).toBeTruthy(), {
       timeout: 5000,
     });
   });
@@ -317,7 +318,7 @@ describe("BillingOnboardingModal", () => {
     await waitFor(() => expect(getByText("Your plan is ready")).toBeTruthy(), {
       timeout: 5000,
     });
-    await waitFor(() => expect(getByText("Assistant email")).toBeTruthy(), {
+    await waitFor(() => expect(getByText("Assistant Email")).toBeTruthy(), {
       timeout: 5000,
     });
     expect(resizeCall).toBeNull();
@@ -337,7 +338,7 @@ describe("BillingOnboardingModal", () => {
     expect(takeover?.className).toContain("w-screen");
 
     // Domain step: standard card — no dark theme, no full-bleed sizing.
-    await waitFor(() => expect(getByText("Assistant email")).toBeTruthy(), {
+    await waitFor(() => expect(getByText("Assistant Email")).toBeTruthy(), {
       timeout: 5000,
     });
     const card = document.body.querySelector('[data-slot="modal-content"]');
@@ -379,7 +380,7 @@ describe("BillingOnboardingModal", () => {
       () => expect(getByText("All done!")).toBeTruthy(),
       { timeout: 5000 },
     );
-    await waitFor(() => expect(getByText("Assistant email")).toBeTruthy(), {
+    await waitFor(() => expect(getByText("Assistant Email")).toBeTruthy(), {
       timeout: 5000,
     });
   });
@@ -436,7 +437,7 @@ describe("BillingOnboardingModal", () => {
       { timeout: 5000 },
     );
     fireEvent.click(getByTestId("provisioning-escape"));
-    await waitFor(() => expect(getByText("Assistant email")).toBeTruthy());
+    await waitFor(() => expect(getByText("Assistant Email")).toBeTruthy());
 
     expect(
       getByText(
@@ -446,7 +447,7 @@ describe("BillingOnboardingModal", () => {
     // Wait for the handle prefill: with an empty subdomain the submit would be
     // disabled regardless, masking a missing machine-busy guard.
     await waitFor(() =>
-      expect((getByLabelText("Subdomain") as HTMLInputElement).value).toBe(
+      expect((getByLabelText("Handle (public)") as HTMLInputElement).value).toBe(
         "casey",
       ),
     );
@@ -484,7 +485,7 @@ describe("BillingOnboardingModal", () => {
       );
       fireEvent.click(getByTestId("provisioning-escape"));
 
-      await waitFor(() => expect(getByText("You're all set")).toBeTruthy());
+      await waitFor(() => expect(getByText("You're all set!")).toBeTruthy());
       expect(getByText(BACKGROUND_LINE)).toBeTruthy();
 
       assistantResponse = makeAssistant("large", 50);
@@ -599,7 +600,7 @@ describe("BillingOnboardingModal", () => {
         { timeout: 5000 },
       );
       fireEvent.click(getByTestId("provisioning-escape"));
-      await waitFor(() => expect(getByText("You're all set")).toBeTruthy());
+      await waitFor(() => expect(getByText("You're all set!")).toBeTruthy());
       expect(getByText(BACKGROUND_LINE)).toBeTruthy();
 
       // The backgrounded resize stalls: the finishing line swaps for a warning
@@ -652,9 +653,9 @@ describe("BillingOnboardingModal", () => {
         { timeout: 5000 },
       );
       fireEvent.click(getByTestId("provisioning-escape"));
-      await waitFor(() => expect(getByText("Assistant email")).toBeTruthy());
+      await waitFor(() => expect(getByText("Assistant Email")).toBeTruthy());
       await waitFor(() =>
-        expect((getByLabelText("Subdomain") as HTMLInputElement).value).toBe(
+        expect((getByLabelText("Handle (public)") as HTMLInputElement).value).toBe(
           "casey",
         ),
       );
