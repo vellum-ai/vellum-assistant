@@ -6,7 +6,11 @@
  * selectors: transcript fields via the live-voice store, the two visibility
  * toggles via the voice-prefs store. The load-bearing contract is the
  * pref-gating — both prefs default OFF, so the room stays text-free — plus the
- * user-before-assistant DOM ordering.
+ * user-before-assistant DOM ordering. The spoken-word cursor block additionally
+ * stubs `requestAnimationFrame` with a manual pump (same harness as
+ * `use-spoken-word-cursor.test.tsx`) and drives playback progress through the
+ * store's provider, asserting the leading tone via the `data-leading`
+ * attribute on word spans.
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
@@ -17,6 +21,7 @@ import {
   type LiveVoiceSessionState,
   useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
+import type { LiveVoicePlaybackProgress } from "@/domains/chat/voice/live-voice/tts-playback";
 import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
 
 import { VoiceAmbientTranscript } from "@/domains/chat/voice/voice-room/voice-ambient-transcript";
@@ -183,5 +188,84 @@ describe("VoiceAmbientTranscript — sourcing and ordering", () => {
       useLiveVoiceStore.getState().appendAssistantTranscript("lo world");
     });
     expect(assistantText()?.textContent).toContain("Hello world");
+  });
+});
+
+describe("VoiceAmbientTranscript — spoken-word cursor", () => {
+  let rafCallbacks: Map<number, FrameRequestCallback>;
+  let nextRafId: number;
+  let originalRaf: typeof globalThis.requestAnimationFrame;
+  let originalCancelRaf: typeof globalThis.cancelAnimationFrame;
+  let progress: LiveVoicePlaybackProgress | null;
+
+  /** Fire every pending rAF callback once, inside `act()`. */
+  function pumpFrame() {
+    act(() => {
+      const callbacks = [...rafCallbacks.values()];
+      rafCallbacks.clear();
+      for (const cb of callbacks) {
+        cb(performance.now());
+      }
+    });
+  }
+
+  /** Text of the word span carrying the bright leading-edge tone. */
+  function leadingWordIn(half: HTMLElement) {
+    return half.querySelector("[data-leading]")?.textContent;
+  }
+
+  beforeEach(() => {
+    rafCallbacks = new Map();
+    nextRafId = 1;
+    originalRaf = globalThis.requestAnimationFrame;
+    originalCancelRaf = globalThis.cancelAnimationFrame;
+    globalThis.requestAnimationFrame = ((cb: FrameRequestCallback) => {
+      const id = nextRafId++;
+      rafCallbacks.set(id, cb);
+      return id;
+    }) as typeof globalThis.requestAnimationFrame;
+    globalThis.cancelAnimationFrame = ((id: number) => {
+      rafCallbacks.delete(id);
+    }) as typeof globalThis.cancelAnimationFrame;
+    progress = null;
+  });
+
+  afterEach(() => {
+    cleanup();
+    globalThis.requestAnimationFrame = originalRaf;
+    globalThis.cancelAnimationFrame = originalCancelRaf;
+  });
+
+  test("highlight sits on the mid-transcript word at playback fraction 0.5", () => {
+    progress = { playedSeconds: 5, totalSeconds: 10 };
+    act(() => {
+      useLiveVoiceStore.getState().setPlaybackProgressProvider(() => progress);
+    });
+    seedAssistant("alpha beta gamma delta");
+    setPrefs({ user: false, assistant: true });
+    render(<VoiceAmbientTranscript />);
+    pumpFrame();
+    // floor(0.5 * 4 words) = index 2 — mid-transcript, not the last word.
+    expect(leadingWordIn(assistantText()!)).toBe("gamma");
+  });
+
+  test("no registered provider keeps the highlight on the first word", () => {
+    seedAssistant("alpha beta gamma delta");
+    setPrefs({ user: false, assistant: true });
+    render(<VoiceAmbientTranscript />);
+    pumpFrame();
+    expect(leadingWordIn(assistantText()!)).toBe("alpha");
+  });
+
+  test("user bubble keeps its default last-word leading edge", () => {
+    progress = { playedSeconds: 5, totalSeconds: 10 };
+    act(() => {
+      useLiveVoiceStore.getState().setPlaybackProgressProvider(() => progress);
+    });
+    seedUser("one two three four");
+    setPrefs({ user: true, assistant: false });
+    render(<VoiceAmbientTranscript />);
+    pumpFrame();
+    expect(leadingWordIn(userText()!)).toBe("four");
   });
 });

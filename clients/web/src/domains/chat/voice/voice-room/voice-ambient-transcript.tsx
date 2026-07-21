@@ -16,23 +16,34 @@
  * Both prefs default OFF, so by default this renders nothing and the room stays
  * text-free. The rail is `pointer-events-none`, so it never blocks the room's
  * ✕/gear controls or the mic/stop cluster. Words reveal one at a time via
- * {@link VoiceTranscriptText}.
+ * {@link VoiceTranscriptText}. The assistant half's bright leading-edge tone
+ * tracks the TTS playhead — {@link useSpokenWordCursor} maps audio progress
+ * onto the word list, so the highlight sits on the word being *spoken* rather
+ * than the last-arrived one while the streamed text runs ahead of speech.
  *
  * Subscriptions are deliberately narrow — the three transcript fields, the two
  * prefs, and the low-frequency `state`/`reconnecting` (per-turn, for the
  * listening gate) — so the high-frequency `inputAmplitude` churn on the
- * live-voice store never re-renders this component. The full transcript still
- * lands in the chat thread on exit via the engine path; this is a live, ambient
- * echo of the current turn only.
+ * live-voice store never re-renders this component. The spoken-word cursor
+ * keeps that invariant: it polls playback progress outside React and re-renders
+ * only when the word index changes. The full transcript still lands in the chat
+ * thread on exit via the engine path; this is a live, ambient echo of the
+ * current turn only.
  */
+
+import { useMemo } from "react";
 
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
 import { useLiveVoiceStore } from "@/domains/chat/voice/live-voice/live-voice-store";
 import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
 
+import { useSpokenWordCursor } from "./use-spoken-word-cursor";
 import { toVoiceAvatarVisual } from "./voice-avatar-state";
-import { VoiceTranscriptText } from "./voice-transcript-text";
+import {
+  splitTranscriptWords,
+  VoiceTranscriptText,
+} from "./voice-transcript-text";
 
 export function VoiceAmbientTranscript() {
   const showUser = useVoicePrefsStore.use.showUserTranscript();
@@ -47,6 +58,14 @@ export function VoiceAmbientTranscript() {
   const reconnecting = useLiveVoiceStore.use.reconnecting();
   const assistantAudioActive = useLiveVoiceStore.use.assistantAudioActive();
   const reduce = useReducedMotion();
+
+  // The same word segmentation `VoiceTranscriptText` renders, so the spoken
+  // cursor indexes the exact words on screen.
+  const assistantWords = useMemo(
+    () => splitTranscriptWords(assistantTranscript),
+    [assistantTranscript],
+  );
+  const spokenIndex = useSpokenWordCursor(assistantWords.length);
 
   // In-flight partial wins over the last finalized transcript — same precedence
   // as the underneath composer transcript (`VoiceLiveTranscript`).
@@ -129,7 +148,10 @@ export function VoiceAmbientTranscript() {
                 {...fade}
               >
                 <div className="max-w-[95%] break-words text-[clamp(15px,2vmin,19px)] leading-relaxed">
-                  <VoiceTranscriptText text={assistantTranscript} />
+                  <VoiceTranscriptText
+                    text={assistantTranscript}
+                    highlightIndex={spokenIndex}
+                  />
                 </div>
               </motion.div>
             ) : null}
