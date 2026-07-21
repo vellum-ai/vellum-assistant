@@ -21,9 +21,9 @@ export interface ResourceChange {
 export function buildResourceChanges(input: {
   targets: ProvisioningDimensions;
   fromSnapshot: ProvisioningDimensions;
-  creditsLabel: string | null;
+  credits: { from: string; to: string } | null;
 }): ResourceChange[] {
-  const { targets, fromSnapshot, creditsLabel } = input;
+  const { targets, fromSnapshot, credits } = input;
   const changes: ResourceChange[] = [];
 
   if (targets.machineSize != null) {
@@ -52,8 +52,13 @@ export function buildResourceChanges(input: {
     });
   }
 
-  if (creditsLabel != null) {
-    changes.push({ key: "credits", label: "Credits", to: creditsLabel });
+  if (credits != null) {
+    changes.push({
+      key: "credits",
+      label: "Credits",
+      from: credits.from,
+      to: credits.to,
+    });
   }
 
   return changes;

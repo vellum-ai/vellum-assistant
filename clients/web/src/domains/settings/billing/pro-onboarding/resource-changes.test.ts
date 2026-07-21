@@ -11,7 +11,7 @@ describe("buildResourceChanges", () => {
     const changes = buildResourceChanges({
       targets,
       fromSnapshot: from,
-      creditsLabel: "500 credits",
+      credits: { from: "0", to: "50 credits" },
     });
 
     expect(changes.map((c) => c.key)).toEqual(["machine", "storage", "credits"]);
@@ -30,7 +30,8 @@ describe("buildResourceChanges", () => {
     expect(changes[2]).toEqual({
       key: "credits",
       label: "Credits",
-      to: "500 credits",
+      from: "0",
+      to: "50 credits",
     });
   });
 
@@ -38,7 +39,7 @@ describe("buildResourceChanges", () => {
     const changes = buildResourceChanges({
       targets: { machineSize: null, storageGib: 50 },
       fromSnapshot: from,
-      creditsLabel: null,
+      credits: null,
     });
 
     expect(changes.map((c) => c.key)).toEqual(["storage"]);
@@ -48,17 +49,17 @@ describe("buildResourceChanges", () => {
     const changes = buildResourceChanges({
       targets: { machineSize: "large", storageGib: null },
       fromSnapshot: from,
-      creditsLabel: null,
+      credits: null,
     });
 
     expect(changes.map((c) => c.key)).toEqual(["machine"]);
   });
 
-  test("omits credits when creditsLabel is null", () => {
+  test("omits credits when credits is null", () => {
     const changes = buildResourceChanges({
       targets,
       fromSnapshot: from,
-      creditsLabel: null,
+      credits: null,
     });
 
     expect(changes.map((c) => c.key)).toEqual(["machine", "storage"]);
@@ -68,7 +69,7 @@ describe("buildResourceChanges", () => {
     const changes = buildResourceChanges({
       targets,
       fromSnapshot: { machineSize: null, storageGib: null },
-      creditsLabel: null,
+      credits: null,
     });
 
     expect(changes[0].from).toBeUndefined();
@@ -79,7 +80,7 @@ describe("buildResourceChanges", () => {
     const changes = buildResourceChanges({
       targets,
       fromSnapshot: { machineSize: "large", storageGib: 50 },
-      creditsLabel: null,
+      credits: null,
     });
 
     expect(changes[0].from).toBeUndefined();
@@ -90,7 +91,7 @@ describe("buildResourceChanges", () => {
     const changes = buildResourceChanges({
       targets,
       fromSnapshot: from,
-      creditsLabel: null,
+      credits: null,
     });
 
     expect(changes[0].from).toBe("Small");
