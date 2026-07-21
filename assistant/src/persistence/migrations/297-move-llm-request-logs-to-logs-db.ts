@@ -59,9 +59,12 @@ function createIndexes(raw: Database) {
 /**
  * Create the `llm_request_logs` table and its indexes on the logs connection.
  * Idempotent (`IF NOT EXISTS`) — the dedicated connection itself performs no DDL
- * on open, so this migration owns the schema.
+ * on open, so this migration owns the schema. Exported so later logs-DB
+ * migrations can self-heal a logs database that is missing the table (e.g. a
+ * vbundle import carries the main DB's migration bookkeeping but not
+ * `assistant-logs.db`, so this relocation never re-runs there).
  */
-function ensureLlmRequestLogsSchema(logsRaw: Database): void {
+export function ensureLlmRequestLogsSchema(logsRaw: Database): void {
   logsRaw.exec(CREATE_TABLE);
   createIndexes(logsRaw);
 }
@@ -107,5 +110,7 @@ export async function migrateMoveLlmRequestLogsToLogsDb(
   const raw = getSqliteFrom(database);
   const needsDrain = stageTableForRelocation(raw, RELOCATION.table);
 
-  if (needsDrain) await drainStagedTable(raw, RELOCATION);
+  if (needsDrain) {
+    await drainStagedTable(raw, RELOCATION);
+  }
 }

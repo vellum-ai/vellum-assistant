@@ -1,4 +1,5 @@
 import { type DrizzleDb, getMemorySqlite } from "../db-connection.js";
+import { ensureMemoryJobsSchema } from "./298-move-memory-jobs-to-memory-db.js";
 
 /** Deterministic id so re-runs INSERT OR IGNORE the same row (idempotent). */
 const SWEEP_JOB_ID = "migration-341-sweep-cacheless-graph-node-vectors";
@@ -40,6 +41,12 @@ export function migrateSweepCachelessGraphNodeVectors(
       "memory database unavailable — deferring cacheless graph-node vector sweep",
     );
   }
+
+  // Self-heal a memory database missing the relocated `memory_jobs` table
+  // (e.g. a vbundle import carries the main DB's migration bookkeeping but not
+  // `assistant-memory.db`, so relocation 298 never re-runs). Idempotent
+  // (`IF NOT EXISTS`) — a no-op when the table already exists.
+  ensureMemoryJobsSchema(memoryRaw);
 
   memoryRaw
     .query(

@@ -8,6 +8,7 @@ import {
   getSqliteFrom,
   getTelemetrySqlite,
 } from "../db-connection.js";
+import { ensureFlushCheckpointsSchema } from "./327-create-flush-checkpoints.js";
 import { RELOCATING_SUFFIX } from "./helpers/relocation.js";
 
 const log = getLogger("migration-334");
@@ -354,6 +355,13 @@ export function migrateBackfillTelemetryEventsOutbox(mainDb: DrizzleDb): void {
     // fail-soft pattern of the other dedicated-DB migrations.
     raw = new Database(getTelemetryDbPath());
   }
+
+  // Self-heal a telemetry database missing the `flush_checkpoints` table from
+  // migration 327 (e.g. a vbundle import carries the main DB's migration
+  // bookkeeping but not `assistant-telemetry.db`, so 327 never re-runs). Both
+  // the watermark reads below and the final watermark purge query it.
+  // Idempotent (`IF NOT EXISTS`) — a no-op when the table already exists.
+  ensureFlushCheckpointsSchema(raw);
 
   const backfilled: Record<string, number> = {};
   for (const spec of LEGACY_BACKFILL_SPECS) {

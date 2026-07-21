@@ -5,6 +5,7 @@ import { getLogger } from "../../util/logger.js";
 import { getMemoryDbPath } from "../../util/memory-db-path.js";
 import { parseChangesFromStdout, runAsyncSqlite } from "../db-async-query.js";
 import { type DrizzleDb, getMemorySqlite } from "../db-connection.js";
+import { ensureMemoryJobsSchema } from "./298-move-memory-jobs-to-memory-db.js";
 
 const log = getLogger("memory-db");
 
@@ -87,6 +88,12 @@ export async function migrateCollapseMemoryEmbedBacklog(
       "memory database unavailable — deferring embed-backlog collapse",
     );
   }
+
+  // Self-heal a memory database missing the relocated `memory_jobs` table
+  // (e.g. a vbundle import carries the main DB's migration bookkeeping but not
+  // `assistant-memory.db`, so relocation 298 never re-runs). Idempotent
+  // (`IF NOT EXISTS`) — a no-op when the table already exists.
+  ensureMemoryJobsSchema(memoryRaw);
 
   const hasPendingEmbeds =
     memoryRaw

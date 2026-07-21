@@ -35,6 +35,25 @@ const LEGACY_WATERMARK_KEYS = [
 ]);
 
 /**
+ * Create the `flush_checkpoints` table on the telemetry connection.
+ * Idempotent (`IF NOT EXISTS`) — the dedicated connection itself performs no
+ * DDL on open, so this migration owns the schema. Exported so later
+ * telemetry-DB migrations can self-heal a telemetry database that is missing
+ * the table (e.g. a vbundle import carries the main DB's migration
+ * bookkeeping but not `assistant-telemetry.db`, so this migration never
+ * re-runs there).
+ */
+export function ensureFlushCheckpointsSchema(telemetry: Database): void {
+  telemetry.exec(/*sql*/ `
+    CREATE TABLE IF NOT EXISTS flush_checkpoints (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  `);
+}
+
+/**
  * Create the `flush_checkpoints` table on the dedicated telemetry database
  * (`assistant-telemetry.db`) and move the telemetry reporter's watermark
  * cursors into it from the main DB's `memory_checkpoints`, which is reserved
@@ -54,13 +73,7 @@ export function createFlushCheckpointsTable(mainDb: DrizzleDb): void {
     // fail-soft pattern of the other dedicated-DB migrations.
     telemetry = new Database(getTelemetryDbPath());
   }
-  telemetry.exec(/*sql*/ `
-    CREATE TABLE IF NOT EXISTS flush_checkpoints (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL,
-      updated_at INTEGER NOT NULL
-    )
-  `);
+  ensureFlushCheckpointsSchema(telemetry);
 
   const main = getSqliteFrom(mainDb);
   const placeholders = LEGACY_WATERMARK_KEYS.map(() => "?").join(", ");

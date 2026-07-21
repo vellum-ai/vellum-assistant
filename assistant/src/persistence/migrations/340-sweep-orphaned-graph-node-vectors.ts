@@ -3,6 +3,7 @@ import {
   getMemorySqlite,
   getSqliteFrom,
 } from "../db-connection.js";
+import { ensureMemoryJobsSchema } from "./298-move-memory-jobs-to-memory-db.js";
 
 /**
  * Purge orphaned `graph_node` vector state left behind when a memory graph
@@ -67,6 +68,12 @@ export function migrateSweepOrphanedGraphNodeVectors(
       "memory database unavailable — deferring orphaned graph-node vector sweep",
     );
   }
+
+  // Self-heal a memory database missing the relocated `memory_jobs` table
+  // (e.g. a vbundle import carries the main DB's migration bookkeeping but not
+  // `assistant-memory.db`, so relocation 298 never re-runs). Idempotent
+  // (`IF NOT EXISTS`) — a no-op when the table already exists.
+  ensureMemoryJobsSchema(memoryRaw);
 
   // Enqueue the Qdrant point deletions before dropping the cache rows: a crash
   // in between re-reads the same orphans next boot (nothing checkpointed) and
