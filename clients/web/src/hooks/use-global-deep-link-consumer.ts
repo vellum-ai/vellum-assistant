@@ -23,6 +23,10 @@ import { routes } from "@/utils/routes";
  * - `deeplink.send` → `ensureMainWindowVisible()` + navigate to
  *   `/assistant` + park the message in `usePendingDeepLinkStore`
  *   for `ChatPage`'s composer-domain hook to consume on mount.
+ * - `deeplink.billingCheckoutComplete` → `ensureMainWindowVisible()`
+ *   + navigate to billing carrying the Stripe `session_id` (which
+ *   opens the Pro onboarding wizard), or to the upgrade-cancel page
+ *   on `status: "cancel"` — the same landing the web flow uses.
  * - `deeplink.unknown` → Sentry breadcrumb.
  *
  * The composer pre-fill itself stays in the chat domain
@@ -54,6 +58,18 @@ export function useGlobalDeepLinkConsumer(): void {
     }
     navigateToConversation(navigateRef.current, threadId);
   });
+
+  useBusSubscription(
+    "deeplink.billingCheckoutComplete",
+    ({ status, sessionId }) => {
+      void ensureMainWindowVisible();
+      navigateRef.current(
+        status === "success"
+          ? routes.settings.usageBillingCheckout(sessionId)
+          : routes.settings.upgradeCancel,
+      );
+    },
+  );
 
   useBusSubscription("deeplink.unknown", ({ url }) => {
     Sentry.addBreadcrumb({
