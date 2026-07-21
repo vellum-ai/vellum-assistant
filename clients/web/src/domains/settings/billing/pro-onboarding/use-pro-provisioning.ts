@@ -170,6 +170,10 @@ export function useProProvisioning({
   const ensureRequestedRef = useRef(false);
   // At most one automatic re-call for the no_active_pro entitlement race.
   const ensureRaceRetriedRef = useRef(false);
+  // Identifies the wizard open a reconcile belongs to. Bumped on close, so a
+  // response that lands after the reset is discarded instead of writing a
+  // verdict or an error into the next open's session.
+  const ensureGenerationRef = useRef(0);
   const [sawOperation, setSawOperation] = useState(false);
   const [actualsSnapshot, setActualsSnapshot] =
     useState<ProvisioningDimensions | null>(null);
@@ -202,6 +206,7 @@ export function useProProvisioning({
     setRaceRetryScheduled(false);
     ensureRequestedRef.current = false;
     ensureRaceRetriedRef.current = false;
+    ensureGenerationRef.current += 1;
   }, [open]);
 
   // Refetch pre-checkout caches on open. Invalidation keeps serving cached
@@ -278,11 +283,19 @@ export function useProProvisioning({
 
   const runEnsureProvisioned = useCallback(
     (source: "auto" | "manual") => {
-      if (source === "manual") setEnsureError(null);
+      if (source === "manual") {
+        setEnsureError(null);
+      }
+      // The open this call belongs to. Both callbacks drop out when the wizard
+      // has since closed, so a late response can't drive a later session.
+      const generation = ensureGenerationRef.current;
       ensureProvisioned(
         {},
         {
           onSuccess: (data) => {
+            if (generation !== ensureGenerationRef.current) {
+              return;
+            }
             setEnsureError(null);
             // `not_applicable` + `no_active_pro` is the subscription-flipped-
             // but-entitlement-not-yet-visible race, not an answer: adopting it
@@ -300,14 +313,21 @@ export function useProProvisioning({
             } else {
               setServerVerdict(data.state);
             }
-            if (source === "manual") resumeWatch();
+            if (source === "manual") {
+              resumeWatch();
+            }
           },
           onError: (error) => {
+            if (generation !== ensureGenerationRef.current) {
+              return;
+            }
             // 503 (submission couldn't be queued) or a network blip: nothing
             // was queued and nothing is broken — the actuals polling still
             // converges, so the automatic call degrades silently to inference.
             // Only a user-initiated retry earns a visible error.
-            if (source === "manual") setEnsureError(error);
+            if (source === "manual") {
+              setEnsureError(error);
+            }
           },
         },
       );
@@ -319,16 +339,28 @@ export function useProProvisioning({
   // reports Pro. The ref guard survives re-renders and the confirm-generation
   // retry counter; `proConfirmed` itself only latches once per open.
   useEffect(() => {
-    if (!open || !orgReady || !proConfirmed) return;
-    if (ensureRequestedRef.current) return;
+    if (!open || !orgReady || !proConfirmed) {
+      return;
+    }
+    if (ensureRequestedRef.current) {
+      return;
+    }
     ensureRequestedRef.current = true;
     runEnsureProvisioned("auto");
   }, [open, orgReady, proConfirmed, runEnsureProvisioned]);
 
   useEffect(() => {
-    if (!raceRetryScheduled) return;
+    if (!raceRetryScheduled) {
+      return;
+    }
+    // Pinned to the open that scheduled it, so a pending timer never issues a
+    // call on behalf of a later one.
+    const generation = ensureGenerationRef.current;
     const t = setTimeout(() => {
       setRaceRetryScheduled(false);
+      if (generation !== ensureGenerationRef.current) {
+        return;
+      }
       runEnsureProvisioned("auto");
     }, ENSURE_PROVISIONED_RACE_RETRY_MS);
     return () => clearTimeout(t);

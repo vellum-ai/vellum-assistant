@@ -134,6 +134,16 @@ let ensureCalls = 0;
  */
 let ensureResponse: EnsureProvisionedResponse | null = null;
 let ensureError: unknown = null;
+/**
+ * When set, every reconcile call parks in `pendingEnsures` so a test can settle
+ * one specific call by hand — the only way to land a response at a chosen point
+ * in the open/close lifecycle.
+ */
+let ensureDeferred = false;
+let pendingEnsures: {
+  resolve: (data: EnsureProvisionedResponse) => void;
+  reject: (error: unknown) => void;
+}[] = [];
 
 function makeEnsureResponse(
   state: EnsureProvisionedResponse["state"],
@@ -208,6 +218,15 @@ mock.module("@/generated/api/sdk.gen", () => ({
   },
   organizationsBillingSubscriptionOnboardingEnsureProvisionedCreate: () => {
     ensureCalls += 1;
+    if (ensureDeferred) {
+      return new Promise((resolve, reject) => {
+        pendingEnsures.push({
+          resolve: (data: EnsureProvisionedResponse) =>
+            resolve({ data, response: { ok: true } }),
+          reject,
+        });
+      });
+    }
     if (ensureError != null) {
       return Promise.reject(ensureError);
     }
@@ -223,8 +242,8 @@ const { useProProvisioning } = await import("./use-pro-provisioning");
 
 let latest: ProProvisioningResult | null = null;
 
-function Probe() {
-  const result = useProProvisioning({ open: true });
+function Probe({ open = true }: { open?: boolean }) {
+  const result = useProProvisioning({ open });
   useEffect(() => {
     latest = result;
   });
@@ -238,13 +257,18 @@ function makeClient() {
 }
 
 function renderProbe(client = makeClient()) {
-  const ui = () => (
+  const ui = (open = true) => (
     <QueryClientProvider client={client}>
-      <Probe />
+      <Probe open={open} />
     </QueryClientProvider>
   );
   const view = render(ui());
-  return { client, rerender: () => view.rerender(ui()) };
+  return {
+    client,
+    rerender: () => view.rerender(ui()),
+    /** Close/reopen the wizard without unmounting the hook. */
+    setOpen: (open: boolean) => view.rerender(ui(open)),
+  };
 }
 
 async function refetchAll(client: QueryClient) {
@@ -286,6 +310,8 @@ beforeEach(() => {
   ensureCalls = 0;
   ensureResponse = null;
   ensureError = null;
+  ensureDeferred = false;
+  pendingEnsures = [];
   dateNowOffsetMs = 0;
   latest = null;
 });
@@ -1017,6 +1043,78 @@ describe("useProProvisioning — ensure-provisioned reconcile", () => {
       await waitFor(() => expect(latest!.state).toBe("DONE"), {
         timeout: 5000,
       });
+    },
+    20_000,
+  );
+
+  test(
+    "a verdict landing after close is discarded and never drives the next open",
+    async () => {
+      ensureDeferred = true;
+      subscriptionPlanId = "pro";
+      const { setOpen } = renderProbe();
+
+      await waitFor(() => expect(ensureCalls).toBe(1), { timeout: 5000 });
+      await waitFor(() => expect(latest!.state).toBe("WAITING"), {
+        timeout: 5000,
+      });
+
+      act(() => setOpen(false));
+
+      // The first open's reconcile answers a terminal verdict only after the
+      // close reset; adopting it would park the reopened wizard in DONE with
+      // an assistant that is still below its targets.
+      await act(async () => {
+        pendingEnsures[0]!.resolve(makeEnsureResponse("already_done"));
+        await Promise.resolve();
+      });
+
+      act(() => setOpen(true));
+      await waitFor(() => expect(ensureCalls).toBe(2), { timeout: 5000 });
+      await waitFor(() => expect(latest!.state).toBe("WAITING"), {
+        timeout: 5000,
+      });
+
+      // Only the reopen's own reconcile moves it.
+      await act(async () => {
+        pendingEnsures[1]!.resolve(makeEnsureResponse("started"));
+        await Promise.resolve();
+      });
+      await waitFor(() => expect(latest!.state).toBe("RESIZING"), {
+        timeout: 5000,
+      });
+    },
+    20_000,
+  );
+
+  test(
+    "an error landing after close does not surface on the next open",
+    async () => {
+      ensureDeferred = true;
+      subscriptionPlanId = "pro";
+      const { setOpen } = renderProbe();
+
+      await waitFor(() => expect(ensureCalls).toBe(1), { timeout: 5000 });
+      await waitFor(() => expect(latest!.state).toBe("WAITING"), {
+        timeout: 5000,
+      });
+
+      // A user-initiated reconcile — the only source that surfaces an error.
+      act(() => latest!.stalledAction.onApply());
+      await waitFor(() => expect(ensureCalls).toBe(2), { timeout: 5000 });
+
+      act(() => setOpen(false));
+      await act(async () => {
+        pendingEnsures[1]!.reject({ error: "provisioning_submission_failed" });
+        await Promise.resolve();
+      });
+
+      act(() => setOpen(true));
+      await waitFor(() => expect(ensureCalls).toBe(3), { timeout: 5000 });
+      await waitFor(() => expect(latest!.state).toBe("WAITING"), {
+        timeout: 5000,
+      });
+      expect(latest!.stalledAction.error).toBeNull();
     },
     20_000,
   );
