@@ -87,6 +87,7 @@ export function VoiceFirstRunCard({
     >
       <Modal.Content
         size="sm"
+        className="max-w-[440px]"
         // iOS lock: strip the ✕, the backdrop-tap dismiss, and Escape so the
         // only way forward is "Start talking" → the mic alert.
         hideCloseButton={nonDismissible}
@@ -108,13 +109,15 @@ export function VoiceFirstRunCard({
                 size={AVATAR_SIZE}
               />
             </span>
-            <Modal.Title>Voice mode</Modal.Title>
+            <div className="flex min-w-0 flex-col">
+              <Modal.Title>Voice mode</Modal.Title>
+              <Modal.Description>
+                A hands-free, spoken conversation with {assistantName ?? "your assistant"}.
+              </Modal.Description>
+            </div>
           </div>
-          <Modal.Description>
-            A hands-free, spoken conversation with {assistantName ?? "your assistant"}.
-          </Modal.Description>
         </Modal.Header>
-        <Modal.Body>
+        <Modal.Body className="pt-4">
           {/* Each bullet's icon matches the in-session control it describes,
               so the card doubles as a legend for the room. */}
           <ul className="flex flex-col gap-4">

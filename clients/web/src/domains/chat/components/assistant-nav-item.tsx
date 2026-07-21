@@ -75,6 +75,14 @@ const EYES_RIGHT_OFFSET = 18;
 const EDGE_SINK = 4;
 /** Flood origin: where the eyes surface, as a percent of the row's width. */
 const FLOOD_ORIGIN_X_PERCENT = 88;
+/**
+ * Hover-triggered (fast) crossing durations, in seconds. The eyes' duck/
+ * surface move and the flood's clip-path animate on these exact same values
+ * (not independent springs) so neither ever visibly outruns the other —
+ * the eyes move with the background, not behind it.
+ */
+const FAST_ENTER_DURATION = 0.35;
+const FAST_EXIT_DURATION = 0.32;
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
@@ -118,6 +126,12 @@ export function AssistantNavItem({
    *  flood overlay + that row's contrast-tone content, and drains the
    *  assistant row back to a plain nav item). */
   const [visiting, setVisiting] = useState(false);
+  /** True for a hover-triggered visit: skips the duck/surface theatrics for
+   *  a near-instant crossing and speeds up the flood, so hovering New Chat
+   *  reads as a normal hover state rather than waiting out the ambient
+   *  visit's leisurely choreography. Ambient (unprompted) visits keep the
+   *  slower, dreamier timing. */
+  const [fast, setFast] = useState(false);
   /** Live pointer-over state for the New Chat row; the animation
    *  loop polls it to summon the eyes on hover. */
   const hoverRef = useRef(false);
@@ -187,37 +201,91 @@ export function AssistantNavItem({
       stiffness,
       damping,
     });
-    const duckUnder = async (controls: EyesControls) => {
+    // `fastDuration` set: a single tween covering scale + y in one exact
+    // duration, so the eyes finish ducking in lockstep with the flood
+    // (which animates on that same duration) instead of trailing behind it.
+    // Unset: the ambient spring-driven two-step duck (grow, then drop).
+    const duckUnder = async (
+      controls: EyesControls,
+      fastDuration: number | null,
+    ) => {
+      if (fastDuration != null) {
+        await move(
+          controls,
+          { scale: DUCK_SCALE, y: diveY },
+          { duration: fastDuration, ease: "easeIn" },
+        );
+        return;
+      }
       await move(controls, { scale: DUCK_SCALE }, spring(300, 15));
       await move(controls, { y: diveY }, { duration: 0.3, ease: "easeIn" });
     };
     const surfaceAt = (
       controls: EyesControls,
       springiness: [number, number],
+      fastDuration: number | null,
     ) => {
       controls.set({ x: 0, y: diveY, scale: REST_SCALE });
+      if (fastDuration != null) {
+        return move(
+          controls,
+          { y: restY },
+          { duration: fastDuration, ease: "easeOut" },
+        );
+      }
       return move(controls, { y: restY }, spring(...springiness));
     };
 
     // One leg of the visit each: duck under the assistant row's fold and
     // surface in the New Chat row (the flood pours in), or the
     // reverse (the flood drains as the color returns to the assistant row).
-    const goVisit = async () => {
-      await duckUnder(pillEyes);
+    // `fastLeg` is a hover-triggered visit: the ambient path gates the flood
+    // behind the duck animation fully finishing first (so the color arrives
+    // only once the eyes are out of view), but that sequential wait is itself
+    // a visible delay before hovering "does" anything — so the fast path
+    // flips `visiting` immediately and lets the eyes duck/surface in
+    // parallel instead of blocking it, matching a normal hover state.
+    const goVisit = async (fastLeg: boolean) => {
+      setFast(fastLeg);
+      if (fastLeg) {
+        if (cancelled) {
+          return;
+        }
+        setVisiting(true);
+        await Promise.all([
+          duckUnder(pillEyes, FAST_ENTER_DURATION),
+          surfaceAt(newConvEyes, [360, 16], FAST_ENTER_DURATION),
+        ]);
+        return;
+      }
+      await duckUnder(pillEyes, null);
       if (cancelled) {
         return;
       }
       setVisiting(true);
-      await surfaceAt(newConvEyes, [360, 16]);
+      await surfaceAt(newConvEyes, [360, 16], null);
       await blink();
     };
-    const goHome = async () => {
-      await duckUnder(newConvEyes);
+    const goHome = async (fastLeg: boolean) => {
+      if (fastLeg) {
+        if (cancelled) {
+          return;
+        }
+        setVisiting(false);
+        await Promise.all([
+          duckUnder(newConvEyes, FAST_EXIT_DURATION),
+          surfaceAt(pillEyes, [320, 18], FAST_EXIT_DURATION),
+        ]);
+        setFast(false);
+        return;
+      }
+      await duckUnder(newConvEyes, null);
       if (cancelled) {
         return;
       }
       setVisiting(false);
-      await surfaceAt(pillEyes, [320, 18]);
+      await surfaceAt(pillEyes, [320, 18], null);
+      setFast(false);
     };
 
     // Collapsed rail: grow a touch, blink, settle back.
@@ -230,12 +298,15 @@ export function AssistantNavItem({
 
     // Short-tick loop so a hover on the New Chat row can summon the
     // eyes promptly; ambient acts fire on their own jittered schedule.
-    const TICK_MS = 120;
+    const TICK_MS = 40;
     const run = async () => {
       // A rail toggle can restart the loop mid-visit — snap everything back
       // to the resting arrangement before starting over.
       setVisiting(false);
       let atNewConv = false;
+      /** Whether the current New Chat stay was hover-triggered (fast) or
+       *  an ambient visit (slow) — decides goHome's speed on the way out. */
+      let visitWasFast = false;
       if (collapsed) {
         pillEyes.set({ x: 0, y: 0, scale: 1 });
       } else {
@@ -265,7 +336,8 @@ export function AssistantNavItem({
           // Summoned: head over (or stay) while the pointer lingers, and
           // head home almost immediately once it leaves.
           if (!atNewConv) {
-            await goVisit();
+            visitWasFast = true;
+            await goVisit(true);
             atNewConv = true;
           }
           idleMs = 0;
@@ -276,7 +348,7 @@ export function AssistantNavItem({
           idleMs += TICK_MS;
           if (idleMs >= dwellMs) {
             idleMs = 0;
-            await goHome();
+            await goHome(visitWasFast);
             atNewConv = false;
             nextActAt = jitter(1600, 1600);
           }
@@ -289,7 +361,8 @@ export function AssistantNavItem({
           if (Math.random() < 0.35) {
             await blink(); // resting blink between visits
           } else {
-            await goVisit();
+            visitWasFast = false;
+            await goVisit(false);
             atNewConv = true;
             dwellMs = jitter(1300, 1000);
           }
@@ -486,9 +559,14 @@ export function AssistantNavItem({
             : `circle(0% at ${FLOOD_ORIGIN_X_PERCENT}% 100%)`,
         }}
         transition={
-          visiting
-            ? { duration: 0.5, ease: "easeOut" }
-            : { duration: 0.35, ease: "easeIn" }
+          fast
+            ? {
+                duration: visiting ? FAST_ENTER_DURATION : FAST_EXIT_DURATION,
+                ease: visiting ? "easeOut" : "easeIn",
+              }
+            : visiting
+              ? { duration: 0.5, ease: "easeOut" }
+              : { duration: 0.35, ease: "easeIn" }
         }
       />
       <span
