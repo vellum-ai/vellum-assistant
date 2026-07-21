@@ -1,5 +1,6 @@
+import type { CSSProperties } from "react";
 import type { LucideIcon } from "lucide-react";
-import { ArrowRight, Loader2 } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 
 import type { ButtonVariant } from "@vellumai/design-library/components/button";
 import { Button } from "@vellumai/design-library/components/button";
@@ -86,33 +87,6 @@ export function IconBadge({
   );
 }
 
-export function GlowSpinner() {
-  return (
-    <div className="relative flex h-11 w-11 items-center justify-center">
-      <div
-        className="absolute h-14 w-14 animate-[onboarding-glow_2.4s_ease-in-out_infinite] rounded-full motion-reduce:animate-none"
-        style={{
-          backgroundColor:
-            "color-mix(in oklab, var(--system-positive-strong) 10%, transparent)",
-        }}
-        aria-hidden="true"
-      />
-      <div
-        className="absolute h-9 w-9 animate-[onboarding-glow_2.4s_ease-in-out_infinite_0.4s] rounded-full motion-reduce:animate-none"
-        style={{
-          backgroundColor:
-            "color-mix(in oklab, var(--system-positive-strong) 8%, transparent)",
-        }}
-        aria-hidden="true"
-      />
-      <Loader2
-        className="relative h-5 w-5 animate-spin text-[var(--system-positive-strong)]"
-        aria-hidden="true"
-      />
-    </div>
-  );
-}
-
 export function ResourceCard({
   icon: Icon,
   label,
@@ -171,6 +145,18 @@ export function ResourceCard({
 }
 
 /**
+ * Shared serif heading style (Instrument Serif via `--font-serif`) for the pro
+ * onboarding cards and the provisioning takeover, so the two can't drift.
+ */
+export const SERIF_HEADING_STYLE: CSSProperties = {
+  fontFamily: "var(--font-serif)",
+  fontSize: "32px",
+  fontWeight: 400,
+  lineHeight: 1.2,
+  letterSpacing: "0.64px",
+};
+
+/**
  * Centered serif card heading (Instrument Serif via `--font-serif`) with an
  * optional supporting subtitle, matching the takeover-header treatment used
  * on the plans page. Pure presentation.
@@ -184,16 +170,7 @@ export function WizardCardHeading({
 }) {
   return (
     <header className="flex flex-col items-center gap-2 pt-12 text-center">
-      <h2
-        className="text-[var(--content-emphasised)]"
-        style={{
-          fontFamily: "var(--font-serif)",
-          fontSize: "32px",
-          fontWeight: 400,
-          lineHeight: 1.2,
-          letterSpacing: "0.64px",
-        }}
-      >
+      <h2 className="text-[var(--content-emphasised)]" style={SERIF_HEADING_STYLE}>
         {title}
       </h2>
       {subtitle && (

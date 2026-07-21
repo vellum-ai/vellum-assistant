@@ -15,7 +15,7 @@ import type {
     ProvisioningDimensions,
     ProvisioningStateKind,
 } from "./provisioning-machine";
-import type { StalledApplyAction } from "./primitives";
+import { SERIF_HEADING_STYLE, type StalledApplyAction } from "./primitives";
 import { extractOnboardingErrorMessage, PROVISION_MIN_DWELL_MS } from "./utils";
 
 // The mock's takeover tint, matched to the green Vellum creature. No token
@@ -68,6 +68,7 @@ function TakeoverAvatar({ assistantId }: { assistantId?: string | null }) {
       <div
         className="mt-1 h-4 w-40"
         style={{
+          // Decorative avatar drop-shadow; raw rgba is conventional for a CSS shadow.
           background:
             "radial-gradient(ellipse at center, rgba(0, 0, 0, 0.45), transparent 70%)",
         }}
@@ -79,16 +80,7 @@ function TakeoverAvatar({ assistantId }: { assistantId?: string | null }) {
 function Copy({ status, caption }: { status: string; caption?: string }) {
   return (
     <div className="flex flex-col items-center gap-1.5">
-      <h1
-        className="text-[var(--content-emphasised)]"
-        style={{
-          fontFamily: "var(--font-serif)",
-          fontSize: "32px",
-          fontWeight: 400,
-          letterSpacing: "0.64px",
-          lineHeight: 1.2,
-        }}
-      >
+      <h1 className="text-[var(--content-emphasised)]" style={SERIF_HEADING_STYLE}>
         {status}
       </h1>
       {caption && (

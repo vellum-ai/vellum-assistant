@@ -399,6 +399,32 @@ describe("BillingOnboardingModal", () => {
     expect(onClose).toHaveBeenCalled();
   });
 
+  test("the fetch-error state renders as a standard card, not the full-bleed dark takeover", async () => {
+    subscriptionPlanId = "pro";
+    onboardingFails = true;
+    const { getByText, getByTestId, onClose } = renderModal();
+
+    await waitFor(
+      () => expect(getByText("Couldn't reach billing")).toBeTruthy(),
+      { timeout: 5000 },
+    );
+
+    // The error card must not inherit the provisioning takeover's full-bleed
+    // dark treatment — it's a standard, legible, dismissible card.
+    const content = document.body.querySelector('[data-slot="modal-content"]');
+    expect(content?.getAttribute("data-theme")).toBeNull();
+    expect(content?.className).not.toContain("w-screen");
+
+    // The FetchErrorState UI and its go-to-billing action still render and act.
+    expect(
+      getByText(
+        "We hit a problem checking your subscription. Your upgrade may still be processing — return to billing to refresh.",
+      ),
+    ).toBeTruthy();
+    fireEvent.click(getByTestId("onboarding-go-to-billing"));
+    expect(onClose).toHaveBeenCalled();
+  });
+
   test("confirm timeout shows the payment-safe copy and retry restarts polling", async () => {
     const { getByText, getByTestId } = renderModal();
 
