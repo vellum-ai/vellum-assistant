@@ -2785,56 +2785,46 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // the user's ears — not time since launch, so it covers mid-turn silences
   // for the whole turn. On expiry with audio still pending, or with the
   // silence not yet a full interval old, it re-arms for the remainder; only a
-  // full interval of audible silence narrates.
+  // full interval of audible silence narrates. The cadence is deliberately
+  // flat: long pauses feel longest, so updates keep coming at the same
+  // interval (minGapMs is the spacing floor) until maxPerTurn runs out.
   private armProgressIdleTimer(
     turn: ActiveAssistantTurn,
     delayMs?: number,
   ): void {
     const { token } = turn;
     this.clearProgressIdleTimer(turn);
-    turn.progress.idleTimer = setTimeout(
-      () => {
-        turn.progress.idleTimer = null;
-        if (!this.isActiveAssistantTurn(token) || turn.assistantCompleted) {
-          return;
-        }
-        if (!this.turnAudioIdle(turn)) {
-          // Audio is buffered, queued, or still playing: a fresh silence can
-          // only be a full interval old one interval from now.
-          this.armProgressIdleTimer(turn);
-          return;
-        }
-        const remaining = this.progressIdleDeadlineMs(turn) - Date.now();
-        if (remaining > 0) {
-          this.armProgressIdleTimer(turn, remaining);
-          return;
-        }
-        this.maybeNarrateProgress(turn, "idle");
+    turn.progress.idleTimer = setTimeout(() => {
+      turn.progress.idleTimer = null;
+      if (!this.isActiveAssistantTurn(token) || turn.assistantCompleted) {
+        return;
+      }
+      if (!this.turnAudioIdle(turn)) {
+        // Audio is buffered, queued, or still playing: a fresh silence can
+        // only be a full interval old one interval from now.
         this.armProgressIdleTimer(turn);
-      },
-      delayMs ?? this.progressIdleIntervalMs(turn),
-    );
+        return;
+      }
+      const remaining = this.progressIdleDeadlineMs(turn) - Date.now();
+      if (remaining > 0) {
+        this.armProgressIdleTimer(turn, remaining);
+        return;
+      }
+      this.maybeNarrateProgress(turn, "idle");
+      this.armProgressIdleTimer(turn);
+    }, delayMs ?? this.frontModelConfig.progress.idleIntervalMs);
   }
 
-  // Next-update interval: the configured base, doubled per update already
-  // spoken (capped at 8x). A bounded update budget then spreads across a long
-  // silence — updates at ~5s/15s/35s for the defaults — instead of clustering
-  // at its start and leaving the tail of the wait unnarrated.
-  private progressIdleIntervalMs(turn: ActiveAssistantTurn): number {
-    const cfg = this.frontModelConfig.progress;
-    return cfg.idleIntervalMs * Math.min(2 ** turn.progress.updatesSpoken, 8);
-  }
-
-  // Wall-clock instant the current audible silence turns a full (backed-off)
-  // interval old: measured from the latest of the last emitted segment, the
-  // estimated client playback end, and the last enqueued filler.
+  // Wall-clock instant the current audible silence turns a full interval old:
+  // measured from the latest of the last emitted segment, the estimated
+  // client playback end, and the last enqueued filler.
   private progressIdleDeadlineMs(turn: ActiveAssistantTurn): number {
     return (
       Math.max(
         turn.progress.lastAudibleAtMs,
         this.assistantPlaybackTailUntilMs,
         turn.progress.lastFloorHolderAtMs ?? 0,
-      ) + this.progressIdleIntervalMs(turn)
+      ) + this.frontModelConfig.progress.idleIntervalMs
     );
   }
 

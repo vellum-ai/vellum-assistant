@@ -12,7 +12,7 @@ const PROGRESS_DEFAULTS = {
   opsThreshold: 3,
   idleIntervalMs: 5_000,
   minGapMs: 6_000,
-  maxPerTurn: 3,
+  maxPerTurn: 6,
   generationTimeoutMs: 1_500,
 };
 
@@ -139,7 +139,7 @@ describe("LiveVoiceFrontModelConfigSchema", () => {
     // Unspecified progress fields still get defaults
     expect(parsed.progress.idleIntervalMs).toBe(5_000);
     expect(parsed.progress.minGapMs).toBe(6_000);
-    expect(parsed.progress.maxPerTurn).toBe(3);
+    expect(parsed.progress.maxPerTurn).toBe(6);
     expect(parsed.progress.generationTimeoutMs).toBe(1_500);
   });
 

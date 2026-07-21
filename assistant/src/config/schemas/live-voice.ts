@@ -101,7 +101,7 @@ export const LiveVoiceProgressConfigSchema = z
       .nonnegative(
         "liveVoice.frontModel.progress.maxPerTurn must be a nonnegative integer",
       )
-      .default(3)
+      .default(6)
       .describe("Cap on spoken progress updates per turn"),
     generationTimeoutMs: z
       .number({
