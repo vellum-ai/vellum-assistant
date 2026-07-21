@@ -9,6 +9,10 @@
  * (browser, oauth) hits ~3.4 KB. The embedding backend handles inputs of this
  * size without trouble, and trimming would drop the very examples and flag
  * descriptions that make commands semantically findable.
+ *
+ * The full-help content is the EMBEDDING/INDEX text only. Injection surfaces
+ * render {@link buildCliCommandSummary} instead — the model fetches the full
+ * help itself via `--help` when it needs it.
  */
 
 import type { CLI_COMMAND_HELP } from "@vellumai/plugin-api";
@@ -18,12 +22,31 @@ type CliCommandHelp = (typeof CLI_COMMAND_HELP)[number];
 /** Subcommand element type — recursive via its own `subcommands` field. */
 type CliSubcommandHelp = NonNullable<CliCommandHelp["subcommands"]>[number];
 
+/** Availability lead-in shared by the summary and the full embedding content. */
+function buildCliCommandLead(name: string, description: string): string {
+  return `The "assistant ${name}" CLI command is available. ${description}.`;
+}
+
+/**
+ * One-line injection form of a CLI command: the availability lead-in plus a
+ * pointer to the live `--help`. Every surface that puts a CLI capability in
+ * front of the model (memory cards, graph node detail, inspector renders)
+ * uses this — never the full-help `content`, which exists only so flags and
+ * examples keep the command semantically findable in the retrieval lanes.
+ */
+export function buildCliCommandSummary(
+  name: string,
+  description: string,
+): string {
+  return `${buildCliCommandLead(name, description)} Run \`assistant ${name} --help\` for full usage.`;
+}
+
 function buildCliCommandContent(
   name: string,
   description: string,
   helpText: string,
 ): string {
-  return `The "assistant ${name}" CLI command is available. ${description}.\n\nFull help:\n${helpText}`;
+  return `${buildCliCommandLead(name, description)}\n\nFull help:\n${helpText}`;
 }
 
 /**

@@ -38,7 +38,10 @@ import { stripCommentLines } from "../host-utils.js";
 import { getLogger } from "../logging.js";
 import { memorySqliteOrNull } from "../memory-db.js";
 import { getWorkspaceDir, getWorkspacePromptPath } from "../paths.js";
-import { capabilityOrDiskBody } from "./capabilities.js";
+import {
+  capabilityOrDiskBody,
+  renderCapabilityContent,
+} from "./capabilities.js";
 import { renderCard } from "./card.js";
 import { loadCoreSet } from "./core-set.js";
 import type { EdgeGraph } from "./edge.js";
@@ -193,12 +196,12 @@ async function initLanes(config: AssistantConfig): Promise<ShadowLanes> {
     return loaded;
   }
   // Synthetic capability slugs (skills / CLI commands) have no on-disk page, so
-  // they contribute their rendered capability content to the section index —
-  // exactly the content `page-content.ts` injects for them. This puts them in
-  // the section index, so the needle lane (and, once a backfill embeds them, the
-  // dense lane) ranks them by relevance like any other page, instead of being
-  // blindly added to the select pool every turn. Real pages read their body
-  // through the cached `loadPage`.
+  // they contribute their full INDEX-form capability content (for CLI commands,
+  // the complete help text — injection renders only the short summary). This
+  // puts them in the section index, so the needle lane (and, once a backfill
+  // embeds them, the dense lane) ranks them by relevance like any other page,
+  // instead of being blindly added to the select pool every turn. Real pages
+  // read their body through the cached `loadPage`.
   const pageBody = async (slug: Slug): Promise<string> =>
     capabilityOrDiskBody(slug, async (s) => (await loadPage(s))?.body ?? "");
   const pageRaw = async (slug: Slug): Promise<string> => {
@@ -268,11 +271,14 @@ async function initLanes(config: AssistantConfig): Promise<ShadowLanes> {
   // stable prefix must be byte-identical across turns to ride the provider KV
   // cache, so the cards are frozen here (lane invalidation at consolidation is
   // the recompute point) instead of being re-read per turn. Capability slugs
-  // render their capability content; disk pages render raw (frontmatter +
-  // body) so `kind: index` pages surface their `links:` map in the card TOC.
-  // Each card carries its lane annotation; fresh cards additionally carry the
-  // page's last-modified time (an absolute stamp — it only changes when the
-  // page does, so the card stays byte-stable between lane recomputes).
+  // card as their short injection form (matching the net-new capability
+  // cards) — a CLI command in the hot set must not pin its full-help index
+  // body into the byte-stable prefix. Disk pages render raw (frontmatter +
+  // body) through `renderCard` so `kind: index` pages surface their `links:`
+  // map in the card TOC. Each disk card carries its lane annotation; fresh
+  // cards additionally carry the page's last-modified time (an absolute
+  // stamp — it only changes when the page does, so the card stays byte-stable
+  // between lane recomputes).
   const modifiedAtBySlug = new Map(
     pageIndex.entries.map((entry) => [entry.slug, entry.modifiedAt]),
   );
@@ -305,10 +311,12 @@ async function initLanes(config: AssistantConfig): Promise<ShadowLanes> {
     ["always", alwaysCandidateSlugs],
   ] as const) {
     for (const slug of slugs) {
-      const raw = await capabilityOrDiskBody(
-        slug,
-        async (s) => (await loadPage(s))?.raw ?? "",
-      );
+      const capability = renderCapabilityContent(slug);
+      if (capability !== null) {
+        prefixCards.set(slug, capability);
+        continue;
+      }
+      const raw = (await loadPage(slug))?.raw ?? "";
       prefixCards.set(slug, renderCard(slug, raw, laneAnnotation(slug, lane)));
     }
   }

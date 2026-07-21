@@ -10,7 +10,7 @@
  *   - lazy-init runs the lane builders only once across multiple turns, and
  *     `invalidateLanes` forces exactly one rebuild;
  *   - `initLanes` feeds synthetic capability pages (skills / CLI commands) into
- *     the section index via `renderCapabilityContent`, so the needle lane ranks
+ *     the section index via `renderCapabilityBody`, so the needle lane ranks
  *     them like any other page (they are no longer always-added to the pool).
  *
  * All heavy dependencies (config, flag resolver, conversation reads, v2 page
@@ -355,10 +355,11 @@ mock.module("../../../../../util/platform.js", () => ({
     join(realPlatform.getWorkspaceDir(), "config.json"),
 }));
 
-// Capability stores: `renderCapabilityContent` (reached from `initLanes`' pageBody
-// and from the live injector) resolves synthetic slugs through these. Spread the
-// real module so the prefix predicates (`isSkillSlug`/`isCliCommandSlug`) stay
-// intact; override only the content lookup so the capability slug resolves.
+// Capability stores: `renderCapabilityBody` (reached from `initLanes`' pageBody)
+// and `renderCapabilityContent` (the live injector's short form) resolve
+// synthetic slugs through these. Spread the real module so the prefix
+// predicates (`isSkillSlug`/`isCliCommandSlug`) stay intact; override only the
+// content lookup so the capability slug resolves.
 mock.module("../substrate/skill-store.js", () => ({
   ...realSkillStore,
   getSkillCapability: (idOrSlug: string) =>

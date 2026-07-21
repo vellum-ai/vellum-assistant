@@ -628,6 +628,29 @@ describe("memoryV3SpotlightInjector — ephemeral section spotlight", () => {
     expect(block!.text).not.toContain("page-c.md");
   });
 
+  test("capability slugs never spotlight — their sections are full-help index slices", async () => {
+    liveEnabled = true;
+    const cliSection = section(
+      "cli-commands/schedules",
+      "CLI command: schedules",
+      "Full help:\n  --cron <expr>  the schedule to run on",
+    );
+    turnResults.set(
+      0,
+      result(
+        ["cli-commands/schedules", "page-a"],
+        [
+          ["cli-commands/schedules", cliSection],
+          ["page-a", sectionA],
+        ],
+      ),
+    );
+    const block = await produceSpotlight("conv-1", 0);
+    expect(block!.text).toContain("page-a.md § Alpha");
+    expect(block!.text).not.toContain("cli-commands/schedules");
+    expect(block!.text).not.toContain("Full help:");
+  });
+
   test("carries the previous windowTurns turns' entries, ages older ones out, never accumulates", async () => {
     liveEnabled = true;
     spotlightConfig = { n: 6, windowTurns: 1 };
