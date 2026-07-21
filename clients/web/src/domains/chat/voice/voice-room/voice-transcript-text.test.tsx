@@ -80,6 +80,15 @@ describe("VoiceTranscriptText", () => {
     expect(leadingFlags(container)).toEqual([true, false, false]);
   });
 
+  test("non-finite highlightIndex normalizes to the first word", () => {
+    // NaN would otherwise propagate through the clamp and leave no word
+    // carrying the leading tone.
+    const { container } = render(
+      <VoiceTranscriptText text="one two three" highlightIndex={Number.NaN} />,
+    );
+    expect(leadingFlags(container)).toEqual([true, false, false]);
+  });
+
   test("color override still flattens every word when highlightIndex is set", () => {
     const { container } = render(
       <VoiceTranscriptText

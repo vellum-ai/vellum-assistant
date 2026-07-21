@@ -9,9 +9,9 @@
  * a brighter "leading edge" tone that cools to the muted base as the next word
  * arrives, so the caption reads as speech flowing forward rather than a block
  * appearing. When the caller supplies an audio-playhead cursor via
- * `highlightIndex` (JARVIS-1309), the leading edge tracks the *spoken* word
- * instead of the last-arrived one, so the highlight stays with the voice even
- * while the streamed text runs ahead of TTS.
+ * `highlightIndex`, the leading edge tracks the *spoken* word instead of the
+ * last-arrived one, so the highlight stays with the voice even while the
+ * streamed text runs ahead of TTS.
  *
  * Index keys (not content) are deliberate: a streaming append leaves earlier
  * indices unchanged so they never re-animate, and a partial-transcript revision
@@ -69,10 +69,15 @@ export function VoiceTranscriptText({
   // `textContent` reads back as the plain sentence).
   const words = useMemo(() => splitTranscriptWords(text), [text]);
   const lastIndex = words.length - 1;
+  // Non-finite cursors (e.g. a NaN from not-yet-initialized playhead math)
+  // normalize to the first word — clamping alone would propagate NaN and leave
+  // no word carrying the leading tone.
   const leadingIndex =
     highlightIndex === undefined
       ? lastIndex
-      : Math.min(Math.max(0, Math.floor(highlightIndex)), lastIndex);
+      : Number.isFinite(highlightIndex)
+        ? Math.min(Math.max(0, Math.floor(highlightIndex)), lastIndex)
+        : 0;
 
   return (
     <>
