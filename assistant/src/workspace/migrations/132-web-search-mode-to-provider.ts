@@ -28,22 +28,30 @@ export const webSearchModeToProviderMigration: WorkspaceMigration = {
     "Fold services.web-search mode into provider (managed -> provider: vellum)",
   run(workspaceDir: string): void {
     const configPath = join(workspaceDir, "config.json");
-    if (!existsSync(configPath)) return;
+    if (!existsSync(configPath)) {
+      return;
+    }
 
     let config: Record<string, unknown>;
     try {
       const raw = JSON.parse(readFileSync(configPath, "utf-8"));
-      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+        return;
+      }
       config = raw as Record<string, unknown>;
     } catch {
       return; // Malformed JSON — skip
     }
 
     const services = readObj(config, "services");
-    if (!services) return;
+    if (!services) {
+      return;
+    }
 
     const service = readObj(services, "web-search");
-    if (!service || !("mode" in service)) return;
+    if (!service || !("mode" in service)) {
+      return;
+    }
 
     if (
       service.mode === "managed" &&
@@ -57,22 +65,30 @@ export const webSearchModeToProviderMigration: WorkspaceMigration = {
   },
   down(workspaceDir: string): void {
     const configPath = join(workspaceDir, "config.json");
-    if (!existsSync(configPath)) return;
+    if (!existsSync(configPath)) {
+      return;
+    }
 
     let config: Record<string, unknown>;
     try {
       const raw = JSON.parse(readFileSync(configPath, "utf-8"));
-      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+        return;
+      }
       config = raw as Record<string, unknown>;
     } catch {
       return;
     }
 
     const services = readObj(config, "services");
-    if (!services) return;
+    if (!services) {
+      return;
+    }
 
     const service = readObj(services, "web-search");
-    if (!service || "mode" in service) return;
+    if (!service || "mode" in service) {
+      return;
+    }
 
     // The pre-migration schema accepts provider "vellum" alongside mode
     // "managed", so the managed pair round-trips exactly. What a managed

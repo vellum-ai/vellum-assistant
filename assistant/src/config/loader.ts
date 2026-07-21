@@ -139,9 +139,12 @@ export function getDeploymentContextDefaults(): Record<string, unknown> {
   if (process.env.IS_PLATFORM !== "true" && process.env.IS_PLATFORM !== "1") {
     return {};
   }
-  // `web-search.mode = managed` enables platform-backed app-executed search
-  // for non-native inference providers while preserving provider-native hosted
-  // search for providers/models that support it.
+  // Web-search carries no deployment default: migration 132 made `provider`
+  // the only axis, the schema default (`inference-provider-native`) prefers
+  // native hosted search, and the runtime falls back to the platform proxy
+  // when the model has no native search and no BYOK key is configured —
+  // which reproduces the old `mode: "managed"` platform behavior. Re-filling
+  // a legacy `mode` here would override migrated BYOK configs on every load.
   const managed = { mode: "managed" as const };
   return {
     // Express platform intent that hosted assistants embed via the managed
@@ -155,7 +158,6 @@ export function getDeploymentContextDefaults(): Record<string, unknown> {
     memory: { embeddings: { provider: "gemini" } },
     services: {
       "image-generation": managed,
-      "web-search": managed,
       "google-oauth": managed,
       "outlook-oauth": managed,
       "linear-oauth": managed,

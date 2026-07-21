@@ -153,13 +153,18 @@ describe("deployment-context embedding-provider default (via loadConfig)", () =>
     >;
     expect(embeddingsRaw.provider).toBeUndefined();
 
-    // Managed service modes ARE persisted on first launch (existing behavior).
+    // Managed service modes ARE persisted on first launch (existing behavior),
+    // but web-search is no longer among them: provider is its only axis
+    // (migration 132), so the platform context must not re-inject a legacy
+    // `mode` that would override migrated BYOK configs on every load. Until
+    // the schema drops `mode` entirely, the persisted value is the schema
+    // default rather than an injected "managed".
     const servicesRaw = (raw.services ?? {}) as Record<string, unknown>;
     const webSearchRaw = (servicesRaw["web-search"] ?? {}) as Record<
       string,
       unknown
     >;
-    expect(webSearchRaw.mode).toBe("managed");
+    expect(webSearchRaw.mode).not.toBe("managed");
 
     // Regression guard: on the NEXT load (config.json now exists with the
     // provider leaf absent), the platform default re-applies in memory rather
