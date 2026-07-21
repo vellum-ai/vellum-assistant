@@ -229,11 +229,10 @@ function ProfileEditorModalInner({
   // user-owned row merely named "vellum" must never enter Vellum mode, even
   // in the pre-load window.
   // The editor tracks connection providers ("vellum" among them). `LlmProvider`
-  // also admits "chatgpt", a routing identity no write may store (it is
-  // write-locked at parse time, at the config write choke point, and at the
-  // profile write route), so no stored profile carries one — ChatGPT is offered
-  // as an OpenAI connection sub-option in the create form, never as a provider
-  // selection here.
+  // also admits "chatgpt", a routing identity this editor never emits —
+  // ChatGPT is offered as an OpenAI connection sub-option in the create form,
+  // never as a provider selection here, so a stored "chatgpt" provider (written
+  // via the API or CLI) opens with no provider selected.
   const [provider, setProvider] = useState<ConnectionProvider | "">(
     initialValues?.provider && initialValues.provider !== "chatgpt"
       ? initialValues.provider

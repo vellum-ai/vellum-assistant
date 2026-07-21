@@ -31,7 +31,7 @@ import {
 import {
   LLMProvider,
   ProfileEntry,
-  WRITE_LOCKED_PROVIDERS,
+  routingIdentityModelIssue,
 } from "../../config/schemas/llm.js";
 import { getDb } from "../../persistence/db-connection.js";
 import {
@@ -145,14 +145,6 @@ function assertValidProvider(provider: string): void {
       `Invalid provider "${provider}". Valid providers: ${LLMProvider.options.join(", ")}.`,
     );
   }
-  // Write-locked routing identities: dispatch cannot resolve them to a real
-  // upstream, so a stored profile carrying one cannot serve requests.
-  // Consults the same set as the schema and commitConfigWrite guards.
-  if (WRITE_LOCKED_PROVIDERS.has(provider)) {
-    throw new BadRequestError(
-      `Provider "${provider}" is not yet enabled for profiles.`,
-    );
-  }
 }
 
 /**
@@ -165,6 +157,20 @@ function validateModel(
   model: string,
   allowUnlisted: boolean,
 ): string[] {
+  // Routing identities key no catalog entries; they validate against their
+  // route's actual reach — the same checks dispatch applies per-request.
+  // allowUnlisted deliberately does not apply: the routing table ships in
+  // this build, so an unroutable pair fails every request, and the schema
+  // strips it on the next config read.
+  if (ROUTING_IDENTITY_PROVIDERS.has(provider)) {
+    const issue = routingIdentityModelIssue(provider, model);
+    if (issue) {
+      throw new BadRequestError(
+        `${issue} Pick a model this route serves, or a concrete provider.`,
+      );
+    }
+    return [];
+  }
   if (isModelInCatalog(provider, model)) {
     return [];
   }
