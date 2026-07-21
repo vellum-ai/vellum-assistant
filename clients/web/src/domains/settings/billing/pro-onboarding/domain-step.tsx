@@ -1,4 +1,4 @@
-import { Mail } from "lucide-react";
+import { Info } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -13,17 +13,20 @@ import { useEnvironmentStore } from "@/stores/environment-store";
 import { Button } from "@vellumai/design-library/components/button";
 import { Modal } from "@vellumai/design-library/components/modal";
 import { Notice } from "@vellumai/design-library/components/notice";
-import { Typography } from "@vellumai/design-library/components/typography";
 
-import { DomainField } from "@/domains/settings/components/domain-field";
 import type { StalledApplyAction } from "./primitives";
 import {
-    IconBadge,
+    CreatureCorners,
     STALLED_UPGRADE_WARNING,
     StalledApplyControls,
+    WizardCardHeading,
 } from "./primitives";
 import { useAssistantDomains } from "./use-assistant-domains";
 import { DOMAIN_EXIT_DELAY_MS, extractOnboardingErrorMessage } from "./utils";
+
+const FIELD_CLASSES =
+  "h-8 rounded-lg border border-[var(--border-element)] bg-[var(--field-bg)] px-2.5 text-[14px] text-[var(--content-default)] placeholder:text-[var(--content-tertiary)] outline-none transition-[border-color] duration-150 focus:border-[var(--border-active)] disabled:cursor-not-allowed disabled:opacity-60";
+const LABEL_CLASSES = "text-[11px] font-medium text-[var(--content-secondary)]";
 
 export function DomainStep({
   onExit,
@@ -127,60 +130,66 @@ export function DomainStep({
 
   return (
     <>
-      <Modal.Body className="min-h-[320px] animate-[onboarding-step-in_350ms_ease-out] space-y-5 pt-10 pb-4 motion-reduce:animate-none">
-        <div className="flex flex-col items-center gap-3 pb-2 text-center">
-          <IconBadge icon={Mail} />
-          <div className="space-y-2">
-            <Typography variant="title-small" as="h1">
-              Assistant email
-            </Typography>
-            <Typography
-              variant="body-medium-lighter"
-              as="p"
-              className="text-[var(--content-secondary)]"
-            >
-              Set up an email address for your assistant.
-            </Typography>
-          </div>
-        </div>
+      <Modal.Body className="min-h-[320px] animate-[onboarding-step-in_350ms_ease-out] space-y-5 pb-4 motion-reduce:animate-none">
+        <WizardCardHeading
+          title="Assistant Email"
+          subtitle="Set up an email for your assistant."
+        />
 
         <div className="space-y-1.5">
-          <Typography
-            variant="body-small-default"
-            as="label"
-            className="text-[var(--content-secondary)]"
-          >
-            Email address
-          </Typography>
-          <DomainField
-            subdomain={subdomain}
-            autoFocus
-            onSubdomainChange={(v) => {
-              setSubdomain(v);
-              if (errorMsg) setErrorMsg(null);
-            }}
-            domainSuffix={emailRootDomain}
-            disabled={busy}
-            error={errorMsg}
-            locked={isLocked}
-            lockedMessage="This domain has been set and cannot be changed."
-            prefix={
-              <>
-                <input
-                  value={emailUsername}
-                  onChange={(e) => setEmailUsername(e.target.value.toLowerCase().trim())}
-                  disabled={busy || isLocked}
-                  readOnly={isLocked}
-                  placeholder="hi"
-                  aria-label="Email username"
-                  size={Math.max(emailUsername.length, 2)}
-                  className="h-full w-0 min-w-[2ch] flex-none bg-transparent pl-3 pr-1.5 text-[var(--content-default)] placeholder:text-[var(--content-tertiary)] outline-none disabled:cursor-not-allowed disabled:opacity-60"
-                  style={{ width: `${Math.max(emailUsername.length, 2) + 1.5}ch` }}
-                />
-                <span className="shrink-0 font-mono text-[var(--content-secondary)]">@</span>
-              </>
-            }
-          />
+          <div className="flex items-end gap-2">
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="onboarding-email-prefix" className={LABEL_CLASSES}>
+                Prefix
+              </label>
+              <input
+                id="onboarding-email-prefix"
+                value={emailUsername}
+                onChange={(e) =>
+                  setEmailUsername(e.target.value.toLowerCase().trim())
+                }
+                disabled={busy || isLocked}
+                readOnly={isLocked}
+                placeholder="hi"
+                className={`${FIELD_CLASSES} w-24`}
+              />
+            </div>
+            <span className="flex h-8 items-center text-[var(--content-secondary)]">
+              @
+            </span>
+            <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+              <label htmlFor="onboarding-email-handle" className={LABEL_CLASSES}>
+                Handle (public)
+              </label>
+              <input
+                id="onboarding-email-handle"
+                value={subdomain}
+                onChange={(e) => {
+                  setSubdomain(e.target.value.toLowerCase().trim());
+                  if (errorMsg) setErrorMsg(null);
+                }}
+                disabled={busy || isLocked}
+                readOnly={isLocked}
+                autoFocus
+                placeholder="my-assistant"
+                aria-invalid={!!errorMsg}
+                className={`${FIELD_CLASSES} w-full min-w-0`}
+              />
+            </div>
+            <span className="flex h-8 shrink-0 items-center text-[14px] text-[var(--content-tertiary)]">
+              .{emailRootDomain}
+            </span>
+          </div>
+          {errorMsg && (
+            <p className="text-body-small-default text-[var(--system-negative-strong)]">
+              {errorMsg}
+            </p>
+          )}
+          {isLocked && (
+            <p className="text-body-small-default text-[var(--content-tertiary)]">
+              This domain has been set and cannot be changed.
+            </p>
+          )}
         </div>
 
         {stalledAction && !isLocked ? (
@@ -204,14 +213,17 @@ export function DomainStep({
           )
         )}
         {!isLocked && (
-          <Notice tone="info">
-            <span className="font-mono">{subdomain || "<subdomain>"}</span> will also become your assistant&apos;s public handle.
-            You won&apos;t be able to change it once set.
+          <Notice
+            tone="neutral"
+            icon={<Info className="h-4 w-4" aria-hidden="true" />}
+          >
+            You won&apos;t be able to change the handle once set.
           </Notice>
         )}
         {confirmed ? (
           <Notice tone="success">Domain set — redirecting…</Notice>
         ) : null}
+        <CreatureCorners variant="top" />
       </Modal.Body>
       <Modal.Footer className="items-center">
         {isLocked ? (
@@ -225,12 +237,12 @@ export function DomainStep({
         ) : (
           <>
             <Button
-              variant="ghost"
+              variant="outlined"
               data-testid="onboarding-domain-skip"
               disabled={busy}
               onClick={handleSkip}
             >
-              Do later
+              Skip
             </Button>
             <Button
               variant="primary"
@@ -238,7 +250,7 @@ export function DomainStep({
               disabled={!subdomain || busy || machineBusy}
               onClick={handleSet}
             >
-              Set domain
+              Next
             </Button>
           </>
         )}
