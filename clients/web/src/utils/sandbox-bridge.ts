@@ -271,6 +271,12 @@ function buildBridgeLogicScript(
   });
   window.vellum.fetch = function(path, options) {
     options = options || {};
+    // Custom routes are served under "/v1/x/". Tolerate callers that omit the
+    // "/v1" prefix ("/x/foo" -> "/v1/x/foo") so the host's strict "/v1/x/"
+    // check doesn't reject an otherwise-valid route path.
+    if (typeof path === 'string' && path.indexOf('/x/') === 0) {
+      path = '/v1' + path;
+    }
     return new Promise(function(resolve, reject) {
       var callId = 'f' + (window.vellum._fetchNextId++);
       window.vellum._pendingFetches[callId] = { resolve: resolve, reject: reject };

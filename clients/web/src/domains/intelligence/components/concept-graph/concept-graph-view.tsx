@@ -202,13 +202,15 @@ export function ConceptGraphView({
   // force-labels these ids so a theme always reads with at least one word.
   // Disconnected nodes (degree 0) each form their own singleton cluster; they're
   // not themes, so skipping them keeps orphans from turning into label soup.
-  const clusterHubs = useMemo(() => {
+  const themes = useMemo(() => {
     const bestByCluster = new Map<number, GraphLayoutNode>();
+    const sizeByCluster = new Map<number, number>();
     for (const node of layout.nodes) {
       const cluster = clusters.get(node.id);
       if (cluster == null || node.degree === 0) {
         continue;
       }
+      sizeByCluster.set(cluster, (sizeByCluster.get(cluster) ?? 0) + 1);
       const current = bestByCluster.get(cluster);
       if (
         !current ||
@@ -218,12 +220,23 @@ export function ConceptGraphView({
         bestByCluster.set(cluster, node);
       }
     }
-    const hubIds = new Set<string>();
-    for (const node of bestByCluster.values()) {
-      hubIds.add(node.id);
-    }
-    return hubIds;
+    // Largest themes first; each named by its hub concept and colored to match
+    // the cluster palette, so the legend can map color → theme.
+    return [...bestByCluster.entries()]
+      .map(([cluster, hub]) => ({
+        hubId: hub.id,
+        color: CLUSTER_PALETTE[cluster % CLUSTER_PALETTE.length],
+        name: hub.label,
+        size: sizeByCluster.get(cluster) ?? 0,
+      }))
+      .sort((a, b) => b.size - a.size);
   }, [clusters, layout.nodes]);
+
+  // Hub node ids the render loop force-labels (one per theme).
+  const clusterHubs = useMemo(
+    () => new Set(themes.map((t) => t.hubId)),
+    [themes],
+  );
 
   // Neighbor adjacency for hover highlighting.
   const adjacency = useMemo(() => {
@@ -283,6 +296,9 @@ export function ConceptGraphView({
   // Set by search jump-to. While non-null the render loop eases the camera each
   // frame to center this concept, then clears it once the view has settled.
   const focusTargetRef = useRef<string | null>(null);
+  // Set on dismiss so the 60fps loop eases the camera back out to the overview
+  // framing (zoom + pitch), then clears itself once settled.
+  const resetViewRef = useRef(false);
 
   // Bumped only when the focused node changes, so the DOM tooltip re-renders.
   // The canvas itself never needs React state.
@@ -414,16 +430,6 @@ export function ConceptGraphView({
     searchEmittedRef.current = false;
   }, [assistantId]);
 
-  const labelFor = useCallback(
-    (id: string | null): string | null => {
-      if (!id) {return null;}
-      const node = layout.nodes.find((n) => n.id === id);
-      if (!node) {return null;}
-      return node.summary ? `${node.label} — ${node.summary}` : node.label;
-    },
-    [layout.nodes],
-  );
-
   const resetView = useCallback(() => {
     const v = view.current;
     v.yaw = 0.5;
@@ -469,6 +475,10 @@ export function ConceptGraphView({
     setTrail([]);
     setSearch("");
     setFocusLabel(null);
+    // Zoom back out to the overview after closing the drawer: clear any focus
+    // target (so it doesn't fight the ease) and let the loop ease zoom/pitch home.
+    focusTargetRef.current = null;
+    resetViewRef.current = true;
   }, []);
 
   // Jump to a breadcrumb (the ‹ back control and crumb clicks): truncate the
@@ -632,6 +642,19 @@ export function ConceptGraphView({
           ) {
             focusTargetRef.current = null;
           }
+        }
+      }
+
+      // After the drawer is dismissed, ease the camera back out to the overview
+      // framing (default zoom + pitch); yaw keeps its idle drift. Skipped while
+      // dragging so a manual orbit isn't fought; clears itself once settled.
+      if (resetViewRef.current && !v.dragging) {
+        const k = reduceMotion ? 1 : 0.15;
+        v.pitch += (0.32 - v.pitch) * k;
+        v.zoom += (1 - v.zoom) * k;
+        v.dirty = true;
+        if (Math.abs(0.32 - v.pitch) < 0.01 && Math.abs(1 - v.zoom) < 0.02) {
+          resetViewRef.current = false;
         }
       }
 
@@ -1029,7 +1052,6 @@ export function ConceptGraphView({
       if (hit !== v.hoveredId) {
         v.hoveredId = hit;
         v.dirty = true;
-        setFocusLabel(labelFor(hit));
       }
       // Node hover wins: only probe edges when no node is under the cursor.
       if (hit) {
@@ -1039,7 +1061,7 @@ export function ConceptGraphView({
         setEdgeLabel(edge ? labelForEdge(edge) : null);
       }
     },
-    [hitTest, labelFor, edgeHitTest],
+    [hitTest, edgeHitTest],
   );
 
   const onPointerUp = useCallback(
@@ -1307,6 +1329,7 @@ export function ConceptGraphView({
         <ConceptGraphLegend
           nodeKinds={presentKinds.filter((k) => k !== "concept")}
           coloredByTheme={presentKinds.includes("concept")}
+          themes={themes}
           hasLinks={hasLinks}
           hasLearned={hasLearned}
           {...(hasLinks && hasLearned

@@ -157,12 +157,15 @@ function resolveSchemaForDocument(schemaSource: unknown): ContentSchema {
 
 /**
  * Directories holding `RouteDefinition` modules: the host `runtime/routes`
- * tree plus every default plugin's `routes/` subdirectory. A default plugin
- * that owns model-facing HTTP/IPC routes defines them under
- * `plugins/defaults/<plugin>/routes/` and the host route aggregator registers
- * them at runtime; the generator scans those dirs too so the spec stays
- * complete no matter which package a route lives in. Sorted for reproducible
- * output (see {@link collectRoutesFromModules}).
+ * tree plus each default plugin's internal module directories. A default plugin
+ * that owns model-facing HTTP/IPC routes (registered into the shared route
+ * table at runtime) keeps those `RouteDefinition` modules in its `src/`
+ * directory — its `routes/` directory is reserved for userland-format
+ * (`export const GET`/`POST`) handlers served by the `/x/plugins/<name>/`
+ * dispatcher, which the OpenAPI spec does not cover. Scanning both keeps the
+ * spec complete no matter which package a shared-table route lives in
+ * (non-`ROUTES` modules under either dir are simply ignored). Sorted for
+ * reproducible output (see {@link collectRoutesFromModules}).
  */
 async function routeModuleDirs(): Promise<string[]> {
   const dirs = [ROUTES_DIR];
@@ -170,8 +173,12 @@ async function routeModuleDirs(): Promise<string[]> {
     withFileTypes: true,
   })) {
     if (!entry.isDirectory()) continue;
-    const routesDir = join(PLUGIN_DEFAULTS_DIR, entry.name, "routes");
-    if (existsSync(routesDir)) dirs.push(routesDir);
+    for (const sub of ["src", "routes"]) {
+      const dir = join(PLUGIN_DEFAULTS_DIR, entry.name, sub);
+      if (existsSync(dir)) {
+        dirs.push(dir);
+      }
+    }
   }
   return dirs.sort();
 }

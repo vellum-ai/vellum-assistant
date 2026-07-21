@@ -13,6 +13,8 @@ export interface ChatAvatarProps {
   className?: string;
   interactive?: boolean;
   isAssistantBusy?: boolean;
+  /** Pupils shift toward the cursor while hovered. See `AnimatedAvatar`. */
+  trackCursor?: boolean;
   /**
    * Stamp `data-voice-origin` on the avatar's root so the live-voice room can
    * find this on-screen avatar and grow its entrance from here. Set on the
@@ -81,6 +83,7 @@ function ChatAvatarComponent({
   interactive = false,
   isAssistantBusy = false,
   originAnchor = false,
+  trackCursor = false,
 }: ChatAvatarProps) {
   const reduce = useReducedMotion();
   const [isPoking, setIsPoking] = useState(false);
@@ -145,6 +148,7 @@ function ChatAvatarComponent({
           traits={effectiveTraits}
           size={size}
           isAssistantBusy={isAssistantBusy}
+          trackCursor={trackCursor}
         />
       </motion.div>
     );

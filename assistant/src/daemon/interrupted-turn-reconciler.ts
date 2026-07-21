@@ -2,16 +2,18 @@
  * Startup reconciliation for conversations left mid-turn by the previous
  * process. Their `processing_started_at` is still set even though the
  * in-memory agent loop that owned the turn died with that process, so the
- * flag is stale: clients would render the conversation as busy forever and
- * background jobs (e.g. memory retrospectives) would skip it.
+ * flag is stale.
  *
- * The reconciler always clears the stale flags. When
- * `conversations.resumeProcessingOnStartup` is enabled it additionally
- * selects conversations to resume through the conversation-wake machinery —
- * a normal background turn that shows the model an interruption notice and
- * lets it decide what still needs doing, rather than mechanically replaying
- * the dead turn (tool side effects are not idempotent, and the transcript
- * already contains whatever the interrupted turn persisted).
+ * Clearing the stale flags themselves runs out of process, in the monitor's
+ * recovery pass (`monitoring/recovery/stale-processing.ts`), off the daemon's
+ * boot path. This module owns the other half: when
+ * `conversations.resumeProcessingOnStartup` is enabled it selects the
+ * conversations to resume through the conversation-wake machinery — a normal
+ * background turn that shows the model an interruption notice and lets it
+ * decide what still needs doing, rather than mechanically replaying the dead
+ * turn (tool side effects are not idempotent, and the transcript already
+ * contains whatever the interrupted turn persisted). Selection reads the
+ * still-set flags here at boot; the monitor clears them a few seconds later.
  *
  * Each resume runs under the conversation's reconstructed resting trust (see
  * {@link recoverRestingTrustContext}); conversations whose trust can't be
@@ -19,7 +21,6 @@
  */
 
 import {
-  clearStaleProcessingFlags,
   getConversationOriginChannel,
   incrementProcessingResumeAttempts,
   listInterruptedConversations,
@@ -32,9 +33,9 @@ const log = getLogger("interrupted-turns");
 
 /**
  * Maximum consecutive auto-resume attempts per conversation. The persisted
- * counter survives `clearStaleProcessingFlags()` and resets only on a clean
- * turn end, so a resumed turn that keeps taking the process down is left
- * idle after this many boots instead of resume-looping forever.
+ * counter survives the stale-flag clear and resets only on a clean turn end,
+ * so a resumed turn that keeps taking the process down is left idle after this
+ * many boots instead of resume-looping forever.
  */
 export const MAX_RESUME_ATTEMPTS = 2;
 
@@ -62,8 +63,6 @@ export interface InterruptedResumeTarget {
 }
 
 export interface InterruptedTurnReconciliation {
-  /** Rows whose stale processing flag was cleared. */
-  cleared: number;
   /** Conversations selected for an auto-resume wake, with their resting trust. */
   resume: InterruptedResumeTarget[];
   /** Conversation ids left idle because they hit {@link MAX_RESUME_ATTEMPTS}. */
@@ -104,25 +103,25 @@ function recoverRestingTrustContext(
 }
 
 /**
- * Clear every stale processing flag and, when `resumeEnabled` is set, pick the
- * conversations to resume together with the resting trust each wake runs
- * under. Conversations whose resting trust can't be recovered are cleared but
- * skipped. The resume-attempt counter is NOT bumped here — it is charged as
- * each wake starts (see {@link resumeInterruptedConversations}), so a crash
- * mid-resume never burns the budget of conversations that were never attempted.
+ * When `resumeEnabled` is set, pick the conversations to resume together with
+ * the resting trust each wake runs under. Conversations whose resting trust
+ * can't be recovered are skipped. The resume-attempt counter is NOT bumped
+ * here — it is charged as each wake starts (see {@link
+ * resumeInterruptedConversations}), so a crash mid-resume never burns the
+ * budget of conversations that were never attempted.
  *
- * Pure DB work — safe to run during startup as soon as migrations settle.
- * The wakes themselves must wait for full startup (providers, CES) and run
- * via {@link resumeInterruptedConversations}.
+ * Reads the still-set `processing_started_at` flags (the monitor's recovery
+ * pass clears them out of process). Pure read — safe to run during startup as
+ * soon as migrations settle. The wakes themselves must wait for full startup
+ * (providers, CES) and run via {@link resumeInterruptedConversations}.
  */
 export function reconcileInterruptedConversations(
   resumeEnabled: boolean,
 ): InterruptedTurnReconciliation {
-  const interrupted = resumeEnabled ? listInterruptedConversations() : [];
-  const cleared = clearStaleProcessingFlags();
   if (!resumeEnabled) {
-    return { cleared, resume: [], capped: [], trustUnrecoverable: [] };
+    return { resume: [], capped: [], trustUnrecoverable: [] };
   }
+  const interrupted = listInterruptedConversations();
   const resume: InterruptedResumeTarget[] = [];
   const capped: string[] = [];
   const trustUnrecoverable: string[] = [];
@@ -138,7 +137,7 @@ export function reconcileInterruptedConversations(
     }
     resume.push({ conversationId: row.id, trustContext });
   }
-  return { cleared, resume, capped, trustUnrecoverable };
+  return { resume, capped, trustUnrecoverable };
 }
 
 /**
