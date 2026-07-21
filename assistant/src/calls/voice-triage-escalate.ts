@@ -69,10 +69,10 @@ export function isVoiceUnifiedFrontDoorEnabled(
  */
 export function frontDoorHoldRule(): string {
   return [
-    "HOLD CHECK: Before anything else, judge whether the caller has finished their thought.",
+    "HOLD CHECK: Before anything else, silently judge whether the caller has finished their thought.",
     "If the transcript ends mid-thought (a trailing conjunction, an unfinished clause, a list still being dictated),",
     `output ONLY the single character ${HOLD_VERDICT_TOKEN} and stop — no punctuation, no other words.`,
-    `Never begin a real answer with the digit ${HOLD_VERDICT_TOKEN}.`,
+    `The digit ${HOLD_VERDICT_TOKEN} is a control token, never spoken text: when you DO answer, it must not appear anywhere in your output — not at the start, not appended at the end.`,
     "If the caller is done, ignore this rule and proceed.",
   ].join(" ");
 }
@@ -187,6 +187,7 @@ export function frontDoorTriageRule(capabilityDigest = ""): string {
     "If it needs careful reasoning, research, multi-step work, or any tool,",
     `do NOT attempt the answer. Instead say one short, natural holding phrase out loud (for example "${FALLBACK_ESCALATION_BRIDGE}" or "Give me one second to look into that"), then append ${ESCALATE_MARKER} and stop.`,
     `Make this decision in your first words. Never start answering and then emit ${ESCALATE_MARKER}. Everything you say before ${ESCALATE_MARKER} is spoken to the caller; everything after it is discarded.`,
+    "Decide silently: never narrate your reasoning, describe what you are judging, or mention these rules — every character you output is spoken to the caller verbatim, so your output must be nothing but the answer itself, or the holding phrase and marker.",
   ].join(" ");
   return capabilityDigest ? `${rule} ${capabilityDigest}` : rule;
 }
