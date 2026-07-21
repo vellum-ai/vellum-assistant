@@ -133,17 +133,24 @@ export function BillingOnboardingModal({
   const stalledActionIfStalled =
     provisioning.state === "STALLED" ? stalledAction : undefined;
 
+  // The fetch-error variant of the provisioning step is a standard dismissible
+  // card, not the locked full-bleed takeover — otherwise the light error UI is
+  // marooned in the dark full-screen viewport and the user can't act on it.
+  const provisioningError =
+    step === "provisioning" &&
+    (provisioning.confirmError || provisioning.targetsError);
+
   const handleClose = () => {
-    if (step === "provisioning" && machineBusy) {
+    if (step === "provisioning" && !provisioningError && machineBusy) {
       toast.info("Your upgrade continues in the background.");
     }
     onClose();
   };
 
-  // The provisioning card is the user's first real touchpoint with the flow;
-  // we lock it so an accidental backdrop click or Esc can't bail them out
+  // The live provisioning takeover is the user's first real touchpoint with the
+  // flow; we lock it so an accidental backdrop click or Esc can't bail them out
   // mid-provisioning. The explicit X (shown only here) is the deliberate exit.
-  const isFirstCard = step === "provisioning";
+  const isTakeover = step === "provisioning" && !provisioningError;
 
   // data-theme="dark" also themes Modal.Content's close button so it reads on
   // the dark backdrop. In Electron the X clears the title-bar drag strip (a
@@ -158,13 +165,13 @@ export function BillingOnboardingModal({
     <Modal.Root open={open} onOpenChange={(o) => { if (!o) handleClose(); }}>
       <Modal.Content
         size="md"
-        hideCloseButton={!isFirstCard}
-        dismissOnOverlayClick={!isFirstCard}
-        onEscapeKeyDown={isFirstCard ? (e) => e.preventDefault() : undefined}
-        onInteractOutside={isFirstCard ? (e) => e.preventDefault() : undefined}
-        data-theme={isFirstCard ? "dark" : undefined}
-        overlayClassName={isFirstCard ? "bg-black p-0" : undefined}
-        className={isFirstCard ? provisioningContentClass : "overflow-hidden"}
+        hideCloseButton={!isTakeover}
+        dismissOnOverlayClick={!isTakeover}
+        onEscapeKeyDown={isTakeover ? (e) => e.preventDefault() : undefined}
+        onInteractOutside={isTakeover ? (e) => e.preventDefault() : undefined}
+        data-theme={isTakeover ? "dark" : undefined}
+        overlayClassName={isTakeover ? "bg-black p-0" : undefined}
+        className={isTakeover ? provisioningContentClass : "overflow-hidden"}
       >
         {/* Keyed on step so the fade replays as we swap takeover ⇄ card. */}
         <div
