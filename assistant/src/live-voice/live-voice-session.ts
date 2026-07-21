@@ -170,12 +170,6 @@ export interface LiveVoiceSessionOptions {
    * `null` skips the preflight.
    */
   resolveCredentialReadiness?: LiveVoiceCredentialReadinessResolver | null;
-  /**
-   * Runs once at session start, before the credential preflight, to
-   * auto-configure managed speech for platform-connected users who have no
-   * BYOK STT/TTS key. `null` skips it (test seam).
-   */
-  ensureSpeechConfigured?: (() => Promise<void>) | null;
   startVoiceTurn?: LiveVoiceTurnStarter;
   streamTtsAudio?: LiveVoiceTtsStreamer | null;
   archiveAudio?: LiveVoiceSessionAudioArchiver | null;
@@ -421,7 +415,6 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   private readonly context: LiveVoiceSessionFactoryContext;
   private readonly resolveTranscriber: LiveVoiceStreamingTranscriberResolver;
   private readonly resolveCredentialReadiness: LiveVoiceCredentialReadinessResolver | null;
-  private readonly ensureSpeechConfigured: (() => Promise<void>) | null;
   private readonly startVoiceTurn: LiveVoiceTurnStarter | null;
   private readonly streamTtsAudio: LiveVoiceTtsStreamer | null;
   private readonly archiveAudio: LiveVoiceSessionAudioArchiver | null;
@@ -538,7 +531,6 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       options.resolveTranscriber ?? defaultResolveStreamingTranscriber;
     this.resolveCredentialReadiness =
       options.resolveCredentialReadiness ?? null;
-    this.ensureSpeechConfigured = options.ensureSpeechConfigured ?? null;
     this.startVoiceTurn = options.startVoiceTurn ?? null;
     this.streamTtsAudio = options.streamTtsAudio ?? null;
     this.archiveAudio = options.archiveAudio ?? null;
@@ -592,18 +584,6 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
 
   async start(): Promise<void> {
     if (this.state !== "initializing") {
-      return;
-    }
-
-    // Auto-configure managed speech for connected users with no BYOK speech
-    // key so the preflight below passes instead of failing the start frame.
-    // Awaited (not fire-and-forget) so the preflight reads the updated config;
-    // maybeDefaultSpeechToManaged() invalidates the config cache internally.
-    if (this.ensureSpeechConfigured) {
-      await this.ensureSpeechConfigured();
-    }
-    // Re-check for a close that raced the ensure step.
-    if (this.isClosed) {
       return;
     }
 
@@ -2990,10 +2970,6 @@ export function createLiveVoiceSession(
       options.resolveCredentialReadiness === undefined
         ? defaultResolveLiveVoiceCredentialReadiness
         : options.resolveCredentialReadiness,
-    ensureSpeechConfigured:
-      options.ensureSpeechConfigured === undefined
-        ? defaultEnsureSpeechConfigured
-        : options.ensureSpeechConfigured,
     startVoiceTurn: options.startVoiceTurn ?? defaultStartVoiceTurn,
     streamTtsAudio:
       options.streamTtsAudio === undefined
@@ -3066,12 +3042,6 @@ async function defaultResolveLiveVoiceCredentialReadiness(): Promise<LiveVoiceCr
   const { resolveLiveVoiceCredentialReadiness } =
     await import("./live-voice-credential-preflight.js");
   return resolveLiveVoiceCredentialReadiness();
-}
-
-async function defaultEnsureSpeechConfigured(): Promise<void> {
-  const { maybeDefaultSpeechToManaged } =
-    await import("../config/managed-speech-defaults.js");
-  await maybeDefaultSpeechToManaged();
 }
 
 async function defaultStartVoiceTurn(
