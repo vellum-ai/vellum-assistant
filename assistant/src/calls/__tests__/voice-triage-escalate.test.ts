@@ -84,6 +84,13 @@ describe("front-door triage rule", () => {
   test("lists tool uncertainty as an escalate trigger (no fabrication)", () => {
     expect(rule.toLowerCase()).toContain("tool");
   });
+
+  test("demands a silent decision — no narrated reasoning in spoken output", () => {
+    // Regression: a weak front-door model narrated its triage deliberation
+    // aloud ("Context is complete — Alex paused...") before the bridge.
+    expect(rule.toLowerCase()).toContain("decide silently");
+    expect(rule.toLowerCase()).toContain("never narrate");
+  });
 });
 
 describe("escalated continuation rule", () => {
