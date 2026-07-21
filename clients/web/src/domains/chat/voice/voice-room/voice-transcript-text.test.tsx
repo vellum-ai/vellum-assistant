@@ -62,7 +62,7 @@ describe("VoiceTranscriptText", () => {
     const { container } = render(
       <VoiceTranscriptText text="one two three" highlightIndex={1} />,
     );
-    // The last-arrived word no longer leads — the cursor owns the highlight.
+    // The cursor owns the highlight — the last-arrived word renders the muted base.
     expect(leadingFlags(container)).toEqual([false, true, false]);
   });
 
