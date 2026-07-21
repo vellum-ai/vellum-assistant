@@ -25,10 +25,7 @@ export const Default: Story = {
   },
 };
 
-/**
- * A fenced block that overflows both axes: the `<pre>` is the only scroll
- * container, so exactly one vertical and one horizontal scrollbar appear.
- */
+/** A fenced block that overflows both axes. */
 export const LongCodeBlock: Story = {
   args: {
     content: [

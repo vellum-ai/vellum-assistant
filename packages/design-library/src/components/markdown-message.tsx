@@ -352,8 +352,7 @@ function buildMarkdownComponents(
         return (
           <code
             className={cn(
-              // No overflow here — the `<pre>` is the only scroll container.
-              // `w-max min-w-full` keeps its padding inside the scrolled area.
+              // w-max min-w-full keeps the <pre>'s right padding visible when scrolled horizontally.
               "block w-max min-w-full font-mono text-body-small-default",
               className,
             )}
