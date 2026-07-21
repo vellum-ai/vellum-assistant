@@ -1113,6 +1113,11 @@ export async function runGraphExtraction(
     /** Embed nodes synchronously instead of enqueuing jobs. Used by bootstrap
      *  so nodes are searchable immediately without the jobs worker running. */
     embedInline?: boolean;
+    /** The `conversationId` argument is a synthetic source key (e.g. journal
+     *  bootstrap's `journal:<slug>:<file>`), not a `conversations` row. Skips
+     *  stamping it on the usage-ledger event so the cost stays unattributed
+     *  instead of surfacing as a phantom conversation. */
+    syntheticConversationId?: boolean;
   },
 ): Promise<ExtractionResult> {
   const emptyResult: ExtractionResult = {
@@ -1227,7 +1232,9 @@ export async function runGraphExtraction(
     systemPrompt,
     config: {
       callSite: "memoryExtraction" as const,
-      conversationId,
+      conversationId: opts?.syntheticConversationId
+        ? undefined
+        : conversationId,
       tool_choice: { type: "tool" as const, name: "extract_graph_diff" },
     },
   });
