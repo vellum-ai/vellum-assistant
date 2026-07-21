@@ -272,6 +272,15 @@ export async function resolveProviderFromConnection(
   // For every other connection this is `undefined` and the effective provider
   // is the connection's own — no behavior change.
   const effectiveProvider = opts.providerOverride ?? connection.provider;
+  // Routing identities must be translated to a real upstream before this
+  // point (resolveRoutingIdentity in connection-resolution) — an identity
+  // reaching adapter construction would silently yield no adapter and the
+  // retry wire-normalization keys off real adapter provider names.
+  if (effectiveProvider === "vellum" || effectiveProvider === "chatgpt") {
+    throw new Error(
+      `resolveProviderFromConnection received unresolved routing identity "${effectiveProvider}" — translate to a real upstream before adapter construction`,
+    );
+  }
   const model = opts.model ?? resolveModel(config, effectiveProvider);
   const cacheKey = getConnectionProviderCacheKey(
     connection,

@@ -4,6 +4,7 @@ import {
 } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
+import { resolveRoutingIdentity } from "../providers/connection-resolution.js";
 import { safeStringSlice } from "../util/unicode.js";
 
 const MAX_METADATA_VALUE_LENGTH = 128;
@@ -100,6 +101,29 @@ export function sanitizeUsageMetadataValue(value: unknown): string | null {
   return safeStringSlice(trimmed, 0, MAX_METADATA_VALUE_LENGTH);
 }
 
+/**
+ * Attribution records the billed upstream: a routing-identity provider
+ * ("vellum"/"chatgpt") translates to the upstream that actually serves the
+ * request, matching what dispatch resolves. Unroutable identity models fall
+ * back to the stored value rather than throwing — attribution must never
+ * take dispatch down.
+ */
+function attributedProvider(
+  provider: string | undefined,
+  model: string | undefined,
+): string | undefined {
+  if (provider !== "vellum" && provider !== "chatgpt") {
+    return provider;
+  }
+  try {
+    return (
+      resolveRoutingIdentity(provider, model)?.expectedProvider ?? provider
+    );
+  } catch {
+    return provider;
+  }
+}
+
 export function resolveUsageAttribution(
   input: UsageAttributionInput,
 ): UsageAttributionSnapshot {
@@ -120,7 +144,11 @@ export function resolveUsageAttribution(
       callSiteProfile: null,
       appliedProfile: null,
       profileSource: "unknown",
-      resolvedProvider: resolvedMainAgent.provider,
+      resolvedProvider:
+        attributedProvider(
+          resolvedMainAgent.provider,
+          resolvedMainAgent.model,
+        ) ?? resolvedMainAgent.provider,
       resolvedModel: resolvedMainAgent.model,
       resolvedMixArm: null,
     };
@@ -161,7 +189,9 @@ export function resolveUsageAttribution(
     callSiteProfile,
     appliedProfile: profile.appliedProfile,
     profileSource: profile.profileSource,
-    resolvedProvider: resolved.provider,
+    resolvedProvider:
+      attributedProvider(resolved.provider, resolved.model) ??
+      resolved.provider,
     resolvedModel: resolved.model,
     resolvedMixArm:
       profile.appliedProfile != null
