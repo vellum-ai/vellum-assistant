@@ -3101,7 +3101,9 @@ describe("LiveVoiceSession unified front-door endpointing", () => {
     const startVoiceTurn: LiveVoiceTurnStarter = async (options) => {
       calls.push(options);
       const script = scripts[calls.length - 1];
-      if (script) {
+      // An empty script models a leg that stays in flight (no verdict, no
+      // completion) — a non-empty one streams its deltas then completes.
+      if (script && script.length > 0) {
         setTimeout(() => {
           for (const text of script) {
             options.callbacks?.assistant_text_delta?.(makeTextDelta(text));
