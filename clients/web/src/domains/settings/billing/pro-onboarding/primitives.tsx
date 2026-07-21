@@ -5,6 +5,9 @@ import type { ButtonVariant } from "@vellumai/design-library/components/button";
 import { Button } from "@vellumai/design-library/components/button";
 import { Notice } from "@vellumai/design-library/components/notice";
 
+import { AvatarRenderer } from "@/components/avatar-renderer";
+import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
+
 import { extractOnboardingErrorMessage } from "./utils";
 
 /** The manual Apply & Restart recovery threaded down from the modal. */
@@ -163,6 +166,111 @@ export function ResourceCard({
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Centered serif card heading (Instrument Serif via `--font-serif`) with an
+ * optional supporting subtitle, matching the takeover-header treatment used
+ * on the plans page. Pure presentation.
+ */
+export function WizardCardHeading({
+  title,
+  subtitle,
+}: {
+  title: string;
+  subtitle?: string;
+}) {
+  return (
+    <header className="flex flex-col items-center gap-2 pt-12 text-center">
+      <h2
+        className="text-[var(--content-emphasised)]"
+        style={{
+          fontFamily: "var(--font-serif)",
+          fontSize: "32px",
+          fontWeight: 400,
+          lineHeight: 1.2,
+          letterSpacing: "0.64px",
+        }}
+      >
+        {title}
+      </h2>
+      {subtitle && (
+        <p className="text-[14px] font-normal text-[var(--content-secondary)]">
+          {subtitle}
+        </p>
+      )}
+    </header>
+  );
+}
+
+/** A single decorative creature: fixed traits + placement, no randomness. */
+interface CreaturePlacement {
+  bodyShape: string;
+  eyeStyle: string;
+  color: string;
+  size: number;
+  /** Absolute-position offset classes; negative offsets clip at the card edge. */
+  position: string;
+  /** Static rotation (deg); no animation, so reduced-motion is a no-op here. */
+  rotate: number;
+}
+
+/**
+ * Deterministic creature scatter per variant. Ordered top-edge first so the
+ * `"top"` variant is simply the first three of the `"full"` set.
+ */
+const CREATURE_PLACEMENTS: CreaturePlacement[] = [
+  { bodyShape: "blob", eyeStyle: "goofy", color: "green", size: 56, position: "-left-4 -top-6", rotate: -12 },
+  { bodyShape: "sprout", eyeStyle: "curious", color: "orange", size: 48, position: "left-1/2 -top-8 -translate-x-1/2", rotate: 6 },
+  { bodyShape: "urchin", eyeStyle: "surprised", color: "teal", size: 56, position: "-right-4 -top-6", rotate: 14 },
+  { bodyShape: "star", eyeStyle: "gentle", color: "purple", size: 44, position: "-left-6 top-1/2 -translate-y-1/2", rotate: -20 },
+  { bodyShape: "ghost", eyeStyle: "bashful", color: "pink", size: 44, position: "-right-6 top-1/2 -translate-y-1/2", rotate: 18 },
+  { bodyShape: "flower", eyeStyle: "quirky", color: "yellow", size: 52, position: "left-1/2 -bottom-8 -translate-x-1/2", rotate: -8 },
+];
+
+/**
+ * Absolutely-positioned decoration layer that scatters bundled Vellum
+ * creatures around a card's edges (clipped by the card's `overflow-hidden`).
+ * `variant="top"` places three across the top edge (email card); `variant="full"`
+ * scatters six around all edges (all-set card). Renders nothing until the lazy
+ * avatar-components chunk resolves. Decorative only — `aria-hidden`.
+ */
+export function CreatureCorners({
+  variant = "full",
+}: {
+  variant?: "top" | "full";
+}) {
+  const components = useBundledAvatarComponents();
+  if (!components) {
+    return null;
+  }
+
+  const placements =
+    variant === "top" ? CREATURE_PLACEMENTS.slice(0, 3) : CREATURE_PLACEMENTS;
+
+  return (
+    <div
+      aria-hidden="true"
+      data-testid="creature-corners"
+      className="pointer-events-none absolute inset-0 select-none"
+    >
+      {placements.map((creature, index) => (
+        <span
+          key={index}
+          className={`absolute ${creature.position}`}
+          style={{ rotate: `${creature.rotate}deg` }}
+        >
+          <AvatarRenderer
+            components={components}
+            bodyShapeId={creature.bodyShape}
+            eyeStyleId={creature.eyeStyle}
+            colorId={creature.color}
+            size={creature.size}
+          />
+        </span>
+      ))}
     </div>
   );
 }
