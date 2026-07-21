@@ -77,15 +77,15 @@ export class CallSiteConfiguredProvider implements Provider {
     options?: SendMessageOptions,
   ): Promise<ProviderResponse> {
     const config = options?.config;
-    if (config?.callSite) {
-      return this.inner.sendMessage(messages, options);
-    }
-
+    // Each field falls back independently. Naming a call site per-call must
+    // not suppress the stored override — they are orthogonal, and dropping
+    // the override leaves the transport bound to the requested profile while
+    // the model resolves from the call-site default.
     return this.inner.sendMessage(messages, {
       ...options,
       config: {
         ...config,
-        callSite: this.callSite,
+        callSite: config?.callSite ?? this.callSite,
         ...(config?.overrideProfile === undefined &&
         this.overrideProfile !== undefined
           ? { overrideProfile: this.overrideProfile }
