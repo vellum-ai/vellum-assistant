@@ -326,11 +326,11 @@ export function AssistantSideMenu({
           <SideMenu.Separator />
         </>
       ) : null}
-      {/* The assistant cluster: the avatar-colored assistant row with the
-          New Chat row beneath it (one component — the eyes migrate
-          between the two rows). No divider; breathing room below instead.
-          The overlay drawer skips the New Chat row — its floating New Chat
-          pill already owns that action in the thumb zone. */}
+      {/* The assistant cluster: the New Chat row (plus chip + label) with
+          the avatar-colored assistant row beneath it. No divider; breathing
+          room below instead. The overlay drawer skips the New Chat row —
+          its floating New Chat pill already owns that action in the thumb
+          zone. */}
       <div className="mb-4">
         <AssistantNavItem
           assistantId={assistantId ?? null}
