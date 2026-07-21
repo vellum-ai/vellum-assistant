@@ -12,6 +12,7 @@ import {
   dismissLiveVoiceFailure,
   endLiveVoiceSession,
   getLiveVoiceInputAmplitude,
+  getLiveVoicePlaybackProgress,
   isLiveVoiceMicLive,
   isLiveVoiceSessionActive,
   isLiveVoiceSessionOwnedBy,
@@ -347,5 +348,38 @@ describe("getLiveVoiceInputAmplitude", () => {
     expect(getLiveVoiceInputAmplitude()).toBe(0);
     useLiveVoiceStore.getState().setInputAmplitude(0.42);
     expect(getLiveVoiceInputAmplitude()).toBe(0.42);
+  });
+});
+
+describe("useLiveVoiceStore — playback-progress provider", () => {
+  test("defaults to null when idle", () => {
+    expect(useLiveVoiceStore.getState().playbackProgressProvider).toBeNull();
+  });
+
+  test("setPlaybackProgressProvider registers and deregisters the provider", () => {
+    const provider = mock(() => null);
+    useLiveVoiceStore.getState().setPlaybackProgressProvider(provider);
+    expect(useLiveVoiceStore.getState().playbackProgressProvider).toBe(provider);
+    useLiveVoiceStore.getState().setPlaybackProgressProvider(null);
+    expect(useLiveVoiceStore.getState().playbackProgressProvider).toBeNull();
+  });
+
+  test("reset clears the registered provider", () => {
+    useLiveVoiceStore.getState().setPlaybackProgressProvider(() => null);
+    useLiveVoiceStore.getState().reset();
+    expect(useLiveVoiceStore.getState().playbackProgressProvider).toBeNull();
+  });
+
+  test("getLiveVoicePlaybackProgress returns null with no provider", () => {
+    expect(getLiveVoicePlaybackProgress()).toBeNull();
+  });
+
+  test("getLiveVoicePlaybackProgress forwards the provider's value", () => {
+    const progress = { playedSeconds: 1.5, totalSeconds: 4 };
+    useLiveVoiceStore.getState().setPlaybackProgressProvider(() => progress);
+    expect(getLiveVoicePlaybackProgress()).toBe(progress);
+
+    useLiveVoiceStore.getState().setPlaybackProgressProvider(() => null);
+    expect(getLiveVoicePlaybackProgress()).toBeNull();
   });
 });
