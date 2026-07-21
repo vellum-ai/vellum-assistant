@@ -148,7 +148,12 @@ function getWebSearchProvider(): WebSearchProvider {
 function getWebSearchMode(): WebSearchMode {
   const services = getConfig().services["web-search"];
   // ponytail: `mode` is the pre-migration-132 signal; delete this half once
-  // migration 132 has shipped everywhere.
+  // migration 132 has shipped everywhere. While it exists it preserves
+  // pre-migration routing VERBATIM — including proxy-billed searches for
+  // `mode: "managed"` + Provider Native configs that also hold a BYOK key.
+  // That is deliberate: this PR must not change legacy-config behavior.
+  // Migration 132 drops `mode` and thereby flips those configs to the
+  // keys-first fallback below.
   return services.provider === "vellum" || services.mode === "managed"
     ? "managed"
     : "your-own";
