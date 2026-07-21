@@ -96,13 +96,10 @@ export function BillingOnboardingModal({
     advanceFromProvisioning();
   }, [advanceFromProvisioning]);
 
-  // Stalled recovery re-calls the idempotent ensure-provisioned reconcile —
-  // the same path the wizard already fired on Pro confirmation — rather than a
-  // raw per-assistant resize. It is org-wide, grow-only, guarded against
-  // double-submitting, and needs no client-derived targets, so it strictly
-  // dominates the resize it replaces. Apply errors surface as-is; if a
-  // server-side resize is actually still running, the actuals polling
-  // converges to DONE and replaces the stalled UI regardless.
+  // Stalled recovery re-calls the idempotent, org-wide ensure-provisioned
+  // reconcile — the same path the wizard fires on Pro confirmation. Its errors
+  // surface as-is; a server-side resize that is still running converges the
+  // actuals polling to DONE and replaces the stalled UI regardless.
   const { stalledAction } = provisioning;
   const stalledActionIfStalled =
     provisioning.state === "STALLED" ? stalledAction : undefined;

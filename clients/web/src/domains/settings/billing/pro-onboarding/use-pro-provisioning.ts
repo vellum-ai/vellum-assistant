@@ -106,7 +106,7 @@ export interface ProProvisioningResult {
   /**
    * The assistant provisioning targets: the onboarding payload's primary
    * assistant when named, else the active assistant. Drives the actuals and
-   * operational-status polls and the stalled manual resize.
+   * operational-status polls.
    */
   assistantId: string | null;
   /** `domain_setup_available` from the onboarding state, once loaded. */
