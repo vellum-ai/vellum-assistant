@@ -26,6 +26,24 @@ export const Default: Story = {
 };
 
 /**
+ * A fenced block that overflows both axes: the `<pre>` is the only scroll
+ * container, so exactly one vertical and one horizontal scrollbar appear.
+ */
+export const LongCodeBlock: Story = {
+  args: {
+    content: [
+      "```sql",
+      ...Array.from(
+        { length: 40 },
+        (_, i) =>
+          `SELECT column_${i}, another_long_column_name_${i}, yet_another_column_${i} FROM analytics_events_table WHERE tenant_id = ${i};`,
+      ),
+      "```",
+    ].join("\n"),
+  },
+};
+
+/**
  * Regression guard for JARVIS-1006: monetary values must render as plain text
  * rather than being greedily paired into italic LaTeX math by remark-math.
  */
