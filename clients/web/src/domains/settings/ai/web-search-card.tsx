@@ -2,51 +2,62 @@ import { Loader2 } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 
 import {
-    WEB_SEARCH_BYOK_PROVIDER_IDS,
-    WEB_SEARCH_PROVIDER_DISPLAY_NAMES,
-    WEB_SEARCH_PROVIDER_IDS,
-    WEB_SEARCH_PROVIDER_KEY_PLACEHOLDERS,
+  WEB_SEARCH_BYOK_PROVIDER_IDS,
+  WEB_SEARCH_PROVIDER_DISPLAY_NAMES,
+  WEB_SEARCH_PROVIDER_IDS,
+  WEB_SEARCH_PROVIDER_KEY_PLACEHOLDERS,
 } from "@/assistant/generated/web-search-provider-catalog.gen";
 import { secretPlaceholder } from "@/domains/settings/ai/secret-placeholder";
 import { captureError } from "@/lib/sentry/capture-error";
 import {
-    getLocalSetting,
-    removeLocalSetting,
-    setLocalSetting,
+  getLocalSetting,
+  removeLocalSetting,
+  setLocalSetting,
 } from "@/utils/local-settings";
 import { useQueryClient } from "@tanstack/react-query";
 import { Dropdown } from "@vellumai/design-library/components/dropdown";
 import { Input } from "@vellumai/design-library/components/input";
 import { toast } from "@vellumai/design-library/components/toast";
 
-import {
-  ByoServiceCard,
-} from "@/domains/settings/ai/shared-ui";
-import {
-  ResetButton,
-  SaveButton,
-} from "@/components/service-form-controls";
+import { ByoServiceCard } from "@/domains/settings/ai/shared-ui";
+import { ResetButton, SaveButton } from "@/components/service-form-controls";
 import { LS_WEB_SEARCH_PROVIDER } from "@/utils/local-settings-keys";
 import { getWebSearchProviderKeyStorage } from "@/domains/settings/ai/utils";
 import { useProvisionProviderKey } from "@/domains/settings/ai/use-daemon-config";
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
-import { configGetOptions, configGetSetQueryData, useConfigPatchMutation } from "@/generated/daemon/@tanstack/react-query.gen";
+import {
+  configGetOptions,
+  configGetSetQueryData,
+  useConfigPatchMutation,
+} from "@/generated/daemon/@tanstack/react-query.gen";
 import { useQuery } from "@tanstack/react-query";
 import { useDraftOverride } from "@/hooks/use-draft-override";
-import { credentialPresenceQueryKey, useStoredCredentialPresence } from "@/domains/settings/ai/use-stored-credential-presence";
+import { useIsOrgReady } from "@/hooks/use-is-org-ready";
+import {
+  credentialPresenceQueryKey,
+  useStoredCredentialPresence,
+} from "@/domains/settings/ai/use-stored-credential-presence";
+import { supportsWebSearchVellumProvider } from "@/lib/backwards-compat/use-supports-web-search-vellum-provider";
+import { whenAssistantVersionKnown } from "@/lib/backwards-compat/utils";
 
 export function WebSearchCard() {
   const assistantId = useActiveAssistantId();
   const queryClient = useQueryClient();
+  const isOrgReady = useIsOrgReady();
 
   const { data: daemonConfig } = useQuery({
     ...configGetOptions({ path: { assistant_id: assistantId } }),
+    enabled: isOrgReady,
     staleTime: 30_000,
   });
 
   const configMutation = useConfigPatchMutation({
     onSuccess: (data) => {
-      configGetSetQueryData(queryClient, { path: { assistant_id: assistantId } }, data);
+      configGetSetQueryData(
+        queryClient,
+        { path: { assistant_id: assistantId } },
+        data,
+      );
     },
   });
   const provisionProviderKey = useProvisionProviderKey();
@@ -56,11 +67,13 @@ export function WebSearchCard() {
   // automatically.
   const serverWebSearchProvider = useMemo((): string => {
     if (!daemonConfig) {
-      return getLocalSetting(LS_WEB_SEARCH_PROVIDER, "inference-provider-native");
+      return getLocalSetting(
+        LS_WEB_SEARCH_PROVIDER,
+        "inference-provider-native",
+      );
     }
     const wsService = daemonConfig.services?.["web-search"] as
-      | { provider?: string; mode?: string }
-      | undefined;
+      { provider?: string; mode?: string } | undefined;
     // A config written by the legacy mode toggle marks managed via `mode`
     // while `provider` holds the BYOK restore value — the daemon routes it to
     // Vellum, so the card must render it as Vellum too. Provider Native is
@@ -70,15 +83,21 @@ export function WebSearchCard() {
       wsService?.provider !== "inference-provider-native"
         ? "vellum"
         : wsService?.provider;
-    return daemonProvider || getLocalSetting(LS_WEB_SEARCH_PROVIDER, "inference-provider-native");
+    return (
+      daemonProvider ||
+      getLocalSetting(LS_WEB_SEARCH_PROVIDER, "inference-provider-native")
+    );
   }, [daemonConfig]);
 
   const [saving, setSaving] = useState(false);
-  const [webSearchProvider, setDraftWebSearchProvider] = useDraftOverride(serverWebSearchProvider);
+  const [webSearchProvider, setDraftWebSearchProvider] = useDraftOverride(
+    serverWebSearchProvider,
+  );
 
   const [webSearchApiKey, setWebSearchApiKey] = useState("");
 
-  const requiresProviderCredential = WEB_SEARCH_BYOK_PROVIDER_IDS.has(webSearchProvider);
+  const requiresProviderCredential =
+    WEB_SEARCH_BYOK_PROVIDER_IDS.has(webSearchProvider);
   const { hasStoredCredential: webSearchHasStoredKey } =
     useStoredCredentialPresence({
       assistantId,
@@ -91,13 +110,12 @@ export function WebSearchCard() {
   const hasNewApiKey = webSearchApiKey.trim().length > 0;
   const configChanged = webSearchProvider !== serverWebSearchProvider;
   const needsKeyBeforeSave =
-    requiresProviderCredential &&
-    !webSearchHasStoredKey &&
-    !hasNewApiKey;
+    requiresProviderCredential && !webSearchHasStoredKey && !hasNewApiKey;
   const saveDisabled =
     saving || needsKeyBeforeSave || (!configChanged && !hasNewApiKey);
   const apiKeyPlaceholder = secretPlaceholder(
-    WEB_SEARCH_PROVIDER_KEY_PLACEHOLDERS[webSearchProvider] ?? "Enter your API key",
+    WEB_SEARCH_PROVIDER_KEY_PLACEHOLDERS[webSearchProvider] ??
+      "Enter your API key",
     webSearchHasStoredKey,
   );
 
@@ -110,25 +128,35 @@ export function WebSearchCard() {
       if (hasUserKey) {
         await provisionProviderKey(webSearchProvider, trimmed);
       }
-      await configMutation.mutateAsync({
-        path: { assistant_id: assistantId },
-        body: {
-          services: {
-            // The provider is written as a pair with `mode`: older daemon
-            // schemas reject provider "vellum" without mode "managed", and a
-            // stale `mode: "managed"` from the legacy toggle would win over a
-            // BYOK choice unless reset.
-            "web-search": {
-              provider: webSearchProvider,
-              mode: webSearchProvider === "vellum" ? "managed" : "your-own",
+      // The provider is written as a pair with `mode`: a stale
+      // `mode: "managed"` from the legacy toggle would win over a BYOK
+      // choice unless reset. Daemons older than the vellum catalog entry
+      // reject the provider value outright, so for them a Vellum selection
+      // writes only the legacy managed mode and lets the deep-merge keep the
+      // stored provider — the read bridge renders that pair as Vellum again.
+      await whenAssistantVersionKnown();
+      const webSearchService: { provider?: string; mode: string } =
+        webSearchProvider === "vellum"
+          ? supportsWebSearchVellumProvider()
+            ? { provider: "vellum", mode: "managed" }
+            : { mode: "managed" }
+          : { provider: webSearchProvider, mode: "your-own" };
+      await configMutation
+        .mutateAsync({
+          path: { assistant_id: assistantId },
+          body: {
+            services: {
+              "web-search": webSearchService,
             },
           },
-        },
-      }).catch((error) => {
-        toast.error("Failed to update assistant configuration. Please try again.");
-        captureError(error, { context: "patch_daemon_config" });
-        throw error;
-      });
+        })
+        .catch((error) => {
+          toast.error(
+            "Failed to update assistant configuration. Please try again.",
+          );
+          captureError(error, { context: "patch_daemon_config" });
+          throw error;
+        });
     } catch {
       setSaving(false);
       return;
@@ -216,7 +244,9 @@ export function WebSearchCard() {
 
         <div className="flex items-center gap-2">
           <SaveButton onClick={handleSave} disabled={saveDisabled} />
-          {saving && <Loader2 className="h-4 w-4 animate-spin text-[var(--content-disabled)]" />}
+          {saving && (
+            <Loader2 className="h-4 w-4 animate-spin text-[var(--content-disabled)]" />
+          )}
           {requiresProviderCredential && (
             <ResetButton onClick={handleReset} filled />
           )}

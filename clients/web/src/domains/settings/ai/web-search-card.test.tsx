@@ -72,12 +72,26 @@ mock.module("@/domains/settings/ai/use-stored-credential-presence", () => ({
   ],
 }));
 
-const { WebSearchCard } = await import(
-  "@/domains/settings/ai/web-search-card"
+mock.module("@/hooks/use-is-org-ready", () => ({
+  useIsOrgReady: () => false,
+}));
+
+// Version gate for `provider: "vellum"` — supported by default; the
+// old-daemon test flips it off.
+let daemonSupportsVellumProvider = true;
+mock.module(
+  "@/lib/backwards-compat/use-supports-web-search-vellum-provider",
+  () => ({
+    MIN_VERSION: "0.10.12",
+    supportsWebSearchVellumProvider: () => daemonSupportsVellumProvider,
+  }),
 );
-const { LS_WEB_SEARCH_PROVIDER } = await import(
-  "@/utils/local-settings-keys"
-);
+mock.module("@/lib/backwards-compat/utils", () => ({
+  whenAssistantVersionKnown: () => Promise.resolve(),
+}));
+
+const { WebSearchCard } = await import("@/domains/settings/ai/web-search-card");
+const { LS_WEB_SEARCH_PROVIDER } = await import("@/utils/local-settings-keys");
 
 function renderCard() {
   const queryClient = new QueryClient({
@@ -125,6 +139,7 @@ describe("WebSearchCard — provider-only configuration", () => {
     configPatchCalls.length = 0;
     provisionedKeys.length = 0;
     hasStoredCredential = false;
+    daemonSupportsVellumProvider = true;
     daemonConfigData = { services: {} };
   });
 
@@ -235,6 +250,25 @@ describe("WebSearchCard — provider-only configuration", () => {
         "web-search": { provider: "firecrawl", mode: "your-own" },
       },
     });
+  });
+
+  test("a daemon predating the vellum provider gets the legacy managed write", async () => {
+    // Old daemon schemas reject provider "vellum" outright; the Vellum
+    // selection must degrade to the legacy Managed representation — mode
+    // only, letting the deep-merge keep the stored provider so the read
+    // bridge renders the pair as Vellum again.
+    daemonSupportsVellumProvider = false;
+    renderCard();
+
+    fireEvent.click(providerTrigger());
+    selectOption("Vellum");
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(configPatchCalls.length).toBe(1));
+    const body = configPatchCalls[0]!.body as {
+      services: { "web-search": Record<string, unknown> };
+    };
+    expect(body.services["web-search"]).toEqual({ mode: "managed" });
   });
 
   // A config written by the legacy mode toggle marks managed via `mode`
