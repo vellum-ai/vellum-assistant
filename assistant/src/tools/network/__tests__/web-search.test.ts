@@ -676,7 +676,7 @@ describe("web_search tool", () => {
   // ---- Keenable provider (keyless by default) -----------------------------
 
   test("executes Keenable search keyless (no key configured)", async () => {
-    mockWebSearchProvider = "keenable";
+    seedWebSearch("your-own", "keenable");
     // No key set — keyless must still run instead of erroring on a missing key.
     let capturedUrl = "";
     let capturedHeaders: any = null;
@@ -707,7 +707,7 @@ describe("web_search tool", () => {
   });
 
   test("Keenable uses the authenticated endpoint when a key is set", async () => {
-    mockWebSearchProvider = "keenable";
+    seedWebSearch("your-own", "keenable");
     mockKeenableSecureKey = "keen_test";
     let capturedUrl = "";
     let capturedBody: any = null;
@@ -732,7 +732,7 @@ describe("web_search tool", () => {
   });
 
   test("Keenable trims results to the requested count", async () => {
-    mockWebSearchProvider = "keenable";
+    seedWebSearch("your-own", "keenable");
     globalThis.fetch = (async () => {
       return new Response(
         JSON.stringify({
@@ -753,7 +753,7 @@ describe("web_search tool", () => {
   });
 
   test.each([401, 403])("Keenable handles %d auth error", async (status) => {
-    mockWebSearchProvider = "keenable";
+    seedWebSearch("your-own", "keenable");
     mockKeenableSecureKey = "bad-key";
     globalThis.fetch = (async () => {
       return new Response(JSON.stringify({ message: "unauthorized" }), {
