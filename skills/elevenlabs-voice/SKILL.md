@@ -107,20 +107,20 @@ The change hot-applies to the next voice turn (live voice and phone read the con
 
 ### Deepgram Aura voices
 
-| Voice    | Style                                  | Model                |
-| -------- | -------------------------------------- | -------------------- |
-| Thalia   | American · clear, confident, energetic | `aura-2-thalia-en`   |
-| Andromeda| American · casual, expressive          | `aura-2-andromeda-en`|
-| Helena   | American · caring, natural, friendly   | `aura-2-helena-en`   |
-| Athena   | American · calm, smooth, professional  | `aura-2-athena-en`   |
-| Luna     | American · friendly, natural, engaging | `aura-2-luna-en`     |
-| Pandora  | British · smooth, calm, melodic        | `aura-2-pandora-en`  |
-| Theia    | Australian · expressive, polite        | `aura-2-theia-en`    |
-| Apollo   | American · confident, casual           | `aura-2-apollo-en`   |
-| Arcas    | American · natural, smooth, clear      | `aura-2-arcas-en`    |
-| Zeus     | American · deep, trustworthy, smooth   | `aura-2-zeus-en`     |
-| Draco    | British · warm, approachable, baritone | `aura-2-draco-en`    |
-| Hyperion | Australian · caring, warm, empathetic  | `aura-2-hyperion-en` |
+| Voice     | Style                                  | Model                 |
+| --------- | -------------------------------------- | --------------------- |
+| Thalia    | American · clear, confident, energetic | `aura-2-thalia-en`    |
+| Andromeda | American · casual, expressive          | `aura-2-andromeda-en` |
+| Helena    | American · caring, natural, friendly   | `aura-2-helena-en`    |
+| Athena    | American · calm, smooth, professional  | `aura-2-athena-en`    |
+| Luna      | American · friendly, natural, engaging | `aura-2-luna-en`      |
+| Pandora   | British · smooth, calm, melodic        | `aura-2-pandora-en`   |
+| Theia     | Australian · expressive, polite        | `aura-2-theia-en`     |
+| Apollo    | American · confident, casual           | `aura-2-apollo-en`    |
+| Arcas     | American · natural, smooth, clear      | `aura-2-arcas-en`     |
+| Zeus      | American · deep, trustworthy, smooth   | `aura-2-zeus-en`      |
+| Draco     | British · warm, approachable, baritone | `aura-2-draco-en`     |
+| Hyperion  | Australian · caring, warm, empathetic  | `aura-2-hyperion-en`  |
 
 **"American male" on managed** → Eric, Adam, Roger (ElevenLabs) or Apollo, Arcas, Zeus (Aura). (Bill/George from the ElevenLabs tables above are **not** offered on managed.)
 
