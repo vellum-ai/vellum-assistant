@@ -17096,6 +17096,15 @@ paths:
           schema:
             type: integer
           description: Max results (default 50, max 200)
+        - name: kind
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - skill
+              - cli
+          description: "Restrict to auto-seeded capability nodes: 'skill' or 'cli'"
       responses:
         "200":
           description: Successful response

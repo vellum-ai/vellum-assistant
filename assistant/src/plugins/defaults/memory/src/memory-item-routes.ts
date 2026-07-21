@@ -64,6 +64,7 @@ import {
   handleUpdateMemory,
 } from "../graph/tool-handlers.js";
 import type {
+  CapabilityKind,
   Fidelity,
   ImageRef,
   MemoryNode,
@@ -101,6 +102,9 @@ const VALID_SORT_FIELDS = [
 
 type SortField = (typeof VALID_SORT_FIELDS)[number];
 
+/** Capability flavors accepted by the `memory-nodes` list `kind` filter. */
+const CAPABILITY_KINDS: readonly CapabilityKind[] = ["skill", "cli"];
+
 const SORT_COLUMN_MAP = {
   lastSeenAt: memoryGraphNodes.lastAccessed,
   importance: memoryGraphNodes.significance,
@@ -118,6 +122,10 @@ function isValidType(value: string): value is MemoryType {
 
 function isValidSortField(value: string): value is SortField {
   return (VALID_SORT_FIELDS as readonly string[]).includes(value);
+}
+
+function isCapabilityKind(value: string): value is CapabilityKind {
+  return (CAPABILITY_KINDS as readonly string[]).includes(value);
 }
 
 /**
@@ -923,6 +931,12 @@ export const ROUTES: RouteDefinition[] = [
         schema: { type: "integer" },
         description: "Max results (default 50, max 200)",
       },
+      {
+        name: "kind",
+        schema: { type: "string", enum: [...CAPABILITY_KINDS] },
+        description:
+          "Restrict to auto-seeded capability nodes: 'skill' or 'cli'",
+      },
     ],
     responseBody: z.object({
       success: z.boolean(),
@@ -947,8 +961,16 @@ export const ROUTES: RouteDefinition[] = [
           throw new BadRequestError("limit must be an integer");
         }
       }
+
+      const kindRaw = queryParams?.kind;
+      if (kindRaw !== undefined && !isCapabilityKind(kindRaw)) {
+        throw new BadRequestError(
+          `Invalid kind "${kindRaw}". Must be one of: ${CAPABILITY_KINDS.join(", ")}`,
+        );
+      }
+
       return handleListMemory(
-        { search: queryParams?.search, limit },
+        { search: queryParams?.search, limit, kind: kindRaw },
         getConfig(),
       );
     },

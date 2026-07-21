@@ -28,6 +28,10 @@ import {
 import { getLogger } from "../logging.js";
 import type { SkillCapabilityInput } from "../v3/substrate/skill-content.js";
 import { createNode } from "./store.js";
+import {
+  CAPABILITY_CLI_SOURCE_PREFIX as CLI_SOURCE_PREFIX,
+  CAPABILITY_SKILL_SOURCE_PREFIX as SKILL_SOURCE_PREFIX,
+} from "./types.js";
 
 const log = getLogger("graph-capability-seed");
 
@@ -61,10 +65,6 @@ function fromCatalogSkill(entry: RemoteCatalogSkill): SkillCapabilityInput {
 
 /** Default significance for capability nodes. */
 const CAPABILITY_SIGNIFICANCE = 0.6;
-
-/** Stable prefix for capability node source tracking. */
-const SKILL_SOURCE_PREFIX = "capability:skill:";
-const CLI_SOURCE_PREFIX = "capability:cli:";
 
 /**
  * Upsert a graph node for a skill capability.
