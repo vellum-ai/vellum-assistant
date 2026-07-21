@@ -21,9 +21,10 @@ export const ACTIVATION_SESSIONS_RELOCATION: RelocationSpec = {
 /**
  * Create the `activation_sessions` table on the memory connection. Idempotent
  * (`IF NOT EXISTS`) — the dedicated connection itself performs no DDL on open,
- * so this migration owns the schema.
+ * so this migration owns the schema. Exported so migration 342 can self-heal
+ * a memory database that is missing the table.
  */
-function ensureActivationSessionsSchema(memoryRaw: Database): void {
+export function ensureActivationSessionsSchema(memoryRaw: Database): void {
   memoryRaw.exec(/*sql*/ `
     CREATE TABLE IF NOT EXISTS activation_sessions (
       conversation_id TEXT PRIMARY KEY,
