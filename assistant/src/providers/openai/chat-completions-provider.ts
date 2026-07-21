@@ -656,7 +656,13 @@ export class OpenAIChatCompletionsProvider implements Provider {
             cacheWritePromptTokens = promptDetails?.cache_write_tokens ?? 0;
           }
 
-          responseModel = chunk.model;
+          // OpenAI-compatible providers (e.g. opencode/OpenRouter) may omit
+          // `model` in their usage-report chunk. Only overwrite when the chunk
+          // actually names one so the configured model (`modelOverride ??
+          // this.model`) survives as the fallback.
+          if (chunk.model) {
+            responseModel = chunk.model;
+          }
         }
       } finally {
         cleanupTimeout();
