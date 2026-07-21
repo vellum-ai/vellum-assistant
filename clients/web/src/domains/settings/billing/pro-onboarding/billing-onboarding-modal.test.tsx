@@ -417,6 +417,50 @@ describe("BillingOnboardingModal", () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
+  test(
+    "a busy takeover past the escape grace with routing hung is dismissable via the backdrop",
+    async () => {
+      // The purest dead-end: an active WAITING/RESIZING takeover whose
+      // post-confirm onboarding refetch is held open, so routing never settles
+      // and the in-content escape button (gated on routing) never appears.
+      // Once the watch runs past the escape grace, the fallback background
+      // dismiss must unlock — otherwise the removed X strands the user.
+      onboardingHold = new Promise(() => {});
+      subscriptionPlanId = "pro";
+      const { getByText, onClose } = renderModal();
+
+      await waitFor(
+        () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
+        { timeout: 5000 },
+      );
+
+      // Past the escape grace (60s) but before the stall threshold (90s):
+      // escapeEligible latches while the state stays busy, not STALLED.
+      dateNowOffsetMs = 70_000;
+
+      // The X stays hidden throughout — the fallback exit is the backdrop.
+      expect(document.body.querySelector('[aria-label="Close"]')).toBeNull();
+
+      // The 1s clock tick re-derives escapeEligible; once it lands the backdrop
+      // unlocks, so re-click until the dismiss flows through to onClose.
+      await waitFor(
+        () => {
+          const overlay = document.body.querySelector(
+            '[data-slot="modal-overlay"]',
+          );
+          expect(overlay).not.toBeNull();
+          fireEvent.click(overlay as Element);
+          expect(onClose).toHaveBeenCalled();
+        },
+        { timeout: 5000 },
+      );
+
+      // Still the busy takeover, not the stalled path (which has its own Apply).
+      expect(getByText("Upgrading your assistant…")).toBeTruthy();
+    },
+    20_000,
+  );
+
   test("stall surfaces Apply & Restart; a successful apply resumes resizing through DONE", async () => {
     subscriptionPlanId = "pro";
     const { client, getByText, getByTestId } = renderModal();
