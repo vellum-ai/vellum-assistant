@@ -10,6 +10,7 @@ import type {
 import { APP_VERSION } from "../version.js";
 import { getDb } from "./db-connection.js";
 import { rawAll } from "./raw-query.js";
+import { realUserTurnContentFilter } from "./real-user-turn-filter.js";
 import {
   buildScheduleAttributionSubquery,
   buildScheduleRunWindowExists,
@@ -286,8 +287,7 @@ export function queryUnreportedUsageEvents(
           SELECT COUNT(*) FROM messages AS m2
           WHERE m2.conversation_id = ${llmUsageEvents.conversationId}
             AND m2.role = 'user'
-            AND m2.content NOT LIKE '%"type":"tool\\_result"%' ESCAPE '\\'
-            AND m2.content NOT LIKE '%"type":"web\\_search\\_tool\\_result"%' ESCAPE '\\'
+            AND ${realUserTurnContentFilter("m2")}
             AND m2.created_at <= ${llmUsageEvents.createdAt}
         )
         END
@@ -303,8 +303,7 @@ export function queryUnreportedUsageEvents(
           SELECT COUNT(*) FROM messages AS m3
           WHERE m3.conversation_id = ${parentIdSql}
             AND m3.role = 'user'
-            AND m3.content NOT LIKE '%"type":"tool\\_result"%' ESCAPE '\\'
-            AND m3.content NOT LIKE '%"type":"web\\_search\\_tool\\_result"%' ESCAPE '\\'
+            AND ${realUserTurnContentFilter("m3")}
             AND m3.created_at <= ${conversations.createdAt}
         )
         END
