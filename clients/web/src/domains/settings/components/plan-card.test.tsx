@@ -1,9 +1,8 @@
 /**
- * Tests for the PlanCard: verifies the plan name, renewal text, the action
- * button (now in the plan row), and the recommended-upgrade banner render
- * correctly, plus the action button's navigation wiring. The card no longer
- * shows a credit bundle label or an invoices button (invoices moved to an
- * inline table on the billing page).
+ * Tests for the PlanCard: verifies the plan name, renewal text, the plan-row
+ * action button, and the recommended-upgrade banner render correctly, plus the
+ * action button's navigation wiring. The card shows no credit bundle label and
+ * no invoices button; invoices render in an inline table on the billing page.
  *
  * Content tests pre-populate the React Query cache so the card's `useQuery`
  * calls resolve synchronously — `renderToStaticMarkup` is single-pass, so a
@@ -16,7 +15,7 @@
 import * as reactRouter from "react-router";
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
 
@@ -305,7 +304,11 @@ describe("PlanCard action button", () => {
 
     fireEvent.click(await findByTestId("plan-card-manage-button"));
 
-    expect(navigateArgs).toEqual([[routes.plans, undefined]]);
+    // navigate() fires from the click handler; await it so the assertion never
+    // races the handler's commit in the CI runner.
+    await waitFor(() => {
+      expect(navigateArgs).toEqual([[routes.plans, undefined]]);
+    });
     expect(onManage).not.toHaveBeenCalled();
   });
 
@@ -319,7 +322,11 @@ describe("PlanCard action button", () => {
 
     fireEvent.click(await findByTestId("plan-card-upgrade-button"));
 
-    expect(navigateArgs).toEqual([[routes.plans, undefined]]);
+    // navigate() fires from the click handler; await it so the assertion never
+    // races the handler's commit in the CI runner.
+    await waitFor(() => {
+      expect(navigateArgs).toEqual([[routes.plans, undefined]]);
+    });
     expect(onManage).not.toHaveBeenCalled();
   });
 
@@ -333,7 +340,11 @@ describe("PlanCard action button", () => {
 
     fireEvent.click(await findByTestId("plan-card-manage-button"));
 
-    expect(onManage).toHaveBeenCalledTimes(1);
+    // The empty catalog wires the button to onManage; await it so the assertion
+    // never races the handler's commit in the CI runner.
+    await waitFor(() => {
+      expect(onManage).toHaveBeenCalledTimes(1);
+    });
     expect(navigateArgs).toEqual([]);
   });
 });
