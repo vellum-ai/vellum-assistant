@@ -965,7 +965,6 @@ function OverviewBento({
               customImageUrl={customImageUrl}
               size={heroAvatarSize}
               interactive
-              trackCursor
             />
             <span
               aria-hidden="true"
