@@ -1117,6 +1117,41 @@ describe("Memory Item Routes", () => {
       expect(body.message.length).toBeGreaterThan(0);
     });
 
+    test("nudges a consolidation run after a successful create", async () => {
+      getMemoryDb()!.run("DELETE FROM memory_jobs");
+
+      const res = await callHandler(getRoute("memory/remember", "POST"), {
+        body: { content: "File me promptly" },
+      });
+      expect(res.status).toBe(200);
+
+      const jobs = getMemoryDb()!
+        .select({ payload: memoryJobs.payload })
+        .from(memoryJobs)
+        .where(eq(memoryJobs.type, "memory_v2_consolidate"))
+        .all();
+      expect(jobs).toHaveLength(1);
+      expect(JSON.parse(jobs[0]!.payload)).toEqual({ trigger: "remember" });
+    });
+
+    test("coalesces the nudge against an already-queued consolidation", async () => {
+      getMemoryDb()!.run("DELETE FROM memory_jobs");
+
+      await callHandler(getRoute("memory/remember", "POST"), {
+        body: { content: "first create" },
+      });
+      await callHandler(getRoute("memory/remember", "POST"), {
+        body: { content: "second create" },
+      });
+
+      const jobs = getMemoryDb()!
+        .select()
+        .from(memoryJobs)
+        .where(eq(memoryJobs.type, "memory_v2_consolidate"))
+        .all();
+      expect(jobs).toHaveLength(1);
+    });
+
     test("rejects a missing content body as 400", async () => {
       const res = await callHandler(getRoute("memory/remember", "POST"), {
         body: {},

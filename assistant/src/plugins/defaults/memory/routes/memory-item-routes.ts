@@ -33,6 +33,7 @@ import { z } from "zod";
 
 import { getConfig } from "../../../../config/loader.js";
 import { usesConceptPageMemory } from "../../../../config/memory-v3-gate.js";
+import type { AssistantConfig } from "../../../../config/types.js";
 import { getDb } from "../../../../persistence/db-connection.js";
 import {
   generateSparseEmbedding,
@@ -42,7 +43,9 @@ import { withQdrantBreaker } from "../../../../persistence/embeddings/qdrant-cir
 import { getQdrantClient } from "../../../../persistence/embeddings/qdrant-client.js";
 import {
   enqueueMemoryJob,
+  hasActiveJobOfType,
   isMemoryEnabled,
+  MEMORY_V2_CONSOLIDATION_JOB_TRIGGERS,
 } from "../../../../persistence/jobs-store.js";
 import { memoryGraphNodes } from "../../../../persistence/schema/index.js";
 import { ACTOR_PRINCIPALS } from "../../../../runtime/auth/route-policy.js";
@@ -67,6 +70,7 @@ import type {
   MemoryType,
   NewNode,
 } from "../graph/types.js";
+import { consolidationBackoffRemainingMs } from "../jobs-worker.js";
 import { getLogger } from "../logging.js";
 import { getWorkspaceDir } from "../paths.js";
 import { getPageIndex } from "../v2/page-index.js";
@@ -663,6 +667,37 @@ async function handleUpdateMemoryItem(
   return { item: nodeToPayload(updated) };
 }
 
+/**
+ * Consolidation nudge for the create-memory route: a user just authored a
+ * fact and is looking at the memory graph, so drain the buffer promptly
+ * instead of waiting out the scheduled interval. Best-effort and bounded —
+ * coalesced against an already-active consolidate job (the scheduler's
+ * size-trigger dedupe) and silent under the scheduler's failure backoff, so
+ * a failing/billing-blocked account can't be made to re-run LLM passes by
+ * repeated creates. An enqueue failure never fails the create: the fact is
+ * already safe in the buffer and surfaces as a pending graph node.
+ */
+function maybeEnqueueConsolidationForCreate(config: AssistantConfig): void {
+  try {
+    if (!usesConceptPageMemory(config.memory) || !isMemoryEnabled()) {
+      return;
+    }
+    if (hasActiveJobOfType("memory_v2_consolidate")) {
+      return;
+    }
+    const intervalMs =
+      config.memory.v2.consolidation_interval_hours * 60 * 60 * 1000;
+    if (consolidationBackoffRemainingMs(intervalMs, Date.now()) > 0) {
+      return;
+    }
+    enqueueMemoryJob("memory_v2_consolidate", {
+      trigger: MEMORY_V2_CONSOLIDATION_JOB_TRIGGERS.remember,
+    });
+  } catch (err) {
+    log.warn({ err }, "Failed to enqueue consolidation after create-memory");
+  }
+}
+
 function handleDeleteMemoryItem(id: string) {
   const existing = getNode(id);
   if (!existing) {
@@ -997,7 +1032,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Create a memory by remembering a fact",
     description:
-      "Append a user-authored fact to the memory buffer via handleRemember; it is materialized into a graph node later by consolidation.",
+      "Append a user-authored fact to the memory buffer via handleRemember. The fact surfaces in the memory graph immediately as a pending node, and a consolidation run is nudged (deduped, backoff-respecting) so it files into concept pages promptly.",
     tags: ["memory"],
     requestBody: z.object({ content: z.string() }),
     responseBody: z.object({ message: z.string(), success: z.boolean() }),
@@ -1009,11 +1044,16 @@ export const ROUTES: RouteDefinition[] = [
       if (parsed.data.content.trim().length === 0) {
         throw new BadRequestError("content (non-empty string) is required");
       }
-      return handleRemember(
+      const config = getConfig();
+      const result = handleRemember(
         { content: parsed.data.content },
         "web",
-        getConfig(),
+        config,
       );
+      if (result.success) {
+        maybeEnqueueConsolidationForCreate(config);
+      }
+      return result;
     },
   },
 ];
