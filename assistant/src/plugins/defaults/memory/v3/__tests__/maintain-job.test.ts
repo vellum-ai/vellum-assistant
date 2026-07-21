@@ -7,7 +7,6 @@ import { EmbeddingBackendUnavailableError } from "../../../../../persistence/emb
 import { EmbeddingBillingBlockError } from "../../../../../persistence/embeddings/embedding-billing-breaker.js";
 import type { MemoryJob } from "../../../../../persistence/jobs-store.js";
 import type { SkillInstallMeta } from "../../../../../skills/install-meta.js";
-import { skillSlugFor } from "../../v2/skill-store.js";
 import { renderCapabilityContent } from "../capabilities.js";
 import {
   backfillAllSections,
@@ -18,6 +17,7 @@ import {
   type MaintainJobDeps,
 } from "../maintain-job.js";
 import { buildSectionIndex } from "../sections.js";
+import { skillSlugFor } from "../substrate/skill-store.js";
 import type { Section, SectionIndex, Slug } from "../types.js";
 
 // The skill usage-prune stage reads `memory.maintenance.skillPruneDays`; default
@@ -36,6 +36,13 @@ const CONFIG = makeConfig();
 let memoryV3LiveSlot = false;
 mock.module("../../../../../config/memory-v3-gate.js", () => ({
   isMemoryV3Live: () => memoryV3LiveSlot,
+  usesConceptPageMemory: (memory?: {
+    enabled?: boolean;
+    v2?: { enabled?: boolean };
+    v3?: { live?: boolean };
+  }) =>
+    memory?.enabled !== false &&
+    (memory?.v3?.live === true || memory?.v2?.enabled === true),
 }));
 
 function makeSection(article: Slug, ordinal: number): Section {

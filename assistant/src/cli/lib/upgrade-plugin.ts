@@ -10,10 +10,12 @@
  * A plugin installed directly from a GitHub URL (untrusted, not in the
  * marketplace) is upgraded against its *recorded* source instead: its
  * `install-meta.json` names the owner/repo/path/ref it was cloned from, and the
- * upgrade target is whatever that ref resolves to now — a pinned SHA is
- * immutable (a no-op), a branch / tag / `HEAD` advances as upstream does. Such
- * an upgrade re-materializes verbatim, with no curated adapter overlay, exactly
- * as the original untrusted install was (see {@link directUpgrade}).
+ * upgrade target is whatever that ref resolves to now — a branch / tag / `HEAD`
+ * advances as upstream does, and an install pinned to an immutable full SHA
+ * follows the repo's default branch rather than freezing forever (a full SHA
+ * has no "later" revision of itself to move to). Such an upgrade re-materializes
+ * verbatim, with no curated adapter overlay, exactly as the original untrusted
+ * install was (see {@link directUpgrade}).
  *
  * This is deliberately a distinct operation from install: `install` is
  * first-time materialization (and errors on an existing install unless
@@ -54,6 +56,7 @@ import {
   finalizeStagedInstall,
   type GitRunner,
   installPlugin,
+  isFullCommitSha,
   materializePluginTree,
   type PluginFetchSource,
   PluginNotFoundError,
@@ -65,6 +68,7 @@ import {
 } from "./install-from-github.js";
 import type { DependencyInstaller } from "./install-plugin-dependencies.js";
 import { type ConflictLabels, mergePluginTree } from "./merge-plugin-tree.js";
+import { DEFAULT_DIRECT_REF } from "./parse-github-plugin-spec.js";
 /**
  * How local edits to an installed plugin are reconciled with the marketplace
  * pin during an upgrade.
@@ -396,16 +400,21 @@ export async function upgradePlugin(
  * A direct install (`plugins install <github-url>`) records the exact
  * owner/repo/path/ref it was cloned from in its `install-meta.json`. Its
  * "latest" is whatever that ref currently resolves to, so the upgrade target is
- * {@link resolveRefCommit} of the recorded ref — a pinned full SHA is immutable
- * (nothing to advance to), while a branch / tag / `HEAD` moves as upstream does.
- * The move is then materialized verbatim, with no curated adapter overlay,
- * exactly as the original untrusted install was.
+ * {@link resolveRefCommit} of the recorded ref — a branch / tag / `HEAD` moves
+ * as upstream does. An install pinned to an immutable full SHA has no later
+ * revision of that SHA to advance to, so rather than freezing forever it
+ * follows the repo's default branch ({@link DEFAULT_DIRECT_REF}); the first
+ * upgrade that advances re-records that tracking ref, so later upgrades follow
+ * the branch through the ordinary path with no SHA special-casing. The move is
+ * then materialized verbatim, with no curated adapter overlay, exactly as the
+ * original untrusted install was.
  *
  * Throws {@link PluginNotUpgradableError} when no resolvable GitHub source was
  * recorded (a manually-copied install), {@link PluginNotFoundError} when the
- * recorded ref has vanished from the remote, {@link PluginMergeBaselineError}
- * when a merge strategy's install-time baseline cannot be reconstructed, and
- * {@link PluginSourceUnavailableError} on a transient source outage.
+ * recorded ref (or the followed default branch) has vanished from the remote,
+ * {@link PluginMergeBaselineError} when a merge strategy's install-time baseline
+ * cannot be reconstructed, and {@link PluginSourceUnavailableError} on a
+ * transient source outage.
  */
 async function directUpgrade(
   ctx: {
@@ -427,11 +436,22 @@ async function directUpgrade(
       "it has no marketplace entry and no recorded GitHub source to re-fetch from",
     );
   }
+  // An install pinned to an immutable full SHA has no later revision of that
+  // SHA to advance to. Rather than make `upgrade` a permanent no-op, follow the
+  // repo's default branch (DEFAULT_DIRECT_REF, "HEAD") instead — a direct
+  // install is already the untrusted, dev-oriented path that fetches and
+  // imports mutable-ref code, and this matches a bare `owner/repo` install,
+  // which records HEAD. The first upgrade that advances re-records this
+  // tracking ref, so later upgrades follow the branch through the ordinary
+  // branch/tag/HEAD path with no SHA special-casing.
+  const trackingRef = isFullCommitSha(source.ref)
+    ? DEFAULT_DIRECT_REF
+    : source.ref;
   const fetchSource: PluginFetchSource = {
     owner: source.owner,
     repo: source.repo,
     rootPath: source.path ?? "",
-    ref: source.ref,
+    ref: trackingRef,
   };
 
   const fromCommit = local.commit;
@@ -518,6 +538,11 @@ async function directUpgrade(
         toTimestamp: null,
         provenanceWasUnknown,
         theirsSource: { ...fetchSource, ref: toCommit },
+        // Materialize the exact resolved commit, but record the tracking ref so
+        // a merged install keeps following its branch (or the default branch,
+        // for a former SHA pin) on the next upgrade rather than re-pinning to
+        // the just-resolved SHA.
+        recordSourceRef: trackingRef,
         baseStubRef: null,
         theirsStubRef: null,
       },
@@ -576,6 +601,13 @@ async function mergeUpgrade(
     readonly provenanceWasUnknown: boolean;
     /** Coordinates of the revision being merged in (`theirs`), pinned to {@link ctx.toCommit}. */
     readonly theirsSource: PluginFetchSource;
+    /**
+     * Ref recorded in the merged install's provenance sidecar, when it must
+     * differ from the concrete commit `theirs` materialized at — e.g. a direct
+     * install that keeps following a branch (or the default branch) rather than
+     * re-pinning to the resolved SHA. Defaults to {@link ctx.theirsSource}'s ref.
+     */
+    readonly recordSourceRef?: string;
     /**
      * Curated-adapter-stub ref overlaid when re-materializing the install
      * baseline, or `null` for a direct (untrusted) install that carries no
@@ -690,7 +722,7 @@ async function mergeUpgrade(
     await finalizeStagedInstall(stagingDir, {
       name,
       source: theirsSource,
-      ref: theirsSource.ref,
+      ref: ctx.recordSourceRef ?? theirsSource.ref,
       commit: toCommit,
       committedAt: toTimestamp,
       pluginsDir,

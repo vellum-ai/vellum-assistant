@@ -16,6 +16,7 @@ import { Notice } from "@vellumai/design-library/components/notice";
 import { StatSquare } from "@vellumai/design-library/components/stat-square";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 import { Typography } from "@vellumai/design-library/components/typography";
+import { DailyCreditLimitCard } from "./daily-credit-limit-card";
 import { LowBalanceAlertCard } from "./low-balance-alert-card";
 
 export const BOOTSTRAP_MAX_RETRIES = 3;
@@ -202,6 +203,9 @@ export function BillingPanel() {
                 </div>
                 <div className="mt-6 border-t border-[var(--border-base)] pt-6">
                     <AutoTopUpCard />
+                </div>
+                <div className="mt-6 border-t border-[var(--border-base)] pt-6">
+                    <DailyCreditLimitCard />
                 </div>
             </Card>
 

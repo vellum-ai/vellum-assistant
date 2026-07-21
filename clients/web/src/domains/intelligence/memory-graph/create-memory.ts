@@ -2,11 +2,11 @@
  * Thin wrapper over the daemon `POST /memory/remember` route. The daemon spec
  * transform rewrites `/v1/memory/remember` → `/v1/assistants/{assistant_id}/…`,
  * so the assistant id travels in the path. Appends a user-authored fact to the
- * memory buffer via `handleRemember`; consolidation materializes it into a
- * graph node LATER, so the new memory is not visible immediately — callers
- * should invalidate the memory-graph query and rely on the next consolidation
- * to surface the node. Mirrors the thin-wrapper style of the sibling
- * `get-memory-graph.ts` / `get-memory-graph-node.ts` read helpers.
+ * memory buffer via `handleRemember`; the graph renders buffered facts as
+ * `pending` nodes, so callers should invalidate the memory-graph query to
+ * surface it immediately. The route also nudges a consolidation run that
+ * files the fact into a concept page. Mirrors the thin-wrapper style of the
+ * sibling `get-memory-graph.ts` / `get-memory-graph-node.ts` read helpers.
  */
 
 import { memoryRememberPost } from "@/generated/daemon/sdk.gen";

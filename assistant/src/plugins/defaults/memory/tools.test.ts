@@ -61,10 +61,8 @@ beforeAll(() => {
   tmpWorkspace = mkdtempSync(join(tmpdir(), "remember-tool-test-"));
   previousWorkspaceEnv = process.env.VELLUM_WORKSPACE_DIR;
   process.env.VELLUM_WORKSPACE_DIR = tmpWorkspace;
-  // This test exercises the v1 PKB re-index enqueue. `memory.v2.enabled`
-  // (default true) skips the enqueue path — force it off so the v1 PKB index
-  // path stays under test. Seed into the just-overridden workspace so the real
-  // loader reads it.
+  // Remember writes the memory/ buffer regardless of the injection engine;
+  // seed with the v2 flag off to prove the write path does not depend on it.
   setConfig("memory", { v2: { enabled: false } });
 });
 
@@ -265,21 +263,22 @@ describe("rememberTool.execute — finish_turn", () => {
   });
 });
 
-describe("rememberTool.execute — PKB re-index enqueue", () => {
+describe("rememberTool.execute — buffer writes", () => {
   beforeEach(() => {
     enqueueCalls.length = 0;
     enqueueShouldThrow = false;
   });
 
-  test("enqueues re-index jobs for both buffer and daily archive paths", async () => {
+  test("writes memory/buffer.md + daily archive without any PKB re-index enqueue", async () => {
     const result = await rememberTool.execute(
       { content: "index me please" },
       makeContext(),
     );
     expect(result.isError).toBe(false);
 
-    const pkbRoot = join(tmpWorkspace, "pkb");
-    const bufferPath = join(pkbRoot, "buffer.md");
+    const memoryRoot = join(tmpWorkspace, "memory");
+    const bufferContents = readFileSync(join(memoryRoot, "buffer.md"), "utf-8");
+    expect(bufferContents).toContain("index me please");
 
     // Archive path is dated; derive from today's date the same way
     // handleRemember does.
@@ -287,55 +286,22 @@ describe("rememberTool.execute — PKB re-index enqueue", () => {
     const yyyy = now.getFullYear();
     const mm = String(now.getMonth() + 1).padStart(2, "0");
     const dd = String(now.getDate()).padStart(2, "0");
-    const archivePath = join(pkbRoot, "archive", `${yyyy}-${mm}-${dd}.md`);
+    const archiveContents = readFileSync(
+      join(memoryRoot, "archive", `${yyyy}-${mm}-${dd}.md`),
+      "utf-8",
+    );
+    expect(archiveContents).toContain("index me please");
 
-    expect(enqueueCalls).toHaveLength(2);
-    expect(enqueueCalls[0]).toEqual({
-      pkbRoot,
-      absPath: bufferPath,
-    });
-    expect(enqueueCalls[1]).toEqual({
-      pkbRoot,
-      absPath: archivePath,
-    });
+    expect(enqueueCalls).toHaveLength(0);
   });
 
-  test("does not enqueue when content is empty (write was skipped)", async () => {
+  test("does not write when content is empty", async () => {
     const result = await rememberTool.execute(
       { content: "   " },
       makeContext(),
     );
     expect(result.isError).toBe(true);
     expect(enqueueCalls).toHaveLength(0);
-  });
-
-  test("thrown enqueue does not surface; remember still writes files", async () => {
-    enqueueShouldThrow = true;
-
-    const result = await rememberTool.execute(
-      { content: "enqueue will throw" },
-      makeContext(),
-    );
-
-    // Remember call succeeded despite enqueue throwing for each write.
-    expect(result.isError).toBe(false);
-
-    // Both writes attempted their enqueue.
-    expect(enqueueCalls).toHaveLength(2);
-
-    // Files were written correctly.
-    const pkbRoot = join(tmpWorkspace, "pkb");
-    const bufferPath = join(pkbRoot, "buffer.md");
-    const bufferContents = readFileSync(bufferPath, "utf-8");
-    expect(bufferContents).toContain("enqueue will throw");
-
-    const now = new Date();
-    const yyyy = now.getFullYear();
-    const mm = String(now.getMonth() + 1).padStart(2, "0");
-    const dd = String(now.getDate()).padStart(2, "0");
-    const archivePath = join(pkbRoot, "archive", `${yyyy}-${mm}-${dd}.md`);
-    const archiveContents = readFileSync(archivePath, "utf-8");
-    expect(archiveContents).toContain("enqueue will throw");
   });
 });
 
@@ -345,20 +311,21 @@ describe("rememberTool.execute — batch (array) content", () => {
     enqueueShouldThrow = false;
   });
 
-  test("records every fact from an array and enqueues per file, not per fact", async () => {
+  test("records every fact from an array in the memory buffer", async () => {
     const result = await rememberTool.execute(
       { content: ["batch fact A", "batch fact B"] },
       makeContext(),
     );
     expect(result.isError).toBe(false);
 
-    const pkbRoot = join(tmpWorkspace, "pkb");
-    const bufferContents = readFileSync(join(pkbRoot, "buffer.md"), "utf-8");
+    const bufferContents = readFileSync(
+      join(tmpWorkspace, "memory", "buffer.md"),
+      "utf-8",
+    );
     expect(bufferContents).toContain("batch fact A");
     expect(bufferContents).toContain("batch fact B");
 
-    // buffer + archive, regardless of how many facts the call carried.
-    expect(enqueueCalls).toHaveLength(2);
+    expect(enqueueCalls).toHaveLength(0);
   });
 
   test("rejects an all-blank array without writing or enqueueing", async () => {
@@ -372,7 +339,7 @@ describe("rememberTool.execute — batch (array) content", () => {
 });
 
 describe("rememberTool definition — page-hint guidance gating", () => {
-  // The rest of this file exercises the v1 PKB path; restore its seed.
+  // The rest of this file seeds the v2 flag off; restore that seed.
   afterAll(() => {
     setConfig("memory", { v2: { enabled: false } });
   });
@@ -384,7 +351,7 @@ describe("rememberTool definition — page-hint guidance gating", () => {
     ).not.toContain("[[slug]]");
   });
 
-  test("includes the [[slug]] hint guidance under wiki memory (v2)", () => {
+  test("includes the [[slug]] hint guidance under concept-page memory (v2)", () => {
     setConfig("memory", { v2: { enabled: true } });
     expect(rememberTool.input_schema.properties.content.description).toContain(
       "[[slug]] wikilinks",
@@ -392,6 +359,13 @@ describe("rememberTool definition — page-hint guidance gating", () => {
     // The gate must survive JSON serialization — that's how the schema
     // reaches the provider wire format.
     expect(JSON.stringify(rememberTool.input_schema)).toContain(
+      "[[slug]] wikilinks",
+    );
+  });
+
+  test("includes the [[slug]] hint guidance when v3 is live with the v2 flag off", () => {
+    setConfig("memory", { v2: { enabled: false }, v3: { live: true } });
+    expect(rememberTool.input_schema.properties.content.description).toContain(
       "[[slug]] wikilinks",
     );
   });

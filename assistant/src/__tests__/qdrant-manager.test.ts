@@ -357,6 +357,25 @@ describe("QdrantManager", () => {
       // THEN the error includes the stderr output
       await expect(mgr.start()).rejects.toThrow("storage corrupted");
     }, 10_000);
+
+    test("includes stdout in error when process crashes", async () => {
+      // GIVEN a binary that reports its failure on stdout, as Qdrant does for
+      // panics, while stderr carries only unrelated allocator noise
+      placeFakeBinary(
+        '#!/bin/sh\necho "<jemalloc>: option background_thread currently supports pthread only" >&2\n' +
+          'echo "Panic occurred: Failed to load local shard"\nexit 101',
+      );
+
+      const port = getTestPort();
+      const mgr = new QdrantManager({
+        url: `http://127.0.0.1:${port}`,
+        ...FAST_TIMEOUTS,
+      });
+
+      // WHEN we start the manager
+      // THEN the error carries the stdout explanation, not just the noise
+      await expect(mgr.start()).rejects.toThrow("Failed to load local shard");
+    }, 10_000);
   });
 
   // ── Binary Detection ─────────────────────────────────────────

@@ -6,7 +6,6 @@ import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import {
   configGetOptions,
   configGetQueryKey,
-  ttsManagedvoicesGetOptions,
   ttsProvidersGetOptions,
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import { configPatch, credentialsSetPost } from "@/generated/daemon/sdk.gen";
@@ -31,11 +30,8 @@ import {
   LS_TTS_PROVIDER,
   LS_TTS_VOICE_ID_PREFIX,
 } from "@/domains/settings/ai/local-storage-keys";
-import {
-  DEFAULT_MANAGED_VOICE,
-  MANAGED_VOICE_SOURCE_LABELS,
-  MANAGED_VOICES,
-} from "@/domains/settings/ai/managed-voice-catalog";
+import { MANAGED_VOICE_SOURCE_LABELS } from "@/lib/tts/managed-voice-catalog";
+import { useManagedVoices } from "@/lib/tts/use-managed-voices";
 import { TTS_PROVIDERS } from "@/domains/settings/ai/provider-catalogs";
 
 /**
@@ -119,26 +115,13 @@ export function TextToSpeechCard() {
   const [saving, setSaving] = useState(false);
 
   // Managed (Vellum) voices, fetched live from the platform via the daemon so
-  // the offered list and default track the platform's rate card. The static
-  // catalog stands in while loading and for daemons that predate the route.
-  const { data: managedVoiceData } = useQuery({
-    ...ttsManagedvoicesGetOptions({ path: { assistant_id: assistantId } }),
-    enabled: isOrgReady && draftProvider === "vellum",
-    staleTime: 60_000,
-    // Old daemons 404 this route; the static fallback covers them.
-    retry: false,
-  });
-  // A successful response is authoritative even when empty — an empty
-  // catalog means the platform offers nothing right now, and substituting
-  // the static list would show voices the platform would reject. The static
-  // catalog only stands in when there is no response at all (loading,
-  // errors, daemons that predate the route).
-  const managedVoices = managedVoiceData
-    ? managedVoiceData.voices
-    : MANAGED_VOICES;
-  const defaultManagedVoice = managedVoiceData
-    ? managedVoiceData.defaultModel
-    : DEFAULT_MANAGED_VOICE;
+  // the offered list and default track the platform's rate card. Empty until
+  // loaded — the picker renders only from platform data.
+  const {
+    voices: managedVoices,
+    defaultModel: defaultManagedVoice,
+    fetched,
+  } = useManagedVoices(assistantId, { enabled: draftProvider === "vellum" });
 
   // Managed voice selection. Server value comes from daemon config; absent
   // means the platform default voice.
@@ -464,7 +447,8 @@ export function TextToSpeechCard() {
             </p>
           </div>
         )}
-        {managedVoiceSupported && !selectedManagedVoice && (
+        {/* Gated on `fetched` so the note never flashes while loading. */}
+        {managedVoiceSupported && fetched && !selectedManagedVoice && (
           <p className="text-body-small-default text-[var(--content-tertiary)]">
             No managed voices are currently available.
           </p>

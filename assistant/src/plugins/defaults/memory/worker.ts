@@ -75,17 +75,15 @@ async function main(): Promise<void> {
     );
   }
 
-  const worker = startMemoryJobsWorkerLoop();
-
-  // Keep-alive: the worker's setTimeout timers are unref'd, so without
-  // this interval the process would exit immediately.
-  const keepAlive = setInterval(() => {}, 60_000);
-
+  let worker: ReturnType<typeof startMemoryJobsWorkerLoop> | null = null;
+  let keepAlive: ReturnType<typeof setInterval> | null = null;
   let disposePidGuard: (() => void) | null = null;
   const shutdown = (signal: string) => {
     log.info({ signal }, "Memory worker process shutting down");
-    worker.stop();
-    clearInterval(keepAlive);
+    worker?.stop();
+    if (keepAlive != null) {
+      clearInterval(keepAlive);
+    }
     disposePidGuard?.();
     cleanupWorkerPidFile(pidPath);
     process.exit(0);
@@ -94,6 +92,9 @@ async function main(): Promise<void> {
   process.on("SIGTERM", () => shutdown("SIGTERM"));
   process.on("SIGINT", () => shutdown("SIGINT"));
 
+  // Arm the identity guard before the worker loop starts. Its on-arm check
+  // runs synchronously, so a worker superseded during startup runs shutdown()
+  // — which calls process.exit — here, before it dispatches any jobs.
   disposePidGuard = startWorkerPidFileGuard(pidPath, {
     onEvicted: (reason) => {
       log.warn(
@@ -103,6 +104,12 @@ async function main(): Promise<void> {
       shutdown("pid-file-eviction");
     },
   });
+
+  worker = startMemoryJobsWorkerLoop();
+
+  // Keep-alive: the worker's setTimeout timers are unref'd, so without
+  // this interval the process would exit immediately.
+  keepAlive = setInterval(() => {}, 60_000);
 
   process.on("SIGUSR1", () => {
     log.info("Received SIGUSR1 — refreshing database connections");
@@ -128,7 +135,7 @@ async function main(): Promise<void> {
 
   // Clean up if the process exits unexpectedly through any other path.
   process.on("exit", () => {
-    worker.stop();
+    worker?.stop();
     cleanupWorkerPidFile(getMemoryWorkerPidPath());
   });
 }

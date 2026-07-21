@@ -2591,20 +2591,6 @@ export function setConversationProcessingStartedAt(
   );
 }
 
-/**
- * Clear the persisted processing flag on every conversation that still has one
- * set, returning the number of rows cleared. Called at daemon startup to reset
- * conversations whose `processing_started_at` was left non-NULL because the
- * previous process shut down mid-turn — the in-memory agent loop driving that
- * turn is gone, so the flag is stale.
- */
-export function clearStaleProcessingFlags(): number {
-  return rawRun(
-    "conversation:clearStaleProcessingFlags",
-    "UPDATE conversations SET processing_started_at = NULL WHERE processing_started_at IS NOT NULL",
-  );
-}
-
 export interface InterruptedConversationRow {
   id: string;
   /** Consecutive startup auto-resume attempts since the last clean turn end. */
@@ -2613,9 +2599,9 @@ export interface InterruptedConversationRow {
 
 /**
  * Conversations whose persisted processing flag is still set. Read at daemon
- * startup before {@link clearStaleProcessingFlags} so the interrupted-turn
- * reconciler knows which conversations were mid-turn when the previous
- * process exited.
+ * startup so the interrupted-turn reconciler knows which conversations were
+ * mid-turn when the previous process exited (the monitor's recovery pass
+ * clears the flags themselves out of process).
  */
 export function listInterruptedConversations(): InterruptedConversationRow[] {
   return rawAll<{ id: string; processing_resume_attempts: number }>(
@@ -2629,10 +2615,9 @@ export function listInterruptedConversations(): InterruptedConversationRow[] {
 
 /**
  * Bump the persisted auto-resume counter for a conversation the startup
- * reconciler is about to resume. Intentionally left set by
- * {@link clearStaleProcessingFlags} — the counter must survive the flag clear
- * so the resume cap holds across boots. Reset to 0 by the clean turn-end
- * write in {@link setConversationProcessingStartedAt}.
+ * reconciler is about to resume. The counter must survive the stale-flag clear
+ * so the resume cap holds across boots. Reset to 0 by the clean turn-end write
+ * in {@link setConversationProcessingStartedAt}.
  */
 export function incrementProcessingResumeAttempts(id: string): void {
   rawRun(

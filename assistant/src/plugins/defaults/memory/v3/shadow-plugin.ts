@@ -38,8 +38,6 @@ import { stripCommentLines } from "../host-utils.js";
 import { getLogger } from "../logging.js";
 import { memorySqliteOrNull } from "../memory-db.js";
 import { getWorkspaceDir, getWorkspacePromptPath } from "../paths.js";
-import { getPageIndex } from "../v2/page-index.js";
-import { readPage, renderPageContent } from "../v2/page-store.js";
 import { capabilityOrDiskBody } from "./capabilities.js";
 import { renderCard } from "./card.js";
 import { loadCoreSet } from "./core-set.js";
@@ -47,6 +45,7 @@ import type { EdgeGraph } from "./edge.js";
 import { buildEdgeGraph } from "./edge.js";
 import type { EntityIndex } from "./entity-lane.js";
 import { buildEntityIndex } from "./entity-lane.js";
+import { getActiveSlugs } from "./ever-injected-store.js";
 import { computeFreshSet } from "./fresh-set.js";
 import { isMemoryV3InjectionGateEnabled } from "./gate-flag.js";
 import { computeHotSet } from "./hot-set.js";
@@ -61,6 +60,8 @@ import { ensureSectionCollection } from "./section-dense-store.js";
 import type { SectionNeedle } from "./section-needle.js";
 import { buildSectionNeedle } from "./section-needle.js";
 import { buildSectionIndex } from "./sections.js";
+import { getPageIndex } from "./substrate/page-index.js";
+import { readPage, renderPageContent } from "./substrate/page-store.js";
 import { resolveV3Tuning } from "./tuning-profile.js";
 import {
   type MemoryRoutingTurn,
@@ -661,6 +662,10 @@ export async function observeTurn(
       needleK: tuning.needleK,
       denseK: tuning.denseK,
       realConceptPageCount: lanes.realConceptPageCount,
+      // Read-only: lets orchestrate compute the `net_new_count` telemetry field
+      // against the same store the injector renders from. This turn has not
+      // committed yet, so the set matches what the injector will see.
+      activeSlugs: getActiveSlugs(conversationId),
       entityCap: v3.entity.cap,
       replyQueryK: tuning.replyQueryK,
       edgeSeeds: tuning.edgeSeedCount,

@@ -7,7 +7,7 @@ import {
 import {
   maybeSeedMemoryV2CliCommands,
   maybeSeedMemoryV2Skills,
-} from "../plugins/defaults/memory/v2/memory-v2-startup.js";
+} from "../plugins/defaults/memory/v3/substrate/memory-v2-startup.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("skill-memory-refresh");

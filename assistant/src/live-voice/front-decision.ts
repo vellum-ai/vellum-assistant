@@ -26,14 +26,15 @@
 
 import type { LiveVoiceFrontModelConfig } from "../config/schemas/live-voice.js";
 import {
+  extractText,
   extractToolUse,
   getConfiguredProvider,
   userMessage,
 } from "../providers/provider-send-message.js";
 import type {
   Provider,
+  ProviderResponse,
   ToolDefinition,
-  ToolUseContent,
 } from "../providers/types.js";
 import { createAbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
@@ -120,30 +121,37 @@ export interface VoiceFrontDecider {
 const RELEASE: VoiceEndpointDecision = { action: "release" };
 const HOLD: VoiceEndpointDecision = { action: "hold" };
 
-const TURN_DECISION_TOOL_NAME = "turn_decision";
+// Single-token wire protocol: the model answers with one bare character
+// instead of a forced tool call. A tool call spends 10-15 output tokens on
+// name + JSON scaffolding to convey one bit; a bare digit is one token, and
+// dropping the tool schema also shrinks the prompt. Only an exact leading
+// "0" holds — every other output (including non-compliance) releases, so the
+// fail-open contract carries the parsing risk.
+const HOLD_TOKEN = "0";
 
-const TURN_DECISION_TOOL: ToolDefinition = {
-  name: TURN_DECISION_TOOL_NAME,
-  description:
-    "Record whether the speaker's turn is complete. Call this exactly once.",
-  input_schema: {
-    type: "object",
-    properties: {
-      complete: {
-        type: "boolean",
-        description:
-          "true when the speaker has finished their thought; false when they are mid-thought and more speech is likely coming.",
-      },
-    },
-    required: ["complete"],
-  },
-};
+// Output budget for the single-character answer: one token for the digit
+// plus headroom for a stray delimiter. Deliberately tiny — a model that
+// starts writing prose gets cut off and the unparseable prefix releases.
+const ENDPOINT_DECISION_MAX_TOKENS = 4;
 
+// Tie-break is 0 (hold): a wrong hold costs one bounded extension of silence
+// and self-corrects on the replay, while a wrong release cuts the speaker off
+// mid-thought — the failure this feature exists to prevent. The extension
+// ratchet below keeps chronic uncertainty from burning every extension. This
+// is deliberately the opposite of the code-level fail-open (timeouts and
+// failures still release) — that one protects turn-taking from outages.
 const SYSTEM_PROMPT =
-  "You decide whether the speaker has finished their thought or is mid-thought/thinking. " +
-  "You see a live-voice transcript captured up to a pause. Treat trailing conjunctions, " +
-  "dangling prepositions, or an obviously unfinished clause as mid-thought. " +
-  "Bias toward finished: when in doubt, mark the turn complete.";
+  "You classify end-of-turn for a live voice assistant from a transcript captured up " +
+  "to a pause. Respond with exactly one character: 0 if the speaker is mid-thought, " +
+  "1 if finished. Never answer or explain.\n" +
+  "0 when the wording signals more speech: a trailing conjunction (and, but, or, so, " +
+  "because), dangling preposition or article, hesitation filler (um, uh, like, let me " +
+  "think), unfinished list, or clause cut off before its verb or object.\n" +
+  "1 when the wording stands alone: a complete sentence, question, command, or short " +
+  "reply (yes, no, stop).\n" +
+  "Judge wording only, not content. Missing punctuation or casing is not mid-thought. " +
+  "Longer pauses and more prior extensions favor 1. When unclear, answer 0 — a brief " +
+  "extra pause beats cutting the speaker off.";
 
 const ACK_TOOL_NAME = "ack";
 
@@ -317,20 +325,21 @@ function raceAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
 }
 
 /**
- * One bounded front-model call with a forced tool: arm the `timeoutMs` bound
- * first, then resolve the provider and the request both raced against it (and
- * the caller's signal, when given), and return the response's tool_use block.
- * Provider resolution can await lazy initialization, so it must sit inside
- * the timeout — otherwise a stalled resolver would breach the contract that
- * every call settles within `timeoutMs`. `undefined` when no provider is
- * configured or the response carries no tool block; throws on provider
- * failure, timeout, or abort — callers map every failure to their fail-open
- * value.
+ * One bounded front-model call: arm the `timeoutMs` bound first, then resolve
+ * the provider and the request both raced against it (and the caller's
+ * signal, when given), and return the raw response. When `tool` is given the
+ * call forces that tool (`tool_choice`); otherwise it is a plain text
+ * request. Provider resolution can await lazy initialization, so it must sit
+ * inside the timeout — otherwise a stalled resolver would breach the
+ * contract that every call settles within `timeoutMs`. `undefined` when no
+ * provider is configured; throws on provider failure, timeout, or abort —
+ * callers map every failure to their fail-open value.
  */
-async function requestForcedToolUse(args: {
+async function requestBoundedResponse(args: {
   getProvider: () => Promise<Provider | null>;
   timeoutMs: number;
-  tool: ToolDefinition;
+  maxTokens: number;
+  tool?: ToolDefinition;
   systemPrompt: string;
   prompt: string;
   signal?: AbortSignal;
@@ -341,7 +350,7 @@ async function requestForcedToolUse(args: {
    * roundtrip was slow" without changing this function's return contract.
    */
   onProviderResolved?: (elapsedMs: number, provider: Provider | null) => void;
-}): Promise<ToolUseContent | undefined> {
+}): Promise<ProviderResponse | undefined> {
   // Deadline abort carries a tagged AbortReason: the provider catch-site
   // classifies untagged caller aborts as retryable transport failures, so a
   // plain-signal timeout would log an ERROR per expired budget and then be
@@ -369,23 +378,29 @@ async function requestForcedToolUse(args: {
     }
     const response = await raceAbort(
       provider.sendMessage([userMessage(args.prompt)], {
-        tools: [args.tool],
+        ...(args.tool ? { tools: [args.tool] } : {}),
         systemPrompt: args.systemPrompt,
         config: {
-          max_tokens: 64,
+          max_tokens: args.maxTokens,
           callSite: "voiceFrontDecision",
-          tool_choice: { type: "tool", name: args.tool.name },
+          ...(args.tool
+            ? { tool_choice: { type: "tool", name: args.tool.name } }
+            : {}),
           disableCache: true,
         },
         signal: combinedSignal,
       }),
       combinedSignal,
     );
-    return extractToolUse(response);
+    return response;
   } finally {
     cleanup();
   }
 }
+
+// Output budget for the spoken-text tool calls: the longest permitted
+// sentence (PROGRESS_MAX_CHARS ≈ 40 tokens) plus the tool-call scaffolding.
+const SPOKEN_TEXT_MAX_TOKENS = 64;
 
 /**
  * Shared shape of the spoken-text capabilities (ack, progress): one forced
@@ -415,9 +430,10 @@ async function generateBoundedSpokenText(args: {
   const startedAt = performance.now();
   let providerResolveMs: number | null = null;
   try {
-    const toolBlock = await requestForcedToolUse({
+    const response = await requestBoundedResponse({
       getProvider: args.getProvider,
       timeoutMs: args.timeoutMs,
+      maxTokens: SPOKEN_TEXT_MAX_TOKENS,
       tool: args.tool,
       systemPrompt: args.systemPrompt,
       prompt: args.prompt,
@@ -426,6 +442,7 @@ async function generateBoundedSpokenText(args: {
         providerResolveMs = Math.round(elapsedMs);
       },
     });
+    const toolBlock = response ? extractToolUse(response) : undefined;
     if (toolBlock?.name !== args.tool.name) {
       return null;
     }
@@ -474,10 +491,10 @@ export function createVoiceFrontDecider(options: {
       let providerResolveMs: number | null = null;
       let providerName: string | null = null;
       try {
-        const toolBlock = await requestForcedToolUse({
+        const response = await requestBoundedResponse({
           getProvider,
           timeoutMs: config.endpointDecisionTimeoutMs,
-          tool: TURN_DECISION_TOOL,
+          maxTokens: ENDPOINT_DECISION_MAX_TOKENS,
           systemPrompt: SYSTEM_PROMPT,
           prompt: buildPrompt(input),
           signal,
@@ -486,19 +503,18 @@ export function createVoiceFrontDecider(options: {
             providerName = provider?.name ?? null;
           },
         });
-        const held =
-          toolBlock?.name === TURN_DECISION_TOOL_NAME &&
-          (toolBlock.input as { complete?: unknown }).complete === false;
+        const answer = response ? extractText(response) : "";
+        const held = answer.startsWith(HOLD_TOKEN);
         log.info(
           {
             action: held ? "hold" : "release",
             // "model" = the LLM answered; "no-provider" = call site resolved
-            // nothing; "no-tool-block" = provider answered without the tool.
-            cause: toolBlock
+            // nothing; "no-text" = provider answered without a text block.
+            cause: answer
               ? "model"
               : providerName === null
                 ? "no-provider"
-                : "no-tool-block",
+                : "no-text",
             providerName,
             providerResolveMs,
             totalMs: Math.round(performance.now() - startedAt),
@@ -510,8 +526,8 @@ export function createVoiceFrontDecider(options: {
         if (held) {
           return HOLD;
         }
-        // No provider, `complete: true`, a missing/foreign tool block, or a
-        // malformed input all release — only an explicit "not finished" holds.
+        // No provider, "1", an empty response, or any non-protocol output
+        // all release — only an explicit leading "0" holds.
         return RELEASE;
       } catch (error) {
         // providerResolveMs null here means resolution itself never settled

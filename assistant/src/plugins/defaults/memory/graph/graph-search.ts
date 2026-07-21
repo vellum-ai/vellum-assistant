@@ -8,6 +8,7 @@ import {
 } from "@vellumai/plugin-api";
 
 import { getConfig } from "../../../../config/loader.js";
+import { usesConceptPageMemory } from "../../../../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../../../../config/types.js";
 import type { EmbeddingInput } from "../../../../persistence/embeddings/embedding-types.js";
 import { isQdrantBreakerOpen } from "../../../../persistence/embeddings/qdrant-circuit-breaker.js";
@@ -52,11 +53,11 @@ export async function searchGraphNodes(
   sparseVector?: QdrantSparseVector,
   dateRange?: { afterMs?: number; beforeMs?: number },
 ): Promise<GraphSearchResult[]> {
-  // v2 owns the read path when enabled. The v1 `memory` collection is in
-  // active retirement and a corrupted sparse segment can OOM-crash the
-  // shared Qdrant process — short-circuiting here keeps v1 background work
-  // and stale callers from taking v2 down with them.
-  if (getConfig().memory.v2.enabled) {
+  // Concept-page memory owns the read path when active. The v1 `memory`
+  // collection is in active retirement and a corrupted sparse segment can
+  // OOM-crash the shared Qdrant process — short-circuiting here keeps v1
+  // background work and stale callers from taking it down.
+  if (usesConceptPageMemory(getConfig().memory)) {
     return [];
   }
 

@@ -3,7 +3,7 @@
   "tools": [
     {
       "name": "voice_config_update",
-      "description": "Update a voice configuration setting. Use tts_provider / stt_provider to switch the active TTS / STT provider. Provider \"vellum\" is Vellum-managed speech (billed to your organization; requires a Vellum platform connection via 'assistant platform connect'); any other provider uses the user's own API key. Valid TTS providers come from the provider catalog (vellum, elevenlabs, fish-audio, deepgram, xai); valid STT providers: vellum, deepgram, google-gemini, openai-whisper, xai. Use tts_voice_id to set the ElevenLabs voice ID, fish_audio_reference_id for Fish Audio voice reference. Deepgram uses the same API key for TTS and STT and requires no additional voice config. Changes persist to services.stt / services.tts config and take effect immediately.",
+      "description": "Update a voice configuration setting. Use tts_provider / stt_provider to switch the active TTS / STT provider. Provider \"vellum\" is Vellum-managed speech (billed to your organization; requires a Vellum platform connection via 'assistant platform connect'); any other provider uses the user's own API key. Valid TTS providers come from the provider catalog (vellum, elevenlabs, fish-audio, deepgram, xai); valid STT providers: vellum, deepgram, google-gemini, openai-whisper, xai. Use tts_voice_id to change the voice; it targets whichever TTS provider is currently active. For elevenlabs, pass an ElevenLabs voice ID. For vellum (managed), pass a managed voice model ID — this may be an ElevenLabs voice ID (managed speech serves the same ElevenLabs voices) or a Deepgram Aura model ID (e.g. aura-2-thalia-en); only rate-carded voices synthesize, so prefer models from the managed catalog (daemon route GET tts/managed-voices, also used by the web voice picker). For deepgram, pass a Deepgram Aura model ID. Use fish_audio_reference_id for Fish Audio voice reference. Deepgram uses the same API key for TTS and STT. Changes persist to services.stt / services.tts config and take effect immediately.",
       "category": "system",
       "risk": "low",
       "input_schema": {
@@ -19,10 +19,10 @@
               "tts_provider",
               "tts_voice_id"
             ],
-            "description": "The voice setting to change. tts_provider / stt_provider select the active provider for each service (\"vellum\" = Vellum-managed speech; anything else = the user's own API key). tts_voice_id sets the ElevenLabs voice. fish_audio_reference_id sets the Fish Audio voice reference. Deepgram uses its default model and shares one API key across TTS and STT."
+            "description": "The voice setting to change. tts_provider / stt_provider select the active provider for each service (\"vellum\" = Vellum-managed speech; anything else = the user's own API key). tts_voice_id sets the voice for the currently active TTS provider (ElevenLabs voice ID for elevenlabs; a managed voice model ID for vellum — an ElevenLabs voice ID or a Deepgram Aura model ID like aura-2-thalia-en; a Deepgram Aura model ID for deepgram; voice ID for xai). fish_audio_reference_id sets the Fish Audio voice reference. Deepgram shares one API key across TTS and STT."
           },
           "value": {
-            "description": "The new value for the setting. For tts_provider: one of vellum, elevenlabs, fish-audio, deepgram, xai. For stt_provider: one of vellum, deepgram, google-gemini, openai-whisper, xai. For tts_voice_id: an alphanumeric ElevenLabs voice ID. For fish_audio_reference_id: a Fish Audio voice reference ID. For conversation_timeout: seconds (5, 10, 15, 30, or 60). For activation_key: key identifier string."
+            "description": "The new value for the setting. For tts_provider: one of vellum, elevenlabs, fish-audio, deepgram, xai. For stt_provider: one of vellum, deepgram, google-gemini, openai-whisper, xai. For tts_voice_id: a voice ID for the active TTS provider — an alphanumeric ElevenLabs voice ID (elevenlabs), a managed voice model ID which may be an ElevenLabs voice ID or a Deepgram Aura model ID like aura-2-thalia-en (vellum), or a Deepgram Aura model ID (deepgram). For fish_audio_reference_id: a Fish Audio voice reference ID. For conversation_timeout: seconds (5, 10, 15, 30, or 60). For activation_key: key identifier string."
           }
         }
       },

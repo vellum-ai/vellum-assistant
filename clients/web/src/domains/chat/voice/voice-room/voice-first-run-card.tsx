@@ -1,9 +1,13 @@
+import { useState } from "react";
+
 import { AudioLines, Captions, MicOff } from "lucide-react";
 
 import { Button } from "@vellumai/design-library/components/button";
 import { Modal } from "@vellumai/design-library/components/modal";
 
 import { ChatAvatar } from "@/components/avatar/chat-avatar";
+import { VoicePickerModal } from "@/domains/chat/voice/voice-room/voice-picker-modal";
+import { VoiceSettingRow } from "@/domains/chat/voice/voice-room/voice-setting-row";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
@@ -15,6 +19,11 @@ import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
  * voice room, and the full preferences live in Settings → Voice —
  * front-loading choices before the user has ever experienced voice mode is
  * the wrong moment. The card just sets expectations and starts.
+ *
+ * The one deliberate exception is voice selection: how the assistant *sounds*
+ * is an identity choice, not a preference dial, and this is the natural moment
+ * to make it — before the first word is spoken. It stays optional (a default is
+ * pre-selected) so the card still leads straight to "Start talking".
  *
  * The card does NOT persist `firstRunSeen` itself: dismissing it (Escape /
  * backdrop / ✕) is a plain cancel and must leave the first run un-consumed so
@@ -61,6 +70,8 @@ export function VoiceFirstRunCard({
     .assistants()
     .find((a) => a.id === assistantId)?.name;
 
+  const [voiceModalOpen, setVoiceModalOpen] = useState(false);
+
   return (
     <Modal.Root
       open
@@ -76,6 +87,7 @@ export function VoiceFirstRunCard({
     >
       <Modal.Content
         size="sm"
+        className="max-w-[440px]"
         // iOS lock: strip the ✕, the backdrop-tap dismiss, and Escape so the
         // only way forward is "Start talking" → the mic alert.
         hideCloseButton={nonDismissible}
@@ -97,13 +109,15 @@ export function VoiceFirstRunCard({
                 size={AVATAR_SIZE}
               />
             </span>
-            <Modal.Title>Voice mode</Modal.Title>
+            <div className="flex min-w-0 flex-col">
+              <Modal.Title>Voice mode</Modal.Title>
+              <Modal.Description>
+                A hands-free, spoken conversation with {assistantName ?? "your assistant"}.
+              </Modal.Description>
+            </div>
           </div>
-          <Modal.Description>
-            A hands-free, spoken conversation with {assistantName ?? "your assistant"}.
-          </Modal.Description>
         </Modal.Header>
-        <Modal.Body>
+        <Modal.Body className="pt-4">
           {/* Each bullet's icon matches the in-session control it describes,
               so the card doubles as a legend for the room. */}
           <ul className="flex flex-col gap-4">
@@ -136,12 +150,30 @@ export function VoiceFirstRunCard({
               </span>
             </li>
           </ul>
+
+          {/* Voice row → dedicated picker modal (over this card). Only for
+              managed assistants that offer voice selection; collapses to
+              nothing (border and all) otherwise. */}
+          <VoiceSettingRow
+            assistantId={assistantId}
+            onOpen={() => setVoiceModalOpen(true)}
+            className="mt-5"
+          />
         </Modal.Body>
         <Modal.Footer>
           <Button variant="primary" onClick={onStart}>
             Start talking
           </Button>
         </Modal.Footer>
+        {/* Rendered INSIDE the card's dialog subtree (not as a sibling) so
+            Radix nests it as a child layer — otherwise a click inside this
+            modal reads as an outside-click on the card and dismisses it.
+            Selecting a voice closes only this modal, returning to the card. */}
+        <VoicePickerModal
+          assistantId={assistantId}
+          open={voiceModalOpen}
+          onOpenChange={setVoiceModalOpen}
+        />
       </Modal.Content>
     </Modal.Root>
   );

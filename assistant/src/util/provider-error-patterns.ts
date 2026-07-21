@@ -36,3 +36,9 @@ export const INSUFFICIENT_CREDITS_PATTERNS = [
   /insufficient.*credits?/i,
   /key limit (?:has been )?(?:exceeded|reached)/i,
 ];
+
+// Managed-proxy daily-credit-limit rejection: the platform emits a 402 whose
+// body carries `"code": "daily_limit_reached"`. More specific than the generic
+// credit-exhaustion prose above — both are 402s from the same proxy — so
+// classification sites must test this before INSUFFICIENT_CREDITS_PATTERNS.
+export const DAILY_LIMIT_PATTERNS = [/"code"\s*:\s*"daily_limit_reached"/i];
