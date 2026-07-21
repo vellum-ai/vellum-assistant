@@ -8,7 +8,7 @@ import { IconBadge } from "./primitives";
 export function FetchErrorState({ onGoToBilling }: { onGoToBilling: () => void }) {
   return (
     <div className="flex flex-col items-center gap-4 px-6 py-10 text-center">
-      <IconBadge icon={AlertCircle} tone="negative" />
+      <IconBadge icon={AlertCircle} />
       <div className="space-y-1.5">
         <Typography variant="title-small" as="h1">
           Couldn&apos;t reach billing

@@ -8,7 +8,6 @@ import { Notice } from "@vellumai/design-library/components/notice";
 import type { StalledApplyAction } from "./primitives";
 import {
   CreatureCorners,
-  STALLED_UPGRADE_WARNING,
   StalledApplyControls,
   WizardCardHeading,
 } from "./primitives";
@@ -48,16 +47,11 @@ export function CompleteState({
 
         <div className="mt-8 flex w-full flex-col items-center gap-4">
           {stalledAction ? (
-            <div className="flex w-full flex-col items-center gap-2">
-              <Notice tone="warning" className="w-full text-left">
-                {STALLED_UPGRADE_WARNING}
-              </Notice>
-              <StalledApplyControls
-                action={stalledAction}
-                buttonVariant="outlined"
-                buttonTestId="complete-stalled-apply"
-              />
-            </div>
+            <StalledApplyControls
+              action={stalledAction}
+              buttonTestId="complete-stalled-apply"
+              className="w-full"
+            />
           ) : (
             finishedInBackground && (
               <Notice tone="neutral" className="w-full text-left">
