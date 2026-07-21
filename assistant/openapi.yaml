@@ -32342,6 +32342,8 @@ components:
         - together
         - litellm
         - baseten
+        - vellum
+        - chatgpt
     ProfilePatchEntry:
       type: object
       properties:

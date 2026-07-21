@@ -392,6 +392,22 @@ describe("AssistantConfigSchema", () => {
     expect(result.success).toBe(false);
   });
 
+  test("write-locks the vellum and chatgpt routing identities in profiles and call sites", () => {
+    // The enum admits the identities (so dispatch-layer types can carry
+    // them), but stored config rejects them — parse-level rejection covers
+    // every write path, not just the profiles route.
+    for (const provider of ["vellum", "chatgpt"]) {
+      const inProfile = AssistantConfigSchema.safeParse({
+        llm: { profiles: { custom: { provider } } },
+      });
+      expect(inProfile.success).toBe(false);
+      const inCallSite = AssistantConfigSchema.safeParse({
+        llm: { callSites: { mainAgent: { provider } } },
+      });
+      expect(inCallSite.success).toBe(false);
+    }
+  });
+
   test("rejects negative llm.callSites maxTokens", () => {
     const result = AssistantConfigSchema.safeParse({
       llm: { callSites: { mainAgent: { maxTokens: -100 } } },

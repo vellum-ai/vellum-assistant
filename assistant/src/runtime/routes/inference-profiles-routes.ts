@@ -28,7 +28,11 @@ import {
   getConfigReadOnly,
   loadRawConfig,
 } from "../../config/loader.js";
-import { LLMProvider, ProfileEntry } from "../../config/schemas/llm.js";
+import {
+  LLMProvider,
+  ProfileEntry,
+  WRITE_LOCKED_PROVIDERS,
+} from "../../config/schemas/llm.js";
 import { getDb } from "../../persistence/db-connection.js";
 import { computeConnectionAvailability } from "../../providers/inference/connection-availability.js";
 import { getConnection } from "../../providers/inference/connections.js";
@@ -134,6 +138,14 @@ function assertValidProvider(provider: string): void {
   if (!LLMProvider.safeParse(provider).success) {
     throw new BadRequestError(
       `Invalid provider "${provider}". Valid providers: ${LLMProvider.options.join(", ")}.`,
+    );
+  }
+  // Write-locked routing identities: dispatch cannot resolve them to a real
+  // upstream, so a stored profile carrying one cannot serve requests.
+  // Consults the same set as the schema and commitConfigWrite guards.
+  if (WRITE_LOCKED_PROVIDERS.has(provider)) {
+    throw new BadRequestError(
+      `Provider "${provider}" is not yet enabled for profiles.`,
     );
   }
 }

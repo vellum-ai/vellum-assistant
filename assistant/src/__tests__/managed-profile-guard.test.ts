@@ -195,6 +195,33 @@ describe("PUT /v1/config/llm/profiles/:name — managed profile guard", () => {
     expect(committedRaw()).not.toBeNull();
   });
 
+  test("rejects write-locked routing identities in a raw llm.default write", async () => {
+    // llm.default is a raw compatibility field outside the parsed schema; a
+    // raw PATCH can persist one and materialization uses the on-disk blob as
+    // its fill base, so the write-lock must cover it.
+    await expect(
+      patchRoute.handler({
+        body: { llm: { default: { provider: "vellum" } } },
+      }),
+    ).rejects.toThrow(/not yet enabled/);
+    expect(committedRaw()).toBeNull();
+  });
+
+  test("rejects write-locked routing identities on the replace path", async () => {
+    // This route validates with ProfileEntry.safeParse only, so the
+    // commitConfigWrite choke-point guard is what keeps the schema-admitted
+    // identities from reaching disk.
+    for (const provider of ["vellum", "chatgpt"]) {
+      await expect(
+        replaceRoute.handler({
+          pathParams: { name: "my-custom" },
+          body: { provider, model: "claude-opus-4-8" },
+        }),
+      ).rejects.toThrow(/not yet enabled/);
+      expect(committedRaw()).toBeNull();
+    }
+  });
+
   // -------------------------------------------------------------------------
   // Null-as-clear sentinel: clients send `{ label: null }` or
   // `{ status: null }` to clear a managed profile's overrides back to the
