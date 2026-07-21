@@ -406,7 +406,10 @@ export type TelemetryEvent = z.infer<typeof telemetryEventSchema>;
 
 // Event types recorded SERVER-SIDE by the platform. A daemon-sent
 // event of one of these types is rejected (dropped) by ingest.
-export const PLATFORM_MANAGED_EVENT_TYPES = ["plugin_installed"] as const;
+export const PLATFORM_MANAGED_EVENT_TYPES = [
+  "credit_balance_depleted",
+  "plugin_installed",
+] as const;
 
 export const MAX_EVENTS_PER_BATCH = 10000;
 
