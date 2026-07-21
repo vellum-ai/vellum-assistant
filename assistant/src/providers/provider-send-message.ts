@@ -16,7 +16,10 @@ import {
   describeSubscriptionModelIncompatibility,
   isConnectionCompatibleWithModel,
 } from "./connection-model-compat.js";
-import { tryResolveProviderForConnectionName } from "./connection-resolution.js";
+import {
+  resolveRoutingIdentity,
+  tryResolveProviderForConnectionName,
+} from "./connection-resolution.js";
 import { listConnections } from "./inference/connections.js";
 import { initializeProviders, listProviders } from "./registry.js";
 import type {
@@ -146,6 +149,14 @@ export async function resolveConfiguredProvider(
   // skip backfill, freshly-installed configs not yet backfilled, or users
   // who manually cleared the field), try to auto-resolve from the provider
   // before falling back to null.
+  if (!connectionName) {
+    // Routing identities name their own connection row; the provider-keyed
+    // scan below cannot find them ("chatgpt" rows store provider "openai").
+    connectionName = resolveRoutingIdentity(
+      inferenceProvider,
+      resolved.model,
+    )?.connectionName;
+  }
   if (!connectionName) {
     if (inferenceProvider) {
       try {

@@ -114,6 +114,13 @@ export const VALID_CONNECTION_PROVIDERS: readonly string[] = [
 
 export type ConnectionProvider = string;
 
+/**
+ * Name of the single ChatGPT-subscription connection row (created by the
+ * ChatGPT sign-in flows). The "chatgpt" routing identity dispatches through
+ * this row with an openai upstream.
+ */
+export const CHATGPT_SUBSCRIPTION_CONNECTION_NAME = "chatgpt-subscription";
+
 export const ConnectionProviderSchema = z
   .enum(VALID_CONNECTION_PROVIDERS as readonly [string, ...string[]])
   .meta({ id: "ConnectionProvider" });
