@@ -365,6 +365,8 @@ describe("BillingOnboardingModal", () => {
     const takeover = document.body.querySelector('[data-slot="modal-content"]');
     expect(takeover?.getAttribute("data-theme")).toBe("dark");
     expect(takeover?.className).toContain("w-screen");
+    // The takeover renders no persistent close button — exits live in the step.
+    expect(document.body.querySelector('[aria-label="Close"]')).toBeNull();
 
     // Domain step: standard card — no dark theme, no full-bleed sizing.
     await waitFor(() => expect(getByText("Assistant Email")).toBeTruthy(), {
