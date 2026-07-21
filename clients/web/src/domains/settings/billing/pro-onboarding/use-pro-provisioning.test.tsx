@@ -571,6 +571,75 @@ describe("useProProvisioning", () => {
   });
 
   test(
+    "background onboarding refetch keeps the fresh primary selected (no flip to active)",
+    async () => {
+      subscriptionPlanId = "pro";
+      onboardingResponse = {
+        ...makeOnboarding(),
+        primary_assistant_id: "assistant-2",
+      };
+      // The active assistant differs from the primary; a flip would re-target
+      // the polls and re-key the snapshot against it.
+      assistantResponse = {
+        ...makeAssistant("small", 10),
+        id: "assistant-active",
+      };
+      assistantsById["assistant-2"] = {
+        ...makeAssistant("small", 10),
+        id: "assistant-2",
+      };
+      const { client } = renderProbe();
+
+      // The fresh primary lands and drives the polls + frozen snapshot.
+      await waitFor(() => expect(latest!.assistantId).toBe("assistant-2"), {
+        timeout: 5000,
+      });
+      await waitFor(
+        () =>
+          expect(latest!.actualsSnapshot).toEqual({
+            machineSize: "small",
+            storageGib: 10,
+          }),
+        { timeout: 5000 },
+      );
+
+      // A background refetch (window-focus / reconnect / incidental
+      // invalidation) puts the onboarding query into isFetching WITHOUT
+      // changing `open`. Because the primary already landed fresh
+      // (dataUpdatedAt >= openedAt), it must stay selected — the polls and the
+      // snapshot must not fall back to the active assistant.
+      const gate = makeDeferred();
+      onboardingGate = gate;
+      await act(async () => {
+        void client.invalidateQueries({
+          queryKey: organizationsBillingSubscriptionOnboardingRetrieveQueryKey(),
+        });
+        // Let the held refetch enter its isFetching window.
+        await Promise.resolve();
+      });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      expect(latest!.assistantId).toBe("assistant-2");
+      expect(latest!.actualsSnapshot).toEqual({
+        machineSize: "small",
+        storageGib: 10,
+      });
+
+      // The refetch completes: still the primary, snapshot unchanged.
+      await act(async () => {
+        gate.resolve();
+        await gate.promise;
+      });
+      await waitFor(() => expect(latest!.assistantId).toBe("assistant-2"));
+      expect(latest!.actualsSnapshot).toEqual({
+        machineSize: "small",
+        storageGib: 10,
+      });
+    },
+    20_000,
+  );
+
+  test(
     "reopen with a stale cached onboarding primary tracks the fresh assistant, not the stale one",
     async () => {
       const client = makeClient();
