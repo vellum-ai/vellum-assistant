@@ -95,6 +95,30 @@ describe("routes list", () => {
     expect(paths).not.toContain("/x/plugins/foo");
   });
 
+  test("excludes test files and __tests__ dirs (never imported into the daemon)", async () => {
+    writePluginRoute("demo", "status.ts");
+    // A test file's top-level mock.module calls are process-global — importing
+    // one into the live daemon replaces production modules (the 2026-07-21 dev
+    // crash-loop). Discovery must skip them entirely, not just fail to list.
+    writePluginRoute("demo", "status.test.ts");
+    writePluginRoute("demo", "__tests__/helpers.ts");
+    writePluginRoute("demo", "__tests__/status.test.ts");
+    writeWorkspaceRoute("ping.ts");
+    writeWorkspaceRoute("ping.test.ts");
+    writeWorkspaceRoute("__tests__/ping.test.ts");
+
+    const { routes } = await listHandler();
+    const paths = routes.map((r) => r.routePath);
+
+    expect(paths).toContain("/x/plugins/demo/status");
+    expect(paths).toContain("/x/ping");
+    expect(paths).not.toContain("/x/plugins/demo/status.test");
+    expect(paths).not.toContain("/x/plugins/demo/__tests__/helpers");
+    expect(paths).not.toContain("/x/plugins/demo/__tests__/status.test");
+    expect(paths).not.toContain("/x/ping.test");
+    expect(paths).not.toContain("/x/__tests__/ping.test");
+  });
+
   test("excludes disabled plugins' routes", async () => {
     writePluginRoute("live", "status.ts");
     writePluginRoute("dead", "status.ts");
@@ -131,6 +155,18 @@ describe("routes inspect", () => {
     const res = await inspectHandler({ body: { path: "ping" } });
     expect(res.route.routePath).toBe("/x/ping");
     expect(res.route.filePath).toBe("routes/ping.ts");
+  });
+
+  test("404s test files and paths under __tests__", async () => {
+    writePluginRoute("demo", "status.test.ts");
+    writePluginRoute("demo", "__tests__/helpers.ts");
+
+    await expect(
+      inspectHandler({ body: { path: "plugins/demo/status.test" } }),
+    ).rejects.toThrow();
+    await expect(
+      inspectHandler({ body: { path: "plugins/demo/__tests__/helpers" } }),
+    ).rejects.toThrow();
   });
 
   test("404s a shadowed, missing, or disabled route", async () => {
