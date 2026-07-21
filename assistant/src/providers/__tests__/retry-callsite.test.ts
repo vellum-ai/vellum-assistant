@@ -117,6 +117,31 @@ describe("RetryProvider — callSite resolution", () => {
     expect(config.modelIntent).toBeUndefined();
   });
 
+  test("strips conversationId before delegating to the inner provider", async () => {
+    setLlmConfig({
+      callSites: {
+        memoryRetrieval: {
+          provider: "anthropic",
+          model: "claude-haiku-4-5-20251001",
+        },
+      },
+    });
+
+    let seen: SendMessageOptions | undefined;
+    const wrapped = new RetryProvider(
+      makeProvider("anthropic", (options) => {
+        seen = options;
+      }),
+    );
+
+    await wrapped.sendMessage(DUMMY_MESSAGES, {
+      config: { callSite: "memoryRetrieval", conversationId: "conv-123" },
+    });
+
+    const config = seen?.config as Record<string, unknown>;
+    expect(config.conversationId).toBeUndefined();
+  });
+
   test("attaches sanitized stable attribution headers only when enabled", async () => {
     setLlmConfig({
       profiles: {

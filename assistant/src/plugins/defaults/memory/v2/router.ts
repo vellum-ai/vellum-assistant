@@ -172,6 +172,11 @@ export interface RouterTurnPair {
 interface RunRouterParams {
   workspaceDir: string;
   /**
+   * Conversation the routed turn belongs to, stamped on the provider config
+   * for usage-ledger attribution. Simulator callers leave it unset.
+   */
+  conversationId?: string;
+  /**
    * Recent assistant/user turn pairs, oldest first. Must contain at
    * least one entry. The last entry's `userMessage` is the just-arrived
    * user turn the router is routing for; entries before it are walked
@@ -446,6 +451,7 @@ async function runRouterBatch(
       systemPrompt,
       config: {
         callSite: "memoryRouter" as const,
+        conversationId: params.conversationId,
         tool_choice: { type: "tool" as const, name: ROUTER_TOOL_NAME },
         disableTurnStartCache: true,
       },

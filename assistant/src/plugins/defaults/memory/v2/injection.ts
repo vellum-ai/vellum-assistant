@@ -614,6 +614,7 @@ async function injectViaRouter(args: {
 
   const routerResult = await runRouter({
     workspaceDir,
+    conversationId,
     recentTurnPairs,
     nowText,
     priorEverInjected,

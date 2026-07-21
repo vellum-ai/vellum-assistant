@@ -87,7 +87,7 @@ export class UsageTrackingProvider implements Provider {
           cacheCreationInputTokens: pricingUsage.cacheCreationInputTokens,
           cacheReadInputTokens: pricingUsage.cacheReadInputTokens,
           rawUsage: extractRawUsage(response.rawResponse),
-          conversationId: null,
+          conversationId: config.conversationId ?? null,
           runId: null,
           requestId: null,
           callSite: attribution.callSite,
