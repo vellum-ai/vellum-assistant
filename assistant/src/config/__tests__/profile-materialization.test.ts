@@ -94,6 +94,17 @@ describe("completeCustomProfile", () => {
     expect(completed.provider_connection).toBeUndefined();
   });
 
+  test("routing-identity providers never receive a connection stamp", () => {
+    for (const provider of ["vellum", "chatgpt"] as const) {
+      const completed = completeCustomProfile(fullDefault, {
+        provider,
+        model: "claude-fable-5",
+      });
+      expect(completed.provider).toBe(provider);
+      expect(completed.provider_connection).toBeUndefined();
+    }
+  });
+
   test("keeps an explicit provider_connection even when the provider is implied", () => {
     const completed = completeCustomProfile(fullDefault, {
       model: "gpt-5.5",

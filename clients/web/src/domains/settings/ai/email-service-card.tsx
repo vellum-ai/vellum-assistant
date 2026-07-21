@@ -22,10 +22,16 @@ import { getLocalSetting, setLocalSetting } from "@/utils/local-settings";
 import { Dropdown } from "@vellumai/design-library/components/dropdown";
 import { toast } from "@vellumai/design-library/components/toast";
 
-import { ByoServiceCard, SaveButton, ServiceCard } from "@/domains/settings/ai/shared-ui";
-import { LS_EMAIL_BYO_PROVIDER, LS_EMAIL_MODE } from "@/domains/settings/ai/local-storage-keys";
-import type { EmailByoProvider } from "@/domains/settings/ai/provider-catalogs";
-import { EMAIL_BYO_PROVIDERS } from "@/domains/settings/ai/provider-catalogs";
+import {
+  ByoServiceCard,
+  ServiceCard,
+} from "@/domains/settings/ai/shared-ui";
+import {
+  SaveButton,
+} from "@/components/service-form-controls";
+import { LS_EMAIL_BYO_PROVIDER, LS_EMAIL_MODE } from "@/utils/local-settings-keys";
+import type { EmailByoProvider } from "@/lib/provider-catalogs";
+import { EMAIL_BYO_PROVIDERS } from "@/lib/provider-catalogs";
 import { parseServiceMode } from "@/domains/settings/ai/utils";
 import type { ServiceMode } from "@/generated/daemon/types.gen";
 import { EmailManagedContent } from "@/domains/settings/ai/email-managed-content";

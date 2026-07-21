@@ -178,7 +178,12 @@ export async function generateAndPersistConversationTitle(
   }
 
   const prompt = buildTitlePrompt(context, userMessage, assistantResponse);
-  const title = await generateTitleViaLLM(provider, prompt, signal);
+  const title = await generateTitleViaLLM(
+    provider,
+    prompt,
+    conversationId,
+    signal,
+  );
   if (title) {
     // Re-check replaceability before persisting (race guard)
     const current = getConversation(conversationId);
@@ -316,7 +321,12 @@ export async function regenerateConversationTitle(
   if (!/\n(?:User|Assistant): /.test(prompt)) {
     return { title: conversation.title ?? UNTITLED_FALLBACK, updated: false };
   }
-  const title = await generateTitleViaLLM(provider, prompt, signal);
+  const title = await generateTitleViaLLM(
+    provider,
+    prompt,
+    conversationId,
+    signal,
+  );
   if (title) {
     // Re-check isAutoTitle before persisting (race guard against manual rename)
     const current = getConversation(conversationId);
@@ -425,6 +435,7 @@ function buildTitleTool(): ToolDefinition {
 async function generateTitleViaLLM(
   provider: Provider,
   prompt: string,
+  conversationId: string,
   signal?: AbortSignal,
 ): Promise<string> {
   const { signal: timeoutSignal, cleanup } = createTimeout(15_000);
@@ -438,6 +449,7 @@ async function generateTitleViaLLM(
       config: {
         max_tokens: 256,
         callSite: "conversationTitle",
+        conversationId,
         tool_choice: { type: "tool", name: TITLE_TOOL_NAME },
         disableCache: true,
       },

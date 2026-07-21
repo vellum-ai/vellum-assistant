@@ -259,6 +259,14 @@ export interface ResolveStreamingTranscriberOptions {
   /** Audio sample rate in Hz from the client WebSocket connection. */
   sampleRate?: number;
   /**
+   * Provider to resolve a transcriber for. Defaults to
+   * `services.stt.provider`. Callers that derive the provider themselves
+   * (e.g. live voice, which runs on the managed-speech effective provider)
+   * pass it here so the resolved transcriber matches the provider their own
+   * readiness check approved.
+   */
+  providerId?: SttProviderId;
+  /**
    * Speaker diarization preference. Default: `"off"`.
    *
    * See {@link DiarizePreference} for semantics.
@@ -286,38 +294,36 @@ export interface ResolveStreamingTranscriberOptions {
 /**
  * Resolve a `StreamingTranscriber` for daemon-hosted streaming transcription.
  *
- * Reads `services.stt.provider` from the assistant config to determine which
- * STT provider to use, verifies it supports the `daemon-streaming` boundary,
- * and constructs the appropriate streaming adapter. Credential lookup is
- * centralized here (an authorized secure-keys importer) so callers don't
- * need to import secure-keys directly.
+ * Uses `options.providerId`, falling back to `services.stt.provider` from the
+ * assistant config, verifies the provider supports the `daemon-streaming`
+ * boundary, and constructs the appropriate streaming adapter. Credential
+ * lookup is centralized here (an authorized secure-keys importer) so callers
+ * don't need to import secure-keys directly.
  *
  * Returns `null` when:
- * - The configured provider is not in the catalog.
- * - The configured provider doesn't support the `daemon-streaming` boundary.
+ * - The resolved provider is not in the catalog.
+ * - The resolved provider doesn't support the `daemon-streaming` boundary.
  * - No credentials are configured for the resolved provider.
- * - No streaming adapter exists for the configured provider.
- * - `diarize` is `"required"` but the configured provider cannot diarize.
- * - `utteranceBoundaryFinals` is set but the configured provider's catalog
+ * - No streaming adapter exists for the resolved provider.
+ * - `diarize` is `"required"` but the resolved provider cannot diarize.
+ * - `utteranceBoundaryFinals` is set but the resolved provider's catalog
  *   `telephonyMode` is not `"realtime-ws"`.
  */
 export async function resolveStreamingTranscriber(
   options: ResolveStreamingTranscriberOptions = {},
 ): Promise<StreamingTranscriber | null> {
-  const config = getConfig();
-  const provider = config.services.stt.provider;
+  const provider =
+    options.providerId ?? (getConfig().services.stt.provider as SttProviderId);
   const diarizePreference: DiarizePreference = options.diarize ?? "off";
 
   // Look up credential provider via the catalog.
-  const credentialProviderName = getCredentialProvider(
-    provider as SttProviderId,
-  );
+  const credentialProviderName = getCredentialProvider(provider);
   if (!credentialProviderName) {
     return null;
   }
 
   // Verify the provider supports the daemon-streaming boundary.
-  if (!supportsBoundary(provider as SttProviderId, "daemon-streaming")) {
+  if (!supportsBoundary(provider, "daemon-streaming")) {
     return null;
   }
 
@@ -329,9 +335,7 @@ export async function resolveStreamingTranscriber(
   // hangup, or mid-sentence replies. Resolve to null so the caller falls
   // back to per-turn batch transcription.
   if (options.utteranceBoundaryFinals) {
-    const telephonyMode = getProviderEntry(
-      provider as SttProviderId,
-    )?.telephonyMode;
+    const telephonyMode = getProviderEntry(provider)?.telephonyMode;
     if (telephonyMode !== "realtime-ws") {
       log.warn(
         { providerId: provider, telephonyMode },
@@ -344,9 +348,7 @@ export async function resolveStreamingTranscriber(
   // Resolve diarization capability against the catalog. For `"required"`
   // callers, bail early (with a warning) when the configured provider can't
   // diarize so the caller can surface a clear error to the user.
-  const providerSupportsDiarization = supportsDiarization(
-    provider as SttProviderId,
-  );
+  const providerSupportsDiarization = supportsDiarization(provider);
   if (diarizePreference === "required" && !providerSupportsDiarization) {
     log.warn(
       { providerId: provider },
@@ -370,7 +372,7 @@ export async function resolveStreamingTranscriber(
     return null;
   }
 
-  return createStreamingTranscriber(apiKey ?? "", provider as SttProviderId, {
+  return createStreamingTranscriber(apiKey ?? "", provider, {
     sampleRate: options.sampleRate,
     diarize: enableDiarization,
     utteranceBoundaryFinals: options.utteranceBoundaryFinals ?? false,

@@ -47,7 +47,7 @@ import {
 // static import graph.
 const { useLiveVoice } =
   await import("@/domains/chat/voice/live-voice/use-live-voice");
-const { useLiveVoiceStore } =
+const { useLiveVoiceStore, getLiveVoicePlaybackProgress } =
   await import("@/domains/chat/voice/live-voice/live-voice-store");
 const { useVoicePrefsStore } = await import("@/stores/voice-prefs-store");
 
@@ -498,6 +498,78 @@ describe("hands-free mode", () => {
       turnDetection: "server_vad",
     });
     expect(h.view.result.current.state).toBe("listening");
+  });
+
+  test("a final during a held pause (no utterance_end) stays listening", async () => {
+    const h = renderController();
+    await startListening(h, { handsFree: true });
+
+    // Semantic endpointing held the utterance open: the daemon forwards the
+    // segment's final but suppresses `utterance_end`. The UI must keep
+    // reading as the user's turn, not flip to thinking.
+    act(() => {
+      h.client.emit("speechStarted", { type: "speech_started", seq: 2 });
+      h.client.emit("sttFinal", {
+        type: "stt_final",
+        seq: 3,
+        text: "can you tell me about",
+      });
+    });
+    expect(h.view.result.current.finalTranscript).toBe("can you tell me about");
+    expect(h.view.result.current.state).toBe("listening");
+
+    // The real release closes the utterance, and the next final advances.
+    act(() => {
+      h.client.emit("utteranceEnd", {
+        type: "utterance_end",
+        seq: 4,
+        reason: "silence",
+      });
+    });
+    expect(h.view.result.current.state).toBe("transcribing");
+    act(() => {
+      h.client.emit("sttFinal", {
+        type: "stt_final",
+        seq: 5,
+        text: "can you tell me about the weather",
+      });
+    });
+    expect(h.view.result.current.state).toBe("thinking");
+  });
+
+  test("speech resuming inside a held utterance keeps the finalized transcript", async () => {
+    const h = renderController();
+    await startListening(h, { handsFree: true });
+
+    // A held pause: speech started, a segment finalized, no utterance_end.
+    act(() => {
+      h.client.emit("speechStarted", { type: "speech_started", seq: 2 });
+      h.client.emit("sttFinal", {
+        type: "stt_final",
+        seq: 3,
+        text: "can you tell me about",
+      });
+    });
+    expect(h.view.result.current.finalTranscript).toBe("can you tell me about");
+
+    // The user resumes: the daemon re-fires speech_started for the SAME
+    // utterance. The finalized prefix must survive — clearing belongs to
+    // the first onset after the utterance closed, not a hold resume.
+    act(() => {
+      h.client.emit("speechStarted", { type: "speech_started", seq: 4 });
+    });
+    expect(h.view.result.current.finalTranscript).toBe("can you tell me about");
+
+    // Once the utterance closes, the NEXT onset is a new turn and clears.
+    act(() => {
+      h.client.emit("utteranceEnd", {
+        type: "utterance_end",
+        seq: 5,
+        reason: "silence",
+      });
+      h.client.emit("speechStarted", { type: "speech_started", seq: 6 });
+    });
+    expect(h.view.result.current.finalTranscript).toBe("");
   });
 
   test("sends the user's pause + interrupt-sensitivity settings on a hands-free connect", async () => {
@@ -2065,6 +2137,54 @@ describe("session context and controls", () => {
     expect(store.controls).toBeNull();
     expect(store.assistantId).toBeNull();
     expect(store.conversationId).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Playback-progress provider — feeds the transcript's spoken-word cursor
+// ---------------------------------------------------------------------------
+
+describe("playback-progress provider", () => {
+  test("start() registers a provider that reads the active player's progress", async () => {
+    const h = renderController();
+    await act(async () => {
+      await h.view.result.current.start("assistant-1", "conv-1");
+    });
+
+    expect(getLiveVoicePlaybackProgress()).toBeNull();
+
+    h.player.playbackProgress = { playedSeconds: 1.25, totalSeconds: 3.5 };
+    expect(getLiveVoicePlaybackProgress()).toEqual({
+      playedSeconds: 1.25,
+      totalSeconds: 3.5,
+    });
+  });
+
+  test("teardown clears the registered provider", async () => {
+    const h = renderController();
+    await startListening(h);
+    h.player.playbackProgress = { playedSeconds: 1, totalSeconds: 2 };
+    expect(getLiveVoicePlaybackProgress()).not.toBeNull();
+
+    act(() => {
+      h.view.unmount();
+    });
+
+    expect(useLiveVoiceStore.getState().playbackProgressProvider).toBeNull();
+    expect(getLiveVoicePlaybackProgress()).toBeNull();
+  });
+
+  test("a thinking frame resets the player's progress with the transcript clear", async () => {
+    const h = renderController();
+    await startListening(h);
+    expect(h.player.resetPlaybackProgressCount).toBe(0);
+
+    act(() => {
+      h.client.emit("thinking", { type: "thinking", seq: 2, turnId: "t1" });
+    });
+
+    expect(h.player.resetPlaybackProgressCount).toBe(1);
+    expect(useLiveVoiceStore.getState().assistantTranscript).toBe("");
   });
 });
 

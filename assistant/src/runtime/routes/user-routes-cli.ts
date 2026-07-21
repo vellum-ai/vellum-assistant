@@ -20,6 +20,7 @@ import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 import {
   HANDLER_EXTENSIONS,
   isReservedWorkspaceRoutePath,
+  isRouteTestPath,
   listPluginRouteRoots,
   resolveHandlerFile,
   resolveRouteLocation,
@@ -93,6 +94,12 @@ async function discoverRoutes(routesDir: string): Promise<DiscoveredRoute[]> {
     const entries = readdirSync(dir, { withFileTypes: true });
     for (const entry of entries) {
       const fullPath = join(dir, entry.name);
+      // Test dirs/files are not servable handlers and must never be imported
+      // into the daemon (a test file's top-level mock.module calls are
+      // process-global) — mirrors resolveHandlerFile's dispatch-side gate.
+      if (isRouteTestPath(relative(routesDir, fullPath))) {
+        continue;
+      }
       if (entry.isDirectory()) {
         scanDir(fullPath);
       } else if (entry.isFile()) {

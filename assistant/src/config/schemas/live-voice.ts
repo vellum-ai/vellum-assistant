@@ -47,6 +47,145 @@ export const LiveVoiceVadConfigSchema = z
     "Voice-activity-detection tuning for live voice sessions (open-mic turn segmentation)",
   );
 
+export const LiveVoiceProgressConfigSchema = z
+  .object({
+    enabled: z
+      .boolean({
+        error: "liveVoice.frontModel.progress.enabled must be a boolean",
+      })
+      .default(true)
+      .describe(
+        "Speak short progress updates during long-running tool-heavy turns; the opt-out for progress narration",
+      ),
+    opsThreshold: z
+      .number({
+        error: "liveVoice.frontModel.progress.opsThreshold must be a number",
+      })
+      .int("liveVoice.frontModel.progress.opsThreshold must be an integer")
+      .positive(
+        "liveVoice.frontModel.progress.opsThreshold must be a positive integer",
+      )
+      .default(3)
+      .describe(
+        "Narrate after this many tool operations since the last narration",
+      ),
+    idleIntervalMs: z
+      .number({
+        error: "liveVoice.frontModel.progress.idleIntervalMs must be a number",
+      })
+      .int("liveVoice.frontModel.progress.idleIntervalMs must be an integer")
+      .positive(
+        "liveVoice.frontModel.progress.idleIntervalMs must be a positive integer",
+      )
+      .default(5_000)
+      .describe(
+        "Narrate after this much silence (ms) with the turn still running",
+      ),
+    minGapMs: z
+      .number({
+        error: "liveVoice.frontModel.progress.minGapMs must be a number",
+      })
+      .int("liveVoice.frontModel.progress.minGapMs must be an integer")
+      .positive(
+        "liveVoice.frontModel.progress.minGapMs must be a positive integer",
+      )
+      .default(6_000)
+      .describe(
+        "Minimum spacing (ms) from any spoken floor-holder — ack or narration",
+      ),
+    generationTimeoutMs: z
+      .number({
+        error:
+          "liveVoice.frontModel.progress.generationTimeoutMs must be a number",
+      })
+      .int(
+        "liveVoice.frontModel.progress.generationTimeoutMs must be an integer",
+      )
+      .positive(
+        "liveVoice.frontModel.progress.generationTimeoutMs must be a positive integer",
+      )
+      .default(1_500)
+      .describe(
+        "Budget (ms) for LLM-generated progress text — not latency-critical: it speaks into dead air",
+      ),
+  })
+  .describe(
+    "Progress-narration tuning for live voice sessions (spoken updates during long-running turns)",
+  );
+
+export const LiveVoiceFrontModelConfigSchema = z
+  .object({
+    endpointDecisionTimeoutMs: z
+      .number({
+        error:
+          "liveVoice.frontModel.endpointDecisionTimeoutMs must be a number",
+      })
+      .int("liveVoice.frontModel.endpointDecisionTimeoutMs must be an integer")
+      .positive(
+        "liveVoice.frontModel.endpointDecisionTimeoutMs must be a positive integer",
+      )
+      .default(1200)
+      .describe(
+        "Hard budget (ms) for the endpoint decision LLM call. This adds to end-of-turn latency when semantic endpointing is on, so keep it as tight as the decider model's real roundtrip allows — measured Haiku roundtrips through the managed proxy run ~670-1130ms (dev), so tighter budgets turn the feature into a fail-open no-op.",
+      ),
+    endpointExtensionMs: z
+      .number({
+        error: "liveVoice.frontModel.endpointExtensionMs must be a number",
+      })
+      .int("liveVoice.frontModel.endpointExtensionMs must be an integer")
+      .positive(
+        "liveVoice.frontModel.endpointExtensionMs must be a positive integer",
+      )
+      .default(1500)
+      .describe(
+        "How long (ms) a 'hold' decision keeps the turn open before turn-end replays",
+      ),
+    endpointMaxExtensions: z
+      .number({
+        error: "liveVoice.frontModel.endpointMaxExtensions must be a number",
+      })
+      .int("liveVoice.frontModel.endpointMaxExtensions must be an integer")
+      .nonnegative(
+        "liveVoice.frontModel.endpointMaxExtensions must be a nonnegative integer",
+      )
+      .default(2)
+      .describe("Cap on consecutive 'hold' extensions per utterance"),
+    ackFirstDeltaTimeoutMs: z
+      .number({
+        error: "liveVoice.frontModel.ackFirstDeltaTimeoutMs must be a number",
+      })
+      .int("liveVoice.frontModel.ackFirstDeltaTimeoutMs must be an integer")
+      .positive(
+        "liveVoice.frontModel.ackFirstDeltaTimeoutMs must be a positive integer",
+      )
+      .default(2500)
+      .describe(
+        "Keyword-delay budget (ms): a spoken ack fires if no first assistant delta has arrived by then",
+      ),
+    ackGenerationTimeoutMs: z
+      .number({
+        error: "liveVoice.frontModel.ackGenerationTimeoutMs must be a number",
+      })
+      .int("liveVoice.frontModel.ackGenerationTimeoutMs must be an integer")
+      .positive(
+        "liveVoice.frontModel.ackGenerationTimeoutMs must be a positive integer",
+      )
+      .default(600)
+      .describe("Budget (ms) for LLM-generated ack text"),
+    llmAckText: z
+      .boolean({ error: "liveVoice.frontModel.llmAckText must be a boolean" })
+      .default(false)
+      .describe(
+        "Use the front model to phrase spoken acks; static phrases otherwise",
+      ),
+    progress: LiveVoiceProgressConfigSchema.default(
+      LiveVoiceProgressConfigSchema.parse({}),
+    ),
+  })
+  .describe(
+    "Front-model presence layer tuning for live voice sessions (semantic endpointing + spoken acks + progress narration)",
+  );
+
 export const LiveVoiceConfigSchema = z
   .object({
     mode: z
@@ -58,6 +197,9 @@ export const LiveVoiceConfigSchema = z
         "Default microphone mode for live voice sessions — hands-free (open-mic) or push-to-talk (ptt)",
       ),
     vad: LiveVoiceVadConfigSchema.default(LiveVoiceVadConfigSchema.parse({})),
+    frontModel: LiveVoiceFrontModelConfigSchema.default(
+      LiveVoiceFrontModelConfigSchema.parse({}),
+    ),
     maxSessionDurationSeconds: z
       .number({
         error: "liveVoice.maxSessionDurationSeconds must be a number",
@@ -81,3 +223,9 @@ export const LiveVoiceConfigSchema = z
 
 export type LiveVoiceConfig = z.infer<typeof LiveVoiceConfigSchema>;
 export type LiveVoiceVadConfig = z.infer<typeof LiveVoiceVadConfigSchema>;
+export type LiveVoiceFrontModelConfig = z.infer<
+  typeof LiveVoiceFrontModelConfigSchema
+>;
+export type LiveVoiceProgressConfig = z.infer<
+  typeof LiveVoiceProgressConfigSchema
+>;

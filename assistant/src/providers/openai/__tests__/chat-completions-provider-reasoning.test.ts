@@ -741,3 +741,42 @@ describe("OpenAIChatCompletionsProvider cache usage parsing", () => {
     expect(response.usage).not.toHaveProperty("cacheCreationInputTokens");
   });
 });
+
+describe("OpenAIChatCompletionsProvider response model", () => {
+  test("reports the model echoed back by the provider chunks", async () => {
+    const { provider } = stubProvider([
+      { choices: [{ delta: { content: "ok" } }], model: "server-model-xyz" },
+      {
+        choices: [{ delta: {}, finish_reason: "stop" }],
+        usage: { prompt_tokens: 2, completion_tokens: 1 },
+        model: "server-model-xyz",
+      },
+    ]);
+
+    const response = await provider.sendMessage([
+      { role: "user", content: [{ type: "text", text: "hi" }] },
+    ]);
+
+    expect(response.model).toBe("server-model-xyz");
+  });
+
+  test("falls back to the configured model when chunks omit `model`", async () => {
+    // opencode/OpenRouter can stream a usage report with no `model` field.
+    // The response must carry the configured model rather than an undefined
+    // that crashes the downstream calibrator and violates the usage-event
+    // NOT NULL constraint on `model`.
+    const { provider } = stubProvider([
+      { choices: [{ delta: { content: "ok" } }] },
+      {
+        choices: [{ delta: {}, finish_reason: "stop" }],
+        usage: { prompt_tokens: 2, completion_tokens: 1 },
+      },
+    ]);
+
+    const response = await provider.sendMessage([
+      { role: "user", content: [{ type: "text", text: "hi" }] },
+    ]);
+
+    expect(response.model).toBe("test-model");
+  });
+});

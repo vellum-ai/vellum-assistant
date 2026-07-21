@@ -113,6 +113,7 @@ export type ProviderErrorReason =
   | "model_restricted"
   | "model_not_found"
   | "insufficient_credits"
+  | "daily_limit_reached"
   | "rate_limited"
   | "overloaded"
   | "context_overflow"

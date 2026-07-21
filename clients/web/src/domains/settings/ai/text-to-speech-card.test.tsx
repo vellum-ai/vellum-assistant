@@ -41,6 +41,8 @@ let daemonConfigData: { services: Record<string, unknown> } = { services: {} };
 // When set, the tts-providers query resolves to this catalog (as `initialData`,
 // so no async settling) — lets tests exercise a daemon-fetched provider list.
 let ttsCatalogData: { providers: unknown[] } | undefined;
+let managedVoicesData:
+  { voices: unknown[]; defaultModel: string | null } | undefined;
 mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
   ttsProvidersGetOptions: () => ({
     queryKey: ["tts-providers-test"],
@@ -53,6 +55,14 @@ mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
     initialData: daemonConfigData,
   }),
   configGetQueryKey: () => ["config-get-test"],
+  // The card falls back to the static managed-voice catalog when this
+  // query has no data, which is the state these tests exercise.
+  ttsManagedvoicesGetOptions: () => ({
+    queryKey: ["tts-managed-voices-test"],
+    queryFn: () =>
+      Promise.resolve(managedVoicesData ?? { voices: [], defaultModel: null }),
+    ...(managedVoicesData ? { initialData: managedVoicesData } : {}),
+  }),
 }));
 
 interface SdkCall {
@@ -111,6 +121,7 @@ describe("TextToSpeechCard — daemon provisioning on Save", () => {
     daemonConfigData = { services: {} };
     orgReady = false;
     ttsCatalogData = undefined;
+    managedVoicesData = undefined;
   });
 
   afterEach(() => {
@@ -199,6 +210,7 @@ describe("TextToSpeechCard — Vellum provider", () => {
     daemonConfigData = { services: {} };
     orgReady = false;
     ttsCatalogData = undefined;
+    managedVoicesData = undefined;
   });
 
   afterEach(() => {
@@ -265,6 +277,144 @@ describe("TextToSpeechCard — Vellum provider", () => {
     expect(configPatchCalls[0]!.body).toMatchObject({
       services: { tts: { provider: "fish-audio", mode: "your-own" } },
     });
+  });
+
+  test("a fetched managed-voice catalog replaces the static list and default", () => {
+    // Daemon advertises voice selection and the platform serves the catalog;
+    // the dropdown must offer the fetched voices (not the static fallback)
+    // and decorate the platform's default.
+    orgReady = true;
+    daemonConfigData = { services: { tts: { provider: "vellum" } } };
+    ttsCatalogData = {
+      providers: [
+        {
+          id: "vellum",
+          displayName: "Vellum",
+          subtitle: "Managed TTS.",
+          supportsVoiceSelection: true,
+          apiKeyPlaceholder: "",
+          credentialsGuide: { description: "", url: "", linkLabel: "" },
+        },
+      ],
+    };
+    managedVoicesData = {
+      voices: [
+        {
+          model: "EXAVITQu4vr4xnSDxMaL",
+          label: "Sarah",
+          description: "American · professional, reassuring, confident",
+          sampleUrl:
+            "https://storage.googleapis.com/eleven-public-prod/premade/voices/EXAVITQu4vr4xnSDxMaL/sample.mp3",
+          source: "elevenlabs",
+        },
+        {
+          model: "aura-2-zeus-en",
+          label: "Zeus",
+          description: "American · deep, trustworthy, smooth",
+          sampleUrl: "https://static.deepgram.com/examples/Aura-2-zeus.wav",
+          source: "deepgram",
+        },
+      ],
+      defaultModel: "EXAVITQu4vr4xnSDxMaL",
+    };
+    renderCard();
+
+    const voiceTrigger = document.querySelector<HTMLButtonElement>(
+      'button[role="combobox"][aria-label="Managed voice"]',
+    );
+    expect(voiceTrigger).not.toBeNull();
+    fireEvent.click(voiceTrigger!);
+    const options = Array.from(
+      document.querySelectorAll<HTMLElement>(
+        '[role="option"]:not([aria-label])',
+      ),
+    ).map((o) => o.textContent?.trim());
+    // A voice reads as its character traits in sentence case, with its
+    // upstream source as a suffix badge so users can tell providers apart
+    // while browsing, not only after selecting. The proper name is dropped
+    // (the assistant has its own) and the accent heads the group instead of
+    // repeating on every row.
+    expect(options).toContain(
+      "Professional, reassuring, confident (default)ElevenLabs",
+    );
+    expect(options).toContain("Deep, trustworthy, smoothDeepgram");
+    expect(options?.join(" ")).not.toContain("Sarah");
+    expect(options?.join(" ")).not.toContain("Zeus");
+    // Accents head their group rather than labelling each row.
+    expect(options).toContain("American");
+    // Voices sort by traits within a group: "deep…" before "professional…".
+    expect(options).toEqual([
+      "American",
+      "Deep, trustworthy, smoothDeepgram",
+      "Professional, reassuring, confident (default)ElevenLabs",
+    ]);
+    // Static-catalog-only voices must not appear once the fetch supplies data.
+    expect(options?.join(" ")).not.toContain("Thalia");
+    // The selected default has a hosted preview, so the button renders.
+    expect(
+      screen.queryByRole("button", { name: "Preview voice" }),
+    ).not.toBeNull();
+  });
+
+  test("the preview button is hidden for voices without a hosted sample", () => {
+    orgReady = true;
+    daemonConfigData = { services: { tts: { provider: "vellum" } } };
+    ttsCatalogData = {
+      providers: [
+        {
+          id: "vellum",
+          displayName: "Vellum",
+          subtitle: "Managed TTS.",
+          supportsVoiceSelection: true,
+          apiKeyPlaceholder: "",
+          credentialsGuide: { description: "", url: "", linkLabel: "" },
+        },
+      ],
+    };
+    managedVoicesData = {
+      voices: [
+        {
+          model: "voice-without-preview",
+          label: "Nova",
+          description: "A voice the platform serves without a hosted sample",
+          sampleUrl: "",
+          source: "elevenlabs",
+        },
+      ],
+      defaultModel: "voice-without-preview",
+    };
+    renderCard();
+
+    expect(screen.queryByRole("button", { name: "Preview voice" })).toBeNull();
+  });
+
+  test("a successful empty catalog hides the voice picker instead of falling back", () => {
+    // An empty catalog is authoritative ("nothing offered right now") — the
+    // static fallback must not resurface voices the platform would reject.
+    orgReady = true;
+    daemonConfigData = { services: { tts: { provider: "vellum" } } };
+    ttsCatalogData = {
+      providers: [
+        {
+          id: "vellum",
+          displayName: "Vellum",
+          subtitle: "Managed TTS.",
+          supportsVoiceSelection: true,
+          apiKeyPlaceholder: "",
+          credentialsGuide: { description: "", url: "", linkLabel: "" },
+        },
+      ],
+    };
+    managedVoicesData = { voices: [], defaultModel: null };
+    renderCard();
+
+    expect(
+      document.querySelector('button[aria-label="Managed voice"]'),
+    ).toBeNull();
+    expect(screen.queryByRole("button", { name: "Preview voice" })).toBeNull();
+    expect(
+      screen.getByText("No managed voices are currently available."),
+    ).toBeTruthy();
   });
 
   test("grafts the Vellum option onto a fetched catalog that lacks it", () => {

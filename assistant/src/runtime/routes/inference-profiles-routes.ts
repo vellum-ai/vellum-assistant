@@ -28,8 +28,17 @@ import {
   getConfigReadOnly,
   loadRawConfig,
 } from "../../config/loader.js";
-import { LLMProvider, ProfileEntry } from "../../config/schemas/llm.js";
+import {
+  LLMProvider,
+  ProfileEntry,
+  WRITE_LOCKED_PROVIDERS,
+} from "../../config/schemas/llm.js";
 import { getDb } from "../../persistence/db-connection.js";
+import {
+  ConnectionResolutionError,
+  resolveRoutingIdentity,
+} from "../../providers/connection-resolution.js";
+import { ROUTING_IDENTITY_PROVIDERS } from "../../providers/inference/auth.js";
 import { computeConnectionAvailability } from "../../providers/inference/connection-availability.js";
 import { getConnection } from "../../providers/inference/connections.js";
 import { isModelInCatalog } from "../../providers/model-catalog.js";
@@ -136,6 +145,14 @@ function assertValidProvider(provider: string): void {
       `Invalid provider "${provider}". Valid providers: ${LLMProvider.options.join(", ")}.`,
     );
   }
+  // Write-locked routing identities: dispatch cannot resolve them to a real
+  // upstream, so a stored profile carrying one cannot serve requests.
+  // Consults the same set as the schema and commitConfigWrite guards.
+  if (WRITE_LOCKED_PROVIDERS.has(provider)) {
+    throw new BadRequestError(
+      `Provider "${provider}" is not yet enabled for profiles.`,
+    );
+  }
 }
 
 /**
@@ -188,7 +205,35 @@ async function profileAvailability(
 ): Promise<Awaited<ReturnType<typeof computeConnectionAvailability>> | null> {
   const provider = entry.provider;
   const connection = entry.provider_connection;
-  if (typeof provider !== "string" || typeof connection !== "string") {
+  if (typeof provider !== "string") {
+    return null;
+  }
+  // Routing-identity profiles carry no provider_connection; availability is
+  // judged against the identity's canonical row and derived upstream. A
+  // model the identity cannot route reports as a mismatch rather than
+  // throwing — availability annotates, it must not fail the profiles read.
+  if (ROUTING_IDENTITY_PROVIDERS.has(provider)) {
+    const model = typeof entry.model === "string" ? entry.model : undefined;
+    try {
+      const identity = resolveRoutingIdentity(provider, model);
+      if (!identity) {
+        return null;
+      }
+      return computeConnectionAvailability(
+        identity.expectedProvider,
+        identity.connectionName,
+      );
+    } catch (err) {
+      return {
+        status: "provider_mismatch",
+        message:
+          err instanceof ConnectionResolutionError
+            ? err.message
+            : `Model "${model ?? "<unset>"}" cannot be routed by provider "${provider}".`,
+      };
+    }
+  }
+  if (typeof connection !== "string") {
     return null;
   }
   return computeConnectionAvailability(provider, connection);

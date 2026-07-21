@@ -15,6 +15,16 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
+/**
+ * Whether a process runs plugin-owned code or is the daemon itself / one of its
+ * workspace subsystems. Classified at collection time from the raw command line
+ * via {@link deriveOrigin}. Plugin processes carry their plugin identity as
+ * `plugin:<name>` — bundled defaults read as `plugin:default-<name>` (e.g.
+ * `plugin:default-memory`), user plugins as `plugin:<name>` (e.g.
+ * `plugin:cognee`).
+ */
+export type ProcessOrigin = "workspace" | `plugin:${string}`;
+
 export interface ProcInfo {
   pid: number;
   ppid: number;
@@ -27,6 +37,8 @@ export interface ProcInfo {
    * snapshot files.
    */
   command: string;
+  /** Whether this process was spawned from a plugin or from the workspace. */
+  origin: ProcessOrigin;
 }
 
 export interface ProcTreeNode {
@@ -35,6 +47,8 @@ export interface ProcTreeNode {
   name: string;
   /** Safe process descriptor (redacted via deriveName at collection time). */
   command: string;
+  /** Whether this process was spawned from a plugin or from the workspace. */
+  origin: ProcessOrigin;
   children: ProcTreeNode[];
 }
 
@@ -80,19 +94,60 @@ function scriptName(scriptPath: string): string {
  */
 export function deriveName(command: string): string {
   const tokens = command.trim().split(/\s+/).filter(Boolean);
-  if (tokens.length === 0) {return "(unknown)";}
+  if (tokens.length === 0) {
+    return "(unknown)";
+  }
 
   const argv0 = basename(tokens[0]);
   if (RUNTIMES.has(argv0)) {
     const args = tokens.slice(1);
     const script = args.find((t) => SCRIPT_EXT_RE.test(t));
-    if (script) {return scriptName(script);}
+    if (script) {
+      return scriptName(script);
+    }
     // No script to summarize: show the non-flag arguments so the entry reads as
     // "what was run" rather than an opaque `bun`. Flags are dropped as noise.
     const meaningful = args.filter((t) => !t.startsWith("-"));
-    if (meaningful.length > 0) {return `${argv0} ${meaningful.join(" ")}`;}
+    if (meaningful.length > 0) {
+      return `${argv0} ${meaningful.join(" ")}`;
+    }
   }
   return argv0;
+}
+
+/**
+ * Captures the plugin path segment(s) from a command whose executable/script
+ * path lives under a `plugins/<name>/` directory. Group 1 is the first segment
+ * after `plugins/`; group 2 is the next segment (present for bundled defaults,
+ * where the layout is `plugins/defaults/<name>/`). Matches both user plugins
+ * (`<workspaceDir>/plugins/<name>/`) and bundled defaults
+ * (`.../plugins/defaults/<name>/`). The `plugins-data/` state directory is
+ * deliberately not matched — the slash after `plugins` excludes it.
+ */
+const PLUGIN_PATH_RE = /(?:^|\/)plugins\/([^/\s]+)(?:\/([^/\s]+))?/;
+
+/**
+ * Classify whether a raw command line belongs to plugin-owned code, and if so
+ * which plugin. A process spawned from a plugin runs an entry script that lives
+ * under a `plugins/<name>/` directory; the daemon itself and its workspace
+ * subsystems (qdrant, the embed worker, the resource monitor) do not.
+ *
+ * Plugin identity is folded into the origin:
+ *   - bundled defaults at `…/plugins/defaults/memory/worker.ts` → `plugin:default-memory`
+ *   - user plugins at `…/plugins/cognee/server.ts`             → `plugin:cognee`
+ *
+ * This is a best-effort heuristic on the command path — a plugin that shells
+ * out to a bare binary with no plugin path in its argv reads as `workspace`.
+ */
+export function deriveOrigin(command: string): ProcessOrigin {
+  const m = PLUGIN_PATH_RE.exec(command);
+  if (!m) {
+    return "workspace";
+  }
+  const [, first, second] = m;
+  // Bundled defaults nest the plugin name one level deeper under `defaults/`.
+  const name = first === "defaults" && second ? `default-${second}` : first;
+  return `plugin:${name}`;
 }
 
 /**
@@ -104,12 +159,16 @@ export function deriveName(command: string): string {
 function parseProcStat(content: string): { comm: string; ppid: number } | null {
   const lparen = content.indexOf("(");
   const rparen = content.lastIndexOf(")");
-  if (lparen === -1 || rparen === -1 || rparen < lparen) {return null;}
+  if (lparen === -1 || rparen === -1 || rparen < lparen) {
+    return null;
+  }
   const comm = content.slice(lparen + 1, rparen);
   // After ")" come: " <state> <ppid> …" — split the remainder on spaces.
   const rest = content.slice(rparen + 2).split(" ");
   const ppid = Number(rest[1]);
-  if (!Number.isInteger(ppid)) {return null;}
+  if (!Number.isInteger(ppid)) {
+    return null;
+  }
   return { comm, ppid };
 }
 
@@ -119,13 +178,17 @@ function listProcessesFromProc(): ProcInfo[] {
   const procs: ProcInfo[] = [];
   for (const entry of entries) {
     const pid = Number(entry);
-    if (!Number.isInteger(pid) || pid <= 0) {continue;}
+    if (!Number.isInteger(pid) || pid <= 0) {
+      continue;
+    }
 
     let ppid: number;
     let comm: string;
     try {
       const parsed = parseProcStat(readFileSync(`/proc/${pid}/stat`, "utf8"));
-      if (!parsed) {continue;}
+      if (!parsed) {
+        continue;
+      }
       ({ ppid, comm } = parsed);
     } catch {
       // Process exited between readdir and read — skip.
@@ -138,15 +201,21 @@ function listProcessesFromProc(): ProcInfo[] {
     // The raw command line is read here but never stored — only the derived
     // safe descriptor is kept.
     let command = comm;
+    // Origin is derived from the raw command path (which carries the plugin
+    // directory), so it is classified before deriveName redacts the path away.
+    let origin: ProcessOrigin = "workspace";
     try {
       const raw = readFileSync(`/proc/${pid}/cmdline`, "utf8");
       const joined = raw.split("\0").filter(Boolean).join(" ");
-      if (joined) {command = deriveName(joined);}
+      if (joined) {
+        command = deriveName(joined);
+        origin = deriveOrigin(joined);
+      }
     } catch {
       // Fall back to comm.
     }
 
-    procs.push({ pid, ppid, command });
+    procs.push({ pid, ppid, command, origin });
   }
   return procs;
 }
@@ -162,11 +231,15 @@ async function listProcessesFromPs(): Promise<ProcInfo[]> {
   const procs: ProcInfo[] = [];
   for (const line of stdout.split("\n")) {
     const m = line.match(/^\s*(\d+)\s+(\d+)\s+(.*)$/);
-    if (!m) {continue;}
+    if (!m) {
+      continue;
+    }
+    const raw = m[3].trim();
     procs.push({
       pid: Number(m[1]),
       ppid: Number(m[2]),
-      command: deriveName(m[3].trim()),
+      command: deriveName(raw),
+      origin: deriveOrigin(raw),
     });
   }
   return procs;
@@ -198,8 +271,11 @@ export function buildProcessTree(
   for (const p of procs) {
     byPid.set(p.pid, p);
     const siblings = childrenOf.get(p.ppid);
-    if (siblings) {siblings.push(p.pid);}
-    else {childrenOf.set(p.ppid, [p.pid]);}
+    if (siblings) {
+      siblings.push(p.pid);
+    } else {
+      childrenOf.set(p.ppid, [p.pid]);
+    }
   }
 
   const visited = new Set<number>();
@@ -215,6 +291,8 @@ export function buildProcessTree(
       pid,
       name: info ? deriveName(command) : "assistant",
       command,
+      // A synthesized root (daemon PID absent from the table) is the workspace.
+      origin: info?.origin ?? "workspace",
       children,
     };
   };

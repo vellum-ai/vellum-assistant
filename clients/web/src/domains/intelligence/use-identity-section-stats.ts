@@ -13,8 +13,10 @@ import {
   personalitySlidersQueryKey,
 } from "@/assistant/personality-sliders";
 import {
+  appsGetOptions,
   channelsReadinessGetOptions,
   contactsGetOptions,
+  documentsGetOptions,
   schedulesGetQueryKey,
   skillsGetOptions,
   workspaceTreeGetOptions,
@@ -79,6 +81,16 @@ export function useIdentitySectionStats(
     ...installedPluginsQueryOptions(assistantId),
     select: (data) => data.plugins.length,
     enabled: supportsPlugins,
+  });
+  const apps = useQuery({
+    ...appsGetOptions({ path }),
+    select: (data) => data.apps.length,
+    ...common,
+  });
+  const documents = useQuery({
+    ...documentsGetOptions({ path }),
+    select: (data) => data.documents.length,
+    ...common,
   });
   const workspace = useQuery({
     ...workspaceTreeGetOptions({ path }),
@@ -152,6 +164,21 @@ export function useIdentitySectionStats(
               ...(plugins.data !== undefined
                 ? [
                     `${plugins.data} ${pluralLabel(plugins.data, "plugin", "plugins")}`,
+                  ]
+                : []),
+            ].join(" · "),
+          }
+        : undefined,
+    // Apps and documents share the Library card; like the superpowers stat,
+    // both kinds are named (interpunct-separated) once their reads resolve.
+    library:
+      apps.data !== undefined
+        ? {
+            text: [
+              `${apps.data} ${pluralLabel(apps.data, "app", "apps")}`,
+              ...(documents.data !== undefined
+                ? [
+                    `${documents.data} ${pluralLabel(documents.data, "doc", "docs")}`,
                   ]
                 : []),
             ].join(" · "),

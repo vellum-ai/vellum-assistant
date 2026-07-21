@@ -32,23 +32,29 @@ import {
 } from "../memory-v2-activation-log-store.js";
 import { getWorkspaceDir } from "../paths.js";
 import {
+  getCliCommandCapability,
+  isCliCommandSlug,
+} from "../v3/substrate/cli-command-store.js";
+import { getEdgeIndex } from "../v3/substrate/edge-index.js";
+import { getPageIndex } from "../v3/substrate/page-index.js";
+import { readPage, renderPageContent } from "../v3/substrate/page-store.js";
+import {
+  getSkillCapability,
+  isSkillSlug,
+} from "../v3/substrate/skill-store.js";
+import type {
+  ActivationState,
+  EverInjectedEntry,
+} from "../v3/substrate/types.js";
+import {
   computeOwnActivation,
   selectCandidates,
   selectInjections,
   spreadActivation,
 } from "./activation.js";
 import { hydrate, save } from "./activation-store.js";
-import {
-  getCliCommandCapability,
-  isCliCommandSlug,
-} from "./cli-command-store.js";
-import { getEdgeIndex } from "./edge-index.js";
 import { recordInjectionEvents } from "./injection-events.js";
-import { getPageIndex } from "./page-index.js";
-import { readPage, renderPageContent } from "./page-store.js";
 import { type RouterTurnPair, runRouter } from "./router.js";
-import { getSkillCapability, isSkillSlug } from "./skill-store.js";
-import type { ActivationState, EverInjectedEntry } from "./types.js";
 
 const log = getLogger("memory-v2-injection");
 
@@ -608,6 +614,7 @@ async function injectViaRouter(args: {
 
   const routerResult = await runRouter({
     workspaceDir,
+    conversationId,
     recentTurnPairs,
     nowText,
     priorEverInjected,

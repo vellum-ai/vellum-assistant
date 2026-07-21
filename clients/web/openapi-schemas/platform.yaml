@@ -1558,10 +1558,10 @@ paths:
   /v1/assistants/{assistant_id}/managed-speech/tts/synthesize/:
     post:
       operationId: assistants_managed_speech_tts_synthesize_create
-      description: Synthesize speech audio from text through Vellum's managed Deepgram
-        text-to-speech proxy. Vellum validates the request, checks billing eligibility,
-        calls Deepgram with managed credentials, bills the input character count,
-        and returns the synthesized audio bytes.
+      description: Synthesize speech audio from text through Vellum's managed text-to-speech
+        proxy. Vellum validates the request, checks billing eligibility, calls the
+        speech provider for the selected voice with managed credentials, bills the
+        input character count, and returns the synthesized audio bytes.
       parameters:
       - in: path
         name: assistant_id
@@ -4288,6 +4288,71 @@ paths:
           description: ''
       x-vellum-api-clients:
       - platform
+  /v1/organizations/billing/daily-credit-limit/:
+    get:
+      operationId: organizations_billing_daily_credit_limit_retrieve
+      description: Return the daily limit (or null) and the read-only spend counter.
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      tags:
+      - organizations
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DailyCreditLimitResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+    put:
+      operationId: organizations_billing_daily_credit_limit_update
+      description: Set (or clear, via null) the organization's daily credit limit.
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      tags:
+      - organizations
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DailyCreditLimitRequestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/DailyCreditLimitRequestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/DailyCreditLimitRequestRequest'
+        required: true
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DailyCreditLimitResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
   /v1/organizations/billing/invoices/:
     get:
       operationId: organizations_billing_invoices_retrieve
@@ -6211,8 +6276,24 @@ components:
         is_degraded:
           type: boolean
           description: True when pending-compute data may be stale or unavailable.
+        daily_credit_limit_usd:
+          type: string
+          nullable: true
+          description: Per-org daily credit spend limit as a decimal string, or null
+            when no daily limit is set.
+        daily_spend_usd:
+          type: string
+          description: Today's (UTC) credit spend as a decimal string. Reported as
+            "0.00" when the stored counter is from a prior UTC day.
+        daily_limit_reached:
+          type: boolean
+          description: True when a daily limit is set and today's spend has reached
+            it.
       required:
       - allowed_top_up_amounts
+      - daily_credit_limit_usd
+      - daily_limit_reached
+      - daily_spend_usd
       - effective_balance
       - effective_balance_usd
       - is_degraded
@@ -6290,6 +6371,7 @@ components:
       - connection_not_found
       - oauth_start_failed
       - insufficient_balance
+      - daily_limit_reached
       - missing_price
       type: string
       description: |-
@@ -6309,6 +6391,7 @@ components:
         * `connection_not_found` - connection_not_found
         * `oauth_start_failed` - oauth_start_failed
         * `insufficient_balance` - insufficient_balance
+        * `daily_limit_reached` - daily_limit_reached
         * `missing_price` - missing_price
     ComputeTierChangeRequestRequest:
       type: object
@@ -6490,6 +6573,32 @@ components:
         * `credits_100` - credits_100
         * `credits_115` - credits_115
         * `credits_200` - credits_200
+    DailyCreditLimitRequestRequest:
+      type: object
+      description: PUT /…/daily-credit-limit/ request body. ``null`` clears the limit.
+      properties:
+        daily_credit_limit_usd:
+          type: string
+          nullable: true
+          minLength: 1
+      required:
+      - daily_credit_limit_usd
+    DailyCreditLimitResponse:
+      type: object
+      description: GET/PUT /…/daily-credit-limit/ response shape.
+      properties:
+        daily_credit_limit_usd:
+          type: string
+          nullable: true
+        current_day_spent_usd:
+          type: string
+        day_bucket:
+          type: string
+          nullable: true
+      required:
+      - current_day_spent_usd
+      - daily_credit_limit_usd
+      - day_bucket
     DetailResponse:
       type: object
       properties:

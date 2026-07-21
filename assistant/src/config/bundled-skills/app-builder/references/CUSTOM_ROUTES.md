@@ -83,7 +83,6 @@ Every handler receives a frozen `context` object as its second argument. This pr
 ```typescript
 export async function POST(request: Request, context): Promise<Response> {
   // context.assistantEventHub — publish events to connected SSE clients
-  // context.assistantId       — the daemon's logical assistant ID ("self")
   // context.conversations     — post messages into conversations as real turns
 }
 ```
@@ -99,7 +98,7 @@ export async function POST(request: Request, context): Promise<Response> {
 
   await context.assistantEventHub.publish({
     id: crypto.randomUUID(),
-    assistantId: context.assistantId,
+    assistantId: "self",
     conversationId,
     emittedAt: new Date().toISOString(),
     message: { type: "open_conversation", conversationId },

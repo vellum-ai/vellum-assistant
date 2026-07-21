@@ -448,6 +448,19 @@
       "homepage": "https://github.com/vellum-ai/writing-coach",
       "license": "MIT",
       "icon": "✍️"
+    },
+    {
+      "name": "battleship",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/battleship",
+        "ref": "32391ea3af71597b7507bb710bd29ab8308a4604"
+      },
+      "description": "Play Battleship against your assistant. Fire shots, track hits and misses, and sink the fleet before the assistant sinks yours.",
+      "category": "hobby",
+      "homepage": "https://github.com/vellum-ai/battleship",
+      "license": "MIT",
+      "icon": "⚓"
     }
   ]
 }

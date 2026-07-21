@@ -14,10 +14,15 @@ import {
   loadRawConfig,
   saveRawConfig,
 } from "../../config/loader.js";
+import type { LiveVoiceFrontModelConfig } from "../../config/schemas/live-voice.js";
 import type {
   StreamingTranscriber,
   SttStreamServerEvent,
 } from "../../stt/types.js";
+import type {
+  VoiceEndpointDecisionInput,
+  VoiceFrontDecider,
+} from "../front-decision.js";
 import type { LiveVoiceAudioArchiveResult } from "../live-voice-archive.js";
 import {
   createLiveVoiceSession,
@@ -73,6 +78,12 @@ const LOUD_CHUNK = pcm(8_000);
 // chunk trips barge-in. Must stay above that default.
 const SUSTAINED_LOUD_CHUNK = pcm(8_000, 7_200);
 const SILENT_CHUNK = pcm(0);
+// A sub-threshold "ducked" chunk. While the assistant is audibly playing, the
+// browser's half-duplex echo canceller attenuates the user's near-end voice, so
+// the server classifies the post-AEC audio as below the speech-energy gate:
+// a barge-in mid-playback arrives as loud runs split by these ducked gaps.
+// 10 ms at 24 kHz, mean amplitude well under the 800 threshold.
+const DUCKED_CHUNK = pcm(200);
 
 class MockStreamingTranscriber implements StreamingTranscriber {
   readonly providerId = "deepgram" as const;
@@ -123,6 +134,8 @@ function createHarness(options: {
   turnDetectorConfig?: TurnDetectorConfig;
   speechEnergyThreshold?: number;
   bargeInMinSpeechMs?: number;
+  frontDecider?: VoiceFrontDecider | null;
+  frontModelConfig?: Partial<LiveVoiceFrontModelConfig>;
   emitMetrics?: boolean;
   metricsClock?: () => number;
   // Return a promise to hold a frame's transport write open (a backed-up
@@ -187,6 +200,12 @@ function createHarness(options: {
       (options.viaFactory ? undefined : { silenceThresholdMs: 40 }),
     speechEnergyThreshold: options.speechEnergyThreshold,
     bargeInMinSpeechMs: options.bargeInMinSpeechMs,
+    ...(options.frontDecider !== undefined
+      ? { frontDecider: options.frontDecider }
+      : {}),
+    ...(options.frontModelConfig
+      ? { frontModelConfig: options.frontModelConfig }
+      : {}),
     ...(options.spawnBackgroundContinuation
       ? { spawnBackgroundContinuation: options.spawnBackgroundContinuation }
       : {}),
@@ -2443,29 +2462,116 @@ describe("LiveVoiceSession sustained-speech barge-in guard", () => {
     await waitFor(() => abort.mock.calls.length === 1);
   });
 
-  test("a non-speech chunk resets the sustained-speech run", async () => {
-    const { frames, session, speakFirstReply } = createSpeakingTurnHarness({
-      bargeInMinSpeechMs: 60,
-    });
+  test("a brief sub-threshold gap does not reset the sustained-speech run", async () => {
+    const { frames, session, abort, speakFirstReply } =
+      createSpeakingTurnHarness({ bargeInMinSpeechMs: 60 });
     await speakFirstReply();
 
-    // 50 ms of speech, a silence blip, then 50 ms more: neither run reaches
-    // the guard because the blip zeroes the accumulator.
+    // 50 ms of speech, then one ducked gap: while the assistant is playing, the
+    // half-duplex echo canceller attenuates the user's voice, so the server
+    // sees a sub-threshold chunk mid-utterance. The gap (10 ms) is far shorter
+    // than BARGE_IN_GAP_TOLERANCE_MS, so it must NOT zero the run.
     for (let index = 0; index < 5; index += 1) {
       await session.handleBinaryAudio(LOUD_CHUNK);
     }
-    await session.handleBinaryAudio(SILENT_CHUNK);
+    await session.handleBinaryAudio(DUCKED_CHUNK);
+    await flushAsyncCallbacks();
+    expect(countType(frames, "turn_cancelled")).toBe(0);
+
+    // A single further speech chunk carries the retained 50 ms run across the
+    // gap to the 60 ms guard and cancels: the gap left the accumulator intact,
+    // so one more 10 ms chunk is enough rather than a fresh 60 ms run.
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() =>
+      frames.some((frame) => frame.type === "turn_cancelled"),
+    );
+    expect(
+      frames.find((frame) => frame.type === "turn_cancelled"),
+    ).toMatchObject({ type: "turn_cancelled", turnId: "live-turn-1" });
+    await waitFor(() => abort.mock.calls.length === 1);
+  });
+
+  test("a gap longer than the tolerance resets the sustained-speech run", async () => {
+    const { frames, session, abort, speakFirstReply } =
+      createSpeakingTurnHarness({ bargeInMinSpeechMs: 60 });
+    await speakFirstReply();
+
+    // 50 ms of speech, then a ducked gap longer than BARGE_IN_GAP_TOLERANCE_MS
+    // (25 chunks = 250 ms): a real pause rather than a syllable boundary, so the
+    // run resets. The harness silence threshold is 5 s, so the detector never
+    // ends the utterance here — the reset is the gap-tolerance logic, not
+    // utterance end.
+    for (let index = 0; index < 5; index += 1) {
+      await session.handleBinaryAudio(LOUD_CHUNK);
+    }
+    for (let index = 0; index < 25; index += 1) {
+      await session.handleBinaryAudio(DUCKED_CHUNK);
+    }
+    // 50 ms more speech: because the run reset, this accumulates from zero and
+    // stays under the 60 ms guard — the two stretches do not sum across the long
+    // gap into a false barge-in.
     for (let index = 0; index < 5; index += 1) {
       await session.handleBinaryAudio(LOUD_CHUNK);
     }
     await flushAsyncCallbacks();
     expect(countType(frames, "turn_cancelled")).toBe(0);
+    expect(abort).not.toHaveBeenCalled();
 
-    // A 6th consecutive speech chunk completes a full 60 ms run.
+    // A 6th consecutive speech chunk (with the 5 above) completes a fresh 60 ms
+    // run after the reset and cancels normally.
     await session.handleBinaryAudio(LOUD_CHUNK);
     await waitFor(() =>
       frames.some((frame) => frame.type === "turn_cancelled"),
     );
+  });
+
+  test("a gap of exactly the tolerance is tolerated and does not reset the run", async () => {
+    const { frames, session, abort, speakFirstReply } =
+      createSpeakingTurnHarness({ bargeInMinSpeechMs: 60 });
+    await speakFirstReply();
+
+    // 50 ms of speech, then a ducked gap of exactly BARGE_IN_GAP_TOLERANCE_MS
+    // (20 chunks = 200 ms). The tolerance is inclusive — the web client batches
+    // PCM into 50 ms frames, so a ducked run lands on the boundary exactly — so
+    // this gap does not reset the accumulated speech.
+    for (let index = 0; index < 5; index += 1) {
+      await session.handleBinaryAudio(LOUD_CHUNK);
+    }
+    for (let index = 0; index < 20; index += 1) {
+      await session.handleBinaryAudio(DUCKED_CHUNK);
+    }
+    // One more speech chunk carries the retained 50 ms run to the 60 ms guard
+    // and cancels — proof the exactly-200 ms gap left the accumulator intact.
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() =>
+      frames.some((frame) => frame.type === "turn_cancelled"),
+    );
+    expect(
+      frames.find((frame) => frame.type === "turn_cancelled"),
+    ).toMatchObject({ type: "turn_cancelled", turnId: "live-turn-1" });
+    await waitFor(() => abort.mock.calls.length === 1);
+  });
+
+  test("sparse periodic blips separated by boundary gaps do not accumulate into a barge-in", async () => {
+    const { frames, session, abort, speakFirstReply } =
+      createSpeakingTurnHarness({ bargeInMinSpeechMs: 60 });
+    await speakFirstReply();
+
+    // A 10 ms blip every 200 ms models residual echo/noise, not sustained
+    // speech: each blip clears the consecutive-gap timer while the boundary gap
+    // (20 chunks = 200 ms) escapes the per-gap reset. Enough cycles to reach the
+    // 60 ms guard by pure blip-summing (6 blips) plus margin. The duty-cycle
+    // ceiling (cumulative tolerated silence > bargeInMinSpeechMs * 4 = 240 ms)
+    // resets the run every few cycles, so the blips never sum into a barge-in.
+    for (let cycle = 0; cycle < 9; cycle += 1) {
+      await session.handleBinaryAudio(LOUD_CHUNK);
+      for (let index = 0; index < 20; index += 1) {
+        await session.handleBinaryAudio(DUCKED_CHUNK);
+      }
+    }
+    await flushAsyncCallbacks();
+    expect(countType(frames, "turn_cancelled")).toBe(0);
+    expect(abort).not.toHaveBeenCalled();
   });
 
   test("bargeInMinSpeechMs 0 restores instant barge-in", async () => {
@@ -2578,5 +2684,383 @@ describe("LiveVoiceSession sustained-speech barge-in guard", () => {
       frames.find((frame) => frame.type === "turn_cancelled"),
     ).toMatchObject({ type: "turn_cancelled", turnId: "live-turn-1" });
     await waitFor(() => abort.mock.calls.length === 1);
+  });
+});
+
+// Stub semantic-endpointing decider: scripted hold/release decisions consumed
+// in order, with every consulted input captured. Falls back to "release" once
+// the script is exhausted, mirroring the real decider's fail-open bias.
+function makeFrontDecider(decisions: Array<"hold" | "release">): {
+  decider: VoiceFrontDecider;
+  calls: VoiceEndpointDecisionInput[];
+} {
+  const calls: VoiceEndpointDecisionInput[] = [];
+  return {
+    calls,
+    decider: {
+      decideEndpoint: async (input) => {
+        calls.push(input);
+        return { action: decisions[calls.length - 1] ?? "release" };
+      },
+      generateAckText: async () => null,
+      generateProgressText: async () => null,
+    },
+  };
+}
+
+describe("LiveVoiceSession semantic endpointing", () => {
+  // Arms the harness session, waits for its transcriber, and seeds a partial
+  // so the silence boundary has transcript text for the decider to judge.
+  async function startWithPartial(
+    session: LiveVoiceSession,
+    transcribers: MockStreamingTranscriber[],
+    partialText = "hello wor",
+  ): Promise<void> {
+    await session.start();
+    await waitFor(() => transcribers.length === 1);
+    // Let the transcriber's start() wiring settle before emitting events.
+    await flushAsyncCallbacks();
+    transcribers[0]?.emit({ type: "partial", text: partialText });
+  }
+
+  test("a held silence boundary sends no utterance_end and replays after the extension", async () => {
+    const { decider, calls } = makeFrontDecider(["hold", "release"]);
+    const turnStarter = makeAutoCompletingTurnStarter(["Hi there."]);
+    const { frames, session, transcribers } = createHarness({
+      finals: ["hello world"],
+      startVoiceTurn: turnStarter.startVoiceTurn,
+      frontDecider: decider,
+      frontModelConfig: { endpointExtensionMs: 30 },
+    });
+
+    await startWithPartial(session, transcribers);
+    await session.handleBinaryAudio(LOUD_CHUNK);
+
+    // First silence boundary: the decider holds — no utterance_end, no turn.
+    await waitFor(() => calls.length === 1);
+    expect(calls[0]).toEqual({
+      transcriptSoFar: "",
+      latestPartial: "hello wor",
+      silenceThresholdMs: 40,
+      extensionCount: 0,
+    });
+    expect(countType(frames, "utterance_end")).toBe(0);
+    expect(countType(frames, "thinking")).toBe(0);
+
+    // The extension elapses in continued silence: the boundary replays, the
+    // decider releases, and the turn launches normally.
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+    expect(calls).toHaveLength(2);
+    expect(calls[1]).toMatchObject({ extensionCount: 1 });
+    expect(frameTypes(frames)).toEqual([
+      "ready",
+      "stt_partial",
+      "speech_started",
+      "utterance_end",
+      "stt_final",
+      "thinking",
+      "assistant_text_delta",
+      "tts_done",
+    ]);
+    expect(
+      frames.find((frame) => frame.type === "utterance_end"),
+    ).toMatchObject({ reason: "silence" });
+    expect(turnStarter.calls[0]).toMatchObject({ content: "hello world" });
+  });
+
+  test("ptt_release during a held pause still emits utterance_end", async () => {
+    const { decider, calls } = makeFrontDecider(["hold"]);
+    const turnStarter = makeAutoCompletingTurnStarter(["Hi."]);
+    const { frames, session, transcribers } = createHarness({
+      finals: ["hello world"],
+      startVoiceTurn: turnStarter.startVoiceTurn,
+      frontDecider: decider,
+      // Long extension so the pending replay cannot race the manual release.
+      frontModelConfig: { endpointExtensionMs: 5_000 },
+    });
+
+    await startWithPartial(session, transcribers);
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => calls.length === 1);
+    expect(countType(frames, "utterance_end")).toBe(0);
+
+    // The detector's turn already ended (the hold suppressed its boundary),
+    // so this release takes the no-active-detector path — the client must
+    // still receive the utterance_end frame it uses to leave `listening`.
+    await session.handleClientFrame({ type: "ptt_release" });
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+    expect(countType(frames, "utterance_end")).toBe(1);
+    // Manual release never re-consults the decider.
+    expect(calls).toHaveLength(1);
+    expect(turnStarter.calls[0]).toMatchObject({ content: "hello world" });
+  });
+
+  test("speech resuming during a hold cancels the replay and the utterance keeps accumulating", async () => {
+    const { decider, calls } = makeFrontDecider(["hold", "release"]);
+    const turnStarter = makeAutoCompletingTurnStarter(["Okay."]);
+    const { frames, session, transcribers } = createHarness({
+      finals: ["hello there world"],
+      startVoiceTurn: turnStarter.startVoiceTurn,
+      frontDecider: decider,
+      // Comfortably longer than the resumed speech's own silence boundary,
+      // so a leaked (uncancelled) replay would surface as a third decider
+      // consult / second utterance_end below.
+      frontModelConfig: { endpointExtensionMs: 200 },
+    });
+
+    await startWithPartial(session, transcribers, "hello");
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => calls.length === 1);
+    expect(countType(frames, "utterance_end")).toBe(0);
+
+    // Speech resumes during the hold; the fresh silence boundary after it —
+    // not the cancelled replay timer — drives the next decision.
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => calls.length === 2);
+    expect(calls[1]).toMatchObject({ extensionCount: 1 });
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    // Wait out the original extension window: the cancelled replay never
+    // re-fires the boundary.
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    expect(calls).toHaveLength(2);
+    expect(countType(frames, "utterance_end")).toBe(1);
+    // Both speech bursts fed the same utterance's transcriber (the second
+    // resolves only when the completed turn re-arms), producing one released
+    // turn end-to-end.
+    expect(transcribers[0]?.received.length).toBeGreaterThanOrEqual(2);
+    expect(turnStarter.calls).toHaveLength(1);
+    expect(turnStarter.calls[0]).toMatchObject({
+      content: "hello there world",
+    });
+  });
+
+  test("a release decision produces the same frame sequence as the flag-off path", async () => {
+    const { decider, calls } = makeFrontDecider(["release"]);
+    const turnStarter = makeAutoCompletingTurnStarter(["Hi there."]);
+    const { frames, session, transcribers } = createHarness({
+      finals: ["hello world"],
+      startVoiceTurn: turnStarter.startVoiceTurn,
+      frontDecider: decider,
+    });
+
+    await startWithPartial(session, transcribers);
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    expect(calls).toHaveLength(1);
+    expect(frameTypes(frames)).toEqual([
+      "ready",
+      "stt_partial",
+      "speech_started",
+      "utterance_end",
+      "stt_final",
+      "thinking",
+      "assistant_text_delta",
+      "tts_done",
+    ]);
+    expect(
+      frames.find((frame) => frame.type === "utterance_end"),
+    ).toMatchObject({ reason: "silence" });
+  });
+
+  test("a rejecting decider still releases the boundary with the normal frame sequence", async () => {
+    // The decider contract never rejects, but a buggy injected stub (or a
+    // future regression) must not silently drop the silence boundary: the
+    // session's belt catches the rejection and releases.
+    const calls: VoiceEndpointDecisionInput[] = [];
+    const decider: VoiceFrontDecider = {
+      decideEndpoint: async (input) => {
+        calls.push(input);
+        throw new Error("stub decider boom");
+      },
+      generateAckText: async () => null,
+      generateProgressText: async () => null,
+    };
+    const turnStarter = makeAutoCompletingTurnStarter(["Hi there."]);
+    const { frames, session, transcribers } = createHarness({
+      finals: ["hello world"],
+      startVoiceTurn: turnStarter.startVoiceTurn,
+      frontDecider: decider,
+    });
+
+    await startWithPartial(session, transcribers);
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    expect(calls).toHaveLength(1);
+    expect(frameTypes(frames)).toEqual([
+      "ready",
+      "stt_partial",
+      "speech_started",
+      "utterance_end",
+      "stt_final",
+      "thinking",
+      "assistant_text_delta",
+      "tts_done",
+    ]);
+    expect(
+      frames.find((frame) => frame.type === "utterance_end"),
+    ).toMatchObject({ reason: "silence" });
+    expect(turnStarter.calls[0]).toMatchObject({ content: "hello world" });
+  });
+
+  test("a slow decider adds only its own bounded delay and then releases normally", async () => {
+    // Resolves "release" only after a delay comfortably longer than every
+    // other timer in the flow — the boundary must wait it out and then run
+    // the unchanged release sequence.
+    const calls: VoiceEndpointDecisionInput[] = [];
+    const decider: VoiceFrontDecider = {
+      decideEndpoint: async (input) => {
+        calls.push(input);
+        await new Promise((resolve) => setTimeout(resolve, 150));
+        return { action: "release" };
+      },
+      generateAckText: async () => null,
+      generateProgressText: async () => null,
+    };
+    const turnStarter = makeAutoCompletingTurnStarter(["Hi there."]);
+    const { frames, session, transcribers } = createHarness({
+      finals: ["hello world"],
+      startVoiceTurn: turnStarter.startVoiceTurn,
+      frontDecider: decider,
+    });
+
+    await startWithPartial(session, transcribers);
+    await session.handleBinaryAudio(LOUD_CHUNK);
+
+    // While the decision is pending, the boundary stays unreleased.
+    await waitFor(() => calls.length === 1);
+    expect(countType(frames, "utterance_end")).toBe(0);
+    expect(countType(frames, "thinking")).toBe(0);
+
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+    expect(calls).toHaveLength(1);
+    expect(frameTypes(frames)).toEqual([
+      "ready",
+      "stt_partial",
+      "speech_started",
+      "utterance_end",
+      "stt_final",
+      "thinking",
+      "assistant_text_delta",
+      "tts_done",
+    ]);
+    expect(
+      frames.find((frame) => frame.type === "utterance_end"),
+    ).toMatchObject({ reason: "silence" });
+    expect(turnStarter.calls[0]).toMatchObject({ content: "hello world" });
+  });
+
+  test("endpointMaxExtensions caps consecutive holds and forces the release", async () => {
+    const { decider, calls } = makeFrontDecider(["hold", "hold", "hold"]);
+    const turnStarter = makeAutoCompletingTurnStarter(["Hi there."]);
+    const { frames, session, transcribers } = createHarness({
+      finals: ["hello world"],
+      startVoiceTurn: turnStarter.startVoiceTurn,
+      frontDecider: decider,
+      frontModelConfig: { endpointExtensionMs: 20, endpointMaxExtensions: 1 },
+    });
+
+    await startWithPartial(session, transcribers);
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    // The single allowed hold consumed the decider's one consult; the replay
+    // hit the cap and released without asking again.
+    expect(calls).toHaveLength(1);
+    expect(countType(frames, "utterance_end")).toBe(1);
+    expect(turnStarter.calls).toHaveLength(1);
+    expect(turnStarter.calls[0]).toMatchObject({ content: "hello world" });
+  });
+
+  test("a max-duration boundary bypasses the decider entirely", async () => {
+    const { decider, calls } = makeFrontDecider(["hold"]);
+    const turnStarter = makeAutoCompletingTurnStarter(["Hi there."]);
+    const { frames, session, transcribers } = createHarness({
+      finals: ["hello world"],
+      startVoiceTurn: turnStarter.startVoiceTurn,
+      frontDecider: decider,
+      // Silence can never fire; the max-duration cap ends the turn instead.
+      turnDetectorConfig: { silenceThresholdMs: 10_000, maxTurnDurationMs: 40 },
+    });
+
+    await startWithPartial(session, transcribers);
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    expect(calls).toHaveLength(0);
+    expect(
+      frames.find((frame) => frame.type === "utterance_end"),
+    ).toMatchObject({ reason: "max-duration" });
+    expect(turnStarter.calls).toHaveLength(1);
+  });
+
+  test("a ptt_release forced boundary bypasses the decider and releases immediately", async () => {
+    // A hold-happy decider: if the manual release were routed through it,
+    // the boundary would be deferred and the frame sequence below would gain
+    // an extension delay (or stall entirely).
+    const { decider, calls } = makeFrontDecider(["hold", "hold"]);
+    const turnStarter = makeAutoCompletingTurnStarter(["Hi there."]);
+    const { frames, session, transcribers } = createHarness({
+      finals: ["hello world"],
+      startVoiceTurn: turnStarter.startVoiceTurn,
+      frontDecider: decider,
+      // A genuine silence boundary can never fire during the test; only the
+      // client's explicit release ends the turn.
+      turnDetectorConfig: { silenceThresholdMs: 10_000 },
+    });
+
+    await startWithPartial(session, transcribers);
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() =>
+      frames.some((frame) => frame.type === "speech_started"),
+    );
+
+    await session.handleClientFrame({ type: "ptt_release" });
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    // The explicit release was never second-guessed: no decider consult, and
+    // the boundary produced the normal utterance_end → turn-launch sequence.
+    expect(calls).toHaveLength(0);
+    expect(frameTypes(frames)).toEqual([
+      "ready",
+      "stt_partial",
+      "speech_started",
+      "utterance_end",
+      "stt_final",
+      "thinking",
+      "assistant_text_delta",
+      "tts_done",
+    ]);
+    expect(
+      frames.find((frame) => frame.type === "utterance_end"),
+    ).toMatchObject({ reason: "silence" });
+    expect(turnStarter.calls).toHaveLength(1);
+    expect(turnStarter.calls[0]).toMatchObject({ content: "hello world" });
+  });
+
+  test("session close during a hold clears the extension timer", async () => {
+    const { decider, calls } = makeFrontDecider(["hold", "hold"]);
+    const { frames, session, transcribers } = createHarness({
+      finals: ["hello world"],
+      frontDecider: decider,
+      frontModelConfig: { endpointExtensionMs: 30 },
+    });
+
+    await startWithPartial(session, transcribers);
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => calls.length === 1);
+    expect(countType(frames, "utterance_end")).toBe(0);
+
+    await session.close("client_end");
+    const framesAtClose = frames.length;
+
+    // Well past the extension window: the cleared timer never replays the
+    // boundary — no utterance_end, no second decider consult, no new frames.
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(calls).toHaveLength(1);
+    expect(countType(frames, "utterance_end")).toBe(0);
+    expect(frames.length).toBe(framesAtClose);
   });
 });

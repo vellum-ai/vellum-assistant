@@ -19,6 +19,7 @@ import { backfillRelationshipStateIfMissing } from "../home/relationship-state-w
 import { startCliIpcServer } from "../ipc/assistant-server.js";
 import { startGatewayFlagListener } from "../ipc/gateway-flag-listener.js";
 import { startMonitoring } from "../monitoring/control.js";
+import { recordDaemonBootTime } from "../monitoring/daemon-boot-time.js";
 import { backfillManualTokenConnections } from "../oauth/manual-token-connection.js";
 import { seedOAuthProviders } from "../oauth/seed-providers.js";
 import { getMaxPersistedConversationSeq } from "../persistence/conversation-crud.js";
@@ -116,6 +117,13 @@ export async function runDaemon(): Promise<void> {
   installShutdownHandlers();
 
   ensureDataDir();
+
+  // Persist this process's boot time for the monitor's out-of-process recovery
+  // pass, which fences its stale-`processing_started_at` sweep on it: a flag
+  // set before boot belongs to a process that has exited, one at or after it to
+  // a live turn. Recorded before any turn can start so every live flag is at or
+  // after it.
+  recordDaemonBootTime(startupStartedAt);
 
   // Recover from any streaming `.vbundle` import that was interrupted by a
   // crash or SIGKILL. If the previous process died between
@@ -511,13 +519,12 @@ export async function runDaemon(): Promise<void> {
   log.info("Daemon startup: loading config");
   const config = loadConfig();
 
-  // Reconcile conversations left mid-turn by the previous shutdown. Their
+  // Select conversations left mid-turn by the previous shutdown for auto-resume
+  // when `conversations.resumeProcessingOnStartup` is enabled. Their
   // `processing_started_at` is still set even though the in-memory agent loop
-  // that owned the turn is gone. Stale flags are always cleared so no
-  // conversation stays visibly stuck "processing"; when
-  // `conversations.resumeProcessingOnStartup` is enabled the reconciler also
-  // selects conversations to resume once startup completes (the wakes need
-  // providers/CES, so they are kicked off next to `setStartupComplete()`).
+  // that owned the turn is gone; the monitor's recovery pass clears those stale
+  // flags out of process. The resume wakes need providers/CES, so they are
+  // kicked off next to `setStartupComplete()`.
   let conversationsToResume: InterruptedResumeTarget[] = [];
   if (dbReady) {
     try {
@@ -525,13 +532,10 @@ export async function runDaemon(): Promise<void> {
         config.conversations.resumeProcessingOnStartup,
       );
       conversationsToResume = reconciled.resume;
-      if (reconciled.cleared > 0) {
+      if (reconciled.resume.length > 0) {
         log.info(
-          {
-            count: reconciled.cleared,
-            resuming: reconciled.resume.length,
-          },
-          "Cleared stale conversation processing flags from previous process",
+          { resuming: reconciled.resume.length },
+          "Selected interrupted conversations for auto-resume",
         );
       }
       if (reconciled.capped.length > 0) {

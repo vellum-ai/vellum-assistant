@@ -94,6 +94,20 @@ describe("POST inference/profiles (create) validation", () => {
     ).rejects.toBeInstanceOf(BadRequestError);
   });
 
+  test("rejects the schema-admitted routing identities until dispatch handles them", async () => {
+    for (const provider of ["vellum", "chatgpt"]) {
+      await expect(
+        call("inference_profiles_create", {
+          body: {
+            name: "my-profile",
+            provider,
+            model: "claude-opus-4-8",
+          },
+        }),
+      ).rejects.toThrow(/not yet enabled for profiles/);
+    }
+  });
+
   test("rejects an uncataloged model without allowUnlisted", async () => {
     await expect(
       call("inference_profiles_create", {

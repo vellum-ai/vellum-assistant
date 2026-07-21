@@ -21,11 +21,20 @@ import { Command } from "commander";
 /** The last `cliIpcCall` invocation captured for assertions. */
 let lastIpcCall: { method: string; params?: any } | null = null;
 
+/** Every `cliIpcCall` invocation in order (the `voice` command makes two). */
+let ipcCalls: Array<{ method: string; params?: any }> = [];
+
 /** The result that cliIpcCall will return. */
 let mockIpcResult: { ok: boolean; result?: unknown; error?: string } = {
   ok: true,
   result: { audioBase64: "dGVzdA==", contentType: "audio/mpeg" },
 };
+
+/** Optional per-method result overrides (falls back to `mockIpcResult`). */
+let ipcResponders: Record<
+  string,
+  { ok: boolean; result?: unknown; error?: string }
+> = {};
 
 /** Captured writeFileSync calls. */
 let writeFileCalls: Array<{ path: string; data: Buffer }> = [];
@@ -40,7 +49,8 @@ let stdinReturnsText = false;
 mock.module("../../../ipc/cli-client.js", () => ({
   cliIpcCall: async (method: string, params?: any) => {
     lastIpcCall = { method, params };
-    return mockIpcResult;
+    ipcCalls.push({ method, params });
+    return ipcResponders[method] ?? mockIpcResult;
   },
   exitFromIpcResult: (r: any) => {
     process.exitCode = 1;
@@ -156,6 +166,8 @@ async function runCommand(
 
 beforeEach(() => {
   lastIpcCall = null;
+  ipcCalls = [];
+  ipcResponders = {};
   mockIpcResult = {
     ok: true,
     result: { audioBase64: "dGVzdA==", contentType: "audio/mpeg" },
@@ -324,5 +336,113 @@ describe("tts synthesize — base64 round-trip", () => {
     expect(Buffer.from(writeFileCalls[0].data).equals(originalBytes)).toBe(
       true,
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// voice — routes to the active provider's config key
+// ---------------------------------------------------------------------------
+
+describe("tts voice — active-provider routing", () => {
+  function respondProvider(provider: string): void {
+    ipcResponders.config_get = {
+      ok: true,
+      result: { services: { tts: { provider } } },
+    };
+    ipcResponders.config_set = { ok: true, result: {} };
+  }
+
+  test("managed (vellum) writes to services.tts.providers.vellum.model", async () => {
+    respondProvider("vellum");
+
+    const { exitCode } = await runCommand(["tts", "voice", "aura-2-zeus-en"]);
+
+    expect(exitCode).toBe(0);
+    const setCall = ipcCalls.find((c) => c.method === "config_set");
+    expect(setCall).toBeDefined();
+    expect(setCall!.params.body.path).toBe(
+      "services.tts.providers.vellum.model",
+    );
+    expect(setCall!.params.body.value).toBe("aura-2-zeus-en");
+  });
+
+  test("an ElevenLabs voice id on a managed assistant still writes vellum.model", async () => {
+    respondProvider("vellum");
+
+    const { exitCode } = await runCommand([
+      "tts",
+      "voice",
+      "pqHfZKP75CvOlQylNhV4",
+    ]);
+
+    expect(exitCode).toBe(0);
+    const setCall = ipcCalls.find((c) => c.method === "config_set");
+    expect(setCall!.params.body.path).toBe(
+      "services.tts.providers.vellum.model",
+    );
+  });
+
+  test("elevenlabs writes to services.tts.providers.elevenlabs.voiceId", async () => {
+    respondProvider("elevenlabs");
+
+    const { exitCode } = await runCommand(["tts", "voice", "abc123"]);
+
+    expect(exitCode).toBe(0);
+    const setCall = ipcCalls.find((c) => c.method === "config_set");
+    expect(setCall!.params.body.path).toBe(
+      "services.tts.providers.elevenlabs.voiceId",
+    );
+  });
+
+  test("defaults to elevenlabs when no provider is configured", async () => {
+    ipcResponders.config_get = { ok: true, result: {} };
+    ipcResponders.config_set = { ok: true, result: {} };
+
+    const { exitCode } = await runCommand(["tts", "voice", "abc123"]);
+
+    expect(exitCode).toBe(0);
+    const setCall = ipcCalls.find((c) => c.method === "config_set");
+    expect(setCall!.params.body.path).toBe(
+      "services.tts.providers.elevenlabs.voiceId",
+    );
+  });
+
+  test("no voice id exits code 1 without touching config", async () => {
+    respondProvider("vellum");
+
+    const { exitCode } = await runCommand(["tts", "voice"]);
+
+    expect(exitCode).toBe(1);
+    expect(ipcCalls.find((c) => c.method === "config_set")).toBeUndefined();
+  });
+
+  test("--json emits the provider and path it wrote", async () => {
+    respondProvider("vellum");
+
+    const { exitCode, stdout } = await runCommand([
+      "tts",
+      "voice",
+      "aura-2-luna-en",
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(0);
+    const parsed = JSON.parse(stdout.trim());
+    expect(parsed.ok).toBe(true);
+    expect(parsed.provider).toBe("vellum");
+    expect(parsed.path).toBe("services.tts.providers.vellum.model");
+    expect(parsed.voiceId).toBe("aura-2-luna-en");
+  });
+
+  test("a config_set failure sets a non-zero exit code", async () => {
+    ipcResponders.config_get = {
+      ok: true,
+      result: { services: { tts: { provider: "vellum" } } },
+    };
+    ipcResponders.config_set = { ok: false, error: "daemon error" };
+
+    const { exitCode } = await runCommand(["tts", "voice", "aura-2-zeus-en"]);
+
+    expect(exitCode).not.toBe(0);
   });
 });

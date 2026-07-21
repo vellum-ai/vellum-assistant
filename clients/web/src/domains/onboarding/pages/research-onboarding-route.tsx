@@ -872,6 +872,10 @@ export function ResearchOnboardingRoute() {
           // eyes. The top-right team isn't persistent — the pitch step peeks
           // its own transient team in and out (see PitchStep).
           showBottomEyes={!postCalendar && step !== "different"}
+          // The eyes are hidden on "different" (PitchStep owns its own) and
+          // first mount here on "personality" — play the grow-in entrance
+          // only for that handoff so they don't re-animate on later steps.
+          eyesEntrance={step === "personality"}
         />
         {step === "different" && (
           <PitchStep

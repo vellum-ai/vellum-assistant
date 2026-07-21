@@ -392,6 +392,22 @@ describe("AssistantConfigSchema", () => {
     expect(result.success).toBe(false);
   });
 
+  test("write-locks the vellum and chatgpt routing identities in profiles and call sites", () => {
+    // The enum admits the identities (so dispatch-layer types can carry
+    // them), but stored config rejects them — parse-level rejection covers
+    // every write path, not just the profiles route.
+    for (const provider of ["vellum", "chatgpt"]) {
+      const inProfile = AssistantConfigSchema.safeParse({
+        llm: { profiles: { custom: { provider } } },
+      });
+      expect(inProfile.success).toBe(false);
+      const inCallSite = AssistantConfigSchema.safeParse({
+        llm: { callSites: { mainAgent: { provider } } },
+      });
+      expect(inCallSite.success).toBe(false);
+    }
+  });
+
   test("rejects negative llm.callSites maxTokens", () => {
     const result = AssistantConfigSchema.safeParse({
       llm: { callSites: { mainAgent: { maxTokens: -100 } } },
@@ -825,6 +841,21 @@ describe("AssistantConfigSchema", () => {
         silenceThresholdMs: 1200,
         maxTurnDurationMs: 30000,
         bargeInMinSpeechMs: 250,
+      },
+      frontModel: {
+        endpointDecisionTimeoutMs: 1200,
+        endpointExtensionMs: 1500,
+        endpointMaxExtensions: 2,
+        ackFirstDeltaTimeoutMs: 2500,
+        ackGenerationTimeoutMs: 600,
+        llmAckText: false,
+        progress: {
+          enabled: true,
+          opsThreshold: 3,
+          idleIntervalMs: 5000,
+          minGapMs: 6000,
+          generationTimeoutMs: 1500,
+        },
       },
       maxSessionDurationSeconds: 1800,
       archiveAudio: false,
@@ -1371,9 +1402,9 @@ describe("AssistantConfigSchema", () => {
     expect(TtsServiceSchema.safeParse({ provider: "vellum" }).success).toBe(
       true,
     );
-    expect(TtsServiceSchema.safeParse({ provider: "self-hosted" }).success).toBe(
-      false,
-    );
+    expect(
+      TtsServiceSchema.safeParse({ provider: "self-hosted" }).success,
+    ).toBe(false);
   });
 
   // ── services.stt config ──────────────────────────────────────────────

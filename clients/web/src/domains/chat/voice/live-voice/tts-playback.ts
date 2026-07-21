@@ -53,6 +53,23 @@ export interface TtsAudioChunk {
 }
 
 /**
+ * Playback progress of the current response's TTS audio.
+ *
+ * `totalSeconds` is the cumulative duration of every buffer scheduled since the
+ * last reset (new response / stop); `playedSeconds` is how much of it has
+ * actually sounded, derived from the audio playhead. During a mid-turn silence
+ * (queue drained, more speech coming) `playedSeconds === totalSeconds`, so a
+ * consumer's cursor holds at the last spoken word rather than resetting — the
+ * next audio burst grows `totalSeconds` and the cursor advances again.
+ */
+export interface LiveVoicePlaybackProgress {
+  /** Seconds of scheduled audio already played, in [0, totalSeconds]. */
+  playedSeconds: number;
+  /** Total seconds of audio scheduled for the current response so far. */
+  totalSeconds: number;
+}
+
+/**
  * Container MIME types decoded via `AudioContext.decodeAudioData` (which
  * derives sample rate/channels from the container itself). Providers without
  * raw-PCM streaming (e.g. Fish Audio) fall back to one of these.
@@ -174,6 +191,19 @@ export class LiveVoiceAudioPlayer {
   private playheadTime = 0;
 
   private playingState = false;
+
+  /**
+   * Cumulative duration (seconds) of every buffer scheduled since the last
+   * progress reset. Backs {@link getPlaybackProgress}.
+   *
+   * Deliberately NOT reset in {@link settleIfIdle}: a drain mid-turn (ack →
+   * tool run → more speech) zeroes only the playhead, so progress reports
+   * `played == total` and a consumer's word cursor holds at the last spoken
+   * word instead of snapping back. Reset only on {@link stop} (barge-in
+   * flush), {@link resetPlaybackProgress} (new response), and context
+   * (re)creation.
+   */
+  private totalScheduledSeconds = 0;
 
   /**
    * Analyser tapping the output bus for amplitude metering. Sources connect
@@ -345,6 +375,7 @@ export class LiveVoiceAudioPlayer {
     const startAt = Math.max(this.playheadTime, context.currentTime);
     source.start(startAt);
     this.playheadTime = startAt + buffer.duration;
+    this.totalScheduledSeconds += buffer.duration;
 
     this.activeSources.add(source);
     source.onended = () => {
@@ -381,6 +412,7 @@ export class LiveVoiceAudioPlayer {
     }
     this.activeSources.clear();
     this.pendingContainerDecodes = 0;
+    this.totalScheduledSeconds = 0;
     // Reset the decode chain so the next response's container frames don't queue
     // behind the abandoned (now generation-invalidated) decode — a slow/stuck
     // `decodeAudioData` from the interrupted utterance must not delay or silence
@@ -440,6 +472,7 @@ export class LiveVoiceAudioPlayer {
       const context = this.createContext();
       this.context = context;
       this.playheadTime = 0;
+      this.totalScheduledSeconds = 0;
       // Tap the output bus for amplitude metering when the context supports it.
       // Scheduled sources connect through this analyser to the destination; a
       // context without createAnalyser (test mock) skips metering entirely and
@@ -490,6 +523,36 @@ export class LiveVoiceAudioPlayer {
       OUTPUT_AMPLITUDE_SMOOTHING * scaled +
       (1 - OUTPUT_AMPLITUDE_SMOOTHING) * this.smoothedOutputAmplitude;
     return this.smoothedOutputAmplitude;
+  }
+
+  /**
+   * Playback progress of the current response's TTS audio, or `null` when
+   * nothing has been scheduled since the last reset (no context yet, fresh
+   * response, or post-stop/dispose).
+   *
+   * Played time is derived from the playhead rather than accumulated:
+   * `remaining = playheadTime - currentTime` is the unplayed tail of the
+   * scheduled timeline, so silent gaps between bursts never inflate played
+   * time, and after a drain (`playheadTime` zeroed) progress reports
+   * `played == total`. Side-effect-free: reading never advances state.
+   */
+  getPlaybackProgress(): LiveVoicePlaybackProgress | null {
+    if (this.context === null || this.totalScheduledSeconds === 0) return null;
+    const remaining = Math.max(0, this.playheadTime - this.context.currentTime);
+    const played = Math.min(
+      this.totalScheduledSeconds,
+      Math.max(0, this.totalScheduledSeconds - remaining),
+    );
+    return { playedSeconds: played, totalSeconds: this.totalScheduledSeconds };
+  }
+
+  /**
+   * Zero the playback-progress accumulator for a new response. Called by the
+   * controller at the start of each response, paired with the transcript
+   * clear, so the word cursor starts fresh with the new caption.
+   */
+  resetPlaybackProgress(): void {
+    this.totalScheduledSeconds = 0;
   }
 
   private handleSourceEnded(source: AudioBufferSourceNode): void {

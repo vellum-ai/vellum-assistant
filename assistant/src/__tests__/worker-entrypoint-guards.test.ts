@@ -23,6 +23,19 @@ import { Glob } from "bun";
 const DISABLE_CALL = "disableStreamSeqStamping()";
 const PID_GUARD_CALL = "startWorkerPidFileGuard(";
 
+/**
+ * The first call each entrypoint makes that can run orphaned schedule/job
+ * work. The PID guard must be armed before this — its on-arm identity check
+ * evicts a worker superseded at startup before the call runs. Every discovered
+ * entrypoint must have an entry here, so a new worker forces its author to
+ * declare (and order) its work-start.
+ */
+const WORK_START_MARKERS: Record<string, string> = {
+  "schedule/worker.ts": "void tick()",
+  "monitoring/worker.ts": "startResourceSampler(",
+  "plugins/defaults/memory/worker.ts": "startMemoryJobsWorkerLoop(",
+};
+
 function findWorkerEntrypoints(): string[] {
   const srcRoot = join(process.cwd(), "src");
   const glob = new Glob("**/worker.ts");
@@ -62,6 +75,25 @@ describe("worker entrypoint guards", () => {
       entrypointsMissing(PID_GUARD_CALL),
       `Worker entrypoints must call ${PID_GUARD_CALL}...) so an orphaned ` +
         "worker (one its PID file stops naming) evicts itself.",
+    ).toEqual([]);
+  });
+
+  test("every worker entrypoint arms the PID guard before starting work", () => {
+    const offenders = findWorkerEntrypoints().filter((file) => {
+      const marker = WORK_START_MARKERS[file];
+      if (marker == null) {
+        return true; // unregistered entrypoint — force a marker to be added
+      }
+      const source = readFileSync(join(process.cwd(), "src", file), "utf8");
+      const guardAt = source.indexOf(PID_GUARD_CALL);
+      const workAt = source.indexOf(marker);
+      return guardAt < 0 || workAt < 0 || guardAt > workAt;
+    });
+    expect(
+      offenders,
+      "Each worker must arm the PID guard before its work-start call " +
+        `(see WORK_START_MARKERS) so the guard's on-arm check evicts a ` +
+        "worker superseded at startup before it runs orphaned work.",
     ).toEqual([]);
   });
 });

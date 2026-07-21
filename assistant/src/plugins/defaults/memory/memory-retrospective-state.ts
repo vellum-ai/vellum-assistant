@@ -23,7 +23,7 @@
 // The schema enforces the foreign key with ON DELETE CASCADE, so deleting a
 // conversation collects its state row automatically.
 
-import { eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 
 import { type DrizzleDb, getDb } from "../../../persistence/db-connection.js";
 import { memoryRetrospectiveState } from "../../../persistence/schema/index.js";
@@ -86,6 +86,26 @@ function parseRememberedLog(raw: string | null): string[] {
 
 function serializeRememberedLog(log: string[]): string | null {
   return log.length === 0 ? null : JSON.stringify(log);
+}
+
+/**
+ * Return the `limit` most-recently-run retrospective state rows, newest first.
+ */
+export function listRetrospectiveStates(
+  limit: number,
+): MemoryRetrospectiveState[] {
+  const rows = getDb()
+    .select()
+    .from(memoryRetrospectiveState)
+    .orderBy(desc(memoryRetrospectiveState.lastRunAt))
+    .limit(limit)
+    .all();
+  return rows.map((row) => ({
+    conversationId: row.conversationId,
+    lastProcessedMessageId: row.lastProcessedMessageId,
+    lastRunAt: row.lastRunAt,
+    rememberedLog: parseRememberedLog(row.rememberedLog),
+  }));
 }
 
 /**

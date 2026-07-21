@@ -1,5 +1,5 @@
 import { parseFrontmatterFields } from "../frontmatter.js";
-import type { PageIndexEntry } from "../v2/page-index.js";
+import type { PageIndexEntry } from "./substrate/page-index.js";
 import type { Slug } from "./types.js";
 
 /**

@@ -85,6 +85,11 @@ Examples:
               description: "Filter nodes whose content contains <query>",
             },
             {
+              flags: "--kind <kind>",
+              description:
+                "Restrict to auto-seeded capability nodes: 'skill' or 'cli'",
+            },
+            {
               flags: "--limit <n>",
               description: "Max results (default 50, max 200)",
             },
@@ -96,12 +101,20 @@ Examples:
           helpText: `
 Behavior:
   Returns active (non-deleted) memory graph nodes ordered by significance.
-  With --search, all nodes are scanned so the filter is exhaustive regardless
-  of graph size. Without --search the query is capped at --limit rows at the
-  DB level for efficiency.
+  With --search or --kind, all nodes are scanned so the filter is exhaustive
+  regardless of graph size. With neither, the query is capped at --limit rows
+  at the DB level for efficiency.
+
+  --kind filters to the capability nodes auto-seeded from the assistant's
+  own catalog — one 'skill' node per enabled/catalog skill, one 'cli' node
+  per CLI command. This answers "which skills have a node in memory": each
+  matching row's content names the skill and its id. Combine with --search
+  to narrow to a specific capability. Filters compose (both must match).
 
 Examples:
   $ assistant memory nodes list
+  $ assistant memory nodes list --kind skill
+  $ assistant memory nodes list --kind skill --search "pdf"
   $ assistant memory nodes list --search "coffee" --limit 10
   $ assistant memory nodes list --json`,
         },
@@ -364,10 +377,10 @@ Examples:
       name: "v2",
       description: "Memory v2 subsystem operations (concept-page model)",
       helpText: `
-The v2 memory subsystem stores prose concept pages with directed edges in
-each page's frontmatter and uses activation-based retrieval. Pages live
-under /workspace/memory/concepts/ and are gated behind the
-memory.v2.enabled config field.
+The concept-page memory subsystem stores prose concept pages with directed
+edges in each page's frontmatter. Pages live under
+/workspace/memory/concepts/ and are active when memory.v3.live or
+memory.v2.enabled is set.
 
 Mutating subcommands return a jobId enqueued on the memory job queue,
 except reembed-skills which runs synchronously inside the assistant.
@@ -408,7 +421,7 @@ changes the enabled-skill set, or to recover corrupted skill embeddings.
 
 Unlike 'reembed' (concept pages), this runs synchronously inside the
 assistant — the command returns only once the seed completes. Requires
-memory.v2.enabled to be true.
+concept-page memory to be active (memory.v3.live or memory.v2.enabled).
 
 Examples:
   $ assistant memory v2 reembed-skills`,
@@ -755,7 +768,9 @@ process imports the retrospective machinery and calls it in-process, so no
 running daemon is required.
 
 Examples:
-  $ assistant memory retrospective run <conversationId>`,
+  $ assistant memory retrospective run <conversationId>
+  $ assistant memory retrospective list
+  $ assistant memory retrospective list --limit 20 --json`,
       subcommands: [
         {
           name: "run",
@@ -780,6 +795,33 @@ CLI process — no IPC round-trip to the daemon.
 
 Examples:
   $ assistant memory retrospective run abc123`,
+        },
+        {
+          name: "list",
+          description: "List the most-recently-run retrospective state rows",
+          options: [
+            {
+              flags: "--limit <n>",
+              description: "Max rows to return (default 10, max 200)",
+            },
+            {
+              flags: "--json",
+              description: "Machine-readable compact JSON output",
+            },
+          ],
+          helpText: `
+Reads the memory_retrospective_state table directly from the workspace SQLite
+database and prints the most-recently-run state rows, newest first. No daemon
+required. Each row shows the source conversation ID, when the retrospective last
+ran, how many memory entries are currently retained in the dedup log (capped at
+100 entries / 8 KB — older entries are dropped as new ones arrive, so RETAINED
+reflects the live dedup window, not a cumulative save count), and whether any
+pass has yet succeeded (status "ok") or only failed attempts exist ("pending").
+
+Examples:
+  $ assistant memory retrospective list
+  $ assistant memory retrospective list --limit 20
+  $ assistant memory retrospective list --json`,
         },
       ],
     },

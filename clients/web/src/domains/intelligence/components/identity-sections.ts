@@ -57,6 +57,14 @@ export function buildIdentitySections({
     });
   }
   sections.push(
+    // Library moved off the nav sidebar and onto the overview strip; it
+    // keeps its own top-level page (no About Assistant chrome).
+    {
+      key: "library",
+      label: "Library",
+      description: "My apps & docs",
+      to: routes.library.root,
+    },
     {
       key: "workspace",
       label: "Workspace",

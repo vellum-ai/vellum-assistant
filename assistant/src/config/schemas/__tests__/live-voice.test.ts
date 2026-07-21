@@ -2,9 +2,28 @@ import { describe, expect, test } from "bun:test";
 
 import {
   LiveVoiceConfigSchema,
+  LiveVoiceFrontModelConfigSchema,
   LiveVoiceVadConfigSchema,
   VALID_LIVE_VOICE_MODES,
 } from "../live-voice.js";
+
+const PROGRESS_DEFAULTS = {
+  enabled: true,
+  opsThreshold: 3,
+  idleIntervalMs: 5_000,
+  minGapMs: 6_000,
+  generationTimeoutMs: 1_500,
+};
+
+const FRONT_MODEL_DEFAULTS = {
+  endpointDecisionTimeoutMs: 1200,
+  endpointExtensionMs: 1500,
+  endpointMaxExtensions: 2,
+  ackFirstDeltaTimeoutMs: 2500,
+  ackGenerationTimeoutMs: 600,
+  llmAckText: false,
+  progress: PROGRESS_DEFAULTS,
+};
 
 describe("LiveVoiceVadConfigSchema", () => {
   test("empty object parses to defaults", () => {
@@ -57,6 +76,100 @@ describe("LiveVoiceVadConfigSchema", () => {
   });
 });
 
+describe("LiveVoiceFrontModelConfigSchema", () => {
+  test("empty object parses to defaults", () => {
+    const parsed = LiveVoiceFrontModelConfigSchema.parse({});
+    expect(parsed).toEqual(FRONT_MODEL_DEFAULTS);
+  });
+
+  test("accepts overrides", () => {
+    const parsed = LiveVoiceFrontModelConfigSchema.parse({
+      endpointDecisionTimeoutMs: 400,
+      endpointMaxExtensions: 0,
+      llmAckText: true,
+    });
+    expect(parsed.endpointDecisionTimeoutMs).toBe(400);
+    expect(parsed.endpointMaxExtensions).toBe(0);
+    expect(parsed.llmAckText).toBe(true);
+    // Unspecified fields still get defaults
+    expect(parsed.endpointExtensionMs).toBe(1500);
+    expect(parsed.ackFirstDeltaTimeoutMs).toBe(2500);
+    expect(parsed.ackGenerationTimeoutMs).toBe(600);
+  });
+
+  test("rejects non-positive endpointDecisionTimeoutMs", () => {
+    const result = LiveVoiceFrontModelConfigSchema.safeParse({
+      endpointDecisionTimeoutMs: 0,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test("rejects negative endpointMaxExtensions", () => {
+    const result = LiveVoiceFrontModelConfigSchema.safeParse({
+      endpointMaxExtensions: -1,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test("rejects a non-boolean llmAckText", () => {
+    const result = LiveVoiceFrontModelConfigSchema.safeParse({
+      llmAckText: "yes",
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const msgs = result.error.issues.map((i) => i.message);
+      expect(
+        msgs.some((m) => m.includes("liveVoice.frontModel.llmAckText")),
+      ).toBe(true);
+    }
+  });
+
+  test("absent progress namespace parses to full progress defaults", () => {
+    const parsed = LiveVoiceFrontModelConfigSchema.parse({});
+    expect(parsed.progress).toEqual(PROGRESS_DEFAULTS);
+  });
+
+  test("partial progress overrides merge with defaults", () => {
+    const parsed = LiveVoiceFrontModelConfigSchema.parse({
+      progress: { enabled: false, opsThreshold: 5 },
+    });
+    expect(parsed.progress.enabled).toBe(false);
+    expect(parsed.progress.opsThreshold).toBe(5);
+    // Unspecified progress fields still get defaults
+    expect(parsed.progress.idleIntervalMs).toBe(5_000);
+    expect(parsed.progress.minGapMs).toBe(6_000);
+    expect(parsed.progress.generationTimeoutMs).toBe(1_500);
+  });
+
+  test("a stale maxPerTurn key is stripped, not rejected", () => {
+    // The cap was removed; configs written while it existed must still parse.
+    const parsed = LiveVoiceFrontModelConfigSchema.parse({
+      progress: { maxPerTurn: 3 },
+    });
+    expect("maxPerTurn" in parsed.progress).toBe(false);
+  });
+
+  test("rejects non-positive progress.opsThreshold", () => {
+    const result = LiveVoiceFrontModelConfigSchema.safeParse({
+      progress: { opsThreshold: 0 },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test("rejects a non-boolean progress.enabled", () => {
+    const result = LiveVoiceFrontModelConfigSchema.safeParse({
+      progress: { enabled: "yes" },
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const msgs = result.error.issues.map((i) => i.message);
+      expect(
+        msgs.some((m) => m.includes("liveVoice.frontModel.progress.enabled")),
+      ).toBe(true);
+    }
+  });
+});
+
 describe("LiveVoiceConfigSchema", () => {
   test("empty object parses to defaults", () => {
     const parsed = LiveVoiceConfigSchema.parse({});
@@ -68,6 +181,7 @@ describe("LiveVoiceConfigSchema", () => {
         maxTurnDurationMs: 30_000,
         bargeInMinSpeechMs: 250,
       },
+      frontModel: FRONT_MODEL_DEFAULTS,
       maxSessionDurationSeconds: 1800,
       // Off by default: voice turns carry only their transcript, no audio
       // artifacts on the conversation messages (JARVIS-1283).
@@ -94,6 +208,7 @@ describe("LiveVoiceConfigSchema", () => {
     const parsed = LiveVoiceConfigSchema.parse({
       mode: "ptt",
       vad: { silenceThresholdMs: 900 },
+      frontModel: { endpointDecisionTimeoutMs: 300 },
       maxSessionDurationSeconds: 600,
     });
     expect(parsed.mode).toBe("ptt");
@@ -101,6 +216,9 @@ describe("LiveVoiceConfigSchema", () => {
     // Unspecified vad fields still get defaults
     expect(parsed.vad.speechEnergyThreshold).toBe(800);
     expect(parsed.vad.maxTurnDurationMs).toBe(30_000);
+    // Partial frontModel overrides merge with defaults
+    expect(parsed.frontModel.endpointDecisionTimeoutMs).toBe(300);
+    expect(parsed.frontModel.endpointExtensionMs).toBe(1500);
     expect(parsed.maxSessionDurationSeconds).toBe(600);
   });
 

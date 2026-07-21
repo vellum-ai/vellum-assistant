@@ -24,6 +24,7 @@
 import { create } from "zustand";
 
 import type { LiveVoiceMetricsServerFrame } from "@/domains/chat/voice/live-voice/protocol";
+import type { LiveVoicePlaybackProgress } from "@/domains/chat/voice/live-voice/tts-playback";
 import { createSelectors } from "@/utils/create-selectors";
 
 // ---------------------------------------------------------------------------
@@ -268,6 +269,16 @@ export interface LiveVoiceState {
    * so a non-`speaking` read costs nothing and it clears on session reset.
    */
   outputAmplitudeProvider: (() => number) | null;
+  /**
+   * Provider for the current response's TTS playback progress (played/total
+   * seconds of scheduled audio), registered by the controller from the active
+   * session's {@link LiveVoiceAudioPlayer}. `null` when there is no session.
+   * Read via {@link getLiveVoicePlaybackProgress} — the voice-room transcript's
+   * spoken-word cursor polls it per animation frame. A registered provider
+   * (like `outputAmplitudeProvider`) so a non-speaking read costs nothing and
+   * it clears on session reset.
+   */
+  playbackProgressProvider: (() => LiveVoicePlaybackProgress | null) | null;
   /** Human-readable error message when `state === "failed"`, `null` otherwise. */
   error: string | null;
 }
@@ -322,6 +333,10 @@ export interface LiveVoiceActions {
   setLastTurnLatency: (lastTurnLatency: LiveVoiceTurnLatency) => void;
   /** Register (or clear) the active player's output-amplitude provider. */
   setOutputAmplitudeProvider: (provider: (() => number) | null) => void;
+  /** Register (or clear) the active player's playback-progress provider. */
+  setPlaybackProgressProvider: (
+    provider: (() => LiveVoicePlaybackProgress | null) | null,
+  ) => void;
   /** Transition to `failed` with a message. */
   fail: (message: string) => void;
   /**
@@ -421,6 +436,7 @@ const INITIAL_SESSION_STATE: Omit<LiveVoiceState, "starter"> = {
   entryOrigin: null,
   lastTurnLatency: null,
   outputAmplitudeProvider: null,
+  playbackProgressProvider: null,
   error: null,
 };
 
@@ -457,6 +473,8 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
   setLastTurnLatency: (lastTurnLatency) => set({ lastTurnLatency }),
   setOutputAmplitudeProvider: (outputAmplitudeProvider) =>
     set({ outputAmplitudeProvider }),
+  setPlaybackProgressProvider: (playbackProgressProvider) =>
+    set({ playbackProgressProvider }),
   fail: (message) => set({ state: "failed", error: message }),
   reset: () => set({ ...INITIAL_SESSION_STATE }),
 }));
@@ -483,6 +501,20 @@ export function getLiveVoiceInputAmplitude(): number {
  */
 export function getLiveVoiceOutputAmplitude(): number {
   return useLiveVoiceStore.getState().outputAmplitudeProvider?.() ?? 0;
+}
+
+/**
+ * Playback progress (played/total seconds) of the current response's TTS
+ * audio, read from the active player via the controller-registered provider.
+ * Returns `null` when no session is active or nothing has been scheduled for
+ * the current response. Polled per animation frame by the voice-room
+ * transcript's spoken-word cursor, so it is module-level (stable identity)
+ * and reads through `getState()` — subscribing would re-render the poller on
+ * every register/clear (see STATE_MANAGEMENT.md, as with
+ * {@link getLiveVoiceOutputAmplitude}).
+ */
+export function getLiveVoicePlaybackProgress(): LiveVoicePlaybackProgress | null {
+  return useLiveVoiceStore.getState().playbackProgressProvider?.() ?? null;
 }
 
 /**

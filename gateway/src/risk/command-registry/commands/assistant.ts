@@ -189,12 +189,17 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "memory v2 reembed-skills",
   "memory v2 activation",
   "memory v2 validate",
+  "memory v2 ema",
+  "memory v2 simulate",
+  "memory v2 compare",
   "memory v3",
   "memory v3 rebuild-index",
   "memory v3 backfill-sections",
   "memory v3 eval",
+  "memory v3 eval-tally",
   "memory retrospective",
   "memory retrospective run",
+  "memory retrospective list",
   "memory worker",
   "memory worker start",
   "memory worker stop",
@@ -282,6 +287,7 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "trust list",
   "tts",
   "tts synthesize",
+  "tts voice",
   "ui",
   "ui request",
   "ui confirm",
@@ -659,6 +665,24 @@ const riskOverrides: AssistantRiskOverride[] = [
     reason: "Read-only diagnostic walk over concept pages and edges",
   },
   {
+    path: "memory v2 ema",
+    risk: "low",
+    reason:
+      "Read-only listing of concept pages sorted by injection-frequency EMA score",
+  },
+  {
+    path: "memory v2 simulate",
+    risk: "medium",
+    reason:
+      "Invokes runRouter which calls provider.sendMessage — spends a real LLM provider call even though no local state is written",
+  },
+  {
+    path: "memory v2 compare",
+    risk: "medium",
+    reason:
+      "Re-runs the router (one LLM call) for each sampled historical turn; user-controlled --limit means many paid provider calls can be triggered",
+  },
+  {
     path: "memory v3 backfill-sections",
     risk: "medium",
     reason:
@@ -675,6 +699,12 @@ const riskOverrides: AssistantRiskOverride[] = [
     risk: "low",
     reason:
       "Invalidates the in-memory v3 section lanes so they rebuild on the next turn",
+  },
+  {
+    path: "memory v3 eval-tally",
+    risk: "medium",
+    reason:
+      "Daemon handler is read-only, but the CLI writes the tally result to a user-supplied path when --out is provided; classifying medium so file-write invocations are not auto-approved as read-only",
   },
   {
     path: "memory retrospective run",
@@ -826,6 +856,9 @@ const riskOverrides: AssistantRiskOverride[] = [
   { path: "skills add", risk: "high" },
   { path: "stt transcribe", risk: "medium" },
   { path: "tts synthesize", risk: "medium" },
+  // Mutates the active provider's voice config (via config_set) — same
+  // low-risk class as `config set`.
+  { path: "tts voice", risk: "low" },
   { path: "watchers create", risk: "medium" },
   { path: "watchers update", risk: "medium" },
   { path: "watchers delete", risk: "medium" },

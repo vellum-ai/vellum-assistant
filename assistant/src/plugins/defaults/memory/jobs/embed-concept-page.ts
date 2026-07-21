@@ -43,15 +43,15 @@ import { embedWithBackend } from "../embeddings.js";
 import { BackendUnavailableError } from "../host-utils.js";
 import { getLogger } from "../logging.js";
 import { getWorkspaceDir } from "../paths.js";
-import { readPage } from "../v2/page-store.js";
+import { readPage } from "../v3/substrate/page-store.js";
 import {
   deleteConceptPageEmbedding,
   upsertConceptPageEmbedding,
-} from "../v2/qdrant.js";
+} from "../v3/substrate/qdrant.js";
 import {
   generateBm25DocEmbedding,
   getConceptPageCorpusStats,
-} from "../v2/sparse-bm25.js";
+} from "../v3/substrate/sparse-bm25.js";
 
 const log = getLogger("memory-v2-embed-concept-page");
 

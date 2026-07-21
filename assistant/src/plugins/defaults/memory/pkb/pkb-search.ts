@@ -2,6 +2,7 @@
 // PKB — Qdrant hybrid search for indexed PKB markdown files
 // ---------------------------------------------------------------------------
 
+import { usesConceptPageMemory } from "../../../../config/memory-v3-gate.js";
 import {
   isQdrantBreakerOpen,
   withQdrantBreaker,
@@ -40,10 +41,10 @@ export async function searchPkbFiles(
   sparseVector: QdrantSparseVector | undefined,
   limit: number,
 ): Promise<PkbSearchResult[]> {
-  // v2 owns the read path when enabled; v2 absorbs PKB as a read source,
-  // so PKB hint search short-circuits to keep traffic off the v1 collection
-  // (avoiding OOM-crash risk from a corrupted sparse segment).
-  if (getMemoryConfig().v2.enabled) return [];
+  // Concept-page memory owns the read path when active and absorbs PKB as a
+  // read source, so PKB hint search short-circuits to keep traffic off the
+  // v1 collection (avoiding OOM-crash risk from a corrupted sparse segment).
+  if (usesConceptPageMemory(getMemoryConfig())) return [];
 
   if (isQdrantBreakerOpen()) {
     log.warn("Qdrant circuit breaker open, skipping PKB search");

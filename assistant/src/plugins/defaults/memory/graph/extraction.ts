@@ -38,6 +38,7 @@ import type {
   Fidelity,
   ImageRef,
   MemoryDiff,
+  MemoryNode,
   MemoryType,
   NewEdge,
   NewNode,
@@ -582,6 +583,109 @@ export interface DeferredEdge {
   weight: number;
 }
 
+/**
+ * Inherit durability from the superseded (old) node into the superseding
+ * (new/updated) node. Called after parsing the LLM diff but before applying
+ * it to the store.
+ *
+ * Without this, a superseding node starts with zero reinforcement history and
+ * decays faster than the stale fact it was meant to retire — the old memory
+ * wins the next significance race even though it has been explicitly replaced.
+ *
+ * Two cases handled:
+ *   1. existing→existing edge in diff.createEdges: the source (superseding)
+ *      existing node gets an updateNode entry that carries over stability,
+ *      reinforcementCount, and significance (taking the max of both nodes so
+ *      the superseding node is never downgraded).
+ *   2. new→existing edge in deferredEdges: the new node in diff.createNodes is
+ *      mutated in place before applyDiff runs.
+ */
+export function applySupersessionDurability(
+  diff: MemoryDiff,
+  deferredEdges: DeferredEdge[],
+  candidateNodeMap: Map<string, MemoryNode>,
+): void {
+  // Case 1: existing→existing supersession (both endpoints in candidateNodes)
+  for (const edge of diff.createEdges) {
+    if (edge.relationship !== "supersedes") {
+      continue;
+    }
+    const target = candidateNodeMap.get(edge.targetNodeId);
+    if (!target) {
+      continue;
+    }
+    const source = candidateNodeMap.get(edge.sourceNodeId);
+
+    const inheritedStability = Math.max(
+      source?.stability ?? 14,
+      target.stability,
+    );
+    const inheritedCount = Math.max(
+      source?.reinforcementCount ?? 0,
+      target.reinforcementCount,
+    );
+    const inheritedSignificance = Math.max(
+      source?.significance ?? 0,
+      target.significance,
+    );
+
+    const existing = diff.updateNodes.find((u) => u.id === edge.sourceNodeId);
+    if (existing) {
+      existing.changes.stability = Math.max(
+        (existing.changes.stability as number | undefined) ??
+          source?.stability ??
+          14,
+        inheritedStability,
+      );
+      existing.changes.reinforcementCount = Math.max(
+        (existing.changes.reinforcementCount as number | undefined) ??
+          source?.reinforcementCount ??
+          0,
+        inheritedCount,
+      );
+      existing.changes.significance = Math.max(
+        (existing.changes.significance as number | undefined) ??
+          source?.significance ??
+          0,
+        inheritedSignificance,
+      );
+    } else {
+      diff.updateNodes.push({
+        id: edge.sourceNodeId,
+        changes: {
+          stability: inheritedStability,
+          reinforcementCount: inheritedCount,
+          significance: inheritedSignificance,
+        },
+      });
+    }
+  }
+
+  // Case 2: new→existing supersession (the typical case from extraction)
+  for (const de of deferredEdges) {
+    if (de.relationship !== "supersedes") {
+      continue;
+    }
+    if (de.source.kind !== "new" || de.target.kind !== "existing") {
+      continue;
+    }
+    const target = candidateNodeMap.get(de.target.nodeId);
+    if (!target) {
+      continue;
+    }
+    const newNode = diff.createNodes[de.source.newNodeIndex];
+    if (!newNode) {
+      continue;
+    }
+    newNode.stability = Math.max(newNode.stability, target.stability);
+    newNode.reinforcementCount = Math.max(
+      newNode.reinforcementCount,
+      target.reinforcementCount,
+    );
+    newNode.significance = Math.max(newNode.significance, target.significance);
+  }
+}
+
 export function parseExtractionResponse(
   input: Record<string, unknown>,
   conversationId: string,
@@ -1009,6 +1113,11 @@ export async function runGraphExtraction(
     /** Embed nodes synchronously instead of enqueuing jobs. Used by bootstrap
      *  so nodes are searchable immediately without the jobs worker running. */
     embedInline?: boolean;
+    /** The `conversationId` argument is a synthetic source key (e.g. journal
+     *  bootstrap's `journal:<slug>:<file>`), not a `conversations` row. Skips
+     *  stamping it on the usage-ledger event so the cost stays unattributed
+     *  instead of surfacing as a phantom conversation. */
+    syntheticConversationId?: boolean;
   },
 ): Promise<ExtractionResult> {
   const emptyResult: ExtractionResult = {
@@ -1123,6 +1232,9 @@ export async function runGraphExtraction(
     systemPrompt,
     config: {
       callSite: "memoryExtraction" as const,
+      conversationId: opts?.syntheticConversationId
+        ? undefined
+        : conversationId,
       tool_choice: { type: "tool" as const, name: "extract_graph_diff" },
     },
   });
@@ -1140,21 +1252,9 @@ export async function runGraphExtraction(
     conversationTimestamp,
   );
 
-  // 7. Handle supersession (inherit durability before applying diff)
-  // TODO: full supersession is not yet implemented. When it lands, iterate
-  // BOTH `diff.createEdges` (existing → existing) AND `deferredEdges`
-  // (new → existing, the typical supersession case).
-  // Tracked by https://github.com/vellum-ai/vellum-assistant/pull/27057 (Devin).
-  for (const edge of diff.createEdges) {
-    if (edge.relationship === "supersedes") {
-      // Placeholder — see TODO above.
-    }
-  }
-  for (const de of deferredEdges) {
-    if (de.relationship === "supersedes") {
-      // Placeholder — see TODO above.
-    }
-  }
+  // 7. Inherit durability from superseded nodes before applying the diff.
+  const candidateNodeMap = new Map(candidateNodes.map((n) => [n.id, n]));
+  applySupersessionDurability(diff, deferredEdges, candidateNodeMap);
 
   // 8. Apply the diff
   const result = applyDiff(diff, { conversationId });

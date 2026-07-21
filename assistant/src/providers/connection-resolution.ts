@@ -39,15 +39,19 @@ import {
   describeSubscriptionModelIncompatibility,
   isConnectionCompatibleWithModel,
 } from "./connection-model-compat.js";
+import { CHATGPT_SUBSCRIPTION_CONNECTION_NAME } from "./inference/auth.js";
 import { getConnection, listConnections } from "./inference/connections.js";
+import { isCodexSubscriptionModel } from "./openai/codex-models.js";
 import { resolveManagedProxyContext } from "./platform-proxy/context.js";
 import { checkCredentialPresence } from "./provider-availability.js";
 import type { ProvidersConfig } from "./registry.js";
 import { resolveProviderFromConnection } from "./registry.js";
 import type { Provider } from "./types.js";
 import {
+  getManagedUpstream,
   isVellumManagedConnection,
   MANAGED_ROUTABLE_PROVIDERS,
+  VELLUM_MANAGED_CONNECTION_NAME,
 } from "./vellum-model-routing.js";
 
 const log = getLogger("providers/connection-resolution");
@@ -72,7 +76,8 @@ export class ConnectionResolutionError extends ConfigError {
       | "missing_connection"
       | "model_incompatible"
       | "missing_credential"
-      | "platform_unauthenticated",
+      | "platform_unauthenticated"
+      | "unroutable_managed_model",
     message: string,
     options?: { cause?: unknown; model?: string; profileName?: string },
   ) {
@@ -81,6 +86,55 @@ export class ConnectionResolutionError extends ConfigError {
     this.model = options?.model;
     this.profileName = options?.profileName;
   }
+}
+
+/**
+ * Translate a routing-identity provider into its dispatch target. "vellum"
+ * derives the managed upstream from the model and routes through the
+ * canonical vellum connection; "chatgpt" routes through the
+ * chatgpt-subscription connection with an openai upstream. Returns null for
+ * real providers. Throws `unroutable_managed_model` when a vellum model has
+ * no managed upstream, and `model_incompatible` when a chatgpt model is
+ * outside the Codex subscription set — loud and explainable, never a soft
+ * fall-through to the (possibly platform-billed) default transport.
+ */
+export function resolveRoutingIdentity(
+  provider: string | undefined,
+  model: string | undefined,
+): { connectionName: string; expectedProvider: string } | null {
+  if (provider === "vellum") {
+    const upstream = model ? getManagedUpstream(model) : null;
+    if (!upstream) {
+      throw new ConnectionResolutionError(
+        VELLUM_MANAGED_CONNECTION_NAME,
+        "unroutable_managed_model",
+        `provider "vellum" cannot route model "${model ?? "<unset>"}" — no managed upstream serves it. Pick a model from the Vellum catalog or set a concrete provider.`,
+        { model },
+      );
+    }
+    return {
+      connectionName: VELLUM_MANAGED_CONNECTION_NAME,
+      expectedProvider: upstream,
+    };
+  }
+  if (provider === "chatgpt") {
+    // The subscription endpoint rejects non-Codex models with HTTP 400;
+    // gate here so the misconfiguration surfaces as a config error instead
+    // of an upstream request failure.
+    if (model && !isCodexSubscriptionModel(model)) {
+      throw new ConnectionResolutionError(
+        CHATGPT_SUBSCRIPTION_CONNECTION_NAME,
+        "model_incompatible",
+        `provider "chatgpt" cannot route model "${model}" — the ChatGPT subscription serves Codex models only. Pick a Codex model or set a concrete provider.`,
+        { model },
+      );
+    }
+    return {
+      connectionName: CHATGPT_SUBSCRIPTION_CONNECTION_NAME,
+      expectedProvider: "openai",
+    };
+  }
+  return null;
 }
 
 /**
@@ -113,6 +167,15 @@ export async function tryResolveProviderForConnectionName(
   expectedProvider?: string,
   model?: string,
 ): Promise<Provider | null> {
+  // Routing identities carry no upstream of their own: translate to the
+  // identity's canonical connection row and derived upstream before any
+  // lookup. The stored connectionName is overridden — an identity has
+  // exactly one authoritative row.
+  const identity = resolveRoutingIdentity(expectedProvider, model);
+  if (identity) {
+    connectionName = identity.connectionName;
+    expectedProvider = identity.expectedProvider;
+  }
   let connection;
   try {
     connection = getConnection(getDb(), connectionName);
@@ -249,6 +312,15 @@ export async function resolveDefaultProvider(
 ): Promise<Provider | null> {
   const resolved = resolveCallSiteConfig("mainAgent", config.llm);
   let connectionName = resolved.provider_connection;
+  // A routing-identity provider names its own connection row; the
+  // provider-keyed auto-resolve scan below cannot find it ("chatgpt" rows
+  // store provider "openai"), so short-circuit to the canonical name.
+  if (!connectionName) {
+    connectionName = resolveRoutingIdentity(
+      resolved.provider,
+      resolved.model,
+    )?.connectionName;
+  }
   if (!connectionName) {
     // The merged config has no provider_connection — the profile likely set
     // provider without a connection ("Any active" selection), and the merge
@@ -333,7 +405,13 @@ export async function preflightResolvedConfig(
   },
   attribution: { profileName?: string } = {},
 ): Promise<void> {
-  const connectionName = resolved.provider_connection;
+  // Routing identities preflight through their canonical row and derived
+  // upstream; an unroutable vellum model throws here — it is statically
+  // detectable, exactly what preflight exists to surface.
+  const identity = resolveRoutingIdentity(resolved.provider, resolved.model);
+  const provider = identity?.expectedProvider ?? resolved.provider;
+  const connectionName =
+    identity?.connectionName ?? resolved.provider_connection;
   if (!connectionName) {
     return;
   }
@@ -361,11 +439,11 @@ export async function preflightResolvedConfig(
   }
 
   if (isVellumManagedConnection(connection)) {
-    if (!MANAGED_ROUTABLE_PROVIDERS.has(resolved.provider)) {
+    if (!MANAGED_ROUTABLE_PROVIDERS.has(provider)) {
       throw new ConnectionResolutionError(
         connectionName,
         "provider_mismatch",
-        `provider_connection "${connectionName}" is the Vellum-managed connection, which cannot serve provider "${resolved.provider}"`,
+        `provider_connection "${connectionName}" is the Vellum-managed connection, which cannot serve provider "${provider}"`,
         errorOptions,
       );
     }
@@ -379,11 +457,11 @@ export async function preflightResolvedConfig(
     }
     return;
   }
-  if (connection.provider !== resolved.provider) {
+  if (connection.provider !== provider) {
     throw new ConnectionResolutionError(
       connectionName,
       "provider_mismatch",
-      `provider_connection "${connectionName}" has provider="${connection.provider}" but the resolved config declares provider="${resolved.provider}"`,
+      `provider_connection "${connectionName}" has provider="${connection.provider}" but the resolved config declares provider="${provider}"`,
       errorOptions,
     );
   }

@@ -32,6 +32,10 @@ import {
 } from "../calls/voice-triage-escalate.js";
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
+import {
+  type LiveVoiceFrontModelConfig,
+  LiveVoiceFrontModelConfigSchema,
+} from "../config/schemas/live-voice.js";
 import { ABORT_WATCHDOG_MS } from "../daemon/abort-watchdog.js";
 import { findConversation } from "../daemon/conversation-registry.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
@@ -50,7 +54,15 @@ import type {
 } from "../stt/types.js";
 import { getSubagentManager } from "../subagent/index.js";
 import { extractSpeakableSegments } from "../tts/speakable-segments.js";
+import { createAbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
+import { pickAckPhrase, pickProgressPhrase } from "./ack-phrases.js";
+import {
+  createVoiceFrontDecider,
+  type VoiceEndpointAction,
+  type VoiceFrontDecider,
+  type VoiceProgressTextInput,
+} from "./front-decision.js";
 import type {
   LiveVoiceAudioArchiveResult,
   LiveVoiceAudioArchiveRole,
@@ -61,6 +73,7 @@ import {
   type LiveVoiceMetricsClock,
   LiveVoiceMetricsCollector,
   type LiveVoiceMetricsEvent,
+  type LiveVoiceSpokenAckKind,
   type LiveVoiceTurnSeedMarks,
 } from "./live-voice-metrics.js";
 import {
@@ -109,6 +122,28 @@ const FINALIZE_GRACE_MS = 1_000;
 // liveVoice.vad.bargeInMinSpeechMs schema default; 0 disables the guard for
 // instant barge-in.
 const DEFAULT_BARGE_IN_MIN_SPEECH_MS = 250;
+// Mirrors MediaTurnDetector's DEFAULT_SILENCE_THRESHOLD_MS: the session
+// tracks the effective trailing-silence threshold (the detector keeps its own
+// copy private) so the endpoint decider can report the pause length.
+const DEFAULT_SILENCE_THRESHOLD_MS = 800;
+// Longest continuous sub-threshold gap the sustained-speech barge-in run
+// tolerates without resetting. A gap this short is a syllable boundary, or the
+// choppy energy the browser's half-duplex echo canceller produces while the
+// assistant is still playing (it ducks the user's near-end voice, so post-AEC
+// user speech arrives as intermittent above-gate chunks) — so the run keeps
+// accumulating across it and a barge-in during playback still lands. Only a
+// longer continuous silence (a real end of speech, or an isolated cough) resets
+// the run.
+const BARGE_IN_GAP_TOLERANCE_MS = 200;
+// Ceiling on cumulative sub-threshold time across a whole barge-in run, as a
+// multiple of bargeInMinSpeechMs. Per-gap tolerance alone lets sparse isolated
+// blips (e.g. a 10 ms echo spike every 200 ms) each clear the consecutive-gap
+// timer while retaining prior speech, so they would sum to the guard over
+// several seconds and fire a barge-in with no sustained user speech. Capping the
+// run's total tolerated silence imposes a minimum above-gate duty cycle
+// (1 / (1 + ratio) ≈ 20%): once the run is mostly silence it resets, so genuine
+// choppy speech still lands but periodic noise cannot accumulate into one.
+const BARGE_IN_MAX_TOLERATED_SILENCE_RATIO = 4;
 // At most this many TTS segment jobs are open (provider stream started,
 // frames not yet fully emitted) per turn: the emitting job plus one
 // prefetching job. The prefetch buffers its chunks in memory until promoted;
@@ -201,6 +236,21 @@ export interface LiveVoiceSessionOptions {
    */
   finalizeGraceMs?: number;
   /**
+   * Front-model presence tuning (semantic endpointing + spoken acks). The
+   * production factory seeds this from `liveVoice.frontModel` config when
+   * unset; absent fields fall back to the schema defaults (the constructor
+   * schema-parses the partial into a complete config).
+   */
+  frontModelConfig?: Partial<LiveVoiceFrontModelConfig>;
+  /**
+   * Front-model decision/phrasing service: semantic endpointing on
+   * silence-fired turn-ends (a "hold" keeps the utterance open through a
+   * bounded extension window) and LLM-phrased acks. The production factory
+   * constructs it from `liveVoice.frontModel` config when unset; `null`
+   * disables front-model LLM calls (energy endpointing + static ack phrasing).
+   */
+  frontDecider?: VoiceFrontDecider | null;
+  /**
    * Spawns the background continuation for a barged-in turn when the
    * `voice-duplex-handoff` flag is on. The factory wires the real
    * SubagentManager-backed implementation; tests inject a stub.
@@ -252,6 +302,12 @@ interface UtteranceCycle {
   pendingAudioChunks: Buffer[];
   pendingAudioBytes: number;
   finalTranscriptSegments: string[];
+  // Latest non-final STT partial trailing the finals, fed to the semantic
+  // endpoint decider. Cleared when a final commits it.
+  latestPartialText: string | null;
+  // Consecutive semantic-endpointing "hold" extensions this utterance has
+  // consumed, bounded by `endpointMaxExtensions`.
+  endpointExtensionCount: number;
   turnId: string | null;
   userMessageId: string | null;
   userAudioChunks: Buffer[];
@@ -298,12 +354,72 @@ interface TtsSegmentJob {
   frames: Promise<void>;
 }
 
+// One tool operation observed on a turn, fed by the bridge's structured tool
+// callbacks. `completedAtMs`/`isError`/`resultPreview` land with tool_result.
+interface TurnProgressOp {
+  toolName: string;
+  toolUseId?: string;
+  startedAtMs: number;
+  completedAtMs?: number;
+  isError?: boolean;
+  resultPreview?: string;
+}
+
+// Per-turn tool-activity log and narration cadence state for spoken progress
+// updates (liveVoice.frontModel.progress).
+interface TurnProgressState {
+  // Tool operations this turn, in start order.
+  ops: TurnProgressOp[];
+  // Ops accumulated toward the next ops-triggered narration. Counted once per
+  // op, on start (not completion), so a burst of slow tools still trips the
+  // threshold while they run.
+  opsSinceNarration: number;
+  // Narrations actually spoken this turn — the metrics count and the
+  // decider's 1-based updateIndex. Rate, not count, bounds narration:
+  // idleIntervalMs/minGapMs cap the cadence and the session duration cap
+  // bounds the turn.
+  updatesSpoken: number;
+  // When the last spoken floor-holder (ack or narration) enqueued — gates the
+  // progress.minGapMs spacing guard. Null until something speaks.
+  lastFloorHolderAtMs: number | null;
+  // When the turn's last TTS segment finished emitting (turn launch until
+  // anything speaks). Together with the session-level playback-tail estimate
+  // this anchors the dead-air countdown: idle time is measured from when the
+  // user last heard something, not from when the turn started.
+  lastAudibleAtMs: number;
+  // Self-re-arming dead-air narration timer; null once cleared or fired.
+  idleTimer: ReturnType<typeof setTimeout> | null;
+  // A narration generation is awaiting the decider; serializes narrations.
+  narrationInFlight: boolean;
+}
+
+// Newest incomplete op, optionally restricted to a tool name (the
+// tool_result fallback match when no toolUseId correlates).
+function findLastIncompleteOp(
+  ops: TurnProgressOp[],
+  toolName?: string,
+): TurnProgressOp | undefined {
+  for (let i = ops.length - 1; i >= 0; i -= 1) {
+    const op = ops[i];
+    if (
+      op.completedAtMs === undefined &&
+      (toolName === undefined || op.toolName === toolName)
+    ) {
+      return op;
+    }
+  }
+  return undefined;
+}
+
 interface ActiveAssistantTurn {
   token: symbol;
   turnId: string;
   utterance: UtteranceCycle;
   abortController: AbortController;
   handle: VoiceTurnHandle | null;
+  // When the turn launched, for narration's turnElapsedMs.
+  launchedAtMs: number;
+  progress: TurnProgressState;
   assistantCompleted: boolean;
   ttsDone: boolean;
   // A tts_audio frame actually went out to the client — latches on the first
@@ -320,6 +436,27 @@ interface ActiveAssistantTurn {
   // or reference it in reply to the user, without ever speaking it unprompted.
   // Null when no continuation result is pending for this turn.
   continuationResult: string | null;
+  // The agent run started a definitive tool use this turn — tool use implies
+  // a guaranteed-slow turn, so acknowledgment logic can key off this.
+  toolUseStarted: boolean;
+  // The model's first streamed delta reached this session — the spoken-ack
+  // timer is moot once real output is flowing.
+  firstDeltaSeen: boolean;
+  // Counts assistant text deltas seen this turn. A narration generation
+  // captures it at launch and discards its result if it moved: text the model
+  // produced mid-generation makes the narration stale, and proves the model
+  // is alive — which is exactly what narration exists to paper over.
+  deltaEpoch: number;
+  // A spoken ack was enqueued this turn. Every ack trigger shares this
+  // one-per-turn budget so a slow turn never stacks fillers.
+  ackSpoken: boolean;
+  // An LLM-phrased ack generation is awaiting the decider (llmAckText).
+  // While true, the ack has not yet stamped `lastFloorHolderAtMs`, so
+  // narration must treat it as a floor-holder-in-waiting and stand down —
+  // otherwise a progress phrase could land back-to-back with the ack.
+  ackGenerationPending: boolean;
+  // Pending slow-first-delta ack timer; null once cleared or fired.
+  ackTimer: ReturnType<typeof setTimeout> | null;
   // Triage-and-escalate (Voice Mode): the front-door leg emitted [ESCALATE]
   // and the strong "escalated" leg has taken over this same turn. Guards the
   // front-door leg's trailing completion from finalizing the turn, and makes
@@ -457,15 +594,25 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // sensitivity" live (see applyConfigUpdate).
   private bargeInMinSpeechMs: number;
   // Sustained-speech barge-in guard, armed at speech onset while the
-  // assistant turn is audibly speaking: consecutive speech-chunk duration
+  // assistant turn is audibly speaking: above-gate speech-chunk duration
   // accumulates until it reaches bargeInMinSpeechMs, then the deferred
-  // speech_started + barge-in fire (at most once per onset). A non-speech
-  // chunk zeroes the run; the detector's utterance end discards the guard.
+  // speech_started + barge-in fire (at most once per onset). Brief sub-threshold
+  // gaps are tolerated (see BARGE_IN_GAP_TOLERANCE_MS); the run resets on a
+  // single longer continuous silence, or once cumulative tolerated silence
+  // exceeds the duty-cycle ceiling (see BARGE_IN_MAX_TOLERATED_SILENCE_RATIO).
+  // The detector's utterance end discards the guard.
   private pendingBargeIn: {
     // Null when guarding only the post-tts_done drain window (the turn is
     // already finalized but the client is still playing its tail).
     turn: ActiveAssistantTurn | null;
     speechMs: number;
+    // Consecutive sub-threshold (non-speech) time since the last speech chunk;
+    // resets speechMs once it exceeds BARGE_IN_GAP_TOLERANCE_MS.
+    silenceMs: number;
+    // Cumulative sub-threshold time over the whole run (not reset by speech
+    // chunks); resets speechMs once it exceeds the duty-cycle ceiling so sparse
+    // periodic blips cannot sum into a barge-in.
+    toleratedSilenceMs: number;
   } | null = null;
   // Estimated wall-clock ms until the client finishes draining the
   // assistant audio sent so far. The server clears the turn right after
@@ -521,6 +668,38 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   /** The cycle whose grace timer is armed (only the newest release has one). */
   private finalizeGraceCycle: UtteranceCycle | null = null;
   private readonly finalizeGraceMs: number;
+  // Rotates through the ack phrase list across the session's turns.
+  private ackPhraseCounter = 0;
+  // Rotates through the progress fallback phrases across the session's turns.
+  private progressPhraseCounter = 0;
+  // Front-model service: semantic endpointing on
+  // silence-fired turn-ends and LLM-phrased acks; null disables both LLM
+  // capabilities (energy endpointing + static ack phrasing remain).
+  private readonly frontDecider: VoiceFrontDecider | null;
+  // Complete front-model tunables: the constructor schema-parses the partial
+  // option once, so every field carries its `liveVoice.frontModel` schema
+  // default when unset.
+  private readonly frontModelConfig: LiveVoiceFrontModelConfig;
+  // Effective trailing-silence threshold, mirroring the detector's private
+  // copy (constructor seed + update_config), reported to the endpoint decider.
+  private silenceThresholdMs: number;
+  // Pending replay of a held silence turn-end. The detector cannot extend an
+  // in-flight countdown (setSilenceThresholdMs applies only from the next
+  // arm), so this timer IS the extension mechanism: on expiry it replays
+  // handleVadUtteranceEnd("silence") iff the held utterance is still current
+  // and speech has not resumed.
+  private endpointExtensionTimer: ReturnType<typeof setTimeout> | null = null;
+  // Bumped on every VAD speech onset so an endpoint decision that resolves
+  // after speech resumed defers to the detector's fresh boundary instead of
+  // releasing an utterance the user is still adding to.
+  private vadSpeechGeneration = 0;
+  // Latched by releaseFromClient just before it forces the detector's
+  // turn-end. The forced boundary shares the "silence" reason with genuine
+  // VAD silences (the reason is wire-visible, so it stays "silence"), but an
+  // explicit client release must never be second-guessed by the semantic-
+  // endpointing decider. forceEnd fires its turn-end callback synchronously,
+  // so the very next handleVadUtteranceEnd consumes the latch.
+  private manualReleaseForced = false;
 
   constructor(
     context: LiveVoiceSessionFactoryContext,
@@ -559,12 +738,18 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       options.bargeInMinSpeechMs ??
       DEFAULT_BARGE_IN_MIN_SPEECH_MS;
     this.finalizeGraceMs = options.finalizeGraceMs ?? FINALIZE_GRACE_MS;
+    this.frontDecider = options.frontDecider ?? null;
+    this.frontModelConfig = LiveVoiceFrontModelConfigSchema.parse(
+      options.frontModelConfig ?? {},
+    );
     const turnDetectorConfig: TurnDetectorConfig = {
       ...(options.turnDetectorConfig ?? {}),
       ...(context.startFrame.silenceThresholdMs !== undefined
         ? { silenceThresholdMs: context.startFrame.silenceThresholdMs }
         : {}),
     };
+    this.silenceThresholdMs =
+      turnDetectorConfig.silenceThresholdMs ?? DEFAULT_SILENCE_THRESHOLD_MS;
     this.turnDetector =
       context.startFrame.turnDetection === "server_vad"
         ? new MediaTurnDetector(turnDetectorConfig, {
@@ -653,6 +838,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   private applyConfigUpdate(frame: LiveVoiceClientUpdateConfigFrame): void {
     if (frame.silenceThresholdMs !== undefined) {
       this.turnDetector?.setSilenceThresholdMs(frame.silenceThresholdMs);
+      this.silenceThresholdMs = frame.silenceThresholdMs;
     }
     if (frame.bargeInMinSpeechMs !== undefined) {
       this.bargeInMinSpeechMs = frame.bargeInMinSpeechMs;
@@ -671,6 +857,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     const shouldEmitSessionEndMetrics = this.state !== "failed";
     this.state = "closed";
     this.turnDetector?.dispose();
+    this.clearEndpointExtensionTimer();
     this.stopSessionTranscriber();
     this.abortDetachedRuns();
     await this.cancelAssistantTurn("session_closed");
@@ -697,6 +884,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       pendingAudioChunks: [],
       pendingAudioBytes: 0,
       finalTranscriptSegments: [],
+      latestPartialText: null,
+      endpointExtensionCount: 0,
       turnId: null,
       userMessageId: null,
       userAudioChunks: [],
@@ -799,7 +988,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       await this.stopUtteranceForRelease(utterance);
     } else if (replayTurnEnd) {
       // The parked utterance completed during the window (detector already
-      // idle): replay its boundary so it turns without more speech.
+      // idle): replay its boundary so it turns without more speech. Parked
+      // replays deliberately bypass semantic endpointing — the boundary was
+      // already accepted in a previous cycle, so it is not re-judged here.
       await this.sendFrame({ type: "utterance_end", reason: replayTurnEnd });
       await this.releaseUtterance();
     }
@@ -856,6 +1047,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     }
 
     this.state = "failed";
+    this.clearEndpointExtensionTimer();
     await this.sendFrame({
       type: "error",
       code:
@@ -1077,6 +1269,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     }
 
     this.vadSpeechStartPending = true;
+    // Speech resumed: an endpoint decision still in flight is stale (the
+    // generation bump defers it), and a pending hold replay is moot — the
+    // utterance keeps accumulating and the detector fires a fresh turn-end.
+    this.vadSpeechGeneration += 1;
+    this.clearEndpointExtensionTimer();
 
     const turn = this.activeAssistantTurn;
     // Any in-flight, non-finalized turn is interruptible, whether it is still
@@ -1091,7 +1288,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     if ((bargeableTurn || drainingPlayback) && this.bargeInMinSpeechMs > 0) {
       // Onset audio keeps flowing into the cycle/pre-roll while the guard
       // accumulates (trackBargeInGuard), so no speech is lost either way.
-      this.pendingBargeIn = { turn: bargeableTurn, speechMs: 0 };
+      this.pendingBargeIn = {
+        turn: bargeableTurn,
+        speechMs: 0,
+        silenceMs: 0,
+        toleratedSilenceMs: 0,
+      };
       return;
     }
 
@@ -1104,22 +1306,42 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   }
 
   // Advances the sustained-speech barge-in guard by one server-VAD chunk:
-  // consecutive speech accumulates toward bargeInMinSpeechMs (a non-speech
-  // chunk zeroes the run) and, once met, the deferred speech_started +
-  // barge-in fire.
+  // above-gate speech accumulates toward bargeInMinSpeechMs while brief
+  // sub-threshold gaps are tolerated (a single continuous silence longer than
+  // BARGE_IN_GAP_TOLERANCE_MS, or cumulative tolerated silence past the
+  // duty-cycle ceiling, zeroes the run), and once met the deferred
+  // speech_started + barge-in fire.
   private trackBargeInGuard(hasSpeech: boolean, chunk: Buffer): void {
     const guard = this.pendingBargeIn;
     if (!guard) {
       return;
     }
-    if (!hasSpeech) {
-      guard.speechMs = 0;
-      return;
-    }
-    guard.speechMs += pcm16DurationMs(
+    const chunkMs = pcm16DurationMs(
       chunk.byteLength,
       this.context.startFrame.audio.sampleRate,
     );
+    if (!hasSpeech) {
+      guard.silenceMs += chunkMs;
+      guard.toleratedSilenceMs += chunkMs;
+      // Strictly greater on the per-gap check: a gap of exactly
+      // BARGE_IN_GAP_TOLERANCE_MS is still tolerated. The web client batches PCM
+      // into 50 ms frames, so a run of ducked frames lands on the boundary
+      // exactly (e.g. four frames = 200 ms). The run also resets once its total
+      // tolerated silence outweighs the speech by the duty-cycle ceiling, so
+      // sparse periodic blips can never sum to the guard.
+      if (
+        guard.silenceMs > BARGE_IN_GAP_TOLERANCE_MS ||
+        guard.toleratedSilenceMs >
+          this.bargeInMinSpeechMs * BARGE_IN_MAX_TOLERATED_SILENCE_RATIO
+      ) {
+        guard.speechMs = 0;
+        guard.silenceMs = 0;
+        guard.toleratedSilenceMs = 0;
+      }
+      return;
+    }
+    guard.silenceMs = 0;
+    guard.speechMs += chunkMs;
     if (guard.speechMs < this.bargeInMinSpeechMs) {
       return;
     }
@@ -1156,7 +1378,14 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // order and let an older continuation re-stash. A higher sequence here
     // immediately invalidates every earlier still-running continuation.
     const detachSeq = ++this.detachSequence;
-    turn.abortController.abort();
+    this.clearFillerTimers(turn);
+    // Tagged reason: provider catch-sites classify untagged caller aborts as
+    // retryable transport failures (ERROR log + futile retry against the
+    // aborted signal). This signal reaches the brain leg and, with llmAckText
+    // on, in-flight ack generation.
+    turn.abortController.abort(
+      createAbortReason("voice_session_aborted", "live-voice-barge-in"),
+    );
     this.metrics.markBargeIn(turn.turnId);
     // Capture the interrupted turn's teardown promise synchronously, before the
     // barge-in utterance's own startVoiceTurn overwrites the bridge's
@@ -1312,6 +1541,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // VAD closed the utterance — the analog of ptt_release: emit
   // utterance_end, then run the standard release path.
   private handleVadUtteranceEnd(reason: "silence" | "max-duration"): void {
+    // Consume the manual-release latch before any async hop: it belongs to
+    // exactly this boundary (forceEnd fired this callback synchronously), and
+    // it must not leak into a later genuine silence even when the early-exit
+    // guards below skip the release.
+    const manualRelease = this.manualReleaseForced;
+    this.manualReleaseForced = false;
     void (async () => {
       if (this.isClosed || this.state === "failed") {
         return;
@@ -1320,6 +1555,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       // The detector turn is over: an untripped guard was noise, not
       // barge-in — leave playback untouched.
       this.pendingBargeIn = null;
+      if (reason === "max-duration") {
+        // A max-duration boundary always releases: drop any pending hold
+        // replay so it cannot re-fire a boundary this one already owns.
+        this.clearEndpointExtensionTimer();
+      }
       const utterance = this.currentUtterance;
       if (!utterance || utterance.released || utterance.completed) {
         // The ended turn's speech sits parked in the pre-roll ring (the
@@ -1330,9 +1570,138 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         }
         return;
       }
+      // Semantic endpointing: a silence boundary may be a thinking pause —
+      // let the front decider hold the utterance open. Only detector-timer
+      // silences qualify; max-duration always releases, and a manual client
+      // release (ptt_release forced the boundary) is the user saying "answer
+      // now" — never second-guess it. The gate is synchronous (null) whenever
+      // the decider is not consulted, so that release path keeps its exact
+      // event ordering — an extra await here would shift utterance release
+      // across the persistent-transcriber flush attribution.
+      if (reason === "silence" && !manualRelease) {
+        const holdDecision = this.maybeHoldUtteranceOpen(utterance);
+        if (holdDecision && (await holdDecision)) {
+          return;
+        }
+      }
       await this.sendFrame({ type: "utterance_end", reason });
       await this.releaseUtterance();
     })().catch(() => {});
+  }
+
+  /**
+   * Semantic-endpointing gate for a silence-fired turn-end. Returns `null`
+   * synchronously when the decider is not consulted (no decider,
+   * extension cap reached, nothing transcribed) — the boundary then releases
+   * exactly as before. Otherwise resolves `true` when the boundary must NOT
+   * release the utterance now: either the decider held it open (the extension
+   * timer replays the boundary), or the world moved on during the decision
+   * (speech resumed, utterance superseded) and a fresh boundary owns the
+   * release. Every decider failure resolves as "release" within
+   * `endpointDecisionTimeoutMs` (fail-open), so consulting it adds at most
+   * that much end-of-turn latency.
+   */
+  private maybeHoldUtteranceOpen(
+    utterance: UtteranceCycle,
+  ): Promise<boolean> | null {
+    const decider = this.frontDecider;
+    if (!decider) {
+      return null;
+    }
+    if (
+      utterance.endpointExtensionCount >=
+      this.frontModelConfig.endpointMaxExtensions
+    ) {
+      return null;
+    }
+    const transcriptSoFar = utterance.finalTranscriptSegments.join(" ").trim();
+    const latestPartial = utterance.latestPartialText;
+    if (transcriptSoFar.length === 0 && !latestPartial) {
+      // Nothing transcribed yet: there is no text to judge.
+      return null;
+    }
+    return this.decideUtteranceHold(
+      decider,
+      utterance,
+      transcriptSoFar,
+      latestPartial,
+    );
+  }
+
+  private async decideUtteranceHold(
+    decider: VoiceFrontDecider,
+    utterance: UtteranceCycle,
+    transcriptSoFar: string,
+    latestPartial: string | null,
+  ): Promise<boolean> {
+    const generation = this.vadSpeechGeneration;
+    const decisionStartedAtMs = this.metricsClock();
+    const decision = await decider
+      .decideEndpoint({
+        transcriptSoFar,
+        latestPartial,
+        silenceThresholdMs: this.silenceThresholdMs,
+        extensionCount: utterance.endpointExtensionCount,
+      })
+      // The decider contract never rejects, but the enclosing boundary flow
+      // swallows rejections — a rejecting decider (a buggy stub, a future
+      // regression) would silently drop the silence boundary. Belt and
+      // braces: rejection degrades to release, mirroring speakGeneratedAck.
+      .catch(() => ({ action: "release" as const }));
+    const decisionLatencyMs = Math.max(
+      0,
+      this.metricsClock() - decisionStartedAtMs,
+    );
+    // Re-check the world after the await: the decision window is bounded but
+    // real, and a release based on a stale snapshot could cut off speech.
+    if (
+      this.isUtteranceStale(utterance) ||
+      utterance.released ||
+      utterance.completed
+    ) {
+      return true;
+    }
+    if (generation !== this.vadSpeechGeneration) {
+      // Speech resumed during the decision: the utterance keeps accumulating
+      // and the detector's next turn-end re-runs the whole decision. The
+      // discarded decision is not recorded — only acted-on outcomes count.
+      return true;
+    }
+    this.markEndpointDecision(utterance, decision.action, decisionLatencyMs);
+    if (decision.action !== "hold") {
+      return false;
+    }
+    utterance.endpointExtensionCount += 1;
+    this.armEndpointExtensionTimer(utterance);
+    return true;
+  }
+
+  // Arms the hold-extension replay: after `endpointExtensionMs` of continued
+  // silence the deferred silence boundary re-fires (and the decider is
+  // consulted again, bounded by `endpointMaxExtensions`).
+  private armEndpointExtensionTimer(utterance: UtteranceCycle): void {
+    this.clearEndpointExtensionTimer();
+    this.endpointExtensionTimer = setTimeout(() => {
+      this.endpointExtensionTimer = null;
+      if (
+        this.currentUtterance !== utterance ||
+        utterance.released ||
+        utterance.completed ||
+        // Speech resumed (the detector owns the next boundary). Onset also
+        // clears this timer, so this is a belt to that suspender.
+        this.turnDetector?.isActive
+      ) {
+        return;
+      }
+      this.handleVadUtteranceEnd("silence");
+    }, this.frontModelConfig.endpointExtensionMs);
+  }
+
+  private clearEndpointExtensionTimer(): void {
+    if (this.endpointExtensionTimer !== null) {
+      clearTimeout(this.endpointExtensionTimer);
+      this.endpointExtensionTimer = null;
+    }
   }
 
   // In server_vad mode a client ptt_release still works as a manual
@@ -1341,9 +1710,31 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // to a plain release.
   private async releaseFromClient(): Promise<void> {
     if (this.turnDetector?.isActive) {
+      // Latch first: the forced boundary reports "silence", and this marks
+      // it as a manual release the semantic-endpointing decider must not
+      // hold (see the manualReleaseForced field doc).
+      this.manualReleaseForced = true;
       this.turnDetector.forceEnd();
       await this.drainOutboundFrames();
       return;
+    }
+    // Server VAD with no active detector turn but a still-open utterance is
+    // a held pause (semantic endpointing suppressed the boundary's
+    // utterance_end and the detector's turn already ended). The manual
+    // release must still emit the frame — the hands-free client only leaves
+    // `listening` on `utterance_end` — and drop the pending hold replay it
+    // supersedes. Reason stays "silence": the manual-release convention
+    // everywhere else (forceEnd) reports the same, and the client ignores
+    // the value. Manual mode (no detector) emits no VAD frames — skip.
+    const utterance = this.currentUtterance;
+    if (
+      this.turnDetector &&
+      utterance &&
+      !utterance.released &&
+      !utterance.completed
+    ) {
+      this.clearEndpointExtensionTimer();
+      await this.sendFrame({ type: "utterance_end", reason: "silence" });
     }
     await this.releaseUtterance();
   }
@@ -1529,6 +1920,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
 
     switch (event.type) {
       case "partial":
+        utterance.latestPartialText = event.text;
         this.markFirstPartial(utterance);
         await this.sendFrame({ type: "stt_partial", text: event.text });
         return;
@@ -1601,6 +1993,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         if (!target || target.assistantTurnStarted || target.completed) {
           return;
         }
+        target.latestPartialText = event.text;
         this.markFirstPartial(target);
         await this.sendFrame({ type: "stt_partial", text: event.text });
         return;
@@ -1708,6 +2101,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     if (transcript.length > 0) {
       utterance.finalTranscriptSegments.push(transcript);
     }
+    // The final commits (and supersedes) whatever partial was trailing it.
+    utterance.latestPartialText = null;
     this.markFinalTranscript(utterance);
     await this.sendFrame({ type: "stt_final", text });
     await this.startAssistantTurnIfReady();
@@ -1741,6 +2136,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     this.assistantPlaybackTailUntilMs = 0;
     this.takeVadPreRoll();
     this.vadPendingTurnEnd = null;
+    // ...and abandons any semantic-endpointing hold still awaiting replay.
+    this.clearEndpointExtensionTimer();
     // A client interrupt is a hard reset: any barge-in merge context waiting for
     // the next turn is now stale (the interrupted utterance may be discarded
     // without ever reaching finalizePendingUtterance).
@@ -1856,12 +2253,28 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       utterance,
       abortController,
       handle: null,
+      launchedAtMs: Date.now(),
+      progress: {
+        ops: [],
+        opsSinceNarration: 0,
+        updatesSpoken: 0,
+        lastFloorHolderAtMs: null,
+        lastAudibleAtMs: Date.now(),
+        idleTimer: null,
+        narrationInFlight: false,
+      },
       assistantCompleted: false,
       ttsDone: false,
       ttsAudioStarted: false,
       finalized: false,
       interruptedRequest: opts?.interruptedRequest ?? null,
       continuationResult: opts?.continuationResult ?? null,
+      toolUseStarted: false,
+      firstDeltaSeen: false,
+      deltaEpoch: 0,
+      ackSpoken: false,
+      ackGenerationPending: false,
+      ackTimer: null,
       escalationHandedOff: false,
       ttsBuffer: "",
       ttsSegmentEnqueued: false,
@@ -1878,11 +2291,31 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       return;
     }
 
+    const cfg = getConfig();
+
+    // Slow-first-delta spoken ack: if the model produces no delta within the
+    // budget, a short static phrase holds the floor. Only meaningful on TTS
+    // sessions — a text-only session has no audio gap to bridge.
+    if (this.streamTtsAudio) {
+      this.armAckTimer(activeTurn);
+    }
+
+    // Progress narration speaks into the turn's audible dead air on a
+    // cadence, wherever in the turn it occurs; without TTS or a decider there
+    // is nothing to speak (the idle trigger's static fallback still needs a
+    // generation attempt to fall back from).
+    if (
+      this.frontModelConfig.progress.enabled &&
+      this.streamTtsAudio &&
+      this.frontDecider
+    ) {
+      this.armProgressIdleTimer(activeTurn);
+    }
+
     // Triage-and-escalate (Voice Mode): active only when BOTH the voice-mode
     // surface flag and the voice-triage-escalate routing flag are on. A
     // live-voice session already implies voice-mode client-side; the explicit
     // check keeps the "gated behind both flags" contract true server-side.
-    const cfg = getConfig();
     const escalateEnabled =
       isAssistantFeatureFlagEnabled("voice-mode", cfg) &&
       isVoiceTriageEscalateEnabled(cfg);
@@ -1942,6 +2375,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         return;
       }
       this.markFirstAssistantDelta(utterance, turnId);
+      this.markFirstDeltaForAck(activeTurn);
       // Same send-time abort gate as the default-leg delta path: a front-door
       // delta queued behind a backed-up outbound frame must not be written
       // once barge-in aborts the turn. Escalation aborts the front-door handle,
@@ -2018,6 +2452,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
               return;
             }
             this.markFirstAssistantDelta(utterance, turnId);
+            this.markFirstDeltaForAck(activeTurn);
             void this.sendFrame(
               {
                 type: "assistant_text_delta",
@@ -2080,6 +2515,65 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
             }
             current.assistantMessageId = messageId;
           },
+          tool_use_start: (toolName, detail) => {
+            const current = this.activeAssistantTurn;
+            if (current?.token !== token) {
+              return;
+            }
+            current.toolUseStarted = true;
+            // The op counts toward the narration threshold on start (not
+            // completion) so a burst of slow tools still trips the ops
+            // trigger while they run.
+            current.progress.ops.push({
+              toolName,
+              ...(detail?.toolUseId !== undefined
+                ? { toolUseId: detail.toolUseId }
+                : {}),
+              startedAtMs: Date.now(),
+            });
+            current.progress.opsSinceNarration += 1;
+            log.debug({ turnId, toolName }, "Live voice turn started tool use");
+            // Definitive tool use means the turn is guaranteed slow: speak
+            // the floor-holding ack now instead of waiting out the
+            // first-delta timer (same one-ack-per-turn `ackSpoken` budget).
+            // Post-handoff the escalation bridge phrase holds the floor and
+            // front-door deltas never set firstDeltaSeen, so the escalated
+            // leg's tool starts must not stack another filler on the bridge.
+            if (
+              this.streamTtsAudio &&
+              !current.firstDeltaSeen &&
+              !current.ackSpoken &&
+              !current.escalationHandedOff
+            ) {
+              this.clearAckTimer(current);
+              this.speakAck(current, "tool_use", toolName);
+            }
+            this.maybeNarrateProgress(current, "ops");
+          },
+          tool_result: (event) => {
+            const current = this.activeAssistantTurn;
+            if (current?.token !== token) {
+              return;
+            }
+            // Match by toolUseId when present; otherwise the last-started
+            // incomplete op with the same name (parallel same-name ops
+            // resolve newest-first).
+            const op =
+              (event.toolUseId !== undefined
+                ? current.progress.ops.find(
+                    (o) => o.toolUseId === event.toolUseId,
+                  )
+                : undefined) ??
+              findLastIncompleteOp(current.progress.ops, event.toolName);
+            if (op) {
+              op.completedAtMs = Date.now();
+              if (event.isError !== undefined) {
+                op.isError = event.isError;
+              }
+              op.resultPreview = event.resultPreview;
+            }
+            this.maybeNarrateProgress(current, "ops");
+          },
         },
         onError: (message) => {
           const current = this.activeAssistantTurn;
@@ -2126,6 +2620,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         return;
       }
 
+      this.clearFillerTimers(activeTurn);
       this.activeAssistantTurn = null;
       await this.sendFrame({
         type: "error",
@@ -2154,6 +2649,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       return;
     }
     activeTurn.escalationHandedOff = true;
+    // The escalation bridge below holds the floor, so a pending
+    // slow-first-delta ack or progress narration would only stack a second
+    // filler on top of it.
+    this.clearFillerTimers(activeTurn);
     // Abort the front-door leg so a model that keeps generating past the marker
     // adds no latency before the escalated leg starts.
     activeTurn.handle?.abort();
@@ -2184,7 +2683,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     const turn = this.activeAssistantTurn;
     this.activeAssistantTurn = null;
     if (turn) {
-      turn.abortController.abort();
+      this.clearFillerTimers(turn);
+      // Tagged for the same reason as the barge-in abort: untagged caller
+      // aborts misclassify as retryable transport failures downstream.
+      turn.abortController.abort(
+        createAbortReason("voice_session_aborted", `live-voice-${reason}`),
+      );
       turn.handle?.abort();
       if (!turn.finalized) {
         await this.finalizeAssistantTurn(turn, "cancelled", reason);
@@ -2241,6 +2745,383 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     );
   }
 
+  // Arms the slow-first-delta ack timer for a just-launched turn: on expiry,
+  // if no assistant delta has arrived and the turn is still live, one short
+  // phrase is spoken to hold the floor.
+  private armAckTimer(activeTurn: ActiveAssistantTurn): void {
+    const { token } = activeTurn;
+    activeTurn.ackTimer = setTimeout(() => {
+      activeTurn.ackTimer = null;
+      if (
+        !this.isActiveAssistantTurn(token) ||
+        activeTurn.firstDeltaSeen ||
+        activeTurn.ackSpoken
+      ) {
+        return;
+      }
+      this.speakAck(activeTurn, "first_delta");
+    }, this.frontModelConfig.ackFirstDeltaTimeoutMs);
+  }
+
+  private clearAckTimer(turn: ActiveAssistantTurn): void {
+    if (turn.ackTimer !== null) {
+      clearTimeout(turn.ackTimer);
+      turn.ackTimer = null;
+    }
+  }
+
+  // The model produced real output for this turn: the pending slow-first-delta
+  // ack is moot, and any in-flight narration generation is stale (it captures
+  // deltaEpoch to notice). The narration idle timer stays armed — the dead air
+  // narration exists to fill is almost always MID-turn (between tool phases,
+  // during long silent LLM calls after the model's opening words), so it must
+  // keep watching after the model speaks and re-trigger once the audio drains
+  // and silence stretches again.
+  private markFirstDeltaForAck(turn: ActiveAssistantTurn): void {
+    turn.firstDeltaSeen = true;
+    turn.deltaEpoch += 1;
+    this.clearAckTimer(turn);
+  }
+
+  // Arms (or re-arms) the dead-air narration timer. The countdown measures
+  // audible silence — time since the turn's audio last (estimatedly) reached
+  // the user's ears — not time since launch, so it covers mid-turn silences
+  // for the whole turn. On expiry with audio still pending, or with the
+  // silence not yet a full interval old, it re-arms for the remainder; only a
+  // full interval of audible silence narrates. The cadence is deliberately
+  // flat and uncapped: long pauses feel longest, so updates keep coming at
+  // the same interval (minGapMs is the spacing floor) for as long as the
+  // turn stays silent.
+  private armProgressIdleTimer(
+    turn: ActiveAssistantTurn,
+    delayMs?: number,
+  ): void {
+    const { token } = turn;
+    this.clearProgressIdleTimer(turn);
+    turn.progress.idleTimer = setTimeout(() => {
+      turn.progress.idleTimer = null;
+      if (!this.isActiveAssistantTurn(token) || turn.assistantCompleted) {
+        return;
+      }
+      if (!this.turnAudioIdle(turn)) {
+        // Audio is buffered, queued, or still playing: a fresh silence can
+        // only be a full interval old one interval from now.
+        this.armProgressIdleTimer(turn);
+        return;
+      }
+      const remaining = this.progressIdleDeadlineMs(turn) - Date.now();
+      if (remaining > 0) {
+        this.armProgressIdleTimer(turn, remaining);
+        return;
+      }
+      this.maybeNarrateProgress(turn, "idle");
+      this.armProgressIdleTimer(turn);
+    }, delayMs ?? this.frontModelConfig.progress.idleIntervalMs);
+  }
+
+  // Wall-clock instant the current audible silence turns a full interval old:
+  // measured from the latest of the last emitted segment, the estimated
+  // client playback end, and the last enqueued filler.
+  private progressIdleDeadlineMs(turn: ActiveAssistantTurn): number {
+    return (
+      Math.max(
+        turn.progress.lastAudibleAtMs,
+        this.assistantPlaybackTailUntilMs,
+        turn.progress.lastFloorHolderAtMs ?? 0,
+      ) + this.frontModelConfig.progress.idleIntervalMs
+    );
+  }
+
+  // No assistant audio is pending or (estimatedly) still playing: nothing
+  // buffered toward the next sentence, every queued TTS segment fully
+  // emitted, and the client-side playback-tail estimate expired.
+  private turnAudioIdle(turn: ActiveAssistantTurn): boolean {
+    return (
+      turn.ttsBuffer.length === 0 &&
+      turn.ttsJobs.every((job) => job.settled) &&
+      Date.now() >= this.assistantPlaybackTailUntilMs
+    );
+  }
+
+  private clearProgressIdleTimer(turn: ActiveAssistantTurn): void {
+    if (turn.progress.idleTimer !== null) {
+      clearTimeout(turn.progress.idleTimer);
+      turn.progress.idleTimer = null;
+    }
+  }
+
+  // Clears both filler timers (slow-first-delta ack + dead-air narration) for
+  // events that end the turn's filler lifecycle outright: escalation
+  // hand-off, barge-in, cancellation, tts-completion, finalize. Real output
+  // moots only the ack (markFirstDeltaForAck) — the narration timer keeps
+  // watching for mid-turn dead air.
+  private clearFillerTimers(turn: ActiveAssistantTurn): void {
+    this.clearAckTimer(turn);
+    this.clearProgressIdleTimer(turn);
+  }
+
+  // A spoken ack may only speak into a live turn's pre-first-delta dead air.
+  // Once the turn is stale, the brain's first delta has arrived, an
+  // escalation hand-off has enqueued its bridge phrase (which holds the floor
+  // itself), or the turn has completed outright — a tool-only/no-text turn
+  // completes with firstDeltaSeen still false — an ack is moot and must not
+  // speak over real output, stack on the escalation bridge, or voice a
+  // finished turn.
+  private turnCanSpeakFiller(turn: ActiveAssistantTurn): boolean {
+    return (
+      this.isActiveAssistantTurn(turn.token) &&
+      !turn.firstDeltaSeen &&
+      !turn.escalationHandedOff &&
+      !turn.assistantCompleted
+    );
+  }
+
+  // Narration, unlike the ack, is not confined to the pre-first-delta window:
+  // the dead air it exists to fill is almost always mid-turn, after the
+  // model's opening words. It may speak whenever the live turn is audibly
+  // silent right now — nothing streaming, queued, or still playing — and has
+  // not escalated (the bridge phrase holds the floor) or completed.
+  private turnCanNarrateProgress(turn: ActiveAssistantTurn): boolean {
+    return (
+      this.isActiveAssistantTurn(turn.token) &&
+      !turn.escalationHandedOff &&
+      !turn.assistantCompleted &&
+      this.turnAudioIdle(turn)
+    );
+  }
+
+  // Gatekeeper for spoken progress narration: it speaks only while the turn
+  // is audibly silent, spaced `minGapMs` from any spoken floor-holder (ack or
+  // narration), one generation at a time, and — on the ops trigger — only
+  // once `opsThreshold` ops accumulated. No per-turn count cap: the cadence
+  // guards bound the rate, and going quiet deep into a long turn is the
+  // failure mode narration exists to prevent. Every failing guard
+  // short-circuits silently; a skipped ops trigger keeps its accumulated
+  // count, so the next tool event or idle tick retries.
+  private maybeNarrateProgress(
+    turn: ActiveAssistantTurn,
+    trigger: "ops" | "idle",
+  ): void {
+    const cfg = this.frontModelConfig.progress;
+    const { progress } = turn;
+    const frontDecider = this.frontDecider;
+    if (
+      !cfg.enabled ||
+      !this.streamTtsAudio ||
+      !frontDecider ||
+      !this.turnCanNarrateProgress(turn) ||
+      // A pending ack generation is a floor-holder-in-waiting: starting a
+      // narration generation now would only be discarded by the post-await
+      // re-check once the ack enqueues — a guaranteed wasted provider call.
+      turn.ackGenerationPending ||
+      progress.narrationInFlight ||
+      (progress.lastFloorHolderAtMs !== null &&
+        Date.now() - progress.lastFloorHolderAtMs < cfg.minGapMs) ||
+      (trigger === "ops" && progress.opsSinceNarration < cfg.opsThreshold)
+    ) {
+      return;
+    }
+    void this.speakProgressUpdate(turn, frontDecider, trigger);
+  }
+
+  // Generate and speak one progress narration. Like the ack, it is audio-only
+  // — no assistant_text_delta frame — and enqueues as a standalone sentence
+  // on the turn's ordered TTS queue. The decider internally bounds the call
+  // by `progress.generationTimeoutMs` and resolves null on every failure
+  // mode; on null the idle trigger falls back to a static phrase (silence is
+  // actively harmful there) while the ops trigger stays silent — a generic
+  // filler is not worth it when narration was merely opportunistic.
+  private async speakProgressUpdate(
+    turn: ActiveAssistantTurn,
+    frontDecider: VoiceFrontDecider,
+    trigger: "ops" | "idle",
+  ): Promise<void> {
+    const { progress } = turn;
+    progress.narrationInFlight = true;
+    // Any delta that lands while the decider call is in flight makes the
+    // generated text stale — and proves the model is speaking again.
+    const deltaEpochAtLaunch = turn.deltaEpoch;
+    try {
+      const now = Date.now();
+      const currentOp = findLastIncompleteOp(progress.ops);
+      const input: VoiceProgressTextInput = {
+        transcriptSoFar: turn.utterance.finalTranscriptSegments
+          .join(" ")
+          .trim(),
+        completedOps: progress.ops
+          .filter(
+            (op): op is TurnProgressOp & { completedAtMs: number } =>
+              op.completedAtMs !== undefined,
+          )
+          // `ops` is in start order; the decider contract wants completion
+          // order, which differs when parallel tools finish out of order.
+          .sort((a, b) => a.completedAtMs - b.completedAtMs)
+          .map((op) => ({
+            toolName: op.toolName,
+            ...(op.isError !== undefined ? { isError: op.isError } : {}),
+            ...(op.resultPreview !== undefined
+              ? { resultPreview: op.resultPreview }
+              : {}),
+          })),
+        currentOp: currentOp
+          ? {
+              toolName: currentOp.toolName,
+              elapsedMs: now - currentOp.startedAtMs,
+            }
+          : null,
+        turnElapsedMs: now - turn.launchedAtMs,
+        updateIndex: progress.updatesSpoken + 1,
+      };
+      const generated = await frontDecider
+        .generateProgressText(input, turn.abortController.signal)
+        // The decider contract never rejects; belt-and-braces for a stub.
+        .catch(() => null);
+      // Liveness re-check after the await: any turnCanNarrateProgress
+      // condition may have flipped while generating, and a delta that landed
+      // mid-generation (deltaEpoch moved) makes the text stale even when the
+      // resulting audio has already drained by now. The ack-generation and
+      // floor re-checks close the race with a generated ack (llmAckText) that
+      // STARTED after this generation did — the entry guard rejects a
+      // narration while an ack generation is already pending, but cannot see
+      // one that begins mid-generation: while that ack is pending it has not
+      // yet stamped `lastFloorHolderAtMs`, and once it enqueues the minGapMs
+      // spacing must be re-applied from that stamp — either way, enqueueing
+      // now would stack back-to-back filler. A bail here is silent and keeps
+      // the update budget, exactly like the stale-turn bail.
+      if (
+        !this.turnCanNarrateProgress(turn) ||
+        turn.deltaEpoch !== deltaEpochAtLaunch ||
+        turn.ackGenerationPending ||
+        (progress.lastFloorHolderAtMs !== null &&
+          Date.now() - progress.lastFloorHolderAtMs <
+            this.frontModelConfig.progress.minGapMs)
+      ) {
+        return;
+      }
+      let raw = generated;
+      if (raw === null) {
+        if (trigger === "ops") {
+          return;
+        }
+        raw = pickProgressPhrase(this.progressPhraseCounter++);
+      }
+      if (!this.enqueueFillerPhrase(turn, raw)) {
+        return;
+      }
+      progress.opsSinceNarration = 0;
+      progress.updatesSpoken += 1;
+      // Like the ack mark, recorded only when narration audio actually
+      // enqueued (decider text or static fallback alike).
+      this.markProgressSpoken(turn);
+      // Restart the dead-air countdown from this narration.
+      this.armProgressIdleTimer(turn);
+    } finally {
+      progress.narrationInFlight = false;
+    }
+  }
+
+  // Speak the turn's one floor-holding ack (every ack trigger shares the
+  // `ackSpoken` budget). The ack is audio-only — no assistant_text_delta frame
+  // — so captions and the persisted assistant message carry only the model's
+  // own output. It enqueues as a complete standalone sentence on the turn's
+  // ordered TTS queue, so the model's audio always follows it cleanly; it
+  // never consumes the eager first-clause flush reserved for the model's real
+  // first segment.
+  private speakAck(
+    activeTurn: ActiveAssistantTurn,
+    kind: LiveVoiceSpokenAckKind,
+    toolName?: string,
+  ): void {
+    activeTurn.ackSpoken = true;
+    if (this.frontModelConfig.llmAckText && this.frontDecider) {
+      // Optimistic ackSpoken above keeps the one-per-turn budget honest for
+      // any other ack trigger while the generation is in flight; the async
+      // path undoes it if the ack turns out moot.
+      void this.speakGeneratedAck(
+        activeTurn,
+        this.frontDecider,
+        kind,
+        toolName,
+      );
+      return;
+    }
+    this.enqueueAckPhrase(activeTurn, this.pickStaticAckPhrase(kind), kind);
+  }
+
+  private pickStaticAckPhrase(kind: LiveVoiceSpokenAckKind): string {
+    return pickAckPhrase(kind, this.ackPhraseCounter++);
+  }
+
+  // LLM-phrased ack (liveVoice.frontModel.llmAckText): ask the front model
+  // for one short contextual sentence, static phrase on null. The decider
+  // internally bounds the call by `ackGenerationTimeoutMs` and resolves null
+  // on every failure mode, so the enqueue never waits beyond that budget.
+  private async speakGeneratedAck(
+    activeTurn: ActiveAssistantTurn,
+    frontDecider: VoiceFrontDecider,
+    kind: LiveVoiceSpokenAckKind,
+    toolName?: string,
+  ): Promise<void> {
+    activeTurn.ackGenerationPending = true;
+    try {
+      const transcript = activeTurn.utterance.finalTranscriptSegments
+        .join(" ")
+        .trim();
+      const generated = await frontDecider
+        .generateAckText(
+          {
+            transcriptSoFar: transcript,
+            toolName,
+          },
+          activeTurn.abortController.signal,
+        )
+        // The decider contract never rejects; belt-and-braces for a stub.
+        .catch(() => null);
+      // Liveness re-check after the await: any turnCanSpeakFiller condition
+      // may have flipped while generating, mooting the ack. Undo the
+      // optimistic ackSpoken so the flag reflects reality.
+      if (!this.turnCanSpeakFiller(activeTurn)) {
+        activeTurn.ackSpoken = false;
+        return;
+      }
+      this.enqueueAckPhrase(
+        activeTurn,
+        generated ?? this.pickStaticAckPhrase(kind),
+        kind,
+      );
+    } finally {
+      activeTurn.ackGenerationPending = false;
+    }
+  }
+
+  // Records the ack-spoken metric only when a phrase actually enqueues.
+  private enqueueAckPhrase(
+    activeTurn: ActiveAssistantTurn,
+    raw: string,
+    kind: LiveVoiceSpokenAckKind,
+  ): void {
+    if (this.enqueueFillerPhrase(activeTurn, raw)) {
+      this.markAckSpoken(activeTurn, kind);
+    }
+  }
+
+  // Sanitize and enqueue one filler sentence (spoken ack or progress
+  // narration) on the turn's ordered TTS queue — the shared tail of every
+  // filler path. Returns whether a phrase actually enqueued; per-kind metric
+  // marks and bookkeeping are the caller's.
+  private enqueueFillerPhrase(turn: ActiveAssistantTurn, raw: string): boolean {
+    const phrase = sanitizeForTts(raw).trim();
+    if (phrase.length === 0) {
+      return false;
+    }
+    this.enqueueTtsSegment(turn.token, phrase, {
+      countsAsFirstSegment: false,
+    });
+    // A spoken filler holds the floor, so narration's minGapMs spaces from it.
+    turn.progress.lastFloorHolderAtMs = Date.now();
+    return true;
+  }
+
   private bufferAssistantTextForTts(token: symbol, text: string): void {
     if (!this.streamTtsAudio || text.length === 0) {
       return;
@@ -2261,6 +3142,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       return;
     }
 
+    this.clearFillerTimers(activeTurn);
     this.flushTtsBuffer(token, true);
     activeTurn.ttsQueue = activeTurn.ttsQueue
       .catch(() => {})
@@ -2339,13 +3221,21 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     }
   }
 
-  private enqueueTtsSegment(token: symbol, segment: string): void {
+  private enqueueTtsSegment(
+    token: symbol,
+    segment: string,
+    options: { countsAsFirstSegment?: boolean } = {},
+  ): void {
     const activeTurn = this.activeAssistantTurn;
     if (activeTurn?.token !== token || !this.streamTtsAudio) {
       return;
     }
 
-    activeTurn.ttsSegmentEnqueued = true;
+    // A spoken ack (countsAsFirstSegment: false) leaves the eager
+    // first-clause flush available for the model's real first segment.
+    if (options.countsAsFirstSegment ?? true) {
+      activeTurn.ttsSegmentEnqueued = true;
+    }
     const job: TtsSegmentJob = {
       text: segment,
       started: false,
@@ -2474,6 +3364,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       }
     } finally {
       job.settled = true;
+      const settledTurn = this.activeAssistantTurn;
+      if (settledTurn?.token === token) {
+        // Anchor the dead-air countdown to the end of emission; the playback
+        // -tail estimate covers any client-side buffer still draining.
+        settledTurn.progress.lastAudibleAtMs = Date.now();
+      }
       this.pumpTtsSynthesis(token);
     }
   }
@@ -2613,6 +3509,37 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     this.metrics.markFirstAssistantDelta(turnId);
   }
 
+  private markEndpointDecision(
+    utterance: UtteranceCycle,
+    action: VoiceEndpointAction,
+    latencyMs: number,
+  ): void {
+    const turnId = this.ensureTurnId(utterance);
+    if (!this.startMetricsTurnIfNeeded(utterance, turnId)) {
+      return;
+    }
+    this.metrics.markEndpointDecision(turnId, { action, latencyMs });
+  }
+
+  private markAckSpoken(
+    activeTurn: ActiveAssistantTurn,
+    kind: LiveVoiceSpokenAckKind,
+  ): void {
+    const { utterance } = activeTurn;
+    if (!this.startMetricsTurnIfNeeded(utterance, activeTurn.turnId)) {
+      return;
+    }
+    this.metrics.markAckSpoken(activeTurn.turnId, kind);
+  }
+
+  private markProgressSpoken(activeTurn: ActiveAssistantTurn): void {
+    const { utterance } = activeTurn;
+    if (!this.startMetricsTurnIfNeeded(utterance, activeTurn.turnId)) {
+      return;
+    }
+    this.metrics.markProgressSpoken(activeTurn.turnId);
+  }
+
   private ensureTurnId(utterance: UtteranceCycle): string {
     if (!utterance.turnId) {
       utterance.turnId = this.createTurnId();
@@ -2698,6 +3625,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     }
 
     turn.finalized = true;
+    this.clearFillerTimers(turn);
     turn.utterance.completed = true;
     await this.archiveBufferedAudio({
       turnId: turn.turnId,
@@ -2952,6 +3880,11 @@ export function createLiveVoiceSession(
   // absent config falls through to the in-code defaults.
   const liveVoiceConfig = getConfig().liveVoice;
   const vadConfig = liveVoiceConfig?.vad;
+  // Parsed once here into a complete config, shared by the decider and the
+  // session (the constructor's own parse is then a no-op re-validation).
+  const frontModelConfig = LiveVoiceFrontModelConfigSchema.parse(
+    options.frontModelConfig ?? liveVoiceConfig?.frontModel ?? {},
+  );
   return new LiveVoiceSession(context, {
     ...options,
     turnDetectorConfig:
@@ -2966,6 +3899,14 @@ export function createLiveVoiceSession(
       options.speechEnergyThreshold ?? vadConfig?.speechEnergyThreshold,
     bargeInMinSpeechMs:
       options.bargeInMinSpeechMs ?? vadConfig?.bargeInMinSpeechMs,
+    frontModelConfig,
+    // Eager construction is safe even when the `liveVoice.frontModel` config
+    // namespace is absent — schema defaults fill the tunables. An explicit
+    // option (incl. `null`) always wins — the test seam.
+    frontDecider:
+      options.frontDecider !== undefined
+        ? options.frontDecider
+        : createVoiceFrontDecider({ config: frontModelConfig }),
     resolveCredentialReadiness:
       options.resolveCredentialReadiness === undefined
         ? defaultResolveLiveVoiceCredentialReadiness
@@ -3039,9 +3980,12 @@ async function defaultSpawnBackgroundContinuation(args: {
 async function defaultResolveStreamingTranscriber(
   options: ResolveStreamingTranscriberOptions,
 ): Promise<StreamingTranscriber | null> {
+  const { resolveEffectiveSpeechProviders } =
+    await import("../config/managed-speech-defaults.js");
   const { resolveStreamingTranscriber } =
     await import("../providers/speech-to-text/resolve.js");
-  return resolveStreamingTranscriber(options);
+  const { stt } = await resolveEffectiveSpeechProviders();
+  return resolveStreamingTranscriber({ ...options, providerId: stt });
 }
 
 async function defaultResolveLiveVoiceCredentialReadiness(): Promise<LiveVoiceCredentialReadiness> {

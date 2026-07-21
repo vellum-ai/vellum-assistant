@@ -10,11 +10,13 @@
  * small stat line).
  */
 
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Brain,
   CalendarClock,
   FolderOpen,
+  LayoutGrid,
+  Pencil,
   Radio,
   Sparkles,
   Users,
@@ -39,6 +41,7 @@ import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
 import { contrastForeground } from "@/utils/avatar-tone";
 
 import { applyRename } from "../identity-actions/apply-rename";
+import { memoryStatsOptions } from "../memory-graph/get-memory-stats";
 import {
   assistantIdentityDetailsQueryKey,
   useAssistantIdentityDetails,
@@ -63,6 +66,7 @@ const SECTION_ICONS: Record<string, LucideIcon> = {
   schedules: CalendarClock,
   superpowers: Zap,
   memory: Brain,
+  library: LayoutGrid,
   workspace: FolderOpen,
   contacts: Users,
   channels: Radio,
@@ -91,6 +95,7 @@ const BENTO_MIN_H = 480;
 const MINI_SECTION_KEYS = [
   "superpowers",
   "memory",
+  "library",
   "workspace",
   "contacts",
   "channels",
@@ -104,6 +109,7 @@ const CARD_HOVER_LINES: Record<string, string> = {
   personality: "Go ahead — tweak my soul",
   superpowers: "Everything I know how to do",
   memory: "Everything I remember",
+  library: "The apps and docs I've made for you",
   schedules: "What I do on repeat",
   workspace: "All the files that power me",
   contacts: "The people I know and trust",
@@ -171,6 +177,28 @@ export function IdentityOverview({ assistantId }: IdentityOverviewProps) {
     supportsPlugins,
     showChannels,
   });
+  // The Memory card's measurement is the cheap page-index concept count
+  // (get-memory-stats) — NOT the concept-graph build, which is kept off
+  // identity-page load. Gated on `showMemory` so no request fires while the
+  // Memory card is hidden.
+  const memoryStats = useQuery({
+    ...memoryStatsOptions(assistantId),
+    enabled: showMemory,
+  });
+  const sectionStats: Record<string, IdentitySectionStat | undefined> = {
+    ...stats,
+    // Only show a count when the daemon actually answered one (`ready`). An
+    // older daemon predating `/memory/stats` reads `unsupported`, and a loading
+    // query is `undefined` — both leave the measurement off (as the card was
+    // before this feature) rather than render a wrong "0 memories".
+    memory:
+      memoryStats.data?.kind === "ready"
+        ? {
+            value: memoryStats.data.concepts,
+            label: memoryStats.data.concepts === 1 ? "memory" : "memories",
+          }
+        : undefined,
+  };
 
   const [modalOpen, setModalOpen] = useState(false);
   const [isRenaming, setIsRenaming] = useState(false);
@@ -234,7 +262,7 @@ export function IdentityOverview({ assistantId }: IdentityOverviewProps) {
           customImageUrl={customImageUrl}
           name={identityQuery.data?.identity?.name || "Assistant"}
           sections={sections}
-          stats={stats}
+          stats={sectionStats}
           avatarHex={avatarHex}
           isRenaming={isRenaming}
           onOpenAvatarModal={() => setModalOpen(true)}
@@ -386,9 +414,10 @@ function SectionCard({
     return (
       <Card.Root
         asChild
+        bordered={false}
         elevated
         clipContents
-        className="rounded-[12px] bg-[var(--card-bg)]"
+        className="rounded-[12px] border-0 bg-[var(--card-bg)]"
       >
         <Link
           to={section.to}
@@ -406,7 +435,7 @@ function SectionCard({
               aria-hidden
             />
           </span>
-          <span className="relative flex min-w-0 flex-col gap-1">
+          <span className="relative flex min-w-0 flex-col gap-0">
             <span
               className={`truncate text-title-small leading-normal transition-colors duration-300 ${fgStrong}`}
             >
@@ -439,15 +468,15 @@ function SectionCard({
     section.key === "personality" || section.key === "schedules";
 
   return (
-    // The feature cards float flat on the page — no border, no shadow;
-    // the other tiles keep the standard raised card chrome.
+    // The feature cards sit flat on the page (no shadow) with a hairline
+    // theme border; the other tiles keep the standard raised card chrome.
     <Card.Root
       asChild
       bordered={!isFeatureCard}
       elevated={!isFeatureCard}
       className={`${SECTION_RADII[section.key] ?? ""} ${
         isFeatureCard
-          ? "bg-[var(--card-feature-bg,var(--card-bg))]"
+          ? "border border-[var(--border-base)] bg-[var(--card-feature-bg,var(--card-bg))]"
           : "bg-[var(--card-bg)]"
       }`}
       style={{
@@ -928,7 +957,7 @@ function OverviewBento({
                 onOpenAvatarModal();
               }
             }}
-            className="avatar-edit-cursor pointer-events-auto relative h-full w-full outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]"
+            className="avatar-edit-cursor group pointer-events-auto relative h-full w-full scale-100 outline-none transition-transform duration-200 ease-out hover:scale-105 keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]"
           >
             <ChatAvatar
               components={components}
@@ -937,6 +966,14 @@ function OverviewBento({
               size={heroAvatarSize}
               interactive
             />
+            <span
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-0 transition-opacity duration-150 group-hover:opacity-100"
+            >
+              <span className="flex h-11 w-11 items-center justify-center rounded-full bg-black/40">
+                <Pencil className="h-5 w-5 text-white" />
+              </span>
+            </span>
           </div>
         </motion.div>
       ) : (

@@ -42,11 +42,11 @@ import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-component
 
 // Lines 1 + 2 carousel together from the setup framing to the first two payoff
 // lines; line 3 ("The less you do") is then added in last.
-const SETUP_LINE = "You’ve used AI that just answers questions";
-const HELP_LINE = "The more I help";
-const PUNCH_LINE = "I’m different";
-const BETTER_LINE = "The better I get";
-const LESS_LINE = "and the less you have to do";
+const SETUP_LINE = "You’ve used AI that just answers questions.";
+const HELP_LINE = "The more I help,";
+const PUNCH_LINE = "I’m different.";
+const BETTER_LINE = "the better I get,";
+const LESS_LINE = "and the less you have to do.";
 
 // The little team that peeks in from the top-right on the second line, then
 // retracts. (Kept in sync with TOP_TEAM in onboarding-toned-backdrop.tsx.)
@@ -287,7 +287,7 @@ export function PitchStep({
         animate(helperY, [helperHidden, helperPeek, helperPeek, helperHidden], {
           duration: 1.5,
           times: [0, 0.28, 0.62, 1],
-          ease: "easeInOut",
+          ease: ["easeOut", "easeInOut", "easeInOut"],
         }),
       );
       if (cancelled) return;
@@ -300,7 +300,7 @@ export function PitchStep({
         animate(teamY, [teamHidden, teamPeek, teamPeek, teamHidden], {
           duration: 1.5,
           times: [0, 0.28, 0.62, 1],
-          ease: "easeInOut",
+          ease: ["easeOut", "easeInOut", "easeInOut"],
         }),
       );
       await wait(700);
@@ -418,7 +418,7 @@ export function PitchStep({
         </motion.div>
       )}
 
-      <div className={`${ONBOARDING_STEP_CONTENT.replace("top-[30%]", topClass)} max-w-3xl`}>
+      <div className={`${ONBOARDING_STEP_CONTENT.replace("top-[30%]", topClass)} max-w-3xl max-md:top-[34%]`}>
         <div
           className="flex w-full flex-col gap-3 text-[clamp(2.25rem,5.5vw,4.5rem)] leading-[1.15]"
           style={{ fontFamily: "var(--font-serif)" }}

@@ -28,9 +28,9 @@ import type { DrizzleDb } from "../../../../../persistence/db-connection.js";
 import { messages } from "../../../../../persistence/schema/index.js";
 import { memorySqliteOrNull } from "../../memory-db.js";
 import type { MemoryV2ConceptRowRecord } from "../../memory-v2-activation-log-store.js";
+import type { EverInjectedEntry } from "../../v3/substrate/types.js";
 import { loadNowText } from "../now-text.js";
 import type { RouterTurnPair } from "../router.js";
-import type { EverInjectedEntry } from "../types.js";
 import type { OracleTurn } from "./oracle.js";
 import type { RetrievalInput } from "./retriever.js";
 

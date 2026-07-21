@@ -228,9 +228,17 @@ function ProfileEditorModalInner({
   // prove the bound row is the managed sentinel (see the effect below) — a
   // user-owned row merely named "vellum" must never enter Vellum mode, even
   // in the pre-load window.
-  const [provider, setProvider] = useState<
-    NonNullable<ProfileEntry["provider"]> | "vellum" | ""
-  >(initialValues?.provider ?? "");
+  // The editor tracks connection providers ("vellum" among them). `LlmProvider`
+  // also admits "chatgpt", a routing identity no write may store (it is
+  // write-locked at parse time, at the config write choke point, and at the
+  // profile write route), so no stored profile carries one — ChatGPT is offered
+  // as an OpenAI connection sub-option in the create form, never as a provider
+  // selection here.
+  const [provider, setProvider] = useState<ConnectionProvider | "">(
+    initialValues?.provider && initialValues.provider !== "chatgpt"
+      ? initialValues.provider
+      : "",
+  );
   const [model, setModel] = useState(initialValues?.model ?? "");
   // Per-profile provider-connection binding. Empty string means no explicit
   // binding — daemon falls back to its first-connection dispatch. Snake_case
@@ -529,8 +537,7 @@ function ProfileEditorModalInner({
   // and invalidate the connections query so the dropdown picks up the row.
   function handleProviderCreated(connection: ProviderConnection) {
     // The create form can't produce a vellum connection; bail before touching
-    // any state so the sub-form can't get stuck, and narrow the
-    // ConnectionProvider to the LlmProvider that setProvider accepts.
+    // any state so the sub-form can't get stuck.
     const newProvider = connection.provider;
     if (newProvider === "vellum") return;
     // Optimistically register the new connection locally so the binding is

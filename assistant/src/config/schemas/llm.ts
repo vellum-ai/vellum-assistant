@@ -31,10 +31,30 @@ export const LLMProvider = z
     "minimax",
     "atlascloud",
     "together",
+    "litellm",
     "baseten",
+    // Routing identities rather than adapters: "vellum" = the platform-managed
+    // route (upstream derived from the model at dispatch), "chatgpt" = the
+    // subscription route to OpenAI. Neither has a PROVIDER_CATALOG entry;
+    // dispatch substitutes the real upstream before any adapter lookup.
+    "vellum",
+    "chatgpt",
   ])
   .meta({ id: "LLMProvider" });
 type LLMProvider = z.infer<typeof LLMProvider>;
+
+/**
+ * Routing identities the schema admits but no write may store: dispatch
+ * cannot resolve them to a real upstream, so a stored profile or call-site
+ * fragment carrying one fails every model call. Enforced at parse time
+ * (LLMSchema.superRefine), at the config write choke point
+ * (commitConfigWrite), and at the profile write route — all three consult
+ * this set.
+ */
+export const WRITE_LOCKED_PROVIDERS: ReadonlySet<string> = new Set([
+  "vellum",
+  "chatgpt",
+]);
 
 // Deliberately narrower than `LLMProvider`: only providers that can serve
 // the code-defined default profile catalog.
@@ -88,6 +108,7 @@ export const LLMCallSiteEnum = z.enum([
   "skillCategoryInference",
   "inference",
   "vision",
+  "voiceFrontDecision",
   "trustRuleSuggestion",
   "homeGreeting",
   "homeSuggestedPrompts",
@@ -573,6 +594,29 @@ export const LLMSchema = z
     pricingOverrides: z.array(PricingOverrideSchema).default([]),
   })
   .superRefine((config, ctx) => {
+    // Write-locked routing identities (see WRITE_LOCKED_PROVIDERS): parse
+    // rejection is the read-side defense; the write-side choke point is
+    // commitConfigWrite, which checks the raw object before persisting.
+    const writeLocked = WRITE_LOCKED_PROVIDERS;
+    for (const [name, entry] of Object.entries(config.profiles ?? {})) {
+      if (entry?.provider && writeLocked.has(entry.provider)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["profiles", name, "provider"],
+          message: `Provider "${entry.provider}" is not yet enabled for profiles.`,
+        });
+      }
+    }
+    for (const [siteId, siteConfig] of Object.entries(config.callSites ?? {})) {
+      if (siteConfig?.provider && writeLocked.has(siteConfig.provider)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["callSites", siteId, "provider"],
+          message: `Provider "${siteConfig.provider}" is not yet enabled for call sites.`,
+        });
+      }
+    }
+
     // The always-available default profiles are code-defined
     // (`default-profile-catalog.ts`) and resolve whether or not they are
     // materialized in `llm.profiles`, so their names are always valid

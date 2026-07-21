@@ -6,8 +6,8 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import {
   readPage,
   writePage,
-} from "../../../plugins/defaults/memory/v2/page-store.js";
-import type { ConceptPageFrontmatter } from "../../../plugins/defaults/memory/v2/types.js";
+} from "../../../plugins/defaults/memory/v3/substrate/page-store.js";
+import type { ConceptPageFrontmatter } from "../../../plugins/defaults/memory/v3/substrate/types.js";
 import { backfillV3LeavesMigration } from "../092-backfill-v3-leaves.js";
 
 describe("092 backfill v3 leaves", () => {
