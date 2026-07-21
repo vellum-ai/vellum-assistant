@@ -169,14 +169,22 @@ describe("preflightResolvedConfig", () => {
       },
     };
     const missing = await preflightError(
-      resolved({ provider: "chatgpt", provider_connection: "" }),
+      resolved({
+        provider: "chatgpt",
+        provider_connection: "",
+        model: "gpt-5.5",
+      }),
     );
     expect(missing?.reason).toBe("missing_credential");
 
     secureKeys["credential/chatgpt/access_token"] = "tok";
     await expect(
       preflightResolvedConfig(
-        resolved({ provider: "chatgpt", provider_connection: "" }),
+        resolved({
+          provider: "chatgpt",
+          provider_connection: "",
+          model: "gpt-5.5",
+        }),
         {},
       ),
     ).resolves.toBeUndefined();
@@ -184,9 +192,20 @@ describe("preflightResolvedConfig", () => {
 
   test("a chatgpt identity with no subscription row throws not_found", async () => {
     const err = await preflightError(
-      resolved({ provider: "chatgpt", provider_connection: "" }),
+      resolved({
+        provider: "chatgpt",
+        provider_connection: "",
+        model: "gpt-5.5",
+      }),
     );
     expect(err?.reason).toBe("not_found");
+  });
+
+  test("a chatgpt identity with a non-Codex model throws model_incompatible", async () => {
+    const err = await preflightError(
+      resolved({ provider: "chatgpt", provider_connection: "" }),
+    );
+    expect(err?.reason).toBe("model_incompatible");
   });
 
   test("the vellum managed connection serves managed-routable providers when logged in", async () => {

@@ -1,5 +1,6 @@
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
+import { ROUTING_IDENTITY_PROVIDERS } from "../providers/inference/auth.js";
 import { resolveConfiguredProvider } from "../providers/provider-send-message.js";
 import type { Message } from "../providers/types.js";
 import { getProviderKeyAsync } from "../security/secure-keys.js";
@@ -161,13 +162,14 @@ class ProviderCommitMessageGenerator {
     const providerName = resolved.configuredProviderName;
 
     // Step 2b: API key preflight for the configured provider. Skipped for
-    // keyless providers and for routing identities ("vellum"/"chatgpt"),
-    // which authenticate through their connection row (platform token /
-    // ChatGPT OAuth) — no provider API key exists for them, and resolution
-    // already verified the connection credential.
-    const isRoutingIdentity =
-      providerName === "vellum" || providerName === "chatgpt";
-    if (!KEYLESS_PROVIDERS.has(providerName) && !isRoutingIdentity) {
+    // keyless providers and for routing identities, which authenticate
+    // through their connection row (platform token / ChatGPT OAuth) — no
+    // provider API key exists for them, and resolution already verified the
+    // connection credential.
+    if (
+      !KEYLESS_PROVIDERS.has(providerName) &&
+      !ROUTING_IDENTITY_PROVIDERS.has(providerName)
+    ) {
       const providerApiKey = await getProviderKeyAsync(providerName);
       if (!providerApiKey) {
         log.debug(
