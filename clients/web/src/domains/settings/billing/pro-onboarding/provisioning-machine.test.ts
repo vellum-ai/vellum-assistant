@@ -395,3 +395,103 @@ describe("deriveProvisioningState — an in-flight resize blocks completion", ()
     ).toBe("STALLED");
   });
 });
+
+describe("deriveProvisioningState — a provisional verdict needs a status reading", () => {
+  // The assistant and operational-status queries poll independently, so the
+  // assistant poll can land the target sizes while the status query still holds
+  // its pre-resize snapshot. Under `started`/`in_progress` the server has told
+  // us a rollout is underway, so that stale window must not read as completion:
+  // a marker exists at verdict time, so one status reading taken after the
+  // verdict settles whether it is still running.
+  const staleStatus = {
+    actuals: { machineSize: "large" as const, storageGib: 50 },
+    resizeOperationInFlight: false,
+    sawOperation: false,
+    statusObservedSinceVerdict: false,
+  };
+
+  test("in_progress with met targets but a pre-verdict status reading → RESIZING", () => {
+    expect(
+      deriveProvisioningState(
+        baseInput({ ...staleStatus, serverVerdict: "in_progress" }),
+      ).state,
+    ).toBe("RESIZING");
+  });
+
+  test("started with met targets but a pre-verdict status reading → RESIZING", () => {
+    expect(
+      deriveProvisioningState(
+        baseInput({ ...staleStatus, serverVerdict: "started" }),
+      ).state,
+    ).toBe("RESIZING");
+  });
+
+  test("a post-verdict status reading with no marker completes the flow", () => {
+    expect(
+      deriveProvisioningState(
+        baseInput({
+          ...staleStatus,
+          statusObservedSinceVerdict: true,
+          serverVerdict: "in_progress",
+        }),
+      ).state,
+    ).toBe("DONE");
+  });
+
+  test("a marker watched appear and clear is equally good evidence", () => {
+    expect(
+      deriveProvisioningState(
+        baseInput({
+          ...staleStatus,
+          sawOperation: true,
+          serverVerdict: "in_progress",
+        }),
+      ).state,
+    ).toBe("DONE");
+  });
+
+  test("an unconfirmed provisional verdict never reports NOT_APPLICABLE", () => {
+    // Targets met on the very first observation would normally be
+    // NOT_APPLICABLE; under a provisional verdict that would wrongly claim
+    // there was nothing to do while a rollout is underway.
+    expect(
+      deriveProvisioningState(
+        baseInput({
+          ...staleStatus,
+          initialActuals: { machineSize: "large", storageGib: 50 },
+          serverVerdict: "started",
+        }),
+      ).state,
+    ).toBe("RESIZING");
+  });
+
+  test("already_done stays terminal on its own — the server checked the marker", () => {
+    expect(
+      deriveProvisioningState(
+        baseInput({ ...staleStatus, serverVerdict: "already_done" }),
+      ).state,
+    ).toBe("DONE");
+  });
+
+  test("with no verdict at all, inference from initialActuals still completes", () => {
+    // The endpoint failing must keep degrading to pure client-side inference,
+    // so the staleness flag must not gate the no-verdict path.
+    expect(
+      deriveProvisioningState(
+        baseInput({ ...staleStatus, serverVerdict: null }),
+      ).state,
+    ).toBe("DONE");
+  });
+
+  test("an unconfirmed provisional verdict still reaches STALLED", () => {
+    expect(
+      deriveProvisioningState(
+        baseInput({
+          ...staleStatus,
+          serverVerdict: "in_progress",
+          msSinceWatchStart: PROVISION_STALL_MS,
+        }),
+      ).state,
+    ).toBe("STALLED");
+  });
+});

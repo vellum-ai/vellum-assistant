@@ -433,6 +433,33 @@ describe("useProProvisioning", () => {
   );
 
   test(
+    "a hung automatic reconcile leaves Apply & Restart enabled",
+    async () => {
+      // `ensureResponse` defaults to held-in-flight, so the automatic reconcile
+      // fired on Pro confirm never settles — exactly the case that strands the
+      // user in STALLED. Its pending state must not disable their only recovery
+      // control; `pending` tracks user-initiated applies only.
+      const { client } = renderProbe();
+      await reachResizing(client);
+      expect(ensureCalls).toBeGreaterThan(0);
+
+      dateNowOffsetMs = 200_000;
+      await waitFor(() => expect(latest!.state).toBe("STALLED"), {
+        timeout: 5000,
+      });
+
+      expect(latest!.stalledAction.pending).toBe(false);
+
+      // And a manual apply does report pending while it is in flight.
+      act(() => latest!.stalledAction.onApply());
+      await waitFor(() => expect(latest!.stalledAction.pending).toBe(true), {
+        timeout: 5000,
+      });
+    },
+    20_000,
+  );
+
+  test(
     "the stalled action re-calls ensure-provisioned, leaves STALLED and can reach DONE",
     async () => {
       const { client } = renderProbe();

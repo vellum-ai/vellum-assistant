@@ -61,6 +61,13 @@ export interface DeriveProvisioningInput {
   /** The confirm-phase poll timed out without observing plan_id == "pro". */
   confirmExpired: boolean;
   serverVerdict?: ProvisioningServerVerdict | null;
+  /**
+   * The operational-status query has produced a reading *after* the current
+   * verdict arrived. Only consulted under a provisional verdict — see the
+   * completion rules in `deriveProvisioningState`. Defaults to true so callers
+   * without a verdict (and every pure-inference test) are unaffected.
+   */
+  statusObservedSinceVerdict?: boolean;
 }
 
 export interface ProvisioningSnapshot {
@@ -103,6 +110,7 @@ export function deriveProvisioningState(
     msSinceWatchStart,
     confirmExpired,
     serverVerdict = null,
+    statusObservedSinceVerdict = true,
   } = input;
 
   if (planId !== "pro") {
@@ -125,33 +133,59 @@ export function deriveProvisioningState(
   // the escape when a marker never clears. Note this deliberately keys on
   // `resizeOperationInFlight`, not `operationObserved` — a resize seen only in
   // the past must still be allowed to settle.
+  // `started` / `in_progress` are the server saying a rollout is underway but
+  // NOT finished. Under one of those, targets-met alone can no longer stand in
+  // for completion: the assistant and operational-status queries poll
+  // independently, so the assistant poll can land the target sizes while the
+  // status query still holds its pre-resize snapshot — a window in which
+  // nothing has reported the marker even though the platform created it (it
+  // creates the marker *before* it writes the effective sizes).
+  //
+  // A marker demonstrably exists at the instant such a verdict is issued, so
+  // one status reading taken *after* the verdict settles it: that reading
+  // either finds the marker (still rolling out — the guard above holds) or
+  // finds it retired (genuinely converged). Anchoring on the verdict rather
+  // than on catching the marker mid-flight keeps this robust to poll timing,
+  // and a resize we did watch appear and clear is equally good evidence.
+  //
+  // `already_done` stays terminal on its own because the server checked the
+  // marker itself — `collect_pro_provisioning_state` combines targets-met AND
+  // no-active-operation before it answers that.
+  const provisionalVerdict =
+    serverVerdict === "started" || serverVerdict === "in_progress";
+  const rolloutConfirmedOver = sawOperation || statusObservedSinceVerdict;
+
   if (!resizeOperationInFlight) {
-    if (targetsMet(targets, actuals)) {
-      // DONE-by-actuals wins over a stale in_progress/started verdict. A quick
-      // resize can also finish between polls (or behind transient endpoint
-      // failures) without ever being observed, so when no operation was seen,
-      // disambiguate by the first actuals ever observed: if they were below the
-      // targets, a resize must have run → DONE. NOT_APPLICABLE is reserved for
-      // first-observed actuals that already met the targets (null initialActuals
-      // means the current actuals ARE the first observation — the hook freezes
-      // them as the snapshot one render later).
-      if (
-        operationObserved ||
+    // Outside a provisional verdict: DONE-by-actuals still wins over a stale
+    // verdict. A quick resize can finish between polls (or behind transient
+    // endpoint failures) without ever being observed, so when no operation was
+    // seen, disambiguate by the first actuals ever observed: if they were below
+    // the targets, a resize must have run → DONE. NOT_APPLICABLE is reserved
+    // for first-observed actuals that already met the targets (null
+    // initialActuals means the current actuals ARE the first observation — the
+    // hook freezes them as the snapshot one render later).
+    const completed = provisionalVerdict
+      ? rolloutConfirmedOver
+      : operationObserved ||
         serverVerdict === "already_done" ||
-        serverVerdict === "started" ||
-        serverVerdict === "in_progress" ||
-        (initialActuals != null && !targetsMet(targets, initialActuals))
-      ) {
+        (initialActuals != null && !targetsMet(targets, initialActuals));
+
+    if (targetsMet(targets, actuals)) {
+      if (completed) {
         return { state: "DONE", softWaiting: false };
       }
-      return { state: "NOT_APPLICABLE", softWaiting: false };
-    }
-
-    if (serverVerdict === "already_done") {
-      return { state: "DONE", softWaiting: false };
-    }
-    if (serverVerdict === "not_applicable") {
-      return { state: "NOT_APPLICABLE", softWaiting: false };
+      // An uncorroborated provisional verdict keeps observing (falls through to
+      // RESIZING) rather than completing or declaring there was nothing to do.
+      if (!provisionalVerdict) {
+        return { state: "NOT_APPLICABLE", softWaiting: false };
+      }
+    } else {
+      if (serverVerdict === "already_done") {
+        return { state: "DONE", softWaiting: false };
+      }
+      if (serverVerdict === "not_applicable") {
+        return { state: "NOT_APPLICABLE", softWaiting: false };
+      }
     }
   }
 

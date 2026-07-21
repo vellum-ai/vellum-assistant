@@ -161,8 +161,20 @@ export function useProProvisioning({
   // case the machine falls back to pure client-side inference.
   const [serverVerdict, setServerVerdict] =
     useState<ProvisioningServerVerdict | null>(null);
+  // When the current verdict landed. A provisional verdict (`started` /
+  // `in_progress`) only clears the way to a terminal state once the
+  // operational-status query has read the world at least once after this
+  // instant — see the completion rules in `deriveProvisioningState`.
+  const [verdictAt, setVerdictAt] = useState<number | null>(null);
   // Only ever set by a user-initiated reconcile — see runEnsureProvisioned.
   const [ensureError, setEnsureError] = useState<unknown>(null);
+  // Pending state for the *manual* reconcile only. The mutation's own
+  // `isPending` is shared with the automatic call fired on Pro confirm, and a
+  // hung automatic call is precisely the case that strands the user in
+  // STALLED — gating Apply & Restart on it would disable their only recovery
+  // path. The endpoint is idempotent and in-flight guarded, so letting a manual
+  // apply overlap a slow automatic one is safe.
+  const [manualPending, setManualPending] = useState(false);
   const [raceRetryScheduled, setRaceRetryScheduled] = useState(false);
   // Fire-once-per-open guard for the automatic reconcile. A ref (not state) so
   // it can't be lost to a re-render between the check and the call, and it
@@ -202,7 +214,9 @@ export function useProProvisioning({
     setSnapshotAssistantId(null);
     setTracking(true);
     setServerVerdict(null);
+    setVerdictAt(null);
     setEnsureError(null);
+    setManualPending(false);
     setRaceRetryScheduled(false);
     ensureRequestedRef.current = false;
     ensureRaceRetriedRef.current = false;
@@ -285,6 +299,7 @@ export function useProProvisioning({
     (source: "auto" | "manual") => {
       if (source === "manual") {
         setEnsureError(null);
+        setManualPending(true);
       }
       // The open this call belongs to. Both callbacks drop out when the wizard
       // has since closed, so a late response can't drive a later session.
@@ -312,6 +327,7 @@ export function useProProvisioning({
               }
             } else {
               setServerVerdict(data.state);
+              setVerdictAt(Date.now());
             }
             if (source === "manual") {
               resumeWatch();
@@ -327,6 +343,14 @@ export function useProProvisioning({
             // Only a user-initiated retry earns a visible error.
             if (source === "manual") {
               setEnsureError(error);
+            }
+          },
+          // Unconditional (not generation-gated): the button's pending state
+          // must clear even for a response that belongs to a closed wizard,
+          // otherwise a reopen inherits a stuck-disabled Apply & Restart.
+          onSettled: () => {
+            if (source === "manual") {
+              setManualPending(false);
             }
           },
         },
@@ -369,10 +393,10 @@ export function useProProvisioning({
   const stalledAction = useMemo<ProvisioningRetryAction>(
     () => ({
       onApply: () => runEnsureProvisioned("manual"),
-      pending: ensureProvisionedMutation.isPending,
+      pending: manualPending,
       error: ensureError,
     }),
-    [runEnsureProvisioned, ensureProvisionedMutation.isPending, ensureError],
+    [runEnsureProvisioned, manualPending, ensureError],
   );
 
   const onboardingQuery = useQuery({
@@ -500,6 +524,12 @@ export function useProProvisioning({
     msSinceWatchStart,
     confirmExpired,
     serverVerdict,
+    // A successful status fetch always advances `dataUpdatedAt`, so this is
+    // "we have read the operational status since the verdict arrived". A
+    // status query stuck erroring never advances it, which correctly withholds
+    // completion rather than guessing.
+    statusObservedSinceVerdict:
+      verdictAt == null || operationalStatusQuery.dataUpdatedAt > verdictAt,
   });
 
   const isTerminal = TERMINAL_STATES.includes(state);
