@@ -354,15 +354,17 @@ function normalizeSendMessageOptions(
     nextConfig.promptCacheKey = config.selectionSeed;
   }
 
-  // `overrideProfile`, `forceOverrideProfile`, and `selectionSeed` are
-  // routing/resolution-time concerns (consumed by the resolver below and
-  // `CallSiteRoutingProvider`'s provider selection); none is a wire-format
+  // `overrideProfile`, `forceOverrideProfile`, `selectionSeed`, and
+  // `conversationId` are routing/resolution-time concerns (consumed by the
+  // resolver below, `CallSiteRoutingProvider`'s provider selection, and
+  // `UsageTrackingProvider`'s ledger attribution); none is a wire-format
   // field. Strip unconditionally (after the `openai` promptCacheKey copy
   // above) so they never leak into provider request bodies even when callers
   // set them without a `callSite`.
   delete nextConfig.overrideProfile;
   delete nextConfig.forceOverrideProfile;
   delete nextConfig.selectionSeed;
+  delete nextConfig.conversationId;
 
   if (config.callSite !== undefined) {
     const resolved = resolveCallSiteConfig(config.callSite, getConfig().llm, {

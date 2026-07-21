@@ -1227,6 +1227,7 @@ export async function runGraphExtraction(
     systemPrompt,
     config: {
       callSite: "memoryExtraction" as const,
+      conversationId,
       tool_choice: { type: "tool" as const, name: "extract_graph_diff" },
     },
   });

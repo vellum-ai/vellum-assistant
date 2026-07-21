@@ -93,6 +93,7 @@ async function rerankAndDedup(
   candidates: ScoredNode[],
   maxNodes: number,
   _config: AssistantConfig,
+  conversationId?: string,
 ): Promise<ScoredNode[]> {
   if (candidates.length <= maxNodes) {
     return candidates;
@@ -130,6 +131,7 @@ Your job:
 3. Return the IDs in order of importance (most important first).`,
       config: {
         callSite: "memoryRetrieval" as const,
+        conversationId,
         tool_choice: { type: "tool" as const, name: "select_memories" },
         thinking: { type: "disabled" },
         temperature: 0,
@@ -201,6 +203,7 @@ async function dedupForTurn(
   candidates: ScoredNode[],
   maxNodes: number,
   query: string,
+  conversationId?: string,
 ): Promise<{ nodes: ScoredNode[]; llmApplied: boolean }> {
   try {
     const provider = await getConfiguredProvider("memoryRetrieval");
@@ -227,6 +230,7 @@ async function dedupForTurn(
         systemPrompt: `Dedupe + rerank the following numbered items. Pick the most relevant items to the query. Call the select_items tool.\n\nBe aggressive on dedup — when multiple items describe the same event, fact, or status, keep ONLY the richest version. But be generous on relevance — only cut items that are completely irrelevant to the query. If it's even tangentially related, keep it.`,
         config: {
           callSite: "memoryRetrieval" as const,
+          conversationId,
           tool_choice: { type: "tool" as const, name: "select_items" },
           thinking: { type: "disabled" },
           temperature: 0,
@@ -297,6 +301,7 @@ const DEDUP_ITEMS_TOOL = {
 async function dedupCrossCategory(
   candidates: ScoredNode[],
   maxNodes: number,
+  conversationId?: string,
 ): Promise<ScoredNode[]> {
   try {
     const provider = await getConfiguredProvider("memoryRetrieval");
@@ -321,6 +326,7 @@ async function dedupCrossCategory(
       systemPrompt: `Deduplicate the following numbered items. When multiple items describe the same event, fact, or status, keep ONLY the richest version. Keep ALL items that are not duplicates — do not filter by relevance or topic. Call the select_items tool with every item that survives dedup.`,
       config: {
         callSite: "memoryRetrieval" as const,
+        conversationId,
         tool_choice: { type: "tool" as const, name: "select_items" },
         thinking: { type: "disabled" },
         temperature: 0,
@@ -366,6 +372,11 @@ async function dedupCrossCategory(
 interface ContextLoadOpts {
   /** Recent conversation summaries (used as retrieval queries). */
   recentSummaries: string[];
+  /**
+   * Conversation being loaded, stamped on the rerank/dedup provider configs
+   * for usage-ledger attribution.
+   */
+  conversationId?: string;
   /** Embedding config. */
   config: AssistantConfig;
   /** Abort signal. */
@@ -816,6 +827,7 @@ export async function loadContextMemory(
     mainPool.slice(0, 100),
     mainSlots,
     opts.config,
+    opts.conversationId,
   );
 
   // 8. Combine: reserved capabilities + reranked main pool
@@ -846,6 +858,7 @@ export async function loadContextMemory(
     const deduped = await dedupCrossCategory(
       combined,
       combined.length, // preserve all non-duplicate nodes
+      opts.conversationId,
     );
 
     // Re-split into deterministic vs serendipity by checking original membership
@@ -898,6 +911,11 @@ export async function loadContextMemory(
 interface TurnRetrievalOpts {
   /** The assistant's last message content. */
   assistantLastMessage: string;
+  /**
+   * Conversation the turn belongs to, stamped on the dedup provider config
+   * for usage-ledger attribution.
+   */
+  conversationId?: string;
   /** The user's last message content. */
   userLastMessage: string;
   /** Raw content blocks from the user's last message (for image extraction). */
@@ -1327,6 +1345,7 @@ export async function retrieveForTurn(
       pool,
       maxGeneralNodes,
       opts.userLastMessage,
+      opts.conversationId,
     );
     injected = result.nodes;
     llmDedupApplied = result.llmApplied;

@@ -482,6 +482,7 @@ export async function selectPool(
         systemPrompt,
         config: {
           callSite: MEMORY_V3_SELECT_CALL_SITE,
+          conversationId: turn.conversationId,
           tool_choice: { type: "tool" as const, name: SELECT_PAGES_TOOL_NAME },
           // The last block of this one-shot message varies every turn; the
           // provider's auto-applied turn-start breakpoint would land on it and
