@@ -338,12 +338,23 @@ export function useProProvisioning({
               if (!ensureRaceRetriedRef.current) {
                 ensureRaceRetriedRef.current = true;
                 setRaceRetryScheduled(true);
+                // A re-ask is already queued, so observation may resume.
+                if (source === "manual") {
+                  resumeWatch();
+                }
+              } else if (source === "manual") {
+                // Dead end: the verdict is deliberately not adopted, nothing
+                // was queued, and the once-per-open re-ask is spent. Re-basing
+                // the stall clock here would drop the user out of STALLED —
+                // hiding Apply & Restart for another stall window — with no
+                // resize running and nothing said. Hold the state and explain.
+                setEnsureError({ error: "no_active_pro" });
               }
             } else {
               setServerVerdict(data.state);
-            }
-            if (source === "manual") {
-              resumeWatch();
+              if (source === "manual") {
+                resumeWatch();
+              }
             }
           },
           onError: (error) => {

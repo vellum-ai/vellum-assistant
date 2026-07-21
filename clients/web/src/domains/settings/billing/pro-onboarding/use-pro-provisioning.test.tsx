@@ -465,6 +465,39 @@ describe("useProProvisioning", () => {
   );
 
   test(
+    "a dead-end no_active_pro apply stays STALLED and surfaces why",
+    async () => {
+      // The auto reconcile consumes the once-per-open re-ask, so a later manual
+      // apply that still gets no_active_pro can queue nothing and re-ask
+      // nothing. Resuming the watch there would hide the recovery button for
+      // another stall window with no resize running.
+      ensureResponse = makeEnsureResponse("not_applicable", "no_active_pro");
+      const { client } = renderProbe();
+      await reachResizing(client);
+
+      dateNowOffsetMs = 200_000;
+      await waitFor(() => expect(latest!.state).toBe("STALLED"), {
+        timeout: 5000,
+      });
+
+      const callsBefore = ensureCalls;
+      act(() => latest!.stalledAction.onApply());
+      await waitFor(() => expect(ensureCalls).toBeGreaterThan(callsBefore));
+
+      await waitFor(
+        () =>
+          expect(latest!.stalledAction.error).toEqual({
+            error: "no_active_pro",
+          }),
+        { timeout: 5000 },
+      );
+      // Still STALLED, so Apply & Restart remains on screen.
+      expect(latest!.state).toBe("STALLED");
+    },
+    20_000,
+  );
+
+  test(
     "a hung automatic reconcile leaves Apply & Restart enabled",
     async () => {
       // `ensureResponse` defaults to held-in-flight, so the automatic reconcile

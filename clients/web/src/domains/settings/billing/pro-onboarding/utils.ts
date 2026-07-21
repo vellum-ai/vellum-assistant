@@ -33,6 +33,8 @@ export const ONBOARDING_ERROR_CODE_MESSAGES: Record<string, string> = {
   exceeds_machine_tier: "That machine size isn't available on your plan.",
   provisioning_submission_failed:
     "We couldn't queue your upgrade just now. Try again in a moment.",
+  no_active_pro:
+    "We couldn't confirm your Pro plan yet. Try again in a moment.",
 };
 
 export function extractOnboardingErrorMessage(
