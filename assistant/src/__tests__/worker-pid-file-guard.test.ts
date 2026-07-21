@@ -73,6 +73,30 @@ describe("startWorkerPidFileGuard", () => {
     expect(evictions).toEqual([]);
   });
 
+  test("evicts synchronously on arm when the file already names a successor", () => {
+    const path = mkPidFile(String(process.pid + 1));
+    const { evictions } = startGuard(path);
+    // No await: the on-arm check runs synchronously inside the guard, so a
+    // worker superseded before it starts work evicts without any interval
+    // elapsing. This is the property the workers rely on when they arm the
+    // guard right before their first tick.
+    expect(evictions.length).toBe(1);
+    expect(evictions[0]).toContain(String(process.pid + 1));
+  });
+
+  test("evicts synchronously on arm when the file is already missing", () => {
+    const path = mkPidFile(String(process.pid));
+    rmSync(path);
+    const { evictions } = startGuard(path);
+    expect(evictions.length).toBe(1);
+  });
+
+  test("does not evict on arm while the file names this process", () => {
+    const path = mkPidFile(String(process.pid));
+    const { evictions } = startGuard(path);
+    expect(evictions).toEqual([]);
+  });
+
   test("evicts exactly once when the file names a successor", async () => {
     const path = mkPidFile(String(process.pid));
     const { evictions } = startGuard(path);
