@@ -34,3 +34,42 @@ export function splitVoiceDescription(description: string): {
     traits: description.slice(index + separator.length),
   };
 }
+
+/**
+ * How a voice is named in a picker: its character traits in sentence case, with
+ * no proper name (the assistant has its own) and no accent — pickers group by
+ * accent, so repeating it per row is noise.
+ */
+export function voiceTraitsLabel(description: string): string {
+  const { traits } = splitVoiceDescription(description);
+  return traits.charAt(0).toUpperCase() + traits.slice(1);
+}
+
+/**
+ * Group voices by accent for display: groups A–Z, voices within a group by
+ * traits. Grouping is what lets each row drop its accent — a catalog that is
+ * mostly one accent would otherwise repeat it on every line. Voices with no
+ * parseable accent collect under "Other".
+ */
+export function groupVoicesByAccent<T extends { description: string }>(
+  voices: readonly T[],
+): Array<{ accent: string; voices: T[] }> {
+  const byAccent = new Map<string, T[]>();
+  for (const voice of voices) {
+    const { accent } = splitVoiceDescription(voice.description);
+    const key = accent || "Other";
+    const list = byAccent.get(key);
+    if (list) list.push(voice);
+    else byAccent.set(key, [voice]);
+  }
+  return [...byAccent.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([accent, list]) => ({
+      accent,
+      voices: [...list].sort((a, b) =>
+        splitVoiceDescription(a.description).traits.localeCompare(
+          splitVoiceDescription(b.description).traits,
+        ),
+      ),
+    }));
+}

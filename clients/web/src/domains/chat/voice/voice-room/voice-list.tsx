@@ -22,13 +22,12 @@ import { Button } from "@vellumai/design-library/components/button";
 import { toast } from "@vellumai/design-library/components/toast";
 
 import { useManagedVoiceSelection } from "@/domains/chat/voice/voice-room/use-managed-voice-selection";
-import { splitVoiceDescription } from "@/lib/tts/managed-voice-catalog";
+import {
+  groupVoicesByAccent,
+  splitVoiceDescription,
+  voiceTraitsLabel,
+} from "@/lib/tts/managed-voice-catalog";
 import { type ManagedVoiceOption } from "@/lib/tts/use-managed-voices";
-
-/** Uppercase the first character, leaving the rest untouched (sentence case). */
-function sentenceCase(text: string): string {
-  return text.charAt(0).toUpperCase() + text.slice(1);
-}
 
 /**
  * A voice's label: its character traits lead (sentence-cased), with the accent
@@ -43,10 +42,10 @@ export function VoiceLabel({
   description: string;
   className?: string;
 }) {
-  const { traits, accent } = splitVoiceDescription(description);
+  const { accent } = splitVoiceDescription(description);
   return (
     <span className={cn("truncate", className)}>
-      {sentenceCase(traits)}
+      {voiceTraitsLabel(description)}
       {accent && (
         <span className="text-[var(--content-tertiary)]">{` · ${accent}`}</span>
       )}
@@ -127,29 +126,7 @@ export function VoiceList({
   const { available, voices, currentModel, selectModel, selecting } =
     useManagedVoiceSelection(assistantId);
 
-  // Group by accent/country (A–Z), voices within a group sorted by traits.
-  // Grouping replaces per-row accent labels, which repeat when a catalog is
-  // mostly one accent.
-  const groups = useMemo(() => {
-    const byAccent = new Map<string, ManagedVoiceOption[]>();
-    for (const voice of voices) {
-      const { accent } = splitVoiceDescription(voice.description);
-      const key = accent || "Other";
-      const list = byAccent.get(key);
-      if (list) list.push(voice);
-      else byAccent.set(key, [voice]);
-    }
-    return [...byAccent.entries()]
-      .sort((a, b) => a[0].localeCompare(b[0]))
-      .map(([accent, list]) => ({
-        accent,
-        voices: [...list].sort((a, b) =>
-          splitVoiceDescription(a.description).traits.localeCompare(
-            splitVoiceDescription(b.description).traits,
-          ),
-        ),
-      }));
-  }, [voices]);
+  const groups = useMemo(() => groupVoicesByAccent(voices), [voices]);
   const { previewingModel, play, stop } = useVoiceSamplePreview();
 
   // Bring the current voice into view on open — grouping means it may sit in a
@@ -213,7 +190,7 @@ export function VoiceList({
                   )}
                 >
                   <span className="min-w-0 flex-1 truncate text-body-medium-default text-[var(--content-default)]">
-                    {sentenceCase(splitVoiceDescription(voice.description).traits)}
+                    {voiceTraitsLabel(voice.description)}
                   </span>
                   {voice.sampleUrl !== "" && (
                     <Button

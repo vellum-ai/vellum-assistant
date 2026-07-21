@@ -30,7 +30,11 @@ import {
   LS_TTS_PROVIDER,
   LS_TTS_VOICE_ID_PREFIX,
 } from "@/utils/local-settings-keys";
-import { MANAGED_VOICE_SOURCE_LABELS } from "@/lib/tts/managed-voice-catalog";
+import {
+  groupVoicesByAccent,
+  MANAGED_VOICE_SOURCE_LABELS,
+  voiceTraitsLabel,
+} from "@/lib/tts/managed-voice-catalog";
 import { useManagedVoices } from "@/lib/tts/use-managed-voices";
 import { TTS_PROVIDERS } from "@/lib/provider-catalogs";
 
@@ -332,6 +336,32 @@ export function TtsProviderForm({
     queryClient,
   ]);
 
+  // Voices grouped by accent, each row named by its character traits alone —
+  // no proper name (the assistant has its own) and no accent (the group states
+  // it). Mirrors the voice-room picker so a voice reads the same in both.
+  // `Dropdown` has no group concept, so each accent enters as a disabled row
+  // that heads its group.
+  const managedVoiceOptions = useMemo(
+    () =>
+      groupVoicesByAccent(managedVoices).flatMap(({ accent, voices }) => [
+        { value: `group:${accent}`, label: accent, disabled: true },
+        ...voices.map((v) => ({
+          value: v.model,
+          label: `${voiceTraitsLabel(v.description)}${
+            v.model === defaultManagedVoice ? " (default)" : ""
+          }`,
+          // Voices come from different upstream providers; the badge makes the
+          // source visible while browsing, not only after selecting.
+          suffix: (
+            <span className="text-body-small-default text-[var(--content-tertiary)]">
+              {MANAGED_VOICE_SOURCE_LABELS[v.source] ?? v.source}
+            </span>
+          ),
+        })),
+      ]),
+    [managedVoices, defaultManagedVoice],
+  );
+
   // Managed voices preview via Deepgram's public hosted samples — no key,
   // no billing, works before saving.
   const [previewing, setPreviewing] = useState(false);
@@ -467,20 +497,7 @@ export function TtsProviderForm({
           <Dropdown
             value={draftManagedVoice}
             onChange={setDraftManagedVoice}
-            options={managedVoices.map((v) => ({
-              value: v.model,
-              label: `${v.label}${
-                v.model === defaultManagedVoice ? " (default)" : ""
-              } — ${v.description}`,
-              // Voices come from different upstream providers; the badge
-              // makes the source visible while browsing, not only after
-              // selecting.
-              suffix: (
-                <span className="text-body-small-default text-[var(--content-tertiary)]">
-                  {MANAGED_VOICE_SOURCE_LABELS[v.source] ?? v.source}
-                </span>
-              ),
-            }))}
+            options={managedVoiceOptions}
             aria-label="Managed voice"
           />
           <p className="text-body-small-default text-[var(--content-tertiary)]">
