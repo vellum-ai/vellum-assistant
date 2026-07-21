@@ -12,7 +12,6 @@ const PROGRESS_DEFAULTS = {
   opsThreshold: 3,
   idleIntervalMs: 5_000,
   minGapMs: 6_000,
-  maxPerTurn: 6,
   generationTimeoutMs: 1_500,
 };
 
@@ -139,22 +138,15 @@ describe("LiveVoiceFrontModelConfigSchema", () => {
     // Unspecified progress fields still get defaults
     expect(parsed.progress.idleIntervalMs).toBe(5_000);
     expect(parsed.progress.minGapMs).toBe(6_000);
-    expect(parsed.progress.maxPerTurn).toBe(6);
     expect(parsed.progress.generationTimeoutMs).toBe(1_500);
   });
 
-  test("accepts a progress.maxPerTurn of 0 (narration disabled by cap)", () => {
+  test("a stale maxPerTurn key is stripped, not rejected", () => {
+    // The cap was removed; configs written while it existed must still parse.
     const parsed = LiveVoiceFrontModelConfigSchema.parse({
-      progress: { maxPerTurn: 0 },
+      progress: { maxPerTurn: 3 },
     });
-    expect(parsed.progress.maxPerTurn).toBe(0);
-  });
-
-  test("rejects negative progress.maxPerTurn", () => {
-    const result = LiveVoiceFrontModelConfigSchema.safeParse({
-      progress: { maxPerTurn: -1 },
-    });
-    expect(result.success).toBe(false);
+    expect("maxPerTurn" in parsed.progress).toBe(false);
   });
 
   test("rejects non-positive progress.opsThreshold", () => {

@@ -374,7 +374,10 @@ interface TurnProgressState {
   // op, on start (not completion), so a burst of slow tools still trips the
   // threshold while they run.
   opsSinceNarration: number;
-  // Narrations actually spoken this turn; bounded by progress.maxPerTurn.
+  // Narrations actually spoken this turn — the metrics count and the
+  // decider's 1-based updateIndex. Rate, not count, bounds narration:
+  // idleIntervalMs/minGapMs cap the cadence and the session duration cap
+  // bounds the turn.
   updatesSpoken: number;
   // When the last spoken floor-holder (ack or narration) enqueued — gates the
   // progress.minGapMs spacing guard. Null until something speaks.
@@ -2786,8 +2789,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // for the whole turn. On expiry with audio still pending, or with the
   // silence not yet a full interval old, it re-arms for the remainder; only a
   // full interval of audible silence narrates. The cadence is deliberately
-  // flat: long pauses feel longest, so updates keep coming at the same
-  // interval (minGapMs is the spacing floor) until maxPerTurn runs out.
+  // flat and uncapped: long pauses feel longest, so updates keep coming at
+  // the same interval (minGapMs is the spacing floor) for as long as the
+  // turn stays silent.
   private armProgressIdleTimer(
     turn: ActiveAssistantTurn,
     delayMs?: number,
@@ -2888,10 +2892,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
 
   // Gatekeeper for spoken progress narration: it speaks only while the turn
   // is audibly silent, spaced `minGapMs` from any spoken floor-holder (ack or
-  // narration), at most `maxPerTurn` times, one generation at a time, and —
-  // on the ops trigger — only once `opsThreshold` ops accumulated. Every
-  // failing guard short-circuits silently; a skipped ops trigger keeps its
-  // accumulated count, so the next tool event or idle tick retries.
+  // narration), one generation at a time, and — on the ops trigger — only
+  // once `opsThreshold` ops accumulated. No per-turn count cap: the cadence
+  // guards bound the rate, and going quiet deep into a long turn is the
+  // failure mode narration exists to prevent. Every failing guard
+  // short-circuits silently; a skipped ops trigger keeps its accumulated
+  // count, so the next tool event or idle tick retries.
   private maybeNarrateProgress(
     turn: ActiveAssistantTurn,
     trigger: "ops" | "idle",
@@ -2909,7 +2915,6 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       // re-check once the ack enqueues — a guaranteed wasted provider call.
       turn.ackGenerationPending ||
       progress.narrationInFlight ||
-      progress.updatesSpoken >= cfg.maxPerTurn ||
       (progress.lastFloorHolderAtMs !== null &&
         Date.now() - progress.lastFloorHolderAtMs < cfg.minGapMs) ||
       (trigger === "ops" && progress.opsSinceNarration < cfg.opsThreshold)

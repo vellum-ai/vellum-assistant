@@ -838,7 +838,6 @@ describe("AssistantConfigSchema", () => {
           opsThreshold: 3,
           idleIntervalMs: 5000,
           minGapMs: 6000,
-          maxPerTurn: 6,
           generationTimeoutMs: 1500,
         },
       },

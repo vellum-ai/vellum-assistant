@@ -93,16 +93,6 @@ export const LiveVoiceProgressConfigSchema = z
       .describe(
         "Minimum spacing (ms) from any spoken floor-holder — ack or narration",
       ),
-    maxPerTurn: z
-      .number({
-        error: "liveVoice.frontModel.progress.maxPerTurn must be a number",
-      })
-      .int("liveVoice.frontModel.progress.maxPerTurn must be an integer")
-      .nonnegative(
-        "liveVoice.frontModel.progress.maxPerTurn must be a nonnegative integer",
-      )
-      .default(6)
-      .describe("Cap on spoken progress updates per turn"),
     generationTimeoutMs: z
       .number({
         error:

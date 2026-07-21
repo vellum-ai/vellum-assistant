@@ -148,7 +148,6 @@ function progressConfig(
       opsThreshold: 3,
       idleIntervalMs: 60_000,
       minGapMs: 10,
-      maxPerTurn: 3,
       generationTimeoutMs: 1_500,
       ...overrides,
     },
@@ -375,7 +374,10 @@ describe("LiveVoiceSession progress narration", () => {
       return GENERATED_NARRATION;
     });
     const { frames, session, getCallbacks, ttsTexts } = createProgressHarness({
-      frontModelConfig: progressConfig({ idleIntervalMs: 40, maxPerTurn: 1 }),
+      frontModelConfig: progressConfig({
+        idleIntervalMs: 40,
+        minGapMs: 60_000,
+      }),
       frontDecider: makeProgressDecider(generateProgressText),
     });
 
@@ -400,7 +402,10 @@ describe("LiveVoiceSession progress narration", () => {
   test("idle trigger with a null decider result speaks the static fallback", async () => {
     const generateProgressText = mock(async () => null);
     const { session, getCallbacks, ttsTexts } = createProgressHarness({
-      frontModelConfig: progressConfig({ idleIntervalMs: 40, maxPerTurn: 1 }),
+      frontModelConfig: progressConfig({
+        idleIntervalMs: 40,
+        minGapMs: 60_000,
+      }),
       frontDecider: makeProgressDecider(generateProgressText),
     });
 
@@ -424,7 +429,10 @@ describe("LiveVoiceSession progress narration", () => {
     // Behavior: a slow turn with no tool events falls back to that list.
     const generateProgressText = mock(async () => null);
     const { session, getCallbacks, ttsTexts } = createProgressHarness({
-      frontModelConfig: progressConfig({ idleIntervalMs: 40, maxPerTurn: 1 }),
+      frontModelConfig: progressConfig({
+        idleIntervalMs: 40,
+        minGapMs: 60_000,
+      }),
       frontDecider: makeProgressDecider(generateProgressText),
     });
 
@@ -543,31 +551,29 @@ describe("LiveVoiceSession progress narration", () => {
     emitMessageComplete(getCallbacks);
   });
 
-  test("maxPerTurn caps narration for the rest of the turn", async () => {
-    const generateProgressText = mock(async () => GENERATED_NARRATION);
+  test("no per-turn cap: narration keeps pacing a long silence", async () => {
+    const inputs: VoiceProgressTextInput[] = [];
+    const generateProgressText = mock(async (input: VoiceProgressTextInput) => {
+      inputs.push(input);
+      return GENERATED_NARRATION;
+    });
     const { session, getCallbacks, ttsTexts } = createProgressHarness({
-      frontModelConfig: progressConfig({
-        opsThreshold: 1,
-        minGapMs: 1,
-        maxPerTurn: 1,
-      }),
+      frontModelConfig: progressConfig({ idleIntervalMs: 30, minGapMs: 1 }),
       frontDecider: makeProgressDecider(generateProgressText),
     });
 
     await startReleasedTurn(session, getCallbacks);
-    emitToolStart(getCallbacks, "web_search", "tool-1");
-    await waitFor(() => ttsTexts.length === 1);
-    await sleep(10);
-    emitToolResult(getCallbacks, "web_search", "tool-1");
-    await waitFor(() => ttsTexts.length === 2);
-    expect(ttsTexts).toEqual([EXPECTED_TOOL_ACK, GENERATED_NARRATION]);
-
-    await sleep(10);
-    emitToolStart(getCallbacks, "file_read", "tool-2");
-    emitToolResult(getCallbacks, "file_read", "tool-2");
-    await sleep(30);
-    expect(ttsTexts).toEqual([EXPECTED_TOOL_ACK, GENERATED_NARRATION]);
-    expect(generateProgressText).toHaveBeenCalledTimes(1);
+    // Well past the historical 3-per-turn cap: updates keep coming for as
+    // long as the silence lasts — going quiet deep into a long turn is the
+    // failure mode narration exists to prevent.
+    await waitFor(() => ttsTexts.length >= 4);
+    expect(ttsTexts.slice(0, 4)).toEqual([
+      GENERATED_NARRATION,
+      GENERATED_NARRATION,
+      GENERATED_NARRATION,
+      GENERATED_NARRATION,
+    ]);
+    expect(inputs[3]?.updateIndex).toBe(4);
 
     emitMessageComplete(getCallbacks);
   });
@@ -617,8 +623,7 @@ describe("LiveVoiceSession progress narration", () => {
     const { session, getCallbacks, ttsTexts } = createProgressHarness({
       frontModelConfig: progressConfig({
         idleIntervalMs: 40,
-        minGapMs: 10,
-        maxPerTurn: 1,
+        minGapMs: 60_000,
       }),
       frontDecider: makeProgressDecider(generateProgressText),
       gateTtsText: (text) => (text === "Hello there." ? ttsGate.promise : null),
@@ -662,7 +667,10 @@ describe("LiveVoiceSession progress narration", () => {
   test("a spoken narration lands progressUpdatesSpoken on the turn's metrics frame", async () => {
     const generateProgressText = mock(async () => GENERATED_NARRATION);
     const { frames, session, getCallbacks, ttsTexts } = createProgressHarness({
-      frontModelConfig: progressConfig({ idleIntervalMs: 40, maxPerTurn: 1 }),
+      frontModelConfig: progressConfig({
+        idleIntervalMs: 40,
+        minGapMs: 60_000,
+      }),
       frontDecider: makeProgressDecider(generateProgressText),
       emitMetrics: true,
     });
