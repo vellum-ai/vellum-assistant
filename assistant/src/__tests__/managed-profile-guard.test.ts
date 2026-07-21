@@ -195,13 +195,41 @@ describe("PUT /v1/config/llm/profiles/:name — managed profile guard", () => {
     expect(committedRaw()).not.toBeNull();
   });
 
-  test("accepts routing identities on the replace path", async () => {
+  test("accepts routing identities on the replace path without deriving a connection", async () => {
     const result = await replaceRoute.handler({
       pathParams: { name: "my-custom" },
       body: { provider: "vellum", model: "claude-opus-4-8" },
     });
     expect(result).toEqual({ ok: true });
-    expect(committedRaw()).not.toBeNull();
+    const committed = committedRaw() as {
+      llm?: { profiles?: Record<string, Record<string, unknown>> };
+    } | null;
+    expect(committed?.llm?.profiles?.["my-custom"]).toMatchObject({
+      provider: "vellum",
+      model: "claude-opus-4-8",
+    });
+    expect(
+      committed?.llm?.profiles?.["my-custom"]?.provider_connection,
+    ).toBeUndefined();
+  });
+
+  test("rejects a routing identity with an unroutable model at the write choke point", async () => {
+    await expect(
+      replaceRoute.handler({
+        pathParams: { name: "my-custom" },
+        body: { provider: "vellum", model: "not-a-real-model" },
+      }),
+    ).rejects.toThrow(/not served by the Vellum managed route/);
+    expect(committedRaw()).toBeNull();
+  });
+
+  test("rejects a routing identity in a raw call-site fragment without a model", async () => {
+    await expect(
+      patchRoute.handler({
+        body: { llm: { callSites: { mainAgent: { provider: "chatgpt" } } } },
+      }),
+    ).rejects.toThrow(/requires an explicit model/);
+    expect(committedRaw()).toBeNull();
   });
 
   // -------------------------------------------------------------------------

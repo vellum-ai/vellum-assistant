@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { isCodexSubscriptionModel } from "../../providers/openai/codex-models.js";
+import { getManagedUpstream } from "../../providers/vellum-model-routing.js";
 import {
   DEFAULT_PROFILE_KEYS,
   DEFAULT_PROFILE_PROVIDERS,
@@ -46,6 +48,41 @@ type LLMProvider = z.infer<typeof LLMProvider>;
 // Deliberately narrower than `LLMProvider`: only providers that can serve
 // the code-defined default profile catalog.
 const DefaultProviderEnum = z.enum(DEFAULT_PROFILE_PROVIDERS);
+
+/**
+ * Validation for routing-identity (provider, model) pairs in stored config.
+ * Returns a message when the pair cannot dispatch, null when it can.
+ *
+ * Identities require an explicit model: the routing table ships in the same
+ * build as this check, so a missing or unroutable model fails every request
+ * on that profile/call site deterministically — a call-site fragment naming
+ * an identity without a model would inherit whatever model the winning
+ * profile carries, which the identity may not serve. Enforced at parse time
+ * (LLMSchema.superRefine), at the config write choke point
+ * (commitConfigWrite), and by the profile write route.
+ */
+export function routingIdentityModelIssue(
+  provider: string,
+  model: string | undefined,
+): string | null {
+  if (provider === "vellum") {
+    if (!model) {
+      return 'Provider "vellum" requires an explicit model.';
+    }
+    return getManagedUpstream(model) === null
+      ? `Model "${model}" is not served by the Vellum managed route.`
+      : null;
+  }
+  if (provider === "chatgpt") {
+    if (!model) {
+      return 'Provider "chatgpt" requires an explicit model.';
+    }
+    return isCodexSubscriptionModel(model)
+      ? null
+      : `Model "${model}" is not served by the ChatGPT subscription (Codex models only).`;
+  }
+  return null;
+}
 
 // ---------------------------------------------------------------------------
 // Call-site enum
@@ -581,6 +618,34 @@ export const LLMSchema = z
     pricingOverrides: z.array(PricingOverrideSchema).default([]),
   })
   .superRefine((config, ctx) => {
+    for (const [name, entry] of Object.entries(config.profiles ?? {})) {
+      const issue = entry?.provider
+        ? routingIdentityModelIssue(entry.provider, entry.model ?? undefined)
+        : null;
+      if (issue) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["profiles", name, "model"],
+          message: issue,
+        });
+      }
+    }
+    for (const [siteId, siteConfig] of Object.entries(config.callSites ?? {})) {
+      const issue = siteConfig?.provider
+        ? routingIdentityModelIssue(
+            siteConfig.provider,
+            siteConfig.model ?? undefined,
+          )
+        : null;
+      if (issue) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["callSites", siteId, "model"],
+          message: issue,
+        });
+      }
+    }
+
     // The always-available default profiles are code-defined
     // (`default-profile-catalog.ts`) and resolve whether or not they are
     // materialized in `llm.profiles`, so their names are always valid

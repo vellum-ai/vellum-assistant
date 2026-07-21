@@ -28,7 +28,11 @@ import {
   getConfigReadOnly,
   loadRawConfig,
 } from "../../config/loader.js";
-import { LLMProvider, ProfileEntry } from "../../config/schemas/llm.js";
+import {
+  LLMProvider,
+  ProfileEntry,
+  routingIdentityModelIssue,
+} from "../../config/schemas/llm.js";
 import { getDb } from "../../persistence/db-connection.js";
 import {
   ConnectionResolutionError,
@@ -38,8 +42,6 @@ import { ROUTING_IDENTITY_PROVIDERS } from "../../providers/inference/auth.js";
 import { computeConnectionAvailability } from "../../providers/inference/connection-availability.js";
 import { getConnection } from "../../providers/inference/connections.js";
 import { isModelInCatalog } from "../../providers/model-catalog.js";
-import { isCodexSubscriptionModel } from "../../providers/openai/codex-models.js";
-import { getManagedUpstream } from "../../providers/vellum-model-routing.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
   commitConfigWrite,
@@ -157,33 +159,17 @@ function validateModel(
 ): string[] {
   // Routing identities key no catalog entries; they validate against their
   // route's actual reach — the same checks dispatch applies per-request.
-  if (provider === "vellum") {
-    if (getManagedUpstream(model) !== null) {
-      return [];
-    }
-    const issue = `Model "${model}" is not served by the Vellum managed route.`;
-    if (!allowUnlisted) {
+  // allowUnlisted deliberately does not apply: the routing table ships in
+  // this build, so an unroutable pair fails every request, and the schema
+  // strips it on the next config read.
+  if (ROUTING_IDENTITY_PROVIDERS.has(provider)) {
+    const issue = routingIdentityModelIssue(provider, model);
+    if (issue) {
       throw new BadRequestError(
-        `${issue} Pick a model from the Vellum catalog, or pass allowUnlisted to create it anyway.`,
+        `${issue} Pick a model this route serves, or a concrete provider.`,
       );
     }
-    return [
-      `${issue} Created anyway (allowUnlisted); requests with this profile fail as unroutable.`,
-    ];
-  }
-  if (provider === "chatgpt") {
-    if (isCodexSubscriptionModel(model)) {
-      return [];
-    }
-    const issue = `Model "${model}" is not served by the ChatGPT subscription (Codex models only).`;
-    if (!allowUnlisted) {
-      throw new BadRequestError(
-        `${issue} Pick a Codex model, or pass allowUnlisted to create it anyway.`,
-      );
-    }
-    return [
-      `${issue} Created anyway (allowUnlisted); requests with this profile fail as incompatible.`,
-    ];
+    return [];
   }
   if (isModelInCatalog(provider, model)) {
     return [];

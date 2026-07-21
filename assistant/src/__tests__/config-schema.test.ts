@@ -392,17 +392,52 @@ describe("AssistantConfigSchema", () => {
     expect(result.success).toBe(false);
   });
 
-  test("accepts the vellum and chatgpt routing identities in profiles and call sites", () => {
-    for (const provider of ["vellum", "chatgpt"]) {
-      const inProfile = AssistantConfigSchema.safeParse({
-        llm: { profiles: { custom: { provider } } },
-      });
-      expect(inProfile.success).toBe(true);
-      const inCallSite = AssistantConfigSchema.safeParse({
-        llm: { callSites: { mainAgent: { provider } } },
-      });
-      expect(inCallSite.success).toBe(true);
-    }
+  test("accepts the vellum and chatgpt routing identities with a routable model", () => {
+    const inProfile = AssistantConfigSchema.safeParse({
+      llm: {
+        profiles: {
+          custom: { provider: "vellum", model: "claude-opus-4-8" },
+        },
+      },
+    });
+    expect(inProfile.success).toBe(true);
+    const inCallSite = AssistantConfigSchema.safeParse({
+      llm: {
+        callSites: { mainAgent: { provider: "chatgpt", model: "gpt-5.5" } },
+      },
+    });
+    expect(inCallSite.success).toBe(true);
+  });
+
+  test("rejects routing identities with a missing or unroutable model", () => {
+    // A call-site fragment naming an identity without a model would inherit
+    // the winning profile's model, which the identity may not serve.
+    expect(
+      AssistantConfigSchema.safeParse({
+        llm: { callSites: { mainAgent: { provider: "chatgpt" } } },
+      }).success,
+    ).toBe(false);
+    expect(
+      AssistantConfigSchema.safeParse({
+        llm: { profiles: { custom: { provider: "vellum" } } },
+      }).success,
+    ).toBe(false);
+    expect(
+      AssistantConfigSchema.safeParse({
+        llm: {
+          profiles: {
+            custom: { provider: "vellum", model: "not-a-real-model" },
+          },
+        },
+      }).success,
+    ).toBe(false);
+    expect(
+      AssistantConfigSchema.safeParse({
+        llm: {
+          profiles: { custom: { provider: "chatgpt", model: "gpt-4o" } },
+        },
+      }).success,
+    ).toBe(false);
   });
 
   test("rejects negative llm.callSites maxTokens", () => {
