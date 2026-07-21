@@ -153,19 +153,31 @@ describe("useSpokenWordCursor — monotonicity", () => {
 
 describe("useSpokenWordCursor — rate cap", () => {
   test("a mapped candidate sweeping far ahead advances only by the played-audio budget", () => {
-    progress = { playedSeconds: 1, totalSeconds: 10 };
-    const { result } = renderHook(() => useSpokenWordCursor(50));
+    progress = { playedSeconds: 10, totalSeconds: 100 };
+    const { result } = renderHook(() => useSpokenWordCursor(100));
     raf.pumpFrame();
-    // Adoption: floor(0.1 * 50) = 5.
-    expect(result.current).toBe(5);
+    // Adoption: floor(0.1 * 100) = 10 (spoken ceiling floor(10 × 3.3) = 33
+    // does not bind).
+    expect(result.current).toBe(10);
 
     // Near-underrun: played approaches total, so the fraction sweeps toward 1
-    // and the candidate lands near the end of the transcript
-    // (floor((1.5 / 1.6) * 50) = 46) while only 0.5s of audio actually
-    // played. Budget = 0.5 * 5 words/sec = 2 whole words.
-    progress = { playedSeconds: 1.5, totalSeconds: 1.6 };
+    // (candidate bounded by the spoken ceiling floor(10.5 × 3.3) = 34) while
+    // only 0.5s of audio actually played. Budget = 0.5 * 5 words/sec = 2
+    // whole words.
+    progress = { playedSeconds: 10.5, totalSeconds: 10.6 };
     raf.pumpFrame();
-    expect(result.current).toBe(7);
+    expect(result.current).toBe(12);
+  });
+
+  test("while text streams ahead of audio, the cursor advances at speech pace", () => {
+    // Mid-stream: 100 words are displayed but only 4s of audio is scheduled
+    // (the synthesized prefix). The raw fraction maps 2s played onto word 50;
+    // the spoken ceiling floor(2 × 3.3) = 6 keeps the highlight where real
+    // speech can actually be.
+    progress = { playedSeconds: 2, totalSeconds: 4 };
+    const { result } = renderHook(() => useSpokenWordCursor(100));
+    raf.pumpFrame();
+    expect(result.current).toBe(6);
   });
 
   test("a normal speaking cadence is never rate-limited", () => {
@@ -208,31 +220,34 @@ describe("useSpokenWordCursor — rate cap", () => {
   });
 
   test("a delayed frame spends its full earned allowance at once", () => {
-    // Adoption zeroes the bank.
-    progress = { playedSeconds: 0.4, totalSeconds: 40 };
+    // Adoption: floor(0.2 * 100) = 20 (spoken ceiling floor(8 × 3.3) = 26
+    // does not bind); bank zeroed.
+    progress = { playedSeconds: 8, totalSeconds: 40 };
     const { result } = renderHook(() => useSpokenWordCursor(100));
     raf.pumpFrame();
-    expect(result.current).toBe(1);
+    expect(result.current).toBe(20);
 
     // A 2s gap between frames (throttled tab while audio plays on) earns
     // 2 × 5 = 10 words, all spendable in the frame that observes it — even
-    // against a near-1 fraction (candidate 96) the cursor advances by the
-    // full earned allowance instead of crawling at the stored-bank ceiling.
-    progress = { playedSeconds: 2.4, totalSeconds: 2.5 };
+    // against a near-1 fraction (candidate bounded to the spoken ceiling 33)
+    // the cursor advances by the full earned allowance instead of crawling at
+    // the stored-bank ceiling.
+    progress = { playedSeconds: 10, totalSeconds: 10.4 };
     raf.pumpFrame();
-    expect(result.current).toBe(11);
+    expect(result.current).toBe(30);
   });
 
   test("the adoption jump is uncapped", () => {
-    const { result } = renderHook(() => useSpokenWordCursor(40));
+    const { result } = renderHook(() => useSpokenWordCursor(30));
     raf.pumpFrame();
     expect(result.current).toBeNull();
 
     // Mid-response mount: the first usable frame syncs straight to the
-    // playhead, floor(0.8 * 40) = 32, with no budget accrued yet.
+    // playhead, floor(0.8 * 30) = 24, with no budget accrued yet (spoken
+    // ceiling floor(8 × 3.3) = 26 does not bind).
     progress = { playedSeconds: 8, totalSeconds: 10 };
     raf.pumpFrame();
-    expect(result.current).toBe(32);
+    expect(result.current).toBe(24);
   });
 });
 

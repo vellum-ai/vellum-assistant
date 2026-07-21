@@ -5,9 +5,13 @@
  * A `requestAnimationFrame` loop polls {@link getLiveVoicePlaybackProgress}
  * (played/total seconds of the current response's scheduled audio) and maps the
  * played fraction onto the caller's word count:
- * `floor((playedSeconds / totalSeconds) * wordCount)`, clamped to the last
- * word. The mapping assumes words take roughly equal speaking time — close
- * enough for a caption highlight.
+ * `floor((playedSeconds / totalSeconds) * wordCount)`, bounded by the spoken
+ * ceiling `playedSeconds × MAX_SPEECH_WORDS_PER_SECOND` and clamped to the
+ * last word. The fraction assumes words take roughly equal speaking time and
+ * that the scheduled audio covers every displayed word; while the response is
+ * still streaming the audio covers only a synthesized prefix, and the ceiling
+ * keeps the cursor at the pace of real speech until the mapping becomes
+ * trustworthy.
  *
  * The cursor advances only while audio remains scheduled
  * (`playedSeconds < totalSeconds`). When the queue is caught up
@@ -67,6 +71,19 @@ import { getLiveVoicePlaybackProgress } from "@/domains/chat/voice/live-voice/li
 const MAX_CURSOR_WORDS_PER_SECOND = 5;
 
 /**
+ * Ceiling on the cursor's absolute position, in words per second of played
+ * audio (~200 words/min, an upper bound on real TTS cadence). While a
+ * response streams, the scheduled audio covers only a synthesized prefix of
+ * the displayed words, so the played fraction maps onto too many words and
+ * runs ahead of speech; `playedSeconds` × this rate bounds the cursor to what
+ * real speech could have reached. Once the response has fully streamed the
+ * fraction mapping implies the voice's true (lower) rate and this ceiling
+ * stops binding. A voice faster than this rate trails slightly instead of
+ * leading — the lesser artifact.
+ */
+const MAX_SPEECH_WORDS_PER_SECOND = 3.3;
+
+/**
  * Index (into the caller's word segmentation) of the word the TTS playhead is
  * speaking, or `null` while the current response has produced no audio (the
  * caller keeps its default highlight). `wordCount` of 0 idles the loop
@@ -112,8 +129,17 @@ export function useSpokenWordCursor(wordCount: number): number | null {
         // fraction of 1.0 says nothing about displayed words with no
         // synthesized audio yet, so a null cursor stays null (default
         // highlight) and a numeric one holds its floor.
-        const mapped = Math.floor(
-          (progress.playedSeconds / progress.totalSeconds) * wordCount,
+        // The fraction mapping assumes the scheduled audio covers every
+        // displayed word — true once the response has fully streamed, but
+        // while text is still arriving the audio covers only a synthesized
+        // prefix and the fraction overshoots. The spoken ceiling bounds the
+        // cursor to the words real speech could have reached in the played
+        // seconds.
+        const mapped = Math.min(
+          Math.floor(
+            (progress.playedSeconds / progress.totalSeconds) * wordCount,
+          ),
+          Math.floor(progress.playedSeconds * MAX_SPEECH_WORDS_PER_SECOND),
         );
         const candidate =
           progress.playedSeconds < progress.totalSeconds &&
