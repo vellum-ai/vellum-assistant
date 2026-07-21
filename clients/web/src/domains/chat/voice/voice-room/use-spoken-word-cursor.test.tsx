@@ -182,6 +182,29 @@ describe("useSpokenWordCursor — rate cap", () => {
     }
   });
 
+  test("budget banked during long tracking cannot fund a one-frame sweep", () => {
+    // Track a 100-word response at a normal ~2.5 words/sec cadence: accrual
+    // (5 words/sec) outpaces consumption, so an unclamped bank would grow by
+    // ~1 word per step and later fund a full sweep in a single frame.
+    progress = { playedSeconds: 0.4, totalSeconds: 40 };
+    const { result } = renderHook(() => useSpokenWordCursor(100));
+    raf.pumpFrame();
+    expect(result.current).toBe(1);
+
+    for (let step = 2; step <= 40; step += 1) {
+      progress = { playedSeconds: 0.4 * step, totalSeconds: 40 };
+      raf.pumpFrame();
+      expect(result.current).toBe(step);
+    }
+
+    // Underrun sweep: the fraction jumps near 1 (candidate 97) while only
+    // 0.5s more audio played. The bank is clamped to one second of
+    // advancement, so the cursor moves at most 5 words past its floor.
+    progress = { playedSeconds: 16.5, totalSeconds: 17 };
+    raf.pumpFrame();
+    expect(result.current).toBe(45);
+  });
+
   test("the adoption jump is uncapped", () => {
     const { result } = renderHook(() => useSpokenWordCursor(40));
     raf.pumpFrame();

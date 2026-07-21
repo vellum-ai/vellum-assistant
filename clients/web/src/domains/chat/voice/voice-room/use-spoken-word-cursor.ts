@@ -131,11 +131,20 @@ export function useSpokenWordCursor(wordCount: number): number | null {
           }
         } else {
           // Accrue advancement budget from real played audio. A non-positive
-          // delta (a fresh player restarting the clock) accrues nothing.
+          // delta (a fresh player restarting the clock) accrues nothing. The
+          // bank is clamped to about one second of advancement: real speech
+          // consumes less than the accrual rate, and an unclamped surplus
+          // banked over a long response would let a later text burst spend it
+          // all in one frame — a sweep onto unspoken words that the cap
+          // exists to prevent. The clamp keeps just enough headroom for the
+          // cursor to catch up after rAF jank.
           if (prevPlayedRef.current !== null) {
             const playedDelta = progress.playedSeconds - prevPlayedRef.current;
             if (playedDelta > 0) {
-              budgetRef.current += playedDelta * MAX_CURSOR_WORDS_PER_SECOND;
+              budgetRef.current = Math.min(
+                budgetRef.current + playedDelta * MAX_CURSOR_WORDS_PER_SECOND,
+                MAX_CURSOR_WORDS_PER_SECOND,
+              );
             }
           }
           prevPlayedRef.current = progress.playedSeconds;
