@@ -251,20 +251,30 @@ export function useProProvisioning({
     retry: false,
   });
   // The post-confirm onboarding fetch has settled — neither the cold load nor
-  // the refetch from the on-open invalidation is in flight.
+  // the refetch from the on-open invalidation is in flight. Routing consumes
+  // this ("is domain_setup_available safe to route on yet?"), where "not
+  // currently fetching" is the right question.
   const onboardingSettled =
     proConfirmed && !onboardingQuery.isPending && !onboardingQuery.isFetching;
 
   // The onboarding payload names the server-side provisioning target; it wins
-  // over the active assistant when the two diverge (multi-assistant orgs). On
-  // reopen the on-open invalidation refetches onboarding while react-query keeps
-  // serving the cached payload (isPending false, isFetching true), so a stale
-  // primary_assistant_id from a prior run must not be trusted until onboarding
-  // has freshly settled — until then fall back to the active assistant so a slow
-  // payload can't briefly point the polls (and the actuals snapshot) at the
-  // wrong assistant.
+  // over the active assistant when the two diverge (multi-assistant orgs). Trust
+  // primary_assistant_id only once onboarding has produced a result after this
+  // open (dataUpdatedAt >= openedAt, mirroring subscriptionFresh) — not merely
+  // "not currently fetching". dataUpdatedAt only moves forward, so the primary
+  // survives later background refetches (window-focus, reconnect, invalidation)
+  // instead of transiently dropping to the active assistant and pointing the
+  // polls (and the actuals snapshot) at the wrong one, while a stale pre-open
+  // cached payload is still ignored. Fall back to active until it lands fresh.
+  const primaryAssistantFresh =
+    proConfirmed &&
+    openedAt != null &&
+    onboardingQuery.dataUpdatedAt >= openedAt;
+
   const assistantId =
-    (onboardingSettled ? onboardingQuery.data?.primary_assistant_id : null) ??
+    (primaryAssistantFresh
+      ? onboardingQuery.data?.primary_assistant_id
+      : null) ??
     (onboardingQuery.isPending ? null : (activeAssistantQuery.data?.id ?? null));
 
   // Actuals must track the same assistant the wizard targets — under
