@@ -130,33 +130,32 @@ export function useSpokenWordCursor(wordCount: number): number | null {
             budgetRef.current = 0;
           }
         } else {
-          // Accrue advancement budget from real played audio. A non-positive
-          // delta (a fresh player restarting the clock) accrues nothing. The
-          // bank is clamped to about one second of advancement: real speech
-          // consumes less than the accrual rate, and an unclamped surplus
-          // banked over a long response would let a later text burst spend it
-          // all in one frame — a sweep onto unspoken words that the cap
-          // exists to prevent. The clamp keeps just enough headroom for the
-          // cursor to catch up after rAF jank.
+          // Advancement allowance for this frame: the stored bank plus the
+          // words earned by audio that actually played since the previous
+          // frame (a non-positive delta — a fresh player restarting the
+          // clock — earns nothing). The full frame allowance is spendable at
+          // once, so a long gap between frames (a throttled background tab
+          // while audio plays on) catches the cursor up in step with the real
+          // playhead. Only the leftover STORED bank is clamped, to about one
+          // second of advancement: real speech consumes less than the accrual
+          // rate, and an unclamped stored surplus would let a later text
+          // burst spend it all in one frame — a sweep onto unspoken words
+          // that the cap exists to prevent.
+          let available = budgetRef.current;
           if (prevPlayedRef.current !== null) {
             const playedDelta = progress.playedSeconds - prevPlayedRef.current;
             if (playedDelta > 0) {
-              budgetRef.current = Math.min(
-                budgetRef.current + playedDelta * MAX_CURSOR_WORDS_PER_SECOND,
-                MAX_CURSOR_WORDS_PER_SECOND,
-              );
+              available += playedDelta * MAX_CURSOR_WORDS_PER_SECOND;
             }
           }
           prevPlayedRef.current = progress.playedSeconds;
           const floor = cursorRef.current;
           if (candidate !== null && candidate > floor) {
-            const advance = Math.min(
-              candidate - floor,
-              Math.floor(budgetRef.current),
-            );
+            const advance = Math.min(candidate - floor, Math.floor(available));
             next = floor + advance;
-            budgetRef.current -= advance;
+            available -= advance;
           }
+          budgetRef.current = Math.min(available, MAX_CURSOR_WORDS_PER_SECOND);
         }
       }
       if (next !== cursorRef.current) {
