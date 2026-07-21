@@ -210,7 +210,7 @@ describe("BillingOnboardingModal", () => {
 
     await waitFor(() =>
       expect(
-        getByText("Payment confirmed — setting up your upgrade…"),
+        getByText("Confirming your upgrade…"),
       ).toBeTruthy(),
     );
     expect(getByText("Super package")).toBeTruthy();
@@ -218,21 +218,21 @@ describe("BillingOnboardingModal", () => {
     subscriptionPlanId = "pro";
     await client.invalidateQueries();
     await waitFor(
-      () => expect(getByText("Setting up your new resources…")).toBeTruthy(),
+      () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
       { timeout: 5000 },
     );
 
     operationalStatusResponse = makeOperationalStatus("resizing_machine");
     await client.invalidateQueries();
     await waitFor(
-      () => expect(getByText("Resizing your assistant…")).toBeTruthy(),
+      () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
       { timeout: 5000 },
     );
 
     assistantResponse = makeAssistant("large", 50);
     operationalStatusResponse = makeOperationalStatus("active");
     await client.invalidateQueries();
-    await waitFor(() => expect(getByText("Your upgrade is ready")).toBeTruthy(), {
+    await waitFor(() => expect(getByText("All done!")).toBeTruthy(), {
       timeout: 5000,
     });
     // The celebration dwell elapses and the wizard advances to the domain step.
@@ -248,7 +248,7 @@ describe("BillingOnboardingModal", () => {
     const { client, getByText, queryByText } = renderModal();
 
     await waitFor(
-      () => expect(getByText("Setting up your new resources…")).toBeTruthy(),
+      () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
       { timeout: 5000 },
     );
     // Wait for the pre-resize actuals to land (the "from" card) before
@@ -274,7 +274,7 @@ describe("BillingOnboardingModal", () => {
     const { client, getByText, queryByText } = renderModal();
 
     await waitFor(
-      () => expect(getByText("Setting up your new resources…")).toBeTruthy(),
+      () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
       { timeout: 5000 },
     );
     // The resource cards appear once the onboarding targets land.
@@ -315,14 +315,14 @@ describe("BillingOnboardingModal", () => {
     const { client, getByText, getByTestId } = renderModal();
 
     await waitFor(
-      () => expect(getByText("Setting up your new resources…")).toBeTruthy(),
+      () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
       { timeout: 5000 },
     );
 
     // Jump the wall clock past the stall threshold; the hook's next clock
     // tick re-derives the state as STALLED.
     dateNowOffsetMs = 200_000;
-    await waitFor(() => expect(getByText("One more step")).toBeTruthy(), {
+    await waitFor(() => expect(getByText("We couldn't finish this automatically")).toBeTruthy(), {
       timeout: 5000,
     });
 
@@ -333,7 +333,7 @@ describe("BillingOnboardingModal", () => {
 
     // The successful apply resumes observation: back to the resizing UI…
     await waitFor(
-      () => expect(getByText("Resizing your assistant…")).toBeTruthy(),
+      () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
       { timeout: 5000 },
     );
 
@@ -341,7 +341,7 @@ describe("BillingOnboardingModal", () => {
     assistantResponse = makeAssistant("large", 50);
     await client.invalidateQueries();
     await waitFor(
-      () => expect(getByText("Your upgrade is ready")).toBeTruthy(),
+      () => expect(getByText("All done!")).toBeTruthy(),
       { timeout: 5000 },
     );
     await waitFor(() => expect(getByText("Assistant email")).toBeTruthy(), {
@@ -370,7 +370,7 @@ describe("BillingOnboardingModal", () => {
       () =>
         expect(
           getByText(
-            "Your payment went through safely — we're still confirming your upgrade with Stripe. This can take a minute.",
+            "Your payment went through safely — this can take a minute.",
           ),
         ).toBeTruthy(),
       { timeout: TEST_CONFIRM_TIMEOUT_MS + 3000 },
@@ -379,7 +379,7 @@ describe("BillingOnboardingModal", () => {
     subscriptionPlanId = "pro";
     fireEvent.click(getByTestId("onboarding-retry"));
     await waitFor(
-      () => expect(getByText("Setting up your new resources…")).toBeTruthy(),
+      () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
       { timeout: 5000 },
     );
   });
@@ -389,7 +389,7 @@ describe("BillingOnboardingModal", () => {
     const { client, getByText, getByTestId, getByLabelText } = renderModal();
 
     await waitFor(
-      () => expect(getByText("Setting up your new resources…")).toBeTruthy(),
+      () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
       { timeout: 5000 },
     );
 
@@ -439,7 +439,7 @@ describe("BillingOnboardingModal", () => {
       const { client, getByText, getByTestId, queryByText } = renderModal();
 
       await waitFor(
-        () => expect(getByText("Setting up your new resources…")).toBeTruthy(),
+        () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
         { timeout: 5000 },
       );
       dateNowOffsetMs = 61_000;
@@ -468,7 +468,7 @@ describe("BillingOnboardingModal", () => {
       const { getByText, getByTestId, queryByTestId } = renderModal();
 
       await waitFor(
-        () => expect(getByText("Setting up your new resources…")).toBeTruthy(),
+        () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
         { timeout: 5000 },
       );
       // Give the routing latch time to settle: still no escape hatch, because
@@ -494,7 +494,7 @@ describe("BillingOnboardingModal", () => {
     const { getByText, getByTestId, queryByTestId } = renderModal();
 
     await waitFor(
-      () => expect(getByText("Setting up your new resources…")).toBeTruthy(),
+      () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
       { timeout: 5000 },
     );
     dateNowOffsetMs = 61_000;
@@ -518,11 +518,11 @@ describe("BillingOnboardingModal", () => {
     const { client, getByText, getByTestId } = renderModal();
 
     await waitFor(
-      () => expect(getByText("Setting up your new resources…")).toBeTruthy(),
+      () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
       { timeout: 5000 },
     );
     dateNowOffsetMs = 200_000;
-    await waitFor(() => expect(getByText("One more step")).toBeTruthy(), {
+    await waitFor(() => expect(getByText("We couldn't finish this automatically")).toBeTruthy(), {
       timeout: 5000,
     });
 
@@ -534,14 +534,14 @@ describe("BillingOnboardingModal", () => {
         getByText("Another assistant operation is already in progress."),
       ).toBeTruthy(),
     );
-    expect(getByText("One more step")).toBeTruthy();
+    expect(getByText("We couldn't finish this automatically")).toBeTruthy();
 
     // If a server-side resize was in fact still running, its landing is
     // observed by the actuals polling and replaces the stalled UI.
     assistantResponse = makeAssistant("large", 50);
     await client.invalidateQueries();
     await waitFor(
-      () => expect(getByText("Your upgrade is ready")).toBeTruthy(),
+      () => expect(getByText("All done!")).toBeTruthy(),
       { timeout: 5000 },
     );
   });
@@ -555,7 +555,7 @@ describe("BillingOnboardingModal", () => {
         renderModal();
 
       await waitFor(
-        () => expect(getByText("Setting up your new resources…")).toBeTruthy(),
+        () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
         { timeout: 5000 },
       );
       dateNowOffsetMs = 61_000;
@@ -608,7 +608,7 @@ describe("BillingOnboardingModal", () => {
       } = renderModal();
 
       await waitFor(
-        () => expect(getByText("Setting up your new resources…")).toBeTruthy(),
+        () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
         { timeout: 5000 },
       );
       dateNowOffsetMs = 61_000;
