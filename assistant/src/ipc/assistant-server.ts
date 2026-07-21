@@ -57,6 +57,7 @@ import {
 } from "./ipc-framing.js";
 import { CONTACTS_INFO_IPC_METHODS } from "./routes/contacts-info-ipc-routes.js";
 import { CONTACTS_MIRROR_IPC_METHODS } from "./routes/contacts-mirror-ipc-routes.js";
+import { CONVERSATION_SYNC_IPC_METHODS } from "./routes/conversation-sync-ipc-routes.js";
 import { type DbProxyParams, handleDbProxy } from "./routes/db-proxy.js";
 import { GUARDIAN_LABEL_IPC_METHODS } from "./routes/guardian-label-ipc-routes.js";
 import { INVITE_IPC_METHODS } from "./routes/invite-ipc-routes.js";
@@ -210,6 +211,7 @@ export class AssistantIpcServer {
       CONTACTS_INFO_IPC_METHODS,
       CONTACTS_MIRROR_IPC_METHODS,
       GUARDIAN_LABEL_IPC_METHODS,
+      CONVERSATION_SYNC_IPC_METHODS,
     ]) {
       for (const [operationId, handler] of Object.entries(methodMap)) {
         this.methods.set(operationId, handler);
