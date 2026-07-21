@@ -672,15 +672,15 @@ const riskOverrides: AssistantRiskOverride[] = [
   },
   {
     path: "memory v2 simulate",
-    risk: "low",
+    risk: "medium",
     reason:
-      "Read-only dry-run of the v4 router against a synthetic query — no state written",
+      "Invokes runRouter which calls provider.sendMessage — spends a real LLM provider call even though no local state is written",
   },
   {
     path: "memory v2 compare",
-    risk: "low",
+    risk: "medium",
     reason:
-      "Read-only comparison of retrievers against logged router picks over sampled turns",
+      "Re-runs the router (one LLM call) for each sampled historical turn; user-controlled --limit means many paid provider calls can be triggered",
   },
   {
     path: "memory v3 backfill-sections",
@@ -702,9 +702,9 @@ const riskOverrides: AssistantRiskOverride[] = [
   },
   {
     path: "memory v3 eval-tally",
-    risk: "low",
+    risk: "medium",
     reason:
-      "Read-only: unblinds and tallies blind-judge verdicts against a key file — no state written",
+      "Daemon handler is read-only, but the CLI writes the tally result to a user-supplied path when --out is provided; classifying medium so file-write invocations are not auto-approved as read-only",
   },
   {
     path: "memory retrospective run",
