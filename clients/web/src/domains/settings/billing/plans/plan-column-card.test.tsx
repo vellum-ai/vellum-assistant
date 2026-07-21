@@ -32,16 +32,16 @@ afterEach(() => {
 });
 
 describe("PlanColumnCard CTA", () => {
-  test("renders a disabled Current Plan button when isCurrent", () => {
-    const { getByRole } = render(
+  test("renders a disabled Current Plan button when isCurrent", async () => {
+    const { findByRole } = render(
       <PlanColumnCard {...baseProps} isCurrent intent="current" />,
     );
-    const button = getByRole("button", { name: "Current Plan" });
+    const button = await findByRole("button", { name: "Current Plan" });
     expect(button).toHaveProperty("disabled", true);
   });
 
-  test("renders an outlined CTA with ctaLabel for a downgrade", () => {
-    const { getByRole } = render(
+  test("renders an outlined CTA with ctaLabel for a downgrade", async () => {
+    const { findByRole } = render(
       <PlanColumnCard
         {...baseProps}
         isCurrent={false}
@@ -49,18 +49,18 @@ describe("PlanColumnCard CTA", () => {
         ctaLabel="Downgrade to Mighty"
       />,
     );
-    const button = getByRole("button", { name: "Downgrade to Mighty" });
+    const button = await findByRole("button", { name: "Downgrade to Mighty" });
     expect(button).toHaveProperty("disabled", false);
     // Outlined variant paints a transparent background rather than the
     // primary fill.
     expect(button.className).toContain("bg-transparent");
   });
 
-  test("renders a primary CTA with ctaLabel when intent is omitted", () => {
-    const { getByRole } = render(
+  test("renders a primary CTA with ctaLabel when intent is omitted", async () => {
+    const { findByRole } = render(
       <PlanColumnCard {...baseProps} isCurrent={false} />,
     );
-    const button = getByRole("button", { name: "Power Up" });
+    const button = await findByRole("button", { name: "Power Up" });
     expect(button).toHaveProperty("disabled", false);
     expect(button.className).toContain("bg-[var(--primary-base)]");
   });
