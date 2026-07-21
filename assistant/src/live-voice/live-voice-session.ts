@@ -2431,6 +2431,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         voiceControlPrompt: buildVoiceControlPrompt(activeTurn),
         content: leg.content,
         isInbound: true,
+        launchedAtMs: activeTurn.launchedAtMs,
         signal: activeTurn.abortController.signal,
         ...(leg.overrideProfile != null
           ? { overrideProfile: leg.overrideProfile }
@@ -4023,10 +4024,21 @@ async function defaultStartVoiceTurn(
   // the turn resolved to the fail-closed `unknown` trust class and every
   // sensitive tool was denied. Resolution stays fail-closed: a gateway miss /
   // missing binding leaves the context unset (`unknown`), never a blind grant.
+  const trustStartedAt = performance.now();
   const trustContext = await resolveLocalLiveVoiceTrustContext(
     options.conversationId,
   );
+  const trustMs = Math.round(performance.now() - trustStartedAt);
   const { startVoiceTurn } = await import("../calls/voice-session-bridge.js");
+  log.info(
+    {
+      conversationId: options.conversationId,
+      trustMs,
+      sinceLaunchMs:
+        options.launchedAtMs != null ? Date.now() - options.launchedAtMs : null,
+    },
+    "Voice turn pre-bridge timing",
+  );
   return startVoiceTurn({
     ...options,
     ...(trustContext ? { trustContext } : {}),

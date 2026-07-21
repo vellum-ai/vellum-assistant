@@ -269,6 +269,12 @@ export interface VoiceTurnOptions {
    * supplies its own `voiceControlPrompt`.
    */
   routingLeg?: VoiceRoutingLeg;
+  /**
+   * Session-side dispatch timestamp (`Date.now()` at turn launch). When set,
+   * the bridge's dispatch-timing log reports latency relative to it, so the
+   * pre-bridge half (thinking frame, trust resolution) is attributable too.
+   */
+  launchedAtMs?: number;
 }
 
 export interface VoiceTurnHandle {
@@ -425,6 +431,15 @@ function buildVoiceCallControlPrompt(opts: {
 export async function startVoiceTurn(
   opts: VoiceTurnOptions,
 ): Promise<VoiceTurnHandle> {
+  // Dispatch-latency stamps for the pre-loop half of a voice turn, logged
+  // once at agent-loop entry so live sessions expose where pre-model time
+  // goes (conversation resolve vs admission waits vs persist).
+  const dispatch = {
+    enteredAt: Date.now(),
+    conversationReadyAt: 0,
+    admissionClearAt: 0,
+    persistDoneAt: 0,
+  };
   const eventSink: VoiceRunEventSink = {
     onTextDelta: (msg) => {
       opts.onTextDelta?.(msg.text);
@@ -542,6 +557,7 @@ export async function startVoiceTurn(
 
   // Get or create the conversation
   const conversation = await getOrCreateConversation(opts.conversationId);
+  dispatch.conversationReadyAt = Date.now();
 
   const config = getConfig();
   const maxWaitMs = resolveProcessingWaitMs(
@@ -629,6 +645,7 @@ export async function startVoiceTurn(
     }
     break;
   }
+  dispatch.admissionClearAt = Date.now();
 
   // Releases the per-turn state of a voice turn that OWNED the conversation,
   // so `trustContext`, `callSessionId`, etc. don't leak into subsequent
@@ -851,6 +868,7 @@ export async function startVoiceTurn(
       throw retryErr;
     }
   }
+  dispatch.persistDoneAt = Date.now();
   try {
     opts.callbacks?.persisted_user_message_id?.(messageId);
   } catch (err) {
@@ -1013,6 +1031,23 @@ export async function startVoiceTurn(
 
   // Fire-and-forget the agent loop
   void (async () => {
+    const loopEnterAt = Date.now();
+    log.info(
+      {
+        turnId,
+        conversationId: opts.conversationId,
+        routingLeg: opts.routingLeg ?? null,
+        sinceLaunchMs:
+          opts.launchedAtMs != null ? loopEnterAt - opts.launchedAtMs : null,
+        bridgeMs: loopEnterAt - dispatch.enteredAt,
+        conversationMs: dispatch.conversationReadyAt - dispatch.enteredAt,
+        admissionWaitMs:
+          dispatch.admissionClearAt - dispatch.conversationReadyAt,
+        persistMs: dispatch.persistDoneAt - dispatch.admissionClearAt,
+        preLoopMs: loopEnterAt - dispatch.persistDoneAt,
+      },
+      "Voice turn dispatch timing",
+    );
     try {
       // Non-guardian voice callers force side-effect tools to prompt so the
       // auto-deny handler above reliably sees a confirmation_request. Without
