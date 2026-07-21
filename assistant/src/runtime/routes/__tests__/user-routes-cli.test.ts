@@ -98,8 +98,8 @@ describe("routes list", () => {
   test("excludes test files and __tests__ dirs (never imported into the daemon)", async () => {
     writePluginRoute("demo", "status.ts");
     // A test file's top-level mock.module calls are process-global — importing
-    // one into the live daemon replaces production modules (the 2026-07-21 dev
-    // crash-loop). Discovery must skip them entirely, not just fail to list.
+    // one into the live daemon replaces production modules. Discovery must
+    // skip test paths entirely, not just fail to list them.
     writePluginRoute("demo", "status.test.ts");
     writePluginRoute("demo", "__tests__/helpers.ts");
     writePluginRoute("demo", "__tests__/status.test.ts");

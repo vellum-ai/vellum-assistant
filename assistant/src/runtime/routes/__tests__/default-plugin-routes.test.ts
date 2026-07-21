@@ -201,8 +201,8 @@ describe("default plugin route dispatch", () => {
 
   test("never dispatches test files or __tests__ paths (mock.module containment)", async () => {
     // Importing a test file into the live daemon executes its process-global
-    // mock.module calls, replacing production modules (the 2026-07-21 dev
-    // crash-loop). Dispatch must 404 without importing the file.
+    // mock.module calls, replacing production modules. Dispatch must 404
+    // without importing the file.
     writeWorkspacePluginHandler(
       DEFAULT_PLUGIN,
       "poison.test.ts",
@@ -233,7 +233,7 @@ describe("default plugin route dispatch", () => {
   test("tripwire: no default plugin ships test files under its routes/ dir", () => {
     // Everything under a default plugin's routes/ is served from the source
     // tree and dynamically imported by discovery — test files belong in src/
-    // or __tests__ outside routes/ (see #38609).
+    // or a __tests__ dir outside routes/.
     const offenders: string[] = [];
     const walk = (dir: string, routesDir: string): void => {
       for (const entry of readdirSync(dir, { withFileTypes: true })) {
