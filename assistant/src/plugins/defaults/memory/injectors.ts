@@ -59,11 +59,15 @@ const PKB_HINT_ARCHIVE_THRESHOLD = 0.7;
  * Read-side cutover guard. Under concept-page memory both `pkb-context` and
  * `pkb-reminder` silence themselves entirely — the `<knowledge_base>` content
  * and the generic recall/remember nudge are both supplanted by the static
- * memory block. NOW.md is workspace state independent of PKB and fires
- * unchanged.
+ * memory block. They are also silenced when memory is disabled outright:
+ * these injectors have no other `memory.enabled` gate, and a workspace with
+ * leftover `pkb/*` files must not keep surfacing long-term memory after the
+ * user turns memory off. NOW.md is workspace state independent of PKB and
+ * fires unchanged.
  */
 function isPkbInjectionSilenced(): boolean {
-  return usesConceptPageMemory(getMemoryConfig());
+  const memory = getMemoryConfig();
+  return memory.enabled === false || usesConceptPageMemory(memory);
 }
 
 /**

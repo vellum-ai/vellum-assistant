@@ -35,8 +35,18 @@ const MAX_PENDING_NODES = 200;
 
 const PENDING_LABEL_MAX_CHARS = 60;
 
-/** Matches a buffer bullet: `- [Mon D, h:mm AM/PM] fact`, timestamp optional. */
-const BUFFER_ENTRY_REGEX = /^-\s+(?:\[[^\]]*\]\s*)?(.+)$/;
+/**
+ * Matches a real entry start: `- [Mon D, h:mm AM/PM] fact`, the exact shape
+ * `formatRememberEntry` writes. The timestamp must be present and
+ * timestamp-shaped — a bullet with other bracketed text (e.g. a `- [ ]`
+ * checklist item inside a multiline fact) is a continuation, not an entry.
+ */
+const BUFFER_ENTRY_REGEX =
+  /^-\s+\[[A-Z][a-z]{2}\s+\d{1,2},\s+\d{1,2}:\d{2}\s+[AP]M\]\s*(.*)$/;
+
+/** Lenient fallback for hand-written buffers: a plain bullet with no
+ * timestamped entry seen yet still counts as an entry of its own. */
+const PLAIN_BULLET_REGEX = /^-\s+(.+)$/;
 
 /** Matches `[[slug]]` / `[[slug|label]]` wikilinks inside an entry. */
 const WIKILINK_REGEX = /\[\[([^[\]|]+)(?:\|[^\]]*)?\]\]/g;
@@ -61,23 +71,54 @@ function hashText(text: string): string {
 }
 
 /**
- * Parse buffer markdown into pending entries. Non-bullet lines (headers,
- * blanks) are skipped. Duplicate fact texts get a `-2`, `-3`, … id suffix so
- * node ids stay unique within one graph payload.
+ * Parse buffer markdown into pending entries.
+ *
+ * A timestamped bullet starts an entry; every following line up to the next
+ * timestamped bullet — including embedded bullets, checklists, and interior
+ * blank lines — is a continuation of that entry, because `remember` writes a
+ * multiline fact as one timestamped first line plus raw continuation lines.
+ * Before the first timestamped entry, plain bullets are accepted as entries
+ * of their own (hand-written buffers) and other lines are skipped. Duplicate
+ * fact texts get a `-2`, `-3`, … id suffix so node ids stay unique within
+ * one graph payload.
  */
 export function parseBufferEntries(content: string): PendingBufferEntry[] {
   const seen = new Map<string, number>();
   const entries: PendingBufferEntry[] = [];
-  for (const line of content.split("\n")) {
-    const match = BUFFER_ENTRY_REGEX.exec(line.trim());
-    if (!match) {
-      continue;
-    }
-    const text = match[1]!.trim();
-    if (!text) {
-      continue;
-    }
+  const texts: string[] = [];
+  let current: string[] | null = null;
 
+  const flush = (): void => {
+    if (current === null) {
+      return;
+    }
+    const text = current.join("\n").trim();
+    current = null;
+    if (text) {
+      texts.push(text);
+    }
+  };
+
+  for (const rawLine of content.split("\n")) {
+    const line = rawLine.trimEnd();
+    const entryStart = BUFFER_ENTRY_REGEX.exec(line.trim());
+    if (entryStart) {
+      flush();
+      current = [entryStart[1]!.trim()];
+      continue;
+    }
+    if (current !== null) {
+      current.push(line.trim());
+      continue;
+    }
+    const plainBullet = PLAIN_BULLET_REGEX.exec(line.trim());
+    if (plainBullet) {
+      texts.push(plainBullet[1]!.trim());
+    }
+  }
+  flush();
+
+  for (const text of texts) {
     const slugs: string[] = [];
     for (const link of text.matchAll(WIKILINK_REGEX)) {
       const slug = link[1]!.trim();
@@ -99,10 +140,13 @@ export function parseBufferEntries(content: string): PendingBufferEntry[] {
   return entries;
 }
 
-/** Display label: wikilink markup collapsed to its last path segment, then
- * truncated. `Prefers [[tools/vs-code]]` → `Prefers vs-code`. */
+/** Display label: the fact's first line, wikilink markup collapsed to its
+ * last path segment, then truncated. `Prefers [[tools/vs-code]]` →
+ * `Prefers vs-code`. Multiline facts label by their opening line; the full
+ * text stays available as the node summary and detail content. */
 function pendingLabel(text: string): string {
-  const plain = text
+  const firstLine = text.split("\n", 1)[0] ?? text;
+  const plain = firstLine
     .replace(WIKILINK_REGEX, (_match, slug: string) => {
       return slug.trim().split("/").pop() ?? slug;
     })

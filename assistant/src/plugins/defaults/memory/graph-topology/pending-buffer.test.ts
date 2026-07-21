@@ -26,6 +26,36 @@ describe("parseBufferEntries", () => {
     expect(entries.map((e) => e.text)).toEqual(["plain fact", "stamped"]);
   });
 
+  test("folds a multiline fact — including embedded bullets — into one entry", () => {
+    const entries = parseBufferEntries(
+      "- [Jul 20, 3:15 PM] Migration plan for Alice:\n" +
+        "step one is the export\n" +
+        "- [ ] follow up on the import\n" +
+        "- final touches\n" +
+        "- [Jul 20, 3:16 PM] separate fact\n",
+    );
+    expect(entries).toHaveLength(2);
+    expect(entries[0]!.text).toBe(
+      "Migration plan for Alice:\nstep one is the export\n- [ ] follow up on the import\n- final touches",
+    );
+    expect(entries[1]!.text).toBe("separate fact");
+  });
+
+  test("keeps interior blank lines inside a multiline fact", () => {
+    const entries = parseBufferEntries(
+      "- [Jul 20, 3:15 PM] first paragraph\n\nsecond paragraph\n- [Jul 20, 3:16 PM] next\n",
+    );
+    expect(entries).toHaveLength(2);
+    expect(entries[0]!.text).toBe("first paragraph\n\nsecond paragraph");
+  });
+
+  test("collects [[slug]] hints from continuation lines too", () => {
+    const [entry] = parseBufferEntries(
+      "- [Jul 20, 3:15 PM] Update the plan\nsee [[people/alice]]\n",
+    );
+    expect(entry!.slugs).toEqual(["people/alice"]);
+  });
+
   test("extracts [[slug]] hints, deduped, tolerating |label form", () => {
     const [entry] = parseBufferEntries(
       "- [Jul 20, 3:15 PM] Correction on [[people/alice]] and [[tools/vs-code|VS Code]], see [[people/alice]]\n",
@@ -79,6 +109,15 @@ describe("buildPendingGraph", () => {
       },
     ]);
     expect(nodes[0]!.weight).toBe(1);
+  });
+
+  test("labels a multiline fact by its first line, with the full text as summary", () => {
+    const { nodes } = buildPendingGraph(
+      parseBufferEntries("- [Jul 20, 3:15 PM] Headline fact\nwith detail\n"),
+      new Set(),
+    );
+    expect(nodes[0]!.label).toBe("Headline fact");
+    expect(nodes[0]!.summary).toBe("Headline fact\nwith detail");
   });
 
   test("labels collapse wikilink markup and truncate long facts", () => {
