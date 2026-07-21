@@ -67,6 +67,35 @@ async function main(): Promise<void> {
 
   let stopped = false;
   let tickRunning = false;
+  let timer: ReturnType<typeof setInterval> | null = null;
+  let disposePidGuard: (() => void) | null = null;
+  const shutdown = (signal: string) => {
+    log.info({ signal }, "Schedule worker process shutting down");
+    stopped = true;
+    if (timer != null) {
+      clearInterval(timer);
+    }
+    disposePidGuard?.();
+    cleanupWorkerPidFile(pidPath);
+    process.exit(0);
+  };
+
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT", () => shutdown("SIGINT"));
+
+  // Arm the identity guard before the first tick. Its on-arm check runs
+  // synchronously, so a worker superseded during startup runs shutdown() —
+  // which calls process.exit — here, before it can execute any schedule work.
+  disposePidGuard = startWorkerPidFileGuard(pidPath, {
+    onEvicted: (reason) => {
+      log.warn(
+        { reason },
+        "Evicted — the PID file no longer names this worker",
+      );
+      shutdown("pid-file-eviction");
+    },
+  });
+
   const tick = async () => {
     if (stopped || tickRunning) {
       return;
@@ -87,33 +116,10 @@ async function main(): Promise<void> {
 
   // Deliberately ref'd (unlike the daemon scheduler's timer): this interval
   // is what keeps the standalone process alive between ticks.
-  const timer = setInterval(() => {
+  timer = setInterval(() => {
     void tick();
   }, TICK_INTERVAL_MS);
   void tick();
-
-  let disposePidGuard: (() => void) | null = null;
-  const shutdown = (signal: string) => {
-    log.info({ signal }, "Schedule worker process shutting down");
-    stopped = true;
-    clearInterval(timer);
-    disposePidGuard?.();
-    cleanupWorkerPidFile(pidPath);
-    process.exit(0);
-  };
-
-  process.on("SIGTERM", () => shutdown("SIGTERM"));
-  process.on("SIGINT", () => shutdown("SIGINT"));
-
-  disposePidGuard = startWorkerPidFileGuard(pidPath, {
-    onEvicted: (reason) => {
-      log.warn(
-        { reason },
-        "Evicted — the PID file no longer names this worker",
-      );
-      shutdown("pid-file-eviction");
-    },
-  });
 
   process.on("SIGUSR1", () => {
     log.info("Received SIGUSR1 — refreshing database connections");
@@ -140,7 +146,9 @@ async function main(): Promise<void> {
   // Clean up if the process exits unexpectedly through any other path.
   process.on("exit", () => {
     stopped = true;
-    clearInterval(timer);
+    if (timer != null) {
+      clearInterval(timer);
+    }
     cleanupWorkerPidFile(getScheduleWorkerPidPath());
   });
 }
