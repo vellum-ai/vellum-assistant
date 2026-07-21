@@ -15,6 +15,7 @@ import {
 } from "@/domains/chat/utils/stream-handlers/message-handlers";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useConversationStore } from "@/stores/conversation-store";
+import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { conversationsQueryKey } from "@/utils/conversation-list-fetchers";
 import { findConversation } from "@/utils/conversation-cache";
 import type { Conversation } from "@/types/conversation-types";
@@ -262,6 +263,69 @@ describe("handleAssistantActivityState", () => {
     ).toBe(1);
     expect(ctx.turnActions.onActivityThinking).not.toHaveBeenCalled();
     expect(ctx.endTurn).not.toHaveBeenCalled();
+  });
+});
+
+describe("handleAssistantActivityState — stranded-phase recovery (LUM-2786)", () => {
+  beforeEach(() => {
+    useConversationStore.getState().setActiveConversationId("conv-1");
+    useInteractionStore.getState().resetAll();
+    useChatSessionStore.setState({ snapshot: null, optimisticSends: [] });
+  });
+
+  afterEach(() => {
+    useConversationStore.getState().setActiveConversationId(null);
+    useInteractionStore.getState().resetAll();
+    useChatSessionStore.setState({ snapshot: null, optimisticSends: [] });
+  });
+
+  it("recovers on a thinking event for the active conversation with no pending interaction", () => {
+    const ctx = makeCtx();
+    handleAssistantActivityState(
+      {
+        type: "assistant_activity_state",
+        activityVersion: 1,
+        phase: "thinking",
+        anchor: "assistant_turn",
+        reason: "tool_result_received",
+        conversationId: "conv-1",
+      },
+      ctx,
+    );
+    expect(ctx.turnActions.recoverFromAwaitingUserInput).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not recover on a thinking event while a question prompt is pending", () => {
+    useInteractionStore.getState().showQuestion({ requestId: "q1", entries: [] });
+    const ctx = makeCtx();
+    handleAssistantActivityState(
+      {
+        type: "assistant_activity_state",
+        activityVersion: 1,
+        phase: "thinking",
+        anchor: "assistant_turn",
+        reason: "tool_result_received",
+        conversationId: "conv-1",
+      },
+      ctx,
+    );
+    expect(ctx.turnActions.recoverFromAwaitingUserInput).not.toHaveBeenCalled();
+  });
+
+  it("recovers on a tool_running event with no pending interaction", () => {
+    const ctx = makeCtx();
+    handleAssistantActivityState(
+      {
+        type: "assistant_activity_state",
+        activityVersion: 1,
+        phase: "tool_running",
+        anchor: "assistant_turn",
+        reason: "tool_use_start",
+        conversationId: "conv-1",
+      },
+      ctx,
+    );
+    expect(ctx.turnActions.recoverFromAwaitingUserInput).toHaveBeenCalledTimes(1);
   });
 });
 
