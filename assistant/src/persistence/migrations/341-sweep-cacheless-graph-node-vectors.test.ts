@@ -9,7 +9,7 @@
  * DB. The sweep function is exercised directly with a fake Qdrant client so its
  * scroll → diff → delete logic is covered without a live Qdrant.
  */
-import { beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 const { getDb, getMemorySqlite, getSqliteFrom } =
   await import("../db-connection.js");
@@ -85,6 +85,12 @@ function fakeQdrant(indexedTargetIds: string[]) {
 beforeEach(() => {
   mainRaw().run("DELETE FROM memory_graph_nodes");
   getMemorySqlite()!.run("DELETE FROM memory_jobs");
+  _resetQdrantBreaker();
+});
+
+// bun shares module state across a run, so a breaker left open by the
+// QdrantCircuitOpenError case would leak into later test files — reset it here.
+afterEach(() => {
   _resetQdrantBreaker();
 });
 
