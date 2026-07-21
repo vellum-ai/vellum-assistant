@@ -6,22 +6,26 @@
  * the leading icon slot, centered on the same axis as the New Chat chip
  * so the two rows' labels align.
  *
- * The eyes stay at their perch — they idle-blink in place (and pulse a
- * touch on the collapsed rail) but never leave the assistant row.
+ * Periodically the eyes go on patrol: they sink out through the row's
+ * bottom fold, resurface grown on the right side (cut off by the edge),
+ * blink, and dive back under to reappear in the icon slot. Between
+ * patrols they idle-blink in place (and pulse a touch on the collapsed
+ * rail). They never leave the assistant row.
  *
  * The assistant name is never bolded and always renders white on the
  * avatar-colored row — except on light avatar colors (yellow), where it
  * flips dark for contrast.
  *
- * Falls back to a plain `SideMenu.Item` for the assistant row when
- * there's no character avatar to dress as (custom image / not loaded).
+ * Falls back to a plain-toned row (a Brain icon in the same leading slot,
+ * so both labels stay aligned) when there's no character avatar to dress
+ * as (custom image / not loaded).
  */
 
 import { Brain, Plus } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, useAnimationControls, useReducedMotion } from "motion/react";
 
-import { cn, SideMenu } from "@vellumai/design-library";
+import { cn } from "@vellumai/design-library";
 
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useIsMobile } from "@/hooks/use-is-mobile";
@@ -59,6 +63,9 @@ const ROW_PADDING_X = 6;
  * and both labels start at the same x.
  */
 const CHIP_SIZE = 20;
+/** Patrol stop on the right side: grown, cut off by the bottom edge. */
+const SIDE_SCALE = 2.1;
+const SIDE_RIGHT_MARGIN = 14;
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
@@ -94,6 +101,7 @@ export function AssistantNavItem({
   const reduce = useReducedMotion();
   const isMobile = useIsMobile();
   const eyesControls = useAnimationControls();
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
   const [blinking, setBlinking] = useState(false);
 
   const rowHeight = isMobile ? MOBILE_ROW_HEIGHT : ROW_HEIGHT;
@@ -141,12 +149,42 @@ export function AssistantNavItem({
       damping,
     });
     const move = (
-      to: { scale?: number },
+      to: { x?: number; y?: number; scale?: number },
       transition: Record<string, unknown>,
     ) =>
       cancelled
         ? Promise.resolve()
         : eyesControls.start({ ...to, transition }).catch(() => {});
+
+    /** How far down the eyes dive to fully exit the row's bottom edge. */
+    const diveY = rowHeight - 4;
+    /** Side-patrol stop: the grown eyes flush with the bottom edge. */
+    const sidePeekY = rowHeight - 20;
+
+    // The one expanded-rail act: dive out through the bottom fold, pop up
+    // grown on the right side, blink, dive again, and slip back into the
+    // icon slot.
+    const patrol = async () => {
+      await move({ y: diveY }, { duration: 0.3, ease: "easeIn" });
+      if (cancelled) {
+        return;
+      }
+      const width = buttonRef.current?.offsetWidth ?? 200;
+      // x is relative to the sprite's home in the icon slot (row padding
+      // plus its centering offset inside the chip-width slot).
+      const homeLeft = ROW_PADDING_X + (CHIP_SIZE - eyesWidth) / 2;
+      const sideX = Math.max(
+        0,
+        width - SIDE_RIGHT_MARGIN - eyesWidth * SIDE_SCALE - homeLeft,
+      );
+      eyesControls.set({ x: sideX, y: diveY, scale: SIDE_SCALE });
+      await move({ y: sidePeekY }, spring(360, 16));
+      await blink();
+      await sleep(jitter(700, 900));
+      await move({ y: diveY }, { duration: 0.3, ease: "easeIn" });
+      eyesControls.set({ x: 0, y: diveY, scale: 1 });
+      await move({ y: 0 }, spring(320, 18));
+    };
 
     // Collapsed rail: grow a touch, blink, settle back.
     const collapsedPulse = async () => {
@@ -157,15 +195,21 @@ export function AssistantNavItem({
     };
 
     const run = async () => {
-      // A rail toggle can restart the loop mid-pulse — snap the eyes back
-      // to rest before starting over.
-      eyesControls.set({ scale: 1 });
+      // A rail toggle can restart the loop mid-patrol — snap the eyes back
+      // to the icon slot before starting over.
+      eyesControls.set({ x: 0, y: 0, scale: 1 });
       while (!cancelled) {
         await sleep(jitter(2800, 3200));
         if (cancelled) {
           break;
         }
-        await (collapsed ? collapsedPulse() : blink());
+        if (collapsed) {
+          await collapsedPulse();
+        } else if (Math.random() < 0.55) {
+          await blink(); // resting blink between patrols
+        } else {
+          await patrol();
+        }
       }
     };
     void run();
@@ -173,7 +217,7 @@ export function AssistantNavItem({
       cancelled = true;
       eyesControls.stop();
     };
-  }, [reduce, collapsed, eyesControls]);
+  }, [reduce, collapsed, eyesControls, rowHeight, eyesWidth]);
 
   const hex =
     (components &&
@@ -218,16 +262,61 @@ export function AssistantNavItem({
   ) : null;
 
   if (!hex) {
+    // No character avatar (custom image / not loaded): a plain-toned row
+    // that keeps the New Chat row's geometry — the Brain icon centers in
+    // the same CHIP_SIZE slot the plus chip and the eyes use, so both
+    // rows' labels stay on one axis.
     return (
       <div className="flex flex-col gap-[4px]">
         {newConversationRow}
-        <SideMenu.Item
-          icon={Brain}
-          label={label}
-          showCollapsedTooltip
-          active={active}
-          onSelect={onSelect}
-        />
+        <button
+          type="button"
+          onClick={onSelect}
+          title={label}
+          aria-current={active ? "page" : undefined}
+          className={cn(
+            "group relative flex w-full cursor-pointer items-center gap-[6px] overflow-hidden rounded-[8px] select-none",
+            "outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]",
+            "transition-colors duration-150 active:scale-[0.98]",
+            active
+              ? "bg-[var(--surface-active)]"
+              : "hover:bg-[var(--surface-hover)]",
+            collapsed && "justify-center",
+          )}
+          style={{
+            height: rowHeight,
+            paddingLeft: collapsed ? 0 : ROW_PADDING_X,
+            paddingRight: collapsed ? 0 : ROW_PADDING_X,
+          }}
+        >
+          <span
+            aria-hidden="true"
+            className="flex shrink-0 items-center justify-center"
+            style={{ width: CHIP_SIZE, height: CHIP_SIZE }}
+          >
+            <Brain
+              className="h-3.5 w-3.5"
+              style={{
+                color: active
+                  ? "var(--content-default)"
+                  : "var(--content-tertiary)",
+              }}
+            />
+          </span>
+          {!collapsed && (
+            <span
+              className={cn(
+                "min-w-0 flex-1 truncate text-left",
+                active
+                  ? "text-[color:var(--content-emphasised)]"
+                  : "text-[color:var(--content-secondary)]",
+                isMobile ? "text-body-large-default" : "text-body-medium-lighter",
+              )}
+            >
+              {label}
+            </span>
+          )}
+        </button>
       </div>
     );
   }
@@ -236,37 +325,31 @@ export function AssistantNavItem({
   // except the light ones (yellow), where white would wash out.
   const fg = contrastForeground(hex);
 
-  const eyesSprite = eye && (
-    <motion.span
-      className="pointer-events-none relative block"
-      style={{ width: eyesWidth, height: eyesHeight }}
-      initial={false}
-      animate={eyesControls}
+  const eyesSvg = eye && (
+    <svg
+      viewBox={`${eye.bbox.x} ${eye.bbox.y} ${eye.bbox.w} ${eye.bbox.h}`}
+      width="100%"
+      height="100%"
+      preserveAspectRatio="xMidYMid meet"
+      style={{ overflow: "visible", display: "block" }}
     >
-      <svg
-        viewBox={`${eye.bbox.x} ${eye.bbox.y} ${eye.bbox.w} ${eye.bbox.h}`}
-        width="100%"
-        height="100%"
-        preserveAspectRatio="xMidYMid meet"
-        style={{ overflow: "visible", display: "block" }}
+      <g
+        style={{
+          transform: blinking ? "scaleY(0.1)" : "scaleY(1)",
+          transformOrigin: `${eye.bbox.x + eye.bbox.w / 2}px ${eye.bbox.y + eye.bbox.h / 2}px`,
+          transition: "transform 0.14s ease-in-out",
+        }}
       >
-        <g
-          style={{
-            transform: blinking ? "scaleY(0.1)" : "scaleY(1)",
-            transformOrigin: `${eye.bbox.x + eye.bbox.w / 2}px ${eye.bbox.y + eye.bbox.h / 2}px`,
-            transition: "transform 0.14s ease-in-out",
-          }}
-        >
-          {eye.paths.map((p, i) => (
-            <path key={i} d={p.svgPath} fill={p.color} />
-          ))}
-        </g>
-      </svg>
-    </motion.span>
+        {eye.paths.map((p, i) => (
+          <path key={i} d={p.svgPath} fill={p.color} />
+        ))}
+      </g>
+    </svg>
   );
 
   const assistantRow = (
     <button
+      ref={buttonRef}
       type="button"
       onClick={onSelect}
       title={label}
@@ -287,17 +370,46 @@ export function AssistantNavItem({
     >
       {collapsed ? (
         /* Collapsed rail: the eyes alone, centered, idling in place. */
-        eyesSprite
+        eye && (
+          <motion.span
+            className="pointer-events-none relative block"
+            style={{
+              width: eyesWidth,
+              height: eyesHeight,
+              transformOrigin: "50% 100%",
+            }}
+            initial={false}
+            animate={eyesControls}
+          >
+            {eyesSvg}
+          </motion.span>
+        )
       ) : (
         <>
           {/* Leading eye slot, chip-width so the eyes center on the New
-              Chat row's plus chip above. */}
+              Chat row's plus chip above; the sprite is absolutely placed
+              so patrols can carry it across (and under) the whole row. */}
           <span
             aria-hidden="true"
-            className="flex shrink-0 items-center justify-center"
-            style={{ width: CHIP_SIZE }}
+            className="pointer-events-none relative shrink-0"
+            style={{ width: CHIP_SIZE, height: rowHeight }}
           >
-            {eyesSprite}
+            {eye && (
+              <motion.span
+                className="absolute"
+                style={{
+                  width: eyesWidth,
+                  height: eyesHeight,
+                  left: (CHIP_SIZE - eyesWidth) / 2,
+                  top: (rowHeight - eyesHeight) / 2,
+                  transformOrigin: "50% 100%",
+                }}
+                initial={false}
+                animate={eyesControls}
+              >
+                {eyesSvg}
+              </motion.span>
+            )}
           </span>
           <span
             className={`min-w-0 flex-1 truncate text-left ${
