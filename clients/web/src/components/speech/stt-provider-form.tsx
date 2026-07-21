@@ -10,7 +10,7 @@ import {
   configGetQueryKey,
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import { configPatch, credentialsSetPost } from "@/generated/daemon/sdk.gen";
-import { useDraftOverride } from "@/domains/settings/ai/use-draft-override";
+import { useDraftOverride } from "@/hooks/use-draft-override";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { isNativeDictationSupported } from "@/runtime/native-dictation-partials";
 import { getLocalSetting, setLocalSetting } from "@/utils/local-settings";
@@ -22,34 +22,24 @@ import {
   CredentialsGuide,
   ResetButton,
   SaveButton,
-} from "@/domains/settings/ai/shared-ui";
+} from "@/components/service-form-controls";
 import {
   LS_STT_API_KEY_PREFIX,
   LS_STT_PROVIDER,
-} from "@/domains/settings/ai/local-storage-keys";
+} from "@/utils/local-settings-keys";
 import {
   MACOS_NATIVE_STT_PROVIDER_ID,
   STT_PROVIDERS,
-} from "@/domains/settings/ai/provider-catalogs";
+} from "@/lib/provider-catalogs";
 
 /**
- * The speech-to-text provider + API key form: the whole of the settings card's
- * behavior, minus the card chrome.
+ * The speech-to-text provider + API key form: provider choice, key entry, and
+ * the writes that activate them — the CES credential write and the
+ * `services.stt` config PATCH, with the provider-mapping rules those depend on.
  *
- * Split out from `SpeechToTextCard` so the same form can render inside the
- * live-voice first-run card's "bring your own key" view, where the settings
- * page's `ByoServiceCard` title/subtitle would collide with the modal's own
- * header. The settings page keeps that wrapper; the modal renders the bare
- * form. One implementation either way — provider mapping, the CES credential
- * write, and the config PATCH rules are subtle enough that a second copy would
- * drift.
- *
- * Top-level rather than inside `domains/settings/` because two domains render
- * it now (settings and chat's voice room), and domain peers must not import
- * each other — see CONVENTIONS.md § Top-level shared directories. The
- * `domains/settings/ai/` helpers it still pulls in (`shared-ui`,
- * `provider-catalogs`, and friends) are shared by the whole settings AI page
- * and are left in place; lifting those is its own change.
+ * Renders bare, with no card or section chrome, so each caller supplies its
+ * own: Settings → AI wraps it in a `ByoServiceCard`, the live-voice first-run
+ * card renders it as a section of its modal.
  */
 
 /**

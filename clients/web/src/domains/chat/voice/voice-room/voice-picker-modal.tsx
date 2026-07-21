@@ -5,9 +5,9 @@
  * per-voice preview.
  *
  * Selecting a voice persists it (hot-applies on the next reply) and closes the
- * modal. The list itself lives in {@link VoiceList}, shared with the first-run
- * card — which renders it as one of its own views rather than through this
- * modal, since stacking a modal on a modal is the thing this avoids.
+ * modal. The list itself lives in {@link VoiceList}; the first-run card renders
+ * that list as one of its own views, so this modal serves only popover callers,
+ * which have no dialog of their own to stack on.
  */
 
 import { Modal } from "@vellumai/design-library/components/modal";

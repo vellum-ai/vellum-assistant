@@ -9,7 +9,7 @@ import {
   ttsProvidersGetOptions,
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import { configPatch, credentialsSetPost } from "@/generated/daemon/sdk.gen";
-import { useDraftOverride } from "@/domains/settings/ai/use-draft-override";
+import { useDraftOverride } from "@/hooks/use-draft-override";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { synthesizeTTS } from "@/lib/tts-synthesize";
@@ -23,34 +23,25 @@ import {
   CredentialsGuide,
   ResetButton,
   SaveButton,
-} from "@/domains/settings/ai/shared-ui";
+} from "@/components/service-form-controls";
 import {
   LS_TTS_API_KEY_PREFIX,
   LS_TTS_PROVIDER,
   LS_TTS_VOICE_ID_PREFIX,
-} from "@/domains/settings/ai/local-storage-keys";
+} from "@/utils/local-settings-keys";
 import { MANAGED_VOICE_SOURCE_LABELS } from "@/lib/tts/managed-voice-catalog";
 import { useManagedVoices } from "@/lib/tts/use-managed-voices";
-import { TTS_PROVIDERS } from "@/domains/settings/ai/provider-catalogs";
+import { TTS_PROVIDERS } from "@/lib/provider-catalogs";
 
 /**
- * The text-to-speech provider + API key + voice form: the whole of the settings
- * card's behavior, minus the card chrome.
+ * The text-to-speech provider + API key + voice form: provider choice, key
+ * entry, managed-voice or BYOK voice-id selection, sample playback, and the
+ * writes that activate them — the CES credential write and the `services.tts`
+ * config PATCH.
  *
- * Split out from `TextToSpeechCard` so the same form can render inside the
- * live-voice first-run card's "bring your own key" view, where the settings
- * page's `ByoServiceCard` title/subtitle would collide with the modal's own
- * header. The settings page keeps that wrapper; the modal renders the bare
- * form. One implementation either way — the managed/BYOK split, the CES
- * credential write, and the config PATCH rules are subtle enough that a second
- * copy would drift.
- *
- * Top-level rather than inside `domains/settings/` because two domains render
- * it now (settings and chat's voice room), and domain peers must not import
- * each other — see CONVENTIONS.md § Top-level shared directories. The
- * `domains/settings/ai/` helpers it still pulls in (`shared-ui`,
- * `provider-catalogs`, and friends) are shared by the whole settings AI page
- * and are left in place; lifting those is its own change.
+ * Renders bare, with no card or section chrome, so each caller supplies its
+ * own: Settings → AI wraps it in a `ByoServiceCard`, the live-voice first-run
+ * card renders it as a section of its modal.
  */
 
 /**

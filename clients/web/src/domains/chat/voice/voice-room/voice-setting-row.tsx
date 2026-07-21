@@ -4,9 +4,9 @@
  * catalog with previews (which doesn't fit inline).
  *
  * The parent owns where that leads — this row only reports the click via
- * `onOpen`. The settings popover opens {@link VoicePickerModal} (so closing the
- * popover, which unmounts this row, can't unmount the picker with it); the
- * first-run card swaps to its own voice view instead.
+ * `onOpen`. The settings popover opens {@link VoicePickerModal}, so closing the
+ * popover (which unmounts this row) can't unmount the picker with it; the
+ * first-run card swaps to its own voice view.
  *
  * Renders nothing unless managed voice selection is available (managed assistant
  * + a daemon that offers it); BYO providers choose their voice in Settings.

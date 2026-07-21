@@ -32,10 +32,10 @@ import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
  *     who would rather run voice on their own providers than the managed ones.
  *     Quiet by design — managed is the path nearly everyone should take.
  *
- * Both are **views within this one modal**, not modals stacked on top of it:
- * the card swaps its header, body, and footer for the sub-view and offers a
- * back arrow. Width is held constant across views so navigating doesn't resize
- * the dialog under the cursor.
+ * Both are **views within this one modal**: entering one swaps the card's
+ * header, body, and footer, and a back arrow returns to the intro. Width is
+ * held constant across views so navigating doesn't resize the dialog under the
+ * cursor.
  *
  * The card does NOT persist `firstRunSeen` itself: dismissing it (Escape /
  * backdrop / ✕) is a plain cancel and must leave the first run un-consumed so

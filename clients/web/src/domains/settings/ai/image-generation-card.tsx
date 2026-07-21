@@ -14,16 +14,22 @@ import { Dropdown } from "@vellumai/design-library/components/dropdown";
 import { Input } from "@vellumai/design-library/components/input";
 import { toast } from "@vellumai/design-library/components/toast";
 
-import { LS_IMAGE_GEN_MODE, LS_IMAGE_GEN_MODEL } from "@/domains/settings/ai/local-storage-keys";
-import { AVAILABLE_IMAGE_GEN_MODELS, IMAGE_GEN_MODEL_DISPLAY_NAMES, providerForImageGenModel } from "@/domains/settings/ai/provider-catalogs";
+import { LS_IMAGE_GEN_MODE, LS_IMAGE_GEN_MODEL } from "@/utils/local-settings-keys";
+import { AVAILABLE_IMAGE_GEN_MODELS, IMAGE_GEN_MODEL_DISPLAY_NAMES, providerForImageGenModel } from "@/lib/provider-catalogs";
 import { parseServiceMode } from "@/domains/settings/ai/utils";
 import type { ServiceMode } from "@/generated/daemon/types.gen";
 
-import { ResetButton, SaveButton, ServiceCard } from "@/domains/settings/ai/shared-ui";
+import {
+  ServiceCard,
+} from "@/domains/settings/ai/shared-ui";
+import {
+  ResetButton,
+  SaveButton,
+} from "@/components/service-form-controls";
 import { useProvisionProviderKey } from "@/domains/settings/ai/use-daemon-config";
 import { configGetOptions, configGetQueryKey, configGetSetQueryData, useConfigPatchMutation } from "@/generated/daemon/@tanstack/react-query.gen";
 import { useQuery } from "@tanstack/react-query";
-import { useDraftOverride } from "@/domains/settings/ai/use-draft-override";
+import { useDraftOverride } from "@/hooks/use-draft-override";
 import { modelImagegenPut } from "@/generated/daemon/sdk.gen";
 
 export function ImageGenerationCard() {
