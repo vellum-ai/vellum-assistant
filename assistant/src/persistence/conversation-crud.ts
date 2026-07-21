@@ -791,6 +791,12 @@ export function createConversation(
         scheduleJobId?: string;
         groupId?: string;
         forkParentConversationId?: string;
+        /**
+         * Id of the conversation that spawned this one (subagent spawns).
+         * Persisted for telemetry attribution; unlike
+         * `forkParentConversationId` it implies no history inheritance.
+         */
+        parentConversationId?: string;
       },
 ) {
   const db = getDb();
@@ -833,6 +839,7 @@ export function createConversation(
     source,
     scheduleJobId: opts.scheduleJobId ?? null,
     forkParentConversationId: opts.forkParentConversationId ?? null,
+    parentConversationId: opts.parentConversationId ?? null,
     // Snapshot↔stream alignment baseline, captured at the creation instant.
     // 0 (nothing stamped yet this process) is stored as NULL so `/messages`
     // reports null and the client cold-starts rather than aligning to seq 0.

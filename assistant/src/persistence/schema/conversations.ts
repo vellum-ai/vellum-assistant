@@ -36,6 +36,14 @@ export const conversations = sqliteTable(
     originInterface: text("origin_interface"),
     forkParentConversationId: text("fork_parent_conversation_id"),
     forkParentMessageId: text("fork_parent_message_id"),
+    /**
+     * Id of the conversation that spawned this one (subagent spawns stamp
+     * their parent's conversation id). Distinct from
+     * `forkParentConversationId`, which records message-history inheritance;
+     * this column records spawn attribution for telemetry. NULL for
+     * conversations not spawned by another conversation.
+     */
+    parentConversationId: text("parent_conversation_id"),
     isAutoTitle: integer("is_auto_title").notNull().default(1),
     scheduleJobId: text("schedule_job_id"),
     lastMessageAt: integer("last_message_at"),
@@ -92,6 +100,9 @@ export const conversations = sqliteTable(
     index("idx_conversations_surfaced_at").on(table.surfacedAt),
     index("idx_conversations_fork_parent_conversation_id").on(
       table.forkParentConversationId,
+    ),
+    index("idx_conversations_parent_conversation_id").on(
+      table.parentConversationId,
     ),
   ],
 );

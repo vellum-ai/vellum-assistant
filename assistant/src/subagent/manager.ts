@@ -377,6 +377,7 @@ export class SubagentManager {
       source: "subagent",
       origin: "subagent",
       systemHint: `Subagent: ${config.label}`,
+      parentConversationId: config.parentConversationId,
     });
 
     // ── Build conversation dependencies ─────────────────────────────
