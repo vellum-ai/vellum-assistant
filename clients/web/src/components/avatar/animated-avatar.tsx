@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useReducedMotion } from "motion/react";
 
 import { computeTransforms, resolveDefinitions } from "@/utils/avatar-svg-compositor";
@@ -15,22 +15,7 @@ interface AnimatedAvatarProps {
    * intact — e.g. the scattered onboarding edge characters.
    */
   breathe?: boolean;
-  /**
-   * While hovered, the pupils (not the whole eye) shift a small, fixed
-   * distance toward the cursor — a "look at cursor" effect. Off by default
-   * since it's opinionated and only makes sense on a large, single,
-   * hover-focused avatar (e.g. the About Assistant hero), not the many
-   * small/ambient avatars this component also renders.
-   */
-  trackCursor?: boolean;
 }
-
-/** Pupil fill color (see `PUPIL` in `assistant/src/avatar/character-components.ts`)
- *  — the one reliable way to pick pupil paths out of an eye style's path
- *  list from the client, since the API doesn't label path roles. */
-const PUPIL_HEX = "#1A1A1A";
-/** Max pupil shift toward the cursor, as a fraction of avatar size. */
-const PUPIL_TRACK_RATIO = 0.015;
 
 function randomBetween(min: number, max: number): number {
   return min + Math.random() * (max - min);
@@ -130,31 +115,8 @@ export function AnimatedAvatar({
   size,
   isAssistantBusy = false,
   breathe = true,
-  trackCursor = false,
 }: AnimatedAvatarProps) {
   const reduce = useReducedMotion();
-
-  // Pupil offset toward the cursor, in rendered (post-eyeTransform) pixels.
-  // Only tracked while the pointer is actually over the SVG — onMouseMove
-  // naturally stops firing once it leaves, and onMouseLeave recenters.
-  const [pupilOffset, setPupilOffset] = useState({ x: 0, y: 0 });
-  const handlePupilTrack = (event: ReactMouseEvent<SVGSVGElement>) => {
-    if (!trackCursor || reduce) return;
-    const rect = event.currentTarget.getBoundingClientRect();
-    const scaleX = size / rect.width;
-    const scaleY = size / rect.height;
-    const localX = (event.clientX - rect.left) * scaleX;
-    const localY = (event.clientY - rect.top) * scaleY;
-    const dx = localX - eyeCenterOutputX;
-    const dy = localY - eyeCenterOutputY;
-    const dist = Math.hypot(dx, dy) || 1;
-    const maxOffset = size * PUPIL_TRACK_RATIO;
-    setPupilOffset({ x: (dx / dist) * maxOffset, y: (dy / dist) * maxOffset });
-  };
-  const handlePupilLeave = () => {
-    if (!trackCursor) return;
-    setPupilOffset({ x: 0, y: 0 });
-  };
 
   const { bodyShape, eyeStyle, color } = resolveDefinitions(
     components,
@@ -334,8 +296,6 @@ export function AnimatedAvatar({
       width={size}
       height={size}
       viewBox={`0 0 ${size} ${size}`}
-      onMouseMove={trackCursor ? handlePupilTrack : undefined}
-      onMouseLeave={trackCursor ? handlePupilLeave : undefined}
       style={{
         animation: breatheAnimation,
         transformOrigin: "center",
@@ -368,27 +328,14 @@ export function AnimatedAvatar({
           transition: "transform 0.15s ease-in-out",
         }}
       >
-        {eyeStyle.paths.map((p: EyePathDefinition, i: number) => {
-          if (p.color !== PUPIL_HEX) {
-            return (
-              <path key={i} d={p.svgPath} fill={p.color} transform={eyeTransform} />
-            );
-          }
-          // Pupil-only: nudged toward the cursor in already-rendered pixel
-          // space, so the shift reads correctly regardless of the eye
-          // style's own internal transform.
-          return (
-            <g
-              key={i}
-              style={{
-                transform: `translate(${pupilOffset.x}px, ${pupilOffset.y}px)`,
-                transition: "transform 0.1s ease-out",
-              }}
-            >
-              <path d={p.svgPath} fill={p.color} transform={eyeTransform} />
-            </g>
-          );
-        })}
+        {eyeStyle.paths.map((p: EyePathDefinition, i: number) => (
+          <path
+            key={i}
+            d={p.svgPath}
+            fill={p.color}
+            transform={eyeTransform}
+          />
+        ))}
       </g>
     </svg>
   );
