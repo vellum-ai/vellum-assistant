@@ -562,6 +562,21 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     },
     models: [
       {
+        id: "gemini-3.6-flash",
+        displayName: "Gemini 3.6 Flash",
+        contextWindowTokens: 1048576,
+        maxOutputTokens: 65536,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 1.5,
+          outputPer1mTokens: 7.5,
+          cacheReadPer1mTokens: 0.15,
+        },
+      },
+      {
         id: "gemini-3.5-flash",
         displayName: "Gemini 3.5 Flash",
         contextWindowTokens: 1048576,
@@ -574,6 +589,21 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
           inputPer1mTokens: 1.5,
           outputPer1mTokens: 9.0,
           cacheReadPer1mTokens: 0.15,
+        },
+      },
+      {
+        id: "gemini-3.5-flash-lite",
+        displayName: "Gemini 3.5 Flash-Lite",
+        contextWindowTokens: 1048576,
+        maxOutputTokens: 65536,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 0.3,
+          outputPer1mTokens: 2.5,
+          cacheReadPer1mTokens: 0.03,
         },
       },
       {
