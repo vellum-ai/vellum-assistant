@@ -194,6 +194,10 @@ function computeSpotlightEntries(
   for (const candidate of result.lanes.finder) {
     if (entries.length >= n) break;
     if (!selected.has(candidate.slug)) continue;
+    // Capability slugs never spotlight: their card already carries the whole
+    // injection form, and their index "sections" are slices of the full-help
+    // body the injection layer deliberately keeps out of context.
+    if (isCapabilitySlug(candidate.slug)) continue;
     const section = result.matchedSections.get(candidate.slug);
     if (!section) continue;
     entries.push({

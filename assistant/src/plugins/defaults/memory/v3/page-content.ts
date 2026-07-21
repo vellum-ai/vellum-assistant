@@ -54,9 +54,9 @@ export async function renderV3PageContent(slug: Slug): Promise<string> {
  * unit — frozen into history once and deduped by the everInjected store.
  *
  * - Capability slugs (skills, `assistant` CLI commands) have no on-disk page
- *   and no meaningful head/TOC split, so they render their full capability
- *   content via {@link renderCapabilityContent} (its own `# Skill:` /
- *   `# CLI command:` header) instead of a card.
+ *   and no meaningful head/TOC split, so they render their injection-form
+ *   capability content via {@link renderCapabilityContent} (its own
+ *   `# Skill:` / `# CLI command:` header) instead of a card.
  * - A missing page or any read failure degrades to "" — the injector skips
  *   empty cards rather than throwing into the turn.
  */
