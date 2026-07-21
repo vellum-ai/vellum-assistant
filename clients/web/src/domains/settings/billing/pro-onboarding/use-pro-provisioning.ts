@@ -45,6 +45,7 @@ import {
   type ProvisioningDimensions,
   type ProvisioningServerVerdict,
   type ProvisioningStateKind,
+  targetsMet,
 } from "./provisioning-machine";
 import {
   ENSURE_PROVISIONED_RACE_RETRY_MS,
@@ -161,11 +162,14 @@ export function useProProvisioning({
   // case the machine falls back to pure client-side inference.
   const [serverVerdict, setServerVerdict] =
     useState<ProvisioningServerVerdict | null>(null);
-  // When the current verdict landed. A provisional verdict (`started` /
-  // `in_progress`) only clears the way to a terminal state once the
+  // When the actuals were first seen to meet the targets. Under a provisional
+  // verdict (`started` / `in_progress`) the flow may only go terminal once the
   // operational-status query has read the world at least once after this
-  // instant — see the completion rules in `deriveProvisioningState`.
-  const [verdictAt, setVerdictAt] = useState<number | null>(null);
+  // instant — see the completion rules in `deriveProvisioningState`. The
+  // verdict's own arrival is deliberately NOT the anchor: `started` merely
+  // queues the resize on a worker, so a status read right after it can precede
+  // the marker's creation entirely.
+  const [targetsMetAt, setTargetsMetAt] = useState<number | null>(null);
   // Only ever set by a user-initiated reconcile — see runEnsureProvisioned.
   const [ensureError, setEnsureError] = useState<unknown>(null);
   // Pending state for the *manual* reconcile only. The mutation's own
@@ -214,7 +218,7 @@ export function useProProvisioning({
     setSnapshotAssistantId(null);
     setTracking(true);
     setServerVerdict(null);
-    setVerdictAt(null);
+    setTargetsMetAt(null);
     setEnsureError(null);
     setManualPending(false);
     setRaceRetryScheduled(false);
@@ -327,7 +331,6 @@ export function useProProvisioning({
               }
             } else {
               setServerVerdict(data.state);
-              setVerdictAt(Date.now());
             }
             if (source === "manual") {
               resumeWatch();
@@ -493,6 +496,22 @@ export function useProProvisioning({
 
   const snapshotMatchesAssistant = snapshotAssistantId === assistantId;
 
+  // Latch the instant the actuals first read as meeting the targets. The
+  // platform creates the resize marker BEFORE it persists the effective sizes,
+  // so any operational-status reading taken after this instant is guaranteed to
+  // see that marker — or its retirement. Cleared if the actuals fall back below
+  // the targets (a re-keyed assistant), so the anchor always describes the
+  // observation the completion check is about to be made against.
+  const currentTargetsMet = targetsMet(targets, actuals);
+  useEffect(() => {
+    if (!open) return;
+    if (currentTargetsMet) {
+      setTargetsMetAt((prev) => prev ?? Date.now());
+    } else {
+      setTargetsMetAt(null);
+    }
+  }, [open, currentTargetsMet]);
+
   // Freeze the first non-null actuals as the before/after "from" side, keyed to
   // the assistant it describes. When assistantId changes (e.g. a stale primary
   // corrected to the fresh one) the by-id assistant query re-keys, so re-capture
@@ -525,11 +544,12 @@ export function useProProvisioning({
     confirmExpired,
     serverVerdict,
     // A successful status fetch always advances `dataUpdatedAt`, so this is
-    // "we have read the operational status since the verdict arrived". A
-    // status query stuck erroring never advances it, which correctly withholds
-    // completion rather than guessing.
-    statusObservedSinceVerdict:
-      verdictAt == null || operationalStatusQuery.dataUpdatedAt > verdictAt,
+    // "we have read the operational status since the actuals reached the
+    // targets". A status query stuck erroring never advances it, which
+    // correctly withholds completion rather than guessing.
+    statusObservedSinceTargetsMet:
+      targetsMetAt != null &&
+      operationalStatusQuery.dataUpdatedAt > targetsMetAt,
   });
 
   const isTerminal = TERMINAL_STATES.includes(state);

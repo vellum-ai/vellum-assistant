@@ -62,12 +62,13 @@ export interface DeriveProvisioningInput {
   confirmExpired: boolean;
   serverVerdict?: ProvisioningServerVerdict | null;
   /**
-   * The operational-status query has produced a reading *after* the current
-   * verdict arrived. Only consulted under a provisional verdict — see the
-   * completion rules in `deriveProvisioningState`. Defaults to true so callers
-   * without a verdict (and every pure-inference test) are unaffected.
+   * The operational-status query has produced a reading *after* the actuals
+   * were first seen to meet the targets. Only consulted under a provisional
+   * verdict — see the completion rules in `deriveProvisioningState`. Defaults
+   * to true so callers without a verdict (and every pure-inference test) are
+   * unaffected.
    */
-  statusObservedSinceVerdict?: boolean;
+  statusObservedSinceTargetsMet?: boolean;
 }
 
 export interface ProvisioningSnapshot {
@@ -81,7 +82,7 @@ export interface ProvisioningSnapshot {
  * machine tier); a non-null target needs a known actual at or above it.
  * Machine sizes compare by rank, storage by GiB.
  */
-function targetsMet(
+export function targetsMet(
   targets: ProvisioningDimensions | null,
   actuals: ProvisioningDimensions | null,
 ): boolean {
@@ -110,7 +111,7 @@ export function deriveProvisioningState(
     msSinceWatchStart,
     confirmExpired,
     serverVerdict = null,
-    statusObservedSinceVerdict = true,
+    statusObservedSinceTargetsMet = true,
   } = input;
 
   if (planId !== "pro") {
@@ -141,19 +142,25 @@ export function deriveProvisioningState(
   // nothing has reported the marker even though the platform created it (it
   // creates the marker *before* it writes the effective sizes).
   //
-  // A marker demonstrably exists at the instant such a verdict is issued, so
-  // one status reading taken *after* the verdict settles it: that reading
-  // either finds the marker (still rolling out — the guard above holds) or
-  // finds it retired (genuinely converged). Anchoring on the verdict rather
-  // than on catching the marker mid-flight keeps this robust to poll timing,
-  // and a resize we did watch appear and clear is equally good evidence.
+  // The verdict itself cannot be the anchor: `started` only means the resize
+  // was queued on a worker (the response never waits on it) and `in_progress`
+  // may be a submission racing ahead of the worker's first marker, so a status
+  // read taken right after either verdict can still be the pre-marker
+  // snapshot.
+  //
+  // What does hold is the platform's write order — `resize_assistant` creates
+  // the marker BEFORE it persists the effective sizes. So an actuals read that
+  // shows the targets met necessarily happened after the marker existed, and
+  // any status reading taken after *that* either finds the marker (still
+  // rolling out — the guard above holds) or finds it retired (genuinely
+  // converged). A resize we watched appear and clear is equally good evidence.
   //
   // `already_done` stays terminal on its own because the server checked the
   // marker itself — `collect_pro_provisioning_state` combines targets-met AND
   // no-active-operation before it answers that.
   const provisionalVerdict =
     serverVerdict === "started" || serverVerdict === "in_progress";
-  const rolloutConfirmedOver = sawOperation || statusObservedSinceVerdict;
+  const rolloutConfirmedOver = sawOperation || statusObservedSinceTargetsMet;
 
   if (!resizeOperationInFlight) {
     // Outside a provisional verdict: DONE-by-actuals still wins over a stale

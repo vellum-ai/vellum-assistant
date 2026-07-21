@@ -433,6 +433,38 @@ describe("useProProvisioning", () => {
   );
 
   test(
+    "a started verdict needs a status reading taken after the target actuals",
+    async () => {
+      // The marker is created by a background worker, so a status read taken
+      // right after a `started` verdict can predate it entirely. The status is
+      // held at `active` throughout here, so `sawOperation` never latches and
+      // the anchor is the only thing that can complete the flow.
+      ensureResponse = makeEnsureResponse("started");
+      const { client } = renderProbe();
+
+      await waitFor(() => expect(latest!.state).toBe("CONFIRMING"));
+      subscriptionPlanId = "pro";
+      await refetchAll(client);
+      await waitFor(() => expect(latest!.state).toBe("RESIZING"), {
+        timeout: 5000,
+      });
+
+      // Targets now read as met, but no status reading has been taken since.
+      assistantResponse = makeAssistant("large", 50);
+      await refetchAll(client);
+      const callsAtTargetsMet = operationalStatusCalls;
+      expect(latest!.state).not.toBe("DONE");
+
+      // A later status poll is what actually settles it.
+      await waitFor(() => expect(latest!.state).toBe("DONE"), {
+        timeout: 5000,
+      });
+      expect(operationalStatusCalls).toBeGreaterThan(callsAtTargetsMet);
+    },
+    20_000,
+  );
+
+  test(
     "a hung automatic reconcile leaves Apply & Restart enabled",
     async () => {
       // `ensureResponse` defaults to held-in-flight, so the automatic reconcile

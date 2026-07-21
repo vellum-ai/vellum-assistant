@@ -396,21 +396,22 @@ describe("deriveProvisioningState — an in-flight resize blocks completion", ()
   });
 });
 
-describe("deriveProvisioningState — a provisional verdict needs a status reading", () => {
+describe("deriveProvisioningState — a provisional verdict needs a post-actuals status reading", () => {
   // The assistant and operational-status queries poll independently, so the
   // assistant poll can land the target sizes while the status query still holds
-  // its pre-resize snapshot. Under `started`/`in_progress` the server has told
-  // us a rollout is underway, so that stale window must not read as completion:
-  // a marker exists at verdict time, so one status reading taken after the
-  // verdict settles whether it is still running.
+  // its pre-resize snapshot. Under `started`/`in_progress` that stale window
+  // must not read as completion. The verdict cannot be the anchor — `started`
+  // only queues the resize on a worker — but the platform creates the marker
+  // before it persists the sizes, so a status reading taken after the actuals
+  // met the targets settles whether the rollout is still running.
   const staleStatus = {
     actuals: { machineSize: "large" as const, storageGib: 50 },
     resizeOperationInFlight: false,
     sawOperation: false,
-    statusObservedSinceVerdict: false,
+    statusObservedSinceTargetsMet: false,
   };
 
-  test("in_progress with met targets but a pre-verdict status reading → RESIZING", () => {
+  test("in_progress with met targets but a pre-actuals status reading → RESIZING", () => {
     expect(
       deriveProvisioningState(
         baseInput({ ...staleStatus, serverVerdict: "in_progress" }),
@@ -418,7 +419,7 @@ describe("deriveProvisioningState — a provisional verdict needs a status readi
     ).toBe("RESIZING");
   });
 
-  test("started with met targets but a pre-verdict status reading → RESIZING", () => {
+  test("started with met targets but a pre-actuals status reading → RESIZING", () => {
     expect(
       deriveProvisioningState(
         baseInput({ ...staleStatus, serverVerdict: "started" }),
@@ -426,12 +427,12 @@ describe("deriveProvisioningState — a provisional verdict needs a status readi
     ).toBe("RESIZING");
   });
 
-  test("a post-verdict status reading with no marker completes the flow", () => {
+  test("a post-actuals status reading with no marker completes the flow", () => {
     expect(
       deriveProvisioningState(
         baseInput({
           ...staleStatus,
-          statusObservedSinceVerdict: true,
+          statusObservedSinceTargetsMet: true,
           serverVerdict: "in_progress",
         }),
       ).state,
