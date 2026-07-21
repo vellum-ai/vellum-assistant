@@ -59,10 +59,11 @@ const ARCHIVE_THREAD_ONLY =
   " /archive only works inside a topic. Open a topic, then send /archive.";
 const RENAME_THREAD_ONLY =
   " /rename only works inside a topic. Open a topic, then send /rename <name>.";
-const RENAME_GUARDIAN_ONLY = "Only a guardian can rename a topic.";
 const RENAME_USAGE = "Usage: /rename <new name>";
-const ACCESS_GUARDIAN_ONLY =
-  "Only a guardian can change the assistant access mode.";
+
+/** Shown when a non-guardian invokes a guardian-only slash command or switcher. */
+export const TELEGRAM_GUARDIAN_COMMAND_DENIED =
+  "Only a guardian can use this command.";
 
 export function parseTelegramForkCommand(content: string): boolean {
   return /^\/fork(?:@\w+)?(?:\s|$)/i.test(content.trim());
@@ -139,15 +140,56 @@ async function isGuardianActor(params: {
   return verdict.trustClass === "guardian";
 }
 
+/**
+ * Guardian gate for slash commands and inline switchers. Returns `true` when
+ * the actor may proceed; otherwise sends a denial reply and returns `false`.
+ */
+export async function ensureTelegramGuardianActor(params: {
+  config: GatewayConfig;
+  caches?: Caches;
+  chatId: string;
+  threadId?: string;
+  actorExternalId: string;
+}): Promise<boolean> {
+  if (
+    await isGuardianActor({
+      chatId: params.chatId,
+      actorExternalId: params.actorExternalId,
+    })
+  ) {
+    return true;
+  }
+  await sendTelegramReply(
+    params.config,
+    params.chatId,
+    TELEGRAM_GUARDIAN_COMMAND_DENIED,
+    undefined,
+    telegramSendOpts(params.caches, params.threadId),
+  );
+  return false;
+}
+
 export async function handleTelegramForkCommand(params: {
   config: GatewayConfig;
   caches?: Caches;
   chatId: string;
   threadId?: string;
+  actorExternalId: string;
   logger: Logger;
 }): Promise<void> {
-  const { config, caches, chatId, threadId, logger } = params;
+  const { config, caches, chatId, threadId, actorExternalId, logger } = params;
   const sendOpts = telegramSendOpts(caches, threadId);
+  if (
+    !(await ensureTelegramGuardianActor({
+      config,
+      caches,
+      chatId,
+      threadId,
+      actorExternalId,
+    }))
+  ) {
+    return;
+  }
   if (!threadId) {
     await sendTelegramReply(
       config,
@@ -177,9 +219,21 @@ export async function handleTelegramArchiveCommand(params: {
   caches?: Caches;
   chatId: string;
   threadId?: string;
+  actorExternalId: string;
   logger: Logger;
 }): Promise<void> {
-  const { config, caches, chatId, threadId, logger } = params;
+  const { config, caches, chatId, threadId, actorExternalId, logger } = params;
+  if (
+    !(await ensureTelegramGuardianActor({
+      config,
+      caches,
+      chatId,
+      threadId,
+      actorExternalId,
+    }))
+  ) {
+    return;
+  }
   if (!threadId) {
     await sendTelegramReply(
       config,
@@ -218,10 +272,22 @@ export async function handleTelegramStopCommand(params: {
   caches?: Caches;
   chatId: string;
   threadId?: string;
+  actorExternalId: string;
   logger: Logger;
 }): Promise<void> {
-  const { config, caches, chatId, threadId, logger } = params;
+  const { config, caches, chatId, threadId, actorExternalId, logger } = params;
   const sendOpts = telegramSendOpts(caches, threadId);
+  if (
+    !(await ensureTelegramGuardianActor({
+      config,
+      caches,
+      chatId,
+      threadId,
+      actorExternalId,
+    }))
+  ) {
+    return;
+  }
   try {
     const { cancelled } = await stopTelegramTopic(config, chatId, threadId);
     await sendTelegramReply(
@@ -255,21 +321,22 @@ export async function handleTelegramRenameCommand(params: {
   const { config, caches, chatId, threadId, actorExternalId, name, logger } =
     params;
   const sendOpts = telegramSendOpts(caches, threadId);
+  if (
+    !(await ensureTelegramGuardianActor({
+      config,
+      caches,
+      chatId,
+      threadId,
+      actorExternalId,
+    }))
+  ) {
+    return;
+  }
   if (!threadId) {
     await sendTelegramReply(
       config,
       chatId,
       RENAME_THREAD_ONLY,
-      undefined,
-      sendOpts,
-    );
-    return;
-  }
-  if (!(await isGuardianActor({ chatId, actorExternalId }))) {
-    await sendTelegramReply(
-      config,
-      chatId,
-      RENAME_GUARDIAN_ONLY,
       undefined,
       sendOpts,
     );
@@ -299,10 +366,22 @@ export async function handleTelegramProfileCommand(params: {
   caches?: Caches;
   chatId: string;
   threadId?: string;
+  actorExternalId: string;
   logger: Logger;
 }): Promise<void> {
-  const { config, caches, chatId, threadId, logger } = params;
+  const { config, caches, chatId, threadId, actorExternalId, logger } = params;
   const sendOpts = telegramSendOpts(caches, threadId);
+  if (
+    !(await ensureTelegramGuardianActor({
+      config,
+      caches,
+      chatId,
+      threadId,
+      actorExternalId,
+    }))
+  ) {
+    return;
+  }
   try {
     const { profiles, currentProfile } = await listTelegramTopicProfiles(
       config,
@@ -382,11 +461,31 @@ export async function handleTelegramProfileCallback(params: {
   chatId: string;
   threadId?: string;
   messageId?: string;
+  actorExternalId: string;
   profile: string;
   logger: Logger;
 }): Promise<void> {
-  const { config, caches, chatId, threadId, messageId, profile, logger } =
-    params;
+  const {
+    config,
+    caches,
+    chatId,
+    threadId,
+    messageId,
+    actorExternalId,
+    profile,
+    logger,
+  } = params;
+  if (
+    !(await ensureTelegramGuardianActor({
+      config,
+      caches,
+      chatId,
+      threadId,
+      actorExternalId,
+    }))
+  ) {
+    return;
+  }
   try {
     const { label } = await setTelegramTopicProfile(
       config,
@@ -422,14 +521,15 @@ export async function handleTelegramAccessCommand(params: {
   logger: Logger;
 }): Promise<void> {
   const { config, caches, chatId, threadId, actorExternalId, logger } = params;
-  if (!(await isGuardianActor({ chatId, actorExternalId }))) {
-    await sendTelegramReply(
+  if (
+    !(await ensureTelegramGuardianActor({
       config,
+      caches,
       chatId,
-      ACCESS_GUARDIAN_ONLY,
-      undefined,
-      telegramSendOpts(caches, threadId),
-    );
+      threadId,
+      actorExternalId,
+    }))
+  ) {
     return;
   }
 
@@ -489,14 +589,15 @@ export async function handleTelegramAccessCallback(params: {
     threshold,
     logger,
   } = params;
-  if (!(await isGuardianActor({ chatId, actorExternalId }))) {
-    await sendTelegramReply(
+  if (
+    !(await ensureTelegramGuardianActor({
       config,
+      caches,
       chatId,
-      ACCESS_GUARDIAN_ONLY,
-      undefined,
-      telegramSendOpts(caches, threadId),
-    );
+      threadId,
+      actorExternalId,
+    }))
+  ) {
     return;
   }
   try {

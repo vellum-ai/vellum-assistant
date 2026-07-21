@@ -9,9 +9,9 @@ export const TELEGRAM_BOT_COMMANDS = [
   { command: "new", description: "Start a new conversation" },
   { command: "stop", description: "Interrupt the running assistant" },
   { command: "fork", description: "Fork this topic into a new topic" },
-  { command: "rename", description: "Rename this topic (guardian)" },
+  { command: "rename", description: "Rename this topic" },
   { command: "archive", description: "Archive this topic and close it" },
   { command: "profile", description: "Choose inference profile" },
-  { command: "access", description: "Assistant access mode (guardian)" },
+  { command: "access", description: "Assistant access mode" },
   { command: "help", description: "Show available commands" },
 ] as const;

@@ -40,6 +40,7 @@ import {
   handleTelegramProfileCommand,
   handleTelegramRenameCommand,
   handleTelegramStopCommand,
+  ensureTelegramGuardianActor,
   parseTelegramAccessCallback,
   parseTelegramAccessCommand,
   parseTelegramArchiveCommand,
@@ -419,6 +420,9 @@ export function createTelegramWebhookHandler(
 
     const topicThreadId = normalized.source.threadId;
     const sendOpts = telegramSendOpts(caches, topicThreadId);
+    const actorExternalId =
+      normalized.actor.actorExternalId ??
+      normalized.message.conversationExternalId;
 
     if (isTelegramForumTopicEdited(normalized)) {
       await handleTelegramForumTopicEdited({
@@ -441,6 +445,7 @@ export function createTelegramWebhookHandler(
         chatId: normalized.message.conversationExternalId,
         threadId: topicThreadId,
         messageId: normalized.source.messageId,
+        actorExternalId,
         profile: profileCallback.profile,
         logger: tlog,
       });
@@ -461,7 +466,7 @@ export function createTelegramWebhookHandler(
         chatId: normalized.message.conversationExternalId,
         threadId: topicThreadId,
         messageId: normalized.source.messageId,
-        actorExternalId: normalized.actor.actorExternalId,
+        actorExternalId,
         threshold: accessCallback.threshold,
         logger: tlog,
       });
@@ -478,6 +483,7 @@ export function createTelegramWebhookHandler(
         caches,
         chatId: normalized.message.conversationExternalId,
         threadId: topicThreadId,
+        actorExternalId,
         logger: tlog,
       });
       return respond({ ok: true });
@@ -489,6 +495,7 @@ export function createTelegramWebhookHandler(
         caches,
         chatId: normalized.message.conversationExternalId,
         threadId: topicThreadId,
+        actorExternalId,
         logger: tlog,
       });
       return respond({ ok: true });
@@ -500,6 +507,7 @@ export function createTelegramWebhookHandler(
         caches,
         chatId: normalized.message.conversationExternalId,
         threadId: topicThreadId,
+        actorExternalId,
         logger: tlog,
       });
       return respond({ ok: true });
@@ -512,7 +520,7 @@ export function createTelegramWebhookHandler(
         caches,
         chatId: normalized.message.conversationExternalId,
         threadId: topicThreadId,
-        actorExternalId: normalized.actor.actorExternalId,
+        actorExternalId,
         name: renameCmd.name,
         logger: tlog,
       });
@@ -525,6 +533,7 @@ export function createTelegramWebhookHandler(
         caches,
         chatId: normalized.message.conversationExternalId,
         threadId: topicThreadId,
+        actorExternalId,
         logger: tlog,
       });
       return respond({ ok: true });
@@ -536,7 +545,7 @@ export function createTelegramWebhookHandler(
         caches,
         chatId: normalized.message.conversationExternalId,
         threadId: topicThreadId,
-        actorExternalId: normalized.actor.actorExternalId,
+        actorExternalId,
         logger: tlog,
       });
       return respond({ ok: true });
@@ -790,6 +799,22 @@ export function createTelegramWebhookHandler(
 
     // Handle /new command — reset conversation before it reaches the runtime
     if (isNewCommand(normalized.message.content)) {
+      if (
+        !(await ensureTelegramGuardianActor({
+          config,
+          caches,
+          chatId: normalized.message.conversationExternalId,
+          threadId: topicThreadId,
+          actorExternalId,
+        }))
+      ) {
+        acknowledgeCallbackQuery(
+          normalized.message.callbackQueryId,
+          "new_command_guardian_denied",
+        );
+        return respond({ ok: true });
+      }
+
       const routing = resolveAssistant(
         config,
         normalized.message.conversationExternalId,
