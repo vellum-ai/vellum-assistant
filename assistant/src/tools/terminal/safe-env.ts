@@ -5,6 +5,8 @@
  *
  * Shared by the sandbox bash tool and skill sandbox runner.
  */
+import { readdirSync } from "node:fs";
+
 import { getGatewayInternalBaseUrl } from "../../config/env.js";
 import { getDataDir, getWorkspaceDir } from "../../util/platform.js";
 
@@ -40,7 +42,6 @@ export const SAFE_ENV_VARS = [
   "CES_BOOTSTRAP_SOCKET_DIR",
   "GATEWAY_INTERNAL_URL",
   "ASSISTANT_IPC_SOCKET_DIR",
-  "ASSISTANT_SKILL_IPC_SOCKET_DIR",
   "GATEWAY_IPC_SOCKET_DIR",
   "GATEWAY_SECURITY_DIR",
   "VELLUM_PLATFORM_URL",
@@ -80,7 +81,12 @@ export const KATA_SAFE_ENV_VARS = [
   "VELLUM_APT_DATA_MIRROR",
 ] as const;
 
-export const KATA_INJECTED_ENV_VARS = ["LD_LIBRARY_PATH"] as const;
+export const KATA_INJECTED_ENV_VARS = [
+  "LD_LIBRARY_PATH",
+  "PYTHONPATH",
+  "PYTHONUSERBASE",
+  "BUN_INSTALL",
+] as const;
 
 const KATA_APT_DATA_ROOT = "/data/system";
 const KATA_FAMILY_SANDBOX_RUNTIMES = new Set([
@@ -112,6 +118,35 @@ function kataAptLibraryPaths(dataRoot: string): string[] {
     `${dataRoot}/usr/lib`,
     `${dataRoot}/usr/lib/x86_64-linux-gnu`,
     `${dataRoot}/usr/lib/aarch64-linux-gnu`,
+  ];
+}
+
+// Python packages installed into the chroot: apt packages land in the
+// unversioned dist-packages dir, chroot pip installs in versioned
+// /usr/local/lib/python3.X dirs. Versions come from the image's /usr/lib
+// (present before any install, so the path works within the same tool call
+// that first runs pip) plus the chroot's /usr/local/lib as a fallback for
+// any version drift between image and chroot.
+function kataPythonPaths(dataRoot: string): string[] {
+  const versions = new Set<string>();
+  for (const libDir of ["/usr/lib", `${dataRoot}/usr/local/lib`]) {
+    try {
+      for (const entry of readdirSync(libDir)) {
+        if (/^python3\.\d+$/.test(entry)) {
+          versions.add(entry);
+        }
+      }
+    } catch {
+      // Directory missing (e.g. chroot not bootstrapped yet) — skip.
+    }
+  }
+  // pip's /usr/local dirs must precede the apt dir, mirroring Debian's
+  // sys.path order, so a pip-upgraded package wins over an older apt one.
+  return [
+    ...[...versions].map(
+      (version) => `${dataRoot}/usr/local/lib/${version}/dist-packages`,
+    ),
+    `${dataRoot}/usr/lib/python3/dist-packages`,
   ];
 }
 
@@ -159,6 +194,21 @@ export function buildSanitizedEnv(): Record<string, string> {
       undefined,
       kataAptLibraryPaths(kataAptDataRoot),
     );
+    env.PYTHONPATH = appendUniquePathEntries(
+      undefined,
+      kataPythonPaths(kataAptDataRoot),
+    );
+    // The image bakes these under ephemeral /home/assistant; $HOME is the
+    // persistent data volume on kata pods, so user-level installs survive
+    // machine saves.
+    if (env.HOME) {
+      env.PYTHONUSERBASE = `${env.HOME}/.python`;
+      env.BUN_INSTALL = `${env.HOME}/.bun`;
+      env.PATH = appendUniquePathEntries(
+        `${env.PYTHONUSERBASE}/bin:${env.BUN_INSTALL}/bin`,
+        env.PATH.split(":").filter(Boolean),
+      );
+    }
   }
   // Always inject an internal gateway base for local control-plane/API calls.
   const internalGatewayBase = getGatewayInternalBaseUrl();

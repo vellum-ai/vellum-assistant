@@ -56,7 +56,7 @@ const { memoryHelp } = await import("../cli/commands/memory/index.help.js");
 const { registerMemoryV2Command } =
   await import("../cli/commands/memory/memory-v2.js");
 const { ROUTES: memoryV2Routes, MEMORY_V2_DISABLED_CODE } =
-  await import("../plugins/defaults/memory/routes/memory-v2-routes.js");
+  await import("../plugins/defaults/memory/src/memory-v2-routes.js");
 const { RouteError } = await import("../runtime/routes/errors.js");
 
 // ---------------------------------------------------------------------------

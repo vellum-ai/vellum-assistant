@@ -6,6 +6,9 @@
  * gated on darwin.
  */
 
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { beforeAll, describe, expect, test } from "bun:test";
 
 import {
@@ -15,6 +18,7 @@ import {
   normalizeImageBase64,
   normalizeImageBytes,
   sniffBase64ImageMimeType,
+  sniffImageFileMimeType,
   sniffImageMimeType,
 } from "../util/image-conversion.js";
 import {
@@ -110,6 +114,20 @@ describe("sniffImageMimeType", () => {
     expect(
       sniffBase64ImageMimeType(Buffer.from("not an image").toString("base64")),
     ).toBeNull();
+  });
+
+  test("file variant sniffs from the on-disk head", () => {
+    const dir = mkdtempSync(join(tmpdir(), "vellum-sniff-file-"));
+    // A PNG named .jpg — what arrives when the MIME is extension-derived.
+    const pngPath = join(dir, "photo.jpg");
+    writeFileSync(pngPath, PNG_1PX_BYTES);
+    expect(sniffImageFileMimeType(pngPath)).toBe("image/png");
+
+    const textPath = join(dir, "notes.txt");
+    writeFileSync(textPath, "plain text content");
+    expect(sniffImageFileMimeType(textPath)).toBeNull();
+
+    expect(sniffImageFileMimeType(join(dir, "missing.png"))).toBeNull();
   });
 });
 

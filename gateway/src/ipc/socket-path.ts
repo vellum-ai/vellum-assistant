@@ -32,10 +32,9 @@ function isPathWithinSocketLimit(path: string, maxPathBytes: number): boolean {
 /**
  * Derive the env var name and socket filename from a socket name.
  *
- * Examples:
- *   "gateway"         → { envVar: "GATEWAY_IPC_SOCKET_DIR", fileName: "gateway.sock" }
- *   "assistant"       → { envVar: "ASSISTANT_IPC_SOCKET_DIR", fileName: "assistant.sock" }
- *   "assistant-skill" → { envVar: "ASSISTANT_SKILL_IPC_SOCKET_DIR", fileName: "assistant-skill.sock" }
+ * Examples (hyphens in the name become underscores in the env var):
+ *   "gateway"   → { envVar: "GATEWAY_IPC_SOCKET_DIR", fileName: "gateway.sock" }
+ *   "assistant" → { envVar: "ASSISTANT_IPC_SOCKET_DIR", fileName: "assistant.sock" }
  */
 function deriveSocketNames(socketName: string): {
   envVar: string;

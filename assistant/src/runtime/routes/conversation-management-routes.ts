@@ -31,6 +31,7 @@ import {
 } from "../../daemon/conversation-history.js";
 import {
   formatSummarizeUpToResult,
+  isBackgroundEventMetadata,
   isEchoSuppressedUserMessage,
 } from "../../daemon/conversation-process.js";
 import { findConversation } from "../../daemon/conversation-registry.js";
@@ -708,12 +709,18 @@ async function handleRetryLastAssistantTurn({
   }
 
   const anchor = discarded.anchor;
+  const anchorMetadata = anchor.metadata
+    ? safeParseRecord(anchor.metadata)
+    : undefined;
   // A machine-signal anchor (wake trigger, subagent/ACP notification, hidden
   // send) re-runs as a hidden turn so it stays out of the titler, mirroring
   // how the original turn ran.
-  const isHiddenPrompt = isEchoSuppressedUserMessage(
-    anchor.metadata ? safeParseRecord(anchor.metadata) : undefined,
-  );
+  const isHiddenPrompt = isEchoSuppressedUserMessage(anchorMetadata);
+  // Reproduce the anchor's original permission mode: a background-event turn
+  // ran non-interactively (trust-rule auto-resolution, not blocking prompts),
+  // so forcing interactive would stall a retried scheduled turn on approvals
+  // the original never asked for.
+  const isInteractive = !isBackgroundEventMetadata(anchorMetadata);
   const contentText = extractUserPromptText(anchor.content);
 
   // Fire-and-forget: return 202 immediately, stream the re-run over SSE. The
@@ -731,7 +738,7 @@ async function handleRetryLastAssistantTurn({
       await conversation.runAgentLoop(contentText, anchor.id, {
         onEvent: broadcastMessage,
         isUserMessage: true,
-        isInteractive: true,
+        isInteractive,
         ...(isHiddenPrompt ? { isHiddenPrompt: true } : {}),
       });
     } catch (err) {

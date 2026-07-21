@@ -375,6 +375,17 @@ describe("deriveReason", () => {
     expect(deriveReason(n(), 402)).toBe("insufficient_credits");
   });
 
+  test("daily-limit body code → daily_limit_reached (before insufficient_credits)", () => {
+    // Both are 402s from the managed proxy; the specific daily-limit code must
+    // win over the generic status-402 → insufficient_credits mapping.
+    expect(
+      deriveReason(
+        n({ rawBody: '{"code":"daily_limit_reached","detail":"limit"}' }),
+        402,
+      ),
+    ).toBe("daily_limit_reached");
+  });
+
   test("billing prose → insufficient_credits", () => {
     expect(
       deriveReason(n({ message: "Your credit balance is too low" }), 400),

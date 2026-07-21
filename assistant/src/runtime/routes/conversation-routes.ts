@@ -52,6 +52,7 @@ import {
   buildModelInfoEvent,
   formatCleanResult,
   formatCompactResult,
+  isBackgroundEventMetadata,
   isModelSlashCommand,
 } from "../../daemon/conversation-process.js";
 import { findConversation } from "../../daemon/conversation-registry.js";
@@ -891,7 +892,7 @@ export function handleListMessages({
         // row so clients hide it from the transcript like a subagent/ACP
         // notification — the user-facing "Conversation Woke" card (or, for a
         // backgrounded bash run, the inline terminal card) carries the status.
-        if (typeof meta.backgroundEventSource === "string") {
+        if (isBackgroundEventMetadata(meta)) {
           backgroundEventNotification = true;
         }
         // `persistWakeTriggerMessage` stamps the structured completion onto the
