@@ -196,8 +196,9 @@ describe("PUT /v1/config/llm/profiles/:name — managed profile guard", () => {
   });
 
   test("rejects write-locked routing identities in a raw llm.default write", async () => {
-    // The schema dropped llm.default, but a raw PATCH can still persist one
-    // and materialization uses a legacy on-disk blob as its fill base.
+    // llm.default is a raw compatibility field outside the parsed schema; a
+    // raw PATCH can persist one and materialization uses the on-disk blob as
+    // its fill base, so the write-lock must cover it.
     await expect(
       patchRoute.handler({
         body: { llm: { default: { provider: "vellum" } } },
