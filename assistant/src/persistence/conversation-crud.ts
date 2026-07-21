@@ -1,4 +1,4 @@
-import { mkdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync } from "node:fs";
 
 import {
   and,
@@ -129,18 +129,54 @@ function logsDb(): DrizzleDb {
   return db;
 }
 
+// ---------------------------------------------------------------------------
+// Dedicated-DB cleanup for conversation deletes.
+// ---------------------------------------------------------------------------
+//
+// `llm_request_logs` (logs DB) and pending `telemetry_events` (telemetry DB)
+// live in their own files, created and schema-migrated by the daemon's
+// migration runner. Both conversation-delete variants — the synchronous
+// `deleteConversation` and the off-loop `deleteConversationGently` — must clear
+// them, and both must tolerate the file not existing yet: the memory worker's
+// startup orphan sweep runs as a separate process that can race ahead of the
+// daemon's async migrations, so a dedicated file may be absent (or, if opened
+// with create-on-open, an empty table-less shell). A missing file means there
+// are no rows to delete, so these helpers skip rather than fabricate an empty
+// file that then throws `no such table` on every orphan the sweep processes.
+
 /**
- * The telemetry connection (`assistant-telemetry.db`), where the
- * `telemetry_events` outbox lives. Throws if the file cannot be opened — the
- * conversation-delete call sites must not report success while unshipped
- * events referencing the deleted conversation survive to be flushed.
+ * Delete a conversation's pending `telemetry_events` rows from the dedicated
+ * telemetry DB, or skip when that file does not exist yet. Telemetry redaction
+ * keys on `conversation_id` regardless of event name, so this covers every
+ * conversation-scoped pending event.
  */
-function telemetryDb(): DrizzleDb {
-  const db = getTelemetryDb();
-  if (!db) {
-    throw new Error("telemetry database unavailable");
+function deletePendingTelemetryEventsForConversation(id: string): void {
+  const telemetry = getTelemetryDb({ createIfMissing: false });
+  if (!telemetry) {
+    return;
   }
-  return db;
+  telemetry
+    .delete(telemetryEvents)
+    .where(eq(telemetryEvents.conversationId, id))
+    .run();
+}
+
+/**
+ * Delete a conversation's `llm_request_logs` rows in-process from the dedicated
+ * logs DB, or skip when that file does not exist yet. Used by the synchronous
+ * delete path; {@link deleteConversationGently} drains the same table off the
+ * event loop in batches (guarded by the same file-existence check) because its
+ * rows can be bulky.
+ */
+function deleteRequestLogsForConversation(id: string): void {
+  const logs = getLogsDb({ createIfMissing: false });
+  if (!logs) {
+    return;
+  }
+  logs
+    .delete(llmRequestLogs)
+    .where(eq(llmRequestLogs.conversationId, id))
+    .run();
 }
 
 // ── Message metadata Zod schema ──────────────────────────────────────
@@ -1709,32 +1745,10 @@ export function deleteConversation(id: string): DeletedMemoryIds {
   // llm_request_logs and pending telemetry_events rows live in the dedicated
   // logs and telemetry connections, so they are deleted there — separately
   // from (and before) the main-DB transaction below, so a failure leaves the
-  // conversation intact for a retried delete. Telemetry redaction keys on
-  // conversation_id regardless of event name, so every conversation-scoped
-  // pending event is covered.
-  //
-  // Both files are created and schema-migrated by the daemon's migration
-  // runner. Open them with `createIfMissing: false`: when a file does not
-  // exist yet there are no rows to delete, so skip rather than let the opener
-  // fabricate an empty, table-less file. The memory worker's startup orphan
-  // sweep runs as a separate process that can race ahead of the daemon's async
-  // migrations — without this it would create an empty logs file and throw
-  // `no such table: llm_request_logs` on every orphan delete. No file, nothing
-  // to sweep.
-  const logsForDelete = getLogsDb({ createIfMissing: false });
-  if (logsForDelete) {
-    logsForDelete
-      .delete(llmRequestLogs)
-      .where(eq(llmRequestLogs.conversationId, id))
-      .run();
-  }
-  const telemetryForDelete = getTelemetryDb({ createIfMissing: false });
-  if (telemetryForDelete) {
-    telemetryForDelete
-      .delete(telemetryEvents)
-      .where(eq(telemetryEvents.conversationId, id))
-      .run();
-  }
+  // conversation intact for a retried delete. Both helpers skip when their
+  // dedicated file does not exist yet (see the block comment on those helpers).
+  deleteRequestLogsForConversation(id);
+  deletePendingTelemetryEventsForConversation(id);
 
   db.transaction((tx) => {
     // Collect all message IDs for this conversation.
@@ -1853,26 +1867,31 @@ export async function deleteConversationGently(
     .map((r) => r.id);
 
   // Pending telemetry_events rows live in the dedicated telemetry connection;
-  // delete them there (by conversation_id, regardless of event name) before
-  // ANY destructive work so a telemetry failure leaves the conversation fully
+  // delete them (by conversation_id, regardless of event name) before ANY
+  // destructive work so a telemetry failure leaves the conversation fully
   // intact for a retried delete — a throw after the bulk drains below would
-  // strand unredacted rows that could still flush.
-  telemetryDb()
-    .delete(telemetryEvents)
-    .where(eq(telemetryEvents.conversationId, id))
-    .run();
+  // strand unredacted rows that could still flush. Skips when the telemetry
+  // file does not exist yet.
+  deletePendingTelemetryEventsForConversation(id);
 
   // llm_request_logs lives in the dedicated logs connection, and each row is
   // bulky, so drain it off the event loop in batches against the logs DB file.
-  const logsDel = await deleteConversationRowsInBatches({
-    conversationId: id,
-    table: "llm_request_logs",
-    dbPath: getLogsDbPath(),
-  });
-  if (!logsDel.ok) {
-    throw new Error(
-      `gentle conversation delete failed (llm_request_logs, ${logsDel.backend}): ${logsDel.error ?? "unknown"}`,
-    );
+  // Skip entirely when the file does not exist yet: the batch runs a sqlite3
+  // subprocess (or in-process fallback) against getLogsDbPath(), which would
+  // otherwise create an empty, table-less file and fail with `no such table`
+  // on every orphan the worker's startup sweep processes before the daemon's
+  // async migrations create the table. No file, nothing to drain.
+  if (existsSync(getLogsDbPath())) {
+    const logsDel = await deleteConversationRowsInBatches({
+      conversationId: id,
+      table: "llm_request_logs",
+      dbPath: getLogsDbPath(),
+    });
+    if (!logsDel.ok) {
+      throw new Error(
+        `gentle conversation delete failed (llm_request_logs, ${logsDel.backend}): ${logsDel.error ?? "unknown"}`,
+      );
+    }
   }
 
   // Bulk message delete off the event loop, in lock-friendly batches. Cascades
