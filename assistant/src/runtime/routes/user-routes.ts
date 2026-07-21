@@ -16,20 +16,40 @@
  */
 
 import { postRouteConversationMessage } from "../../daemon/route-conversation-post.js";
+import { getLogger } from "../../util/logger.js";
 import { assistantEventHub } from "../assistant-event-hub.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 import { RouteResponse } from "./types.js";
+import type { UserRouteContext } from "./user-route-dispatcher.js";
 import { UserRouteDispatcher } from "./user-route-dispatcher.js";
+import { UserRouteWorkerPool } from "./user-route-worker-pool.js";
 
-const dispatcher = new UserRouteDispatcher({
-  context: {
-    assistantEventHub,
-    conversations: {
-      postMessage: postRouteConversationMessage,
-    },
+const log = getLogger("user-routes");
+
+const context: UserRouteContext = {
+  assistantEventHub,
+  conversations: {
+    postMessage: postRouteConversationMessage,
   },
-});
+};
+
+/**
+ * Opt-in: run user route handlers on a worker-thread pool instead of inline on
+ * the daemon's event loop. Off by default while the pool is validated against
+ * real handlers — set `VELLUM_USER_ROUTES_WORKER_POOL=1` to enable. When enabled,
+ * a synchronously-stalling handler pins only a worker thread, not the daemon.
+ */
+const pool =
+  process.env.VELLUM_USER_ROUTES_WORKER_POOL === "1"
+    ? new UserRouteWorkerPool({ context })
+    : undefined;
+
+if (pool) {
+  log.info("User routes running on worker-thread pool (opt-in)");
+}
+
+const dispatcher = new UserRouteDispatcher({ context, pool });
 
 /**
  * Reconstruct a Web API `Request` from transport-agnostic handler args.

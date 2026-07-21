@@ -36,6 +36,8 @@ import {
   resolveHandlerFile,
   resolveRouteLocation,
 } from "./user-route-resolution.js";
+import type { UserRouteWorkerPool } from "./user-route-worker-pool.js";
+import type { SerializedRequest } from "./user-route-worker-protocol.js";
 
 const log = getLogger("user-routes");
 
@@ -131,14 +133,23 @@ export class UserRouteDispatcher {
   private moduleCache = new Map<string, CachedModule>();
   private handlerTimeoutMs: number;
   private context: UserRouteContext;
+  private pool?: UserRouteWorkerPool;
 
   constructor(options: {
     handlerTimeoutMs?: number;
     context: UserRouteContext;
+    /**
+     * When set, handler execution is delegated to this worker pool (off the
+     * daemon's main event loop) instead of running inline. Resolution, path
+     * traversal, and 404s stay on the main thread; the worker imports the
+     * module and runs the handler. See {@link UserRouteWorkerPool}.
+     */
+    pool?: UserRouteWorkerPool;
   }) {
     this.handlerTimeoutMs =
       options.handlerTimeoutMs ?? DEFAULT_HANDLER_TIMEOUT_MS;
     this.context = Object.freeze({ ...options.context });
+    this.pool = options.pool;
   }
 
   /**
@@ -166,6 +177,10 @@ export class UserRouteDispatcher {
       );
     }
 
+    if (this.pool) {
+      return this.dispatchViaPool(filePath, routePath, request);
+    }
+
     const mod = await this.loadModule(filePath);
     const method = request.method as HttpMethod;
     const handler = mod.handlers[method];
@@ -179,6 +194,42 @@ export class UserRouteDispatcher {
     }
 
     return this.executeHandler(handler, request, routePath);
+  }
+
+  /**
+   * Delegate execution to the worker pool. The main thread has already resolved
+   * `filePath` (and 404'd if missing); here it marshals the request to a
+   * clonable form, hands it to a worker, and rebuilds a `Response` from the
+   * worker's serialized reply. Controlled outcomes (200/405/504/503) come back
+   * as responses; a handler that threw rejects and is mapped to a 500 — matching
+   * the in-thread {@link executeHandler} error contract.
+   */
+  private async dispatchViaPool(
+    filePath: string,
+    routePath: string,
+    request: Request,
+  ): Promise<Response> {
+    const mtimeMs = statSync(filePath).mtimeMs;
+    const serialized = await serializeRequest(request);
+    try {
+      const result = await this.pool!.run({
+        filePath,
+        mtimeMs,
+        method: request.method,
+        request: serialized,
+        routePath,
+      });
+      const headers = new Headers();
+      for (const [name, value] of result.headers) {
+        headers.append(name, value);
+      }
+      return new Response(result.body, { status: result.status, headers });
+    } catch (err) {
+      log.error({ err, routePath }, "User route handler threw an error");
+      const message =
+        err instanceof Error ? err.message : "Internal server error";
+      return httpError("INTERNAL_ERROR", message, 500);
+    }
   }
 
   /**
@@ -262,4 +313,25 @@ export class UserRouteDispatcher {
       return httpError("INTERNAL_ERROR", message, 500);
     }
   }
+}
+
+/**
+ * Reduce a `Request` to a structured-clone-friendly {@link SerializedRequest}
+ * for the worker boundary. `Request`/`Response` bodies are streams and cannot
+ * cross `postMessage`, so the body is fully buffered here. GET/HEAD never carry
+ * a body.
+ */
+async function serializeRequest(request: Request): Promise<SerializedRequest> {
+  const headers: [string, string][] = [];
+  request.headers.forEach((value, name) => {
+    headers.push([name, value]);
+  });
+
+  let body: ArrayBuffer | null = null;
+  if (request.method !== "GET" && request.method !== "HEAD") {
+    const buffer = await request.arrayBuffer();
+    body = buffer.byteLength > 0 ? buffer : null;
+  }
+
+  return { url: request.url, method: request.method, headers, body };
 }
