@@ -1153,4 +1153,56 @@ describe("channel-delivery-store", () => {
       .get();
     expect(remainingBinding).toBeUndefined();
   });
+
+  test("main-chat /new (no thread) resets only the null-thread binding, keeping topic bindings", async () => {
+    const now = Date.now();
+    const db = getDb();
+    const mainConvId = "conv-main-dm";
+    const topicConvId = "conv-topic-1";
+    const chatId = "chat-topics-del";
+    const mainScopedKey = `asst:self:telegram:${chatId}`;
+    const legacyKey = `telegram:${chatId}`;
+    const topicKey = `asst:self:telegram:${chatId}:thread:555`;
+
+    for (const id of [mainConvId, topicConvId]) {
+      db.insert(conversations)
+        .values({ id, title: "test", createdAt: now, updatedAt: now })
+        .run();
+    }
+    setConversationKey(mainScopedKey, mainConvId);
+    setConversationKey(legacyKey, mainConvId);
+    setConversationKey(topicKey, topicConvId);
+    upsertBinding({
+      conversationId: mainConvId,
+      sourceChannel: "telegram",
+      externalChatId: chatId,
+    });
+    upsertBinding({
+      conversationId: topicConvId,
+      sourceChannel: "telegram",
+      externalChatId: chatId,
+      externalThreadId: "555",
+    });
+
+    const req = new Request("http://localhost/channels/conversation", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sourceChannel: "telegram",
+        conversationExternalId: chatId,
+      }),
+    });
+    const res = await handleDeleteConversation(req);
+    expect(res.status).toBe(200);
+
+    // Main-chat keys and binding are cleared...
+    expect(getConversationByKey(mainScopedKey)).toBeNull();
+    expect(getConversationByKey(legacyKey)).toBeNull();
+    expect(getBindingByChannelChat("telegram", chatId)).toBeNull();
+    // ...but the open topic's key and binding survive.
+    expect(getConversationByKey(topicKey)?.conversationId).toBe(topicConvId);
+    expect(
+      getBindingByChannelChatThread("telegram", chatId, "555")?.conversationId,
+    ).toBe(topicConvId);
+  });
 });

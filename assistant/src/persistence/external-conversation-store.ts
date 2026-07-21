@@ -263,6 +263,29 @@ export function deleteBindingByChannelChat(
 }
 
 /**
+ * Remove only the thread-less (main-chat) binding for a channel + chat.
+ *
+ * Used by the threadless reset path so resetting the main DM conversation does
+ * not wipe sibling topic/thread bindings for the same chat (those carry a
+ * non-null `externalThreadId`).
+ */
+export function deleteBindingByChannelChatNullThread(
+  sourceChannel: string,
+  externalChatId: string,
+): void {
+  const db = getDb();
+  db.delete(externalConversationBindings)
+    .where(
+      and(
+        eq(externalConversationBindings.sourceChannel, sourceChannel),
+        eq(externalConversationBindings.externalChatId, externalChatId),
+        isNull(externalConversationBindings.externalThreadId),
+      ),
+    )
+    .run();
+}
+
+/**
  * Remove an external binding by channel + external chat ID + thread ID.
  */
 export function deleteBindingByChannelChatThread(

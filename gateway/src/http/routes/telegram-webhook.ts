@@ -92,6 +92,40 @@ export function createTelegramWebhookHandler(
 ) {
   const dedupCache = new DedupCache();
 
+  // Verification topics this gateway created per chat (threaded mode). A
+  // verified code only tears down the dedicated Verification topic recorded
+  // here — never an ordinary assistant topic where a user happens to paste a
+  // still-valid code. In-memory is sufficient: a gateway restart just skips the
+  // best-effort teardown, which is safe.
+  const VERIFICATION_TOPIC_TTL_MS = 30 * 60_000;
+  const verificationTopics = new Map<
+    string,
+    { threadId: string; expiresAt: number }
+  >();
+  const rememberVerificationTopic = (
+    chatId: string,
+    threadId: string,
+  ): void => {
+    verificationTopics.set(chatId, {
+      threadId,
+      expiresAt: Date.now() + VERIFICATION_TOPIC_TTL_MS,
+    });
+  };
+  const isVerificationTopic = (chatId: string, threadId: string): boolean => {
+    const entry = verificationTopics.get(chatId);
+    if (!entry) {
+      return false;
+    }
+    if (Date.now() > entry.expiresAt) {
+      verificationTopics.delete(chatId);
+      return false;
+    }
+    return entry.threadId === threadId;
+  };
+  const forgetVerificationTopic = (chatId: string): void => {
+    verificationTopics.delete(chatId);
+  };
+
   const handler = async (req: Request): Promise<Response> => {
     const traceId = req.headers.get("x-trace-id") ?? undefined;
     const tlog = traceId ? log.child({ traceId }) : log;
@@ -582,6 +616,12 @@ export function createTelegramWebhookHandler(
             );
             return undefined;
           })) ?? topicThreadId;
+        if (startThreadId) {
+          rememberVerificationTopic(
+            normalized.message.conversationExternalId,
+            startThreadId,
+          );
+        }
       }
       const startSendOpts = telegramSendOpts(caches, startThreadId);
 
@@ -977,11 +1017,16 @@ export function createTelegramWebhookHandler(
         if (
           result.verificationIntercepted &&
           result.verificationOutcome === "verified" &&
-          topicThreadId
+          topicThreadId &&
+          isVerificationTopic(chatId, topicThreadId)
         ) {
-          // Threaded verification: delete the topic and confirm in the main
-          // chat. Fire-and-forget — the helper sequences delete-then-reply and
-          // handles its own errors, so the webhook response is not blocked.
+          // Threaded verification: the code was confirmed inside the dedicated
+          // Verification topic this gateway created, so delete that topic and
+          // confirm in the main chat. Fire-and-forget — the helper sequences
+          // delete-then-reply and handles its own errors, so the webhook
+          // response is not blocked. A code entered in any other topic falls to
+          // the branch below (reply in place, no deletion).
+          forgetVerificationTopic(chatId);
           void closeVerificationTopic(
             chatId,
             topicThreadId,

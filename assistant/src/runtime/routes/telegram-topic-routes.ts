@@ -5,6 +5,7 @@
 
 import { z } from "zod";
 
+import { findConversation } from "../../daemon/conversation-registry.js";
 import { cancelGeneration } from "../../daemon/handlers/conversations.js";
 import { ipcCall } from "../../ipc/gateway-client.js";
 import {
@@ -32,6 +33,7 @@ import { getLogger } from "../../util/logger.js";
 import { GATEWAY_PRINCIPALS } from "../auth/route-policy.js";
 import { deleteBoundChannelThread } from "../channel-thread-cleanup.js";
 import {
+  publishConversationInferenceProfileChanged,
   publishConversationListAndMetadataChanged,
   publishConversationTitleChanged,
 } from "../sync/resource-sync-events.js";
@@ -299,7 +301,21 @@ function handleSetProfile({ body = {} }: RouteHandlerArgs) {
     throw new BadRequestError(`Unknown or disabled profile: ${profile}`);
   }
 
+  // Mirror the web setter: persist, then reflect onto the live conversation
+  // and broadcast so an in-flight/active turn and every connected client pick
+  // up the new profile instead of reading the stale in-memory value.
   setConversationInferenceProfile(binding.conversationId, profile);
+  findConversation(binding.conversationId)?.applyInferenceProfileState({
+    profile,
+    sessionId: null,
+    expiresAt: null,
+  });
+  publishConversationInferenceProfileChanged({
+    conversationId: binding.conversationId,
+    profile,
+    sessionId: null,
+    expiresAt: null,
+  });
   return { ok: true as const, profile, label: known.label };
 }
 

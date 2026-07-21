@@ -7,7 +7,7 @@ import {
 } from "../../persistence/conversation-key-store.js";
 import { buildScopedConversationKey } from "../../persistence/delivery-crud.js";
 import {
-  deleteBindingByChannelChat,
+  deleteBindingByChannelChatNullThread,
   deleteBindingByChannelChatThread,
 } from "../../persistence/external-conversation-store.js";
 import { BadRequestError } from "./errors.js";
@@ -38,7 +38,10 @@ export function handleDeleteConversation({ body = {} }: RouteHandlerArgs) {
   const legacyKey = `${sourceChannel}:${conversationExternalId}`;
   if (!normalizedThreadId) {
     deleteConversationKey(legacyKey);
-    deleteBindingByChannelChat(sourceChannel, conversationExternalId);
+    // Reset only the main-chat conversation. Clearing every binding for the
+    // chat would orphan sibling topics/threads (e.g. a Telegram main-DM /new
+    // must not unbind the chat's open topics).
+    deleteBindingByChannelChatNullThread(sourceChannel, conversationExternalId);
   } else {
     if (sourceChannel === "slack") {
       getOrCreateConversation(scopedKey);
