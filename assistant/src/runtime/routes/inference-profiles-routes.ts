@@ -34,6 +34,8 @@ import {
   WRITE_LOCKED_PROVIDERS,
 } from "../../config/schemas/llm.js";
 import { getDb } from "../../persistence/db-connection.js";
+import { resolveRoutingIdentity } from "../../providers/connection-resolution.js";
+import { ROUTING_IDENTITY_PROVIDERS } from "../../providers/inference/auth.js";
 import { computeConnectionAvailability } from "../../providers/inference/connection-availability.js";
 import { getConnection } from "../../providers/inference/connections.js";
 import { isModelInCatalog } from "../../providers/model-catalog.js";
@@ -200,7 +202,32 @@ async function profileAvailability(
 ): Promise<Awaited<ReturnType<typeof computeConnectionAvailability>> | null> {
   const provider = entry.provider;
   const connection = entry.provider_connection;
-  if (typeof provider !== "string" || typeof connection !== "string") {
+  if (typeof provider !== "string") {
+    return null;
+  }
+  // Routing-identity profiles carry no provider_connection; availability is
+  // judged against the identity's canonical row and derived upstream. An
+  // unroutable vellum model reports as a mismatch rather than throwing —
+  // availability annotates, it must not fail the profiles read.
+  if (ROUTING_IDENTITY_PROVIDERS.has(provider)) {
+    const model = typeof entry.model === "string" ? entry.model : undefined;
+    try {
+      const identity = resolveRoutingIdentity(provider, model);
+      if (!identity) {
+        return null;
+      }
+      return computeConnectionAvailability(
+        identity.expectedProvider,
+        identity.connectionName,
+      );
+    } catch {
+      return {
+        status: "provider_mismatch",
+        message: `Model "${model ?? "<unset>"}" is not served by the Vellum managed route. Pick a model from the Vellum catalog.`,
+      };
+    }
+  }
+  if (typeof connection !== "string") {
     return null;
   }
   return computeConnectionAvailability(provider, connection);

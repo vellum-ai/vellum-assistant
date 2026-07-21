@@ -120,6 +120,75 @@ describe("preflightResolvedConfig", () => {
     expect(err?.reason).toBe("provider_mismatch");
   });
 
+  test("a vellum identity preflights through the sentinel row with the derived upstream", async () => {
+    connectionsByName["vellum"] = {
+      name: "vellum",
+      provider: "vellum",
+      auth: { type: "platform" },
+    };
+    platformLoggedIn = true;
+    await expect(
+      preflightResolvedConfig(
+        resolved({ provider: "vellum", provider_connection: "" }),
+        {},
+      ),
+    ).resolves.toBeUndefined();
+  });
+
+  test("a vellum identity without a platform login throws platform_unauthenticated", async () => {
+    connectionsByName["vellum"] = {
+      name: "vellum",
+      provider: "vellum",
+      auth: { type: "platform" },
+    };
+    platformLoggedIn = false;
+    const err = await preflightError(
+      resolved({ provider: "vellum", provider_connection: "" }),
+    );
+    expect(err?.reason).toBe("platform_unauthenticated");
+  });
+
+  test("an unroutable vellum model throws unroutable_managed_model", async () => {
+    const err = await preflightError(
+      resolved({
+        provider: "vellum",
+        provider_connection: "",
+        model: "not-a-real-model",
+      }),
+    );
+    expect(err?.reason).toBe("unroutable_managed_model");
+  });
+
+  test("a chatgpt identity preflights the subscription row's credential", async () => {
+    connectionsByName["chatgpt-subscription"] = {
+      name: "chatgpt-subscription",
+      provider: "openai",
+      auth: {
+        type: "oauth_subscription",
+        credential: "credential/chatgpt/access_token",
+      },
+    };
+    const missing = await preflightError(
+      resolved({ provider: "chatgpt", provider_connection: "" }),
+    );
+    expect(missing?.reason).toBe("missing_credential");
+
+    secureKeys["credential/chatgpt/access_token"] = "tok";
+    await expect(
+      preflightResolvedConfig(
+        resolved({ provider: "chatgpt", provider_connection: "" }),
+        {},
+      ),
+    ).resolves.toBeUndefined();
+  });
+
+  test("a chatgpt identity with no subscription row throws not_found", async () => {
+    const err = await preflightError(
+      resolved({ provider: "chatgpt", provider_connection: "" }),
+    );
+    expect(err?.reason).toBe("not_found");
+  });
+
   test("the vellum managed connection serves managed-routable providers when logged in", async () => {
     connectionsByName = {
       vellum: {

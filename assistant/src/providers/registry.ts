@@ -17,6 +17,7 @@ import {
 // Per-connection provider cache (mix-and-match support)
 // ---------------------------------------------------------------------------
 import type { ProviderConnection } from "./inference/auth.js";
+import { ROUTING_IDENTITY_PROVIDERS } from "./inference/auth.js";
 import { resolveAuth } from "./inference/resolve-auth.js";
 import { isModelInCatalog, PROVIDER_CATALOG } from "./model-catalog.js";
 import { getProviderDefaultModel } from "./model-intents.js";
@@ -200,11 +201,15 @@ export async function initializeProviders(
     if (isKeyless) {
       const key = await getProviderKeyAsync(entry.id);
       const isConfiguredMainAgent = mainAgentProvider === entry.id;
-      if (!key && !isConfiguredMainAgent) continue;
+      if (!key && !isConfiguredMainAgent) {
+        continue;
+      }
       apiKey = key ?? "";
     } else {
       const creds = await resolveProviderCredentials(entry.id);
-      if (!creds) continue;
+      if (!creds) {
+        continue;
+      }
       apiKey = creds.apiKey;
       baseURL = creds.baseURL;
       source = creds.source;
@@ -276,7 +281,7 @@ export async function resolveProviderFromConnection(
   // point (resolveRoutingIdentity in connection-resolution) — an identity
   // reaching adapter construction would silently yield no adapter and the
   // retry wire-normalization keys off real adapter provider names.
-  if (effectiveProvider === "vellum" || effectiveProvider === "chatgpt") {
+  if (ROUTING_IDENTITY_PROVIDERS.has(effectiveProvider)) {
     throw new Error(
       `resolveProviderFromConnection received unresolved routing identity "${effectiveProvider}" — translate to a real upstream before adapter construction`,
     );
@@ -288,7 +293,9 @@ export async function resolveProviderFromConnection(
     effectiveProvider,
   );
   const cached = connectionProviders.get(cacheKey);
-  if (cached) return cached;
+  if (cached) {
+    return cached;
+  }
 
   const authResult = await resolveAuth(connection.auth, effectiveProvider, {
     baseUrl: connection.baseUrl,

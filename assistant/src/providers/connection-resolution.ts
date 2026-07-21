@@ -405,7 +405,13 @@ export async function preflightResolvedConfig(
   },
   attribution: { profileName?: string } = {},
 ): Promise<void> {
-  const connectionName = resolved.provider_connection;
+  // Routing identities preflight through their canonical row and derived
+  // upstream; an unroutable vellum model throws here — it is statically
+  // detectable, exactly what preflight exists to surface.
+  const identity = resolveRoutingIdentity(resolved.provider, resolved.model);
+  const provider = identity?.expectedProvider ?? resolved.provider;
+  const connectionName =
+    identity?.connectionName ?? resolved.provider_connection;
   if (!connectionName) {
     return;
   }
@@ -433,11 +439,11 @@ export async function preflightResolvedConfig(
   }
 
   if (isVellumManagedConnection(connection)) {
-    if (!MANAGED_ROUTABLE_PROVIDERS.has(resolved.provider)) {
+    if (!MANAGED_ROUTABLE_PROVIDERS.has(provider)) {
       throw new ConnectionResolutionError(
         connectionName,
         "provider_mismatch",
-        `provider_connection "${connectionName}" is the Vellum-managed connection, which cannot serve provider "${resolved.provider}"`,
+        `provider_connection "${connectionName}" is the Vellum-managed connection, which cannot serve provider "${provider}"`,
         errorOptions,
       );
     }
@@ -451,11 +457,11 @@ export async function preflightResolvedConfig(
     }
     return;
   }
-  if (connection.provider !== resolved.provider) {
+  if (connection.provider !== provider) {
     throw new ConnectionResolutionError(
       connectionName,
       "provider_mismatch",
-      `provider_connection "${connectionName}" has provider="${connection.provider}" but the resolved config declares provider="${resolved.provider}"`,
+      `provider_connection "${connectionName}" has provider="${connection.provider}" but the resolved config declares provider="${provider}"`,
       errorOptions,
     );
   }
