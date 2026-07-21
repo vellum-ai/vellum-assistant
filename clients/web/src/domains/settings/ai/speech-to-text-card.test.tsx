@@ -78,7 +78,7 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
 const { SpeechToTextCard } =
   await import("@/domains/settings/ai/speech-to-text-card");
 const { LS_STT_PROVIDER } =
-  await import("@/domains/settings/ai/local-storage-keys");
+  await import("@/utils/local-settings-keys");
 
 function renderCard() {
   const queryClient = new QueryClient({
