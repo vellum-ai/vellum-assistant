@@ -305,3 +305,93 @@ describe("deriveProvisioningState — server verdict overrides", () => {
     ).toBe("CONFIRMING");
   });
 });
+
+describe("deriveProvisioningState — an in-flight resize blocks completion", () => {
+  // The platform persists the effective machine_size / provisioned_storage_gib
+  // at *acceptance* of the resize, while the operation marker is still
+  // WAITING_FOR_PVC/WAITING_FOR_READY — so targets read as met for the whole
+  // window the pod spends restarting. Completing there would clear machineBusy
+  // and let the domain step write to a gateway that is still down.
+  test("targets met while the resize is still in flight → RESIZING, not DONE", () => {
+    expect(
+      deriveProvisioningState(
+        baseInput({
+          actuals: { machineSize: "large", storageGib: 50 },
+          resizeOperationInFlight: true,
+        }),
+      ),
+    ).toEqual({ state: "RESIZING", softWaiting: false });
+  });
+
+  test("an in_progress verdict with met targets stays RESIZING", () => {
+    expect(
+      deriveProvisioningState(
+        baseInput({
+          actuals: { machineSize: "large", storageGib: 50 },
+          resizeOperationInFlight: true,
+          serverVerdict: "in_progress",
+        }),
+      ).state,
+    ).toBe("RESIZING");
+  });
+
+  test("an already_done verdict does not complete mid-resize", () => {
+    expect(
+      deriveProvisioningState(
+        baseInput({
+          resizeOperationInFlight: true,
+          serverVerdict: "already_done",
+        }),
+      ).state,
+    ).toBe("RESIZING");
+  });
+
+  test("a not_applicable verdict does not complete mid-resize", () => {
+    expect(
+      deriveProvisioningState(
+        baseInput({
+          resizeOperationInFlight: true,
+          serverVerdict: "not_applicable",
+        }),
+      ).state,
+    ).toBe("RESIZING");
+  });
+
+  test("first-observed actuals already at target still NOT_APPLICABLE when nothing is in flight", () => {
+    // The guard keys on the live operation only, so the no-op upgrade path is
+    // untouched.
+    expect(
+      deriveProvisioningState(
+        baseInput({
+          targets: { machineSize: "small", storageGib: 10 },
+          actuals: { machineSize: "small", storageGib: 10 },
+          initialActuals: { machineSize: "small", storageGib: 10 },
+        }),
+      ).state,
+    ).toBe("NOT_APPLICABLE");
+  });
+
+  test("once the operation clears, met targets settle to DONE", () => {
+    expect(
+      deriveProvisioningState(
+        baseInput({
+          actuals: { machineSize: "large", storageGib: 50 },
+          resizeOperationInFlight: false,
+          sawOperation: true,
+        }),
+      ).state,
+    ).toBe("DONE");
+  });
+
+  test("a marker that never clears still reaches STALLED, keeping the escape", () => {
+    expect(
+      deriveProvisioningState(
+        baseInput({
+          actuals: { machineSize: "large", storageGib: 50 },
+          resizeOperationInFlight: true,
+          msSinceWatchStart: PROVISION_STALL_MS,
+        }),
+      ).state,
+    ).toBe("STALLED");
+  });
+});

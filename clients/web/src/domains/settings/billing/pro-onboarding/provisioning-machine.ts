@@ -26,7 +26,9 @@ export type ProvisioningStateKind =
 /**
  * Server-reported provisioning verdict (from the ensure-provisioned endpoint,
  * adopted by a later PR). Overrides client-side inference, except that
- * DONE-by-actuals beats a stale verdict.
+ * DONE-by-actuals beats a stale verdict — and that a currently in-flight
+ * resize beats both, since no verdict may complete the flow while the machine
+ * is still rolling out.
  */
 export type ProvisioningServerVerdict =
   | "already_done"
@@ -112,32 +114,45 @@ export function deriveProvisioningState(
 
   const operationObserved = sawOperation || resizeOperationInFlight;
 
-  if (targetsMet(targets, actuals)) {
-    // DONE-by-actuals wins over a stale in_progress/started verdict. A quick
-    // resize can also finish between polls (or behind transient endpoint
-    // failures) without ever being observed, so when no operation was seen,
-    // disambiguate by the first actuals ever observed: if they were below the
-    // targets, a resize must have run → DONE. NOT_APPLICABLE is reserved for
-    // first-observed actuals that already met the targets (null initialActuals
-    // means the current actuals ARE the first observation — the hook freezes
-    // them as the snapshot one render later).
-    if (
-      operationObserved ||
-      serverVerdict === "already_done" ||
-      serverVerdict === "started" ||
-      serverVerdict === "in_progress" ||
-      (initialActuals != null && !targetsMet(targets, initialActuals))
-    ) {
+  // A *currently observed* resize dominates every terminal state, because the
+  // actuals go high before the machine is usable: the platform persists the
+  // effective machine_size / provisioned_storage_gib in the same call that
+  // leaves the operation marker WAITING_FOR_PVC/WAITING_FOR_READY, so targets
+  // read as met from the moment the resize is accepted while the pod is still
+  // restarting. Completing here would clear `machineBusy` and let the domain
+  // step fire its guardian write into a gateway that is still coming back up.
+  // Falling through holds the flow in RESIZING; the stall clock below is still
+  // the escape when a marker never clears. Note this deliberately keys on
+  // `resizeOperationInFlight`, not `operationObserved` — a resize seen only in
+  // the past must still be allowed to settle.
+  if (!resizeOperationInFlight) {
+    if (targetsMet(targets, actuals)) {
+      // DONE-by-actuals wins over a stale in_progress/started verdict. A quick
+      // resize can also finish between polls (or behind transient endpoint
+      // failures) without ever being observed, so when no operation was seen,
+      // disambiguate by the first actuals ever observed: if they were below the
+      // targets, a resize must have run → DONE. NOT_APPLICABLE is reserved for
+      // first-observed actuals that already met the targets (null initialActuals
+      // means the current actuals ARE the first observation — the hook freezes
+      // them as the snapshot one render later).
+      if (
+        operationObserved ||
+        serverVerdict === "already_done" ||
+        serverVerdict === "started" ||
+        serverVerdict === "in_progress" ||
+        (initialActuals != null && !targetsMet(targets, initialActuals))
+      ) {
+        return { state: "DONE", softWaiting: false };
+      }
+      return { state: "NOT_APPLICABLE", softWaiting: false };
+    }
+
+    if (serverVerdict === "already_done") {
       return { state: "DONE", softWaiting: false };
     }
-    return { state: "NOT_APPLICABLE", softWaiting: false };
-  }
-
-  if (serverVerdict === "already_done") {
-    return { state: "DONE", softWaiting: false };
-  }
-  if (serverVerdict === "not_applicable") {
-    return { state: "NOT_APPLICABLE", softWaiting: false };
+    if (serverVerdict === "not_applicable") {
+      return { state: "NOT_APPLICABLE", softWaiting: false };
+    }
   }
 
   if (msSinceWatchStart != null && msSinceWatchStart >= PROVISION_STALL_MS) {

@@ -456,7 +456,11 @@ describe("useProProvisioning", () => {
       });
       expect(latest!.stalledAction.error).toBeNull();
 
+      // The landing resize also retires the operation marker: the platform
+      // reports `resizing_machine` until the rollout converges, so met actuals
+      // never coexist with an in-flight marker on a real completion.
       assistantResponse = makeAssistant("large", 50);
+      operationalStatusResponse = makeOperationalStatus("active");
       await refetchAll(client);
       await waitFor(() => expect(latest!.state).toBe("DONE"), {
         timeout: 5000,
@@ -488,6 +492,7 @@ describe("useProProvisioning", () => {
       expect(latest!.state).toBe("STALLED");
 
       assistantResponse = makeAssistant("large", 50);
+      operationalStatusResponse = makeOperationalStatus("active");
       await refetchAll(client);
       await waitFor(() => expect(latest!.state).toBe("DONE"), {
         timeout: 5000,
@@ -517,6 +522,7 @@ describe("useProProvisioning", () => {
 
       // The resize lands with no manual apply — the flow self-recovers.
       assistantResponse = makeAssistant("large", 50);
+      operationalStatusResponse = makeOperationalStatus("active");
       await refetchAll(client);
       await waitFor(() => expect(latest!.state).toBe("DONE"), {
         timeout: 5000,
