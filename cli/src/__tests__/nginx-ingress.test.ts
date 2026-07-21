@@ -134,6 +134,8 @@ describe("buildIngressNginxConfig", () => {
       "location = /v1/pair/ { return 404; }",
       "location = /v1/pair/web-init { return 404; }",
       "location = /v1/pair/web-init/ { return 404; }",
+      "location = /v1/pair/qr-code { return 404; }",
+      "location = /v1/pair/qr-code/ { return 404; }",
       "location = /v1/devices { return 404; }",
       "location = /v1/devices/ { return 404; }",
       "location = /v1/devices/revoke { return 404; }",
@@ -151,6 +153,15 @@ describe("buildIngressNginxConfig", () => {
         remoteConf.indexOf("location ^~ /v1/ {"),
       );
     }
+  });
+
+  test("allows the public QR pairing exchange to reach the gateway", () => {
+    // The exchange endpoint is deliberately internet-facing: it is NOT denied
+    // and falls through to the generic /v1/ proxy, unlike its loopback-only
+    // qr-code mint sibling which is 404'd above.
+    expect(remoteConf).not.toContain("/v1/pair/qr-exchange { return 404; }");
+    expect(remoteConf).not.toContain("/v1/pair/qr-exchange/ { return 404; }");
+    expect(remoteConf).toContain("location ^~ /v1/ {");
   });
 
   test("supports websockets and SSE streaming", () => {

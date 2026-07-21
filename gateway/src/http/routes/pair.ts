@@ -29,7 +29,6 @@
 
 import { and, eq } from "drizzle-orm";
 
-import { mintAndRecordDeviceBoundTokenPair } from "../../auth/guardian-bootstrap.js";
 import { CURRENT_POLICY_EPOCH } from "../../auth/policy.js";
 import { mintToken } from "../../auth/token-service.js";
 import { KNOWN_EXTENSION_ORIGINS } from "../../chrome-extension-origins.js";
@@ -39,6 +38,7 @@ import {
   contactChannels as gwContactChannels,
 } from "../../db/schema.js";
 import { getLogger } from "../../logger.js";
+import { mintDeviceBoundPairResponse } from "../device-bound-pair-response.js";
 import { enforceLoopbackOnly, errorResponse } from "../loopback-guard.js";
 
 const log = getLogger("pair");
@@ -350,53 +350,4 @@ export async function handlePair(
     `unsupported interface: '${interfaceId}'`,
     400,
   );
-}
-
-/**
- * Mint a device-bound, recorded, per-device-revocable credential and build the
- * pair response. Shared by the chrome-extension (deviceId) and cli pairing
- * paths.
- *
- * Issues the standard access + long-lived device-scoped refresh token pair, so
- * a paired client renews via `/v1/guardian/refresh` instead of re-pairing.
- * Both are revocable per device on the hot path (actor-token revocation is
- * enforced on live requests), and the refresh endpoint rejects revoked/rotated
- * tokens — so revocation, not a short TTL, bounds a leaked token's reach. The
- * access TTL matches what `/v1/guardian/refresh` mints on rotation, so it stays
- * consistent across the token's life (rather than 24h at mint then 30d after
- * the first refresh).
- */
-function mintDeviceBoundPairResponse(opts: {
-  guardianPrincipalId: string;
-  assistantId: string;
-  deviceId: string;
-  platform: string;
-  interfaceId: string;
-  clientId: string | null;
-}): Response {
-  const pair = mintAndRecordDeviceBoundTokenPair({
-    guardianPrincipalId: opts.guardianPrincipalId,
-    deviceId: opts.deviceId,
-    platform: opts.platform,
-  });
-
-  log.info(
-    {
-      interfaceId: opts.interfaceId,
-      clientId: opts.clientId,
-      guardianPrincipalId: opts.guardianPrincipalId,
-      platform: opts.platform,
-    },
-    "Client paired successfully via loopback (device-bound)",
-  );
-
-  return Response.json({
-    token: pair.accessToken,
-    expiresAt: new Date(pair.accessTokenExpiresAt).toISOString(),
-    refreshToken: pair.refreshToken,
-    refreshTokenExpiresAt: new Date(pair.refreshTokenExpiresAt).toISOString(),
-    refreshAfter: new Date(pair.refreshAfter).toISOString(),
-    guardianId: opts.guardianPrincipalId,
-    assistantId: opts.assistantId,
-  });
 }

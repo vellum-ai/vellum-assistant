@@ -91,6 +91,8 @@ import {
   handleRevokeDevice,
 } from "./http/routes/devices.js";
 import { handlePair } from "./http/routes/pair.js";
+import { handleMintQrPairingCode } from "./http/routes/pair-qr-code.js";
+import { handleQrPairingExchange } from "./http/routes/pair-qr-exchange.js";
 import { handleCredentialEntryPage } from "./http/routes/credential-entry-page.js";
 import {
   handleCredentialRequestPeek,
@@ -840,6 +842,25 @@ async function main() {
       method: "POST",
       auth: "none",
       handler: (req, _params, getClientIp) => handlePair(req, getClientIp()),
+    },
+    // Loopback-only mint of a single-use QR pairing code (self-guards loopback;
+    // the nginx edge also 404s this path).
+    {
+      path: "/v1/pair/qr-code",
+      method: "POST",
+      auth: "none",
+      handler: (req, _params, getClientIp) =>
+        handleMintQrPairingCode(req, getClientIp()),
+    },
+    // Public exchange of a QR pairing code for device-bound tokens. Reachable
+    // over the tunnel (flag-gated behind web-remote-ingress); the code is the
+    // credential.
+    {
+      path: "/v1/pair/qr-exchange",
+      method: "POST",
+      auth: "none",
+      handler: (req, _params, getClientIp) =>
+        handleQrPairingExchange(req, getClientIp()),
     },
     {
       path: "/v1/remote-web/pairing-challenge",

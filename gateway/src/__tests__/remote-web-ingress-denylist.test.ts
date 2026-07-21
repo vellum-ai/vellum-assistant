@@ -76,22 +76,28 @@ describe("remote web ingress denylist", () => {
       "/v1/guardian/init",
       "/v1/guardian/reset-bootstrap",
       "/v1/pair",
+      "/v1/pair/qr-code",
+      "/v1/pair/qr-exchange",
       "/v1/remote-web/pairing-challenge",
       "/v1/remote-web/pairing-token",
       "/v1/remote-web/pairing-verification",
     ]);
 
-    const publicRemoteWebRoutes = new Set([
+    // Routes that are meant to be reachable over the tunnel: the browser
+    // device-code pairing pair, plus the public QR pairing exchange. Everything
+    // else in the list is loopback-only and must be 404'd at the edge.
+    const publicIngressRoutes = new Set([
+      "/v1/pair/qr-exchange",
       "/v1/remote-web/pairing-challenge",
       "/v1/remote-web/pairing-token",
     ]);
 
     for (const path of unprotectedV1Routes) {
-      if (publicRemoteWebRoutes.has(path)) continue;
+      if (publicIngressRoutes.has(path)) continue;
       assertDeniedBeforeV1Proxy(path);
     }
 
-    for (const path of publicRemoteWebRoutes) {
+    for (const path of publicIngressRoutes) {
       assertNotExplicitlyDenied(path);
     }
   });
