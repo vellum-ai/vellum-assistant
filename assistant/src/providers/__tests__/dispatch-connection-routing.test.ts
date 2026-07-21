@@ -283,9 +283,9 @@ describe("dispatch routes through provider_connection (Phase 1: connection-only)
 });
 
 // ---------------------------------------------------------------------------
-// Routing identities ("vellum"/"chatgpt") — resolution-unit coverage. Config-
-// driven dispatch of identity profiles stays impossible while the write-lock
-// holds; the end-to-end config test lands with the lock lift.
+// Routing identities ("vellum"/"chatgpt") — resolution-unit coverage. The
+// config write-lock keeps identity providers out of stored profiles, so
+// config-driven dispatch of them is untestable here by construction.
 // ---------------------------------------------------------------------------
 
 describe("routing identities", () => {
