@@ -13,8 +13,7 @@
  * lag the displayed LLM text mid-stream, so the fraction maps a shorter spoken
  * prefix onto the longer displayed transcript and can overshoot the truly
  * spoken word slightly. The error is bounded by the synthesis lag and
- * self-corrects as synthesis catches up — and it still tracks speech far more
- * closely than the text-arrival edge it replaces.
+ * self-corrects as synthesis catches up.
  *
  * The cursor is monotonic within a response: a smaller fraction (e.g. the
  * played/total ratio dipping when a new audio burst grows the total) never
