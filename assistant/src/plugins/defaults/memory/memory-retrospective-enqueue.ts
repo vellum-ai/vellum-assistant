@@ -35,7 +35,8 @@ export type MemoryRetrospectiveTrigger =
   | "interval"
   | "message_count"
   | "compaction"
-  | "lifecycle";
+  | "lifecycle"
+  | "sweep";
 
 const COMPACTION_DEBOUNCE_MS = 500;
 
@@ -99,7 +100,9 @@ export function isMemoryRetrospectiveConversation(
  */
 function isLowYieldRetrospectiveSource(conversationId: string): boolean {
   const conversation = getConversation(conversationId);
-  if (!conversation) return false;
+  if (!conversation) {
+    return false;
+  }
   return (
     conversation.conversationType === "scheduled" ||
     conversation.source === MEMORY_V2_CONSOLIDATION_SOURCE

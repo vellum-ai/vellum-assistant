@@ -65,6 +65,19 @@ export const MemoryRetrospectiveConfigSchema = z
       .describe(
         "Optional path to a file whose contents replace the bundled retrospective fork-instruction prompt. Relative paths resolve under the workspace root; absolute paths and a leading `~/` (expanded to the home directory) are honored only when they still resolve inside the workspace root — a path that lands outside the workspace (including via symlinks) is rejected. The loaded contents may include `{{AVAILABLE_TOOLS_LINE}}`, `{{WINDOW_ANCHOR}}`, `{{ALREADY_REMEMBERED}}`, and `{{SKILL_AUTHORING_SECTION}}`, which are substituted at runtime. If the file is rejected, missing, unreadable, or empty, the bundled prompt is used and a warning is logged.",
       ),
+
+    sweepIntervalMs: z
+      .number({
+        error: "memory.retrospective.sweepIntervalMs must be a number",
+      })
+      .int("memory.retrospective.sweepIntervalMs must be an integer")
+      .positive(
+        "memory.retrospective.sweepIntervalMs must be a positive integer",
+      )
+      .default(8 * 60 * 60 * 1000)
+      .describe(
+        "Milliseconds between scheduled sweep passes that find conversations with unprocessed messages and enqueue retrospective jobs. Supplements the turn-end trigger so memory quality does not depend on clean turn completions. Runs on each idle/drain worker tick after the interval elapses.",
+      ),
   })
   .describe(
     "Controls the memory-retrospective background pass. Model selection lives under llm.callSites.memoryRetrospective.",

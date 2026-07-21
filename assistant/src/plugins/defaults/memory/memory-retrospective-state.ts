@@ -23,11 +23,19 @@
 // The schema enforces the foreign key with ON DELETE CASCADE, so deleting a
 // conversation collects its state row automatically.
 
-import { desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, ne, notInArray, sql } from "drizzle-orm";
 
 import { type DrizzleDb, getDb } from "../../../persistence/db-connection.js";
-import { memoryRetrospectiveState } from "../../../persistence/schema/index.js";
+import {
+  conversations,
+  memoryRetrospectiveState,
+} from "../../../persistence/schema/index.js";
 import { withSqliteRetry } from "./host-utils.js";
+import {
+  MEMORY_RETROSPECTIVE_FORK_SOURCE,
+  MEMORY_RETROSPECTIVE_SOURCE,
+} from "./memory-retrospective-constants.js";
+import { MEMORY_V2_CONSOLIDATION_SOURCE } from "./v3/substrate/constants.js";
 
 export interface MemoryRetrospectiveState {
   conversationId: string;
@@ -74,10 +82,14 @@ export function appendToRememberedLog(
 }
 
 function parseRememberedLog(raw: string | null): string[] {
-  if (!raw) return [];
+  if (!raw) {
+    return [];
+  }
   try {
     const parsed: unknown = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
     return parsed.filter((entry): entry is string => typeof entry === "string");
   } catch {
     return [];
@@ -109,6 +121,70 @@ export function listRetrospectiveStates(
 }
 
 /**
+ * Conversation source values that are excluded from the retrospective sweep.
+ * Mirrors `isMemoryRetrospectiveConversation` and `isLowYieldRetrospectiveSource`
+ * in the enqueue helper — only string-valued so we can push them into a SQL
+ * `NOT IN` predicate without loading and filtering in application code.
+ */
+const SWEEP_EXCLUDED_SOURCES = [
+  MEMORY_RETROSPECTIVE_SOURCE,
+  MEMORY_RETROSPECTIVE_FORK_SOURCE,
+  MEMORY_V2_CONSOLIDATION_SOURCE,
+] as const;
+
+export interface ConversationSweepEntry {
+  conversationId: string;
+  /** `null` when no state row exists (conversation has never been retro'd). */
+  lastProcessedMessageId: string | null;
+  /** `0` when no state row exists. */
+  lastRunAt: number;
+}
+
+/**
+ * Return up to `limit` active, non-excluded conversations ordered by how long
+ * ago their last retrospective ran (stalest first). Conversations with no
+ * state row (never retro'd) sort to the front (their implicit lastRunAt is 0).
+ *
+ * Used by the scheduled sweep in jobs-worker.ts to find conversations that may
+ * have unprocessed messages regardless of whether a turn-end trigger fired.
+ * Archived and scheduled conversations are excluded; retrospective and
+ * consolidation background conversations are excluded (mirrors the recursion
+ * guard in `enqueueMemoryRetrospectiveIfEnabled`).
+ */
+export function listConversationsNeedingRetrospective(
+  limit: number,
+): ConversationSweepEntry[] {
+  const db = getDb();
+  const rows = db
+    .select({
+      conversationId: conversations.id,
+      lastProcessedMessageId: memoryRetrospectiveState.lastProcessedMessageId,
+      lastRunAt: memoryRetrospectiveState.lastRunAt,
+    })
+    .from(conversations)
+    .leftJoin(
+      memoryRetrospectiveState,
+      eq(conversations.id, memoryRetrospectiveState.conversationId),
+    )
+    .where(
+      and(
+        ne(conversations.conversationType, "scheduled"),
+        notInArray(conversations.source, [...SWEEP_EXCLUDED_SOURCES]),
+        isNull(conversations.archivedAt),
+      ),
+    )
+    .orderBy(asc(sql`COALESCE(${memoryRetrospectiveState.lastRunAt}, 0)`))
+    .limit(limit)
+    .all();
+
+  return rows.map((row) => ({
+    conversationId: row.conversationId,
+    lastProcessedMessageId: row.lastProcessedMessageId ?? null,
+    lastRunAt: row.lastRunAt ?? 0,
+  }));
+}
+
+/**
  * Load the state row for a conversation, or `null` if no row exists.
  */
 export function getRetrospectiveState(
@@ -119,7 +195,9 @@ export function getRetrospectiveState(
     .from(memoryRetrospectiveState)
     .where(eq(memoryRetrospectiveState.conversationId, conversationId))
     .get();
-  if (!row) return null;
+  if (!row) {
+    return null;
+  }
   return {
     conversationId: row.conversationId,
     lastProcessedMessageId: row.lastProcessedMessageId,
@@ -216,7 +294,9 @@ export function forkRetrospectiveState(args: {
     .from(memoryRetrospectiveState)
     .where(eq(memoryRetrospectiveState.conversationId, sourceConversationId))
     .get();
-  if (!sourceRow) return;
+  if (!sourceRow) {
+    return;
+  }
 
   let forkedPointer = "";
   if (sourceRow.lastProcessedMessageId !== "") {
