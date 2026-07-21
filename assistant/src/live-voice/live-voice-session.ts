@@ -25,7 +25,9 @@ import {
   ESCALATION_CONTINUATION_CONTENT,
   FALLBACK_ESCALATION_BRIDGE,
   FRONT_DOOR_PROFILE,
+  HOLD_VERDICT_TOKEN,
   isVoiceTriageEscalateEnabled,
+  isVoiceUnifiedFrontDoorEnabled,
   needsFallbackBridge,
   type VoiceRoutingLeg,
 } from "../calls/voice-triage-escalate.js";
@@ -425,6 +427,22 @@ interface ActiveAssistantTurn {
   // forwarded chunk so the firstTtsAudio metric is marked exactly once per turn.
   ttsAudioStarted: boolean;
   finalized: boolean;
+  // Unified front-door speculative dispatch: the leg is in flight but its
+  // first token's verdict (hold vs commit) has not arrived. The thinking
+  // frame, ack timer, and progress timer are deferred to commit; a hold
+  // verdict discards the leg and rolls back its persisted user message.
+  speculativePending: boolean;
+  // vadSpeechGeneration at dispatch — a mismatch at verdict time means
+  // speech resumed mid-flight, so the leg is discarded, never committed.
+  speculativeGeneration: number;
+  // The dispatched (pre-finalize) transcript, kept until the final
+  // transcript lands so divergence can be logged (see
+  // startAssistantTurnIfReady). Null once checked or for normal turns.
+  speculativeContent: string | null;
+  speculativeDispatchedAtMs: number;
+  // Accumulates leg deltas until the verdict resolves (whitespace-only
+  // prefixes carry no verdict).
+  speculativeBuffer: string;
   // When this turn started from a barge-in, the interrupted request's
   // transcript. Appended to the turn's control prompt (both legs) so the model
   // merges it with this turn's utterance instead of treating that utterance as
@@ -1274,6 +1292,15 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     this.vadSpeechGeneration += 1;
     this.clearEndpointExtensionTimer();
 
+    // Speech resumed while a speculative leg was awaiting its verdict: the
+    // pause was mid-thought after all. Discard silently (no frames were ever
+    // sent for it) and let the utterance keep accumulating — this is the
+    // hold outcome decided by the caller's own voice instead of the model.
+    const speculative = this.activeAssistantTurn;
+    if (speculative?.speculativePending) {
+      this.discardSpeculativeTurn(speculative, "speech_resumed");
+    }
+
     const turn = this.activeAssistantTurn;
     // Any in-flight, non-finalized turn is interruptible, whether it is still
     // "thinking" (pre-TTS) or audibly speaking, so a user can cut in before the
@@ -1578,9 +1605,21 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       // event ordering — an extra await here would shift utterance release
       // across the persistent-transcriber flush attribution.
       if (reason === "silence" && !manualRelease) {
-        const holdDecision = this.maybeHoldUtteranceOpen(utterance);
-        if (holdDecision && (await holdDecision)) {
-          return;
+        if (this.unifiedFrontDoorActive()) {
+          // Unified front-door: the leg itself is the endpoint decision.
+          // When it launches, the boundary is deferred to the verdict —
+          // commit releases the utterance, hold replays the boundary via
+          // the extension timer. When speculation is inapplicable (no
+          // text, cap reached, a turn already active) fall through and
+          // release exactly as before.
+          if (await this.launchSpeculativeAssistantTurn(utterance)) {
+            return;
+          }
+        } else {
+          const holdDecision = this.maybeHoldUtteranceOpen(utterance);
+          if (holdDecision && (await holdDecision)) {
+            return;
+          }
         }
       }
       await this.sendFrame({ type: "utterance_end", reason });
@@ -1694,6 +1733,159 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       }
       this.handleVadUtteranceEnd("silence");
     }, this.frontModelConfig.endpointExtensionMs);
+  }
+
+  /**
+   * Whether unified front-door endpointing is active: the voice-mode
+   * surface, triage-escalate routing, and the unified flag all on. The
+   * decider-based hold path is skipped entirely when this holds.
+   */
+  private unifiedFrontDoorActive(): boolean {
+    const cfg = getConfig();
+    return (
+      isAssistantFeatureFlagEnabled("voice-mode", cfg) &&
+      isVoiceTriageEscalateEnabled(cfg) &&
+      isVoiceUnifiedFrontDoorEnabled(cfg)
+    );
+  }
+
+  /**
+   * Unified front-door: dispatch the assistant turn speculatively at the
+   * silence boundary, judging the transcript accumulated so far — the same
+   * text the endpoint decider judges today. In persistent-transcriber mode
+   * finals stream continuously (utteranceEnd→finalTranscript measures ~0ms),
+   * so this matches the eventual final transcript in practice; divergence is
+   * logged in startAssistantTurnIfReady. Returns false when speculation is
+   * inapplicable — the boundary then releases exactly as before.
+   */
+  private async launchSpeculativeAssistantTurn(
+    utterance: UtteranceCycle,
+  ): Promise<boolean> {
+    if (
+      utterance.endpointExtensionCount >=
+        this.frontModelConfig.endpointMaxExtensions ||
+      utterance.assistantTurnStarted ||
+      this.activeAssistantTurn !== null ||
+      !this.startVoiceTurn
+    ) {
+      return false;
+    }
+    const transcriptSoFar = utterance.finalTranscriptSegments.join(" ").trim();
+    const content = [transcriptSoFar, utterance.latestPartialText ?? ""]
+      .join(" ")
+      .trim();
+    if (content.length === 0) {
+      return false;
+    }
+    await this.launchAssistantTurn(utterance, content, { speculative: true });
+    return true;
+  }
+
+  /**
+   * Commit a speculative turn: the leg's first token was a real answer (or
+   * an escalation bridge), so the deferred boundary work happens now —
+   * utterance_end + thinking frames, utterance release (which finalizes the
+   * transcriber), and the floor-holding timers. Returns false when the
+   * world moved on mid-flight (speech resumed, utterance superseded): the
+   * leg is discarded and the caller must swallow the delta.
+   */
+  private commitSpeculativeTurn(turn: ActiveAssistantTurn): boolean {
+    if (!turn.speculativePending) {
+      return true;
+    }
+    const utterance = turn.utterance;
+    if (
+      turn.speculativeGeneration !== this.vadSpeechGeneration ||
+      this.isUtteranceStale(utterance) ||
+      utterance.released ||
+      utterance.completed
+    ) {
+      this.discardSpeculativeTurn(turn, "superseded");
+      return false;
+    }
+    turn.speculativePending = false;
+    void this.sendFrame({ type: "utterance_end", reason: "silence" });
+    void this.sendFrame({ type: "thinking", turnId: turn.turnId });
+    void this.releaseUtterance();
+    if (this.streamTtsAudio) {
+      this.armAckTimer(turn);
+    }
+    if (
+      this.frontModelConfig.progress.enabled &&
+      this.streamTtsAudio &&
+      this.frontDecider
+    ) {
+      this.armProgressIdleTimer(turn);
+    }
+    return true;
+  }
+
+  /**
+   * Hold verdict on a speculative turn: the model judged the pause
+   * mid-thought. Discard the leg (rolling back its persisted user message)
+   * and extend the listening window exactly as a decider hold does — the
+   * extension timer replays the silence boundary, which re-speculates.
+   */
+  private async holdSpeculativeTurn(turn: ActiveAssistantTurn): Promise<void> {
+    if (
+      this.activeAssistantTurn?.token !== turn.token ||
+      !turn.speculativePending
+    ) {
+      return;
+    }
+    const utterance = turn.utterance;
+    const decisionLatencyMs = Math.max(
+      0,
+      Date.now() - turn.speculativeDispatchedAtMs,
+    );
+    this.discardSpeculativeTurn(turn, "hold_verdict");
+    if (
+      this.isUtteranceStale(utterance) ||
+      utterance.released ||
+      utterance.completed ||
+      turn.speculativeGeneration !== this.vadSpeechGeneration
+    ) {
+      // Speech resumed or the utterance moved on during the verdict: the
+      // discard was the whole job; a fresh boundary owns the release.
+      return;
+    }
+    this.markEndpointDecision(utterance, "hold", decisionLatencyMs);
+    utterance.endpointExtensionCount += 1;
+    this.armEndpointExtensionTimer(utterance);
+  }
+
+  /**
+   * Abort a speculative leg and roll back everything it touched: the
+   * persisted user message (via the handle's discard), the active-turn
+   * slot, and the utterance's turn-started latch, so the utterance can be
+   * re-dispatched (hold replay) or keep accumulating (speech resumed).
+   * Nothing was ever user-visible — no frames were sent for this turn.
+   */
+  private discardSpeculativeTurn(
+    turn: ActiveAssistantTurn,
+    reason: string,
+  ): void {
+    turn.speculativePending = false;
+    if (this.activeAssistantTurn?.token === turn.token) {
+      this.activeAssistantTurn = null;
+    }
+    this.clearFillerTimers(turn);
+    turn.abortController.abort(
+      createAbortReason("voice_session_aborted", `live-voice-${reason}`),
+    );
+    const handle = turn.handle;
+    turn.handle = null;
+    void handle?.discard?.().catch((err: unknown) => {
+      log.warn(
+        { err, turnId: turn.turnId, reason },
+        "Speculative voice turn discard failed",
+      );
+    });
+    turn.utterance.assistantTurnStarted = false;
+    log.info(
+      { turnId: turn.turnId, reason },
+      "Speculative voice turn discarded",
+    );
   }
 
   private clearEndpointExtensionTimer(): void {
@@ -2179,6 +2371,33 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
 
   private async startAssistantTurnIfReady(): Promise<void> {
     const utterance = this.currentUtterance;
+    // A committed speculative turn answered the pre-finalize transcript;
+    // once the finalized transcript lands, log if they diverged (the finals
+    // stream continuously in persistent mode, so divergence should be rare
+    // — this measures whether that assumption holds in the field).
+    const committed = this.activeAssistantTurn;
+    if (
+      utterance?.assistantTurnStarted &&
+      committed?.speculativeContent != null &&
+      !committed.speculativePending &&
+      utterance.phase === "transcriber_closed"
+    ) {
+      const finalContent = utterance.finalTranscriptSegments.join(" ").trim();
+      if (
+        finalContent.length > 0 &&
+        finalContent !== committed.speculativeContent
+      ) {
+        log.warn(
+          {
+            turnId: committed.turnId,
+            speculative: committed.speculativeContent,
+            final: finalContent,
+          },
+          "Speculative voice turn content diverged from final transcript",
+        );
+      }
+      committed.speculativeContent = null;
+    }
     if (
       !utterance ||
       !utterance.released ||
@@ -2239,6 +2458,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       // Set when a background continuation finished the interrupted reply: its
       // answer, appended to the turn's control prompt as context.
       continuationResult?: string | null;
+      // Unified front-door: dispatch without releasing the utterance. The
+      // thinking frame and floor-holding timers are deferred until the leg's
+      // first token commits the turn (see commitSpeculativeTurn); a hold
+      // verdict rolls everything back instead.
+      speculative?: boolean;
     },
   ): Promise<void> {
     utterance.assistantTurnStarted = true;
@@ -2266,6 +2490,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       ttsDone: false,
       ttsAudioStarted: false,
       finalized: false,
+      speculativePending: opts?.speculative === true,
+      speculativeGeneration: this.vadSpeechGeneration,
+      speculativeContent: opts?.speculative === true ? content : null,
+      speculativeDispatchedAtMs: Date.now(),
+      speculativeBuffer: "",
       interruptedRequest: opts?.interruptedRequest ?? null,
       continuationResult: opts?.continuationResult ?? null,
       toolUseStarted: false,
@@ -2285,9 +2514,14 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     };
     this.activeAssistantTurn = activeTurn;
 
-    await this.sendFrame({ type: "thinking", turnId });
-    if (!this.isActiveAssistantTurn(token)) {
-      return;
+    // A speculative turn defers the thinking frame and both floor-holding
+    // timers to commitSpeculativeTurn: until the verdict arrives, the pause
+    // may still be mid-thought and nothing must be user-visible.
+    if (!opts?.speculative) {
+      await this.sendFrame({ type: "thinking", turnId });
+      if (!this.isActiveAssistantTurn(token)) {
+        return;
+      }
     }
 
     const cfg = getConfig();
@@ -2295,7 +2529,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // Slow-first-delta spoken ack: if the model produces no delta within the
     // budget, a short static phrase holds the floor. Only meaningful on TTS
     // sessions — a text-only session has no audio gap to bridge.
-    if (this.streamTtsAudio) {
+    if (this.streamTtsAudio && !opts?.speculative) {
       this.armAckTimer(activeTurn);
     }
 
@@ -2306,7 +2540,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     if (
       this.frontModelConfig.progress.enabled &&
       this.streamTtsAudio &&
-      this.frontDecider
+      this.frontDecider &&
+      !opts?.speculative
     ) {
       this.armProgressIdleTimer(activeTurn);
     }
@@ -2436,10 +2671,36 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
           ? { overrideProfile: leg.overrideProfile }
           : {}),
         ...(leg.routingLeg != null ? { routingLeg: leg.routingLeg } : {}),
+        // A speculative front-door leg carries the hold rule so its first
+        // token can be the hold verdict; non-speculative legs must never
+        // learn the token, or a spoken answer could start with it.
+        ...(activeTurn.speculativePending && leg.frontDoor
+          ? { unifiedVerdict: true }
+          : {}),
         callbacks: {
           assistant_text_delta: (msg) => {
             if (!this.isForwardingAssistantText(token)) {
               return;
+            }
+            // Unified front-door verdict: the first non-whitespace character
+            // of a speculative leg decides the turn's fate. The hold token
+            // discards it (mid-thought pause, keep listening); anything else
+            // commits — utterance release, thinking frame, and timers all
+            // happen inside commitSpeculativeTurn, then this delta falls
+            // through into the normal leg handling below.
+            if (activeTurn.speculativePending) {
+              activeTurn.speculativeBuffer += msg.text;
+              const leading = activeTurn.speculativeBuffer.trimStart();
+              if (leading.length === 0) {
+                return;
+              }
+              if (leg.frontDoor && leading.startsWith(HOLD_VERDICT_TOKEN)) {
+                void this.holdSpeculativeTurn(activeTurn);
+                return;
+              }
+              if (!this.commitSpeculativeTurn(activeTurn)) {
+                return;
+              }
             }
             if (leg.frontDoor) {
               rawText += msg.text;
@@ -2480,6 +2741,13 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
               this.isClosed
             ) {
               return;
+            }
+            // A speculative leg that finished without a single delta (empty
+            // output, provider hiccup) carries no verdict — fail open to a
+            // committed turn so the utterance releases and finalizes like a
+            // normal empty completion instead of dangling un-released.
+            if (current.speculativePending) {
+              this.commitSpeculativeTurn(current);
             }
             // A front-door leg that handed off is finished; the escalated leg
             // drives completion. The front-door leg's own trailing completion

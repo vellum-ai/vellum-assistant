@@ -32,6 +32,51 @@ import {
 /** Feature-flag key gating the whole behavior. Off by default. */
 export const VOICE_TRIAGE_ESCALATE_FLAG = "voice-triage-escalate";
 
+/**
+ * Feature-flag key for the unified front-door (requires the triage flag
+ * too): live-voice endpointing merges into the front-door leg. At each
+ * pause the leg is dispatched speculatively and its first token carries the
+ * verdict — {@link HOLD_VERDICT_TOKEN} (mid-thought, keep listening),
+ * `[ESCALATE]` after a bridge, or the answer itself. Replaces the separate
+ * endpoint-decider call on that path. Off by default.
+ */
+export const VOICE_UNIFIED_FRONT_DOOR_FLAG = "voice-unified-front-door";
+
+/**
+ * The hold verdict: the front-door leg outputs exactly this single
+ * character when the caller is mid-thought. Mirrors the endpoint decider's
+ * bare-token protocol ("0" = hold), so the tie-break asymmetry carries
+ * over: the model is told to hold when unsure, while every infra failure
+ * on the leg fails open to a normal released turn.
+ */
+export const HOLD_VERDICT_TOKEN = "0";
+
+/**
+ * Whether the unified front-door (endpointing merged into the front-door
+ * leg) is active. Only meaningful where triage-escalate is also on.
+ */
+export function isVoiceUnifiedFrontDoorEnabled(
+  config: AssistantConfig = getConfig(),
+): boolean {
+  return isAssistantFeatureFlagEnabled(VOICE_UNIFIED_FRONT_DOOR_FLAG, config);
+}
+
+/**
+ * Extra CALL PROTOCOL RULE for the unified front-door leg: the hold check
+ * runs before triage. The digit must be the leg's entire output — anything
+ * else is treated as a committed turn, so the rule also bans starting a
+ * real answer with it.
+ */
+export function frontDoorHoldRule(): string {
+  return [
+    "HOLD CHECK: Before anything else, judge whether the caller has finished their thought.",
+    "If the transcript ends mid-thought (a trailing conjunction, an unfinished clause, a list still being dictated),",
+    `output ONLY the single character ${HOLD_VERDICT_TOKEN} and stop — no punctuation, no other words.`,
+    `Never begin a real answer with the digit ${HOLD_VERDICT_TOKEN}.`,
+    "If the caller is done, ignore this rule and proceed.",
+  ].join(" ");
+}
+
 /** Fast/weak profile that fronts every turn when the flag is on. */
 export const FRONT_DOOR_PROFILE: DefaultProfileKey = "cost-optimized";
 

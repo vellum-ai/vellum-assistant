@@ -108,6 +108,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "voice-unified-front-door",
+      "scope": "assistant",
+      "key": "voice-unified-front-door",
+      "label": "Voice Unified Front Door",
+      "description": "Merge live-voice endpointing into the triage front-door leg: one per-pause call whose first token decides hold / escalate / answer, replacing the separate endpoint-decider call",
+      "defaultEnabled": false
+    },
+    {
       "id": "voice-triage-escalate",
       "scope": "assistant",
       "key": "voice-triage-escalate",

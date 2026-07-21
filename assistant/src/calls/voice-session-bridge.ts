@@ -22,7 +22,10 @@ import { resolveChannelCapabilities } from "../daemon/conversation-runtime-assem
 import { getOrCreateConversation } from "../daemon/conversation-store.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
-import { recordConversationPersistedSeq } from "../persistence/conversation-crud.js";
+import {
+  deleteMessageById,
+  recordConversationPersistedSeq,
+} from "../persistence/conversation-crud.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
@@ -40,6 +43,7 @@ import {
   escalatedContinuationRule,
   ESCALATION_CONTINUATION_CONTENT,
   frontDoorCapabilityDigest,
+  frontDoorHoldRule,
   frontDoorTriageRule,
   type VoiceRoutingLeg,
 } from "./voice-triage-escalate.js";
@@ -288,6 +292,14 @@ export interface VoiceTurnOptions {
    */
   routingLeg?: VoiceRoutingLeg;
   /**
+   * Unified front-door: this leg was dispatched speculatively at a silence
+   * boundary, so its control prompt carries the hold-verdict rule (first
+   * token `0` = the caller is mid-thought). Only ever set on front-door
+   * legs — a leg that doesn't know the token can't accidentally speak it,
+   * and a leg that does must be one whose first token is interpreted.
+   */
+  unifiedVerdict?: boolean;
+  /**
    * Session-side dispatch timestamp (`Date.now()` at turn launch). When set,
    * the bridge's dispatch-timing log reports latency relative to it, so the
    * pre-bridge half (thinking frame, trust resolution) is attributable too.
@@ -300,6 +312,16 @@ export interface VoiceTurnHandle {
   turnId: string;
   /** Abort the in-flight turn (e.g. for barge-in). */
   abort: () => void;
+  /**
+   * Abort the turn AND roll back its persisted user message, restoring the
+   * conversation to its pre-turn state (delete row + reload in-memory
+   * history, then notify sync consumers). Used by the unified front-door
+   * hold verdict: a mid-thought pause must leave no trace of the fragment
+   * in history. Idempotent; safe to call after abort. Optional so that
+   * test doubles and future non-bridge starters aren't forced to model
+   * rollback — a missing discard degrades to abort-without-rollback.
+   */
+  discard?: () => Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -564,7 +586,10 @@ export async function startVoiceTurn(
     voiceCallControlPrompt = opts.voiceControlPrompt;
     const routingLegRule =
       opts.routingLeg === "front-door"
-        ? frontDoorRuleWithDigest()
+        ? [
+            ...(opts.unifiedVerdict === true ? [frontDoorHoldRule()] : []),
+            frontDoorRuleWithDigest(),
+          ].join(" ")
         : opts.routingLeg === "escalated"
           ? escalatedContinuationRule()
           : null;
@@ -1183,8 +1208,31 @@ export async function startVoiceTurn(
     }
   }
 
+  let discarded = false;
+  const discardFn = async () => {
+    if (discarded) {
+      return;
+    }
+    discarded = true;
+    abortFn();
+    try {
+      // Same rollback pattern as the pointer-turn runner: delete the row,
+      // then rebuild in-memory history from the clean DB (a plain pop is
+      // fragile against concurrent compaction reassigning the array).
+      deleteMessageById(messageId);
+      await conversation.loadFromDb();
+      publishConversationMessagesChanged(opts.conversationId);
+    } catch (err) {
+      log.warn(
+        { err, turnId, messageId },
+        "Voice turn discard could not roll back the persisted user message",
+      );
+    }
+  };
+
   return {
     turnId,
     abort: abortFn,
+    discard: discardFn,
   };
 }
