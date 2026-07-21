@@ -16,6 +16,7 @@ import {
   CalendarClock,
   FolderOpen,
   LayoutGrid,
+  Pencil,
   Radio,
   Sparkles,
   Users,
@@ -413,9 +414,10 @@ function SectionCard({
     return (
       <Card.Root
         asChild
+        bordered={false}
         elevated
         clipContents
-        className="rounded-[12px] bg-[var(--card-bg)]"
+        className="rounded-[12px] border-0 bg-[var(--card-bg)]"
       >
         <Link
           to={section.to}
@@ -433,7 +435,7 @@ function SectionCard({
               aria-hidden
             />
           </span>
-          <span className="relative flex min-w-0 flex-col gap-1">
+          <span className="relative flex min-w-0 flex-col gap-0">
             <span
               className={`truncate text-title-small leading-normal transition-colors duration-300 ${fgStrong}`}
             >
@@ -474,7 +476,7 @@ function SectionCard({
       elevated={!isFeatureCard}
       className={`${SECTION_RADII[section.key] ?? ""} ${
         isFeatureCard
-          ? "bg-[var(--card-feature-bg,var(--card-bg))]"
+          ? "border-0 bg-[var(--card-feature-bg,var(--card-bg))]"
           : "bg-[var(--card-bg)]"
       }`}
       style={{
@@ -955,7 +957,7 @@ function OverviewBento({
                 onOpenAvatarModal();
               }
             }}
-            className="avatar-edit-cursor pointer-events-auto relative h-full w-full outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]"
+            className="avatar-edit-cursor group pointer-events-auto relative h-full w-full scale-100 outline-none transition-transform duration-200 ease-out hover:scale-105 keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]"
           >
             <ChatAvatar
               components={components}
@@ -963,7 +965,16 @@ function OverviewBento({
               customImageUrl={customImageUrl}
               size={heroAvatarSize}
               interactive
+              trackCursor
             />
+            <span
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-0 transition-opacity duration-150 group-hover:opacity-100"
+            >
+              <span className="flex h-11 w-11 items-center justify-center rounded-full bg-black/40">
+                <Pencil className="h-5 w-5 text-white" />
+              </span>
+            </span>
           </div>
         </motion.div>
       ) : (

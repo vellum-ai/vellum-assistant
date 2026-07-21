@@ -45,6 +45,7 @@ import type { EdgeGraph } from "./edge.js";
 import { buildEdgeGraph } from "./edge.js";
 import type { EntityIndex } from "./entity-lane.js";
 import { buildEntityIndex } from "./entity-lane.js";
+import { getActiveSlugs } from "./ever-injected-store.js";
 import { computeFreshSet } from "./fresh-set.js";
 import { isMemoryV3InjectionGateEnabled } from "./gate-flag.js";
 import { computeHotSet } from "./hot-set.js";
@@ -661,6 +662,10 @@ export async function observeTurn(
       needleK: tuning.needleK,
       denseK: tuning.denseK,
       realConceptPageCount: lanes.realConceptPageCount,
+      // Read-only: lets orchestrate compute the `net_new_count` telemetry field
+      // against the same store the injector renders from. This turn has not
+      // committed yet, so the set matches what the injector will see.
+      activeSlugs: getActiveSlugs(conversationId),
       entityCap: v3.entity.cap,
       replyQueryK: tuning.replyQueryK,
       edgeSeeds: tuning.edgeSeedCount,

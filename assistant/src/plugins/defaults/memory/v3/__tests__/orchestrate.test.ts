@@ -1515,6 +1515,85 @@ describe("orchestrate — injection gate", () => {
     ).toBeGreaterThan(0);
   });
 
+  test("the recall-safe fallback (omitted ids) records selector_kept_all: true", async () => {
+    const lanes = await buildLanes();
+    // The model omitting `ids` keeps the whole pool — indistinguishable from an
+    // explicit large selection by `selected_count` alone. This is the flag that
+    // separates "gave up judging" from "judged everything relevant".
+    denseHits = [{ article: "topic-b", section: 0, score: 0.9 }];
+    providerStub = {
+      name: "stub",
+      sendMessage: async () => toolUseResponse({}), // omitted ids → keep all
+    };
+
+    await orchestrate(
+      makeTurn(1, "apple"),
+      depsOf(lanes, {
+        coreSlugs: ["topic-c"],
+        denseK: 100,
+        gateConfig: gateConfigOf(),
+      }),
+    );
+
+    expect(recordedSelectionEvents).toHaveLength(1);
+    expect(recordedSelectionEvents[0]!.detail).toMatchObject({
+      selector_ran: true,
+      selector_kept_all: true,
+    });
+  });
+
+  test("an explicit selection records selector_kept_all: false", async () => {
+    const lanes = await buildLanes();
+    denseHits = [{ article: "topic-b", section: 0, score: 0.9 }];
+    providerStub = selectProvider(["topic-a"]);
+
+    await orchestrate(
+      makeTurn(1, "apple"),
+      depsOf(lanes, { denseK: 100, gateConfig: gateConfigOf() }),
+    );
+
+    expect(recordedSelectionEvents[0]!.detail).toMatchObject({
+      selector_kept_all: false,
+    });
+  });
+
+  test("net_new_count counts only selections not already live in the conversation", async () => {
+    const lanes = await buildLanes();
+    denseHits = [{ article: "topic-b", section: 0, score: 0.9 }];
+    // Selector picks topic-a and topic-b; topic-a is already resident, so only
+    // topic-b is a net-new injection this turn.
+    providerStub = selectProvider(["topic-a", "topic-b"]);
+
+    await orchestrate(
+      makeTurn(1, "apple"),
+      depsOf(lanes, {
+        denseK: 100,
+        activeSlugs: new Set<Slug>(["topic-a"]),
+        gateConfig: gateConfigOf(),
+      }),
+    );
+
+    expect(recordedSelectionEvents[0]!.detail).toMatchObject({
+      selected_count: 2,
+      net_new_count: 1,
+    });
+  });
+
+  test("net_new_count is omitted when activeSlugs is not threaded", async () => {
+    const lanes = await buildLanes();
+    denseHits = [{ article: "topic-b", section: 0, score: 0.9 }];
+    providerStub = selectProvider(["topic-a"]);
+
+    await orchestrate(
+      makeTurn(1, "apple"),
+      depsOf(lanes, { denseK: 100, gateConfig: gateConfigOf() }),
+    );
+
+    expect(recordedSelectionEvents[0]!.detail).not.toHaveProperty(
+      "net_new_count",
+    );
+  });
+
   test("an empty pool is not a selector judgment", async () => {
     const lanes = await buildLanes();
     // `selectPool` returns [] before it ever reaches the provider when the pool
