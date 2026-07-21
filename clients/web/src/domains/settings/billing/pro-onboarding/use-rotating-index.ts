@@ -27,5 +27,8 @@ export function useRotatingIndex(
     };
   }, [count, intervalMs, enabled]);
 
-  return index;
+  // Clamp to the current count so the returned index satisfies `0..count-1`
+  // even on the render where `count` shrinks below `index`, before the reset
+  // effect commits.
+  return count > 0 ? Math.min(index, count - 1) : 0;
 }

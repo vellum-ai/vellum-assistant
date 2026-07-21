@@ -95,6 +95,22 @@ describe("useRotatingIndex", () => {
     expect(result.current).toBe(0);
   });
 
+  test("clamps to 0..count-1 on the render where count shrinks", () => {
+    const { result, rerender } = renderHook(
+      ({ count }) => useRotatingIndex(count, { intervalMs: 1000, enabled: true }),
+      { initialProps: { count: 3 } },
+    );
+
+    tick();
+    tick();
+    expect(result.current).toBe(2);
+
+    // Shrink the list below the current index. The reset effect only runs after
+    // commit, so the returned value must already be clamped on this render.
+    rerender({ count: 2 });
+    expect(result.current).toBeLessThanOrEqual(1);
+  });
+
   test("clears the interval on unmount — no advance afterwards", () => {
     const { result, unmount } = renderHook(() =>
       useRotatingIndex(3, { intervalMs: 1000, enabled: true }),
