@@ -7,10 +7,9 @@
  * toggles via the voice-prefs store. The load-bearing contract is the
  * pref-gating — both prefs default OFF, so the room stays text-free — plus the
  * user-before-assistant DOM ordering. The spoken-word cursor block additionally
- * stubs `requestAnimationFrame` with a manual pump (same harness as
- * `use-spoken-word-cursor.test.tsx`) and drives playback progress through the
- * store's provider, asserting the leading tone via the `data-leading`
- * attribute on word spans.
+ * drives frames through the shared rAF harness (`raf.test-helper.ts`) and
+ * playback progress through the store's provider, asserting the leading tone
+ * via the `data-leading` attribute on word spans.
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
@@ -22,6 +21,10 @@ import {
   useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
 import type { LiveVoicePlaybackProgress } from "@/domains/chat/voice/live-voice/tts-playback";
+import {
+  installRafTestHarness,
+  type RafTestHarness,
+} from "@/domains/chat/voice/raf.test-helper";
 import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
 
 import { VoiceAmbientTranscript } from "@/domains/chat/voice/voice-room/voice-ambient-transcript";
@@ -192,20 +195,13 @@ describe("VoiceAmbientTranscript — sourcing and ordering", () => {
 });
 
 describe("VoiceAmbientTranscript — spoken-word cursor", () => {
-  let rafCallbacks: Map<number, FrameRequestCallback>;
-  let nextRafId: number;
-  let originalRaf: typeof globalThis.requestAnimationFrame;
-  let originalCancelRaf: typeof globalThis.cancelAnimationFrame;
+  let raf: RafTestHarness;
   let progress: LiveVoicePlaybackProgress | null;
 
   /** Fire every pending rAF callback once, inside `act()`. */
   function pumpFrame() {
     act(() => {
-      const callbacks = [...rafCallbacks.values()];
-      rafCallbacks.clear();
-      for (const cb of callbacks) {
-        cb(performance.now());
-      }
+      raf.fireFrame();
     });
   }
 
@@ -214,33 +210,25 @@ describe("VoiceAmbientTranscript — spoken-word cursor", () => {
     return half.querySelector("[data-leading]")?.textContent;
   }
 
+  function registerProgressProvider() {
+    act(() => {
+      useLiveVoiceStore.getState().setPlaybackProgressProvider(() => progress);
+    });
+  }
+
   beforeEach(() => {
-    rafCallbacks = new Map();
-    nextRafId = 1;
-    originalRaf = globalThis.requestAnimationFrame;
-    originalCancelRaf = globalThis.cancelAnimationFrame;
-    globalThis.requestAnimationFrame = ((cb: FrameRequestCallback) => {
-      const id = nextRafId++;
-      rafCallbacks.set(id, cb);
-      return id;
-    }) as typeof globalThis.requestAnimationFrame;
-    globalThis.cancelAnimationFrame = ((id: number) => {
-      rafCallbacks.delete(id);
-    }) as typeof globalThis.cancelAnimationFrame;
+    raf = installRafTestHarness();
     progress = null;
   });
 
   afterEach(() => {
     cleanup();
-    globalThis.requestAnimationFrame = originalRaf;
-    globalThis.cancelAnimationFrame = originalCancelRaf;
+    raf.restore();
   });
 
   test("highlight sits on the mid-transcript word at playback fraction 0.5", () => {
     progress = { playedSeconds: 5, totalSeconds: 10 };
-    act(() => {
-      useLiveVoiceStore.getState().setPlaybackProgressProvider(() => progress);
-    });
+    registerProgressProvider();
     seedAssistant("alpha beta gamma delta");
     setPrefs({ user: false, assistant: true });
     render(<VoiceAmbientTranscript />);
@@ -249,19 +237,52 @@ describe("VoiceAmbientTranscript — spoken-word cursor", () => {
     expect(leadingWordIn(assistantText()!)).toBe("gamma");
   });
 
-  test("no registered provider keeps the highlight on the first word", () => {
+  test("no registered provider keeps the default last-word leading edge", () => {
     seedAssistant("alpha beta gamma delta");
     setPrefs({ user: false, assistant: true });
     render(<VoiceAmbientTranscript />);
     pumpFrame();
-    expect(leadingWordIn(assistantText()!)).toBe("alpha");
+    expect(leadingWordIn(assistantText()!)).toBe("delta");
+  });
+
+  test("cursor takes over from the default reveal once playback progress arrives", () => {
+    registerProgressProvider();
+    seedAssistant("alpha beta gamma delta");
+    setPrefs({ user: false, assistant: true });
+    render(<VoiceAmbientTranscript />);
+    pumpFrame();
+    // No audio yet: default reveal, the newest word leads.
+    expect(leadingWordIn(assistantText()!)).toBe("delta");
+
+    progress = { playedSeconds: 5, totalSeconds: 10 };
+    pumpFrame();
+    expect(leadingWordIn(assistantText()!)).toBe("gamma");
+  });
+
+  test("new response reverts to the default reveal until its own audio starts", () => {
+    progress = { playedSeconds: 5, totalSeconds: 10 };
+    registerProgressProvider();
+    seedAssistant("alpha beta gamma delta");
+    setPrefs({ user: false, assistant: true });
+    render(<VoiceAmbientTranscript />);
+    pumpFrame();
+    expect(leadingWordIn(assistantText()!)).toBe("gamma");
+
+    // Next response: the transcript clears (shorter word list), no audio yet.
+    progress = null;
+    seedAssistant("fresh words");
+    pumpFrame();
+    expect(leadingWordIn(assistantText()!)).toBe("words");
+
+    progress = { playedSeconds: 1, totalSeconds: 4 };
+    pumpFrame();
+    // floor(0.25 * 2 words) = index 0 — the cursor is live again.
+    expect(leadingWordIn(assistantText()!)).toBe("fresh");
   });
 
   test("user bubble keeps its default last-word leading edge", () => {
     progress = { playedSeconds: 5, totalSeconds: 10 };
-    act(() => {
-      useLiveVoiceStore.getState().setPlaybackProgressProvider(() => progress);
-    });
+    registerProgressProvider();
     seedUser("one two three four");
     setPrefs({ user: true, assistant: false });
     render(<VoiceAmbientTranscript />);

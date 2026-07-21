@@ -19,7 +19,10 @@
  * {@link VoiceTranscriptText}. The assistant half's bright leading-edge tone
  * tracks the TTS playhead — {@link useSpokenWordCursor} maps audio progress
  * onto the word list, so the highlight sits on the word being *spoken* rather
- * than the last-arrived one while the streamed text runs ahead of speech.
+ * than the last-arrived one while the streamed text runs ahead of speech. A
+ * `null` cursor (the response has produced no audio yet) falls back to the
+ * default last-word reveal, so an audio-less response keeps a live leading
+ * edge instead of a dead first-word highlight.
  *
  * Subscriptions are deliberately narrow — the three transcript fields, the two
  * prefs, and the low-frequency `state`/`reconnecting` (per-turn, for the
@@ -150,7 +153,7 @@ export function VoiceAmbientTranscript() {
                 <div className="max-w-[95%] break-words text-[clamp(15px,2vmin,19px)] leading-relaxed">
                   <VoiceTranscriptText
                     text={assistantTranscript}
-                    highlightIndex={spokenIndex}
+                    highlightIndex={spokenIndex ?? undefined}
                   />
                 </div>
               </motion.div>
