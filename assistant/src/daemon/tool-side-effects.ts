@@ -11,6 +11,7 @@ import { isAbsolute, resolve, sep } from "node:path";
 
 import { addAppConversationId, getApp } from "../apps/app-store.js";
 import { findActiveSession } from "../channels/gateway-verification-sessions.js";
+import { getConfig } from "../config/loader.js";
 import { generateAppIcon } from "../media/app-icon-generator.js";
 import { invalidateEdgeIndex } from "../plugins/defaults/memory/v3/substrate/edge-index.js";
 import { invalidatePageIndex } from "../plugins/defaults/memory/v3/substrate/page-index.js";
@@ -191,6 +192,18 @@ registerHook("voice_config_update", (_name, input) => {
   };
   const key = SETTING_TO_KEY[setting];
   if (!key) return;
+
+  // `ttsVoiceId` is an ElevenLabs concept on the desktop client. When the
+  // active provider is managed (vellum) or anything else, the voice lives only
+  // in daemon config and hot-applies per turn — the tool skips the client
+  // broadcast in that case, so this hook must too, else it would pollute the
+  // client's ElevenLabs voice with, e.g., a Deepgram Aura model id.
+  if (
+    setting === "tts_voice_id" &&
+    getConfig().services.tts.provider !== "elevenlabs"
+  ) {
+    return;
+  }
 
   // Coerce the value to the correct type before broadcasting, matching
   // the validation logic in the tool's execute method.

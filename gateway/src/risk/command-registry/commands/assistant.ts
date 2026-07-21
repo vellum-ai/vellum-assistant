@@ -283,6 +283,7 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "trust list",
   "tts",
   "tts synthesize",
+  "tts voice",
   "ui",
   "ui request",
   "ui confirm",
@@ -827,6 +828,9 @@ const riskOverrides: AssistantRiskOverride[] = [
   { path: "skills add", risk: "high" },
   { path: "stt transcribe", risk: "medium" },
   { path: "tts synthesize", risk: "medium" },
+  // Mutates the active provider's voice config (via config_set) — same
+  // low-risk class as `config set`.
+  { path: "tts voice", risk: "low" },
   { path: "watchers create", risk: "medium" },
   { path: "watchers update", risk: "medium" },
   { path: "watchers delete", risk: "medium" },

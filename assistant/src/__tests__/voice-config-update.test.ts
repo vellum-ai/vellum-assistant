@@ -203,7 +203,7 @@ describe("voice_config_update — tts_voice_id", () => {
     expect((config.elevenlabs as any)?.voiceId).toBeUndefined();
   });
 
-  test("rejects non-alphanumeric voice ID", async () => {
+  test("rejects non-alphanumeric voice ID when provider is elevenlabs", async () => {
     const result = await run(
       { setting: "tts_voice_id", value: "abc-123!" },
       makeContext(),
@@ -211,6 +211,97 @@ describe("voice_config_update — tts_voice_id", () => {
 
     expect(result.isError).toBe(true);
     expect(result.content).toContain("alphanumeric");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests: tts_voice_id targets the active provider's voice field
+// ---------------------------------------------------------------------------
+
+describe("voice_config_update — tts_voice_id (managed/vellum active)", () => {
+  function makeVellumActive(): void {
+    writeConfig({ services: { tts: { provider: "vellum" } } });
+    invalidateConfigCache();
+  }
+
+  test("writes a Deepgram Aura model id to services.tts.providers.vellum.model", async () => {
+    makeVellumActive();
+
+    const result = await run(
+      { setting: "tts_voice_id", value: "aura-2-zeus-en" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    const config = readConfig();
+    expect((config.services as any)?.tts?.providers?.vellum?.model).toBe(
+      "aura-2-zeus-en",
+    );
+    // The ElevenLabs field is never touched when vellum is active.
+    expect(
+      (config.services as any)?.tts?.providers?.elevenlabs?.voiceId,
+    ).toBeUndefined();
+  });
+
+  test("accepts an ElevenLabs voice id as a managed model (managed serves ElevenLabs voices)", async () => {
+    makeVellumActive();
+
+    const result = await run(
+      { setting: "tts_voice_id", value: "EXAVITQu4vr4xnSDxMaL" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect((readConfig().services as any)?.tts?.providers?.vellum?.model).toBe(
+      "EXAVITQu4vr4xnSDxMaL",
+    );
+  });
+
+  test("does not broadcast the ElevenLabs ttsVoiceId key for a managed voice", async () => {
+    makeVellumActive();
+    const messages: any[] = [];
+    const ctx = makeContext({
+      sendToClient: (msg: any) => messages.push(msg),
+    });
+
+    const result = await run(
+      { setting: "tts_voice_id", value: "aura-2-zeus-en" },
+      ctx,
+    );
+
+    expect(result.isError).toBe(false);
+    expect(messages).toHaveLength(0);
+    expect(result.content).not.toContain("broadcast");
+  });
+
+  test("rejects a value with characters invalid for any voice id", async () => {
+    makeVellumActive();
+
+    const result = await run(
+      { setting: "tts_voice_id", value: "a british man" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(true);
+    expect((readConfig().services as any)?.tts?.providers?.vellum?.model).toBe(
+      undefined,
+    );
+  });
+
+  test("broadcasts the ElevenLabs ttsVoiceId key when elevenlabs is active", async () => {
+    writeConfig({ services: { tts: { provider: "elevenlabs" } } });
+    invalidateConfigCache();
+    const messages: any[] = [];
+    const ctx = makeContext({
+      sendToClient: (msg: any) => messages.push(msg),
+    });
+
+    const result = await run({ setting: "tts_voice_id", value: "abc123" }, ctx);
+
+    expect(result.isError).toBe(false);
+    expect(messages).toHaveLength(1);
+    expect(messages[0].key).toBe("ttsVoiceId");
+    expect(messages[0].value).toBe("abc123");
   });
 });
 

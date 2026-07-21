@@ -191,4 +191,37 @@ describe("default plugin route dispatch", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ source: "workspace" });
   });
+
+  test("disabling the default does not disable an installed override of the same namespace", async () => {
+    // Installed workspace plugin shadows the namespace...
+    writeWorkspacePluginHandler(
+      DEFAULT_PLUGIN,
+      "reengage.ts",
+      `export const GET = () => Response.json({ source: "workspace" });`,
+    );
+    // ...and the bundled default is separately disabled by its manifest name.
+    const disabledDir = join(getWorkspacePluginsDir(), DEFAULT_PLUGIN_MANIFEST);
+    mkdirSync(disabledDir, { recursive: true });
+    writeFileSync(join(disabledDir, ".disabled"), "");
+
+    // The manifest-name sentinel gates only the default fallback, so the
+    // installed override still resolves and serves.
+    const location = resolveRouteLocation(`plugins/${DEFAULT_PLUGIN}/reengage`);
+    expect(location!.routesDir).toBe(
+      join(getWorkspacePluginsDir(), DEFAULT_PLUGIN, "routes"),
+    );
+    expect(
+      listPluginRouteRoots().some((r) => r.pluginName === DEFAULT_PLUGIN),
+    ).toBe(true);
+
+    const dispatcher = makeDispatcher();
+    const response = await dispatcher.dispatch(
+      `plugins/${DEFAULT_PLUGIN}/reengage`,
+      new Request(`http://localhost/v1/x/plugins/${DEFAULT_PLUGIN}/reengage`, {
+        method: "GET",
+      }),
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ source: "workspace" });
+  });
 });
