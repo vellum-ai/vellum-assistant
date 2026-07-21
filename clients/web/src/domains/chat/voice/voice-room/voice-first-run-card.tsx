@@ -6,8 +6,6 @@ import { Button } from "@vellumai/design-library/components/button";
 import { Modal } from "@vellumai/design-library/components/modal";
 
 import { ChatAvatar } from "@/components/avatar/chat-avatar";
-import { VoiceList } from "@/domains/chat/voice/voice-room/voice-list";
-import { VoiceSettingRow } from "@/domains/chat/voice/voice-room/voice-setting-row";
 import { SttProviderForm } from "@/components/speech/stt-provider-form";
 import { TtsProviderForm } from "@/components/speech/tts-provider-form";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
@@ -18,24 +16,21 @@ import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
  * the live session starts.
  *
  * Deliberately NOT a settings quiz: captions are toggled in-session from the
- * voice room, and the full preferences live in Settings → Voice —
- * front-loading choices before the user has ever experienced voice mode is
- * the wrong moment. The card just sets expectations and starts.
+ * voice room, the assistant's voice from the room's settings gear (where it
+ * hot-applies on the next reply, so the user picks while actually hearing it),
+ * and the full preferences live in Settings → Voice — front-loading choices
+ * before the user has ever experienced voice mode is the wrong moment. The card
+ * just sets expectations and starts.
  *
- * Two deliberate exceptions, both reached from the intro view and both
- * optional:
- *   - Voice selection: how the assistant *sounds* is an identity choice, not a
- *     preference dial, and this is the natural moment to make it — before the
- *     first word is spoken. A default is pre-selected, so the card still leads
- *     straight to "Start talking".
- *   - Bringing your own STT/TTS key: the quiet link under the footer, for users
- *     who would rather run voice on their own providers than the managed ones.
- *     Quiet by design — managed is the path nearly everyone should take.
+ * The one exception is bringing your own STT/TTS key: a quiet link in the
+ * footer for users who would rather run voice on their own providers than the
+ * managed ones. It has to live here because it gates whether voice works at
+ * all. Quiet by design — managed is the path nearly everyone should take.
  *
- * Both are **views within this one modal**: entering one swaps the card's
- * header, body, and footer, and a back arrow returns to the intro. Width is
- * held constant across views so navigating doesn't resize the dialog under the
- * cursor.
+ * That key entry is a **view within this one modal**, not a modal stacked on
+ * it: entering it swaps the card's header, body, and footer, and a back arrow
+ * returns to the intro. Width is held constant across views so navigating
+ * doesn't resize the dialog under the cursor.
  *
  * The card does NOT persist `firstRunSeen` itself: dismissing it (Escape /
  * backdrop / ✕) is a plain cancel and must leave the first run un-consumed so
@@ -59,11 +54,10 @@ import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 const AVATAR_SIZE = 44;
 
 /**
- * Which view the card is showing. `intro` is the welcome content; the other
- * two are the optional detours, each reached from the intro and each returning
- * to it.
+ * Which view the card is showing: the welcome content, or the optional key
+ * entry reached from it.
  */
-type FirstRunView = "intro" | "voice" | "byok";
+type FirstRunView = "intro" | "byok";
 
 export interface VoiceFirstRunCardProps {
   /** Assistant whose avatar anchors the card; `null` renders the "V" fallback. */
@@ -188,15 +182,6 @@ export function VoiceFirstRunCard({
                   </span>
                 </li>
               </ul>
-
-              {/* Voice row → the in-card picker view. Only for managed
-                  assistants that offer voice selection; collapses to nothing
-                  (border and all) otherwise. */}
-              <VoiceSettingRow
-                assistantId={assistantId}
-                onOpen={() => setView("voice")}
-                className="mt-5"
-              />
             </Modal.Body>
             <Modal.Footer className="items-center justify-between">
               {/* Quiet by design: managed speech is the path nearly everyone
@@ -213,25 +198,6 @@ export function VoiceFirstRunCard({
                 Start talking
               </Button>
             </Modal.Footer>
-          </>
-        )}
-
-        {view === "voice" && (
-          <>
-            <Modal.Header>
-              <div className="flex items-center gap-2">
-                <BackButton onClick={backToIntro} />
-                <Modal.Title>
-                  Pick a voice for {assistantName ?? "your assistant"}
-                </Modal.Title>
-              </div>
-            </Modal.Header>
-            <Modal.Body>
-              {/* Selecting persists the voice (it hot-applies on the next
-                  reply) and returns to the intro — the card's forward action
-                  stays "Start talking". */}
-              <VoiceList assistantId={assistantId} onSelect={backToIntro} />
-            </Modal.Body>
           </>
         )}
 

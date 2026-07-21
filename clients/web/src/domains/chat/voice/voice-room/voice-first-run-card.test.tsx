@@ -2,19 +2,19 @@
  * Tests for `VoiceFirstRunCard`.
  *
  * The card is exercised in isolation: `onStart` is a spy, and the assistant
- * avatar / managed-voice / BYOK-form dependencies are stubbed so the card
- * renders without the React Query graph — they are chrome around the card's own
- * behavior, and each has its own tests.
+ * avatar / BYOK-form dependencies are stubbed so the card renders without the
+ * React Query graph — they are chrome around the card's own behavior, and each
+ * has its own tests.
  *
  * Load-bearing behavior:
  *   - the card renders on first run and does NOT start on its own,
- *   - it carries no settings quiz — captions/prefs are in-session and in
- *     Settings, not front-loaded here,
+ *   - it carries no settings quiz — captions, voice, and the rest are
+ *     in-session and in Settings, not front-loaded here,
  *   - "Start" invokes the caller's `onStart`; wiring that `onStart` to
  *     `markFirstRunSeen` (as the composer does) consumes the first run so a
  *     second entry would skip the card,
- *   - the voice and bring-your-own-key detours are VIEWS of this one modal, not
- *     modals stacked on it, and both return to the intro.
+ *   - the bring-your-own-key detour is a VIEW of this one modal, not a modal
+ *     stacked on it, and returns to the intro.
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
@@ -31,30 +31,6 @@ mock.module("@/hooks/use-assistant-avatar", () => ({
     invalidate: () => {},
   }),
 }));
-
-// Managed voice availability drives whether the Voice row (and so the voice
-// view) exists at all. Mutable so a test can turn it on without a second
-// module mock — `VoiceSettingRow` and `VoiceList` both read this hook.
-let managedVoiceAvailable = false;
-const selectModel = mock((_model: string) => {});
-mock.module(
-  "@/domains/chat/voice/voice-room/use-managed-voice-selection",
-  () => ({
-    useManagedVoiceSelection: () => ({
-      available: managedVoiceAvailable,
-      voices: managedVoiceAvailable
-        ? [
-            // `<accent> · <traits>` — the order splitVoiceDescription expects.
-            { model: "aura-2-thalia-en", description: "American · warm, clear", label: "Thalia", source: "deepgram", sampleUrl: "" },
-            { model: "aura-2-orion-en", description: "American · calm, low", label: "Orion", source: "deepgram", sampleUrl: "" },
-          ]
-        : [],
-      currentModel: managedVoiceAvailable ? "aura-2-thalia-en" : "",
-      selectModel,
-      selecting: false,
-    }),
-  }),
-);
 
 // The BYOK forms own the daemon config/credential graph and are covered by the
 // settings-page tests; here they stand in as a save affordance so the card's
@@ -91,8 +67,6 @@ beforeEach(() => {
     showAssistantTranscript: false,
     firstRunSeen: false,
   });
-  managedVoiceAvailable = false;
-  selectModel.mockClear();
 });
 
 describe("VoiceFirstRunCard", () => {
@@ -107,15 +81,17 @@ describe("VoiceFirstRunCard", () => {
     expect(onStart).not.toHaveBeenCalled();
   });
 
-  test("carries no settings quiz — no transcript toggles, prefs untouched", () => {
-    const { queryByLabelText } = render(
+  test("carries no settings quiz — no transcript toggles, no voice row, prefs untouched", () => {
+    const { queryByLabelText, queryByText } = render(
       <VoiceFirstRunCard assistantId="asst_test" onStart={() => {}} />,
     );
 
-    // The old toggle pair is gone (captions moved in-session) and the card
-    // never writes the prefs store on its own.
+    // Captions and voice are in-session settings (the voice room's gear), not
+    // choices to front-load here, and the card never writes the prefs store on
+    // its own.
     expect(queryByLabelText("Show the words you say")).toBeNull();
     expect(queryByLabelText("Show the words the assistant says")).toBeNull();
+    expect(queryByText("Voice")).toBeNull();
     expect(useVoicePrefsStore.getState().showUserTranscript).toBe(false);
     expect(useVoicePrefsStore.getState().showAssistantTranscript).toBe(false);
   });
@@ -222,32 +198,6 @@ describe("VoiceFirstRunCard", () => {
       expect(getByText("Use your own API keys")).toBeTruthy();
       fireEvent.click(getByLabelText("Back"));
       expect(getByText("Start talking")).toBeTruthy();
-    });
-  });
-
-  describe("voice view", () => {
-    test("the Voice row opens the picker in place, and choosing returns to the intro", () => {
-      managedVoiceAvailable = true;
-      const { getByText, getByLabelText, baseElement } = render(
-        <VoiceFirstRunCard assistantId="asst_test" onStart={() => {}} />,
-      );
-
-      fireEvent.click(getByText("Voice"));
-
-      // Same single dialog, swapped to the picker view.
-      expect(baseElement.querySelectorAll('[role="dialog"]').length).toBe(1);
-      expect(getByLabelText("Assistant voice")).toBeTruthy();
-
-      fireEvent.click(getByText("Calm, low"));
-      expect(selectModel).toHaveBeenCalledWith("aura-2-orion-en");
-      expect(getByText("Start talking")).toBeTruthy();
-    });
-
-    test("collapses entirely when managed voice selection is unavailable", () => {
-      const { queryByText } = render(
-        <VoiceFirstRunCard assistantId="asst_test" onStart={() => {}} />,
-      );
-      expect(queryByText("Voice")).toBeNull();
     });
   });
 });
