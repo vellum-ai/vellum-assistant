@@ -189,10 +189,14 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "memory v2 reembed-skills",
   "memory v2 activation",
   "memory v2 validate",
+  "memory v2 ema",
+  "memory v2 simulate",
+  "memory v2 compare",
   "memory v3",
   "memory v3 rebuild-index",
   "memory v3 backfill-sections",
   "memory v3 eval",
+  "memory v3 eval-tally",
   "memory retrospective",
   "memory retrospective run",
   "memory retrospective list",
@@ -661,6 +665,24 @@ const riskOverrides: AssistantRiskOverride[] = [
     reason: "Read-only diagnostic walk over concept pages and edges",
   },
   {
+    path: "memory v2 ema",
+    risk: "low",
+    reason:
+      "Read-only listing of concept pages sorted by injection-frequency EMA score",
+  },
+  {
+    path: "memory v2 simulate",
+    risk: "low",
+    reason:
+      "Read-only dry-run of the v4 router against a synthetic query — no state written",
+  },
+  {
+    path: "memory v2 compare",
+    risk: "low",
+    reason:
+      "Read-only comparison of retrievers against logged router picks over sampled turns",
+  },
+  {
     path: "memory v3 backfill-sections",
     risk: "medium",
     reason:
@@ -677,6 +699,12 @@ const riskOverrides: AssistantRiskOverride[] = [
     risk: "low",
     reason:
       "Invalidates the in-memory v3 section lanes so they rebuild on the next turn",
+  },
+  {
+    path: "memory v3 eval-tally",
+    risk: "low",
+    reason:
+      "Read-only: unblinds and tallies blind-judge verdicts against a key file — no state written",
   },
   {
     path: "memory retrospective run",
