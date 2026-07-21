@@ -59,20 +59,24 @@ afterAll(() => {
 });
 
 describe("loadExternalPlugin — manifest", () => {
-  test("uses package.json name and version", async () => {
+  test("identity is the directory name; version comes from package.json", async () => {
+    // The install directory name is the plugin's identity — not the authored
+    // `package.json` `name`, which routinely differs from the install slug.
     const dir = freshPluginDir("minimal");
     writePackageJson(dir, { name: "minimal-plugin", version: "1.2.3" });
 
     await loadExternalPlugin(dir);
 
     const registered = getRegisteredPlugins().find(
-      (p) => p.manifest.name === "minimal-plugin",
+      (p) => p.manifest.name === "minimal",
     );
     expect(registered).toBeDefined();
     expect(registered?.manifest.version).toBe("1.2.3");
+    // The authored package.json name is not used as the identity.
+    expect(registeredNames()).not.toContain("minimal-plugin");
   });
 
-  test("strips npm scope from name", async () => {
+  test("identity is the directory name even when package.json name is scoped", async () => {
     const dir = freshPluginDir("scoped");
     writePackageJson(dir, {
       name: "@vellumai/simple-memory",
@@ -81,7 +85,8 @@ describe("loadExternalPlugin — manifest", () => {
 
     await loadExternalPlugin(dir);
 
-    expect(registeredNames()).toContain("simple-memory");
+    expect(registeredNames()).toContain("scoped");
+    expect(registeredNames()).not.toContain("simple-memory");
   });
 
   test("defaults version to 0.0.0 when package.json omits it", async () => {
@@ -91,8 +96,9 @@ describe("loadExternalPlugin — manifest", () => {
     await loadExternalPlugin(dir);
 
     const registered = getRegisteredPlugins().find(
-      (p) => p.manifest.name === "no-version-plugin",
+      (p) => p.manifest.name === "no-version",
     );
+    expect(registered).toBeDefined();
     expect(registered?.manifest.version).toBe("0.0.0");
   });
 });

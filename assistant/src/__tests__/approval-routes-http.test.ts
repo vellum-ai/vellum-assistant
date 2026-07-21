@@ -10,67 +10,6 @@ import type { Conversation } from "../daemon/conversation.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { SecretPromptResult } from "../permissions/secret-prompt-types.js";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-
-    model: "test",
-    provider: "test",
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    secretDetection: { enabled: false },
-    contextWindow: { maxInputTokens: 200000 },
-    llm: {
-      default: {
-        provider: "anthropic",
-        model: "claude-opus-4-7",
-        maxTokens: 64000,
-        effort: "max" as const,
-        speed: "standard" as const,
-        temperature: null,
-        thinking: { enabled: true, streamThinking: true },
-        contextWindow: {
-          enabled: true,
-          maxInputTokens: 200000,
-          targetBudgetRatio: 0.3,
-          compactThreshold: 0.8,
-          summaryBudgetRatio: 0.05,
-          overflowRecovery: {
-            enabled: true,
-            safetyMarginRatio: 0.05,
-            maxAttempts: 3,
-            interactiveLatestTurnCompression: "summarize",
-            nonInteractiveLatestTurnCompression: "truncate",
-          },
-        },
-      },
-      profiles: {},
-      callSites: {},
-      pricingOverrides: [],
-    },
-    services: {
-      inference: {
-        mode: "your-own",
-        provider: "anthropic",
-        model: "claude-opus-4-7",
-      },
-      "image-generation": {
-        mode: "your-own",
-        provider: "gemini",
-        model: "gemini-3.1-flash-image-preview",
-      },
-      "web-search": { mode: "your-own", provider: "inference-provider-native" },
-    },
-  }),
-}));
-
 mock.module("../config/env.js", () => ({
   isHttpAuthDisabled: () => true,
   hasUngatedHttpAuthDisabled: () => false,
@@ -123,15 +62,18 @@ let _conversationFactory: (() => Conversation) | undefined;
 mock.module("../daemon/conversation-registry.js", () => ({
   findConversation: () => {
     // Return the current test session for any conversation ID lookup.
-    if (!_conversationFactory) return undefined;
+    if (!_conversationFactory) {
+      return undefined;
+    }
     return _conversationFactory();
   },
 }));
 
 mock.module("../daemon/conversation-store.js", () => ({
   getOrCreateConversation: async () => {
-    if (!_conversationFactory)
+    if (!_conversationFactory) {
       throw new Error("_conversationFactory not set in test");
+    }
     return _conversationFactory();
   },
 }));
@@ -161,10 +103,6 @@ function makeIdleSession(opts?: {
     persistUserMessage: (options: { requestId?: string }) => {
       processing = true;
       return { id: options.requestId ?? "msg-1", deduplicated: false };
-    },
-    memoryPolicy: {
-      scopeId: "default",
-      includeDefaultFallback: false,
     },
     setChannelCapabilities: () => {},
     setAssistantId: () => {},
@@ -228,10 +166,6 @@ function makeConfirmationEmittingSession(opts?: {
     persistUserMessage: (options: { requestId?: string }) => {
       processing = true;
       return { id: options.requestId ?? "msg-1", deduplicated: false };
-    },
-    memoryPolicy: {
-      scopeId: "default",
-      includeDefaultFallback: false,
     },
     setChannelCapabilities: () => {},
     setAssistantId: () => {},

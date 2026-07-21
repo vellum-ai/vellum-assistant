@@ -42,6 +42,7 @@ export const DEFAULT_INJECTOR_ORDER = {
   backgroundTurn: 15,
   unifiedTurnContext: 20,
   configQuarantineNotice: 25,
+  configValidationResetNotice: 26,
   pkbContext: 30,
   pkbReminder: 35,
   memoryV2Static: 38,

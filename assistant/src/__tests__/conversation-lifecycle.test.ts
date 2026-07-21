@@ -1,52 +1,8 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-// Stub out heavy dependencies before importing Conversation
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
-
 mock.module("../providers/registry.js", () => ({
   getProvider: () => ({ name: "mock-provider" }),
   initializeProviders: async () => {},
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    llm: {
-      default: {
-        provider: "mock-provider",
-        model: "mock-model",
-        maxTokens: 4096,
-        effort: "max" as const,
-        speed: "standard" as const,
-        temperature: null,
-        thinking: { enabled: false, streamThinking: true },
-        contextWindow: {
-          enabled: true,
-          maxInputTokens: 100000,
-          targetBudgetRatio: 0.3,
-          compactThreshold: 0.8,
-          summaryBudgetRatio: 0.05,
-          overflowRecovery: {
-            enabled: true,
-            safetyMarginRatio: 0.05,
-            maxAttempts: 3,
-            interactiveLatestTurnCompression: "summarize",
-            nonInteractiveLatestTurnCompression: "truncate",
-          },
-        },
-      },
-      profiles: {},
-      callSites: {},
-      pricingOverrides: [],
-    },
-    rateLimit: { maxRequestsPerMinute: 0 },
-  }),
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  invalidateConfigCache: () => {},
 }));
 
 mock.module("../prompts/system-prompt.js", () => ({
@@ -65,7 +21,7 @@ mock.module("../security/secret-allowlist.js", () => ({
 let mockDbMessages: Array<{
   id: string;
   role: string;
-  content: string;
+  content: unknown;
   metadata?: string | null;
 }> = [];
 let mockConversation: Record<string, unknown> | null = null;
@@ -88,7 +44,7 @@ mock.module("../persistence/conversation-crud.js", () => ({
   addMessage: async (
     _conversationId: string,
     role: string,
-    content: string,
+    content: unknown,
     options?: { metadata?: Record<string, unknown> },
   ) => {
     const metadata = options?.metadata;
@@ -206,13 +162,13 @@ describe("loadFromDb metadata injection rehydration", () => {
       {
         id: "m1",
         role: "user",
-        content: JSON.stringify([{ type: "text", text: "Hi" }]),
+        content: [{ type: "text", text: "Hi" }],
         metadata: JSON.stringify({ memoryInjectedBlock: "remember: alice" }),
       },
       {
         id: "m2",
         role: "assistant",
-        content: JSON.stringify([{ type: "text", text: "Hello" }]),
+        content: [{ type: "text", text: "Hello" }],
       },
       // Ensure m1 is historical (not the tail) so memory rehydration triggers
       // on a non-tail user row. Memory applies to all rows either way, but a
@@ -240,7 +196,7 @@ describe("loadFromDb metadata injection rehydration", () => {
       {
         id: "m1",
         role: "user",
-        content: JSON.stringify([{ type: "text", text: "First turn" }]),
+        content: [{ type: "text", text: "First turn" }],
         metadata: JSON.stringify({
           memoryInjectedBlock: "mem payload",
           turnContextBlock: "<turn_context>\nctx payload\n</turn_context>",
@@ -251,12 +207,12 @@ describe("loadFromDb metadata injection rehydration", () => {
       {
         id: "m2",
         role: "assistant",
-        content: JSON.stringify([{ type: "text", text: "Reply" }]),
+        content: [{ type: "text", text: "Reply" }],
       },
       {
         id: "m3",
         role: "user",
-        content: JSON.stringify([{ type: "text", text: "Second turn (tail)" }]),
+        content: [{ type: "text", text: "Second turn (tail)" }],
       },
     ];
 
@@ -291,17 +247,17 @@ describe("loadFromDb metadata injection rehydration", () => {
       {
         id: "m1",
         role: "user",
-        content: JSON.stringify([{ type: "text", text: "First" }]),
+        content: [{ type: "text", text: "First" }],
       },
       {
         id: "m2",
         role: "assistant",
-        content: JSON.stringify([{ type: "text", text: "Reply" }]),
+        content: [{ type: "text", text: "Reply" }],
       },
       {
         id: "m3",
         role: "user",
-        content: JSON.stringify([{ type: "text", text: "Tail turn" }]),
+        content: [{ type: "text", text: "Tail turn" }],
         metadata: JSON.stringify({
           memoryInjectedBlock: "mem payload",
           turnContextBlock: "<turn_context>\nctx\n</turn_context>",
@@ -334,18 +290,18 @@ describe("loadFromDb metadata injection rehydration", () => {
       {
         id: "m1",
         role: "user",
-        content: JSON.stringify([{ type: "text", text: "First" }]),
+        content: [{ type: "text", text: "First" }],
         metadata: JSON.stringify({}),
       },
       {
         id: "m2",
         role: "assistant",
-        content: JSON.stringify([{ type: "text", text: "Reply" }]),
+        content: [{ type: "text", text: "Reply" }],
       },
       {
         id: "m3",
         role: "user",
-        content: JSON.stringify([{ type: "text", text: "Second" }]),
+        content: [{ type: "text", text: "Second" }],
         metadata: JSON.stringify({ userMessageChannel: "desktop" }),
       },
     ];
@@ -369,7 +325,7 @@ describe("loadFromDb metadata injection rehydration", () => {
       {
         id: "m1",
         role: "user",
-        content: JSON.stringify([{ type: "text", text: "Hi" }]),
+        content: [{ type: "text", text: "Hi" }],
         metadata: JSON.stringify({
           memoryInjectedBlock: "<memory>\nremember: alice\n</memory>",
         }),
@@ -377,7 +333,7 @@ describe("loadFromDb metadata injection rehydration", () => {
       {
         id: "m2",
         role: "assistant",
-        content: JSON.stringify([{ type: "text", text: "Hello" }]),
+        content: [{ type: "text", text: "Hello" }],
       },
     ];
 
@@ -391,7 +347,9 @@ describe("loadFromDb metadata injection rehydration", () => {
       type: "text",
       text: "<memory>\nremember: alice\n</memory>",
     });
-    if (firstBlock.type !== "text") throw new Error("unexpected block type");
+    if (firstBlock.type !== "text") {
+      throw new Error("unexpected block type");
+    }
     expect(firstBlock.text.match(/<memory>/g)?.length).toBe(1);
   });
 
@@ -405,7 +363,7 @@ describe("loadFromDb metadata injection rehydration", () => {
       {
         id: "m1",
         role: "user",
-        content: JSON.stringify([{ type: "text", text: "First turn" }]),
+        content: [{ type: "text", text: "First turn" }],
         metadata: JSON.stringify({
           memoryV3InjectedBlock:
             "header line\n\n# memory/concepts/page-a.md\nhead a",
@@ -414,12 +372,12 @@ describe("loadFromDb metadata injection rehydration", () => {
       {
         id: "m2",
         role: "assistant",
-        content: JSON.stringify([{ type: "text", text: "Reply" }]),
+        content: [{ type: "text", text: "Reply" }],
       },
       {
         id: "m3",
         role: "user",
-        content: JSON.stringify([{ type: "text", text: "Tail turn" }]),
+        content: [{ type: "text", text: "Tail turn" }],
         metadata: JSON.stringify({
           memoryV3InjectedBlock: "# memory/concepts/page-b.md\nhead b",
         }),
@@ -458,7 +416,7 @@ describe("loadFromDb metadata injection rehydration", () => {
       {
         id: "m1",
         role: "user",
-        content: JSON.stringify([{ type: "text", text: "First turn" }]),
+        content: [{ type: "text", text: "First turn" }],
         metadata: JSON.stringify({
           memoryV3InjectedBlock:
             "header line\n\n# memory/concepts/page-a.md\nhead a\n\n# memory/concepts/page-b.md\nhead b",
@@ -467,7 +425,7 @@ describe("loadFromDb metadata injection rehydration", () => {
       {
         id: "m2",
         role: "assistant",
-        content: JSON.stringify([{ type: "text", text: "Reply" }]),
+        content: [{ type: "text", text: "Reply" }],
       },
     ];
 
@@ -491,7 +449,7 @@ describe("loadFromDb metadata injection rehydration", () => {
       {
         id: "m1",
         role: "user",
-        content: JSON.stringify([{ type: "text", text: "First turn" }]),
+        content: [{ type: "text", text: "First turn" }],
         metadata: JSON.stringify({
           memoryV3InjectedBlock:
             "header line\n\n# memory/concepts/page-a.md\nhead a",
@@ -500,7 +458,7 @@ describe("loadFromDb metadata injection rehydration", () => {
       {
         id: "m2",
         role: "assistant",
-        content: JSON.stringify([{ type: "text", text: "Reply" }]),
+        content: [{ type: "text", text: "Reply" }],
       },
     ];
 
@@ -519,7 +477,7 @@ describe("loadFromDb metadata injection rehydration", () => {
       {
         id: "m1",
         role: "user",
-        content: JSON.stringify([{ type: "text", text: "Hi" }]),
+        content: [{ type: "text", text: "Hi" }],
         metadata: JSON.stringify({
           memoryV3InjectedBlock:
             "<memory>\n# memory/concepts/page-a.md\nhead a\n</memory>",
@@ -528,7 +486,7 @@ describe("loadFromDb metadata injection rehydration", () => {
       {
         id: "m2",
         role: "assistant",
-        content: JSON.stringify([{ type: "text", text: "Hello" }]),
+        content: [{ type: "text", text: "Hello" }],
       },
     ];
 
@@ -541,7 +499,9 @@ describe("loadFromDb metadata injection rehydration", () => {
       type: "text",
       text: "<memory>\n# memory/concepts/page-a.md\nhead a\n</memory>",
     });
-    if (firstBlock.type !== "text") throw new Error("unexpected block type");
+    if (firstBlock.type !== "text") {
+      throw new Error("unexpected block type");
+    }
     expect(firstBlock.text.match(/<memory>/g)?.length).toBe(1);
   });
 
@@ -551,13 +511,13 @@ describe("loadFromDb metadata injection rehydration", () => {
       {
         id: "m1",
         role: "user",
-        content: JSON.stringify([{ type: "text", text: "First" }]),
+        content: [{ type: "text", text: "First" }],
         metadata: "not-json",
       },
       {
         id: "m2",
         role: "assistant",
-        content: JSON.stringify([{ type: "text", text: "Reply" }]),
+        content: [{ type: "text", text: "Reply" }],
       },
     ];
 
@@ -576,7 +536,7 @@ describe("loadFromDb metadata injection rehydration", () => {
       {
         id: "m1",
         role: "user",
-        content: JSON.stringify([{ type: "text", text: "First turn" }]),
+        content: [{ type: "text", text: "First turn" }],
         metadata: JSON.stringify({
           memoryInjectedBlock: "mem payload",
           memoryV2StaticBlock:
@@ -588,12 +548,12 @@ describe("loadFromDb metadata injection rehydration", () => {
       {
         id: "m2",
         role: "assistant",
-        content: JSON.stringify([{ type: "text", text: "Reply" }]),
+        content: [{ type: "text", text: "Reply" }],
       },
       {
         id: "m3",
         role: "user",
-        content: JSON.stringify([{ type: "text", text: "Tail turn" }]),
+        content: [{ type: "text", text: "Tail turn" }],
       },
     ];
 
@@ -627,7 +587,7 @@ describe("loadFromDb metadata injection rehydration", () => {
       {
         id: "m1",
         role: "user",
-        content: JSON.stringify([{ type: "text", text: "First turn" }]),
+        content: [{ type: "text", text: "First turn" }],
         metadata: JSON.stringify({
           memoryV2StaticBlock:
             "<memory>\n## Essentials\n\nAlice prefers VS Code.\n</memory>",
@@ -636,12 +596,12 @@ describe("loadFromDb metadata injection rehydration", () => {
       {
         id: "m2",
         role: "assistant",
-        content: JSON.stringify([{ type: "text", text: "Reply" }]),
+        content: [{ type: "text", text: "Reply" }],
       },
       {
         id: "m3",
         role: "user",
-        content: JSON.stringify([{ type: "text", text: "Tail turn" }]),
+        content: [{ type: "text", text: "Tail turn" }],
       },
     ];
 
@@ -664,17 +624,17 @@ describe("loadFromDb metadata injection rehydration", () => {
       {
         id: "m1",
         role: "user",
-        content: JSON.stringify([{ type: "text", text: "First" }]),
+        content: [{ type: "text", text: "First" }],
       },
       {
         id: "m2",
         role: "assistant",
-        content: JSON.stringify([{ type: "text", text: "Reply" }]),
+        content: [{ type: "text", text: "Reply" }],
       },
       {
         id: "m3",
         role: "user",
-        content: JSON.stringify([{ type: "text", text: "Tail" }]),
+        content: [{ type: "text", text: "Tail" }],
         metadata: JSON.stringify({
           memoryV2StaticBlock: "<info>\n## Essentials\n\nleak\n</info>",
         }),
@@ -705,7 +665,7 @@ describe("loadFromDb metadata injection rehydration", () => {
       {
         id: "m1",
         role: "user",
-        content: JSON.stringify([{ type: "text", text: "First" }]),
+        content: [{ type: "text", text: "First" }],
         metadata: JSON.stringify({
           // Rows must carry `trusted_contact` / `unknown` provenance to
           // survive the row-level filter for non-guardian views.
@@ -717,13 +677,13 @@ describe("loadFromDb metadata injection rehydration", () => {
       {
         id: "m2",
         role: "assistant",
-        content: JSON.stringify([{ type: "text", text: "Reply" }]),
+        content: [{ type: "text", text: "Reply" }],
         metadata: JSON.stringify({ provenanceTrustClass: "trusted_contact" }),
       },
       {
         id: "m3",
         role: "user",
-        content: JSON.stringify([{ type: "text", text: "Tail" }]),
+        content: [{ type: "text", text: "Tail" }],
         metadata: JSON.stringify({ provenanceTrustClass: "trusted_contact" }),
       },
     ];
@@ -759,7 +719,7 @@ describe("loadFromDb metadata injection rehydration", () => {
       {
         id: "m1",
         role: "user",
-        content: JSON.stringify([{ type: "text", text: "First turn" }]),
+        content: [{ type: "text", text: "First turn" }],
         metadata: JSON.stringify({
           memoryInjectedBlock: "mem payload",
           memoryV2StaticBlock:
@@ -773,12 +733,12 @@ describe("loadFromDb metadata injection rehydration", () => {
       {
         id: "m2",
         role: "assistant",
-        content: JSON.stringify([{ type: "text", text: "Reply" }]),
+        content: [{ type: "text", text: "Reply" }],
       },
       {
         id: "m3",
         role: "user",
-        content: JSON.stringify([{ type: "text", text: "Tail" }]),
+        content: [{ type: "text", text: "Tail" }],
       },
     ];
 
@@ -825,7 +785,7 @@ describe("loadFromDb metadata injection rehydration", () => {
       {
         id: "m1",
         role: "user",
-        content: JSON.stringify([{ type: "text", text: "First turn" }]),
+        content: [{ type: "text", text: "First turn" }],
         metadata: JSON.stringify({
           workspaceBlock: "<workspace>\nworkspace body\n</workspace>",
           turnContextBlock: "<turn_context>\nctx payload\n</turn_context>",
@@ -843,12 +803,12 @@ describe("loadFromDb metadata injection rehydration", () => {
       {
         id: "m2",
         role: "assistant",
-        content: JSON.stringify([{ type: "text", text: "Reply" }]),
+        content: [{ type: "text", text: "Reply" }],
       },
       {
         id: "m3",
         role: "user",
-        content: JSON.stringify([{ type: "text", text: "Tail" }]),
+        content: [{ type: "text", text: "Tail" }],
       },
     ];
 
@@ -901,7 +861,7 @@ describe("loadFromDb metadata injection rehydration", () => {
       {
         id: "m1",
         role: "user",
-        content: JSON.stringify([{ type: "text", text: "First turn" }]),
+        content: [{ type: "text", text: "First turn" }],
         metadata: JSON.stringify({
           workspaceBlock: "<workspace>\nworkspace body\n</workspace>",
           backgroundTurnBlock: "<background_turn>\nbg body\n</background_turn>",
@@ -924,12 +884,12 @@ describe("loadFromDb metadata injection rehydration", () => {
       {
         id: "m2",
         role: "assistant",
-        content: JSON.stringify([{ type: "text", text: "Reply" }]),
+        content: [{ type: "text", text: "Reply" }],
       },
       {
         id: "m3",
         role: "user",
-        content: JSON.stringify([{ type: "text", text: "Tail" }]),
+        content: [{ type: "text", text: "Tail" }],
       },
     ];
 
@@ -977,7 +937,7 @@ describe("loadFromDb metadata injection rehydration", () => {
       {
         id: "m1",
         role: "user",
-        content: JSON.stringify([{ type: "text", text: "Tail" }]),
+        content: [{ type: "text", text: "Tail" }],
         metadata: JSON.stringify({
           backgroundTurnBlock: "<background_turn>\nbg body\n</background_turn>",
           channelCapabilitiesBlock:
@@ -1004,7 +964,7 @@ describe("loadFromDb metadata injection rehydration", () => {
       {
         id: "m1",
         role: "user",
-        content: JSON.stringify([{ type: "text", text: "First" }]),
+        content: [{ type: "text", text: "First" }],
         metadata: JSON.stringify({
           provenanceTrustClass: "trusted_contact",
           memoryV2StaticBlock:
@@ -1014,13 +974,13 @@ describe("loadFromDb metadata injection rehydration", () => {
       {
         id: "m2",
         role: "assistant",
-        content: JSON.stringify([{ type: "text", text: "Reply" }]),
+        content: [{ type: "text", text: "Reply" }],
         metadata: JSON.stringify({ provenanceTrustClass: "unknown" }),
       },
       {
         id: "m3",
         role: "user",
-        content: JSON.stringify([{ type: "text", text: "Tail" }]),
+        content: [{ type: "text", text: "Tail" }],
         metadata: JSON.stringify({ provenanceTrustClass: "trusted_contact" }),
       },
     ];
@@ -1039,6 +999,54 @@ describe("loadFromDb metadata injection rehydration", () => {
     expect(messages[0].content).toEqual([{ type: "text", text: "First" }]);
   });
 
+  test("untrusted-actor view does not rehydrate memoryV3InjectedBlock (including the tail)", async () => {
+    mockConversation = defaultConv();
+    // v3 cards carry personal memory and rehydrate on ALL rows including the
+    // tail (see the positive test above), so the trust gate must suppress both
+    // the historical and the tail block. `trusted_contact` provenance keeps the
+    // rows past the untrusted-actor row filter, isolating the rehydrate gate.
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: [{ type: "text", text: "First" }],
+        metadata: JSON.stringify({
+          provenanceTrustClass: "trusted_contact",
+          memoryV3InjectedBlock:
+            "header line\n\n# memory/concepts/page-a.md\nhead a",
+        }),
+      },
+      {
+        id: "m2",
+        role: "assistant",
+        content: [{ type: "text", text: "Reply" }],
+        metadata: JSON.stringify({ provenanceTrustClass: "unknown" }),
+      },
+      {
+        id: "m3",
+        role: "user",
+        content: [{ type: "text", text: "Tail" }],
+        metadata: JSON.stringify({
+          provenanceTrustClass: "trusted_contact",
+          memoryV3InjectedBlock: "# memory/concepts/page-b.md\nhead b",
+        }),
+      },
+    ];
+
+    const conversation = makeConversation();
+    conversation.setTrustContext({
+      trustClass: "trusted_contact",
+      sourceChannel: "telegram",
+    });
+    await conversation.loadFromDb();
+    const messages = conversation.getMessages();
+
+    expect(messages).toHaveLength(3);
+    // Neither the historical nor the tail v3 card block is prepended.
+    expect(messages[0].content).toEqual([{ type: "text", text: "First" }]);
+    expect(messages[2].content).toEqual([{ type: "text", text: "Tail" }]);
+  });
+
   test("ensureActorScopedHistory reloads when sourceChannel changes within the same trust class", async () => {
     // Regression: cache invalidation previously keyed only on trust class.
     // `loadFromDb` gates `memoryV2StaticBlock` rehydration on `sourceChannel`
@@ -1050,7 +1058,7 @@ describe("loadFromDb metadata injection rehydration", () => {
       {
         id: "m1",
         role: "user",
-        content: JSON.stringify([{ type: "text", text: "First" }]),
+        content: [{ type: "text", text: "First" }],
         metadata: JSON.stringify({
           provenanceTrustClass: "trusted_contact",
           memoryV2StaticBlock:
@@ -1060,13 +1068,13 @@ describe("loadFromDb metadata injection rehydration", () => {
       {
         id: "m2",
         role: "assistant",
-        content: JSON.stringify([{ type: "text", text: "Reply" }]),
+        content: [{ type: "text", text: "Reply" }],
         metadata: JSON.stringify({ provenanceTrustClass: "trusted_contact" }),
       },
       {
         id: "m3",
         role: "user",
-        content: JSON.stringify([{ type: "text", text: "Tail" }]),
+        content: [{ type: "text", text: "Tail" }],
         metadata: JSON.stringify({ provenanceTrustClass: "trusted_contact" }),
       },
     ];

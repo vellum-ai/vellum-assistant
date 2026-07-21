@@ -50,6 +50,11 @@ import {
   type SttStreamSocketData,
 } from "./http/routes/stt-stream-websocket.js";
 import {
+  createSpeechRelayUpgradeHandler,
+  getSpeechRelayWebsocketHandlers,
+  type SpeechRelaySocketData,
+} from "./http/routes/speech-relay-websocket.js";
+import {
   createLiveVoiceWebsocketHandler,
   getLiveVoiceWebsocketHandlers,
   type LiveVoiceSocketData,
@@ -79,12 +84,18 @@ import { createTelegramControlPlaneProxyHandler } from "./http/routes/telegram-c
 import { createTwilioControlPlaneProxyHandler } from "./http/routes/twilio-control-plane-proxy.js";
 import { createVercelControlPlaneProxyHandler } from "./http/routes/vercel-control-plane-proxy.js";
 import { createContactsControlPlaneProxyHandler } from "./http/routes/contacts-control-plane-proxy.js";
+import { buildContactsControlPlaneRoutes } from "./http/routes/contacts-control-plane-route-table.js";
 import { handleContactPromptSubmit } from "./http/routes/contact-prompt.js";
 import {
   handleListDevices,
   handleRevokeDevice,
 } from "./http/routes/devices.js";
 import { handlePair } from "./http/routes/pair.js";
+import { handleCredentialEntryPage } from "./http/routes/credential-entry-page.js";
+import {
+  handleCredentialRequestPeek,
+  handleCredentialRequestSubmit,
+} from "./http/routes/credential-requests.js";
 import { handleCreateRemoteWebPairingChallenge } from "./http/routes/remote-web-pairing-challenge.js";
 import { handleRemoteWebPairingToken } from "./http/routes/remote-web-pairing-token.js";
 import { handleVerifyRemoteWebPairingChallenge } from "./http/routes/remote-web-pairing-verification.js";
@@ -187,12 +198,14 @@ import { GatewayIpcServer } from "./ipc/server.js";
 import { contactRoutes } from "./ipc/contact-handlers.js";
 import { inviteRoutes } from "./ipc/invite-handlers.js";
 import { verificationSessionRoutes } from "./ipc/verification-session-handlers.js";
+import { guardianRequestRoutes } from "./ipc/guardian-request-handlers.js";
 import { featureFlagRoutes } from "./ipc/feature-flag-handlers.js";
 import { admissionPolicyRoutes } from "./ipc/admission-policy-handlers.js";
 import { channelPermissionRoutes } from "./ipc/channel-permission-handlers.js";
 import { trustVerdictRoutes } from "./ipc/trust-verdict-handlers.js";
 import { guardianDeliveryRoutes } from "./ipc/guardian-delivery-handlers.js";
 import { createLogTailRoutes } from "./ipc/log-tail-handlers.js";
+import { createCredentialRequestIpcRoutes } from "./ipc/credential-request-handlers.js";
 import { slackThreadRoutes } from "./ipc/slack-thread-handlers.js";
 import { thresholdRoutes } from "./ipc/threshold-handlers.js";
 import { trustRulesRoutes } from "./ipc/trust-rules-handlers.js";
@@ -208,6 +221,7 @@ import { runPostAssistantReady } from "./post-assistant-ready.js";
 import {
   clearManagedPublicBaseUrl,
   createVelayTunnelClient,
+  enablePublicIngress,
 } from "./velay/client.js";
 import { VERSION_HEADER_NAME, VERSION_HEADER_VALUE } from "./version.js";
 
@@ -275,6 +289,14 @@ function isLiveVoiceSocketData(data: unknown): data is LiveVoiceSocketData {
     !!data &&
     typeof data === "object" &&
     (data as { wsType?: unknown }).wsType === "live-voice"
+  );
+}
+
+function isSpeechRelaySocketData(data: unknown): data is SpeechRelaySocketData {
+  return (
+    !!data &&
+    typeof data === "object" &&
+    (data as { wsType?: unknown }).wsType === "speech-relay"
   );
 }
 
@@ -409,6 +431,41 @@ async function main() {
     return true;
   }
 
+  /**
+   * Start the Velay tunnel when a credential link is minted. Unlike the Twilio
+   * and live-voice paths this has no precondition: creating a one-time
+   * credential link is itself the request to expose public ingress, and the
+   * tunnel is the browser's route to the credential-entry page. Shares the
+   * `velayStartRequested` latch — one tunnel serves every ingress consumer —
+   * and `velayTunnelClient.start()` is idempotent.
+   */
+  function maybeStartVelayTunnelForCredentialLink(reason: string): boolean {
+    if (velayStartRequested || !velayTunnelClient) {
+      return velayStartRequested;
+    }
+    velayStartRequested = true;
+    log.info({ reason }, "Starting Velay tunnel after credential link minted");
+    velayTunnelClient.start();
+    return true;
+  }
+
+  /**
+   * Make public ingress live for a freshly minted credential link: enable it
+   * when explicitly disabled (only an explicit `false` — a default `undefined`
+   * already means enabled on platform) and start the Velay tunnel so the link
+   * is actually reachable.
+   */
+  async function ensurePublicIngressLiveForCredentialLink(): Promise<void> {
+    if (
+      configFileCache.getBoolean("ingress", "enabled", { force: true }) ===
+      false
+    ) {
+      await enablePublicIngress(configFileCache);
+      log.info("Auto-enabled public ingress for credential link creation");
+    }
+    maybeStartVelayTunnelForCredentialLink("credential link minted");
+  }
+
   async function readTwilioCredentialsForVelayStartup(): Promise<Record<
     string,
     string
@@ -459,9 +516,20 @@ async function main() {
   });
   const handleSttStreamWs = createSttStreamWebsocketHandler(config);
   const handleLiveVoiceWs = createLiveVoiceWebsocketHandler(config);
+  const handleSpeechRelaySttWs = createSpeechRelayUpgradeHandler(
+    config,
+    "stt",
+    { credentials: credentialCache },
+  );
+  const handleSpeechRelayTtsWs = createSpeechRelayUpgradeHandler(
+    config,
+    "tts",
+    { credentials: credentialCache },
+  );
   const twilioMediaStreamWebsocketHandlers = getMediaStreamWebsocketHandlers();
   const sttStreamWebsocketHandlers = getSttStreamWebsocketHandlers();
   const liveVoiceWebsocketHandlers = getLiveVoiceWebsocketHandlers();
+  const speechRelayWebsocketHandlers = getSpeechRelayWebsocketHandlers();
   const { handler: handleWhatsAppWebhook, dedupCache: whatsappDedupCache } =
     createWhatsAppWebhookHandler(config, {
       credentials: credentialCache,
@@ -759,130 +827,12 @@ async function main() {
     },
 
     // ── Contacts control plane ──
-    {
-      path: "/v1/contacts/prompt/submit",
-      method: "POST",
-      auth: "edge",
-      handler: (req) => handleContactPromptSubmit(req),
-    },
-    {
-      // Assistant-scoped variant for clients using the auto-prefix.
-      path: /^\/v1\/assistants\/[^/]+\/contacts\/prompt\/submit\/?$/,
-      method: "POST",
-      auth: "edge",
-      handler: (req) => handleContactPromptSubmit(req),
-    },
-    {
-      path: "/v1/contacts",
-      method: "GET",
-      auth: "edge",
-      handler: (req) => contactsControlPlaneProxy.handleListContacts(req),
-    },
-    {
-      path: "/v1/contacts",
-      method: "POST",
-      auth: "edge",
-      handler: (req) => contactsControlPlaneProxy.handleUpsertContact(req),
-    },
-    {
-      // Assistant-scoped variant for clients using the auto-prefix.
-      path: /^\/v1\/assistants\/[^/]+\/contacts\/?$/,
-      method: "POST",
-      auth: "edge",
-      handler: (req) => contactsControlPlaneProxy.handleUpsertContact(req),
-    },
-    {
-      path: "/v1/contacts/merge",
-      method: "POST",
-      auth: "edge",
-      handler: (req) => contactsControlPlaneProxy.handleMergeContacts(req),
-    },
-    {
-      path: /^\/v1\/contact-channels\/([^/]+)$/,
-      method: "PATCH",
-      auth: "edge",
-      handler: (req, params) =>
-        contactsControlPlaneProxy.handleUpdateContactChannel(req, params[0]),
-    },
-    {
-      path: /^\/v1\/contact-channels\/([^/]+)\/verify$/,
-      method: "POST",
-      auth: "edge-guardian",
-      handler: (req, params) =>
-        contactsControlPlaneProxy.handleVerifyContactChannel(req, params[0]),
-    },
-    {
-      // Assistant-scoped variant for clients using the auto-prefix.
-      path: /^\/v1\/assistants\/[^/]+\/contact-channels\/([^/]+)\/verify\/?$/,
-      method: "POST",
-      auth: "edge-guardian",
-      handler: (req, params) =>
-        contactsControlPlaneProxy.handleVerifyContactChannel(req, params[0]),
-    },
-    // ── Contacts/invites control plane ──
-    // Scope map: invites list → settings.read; create/redeem/revoke/call →
-    // settings.write.
-    {
-      path: "/v1/contacts/invites",
-      method: "GET",
-      auth: "edge-scoped",
-      scope: "settings.read",
-      handler: (req) => contactsControlPlaneProxy.handleListInvites(req),
-    },
-    {
-      path: "/v1/contacts/invites",
-      method: "POST",
-      auth: "edge-scoped",
-      scope: "settings.write",
-      handler: (req) => contactsControlPlaneProxy.handleCreateInvite(req),
-    },
-    {
-      path: "/v1/contacts/invites/redeem",
-      method: "POST",
-      auth: "edge-scoped",
-      scope: "settings.write",
-      handler: (req) => contactsControlPlaneProxy.handleRedeemInvite(req),
-    },
-    {
-      path: /^\/v1\/contacts\/invites\/([^/]+)\/call$/,
-      method: "POST",
-      auth: "edge-scoped",
-      scope: "settings.write",
-      handler: (req, params) =>
-        contactsControlPlaneProxy.handleCallInvite(req, params[0]),
-    },
-    {
-      path: /^\/v1\/contacts\/invites\/([^/]+)$/,
-      method: "DELETE",
-      auth: "edge-scoped",
-      scope: "settings.write",
-      handler: (req, params) =>
-        contactsControlPlaneProxy.handleRevokeInvite(req, params[0]),
-    },
-    {
-      // Keep DELETE on the invite collection unsupported; only /invites/:id
-      // should revoke an invite.
-      path: /^\/v1\/contacts\/(?!invites\/?$)([^/]+)\/?$/,
-      method: "DELETE",
-      auth: "edge",
-      handler: (_req, params) =>
-        contactsControlPlaneProxy.handleDeleteContact(params[0]),
-    },
-    {
-      // Assistant-scoped variant for clients using the auto-prefix.
-      path: /^\/v1\/assistants\/[^/]+\/contacts\/(?!invites\/?$)([^/]+)\/?$/,
-      method: "DELETE",
-      auth: "edge",
-      handler: (_req, params) =>
-        contactsControlPlaneProxy.handleDeleteContact(params[0]),
-    },
-    {
-      path: /^\/v1\/contacts\/([^/]+)$/,
-      method: "GET",
-      auth: "edge",
-      handler: (req, params) =>
-        contactsControlPlaneProxy.handleGetContact(req, params[0]),
-    },
+    // Route table shared with the fall-through regression test; see
+    // contacts-control-plane-route-table.ts.
+    ...buildContactsControlPlaneRoutes({
+      contactsControlPlaneProxy,
+      handleContactPromptSubmit,
+    }),
 
     // ── Generic loopback pairing (localhost-only, auth: none) ──
     {
@@ -914,6 +864,32 @@ async function main() {
       method: "POST",
       auth: "none",
       handler: (req) => handleRemoteWebPairingToken(req),
+    },
+    // ── Credential requests (one-time credential-collection links) ──
+    // Unauthenticated by design: the single-use token in the request BODY is
+    // the credential to act. Invalid tokens count as auth failures.
+    // The entry page is a static self-contained HTML shell (no token
+    // server-side — it rides the URL fragment); Velay-tunneled deployments
+    // have no SPA server behind the tunnel, so the gateway serves it.
+    {
+      path: "/assistant/credentials/enter",
+      method: "GET",
+      auth: "none",
+      handler: (req) => handleCredentialEntryPage(req),
+    },
+    {
+      path: "/v1/credential-requests/peek",
+      method: "POST",
+      auth: "track-failures",
+      trackFailureStatuses: [404],
+      handler: (req) => handleCredentialRequestPeek(req),
+    },
+    {
+      path: "/v1/credential-requests/submit",
+      method: "POST",
+      auth: "track-failures",
+      trackFailureStatuses: [404],
+      handler: (req) => handleCredentialRequestSubmit(req),
     },
     // ── Device management (localhost-only, auth: none; self-guards loopback) ──
     {
@@ -1670,8 +1646,7 @@ async function main() {
     // on mutations (the daemon HTTP handlers were stripped by #28784).
     //
     // Trust rules are gateway-global, so the assistant id is matched and
-    // discarded. Same precedent as the assistant-scoped /v1/assistants/.../
-    // contacts DELETE route above.
+    // discarded. Same precedent as channel-admission-policy above.
     {
       path: /^\/v1\/assistants\/[^/]+\/trust-rules\/?$/,
       method: "GET",
@@ -1766,6 +1741,10 @@ async function main() {
           liveVoiceWebsocketHandlers.open(ws as never);
           return;
         }
+        if (isSpeechRelaySocketData(ws.data)) {
+          void speechRelayWebsocketHandlers.open(ws as never);
+          return;
+        }
         closeUnknownSocket(ws, "open");
       },
       message(ws, message) {
@@ -1781,6 +1760,10 @@ async function main() {
           liveVoiceWebsocketHandlers.message(ws as never, message);
           return;
         }
+        if (isSpeechRelaySocketData(ws.data)) {
+          speechRelayWebsocketHandlers.message(ws as never, message);
+          return;
+        }
         closeUnknownSocket(ws, "message");
       },
       close(ws, code, reason) {
@@ -1794,6 +1777,10 @@ async function main() {
         }
         if (isLiveVoiceSocketData(ws.data)) {
           liveVoiceWebsocketHandlers.close(ws as never, code, reason);
+          return;
+        }
+        if (isSpeechRelaySocketData(ws.data)) {
+          speechRelayWebsocketHandlers.close(ws as never, code, reason);
           return;
         }
         log.error(
@@ -1994,7 +1981,21 @@ async function main() {
     }
 
     if (url.pathname === "/v1/live-voice") {
-      const upgradeResult = handleLiveVoiceWs(req, server);
+      const upgradeResult = await handleLiveVoiceWs(req, server);
+      if (upgradeResult !== undefined) return upgradeResult;
+      return undefined as unknown as Response;
+    }
+
+    // Managed-speech relay: daemon-only egress to velay. NOT in
+    // VELAY_ALLOWED_PATHS — velay's inbound tunnel must never reach it.
+    if (url.pathname === "/v1/speech/stt/stream") {
+      const upgradeResult = await handleSpeechRelaySttWs(req, server);
+      if (upgradeResult !== undefined) return upgradeResult;
+      return undefined as unknown as Response;
+    }
+
+    if (url.pathname === "/v1/speech/tts/stream") {
+      const upgradeResult = await handleSpeechRelayTtsWs(req, server);
       if (upgradeResult !== undefined) return upgradeResult;
       return undefined as unknown as Response;
     }
@@ -2633,6 +2634,7 @@ async function main() {
     ...contactRoutes,
     ...inviteRoutes,
     ...verificationSessionRoutes,
+    ...guardianRequestRoutes,
     ...slackThreadRoutes,
     ...thresholdRoutes,
     ...admissionPolicyRoutes,
@@ -2643,6 +2645,12 @@ async function main() {
     ...createLogTailRoutes(config),
     ...trustRulesRoutes,
     ...createVelayRoutes(velayTunnelClient),
+    ...createCredentialRequestIpcRoutes(
+      config,
+      configFileCache,
+      credentialCache,
+      ensurePublicIngressLiveForCredentialLink,
+    ),
   ]);
   ipcServer.start();
 

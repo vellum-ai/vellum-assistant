@@ -2,7 +2,9 @@ import { beforeEach, describe, expect, test } from "bun:test";
 
 import {
   advanceReconnectCursor,
+  getAbandonedGenerationCeiling,
   getReconnectCursor,
+  recordAbandonedGeneration,
   replaceReconnectCursor,
   resetReconnectCursor,
 } from "@/lib/streaming/reconnect-cursor";
@@ -62,5 +64,45 @@ describe("reconnect-cursor", () => {
 
     // THEN it reads null again — the next connect starts cold
     expect(getReconnectCursor()).toBeNull();
+  });
+});
+
+describe("reconnect-cursor — abandoned generation ceiling", () => {
+  test("starts null before any generation reset is observed", () => {
+    expect(getAbandonedGenerationCeiling()).toBeNull();
+  });
+
+  test("records the ceiling of an observed generation reset", () => {
+    // WHEN a reset abandons the seqs up to 907779
+    recordAbandonedGeneration(907779);
+
+    // THEN that ceiling is retained
+    expect(getAbandonedGenerationCeiling()).toBe(907779);
+  });
+
+  test("is monotonic — retains the highest ceiling across resets", () => {
+    // GIVEN a recorded ceiling
+    recordAbandonedGeneration(907779);
+
+    // WHEN a later reset abandons a lower ceiling
+    recordAbandonedGeneration(500);
+
+    // THEN the higher ceiling stands (a lower one must not narrow the window)
+    expect(getAbandonedGenerationCeiling()).toBe(907779);
+
+    // AND a higher ceiling still moves it forward
+    recordAbandonedGeneration(1_000_000);
+    expect(getAbandonedGenerationCeiling()).toBe(1_000_000);
+  });
+
+  test("reset clears the ceiling with the cursor (a new seq space)", () => {
+    // GIVEN a recorded ceiling
+    recordAbandonedGeneration(907779);
+
+    // WHEN the connection resets for a new assistant
+    resetReconnectCursor();
+
+    // THEN the ceiling clears too — the old seq space is gone
+    expect(getAbandonedGenerationCeiling()).toBeNull();
   });
 });

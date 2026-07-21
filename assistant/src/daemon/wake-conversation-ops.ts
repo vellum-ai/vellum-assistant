@@ -20,6 +20,7 @@ import {
 } from "../persistence/conversation-crud.js";
 import { syncMessageToDisk } from "../persistence/conversation-disk-view.js";
 import { backfillMessageIdOnLogs } from "../persistence/llm-request-log-store.js";
+import { resolveMediaSourceData } from "../providers/media-resolve.js";
 import type { Message } from "../providers/types.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
@@ -88,7 +89,9 @@ function translateAgentEventToServerMessage(
         (b): b is Extract<typeof b, { type: "image" }> => b.type === "image",
       );
       const imageDataList = imageBlocks?.length
-        ? imageBlocks.map((b) => b.source.data)
+        ? imageBlocks
+            .map((b) => resolveMediaSourceData(b.source)?.data)
+            .filter((d): d is string => d != null)
         : undefined;
       return {
         type: "tool_result",
@@ -339,28 +342,37 @@ export async function persistWakeTriggerMessage(
  * inputs for tool-definition resolution — see {@link WakeToolContextPin}.
  * Its `requestOrigin`, when set, is stamped onto the conversation's per-turn
  * origin so the permission checker's origin-scoped auto-grants fire for the
- * wake. All are set and restored alongside the allowlist.
+ * wake. `preactivateSkillIds`, when non-empty, activates those skills' bundled
+ * tools in the turn's active set (`allowedToolNames`) for the wake so they are
+ * callable without a prior `skill_load`. All are set and restored alongside the
+ * allowlist.
  */
 export function scopeWakeAllowedTools(
   conversation: Conversation,
   tools: ReadonlySet<string>,
   gateMode: SubagentToolGateMode = "wire",
   toolContextPin?: WakeToolContextPin,
+  preactivateSkillIds?: readonly string[],
 ): () => void {
   const previous = conversation.subagentAllowedTools;
   const previousGateMode = conversation.subagentToolGateMode;
   const previousToolContextPin = conversation.toolContextPin;
   const previousRequestOrigin = conversation.currentTurnRequestOrigin;
+  const previousPreactivated = conversation.preactivatedSkillIds;
   conversation.setSubagentAllowedTools(new Set(tools));
   conversation.subagentToolGateMode = gateMode;
   conversation.toolContextPin = toolContextPin;
   if (toolContextPin?.requestOrigin !== undefined) {
     conversation.currentTurnRequestOrigin = toolContextPin.requestOrigin;
   }
+  if (preactivateSkillIds && preactivateSkillIds.length > 0) {
+    conversation.setPreactivatedSkillIds([...preactivateSkillIds]);
+  }
   return () => {
     conversation.setSubagentAllowedTools(previous);
     conversation.subagentToolGateMode = previousGateMode;
     conversation.toolContextPin = previousToolContextPin;
     conversation.currentTurnRequestOrigin = previousRequestOrigin;
+    conversation.setPreactivatedSkillIds(previousPreactivated);
   };
 }

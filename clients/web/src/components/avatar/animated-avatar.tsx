@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { useReducedMotion } from "motion/react";
 
 import { computeTransforms, resolveDefinitions } from "@/utils/avatar-svg-compositor";
@@ -8,14 +8,29 @@ interface AnimatedAvatarProps {
   components: CharacterComponents;
   traits: CharacterTraits;
   size: number;
-  isStreaming?: boolean;
+  isAssistantBusy?: boolean;
   /**
    * Continuous idle "breathing" scale pulse. On by default; pass `false` to
    * keep the avatar still while leaving blink/twitch (and streaming morph)
    * intact — e.g. the scattered onboarding edge characters.
    */
   breathe?: boolean;
+  /**
+   * While hovered, the pupils (not the whole eye) shift a small, fixed
+   * distance toward the cursor — a "look at cursor" effect. Off by default
+   * since it's opinionated and only makes sense on a large, single,
+   * hover-focused avatar (e.g. the About Assistant hero), not the many
+   * small/ambient avatars this component also renders.
+   */
+  trackCursor?: boolean;
 }
+
+/** Pupil fill color (see `PUPIL` in `assistant/src/avatar/character-components.ts`)
+ *  — the one reliable way to pick pupil paths out of an eye style's path
+ *  list from the client, since the API doesn't label path roles. */
+const PUPIL_HEX = "#1A1A1A";
+/** Max pupil shift toward the cursor, as a fraction of avatar size. */
+const PUPIL_TRACK_RATIO = 0.015;
 
 function randomBetween(min: number, max: number): number {
   return min + Math.random() * (max - min);
@@ -102,7 +117,7 @@ function precomputeWobbledPaths(
  *   - Blink: random 3-7s eye scaleY squish, 20% double-blink
  *   - Twitch: random 8-15s body rotation wobble
  *
- * During streaming (`isStreaming`):
+ * During streaming (`isAssistantBusy`):
  *   - Morph: body path cycles through 16 wobbled variants
  *   - Scale + rotation CSS animations
  *   - Blink + twitch paused
@@ -113,10 +128,33 @@ export function AnimatedAvatar({
   components,
   traits,
   size,
-  isStreaming = false,
+  isAssistantBusy = false,
   breathe = true,
+  trackCursor = false,
 }: AnimatedAvatarProps) {
   const reduce = useReducedMotion();
+
+  // Pupil offset toward the cursor, in rendered (post-eyeTransform) pixels.
+  // Only tracked while the pointer is actually over the SVG — onMouseMove
+  // naturally stops firing once it leaves, and onMouseLeave recenters.
+  const [pupilOffset, setPupilOffset] = useState({ x: 0, y: 0 });
+  const handlePupilTrack = (event: ReactMouseEvent<SVGSVGElement>) => {
+    if (!trackCursor || reduce) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const scaleX = size / rect.width;
+    const scaleY = size / rect.height;
+    const localX = (event.clientX - rect.left) * scaleX;
+    const localY = (event.clientY - rect.top) * scaleY;
+    const dx = localX - eyeCenterOutputX;
+    const dy = localY - eyeCenterOutputY;
+    const dist = Math.hypot(dx, dy) || 1;
+    const maxOffset = size * PUPIL_TRACK_RATIO;
+    setPupilOffset({ x: (dx / dist) * maxOffset, y: (dy / dist) * maxOffset });
+  };
+  const handlePupilLeave = () => {
+    if (!trackCursor) return;
+    setPupilOffset({ x: 0, y: 0 });
+  };
 
   const { bodyShape, eyeStyle, color } = resolveDefinitions(
     components,
@@ -159,10 +197,10 @@ export function AnimatedAvatar({
   // only once an avatar actually streams.
   const morphPaths = useMemo(
     () =>
-      isStreaming
+      isAssistantBusy
         ? precomputeWobbledPaths(bodyShape.svgPath, 16, 0.06)
         : [bodyShape.svgPath],
-    [bodyShape.svgPath, isStreaming],
+    [bodyShape.svgPath, isAssistantBusy],
   );
 
   const [isBlinking, setIsBlinking] = useState(false);
@@ -174,12 +212,12 @@ export function AnimatedAvatar({
   useEffect(() => {
     // Force eyes open whenever blinking is disabled (reduced-motion or
     // streaming). A blink is a `setIsBlinking(true)` → 150ms → `false` pair;
-    // if `isStreaming` flips true mid-blink, this effect's cleanup cancels the
+    // if `isAssistantBusy` flips true mid-blink, this effect's cleanup cancels the
     // pending "un-blink" timeout, so without this reset `isBlinking` freezes
     // at `true` and the eyes stay squished (scaleY 0.1) until the component
     // remounts (page refresh / conversation switch). Mirrors the twitch
-    // guard (`effectiveTwitchAngle = isStreaming ? 0 : twitchAngle`).
-    if (reduce || isStreaming) {
+    // guard (`effectiveTwitchAngle = isAssistantBusy ? 0 : twitchAngle`).
+    if (reduce || isAssistantBusy) {
       setIsBlinking(false);
       return;
     }
@@ -217,14 +255,14 @@ export function AnimatedAvatar({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [reduce, isStreaming]);
+  }, [reduce, isAssistantBusy]);
 
   useEffect(() => {
     // Reset the body angle when twitching is disabled so a twitch interrupted
     // mid-flight by streaming can't freeze the body rotated. (The render also
     // guards this via `effectiveTwitchAngle`, but resetting the state keeps it
     // correct after streaming ends without waiting for the next twitch cycle.)
-    if (reduce || isStreaming) {
+    if (reduce || isAssistantBusy) {
       setTwitchAngle(0);
       return;
     }
@@ -252,11 +290,11 @@ export function AnimatedAvatar({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [reduce, isStreaming]);
+  }, [reduce, isAssistantBusy]);
 
   // Morph path cycling (only during streaming)
   useEffect(() => {
-    if (!isStreaming || reduce) {
+    if (!isAssistantBusy || reduce) {
       setMorphIndex(0);
       return;
     }
@@ -271,23 +309,23 @@ export function AnimatedAvatar({
       if (morphTimerRef.current) clearInterval(morphTimerRef.current);
       morphTimerRef.current = null;
     };
-  }, [isStreaming, reduce, morphPaths.length]);
+  }, [isAssistantBusy, reduce, morphPaths.length]);
 
   const bodyCenterX = size / 2;
   const bodyCenterY = size / 2;
 
   const breatheAnimation = reduce
     ? "none"
-    : isStreaming
+    : isAssistantBusy
       ? "avatar-morph-scale 2.4s ease-in-out infinite, avatar-morph-rotate 3s ease-in-out infinite"
       : breathe
         ? "avatar-breathe-kf 4s ease-in-out infinite"
         : "none";
 
-  const effectiveTwitchAngle = isStreaming ? 0 : twitchAngle;
+  const effectiveTwitchAngle = isAssistantBusy ? 0 : twitchAngle;
   // Never squish the eyes while streaming — guards the one frame between
-  // `isStreaming` flipping true and the blink effect resetting `isBlinking`.
-  const effectiveBlinking = isBlinking && !isStreaming;
+  // `isAssistantBusy` flipping true and the blink effect resetting `isBlinking`.
+  const effectiveBlinking = isBlinking && !isAssistantBusy;
   const currentBodyPath = morphPaths[morphIndex] ?? bodyShape.svgPath;
 
   return (
@@ -296,6 +334,8 @@ export function AnimatedAvatar({
       width={size}
       height={size}
       viewBox={`0 0 ${size} ${size}`}
+      onMouseMove={trackCursor ? handlePupilTrack : undefined}
+      onMouseLeave={trackCursor ? handlePupilLeave : undefined}
       style={{
         animation: breatheAnimation,
         transformOrigin: "center",
@@ -316,7 +356,7 @@ export function AnimatedAvatar({
           fill={color.hex}
           transform={bodyTransform}
           style={{
-            transition: isStreaming ? "d 0.3s ease-in-out" : "none",
+            transition: isAssistantBusy ? "d 0.3s ease-in-out" : "none",
           }}
         />
       </g>
@@ -328,14 +368,27 @@ export function AnimatedAvatar({
           transition: "transform 0.15s ease-in-out",
         }}
       >
-        {eyeStyle.paths.map((p: EyePathDefinition, i: number) => (
-          <path
-            key={i}
-            d={p.svgPath}
-            fill={p.color}
-            transform={eyeTransform}
-          />
-        ))}
+        {eyeStyle.paths.map((p: EyePathDefinition, i: number) => {
+          if (p.color !== PUPIL_HEX) {
+            return (
+              <path key={i} d={p.svgPath} fill={p.color} transform={eyeTransform} />
+            );
+          }
+          // Pupil-only: nudged toward the cursor in already-rendered pixel
+          // space, so the shift reads correctly regardless of the eye
+          // style's own internal transform.
+          return (
+            <g
+              key={i}
+              style={{
+                transform: `translate(${pupilOffset.x}px, ${pupilOffset.y}px)`,
+                transition: "transform 0.1s ease-out",
+              }}
+            >
+              <path d={p.svgPath} fill={p.color} transform={eyeTransform} />
+            </g>
+          );
+        })}
       </g>
     </svg>
   );

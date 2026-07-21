@@ -162,6 +162,28 @@ describe("FileRiskClassifier", () => {
       });
       expect(result.riskLevel).toBe("low");
     });
+
+    test("monitoring directory snapshot is high", async () => {
+      testSkillSourceDirs = [];
+      const result = await classifyInput({
+        toolName: "file_read",
+        filePath: join(MOCK_MONITORING_DIR, "snapshots", "baseline-123.json"),
+        workingDir: "/",
+      });
+      expect(result.riskLevel).toBe("high");
+      expect(result.reason).toBe("Reads monitoring directory (snapshot data)");
+    });
+
+    test("monitoring directory itself is high", async () => {
+      testSkillSourceDirs = [];
+      const result = await classifyInput({
+        toolName: "file_read",
+        filePath: MOCK_MONITORING_DIR,
+        workingDir: "/",
+      });
+      expect(result.riskLevel).toBe("high");
+      expect(result.reason).toBe("Reads monitoring directory (snapshot data)");
+    });
   });
 
   // -- file_write -------------------------------------------------------------

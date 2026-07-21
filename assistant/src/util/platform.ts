@@ -96,6 +96,25 @@ export function getConfigQuarantineNoticePath(): string {
 }
 
 /**
+ * Returns the path to the config-validation-reset notice sentinel
+ * (`<workspace>/data/config-validation-reset-notice.json`).
+ *
+ * Written by the config loader when `config.json` parses as JSON but fails
+ * schema validation so hard that the loader falls back to *full* defaults
+ * (e.g. an unknown key that masks a `superRefine` violation until the offending
+ * key is stripped). Unlike a quarantine, the on-disk file is left untouched —
+ * the user's customized values are still present but inactive until the invalid
+ * entries are fixed. Read by the per-turn `config-validation-reset-notice`
+ * injector so the agent can explain a settings/connection change the user did
+ * not make. Lives beside the quarantine sentinel under the internal data dir
+ * for the same reasons (daemon-written bookkeeping; resolves without loading
+ * config, so it is safe during early-boot config load).
+ */
+export function getConfigValidationResetNoticePath(): string {
+  return join(getDataDir(), "config-validation-reset-notice.json");
+}
+
+/**
  * Returns the embedding models directory ($VELLUM_WORKSPACE_DIR/embedding-models).
  * Downloaded embedding runtime (onnxruntime-node, transformers bundle, model weights)
  * is stored here, downloaded post-hatch rather than shipped with the app.
@@ -406,66 +425,6 @@ export function getProfilerRunsDir(): string {
  */
 export function getProfilerRunDir(runId: string): string {
   return join(getProfilerRunsDir(), runId);
-}
-
-/**
- * Resolve the shipped source directory for a first-party skill (e.g.
- * `meet-join`) whose runtime is launched outside the compiled daemon
- * binary — notably the meet-host child process spawned via
- * `bun run <skill>/register.ts`.
- *
- * Layers on top of `getRepoSkillsDir()` from `skills/catalog-install.ts`:
- * that helper locates the first-party skills root (validated by
- * `catalog.json`); this helper appends the skill id and validates the
- * per-skill entry point (`register.ts`). Returns `undefined` when the
- * root is unavailable (e.g. dev-mode build without `VELLUM_DEV=1`) or
- * the skill directory has no `register.ts`.
- *
- * Implemented here instead of `skills/catalog-install.ts` to avoid
- * pulling that module's platform-API dependencies (fetch, memory graph)
- * into callers that only need a path resolution. Takes the first-party
- * skills root as a dependency to keep this module free of a reverse
- * import.
- */
-export function getSkillRuntimePath(
-  skillId: string,
-  firstPartySkillsRoot: string | undefined,
-): string | undefined {
-  if (!firstPartySkillsRoot) return undefined;
-  const candidate = join(firstPartySkillsRoot, skillId);
-  if (existsSync(join(candidate, "register.ts"))) {
-    return candidate;
-  }
-  return undefined;
-}
-
-/**
- * Resolve the on-disk path to a standalone `bun` binary that the meet-host
- * supervisor (PR 27) uses to spawn external skills. Prefers the
- * packaging-site-bundled copy before falling back to the shared
- * download/PATH resolver in `bun-runtime.ts`.
- *
- * Resolution order:
- *
- *   1. macOS `.app` bundle: `Contents/Resources/bun` — bundled at a version
- *      that matches `.tool-versions`.
- *   2. Next-to-binary: `<execDir>/bun` for Docker/generic compiled layouts
- *      that stage a bun binary alongside the daemon (PR 29 wires this up).
- *
- * Returns `undefined` when no bundled copy is present; callers should
- * fall back to `ensureBun()` from `./bun-runtime.ts`, which handles PATH
- * lookup and JIT download for bare-metal dev.
- */
-export function getBundledBunPath(): string | undefined {
-  const importDir = import.meta.dir;
-  if (!importDir.startsWith("/$bunfs/")) return undefined;
-
-  const execDir = dirname(process.execPath);
-  const resourcesPath = join(execDir, "..", "Resources", "bun");
-  if (existsSync(resourcesPath)) return resourcesPath;
-  const execDirPath = join(execDir, "bun");
-  if (existsSync(execDirPath)) return execDirPath;
-  return undefined;
 }
 
 export function ensureDataDir(): void {

@@ -5,10 +5,12 @@
  * so they exercise the handler logic — input validation, path containment,
  * key-loading, and error mapping — without needing a live HTTP server.
  *
- * Module-level mocks replace the real `config/loader`, `memory/checkpoints`,
+ * Module-level mocks replace the real `memory/checkpoints`,
  * `backup/backup-worker`, `backup/restore`, and `backup/backup-key` modules
- * with test doubles. Each test shapes the doubles through the `setMockXxx`
- * helpers in the setup/teardown block.
+ * with test doubles; `config/loader` runs for real against the per-test
+ * workspace (seeded via `setConfig`), with `invalidateConfigCache` spied to
+ * observe the recovery sequence. Each test shapes the doubles through the
+ * `setMockXxx` helpers in the setup/teardown block.
  */
 
 import {
@@ -20,9 +22,18 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  spyOn,
+  test,
+} from "bun:test";
 
 import type { RestoreResult, VerifyResult } from "../../../backup/restore.js";
+import * as configLoader from "../../../config/loader.js";
 import type { BackupConfig } from "../../../config/schema.js";
 import { BackupConfigSchema } from "../../../config/schema.js";
 import type { ManifestType } from "../../migrations/vbundle-validator.js";
@@ -30,13 +41,6 @@ import type { ManifestType } from "../../migrations/vbundle-validator.js";
 // ---------------------------------------------------------------------------
 // Module mocks — must appear before any imports of the module under test
 // ---------------------------------------------------------------------------
-
-mock.module("../../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
 
 // -- listSnapshotsInDir spy ------------------------------------------------
 // Wraps the real implementation so tests can assert on which directories
@@ -53,40 +57,48 @@ mock.module("../../../backup/list-snapshots.js", () => ({
   },
 }));
 
-// -- Config mock -----------------------------------------------------------
-// Built in `beforeEach` from BackupConfigSchema defaults, with overrides
-// applied per test via `setMockBackupConfig`.
+// -- Config loader ---------------------------------------------------------
+// The handler reads the per-test workspace config.json via the real loader
+// (seeded with `setConfig("backup", …)`); `invalidateConfigCache` is spied so
+// the recovery-sequence test can observe it firing after a restore. The spy
+// records the call without clearing the cache — `setConfig` bumps the file
+// mtime, so the next `getConfig()` re-reads regardless.
 
-let mockBackupConfig: BackupConfig = BackupConfigSchema.parse({});
 let mockWorkspaceDir = "/tmp/mock-workspace-unused";
 
-let mockInvalidateConfigCacheCalls = 0;
+const recoveryCallOrder: string[] = [];
 
-mock.module("../../../config/loader.js", () => ({
-  getConfig: () => ({
-    backup: mockBackupConfig,
-  }),
-  invalidateConfigCache: () => {
-    mockInvalidateConfigCacheCalls += 1;
-    recoveryCallOrder.push("invalidateConfigCache");
-  },
-}));
+const invalidateConfigCacheSpy = spyOn(
+  configLoader,
+  "invalidateConfigCache",
+).mockImplementation(() => {
+  recoveryCallOrder.push("invalidateConfigCache");
+});
 
 // -- Trust-cache mock ------------------------------------------------------
-
-const recoveryCallOrder: string[] = [];
 
 mock.module("../../../permissions/trust-store.js", () => ({
   clearCache: () => {},
 }));
 
 // -- Platform paths mock ---------------------------------------------------
+// Spread the real module so the loader's own path helpers
+// (`getWorkspaceConfigPath`, `ensureDataDir`, …) keep resolving to the real
+// per-test workspace; override only the backup-path accessors the handlers use.
 
+const realPlatform = await import("../../../util/platform.js");
 mock.module("../../../util/platform.js", () => ({
+  ...realPlatform,
   getWorkspaceDir: () => mockWorkspaceDir,
   getWorkspaceHooksDir: () => join(mockWorkspaceDir, "hooks"),
   getProtectedDir: () => join(mockWorkspaceDir, "protected"),
   getDbPath: () => join(mockWorkspaceDir, "data", "db", "assistant.db"),
+  // Keep the loader's config path pinned to the real per-test workspace even
+  // though `getWorkspaceDir` is redirected for backup-path resolution — the
+  // mock rebinds the module's live `getWorkspaceDir` binding, which
+  // `getWorkspaceConfigPath` would otherwise follow to the mock directory.
+  getWorkspaceConfigPath: () =>
+    join(process.env.VELLUM_WORKSPACE_DIR!, "config.json"),
 }));
 
 // -- Memory checkpoint mock ------------------------------------------------
@@ -183,6 +195,7 @@ mock.module("../../../backup/restore.js", () => ({
 // Import under test — after mocks
 // ---------------------------------------------------------------------------
 
+import { setConfig } from "../../../__tests__/helpers/set-config.js";
 import {
   handleBackupCreate,
   handleBackupList,
@@ -222,7 +235,7 @@ function writeBackupFile(
 beforeEach(() => {
   ROOT = mkdtempSync(join(tmpdir(), "vellum-backup-routes-"));
   LOCAL_DIR = join(ROOT, "local");
-  mockBackupConfig = makeConfig({ localDirectory: LOCAL_DIR });
+  setConfig("backup", makeConfig({ localDirectory: LOCAL_DIR }));
   mockWorkspaceDir = join(ROOT, "workspace");
   for (const key of Object.keys(mockCheckpointStore)) {
     delete mockCheckpointStore[key];
@@ -237,7 +250,7 @@ beforeEach(() => {
     restoredFiles: 0,
   };
   mockVerifyResult = { valid: true };
-  mockInvalidateConfigCacheCalls = 0;
+  invalidateConfigCacheSpy.mockClear();
   recoveryCallOrder.length = 0;
   listSnapshotsCallLog.length = 0;
 });
@@ -259,13 +272,16 @@ describe("handleBackupList", () => {
     const origHome = process.env.HOME;
     process.env.HOME = ROOT;
     try {
-      mockBackupConfig = makeConfig({
-        localDirectory: LOCAL_DIR,
-        offsite: {
-          enabled: true,
-          destinations: null,
-        },
-      });
+      setConfig(
+        "backup",
+        makeConfig({
+          localDirectory: LOCAL_DIR,
+          offsite: {
+            enabled: true,
+            destinations: null,
+          },
+        }),
+      );
 
       const result = await handleBackupList();
       expect(result.local).toEqual([]);
@@ -286,10 +302,13 @@ describe("handleBackupList", () => {
   test("two local files: returned newest-first", async () => {
     writeBackupFile(LOCAL_DIR, "backup-20260411-100000.vbundle");
     writeBackupFile(LOCAL_DIR, "backup-20260411-120000.vbundle");
-    mockBackupConfig = makeConfig({
-      localDirectory: LOCAL_DIR,
-      offsite: { enabled: true, destinations: [] },
-    });
+    setConfig(
+      "backup",
+      makeConfig({
+        localDirectory: LOCAL_DIR,
+        offsite: { enabled: true, destinations: [] },
+      }),
+    );
 
     const result = await handleBackupList();
     expect(result.local).toHaveLength(2);
@@ -304,16 +323,19 @@ describe("handleBackupList", () => {
     mkdirSync(reachableDir, { recursive: true });
     writeBackupFile(reachableDir, "backup-20260411-100000.vbundle");
 
-    mockBackupConfig = makeConfig({
-      localDirectory: LOCAL_DIR,
-      offsite: {
-        enabled: true,
-        destinations: [
-          { path: reachableDir, encrypt: false },
-          { path: unreachableDir, encrypt: true },
-        ],
-      },
-    });
+    setConfig(
+      "backup",
+      makeConfig({
+        localDirectory: LOCAL_DIR,
+        offsite: {
+          enabled: true,
+          destinations: [
+            { path: reachableDir, encrypt: false },
+            { path: unreachableDir, encrypt: true },
+          ],
+        },
+      }),
+    );
 
     const result = await handleBackupList();
     expect(result.offsite).toHaveLength(2);
@@ -334,13 +356,16 @@ describe("handleBackupList", () => {
     writeBackupFile(encryptedDir, "backup-20260411-100000.vbundle.enc");
     writeBackupFile(encryptedDir, "backup-20260411-120000.vbundle.enc");
 
-    mockBackupConfig = makeConfig({
-      localDirectory: LOCAL_DIR,
-      offsite: {
-        enabled: true,
-        destinations: [{ path: encryptedDir, encrypt: true }],
-      },
-    });
+    setConfig(
+      "backup",
+      makeConfig({
+        localDirectory: LOCAL_DIR,
+        offsite: {
+          enabled: true,
+          destinations: [{ path: encryptedDir, encrypt: true }],
+        },
+      }),
+    );
 
     const result = await handleBackupList();
     expect(result.offsite).toHaveLength(1);
@@ -356,12 +381,15 @@ describe("handleBackupList", () => {
   test("nextRunAt is computed from checkpoint + intervalHours when enabled", async () => {
     const lastRunMs = Date.parse("2026-04-11T10:00:00Z");
     mockCheckpointStore["backup:last_run_at"] = String(lastRunMs);
-    mockBackupConfig = makeConfig({
-      enabled: true,
-      intervalHours: 6,
-      localDirectory: LOCAL_DIR,
-      offsite: { enabled: true, destinations: [] },
-    });
+    setConfig(
+      "backup",
+      makeConfig({
+        enabled: true,
+        intervalHours: 6,
+        localDirectory: LOCAL_DIR,
+        offsite: { enabled: true, destinations: [] },
+      }),
+    );
 
     const result = await handleBackupList();
     expect(result.nextRunAt).toBe("2026-04-11T16:00:00.000Z");
@@ -371,11 +399,14 @@ describe("handleBackupList", () => {
     mockCheckpointStore["backup:last_run_at"] = String(
       Date.parse("2026-04-11T10:00:00Z"),
     );
-    mockBackupConfig = makeConfig({
-      enabled: false,
-      localDirectory: LOCAL_DIR,
-      offsite: { enabled: true, destinations: [] },
-    });
+    setConfig(
+      "backup",
+      makeConfig({
+        enabled: false,
+        localDirectory: LOCAL_DIR,
+        offsite: { enabled: true, destinations: [] },
+      }),
+    );
 
     const result = await handleBackupList();
     expect(result.nextRunAt).toBeNull();
@@ -384,13 +415,16 @@ describe("handleBackupList", () => {
   test("offsite.enabled=false returns offsite:[] and offsiteEnabled:false without probing destinations", async () => {
     const configuredDestDir = join(ROOT, "offsite-still-configured");
     mkdirSync(configuredDestDir, { recursive: true });
-    mockBackupConfig = makeConfig({
-      localDirectory: LOCAL_DIR,
-      offsite: {
-        enabled: false,
-        destinations: [{ path: configuredDestDir, encrypt: true }],
-      },
-    });
+    setConfig(
+      "backup",
+      makeConfig({
+        localDirectory: LOCAL_DIR,
+        offsite: {
+          enabled: false,
+          destinations: [{ path: configuredDestDir, encrypt: true }],
+        },
+      }),
+    );
 
     const result = await handleBackupList();
     expect(result.offsite).toEqual([]);
@@ -399,10 +433,13 @@ describe("handleBackupList", () => {
   });
 
   test("offsite.enabled=true returns offsiteEnabled:true", async () => {
-    mockBackupConfig = makeConfig({
-      localDirectory: LOCAL_DIR,
-      offsite: { enabled: true, destinations: [] },
-    });
+    setConfig(
+      "backup",
+      makeConfig({
+        localDirectory: LOCAL_DIR,
+        offsite: { enabled: true, destinations: [] },
+      }),
+    );
 
     const result = await handleBackupList();
     expect(result.offsiteEnabled).toBe(true);
@@ -434,10 +471,13 @@ describe("handleBackupRestore", () => {
     );
     mkdirSync(join(ROOT, "elsewhere"), { recursive: true });
     writeFileSync(outsidePath, "payload");
-    mockBackupConfig = makeConfig({
-      localDirectory: LOCAL_DIR,
-      offsite: { enabled: true, destinations: [] },
-    });
+    setConfig(
+      "backup",
+      makeConfig({
+        localDirectory: LOCAL_DIR,
+        offsite: { enabled: true, destinations: [] },
+      }),
+    );
 
     try {
       await handleBackupRestore({
@@ -460,10 +500,13 @@ describe("handleBackupRestore", () => {
     mkdirSync(LOCAL_DIR, { recursive: true });
     const symlinkPath = join(LOCAL_DIR, "backup-20260411-100000.vbundle");
     symlinkSync(outsideTarget, symlinkPath);
-    mockBackupConfig = makeConfig({
-      localDirectory: LOCAL_DIR,
-      offsite: { enabled: true, destinations: [] },
-    });
+    setConfig(
+      "backup",
+      makeConfig({
+        localDirectory: LOCAL_DIR,
+        offsite: { enabled: true, destinations: [] },
+      }),
+    );
 
     try {
       await handleBackupRestore({
@@ -484,10 +527,13 @@ describe("handleBackupRestore", () => {
       LOCAL_DIR,
       "backup-20260411-100000.vbundle",
     );
-    mockBackupConfig = makeConfig({
-      localDirectory: LOCAL_DIR,
-      offsite: { enabled: true, destinations: [] },
-    });
+    setConfig(
+      "backup",
+      makeConfig({
+        localDirectory: LOCAL_DIR,
+        offsite: { enabled: true, destinations: [] },
+      }),
+    );
     mockReadBackupKeyCalls = 0;
 
     const result = await handleBackupRestore({
@@ -510,10 +556,13 @@ describe("handleBackupRestore", () => {
       LOCAL_DIR,
       "backup-20260411-100000.vbundle.enc",
     );
-    mockBackupConfig = makeConfig({
-      localDirectory: LOCAL_DIR,
-      offsite: { enabled: true, destinations: [] },
-    });
+    setConfig(
+      "backup",
+      makeConfig({
+        localDirectory: LOCAL_DIR,
+        offsite: { enabled: true, destinations: [] },
+      }),
+    );
 
     try {
       await handleBackupRestore({
@@ -535,17 +584,20 @@ describe("handleBackupRestore", () => {
       LOCAL_DIR,
       "backup-20260411-100000.vbundle",
     );
-    mockBackupConfig = makeConfig({
-      localDirectory: LOCAL_DIR,
-      offsite: { enabled: true, destinations: [] },
-    });
+    setConfig(
+      "backup",
+      makeConfig({
+        localDirectory: LOCAL_DIR,
+        offsite: { enabled: true, destinations: [] },
+      }),
+    );
 
     await handleBackupRestore({
       body: { path: snapshotPath },
       pathParams: {},
       queryParams: {},
     });
-    expect(mockInvalidateConfigCacheCalls).toBe(1);
+    expect(invalidateConfigCacheSpy).toHaveBeenCalledTimes(1);
     expect(recoveryCallOrder).toEqual([
       "restoreFromSnapshot",
       "invalidateConfigCache",
@@ -557,10 +609,13 @@ describe("handleBackupRestore", () => {
       LOCAL_DIR,
       "backup-20260411-100000.vbundle",
     );
-    mockBackupConfig = makeConfig({
-      localDirectory: LOCAL_DIR,
-      offsite: { enabled: true, destinations: [] },
-    });
+    setConfig(
+      "backup",
+      makeConfig({
+        localDirectory: LOCAL_DIR,
+        offsite: { enabled: true, destinations: [] },
+      }),
+    );
     mockRestoreError = new Error("simulated restore failure");
 
     try {
@@ -574,7 +629,7 @@ describe("handleBackupRestore", () => {
       expect(err).toBeInstanceOf(RouteError);
       expect((err as RouteError).statusCode).toBe(500);
     }
-    expect(mockInvalidateConfigCacheCalls).toBe(0);
+    expect(invalidateConfigCacheSpy).not.toHaveBeenCalled();
   });
 
   test("response no longer exposes credentialsIncluded", async () => {
@@ -582,10 +637,13 @@ describe("handleBackupRestore", () => {
       LOCAL_DIR,
       "backup-20260411-100000.vbundle",
     );
-    mockBackupConfig = makeConfig({
-      localDirectory: LOCAL_DIR,
-      offsite: { enabled: true, destinations: [] },
-    });
+    setConfig(
+      "backup",
+      makeConfig({
+        localDirectory: LOCAL_DIR,
+        offsite: { enabled: true, destinations: [] },
+      }),
+    );
 
     const result = (await handleBackupRestore({
       body: { path: snapshotPath },
@@ -623,10 +681,13 @@ describe("handleBackupVerify", () => {
       "backup-20260411-100000.vbundle",
       "not-a-real-bundle",
     );
-    mockBackupConfig = makeConfig({
-      localDirectory: LOCAL_DIR,
-      offsite: { enabled: true, destinations: [] },
-    });
+    setConfig(
+      "backup",
+      makeConfig({
+        localDirectory: LOCAL_DIR,
+        offsite: { enabled: true, destinations: [] },
+      }),
+    );
     mockVerifyResult = { valid: false, error: "bad checksum" };
 
     const result = (await handleBackupVerify({
@@ -644,10 +705,13 @@ describe("handleBackupVerify", () => {
       LOCAL_DIR,
       "backup-20260411-100000.vbundle",
     );
-    mockBackupConfig = makeConfig({
-      localDirectory: LOCAL_DIR,
-      offsite: { enabled: true, destinations: [] },
-    });
+    setConfig(
+      "backup",
+      makeConfig({
+        localDirectory: LOCAL_DIR,
+        offsite: { enabled: true, destinations: [] },
+      }),
+    );
     mockReadBackupKeyCalls = 0;
     mockVerifyResult = {
       valid: true,
@@ -668,10 +732,13 @@ describe("handleBackupVerify", () => {
       LOCAL_DIR,
       "backup-20260411-100000.vbundle.enc",
     );
-    mockBackupConfig = makeConfig({
-      localDirectory: LOCAL_DIR,
-      offsite: { enabled: true, destinations: [] },
-    });
+    setConfig(
+      "backup",
+      makeConfig({
+        localDirectory: LOCAL_DIR,
+        offsite: { enabled: true, destinations: [] },
+      }),
+    );
 
     try {
       await handleBackupVerify({
@@ -695,10 +762,13 @@ describe("handleBackupVerify", () => {
     );
     mkdirSync(join(ROOT, "elsewhere"), { recursive: true });
     writeFileSync(outsidePath, "payload");
-    mockBackupConfig = makeConfig({
-      localDirectory: LOCAL_DIR,
-      offsite: { enabled: true, destinations: [] },
-    });
+    setConfig(
+      "backup",
+      makeConfig({
+        localDirectory: LOCAL_DIR,
+        offsite: { enabled: true, destinations: [] },
+      }),
+    );
 
     try {
       await handleBackupVerify({

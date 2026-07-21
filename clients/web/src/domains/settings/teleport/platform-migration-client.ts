@@ -81,11 +81,21 @@ async function requestWithRetry(
  */
 export async function requestSignedUploadUrl(
   sourceRuntimeVersion?: string,
+  /**
+   * Who will PUT to the URL. `"runtime"` signs against the runtime-reachable
+   * storage endpoint so a managed assistant pod can upload its export bundle
+   * (platform→local teleport); the default (`"client"`) signs for a browser
+   * upload. No effect in production, where both endpoints are the same.
+   */
+  consumer?: "client" | "runtime",
 ): Promise<SignedUrlResponse> {
   const body: Record<string, unknown> = { operation: "upload" };
   if (sourceRuntimeVersion) {
     body.min_runtime_version = sourceRuntimeVersion;
     body.max_runtime_version = null;
+  }
+  if (consumer) {
+    body.consumer = consumer;
   }
   const { status, data } = await requestWithRetry(
     () =>

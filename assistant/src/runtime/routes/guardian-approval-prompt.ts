@@ -2,7 +2,7 @@
  * Approval prompt delivery: rich UI (buttons) with plain-text fallback.
  */
 import type { ChannelId } from "../../channels/types.js";
-import { recordApprovalCardDelivery } from "../../notifications/canonical-delivery-recorder.js";
+import { recordApprovalCardDelivery } from "../../notifications/guardian-delivery-recorder.js";
 import { redactSecrets } from "../../security/secret-scanner.js";
 import { getLogger } from "../../util/logger.js";
 import type { ApprovalMessageContext } from "../approval-message-composer.js";
@@ -75,7 +75,9 @@ function formatToolInputPreview(
 }
 
 function truncatePreview(text: string): string {
-  if (text.length <= INPUT_PREVIEW_MAX_LENGTH) return text;
+  if (text.length <= INPUT_PREVIEW_MAX_LENGTH) {
+    return text;
+  }
   const truncated = text.slice(0, INPUT_PREVIEW_MAX_LENGTH - 1) + "…";
   // Preserve backtick pairing so markdown renders correctly.
   const openBackticks = (truncated.match(/`/g) || []).length;
@@ -148,7 +150,7 @@ export async function deliverGeneratedApprovalPrompt(
         assistantId,
       );
       if (deliveryResult.ts) {
-        recordApprovalCardDelivery({
+        await recordApprovalCardDelivery({
           requestId: uiMetadata.requestId,
           channel: sourceChannel,
           chatId,
@@ -181,7 +183,7 @@ export async function deliverGeneratedApprovalPrompt(
         assistantId,
       });
       if (fallbackResult.ts) {
-        recordApprovalCardDelivery({
+        await recordApprovalCardDelivery({
           requestId: uiMetadata.requestId,
           channel: sourceChannel,
           chatId,
@@ -215,7 +217,7 @@ export async function deliverGeneratedApprovalPrompt(
       assistantId,
     });
     if (plainResult.ts) {
-      recordApprovalCardDelivery({
+      await recordApprovalCardDelivery({
         requestId: uiMetadata.requestId,
         channel: sourceChannel,
         chatId,

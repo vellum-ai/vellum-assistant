@@ -24,6 +24,7 @@ import {
   jpegFilenameFor,
   normalizeImageBase64,
   normalizeImageBytes,
+  sniffImageFileMimeType,
 } from "../util/image-conversion.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
@@ -340,6 +341,38 @@ function scopeAttachmentToConversation(
   return row.id;
 }
 
+/**
+ * Scope a pre-uploaded attachment into a conversation WITHOUT linking it to a
+ * message, returning the scoped row's metadata. Mirrors {@link createInlineAttachment}
+ * for the already-uploaded case: it gives the persist path the final attachment
+ * id and stored MIME/size before it serializes the message content into a
+ * workspace reference. The message link is written separately once the message
+ * id exists. Returns null when the attachment row cannot be read after scoping.
+ */
+export function scopeAttachmentToMessageConversation(
+  conversationId: string,
+  conversationCreatedAt: number,
+  attachmentId: string,
+): (StoredAttachment & { filePath: string | null }) | null {
+  const scopedId = scopeAttachmentToConversation(
+    attachmentId,
+    conversationId,
+    conversationCreatedAt,
+  );
+  const row = getAttachmentRow(scopedId);
+  if (!row) return null;
+  return {
+    id: row.id,
+    originalFilename: row.originalFilename,
+    mimeType: row.mimeType,
+    sizeBytes: row.sizeBytes,
+    kind: row.kind,
+    thumbnailBase64: null,
+    createdAt: row.createdAt,
+    filePath: row.filePath ?? null,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Size and encoding limits
 // ---------------------------------------------------------------------------
@@ -580,6 +613,13 @@ export function uploadAttachmentFromBytes(
  *
  * The file stays on disk; the attachment row stores an empty dataBase64 and
  * records the on-disk path in the `file_path` column.
+ *
+ * A declared image MIME that disagrees with the file's magic bytes is
+ * corrected before the row is written. Callers here pass a MIME they were
+ * handed (a signal's attachment metadata, a tool's `mimeType` argument), which
+ * is ultimately extension-derived — and the stored value becomes the
+ * `media_type` on every replay of the message, so a wrong one makes the
+ * provider reject the conversation on every later turn.
  */
 export function uploadFileBackedAttachment(
   filename: string,
@@ -588,7 +628,9 @@ export function uploadFileBackedAttachment(
   sizeBytes: number,
 ): StoredAttachment & { filePath: string } {
   const now = Date.now();
-  const kind = classifyKind(mimeType);
+  const sniffed = sniffImageFileMimeType(filePath);
+  const storedMimeType = sniffed && sniffed !== mimeType ? sniffed : mimeType;
+  const kind = classifyKind(storedMimeType);
   const id = uuid();
   const db = getDb();
 
@@ -596,7 +638,7 @@ export function uploadFileBackedAttachment(
     .values({
       id,
       originalFilename: filename,
-      mimeType,
+      mimeType: storedMimeType,
       sizeBytes,
       kind,
       dataBase64: "",
@@ -615,7 +657,7 @@ export function uploadFileBackedAttachment(
   return {
     id,
     originalFilename: filename,
-    mimeType,
+    mimeType: storedMimeType,
     sizeBytes,
     kind,
     thumbnailBase64: null,
@@ -687,10 +729,13 @@ export function getFilePathBySourcePath(
 }
 
 /**
- * Return the raw binary content for an attachment by reading from its
- * on-disk file path.
+ * Return the raw binary content for a stored attachment by reading from its
+ * on-disk file path (or its inline base64, for legacy rows).
  *
- * Returns null if the attachment does not exist or the file is missing.
+ * Returns null if the attachment does not exist or the file is missing. To
+ * resolve an image/file block's `source` (base64 or workspace reference) to
+ * bytes, use `mediaSourceBytes` / `resolveMediaSourceData` in
+ * `providers/media-resolve.ts`, which delegates here for the attachment route.
  */
 export function getAttachmentContent(attachmentId: string): Buffer | null {
   const row = getAttachmentRow(attachmentId);
@@ -744,10 +789,11 @@ function normalizeUploadedImageBase64(
   dataBase64: string,
 ): { filename: string; mimeType: string; dataBase64: string } {
   const norm = normalizeImageBase64(mimeType, dataBase64);
-  if (
-    !norm.converted ||
-    computeSizeBytesFromBase64(norm.dataBase64) > MAX_UPLOAD_BYTES
-  ) {
+  if (!norm.converted) {
+    // Bytes untouched, but the declared MIME may have been sniff-corrected.
+    return { filename, mimeType: norm.mimeType, dataBase64 };
+  }
+  if (computeSizeBytesFromBase64(norm.dataBase64) > MAX_UPLOAD_BYTES) {
     return { filename, mimeType, dataBase64 };
   }
   return {
@@ -810,23 +856,33 @@ export function uploadAttachment(
   };
 }
 
-export function attachInlineAttachmentToMessage(
-  messageId: string,
-  position: number,
+export interface CreateInlineAttachmentOptions {
+  sourcePath?: string;
+  skipSizeLimit?: boolean;
+  /**
+   * Store HEIF/HEIC content as a JPEG master (with the filename extension
+   * rewritten) so every client surface can render it. User-sourced ingress
+   * opts in; assistant-produced attachments are stored verbatim — if the
+   * assistant deliberately emits a HEIC, rewriting it would be wrong.
+   */
+  normalizeImage?: boolean;
+}
+
+/**
+ * Create an attachment row from inline base64, materialized into the
+ * conversation's attachments/ directory, WITHOUT linking it to a message. The
+ * caller links it separately (`insertMessageAttachmentLink`) once the message
+ * id exists — which lets the persist path create the row (and learn its id,
+ * normalized MIME type, and byte size) before it serializes the message
+ * content into a workspace reference.
+ */
+export function createInlineAttachment(
+  conversationId: string,
+  conversationCreatedAt: number,
   filename: string,
   mimeType: string,
   dataBase64: string,
-  options?: {
-    sourcePath?: string;
-    skipSizeLimit?: boolean;
-    /**
-     * Store HEIF/HEIC content as a JPEG master (with the filename extension
-     * rewritten) so every client surface can render it. User-sourced ingress
-     * opts in; assistant-produced attachments are stored verbatim — if the
-     * assistant deliberately emits a HEIC, rewriting it would be wrong.
-     */
-    normalizeImage?: boolean;
-  },
+  options?: CreateInlineAttachmentOptions,
 ): StoredAttachment & { filePath: string } {
   if (options?.normalizeImage) {
     ({ filename, mimeType, dataBase64 } = normalizeUploadedImageBase64(
@@ -839,14 +895,10 @@ export function attachInlineAttachmentToMessage(
   const sizeBytes = validateAttachmentPayload(dataBase64, {
     skipSizeLimit: options?.skipSizeLimit,
   });
-  const ctx = getMessageConversationContext(messageId);
-  if (!ctx) {
-    throw new Error(`Message not found: ${messageId}`);
-  }
 
   const attachDir = getConversationAttachmentsDirPath(
-    ctx.conversationId,
-    ctx.conversationCreatedAt,
+    conversationId,
+    conversationCreatedAt,
   );
   mkdirSync(attachDir, { recursive: true });
   const resolvedName = resolveUniqueFilename(attachDir, filename);
@@ -874,14 +926,12 @@ export function attachInlineAttachmentToMessage(
 
   if (options?.sourcePath) {
     rawRun(
-      "attachments:attachInline:sourcePath",
+      "attachments:createInline:sourcePath",
       `UPDATE attachments SET source_path = ? WHERE id = ?`,
       options.sourcePath,
       id,
     );
   }
-
-  insertMessageAttachmentLink(messageId, id, position);
 
   return {
     id,
@@ -893,6 +943,31 @@ export function attachInlineAttachmentToMessage(
     createdAt: now,
     filePath: targetPath,
   };
+}
+
+export function attachInlineAttachmentToMessage(
+  messageId: string,
+  position: number,
+  filename: string,
+  mimeType: string,
+  dataBase64: string,
+  options?: CreateInlineAttachmentOptions,
+): StoredAttachment & { filePath: string } {
+  const ctx = getMessageConversationContext(messageId);
+  if (!ctx) {
+    throw new Error(`Message not found: ${messageId}`);
+  }
+
+  const stored = createInlineAttachment(
+    ctx.conversationId,
+    ctx.conversationCreatedAt,
+    filename,
+    mimeType,
+    dataBase64,
+    options,
+  );
+  insertMessageAttachmentLink(messageId, stored.id, position);
+  return stored;
 }
 
 export function attachFileBackedAttachmentToMessage(

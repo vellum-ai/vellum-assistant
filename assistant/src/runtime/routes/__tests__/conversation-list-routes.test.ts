@@ -7,13 +7,6 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("../../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // Avoid spinning up the real event hub for the pinned/groups branches.
 mock.module("../../assistant-event-hub.js", () => ({
   assistantEventHub: {

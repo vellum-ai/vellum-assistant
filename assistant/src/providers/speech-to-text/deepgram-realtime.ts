@@ -12,16 +12,20 @@
  *    established.
  * 2. {@link sendAudio} forwards audio chunks over the open socket with
  *    backpressure-safe bufferedAmount checks.
- * 3. {@link stop} sends the Deepgram `CloseStream` message and waits for
+ * 3. {@link finalizeUtterance} sends the Deepgram `Finalize` message to
+ *    flush provider-buffered audio into finals without closing the
+ *    stream; the flush completion is signalled with a `finalized` event.
+ * 4. {@link stop} sends the Deepgram `CloseStream` message and waits for
  *    the provider to flush any remaining finals before closing.
- * 4. The `onEvent` callback receives `partial`, `final`, `error`, and
- *    `closed` events throughout the session lifetime.
+ * 5. The `onEvent` callback receives `partial`, `final`, `finalized`,
+ *    `error`, and `closed` events throughout the session lifetime.
  *
  * Error handling:
  * - Provider WebSocket errors and unexpected closes are mapped to
  *   {@link SttStreamServerErrorEvent} with appropriate categories.
  * - A configurable inactivity timeout fires a `closed` event if the
- *   provider stops sending data mid-session.
+ *   provider stops responding to audio mid-session; an idle stream with
+ *   no audio owed a response never times out.
  * - All timers and listeners are cleaned up on close to prevent leaks.
  */
 
@@ -47,9 +51,11 @@ const DEFAULT_MODEL = "nova-2";
 const DEFAULT_CONNECT_TIMEOUT_MS = 10_000;
 
 /**
- * Default inactivity timeout (ms). If no message is received from Deepgram
- * for this duration after the session is open, the adapter closes with a
- * timeout error. This guards against provider-side hangs.
+ * Default inactivity timeout (ms). If audio has been sent but no message
+ * comes back from Deepgram for this long, the adapter closes with a
+ * timeout error. This guards against provider-side hangs. A stream with
+ * no audio awaiting a response (e.g. mic gated while the assistant
+ * speaks) is legitimately silent and never times out.
  */
 const DEFAULT_INACTIVITY_TIMEOUT_MS = 30_000;
 
@@ -77,6 +83,14 @@ const MAX_BUFFERED_AMOUNT = 1024 * 1024; // 1 MiB
  */
 const CLOSE_GRACE_MS = 5_000;
 
+/**
+ * Grace period (ms) after sending Finalize before the adapter emits
+ * `finalized` on its own. Deepgram sends no `from_finalize` Results frame
+ * when it has no significant audio buffered, so a caller waiting on the
+ * completion signal would otherwise stall indefinitely.
+ */
+const FINALIZE_FALLBACK_MS = 2_000;
+
 // ---------------------------------------------------------------------------
 // Options
 // ---------------------------------------------------------------------------
@@ -94,6 +108,29 @@ export interface DeepgramRealtimeOptions {
   utteranceEndMs?: number;
   /** Override the Deepgram WebSocket base URL (useful for proxies or on-prem). */
   baseUrl?: string;
+  /**
+   * Override the WebSocket path (default: "/v1/listen"). Relays expose the
+   * same wire protocol on their own routes.
+   */
+  path?: string;
+  /**
+   * Send the API key as a `?key=` query parameter instead of the
+   * `Authorization: Token` header. The velay speech relay accepts query
+   * auth; it does not accept Deepgram's `Token` scheme. Default: false.
+   */
+  queryAuth?: boolean;
+  /**
+   * Omit the `model` query parameter. The velay relay pins the model
+   * server-side and rejects requests that try to choose one. Default: false.
+   */
+  omitModelParam?: boolean;
+  /**
+   * Called with parsed JSON frames the adapter does not handle itself
+   * (anything other than `Results`/`UtteranceEnd`, e.g. `Metadata` or a
+   * relay's own control frames). Lets a wrapping adapter react to
+   * relay-specific frames without duplicating the frame pipeline.
+   */
+  onUnhandledFrame?: (frame: Record<string, unknown>) => void;
   /** Connect timeout in milliseconds. Default: 10_000. */
   connectTimeoutMs?: number;
   /** Inactivity timeout in milliseconds. Default: 30_000. */
@@ -105,6 +142,11 @@ export interface DeepgramRealtimeOptions {
    * silence).
    */
   keepaliveIntervalMs?: number;
+  /**
+   * Grace (ms) after a Finalize before `finalized` is emitted without a
+   * `from_finalize` flush from Deepgram. Default: 2_000.
+   */
+  finalizeFallbackMs?: number;
   /** Audio sample rate in Hz (default: 16000). Passed through from the client WebSocket connection. */
   sampleRate?: number;
   /**
@@ -198,6 +240,12 @@ interface DeepgramStreamResponse {
   type?: string;
   is_final?: boolean;
   speech_final?: boolean;
+  /**
+   * True when this Results frame is the flush produced by a `Finalize`
+   * control message (see {@link DeepgramRealtimeTranscriber.finalizeUtterance}).
+   * The flushed transcript may be empty when nothing was buffered.
+   */
+  from_finalize?: boolean;
   channel?: DeepgramStreamChannel;
   channel_index?: number[];
   /** Duration of the audio segment in seconds. */
@@ -258,6 +306,7 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
   private readonly connectTimeoutMs: number;
   private readonly inactivityTimeoutMs: number;
   private readonly keepaliveIntervalMs: number;
+  private readonly finalizeFallbackMs: number;
   private readonly sampleRate: number;
   /**
    * Whether speaker diarization is requested. Forwarded to the Deepgram
@@ -271,6 +320,13 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
    * {@link DeepgramRealtimeOptions.utteranceBoundaryFinals}.
    */
   private readonly utteranceBoundaryFinals: boolean;
+
+  private readonly path: string;
+  private readonly queryAuth: boolean;
+  private readonly omitModelParam: boolean;
+  private readonly onUnhandledFrame:
+    | ((frame: Record<string, unknown>) => void)
+    | undefined;
 
   /**
    * Committed (`is_final`) segment texts withheld until the next
@@ -288,11 +344,55 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
   /** Whether the session has been fully closed. */
   private closed = false;
 
+  /**
+   * Number of `Finalize` control frames in flight — incremented when
+   * {@link finalizeUtterance} sends a frame, decremented when a
+   * `from_finalize` flush (or the fallback timer) emits its `finalized`
+   * event. Deepgram answers requests in order, so each settlement pairs
+   * with the oldest outstanding request; counting keeps `finalized`
+   * emitted exactly once per request even when requests overlap.
+   */
+  private outstandingFinalizes = 0;
+
+  /**
+   * Number of Finalize requests the fallback timer settled whose
+   * `from_finalize` flush has not yet arrived. Flushes arrive in request
+   * order, so while this is positive the next `from_finalize` frame
+   * answers a fallback-settled request: it is dropped as stale instead of
+   * being emitted as — and settling — a newer request's flush.
+   *
+   * The debt lives only until the next Finalize send —
+   * {@link finalizeUtterance} resets it (rationale at the reset) — and is
+   * also reset on close alongside the outstanding-request drain. The
+   * live-voice session serializes requests (at most one in flight), so in
+   * practice the counter is 0 or 1; no code path relies on larger values.
+   */
+  private fallbackSettledFinalizes = 0;
+
+  /**
+   * Fallback timer for in-flight Finalize requests. Deepgram omits the
+   * `from_finalize` flush when nothing significant is buffered, so this
+   * timer emits `finalized` after {@link FINALIZE_FALLBACK_MS} to keep the
+   * completion contract, re-arming while requests remain outstanding.
+   * Cleared when a flush arrives (and re-armed if more are pending) or on
+   * cleanup.
+   */
+  private finalizeFallbackTimer: ReturnType<typeof setTimeout> | null = null;
+
   /** Whether stop() has been called. */
   private stopping = false;
 
   /** Inactivity timer handle. */
   private inactivityTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /**
+   * When the first audio frame went out after the last inbound provider
+   * message; null while nothing is owed a response. The inactivity
+   * watchdog only rules "hung" while this is set — Deepgram sends nothing
+   * for silence-only stretches (KeepAlives get no reply), so inbound
+   * quiet alone is not evidence of a hang.
+   */
+  private awaitingResponseSinceMs: number | null = null;
 
   /** Close grace timer handle. */
   private closeGraceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -318,9 +418,15 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
       options.inactivityTimeoutMs ?? DEFAULT_INACTIVITY_TIMEOUT_MS;
     this.keepaliveIntervalMs =
       options.keepaliveIntervalMs ?? DEFAULT_KEEPALIVE_INTERVAL_MS;
+    this.finalizeFallbackMs =
+      options.finalizeFallbackMs ?? FINALIZE_FALLBACK_MS;
     this.sampleRate = options.sampleRate ?? 16_000;
     this.diarize = options.diarize ?? false;
     this.utteranceBoundaryFinals = options.utteranceBoundaryFinals ?? false;
+    this.path = options.path ?? "/v1/listen";
+    this.queryAuth = options.queryAuth ?? false;
+    this.omitModelParam = options.omitModelParam ?? false;
+    this.onUnhandledFrame = options.onUnhandledFrame;
   }
 
   // ── StreamingTranscriber interface ──────────────────────────────────
@@ -332,7 +438,8 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
     this.onEvent = onEvent;
 
     const url = this.buildWebSocketUrl();
-    log.info({ url }, "Opening Deepgram realtime session");
+    // Query auth carries the API key in the URL — never log it.
+    log.info({ url: this.redact(url) }, "Opening Deepgram realtime session");
 
     const ws = this.createWebSocket(url);
     this.ws = ws;
@@ -342,21 +449,27 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
       let settled = false;
 
       const connectTimer = setTimeout(() => {
-        if (settled) return;
+        if (settled) {
+          return;
+        }
         settled = true;
         this.forceClose();
         reject(new Error("Deepgram realtime connect timeout"));
       }, this.connectTimeoutMs);
 
       const onOpen = () => {
-        if (settled) return;
+        if (settled) {
+          return;
+        }
         settled = true;
         clearTimeout(connectTimer);
         resolve();
       };
 
       const onError = (ev: unknown) => {
-        if (settled) return;
+        if (settled) {
+          return;
+        }
         settled = true;
         clearTimeout(connectTimer);
         const msg =
@@ -365,16 +478,20 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
             : typeof ev === "object" && ev !== null && "message" in ev
               ? String((ev as { message: unknown }).message)
               : "WebSocket error during connect";
-        reject(new Error(`Deepgram realtime connect error: ${msg}`));
+        reject(
+          new Error(`Deepgram realtime connect error: ${this.redact(msg)}`),
+        );
       };
 
       const onClose = (ev: { code: number; reason: string }) => {
-        if (settled) return;
+        if (settled) {
+          return;
+        }
         settled = true;
         clearTimeout(connectTimer);
         reject(
           new Error(
-            `Deepgram WebSocket closed before open (code=${ev.code}, reason=${ev.reason})`,
+            `Deepgram WebSocket closed before open (code=${ev.code}, reason=${this.redact(ev.reason)})`,
           ),
         );
       };
@@ -394,10 +511,14 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
   }
 
   sendAudio(audio: Buffer, _mimeType: string): void {
-    if (this.closed || this.stopping) return;
+    if (this.closed || this.stopping) {
+      return;
+    }
 
     const ws = this.ws;
-    if (!ws || ws.readyState !== WS_OPEN) return;
+    if (!ws || ws.readyState !== WS_OPEN) {
+      return;
+    }
 
     // Backpressure check — drop frames if the outbound buffer is too full
     // to prevent unbounded memory growth.
@@ -411,10 +532,63 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
 
     // Deepgram's live endpoint accepts raw audio bytes on the WebSocket.
     ws.send(new Uint8Array(audio));
+    this.awaitingResponseSinceMs ??= Date.now();
+  }
+
+  /**
+   * Flush all provider-buffered audio into final transcript(s) without
+   * closing the stream.
+   *
+   * Sends the Deepgram `Finalize` control message; Deepgram responds by
+   * flushing buffered audio as a Results frame with `from_finalize: true`
+   * (possibly with an empty transcript). The adapter emits the resulting
+   * `final` (when non-empty) followed by one `finalized` event, and the
+   * stream stays open for more audio.
+   *
+   * Every request settles exactly once, oldest first: by its
+   * `from_finalize` flush when one arrives in time, or by a fallback
+   * timer ({@link DeepgramRealtimeOptions.finalizeFallbackMs}) when
+   * Deepgram omits the flush (nothing significant buffered) or answers
+   * too slowly. A flush arriving after its request was fallback-settled
+   * but before the next Finalize is sent is dropped as stale — no
+   * `final`, no second `finalized` — so its text is not attributed to a
+   * newer request. Sending the next Finalize clears that stale-flush debt
+   * (see {@link fallbackSettledFinalizes}). When the socket is not open
+   * there is nothing buffered provider-side, so `finalized` is emitted
+   * immediately. {@link stop} remains the session-teardown path.
+   */
+  finalizeUtterance(): void {
+    const ws = this.ws;
+    if (this.closed || this.stopping || !ws || ws.readyState !== WS_OPEN) {
+      // Nothing buffered provider-side — the flush is trivially complete.
+      this.emitEvent({ type: "finalized" });
+      return;
+    }
+
+    try {
+      ws.send(JSON.stringify({ type: "Finalize" }));
+    } catch (err) {
+      log.warn({ err }, "Deepgram Finalize send failed");
+      this.emitEvent({ type: "finalized" });
+      return;
+    }
+    // Stream ordering means a slow flush for an earlier fallback-settled
+    // request reaches us before Deepgram processes the Finalize just
+    // sent, so any debt still unconsumed here is for a flush Deepgram
+    // omitted (the common fallback cause) and would otherwise sit forever,
+    // wrongly dropping this request's legitimate flush. A >fallback-window
+    // provider flush racing an immediate re-release could in theory land
+    // after this send and be misattributed to this request; the session's
+    // queue-head drop-guard bounds that case.
+    this.fallbackSettledFinalizes = 0;
+    this.outstandingFinalizes += 1;
+    this.armFinalizeFallbackTimer();
   }
 
   stop(): void {
-    if (this.closed || this.stopping) return;
+    if (this.closed || this.stopping) {
+      return;
+    }
     this.stopping = true;
 
     log.info("Stopping Deepgram realtime session");
@@ -464,6 +638,10 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
     if (typeof WebSocketCtor !== "function") {
       throw new Error("global WebSocket is not available in this runtime");
     }
+    // Query auth carries the key in the URL instead (see buildWebSocketUrl).
+    if (this.queryAuth) {
+      return new WebSocketCtor(url);
+    }
     return new WebSocketCtor(url, {
       headers: {
         Authorization: `Token ${this.apiKey}`,
@@ -496,7 +674,9 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
    * Parse and normalize a Deepgram streaming response into daemon events.
    */
   private handleProviderMessage(data: unknown): void {
-    if (this.closed) return;
+    if (this.closed) {
+      return;
+    }
 
     this.resetInactivityTimer();
 
@@ -518,7 +698,9 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
       return;
     }
 
-    if (!frame || typeof frame !== "object") return;
+    if (!frame || typeof frame !== "object") {
+      return;
+    }
 
     // Deepgram uses `type: "Results"` for transcript frames.
     if (frame.type === "Results") {
@@ -536,7 +718,10 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
       return;
     }
 
-    // Metadata and other frame types are informational — no action needed.
+    // Metadata and other frame types are informational for this adapter;
+    // surface them to a wrapping adapter that may care (e.g. relay control
+    // frames).
+    this.onUnhandledFrame?.(frame as Record<string, unknown>);
   }
 
   /**
@@ -558,13 +743,35 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
    * We emit:
    * - `partial` for `is_final: false` frames (if interim results enabled).
    * - `final` for `is_final: true` frames.
+   * - `finalized` after the `final` of a `from_finalize: true` flush frame
+   *   (the response to {@link finalizeUtterance}). An empty flush emits
+   *   only `finalized` — silence flushes carry no transcript to commit. A
+   *   flush arriving while a fallback-settled request still awaits its
+   *   flush is dropped entirely (no `final`, no `finalized`) — see
+   *   {@link finalizeUtterance}.
    */
   private handleTranscriptFrame(frame: DeepgramStreamResponse): void {
     const alternative = frame.channel?.alternatives?.[0];
     const transcript = alternative?.transcript;
+    const fromFinalize = frame.from_finalize === true;
 
     // Extract text, defaulting to empty string for silence segments.
     const text = typeof transcript === "string" ? transcript.trim() : "";
+
+    // A flush arriving while fallback-settled requests await theirs is
+    // stale: flushes arrive in request order, so it pairs with the oldest
+    // fallback-settled request, whose `finalized` was already emitted.
+    // Emitting its text (or another `finalized`) here would attribute it
+    // to a newer request's utterance. The debt window closes when the
+    // next Finalize is sent — see finalizeUtterance.
+    if (fromFinalize && this.fallbackSettledFinalizes > 0) {
+      this.fallbackSettledFinalizes -= 1;
+      log.debug(
+        { droppedTextLength: text.length },
+        "Dropped a stale from_finalize flush: its request was fallback-settled",
+      );
+      return;
+    }
 
     const speakerLabel = this.diarize
       ? extractSpeakerLabel(alternative)
@@ -576,22 +783,27 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
 
     if (frame.is_final) {
       if (this.utteranceBoundaryFinals) {
-        // Withhold committed segments until an utterance boundary.
+        // Withhold committed segments until an utterance boundary. A
+        // Finalize flush is a forced boundary — flush what is pending.
         if (text.length > 0) {
           this.pendingFinalSegments.push(text);
         }
-        if (frame.speech_final) {
+        if (frame.speech_final || fromFinalize) {
           this.flushPendingUtterance();
         }
-        return;
+      } else if (text.length > 0 || !fromFinalize) {
+        // Committed transcript — emit as final. Empty Finalize flushes
+        // are suppressed (nothing was buffered provider-side).
+        this.emitEvent({
+          type: "final",
+          text,
+          ...(speakerLabel !== undefined ? { speakerLabel } : {}),
+          ...(confidence !== undefined ? { confidence } : {}),
+          // Mark the finalize flush so consumers can attribute it to the
+          // utterance that requested the flush rather than new speech.
+          ...(fromFinalize ? { fromFinalize: true } : {}),
+        });
       }
-      // Committed transcript — emit as final.
-      this.emitEvent({
-        type: "final",
-        text,
-        ...(speakerLabel !== undefined ? { speakerLabel } : {}),
-        ...(confidence !== undefined ? { confidence } : {}),
-      });
     } else if (this.interimResults) {
       // Interim transcript — emit as partial.
       this.emitEvent({
@@ -601,23 +813,39 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
         ...(confidence !== undefined ? { confidence } : {}),
       });
     }
+
+    if (fromFinalize) {
+      this.settleOneFinalize();
+    }
   }
 
   /**
    * Handle provider-side WebSocket close.
    */
   private handleProviderClose(code: number, reason: string): void {
-    if (this.closed) return;
+    if (this.closed) {
+      return;
+    }
+
+    // Close reasons can echo the dialed URL (query auth carries the key
+    // there) — redact before logging, not just before emitting.
+    const safeReason = this.redact(reason);
 
     // Normal close (1000) or going-away (1001) after stop() is expected.
     if (this.stopping && (code === 1000 || code === 1001)) {
-      log.info({ code, reason }, "Deepgram realtime session closed normally");
+      log.info(
+        { code, reason: safeReason },
+        "Deepgram realtime session closed normally",
+      );
       this.emitClosedAndCleanup();
       return;
     }
 
     // Unexpected close — map to an error event.
-    log.warn({ code, reason }, "Deepgram realtime session closed unexpectedly");
+    log.warn(
+      { code, reason: safeReason },
+      "Deepgram realtime session closed unexpectedly",
+    );
 
     const category =
       code === 1008 || code === 4001
@@ -629,7 +857,7 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
     this.emitEvent({
       type: "error",
       category,
-      message: `Deepgram WebSocket closed (code=${code}, reason=${reason})`,
+      message: `Deepgram WebSocket closed (code=${code}, reason=${safeReason})`,
     });
     this.emitClosedAndCleanup();
   }
@@ -638,16 +866,21 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
    * Handle provider-side WebSocket error.
    */
   private handleProviderError(ev: unknown): void {
-    if (this.closed) return;
+    if (this.closed) {
+      return;
+    }
 
-    const message =
+    const message = this.redact(
       ev instanceof Error
         ? ev.message
         : typeof ev === "object" && ev !== null && "message" in ev
           ? String((ev as { message: unknown }).message)
-          : "WebSocket error";
+          : "WebSocket error",
+    );
 
-    log.error({ error: ev }, "Deepgram realtime WebSocket error");
+    // The raw event can embed the dialed URL (query auth carries the key
+    // there), so log the redacted message rather than the event object.
+    log.error({ error: message }, "Deepgram realtime WebSocket error");
 
     this.emitEvent({
       type: "error",
@@ -664,7 +897,9 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
    * errors to prevent tearing down the adapter.
    */
   private emitEvent(event: SttStreamServerEvent): void {
-    if (!this.onEvent) return;
+    if (!this.onEvent) {
+      return;
+    }
     try {
       this.onEvent(event);
     } catch (err) {
@@ -687,19 +922,85 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
   }
 
   /**
+   * Emit `finalized` for the oldest in-flight {@link finalizeUtterance}
+   * request and re-arm the fallback timer while more remain outstanding.
+   * No-op when no request is in flight, so `finalized` is emitted at most
+   * once per request.
+   */
+  private settleOneFinalize(): void {
+    this.clearFinalizeFallbackTimer();
+    if (this.outstandingFinalizes === 0) {
+      return;
+    }
+    this.outstandingFinalizes -= 1;
+    this.emitEvent({ type: "finalized" });
+    if (this.outstandingFinalizes > 0) {
+      this.armFinalizeFallbackTimer();
+    }
+  }
+
+  /**
+   * (Re)arm the fallback timer that emits `finalized` when Deepgram
+   * omits the `from_finalize` flush for an in-flight Finalize request.
+   */
+  private armFinalizeFallbackTimer(): void {
+    if (this.closed) {
+      return;
+    }
+    this.clearFinalizeFallbackTimer();
+    this.finalizeFallbackTimer = setTimeout(() => {
+      this.finalizeFallbackTimer = null;
+      log.debug(
+        "Deepgram sent no from_finalize flush — emitting finalized fallback",
+      );
+      if (this.outstandingFinalizes > 0) {
+        // The request settles without its flush; a flush that still
+        // arrives before the next Finalize send is dropped as stale in
+        // handleTranscriptFrame.
+        this.fallbackSettledFinalizes += 1;
+      }
+      // The settled request covers all audio sent so far — Deepgram had
+      // nothing significant buffered, so no response is owed anymore.
+      // Leaving the debt set would let the inactivity watchdog kill the
+      // now-idle stream ~30s after a short/noisy utterance that elicited
+      // no provider frames at all.
+      this.awaitingResponseSinceMs = null;
+      this.settleOneFinalize();
+    }, this.finalizeFallbackMs);
+  }
+
+  private clearFinalizeFallbackTimer(): void {
+    if (this.finalizeFallbackTimer !== null) {
+      clearTimeout(this.finalizeFallbackTimer);
+      this.finalizeFallbackTimer = null;
+    }
+  }
+
+  /**
    * Emit a `closed` event and clean up all resources (timers, WebSocket).
    * Flushes any withheld utterance text first so boundary-gated sessions
    * never lose committed transcript on close. Idempotent — safe to call
    * multiple times.
    */
   private emitClosedAndCleanup(): void {
-    if (this.closed) return;
+    if (this.closed) {
+      return;
+    }
     this.closed = true;
 
     this.clearTimers();
     this.forceClose();
 
     this.flushPendingUtterance();
+    // Every Finalize with no flush response must still complete before
+    // the stream reports closed, so waiters see one finalized per request
+    // followed by closed, in order.
+    while (this.outstandingFinalizes > 0) {
+      this.settleOneFinalize();
+    }
+    // Closed sessions process no further frames, so pending stale-flush
+    // bookkeeping resets with the drained requests.
+    this.fallbackSettledFinalizes = 0;
     this.emitEvent({ type: "closed" });
     this.onEvent = null;
   }
@@ -711,7 +1012,9 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
   private forceClose(): void {
     const ws = this.ws;
     this.ws = null;
-    if (!ws) return;
+    if (!ws) {
+      return;
+    }
 
     try {
       ws.close();
@@ -736,6 +1039,7 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
       clearInterval(this.keepaliveTimer);
       this.keepaliveTimer = null;
     }
+    this.clearFinalizeFallbackTimer();
   }
 
   /**
@@ -748,12 +1052,20 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
    * adapter is already closed/stopping.
    */
   private startKeepaliveTimer(): void {
-    if (this.closed || this.stopping) return;
-    if (this.keepaliveIntervalMs <= 0) return;
+    if (this.closed || this.stopping) {
+      return;
+    }
+    if (this.keepaliveIntervalMs <= 0) {
+      return;
+    }
     this.keepaliveTimer = setInterval(() => {
-      if (this.closed || this.stopping) return;
+      if (this.closed || this.stopping) {
+        return;
+      }
       const ws = this.ws;
-      if (!ws || ws.readyState !== WS_OPEN) return;
+      if (!ws || ws.readyState !== WS_OPEN) {
+        return;
+      }
       try {
         ws.send(JSON.stringify({ type: "KeepAlive" }));
       } catch (err) {
@@ -768,14 +1080,40 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
    * continuous audio from the caller must not mask a silent provider.
    */
   private resetInactivityTimer(): void {
-    if (this.closed || this.stopping) return;
+    this.awaitingResponseSinceMs = null;
+    this.armInactivityTimer(this.inactivityTimeoutMs);
+  }
+
+  /**
+   * (Re)arm the inactivity watchdog. On fire it only rules "hung" when
+   * audio has been awaiting a response for a full timeout window;
+   * otherwise the stream is just idle (or the audio is too fresh) and the
+   * timer re-arms for the remainder.
+   */
+  private armInactivityTimer(delayMs: number): void {
+    if (this.closed || this.stopping) {
+      return;
+    }
 
     if (this.inactivityTimer !== null) {
       clearTimeout(this.inactivityTimer);
     }
 
     this.inactivityTimer = setTimeout(() => {
-      if (this.closed) return;
+      if (this.closed) {
+        return;
+      }
+
+      const since = this.awaitingResponseSinceMs;
+      if (since === null) {
+        this.armInactivityTimer(this.inactivityTimeoutMs);
+        return;
+      }
+      const waitedMs = Date.now() - since;
+      if (waitedMs < this.inactivityTimeoutMs) {
+        this.armInactivityTimer(this.inactivityTimeoutMs - waitedMs);
+        return;
+      }
 
       log.warn("Deepgram realtime inactivity timeout");
       this.emitEvent({
@@ -784,7 +1122,25 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
         message: "Deepgram realtime session timed out due to inactivity",
       });
       this.emitClosedAndCleanup();
-    }, this.inactivityTimeoutMs);
+    }, delayMs);
+  }
+
+  /**
+   * Strip the API key from text destined for logs, error messages, or
+   * emitted events. Under query auth the key rides in the dialed URL, and
+   * runtimes embed that URL in connection-failure messages and close
+   * reasons; both the raw and URL-encoded forms are removed.
+   */
+  private redact(text: string): string {
+    if (!this.queryAuth || !text) {
+      return text;
+    }
+    return text
+      .split(this.apiKey)
+      .join("***")
+      .split(encodeURIComponent(this.apiKey))
+      .join("***")
+      .replace(/([?&]key=)[^&\s"']*/g, "$1***");
   }
 
   // ── URL construction ────────────────────────────────────────────────
@@ -798,7 +1154,12 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
    */
   private buildWebSocketUrl(): string {
     const params = new URLSearchParams();
-    params.set("model", this.model);
+    if (!this.omitModelParam) {
+      params.set("model", this.model);
+    }
+    if (this.queryAuth) {
+      params.set("key", this.apiKey);
+    }
 
     if (this.language) {
       params.set("language", this.language);
@@ -824,7 +1185,7 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
     params.set("sample_rate", String(this.sampleRate));
     params.set("channels", "1");
 
-    return `${this.baseUrl}/v1/listen?${params.toString()}`;
+    return `${this.baseUrl}${this.path}?${params.toString()}`;
   }
 }
 
@@ -856,20 +1217,30 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
 function extractSpeakerLabel(
   alternative: DeepgramStreamAlternative | undefined,
 ): string | undefined {
-  if (!alternative) return undefined;
+  if (!alternative) {
+    return undefined;
+  }
   if (typeof alternative.speaker === "number") {
     return String(alternative.speaker);
   }
   const words = alternative.words;
-  if (!Array.isArray(words) || words.length === 0) return undefined;
+  if (!Array.isArray(words) || words.length === 0) {
+    return undefined;
+  }
   const counts = new Map<number, number>();
   let firstSpeaker: number | undefined;
   for (const word of words) {
-    if (typeof word.speaker !== "number") continue;
-    if (firstSpeaker === undefined) firstSpeaker = word.speaker;
+    if (typeof word.speaker !== "number") {
+      continue;
+    }
+    if (firstSpeaker === undefined) {
+      firstSpeaker = word.speaker;
+    }
     counts.set(word.speaker, (counts.get(word.speaker) ?? 0) + 1);
   }
-  if (counts.size === 0 || firstSpeaker === undefined) return undefined;
+  if (counts.size === 0 || firstSpeaker === undefined) {
+    return undefined;
+  }
   // Pick the most common speaker; on ties, prefer the first-word speaker.
   let bestSpeaker = firstSpeaker;
   let bestCount = counts.get(firstSpeaker) ?? 0;

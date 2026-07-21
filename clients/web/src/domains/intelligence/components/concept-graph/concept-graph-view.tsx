@@ -1,0 +1,1457 @@
+import { useQuery } from "@tanstack/react-query";
+import {
+  Maximize2,
+  Minimize2,
+  RotateCcw,
+  Search,
+  X,
+  ZoomIn,
+  ZoomOut,
+} from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
+import { VIRTUAL_CENTER } from "@/domains/intelligence/components/constellation-view/constants";
+import { memoryGraphOptions } from "@/domains/intelligence/memory-graph/get-memory-graph";
+import { emitMemoryEvent } from "@/domains/intelligence/memory-telemetry";
+import { Button } from "@vellumai/design-library";
+
+import { buildForceLayout } from "./build-force-layout";
+import { ConceptDetailPanel, type ConceptDetailNode } from "./concept-detail-panel";
+import { ConceptGraphIntroBanner } from "./concept-graph-intro-banner";
+import { ConceptGraphLegend } from "./concept-graph-legend";
+import { CLUSTER_PALETTE, EDGE_LEARNED_COLOR, NODE_KIND_COLORS } from "./constants";
+import { detectClusters } from "./detect-clusters";
+import { RecencyLens, type RecencyWindow } from "./recency-lens";
+import type { ConceptNodeKind, GraphLayoutNode } from "./types";
+import { useGraphIntroDismissed } from "./use-graph-intro-dismissed";
+
+const NODE_KIND_ORDER: ConceptNodeKind[] = [
+  "concept",
+  "skill",
+  "capability",
+  "other",
+];
+
+// Rotation / projection tuning.
+const AUTO_YAW_PER_SEC = 0.13;
+const IDLE_RESUME_MS = 2600;
+const DRAG_SENSITIVITY = 0.006;
+const PITCH_CLAMP = 1.15;
+const FOCAL_FACTOR = 3.0; // focal = FOCAL_FACTOR * massRadius (gentle perspective)
+const DEPTH_ALPHA_MIN = 0.32;
+const MIN_ZOOM = 0.45;
+const MAX_ZOOM = 3;
+const HUB_LABEL_DEGREE = 4;
+
+// Recency emphasis: recently-updated concepts glow brighter, and the freshest
+// gently pulse, so the map reads as alive and "what did it just learn?" pops.
+const DAY_MS = 24 * 60 * 60 * 1000;
+const RECENCY_GLOW_WINDOW_MS = 14 * DAY_MS; // recency fades out over ~2 weeks
+const RECENCY_GLOW_MAX = 12; // extra shadowBlur at peak freshness
+const PULSE_WINDOW_MS = 2 * DAY_MS; // newer than this → pulses (unless reduced motion)
+
+// As the graph grows, fade the resting (nothing-focused) learned-edge web so
+// dense corpora don't read as a haze. Full strength up to FOG_FULL_BELOW nodes,
+// easing to FOG_FLOOR by FOG_FLOOR_ABOVE. Only learned (associative) edges fade;
+// authored links carry structure and stay. Hover always restores full contrast.
+const FOG_FULL_BELOW = 80;
+const FOG_FLOOR_ABOVE = 340;
+const FOG_FLOOR = 0.12;
+
+// Focus ego-dim: while a concept is open in the detail drawer, its immediate
+// neighborhood (the node + direct neighbors) stays lit and everything else
+// fades to near-zero — a stronger dim than hover — so the focused node reads
+// clearly (e.g. beside the panel). Non-neighbor edges dim to the same near-zero
+// as an already-ghosted edge.
+const SELECTION_DIM_NODE = 0.05;
+const SELECTION_DIM_EDGE = 0.03;
+
+// Below this node count the graph is small enough to scan by eye — no search box.
+const SEARCH_MIN_NODES = 12;
+
+interface Projected {
+  id: string;
+  sx: number;
+  sy: number;
+  sr: number;
+  depth: number; // 0 (far) .. 1 (near)
+  updatedAtMs?: number; // for recency hit-test skipping; undefined = stale/older
+}
+
+// A drawn edge in screen space: the two endpoints (a → b), its kind, its
+// authored description (link edges only), and mid-segment depth for tie-breaks.
+interface ProjectedEdge {
+  ax: number;
+  ay: number;
+  bx: number;
+  by: number;
+  kind: string;
+  description?: string;
+  depth: number;
+}
+
+interface Colors {
+  content: string;
+  tertiary: string;
+}
+
+function resolveColors(el: HTMLElement): Colors {
+  const s = getComputedStyle(el);
+  return {
+    content: s.getPropertyValue("--content-default").trim() || "#e5e7eb",
+    tertiary: s.getPropertyValue("--content-tertiary").trim() || "#8792a0",
+  };
+}
+
+// Tooltip text for a hovered edge: a learned edge is a behavioral association;
+// a link edge carries an authored description (falling back to a generic label).
+function labelForEdge(edge: { kind: string; description?: string }): string {
+  if (edge.kind === "learned") {
+    return "Learned association";
+  }
+  return edge.description ?? "Linked concepts";
+}
+
+// Recency-lens staleness test: a node/point is stale when its last-update
+// timestamp falls outside the active window. With no window set (windowMs ==
+// null) nothing is stale; a missing timestamp counts as stale/older.
+function isStale(
+  updatedAtMs: number | undefined,
+  windowMs: number | null,
+  now: number,
+): boolean {
+  if (windowMs == null) {
+    return false;
+  }
+  return updatedAtMs == null || now - updatedAtMs > windowMs;
+}
+
+// Predicate for the selected concept's ego-network — the node itself plus its
+// direct neighbors. The neighbor set is resolved once so per-node checks stay
+// O(1). Shared by the render loop and the hit-test so click targets always
+// match what's drawn lit (like isStale for the recency lens).
+function makeEgoTest(
+  adjacency: Map<string, Set<string>>,
+  selectedId: string | null,
+): (id: string) => boolean {
+  const neighbors = selectedId ? adjacency.get(selectedId) : undefined;
+  return (id) =>
+    selectedId != null && (id === selectedId || (neighbors?.has(id) ?? false));
+}
+
+export interface ConceptGraphViewProps {
+  assistantId: string;
+  className?: string;
+  isFullscreen?: boolean;
+  onToggleFullscreen?: () => void;
+  /** Opens a fresh chat seeded with a message; wired to the node detail drawer's
+   * chat-from-node actions. When absent, those actions are hidden. */
+  onOpenThread?: (message: string) => void;
+}
+
+function CenteredMessage({ title, detail }: { title: string; detail?: string }) {
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
+      <p className="text-body-medium-default" style={{ color: "var(--content-default)" }}>
+        {title}
+      </p>
+      {detail ? (
+        <p className="max-w-sm text-body-small-default" style={{ color: "var(--content-tertiary)" }}>
+          {detail}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * A 2.5D "brain" of the assistant's memory concepts: nodes laid out in a 3D
+ * volume, slowly auto-rotating (drag to orbit, scroll to zoom), drawn on canvas
+ * with depth cues (near = larger / brighter / glowing) and hover-neighborhood
+ * highlighting. Wired to the backend-agnostic `GET /memory-graph`.
+ */
+export function ConceptGraphView({
+  assistantId,
+  className,
+  isFullscreen,
+  onToggleFullscreen,
+  onOpenThread,
+}: ConceptGraphViewProps) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  const query = useQuery(memoryGraphOptions(assistantId));
+  const graph = query.data?.kind === "ready" ? query.data.graph : null;
+
+  const layout = useMemo(
+    () => (graph ? buildForceLayout(graph) : { nodes: [], edges: [] }),
+    [graph],
+  );
+  const ready = query.data?.kind === "ready" && layout.nodes.length > 0;
+
+  // Group concepts into themes so the map reads as colored clusters instead of
+  // one flat color. Deterministic (see detect-clusters), so no render churn.
+  const clusters = useMemo(
+    () => detectClusters(layout.nodes, layout.edges),
+    [layout.nodes, layout.edges],
+  );
+
+  // One label per theme: the highest-degree node in each cluster is its hub, so
+  // even small clusters (every node below the hub-label degree threshold) get a
+  // name. Ties break to the lowest id for determinism. The render loop
+  // force-labels these ids so a theme always reads with at least one word.
+  // Disconnected nodes (degree 0) each form their own singleton cluster; they're
+  // not themes, so skipping them keeps orphans from turning into label soup.
+  const themes = useMemo(() => {
+    const bestByCluster = new Map<number, GraphLayoutNode>();
+    const sizeByCluster = new Map<number, number>();
+    for (const node of layout.nodes) {
+      const cluster = clusters.get(node.id);
+      if (cluster == null || node.degree === 0) {
+        continue;
+      }
+      sizeByCluster.set(cluster, (sizeByCluster.get(cluster) ?? 0) + 1);
+      const current = bestByCluster.get(cluster);
+      if (
+        !current ||
+        node.degree > current.degree ||
+        (node.degree === current.degree && node.id < current.id)
+      ) {
+        bestByCluster.set(cluster, node);
+      }
+    }
+    // Largest themes first; each named by its hub concept and colored to match
+    // the cluster palette, so the legend can map color → theme.
+    return [...bestByCluster.entries()]
+      .map(([cluster, hub]) => ({
+        hubId: hub.id,
+        color: CLUSTER_PALETTE[cluster % CLUSTER_PALETTE.length],
+        name: hub.label,
+        size: sizeByCluster.get(cluster) ?? 0,
+      }))
+      .sort((a, b) => b.size - a.size);
+  }, [clusters, layout.nodes]);
+
+  // Hub node ids the render loop force-labels (one per theme).
+  const clusterHubs = useMemo(
+    () => new Set(themes.map((t) => t.hubId)),
+    [themes],
+  );
+
+  // Neighbor adjacency for hover highlighting.
+  const adjacency = useMemo(() => {
+    const map = new Map<string, Set<string>>();
+    const add = (a: string, b: string) => {
+      let set = map.get(a);
+      if (!set) {
+        set = new Set();
+        map.set(a, set);
+      }
+      set.add(b);
+    };
+    for (const e of layout.edges) {
+      add(e.fromId, e.toId);
+      add(e.toId, e.fromId);
+    }
+    return map;
+  }, [layout.edges]);
+
+  // Radius of the mass (rotation-invariant → stable framing while spinning).
+  // Framed by the 92nd percentile of node distances so a few fringe/orphan
+  // nodes can't shrink the whole mass into the middle of the viewport.
+  const massRadius = useMemo(() => {
+    if (layout.nodes.length === 0) {return 1;}
+    const dists = layout.nodes
+      .map((n) => {
+        const dx = n.x - VIRTUAL_CENTER.x;
+        const dy = n.y - VIRTUAL_CENTER.y;
+        return Math.sqrt(dx * dx + dy * dy + n.z * n.z) + n.radius;
+      })
+      .sort((a, b) => a - b);
+    const idx = Math.min(dists.length - 1, Math.floor(dists.length * 0.92));
+    return Math.max(1, dists[idx]);
+  }, [layout.nodes]);
+
+  // Everything the animation loop reads lives in refs so it never triggers a
+  // React re-render (the loop runs at 60fps off these).
+  const view = useRef({
+    yaw: 0.5,
+    pitch: 0.32,
+    zoom: 1,
+    hoveredId: null as string | null,
+    dragging: false,
+    moved: false,
+    lastX: 0,
+    lastY: 0,
+    lastInteractAt: -Infinity,
+    // Set by every input that changes the scene; lets the reduced-motion
+    // render path skip redrawing identical frames.
+    dirty: true,
+  });
+  const projectedRef = useRef<Projected[]>([]);
+  // Screen-space segments of the edges drawn this frame (ghosted ones skipped),
+  // so a pointer can hit-test edges for the "why are these connected?" tooltip.
+  const projectedEdgesRef = useRef<ProjectedEdge[]>([]);
+  const colorsRef = useRef<Colors>({ content: "#e5e7eb", tertiary: "#8792a0" });
+  // Set by search jump-to. While non-null the render loop eases the camera each
+  // frame to center this concept, then clears it once the view has settled.
+  const focusTargetRef = useRef<string | null>(null);
+  // Set on dismiss so the 60fps loop eases the camera back out to the overview
+  // framing (zoom + pitch), then clears itself once settled.
+  const resetViewRef = useRef(false);
+
+  // Bumped only when the focused node changes, so the DOM tooltip re-renders.
+  // The canvas itself never needs React state.
+  const [focusLabel, setFocusLabel] = useState<string | null>(null);
+  // Set while the pointer is over an EDGE (and no node) — the tooltip then
+  // explains why two concepts connect. Node hover always wins (onPointerMove).
+  const [edgeLabel, setEdgeLabel] = useState<string | null>(null);
+  // Navigable trail of opened concepts: each open pushes onto the stack, and the
+  // top (`trail.at(-1)`) is the concept the detail drawer shows. Crumbs pop back
+  // to a level; dismiss empties the trail, returning to the overview (drawer
+  // closed).
+  const [trail, setTrail] = useState<ConceptDetailNode[]>([]);
+  const openNode = trail.at(-1) ?? null;
+  // Opening a concept into the detail drawer (canvas click or search result)
+  // is a tracked memory interaction. Route every open through here so
+  // "node_opened" is emitted exactly once per open, from one place.
+  const openNodeDetail = useCallback((node: ConceptDetailNode) => {
+    emitMemoryEvent("node_opened");
+    setTrail((t) => [...t, node]);
+  }, []);
+  // The trail's current concept, mirrored into a ref the 60fps render loop and
+  // hit-test read (matches filterRef / recencyRef / edgeFilterRef) so opening,
+  // travelling, or closing a concept re-runs the ego-dim without re-running the
+  // render effect. `dirty` is bumped so the reduced-motion path redraws on a
+  // selection change; emptying the trail (id → null) restores normal rendering.
+  const selectedIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    selectedIdRef.current = openNode?.id ?? null;
+    view.current.dirty = true;
+  }, [openNode?.id]);
+
+  // First-run explainer: shown over the graph (empty or populated) until the
+  // user dismisses it; the dismissal sticks per-assistant.
+  const [introDismissed, dismissIntro] = useGraphIntroDismissed(assistantId);
+
+  // Name search: as the graph grows, typing narrows it to matching concepts —
+  // matches stay lit, everything else ghosts. The set of matching ids lives in
+  // a ref the 60fps render loop reads (so keystrokes don't re-run the effect),
+  // and `dirty` is bumped whenever it changes so reduced-motion redraws.
+  const [search, setSearch] = useState("");
+  // Latch so the "search" interaction is emitted once per search session — on
+  // the empty→non-empty transition — not per keystroke. Reset whenever the box
+  // empties (see the effect below), so a fresh search re-emits.
+  const searchEmittedRef = useRef(false);
+  const searchLower = search.trim().toLowerCase();
+  const matchIds = useMemo(() => {
+    if (!searchLower) {return null;}
+    const s = new Set<string>();
+    for (const n of layout.nodes) {
+      if (n.label.toLowerCase().includes(searchLower)) {s.add(n.id);}
+    }
+    return s;
+  }, [searchLower, layout.nodes]);
+  const filterRef = useRef<{ active: boolean; matches: Set<string> | null }>({
+    active: false,
+    matches: null,
+  });
+  useEffect(() => {
+    filterRef.current = { active: Boolean(matchIds), matches: matchIds };
+    view.current.dirty = true;
+  }, [matchIds]);
+  // Reset the "search started" latch whenever the box empties — by keystroke,
+  // the clear button, Escape, or an assistant switch — so the next search
+  // re-emits its start event.
+  useEffect(() => {
+    if (!search.trim()) {
+      searchEmittedRef.current = false;
+    }
+  }, [search]);
+  // Top matches for the results list under the search box: most-connected first,
+  // capped so the dropdown stays scannable. The head is also the Enter target.
+  const searchResults = useMemo(() => {
+    if (!matchIds || matchIds.size === 0) {
+      return [];
+    }
+    return layout.nodes
+      .filter((n) => matchIds.has(n.id))
+      .sort((a, b) => b.degree - a.degree)
+      .slice(0, 8);
+  }, [matchIds, layout.nodes]);
+
+  // Recency time-lens: "All · Month · Week" narrows the graph to concepts
+  // updated within the window — older ones ghost like non-search-matches, so
+  // "what did it learn recently?" pops. The window (in ms, or null for "all")
+  // lives in a ref the 60fps loop reads (so segment clicks don't re-run it), and
+  // `dirty` is bumped whenever it changes so reduced-motion redraws.
+  const [recency, setRecency] = useState<RecencyWindow>("all");
+  const recencyRef = useRef<number | null>(null);
+  useEffect(() => {
+    recencyRef.current =
+      recency === "week" ? 7 * DAY_MS : recency === "month" ? 30 * DAY_MS : null;
+    view.current.dirty = true;
+  }, [recency]);
+  // Whether any node carries a recency timestamp. Without one the lens has
+  // nothing to narrow by — showing it would let Week/Month ghost the entire
+  // graph — so the lens stays hidden.
+  const hasRecencyData = useMemo(
+    () => layout.nodes.some((n) => n.updatedAtMs != null),
+    [layout.nodes],
+  );
+  // If a refetch (or same-assistant data change) drops all timestamps while a
+  // Week/Month window is active, clear it. Otherwise the lens hides (no data)
+  // but the still-active window would ghost every node with no way to reset.
+  useEffect(() => {
+    if (!hasRecencyData && recency !== "all") {
+      setRecency("all");
+    }
+  }, [hasRecencyData, recency]);
+
+  // Edge-kind filter: toggle authored (link) vs behavioral (learned) edges to
+  // declutter. The active flags live in a ref the 60fps loop reads (so a toggle
+  // click doesn't re-run the render effect), and `dirty` is bumped whenever they
+  // change so reduced-motion redraws. Only surfaced when both kinds are present.
+  const [edgeFilter, setEdgeFilter] = useState({ link: true, learned: true });
+  const edgeFilterRef = useRef(edgeFilter);
+  useEffect(() => {
+    edgeFilterRef.current = edgeFilter;
+    view.current.dirty = true;
+  }, [edgeFilter]);
+  // Reset every lens when the active assistant changes: this component is reused
+  // across assistants (IdentityTab doesn't key it), so a stale search, recency
+  // window, hidden edge kind, or open selection would otherwise ghost/blank the
+  // new assistant's freshly-loaded graph.
+  useEffect(() => {
+    setSearch("");
+    setRecency("all");
+    setEdgeFilter({ link: true, learned: true });
+    setTrail([]);
+    searchEmittedRef.current = false;
+  }, [assistantId]);
+
+  const resetView = useCallback(() => {
+    const v = view.current;
+    v.yaw = 0.5;
+    v.pitch = 0.32;
+    v.zoom = 1;
+    v.lastInteractAt = -Infinity;
+    v.dirty = true;
+    setFocusLabel(null);
+  }, []);
+
+  const zoomBy = useCallback((factor: number) => {
+    const v = view.current;
+    v.zoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, v.zoom * factor));
+    v.lastInteractAt = performance.now();
+    v.dirty = true;
+  }, []);
+
+  // Fly the camera to center a concept (search jump-to). The render loop reads
+  // focusTargetRef each frame and eases yaw/pitch/zoom toward it.
+  const focusOn = useCallback((id: string) => {
+    focusTargetRef.current = id;
+    view.current.lastInteractAt = performance.now();
+    view.current.dirty = true;
+  }, []);
+
+  // Travel to a concept: open it into the detail drawer (pushing it onto the
+  // trail, emitting "node_opened" once) and fly the camera to center it, reusing
+  // the search jump-to ease.
+  const travelTo = useCallback(
+    (node: ConceptDetailNode) => {
+      openNodeDetail(node);
+      focusOn(node.id);
+    },
+    [openNodeDetail, focusOn],
+  );
+
+  // Fully dismiss the detail drawer back to the overview: empty the trail
+  // (closing the drawer), clear any active search (the box hides behind the
+  // drawer, so a stale search would ghost the map after close), and drop the
+  // focus label. Wired to the panel's X / Escape / backdrop so any of those
+  // closes the whole drawer from any trail depth — not just one level.
+  const dismiss = useCallback(() => {
+    setTrail([]);
+    setSearch("");
+    setFocusLabel(null);
+    // Zoom back out to the overview after closing the drawer: clear any focus
+    // target (so it doesn't fight the ease) and let the loop ease zoom/pitch home.
+    focusTargetRef.current = null;
+    resetViewRef.current = true;
+  }, []);
+
+  // Jump to a breadcrumb (the ‹ back control and crumb clicks): truncate the
+  // trail to `index` (keep 0..index) and re-center on that concept. A real crumb
+  // index is always >= 0, so the panel stays open — crumb clicks rewind the
+  // multi-level trail without closing the drawer. Clears any active search first:
+  // the box is hidden behind the open drawer, so a stale search would leave a
+  // traveled-to non-match node centered but ghosted with no way to clear it.
+  const goToCrumb = useCallback(
+    (index: number) => {
+      setSearch("");
+      const next = trail.slice(0, index + 1);
+      setTrail(next);
+      const top = next.at(-1);
+      if (top) {
+        focusOn(top.id);
+      } else {
+        setFocusLabel(null);
+      }
+    },
+    [trail, focusOn],
+  );
+
+  // WIRED-TO travel from the panel clears any active search first: the search
+  // box is hidden behind the open drawer, so a stale search would leave a
+  // traveled-to non-match node centered but ghosted with no way to clear it.
+  // Canvas + search-result travel keep the box visible, so they intentionally
+  // don't clear it (that's plain travelTo). Breadcrumb navigation clears the
+  // search too, but does so inside goToCrumb itself.
+  const travelFromPanel = useCallback(
+    (node: ConceptDetailNode) => {
+      setSearch("");
+      travelTo(node);
+    },
+    [travelTo],
+  );
+
+  // Direct neighbors of the open concept, resolved to { id, label, kind } for the
+  // detail panel's WIRED-TO list. Neighbor ids come from the adjacency map;
+  // labels from layout.nodes; the connecting edge's kind (link vs learned) tags
+  // each neighbor without grouping them. Sorted by label so the list is scannable.
+  const neighbors = useMemo(() => {
+    const currentId = openNode?.id;
+    if (!currentId) {
+      return [];
+    }
+    const ids = adjacency.get(currentId);
+    if (!ids || ids.size === 0) {
+      return [];
+    }
+    const labelById = new Map(layout.nodes.map((n) => [n.id, n.label]));
+    const kindById = new Map<string, string>();
+    for (const e of layout.edges) {
+      if (e.fromId === currentId) {
+        kindById.set(e.toId, e.kind);
+      } else if (e.toId === currentId) {
+        kindById.set(e.fromId, e.kind);
+      }
+    }
+    const out: { id: string; label: string; kind?: string }[] = [];
+    for (const id of ids) {
+      const label = labelById.get(id);
+      if (label != null) {
+        out.push({ id, label, kind: kindById.get(id) });
+      }
+    }
+    out.sort((a, b) => a.label.localeCompare(b.label));
+    return out;
+  }, [openNode?.id, adjacency, layout.nodes, layout.edges]);
+
+  useEffect(() => {
+    if (!ready) {return;}
+    const canvas = canvasRef.current;
+    const container = containerRef.current;
+    if (!canvas || !container) {return;}
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {return;}
+
+    // Capture the current layout for the loop; the effect re-runs (cancelling
+    // this loop) whenever the data changes, so these never go stale.
+    const nodes = layout.nodes;
+    const edges = layout.edges;
+    const nodeClusters = clusters;
+    const hubIds = clusterHubs;
+    const adj = adjacency;
+    // Ids present in the current graph — used to ignore a stale selection (e.g.
+    // a same-assistant refetch that drops the open node) so focus-dim never
+    // blanks the whole map against a node that no longer exists.
+    const presentNodeIds = new Set(nodes.map((n) => n.id));
+    const R = massRadius;
+
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    colorsRef.current = resolveColors(container);
+
+    let dpr = Math.min(window.devicePixelRatio || 1, 2);
+    let cssW = 0;
+    let cssH = 0;
+    const applySize = () => {
+      const rect = container.getBoundingClientRect();
+      cssW = rect.width;
+      cssH = rect.height;
+      dpr = Math.min(window.devicePixelRatio || 1, 2);
+      canvas.width = Math.max(1, Math.round(cssW * dpr));
+      canvas.height = Math.max(1, Math.round(cssH * dpr));
+      canvas.style.width = `${cssW}px`;
+      canvas.style.height = `${cssH}px`;
+      colorsRef.current = resolveColors(container);
+      view.current.dirty = true;
+    };
+    applySize();
+    const ro = new ResizeObserver(applySize);
+    ro.observe(container);
+
+    let raf = 0;
+    let last = 0;
+    const render = (t: number) => {
+      const dt = last ? Math.min(0.05, (t - last) / 1000) : 0;
+      last = t;
+      const v = view.current;
+      const colors = colorsRef.current;
+      const nowMs = Date.now();
+
+      const focusId = focusTargetRef.current;
+      const idle = !v.dragging && t - v.lastInteractAt > IDLE_RESUME_MS;
+      // Suppress the idle drift while flying to a searched concept, or it fights
+      // the ease and the target never settles.
+      if (idle && !reduceMotion && !focusId) {
+        v.yaw += AUTO_YAW_PER_SEC * dt;
+      }
+
+      // Search jump-to: ease the camera to bring the target node front-and-center
+      // (yaw/pitch face it, zoom pushes in), then clear the target once settled.
+      // Reduced motion snaps instantly (k=1). Runs before the reduced-motion
+      // static-frame skip so it keeps stepping the ease.
+      if (focusId) {
+        const target = nodes.find((n) => n.id === focusId);
+        if (!target) {
+          focusTargetRef.current = null;
+        } else {
+          const nx = target.x - VIRTUAL_CENTER.x;
+          const ny = target.y - VIRTUAL_CENTER.y;
+          const nz = target.z;
+          const targetYaw = -Math.atan2(nx, nz);
+          const r = Math.hypot(nx, nz);
+          const targetPitch = Math.max(
+            -PITCH_CLAMP,
+            Math.min(PITCH_CLAMP, Math.atan2(ny, r)),
+          );
+          const targetZoom = Math.min(MAX_ZOOM, 1.6);
+          const k = reduceMotion ? 1 : 0.15;
+          let dY = targetYaw - v.yaw;
+          dY = Math.atan2(Math.sin(dY), Math.cos(dY));
+          v.yaw += dY * k;
+          v.pitch += (targetPitch - v.pitch) * k;
+          v.zoom += (targetZoom - v.zoom) * k;
+          v.dirty = true;
+          if (
+            Math.abs(dY) < 0.01 &&
+            Math.abs(targetPitch - v.pitch) < 0.01 &&
+            Math.abs(targetZoom - v.zoom) < 0.02
+          ) {
+            focusTargetRef.current = null;
+          }
+        }
+      }
+
+      // After the drawer is dismissed, ease the camera back out to the overview
+      // framing (default zoom + pitch); yaw keeps its idle drift. Skipped while
+      // dragging so a manual orbit isn't fought; clears itself once settled.
+      if (resetViewRef.current && !v.dragging) {
+        const k = reduceMotion ? 1 : 0.15;
+        v.pitch += (0.32 - v.pitch) * k;
+        v.zoom += (1 - v.zoom) * k;
+        v.dirty = true;
+        if (Math.abs(0.32 - v.pitch) < 0.01 && Math.abs(1 - v.zoom) < 0.02) {
+          resetViewRef.current = false;
+        }
+      }
+
+      // With reduced motion there is no auto-rotation, so the scene is static
+      // between inputs — don't re-project and redraw identical frames.
+      if (reduceMotion && !v.dirty) {
+        raf = requestAnimationFrame(render);
+        return;
+      }
+      v.dirty = false;
+
+      const cosY = Math.cos(v.yaw);
+      const sinY = Math.sin(v.yaw);
+      const cosX = Math.cos(v.pitch);
+      const sinX = Math.sin(v.pitch);
+      const focal = FOCAL_FACTOR * R;
+      const baseZoom = (Math.min(cssW, cssH) * 0.88) / (2 * R);
+      const zoom = baseZoom * v.zoom;
+      const cx = cssW / 2;
+      const cy = cssH / 2;
+
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, cssW, cssH);
+
+      const activeId = v.hoveredId;
+      const neighbors = activeId ? adj.get(activeId) : undefined;
+      const isLit = (id: string) =>
+        !activeId || id === activeId || (neighbors?.has(id) ?? false);
+
+      // Search: when active, only matching nodes/edges stay lit; the rest ghost.
+      const filter = filterRef.current;
+      const searchActive = filter.active;
+      const isMatch = (id: string) =>
+        !searchActive || (filter.matches?.has(id) ?? false);
+
+      // Recency lens: when a window is set, concepts not updated within it ghost
+      // (like non-search-matches). A missing timestamp counts as stale/older.
+      const recencyWindowMs = recencyRef.current;
+      const isRecencyGhost = (n: GraphLayoutNode) =>
+        isStale(n.updatedAtMs, recencyWindowMs, nowMs);
+
+      // Edge-kind toggle: a hidden kind is skipped entirely below.
+      const edgeKinds = edgeFilterRef.current;
+
+      // Focus ego-dim: while a concept is open, spotlight its neighborhood (the
+      // node + direct neighbors) and fade everything else to near-zero. The
+      // selected ego-network overrides the recency window and edge-kind filter
+      // so it always reads and stays interactive; search still narrows normally.
+      const selectedId = selectedIdRef.current;
+      const selectionActive = selectedId != null && presentNodeIds.has(selectedId);
+      const inSelectedEgo = makeEgoTest(adj, selectionActive ? selectedId : null);
+
+      // Density fog: fade the resting learned-edge web as the corpus grows.
+      const learnedFog =
+        nodes.length <= FOG_FULL_BELOW
+          ? 1
+          : Math.max(
+              FOG_FLOOR,
+              1 -
+                ((nodes.length - FOG_FULL_BELOW) /
+                  (FOG_FLOOR_ABOVE - FOG_FULL_BELOW)) *
+                  (1 - FOG_FLOOR),
+            );
+
+      // Project every node into screen space.
+      const proj = new Array<{
+        node: GraphLayoutNode;
+        sx: number;
+        sy: number;
+        sr: number;
+        depth: number;
+      }>(nodes.length);
+      for (let i = 0; i < nodes.length; i++) {
+        const node = nodes[i];
+        const px = node.x - VIRTUAL_CENTER.x;
+        const py = node.y - VIRTUAL_CENTER.y;
+        const pz = node.z;
+        const x1 = px * cosY + pz * sinY;
+        const z1 = -px * sinY + pz * cosY;
+        const y2 = py * cosX - z1 * sinX;
+        const z2 = py * sinX + z1 * cosX;
+        const persp = focal / (focal - z2);
+        proj[i] = {
+          node,
+          sx: cx + x1 * zoom * persp,
+          sy: cy + y2 * zoom * persp,
+          sr: Math.max(1.2, node.radius * zoom * persp),
+          depth: Math.max(0, Math.min(1, (z2 + R) / (2 * R))),
+        };
+      }
+      // Painter's order: far → near.
+      const order = proj.map((_, i) => i).sort((a, b) => proj[a].depth - proj[b].depth);
+      const posById = new Map<string, (typeof proj)[number]>();
+      for (const p of proj) {posById.set(p.node.id, p);}
+
+      // Edges (behind nodes). Each drawn, non-ghosted segment is also collected
+      // (screen-space endpoints) so the pointer can hit-test edges for hover.
+      const projEdges: ProjectedEdge[] = [];
+      ctx.lineCap = "round";
+      for (const e of edges) {
+        const a = posById.get(e.fromId);
+        const b = posById.get(e.toId);
+        if (!a || !b) {continue;}
+        const learned = e.kind === "learned";
+        // Spine of the focused ego-network: an edge touching the selected node
+        // (selected ↔ neighbor). It overrides the edge-kind filter and the
+        // recency window so the neighborhood stays wired and interactive.
+        const egoEdge =
+          selectedId != null &&
+          (e.fromId === selectedId || e.toId === selectedId);
+        // A hidden kind is neither drawn nor collected for edge-hover, so the
+        // hit-test stays consistent with what's on screen — unless it's an ego
+        // edge, which selection keeps visible even when its kind is filtered.
+        if (!egoEdge && (learned ? !edgeKinds.learned : !edgeKinds.link)) {
+          continue;
+        }
+        // An edge ghosts if either endpoint is ghosted by search or recency;
+        // selection overrides the recency window for the ego edges.
+        const ghost =
+          (searchActive && (!isMatch(e.fromId) || !isMatch(e.toId))) ||
+          (!egoEdge && (isRecencyGhost(a.node) || isRecencyGhost(b.node)));
+        const incident = activeId != null && (e.fromId === activeId || e.toId === activeId);
+        const depth = (a.depth + b.depth) / 2;
+        // Only offer hover on edges that read as present — skip faded ones. With
+        // a selection, only the lit ego edges are hit-testable (the rest dim).
+        if (!ghost && (!selectionActive || egoEdge)) {
+          projEdges.push({
+            ax: a.sx,
+            ay: a.sy,
+            bx: b.sx,
+            by: b.sy,
+            kind: e.kind,
+            description: e.description,
+            depth,
+          });
+        }
+        // Learned edges fade with density in the resting web; authored links
+        // don't. A focused hover neighborhood reads at full contrast, though —
+        // so lit edges use the unfogged base even in a dense graph.
+        const litAlpha = (learned ? 0.34 : 0.28) * (0.4 + 0.6 * depth);
+        const restAlpha = learned ? litAlpha * learnedFog : litAlpha;
+        let alpha: number;
+        if (ghost) {
+          alpha = 0.03;
+        } else if (selectionActive) {
+          // Ego-dim: only edges touching the selected node stay bright; every
+          // other edge fades to near-zero so the neighborhood reads.
+          alpha = egoEdge ? 0.9 : SELECTION_DIM_EDGE;
+        } else if (activeId != null) {
+          alpha = incident ? 0.9 : isLit(e.fromId) && isLit(e.toId) ? litAlpha : 0.05;
+        } else {
+          alpha = restAlpha;
+        }
+        ctx.globalAlpha = alpha;
+        ctx.strokeStyle = learned ? EDGE_LEARNED_COLOR : colors.tertiary;
+        ctx.lineWidth =
+          (incident || (selectionActive && egoEdge) ? 2 : 1) *
+          (0.6 + 0.6 * depth);
+        ctx.setLineDash(learned ? [4, 4] : []);
+        ctx.beginPath();
+        ctx.moveTo(a.sx, a.sy);
+        ctx.lineTo(b.sx, b.sy);
+        ctx.stroke();
+      }
+      ctx.setLineDash([]);
+
+      // Nodes (far → near) with depth + glow.
+      for (const idx of order) {
+        const p = proj[idx];
+        const node = p.node;
+        // Concepts are colored by their detected theme/cluster; any non-concept
+        // node falls back to its per-kind color.
+        const color =
+          node.kind === "concept"
+            ? CLUSTER_PALETTE[(nodeClusters.get(node.id) ?? 0) % CLUSTER_PALETTE.length]
+            : NODE_KIND_COLORS[node.kind];
+        const searchGhost = searchActive && !isMatch(node.id);
+        // Selection overrides the recency window for the focused ego-network so
+        // it stays lit; search still narrows normally.
+        const inEgo = inSelectedEgo(node.id);
+        const ghost = searchGhost || (isRecencyGhost(node) && !inEgo);
+        // With a selection, only its neighborhood is lit; otherwise fall back to
+        // the hover neighborhood.
+        const lit = selectionActive
+          ? inEgo && !ghost
+          : !ghost && isLit(node.id);
+        const isActive = node.id === activeId;
+        const depthA = DEPTH_ALPHA_MIN + (1 - DEPTH_ALPHA_MIN) * p.depth;
+        const alpha =
+          selectionActive && !inEgo
+            ? depthA * SELECTION_DIM_NODE
+            : ghost
+              ? depthA * 0.08
+              : lit
+                ? depthA
+                : depthA * 0.18;
+
+        let glow = (isActive ? 16 : node.degree >= HUB_LABEL_DEGREE ? 8 : 4) * p.depth;
+        // Recency: fresh concepts glow brighter; the very newest pulse. Static
+        // (no pulse) under reduced motion, which only ever redraws on input.
+        const updatedAtMs = node.updatedAtMs;
+        if (updatedAtMs) {
+          const age = nowMs - updatedAtMs;
+          const freshness = Math.max(0, 1 - age / RECENCY_GLOW_WINDOW_MS);
+          if (freshness > 0) {
+            let boost = freshness * RECENCY_GLOW_MAX;
+            if (!reduceMotion && age < PULSE_WINDOW_MS) {
+              boost *= 0.55 + 0.45 * Math.sin(t / 420 + idx * 1.7);
+            }
+            glow += boost * p.depth;
+          }
+        }
+        ctx.shadowColor = color;
+        ctx.shadowBlur = lit ? glow : 0;
+
+        ctx.globalAlpha = alpha * 0.55;
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(p.sx, p.sy, p.sr, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.shadowBlur = 0;
+        ctx.globalAlpha = alpha;
+        ctx.lineWidth = isActive ? 2.5 : 1.4;
+        ctx.strokeStyle = color;
+        ctx.stroke();
+      }
+      ctx.shadowBlur = 0;
+
+      // Labels: hubs (when nothing is focused) + the focused neighborhood.
+      ctx.textAlign = "center";
+      ctx.textBaseline = "top";
+      ctx.font = "11px ui-sans-serif, system-ui, sans-serif";
+      for (const idx of order) {
+        const p = proj[idx];
+        const node = p.node;
+        // When nothing is focused, only label front-facing hubs (depth-gated) so
+        // the dense middle of the mass doesn't turn into unreadable label soup —
+        // but always label each cluster's hub so every theme reads with a name.
+        // While searching, label the matches instead (that's what you're after).
+        // With a selection, name the whole focused neighborhood. Ghosted nodes
+        // (search or recency) never get labels — but the selected ego-network
+        // overrides the recency window.
+        const inEgo = inSelectedEgo(node.id);
+        if (
+          (searchActive && !isMatch(node.id)) ||
+          (isRecencyGhost(node) && !inEgo)
+        ) {
+          continue;
+        }
+        const showLabel = selectionActive
+          ? inEgo
+          : searchActive
+            ? p.depth > 0.3
+            : activeId != null
+              ? isLit(node.id)
+              : hubIds.has(node.id) ||
+                (node.degree >= HUB_LABEL_DEGREE && p.depth > 0.55);
+        if (!showLabel) {continue;}
+        ctx.globalAlpha =
+          (node.id === activeId || node.id === selectedId ? 1 : 0.85) *
+          (0.4 + 0.6 * p.depth);
+        ctx.fillStyle = colors.content;
+        const label = node.label.length > 22 ? `${node.label.slice(0, 21)}…` : node.label;
+        ctx.fillText(label, p.sx, p.sy + p.sr + 3);
+      }
+      ctx.globalAlpha = 1;
+
+      projectedRef.current = proj.map((p) => ({
+        id: p.node.id,
+        sx: p.sx,
+        sy: p.sy,
+        sr: p.sr,
+        depth: p.depth,
+        updatedAtMs: p.node.updatedAtMs,
+      }));
+      projectedEdgesRef.current = projEdges;
+
+      raf = requestAnimationFrame(render);
+    };
+    raf = requestAnimationFrame(render);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      ro.disconnect();
+    };
+  }, [ready, layout, adjacency, massRadius, clusters, clusterHubs]);
+
+  // Nearest node under a screen point; nearest-in-front wins. Ghosted nodes are
+  // skipped so hover/click land on a live node, not a faded background one: both
+  // search non-matches and, when a recency window is set, concepts older than it
+  // (a missing timestamp counts as stale). A selected concept's ego-network is
+  // exempt from the recency skip so the focused neighborhood stays clickable.
+  // Mirrors the render-loop ghosting.
+  const hitTest = useCallback((x: number, y: number): string | null => {
+    const filter = filterRef.current;
+    const recencyWindowMs = recencyRef.current;
+    // The focused ego-network stays clickable even when a recency window would
+    // otherwise skip it (selection overrides the filter); search still narrows.
+    const inSelectedEgo = makeEgoTest(adjacency, selectedIdRef.current);
+    const now = Date.now();
+    let best: string | null = null;
+    let bestDepth = -1;
+    for (const p of projectedRef.current) {
+      if (filter.active && !(filter.matches?.has(p.id) ?? false)) {continue;}
+      if (
+        !inSelectedEgo(p.id) &&
+        isStale(p.updatedAtMs, recencyWindowMs, now)
+      ) {
+        continue;
+      }
+      const dx = x - p.sx;
+      const dy = y - p.sy;
+      if (dx * dx + dy * dy <= (p.sr + 5) * (p.sr + 5) && p.depth > bestDepth) {
+        best = p.id;
+        bestDepth = p.depth;
+      }
+    }
+    return best;
+  }, [adjacency]);
+
+  // Nearest EDGE segment under a screen point, within ~5px (point-to-segment
+  // distance); on ties the one nearer the front (higher depth) wins. Only the
+  // non-ghosted edges the render loop collected are considered.
+  const edgeHitTest = useCallback(
+    (x: number, y: number): { kind: string; description?: string } | null => {
+      let best: { kind: string; description?: string } | null = null;
+      let bestDist = Infinity;
+      let bestDepth = -1;
+      for (const e of projectedEdgesRef.current) {
+        const vx = e.bx - e.ax;
+        const vy = e.by - e.ay;
+        const len2 = vx * vx + vy * vy;
+        let t = 0;
+        if (len2 > 0) {
+          t = ((x - e.ax) * vx + (y - e.ay) * vy) / len2;
+          t = Math.max(0, Math.min(1, t));
+        }
+        const dx = x - (e.ax + t * vx);
+        const dy = y - (e.ay + t * vy);
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist > 5) {
+          continue;
+        }
+        if (dist < bestDist || (dist === bestDist && e.depth > bestDepth)) {
+          best = { kind: e.kind, description: e.description };
+          bestDist = dist;
+          bestDepth = e.depth;
+        }
+      }
+      return best;
+    },
+    [],
+  );
+
+  const localPoint = (e: React.PointerEvent) => {
+    const rect = containerRef.current!.getBoundingClientRect();
+    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+  };
+
+  const onPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) {return;}
+    if ((e.target as HTMLElement).closest("[data-graph-control]")) {return;}
+    const v = view.current;
+    // A user grab takes control immediately: cancel any in-flight search
+    // jump-to ease so the drag isn't fighting the camera each frame.
+    focusTargetRef.current = null;
+    v.dragging = true;
+    v.moved = false;
+    v.lastX = e.clientX;
+    v.lastY = e.clientY;
+    v.lastInteractAt = performance.now();
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  }, []);
+
+  const onPointerMove = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      const v = view.current;
+      if (v.dragging) {
+        const dx = e.clientX - v.lastX;
+        const dy = e.clientY - v.lastY;
+        if (Math.abs(dx) > 2 || Math.abs(dy) > 2) {
+          v.moved = true;
+        }
+        v.yaw += dx * DRAG_SENSITIVITY;
+        v.pitch = Math.max(-PITCH_CLAMP, Math.min(PITCH_CLAMP, v.pitch + dy * DRAG_SENSITIVITY));
+        v.lastX = e.clientX;
+        v.lastY = e.clientY;
+        v.lastInteractAt = performance.now();
+        v.dirty = true;
+        return;
+      }
+      const { x, y } = localPoint(e);
+      const hit = hitTest(x, y);
+      if (hit !== v.hoveredId) {
+        v.hoveredId = hit;
+        v.dirty = true;
+      }
+      // Node hover wins: only probe edges when no node is under the cursor.
+      if (hit) {
+        setEdgeLabel(null);
+      } else {
+        const edge = edgeHitTest(x, y);
+        setEdgeLabel(edge ? labelForEdge(edge) : null);
+      }
+    },
+    [hitTest, edgeHitTest],
+  );
+
+  const onPointerUp = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      const v = view.current;
+      if (!v.dragging) {
+        return;
+      }
+      v.dragging = false;
+      v.lastInteractAt = performance.now();
+      v.dirty = true;
+      const el = e.currentTarget as HTMLElement;
+      if (el.hasPointerCapture(e.pointerId)) {
+        el.releasePointerCapture(e.pointerId);
+      }
+      if (!v.moved) {
+        const { x, y } = localPoint(e);
+        const hit = hitTest(x, y);
+        if (hit) {
+          // Click a node → travel to it: center the camera and open its page.
+          const n = layout.nodes.find((nn) => nn.id === hit);
+          if (n) {
+            travelTo({
+              id: n.id,
+              label: n.label,
+              updatedAtMs: n.updatedAtMs,
+            });
+          }
+        } else {
+          setFocusLabel(null);
+        }
+      }
+    },
+    [hitTest, layout.nodes, travelTo],
+  );
+
+  // Hover is only ever rewritten by moves inside the container, so without
+  // this the highlight + tooltip would stay pinned after the pointer leaves.
+  const onPointerLeave = useCallback(() => {
+    const v = view.current;
+    setEdgeLabel(null);
+    if (v.dragging || v.hoveredId == null) {
+      return;
+    }
+    v.hoveredId = null;
+    v.dirty = true;
+    setFocusLabel(null);
+  }, []);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || !ready) {return;}
+    const onWheel = (e: WheelEvent) => {
+      // Let the detail drawer scroll natively instead of zooming the graph.
+      if ((e.target as HTMLElement).closest?.("[data-graph-panel]")) {return;}
+      e.preventDefault();
+      const v = view.current;
+      v.zoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, v.zoom * (1 - e.deltaY / 500)));
+      v.lastInteractAt = performance.now();
+      v.dirty = true;
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [ready]);
+
+  const presentKinds = useMemo(() => {
+    const kinds = new Set(layout.nodes.map((n) => n.kind));
+    return NODE_KIND_ORDER.filter((k) => kinds.has(k));
+  }, [layout.nodes]);
+  const hasLearned = useMemo(() => layout.edges.some((e) => e.kind === "learned"), [layout.edges]);
+  const hasLinks = useMemo(() => layout.edges.some((e) => e.kind !== "learned"), [layout.edges]);
+  // The Link/Learned toggles only render when both kinds are present. If a
+  // refetch leaves only one kind, the controls disappear — so clear any active
+  // filter, otherwise a previously-hidden kind stays hidden with no way to
+  // restore it. Mirrors the recency-window reset.
+  useEffect(() => {
+    if (
+      !(hasLinks && hasLearned) &&
+      (!edgeFilter.link || !edgeFilter.learned)
+    ) {
+      setEdgeFilter({ link: true, learned: true });
+    }
+  }, [hasLinks, hasLearned, edgeFilter]);
+
+  // The intro banner shows over a supported graph (empty or populated), never
+  // over the loading / error / unsupported states.
+  const showIntro = query.data?.kind === "ready" && !introDismissed;
+
+  let body: React.ReactNode;
+  if (query.isLoading) {
+    body = (
+      <div className="flex h-full items-center justify-center">
+        <div
+          className="h-6 w-6 animate-spin rounded-full border-2"
+          style={{ borderColor: "var(--border-base)", borderTopColor: "var(--content-tertiary)" }}
+        />
+      </div>
+    );
+  } else if (query.isError) {
+    body = (
+      <CenteredMessage
+        title="Couldn't load the memory graph"
+        detail="Something went wrong fetching your assistant's memory. Try again in a moment."
+      />
+    );
+  } else if (query.data?.kind === "unsupported") {
+    body = (
+      <CenteredMessage
+        title="Memory graph isn't available"
+        detail="The active memory backend doesn't expose a concept graph."
+      />
+    );
+  } else if (!ready) {
+    body = (
+      <CenteredMessage
+        title="No concepts yet"
+        detail="As your assistant learns and links ideas, they'll appear here as a living map of its memory."
+      />
+    );
+  } else {
+    // Brain-vocabulary stat header: neurons (nodes), synapses (edges), and
+    // lobes (distinct detected clusters). Only reached inside the ready body
+    // (nodes.length > 0), so it always has live counts to show.
+    const neurons = layout.nodes.length;
+    const synapses = layout.edges.length;
+    const lobes = new Set(clusters.values()).size;
+    const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+    body = (
+      <>
+        <canvas ref={canvasRef} className="absolute inset-0 h-full w-full" />
+
+        {/* Brain-vocabulary stat header. Tagged data-graph-control so a
+            pointer-down on it bails the orbit-drag. Yields the top-center slot
+            to the intro banner and to a hover tooltip so the pills never stack. */}
+        {!showIntro && focusLabel == null && edgeLabel == null ? (
+          <div
+            data-graph-control
+            className="absolute left-1/2 top-4 -translate-x-1/2 rounded-full px-3 py-1 text-[11px] tabular-nums"
+            style={{
+              backgroundColor: "color-mix(in srgb, var(--surface-base) 82%, transparent)",
+              border: "1px solid var(--border-base)",
+              color: "var(--content-tertiary)",
+            }}
+          >
+            {plural(neurons, "neuron")} · {plural(synapses, "synapse")} ·{" "}
+            {plural(lobes, "lobe")}
+          </div>
+        ) : null}
+
+        {/* Keep the box visible whenever a search is active, even if the graph
+            shrank below the threshold (e.g. a refetch) — otherwise an active
+            filter would ghost nodes with no way to clear it short of remount. */}
+        {/* z-20 keeps the results dropdown above the recency lens (top-14,
+            z-10) so its top rows stay clickable while a search is active. */}
+        {layout.nodes.length > SEARCH_MIN_NODES || search ? (
+          <div
+            data-graph-control
+            className={`absolute top-4 z-20 ${onToggleFullscreen ? "left-16" : "left-4"}`}
+          >
+            <div
+              className="flex items-center gap-1.5 rounded-full px-2.5 py-1"
+              style={{
+                backgroundColor: "color-mix(in srgb, var(--surface-base) 82%, transparent)",
+                border: "1px solid var(--border-base)",
+              }}
+            >
+              <Search size={14} aria-hidden style={{ color: "var(--content-tertiary)" }} />
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  // Emit once when a search session begins (empty → typed).
+                  // Key on the trimmed value so whitespace-only input, which the
+                  // graph treats as no search, doesn't latch/emit prematurely.
+                  if (value.trim() && !searchEmittedRef.current) {
+                    emitMemoryEvent("search");
+                    searchEmittedRef.current = true;
+                  }
+                  setSearch(value);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") {
+                    setSearch("");
+                  } else if (e.key === "Enter" && searchResults.length > 0) {
+                    e.preventDefault();
+                    focusOn(searchResults[0].id);
+                  }
+                }}
+                placeholder="Search concepts…"
+                aria-label="Search concepts"
+                className="w-36 bg-transparent text-[12px] outline-none placeholder:text-[var(--content-tertiary)]"
+                style={{ color: "var(--content-default)" }}
+              />
+              {search ? (
+                <>
+                  <span
+                    className="text-[11px] tabular-nums"
+                    style={{ color: "var(--content-tertiary)" }}
+                  >
+                    {matchIds?.size ?? 0}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setSearch("")}
+                    aria-label="Clear search"
+                    className="flex items-center"
+                    style={{ color: "var(--content-tertiary)" }}
+                  >
+                    <X size={13} />
+                  </button>
+                </>
+              ) : null}
+            </div>
+
+            {/* Results under the box: click (or Enter on the top row) flies the
+                camera to center that concept and opens its detail drawer. */}
+            {search && searchResults.length > 0 ? (
+              <ul
+                className="mt-1.5 flex max-h-56 w-52 list-none flex-col overflow-y-auto rounded-xl py-1"
+                style={{
+                  backgroundColor:
+                    "color-mix(in srgb, var(--surface-base) 92%, transparent)",
+                  border: "1px solid var(--border-base)",
+                }}
+              >
+                {searchResults.map((node) => (
+                  <li key={node.id}>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        travelTo({
+                          id: node.id,
+                          label: node.label,
+                          updatedAtMs: node.updatedAtMs,
+                        })
+                      }
+                      className="block w-full truncate px-3 py-1 text-left text-[12px] hover:bg-[color-mix(in_srgb,var(--content-tertiary)_14%,transparent)]"
+                      style={{ color: "var(--content-default)" }}
+                    >
+                      {node.label}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        ) : null}
+
+        {/* Recency time-lens, tucked just under the search pill. Kept visible
+            while a non-"all" window is active even if the graph shrank below the
+            threshold (e.g. a refetch), so an active window is always resettable
+            — mirrors the search box's own guard. */}
+        {(layout.nodes.length > SEARCH_MIN_NODES || recency !== "all") &&
+        hasRecencyData ? (
+          <div
+            data-graph-control
+            className={`absolute top-14 z-10 ${onToggleFullscreen ? "left-16" : "left-4"}`}
+          >
+            <RecencyLens value={recency} onChange={setRecency} />
+          </div>
+        ) : null}
+
+        <ConceptGraphLegend
+          nodeKinds={presentKinds.filter((k) => k !== "concept")}
+          coloredByTheme={presentKinds.includes("concept")}
+          themes={themes}
+          hasLinks={hasLinks}
+          hasLearned={hasLearned}
+          {...(hasLinks && hasLearned
+            ? {
+                onToggleLink: () =>
+                  setEdgeFilter((f) => ({ ...f, link: !f.link })),
+                onToggleLearned: () =>
+                  setEdgeFilter((f) => ({ ...f, learned: !f.learned })),
+                linkActive: edgeFilter.link,
+                learnedActive: edgeFilter.learned,
+              }
+            : {})}
+        />
+
+        {/* One pill for both hovers. Node hover and edge hover are mutually
+            exclusive (a node hit clears edgeLabel; an edge hit means no node,
+            so focusLabel is null), and focusLabel wins when both are present. */}
+        {(focusLabel ?? edgeLabel) && !showIntro ? (
+          <div
+            className="pointer-events-none absolute left-1/2 top-4 max-w-[80%] -translate-x-1/2 truncate rounded-full px-3 py-1 text-[12px]"
+            style={{
+              backgroundColor: "color-mix(in srgb, var(--surface-base) 82%, transparent)",
+              border: "1px solid var(--border-base)",
+              color: "var(--content-default)",
+            }}
+          >
+            {focusLabel ?? edgeLabel}
+          </div>
+        ) : null}
+
+        <div
+          className="pointer-events-none absolute bottom-4 right-4 text-[11px]"
+          style={{ color: "var(--content-tertiary)" }}
+        >
+          drag to rotate · scroll to zoom
+        </div>
+
+        {graph?.truncated ? (
+          <div
+            className="pointer-events-none absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full px-3 py-1 text-[11px]"
+            style={{
+              backgroundColor: "color-mix(in srgb, var(--surface-base) 82%, transparent)",
+              border: "1px solid var(--border-base)",
+              color: "var(--content-tertiary)",
+            }}
+          >
+            Showing the {layout.nodes.length} most-connected concepts
+          </div>
+        ) : null}
+
+        <div data-graph-control className="absolute right-4 top-4 flex flex-col gap-1">
+          <Button
+            variant="ghost"
+            iconOnly={<ZoomIn />}
+            onClick={() => zoomBy(1.25)}
+            aria-label="Zoom in"
+            tooltip="Zoom in"
+          />
+          <Button
+            variant="ghost"
+            iconOnly={<ZoomOut />}
+            onClick={() => zoomBy(0.8)}
+            aria-label="Zoom out"
+            tooltip="Zoom out"
+          />
+          <Button
+            variant="ghost"
+            iconOnly={<RotateCcw />}
+            onClick={resetView}
+            aria-label="Reset view"
+            tooltip="Reset view"
+          />
+        </div>
+      </>
+    );
+  }
+
+  return (
+    <div
+      ref={containerRef}
+      className={`relative select-none overflow-hidden rounded-xl ${className ?? ""}`}
+      style={{
+        backgroundColor: "var(--surface-base)",
+        backgroundImage:
+          "radial-gradient(circle at center, color-mix(in srgb, var(--content-tertiary) 8%, transparent), transparent 62%)",
+        touchAction: "none",
+        cursor: ready ? "grab" : "default",
+      }}
+      onPointerDown={ready ? onPointerDown : undefined}
+      onPointerMove={ready ? onPointerMove : undefined}
+      onPointerUp={ready ? onPointerUp : undefined}
+      onPointerCancel={ready ? onPointerUp : undefined}
+      onPointerLeave={ready ? onPointerLeave : undefined}
+    >
+      {onToggleFullscreen ? (
+        <div className="absolute left-4 top-4 z-10" data-graph-control>
+          <Button
+            variant="ghost"
+            iconOnly={isFullscreen ? <Minimize2 /> : <Maximize2 />}
+            onClick={onToggleFullscreen}
+            aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+            tooltip={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+          />
+        </div>
+      ) : null}
+
+      {showIntro ? <ConceptGraphIntroBanner onDismiss={dismissIntro} /> : null}
+
+      {body}
+
+      {ready && openNode ? (
+        <ConceptDetailPanel
+          assistantId={assistantId}
+          node={openNode}
+          trail={trail}
+          neighbors={neighbors}
+          onTravel={travelFromPanel}
+          onCrumb={goToCrumb}
+          onClose={dismiss}
+          onOpenThread={onOpenThread}
+        />
+      ) : null}
+    </div>
+  );
+}

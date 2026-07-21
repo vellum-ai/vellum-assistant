@@ -350,7 +350,6 @@ subgraph "Text Q&A Session"
             DB_SCHED_RUNS["cron_runs (schedule execution history)"]
             DB_TASKS["tasks"]
             DB_TASK_RUNS["task_runs"]
-            DB_WORK_ITEMS["work_items"]
             DB_CONTACTS["contacts<br/>(migrating to gateway)"]
         end
 
@@ -590,7 +589,7 @@ All feature flags (assistant-scoped and client-scoped) are declared in the unifi
 
 **Unified registry:** The canonical source is `meta/feature-flags/feature-flag-registry.json`. Bundled copies are maintained at `assistant/src/config/feature-flag-registry.json` and `gateway/src/feature-flag-registry.json`. Labels come from the registry. Declared flags use their `defaultEnabled` value when no override is present. Flags not declared in the registry default to disabled (fail closed).
 
-**Canonical key format:** Simple kebab-case (e.g., `browser`, `ces-tools`). The legacy `feature_flags.<id>.enabled` and `skills.<id>.enabled` formats are no longer supported.
+**Canonical key format:** Simple kebab-case (e.g., `browser`, `voice-mode`). The legacy `feature_flags.<id>.enabled` and `skills.<id>.enabled` formats are no longer supported.
 
 **Resolution priority:** When determining whether an assistant flag is enabled, the resolver checks (highest priority first):
 

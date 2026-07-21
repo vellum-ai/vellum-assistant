@@ -1,5 +1,8 @@
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import type { UsageAttributionProfileSource } from "../usage/types.js";
+import type * as wire from "./telemetry-wire.generated.js";
+import { telemetryEventSchema } from "./telemetry-wire.generated.js";
+import type { TurnOutcome } from "./turn-outcome.js";
 
 /** Base fields present on every telemetry event. */
 export interface TelemetryEventBase {
@@ -18,18 +21,17 @@ export interface TelemetryEventBase {
    * `null`) it wins. When the field is omitted on the event entirely
    * (old assistant), the envelope value is the back-compat fallback.
    *
-   * Daemon-side, this field is always non-null — the reporter stamps
-   * the running binary's `APP_VERSION` when the underlying SQLite row
-   * has no record-time value. In this PR only `llm_usage` events
-   * carry a true record-time value (legacy llm_usage rows from before
-   * migration 267 fall back to `APP_VERSION`); turn, lifecycle, and
-   * onboarding events all stamp `APP_VERSION` directly until the
-   * follow-ups that add the column to `messages` / `lifecycle_events`
-   * (#18112) / `onboarding_events` (#30733) land. Stamping
-   * `APP_VERSION` instead of emitting explicit `null` preserves
-   * envelope-equivalent behavior under the per-event-wins contract.
-   * The type allows `null` for parity with the platform contract;
-   * in practice the daemon never sends it.
+   * Daemon-side, this field is always non-null. The outbox-backed
+   * event types store the full wire payload at record time, so their
+   * `APP_VERSION` stamp is genuinely record-time; `llm_usage` carries
+   * a record-time column (legacy rows from before migration 267 fall
+   * back to the flushing binary's `APP_VERSION`); `turn` and
+   * `tool_executed` derive from tables without a version column and
+   * stamp the flushing binary's `APP_VERSION`. Stamping `APP_VERSION`
+   * instead of emitting explicit `null` preserves envelope-equivalent
+   * behavior under the per-event-wins contract. The type allows
+   * `null` for parity with the platform contract; in practice the
+   * daemon never sends it.
    */
   assistant_version: string | null;
 }
@@ -54,6 +56,18 @@ export interface ModelTelemetryEventBase extends TelemetryEventBase {
   /** How the profile was attributed (same enum as llm_usage). */
   inference_profile_source: UsageAttributionProfileSource | null;
 }
+
+/**
+ * Applies the daemon's record-time guarantee to a wire-derived event type.
+ *
+ * The wire contract marks `assistant_version` optional for back-compat with
+ * old daemons; under the platform's per-event-wins contract a present
+ * per-event value (including explicit `null`) beats the envelope fallback.
+ * This daemon always stamps the field at record time (see
+ * {@link TelemetryEventBase.assistant_version} for the full contract), so
+ * wire-derived event types are re-typed with the field required.
+ */
+type Daemonize<T> = T & { assistant_version: string | null };
 
 /**
  * LLM usage event — one per persisted usage row. The main agent loop
@@ -170,6 +184,16 @@ export interface TurnTraceMessage {
    * modern rows are `ContentBlock[]`, legacy rows are a plain string.
    */
   content: unknown;
+  /**
+   * Model that served this row — the provider's `response.model`, carried on
+   * the agent loop's `message_complete` event and persisted with the row
+   * (`messages.metadata.model`); matches the turn's `llm_usage.model` and
+   * reflects per-call reroutes by a `pre-model-call` hook. Null on rows with
+   * no model call: user rows, tool-result rows, synthetic assistant rows
+   * (provider-error / yield notices), and historical rows persisted before the
+   * daemon began stamping the model.
+   */
+  model: string | null;
 }
 
 /**
@@ -198,8 +222,8 @@ export interface TurnTraceToolCall {
  * Full transcript of a single turn — the user message, assistant response
  * message(s), and the tool calls + results that occurred between this user
  * turn and the next real user turn. Attached to the turn telemetry event's
- * `trace` field ONLY when trace collection is enabled — the `trace-collection`
- * feature flag AND the owner's `share_diagnostics` consent must both be true.
+ * `trace` field ONLY when trace collection is enabled — the owner's
+ * `share_diagnostics` consent at an eligible accepted version.
  * The platform stores this verbatim as an opaque JSON column, so the daemon
  * owns the shape.
  *
@@ -209,12 +233,23 @@ export interface TurnTraceToolCall {
  * has no response. A coalesced batch's shared response lives on the batch's
  * final turn's window, where the daemon already attributes it.
  */
+/** Tool definition included in the trace — name, description, and full input
+ * schema so the trace shows exactly what the model had available. */
+export interface TurnTraceToolDefinition {
+  name: string;
+  description: string;
+  /** JSON schema describing the tool's input arguments. */
+  input_schema: Record<string, unknown>;
+}
+
 export interface TurnTrace {
   /** Shape version so the platform/dbt can evolve parsing without ambiguity. */
-  schema_version: 1;
+  schema_version: 3;
   /**
    * Ordered message rows for the turn (the user message first, then assistant
    * responses and any tool-result rows), oldest-first by `(created_at, id)`.
+   * Model attribution is per message — each assistant row carries the model
+   * that served it on `TurnTraceMessage.model`.
    */
   messages: TurnTraceMessage[];
   /**
@@ -223,6 +258,20 @@ export interface TurnTrace {
    * which complements the inline tool_use/tool_result blocks in `messages`.
    */
   tool_calls: TurnTraceToolCall[];
+  /**
+   * The system prompt sent to the provider for this turn. Read from the live
+   * conversation's cached prompt at trace assembly time. Null when the
+   * conversation has been evicted from memory by the time the trace is
+   * assembled (e.g. after a daemon restart).
+   */
+  system_prompt: string | null;
+  /**
+   * Tool definitions available to the model for this turn — name,
+   * description, and full input schema, matching what the provider received.
+   * Read from the live conversation's last resolved tool set. Empty when the
+   * conversation has been evicted.
+   */
+  tool_definitions: TurnTraceToolDefinition[];
 }
 
 /** Turn event — one per user message. */
@@ -295,7 +344,7 @@ export interface TurnTelemetryEvent extends TelemetryEventBase {
    * could land — so `absent + no assistant message in trace` isolates the
    * genuinely anomalous (crashed/unknown) turns.
    */
-  outcome?: "batched" | "failed" | "cancelled";
+  outcome?: TurnOutcome;
   /**
    * For `outcome: "batched"` turns: the `daemon_event_id` of the
    * batch-final turn whose window carries the shared response. Omitted
@@ -313,74 +362,15 @@ export interface TurnTelemetryEvent extends TelemetryEventBase {
   /**
    * Full per-turn transcript (user message + assistant responses + tool
    * calls/results). Present ONLY when trace collection is enabled — the daemon
-   * composes the gate itself from the `trace-collection` feature flag (delivered
-   * via the assistant-tagged flag sync, evaluated server-side for this
-   * assistant's owner) AND the owner's cached `share_diagnostics` consent, both
-   * of which must be true. Fail-closed: when either is off (or unknown) no trace
+   * composes the gate itself from the owner's cached `share_diagnostics`
+   * consent AND the accepted consent version being at or past the disclosing
+   * version. Fail-closed: when either is off (or unknown) no trace
    * is attached. The platform dual-writes consented traces into a separate PII
    * table and keeps the trace-free turn row; downstream consumers that don't
    * read traces ignore this field. Null / absent when the gate is off or the
    * serialized trace exceeded the size cap.
    */
   trace?: TurnTrace | null;
-}
-
-/** Lifecycle event — app_open, hatch, etc. */
-export interface LifecycleTelemetryEvent extends TelemetryEventBase {
-  type: "lifecycle";
-  event_name: string;
-}
-
-/** Onboarding event — pre-chat selections and Google connect status. */
-export interface OnboardingTelemetryEvent extends TelemetryEventBase {
-  type: "onboarding";
-  screen: string;
-  tools?: string[];
-  tasks?: string[];
-  tone?: string;
-  google_connected?: boolean;
-  google_scopes?: string[];
-  ab_variant?: string;
-  /**
-   * Activation-funnel fields (mirror the web funnel shape and the platform
-   * serializer). The platform accepts an onboarding event via either the
-   * legacy `screen` path or the all-funnel-fields path (`session_id` +
-   * `step_name` + `step_index` + `completed_at` + `funnel_version` +
-   * `ab_variant`).
-   */
-  session_id?: string;
-  step_name?: string;
-  step_index?: number;
-  completed_at?: string;
-  funnel_version?: string;
-  user_id?: string;
-}
-
-/**
- * Auth-fallback event — aggregated count of requests served via the legacy
- * loopback auth fallback. One event per (guard, path, failure_kind) per flush
- * window. Lets the platform see which deployments still rely on the loopback
- * exemption instead of sending a bearer token.
- */
-export interface AuthFallbackTelemetryEvent extends TelemetryEventBase {
-  type: "auth_fallback";
-  /** Which auth guard fell back: `"edge"` | `"edge-scoped"` | `"edge-guardian"`. */
-  guard: string;
-  /** Request pathname that fell back. */
-  path: string;
-  /**
-   * Why the bearer-token check did not succeed before the fallback:
-   * `"missing_authorization"` | `"malformed_authorization"` |
-   * `"token_validation_failed"` | `"insufficient_scope"` |
-   * `"non_actor_principal"` | `"guardian_mismatch"`.
-   */
-  failure_kind: string;
-  /** Number of requests that fell back for this key during the window. */
-  count: number;
-  /** Window start (epoch ms) the count was accumulated over. */
-  window_start: number;
-  /** Window end (epoch ms) the count was accumulated over. */
-  window_end: number;
 }
 
 /**
@@ -457,13 +447,269 @@ export interface WatchdogTelemetryEvent extends TelemetryEventBase {
   detail: Record<string, unknown> | null;
 }
 
+/** One inferred fact from the onboarding research-onboarding web-search turn. */
+export interface OnboardingResearchClaim {
+  claim: string;
+  confidence: "confident" | "maybe" | "guessing";
+  sources: string[];
+}
+
+/** One clickable follow-up offer from the research-onboarding turn. */
+export interface OnboardingResearchSuggestion {
+  suggestion: string;
+  prompt: string;
+}
+
+/**
+ * Onboarding-research event — one per "research me" web-search turn's
+ * settled result during onboarding. Client-orchestrated: the web client
+ * knows exactly when the turn completes and what it produced (claims,
+ * suggestions, plugin picks), and reports it once via
+ * `POST /v1/telemetry/ingest` (as a client-reportable type) — the daemon
+ * never detects this turn on its own.
+ *
+ * Carries both the raw claim/suggestion text (+ source URLs) and structural
+ * counts by confidence tier, so downstream consumers can aggregate cheaply
+ * without parsing the arrays.
+ */
+export interface OnboardingResearchTelemetryEvent extends TelemetryEventBase {
+  type: "onboarding_research";
+  conversation_id: string | null;
+  status: "done" | "error";
+  /**
+   * The onboarding-form values the turn was run ON (its INPUT), as distinct
+   * from the inferred `claims` below (its OUTPUT). Excludes the user's name by
+   * design. Optional — an older web client omits them.
+   */
+  self_reported_occupation?: string;
+  self_reported_hobbies?: string[];
+  self_reported_timezone?: string;
+  claims: OnboardingResearchClaim[];
+  claim_count: number;
+  claims_confident: number;
+  claims_maybe: number;
+  claims_guessing: number;
+  suggestions: OnboardingResearchSuggestion[];
+  suggestion_count: number;
+  /** The model's raw top-level `plugins` picks, before the deterministic-floor merge. */
+  plugins: string[];
+  /** The final resolved install set (deterministic floor ∪ model picks, catalog-filtered). */
+  installed_plugins: string[];
+}
+
+/**
+ * Wire-derived event types with the daemon's record-time
+ * `assistant_version` guarantee applied. New event types added to the wire
+ * contract flow through here with zero hand edits.
+ */
+type WireDaemonized = {
+  [K in keyof wire.WireEventMap]: Daemonize<wire.WireEventMap[K]>;
+};
+
+/** Events where the daemon's type is intentionally narrower than the wire. */
+type Overrides = {
+  llm_usage: LlmUsageTelemetryEvent;
+  turn: TurnTelemetryEvent;
+  tool_executed: ToolExecutedTelemetryEvent;
+  skill_loaded: SkillLoadedTelemetryEvent;
+  watchdog: WatchdogTelemetryEvent;
+  onboarding_research: OnboardingResearchTelemetryEvent;
+};
+
+/**
+ * Daemon-only event types not (yet) in the platform wire contract — i.e. types
+ * the daemon emits but `POST /v1/telemetry/ingest/` would silently skip because
+ * they have no serializer in the platform's `TELEMETRY_EVENT_SERIALIZERS`.
+ *
+ * Currently EMPTY: every emitted type is in the wire contract. When the daemon
+ * needs to emit a type before the platform accepts it, add it here (keyed by
+ * its wire `type`). Once the platform adds the serializer and the wire sync
+ * lands, the key must leave `Extensions` — into `Overrides` if the daemon type
+ * stays narrower than the wire, or plain wire flow-through otherwise. The
+ * `_extensionsDontCollide` guard below turns red until that move is made.
+ */
+type Extensions = Record<never, never>;
+
+type EventMap = Omit<WireDaemonized, keyof Overrides> & Overrides & Extensions;
+
 /** Discriminated union of all telemetry event types. */
-export type TelemetryEvent =
-  | LlmUsageTelemetryEvent
-  | TurnTelemetryEvent
-  | LifecycleTelemetryEvent
-  | OnboardingTelemetryEvent
-  | AuthFallbackTelemetryEvent
-  | ToolExecutedTelemetryEvent
-  | SkillLoadedTelemetryEvent
-  | WatchdogTelemetryEvent;
+export type TelemetryEvent = EventMap[keyof EventMap];
+
+/**
+ * Lifecycle event — app_open, hatch, etc. 1:1 with the wire contract:
+ * `telemetry-wire.generated.ts` (from the platform's
+ * `LifecycleTelemetryEventSerializer`) is the source of truth.
+ */
+export type LifecycleTelemetryEvent = EventMap["lifecycle"];
+
+/**
+ * Onboarding event — pre-chat selections, Google connect status, and
+ * activation-funnel steps. 1:1 with the wire contract
+ * (`OnboardingTelemetryEventSerializer`); the platform accepts either the
+ * legacy `screen` shape or the complete funnel step field set — see the wire
+ * schema's superRefine.
+ */
+export type OnboardingTelemetryEvent = EventMap["onboarding"];
+
+/**
+ * Auth-fallback event — aggregated count of requests served via the legacy
+ * loopback auth fallback, one event per (guard, path, failure_kind) per
+ * flush window (`count` is a per-window delta, not a running total). 1:1
+ * with the wire contract (`AuthFallbackTelemetryEventSerializer`).
+ */
+export type AuthFallbackTelemetryEvent = EventMap["auth_fallback"];
+
+/**
+ * Config-setting event — a tracked config key's effective value rendered as
+ * a string; emitters record an explicit allowlist of non-sensitive settings,
+ * never free-form config content. 1:1 with the wire contract
+ * (`ConfigSettingTelemetryEventSerializer`).
+ */
+export type ConfigSettingTelemetryEvent = EventMap["config_setting"];
+
+// ---- Compile-time drift guards ----
+// Each `Overrides` entry is pinned to its wire type in BOTH directions, so a
+// wire sync PR that moves the platform contract turns red here instead of
+// drifting silently:
+//
+//   - `_*Narrows` — the daemon type stays assignable to the wire type, i.e.
+//     every daemon field's value is acceptable to the wire. Catches wire-side
+//     tightening (narrowed unions, newly required fields) and daemon-side
+//     loosening.
+//   - `_*KeysExist` — every key the daemon emits still exists on the wire
+//     type. Structural subtyping treats a daemon field the wire dropped as a
+//     harmless extra property, so `_*Narrows` alone stays green when the
+//     platform REMOVES or RENAMES a field; this key-set check is what catches
+//     those.
+//
+// Flow-through (non-override) events need no guards: they use the generated
+// wire types directly, so their construction sites get excess-property /
+// missing-field errors the moment the contract moves.
+type AssertNarrows<_Narrow extends Wide, Wide> = true;
+type AssertNoWireCollision<_Keys extends never> = true;
+
+// `raw_usage` is excluded: the server treats it as an opaque JSONField, so
+// the daemon's `Record<string, unknown>` (not structurally assignable to the
+// wire's recursive `JsonValue`) is wire-safe — any JSON-serializable shape
+// ships fine.
+type _llmUsageNarrows = AssertNarrows<
+  Omit<LlmUsageTelemetryEvent, "raw_usage">,
+  Omit<wire.LlmUsageTelemetryEvent, "raw_usage">
+>;
+// `trace` and `client` are excluded: the server treats both as opaque JSON
+// (JSONField/DictField), so the daemon's richer `TurnTrace`
+// (`content: unknown`) and `TurnTelemetryClientInfo` shapes are wire-safe
+// even though they are not assignable to `JsonValue`. Runtime bounds are
+// enforced by the wire schema's superRefines, not by these types.
+type _turnNarrows = AssertNarrows<
+  Omit<TurnTelemetryEvent, "trace" | "client">,
+  Omit<wire.TurnTelemetryEvent, "trace" | "client">
+>;
+type _toolExecutedNarrows = AssertNarrows<
+  ToolExecutedTelemetryEvent,
+  wire.ToolExecutedTelemetryEvent
+>;
+type _skillLoadedNarrows = AssertNarrows<
+  SkillLoadedTelemetryEvent,
+  wire.SkillLoadedTelemetryEvent
+>;
+// `detail` is excluded: the server treats it as an opaque JSONField, so the
+// daemon's `Record<string, unknown>` bag is wire-safe; the serialized-size
+// bound is enforced by the wire schema's superRefine.
+type _watchdogNarrows = AssertNarrows<
+  Omit<WatchdogTelemetryEvent, "detail">,
+  Omit<wire.WatchdogTelemetryEvent, "detail">
+>;
+// Reverse (key-existence) direction. Unlike the `_*Narrows` guards, the
+// opaque-JSON fields are NOT excluded here: opacity is about a field's
+// SHAPE (the daemon's richer types aren't assignable to `JsonValue`), but
+// key PRESENCE is part of the typed contract — the generated wire types
+// declare `raw_usage`/`trace`/`client`/`detail`, and a platform sync that
+// removed or renamed one of them would otherwise leave every guard green
+// while the daemon kept emitting a field the server discards.
+type _llmUsageKeysExist = AssertNarrows<
+  keyof LlmUsageTelemetryEvent,
+  keyof wire.LlmUsageTelemetryEvent
+>;
+type _turnKeysExist = AssertNarrows<
+  keyof TurnTelemetryEvent,
+  keyof wire.TurnTelemetryEvent
+>;
+type _toolExecutedKeysExist = AssertNarrows<
+  keyof ToolExecutedTelemetryEvent,
+  keyof wire.ToolExecutedTelemetryEvent
+>;
+type _skillLoadedKeysExist = AssertNarrows<
+  keyof SkillLoadedTelemetryEvent,
+  keyof wire.SkillLoadedTelemetryEvent
+>;
+type _watchdogKeysExist = AssertNarrows<
+  keyof WatchdogTelemetryEvent,
+  keyof wire.WatchdogTelemetryEvent
+>;
+// `claims` and `suggestions` are excluded from the narrows: the server types
+// both as opaque JSON arrays (`z.array(jsonValueSchema)`), so the daemon's
+// structured `OnboardingResearchClaim[]` / `OnboardingResearchSuggestion[]`
+// shapes are wire-safe even though they aren't assignable to `JsonValue[]`.
+// Runtime size bounds are enforced by the wire schema's superRefine.
+type _onboardingResearchNarrows = AssertNarrows<
+  Omit<OnboardingResearchTelemetryEvent, "claims" | "suggestions">,
+  Omit<wire.OnboardingResearchTelemetryEvent, "claims" | "suggestions">
+>;
+type _onboardingResearchKeysExist = AssertNarrows<
+  keyof OnboardingResearchTelemetryEvent,
+  keyof wire.OnboardingResearchTelemetryEvent
+>;
+// An `Extensions` key that also exists in the wire map would silently
+// shadow the generated type; this stays `never` only while the key sets
+// are disjoint.
+type _extensionsDontCollide = AssertNoWireCollision<
+  keyof Extensions & keyof wire.WireEventMap
+>;
+
+/**
+ * Event names backed by the `telemetry_events` outbox. Each name doubles as
+ * the wire `type` discriminant and the flush-group key, so names must never
+ * change once shipped. The watermark-flushed types (`llm_usage`, `turn`,
+ * `tool_executed`) live on their own tables and are deliberately excluded.
+ */
+/**
+ * Types NOT on the generic `telemetry_events` outbox — the high-volume events
+ * flushed from their own SQLite tables by a watermark source
+ * (`telemetry-event-sources.ts`). This is the ONLY hand-maintained partition
+ * fact; every other wire event type is outbox-backed by default. Add a name
+ * here only when a new type gets its own dedicated table.
+ */
+export const WATERMARK_TELEMETRY_EVENT_NAMES = [
+  "llm_usage",
+  "turn",
+  "tool_executed",
+] as const;
+
+export type WatermarkTelemetryEventName =
+  (typeof WATERMARK_TELEMETRY_EVENT_NAMES)[number];
+
+/**
+ * Event names backed by the `telemetry_events` outbox: every wire event type
+ * that is not watermark-flushed. Derived from the generated wire contract, so a
+ * new event type added on the platform side flows onto the outbox — and gets a
+ * flush source (`telemetry-event-sources.ts`) and a fully-typed
+ * `recordTelemetryEvent` call — with NO edit here. Each name doubles as the
+ * wire `type` discriminant and the flush-group key.
+ */
+export type OutboxTelemetryEventName = Exclude<
+  keyof wire.WireEventMap,
+  WatermarkTelemetryEventName
+>;
+
+export const OUTBOX_TELEMETRY_EVENT_NAMES: readonly OutboxTelemetryEventName[] =
+  telemetryEventSchema.options
+    .map((option) => option.shape.type.value)
+    .filter(
+      (name): name is OutboxTelemetryEventName =>
+        !(WATERMARK_TELEMETRY_EVENT_NAMES as readonly string[]).includes(name),
+    );
+
+/** Wire event type for one outbox event name. */
+export type OutboxTelemetryEventOf<N extends OutboxTelemetryEventName> =
+  Extract<TelemetryEvent, { type: N }>;

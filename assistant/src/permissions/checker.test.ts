@@ -9,28 +9,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ── Module mocks ─────────────────────────────────────────────────────────────
 
-// Silence logger output during tests.
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-const testConfig = {
-  skills: { load: { extraDirs: [] as string[] } },
-};
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => testConfig,
-  loadConfig: () => testConfig,
-  invalidateConfigCache: () => {},
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  getNestedValue: () => undefined,
-  setNestedValue: () => {},
-}));
-
 // Mock feature flags to return false by default.
 mock.module("../config/assistant-feature-flags.js", () => ({
   isAssistantFeatureFlagEnabled: () => false,
@@ -75,13 +53,22 @@ mock.module("../config/env-registry.js", () => ({
   getIsContainerized: () => mockIsContainerized,
 }));
 
-// Mock platform utilities.
+// Mock platform utilities. Spread the real module so the config loader's own
+// path helpers keep resolving to the real per-test workspace: `getConfig()`
+// runs for real here (via `buildPolicyContext`/`buildFileContext`), and
+// pinning `getWorkspaceConfigPath` to the temp workspace with `ensureDataDir`
+// as a no-op stops the loader from touching the `/mock` classification paths.
+const realPlatform = await import("../util/platform.js");
 const mockWorkspaceDir = "/mock/workspace";
 mock.module("../util/platform.js", () => ({
+  ...realPlatform,
   getWorkspaceDir: () => mockWorkspaceDir,
   getProtectedDir: () => "/mock/protected",
   getWorkspaceHooksDir: () => "/mock/workspace/hooks",
   getDeprecatedDir: () => "/mock/workspace/deprecated",
+  getWorkspaceConfigPath: () =>
+    join(process.env.VELLUM_WORKSPACE_DIR!, "config.json"),
+  ensureDataDir: () => {},
 }));
 
 // Mock gateway threshold reader — return "low" by default (conversation context default).
@@ -133,6 +120,7 @@ mock.module("./workspace-policy.js", () => ({
 // owner, so it returns undefined.
 mock.module("../tools/registry.js", () => ({
   getTool: () => undefined,
+  resolveTool: async () => undefined,
   getToolOwner: () => undefined,
 }));
 
@@ -183,7 +171,6 @@ import { RiskLevel } from "./types.js";
 
 describe("Permission Checker (gateway IPC)", () => {
   beforeEach(() => {
-    testConfig.skills = { load: { extraDirs: [] } };
     mockIsContainerized = false;
     mockIpcClassifyRiskResult = undefined;
     mockCachedThreshold = "low";
@@ -389,14 +376,10 @@ describe("Permission Checker (gateway IPC)", () => {
         matchType: "registry",
         scopeOptions: [],
         sandboxAutoApprove: true,
-        sandboxPathArgs: [
-          "/workspace/safe.txt",
-          "/workspace/escape/passwd",
-        ],
+        sandboxPathArgs: ["/workspace/safe.txt", "/workspace/escape/passwd"],
       };
       const result = await classifyRisk("bash", {
-        command:
-          "cat /workspace/safe.txt && cat /workspace/escape/passwd",
+        command: "cat /workspace/safe.txt && cat /workspace/escape/passwd",
       });
       expect((result as any).sandboxAutoApprove).toBe(false);
       mockIsPathWithinWorkspaceRoot = true;

@@ -2,26 +2,48 @@
  * Standalone entry point for the resource monitor as its own OS process.
  *
  * Spawned at every daemon startup (and on demand by `assistant monitoring
- * start`). Loads config, starts the sampling loop, writes a PID file, and
- * stays alive until SIGTERM/SIGINT.
+ * start`). Loads config, starts the sampling loop and the non-turn telemetry
+ * reporter, writes a PID file, and stays alive until SIGTERM/SIGINT.
  *
  * Running as a separate process — off the assistant's main event loop — is the
- * whole point: the sampler keeps recording during a main-thread freeze, and its
- * on-disk ring buffer survives the OOM SIGKILL that resets all in-VM state.
+ * whole point: the sampler keeps recording during a main-thread freeze, its
+ * on-disk ring buffer survives the OOM SIGKILL that resets all in-VM state,
+ * and telemetry keeps flushing while the daemon is busy or stalled.
  */
 
-import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 
 import { getConfig } from "../config/loader.js";
+import { rehydratePlatformCredentials } from "../config/platform-rehydration.js";
+import { resetDb } from "../persistence/db-connection.js";
+import { startConsentRefresh } from "../platform/consent-cache.js";
+import { disableStreamSeqStamping } from "../runtime/assistant-stream-state.js";
+import {
+  startConfigSnapshotReporter,
+  stopConfigSnapshotReporter,
+} from "../telemetry/config-setting-snapshot.js";
+import {
+  startMemoryTierReporter,
+  stopMemoryTierReporter,
+} from "../telemetry/memory-tier-reporter.js";
+import {
+  startMonitorUsageTelemetryReporter,
+  stopUsageTelemetryReporter,
+} from "../telemetry/usage-telemetry-reporter.js";
 import { getLogger } from "../util/logger.js";
 import {
   getMonitoringDataDir,
   getMonitoringPidPath,
 } from "../util/platform.js";
 import {
+  cleanupWorkerPidFile,
+  startWorkerPidFileGuard,
+} from "../util/worker-process.js";
+import {
   type PluginSourceWatchHandle,
   startPluginSourceWatch,
 } from "./plugin-source-watch.js";
+import { type RecoveryHandle, startRecovery } from "./recovery/run-recovery.js";
 import {
   type ResourceSamplerHandle,
   startResourceSampler,
@@ -29,18 +51,9 @@ import {
 
 const log = getLogger("monitoring-worker");
 
-function cleanupPidFile(): void {
-  const pidPath = getMonitoringPidPath();
-  try {
-    if (existsSync(pidPath)) {
-      unlinkSync(pidPath);
-    }
-  } catch {
-    // best-effort
-  }
-}
-
 async function main(): Promise<void> {
+  // Only the daemon stamps SSE seqs and writes the shared reservation file.
+  disableStreamSeqStamping();
   const config = getConfig();
   const pidPath = getMonitoringPidPath();
 
@@ -59,49 +72,122 @@ async function main(): Promise<void> {
     "Resource monitor process started",
   );
 
-  const sampler: ResourceSamplerHandle = startResourceSampler(
-    config.monitoring,
-  );
-  const sourceWatch: PluginSourceWatchHandle = startPluginSourceWatch(
-    config.monitoring.pluginSourceScanIntervalMs,
-  );
+  // Rehydrate the platform base URL and IDs from the credential store before
+  // the telemetry reporter starts. The daemon does this in
+  // initializeProvidersAndTools(); this standalone process must do it itself so
+  // the non-turn telemetry it flushes carries the platform organization and
+  // user context instead of shipping with those fields empty.
+  await rehydratePlatformCredentials();
 
-  const shutdown = (signal: string) => {
+  let sampler: ResourceSamplerHandle | null = null;
+  let sourceWatch: PluginSourceWatchHandle | null = null;
+  let recovery: RecoveryHandle | null = null;
+
+  let shuttingDown = false;
+  let disposePidGuard: (() => void) | null = null;
+  const shutdown = async (signal: string) => {
+    if (shuttingDown) {
+      return;
+    }
+    shuttingDown = true;
     log.info({ signal }, "Resource monitor process shutting down");
-    sourceWatch.stop();
-    sampler.stop();
-    cleanupPidFile();
+    recovery?.stop();
+    stopConfigSnapshotReporter();
+    stopMemoryTierReporter();
+    sourceWatch?.stop();
+    sampler?.stop();
+    // Bounded final telemetry flush, mirroring the daemon's shutdown. This
+    // is load-bearing for the opt-out contract: when share_analytics is
+    // off, flush() is what advances this process's watermarks past rows
+    // recorded during the opt-out window — without it, rows since the last
+    // 5-minute cycle would ship after a later opt-in. When opted in, it
+    // ships the tail instead of leaving it for the next boot.
+    try {
+      const timeout = new Promise<void>((_, reject) =>
+        setTimeout(() => reject(new Error("Telemetry flush timed out")), 3_000),
+      );
+      await Promise.race([stopUsageTelemetryReporter(), timeout]);
+    } catch (err) {
+      log.warn({ err }, "Telemetry reporter shutdown failed (non-fatal)");
+    }
+    disposePidGuard?.();
+    cleanupWorkerPidFile(pidPath);
     process.exit(0);
   };
 
-  process.on("SIGTERM", () => shutdown("SIGTERM"));
-  process.on("SIGINT", () => shutdown("SIGINT"));
+  process.on("SIGTERM", () => void shutdown("SIGTERM"));
+  process.on("SIGINT", () => void shutdown("SIGINT"));
+
+  // Arm the identity guard before the monitoring subsystems start. Its on-arm
+  // check runs synchronously, so a worker superseded during startup begins
+  // shutting down here. shutdown() is async (it flushes telemetry), so bail
+  // out explicitly rather than fall through and start the subsystems.
+  disposePidGuard = startWorkerPidFileGuard(pidPath, {
+    onEvicted: (reason) => {
+      log.warn(
+        { reason },
+        "Evicted — the PID file no longer names this worker",
+      );
+      void shutdown("pid-file-eviction");
+    },
+  });
+  if (shuttingDown) {
+    return;
+  }
+
+  sampler = startResourceSampler(config.monitoring);
+  sourceWatch = startPluginSourceWatch(
+    config.monitoring.pluginSourceScanIntervalMs,
+  );
+  // Crash recovery runs here, off the daemon's boot path and event loop.
+  recovery = startRecovery();
+
+  // Flush the non-turn telemetry sources from this process, off the daemon's
+  // event loop. The reporter's share_analytics gate reads the consent cache,
+  // so this process runs its own refresh loop.
+  startConsentRefresh();
+  startMonitorUsageTelemetryReporter();
+
+  // Emit the tracked config settings into the config_setting pipeline this
+  // process flushes.
+  startConfigSnapshotReporter();
+
+  // Emit the coarse memory tier as a periodic per-assistant watchdog heartbeat.
+  startMemoryTierReporter();
+
+  process.on("SIGUSR1", () => {
+    log.info("Received SIGUSR1 — refreshing database connections");
+    resetDb();
+  });
 
   process.on("uncaughtException", (err) => {
     log.error({ err }, "Uncaught exception in resource monitor process");
-    sourceWatch.stop();
-    sampler.stop();
-    cleanupPidFile();
+    recovery?.stop();
+    sourceWatch?.stop();
+    sampler?.stop();
+    cleanupWorkerPidFile(getMonitoringPidPath());
     process.exit(1);
   });
 
   process.on("unhandledRejection", (reason) => {
     log.error({ reason }, "Unhandled rejection in resource monitor process");
-    sourceWatch.stop();
-    sampler.stop();
-    cleanupPidFile();
+    recovery?.stop();
+    sourceWatch?.stop();
+    sampler?.stop();
+    cleanupWorkerPidFile(getMonitoringPidPath());
     process.exit(1);
   });
 
   process.on("exit", () => {
-    sourceWatch.stop();
-    sampler.stop();
-    cleanupPidFile();
+    recovery?.stop();
+    sourceWatch?.stop();
+    sampler?.stop();
+    cleanupWorkerPidFile(getMonitoringPidPath());
   });
 }
 
 void main().catch((err) => {
   log.error({ err }, "Resource monitor process failed to start");
-  cleanupPidFile();
+  cleanupWorkerPidFile(getMonitoringPidPath());
   process.exit(1);
 });

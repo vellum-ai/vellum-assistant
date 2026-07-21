@@ -5,6 +5,7 @@ const addMessageCalls: Array<{
   role: string;
   content: string;
   metadata?: Record<string, unknown>;
+  skipIndexing?: boolean;
 }> = [];
 
 let activeConversation: unknown;
@@ -21,18 +22,41 @@ let resolveSlashForTest: (
   content,
 });
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
+let createInlineShouldThrow = false;
+let validateShouldFail = false;
 
 mock.module("../persistence/attachments-store.js", () => ({
   getAttachmentsByIds: () => [],
   getSourcePathsForAttachments: () => new Map<string, string>(),
   attachmentExists: () => false,
-  linkAttachmentToMessage: () => {},
-  attachInlineAttachmentToMessage: () => {},
-  validateAttachmentUpload: () => ({ ok: true }),
+  linkAttachmentToMessage: () => "att-stored",
+  scopeAttachmentToMessageConversation: () => null,
+  createInlineAttachment: (
+    _conversationId: string,
+    _conversationCreatedAt: number,
+    filename: string,
+    mimeType: string,
+  ) => {
+    if (createInlineShouldThrow) {
+      throw new Error("simulated attachment store failure");
+    }
+    return {
+      id: "att-stored",
+      originalFilename: filename,
+      mimeType,
+      sizeBytes: 9,
+      kind: "file",
+      thumbnailBase64: null,
+      createdAt: 0,
+      filePath: "/tmp/att-stored.pdf",
+    };
+  },
+  getAttachmentContent: () => null,
+  getFilePathForAttachment: () => "/tmp/att-stored.pdf",
+  validateAttachmentUpload: () =>
+    validateShouldFail
+      ? { ok: false, error: "unsupported type" }
+      : { ok: true },
   AttachmentUploadError: class extends Error {},
 }));
 
@@ -43,13 +67,14 @@ mock.module("../persistence/conversation-crud.js", () => ({
     conversationId: string,
     role: string,
     content: string,
-    options?: { metadata?: Record<string, unknown> },
+    options?: { metadata?: Record<string, unknown>; skipIndexing?: boolean },
   ) => {
     addMessageCalls.push({
       conversationId,
       role,
       content,
       metadata: options?.metadata,
+      skipIndexing: options?.skipIndexing,
     });
     return { id: `persisted-${addMessageCalls.length}` };
   },
@@ -57,6 +82,9 @@ mock.module("../persistence/conversation-crud.js", () => ({
   provenanceFromTrustContext: () => ({}),
   setConversationOriginChannelIfUnset: () => {},
   setConversationOriginInterfaceIfUnset: () => {},
+  extractImageSourcePaths: () => undefined,
+  extractAttachmentStoredPaths: () => undefined,
+  updateMessageMetadata: () => {},
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
@@ -200,6 +228,7 @@ function makeTestConversation() {
       metadata?: Record<string, unknown>;
       displayContent?: string;
       clientMessageId?: string;
+      skipIndexing?: boolean;
     }) =>
       persistQueuedMessageBody(messagingCtx, {
         ...options,
@@ -348,14 +377,16 @@ describe("processMessage displayContent", () => {
 
     expect(addMessageCalls).toHaveLength(1);
     const persistedBlocks = JSON.parse(addMessageCalls[0]!.content);
+    // Persisted as a workspace reference (attachment id + size), not inline
+    // base64, so the blob stays out of the messages.content row.
     expect(persistedBlocks).toEqual([
       {
         type: "file",
-        _attachmentId: "att-1",
         source: {
-          type: "base64",
+          type: "workspace_ref",
           media_type: "application/pdf",
-          data: Buffer.from("pdf bytes").toString("base64"),
+          attachmentId: "att-stored",
+          sizeBytes: 9,
           filename: "attachment.pdf",
         },
       },
@@ -382,6 +413,70 @@ describe("processMessage displayContent", () => {
       },
       extracted_text: undefined,
     });
+  });
+
+  test("falls back to inline base64 when the attachment store write fails", async () => {
+    const conversation = makeTestConversation();
+    createInlineShouldThrow = true;
+    try {
+      await conversation.persistUserMessage({
+        content: "here is a file",
+        attachments: [
+          {
+            filename: "attachment.pdf",
+            mimeType: "application/pdf",
+            data: Buffer.from("pdf bytes").toString("base64"),
+          },
+        ],
+        requestId: "req-store-failure",
+      });
+    } finally {
+      createInlineShouldThrow = false;
+    }
+
+    // The upload is preserved as inline base64 rather than dropped, so it
+    // survives a reload even though the attachment row could not be written.
+    expect(addMessageCalls).toHaveLength(1);
+    const persistedBlocks = JSON.parse(addMessageCalls[0]!.content);
+    expect(persistedBlocks).toEqual([
+      { type: "text", text: "here is a file" },
+      {
+        type: "file",
+        source: {
+          type: "base64",
+          media_type: "application/pdf",
+          data: Buffer.from("pdf bytes").toString("base64"),
+          filename: "attachment.pdf",
+        },
+      },
+    ]);
+  });
+
+  test("drops a validation-rejected attachment instead of inlining it", async () => {
+    const conversation = makeTestConversation();
+    validateShouldFail = true;
+    try {
+      await conversation.persistUserMessage({
+        content: "here is a file",
+        attachments: [
+          {
+            filename: "payload.exe",
+            mimeType: "application/x-msdownload",
+            data: Buffer.from("MZ...").toString("base64"),
+          },
+        ],
+        requestId: "req-rejected",
+      });
+    } finally {
+      validateShouldFail = false;
+    }
+
+    // A rejected attachment must NOT reach messages.content — only the text
+    // block is persisted, no base64 file block.
+    expect(addMessageCalls).toHaveLength(1);
+    expect(JSON.parse(addMessageCalls[0]!.content)).toEqual([
+      { type: "text", text: "here is a file" },
+    ]);
   });
 
   test("empty displayContent is honored for unknown slash results", async () => {
@@ -413,5 +508,38 @@ describe("processMessage displayContent", () => {
 
     const conversation = await expectEmptyDisplayContentHonored(modelContent);
     expect(conversation.forceCompact).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("processMessage skipUserMessageIndexing", () => {
+  beforeEach(() => {
+    addMessageCalls.length = 0;
+    activeConversation = undefined;
+    resolveSlashForTest = (content) => ({ kind: "passthrough", content });
+  });
+
+  test("threads skipIndexing to the initial user-message save", async () => {
+    const conversation = makeTestConversation();
+    activeConversation = conversation;
+
+    await processMessage("conv-display-content", "kickoff prompt body", {
+      skipUserMessageIndexing: true,
+    });
+
+    expect(addMessageCalls).toHaveLength(1);
+    expect(addMessageCalls[0]!.role).toBe("user");
+    expect(addMessageCalls[0]!.skipIndexing).toBe(true);
+    // The turn itself still runs — only the save's indexing is skipped.
+    expect(conversation.runAgentLoop).toHaveBeenCalledTimes(1);
+  });
+
+  test("default save is indexed (no skipIndexing option)", async () => {
+    const conversation = makeTestConversation();
+    activeConversation = conversation;
+
+    await processMessage("conv-display-content", "ordinary message", {});
+
+    expect(addMessageCalls).toHaveLength(1);
+    expect(addMessageCalls[0]!.skipIndexing).toBeUndefined();
   });
 });

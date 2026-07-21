@@ -22,6 +22,10 @@ import { isMemoryV3Live } from "../config/memory-v3-gate.js";
 import type { LLMCallSite, LLMConfig } from "../config/schemas/llm.js";
 import { findContactInfoById } from "../contacts/contact-store.js";
 import {
+  computeRefusedExchangeDrops,
+  quarantineRefusedExchanges,
+} from "../context/refusal-quarantine.js";
+import {
   NOW_SCRATCHPAD_STRIP_PREFIXES,
   stripSpotlightInjections,
   stripUserTextBlocksByPrefix,
@@ -78,7 +82,8 @@ import type {
   SurfaceType,
 } from "./message-protocol.js";
 import { filterMessagesForUntrustedActor } from "./message-provenance.js";
-import type { TrustContext } from "./trust-context.js";
+import type { TrustContext } from "./trust-context-types.js";
+import { timeLatencySubSpan } from "./turn-latency-sub-spans.js";
 
 // The compaction strip lives in the compaction layer (`context/`) so the agent
 // loop can own it; re-exported here for this module's existing consumers.
@@ -319,7 +324,9 @@ export function resolveChannelCapabilities(
  * channel where it is a passive participant.
  */
 export function isGroupChatType(chatType?: string): boolean {
-  if (!chatType) return false;
+  if (!chatType) {
+    return false;
+  }
   switch (chatType) {
     case "group": // Telegram group
     case "supergroup": // Telegram supergroup
@@ -362,10 +369,14 @@ export function buildActiveSurfaceContext(params: {
   >;
 }): ActiveSurfaceContext | null {
   const { currentActiveSurfaceId, currentPage, surfaceState } = params;
-  if (!currentActiveSurfaceId) return null;
+  if (!currentActiveSurfaceId) {
+    return null;
+  }
 
   const stored = surfaceState.get(currentActiveSurfaceId);
-  if (!stored || stored.surfaceType !== "dynamic_page") return null;
+  if (!stored || stored.surfaceType !== "dynamic_page") {
+    return null;
+  }
 
   const data = stored.data as DynamicPageSurfaceData;
   const activeSurface: ActiveSurfaceContext = {
@@ -416,7 +427,9 @@ export function buildActiveDocuments(conversationId: string): Array<{
 const MAX_CONTEXT_LENGTH = 100_000;
 
 function truncateHtml(html: string, budget: number): string {
-  if (html.length <= budget) return html;
+  if (html.length <= budget) {
+    return html;
+  }
   return (
     html.slice(0, budget) +
     `\n<!-- truncated: original is ${html.length} characters -->`
@@ -602,7 +615,9 @@ function escapeXml(str: string): string {
 export function buildSubagentStatusBlock(
   children: SubagentState[] | null | undefined,
 ): string | null {
-  if (!children || children.length === 0) return null;
+  if (!children || children.length === 0) {
+    return null;
+  }
 
   const now = Date.now();
   const lines: string[] = ["<active_subagents>"];
@@ -757,7 +772,9 @@ export function injectChannelCapabilityContext(
   caps: ChannelCapabilities,
 ): Message {
   const block = buildChannelCapabilityBlock(caps);
-  if (block === null) return message;
+  if (block === null) {
+    return message;
+  }
   return {
     ...message,
     content: [{ type: "text", text: block }, ...message.content],
@@ -861,8 +878,8 @@ export function isSlackChannelConversation(
  */
 export interface SlackTranscriptInputRow {
   role: "user" | "assistant";
-  /** Raw persisted content column. JSON-encoded `ContentBlock[]` in production. */
-  content: string;
+  /** Message content — typed blocks in production, plain text in fixtures. */
+  content: string | ContentBlock[];
   /** Epoch ms when the row was created. */
   createdAt: number;
   /** Raw `metadata` column value (JSON string with optional `slackMeta` sub-key). */
@@ -904,11 +921,15 @@ function filterSlackConversationRowsForActor(
   rows: MessageRow[],
   trustClass: TrustClass | undefined,
 ): MessageRow[] {
-  if (resolveCapabilities(trustClass).canAccessMemory) return rows;
+  if (resolveCapabilities(trustClass).canAccessMemory) {
+    return rows;
+  }
   const nonSlackVisibleRows = filterMessagesForUntrustedActor(rows);
   const nonSlackVisibleIds = new Set(nonSlackVisibleRows.map((row) => row.id));
   return rows.filter((row) => {
-    if (hasSlackMetadata(row)) return true;
+    if (hasSlackMetadata(row)) {
+      return true;
+    }
     return nonSlackVisibleIds.has(row.id);
   });
 }
@@ -929,7 +950,9 @@ function extractPlainTextFromBlocks(blocks: ContentBlock[]): string {
   const parts: string[] = [];
   const placeholderLabels: string[] = [];
   for (const block of blocks) {
-    if (!block || typeof block !== "object") continue;
+    if (!block || typeof block !== "object") {
+      continue;
+    }
     if (block.type === "text") {
       parts.push(block.text);
       continue;
@@ -1028,18 +1051,20 @@ function rowToRenderable(row: SlackTranscriptInputRow): RenderableSlackMessage {
   let contentBlocks: ContentBlock[] = [];
   let plainText: string;
   try {
-    const parsed = JSON.parse(row.content);
+    const parsed = Array.isArray(row.content)
+      ? row.content
+      : JSON.parse(row.content);
     if (Array.isArray(parsed)) {
       contentBlocks = parsed as ContentBlock[];
       plainText = extractPlainTextFromBlocks(contentBlocks);
     } else if (typeof parsed === "string") {
       plainText = parsed;
     } else {
-      plainText = row.content;
+      plainText = Array.isArray(row.content) ? "" : row.content;
     }
   } catch {
     // Plain string row (legacy) — no structured blocks to preserve.
-    plainText = row.content;
+    plainText = Array.isArray(row.content) ? "" : row.content;
   }
 
   // Attachment-only rows (images, files) carry no text block, so the
@@ -1077,11 +1102,17 @@ function isSlackAssistantThreadPlaceholder(
   message: RenderableSlackMessage,
   canonicalConfiguredBotUserId: string | null,
 ): boolean {
-  if (!canonicalConfiguredBotUserId) return false;
+  if (!canonicalConfiguredBotUserId) {
+    return false;
+  }
   const metadata = message.metadata;
-  if (!metadata || metadata.eventKind !== "message") return false;
+  if (!metadata || metadata.eventKind !== "message") {
+    return false;
+  }
   const actorExternalUserId = metadata.actorExternalUserId?.trim();
-  if (!actorExternalUserId) return false;
+  if (!actorExternalUserId) {
+    return false;
+  }
 
   const canonicalActor =
     canonicalizeInboundIdentity("slack", actorExternalUserId) ??
@@ -1103,7 +1134,9 @@ function isSlackAssistantThreadPlaceholder(
 
 function getCanonicalConfiguredSlackBotUserId(): string | null {
   const configuredBotUserId = getConfig().slack.botUserId.trim();
-  if (!configuredBotUserId) return null;
+  if (!configuredBotUserId) {
+    return null;
+  }
   return (
     canonicalizeInboundIdentity("slack", configuredBotUserId) ??
     configuredBotUserId
@@ -1152,7 +1185,9 @@ export function assembleSlackChronologicalMessages(
 function maxSlackTs(values: readonly (string | null)[]): string | null {
   let max: string | null = null;
   for (const value of values) {
-    if (value === null) continue;
+    if (value === null) {
+      continue;
+    }
     if (max === null || compareSlackTs(value, max) > 0) {
       max = value;
     }
@@ -1161,7 +1196,7 @@ function maxSlackTs(values: readonly (string | null)[]): string | null {
 }
 
 function legacyRowIsAfterWatermark(
-  row: SlackTranscriptInputRow,
+  row: { createdAt: number },
   watermarkTs: string,
 ): boolean {
   return compareSlackTs(String(row.createdAt / 1000), watermarkTs) > 0;
@@ -1196,18 +1231,102 @@ export function getSlackCompactionWatermarkForPrefix(
   context: SlackChronologicalContext | null,
   compactedRenderedMessages: number,
 ): string | null {
-  if (!context || compactedRenderedMessages <= 0) return null;
+  if (!context || compactedRenderedMessages <= 0) {
+    return null;
+  }
   const start = context.compactableStartIndex;
   const end = Math.min(
     context.renderedMessages.length,
     start + compactedRenderedMessages,
   );
-  if (end <= start) return null;
+  if (end <= start) {
+    return null;
+  }
   return maxSlackTs(
     context.renderedMessages
       .slice(start, end)
       .map((entry) => entry.sourceChannelTs),
   );
+}
+
+/**
+ * Highest Slack `channelTs` carried by the persisted rows
+ * `rows[0..endExclusive)`, or `null` when it would not advance past
+ * `existingWatermarkTs`. Backs fixed-boundary summarization ("summarize up
+ * to here"), which compacts the in-memory history rather than the Slack
+ * chronological projection: the watermark is derived in row-space — the same
+ * space the boundary was resolved in — so the next turn's Slack projection
+ * excludes exactly the rows the new summary covers. The advance-only check
+ * keeps the watermark monotonic: a summarize range whose Slack rows all sit
+ * at or before the existing watermark is already excluded from the
+ * projection, so persisting nothing is correct.
+ *
+ * Row order is not guaranteed to match Slack channel order (late-delivered
+ * rows), so a kept-tail row past the boundary can carry an OLDER `channelTs`
+ * than the prefix max. Advancing anyway would drop that row from every
+ * future projection (`isSlackTsAfter` keeps strictly-after) while the
+ * summary doesn't cover it either — silent loss. When any kept row sits at or
+ * before the candidate, the advance is skipped entirely, degrading to bounded
+ * duplication of already-summarized rows: the conservative direction. Legacy
+ * kept rows without `slackMeta` carry no `channelTs`, so they are compared via
+ * `createdAt/1000` — the same fallback `filterRowsAfterSlackCompactionBoundary`
+ * uses to drop them, keeping the guard and the filter from disagreeing about
+ * which legacy rows an advance would silently drop.
+ */
+export function getSlackWatermarkAdvanceForRowPrefix(
+  rows: MessageRow[],
+  endExclusive: number,
+  existingWatermarkTs: string | null,
+): string | null {
+  const channelTsForRow = (row: MessageRow): string | null =>
+    readSlackMetadataFromMessageMetadata(row.metadata, {
+      allowFlatLegacy: true,
+    })?.channelTs ?? null;
+  const ts = maxSlackTs(rows.slice(0, endExclusive).map(channelTsForRow));
+  if (ts === null) {
+    return null;
+  }
+  if (
+    existingWatermarkTs !== null &&
+    !isSlackTsAfter(ts, existingWatermarkTs)
+  ) {
+    return null;
+  }
+  for (const row of rows.slice(endExclusive)) {
+    const keptTs = channelTsForRow(row);
+    const survivesAdvance =
+      keptTs !== null
+        ? isSlackTsAfter(keptTs, ts)
+        : legacyRowIsAfterWatermark(row, ts);
+    if (!survivesAdvance) {
+      return null;
+    }
+  }
+  return ts;
+}
+
+/**
+ * Map each row's Slack `channelTs` to its thread key (`threadTs ?? channelTs`).
+ *
+ * A rendered transcript message carries its source row's `channelTs` in
+ * `sourceChannelTs`, so this map lets the refusal-exchange sweep resolve each
+ * rendered message's thread and pair a persisted refusal fallback with the
+ * prompt in its own thread — rather than the nearest chronological neighbour,
+ * which in a multi-party channel can be an unrelated sibling-thread post.
+ */
+function buildSlackThreadKeyByChannelTs(
+  rows: SlackTranscriptInputRow[],
+): Map<string, string> {
+  const byChannelTs = new Map<string, string>();
+  for (const row of rows) {
+    const meta = readSlackMetadataFromMessageMetadata(row.metadata, {
+      allowFlatLegacy: true,
+    });
+    if (meta?.channelTs) {
+      byChannelTs.set(meta.channelTs, meta.threadTs ?? meta.channelTs);
+    }
+  }
+  return byChannelTs;
 }
 
 function assembleSlackChronologicalContext(
@@ -1222,8 +1341,28 @@ function assembleSlackChronologicalContext(
   }
   const renderable = rowsToRenderableSlackMessages(rows);
   const rendered = renderSlackTranscriptWithProvenance(renderable);
+  // Drop previously-refused exchanges — a persisted safety-classifier refusal
+  // and the prompt that tripped it — so the model isn't re-fed a refusal it
+  // will just repeat (the dead-end `empty-response` sweeps off Slack turns).
+  // Pairing is thread-aware: each rendered message's Slack thread is resolved
+  // from its `sourceChannelTs`, so an interleaved sibling-thread post that
+  // landed between the refused prompt and the fallback is neither dropped nor
+  // mistaken for the prompt. `renderedMessages` is filtered by the same indices
+  // to stay aligned with the `messages` projection compaction slices.
+  const threadKeyByChannelTs = buildSlackThreadKeyByChannelTs(rows);
+  const threadKeys = rendered.renderedMessages.map((entry) =>
+    entry.sourceChannelTs !== null
+      ? (threadKeyByChannelTs.get(entry.sourceChannelTs) ?? null)
+      : null,
+  );
+  const { dropIndices } = computeRefusedExchangeDrops(rendered.messages, {
+    threadKeys,
+  });
+  const renderedMessages =
+    dropIndices.size > 0
+      ? rendered.renderedMessages.filter((_, i) => !dropIndices.has(i))
+      : rendered.renderedMessages;
   const contextSummary = options.contextSummary?.trim();
-  const renderedMessages = rendered.renderedMessages;
   if (contextSummary) {
     const withSummary: RenderedSlackTranscriptMessage[] = [
       {
@@ -1335,10 +1474,16 @@ export function loadSlackChronologicalContext(
 function detectActiveThreadTs(rows: RenderableSlackMessage[]): string | null {
   for (let i = rows.length - 1; i >= 0; i--) {
     const row = rows[i];
-    if (row.role !== "user") continue;
+    if (row.role !== "user") {
+      continue;
+    }
     const meta = row.metadata;
-    if (!meta) continue;
-    if (meta.eventKind !== "message") continue;
+    if (!meta) {
+      continue;
+    }
+    if (meta.eventKind !== "message") {
+      continue;
+    }
     if (typeof meta.threadTs === "string" && meta.threadTs.length > 0) {
       return meta.threadTs;
     }
@@ -1370,7 +1515,9 @@ function buildActiveThreadBlockFromRenderable(
   const members: RenderableSlackMessage[] = [];
   for (const row of rows) {
     const meta = row.metadata;
-    if (!meta) continue;
+    if (!meta) {
+      continue;
+    }
     if (meta.eventKind === "message") {
       if (
         meta.channelTs === activeThreadTs ||
@@ -1403,14 +1550,20 @@ function buildActiveThreadBlockFromRenderable(
   );
   for (const row of rows) {
     const meta = row.metadata;
-    if (!meta || meta.eventKind !== "reaction" || !meta.reaction) continue;
-    if (meta.reaction.targetChannelTs === activeThreadTs) continue; // already added
+    if (!meta || meta.eventKind !== "reaction" || !meta.reaction) {
+      continue;
+    }
+    if (meta.reaction.targetChannelTs === activeThreadTs) {
+      continue;
+    } // already added
     if (memberChannelTs.has(meta.reaction.targetChannelTs)) {
       members.push(row);
     }
   }
 
-  if (members.length === 0) return null;
+  if (members.length === 0) {
+    return null;
+  }
 
   // The active-thread block is flattened to plain text below. User rows keep
   // explicit Slack attribution through the renderer; assistant rows pass
@@ -1419,16 +1572,24 @@ function buildActiveThreadBlockFromRenderable(
   // here so their tag line carries attribution through the renderer. Labeled
   // user rows and assistant rows pass through unchanged.
   const labeledMembers = members.map((m) => {
-    if (m.role === "assistant") return m;
-    if (m.senderLabel !== null) return m;
+    if (m.role === "assistant") {
+      return m;
+    }
+    if (m.senderLabel !== null) {
+      return m;
+    }
     return { ...m, senderLabel: "@user" };
   });
 
   const rendered = renderSlackTranscriptWithProvenance(labeledMembers);
-  if (rendered.renderedMessages.length === 0) return null;
-  const lines = rendered.renderedMessages
-    .map((entry) => extractTagLineTexts([entry.message])[0] ?? "")
-    .join("\n");
+  // Exclude previously-refused exchanges: the block is appended to the user
+  // tail, so a surviving refusal line would let the model re-refuse just as
+  // replaying it in the chronological transcript would.
+  const { messages } = quarantineRefusedExchanges(rendered.messages);
+  if (messages.length === 0) {
+    return null;
+  }
+  const lines = extractTagLineTexts(messages).join("\n");
   return `<active_thread>\n${lines}\n</active_thread>`;
 }
 
@@ -1446,15 +1607,21 @@ export function assembleSlackActiveThreadFocusBlock(
   rows: SlackTranscriptInputRow[],
   capabilities: ChannelCapabilities,
 ): string | null {
-  if (capabilities.channel !== "slack") return null;
+  if (capabilities.channel !== "slack") {
+    return null;
+  }
   // DMs do not have threads, so the focus block is always a no-op.
   // The gateway sets `chatType: "channel"` for every non-DM Slack
   // conversation and omits the field for DMs, so gate the focus block
   // on the positive `"channel"` match.
-  if (capabilities.chatType !== "channel") return null;
+  if (capabilities.chatType !== "channel") {
+    return null;
+  }
   const renderable = rowsToRenderableSlackMessages(rows);
   const activeThreadTs = detectActiveThreadTs(renderable);
-  if (!activeThreadTs) return null;
+  if (!activeThreadTs) {
+    return null;
+  }
   return buildActiveThreadBlockFromRenderable(renderable, activeThreadTs);
 }
 
@@ -1474,8 +1641,12 @@ export function loadSlackActiveThreadFocusBlock(
     slackContextCompactionWatermarkTs?: string | null;
   } = {},
 ): string | null {
-  if (capabilities.channel !== "slack") return null;
-  if (capabilities.chatType !== "channel") return null;
+  if (capabilities.channel !== "slack") {
+    return null;
+  }
+  if (capabilities.chatType !== "channel") {
+    return null;
+  }
   const loader = options.loader ?? defaultGetMessages;
   const allRows = loader(conversationId);
   const scopedRows = filterSlackConversationRowsForActor(
@@ -1583,9 +1754,22 @@ export interface RuntimeInjectionResult {
 }
 
 /**
+ * Injectors whose interior records its own latency sub-spans (the `v3_*`
+ * spans in the memory-v3 orchestration) — timing the injector wrapper too
+ * would double-count the same wall clock. Sub-spans must stay
+ * non-overlapping so the inspector's "Other" remainder is honest. The
+ * names are pinned by `injector-registry-order-guard.test.ts`.
+ */
+const SELF_INSTRUMENTED_INJECTORS = new Set([
+  "memory-v3-shadow",
+  "memory-v3-spotlight",
+]);
+
+/**
  * Run every {@link Injector} in the chain ({@link getRegisteredInjectors},
  * already sorted by ascending `order`) and return every non-null block it
- * produced.
+ * produced, timing each non-self-instrumented injector as a latency
+ * sub-span.
  *
  * `runMessages` is the turn's working message array, forwarded to each
  * injector so producers that need the current prompt contents read it from a
@@ -1604,8 +1788,16 @@ async function collectInjectorBlocks(
 ): Promise<InjectionBlock[]> {
   const out: InjectionBlock[] = [];
   for (const injector of getRegisteredInjectors()) {
-    const block = await injector.produce(ctx, runMessages);
-    if (block) out.push(block);
+    const block = SELF_INSTRUMENTED_INJECTORS.has(injector.name)
+      ? await injector.produce(ctx, runMessages)
+      : await timeLatencySubSpan(
+          `injector:${injector.name}`,
+          `Injector: ${injector.name}`,
+          () => injector.produce(ctx, runMessages),
+        );
+    if (block) {
+      out.push(block);
+    }
   }
   return out;
 }
@@ -1629,7 +1821,9 @@ export async function composeInjectorChain(ctx: TurnContext): Promise<string> {
   const blocks = await collectInjectorBlocks(ctx);
   const pieces: string[] = [];
   for (const block of blocks) {
-    if (block.text.length > 0) pieces.push(block.text);
+    if (block.text.length > 0) {
+      pieces.push(block.text);
+    }
   }
   return pieces.join("\n\n");
 }
@@ -1674,14 +1868,20 @@ function applyInjectionBlock(
   const placement = block.placement ?? DEFAULT_PLACEMENT;
 
   if (placement === "replace-run-messages") {
-    if (!block.messagesOverride) return runMessages;
+    if (!block.messagesOverride) {
+      return runMessages;
+    }
     return block.messagesOverride;
   }
 
-  if (block.text.length === 0) return runMessages;
+  if (block.text.length === 0) {
+    return runMessages;
+  }
 
   const userTail = runMessages[runMessages.length - 1];
-  if (!userTail || userTail.role !== "user") return runMessages;
+  if (!userTail || userTail.role !== "user") {
+    return runMessages;
+  }
 
   const textBlock = { type: "text" as const, text: block.text };
 
@@ -1753,22 +1953,40 @@ function stripTailV2DynamicMemoryPrefix(
   v2WrappedBlock: string | null,
 ): Message[] {
   const last = messages[messages.length - 1];
-  if (!last || last.role !== "user") return messages;
+  if (!last || last.role !== "user") {
+    return messages;
+  }
   const prefixCount = countMemoryPrefixBlocksOnContent(last.content);
-  if (prefixCount === 0) return messages;
+  if (prefixCount === 0) {
+    return messages;
+  }
   const content = last.content.filter((block, i) => {
-    if (i >= prefixCount) return true;
+    if (i >= prefixCount) {
+      return true;
+    }
     // v2's memory-image groups: opener text, injected image, closer text.
-    if (block.type === "image") return false;
-    if (block.type !== "text") return true;
-    if (block.text.startsWith("<memory_image")) return false;
-    if (block.text === "</memory_image>") return false;
+    if (block.type === "image") {
+      return false;
+    }
+    if (block.type !== "text") {
+      return true;
+    }
+    if (block.text.startsWith("<memory_image")) {
+      return false;
+    }
+    if (block.text === "</memory_image>") {
+      return false;
+    }
     // v2's legacy dynamic wrapper.
-    if (block.text.startsWith("<memory __injected>\n")) return false;
+    if (block.text.startsWith("<memory __injected>\n")) {
+      return false;
+    }
     // v2's current dynamic block — identity match only (see doc comment).
     return v2WrappedBlock === null || block.text !== v2WrappedBlock;
   });
-  if (content.length === last.content.length) return messages;
+  if (content.length === last.content.length) {
+    return messages;
+  }
   return [...messages.slice(0, -1), { ...last, content }];
 }
 
@@ -2192,7 +2410,9 @@ export async function applyRuntimeInjections(
   // the turn, including defaults, so downstream observers see the full set.
   const injectorChainPieces: string[] = [];
   for (const block of chainBlocks) {
-    if (block.text.length > 0) injectorChainPieces.push(block.text);
+    if (block.text.length > 0) {
+      injectorChainPieces.push(block.text);
+    }
   }
   const injectorChainBlock =
     injectorChainPieces.length > 0

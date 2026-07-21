@@ -1,11 +1,11 @@
 /**
  * Regression test for Gap D: ConfigWatcher.refreshConfigFromSources must
  * reset the cleanup-scheduler throttle when memory.cleanup retention
- * settings change. Without this, a user flipping their retention setting
- * in the UI would have to wait up to 6 hours (the default
- * enqueueIntervalMs) before the change takes effect, because
- * maybeEnqueueScheduledCleanupJobs (in jobs-worker) early-returns while
- * the throttle is still within its window.
+ * settings change. Each cleanup job now runs on a cadence equal to its own
+ * retention window, so without this reset a user flipping their retention
+ * setting in the UI could wait out that entire window before the change
+ * takes effect, because maybeEnqueueScheduledCleanupJobs (in jobs-worker)
+ * skips a job while its throttle is still within its window.
  *
  * The shared throttle state lives in persistence/cleanup-schedule-state.ts so
  * that config-watcher can reset it without pulling jobs-worker's large
@@ -23,8 +23,10 @@
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { getConfig } from "../config/loader.js";
 import type { MemoryCleanupConfig } from "../config/schemas/memory-lifecycle.js";
 import { cleanupSettingsChanged } from "../daemon/config-watcher.js";
+import { setConfig } from "./helpers/set-config.js";
 
 // ---------------------------------------------------------------------------
 // 1. Pure helper test — cleanupSettingsChanged
@@ -33,7 +35,6 @@ import { cleanupSettingsChanged } from "../daemon/config-watcher.js";
 describe("cleanupSettingsChanged", () => {
   const base: MemoryCleanupConfig = {
     enabled: true,
-    enqueueIntervalMs: 6 * 60 * 60 * 1000,
     supersededItemRetentionMs: 30 * 24 * 60 * 60 * 1000,
     conversationRetentionDays: 0,
     llmRequestLogRetentionMs: 1 * 24 * 60 * 60 * 1000,
@@ -74,12 +75,11 @@ describe("cleanupSettingsChanged", () => {
   });
 
   test("returns false when only non-tracked fields change", () => {
-    // enqueueIntervalMs and supersededItemRetentionMs are intentionally
-    // excluded — they are daemon tunables, not user-facing UI settings.
+    // supersededItemRetentionMs is intentionally excluded — it is a daemon
+    // tunable, not a user-facing UI setting.
     expect(
       cleanupSettingsChanged(base, {
         ...base,
-        enqueueIntervalMs: 1_000,
         supersededItemRetentionMs: 0,
       }),
     ).toBe(false);
@@ -120,66 +120,29 @@ mock.module("../persistence/cleanup-schedule-state.js", () => ({
   markScheduledCleanupEnqueued: () => {},
 }));
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-  truncateForLog: (v: string) => v,
-}));
-
-// Simulate a config-cache layer: `diskConfig` is the on-disk value and
-// `cachedConfig` is the in-memory value returned by getConfig() when present.
-// Tests mutate `diskConfig` to simulate a user writing a new config.json.
-interface TestConfig {
-  memory: {
+// Seed `memory.cleanup` in the real workspace config.json. Each call replaces
+// the whole `memory` key, so tests simulate a user writing a new config.json
+// by re-seeding with different cleanup values; the real loader cache picks the
+// change up on the next getConfig() after invalidation (or via the file
+// signature check).
+function seedCleanup(
+  overrides: Partial<{
     enabled: boolean;
+    supersededItemRetentionMs: number;
+    conversationRetentionDays: number;
+    llmRequestLogRetentionMs: number | null;
+  }> = {},
+): void {
+  setConfig("memory", {
     cleanup: {
-      enabled: boolean;
-      enqueueIntervalMs: number;
-      supersededItemRetentionMs: number;
-      conversationRetentionDays: number;
-      llmRequestLogRetentionMs: number | null;
-    };
-  };
-}
-
-let diskConfig: TestConfig = makeConfig();
-let cachedConfig: TestConfig | null = null;
-
-function makeConfig(
-  overrides: Partial<TestConfig["memory"]["cleanup"]> = {},
-): TestConfig {
-  return {
-    memory: {
       enabled: true,
-      cleanup: {
-        enabled: true,
-        enqueueIntervalMs: 6 * 60 * 60 * 1000,
-        supersededItemRetentionMs: 30 * 24 * 60 * 60 * 1000,
-        conversationRetentionDays: 0,
-        llmRequestLogRetentionMs: 1 * 24 * 60 * 60 * 1000,
-        ...overrides,
-      },
+      supersededItemRetentionMs: 30 * 24 * 60 * 60 * 1000,
+      conversationRetentionDays: 0,
+      llmRequestLogRetentionMs: 1 * 24 * 60 * 60 * 1000,
+      ...overrides,
     },
-  };
+  });
 }
-
-function primeConfigCache(): void {
-  cachedConfig = diskConfig;
-}
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => {
-    if (!cachedConfig) {
-      cachedConfig = diskConfig;
-    }
-    return cachedConfig;
-  },
-  invalidateConfigCache: () => {
-    cachedConfig = null;
-  },
-}));
 
 mock.module("../config/assistant-feature-flags.js", () => ({
   clearFeatureFlagOverridesCache: () => {},
@@ -223,21 +186,18 @@ const { ConfigWatcher } = await import("../daemon/config-watcher.js");
 describe("ConfigWatcher.refreshConfigFromSources cleanup throttle reset", () => {
   beforeEach(() => {
     resetCleanupScheduleThrottleCalls = 0;
-    diskConfig = makeConfig();
-    cachedConfig = null;
+    seedCleanup();
   });
 
   test("resets throttle when llmRequestLogRetentionMs changes", async () => {
     const watcher = new ConfigWatcher();
-    // Seed the initial fingerprint and prime the cache so refreshConfigFromSources
-    // can compare the prev (cached) and next (fresh-from-disk) snapshots.
-    watcher.initFingerprint(diskConfig as never);
-    primeConfigCache();
+    // Seed the initial fingerprint (this also primes the loader cache) so
+    // refreshConfigFromSources can compare the prev and next snapshots.
+    watcher.initFingerprint(getConfig());
 
-    // Simulate user changing retention from 1d to 7d via the UI — this
-    // writes to disk and is ONLY visible to getConfig() after a cache
-    // invalidation.
-    diskConfig = makeConfig({
+    // Simulate the user changing retention from 1d to 7d via the UI — this
+    // writes config.json for real.
+    seedCleanup({
       llmRequestLogRetentionMs: 7 * 24 * 60 * 60 * 1000,
     });
 
@@ -248,12 +208,14 @@ describe("ConfigWatcher.refreshConfigFromSources cleanup throttle reset", () => 
 
   test("resets throttle when the loader cache has already observed the disk change", async () => {
     const watcher = new ConfigWatcher();
-    watcher.initFingerprint(diskConfig as never);
+    watcher.initFingerprint(getConfig());
 
-    diskConfig = makeConfig({
+    seedCleanup({
       llmRequestLogRetentionMs: 7 * 24 * 60 * 60 * 1000,
     });
-    cachedConfig = null;
+    // The loader's file-signature check re-reads the changed file on this
+    // access, so the cache already holds the new config before the refresh.
+    getConfig();
 
     const changed = await watcher.refreshConfigFromSources();
     expect(changed).toBe(true);
@@ -262,10 +224,9 @@ describe("ConfigWatcher.refreshConfigFromSources cleanup throttle reset", () => 
 
   test("does NOT reset throttle when config is identical (no fingerprint change)", async () => {
     const watcher = new ConfigWatcher();
-    watcher.initFingerprint(diskConfig as never);
-    primeConfigCache();
+    watcher.initFingerprint(getConfig());
 
-    // No change: diskConfig is the same value.
+    // No change: config.json keeps the same value.
     const changed = await watcher.refreshConfigFromSources();
     expect(changed).toBe(false);
     expect(resetCleanupScheduleThrottleCalls).toBe(0);
@@ -273,13 +234,12 @@ describe("ConfigWatcher.refreshConfigFromSources cleanup throttle reset", () => 
 
   test("does NOT reset throttle when an unrelated cleanup field changes", async () => {
     const watcher = new ConfigWatcher();
-    watcher.initFingerprint(diskConfig as never);
-    primeConfigCache();
+    watcher.initFingerprint(getConfig());
 
-    // enqueueIntervalMs is a daemon tunable, not a user-facing setting.
-    // The fingerprint changes but the tracked cleanup retention fields
-    // don't, so the throttle should NOT be reset.
-    diskConfig = makeConfig({ enqueueIntervalMs: 30_000 });
+    // supersededItemRetentionMs is a daemon tunable, not a user-facing
+    // setting. The fingerprint changes but the tracked cleanup retention
+    // fields don't, so the throttle should NOT be reset.
+    seedCleanup({ supersededItemRetentionMs: 60_000 });
 
     const changed = await watcher.refreshConfigFromSources();
     expect(changed).toBe(true);
@@ -288,10 +248,9 @@ describe("ConfigWatcher.refreshConfigFromSources cleanup throttle reset", () => 
 
   test("resets throttle when conversationRetentionDays changes", async () => {
     const watcher = new ConfigWatcher();
-    watcher.initFingerprint(diskConfig as never);
-    primeConfigCache();
+    watcher.initFingerprint(getConfig());
 
-    diskConfig = makeConfig({ conversationRetentionDays: 30 });
+    seedCleanup({ conversationRetentionDays: 30 });
 
     const changed = await watcher.refreshConfigFromSources();
     expect(changed).toBe(true);
@@ -300,10 +259,9 @@ describe("ConfigWatcher.refreshConfigFromSources cleanup throttle reset", () => 
 
   test("resets throttle when llmRequestLogRetentionMs changes from number to null", async () => {
     const watcher = new ConfigWatcher();
-    watcher.initFingerprint(diskConfig as never);
-    primeConfigCache();
+    watcher.initFingerprint(getConfig());
 
-    diskConfig = makeConfig({ llmRequestLogRetentionMs: null });
+    seedCleanup({ llmRequestLogRetentionMs: null });
 
     const changed = await watcher.refreshConfigFromSources();
     expect(changed).toBe(true);
@@ -314,19 +272,18 @@ describe("ConfigWatcher.refreshConfigFromSources cleanup throttle reset", () => 
     // This is the user-facing regression guarantee: each time the user
     // changes retention via the UI, refreshConfigFromSources calls the
     // cleanup-schedule-state throttle reset so the next scheduler tick
-    // re-evaluates without waiting out the 6-hour window.
+    // re-evaluates without waiting out the retention-derived window.
     //
     // Because cleanup-schedule-state is mocked here, we verify the
     // CONTRACT (resetCleanupScheduleThrottle is called) rather than the
     // internal state. memory-jobs-worker-backoff tests cover the
     // jobs-worker throttle semantics independently.
     const watcher = new ConfigWatcher();
-    watcher.initFingerprint(diskConfig as never);
-    primeConfigCache();
+    watcher.initFingerprint(getConfig());
 
     expect(resetCleanupScheduleThrottleCalls).toBe(0);
 
-    diskConfig = makeConfig({
+    seedCleanup({
       llmRequestLogRetentionMs: 3 * 24 * 60 * 60 * 1000,
     });
     await watcher.refreshConfigFromSources();
@@ -334,7 +291,7 @@ describe("ConfigWatcher.refreshConfigFromSources cleanup throttle reset", () => 
 
     // Changing retention again should trigger another reset, confirming
     // the wiring holds up for repeated edits.
-    diskConfig = makeConfig({
+    seedCleanup({
       llmRequestLogRetentionMs: 14 * 24 * 60 * 60 * 1000,
     });
     await watcher.refreshConfigFromSources();

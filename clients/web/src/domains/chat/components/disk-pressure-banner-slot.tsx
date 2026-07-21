@@ -98,7 +98,7 @@ export function DiskPressureBannerSlot({
       onAcknowledge={() => void diskPressure.acknowledge()}
       onDismissWarning={dismissWarning}
       onReviewWorkspaceData={() => void navigate(`${routes.workspace}?sort=size`)}
-      onUpgradeStorage={assistantStateKind === "active" ? () => void navigate(`${routes.settings.billing}?adjust_plan=1`) : null}
+      onUpgradeStorage={assistantStateKind === "active" ? () => void navigate(`${routes.settings.usage}?tab=billing&adjust_plan=1`) : null}
     />
   );
 }

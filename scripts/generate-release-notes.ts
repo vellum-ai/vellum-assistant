@@ -53,7 +53,16 @@ interface FeatureFlag {
   key: string;
   label: string;
   description: string;
-  defaultEnabled: boolean;
+  defaultEnabled: boolean | string;
+}
+
+// String-valued flags express a disabled default as an arm name ("off",
+// "control"); any other arm means the gated feature is live by default.
+function isFlagEnabledByDefault(flag: FeatureFlag): boolean {
+  if (typeof flag.defaultEnabled === "string") {
+    return flag.defaultEnabled !== "off" && flag.defaultEnabled !== "control";
+  }
+  return Boolean(flag.defaultEnabled);
 }
 
 function loadDisabledFeatureFlags(): { flags: FeatureFlag[]; loadFailed: boolean } {
@@ -61,7 +70,7 @@ function loadDisabledFeatureFlags(): { flags: FeatureFlag[]; loadFailed: boolean
     const registryPath = join(import.meta.dirname, "..", "meta", "feature-flags", "feature-flag-registry.json");
     const raw = readFileSync(registryPath, "utf-8");
     const registry = JSON.parse(raw) as { flags: FeatureFlag[] };
-    return { flags: registry.flags.filter((f) => !f.defaultEnabled), loadFailed: false };
+    return { flags: registry.flags.filter((f) => !isFlagEnabledByDefault(f)), loadFailed: false };
   } catch (error) {
     console.warn("Failed to load feature flag registry, proceeding without flag data:", error);
     return { flags: [], loadFailed: true };

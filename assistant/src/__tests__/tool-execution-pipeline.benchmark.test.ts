@@ -18,32 +18,11 @@
 
 import { beforeAll, describe, expect, mock, test } from "bun:test";
 
+import * as realPlatform from "../util/platform.js";
+
 // Local registry for ToolExecutor tests — the mock delegates to this map
 // so that registerTool/getTool/getAllTools work for our benchmark tools.
 const localRegistry = new Map<string, import("../tools/types.js").Tool>();
-
-// Mocks must precede imports of modules under test.
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-
-    provider: "mock-provider",
-    timeouts: { permissionTimeoutSec: 5, toolExecutionTimeoutSec: 120 },
-    permissions: {},
-    skills: { load: { extraDirs: [] } },
-    secretDetection: { enabled: true },
-    sandbox: { enabled: false },
-    contextWindow: {},
-    memory: {},
-  }),
-}));
 
 mock.module("../config/skills.js", () => ({
   resolveSkillSelector: () => ({ skill: null }),
@@ -52,6 +31,7 @@ mock.module("../config/skills.js", () => ({
 
 mock.module("../tools/registry.js", () => ({
   getTool: (name: string) => localRegistry.get(name),
+  resolveTool: (name: string) => localRegistry.get(name),
   getAllTools: () => Array.from(localRegistry.values()),
   registerTool: (tool: import("../tools/types.js").Tool) => {
     localRegistry.set(tool.name, tool);
@@ -67,6 +47,7 @@ mock.module("../config/env-registry.js", () => ({
 }));
 
 mock.module("../util/platform.js", () => ({
+  ...realPlatform,
   getWorkspaceDir: () => "/tmp",
   getProtectedDir: () => "/tmp/protected",
   getWorkspaceHooksDir: () => "/tmp/hooks",

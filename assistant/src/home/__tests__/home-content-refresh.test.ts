@@ -32,13 +32,6 @@ mock.module("../../runtime/assistant-event.js", () => ({
   buildAssistantEvent: (e: unknown) => e,
 }));
 
-mock.module("../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 const { revalidateHomeContentInBackground } =
   await import("../home-content-refresh.js");
 

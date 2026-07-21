@@ -85,9 +85,9 @@ function CollapsibleNavSectionSection({
     <div data-slot="collapsible-nav-section-header" className="flex items-center justify-between">
       <Collapsible.Trigger
         className={cn(
-          "group h-[28px] max-md:h-auto gap-[4px] max-md:gap-[8px]",
+          "group h-[30px] max-md:h-auto gap-[4px] max-md:gap-[8px]",
           "rounded-[6px] p-[6px] max-md:px-2 max-md:py-3",
-          "text-left text-body-small-default leading-[16px] max-md:text-body-large-default",
+          "text-left text-body-medium-default max-md:text-body-large-default",
           "text-[var(--content-tertiary)]",
         )}
       >

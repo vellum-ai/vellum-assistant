@@ -212,13 +212,15 @@ describe("removeByConversation emits interaction_resolved per entry", () => {
     ).toBe("cancelled");
   });
 
-  test("settles a swept secret prompt's resolver with a cancelled result", () => {
+  test("settles a swept secret prompt's resolver with a superseded result", () => {
     /**
      * A secret prompt blocks its caller (the CLI `credentials prompt` command
      * or the in-conversation SecretPrompter) on `rpcResolve`. Unlike questions
      * (abort-signal teardown) and confirmations (denyAllPendingConfirmations),
      * nothing else settles a secret when it is superseded, so removing the
-     * entry alone would hang the caller until its IPC client times out.
+     * entry alone would hang the caller until its IPC client times out. The
+     * result carries `reason: "superseded"` so callers do not misreport the
+     * sweep as a deliberate user cancel.
      */
     // GIVEN a pending secret whose caller is blocked on rpcResolve
     const resolved: unknown[] = [];
@@ -231,8 +233,28 @@ describe("removeByConversation emits interaction_resolved per entry", () => {
     // WHEN a new user message supersedes the conversation's interactions
     pendingInteractions.removeByConversation("conv-sweep");
 
-    // THEN the secret resolver is settled once with a cancelled result
-    expect(resolved).toEqual([{ value: null, delivery: "store" }]);
+    // THEN the secret resolver is settled once with a superseded result
+    expect(resolved).toEqual([
+      { value: null, delivery: "store", reason: "superseded" },
+    ]);
+  });
+
+  test("settles a swept secret with a cancelled reason for a cancelled sweep", () => {
+    // GIVEN a pending secret whose caller is blocked on rpcResolve
+    const resolved: unknown[] = [];
+    pendingInteractions.register("secret-cancel-sweep", {
+      conversationId: "conv-cancel-sweep",
+      kind: "secret",
+      rpcResolve: (value) => resolved.push(value),
+    });
+
+    // WHEN the conversation's interactions are removed with a cancelled state
+    pendingInteractions.removeByConversation("conv-cancel-sweep", "cancelled");
+
+    // THEN the secret resolver is settled with a cancelled result
+    expect(resolved).toEqual([
+      { value: null, delivery: "store", reason: "cancelled" },
+    ]);
   });
 
   test("does not invoke a swept confirmation's resolver with a secret result", () => {

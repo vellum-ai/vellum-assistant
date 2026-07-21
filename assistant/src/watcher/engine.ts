@@ -36,6 +36,63 @@ export type WatcherNotifier = (notification: {
   body: string;
 }) => void;
 
+/**
+ * Classify auth-shaped errors: broken OAuth connections and rejected
+ * tokens. Deterministic and conservative — mechanical error classification
+ * used to decide whether the user needs to reconnect an account.
+ */
+function isAuthConnectionError(err: unknown): boolean {
+  const message = (
+    err instanceof Error ? err.message : String(err)
+  ).toLowerCase();
+  return (
+    message.includes("no active oauth connection") ||
+    message.includes("needs to be connected") ||
+    message.includes("needs to be reconnected") ||
+    message.includes("invalid_grant") ||
+    message.includes("unauthorized") ||
+    /\b401\b/.test(message)
+  );
+}
+
+/**
+ * Per-process record of watchers already notified about an ongoing auth
+ * problem, keyed by watcher id. The value is the status key of the tick that
+ * first raised the episode ("credential-unhealthy" / "auth-error"), retained
+ * for diagnostics only. The presence of an entry — regardless of its value —
+ * means the user has been told once for this outage; it is cleared when the
+ * watcher's poll succeeds or the circuit breaker disables it, so a later new
+ * outage notifies again.
+ */
+const authNotifiedEpisodes = new Map<string, string>();
+
+/** Test-only: clear the auth-notification episode tracker. */
+export function _resetAuthNotificationStateForTests(): void {
+  authNotifiedEpisodes.clear();
+}
+
+/**
+ * Send an auth-reconnect notification for a watcher at most once per
+ * outage. Suppression is keyed on watcher id alone: once any auth
+ * notification has been sent for an ongoing episode, no more are sent until
+ * the episode is cleared (by a successful poll or by circuit-breaker
+ * disable), even if a later tick classifies the failure under a different
+ * status key. Returns true if a notification was sent, false if suppressed.
+ */
+function notifyAuthEpisodeOnce(
+  notify: WatcherNotifier,
+  watcherId: string,
+  statusKey: string,
+  notification: { title: string; body: string },
+): boolean {
+  if (authNotifiedEpisodes.has(watcherId)) {
+    return false;
+  }
+  authNotifiedEpisodes.set(watcherId, statusKey);
+  notify(notification);
+  return true;
+}
+
 export interface WatcherEngineHandle {
   runOnce(): Promise<number>;
   stop(): void;
@@ -100,6 +157,10 @@ export async function runWatchersOnce(
           (health.status === "expired" && !health.canAutoRecover))
       ) {
         skipWatcherPoll(watcher.id, `Credential unhealthy: ${health.details}`);
+        notifyAuthEpisodeOnce(notify, watcher.id, "credential-unhealthy", {
+          title: `Reconnect needed: ${watcher.name}`,
+          body: `Your ${watcher.credentialService} account's authorization is no longer valid, so ${watcher.name} is paused. Reconnect the account to resume monitoring. (${health.details})`,
+        });
         continue;
       }
     } catch {
@@ -171,6 +232,9 @@ export async function runWatchersOnce(
         watermark: result.watermark,
         conversationId: watcher.conversationId ?? undefined,
       });
+      // A successful poll ends any active auth-failure episode so a later
+      // new outage notifies the user again.
+      authNotifiedEpisodes.delete(watcher.id);
       processed++;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -180,10 +244,26 @@ export async function runWatchersOnce(
       );
       failWatcherPoll(watcher.id, message);
 
+      // Auth-shaped failures point at a broken account connection. Tell the
+      // user to reconnect immediately (once per episode) rather than waiting
+      // for the circuit breaker to disable the watcher.
+      const authShaped = isAuthConnectionError(err);
+      if (authShaped) {
+        notifyAuthEpisodeOnce(notify, watcher.id, "auth-error", {
+          title: `Reconnect needed: ${watcher.name}`,
+          body: `Your ${watcher.credentialService} account's authorization is no longer valid, so ${watcher.name} can't check for updates. Reconnect the account to resume monitoring.`,
+        });
+      }
+
       // Circuit breaker: disable after too many consecutive errors
       if (watcher.consecutiveErrors + 1 >= MAX_CONSECUTIVE_ERRORS) {
         const reason = `Disabled after ${MAX_CONSECUTIVE_ERRORS} consecutive errors. Last: ${message}`;
         disableWatcher(watcher.id, reason);
+        // Close out the auth episode: the disable notification below is the
+        // final word for this outage. Clearing lets a fresh episode (and a
+        // fresh reconnect notification) start if the user re-enables the
+        // watcher while the account is still broken.
+        authNotifiedEpisodes.delete(watcher.id);
         // Do NOT call provider.cleanup() here — auto-disable is reversible.
         // If the watcher is re-enabled later, it must diff against the same
         // baseline to avoid missing events that occurred while disabled.
@@ -192,9 +272,12 @@ export async function runWatchersOnce(
           { watcherId: watcher.id, name: watcher.name },
           "Watcher disabled by circuit breaker",
         );
+        const body = authShaped
+          ? `${reason} This is an account authorization problem — reconnect your ${watcher.credentialService} account and re-enable the watcher to restore monitoring.`
+          : reason;
         notify({
           title: `Watcher disabled: ${watcher.name}`,
-          body: reason,
+          body,
         });
       }
     }
@@ -208,7 +291,9 @@ export async function runWatchersOnce(
   // notifications on the home feed.
   for (const watcher of claimed) {
     const pendingEvents = getPendingEvents(watcher.id);
-    if (pendingEvents.length === 0) continue;
+    if (pendingEvents.length === 0) {
+      continue;
+    }
 
     const eventSummaries = pendingEvents
       .map(

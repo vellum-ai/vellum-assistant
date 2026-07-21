@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { setConfig } from "../../__tests__/helpers/set-config.js";
+
 // Silence the logger everywhere this graph reaches.
 const realLogger = await import("../../util/logger.js");
 mock.module("../../util/logger.js", () => ({
@@ -11,27 +13,8 @@ mock.module("../../util/logger.js", () => ({
 }));
 
 // ── Mutable mock state ────────────────────────────────────────────────
-// `configThrows` simulates config not yet loaded (test-setup race). The
-// run-manager mock records the args of the last `start()` call for assertion.
-
-let configThrows = false;
-
-const realLoader = await import("../../config/loader.js");
-mock.module("../../config/loader.js", () => ({
-  ...realLoader,
-  getConfig: () => {
-    if (configThrows) throw new Error("config not loaded");
-    return {} as ReturnType<typeof realLoader.getConfig>;
-  },
-  // manage_workflows `list_profiles` reads profiles via loadConfig().
-  loadConfig: () =>
-    ({
-      llm: {
-        profiles: { "cost-optimized": {}, balanced: {} },
-        activeProfile: "balanced",
-      },
-    }) as unknown as ReturnType<typeof realLoader.loadConfig>,
-}));
+// The run-manager mock records the args of the last `start()` call for
+// assertion.
 
 // No live conversation in tests — the tool falls back to a synthetic trust
 // context built from the tool context's trustClass.
@@ -83,7 +66,10 @@ function makeContext(): Parameters<typeof executeRunWorkflow>[1] {
 }
 
 beforeEach(() => {
-  configThrows = false;
+  // `manage_workflows list_profiles` reads the workspace active profile via
+  // loadConfig(); the effective profile names always include the code-catalog
+  // defaults, so only the active-profile selection needs seeding.
+  setConfig("llm", { activeProfile: "balanced" });
   startThrows = null;
   lastStartArgs = null;
   resumeThrows = null;

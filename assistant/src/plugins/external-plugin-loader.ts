@@ -42,7 +42,7 @@
 
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import semver from "semver";
@@ -98,15 +98,6 @@ export interface LoadExternalPluginOptions {
    * {@link DEFAULT_IMPORT_TIMEOUT_MS}.
    */
   readonly importTimeoutMs?: number;
-}
-
-/**
- * Strip the npm scope from a package name. `@vellumai/simple-memory` →
- * `simple-memory`; an unscoped name passes through unchanged.
- */
-export function stripScope(name: string): string {
-  const match = /^@[^/]+\/(.+)$/.exec(name);
-  return match ? match[1]! : name;
 }
 
 export function toToolNameSegment(value: string): string {
@@ -229,7 +220,15 @@ async function buildPluginFromDir(pluginDir: string): Promise<Plugin> {
     );
   }
   const pkg: PluginPackageJson = parsed.data;
-  const name = stripScope(pkg.name);
+  // A plugin's identity is its install directory name — the slug the plugin
+  // was installed under (a marketplace slug or a GitHub path leaf). This is
+  // the identity every other surface uses: `plugins list`, enable/disable,
+  // per-conversation plugin scoping, and resident-skill `owner.id`. The
+  // `package.json` `name` is authored by the plugin and routinely differs
+  // from the slug, so keying runtime registration off it would desync the
+  // registry from the identity the user toggles and the scope filters match.
+  // The manifest is still required (schema-validated above) as the load gate.
+  const name = basename(pluginDir);
   const version = pkg.version && pkg.version.length > 0 ? pkg.version : "0.0.0";
 
   // Host-compat negotiation: plugins declare their plugin-api version
@@ -381,11 +380,12 @@ export async function loadExternalPlugin(
 
 /**
  * Parse a plugin's `package.json` manifest from disk. Returns the plugin
- * name (scope-stripped) and version, or `undefined` when the file is
- * missing, unparseable, or fails schema validation.
+ * identity (its install directory name) and version, or `undefined` when the
+ * `package.json` is missing, unparseable, or fails schema validation.
  *
  * Exported so the mtime cache can discover plugin identity without going
- * through the full `buildExternalPlugin` path.
+ * through the full `buildExternalPlugin` path. The identity mirrors
+ * {@link buildPluginFromDir}: the directory name, not `package.json` `name`.
  */
 export async function parsePluginManifest(
   pluginDir: string,
@@ -411,7 +411,7 @@ export async function parsePluginManifest(
     return undefined;
   }
   const pkg: PluginPackageJson = parsed.data;
-  const name = stripScope(pkg.name);
+  const name = basename(pluginDir);
   const version = pkg.version && pkg.version.length > 0 ? pkg.version : "0.0.0";
   return { name, version };
 }

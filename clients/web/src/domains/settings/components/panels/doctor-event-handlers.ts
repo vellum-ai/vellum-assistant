@@ -9,6 +9,11 @@
  */
 
 import type { DoctorPanelContext } from "@/domains/settings/components/panels/doctor-panel-store";
+import {
+  USER_OUTCOME_PROMPT_QUESTION,
+  hasDoctorFeedbackPromptSinceLastUser,
+} from "@/domains/settings/components/panels/doctor-history";
+import type { FeedbackReason } from "@/components/share-feedback-types";
 
 // ---------------------------------------------------------------------------
 // Handlers
@@ -64,9 +69,13 @@ export function handleToolResult(
     const idx = prev.findIndex(
       (e) => e.kind === "tool_call" && e.meta.toolCallId === event.toolCallId,
     );
-    if (idx === -1) return prev;
+    if (idx === -1) {
+      return prev;
+    }
     const existing = prev[idx]!;
-    if (existing.kind !== "tool_call") return prev;
+    if (existing.kind !== "tool_call") {
+      return prev;
+    }
     const updated = [...prev];
     updated[idx] = {
       ...existing,
@@ -106,6 +115,52 @@ export function handleBackupPrompt(ctx: DoctorPanelContext, event: { toolName: s
     kind: "backup_prompt",
     content: event.toolName,
     meta: { toolName: event.toolName },
+  });
+}
+
+export function handleFeedbackPrompt(
+  ctx: DoctorPanelContext,
+  event: {
+    summary?: string;
+    reason?: FeedbackReason;
+    classification?: FeedbackReason;
+  },
+): void {
+  const summary = event.summary?.trim();
+  const reason = event.reason ?? event.classification;
+  if (hasDoctorFeedbackPromptSinceLastUser(ctx.getEntries())) {
+    if (summary || reason) {
+      ctx.updateEntries((entries) =>
+        entries.map((entry, index) => {
+          const isLastFeedbackPrompt =
+            entry.kind === "feedback_prompt" &&
+            !entries
+              .slice(index + 1)
+              .some((candidate) => candidate.kind === "feedback_prompt");
+          return isLastFeedbackPrompt
+            ? {
+                ...entry,
+                ...(summary ? { content: summary } : {}),
+                ...(reason ? { meta: { ...entry.meta, reason } } : {}),
+              }
+            : entry;
+        }),
+      );
+    }
+    return;
+  }
+  ctx.appendEntry({
+    kind: "feedback_prompt",
+    content: summary || "Share feedback",
+    ...(reason ? { meta: { reason } } : {}),
+  });
+}
+
+export function handleUserOutcomePrompt(ctx: DoctorPanelContext): void {
+  ctx.setThinking(false);
+  ctx.appendEntry({
+    kind: "user_outcome_prompt",
+    content: USER_OUTCOME_PROMPT_QUESTION,
   });
 }
 

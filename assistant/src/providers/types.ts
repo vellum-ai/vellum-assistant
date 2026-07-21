@@ -2,38 +2,83 @@ import type { ToolDefinition } from "../tools/tool-types.js";
 export type { ToolDefinition };
 
 import type { LLMCallSite } from "../config/schemas/llm.js";
-import { ProviderError } from "../util/errors.js";
+import { ProviderError, type ProviderErrorReason } from "../util/errors.js";
 
 export interface TextContent {
   type: "text";
   text: string;
 }
 
+/**
+ * Media payload for an image or file content block. One unified type covers
+ * both blocks and both storage forms:
+ *
+ * - `base64` — the bytes travel inline with the block. This is the runtime
+ *   shape the provider transforms consume and the shape produced for a live
+ *   (in-flight) turn.
+ * - `workspace_ref` — the bytes live somewhere in the workspace, not inline.
+ *   This is the shape PERSISTED into `messages.content`, keeping large blobs
+ *   out of the DB row and the lexical index. It is resolved back to inline
+ *   bytes at the provider send boundary (`providers/media-resolve.ts`); any
+ *   consumer that needs the raw bytes from stored content resolves it with
+ *   `resolveMediaSourceData(source)`.
+ *
+ * `filename` is optional on both arms (present for file blocks and for
+ * generated-media references). For references, `sizeBytes` (and, for images,
+ * `width`/`height`) are captured at persist time so size-only consumers — the
+ * per-turn token estimator especially — can cost the block without reading the
+ * file back off disk.
+ */
+export interface Base64MediaSource {
+  type: "base64";
+  media_type: string;
+  data: string;
+  filename?: string;
+}
+
+/**
+ * A reference to bytes stored in the workspace rather than inlined. The bytes
+ * live in the workspace attachment store, addressed by `attachmentId`, and are
+ * read back at the provider send boundary. User uploads are attachment rows
+ * already; tool-result media is materialized into attachment rows before it is
+ * referenced, so a single `attachmentId` resolves every case and needs no
+ * fallback locator.
+ *
+ * `sizeBytes` (and, for images, `width`/`height`) are the persist-time hints
+ * that let size-only consumers cost the block without a disk read.
+ */
+export interface WorkspaceRefMediaSource {
+  type: "workspace_ref";
+  media_type: string;
+  /** Attachment row id; resolves to bytes via the attachment store. */
+  attachmentId: string;
+  /** Byte length of the referenced file. */
+  sizeBytes: number;
+  filename?: string;
+  /** Decoded pixel width, when the reference is an image. */
+  width?: number;
+  /** Decoded pixel height, when the reference is an image. */
+  height?: number;
+}
+
+export type MediaSource = Base64MediaSource | WorkspaceRefMediaSource;
+
 export interface ImageContent {
   type: "image";
-  source: {
-    type: "base64";
-    media_type: string;
-    data: string;
-  };
+  source: MediaSource;
 }
 
 export interface FileContent {
   type: "file";
-  source: {
-    type: "base64";
-    media_type: string;
-    data: string;
-    filename: string;
-  };
+  source: MediaSource;
   extracted_text?: string;
   /**
-   * Internal id linking this block to a row in the attachments table.
-   * Set when the file block originates from a persisted user-message
-   * attachment so downstream consumers (DB joins, inline-chip
-   * positioning) can correlate the block back to its attachment id.
-   * Stripped by `daemon/handlers/shared.ts` before sending to the
-   * model.
+   * Internal id linking a base64 file block to a row in the attachments table
+   * so consumers (DB joins, inline-chip positioning) can correlate the block
+   * back to its attachment. Redundant once the block is a reference (use
+   * `source.attachmentId`); retained only while file media is still persisted
+   * inline as base64, and removed when file uploads move to references.
+   * Stripped by `daemon/handlers/shared.ts` before sending to the model.
    */
   _attachmentId?: string;
 }
@@ -110,6 +155,13 @@ export interface ProviderResponse {
   model: string;
   /** Provider that actually produced this response, which may differ from a wrapper provider name. */
   actualProvider?: string;
+  /**
+   * Base URL the provider's HTTP client actually resolved to for this request,
+   * read from the live SDK client instance rather than re-derived from config.
+   * Lets diagnostics observe the true routing target (e.g. a misrouted host)
+   * instead of inferring it. Absent for providers that don't surface it.
+   */
+  resolvedEndpoint?: string;
   usage: {
     /** Total input tokens (input_tokens + cache_creation + cache_read). */
     inputTokens: number;
@@ -170,7 +222,8 @@ export interface SendMessageConfig {
    * LLM call-site identifier. `RetryProvider` resolves
    * provider/model/maxTokens/effort/speed/verbosity/temperature/thinking/
    * contextWindow via `resolveCallSiteConfig(callSite, config.llm)`, falling
-   * back to `llm.default` when no callSite-specific entry is present.
+   * back to the shipped call-site defaults when no callSite-specific entry
+   * is present.
    */
   callSite?: LLMCallSite;
   /**
@@ -201,6 +254,18 @@ export interface SendMessageConfig {
    * stripped before any provider wire request.
    */
   selectionSeed?: string;
+  /**
+   * Per-conversation prompt-cache key for providers with explicit prompt
+   * caching (sent as the OpenAI `prompt_cache_key` request param). Set by
+   * `RetryProvider` from `selectionSeed` (the durable conversation id) for
+   * the `openai` and `openrouter` providers — GPT-5.6+ requires the key for
+   * reliable breakpoint matching, and OpenAI's ~15 req/min-per-key routing
+   * guidance is satisfied by per-conversation ids. A non-wire field for
+   * every other provider client (the Anthropic client strips it, covering
+   * OpenRouter's `anthropic/*` delegation); the request param is omitted
+   * when absent.
+   */
+  promptCacheKey?: string;
   /**
    * Internal per-request HTTP headers for managed-proxy usage attribution.
    * Provider clients may pass these through SDK request options only when the
@@ -320,6 +385,8 @@ export interface ContextOverflowErrorOptions {
   statusCode?: number;
   /** Underlying error to preserve the cause chain (standard Error.cause). */
   cause?: unknown;
+  /** Semantic reason override; defaults to `context_overflow`. */
+  reason?: ProviderErrorReason;
 }
 
 /**
@@ -347,12 +414,10 @@ export class ContextOverflowError extends ProviderError {
     provider: string,
     options: ContextOverflowErrorOptions = {},
   ) {
-    super(
-      message,
-      provider,
-      options.statusCode ?? 400,
-      options.cause !== undefined ? { cause: options.cause } : undefined,
-    );
+    super(message, provider, options.statusCode ?? 400, {
+      reason: options.reason ?? "context_overflow",
+      ...(options.cause !== undefined ? { cause: options.cause } : {}),
+    });
     this.name = "ContextOverflowError";
     this.actualTokens = options.actualTokens;
     this.maxTokens = options.maxTokens;
@@ -376,11 +441,17 @@ export function extractOverflowTokensFromMessage(message: string): {
   maxTokens?: number;
 } {
   const match = message.match(/(\d[\d,]*)\s*(?:tokens?\s*)?[>≥]\s*(\d[\d,]*)/i);
-  if (!match) return {};
+  if (!match) {
+    return {};
+  }
   const actual = parseInt(match[1].replace(/,/g, ""), 10);
   const max = parseInt(match[2].replace(/,/g, ""), 10);
   const out: { actualTokens?: number; maxTokens?: number } = {};
-  if (!isNaN(actual) && actual > 0) out.actualTokens = actual;
-  if (!isNaN(max) && max > 0) out.maxTokens = max;
+  if (!isNaN(actual) && actual > 0) {
+    out.actualTokens = actual;
+  }
+  if (!isNaN(max) && max > 0) {
+    out.maxTokens = max;
+  }
   return out;
 }

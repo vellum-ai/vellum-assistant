@@ -237,12 +237,6 @@ const TEMPLATES: Partial<Record<NotificationSourceEventName, CopyTemplate>> = {
     };
   },
 
-  "ingress.escalation": (payload) => ({
-    title: "Escalation",
-    body:
-      str(payload.senderIdentifier, "An incoming message") + " needs attention",
-  }),
-
   "watcher.notification": (payload) => ({
     title: str(payload.title, "Watcher Notification"),
     body: str(payload.body, "A watcher event occurred"),

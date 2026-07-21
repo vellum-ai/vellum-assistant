@@ -5,6 +5,8 @@
  * it through DI. The DaemonServer methods delegate here.
  */
 
+import { v7 as uuidv7 } from "uuid";
+
 import { enrichMessageWithSourcePaths } from "../agent/attachments.js";
 import {
   createAssistantMessage,
@@ -32,10 +34,15 @@ import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
 import { getSubagentManager } from "../subagent/index.js";
+import {
+  readTurnFailure,
+  type TurnFailure,
+} from "../telemetry/turn-outcome.js";
 import { getLogger } from "../util/logger.js";
 import type { Conversation } from "./conversation.js";
 import {
   buildSlackMetaForPersistence,
+  CONVERSATION_BUSY_MESSAGE,
   serializePersistedUserMessageContent,
 } from "./conversation-messaging.js";
 import {
@@ -52,7 +59,10 @@ import {
   mergeConversationOptions,
 } from "./conversation-store.js";
 import { getDbMigrationReadiness } from "./daemon-readiness.js";
-import type { ConversationCreateOptions } from "./handlers/shared.js";
+import type {
+  ConversationCreateOptions,
+  SlackInboundMessageMetadata,
+} from "./handlers/shared.js";
 import { HostAppControlProxy } from "./host-app-control-proxy.js";
 import { HostCuProxy } from "./host-cu-proxy.js";
 import {
@@ -60,6 +70,7 @@ import {
   shouldAttachHostProxyForCapability,
 } from "./host-proxy-preactivation.js";
 import type { ServerMessage } from "./message-protocol.js";
+import type { SubagentToolGateMode } from "./tool-setup-types.js";
 
 const log = getLogger("process-message");
 
@@ -86,7 +97,59 @@ type ProcessMessageOptions = ConversationCreateOptions & {
    * not stored on the long-lived conversation.
    */
   cronRunId?: string | null;
+  /**
+   * Restrict this turn's tool surface to the given allowlist. Threaded from
+   * `runBackgroundJob` so an unattended guardian-trust job (e.g. memory
+   * consolidation) cannot reach tools it does not need. Applied to the live
+   * conversation for the turn and restored afterward. Omitted = the full
+   * conversation tool surface (unchanged for every normal caller).
+   */
+  allowedTools?: readonly string[];
+  /**
+   * How {@link allowedTools} is enforced (default `"wire"` — excluded tools
+   * are not presented to the model). Ignored when `allowedTools` is absent.
+   */
+  toolGateMode?: SubagentToolGateMode;
+  /**
+   * Persist the inbound user message without indexing it — no memory
+   * segments, no embeddings, no lexical-index entry. Threaded from
+   * `runBackgroundJob` for machine-authored kickoff prompts (e.g. memory
+   * consolidation) whose static instruction text must not enter memory or
+   * search. Every other message in the turn indexes normally.
+   */
+  skipUserMessageIndexing?: boolean;
+  /**
+   * Stable idempotency key for this ingress turn. Threaded to
+   * `persistUserMessage` as `clientMessageId` so an at-least-once redelivery of
+   * the same logical turn dedups on the `client_message_id` partial unique index
+   * instead of running the agent loop a second time. When omitted, a key is
+   * synthesized from the transport's native per-message id where one exists (see
+   * {@link deriveIngressIdempotencyKey}).
+   */
+  clientMessageId?: string;
 };
+
+/**
+ * Derive a stable idempotency key for a server-side ingress turn so an
+ * at-least-once redelivery (gateway/channel retry) dedups on the
+ * `client_message_id` partial unique index rather than running a second turn.
+ * An explicit caller key wins; otherwise it is synthesized from the transport's
+ * native per-message id, namespaced so it can never collide with a web-client
+ * nonce. Returns undefined when no stable id exists (behavior unchanged).
+ */
+export function deriveIngressIdempotencyKey(options?: {
+  clientMessageId?: string;
+  slackInbound?: SlackInboundMessageMetadata;
+}): string | undefined {
+  if (options?.clientMessageId) {
+    return options.clientMessageId;
+  }
+  const slack = options?.slackInbound;
+  if (slack) {
+    return `slack:${slack.channelId}:${slack.channelTs}`;
+  }
+  return undefined;
+}
 
 function buildEventEmitter(
   observer?: (msg: ServerMessage) => void,
@@ -99,6 +162,37 @@ function buildEventEmitter(
     } catch (err) {
       log.warn({ err, messageType: msg.type }, "Agent event observer failed");
     }
+  };
+}
+
+/**
+ * Scope the live conversation's tool surface to `options.allowedTools` for the
+ * duration of a turn, returning a closure that restores the prior scope. A
+ * no-op (returns an empty restore) when no allowlist is supplied, so ordinary
+ * turns are byte-for-byte unaffected.
+ *
+ * The `runBackgroundJob` → `processMessage` path does not run through the wake
+ * machinery, so it cannot use {@link scopeWakeAllowedTools}; this mirrors that
+ * helper's set-and-restore over the same two conversation fields. Default
+ * `"wire"` gate mode filters the excluded tools out of the definitions sent to
+ * the provider, so a scoped turn (e.g. unattended memory consolidation) can
+ * never call a tool outside the allowlist — no reliance on the permission
+ * checker's background auto-approve threshold.
+ */
+function applyTurnToolAllowlist(
+  conversation: Conversation,
+  options?: ProcessMessageOptions,
+): () => void {
+  if (!options?.allowedTools) {
+    return () => {};
+  }
+  const previousTools = conversation.subagentAllowedTools;
+  const previousGateMode = conversation.subagentToolGateMode;
+  conversation.setSubagentAllowedTools(new Set(options.allowedTools));
+  conversation.subagentToolGateMode = options.toolGateMode ?? "wire";
+  return () => {
+    conversation.setSubagentAllowedTools(previousTools);
+    conversation.subagentToolGateMode = previousGateMode;
   };
 }
 
@@ -163,6 +257,8 @@ async function prepareConversationForMessage(
     onEvent: _onEvent,
     cronRunId: _cronRunId,
     requestOrigin: _requestOrigin,
+    allowedTools: _allowedTools,
+    toolGateMode: _toolGateMode,
     ...conversationOptions
   } = options ?? {};
   const conversation = await getOrCreateActiveConversation(
@@ -173,7 +269,7 @@ async function prepareConversationForMessage(
   );
 
   if (conversation.isProcessing()) {
-    throw new Error("Conversation is already processing a message");
+    throw new Error(CONVERSATION_BUSY_MESSAGE);
   }
 
   const resolvedChannel = resolveTurnChannel(
@@ -310,7 +406,25 @@ export async function processMessage(
   conversationId: string,
   content: string,
   options?: ProcessMessageOptions,
-): Promise<{ messageId: string; assistantMessageId?: string }> {
+): Promise<{
+  messageId: string;
+  assistantMessageId?: string;
+  /**
+   * True when this ingress deduplicated against a prior turn (same idempotency
+   * key) and the agent loop was skipped. Channel finalization must skip reply
+   * delivery on this signal so an at-least-once redelivery does not re-emit the
+   * original turn's reply.
+   */
+  deduplicated?: boolean;
+  /**
+   * The agent turn's failure outcome, or `null` when it replied normally. Set
+   * when the turn failed (e.g. its LLM call failed with an invalid provider) —
+   * that path persists a synthetic error message and returns normally rather
+   * than throwing, so this is the only way an awaiting caller can tell. Omitted
+   * by the slash-command branches, which never run the agent loop.
+   */
+  turnFailure?: TurnFailure | null;
+}> {
   assertDbMigrationsReadyForTurn();
 
   const { conversation, attachments } = await prepareConversationForMessage(
@@ -375,8 +489,8 @@ export async function processMessage(
       "user",
       serializePersistedUserMessageContent(
         content,
-        attachments,
         options?.displayContent,
+        attachments,
       ),
       { metadata: userMetaWithSlack },
     );
@@ -468,8 +582,8 @@ export async function processMessage(
       "user",
       serializePersistedUserMessageContent(
         content,
-        attachments,
         options?.displayContent,
+        attachments,
       ),
       { metadata: compactUserMeta },
     );
@@ -523,8 +637,8 @@ export async function processMessage(
       "user",
       serializePersistedUserMessageContent(
         content,
-        attachments,
         options?.displayContent,
+        attachments,
       ),
       { metadata: cleanUserMeta },
     );
@@ -549,24 +663,46 @@ export async function processMessage(
 
   const resolvedContent = slashResult.content;
 
-  const requestId = crypto.randomUUID();
+  const requestId = uuidv7();
   const persistMetadata = options?.slackInbound
     ? { slackInbound: options.slackInbound }
     : undefined;
-  const { id: messageId } = await conversation.persistUserMessage({
-    content: resolvedContent,
-    attachments,
-    requestId,
-    metadata: persistMetadata,
-    displayContent: options?.displayContent,
-  });
+  const ingressKey = deriveIngressIdempotencyKey(options);
+  const { id: messageId, deduplicated } = await conversation.persistUserMessage(
+    {
+      content: resolvedContent,
+      attachments,
+      requestId,
+      metadata: persistMetadata,
+      displayContent: options?.displayContent,
+      ...(options?.skipUserMessageIndexing ? { skipIndexing: true } : {}),
+      ...(ingressKey ? { clientMessageId: ingressKey } : {}),
+    },
+  );
   publishConversationMessagesChanged(conversationId);
+
+  if (deduplicated) {
+    // This exact ingress (same idempotency key) already ran a turn; skip the
+    // loop so an at-least-once redelivery does not emit a second reply. The
+    // `deduplicated` signal also stops channel finalization from re-delivering
+    // the original reply.
+    log.info(
+      { conversationId, messageId },
+      "Skipping agent loop for deduplicated ingress message",
+    );
+    return {
+      messageId,
+      deduplicated: true,
+      turnFailure: readTurnFailure(messageId),
+    };
+  }
 
   if (options?.isInteractive === true) {
     conversation.updateClient(broadcastMessage, false);
     getSubagentManager().updateParentSender(conversationId, broadcastMessage);
   }
 
+  const restoreToolScope = applyTurnToolAllowlist(conversation, options);
   try {
     await conversation.runAgentLoop(resolvedContent, messageId, {
       onEvent: emitEvent,
@@ -582,6 +718,7 @@ export async function processMessage(
       ...(options?.cronRunId ? { cronRunId: options.cronRunId } : {}),
     });
   } finally {
+    restoreToolScope();
     if (
       options?.isInteractive === true &&
       conversation.getCurrentSender() === broadcastMessage
@@ -590,7 +727,12 @@ export async function processMessage(
     }
   }
 
-  return { messageId };
+  // Read the just-finished turn's outcome from the stamp `runAgentLoop`'s
+  // `finally` wrote onto this user-message row. A failed turn (e.g. an LLM
+  // call that failed with an invalid provider) ends without throwing, so this
+  // is the only signal an awaiting caller gets.
+  const turnFailure = readTurnFailure(messageId);
+  return { messageId, turnFailure };
 }
 
 /**
@@ -615,24 +757,38 @@ export async function processMessageInBackground(
   );
   const emitEvent = buildEventEmitter(options?.onEvent);
 
-  const requestId = crypto.randomUUID();
+  const requestId = uuidv7();
   const persistMetadata = options?.slackInbound
     ? { slackInbound: options.slackInbound }
     : undefined;
-  const { id: messageId } = await conversation.persistUserMessage({
-    content,
-    attachments,
-    requestId,
-    metadata: persistMetadata,
-    displayContent: options?.displayContent,
-  });
+  const ingressKey = deriveIngressIdempotencyKey(options);
+  const { id: messageId, deduplicated } = await conversation.persistUserMessage(
+    {
+      content,
+      attachments,
+      requestId,
+      metadata: persistMetadata,
+      displayContent: options?.displayContent,
+      ...(ingressKey ? { clientMessageId: ingressKey } : {}),
+    },
+  );
   publishConversationMessagesChanged(conversationId);
+
+  if (deduplicated) {
+    // At-least-once redelivery of a turn that already ran — skip the loop.
+    log.info(
+      { conversationId, messageId },
+      "Skipping background agent loop for deduplicated ingress message",
+    );
+    return { messageId };
+  }
 
   if (options?.isInteractive === true) {
     conversation.updateClient(broadcastMessage, false);
     getSubagentManager().updateParentSender(conversationId, broadcastMessage);
   }
 
+  const restoreToolScope = applyTurnToolAllowlist(conversation, options);
   conversation
     .runAgentLoop(content, messageId, {
       onEvent: emitEvent,
@@ -645,6 +801,7 @@ export async function processMessageInBackground(
       ...(options?.cronRunId ? { cronRunId: options.cronRunId } : {}),
     })
     .finally(() => {
+      restoreToolScope();
       if (
         options?.isInteractive === true &&
         conversation.getCurrentSender() === broadcastMessage

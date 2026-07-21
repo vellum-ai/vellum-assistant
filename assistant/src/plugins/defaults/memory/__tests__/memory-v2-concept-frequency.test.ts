@@ -1,22 +1,7 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { Database } from "bun:sqlite";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("../../../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-mock.module("../../../../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    model: "test",
-    provider: "test",
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    secretDetection: { enabled: false },
-  }),
-}));
+import { drizzle } from "drizzle-orm/bun-sqlite";
 
 let listPagesImpl: (workspaceDir: string) => Promise<string[]> = async () => [];
 
@@ -24,9 +9,12 @@ mock.module("../v2/page-store.js", () => ({
   listPages: (workspaceDir: string) => listPagesImpl(workspaceDir),
 }));
 
-import { getDb } from "../../../../persistence/db-connection.js";
-import { initializeDb } from "../../../../persistence/db-init.js";
-import { memoryV2ActivationLogs } from "../../../../persistence/schema/index.js";
+import {
+  clearStoredDb,
+  setStoredDb,
+} from "../../../../persistence/db-singleton.js";
+import { ensureActivationLogsSchema } from "../../../../persistence/migrations/336-move-memory-v2-activation-logs-to-memory-db.js";
+import * as schema from "../../../../persistence/schema/index.js";
 import {
   type MemoryV2ConceptRowRecord,
   recordMemoryV2ActivationLog,
@@ -34,7 +22,10 @@ import {
 import { getConceptFrequencySummary } from "../memory-v2-concept-frequency.js";
 import { sampleConfig } from "./fixtures/memory-v2-activation-fixtures.js";
 
-await initializeDb();
+// The store and aggregator resolve the dedicated memory connection through
+// the `memory` singleton slot — install a fresh in-memory DB there with the
+// relocated table's schema.
+let memorySqlite: Database;
 
 const WORKSPACE = "/tmp/memory-v2-concept-frequency-test";
 
@@ -59,14 +50,18 @@ function makeConcept(
   };
 }
 
-function resetTables(): void {
-  getDb().delete(memoryV2ActivationLogs).run();
-}
-
 describe("memory-v2-concept-frequency", () => {
   beforeEach(() => {
-    resetTables();
+    memorySqlite = new Database(":memory:");
+    ensureActivationLogsSchema(memorySqlite);
+    setStoredDb("memory", drizzle(memorySqlite, { schema }), () =>
+      memorySqlite.close(),
+    );
     listPagesImpl = async () => [];
+  });
+
+  afterEach(() => {
+    clearStoredDb("memory");
   });
 
   test("aggregates per-status counts across multiple turns", async () => {
@@ -203,7 +198,7 @@ describe("memory-v2-concept-frequency", () => {
       config: sampleConfig,
     });
     // Backdate the just-written row — recordMemoryV2ActivationLog uses Date.now().
-    getDb().update(memoryV2ActivationLogs).set({ createdAt: 1_000 }).run();
+    memorySqlite.exec(`UPDATE memory_v2_activation_logs SET created_at = 1000`);
 
     recordMemoryV2ActivationLog({
       conversationId: "conv-1",

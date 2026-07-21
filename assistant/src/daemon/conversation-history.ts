@@ -1,9 +1,11 @@
+import type { MessageRow } from "../persistence/conversation-crud.js";
 import {
   deleteLastExchange,
   deleteMessageById,
   getMessages,
   relinkAttachments,
   updateMessageContent,
+  updateMessageMetadata,
 } from "../persistence/conversation-crud.js";
 import { isLastUserMessageToolResult } from "../persistence/conversation-queries.js";
 import { withQdrantBreaker } from "../persistence/embeddings/qdrant-circuit-breaker.js";
@@ -14,6 +16,7 @@ import { relinkLlmRequestLogs } from "../persistence/llm-request-log-store.js";
 import { getSummaryFromContextMessage } from "../plugins/defaults/compaction/window-manager.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
+import { startsNewTurn } from "./summarize-boundary.js";
 
 const log = getLogger("conversation-history");
 
@@ -164,12 +167,10 @@ export function consolidateAssistantMessages(
     } else if (msg.role === "user") {
       // Check if this is an internal tool_result message (no text, only tool_result blocks)
       try {
-        const content = JSON.parse(msg.content);
+        const content = msg.content;
         const isToolResultOnly =
           Array.isArray(content) &&
-          content.every((block: Record<string, unknown>) =>
-            isToolResultBlock(block),
-          ) &&
+          content.every((block) => isToolResultBlock(block)) &&
           content.length > 0;
         if (isToolResultOnly) {
           internalToolResultMessages.push(msg);
@@ -223,11 +224,9 @@ export function consolidateAssistantMessages(
   const consolidatedContent: ContentBlock[] = [];
   for (const msg of messagesToConsolidate) {
     try {
-      const content = JSON.parse(msg.content);
+      const content = msg.content;
       if (Array.isArray(content)) {
-        const toolUseBlocks = content.filter(
-          (b: Record<string, unknown>) => b.type === "tool_use",
-        );
+        const toolUseBlocks = content.filter((b) => b.type === "tool_use");
         log.info(
           {
             messageId: msg.id,
@@ -249,11 +248,9 @@ export function consolidateAssistantMessages(
   // Also merge tool_result blocks from internal user messages
   for (const msg of internalToolResultMessages) {
     try {
-      const content = JSON.parse(msg.content);
+      const content = msg.content;
       if (Array.isArray(content)) {
-        const toolResultBlocks = content.filter((b: Record<string, unknown>) =>
-          isToolResultBlock(b),
-        );
+        const toolResultBlocks = content.filter((b) => isToolResultBlock(b));
         log.info(
           {
             messageId: msg.id,
@@ -408,4 +405,92 @@ export function undo(conversation: HistoryConversationContext): number {
   }
 
   return removed;
+}
+
+// ── Retry ────────────────────────────────────────────────────────────
+
+export interface DiscardedAssistantTail {
+  /** The turn-starting user row the retry re-runs from. Never deleted. */
+  anchor: MessageRow;
+  /** Ids of the deleted tail rows, newest first. */
+  deletedMessageIds: string[];
+}
+
+/**
+ * Flatten a persisted user row's text blocks into the prompt string a re-run
+ * passes to the agent loop. Only feeds the prompt-submit hook (memory
+ * retrieval + title seed) — the LLM history comes from the persisted rows —
+ * so tool_result/attachment blocks are irrelevant and system_notice blocks
+ * (retry nudges, progress checks) are excluded like the undo path excludes
+ * them from user content.
+ */
+export function extractUserPromptText(content: ContentBlock[]): string {
+  return content
+    .filter((block) => block.type === "text" && !isSystemNoticeBlock(block))
+    .map((block) => (block as { text?: string }).text ?? "")
+    .join("\n")
+    .trim();
+}
+
+/**
+ * Delete the latest assistant display turn — every row after the last
+ * turn-starting user message (assistant rows plus tool-result-only user
+ * rows) — keeping the user row itself so the turn can be re-run from it.
+ *
+ * Returns null when the conversation has no turn-starting user row. Rows
+ * are deleted newest-first so an interrupted run leaves a well-formed
+ * shorter tail that a subsequent retry can finish. `deleteMessageById`
+ * owns the per-row cleanup (attachments, memory segments, lexical index,
+ * `lastMessageAt`); Qdrant vector deletion for the removed segments is
+ * fired asynchronously here. The anchor's `turnOutcome` failure stamp is
+ * cleared — it described the discarded turn.
+ */
+export function discardLastAssistantDisplayTurn(
+  conversationId: string,
+): DiscardedAssistantTail | null {
+  const rows = getMessages(conversationId);
+  let anchorIndex = -1;
+  for (let i = rows.length - 1; i >= 0; i--) {
+    if (startsNewTurn(rows[i])) {
+      anchorIndex = i;
+      break;
+    }
+  }
+  if (anchorIndex === -1) {
+    return null;
+  }
+
+  const tail = rows.slice(anchorIndex + 1);
+  const deletedMessageIds: string[] = [];
+  const segmentIds: string[] = [];
+  for (let i = tail.length - 1; i >= 0; i--) {
+    const deleted = deleteMessageById(tail[i].id);
+    deletedMessageIds.push(tail[i].id);
+    segmentIds.push(...deleted.segmentIds);
+  }
+
+  const anchor = rows[anchorIndex];
+  updateMessageMetadata(anchor.id, {
+    turnOutcome: null,
+    turnFailureCode: null,
+  });
+
+  if (segmentIds.length > 0) {
+    cleanupQdrantVectors(conversationId, segmentIds).catch((err) => {
+      log.warn(
+        { err, conversationId },
+        "Qdrant cleanup after retry discard failed (non-fatal)",
+      );
+    });
+  }
+
+  log.info(
+    {
+      conversationId,
+      anchorMessageId: anchor.id,
+      deletedCount: deletedMessageIds.length,
+    },
+    "Discarded last assistant display turn for retry",
+  );
+  return { anchor, deletedMessageIds };
 }

@@ -31,6 +31,7 @@ import type {
   HookFunction,
   UserPromptSubmitContext,
 } from "@vellumai/plugin-api";
+import { updateMessageMetadata } from "@vellumai/plugin-api";
 
 import { getConfig } from "../../../../config/loader.js";
 import { isMemoryV3Live } from "../../../../config/memory-v3-gate.js";
@@ -43,9 +44,9 @@ import {
 } from "../../../../daemon/conversation-runtime-assembly.js";
 import type { MemoryRecalled } from "../../../../daemon/message-types/memory.js";
 import { resolveTrustClass } from "../../../../daemon/trust-context.js";
-import { updateMessageMetadata } from "../../../../persistence/conversation-crud.js";
+import { timeLatencySubSpan } from "../../../../daemon/turn-latency-sub-spans.js";
 import { broadcastMessage } from "../../../../runtime/assistant-event-hub.js";
-import type { GraphMemoryResult } from "../../../types.js";
+import type { GraphMemoryResult } from "../graph/conversation-graph-memory.js";
 import { recordMemoryRecallLog } from "../memory-recall-log-store.js";
 import { MEMORY_V3_INJECTED_BLOCK_METADATA_KEY } from "../v3/ever-injected-store.js";
 
@@ -81,13 +82,13 @@ export function shouldRunV2Retrieval(params: {
  * persistInjectionBlocks} REMOVES this key again in its combined update — a
  * transient both-keys state mid-turn is acceptable; a v2 loss window is not.
  */
-function recordRecallSideEffects(
+async function recordRecallSideEffects(
   graphResult: GraphMemoryResult,
   ctx: UserPromptSubmitContext,
-): void {
+): Promise<void> {
   if (graphResult.injectedBlockText) {
     try {
-      updateMessageMetadata(ctx.userMessageId, {
+      await updateMessageMetadata(ctx.userMessageId, {
         memoryInjectedBlock: graphResult.injectedBlockText,
       });
     } catch (err) {
@@ -180,11 +181,11 @@ function recordRecallSideEffects(
  *    persists under `MEMORY_V3_INJECTED_BLOCK_METADATA_KEY`; `loadFromDb`
  *    re-wraps and splices it on load, freezing the cards into history.
  */
-function persistInjectionBlocks(
+async function persistInjectionBlocks(
   blocks: RuntimeInjectionResult["blocks"],
   ctx: UserPromptSubmitContext,
   v2BlockPersisted: boolean,
-): void {
+): Promise<void> {
   const removeV2Block = Boolean(blocks.memoryV3Active) && v2BlockPersisted;
   if (
     !blocks.unifiedTurnContext &&
@@ -243,7 +244,7 @@ function persistInjectionBlocks(
       metadataUpdates.nonInteractiveContextBlock =
         blocks.nonInteractiveContextBlock;
     }
-    updateMessageMetadata(ctx.userMessageId, metadataUpdates);
+    await updateMessageMetadata(ctx.userMessageId, metadataUpdates);
   } catch (err) {
     ctx.logger.warn(
       { err },
@@ -297,14 +298,19 @@ const userPromptSubmitMemoryRetrieval: HookFunction<
     // publish to the shared `broadcastMessage` hub — the sink every turn
     // publisher converges to — rather than a threaded event callback. This
     // keeps any raw client-emit capability off the hook contract.
-    const graphResult = await conversation.graphMemory.prepareMemory(
-      ctx.latestMessages,
-      config,
-      abortSignal,
-      broadcastMessage,
+    const graphResult = await timeLatencySubSpan(
+      "graph_memory",
+      "Graph memory retrieval",
+      () =>
+        conversation.graphMemory.prepareMemory(
+          ctx.latestMessages,
+          config,
+          abortSignal,
+          broadcastMessage,
+        ),
     );
 
-    recordRecallSideEffects(graphResult, ctx);
+    await recordRecallSideEffects(graphResult, ctx);
     // The v2 block is persisted inside `recordRecallSideEffects`. If
     // memory-v3 supersedes it later this turn, `persistInjectionBlocks`
     // removes the key in its combined post-assembly update.
@@ -365,7 +371,7 @@ const userPromptSubmitMemoryRetrieval: HookFunction<
     conversationId: ctx.conversationId,
   });
   ctx.latestMessages = injection.messages;
-  persistInjectionBlocks(injection.blocks, ctx, v2BlockPersisted);
+  await persistInjectionBlocks(injection.blocks, ctx, v2BlockPersisted);
 };
 
 export default userPromptSubmitMemoryRetrieval;

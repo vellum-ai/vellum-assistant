@@ -1,23 +1,21 @@
 import { describe, expect, test } from "bun:test";
 
-import { parseExtractionResponse } from "./extraction.js";
+import type { DeferredEdge } from "./extraction.js";
+import {
+  applySupersessionDurability,
+  parseExtractionResponse,
+} from "./extraction.js";
+import type { MemoryDiff, MemoryNode, NewNode } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 const CONV_ID = "conv-test-1";
-const SCOPE_ID = "default";
 const NOW = Date.now();
 
 function parse(input: Record<string, unknown>, candidateIds: string[] = []) {
-  return parseExtractionResponse(
-    input,
-    CONV_ID,
-    SCOPE_ID,
-    new Set(candidateIds),
-    NOW,
-  );
+  return parseExtractionResponse(input, CONV_ID, new Set(candidateIds), NOW);
 }
 
 // ---------------------------------------------------------------------------
@@ -62,7 +60,6 @@ describe("parseExtractionResponse — node creation", () => {
     expect(node.reinforcementCount).toBe(0);
     expect(node.created).toBe(NOW);
     expect(node.sourceConversations).toEqual([CONV_ID]);
-    expect(node.scopeId).toBe(SCOPE_ID);
   });
 
   test("prospective nodes get stability=5", () => {
@@ -1225,5 +1222,325 @@ describe("parseExtractionResponse — robustness", () => {
   test("handles missing reinforce_node_ids gracefully", () => {
     const { diff } = parse({ create_nodes: [] });
     expect(diff.reinforceNodeIds).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// applySupersessionDurability
+// ---------------------------------------------------------------------------
+
+function mockNode(overrides: Partial<MemoryNode> = {}): MemoryNode {
+  return {
+    id: "node-x",
+    content: "Some fact.",
+    type: "semantic",
+    created: NOW,
+    lastAccessed: NOW,
+    lastConsolidated: NOW,
+    eventDate: null,
+    emotionalCharge: {
+      valence: 0,
+      intensity: 0,
+      decayCurve: "linear",
+      decayRate: 0.05,
+      originalIntensity: 0,
+    },
+    fidelity: "vivid",
+    confidence: 0.8,
+    significance: 0.5,
+    stability: 14,
+    reinforcementCount: 0,
+    lastReinforced: NOW,
+    sourceConversations: [CONV_ID],
+    sourceType: "direct",
+    narrativeRole: null,
+    partOfStory: null,
+    imageRefs: null,
+    ...overrides,
+  };
+}
+
+function emptyDiff(): MemoryDiff {
+  return {
+    createNodes: [],
+    updateNodes: [],
+    deleteNodeIds: [],
+    createEdges: [],
+    deleteEdgeIds: [],
+    createTriggers: [],
+    deleteTriggerIds: [],
+    reinforceNodeIds: [],
+  };
+}
+
+function newNodeStub(overrides: Partial<NewNode> = {}): NewNode {
+  return {
+    content: "New fact.",
+    type: "semantic",
+    created: NOW,
+    lastAccessed: NOW,
+    lastConsolidated: NOW,
+    eventDate: null,
+    emotionalCharge: {
+      valence: 0,
+      intensity: 0,
+      decayCurve: "linear",
+      decayRate: 0.05,
+      originalIntensity: 0,
+    },
+    fidelity: "vivid",
+    confidence: 0.8,
+    significance: 0.5,
+    stability: 14,
+    reinforcementCount: 0,
+    lastReinforced: NOW,
+    sourceConversations: [CONV_ID],
+    sourceType: "direct",
+    narrativeRole: null,
+    partOfStory: null,
+    imageRefs: null,
+    ...overrides,
+  };
+}
+
+describe("applySupersessionDurability — new→existing", () => {
+  test("new node inherits stability from superseded node when old is higher", () => {
+    const diff = emptyDiff();
+    diff.createNodes.push(newNodeStub({ stability: 14 }));
+
+    const deferredEdges: DeferredEdge[] = [
+      {
+        source: { kind: "new", newNodeIndex: 0 },
+        target: { kind: "existing", nodeId: "old-1" },
+        relationship: "supersedes",
+        weight: 1,
+      },
+    ];
+
+    const nodeMap = new Map([
+      ["old-1", mockNode({ id: "old-1", stability: 45 })],
+    ]);
+
+    applySupersessionDurability(diff, deferredEdges, nodeMap);
+
+    expect(diff.createNodes[0].stability).toBe(45);
+  });
+
+  test("new node keeps its own higher stability when it exceeds old node", () => {
+    const diff = emptyDiff();
+    diff.createNodes.push(newNodeStub({ stability: 60 }));
+
+    const deferredEdges: DeferredEdge[] = [
+      {
+        source: { kind: "new", newNodeIndex: 0 },
+        target: { kind: "existing", nodeId: "old-1" },
+        relationship: "supersedes",
+        weight: 1,
+      },
+    ];
+
+    const nodeMap = new Map([
+      ["old-1", mockNode({ id: "old-1", stability: 30 })],
+    ]);
+
+    applySupersessionDurability(diff, deferredEdges, nodeMap);
+
+    expect(diff.createNodes[0].stability).toBe(60);
+  });
+
+  test("new node inherits reinforcementCount from superseded node", () => {
+    const diff = emptyDiff();
+    diff.createNodes.push(newNodeStub({ reinforcementCount: 0 }));
+
+    const deferredEdges: DeferredEdge[] = [
+      {
+        source: { kind: "new", newNodeIndex: 0 },
+        target: { kind: "existing", nodeId: "old-1" },
+        relationship: "supersedes",
+        weight: 1,
+      },
+    ];
+
+    const nodeMap = new Map([
+      ["old-1", mockNode({ id: "old-1", reinforcementCount: 3 })],
+    ]);
+
+    applySupersessionDurability(diff, deferredEdges, nodeMap);
+
+    expect(diff.createNodes[0].reinforcementCount).toBe(3);
+  });
+
+  test("new node significance becomes max of new and old", () => {
+    const diff = emptyDiff();
+    diff.createNodes.push(newNodeStub({ significance: 0.4 }));
+
+    const deferredEdges: DeferredEdge[] = [
+      {
+        source: { kind: "new", newNodeIndex: 0 },
+        target: { kind: "existing", nodeId: "old-1" },
+        relationship: "supersedes",
+        weight: 1,
+      },
+    ];
+
+    const nodeMap = new Map([
+      ["old-1", mockNode({ id: "old-1", significance: 0.8 })],
+    ]);
+
+    applySupersessionDurability(diff, deferredEdges, nodeMap);
+
+    expect(diff.createNodes[0].significance).toBe(0.8);
+  });
+
+  test("non-supersedes edges are not touched", () => {
+    const diff = emptyDiff();
+    diff.createNodes.push(
+      newNodeStub({ stability: 14, reinforcementCount: 0 }),
+    );
+
+    const deferredEdges: DeferredEdge[] = [
+      {
+        source: { kind: "new", newNodeIndex: 0 },
+        target: { kind: "existing", nodeId: "old-1" },
+        relationship: "caused-by",
+        weight: 1,
+      },
+    ];
+
+    const nodeMap = new Map([
+      [
+        "old-1",
+        mockNode({ id: "old-1", stability: 50, reinforcementCount: 5 }),
+      ],
+    ]);
+
+    applySupersessionDurability(diff, deferredEdges, nodeMap);
+
+    expect(diff.createNodes[0].stability).toBe(14);
+    expect(diff.createNodes[0].reinforcementCount).toBe(0);
+  });
+
+  test("skips gracefully when target not in candidate map", () => {
+    const diff = emptyDiff();
+    diff.createNodes.push(newNodeStub({ stability: 14 }));
+
+    const deferredEdges: DeferredEdge[] = [
+      {
+        source: { kind: "new", newNodeIndex: 0 },
+        target: { kind: "existing", nodeId: "ghost-id" },
+        relationship: "supersedes",
+        weight: 1,
+      },
+    ];
+
+    applySupersessionDurability(diff, deferredEdges, new Map());
+
+    expect(diff.createNodes[0].stability).toBe(14);
+  });
+});
+
+describe("applySupersessionDurability — existing→existing", () => {
+  test("adds updateNode entry for superseding existing node", () => {
+    const diff = emptyDiff();
+    diff.createEdges.push({
+      sourceNodeId: "new-fact",
+      targetNodeId: "old-fact",
+      relationship: "supersedes",
+      weight: 1,
+      created: NOW,
+    });
+
+    const nodeMap = new Map([
+      [
+        "new-fact",
+        mockNode({
+          id: "new-fact",
+          stability: 14,
+          reinforcementCount: 0,
+          significance: 0.5,
+        }),
+      ],
+      [
+        "old-fact",
+        mockNode({
+          id: "old-fact",
+          stability: 40,
+          reinforcementCount: 2,
+          significance: 0.7,
+        }),
+      ],
+    ]);
+
+    applySupersessionDurability(diff, [], nodeMap);
+
+    expect(diff.updateNodes).toHaveLength(1);
+    const update = diff.updateNodes[0];
+    expect(update.id).toBe("new-fact");
+    expect(update.changes.stability).toBe(40);
+    expect(update.changes.reinforcementCount).toBe(2);
+    expect(update.changes.significance).toBe(0.7);
+  });
+
+  test("merges into existing updateNode rather than adding a duplicate", () => {
+    const diff = emptyDiff();
+    diff.updateNodes.push({
+      id: "new-fact",
+      changes: { content: "Corrected content.", significance: 0.9 },
+    });
+    diff.createEdges.push({
+      sourceNodeId: "new-fact",
+      targetNodeId: "old-fact",
+      relationship: "supersedes",
+      weight: 1,
+      created: NOW,
+    });
+
+    const nodeMap = new Map([
+      [
+        "new-fact",
+        mockNode({
+          id: "new-fact",
+          stability: 14,
+          reinforcementCount: 0,
+          significance: 0.6,
+        }),
+      ],
+      [
+        "old-fact",
+        mockNode({
+          id: "old-fact",
+          stability: 35,
+          reinforcementCount: 4,
+          significance: 0.7,
+        }),
+      ],
+    ]);
+
+    applySupersessionDurability(diff, [], nodeMap);
+
+    expect(diff.updateNodes).toHaveLength(1);
+    const update = diff.updateNodes[0];
+    expect(update.changes.content).toBe("Corrected content.");
+    expect(update.changes.stability).toBe(35);
+    expect(update.changes.reinforcementCount).toBe(4);
+    // LLM said 0.9, old had 0.7 — max wins
+    expect(update.changes.significance).toBe(0.9);
+  });
+
+  test("skips gracefully when target not in candidate map", () => {
+    const diff = emptyDiff();
+    diff.createEdges.push({
+      sourceNodeId: "new-fact",
+      targetNodeId: "ghost",
+      relationship: "supersedes",
+      weight: 1,
+      created: NOW,
+    });
+
+    const nodeMap = new Map([["new-fact", mockNode({ id: "new-fact" })]]);
+
+    applySupersessionDurability(diff, [], nodeMap);
+
+    expect(diff.updateNodes).toHaveLength(0);
   });
 });

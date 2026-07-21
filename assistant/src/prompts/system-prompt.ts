@@ -10,10 +10,8 @@ import { join } from "node:path";
 
 import { getIsContainerized } from "../config/env-registry.js";
 import type { ChannelCapabilities } from "../daemon/conversation-runtime-assembly.js";
-import {
-  resolveTrustClass,
-  type TrustContext,
-} from "../daemon/trust-context.js";
+import { resolveTrustClass } from "../daemon/trust-context.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import { markActivationSession } from "../plugins/defaults/memory/activation-session-store.js";
 import { derivePersonaTrustFlags } from "../runtime/trust-class.js";
 import { ACTIVATION_RAIL_BOOTSTRAP_TEMPLATE } from "../telemetry/activation-funnel.js";

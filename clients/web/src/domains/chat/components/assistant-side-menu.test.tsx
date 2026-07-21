@@ -8,6 +8,7 @@
  */
 
 import { describe, expect, mock, test } from "bun:test";
+import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
@@ -27,6 +28,18 @@ mock.module("@/hooks/conversation-queries", () => ({
   useScheduledConversationListQuery: () => ({
     conversations: [],
     isPending: false,
+  }),
+}));
+
+// The assistant nav item reads the avatar through React Query; stub it so
+// static SSR rendering resolves without a QueryClient.
+mock.module("@/hooks/use-assistant-avatar", () => ({
+  useAssistantAvatar: () => ({
+    components: null,
+    traits: null,
+    customImageUrl: null,
+    isLoading: false,
+    invalidate: () => {},
   }),
 }));
 
@@ -50,6 +63,7 @@ function renderMenu(props: {
   collapsed?: boolean;
   variant?: "rail" | "overlay";
   includeFooterAction?: boolean;
+  includeTipCard?: boolean;
 }): string {
   const includeFooterAction = props.includeFooterAction ?? true;
   return renderToStaticMarkup(
@@ -63,12 +77,15 @@ function renderMenu(props: {
       footerAction: includeFooterAction
         ? createElement("span", null, "Preferences")
         : undefined,
+      tipCard: props.includeTipCard
+        ? createElement("span", null, "TipSentinel")
+        : undefined,
     }),
   );
 }
 
-describe("AssistantSideMenu · Conversations category rows", () => {
-  test("renders Pinned above Conversations with bucket rows after recents", () => {
+describe("AssistantSideMenu · Chats category rows", () => {
+  test("renders Pinned above Chats with bucket rows after recents", () => {
     const conversations = [
       makeConversation({ conversationId: "p1", isPinned: true }),
       makeConversation({
@@ -81,7 +98,7 @@ describe("AssistantSideMenu · Conversations category rows", () => {
 
     const html = renderMenu({ conversations });
 
-    expect(html).toContain(">Conversations<");
+    expect(html).toContain(">Chats<");
     expect(html).toContain(">Pinned<");
     expect(html).toContain(">Pinned thread<");
     expect(html).not.toContain(">Scheduled<");
@@ -91,7 +108,7 @@ describe("AssistantSideMenu · Conversations category rows", () => {
     expect(html).not.toContain(">Slack<");
 
     expect(html.indexOf(">Pinned<")).toBeLessThan(
-      html.indexOf(">Conversations<"),
+      html.indexOf(">Chats<"),
     );
   });
 
@@ -131,7 +148,7 @@ describe("AssistantSideMenu · Conversations category rows", () => {
     expect(expandedHtml).toContain(">Pinned<");
     expect(expandedHtml).toContain(">Pinned thread<");
     expect(expandedHtml.indexOf(">Pinned<")).toBeLessThan(
-      expandedHtml.indexOf(">Conversations<"),
+      expandedHtml.indexOf(">Chats<"),
     );
   });
 
@@ -147,7 +164,7 @@ describe("AssistantSideMenu · Conversations category rows", () => {
     expect(collapsedHtml).not.toContain('aria-label="Pinned"');
   });
 
-  test("omits chat count badges from the Conversations section rows", () => {
+  test("omits chat count badges from the Chats section rows", () => {
     const conversations = [
       makeConversation({
         conversationId: "recent-alpha",
@@ -161,7 +178,7 @@ describe("AssistantSideMenu · Conversations category rows", () => {
 
     const html = renderMenu({ conversations });
 
-    expect(html).toContain(">Conversations<");
+    expect(html).toContain(">Chats<");
     expect(html).not.toContain(">2<");
     expect(html).not.toContain(">1<");
   });
@@ -259,6 +276,194 @@ describe("AssistantSideMenu · footer slot behavior", () => {
     const html = renderMenu({ conversations, includeFooterAction: false });
 
     expect(html).not.toContain("Preferences");
+    expect(html).not.toContain('data-slot="side-menu-footer"');
+  });
+});
+
+describe("AssistantSideMenu · tipCard slot", () => {
+  const conversations = [
+    makeConversation({ conversationId: "a", title: "Alpha" }),
+  ];
+
+  test("renders the rail footer as tip card, then divider, then footer action", () => {
+    const html = renderMenu({ conversations, includeTipCard: true });
+
+    const footerIndex = html.indexOf('data-slot="side-menu-footer"');
+    const tipIndex = html.indexOf("TipSentinel");
+    const separatorIndex = html.indexOf(
+      'data-slot="side-menu-separator"',
+      tipIndex,
+    );
+    const actionIndex = html.indexOf("Preferences");
+    expect(footerIndex).toBeGreaterThanOrEqual(0);
+    expect(tipIndex).toBeGreaterThan(footerIndex);
+    // The divider sits BETWEEN the tip card and the footer action, never
+    // above the tip.
+    expect(separatorIndex).toBeGreaterThan(tipIndex);
+    expect(actionIndex).toBeGreaterThan(separatorIndex);
+  });
+
+  test("hides the tip card on the collapsed rail", () => {
+    const html = renderMenu({
+      conversations,
+      collapsed: true,
+      includeTipCard: true,
+    });
+
+    expect(html).not.toContain("TipSentinel");
+    // The footer action still renders when collapsed.
+    expect(html).toContain("Preferences");
+  });
+
+  test("renders the footer when only the tip card is provided", () => {
+    const html = renderMenu({
+      conversations,
+      includeFooterAction: false,
+      includeTipCard: true,
+    });
+
+    expect(html).toContain('data-slot="side-menu-footer"');
+    expect(html).toContain("TipSentinel");
+    expect(html).not.toContain("Preferences");
+  });
+
+  test("renders the tip card in the overlay floating container above the action pills", () => {
+    const html = renderMenu({
+      conversations,
+      variant: "overlay",
+      includeTipCard: true,
+    });
+
+    const tipIndex = html.indexOf("TipSentinel");
+    const actionIndex = html.indexOf("Preferences");
+    expect(tipIndex).toBeGreaterThanOrEqual(0);
+    expect(actionIndex).toBeGreaterThan(tipIndex);
+    // The wrapper re-enables pointer events inside the pointer-events-none
+    // container and collapses when the tip card renders null.
+    const wrapperOpen = html.lastIndexOf("<div", tipIndex);
+    const wrapper = html.slice(wrapperOpen, tipIndex);
+    expect(wrapper).toContain("pointer-events-auto");
+    expect(wrapper).toContain("empty:hidden");
+  });
+
+  test("omits the tip wrapper from the overlay when no tip card is provided", () => {
+    const html = renderMenu({ conversations, variant: "overlay" });
+
+    expect(html).not.toContain("empty:hidden");
+  });
+});
+
+describe("AssistantSideMenu · overlay bottom scroll reserve", () => {
+  const conversations = [
+    makeConversation({ conversationId: "a", title: "Alpha" }),
+  ];
+
+  const sliceBodyOpeningTag = (html: string): string => {
+    const slotIndex = html.indexOf('data-slot="side-menu-body"');
+    expect(slotIndex).toBeGreaterThanOrEqual(0);
+    const open = html.lastIndexOf("<div", slotIndex);
+    const close = html.indexOf(">", slotIndex);
+    return html.slice(open, close + 1);
+  };
+
+  test("rail body reserves no bottom padding", () => {
+    const tag = sliceBodyOpeningTag(renderMenu({ conversations }));
+
+    expect(tag).not.toContain("pb-24");
+    expect(tag).not.toContain("padding-bottom");
+  });
+
+  test("reserves the measured floating-column height once mounted", async () => {
+    const originalGetBoundingClientRect =
+      HTMLElement.prototype.getBoundingClientRect;
+    const originalResizeObserver = globalThis.ResizeObserver;
+    let measuredHeight = 132;
+    let resizeCallback: ResizeObserverCallback | null = null;
+
+    // Only the floating-column ref is measured by the reserve effect, so
+    // matching by tip descendant is safe — ancestors are never measured.
+    HTMLElement.prototype.getBoundingClientRect =
+      function getBoundingClientRect() {
+        if (this.querySelector('[data-testid="overlay-tip"]')) {
+          return {
+            bottom: measuredHeight,
+            height: measuredHeight,
+            left: 0,
+            right: 0,
+            top: 0,
+            width: 0,
+            x: 0,
+            y: 0,
+            toJSON: () => ({}),
+          };
+        }
+        return originalGetBoundingClientRect.call(this);
+      };
+    // Other components in the tree construct their own ResizeObservers, so
+    // capture the callback of the one observing the floating column rather
+    // than whichever was constructed last.
+    globalThis.ResizeObserver = class {
+      callback: ResizeObserverCallback;
+      constructor(callback: ResizeObserverCallback) {
+        this.callback = callback;
+      }
+      observe(target: Element) {
+        if (target.querySelector('[data-testid="overlay-tip"]')) {
+          resizeCallback = this.callback;
+        }
+      }
+      unobserve() {}
+      disconnect() {}
+    } as unknown as typeof ResizeObserver;
+
+    try {
+      const { container } = render(
+        createElement(AssistantSideMenu, {
+          assistantId: "asst-1",
+          collapsed: false,
+          variant: "overlay",
+          conversations,
+          onSelectConversation: () => {},
+          onStartNewConversation: () => {},
+          footerAction: createElement("span", null, "Preferences"),
+          tipCard: createElement(
+            "span",
+            { "data-testid": "overlay-tip" },
+            "TipSentinel",
+          ),
+        }),
+      );
+
+      // happy-dom's CSSStyleDeclaration drops values containing `env()`,
+      // so the composed `padding-bottom` calc is unobservable here; the
+      // measured height feeding it is asserted via its custom property,
+      // which happy-dom stores verbatim.
+      const measuredReserve = () => {
+        const body = container.querySelector<HTMLElement>(
+          '[data-slot="side-menu-body"]',
+        );
+        return body?.style.getPropertyValue("--overlay-bottom-column-h") ?? "";
+      };
+
+      await waitFor(() => {
+        expect(measuredReserve()).toBe("132px");
+      });
+
+      // Tip dismissal / copy-length changes resize the column; the
+      // reserve tracks the new height through the ResizeObserver.
+      measuredHeight = 56;
+      act(() => {
+        resizeCallback?.([], {} as ResizeObserver);
+      });
+      await waitFor(() => {
+        expect(measuredReserve()).toBe("56px");
+      });
+    } finally {
+      HTMLElement.prototype.getBoundingClientRect =
+        originalGetBoundingClientRect;
+      globalThis.ResizeObserver = originalResizeObserver;
+      cleanup();
+    }
   });
 });
 
@@ -271,7 +476,7 @@ describe("AssistantSideMenu · new conversation affordance", () => {
     onSelectConversation: () => {},
   };
 
-  test("renders the new-conversation pencil button when onStartNewConversation is supplied", () => {
+  test("renders the New Chat row (under the assistant row) when onStartNewConversation is supplied", () => {
     const html = renderToStaticMarkup(
       createElement(AssistantSideMenu, {
         ...baseProps,
@@ -279,17 +484,31 @@ describe("AssistantSideMenu · new conversation affordance", () => {
       }),
     );
 
-    expect(html).toContain('aria-label="New conversation"');
-    // It is a plain icon button, not a navigation link.
-    expect(html).not.toContain('<a aria-label="New conversation"');
+    expect(html).toContain(">New Chat<");
+    // It is a button row, not a navigation link.
+    expect(html).not.toContain("<a aria-label=\"New Chat\"");
   });
 
-  test("omits the new-conversation button when onStartNewConversation is absent", () => {
+  test("omits the New Chat row when onStartNewConversation is absent", () => {
     const html = renderToStaticMarkup(
       createElement(AssistantSideMenu, { ...baseProps }),
     );
 
-    expect(html).not.toContain('aria-label="New conversation"');
+    expect(html).not.toContain(">New Chat<");
+  });
+
+  test("the overlay drawer omits the New Chat row — its floating pill owns the action", () => {
+    const html = renderToStaticMarkup(
+      createElement(AssistantSideMenu, {
+        ...baseProps,
+        variant: "overlay" as const,
+        onStartNewConversation: () => {},
+      }),
+    );
+
+    // Exactly one "New Chat" — the floating pill (the overlay's only
+    // new-chat affordance); a nav-row duplicate would add label + title.
+    expect(html.match(/New Chat/g) ?? []).toHaveLength(1);
   });
 });
 

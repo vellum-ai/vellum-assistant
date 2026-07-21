@@ -52,10 +52,13 @@ let nextConversationConfig: FakeConversationConfig = {};
 let runLoopInvoked = false;
 /** The first user message persisted by the most recent FakeConversation. */
 let lastPersistedUserMessage: string | undefined;
+/** Records `setSubagentDenySideEffects` on the most recent FakeConversation. */
+let lastDenySideEffects: boolean | undefined;
 
 class FakeConversation {
   messages: Message[];
   usageStats = { inputTokens: 10, outputTokens: 5, estimatedCost: 0.001 };
+  subagentDeniedToolNames = new Set<string>();
   conversationType = "background";
   hasSystemPromptOverride = false;
 
@@ -91,6 +94,9 @@ class FakeConversation {
   setAssistantId() {}
   setEnabledPlugins() {}
   setSubagentAllowedTools() {}
+  setSubagentDenySideEffects(deny: boolean) {
+    lastDenySideEffects = deny;
+  }
   setPreactivatedSkillIds() {}
   getCurrentSystemPrompt() {
     return "system";
@@ -162,30 +168,12 @@ mock.module("../providers/call-site-routing.js", () => ({
   wrapWithCallSiteRouting: (provider: unknown) => provider,
 }));
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    llm: {
-      default: {
-        provider: "anthropic",
-        provider_connection: "anthropic-conn",
-        model: "claude-opus-4-7",
-      },
-    },
-    rateLimit: { maxRequestsPerMinute: 0 },
-  }),
-}));
-
 mock.module("../config/llm-resolver.js", () => ({
   resolveCallSiteConfig: () => ({
     provider: "anthropic",
     provider_connection: "anthropic-conn",
     maxTokens: 4096,
   }),
-}));
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
 }));
 
 // ── Imports (after mocks) ───────────────────────────────────────────────────
@@ -231,6 +219,33 @@ function registerFakeParent(parentConversationId: string): {
 }
 
 describe("SubagentManager.spawnAndAwait", () => {
+  // Reset outside the test body so TypeScript does not narrow the module var to
+  // `undefined` across the opaque spawnAndAwait call.
+  beforeEach(() => {
+    lastDenySideEffects = undefined;
+  });
+
+  test("wires denySideEffectTools onto the subagent conversation (read-only)", async () => {
+    nextConversationConfig = {};
+
+    const manager = new SubagentManager();
+    await manager.spawnAndAwait(
+      makeConfig({ denySideEffectTools: true }),
+      () => {},
+    );
+
+    expect(lastDenySideEffects).toBe(true);
+  });
+
+  test("leaves denySideEffectTools off by default", async () => {
+    nextConversationConfig = {};
+
+    const manager = new SubagentManager();
+    await manager.spawnAndAwait(makeConfig(), () => {});
+
+    expect(lastDenySideEffects).toBeUndefined();
+  });
+
   test("resolves to the child's final assistant text", async () => {
     nextConversationConfig = {
       messages: [

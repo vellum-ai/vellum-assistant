@@ -50,6 +50,12 @@ export async function resolveBatchTranscriber(): Promise<BatchTranscriber | null
     return null;
   }
 
+  if (provider === "vellum") {
+    return (await sttProviderKeyResolves("vellum"))
+      ? createDaemonBatchTranscriber(null, "vellum")
+      : null;
+  }
+
   const apiKey = await getProviderKeyAsync(credentialProviderName);
   return createDaemonBatchTranscriber(apiKey, provider as SttProviderId);
 }
@@ -124,13 +130,12 @@ export async function resolveTelephonySttCapability(): Promise<TelephonySttCapab
   }
 
   // Provider is telephony-eligible — verify credentials exist.
-  const apiKey = await getProviderKeyAsync(entry.credentialProvider);
-  if (!apiKey) {
+  if (!(await sttProviderKeyResolves(entry.credentialProvider))) {
     return {
       status: "missing-credentials",
       providerId: entry.id,
       credentialProvider: entry.credentialProvider,
-      reason: `No API key configured for credential provider "${entry.credentialProvider}"`,
+      reason: sttCredentialGapReason(entry.credentialProvider),
     };
   }
 
@@ -214,13 +219,12 @@ export async function resolveConversationStreamingSttCapability(): Promise<Conve
   }
 
   // Provider is streaming-eligible — verify credentials exist.
-  const apiKey = await getProviderKeyAsync(entry.credentialProvider);
-  if (!apiKey) {
+  if (!(await sttProviderKeyResolves(entry.credentialProvider))) {
     return {
       status: "missing-credentials",
       providerId: entry.id,
       credentialProvider: entry.credentialProvider,
-      reason: `No API key configured for credential provider "${entry.credentialProvider}"`,
+      reason: sttCredentialGapReason(entry.credentialProvider),
     };
   }
 
@@ -271,6 +275,12 @@ export interface ResolveStreamingTranscriberOptions {
    * Default: false.
    */
   utteranceBoundaryFinals?: boolean;
+  /**
+   * Silence window (ms) the provider waits before finalizing an utterance
+   * when `utteranceBoundaryFinals` is enabled (Deepgram `utterance_end_ms`).
+   * Ignored without `utteranceBoundaryFinals`. Default: 1000.
+   */
+  utteranceEndMs?: number;
 }
 
 /**
@@ -348,23 +358,33 @@ export async function resolveStreamingTranscriber(
     (diarizePreference === "preferred" || diarizePreference === "required") &&
     providerSupportsDiarization;
 
-  const apiKey = await getProviderKeyAsync(credentialProviderName);
-  if (!apiKey) {
+  const apiKey =
+    provider === "vellum"
+      ? null
+      : await getProviderKeyAsync(credentialProviderName);
+  if (provider === "vellum") {
+    if (!(await sttProviderKeyResolves("vellum"))) {
+      return null;
+    }
+  } else if (!apiKey) {
     return null;
   }
 
-  return createStreamingTranscriber(apiKey, provider as SttProviderId, {
+  return createStreamingTranscriber(apiKey ?? "", provider as SttProviderId, {
     sampleRate: options.sampleRate,
     diarize: enableDiarization,
     utteranceBoundaryFinals: options.utteranceBoundaryFinals ?? false,
+    utteranceEndMs: options.utteranceEndMs,
   });
 }
 
 /**
- * Deepgram `utterance_end_ms` used when utterance-boundary finals are
- * requested. Deepgram requires >= 1000 ms; this is the pause length after
- * which an `UtteranceEnd` frame confirms the utterance is complete even
- * when `speech_final` endpointing never fired (e.g. background noise).
+ * Default Deepgram `utterance_end_ms` used when utterance-boundary finals
+ * are requested and the caller supplies no override. This is the pause
+ * length after which an `UtteranceEnd` frame confirms the utterance is
+ * complete even when `speech_final` endpointing never fired (e.g.
+ * background noise). Telephony callers override it via
+ * `calls.voice.utteranceEndMs`.
  */
 const UTTERANCE_BOUNDARY_END_MS = 1_000;
 
@@ -387,6 +407,12 @@ interface CreateStreamingTranscriberOptions {
    * `null` instead).
    */
   utteranceBoundaryFinals?: boolean;
+  /**
+   * Silence window (ms) before an utterance is finalized. Only forwarded
+   * to Deepgram (as `utterance_end_ms`) when `utteranceBoundaryFinals`
+   * is set. Defaults to {@link UTTERANCE_BOUNDARY_END_MS}.
+   */
+  utteranceEndMs?: number;
 }
 
 /**
@@ -413,7 +439,8 @@ async function createStreamingTranscriber(
         ...(options.utteranceBoundaryFinals
           ? {
               utteranceBoundaryFinals: true,
-              utteranceEndMs: UTTERANCE_BOUNDARY_END_MS,
+              utteranceEndMs:
+                options.utteranceEndMs ?? UTTERANCE_BOUNDARY_END_MS,
             }
           : {}),
       });
@@ -443,6 +470,37 @@ async function createStreamingTranscriber(
         ...(options.diarize ? { diarize: true } : {}),
       });
     }
+    case "vellum": {
+      // Managed speech dials the GATEWAY's speech relay (velay contact is
+      // gateway-only); the apiKey argument is unused. Diarization is
+      // unsupported (not in the relay's param allowlist) and silently
+      // ignored, matching Gemini/Whisper — as is utteranceEndMs (the relay
+      // allowlist has no utterance_end_ms; boundary finals ride on
+      // endpointing alone).
+      // The gateway is the credential authority, but the platform
+      // connection (API key + assistant ID) is checkable locally — gate
+      // here so preflight reports "connect your account" instead of
+      // resolving a transcriber whose dial is doomed.
+      const { vellumManagedSpeechAvailable } =
+        await import("./vellum-managed.js");
+      if (!(await vellumManagedSpeechAvailable())) {
+        return null;
+      }
+      const { resolveSpeechRelayConnection } =
+        await import("./vellum-speech-relay-connection.js");
+      const connection = await resolveSpeechRelayConnection();
+      if (!connection) {
+        return null;
+      }
+      const { VellumManagedRealtimeTranscriber } =
+        await import("./vellum-managed-realtime.js");
+      return new VellumManagedRealtimeTranscriber(connection, {
+        sampleRate: options.sampleRate,
+        ...(options.utteranceBoundaryFinals
+          ? { utteranceBoundaryFinals: true }
+          : {}),
+      });
+    }
     default: {
       const _exhaustive: never = providerId;
       return null;
@@ -456,8 +514,26 @@ async function createStreamingTranscriber(
  * Centralized here (an authorized secure-keys importer) so callers that only
  * need a key-existence check don't import secure-keys directly.
  */
+/**
+ * Human-readable reason for a credential gap, aware that connection-based
+ * providers (vellum) are fixed by connecting the platform account, not by
+ * entering an API key.
+ */
+export function sttCredentialGapReason(credentialProviderName: string): string {
+  if (credentialProviderName === "vellum") {
+    return "No Vellum platform connection for managed speech — run 'assistant platform connect'";
+  }
+  return `No API key configured for credential provider "${credentialProviderName}"`;
+}
+
 export async function sttProviderKeyResolves(
   credentialProviderName: string,
 ): Promise<boolean> {
+  // vellum has no stored API key — the platform connection is the credential.
+  if (credentialProviderName === "vellum") {
+    const { vellumManagedSpeechAvailable } =
+      await import("./vellum-managed.js");
+    return vellumManagedSpeechAvailable();
+  }
   return (await getProviderKeyAsync(credentialProviderName)) !== undefined;
 }

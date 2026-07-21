@@ -43,6 +43,7 @@ interface QuoteReplyActions {
   }) => void;
   closeReplyBubble: () => void;
   addStagedQuote: (quote: Omit<StagedQuote, "id">) => void;
+  updateStagedQuoteReply: (id: string, replyText: string) => void;
   removeStagedQuote: (id: string) => void;
   clearStagedQuotes: () => void;
 }
@@ -71,6 +72,13 @@ const useQuoteReplyStoreBase = create<QuoteReplyStore>()((set) => ({
         { ...quote, id: createQuoteId() },
       ],
       replyBubble: null,
+    })),
+
+  updateStagedQuoteReply: (id, replyText) =>
+    set((s) => ({
+      stagedQuotes: s.stagedQuotes.map((q) =>
+        q.id === id ? { ...q, replyText } : q,
+      ),
     })),
 
   removeStagedQuote: (id) =>

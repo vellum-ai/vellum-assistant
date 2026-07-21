@@ -6,45 +6,13 @@ import {
   rmSync,
 } from "node:fs";
 import { join } from "node:path";
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import { eq } from "drizzle-orm";
 
 const testDir = process.env.VELLUM_WORKSPACE_DIR!;
 const conversationsDir = join(testDir, "conversations");
 mkdirSync(conversationsDir, { recursive: true });
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    model: "test",
-    provider: "test",
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    secretDetection: { enabled: false },
-    contextWindow: { maxInputTokens: 200000 },
-    services: {
-      inference: {
-        mode: "your-own",
-        provider: "anthropic",
-        model: "claude-opus-4-6",
-      },
-      "image-generation": {
-        mode: "your-own",
-        provider: "gemini",
-        model: "gemini-3.1-flash-image-preview",
-      },
-      "web-search": { mode: "your-own", provider: "inference-provider-native" },
-    },
-  }),
-}));
 
 import { getOrCreateConversation } from "../persistence/conversation-key-store.js";
 import { getDb } from "../persistence/db-connection.js";

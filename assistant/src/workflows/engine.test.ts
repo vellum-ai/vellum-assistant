@@ -1,18 +1,10 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-
-// Silence the logger.
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import type { WorkflowsConfig } from "../config/schemas/workflows.js";
-import type { TrustContext } from "../daemon/trust-context.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import { getSqlite } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import type { ResolvedCapabilities } from "./capabilities.js";

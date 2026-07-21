@@ -10,6 +10,7 @@ import {
     organizationsBillingTopUpsCheckoutSessionCreateMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
 import { openUrl, openUrlFinishedListener } from "@/runtime/browser";
+import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
 import { Dropdown } from "@vellumai/design-library/components/dropdown";
 import { Modal } from "@vellumai/design-library/components/modal";
@@ -158,7 +159,7 @@ export function AddCreditsModal({ open, onOpenChange }: AddCreditsModalProps) {
             )}
 
             <Link
-              to="/assistant/settings/billing"
+              to={routes.settings.usageBilling}
               className="text-body-small-default text-[var(--content-tertiary)] underline hover:text-[var(--content-secondary)]"
               onClick={() => onOpenChange(false)}
             >

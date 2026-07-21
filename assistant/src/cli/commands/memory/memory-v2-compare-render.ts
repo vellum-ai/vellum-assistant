@@ -5,8 +5,8 @@
  *
  * Lives CLI-side because formatting for the terminal is a presentation concern
  * (mirroring the inline rendering in the `simulate` subcommand). It imports
- * only the response *type* from the daemon — `cli/no-daemon-internals` permits
- * type-only imports but forbids pulling in daemon runtime modules.
+ * only the response *type* from the daemon (erased at runtime), never a daemon
+ * runtime module.
  */
 
 import type { ComparisonReport } from "../../../plugins/defaults/memory/v2/harness/runner.js";

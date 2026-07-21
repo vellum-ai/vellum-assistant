@@ -4,13 +4,22 @@ import { join } from "node:path";
 import type { SkillSource } from "../../config/skills.js";
 import { loadSkillCatalog } from "../../config/skills.js";
 import { refreshSkillCapabilityMemories } from "../../daemon/skill-memory-refresh.js";
+import { getConversation } from "../../persistence/conversation-crud.js";
+import { upsertSkillCardInsertJob } from "../../persistence/jobs-store.js";
 import { MEMORY_RETROSPECTIVE_ORIGIN } from "../../plugins/defaults/memory/memory-retrospective-constants.js";
 import { readInstallMeta } from "../../skills/install-meta.js";
 import {
   createManagedSkill,
   getManagedSkillDir,
 } from "../../skills/managed-store.js";
+import { recordWatchdogEvent } from "../../telemetry/watchdog-events-store.js";
+import { getLogger } from "../../util/logger.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
+
+const log = getLogger("scaffold-managed-skill");
+
+/** Watchdog check_name for the per-creation skill-authoring counter. */
+const SKILL_AUTHORED_CHECK_NAME = "skill_authored";
 
 /** Strip embedded newlines/carriage returns to prevent YAML frontmatter injection. */
 function sanitizeFrontmatterValue(value: string): string {
@@ -32,7 +41,9 @@ function normalizeOptionalStringArray(
   raw: unknown,
   field: string,
 ): { value?: string[]; error?: string } {
-  if (raw === undefined) return {};
+  if (raw === undefined) {
+    return {};
+  }
   if (!Array.isArray(raw)) {
     return { error: `${field} must be an array of strings` };
   }
@@ -46,7 +57,9 @@ function normalizeOptionalStringArray(
     if (!cleaned) {
       return { error: `each element in ${field} must be a non-empty string` };
     }
-    if (seen.has(cleaned)) continue;
+    if (seen.has(cleaned)) {
+      continue;
+    }
     seen.add(cleaned);
     normalized.push(cleaned);
   }
@@ -57,14 +70,19 @@ function normalizeOptionalStringArray(
  * Core execution logic for scaffold_managed_skill.
  * Exported so bundled-skill executors and tests can call it directly.
  *
- * `deps` injects the catalog seam so the ownership backstop's non-managed
- * collision check can be exercised without standing up a real bundled/plugin
- * catalog.
+ * `deps` injects the catalog and conversation-lookup seams so the ownership
+ * backstop's non-managed collision check and the lineage resolution can be
+ * exercised without standing up a real bundled/plugin catalog or a live DB.
  */
 export async function executeScaffoldManagedSkill(
   input: Record<string, unknown>,
   context: ToolContext,
-  deps: { loadCatalog?: () => { id: string; source: SkillSource }[] } = {},
+  deps: {
+    loadCatalog?: () => { id: string; source: SkillSource }[];
+    getConversation?: (
+      id: string,
+    ) => { forkParentConversationId: string | null } | null;
+  } = {},
 ): Promise<ToolExecutionResult> {
   const skillId = input.skill_id;
   if (typeof skillId !== "string" || !skillId.trim()) {
@@ -189,6 +207,15 @@ export async function executeScaffoldManagedSkill(
     context.requestOrigin === MEMORY_RETROSPECTIVE_ORIGIN;
   const author = fromRetrospective ? "assistant" : "user";
 
+  // Whether a managed SKILL.md already existed before this call. Drives the
+  // ownership backstop below, the created-vs-refined discriminant for the
+  // skill-card enqueue, and the `skill_authored` telemetry counter: only a
+  // genuine CREATE (no pre-existing skill, regardless of the `overwrite`
+  // flag) gets a card or a counter event.
+  const managedSkillExistedBefore = existsSync(
+    join(getManagedSkillDir(id), "SKILL.md"),
+  );
+
   // Ownership backstop (retrospective origin only): the retrospective may author
   // a skill ONLY if it owns it. Fail closed on either of two collisions.
   if (fromRetrospective) {
@@ -217,11 +244,9 @@ export async function executeScaffoldManagedSkill(
     // exactly "assistant". This fails closed on user-authored, untagged, and
     // unverifiable (missing/corrupt meta) managed skills alike, matching the
     // prune side where such skills are never pruned.
-    const managedDir = getManagedSkillDir(id);
-    const managedSkillExists = existsSync(join(managedDir, "SKILL.md"));
     if (
-      managedSkillExists &&
-      readInstallMeta(managedDir)?.author !== "assistant"
+      managedSkillExistedBefore &&
+      readInstallMeta(getManagedSkillDir(id))?.author !== "assistant"
     ) {
       return {
         content: `Error: skill "${id}" is not verifiably assistant-authored; the retrospective may not overwrite it or write companion files into it. Author a new skill instead.`,
@@ -230,15 +255,40 @@ export async function executeScaffoldManagedSkill(
     }
   }
 
+  // Conversation lineage (retrospective origin only). The retrospective runs
+  // in a background fork of the conversation it distilled the procedure from,
+  // so the fork's parent is this skill's durable source conversation.
+  // Resolution is best-effort: a missing or unresolvable parent must never
+  // fail the scaffold.
+  let sourceConversationId: string | undefined;
+  let retrospectiveConversationId: string | undefined;
+  if (fromRetrospective && context.conversationId) {
+    retrospectiveConversationId = context.conversationId;
+    try {
+      const lookupConversation = deps.getConversation ?? getConversation;
+      sourceConversationId =
+        lookupConversation(context.conversationId)?.forkParentConversationId ??
+        undefined;
+    } catch {
+      // Lineage stays unset; the scaffold itself still proceeds.
+    }
+  }
+
+  // Normalized frontmatter values, shared by the persisted SKILL.md and the
+  // skill-card payload below so the card always shows the values as persisted.
+  const normalizedName = sanitizeFrontmatterValue(name);
+  const normalizedDescription = sanitizeFrontmatterValue(description);
+  const normalizedEmoji =
+    typeof input.emoji === "string"
+      ? sanitizeFrontmatterValue(input.emoji)
+      : undefined;
+
   const result = createManagedSkill({
     id,
-    name: sanitizeFrontmatterValue(name),
-    description: sanitizeFrontmatterValue(description),
+    name: normalizedName,
+    description: normalizedDescription,
     bodyMarkdown: bodyMarkdown,
-    emoji:
-      typeof input.emoji === "string"
-        ? sanitizeFrontmatterValue(input.emoji)
-        : undefined,
+    emoji: normalizedEmoji,
     overwrite: input.overwrite === true,
     includes,
     activationHints,
@@ -246,6 +296,8 @@ export async function executeScaffoldManagedSkill(
     category,
     files,
     author,
+    sourceConversationId,
+    retrospectiveConversationId,
   });
 
   if (!result.created) {
@@ -253,6 +305,74 @@ export async function executeScaffoldManagedSkill(
   }
 
   refreshSkillCapabilityMemories();
+
+  // Central adoption counter for skill authoring (admin analytics groups on
+  // the watchdog check_name). Genuine creates only — refinements of a
+  // pre-existing skill are not new capabilities and would double-count.
+  // `authored_by` distinguishes proactive retrospective authoring from
+  // user-directed scaffolds; the skill id itself stays out of the detail
+  // bag — ids derive from user/model content (a name can encode a
+  // customer or procedure), and watchdog events are metadata-only with no
+  // deletion-redaction tie to the source conversation. Never throws: a
+  // telemetry failure must not fail a scaffold that already succeeded.
+  if (!managedSkillExistedBefore) {
+    try {
+      recordWatchdogEvent({
+        checkName: SKILL_AUTHORED_CHECK_NAME,
+        value: 1,
+        detail: {
+          authored_by: fromRetrospective ? "retrospective" : "user",
+        },
+      });
+    } catch {
+      // recordWatchdogEvent already no-ops on opt-out and a missing
+      // telemetry DB; anything past that is not worth surfacing here.
+    }
+  }
+
+  // Surface a genuine retrospective CREATE to the user as a skill card on the
+  // source conversation, via the durable `skill_card_insert` delivery job
+  // (memory-retrospective-skill-card.ts). The creation site is the one place
+  // that knows created-vs-refined (`managedSkillExistedBefore` — an
+  // `overwrite: true` call on a skill that did not previously exist is still a
+  // create), the request origin, and the fork-parent lineage as facts.
+  // Refinements of a pre-existing skill never get a card, and delivery needs a
+  // resolved source conversation to land in. Best-effort: an enqueue failure
+  // must never fail the scaffold — the skill is already created.
+  if (
+    fromRetrospective &&
+    !managedSkillExistedBefore &&
+    sourceConversationId &&
+    retrospectiveConversationId
+  ) {
+    try {
+      upsertSkillCardInsertJob({
+        sourceConversationId,
+        runConversationId: retrospectiveConversationId,
+        skills: [
+          {
+            skillId: id,
+            name: normalizedName,
+            description: normalizedDescription,
+            ...(normalizedEmoji ? { emoji: normalizedEmoji } : {}),
+          },
+        ],
+      });
+      log.info(
+        {
+          skillId: id,
+          sourceConversationId,
+          runConversationId: retrospectiveConversationId,
+        },
+        "skill card: enqueued skill_card_insert for retrospective-authored skill",
+      );
+    } catch (err) {
+      log.warn(
+        { err, skillId: id, sourceConversationId },
+        "skill card: failed to enqueue skill_card_insert; skill creation unaffected",
+      );
+    }
+  }
 
   return {
     content: JSON.stringify({

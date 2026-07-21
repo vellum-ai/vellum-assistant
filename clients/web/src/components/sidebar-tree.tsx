@@ -3,6 +3,7 @@ import { Fragment } from "react";
 import { useLocation, useNavigate } from "react-router";
 
 import { useIsMobile } from "@/hooks/use-is-mobile";
+import { isModifiedLinkClick } from "@/utils/link-click";
 import { SideMenu } from "@vellumai/design-library";
 
 export interface SidebarItem {
@@ -61,13 +62,7 @@ export function SidebarTree({
                   // so Cmd/Ctrl-click opens a new tab, Shift-click opens a
                   // window, and "Copy link address" works. Plain left-clicks
                   // become SPA navigation via react-router.
-                  if (
-                    e.metaKey ||
-                    e.ctrlKey ||
-                    e.shiftKey ||
-                    e.altKey ||
-                    e.button !== 0
-                  ) {
+                  if (isModifiedLinkClick(e)) {
                     return;
                   }
                   e.preventDefault();

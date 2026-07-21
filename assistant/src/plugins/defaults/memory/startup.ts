@@ -33,10 +33,10 @@ import {
   enqueueMemoryJob,
   isMemoryEnabled,
 } from "../../../persistence/jobs-store.js";
-import { getLogger } from "../../../util/logger.js";
-import { getWorkspaceDir } from "../../../util/platform.js";
 import { resolveQdrantUrl } from "./embeddings.js";
 import { startMemoryJobsWorker } from "./jobs-worker.js";
+import { getLogger } from "./logging.js";
+import { getWorkspaceDir } from "./paths.js";
 import { sweepConceptPageFrontmatter } from "./v2/frontmatter-sweep.js";
 import {
   maybeRebuildMemoryV2Concepts,
@@ -184,9 +184,8 @@ export async function runMemoryStartup(config: AssistantConfig): Promise<void> {
       void (async () => {
         try {
           const { reconcilePkbIndex } = await import("./pkb/pkb-reconcile.js");
-          const { PKB_WORKSPACE_SCOPE } = await import("./pkb/types.js");
           const pkbRoot = join(getWorkspaceDir(), "pkb");
-          await reconcilePkbIndex(pkbRoot, PKB_WORKSPACE_SCOPE);
+          await reconcilePkbIndex(pkbRoot);
         } catch (err) {
           log.warn(
             { err },
@@ -208,13 +207,12 @@ export async function runMemoryStartup(config: AssistantConfig): Promise<void> {
     }
   }
 
-  // `startMemoryJobsWorker` starts the in-process supervisor (which owns the
-  // synchronous runner and stands down when an out-of-process worker is live)
-  // and spawns the out-of-process worker at boot when `memory.worker.enabled`
-  // is set. Shutdown stops whichever worker is actually running — see
-  // shutdown-handlers.ts. The job handlers were registered synchronously by the
-  // plugin's `init` hook before this function was kicked off, so the dispatch
-  // table is populated before the worker's first claim.
+  // `startMemoryJobsWorker` spawns the out-of-process memory worker as a child
+  // of the daemon; it is the sole drainer of the memory job queue. Shutdown
+  // stops it — see shutdown-handlers.ts and the memory plugin's `shutdown`
+  // hook. The job handlers were registered synchronously by the plugin's `init`
+  // hook before this function was kicked off, so the dispatch table is
+  // populated before the worker's first claim.
   log.info("Daemon startup: starting memory worker");
   startMemoryJobsWorker();
 

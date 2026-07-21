@@ -79,27 +79,11 @@ export const WORKFLOW_READONLY_BASELINE: readonly string[] = [
  * - `run_workflow` / `manage_workflows` — the workflow tools themselves;
  *   granting either to a leaf would let it recurse into or reconfigure the
  *   engine.
- * - `manage_secure_command_tool` — CES secure-bundle management is a
- *   human-in-the-loop install path and is never delegated to an unattended
- *   leaf.
- * - `run_authenticated_command` / `make_authenticated_request` — these CES
- *   tools can return `cesApprovalRequired`, which `ToolExecutor` handles by
- *   bridging an interactive approval and RETRYING the call with the grant. A
- *   leaf invokes `tool.execute()` directly (the manifest is the run's single
- *   consent point, so leaves bypass the executor's permission/approval path),
- *   so it would see the raw `cesApprovalRequired` result as a plain error
- *   instead of the approve-and-retry flow — silently degrading. Forbid them
- *   until leaf invocations run the executor's post-processing (the deliberate
- *   future path); declaring one then fails loudly at the consent point rather
- *   than confusingly at run time.
  */
 export const WORKFLOW_FORBIDDEN_TOOLS: readonly string[] = [
   "subagent_spawn",
   "run_workflow",
   "manage_workflows",
-  "manage_secure_command_tool",
-  "run_authenticated_command",
-  "make_authenticated_request",
 ];
 
 /**
@@ -254,14 +238,17 @@ const FORBIDDEN_SET: ReadonlySet<string> = new Set(WORKFLOW_FORBIDDEN_TOOLS);
  * then hand that replacement — with arbitrary side-effecting behavior — to every
  * empty-manifest run, with no consent.
  *
- * Core tools have no owner ({@link getToolOwner} returns `undefined`). If any
- * owner holds this name, the live entry is an override, so resolve the stashed
- * original core tool ({@link getCoreToolOverride}) instead — and never the
- * replacement. Returns `undefined` (skipped, not failed) when no trusted core
- * entry exists, matching the baseline's convenience-grant semantics.
+ * Built-in tools carry a `default` owner ({@link getToolOwner}). Any *other*
+ * owner holding this name means the live entry is an override, so resolve the
+ * stashed original built-in ({@link getCoreToolOverride}) instead — and never
+ * the replacement. Returns `undefined` (skipped, not failed) when no trusted
+ * built-in entry exists, matching the baseline's convenience-grant semantics.
  */
 function resolveBaselineTool(name: string): Tool | undefined {
-  if (getToolOwner(name)) return getCoreToolOverride(name);
+  const owner = getToolOwner(name);
+  if (owner && owner.kind !== "default") {
+    return getCoreToolOverride(name);
+  }
   return getTool(name);
 }
 
@@ -309,16 +296,22 @@ export function resolveCapabilities(
   // convenience grant, not a declaration, so a missing entry should not fail
   // the run. Forbidden filtering still applies for defense in depth.
   for (const name of WORKFLOW_READONLY_BASELINE) {
-    if (FORBIDDEN_SET.has(name)) continue;
+    if (FORBIDDEN_SET.has(name)) {
+      continue;
+    }
     // Defense in depth: the baseline is auto-granted with NO launch approval, so
     // it must never carry a side-effecting tool (e.g. web_fetch, whose URL can
     // exfiltrate read data or trigger external actions). isSideEffectTool is the
     // single source of truth; skip any baseline entry it flags so the no-consent
     // grant can never include a side effect, even if the list above drifts. A
     // run that needs such a tool must DECLARE it (forcing the launch approval).
-    if (isSideEffectTool(name)) continue;
+    if (isSideEffectTool(name)) {
+      continue;
+    }
     const tool = resolveBaselineTool(name);
-    if (tool) resolved.set(name, tool);
+    if (tool) {
+      resolved.set(name, tool);
+    }
   }
 
   // Declared tools must exist — a missing one is an authoring error.

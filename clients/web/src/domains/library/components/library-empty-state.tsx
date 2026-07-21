@@ -3,7 +3,7 @@
  * Provides entry points to start a conversation or import a .vellum bundle.
  */
 
-import { LayoutGrid, Upload } from "lucide-react";
+import { Download, LayoutGrid } from "lucide-react";
 import { type ChangeEvent, type RefObject } from "react";
 
 import { Button } from "@vellumai/design-library";
@@ -63,7 +63,7 @@ export function LibraryEmptyState({
           {isImporting ? (
             <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
           ) : (
-            <Upload size={14} />
+            <Download size={14} />
           )}
           <span className="ml-1.5">Import .vellum File</span>
         </Button>

@@ -1,22 +1,31 @@
 /**
- * Canonical guardian decision primitive.
+ * Guardian decision primitive.
  *
- * `applyCanonicalGuardianDecision` is the single write path for guardian
- * decisions. It operates on the `canonical_guardian_requests` table and
- * dispatches to kind-specific resolvers:
+ * `applyGuardianDecision` is the single write path for guardian decisions.
+ * The gateway owns the `guardian_requests` table; the decision commits
+ * through `guardian_requests_decide`, which runs the pending→approved/denied
+ * status CAS and the decision's ACL outcome (member activation, unverified
+ * seed, channel block, outbound-session mint) in ONE gateway transaction:
  *
- *   1. Canonical request lookup and status validation
+ *   1. Request lookup and status validation (gateway read)
  *   2. Principal-based identity authorization
  *   3. Expiry check
- *   4. CAS resolution via `resolveCanonicalGuardianRequest` (first-writer-wins)
- *   5. Kind-specific resolver dispatch via the resolver registry
- *   6. Scoped grant minting on approve for requests carrying tool metadata
- *   7. Cross-surface approval-card withdrawal
+ *   4. ACL-outcome planning via the kind's resolver `prepare` hook — BEFORE
+ *      any status write
+ *   5. Atomic CAS + outcome via `guardian_requests_decide`
+ *      (first-writer-wins; a thrown outcome write rolls back the CAS, so the
+ *      request stays pending and retryable — no reopen machinery exists)
+ *   6. Kind-specific daemon-domain follow-through via the resolver registry
+ *   7. Scoped grant minting on approve for requests carrying tool metadata
+ *   8. Cross-surface approval-card withdrawal
  *
  * Security invariants enforced here:
  *   - Decision authorization is purely principal-based:
  *     actor.guardianPrincipalId === request.guardianPrincipalId (strict equality)
- *   - Decisions are first-response-wins (CAS-like stale protection)
+ *   - Decisions are first-response-wins (gateway CAS stale protection)
+ *   - Approve→ACL is atomic: a decision is never committed without its
+ *     gateway ACL outcome, and consuming a decision twice never applies two
+ *     outcomes
  *   - Valid actions are the `ApprovalAction` union; the introduction-card
  *     actions (trust / verify_code / leave_unverified / block) are scoped to
  *     `access_request` requests only
@@ -24,11 +33,11 @@
  */
 
 import {
-  type CanonicalGuardianRequest,
-  type CanonicalRequestStatus,
-  getCanonicalGuardianRequest,
-  resolveCanonicalGuardianRequest,
-} from "../contacts/canonical-guardian-store.js";
+  decideGuardianRequest,
+  type DecideGuardianRequestIpcResponse,
+  getGuardianRequest,
+  type GuardianRequestWire,
+} from "../channels/gateway-guardian-requests.js";
 import {
   APPROVAL_ACTION_SET,
   type ApprovalAction,
@@ -41,6 +50,7 @@ import { withdrawGuardianRequestCards } from "./guardian-card-withdrawal.js";
 import {
   type ActorContext,
   type ChannelDeliveryContext,
+  type DecisionOutcomePlan,
   getResolver,
   type ResolverEmissionContext,
 } from "./guardian-request-resolvers.js";
@@ -60,11 +70,11 @@ function computeGrantExpiresAt(_action: ApprovalAction): number {
 }
 
 // ---------------------------------------------------------------------------
-// Canonical grant minting
+// Grant minting
 // ---------------------------------------------------------------------------
 
 /**
- * Mint a scoped approval grant from a canonical guardian request.
+ * Mint a scoped approval grant from a guardian request.
  *
  * Works for all request kinds that carry tool metadata (toolName + inputDigest).
  * Requests without tool metadata are silently skipped — grant minting only
@@ -73,8 +83,8 @@ function computeGrantExpiresAt(_action: ApprovalAction): number {
  * Fails silently on error — grant minting is best-effort and must never
  * block the approval flow.
  */
-export function mintCanonicalRequestGrant(params: {
-  request: CanonicalGuardianRequest;
+export function mintGuardianRequestGrant(params: {
+  request: GuardianRequestWire;
   actorChannel: string;
   guardianExternalUserId?: string;
   effectiveAction: ApprovalAction;
@@ -93,7 +103,7 @@ export function mintCanonicalRequestGrant(params: {
     requestChannel: request.sourceChannel ?? "unknown",
     decisionChannel: actorChannel,
     executionChannel: null,
-    conversationId: request.conversationId ?? null,
+    conversationId: request.sourceConversationId ?? null,
     callSessionId: request.callSessionId ?? null,
     guardianExternalUserId: guardianExternalUserId ?? null,
     requesterExternalUserId: request.requesterExternalUserId ?? null,
@@ -106,9 +116,9 @@ export function mintCanonicalRequestGrant(params: {
         event: "canonical_grant_minted",
         requestId: request.id,
         toolName: request.toolName,
-        conversationId: request.conversationId,
+        conversationId: request.sourceConversationId,
       },
-      "Minted scoped approval grant for canonical guardian request",
+      "Minted scoped approval grant for guardian request",
     );
     return { minted: true };
   }
@@ -120,25 +130,25 @@ export function mintCanonicalRequestGrant(params: {
       requestId: request.id,
       toolName: request.toolName,
     },
-    "Failed to mint scoped approval grant for canonical request (non-fatal)",
+    "Failed to mint scoped approval grant for guardian request (non-fatal)",
   );
   return { minted: false };
 }
 
 // ---------------------------------------------------------------------------
-// Canonical guardian decision primitive
+// Guardian decision primitive
 // ---------------------------------------------------------------------------
 
 /**
- * Valid actions for canonical guardian decisions. The introduction-card
- * actions (`trust` / `verify_code` / `leave_unverified` / `block`) are only
- * valid for `access_request` requests — kind scoping is enforced after the
+ * Valid actions for guardian decisions. The introduction-card actions
+ * (`trust` / `verify_code` / `leave_unverified` / `block`) are only valid
+ * for `access_request` requests — kind scoping is enforced after the
  * request lookup.
  */
-const VALID_CANONICAL_ACTIONS: ReadonlySet<string> = APPROVAL_ACTION_SET;
+const VALID_DECISION_ACTIONS: ReadonlySet<string> = APPROVAL_ACTION_SET;
 
-export interface ApplyCanonicalGuardianDecisionParams {
-  /** The canonical request ID to resolve. */
+export interface ApplyGuardianDecisionParams {
+  /** The guardian request ID to resolve. */
   requestId: string;
   /** The decision action. */
   action: ApprovalAction;
@@ -152,7 +162,7 @@ export interface ApplyCanonicalGuardianDecisionParams {
   emissionContext?: ResolverEmissionContext;
 }
 
-export type CanonicalDecisionResult =
+export type GuardianDecisionResult =
   | {
       applied: true;
       requestId: string;
@@ -174,22 +184,35 @@ export type CanonicalDecisionResult =
     };
 
 /**
- * Apply a guardian decision through the canonical request primitive.
- *
- * This is the future single write path for all guardian decisions.  It
- * operates on the canonical_guardian_requests table and dispatches to
- * kind-specific resolvers via the resolver registry.
- *
- * Steps:
- *   1. Look up the canonical request by ID
- *   2. Validate: exists, pending status, identity match, valid action
- *   3. CAS resolve the canonical request atomically
- *   4. Dispatch to kind-specific resolver
- *   5. Mint grant if applicable
+ * The failure contract for a decision whose gateway persist did not land (or
+ * whose planning aborted it first). The request is still pending gateway-side
+ * and the guardian can retry; `resolverFailed` keeps callers on their
+ * existing "recorded but not completed — try again" surface.
  */
-export async function applyCanonicalGuardianDecision(
-  params: ApplyCanonicalGuardianDecisionParams,
-): Promise<CanonicalDecisionResult> {
+function decisionPersistFailure(
+  requestId: string,
+  reason: string,
+): GuardianDecisionResult {
+  return {
+    applied: true,
+    requestId,
+    grantMinted: false,
+    resolverFailed: true,
+    resolverFailureReason: reason,
+  };
+}
+
+/**
+ * Apply a guardian decision through the gateway-native request primitive.
+ *
+ * This is the single write path for all guardian decisions. The status CAS
+ * and any ACL outcome commit in one gateway transaction; daemon-domain side
+ * effects (pending-interaction resume, call answering, notifications, code
+ * delivery, grant minting, card withdrawal) run after the decide returns.
+ */
+export async function applyGuardianDecision(
+  params: ApplyGuardianDecisionParams,
+): Promise<GuardianDecisionResult> {
   const {
     requestId,
     action,
@@ -199,12 +222,21 @@ export async function applyCanonicalGuardianDecision(
     emissionContext,
   } = params;
 
-  // 1. Look up the canonical request
-  const request = getCanonicalGuardianRequest(requestId);
+  // 1. Look up the guardian request
+  let request: GuardianRequestWire | null;
+  try {
+    request = await getGuardianRequest(requestId);
+  } catch (err) {
+    log.error(
+      { err, event: "canonical_decision_lookup_failed", requestId },
+      "Guardian request lookup failed (gateway unreachable?)",
+    );
+    return decisionPersistFailure(requestId, "gateway_unreachable");
+  }
   if (!request) {
     log.warn(
       { event: "canonical_decision_not_found", requestId },
-      "Canonical request not found",
+      "Guardian request not found",
     );
     return { applied: false, reason: "not_found" };
   }
@@ -217,16 +249,16 @@ export async function applyCanonicalGuardianDecision(
         requestId,
         currentStatus: request.status,
       },
-      "Canonical request already resolved",
+      "Guardian request already resolved",
     );
     return { applied: false, reason: "already_resolved" };
   }
 
   // 2b. Validate action is valid
-  if (!VALID_CANONICAL_ACTIONS.has(action)) {
+  if (!VALID_DECISION_ACTIONS.has(action)) {
     log.warn(
       { event: "canonical_decision_invalid_action", requestId, action },
-      "Invalid action for canonical decision",
+      "Invalid action for guardian decision",
     );
     return {
       applied: false,
@@ -275,7 +307,7 @@ export async function applyCanonicalGuardianDecision(
         kind: request.kind,
         sourceType: request.sourceType,
       },
-      "Canonical request missing guardianPrincipalId; request is undecidable",
+      "Guardian request missing guardianPrincipalId; request is undecidable",
     );
     return {
       applied: false,
@@ -325,40 +357,92 @@ export async function applyCanonicalGuardianDecision(
         requestId,
         expiresAt: request.expiresAt,
       },
-      "Canonical request has expired",
+      "Guardian request has expired",
     );
     return { applied: false, reason: "expired" };
   }
 
-  // 3. CAS resolve: atomically transition from 'pending' to terminal status
+  // 3. Plan the ACL outcome BEFORE any status write. Kinds without a
+  // `prepare` hook decide as a plain status CAS.
   const effectiveAction: ApprovalAction = action;
-  const targetStatus: CanonicalRequestStatus = DENYING_ACTION_SET.has(
+  const targetStatus: "approved" | "denied" = DENYING_ACTION_SET.has(
     effectiveAction,
   )
     ? "denied"
     : "approved";
 
-  const resolved = resolveCanonicalGuardianRequest(requestId, "pending", {
-    status: targetStatus,
-    answerText: userText,
-    decidedByExternalUserId: actorContext.actorExternalUserId,
-    decidedByPrincipalId: actorContext.guardianPrincipalId,
-  });
+  const resolver = getResolver(request.kind);
+  let plan: DecisionOutcomePlan = {
+    ok: true,
+    persistFailureReason: "decision_persist_failed",
+  };
+  if (resolver?.prepare) {
+    plan = resolver.prepare({
+      request,
+      decision: { action: effectiveAction, userText },
+      actor: actorContext,
+    });
+    if (!plan.ok) {
+      log.warn(
+        {
+          event: "canonical_decision_outcome_plan_failed",
+          requestId,
+          kind: request.kind,
+          reason: plan.reason,
+        },
+        `Decision aborted before any status write: ${plan.reason}`,
+      );
+      return decisionPersistFailure(requestId, plan.reason);
+    }
+  }
 
-  if (!resolved) {
-    // CAS failed — someone else resolved it first
+  // 4. Atomic decide: status CAS + planned ACL outcome in one gateway
+  // transaction. A throw means nothing committed — the request is still
+  // pending and the guardian can retry; there is nothing to reopen.
+  let decided: DecideGuardianRequestIpcResponse;
+  try {
+    decided = await decideGuardianRequest({
+      id: requestId,
+      expectedStatus: "pending",
+      status: targetStatus,
+      ...(userText !== undefined ? { answerText: userText } : {}),
+      ...(actorContext.actorExternalUserId !== undefined
+        ? { decidedByExternalUserId: actorContext.actorExternalUserId }
+        : {}),
+      decidedByPrincipalId: actorContext.guardianPrincipalId,
+      ...(plan.aclOutcome ? { aclOutcome: plan.aclOutcome } : {}),
+    });
+  } catch (err) {
+    log.error(
+      {
+        err,
+        event: "canonical_decision_persist_failed",
+        requestId,
+        kind: request.kind,
+        action: effectiveAction,
+        reason: plan.persistFailureReason,
+      },
+      "Atomic decide failed; request remains pending and retryable",
+    );
+    return decisionPersistFailure(requestId, plan.persistFailureReason);
+  }
+
+  if (!decided.applied) {
+    // CAS miss — someone else resolved it first
     log.info(
       { event: "canonical_decision_cas_failed", requestId },
       "CAS resolution failed (race condition — first writer wins)",
     );
     return { applied: false, reason: "already_resolved" };
   }
+  const resolved = decided.request;
 
-  // 4. Dispatch to kind-specific resolver
+  // 5. Dispatch daemon-domain follow-through to the kind-specific resolver.
+  // The decision (and its ACL outcome) is already committed; a follow-through
+  // failure is surfaced but never rolls anything back.
   let resolverFailed = false;
   let resolverFailureReason: string | undefined;
   let resolverReplyText: string | undefined;
-  const resolver = getResolver(request.kind);
   if (resolver) {
     const resolverResult = await resolver.resolve({
       request: resolved,
@@ -366,6 +450,7 @@ export async function applyCanonicalGuardianDecision(
       actor: actorContext,
       channelDeliveryContext,
       emissionContext,
+      ...(decided.mintedSession ? { mintedSession: decided.mintedSession } : {}),
     });
 
     if (!resolverResult.ok) {
@@ -378,13 +463,9 @@ export async function applyCanonicalGuardianDecision(
         },
         `Resolver for kind '${request.kind}' failed: ${resolverResult.reason}`,
       );
-      // The CAS commit stands; the primitive itself never rolls back. A
-      // resolver MAY CAS-reopen the request to `pending` when its gateway
-      // persist did not land (the access-request trust/block branches do) —
-      // grant minting is skipped on failure either way, and the card
-      // withdrawal below re-reads the row so a reopened request keeps its
-      // live cards. Callers see applied: true (the decision was committed)
-      // plus the resolverFailed flag.
+      // The committed decide stands. Grant minting is skipped on failure so
+      // the tool never executes without the intended resolver action (e.g.
+      // answerCall) having succeeded.
       resolverFailed = true;
       resolverFailureReason = resolverResult.reason;
     } else {
@@ -401,13 +482,13 @@ export async function applyCanonicalGuardianDecision(
     );
   }
 
-  // 5. Mint grant if the decision is an approval with tool metadata.
+  // 6. Mint grant if the decision is an approval with tool metadata.
   // Skip when the resolver failed — minting a grant on a failed side effect
   // would allow the tool to execute without the intended resolver action
   // (e.g. answerCall) having succeeded.
   let grantMinted = false;
   if (targetStatus === "approved" && !resolverFailed) {
-    const grantResult = mintCanonicalRequestGrant({
+    const grantResult = mintGuardianRequestGrant({
       request: resolved,
       actorChannel: actorContext.channel,
       guardianExternalUserId:
@@ -419,33 +500,22 @@ export async function applyCanonicalGuardianDecision(
     grantMinted = grantResult.minted;
   }
 
-  // 6. Project the terminal status onto the request's approval cards on every
+  // 7. Project the terminal status onto the request's approval cards on every
   // surface it was delivered to (in-app, Slack, ...). Fire-and-forget: the
-  // decision is already committed via CAS and withdrawal is a best-effort
-  // cosmetic projection, so awaiting its Slack round-trips would only add
-  // latency to the decision response that interactive callers wait on. The
-  // projector never throws; the `.catch` is a defensive backstop.
-  //
-  // A failed resolver may have reopened the request to `pending` (an
-  // access-request gateway persist that never landed). Withdrawing the cards
-  // then would stamp every surface with a terminal status the row no longer
-  // has and strip the buttons the guardian needs to retry — so cards are only
-  // withdrawn while the row is actually terminal.
-  const rowForWithdrawal = resolverFailed
-    ? getCanonicalGuardianRequest(requestId)
-    : resolved;
-  if (rowForWithdrawal && rowForWithdrawal.status !== "pending") {
-    void withdrawGuardianRequestCards({
-      request: resolved,
-      status: targetStatus,
-      originChannel: actorContext.channel,
-    }).catch((err) => {
-      log.warn(
-        { err, requestId },
-        "Cross-surface card withdrawal failed (non-fatal)",
-      );
-    });
-  }
+  // decision is already committed and withdrawal is a best-effort cosmetic
+  // projection, so awaiting its Slack round-trips would only add latency to
+  // the decision response that interactive callers wait on. The projector
+  // never throws; the `.catch` is a defensive backstop.
+  void withdrawGuardianRequestCards({
+    request: resolved,
+    status: targetStatus,
+    originChannel: actorContext.channel,
+  }).catch((err) => {
+    log.warn(
+      { err, requestId },
+      "Cross-surface card withdrawal failed (non-fatal)",
+    );
+  });
 
   log.info(
     {
@@ -458,8 +528,8 @@ export async function applyCanonicalGuardianDecision(
       resolverFailed,
     },
     resolverFailed
-      ? "Canonical guardian decision applied (CAS committed) but resolver failed"
-      : "Canonical guardian decision applied successfully",
+      ? "Guardian decision applied (atomic decide committed) but follow-through failed"
+      : "Guardian decision applied successfully",
   );
 
   return {

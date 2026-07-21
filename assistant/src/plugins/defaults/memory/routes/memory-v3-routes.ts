@@ -24,7 +24,7 @@ import {
   type RoutePolicy,
 } from "../../../../runtime/auth/route-policy.js";
 import type { RouteDefinition } from "../../../../runtime/routes/types.js";
-import { getLogger } from "../../../../util/logger.js";
+import { getLogger } from "../logging.js";
 import { backfillAllSections } from "../v3/maintain-job.js";
 import { invalidateLanes } from "../v3/shadow-plugin.js";
 

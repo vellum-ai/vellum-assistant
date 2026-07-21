@@ -12,15 +12,7 @@
  */
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-
-// Silence logger before any imports that use it
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import {
   resetReadinessForTest,
@@ -170,7 +162,10 @@ describe("identity routes — health endpoint", () => {
       expect(body.memory).toBeDefined();
       expect(body.cpu).toBeDefined();
       expect(body.migrations).toBeDefined();
-      expect(body.capabilities).toEqual({ memoryOptOut: true });
+      expect(body.capabilities).toEqual({
+        memoryOptOut: true,
+        retryLastTurn: true,
+      });
 
       // Profiler should either be absent or show enabled: false
       if ("profiler" in body) {

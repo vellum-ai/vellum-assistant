@@ -33,7 +33,7 @@ import { describe, expect, test } from "bun:test";
 import { z } from "zod";
 
 import { getConfig } from "../config/loader.js";
-import type { TrustContext } from "../daemon/trust-context.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { listUsageEvents } from "../persistence/llm-usage-store.js";
 import { resolveCapabilities } from "./capabilities.js";

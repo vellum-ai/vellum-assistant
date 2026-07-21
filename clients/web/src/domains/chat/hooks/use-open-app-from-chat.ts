@@ -5,7 +5,6 @@ import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useViewerStore } from "@/stores/viewer-store";
 import { haptic } from "@/utils/haptics";
-import { isConversationChatPath, routes } from "@/utils/routes";
 
 /**
  * Open an app in the viewer panel from inside the chat surface — sidebar
@@ -26,41 +25,35 @@ import { isConversationChatPath, routes } from "@/utils/routes";
  * Single source of truth — used by `chat-layout.tsx` (sidebar) and
  * `chat-page.tsx` (transcript). Don't inline a copy.
  */
-/**
- * Decide the route to navigate to before opening an app from the sidebar.
- * The viewer panel only renders under `ChatPage` (the routes matched by
- * `isConversationChatPath`). From any other route (home, library, identity,
- * inspector, …) the viewer-store mutation would have no surface to display
- * against, so we have to navigate first.
- *
- * Returns `null` when the caller is already on a route that mounts the
- * viewer — no navigation needed.
- *
- * Exported so the sidebar caller in `chat-layout.tsx` can unit-test the
- * route detection without a full React Router harness.
- */
-export function chooseSidebarOpenAppDestination(
-  pathname: string,
-  activeConversationId: string | null,
-): string | null {
-  if (isConversationChatPath(pathname)) return null;
-  return activeConversationId
-    ? routes.conversation(activeConversationId)
-    : routes.assistant;
+export interface UseOpenAppFromChatOptions {
+  /**
+   * When `true` (default), bind the active conversation as the app-editing
+   * target and enter `app-editing` split view on wide viewports. When
+   * `false`, skip both — the app opens in full-screen `app` mode with no
+   * conversation bound. The sidebar caller sets this to `false` when the
+   * user is not on a chat route, so a pinned-app click from home / library
+   * / identity doesn't surface a stale conversation (LUM-2691).
+   */
+  bindConversation?: boolean;
 }
 
-export function useOpenAppFromChat(): (appId: string) => Promise<void> {
+export function useOpenAppFromChat(
+  options?: UseOpenAppFromChatOptions,
+): (appId: string) => Promise<void> {
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const activeConversationId = useConversationStore.use.activeConversationId();
   const isMobile = useIsMobile();
+  const bindConversation = options?.bindConversation ?? true;
 
   return useCallback(
     async (appId: string) => {
-      if (!assistantId) return;
+      if (!assistantId) {
+        return;
+      }
       haptic.light();
       await useViewerStore.getState().loadApp(assistantId, appId);
       const { activeAppId, openedAppState } = useViewerStore.getState();
-      if (activeConversationId && openedAppState && activeAppId === appId) {
+      if (bindConversation && activeConversationId && openedAppState && activeAppId === appId) {
         useConversationStore
           .getState()
           .setEditingConversationId(activeConversationId);
@@ -72,6 +65,6 @@ export function useOpenAppFromChat(): (appId: string) => Promise<void> {
         }
       }
     },
-    [assistantId, activeConversationId, isMobile],
+    [assistantId, activeConversationId, isMobile, bindConversation],
   );
 }

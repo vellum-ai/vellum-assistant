@@ -1,7 +1,9 @@
-import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { loadConfig } from "../config/loader.js";
 import { wrapWithCallSiteRouting } from "../providers/call-site-routing.js";
-import { resolveDefaultProvider } from "../providers/connection-resolution.js";
+import {
+  mainAgentResolutionError,
+  resolveDefaultProvider,
+} from "../providers/connection-resolution.js";
 import { listProviders } from "../providers/registry.js";
 import type { Provider } from "../providers/types.js";
 import {
@@ -18,7 +20,6 @@ import type {
   ApprovalConversationResult,
   ApprovalCopyGenerator,
 } from "../runtime/http-types.js";
-import { ProviderNotConfiguredError } from "../util/errors.js";
 
 // ---------------------------------------------------------------------------
 // Approval conversation generator constants
@@ -88,7 +89,9 @@ export function createApprovalCopyGenerator(): ApprovalCopyGenerator {
     // failures (vault miss, transient auth) — we treat null as "no
     // provider available" and skip generating copy.
     const baseProvider: Provider | null = await resolveDefaultProvider(config);
-    if (!baseProvider) return null;
+    if (!baseProvider) {
+      return null;
+    }
     // Wrap so per-call `callSite` can route to an alternative provider
     // transport when `llm.callSites.<id>.provider` overrides the default.
     // The `wrapWithCallSiteRouting` helper threads `config` through so the
@@ -123,13 +126,19 @@ export function createApprovalCopyGenerator(): ApprovalCopyGenerator {
 
     const block = response.content.find((entry) => entry.type === "text");
     const text = block && "text" in block ? block.text.trim() : "";
-    if (!text) return null;
+    if (!text) {
+      return null;
+    }
     const cleaned = text
       .replace(/^["'`]+/, "")
       .replace(/["'`]+$/, "")
       .trim();
-    if (!cleaned) return null;
-    if (!includesRequiredKeywords(cleaned, requiredKeywords)) return null;
+    if (!cleaned) {
+      return null;
+    }
+    if (!includesRequiredKeywords(cleaned, requiredKeywords)) {
+      return null;
+    }
     return cleaned;
   };
 }
@@ -148,10 +157,7 @@ export function createApprovalConversationGenerator(): ApprovalConversationGener
     // failures (missing credential, platform auth unavailable).
     const baseProvider = await resolveDefaultProvider(config);
     if (!baseProvider) {
-      const resolved = resolveCallSiteConfig("mainAgent", config.llm);
-      throw new ProviderNotConfiguredError(resolved.provider, listProviders(), {
-        connectionName: resolved.provider_connection,
-      });
+      throw await mainAgentResolutionError(config.llm, listProviders());
     }
     const provider = wrapWithCallSiteRouting(baseProvider, config);
 

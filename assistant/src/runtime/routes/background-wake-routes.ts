@@ -246,7 +246,6 @@ async function performDrainDue(
     await runtime.scheduler.runDueWorkOnce({
       deadlineAt: request.deadlineAt,
       minStartBudgetMs: MIN_DRAIN_START_BUDGET_MS,
-      includeStillPending: true,
     });
   }
 

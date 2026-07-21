@@ -9,19 +9,10 @@ let mockIdentityRequests: { id: string }[] = [];
 let routeGuardianReplyCalls: unknown[] = [];
 let deliverChannelReplyCalls: unknown[][] = [];
 
-mock.module("../../../contacts/canonical-guardian-store.js", () => ({
-  listPendingCanonicalGuardianRequestsByDestinationChat: () =>
+mock.module("../../../channels/gateway-guardian-requests.js", () => ({
+  listPendingRequestsByDestinationOrEmpty: async () =>
     mockDeliveryScopedRequests,
-  listCanonicalGuardianRequests: () => mockIdentityRequests,
-}));
-
-mock.module("../../../util/logger.js", () => ({
-  getLogger: () => ({
-    debug: () => {},
-    info: () => {},
-    warn: () => {},
-    error: () => {},
-  }),
+  listGuardianRequestsOrEmpty: async () => mockIdentityRequests,
 }));
 
 mock.module("../../gateway-client.js", () => ({

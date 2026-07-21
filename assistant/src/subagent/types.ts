@@ -49,6 +49,15 @@ export interface SubagentConfig {
   /** Optional role for the subagent. Defaults handled by consumers. */
   role?: SubagentRole;
   /**
+   * When true, side-effecting tools (send/write/delete/purchase, host commands)
+   * are refused for this subagent regardless of trust class — the executor
+   * rejects any such dispatch and the tool is kept off the model's tool surface.
+   * Used for the read-only live-voice background continuation, which must never
+   * take an unapproved action while the user isn't watching; it surfaces the
+   * intended action for the user to approve on their next turn instead.
+   */
+  denySideEffectTools?: boolean;
+  /**
    * When true, the sub-agent inherits the parent's full context instead of
    * receiving only the objective + context fields.
    */

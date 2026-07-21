@@ -16,39 +16,11 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ── Shared mock setup ────────────────────────────────────────────────────────
-// Config mock must be declared before importing tool modules so that the
-// mock.module calls are hoisted above the dynamic imports.
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-
-    provider: "anthropic",
-    model: "test",
-    maxTokens: 4096,
-    dataDir: "/tmp",
-    timeouts: {
-      shellDefaultTimeoutSec: 120,
-      shellMaxTimeoutSec: 600,
-      permissionTimeoutSec: 300,
-    },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    secretDetection: {
-      enabled: false,
-    },
-  }),
-  loadConfig: () => ({}),
-  invalidateConfigCache: () => {},
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-}));
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
+// The real config loader serves these tests: it reads from the per-test temp
+// workspace and returns schema defaults (the timeout values the shell tool
+// needs are the documented defaults). Mocking `config/loader` here would force
+// the mock to mirror the loader's full export surface — modules under test
+// import it by name, and a partial mock fails to link.
 
 // shell.ts uses the script proxy — stub it to avoid network side-effects.
 mock.module("../tools/network/script-proxy/index.js", () => ({

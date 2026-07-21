@@ -48,13 +48,21 @@ bun add -g @zed-industries/codex-acp               # codex
 
 ## Claude setup
 
-The `claude-agent-acp` adapter requires a Claude OAuth token. Store it once in the credential store and every spawn injects it as `CLAUDE_CODE_OAUTH_TOKEN` automatically:
+The `claude-agent-acp` adapter requires a Claude **OAuth token** (`sk-ant-oat…`), NOT an API key (`sk-ant-api…`). Every spawn injects the stored token as `CLAUDE_CODE_OAUTH_TOKEN` automatically. The write path rejects an API key in this field, so never direct a user to paste an `sk-ant-api…` key here.
+
+**Primary: the in-app Connect Claude Code flow.** When a spawn fails because the token is missing, the UI **automatically renders an inline "Connect Claude Code" card** for the failed step — one click on desktop (loopback), one paste on cloud. The card restores itself after a reload or reconnect, so it stays available. It mints and stores the OAuth token so it never enters the conversation or the workspace config.
+
+**When a spawn fails for a missing token, do NOT prompt or instruct the user yourself.** The inline card already handles it, and the task **auto-continues** once they connect — so you don't need them to re-ask. Specifically, do NOT tell them to run `claude setup-token`, run `assistant credentials set`/`prompt`, open a terminal, or paste an `sk-ant-oat…` token — and do NOT retry the spawn yourself. Add at most one short sentence pointing at the card ("Click **Connect Claude Code** to sign in — I'll pick it back up once you're connected"), then stop and wait. Keep it terse and never say where the card is (no "above"/"below"/"at the bottom" — its placement is a UI detail you can't see): do not narrate that a card appeared, explain how the sign-in works, or say "nothing to paste" (the cloud flow does paste a key).
+
+**Fallback (headless environments where no inline card can appear):** the user runs `claude setup-token` on a machine where they are logged in to Claude, then stores the result via the secure prompt:
 
 ```bash
-assistant credentials set --service acp --field claude_oauth_token <token>
+assistant credentials prompt --service acp --field claude_oauth_token --label "Claude OAuth Token"
 ```
 
-When the token is missing, do NOT ask the user to paste it into chat. Collect it via the secure prompt instead: `assistant credentials prompt --service acp --field claude_oauth_token --label "Claude OAuth Token"`. That prompts the user through a secure UI so the token never enters the conversation or the workspace config. Users generate the token by running `claude setup-token` on a machine where they are logged in to Claude.
+This is strictly for headless/channel sessions. In an interactive session the daemon **refuses** this prompt for `acp/claude_oauth_token` and returns a message pointing at the inline Connect card, so do not run it to work around the card — just wait for the user to connect.
+
+Do NOT ask the user to paste the token into chat — the secure prompt keeps it out of the conversation and the workspace config.
 
 ## Codex setup
 

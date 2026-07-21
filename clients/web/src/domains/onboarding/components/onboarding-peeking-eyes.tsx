@@ -16,7 +16,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { motion, useAnimationControls, useReducedMotion } from "motion/react";
 
-import { pathBBox, unionBBox } from "@/domains/onboarding/components/eye-bbox";
+import { pathBBox, unionBBox } from "@/utils/eye-bbox";
 import { useOnboardingStageSize } from "@/domains/onboarding/hooks/use-onboarding-stage-size";
 import { useOnboardingAvatarPoolStore } from "@/domains/onboarding/onboarding-avatar-pool-store";
 import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
@@ -138,7 +138,7 @@ export function OnboardingPeekingEyes({
   );
   const eyesW = (eyesH * eye.bbox.w) / eye.bbox.h;
   const eyesLeft = (w - eyesW) / 2;
-  const eyesRestTop = h - (1 - EYE_REST_CUTOFF) * eyesH;
+  const eyesRestTop = h - (1 - EYE_REST_CUTOFF) * eyesH + h * 0.05;
   const eyesStartY = (PICKER_CENTER_VH / 100) * h - (eyesRestTop + eyesH / 2);
   const eyesDipY = (EYE_DIP_CUTOFF - EYE_REST_CUTOFF) * eyesH;
   const eyeCx = eye.bbox.x + eye.bbox.w / 2;

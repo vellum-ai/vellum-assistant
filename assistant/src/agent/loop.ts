@@ -1,5 +1,3 @@
-import * as Sentry from "@sentry/node";
-
 import { getConfig } from "../config/loader.js";
 import { isMemoryV3Live } from "../config/memory-v3-gate.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
@@ -14,7 +12,7 @@ import {
 import { spoolAndStubOversizedToolResults } from "../context/tool-result-spool.js";
 import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.js";
 import { parseActualTokensFromError } from "../daemon/parse-actual-tokens-from-error.js";
-import type { TrustContext } from "../daemon/trust-context.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import type {
   AgentLoopExitReason,
   PostCompactInputContext,
@@ -45,6 +43,7 @@ import type {
   ToolResultContent,
 } from "../providers/types.js";
 import { isContextOverflowError } from "../providers/types.js";
+import { getTool } from "../tools/registry.js";
 import type { SensitiveOutputBinding } from "../tools/sensitive-output-placeholders.js";
 import {
   applyStreamingSubstitution,
@@ -52,7 +51,6 @@ import {
 } from "../tools/sensitive-output-placeholders.js";
 import { ProviderError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
-import { isRetryableNetworkError } from "../util/retry.js";
 import { CompactionCircuit } from "./compaction-circuit.js";
 
 const log = getLogger("agent-loop");
@@ -242,7 +240,15 @@ export type AgentEvent =
   | { type: "llm_call_started"; callSite?: LLMCallSite }
   | { type: "text_delta"; text: string }
   | { type: "thinking_delta"; thinking: string }
-  | { type: "message_complete"; message: Message }
+  /**
+   * Emitted once per LLM call when the assistant message is finalized.
+   * `model` is the provider-reported model that served the call
+   * (`response.model`) — the same value `llm_usage` records — so downstream
+   * persistence can attribute the message to the model that actually ran,
+   * including per-call reroutes by a `pre-model-call` hook. Absent on
+   * synthesized emissions that have no provider response.
+   */
+  | { type: "message_complete"; message: Message; model?: string }
   | { type: "max_tokens_reached"; stopReason: string }
   | {
       type: "tool_use";
@@ -279,6 +285,8 @@ export type AgentEvent =
       approvalReason?: string;
       riskThreshold?: string;
       activityMetadata?: ToolActivityMetadata;
+      /** Stable machine-readable error classification (see `ToolExecutionResult.errorCode`). */
+      errorCode?: string;
       /**
        * Set when the loop synthesizes this result for a tool_use that never
        * executed (a "Cancelled by user" block on abort). The daemon still
@@ -337,8 +345,8 @@ export type AgentEvent =
        * has the same `provider` column value as a successful `usage` row.
        *
        * Re-thrown by the inner LLM-call try/catch after emission so the
-       * outer agent-loop catch still handles abort, Sentry capture, the
-       * existing `error` event, and the loop break.
+       * outer agent-loop catch still handles abort, the existing `error`
+       * event, and the loop break.
        */
       type: "provider_error";
       rawRequest: unknown;
@@ -521,42 +529,6 @@ function hasVisibleText(content: ReadonlyArray<ContentBlock>): boolean {
   );
 }
 
-/**
- * User-config HTTP status codes that should never page the on-call: billing
- * exhaustion (402), invalid credentials (401), and forbidden/plan-gated (403).
- * The user-facing error path already surfaces an actionable message (e.g.
- * credits_exhausted); a Sentry issue adds noise without engineering signal.
- */
-const USER_CONFIG_STATUS_CODES = new Set([401, 402, 403]);
-
-/**
- * Whether an agent-loop error should be reported to Sentry. Suppresses:
- *
- *  - `ProviderError` carrying a user-config status code (401/402/403) — these
- *    are bad API keys, exhausted billing, or plan gates, not engineering bugs.
- *  - Retry-exhausted transient network errors (`retriesExhausted === true` +
- *    still categorized as retryable network) — the retry loop already tried
- *    its best; the user's network was flaky, not our code.
- *
- * Everything else (5xx with no retry-exhaustion tag, surprise errors, tool
- * failures, etc.) still pages.
- */
-export function shouldCaptureAgentLoopError(err: Error): boolean {
-  if (
-    err instanceof ProviderError &&
-    err.statusCode !== undefined &&
-    USER_CONFIG_STATUS_CODES.has(err.statusCode)
-  ) {
-    return false;
-  }
-  const exhausted = (err as Error & { retriesExhausted?: boolean })
-    .retriesExhausted;
-  if (exhausted === true && isRetryableNetworkError(err)) {
-    return false;
-  }
-  return true;
-}
-
 type AgentLoopContextWindowResolver = () => {
   maxInputTokens: number;
   overflowRecovery: { enabled: boolean; safetyMarginRatio: number };
@@ -722,6 +694,7 @@ export type LoopToolExecutor = (
   approvalReason?: string;
   riskThreshold?: string;
   activityMetadata?: ToolActivityMetadata;
+  errorCode?: string;
 }>;
 
 /**
@@ -748,14 +721,6 @@ export interface AgentLoopConstructorOptions {
   toolExecutor?: LoopToolExecutor;
   resolveTools?: (history: Message[]) => ToolDefinition[];
   /**
-   * Decide whether a tool runs exclusively in its turn (see
-   * {@link ToolDefinition.exclusive}). When it returns true for a tool present
-   * in a multi-call turn, the loop runs only that tool and defers the siblings
-   * un-run. Injected by the conversation wiring, which can read the tool
-   * registry; lightweight loops that omit it never defer.
-   */
-  isExclusiveTool?: (toolName: string) => boolean;
-  /**
    * Conversation this loop drives. Scopes the loop-held compaction circuit
    * breaker and is the source of truth the loop's pipeline contexts and
    * post-compaction re-injection resolve the live conversation through.
@@ -780,7 +745,6 @@ export class AgentLoop {
   private tools: ToolDefinition[];
   private resolveTools: ((history: Message[]) => ToolDefinition[]) | null;
   private toolExecutor: LoopToolExecutor | null;
-  private isExclusiveTool: ((toolName: string) => boolean) | null;
 
   /**
    * Conversation this loop drives. Source of truth for the `conversationId`
@@ -810,7 +774,6 @@ export class AgentLoop {
       tools,
       toolExecutor,
       resolveTools,
-      isExclusiveTool,
       conversationId,
       resolveConversationDir,
     } = options;
@@ -820,7 +783,6 @@ export class AgentLoop {
     this.tools = tools ?? [];
     this.resolveTools = resolveTools ?? null;
     this.toolExecutor = toolExecutor ?? null;
-    this.isExclusiveTool = isExclusiveTool ?? null;
     this.conversationId = conversationId;
     this.resolveConversationDir = resolveConversationDir ?? null;
     this.compactionCircuit = new CompactionCircuit(this.conversationId);
@@ -1402,8 +1364,8 @@ export class AgentLoop {
         //   2. Call-site resolved values (filled by
         //      `RetryProvider.normalizeSendMessageOptions` from
         //      `resolveCallSiteConfig(callSite, llm)`)
-        //   3. Conversation defaults (`this.config.*`, sourced from
-        //      `llm.default`)
+        //   3. Conversation defaults (`this.config.*`, from the resolved
+        //      default call-site config)
         //
         // When `callSite` is present we deliberately leave
         // `max_tokens`/`thinking`/`effort`/`speed` *unset* in `providerConfig`
@@ -1464,7 +1426,8 @@ export class AgentLoop {
         // Per-call LLM call-site identifier. Surfaces on the per-call
         // `config.callSite` so `RetryProvider.normalizeSendMessageOptions`
         // can route through `resolveCallSiteConfig` against
-        // `llm.callSites.<id>` (falling back to `llm.default` when absent).
+        // `llm.callSites.<id>` (falling back to the shipped call-site
+        // defaults when absent).
         // User-initiated conversation turns default to `mainAgent` in the
         // agent loop's caller; other invocation contexts (heartbeat, filing,
         // analyze, etc.) pass their own `callSite`.
@@ -1719,8 +1682,8 @@ export class AgentLoop {
         // provider rejections. On provider failure we emit `provider_error`
         // with the loop-level raw request so consumers can persist it as an
         // `llm_request_logs` row, then re-throw so the existing outer catch
-        // continues to handle abort sync, Sentry capture, the `error` event,
-        // and the loop break unchanged.
+        // continues to handle abort sync, the `error` event, and the loop
+        // break unchanged.
         // Latency: the request is about to leave for the provider. The span
         // from here to the first streamed token is time-to-first-token.
         latencyTracker?.mark("request_sent");
@@ -1951,6 +1914,7 @@ export class AgentLoop {
             await onEvent({
               type: "message_complete",
               message: safeAssistantMessage,
+              model: response.model,
             });
             history = maxTokensMessages;
             continue;
@@ -1963,6 +1927,7 @@ export class AgentLoop {
           await onEvent({
             type: "message_complete",
             message: safeAssistantMessage,
+            model: response.model,
           });
           await stopTurn("max_tokens_reached");
           break;
@@ -2047,7 +2012,11 @@ export class AgentLoop {
 
         history.push(assistantMessage);
 
-        await onEvent({ type: "message_complete", message: assistantMessage });
+        await onEvent({
+          type: "message_complete",
+          message: assistantMessage,
+          model: response.model,
+        });
 
         if (toolUseBlocks.length === 0 || !this.toolExecutor) {
           // The model stopped requesting tools and `post-model-call` settled on
@@ -2108,9 +2077,9 @@ export class AgentLoop {
         // the siblings with a benign, un-run result so the model re-issues them
         // next turn if still needed. Every tool_use still gets a matching
         // tool_result, so history stays well-formed.
-        const exclusiveBlock = this.isExclusiveTool
-          ? toolUseBlocks.find((block) => this.isExclusiveTool!(block.name))
-          : undefined;
+        const exclusiveBlock = toolUseBlocks.find(
+          (block) => getTool(block.name)?.exclusive === true,
+        );
         const deferSiblings =
           exclusiveBlock !== undefined && toolUseBlocks.length > 1;
         if (deferSiblings) {
@@ -2304,6 +2273,7 @@ export class AgentLoop {
             approvalReason: result.approvalReason,
             riskThreshold: result.riskThreshold,
             activityMetadata: result.activityMetadata,
+            errorCode: result.errorCode,
           });
         }
 
@@ -2499,9 +2469,6 @@ export class AgentLoop {
           { err, turn: toolUseTurns, messageCount: history.length },
           "Agent loop error during turn processing",
         );
-        if (shouldCaptureAgentLoopError(err)) {
-          Sentry.captureException(err);
-        }
         onEvent({ type: "error", error: err });
         // Catch-block fallback. A break site that stamped a more specific
         // reason before unwinding here keeps it; the guard makes this a no-op.

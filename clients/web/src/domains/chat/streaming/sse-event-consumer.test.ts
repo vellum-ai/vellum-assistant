@@ -3,7 +3,9 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import {
   __resetLocalSeqForTesting,
   getLocalSeq,
+  recordLocalSeq,
 } from "@/lib/streaming/local-seq";
+import { SSE_REPLAY_RING_COUNT_LIMIT } from "@vellumai/assistant-api";
 import type { AssistantEvent } from "@/types/event-types";
 
 let mockStreamEpoch = 7;
@@ -15,12 +17,22 @@ mock.module("@/domains/chat/stream-store", () => ({
 
 // Single global cursor mock mirroring reconnect-cursor.ts semantics.
 let globalCursor: number | null = null;
+// The abandoned-generation ceiling, recorded on a seq generation reset and
+// read by the stale-frontier guard. Mirrors reconnect-cursor.ts semantics.
+let abandonedGenerationCeiling: number | null = null;
 mock.module("@/lib/streaming/reconnect-cursor", () => ({
   getReconnectCursor: () => globalCursor,
+  getAbandonedGenerationCeiling: () => abandonedGenerationCeiling,
   // Monotonic — matches the real implementation (won't lower the cursor).
   advanceReconnectCursor: (seq: number) => {
     if (globalCursor === null || seq > globalCursor) {
       globalCursor = seq;
+    }
+  },
+  // Monotonic — retains the highest abandoned ceiling seen.
+  recordAbandonedGeneration: (seq: number) => {
+    if (abandonedGenerationCeiling === null || seq > abandonedGenerationCeiling) {
+      abandonedGenerationCeiling = seq;
     }
   },
   // Unconditional — used for generation resets and gap resolves.
@@ -29,6 +41,7 @@ mock.module("@/lib/streaming/reconnect-cursor", () => ({
   },
   resetReconnectCursor: () => {
     globalCursor = null;
+    abandonedGenerationCeiling = null;
   },
 }));
 
@@ -79,6 +92,7 @@ const makeDeps = (override: {
 beforeEach(() => {
   mockStreamEpoch = 7;
   globalCursor = null;
+  abandonedGenerationCeiling = null;
   __resetLocalSeqForTesting();
   recordDiagnosticMock.mockClear();
 });
@@ -692,5 +706,208 @@ describe("sse-event-consumer — per-conversation idempotent apply", () => {
       expect.objectContaining({ conversationId: "conv-1", eventSeq: 5 }),
     );
     expect(getLocalSeq("conv-1")).toBe(5);
+  });
+});
+
+describe("sse-event-consumer — stale seq-generation recovery", () => {
+  test("a generation reset drops per-conversation frontiers so the new seq space applies", () => {
+    /**
+     * Incident shape (2026-07-18): the daemon resumed its counter below
+     * anchors it had already served, so the stored cursor and the
+     * conversation frontier both sat far above every live seq. The reset
+     * must clear the frontiers along with the cursor — otherwise every
+     * live event is classified as an already-applied replay.
+     */
+    // GIVEN a cursor and a conversation frontier from the old seq space
+    globalCursor = 907779;
+    recordLocalSeq("conv-1", 907779);
+    const { deps, handleStreamEvent, reconcileActive } = makeDeps({
+      activeConversationId: "conv-1",
+    });
+    const consumer = createSseEventConsumer(deps);
+
+    // WHEN the first event of the new (lower) seq space arrives
+    consumer.handleSseEvent(
+      makeEnvelope({
+        conversationId: "conv-1",
+        seq: 905854,
+        message: { type: "assistant_text_delta", text: "a" },
+      }),
+    );
+
+    // THEN the event dispatches instead of being dropped as a replay,
+    // and cursor + frontier are re-seeded from the new space
+    expect(handleStreamEvent).toHaveBeenCalledTimes(1);
+    expect(getLocalSeq("conv-1")).toBe(905854);
+    expect(globalCursor).toBe(905854);
+    expect(reconcileActive).toHaveBeenCalledTimes(1);
+    expect(recordDiagnosticMock).toHaveBeenCalledWith(
+      "sse_seq_generation_reset",
+      expect.objectContaining({ stored: 907779, observed: 905854 }),
+    );
+  });
+
+  test("a stale /messages anchor re-poisoning the frontier after an observed reset is dropped as stale generation", () => {
+    /**
+     * After the client observes the generation reset and clears its
+     * frontiers, a `/messages` request that raced the reset can still land
+     * the dead generation's anchor back on the frontier. The next live
+     * event trails that poisoned frontier by more than the ring; because a
+     * reset abandoned a ceiling the live cursor has not re-climbed to, the
+     * frontier is proven stale, dropped, and re-seeded from the live event.
+     */
+    // GIVEN a warm cursor from the pre-restart generation
+    globalCursor = 907779;
+    const { deps, handleStreamEvent } = makeDeps({
+      activeConversationId: "conv-1",
+    });
+    const consumer = createSseEventConsumer(deps);
+
+    // WHEN the first event of the new (lower) seq space arrives, the client
+    // observes the generation reset — cursor replaced, frontiers cleared,
+    // and the abandoned ceiling (907779) recorded
+    consumer.handleSseEvent(
+      makeEnvelope({
+        conversationId: "conv-1",
+        seq: 905853,
+        message: { type: "assistant_text_delta", text: "a" },
+      }),
+    );
+    expect(abandonedGenerationCeiling).toBe(907779);
+
+    // AND a `/messages` request that raced the reset re-poisons the frontier
+    // with the dead generation's anchor
+    recordLocalSeq("conv-1", 907779);
+
+    // AND the next live event arrives contiguously, trailing the poisoned
+    // frontier by far more than the ring
+    consumer.handleSseEvent(
+      makeEnvelope({
+        conversationId: "conv-1",
+        seq: 905854,
+        message: { type: "assistant_text_delta", text: "b" },
+      }),
+    );
+
+    // THEN the stale frontier is dropped and the event applies as the
+    // conversation's new frontier (both the reset event and this one
+    // dispatched — the poisoned frontier did not swallow the stream)
+    expect(handleStreamEvent).toHaveBeenCalledTimes(2);
+    expect(getLocalSeq("conv-1")).toBe(905854);
+    expect(recordDiagnosticMock).toHaveBeenCalledWith(
+      "sse_local_seq_stale_generation",
+      expect.objectContaining({ eventSeq: 905854, localSeq: 907779 }),
+    );
+  });
+
+  test("a large snapshot overlap with no generation reset is an idempotent replay, not a stale generation", () => {
+    /**
+     * The false-positive Codex flagged: a `/messages` reseed or reconcile
+     * advances the frontier far past the live cursor during a bursty turn
+     * or a main-thread stall, so the queued live backlog trails it by more
+     * than the ring — WITHOUT any daemon reset. Those events are contained
+     * in the snapshot, so they must drop as ordinary replays with the
+     * frontier held. Clearing the frontier here would re-run old handlers
+     * and let the whole backlog re-apply (duplicated deltas / rolled-back
+     * control state).
+     */
+    // GIVEN a warm cursor and frontier seeded by the live stream
+    const base = 1200;
+    const { deps, handleStreamEvent } = makeDeps({
+      activeConversationId: "conv-1",
+    });
+    const consumer = createSseEventConsumer(deps);
+    consumer.handleSseEvent(
+      makeEnvelope({
+        conversationId: "conv-1",
+        seq: base,
+        message: { type: "assistant_text_delta", text: "seed" },
+      }),
+    );
+
+    // AND a bursty-turn snapshot that jumps the frontier far ahead of the
+    // live cursor (no generation reset — the abandoned ceiling stays null).
+    // Only the seed has dispatched so far.
+    const frontier = base + SSE_REPLAY_RING_COUNT_LIMIT + 50;
+    recordLocalSeq("conv-1", frontier);
+    expect(abandonedGenerationCeiling).toBeNull();
+    expect(handleStreamEvent).toHaveBeenCalledTimes(1);
+
+    // WHEN a queued live frame, contiguous with the cursor, trails the
+    // frontier by more than the ring
+    consumer.handleSseEvent(
+      makeEnvelope({
+        conversationId: "conv-1",
+        seq: base + 1,
+        message: { type: "assistant_text_delta", text: "backlog-1" },
+      }),
+    );
+
+    // THEN it drops as an ordinary replay (no new dispatch beyond the seed)
+    // and the frontier holds — the stale-generation clear must NOT fire
+    expect(handleStreamEvent).toHaveBeenCalledTimes(1);
+    expect(getLocalSeq("conv-1")).toBe(frontier);
+    expect(recordDiagnosticMock).toHaveBeenCalledWith(
+      "sse_event_seq_replayed",
+      expect.objectContaining({ eventSeq: base + 1, localSeq: frontier }),
+    );
+    expect(recordDiagnosticMock).not.toHaveBeenCalledWith(
+      "sse_local_seq_stale_generation",
+      expect.anything(),
+    );
+
+    // AND a second queued frame also drops — the backlog stays suppressed
+    // below the held frontier rather than re-applying
+    consumer.handleSseEvent(
+      makeEnvelope({
+        conversationId: "conv-1",
+        seq: base + 2,
+        message: { type: "assistant_text_delta", text: "backlog-2" },
+      }),
+    );
+    expect(handleStreamEvent).toHaveBeenCalledTimes(1);
+    expect(getLocalSeq("conv-1")).toBe(frontier);
+  });
+
+  test("after the new generation re-climbs past the abandoned ceiling, a large overlap is an ordinary replay", () => {
+    /**
+     * The stale-generation window closes once the live cursor re-passes the
+     * abandoned ceiling: from there every old anchor sits below the live
+     * stream, so a frontier ahead of a live event is again just a snapshot
+     * overlap. A reset earlier in a long session must not permanently arm
+     * the stale-generation clear.
+     */
+    // GIVEN a past reset whose ceiling the live cursor has since climbed past
+    abandonedGenerationCeiling = 1000;
+    globalCursor = 1600;
+    // AND a snapshot that advanced the frontier ahead of the live cursor
+    const frontier = 1600 + SSE_REPLAY_RING_COUNT_LIMIT + 50;
+    recordLocalSeq("conv-1", frontier);
+    const { deps, handleStreamEvent } = makeDeps({
+      activeConversationId: "conv-1",
+    });
+    const consumer = createSseEventConsumer(deps);
+
+    // WHEN a queued live frame contiguous with the cursor trails the
+    // frontier by more than the ring
+    consumer.handleSseEvent(
+      makeEnvelope({
+        conversationId: "conv-1",
+        seq: 1601,
+        message: { type: "assistant_text_delta", text: "a" },
+      }),
+    );
+
+    // THEN it is an ordinary replay, not a stale-generation clear
+    expect(handleStreamEvent).not.toHaveBeenCalled();
+    expect(getLocalSeq("conv-1")).toBe(frontier);
+    expect(recordDiagnosticMock).toHaveBeenCalledWith(
+      "sse_event_seq_replayed",
+      expect.objectContaining({ eventSeq: 1601, localSeq: frontier }),
+    );
+    expect(recordDiagnosticMock).not.toHaveBeenCalledWith(
+      "sse_local_seq_stale_generation",
+      expect.anything(),
+    );
   });
 });

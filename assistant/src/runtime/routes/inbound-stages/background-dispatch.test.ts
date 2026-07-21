@@ -23,6 +23,8 @@ const replyDeliveryCalls: Array<{
   startFromSegment?: number;
   messageTs?: string;
 }> = [];
+let siblingDeliveryStatuses: string[] = [];
+let siblingStreamedReplyTs: string | undefined;
 let deliverChannelReplyImpl: (
   callbackUrl: string,
   payload: Record<string, unknown>,
@@ -30,13 +32,6 @@ let deliverChannelReplyImpl: (
 let deliverReplyViaCallbackImpl: (
   ...args: unknown[]
 ) => Promise<void> = async () => {};
-
-mock.module("../../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
 
 mock.module("../../../persistence/delivery-channels.js", () => ({
   updateDeliveredSegmentCount: (eventId: string, count: number) => {
@@ -53,6 +48,7 @@ mock.module("../../../persistence/delivery-crud.js", () => ({
     operationOrder.push("store-streamed-ts");
     storedStreamedReplyTs.push({ eventId, messageTs });
   },
+  getSiblingStreamedReplyTs: () => siblingStreamedReplyTs,
 }));
 
 mock.module("../../../persistence/delivery-status.js", () => ({
@@ -69,6 +65,7 @@ mock.module("../../../persistence/delivery-status.js", () => ({
     operationOrder.push("processing-failure");
     processingFailureEvents.push(eventId);
   },
+  getSiblingEventDeliveryStatuses: () => siblingDeliveryStatuses,
 }));
 
 mock.module("../../gateway-client.js", () => ({
@@ -105,7 +102,7 @@ import {
   getThreadTs,
   setThreadTs,
 } from "../../../channels/slack-thread-store.js";
-import type { TrustContext } from "../../../daemon/trust-context.js";
+import type { TrustContext } from "../../../daemon/trust-context-types.js";
 import type { MessageProcessor } from "../../http-types.js";
 import {
   isBoundGuardianActor,
@@ -125,6 +122,8 @@ beforeEach(() => {
   storedReplyMessageIds.length = 0;
   storedStreamedReplyTs.length = 0;
   replyDeliveryCalls.length = 0;
+  siblingDeliveryStatuses = [];
+  siblingStreamedReplyTs = undefined;
   deliverChannelReplyImpl = async () => ({ ok: true });
   deliverReplyViaCallbackImpl = async () => {};
 });
@@ -344,6 +343,164 @@ describe("processChannelMessageInBackground — slack thread mapping", () => {
     clearThreadTs(conversationId);
   });
 
+  test("suppresses reply delivery when a deduplicated redelivery's prior attempt already delivered", async () => {
+    const conversationId = "conv-dedup-delivered";
+    const channelId = "C-DEDUP-DELIVERED";
+
+    // At-least-once redelivery: the persist layer dedups on the idempotency
+    // key, so processMessage skips the agent loop and returns `deduplicated`.
+    // The original sibling event already reached `delivered`, so re-emitting
+    // the reply would duplicate it.
+    siblingDeliveryStatuses = ["delivered"];
+    const processMessage: MessageProcessor = async () => ({
+      messageId: "user-msg-dedup",
+      deduplicated: true,
+    });
+
+    processChannelMessageInBackground({
+      processMessage,
+      conversationId,
+      eventId: "evt-dedup-delivered",
+      content: "redelivered message",
+      sourceChannel: "slack",
+      sourceInterface: "slack",
+      externalChatId: channelId,
+      trustCtx,
+      metadataHints: [],
+      replyCallbackUrl: `https://example.test/deliver/slack?channel=${channelId}`,
+    });
+
+    await flush();
+
+    // The redelivery is recorded as processed, but the original reply is not
+    // re-delivered — no durable delivery, no terminal delivery transition.
+    expect(markedProcessedEvents).toEqual(["evt-dedup-delivered"]);
+    expect(replyDeliveryCalls).toEqual([]);
+    expect(deliveredEvents).toEqual([]);
+    expect(deliveredChannelReplies).toEqual([]);
+
+    clearThreadTs(conversationId);
+  });
+
+  test("skips reply delivery when a deduplicated redelivery's prior attempt failed (sweep owns recovery)", async () => {
+    const conversationId = "conv-dedup-failed";
+    const channelId = "C-DEDUP-FAILED";
+
+    // The original sibling event's delivery failed and is owned by the
+    // delivery-retry sweep; the redelivery must not race it.
+    siblingDeliveryStatuses = ["failed"];
+    const processMessage: MessageProcessor = async () => ({
+      messageId: "user-msg-dedup",
+      deduplicated: true,
+    });
+
+    processChannelMessageInBackground({
+      processMessage,
+      conversationId,
+      eventId: "evt-dedup-failed",
+      content: "redelivered message",
+      sourceChannel: "slack",
+      sourceInterface: "slack",
+      externalChatId: channelId,
+      trustCtx,
+      metadataHints: [],
+      replyCallbackUrl: `https://example.test/deliver/slack?channel=${channelId}`,
+    });
+
+    await flush();
+
+    expect(markedProcessedEvents).toEqual(["evt-dedup-failed"]);
+    expect(replyDeliveryCalls).toEqual([]);
+    expect(deliveredEvents).toEqual([]);
+    expect(deliveredChannelReplies).toEqual([]);
+
+    clearThreadTs(conversationId);
+  });
+
+  test("recovers the reply when a deduplicated redelivery's prior attempt is stuck pending (crash window)", async () => {
+    const conversationId = "conv-dedup-pending";
+    const channelId = "C-DEDUP-PENDING";
+
+    // The first process persisted the turn but died before recording a
+    // delivery outcome, leaving the original sibling event stuck `pending`.
+    // The sweep only selects `failed`, so this redelivery is the only path
+    // that can recover the undelivered reply.
+    siblingDeliveryStatuses = ["pending"];
+    const processMessage: MessageProcessor = async () => ({
+      messageId: "user-msg-dedup",
+      deduplicated: true,
+    });
+
+    processChannelMessageInBackground({
+      processMessage,
+      conversationId,
+      eventId: "evt-dedup-pending",
+      content: "redelivered message",
+      sourceChannel: "slack",
+      sourceInterface: "slack",
+      externalChatId: channelId,
+      trustCtx,
+      metadataHints: [],
+      replyCallbackUrl: `https://example.test/deliver/slack?channel=${channelId}`,
+    });
+
+    await flush();
+
+    // finalizeEventDelivery runs: it re-delivers the original turn's reply via
+    // `sinceMessageId` (no targeted `messageId`, since no agent loop ran) and
+    // marks this event delivered.
+    expect(markedProcessedEvents).toEqual(["evt-dedup-pending"]);
+    expect(replyDeliveryCalls).toEqual([
+      { messageId: undefined, startFromSegment: 0 },
+    ]);
+    expect(deliveredEvents).toEqual(["evt-dedup-pending"]);
+
+    clearThreadTs(conversationId);
+  });
+
+  test("edits the sibling's streamed Slack reply in place when recovering a deduplicated redelivery in the crash window", async () => {
+    const conversationId = "conv-dedup-pending-streamed";
+    const channelId = "C-DEDUP-PENDING-STREAMED";
+    const streamTs = "1700000000.000099";
+
+    // The original attempt streamed its reply live into Slack — its message
+    // `ts` is durably recorded on the sibling row — but crashed before
+    // finalizing delivery, leaving the sibling stuck `pending`. Reposting the
+    // persisted reply would duplicate the already-visible streamed message, so
+    // recovery must reuse the recorded `ts` to edit that message in place.
+    siblingDeliveryStatuses = ["pending"];
+    siblingStreamedReplyTs = streamTs;
+    const processMessage: MessageProcessor = async () => ({
+      messageId: "user-msg-dedup",
+      deduplicated: true,
+    });
+
+    processChannelMessageInBackground({
+      processMessage,
+      conversationId,
+      eventId: "evt-dedup-pending-streamed",
+      content: "redelivered message",
+      sourceChannel: "slack",
+      sourceInterface: "slack",
+      externalChatId: channelId,
+      trustCtx,
+      metadataHints: [],
+      replyCallbackUrl: `https://example.test/deliver/slack?channel=${channelId}`,
+    });
+
+    await flush();
+
+    // The reply is delivered onto the existing streamed message (`messageTs`
+    // reused) rather than posted anew, and the event is marked delivered.
+    expect(markedProcessedEvents).toEqual(["evt-dedup-pending-streamed"]);
+    expect(replyDeliveryCalls).toEqual([
+      { messageId: undefined, startFromSegment: 0, messageTs: streamTs },
+    ]);
+    expect(deliveredEvents).toEqual(["evt-dedup-pending-streamed"]);
+
+    clearThreadTs(conversationId);
+  });
+
   test("falls back to durable delivery for a non-threaded Slack DM", async () => {
     const conversationId = "conv-dm-no-thread";
     const channelId = "D-NO-THREAD";
@@ -457,6 +614,11 @@ describe("processChannelMessageInBackground — slack thread mapping", () => {
         startFromSegment: 1,
         messageTs: streamTs,
       },
+    ]);
+    // The stream `ts` is durably recorded the moment the stream opens, so a
+    // crash before delivery finalizes leaves a breadcrumb for recovery.
+    expect(storedStreamedReplyTs).toEqual([
+      { eventId: "evt-streamed", messageTs: streamTs },
     ]);
     expect(deliveredEvents).toEqual(["evt-streamed"]);
 

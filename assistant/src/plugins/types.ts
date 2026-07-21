@@ -3,8 +3,8 @@
  *
  * A plugin may contribute lifecycle hooks ({@link PluginHooks}) that the
  * runtime invokes at named events, and model-visible capabilities (`tools`,
- * `routes`, `skills`). The registry tracks every registered plugin in
- * registration order.
+ * `skills`). The registry tracks every registered plugin in registration
+ * order.
  *
  * Design doc: `.private/plans/agent-plugin-system.md`.
  */
@@ -13,19 +13,18 @@ import type { CompactionCircuitClosedEvent } from "../api/events/compaction-circ
 import type { CompactionCircuitOpenEvent } from "../api/events/compaction-circuit-open.js";
 import type { HookEventOwner } from "../api/events/hook-event.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
+import type { AssistantConfig } from "../config/types.js";
 import type {
   ChannelCapabilities,
   InboundActorContext,
   InjectionMode,
 } from "../daemon/conversation-runtime-assembly.js";
-import type { TrustContext } from "../daemon/trust-context.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
+import type { MemoryJob } from "../persistence/jobs-store.js";
 import type { HookFunction } from "../plugin-api/types.js";
 import type { Message } from "../providers/types.js";
-import type { SkillRoute } from "../runtime/skill-route-registry.js";
 import type { Tool } from "../tools/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
-import type { ConversationGraphMemory } from "./defaults/memory/graph/conversation-graph-memory.js";
-import type { JobHandler } from "./defaults/memory/jobs-worker.js";
 
 // ─── Manifest ────────────────────────────────────────────────────────────────
 
@@ -67,18 +66,6 @@ export type {
   ShutdownContext,
   ShutdownReason,
 } from "../plugin-api/types.js";
-
-// ─── Memory-graph result ─────────────────────────────────────────────────────
-
-/**
- * Full output of a single memory-graph retrieval — the object returned by
- * {@link ConversationGraphMemory.prepareMemory} (injected messages, query
- * vectors, metrics). The agent loop consumes these fields directly to drive
- * PKB hint search and runtime injection.
- */
-export type GraphMemoryResult = Awaited<
-  ReturnType<ConversationGraphMemory["prepareMemory"]>
->;
 
 /**
  * The complete set of compaction circuit-breaker transition events:
@@ -318,23 +305,19 @@ export interface Injector {
 }
 
 // ─── Model-visible capability slots ──────────────────────────────────────────
-// Concrete shapes are defined by the tool/route registries. Tool
-// contributions use the canonical `Tool` interface; route contributions use
-// the `SkillRoute` shape from the skill-route registry. Skills ship on disk
-// inside an installed plugin (`plugins/<name>/skills/<id>/SKILL.md`) and are
-// discovered by the skill catalog loader, so they need no contribution slot.
+// Concrete shapes are defined by the tool registry. Tool contributions use the
+// canonical `Tool` interface. Skills ship on disk inside an installed plugin
+// (`plugins/<name>/skills/<id>/SKILL.md`) and are discovered by the skill
+// catalog loader, so they need no contribution slot. A plugin's other on-disk
+// surfaces (e.g. `routes/`) are served from their workspace location rather
+// than wired through the loader, so they carry no `Plugin` contribution slot.
 
 /**
- * HTTP route registration contributed by a plugin. Plugins express routes as
- * {@link SkillRoute} values — the same shape the skill-route registry
- * consumes — so `registerSkillRoute` can accept them directly. Bootstrap
- * wires the registrations after `init()` succeeds, retains the opaque
- * handle returned by each `registerSkillRoute` call, and uses those handles
- * (not the regex patterns themselves) to unregister the plugin's routes on
- * shutdown. Identity-keyed unregistration is what keeps sibling owners that
- * happen to register the same regex from evicting each other's routes.
+ * Processes one claimed background job: receives the claimed job row and the
+ * live assistant config. The return value is ignored — a handler signals
+ * failure by throwing, which the worker records against the job.
  */
-export type PluginRouteRegistration = SkillRoute;
+export type JobHandler = (job: MemoryJob, config: AssistantConfig) => unknown;
 
 /**
  * A single background-job-handler entry: a job `type` string paired with the
@@ -402,12 +385,10 @@ export interface Plugin {
    * stamped by `registerPluginTools` at registration time.
    */
   tools?: Tool[];
-  /** HTTP route registrations served by the assistant. */
-  routes?: PluginRouteRegistration[];
   /**
    * Runtime injectors contributed to the per-turn injection chain. Bootstrap
    * registers these into the global injector registry before `init()` runs,
-   * symmetric with `tools`/`routes`. The registry unions every plugin's
+   * symmetric with `tools`. The registry unions every plugin's
    * injectors and stable-sorts by ascending `order`, so contribution order
    * does not affect the produced sequence except as the tiebreak among
    * injectors sharing an `order`. See `plugins/injector-registry.ts`.

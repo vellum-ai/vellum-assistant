@@ -72,7 +72,7 @@ export interface CapabilitySet {
   // --- Data & memory ---
   /**
    * May access long-term / cross-conversation memory — both the memory *tools*
-   * (recall, auto-analysis, retrospection, graph extraction) and *visibility*
+   * (recall, retrospection, graph extraction) and *visibility*
    * of cross-conversation history in assembled context. Untrusted actors are
    * walled off from both.
    */
@@ -86,8 +86,8 @@ export interface CapabilitySet {
 
   // --- Execution environment ---
   /**
-   * May run the shell WITHOUT the untrusted sandbox / CES lockdown (no
-   * `VELLUM_UNTRUSTED_SHELL`, no credential-secrecy confinement).
+   * May run the shell WITHOUT the untrusted sandbox (no credential-secrecy
+   * confinement).
    */
   canRunUnsandboxedShell: boolean;
 

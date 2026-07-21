@@ -13,6 +13,7 @@ mock.module("@/stores/assistant-feature-flag-store", () => {
   const store = () => null;
   store.use = {
     settingsDeveloperNav: () => assistantFlags.settingsDeveloperNav ?? false,
+    credentialsSettings: () => assistantFlags.credentialsSettings ?? false,
   };
   return { useAssistantFeatureFlagStore: store };
 });
@@ -88,7 +89,8 @@ describe("SettingsLayout", () => {
     expect(screen.getByRole("link", { name: "Integrations" })).not.toBeNull();
   });
 
-  test("hides the Security entry when the account-mfa flag is off", () => {
+  test("never renders a Security entry — two-factor auth lives on General", () => {
+    clientFlags = { accountMfa: true };
     render(
       <MemoryRouter initialEntries={["/assistant/settings"]}>
         <SettingsLayout />
@@ -98,14 +100,21 @@ describe("SettingsLayout", () => {
     expect(screen.queryByRole("link", { name: "Security" })).toBeNull();
   });
 
-  test("shows the Security entry when the account-mfa flag is on", () => {
-    clientFlags = { accountMfa: true };
+  test("renders Credentials only when the credentials-settings flag is on", () => {
     render(
       <MemoryRouter initialEntries={["/assistant/settings"]}>
         <SettingsLayout />
       </MemoryRouter>,
     );
+    expect(screen.queryByRole("link", { name: "Credentials" })).toBeNull();
+    cleanup();
 
-    expect(screen.getByRole("link", { name: "Security" })).not.toBeNull();
+    assistantFlags = { credentialsSettings: true };
+    render(
+      <MemoryRouter initialEntries={["/assistant/settings"]}>
+        <SettingsLayout />
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole("link", { name: "Credentials" })).not.toBeNull();
   });
 });

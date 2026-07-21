@@ -1,8 +1,10 @@
 import type { Command } from "commander";
 
 import { cliIpcCall, exitFromIpcResult } from "../../ipc/cli-client.js";
+import { applyCommandHelp, subcommand } from "../lib/cli-command-help.js";
 import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
+import { pendingHelp } from "./pending.help.js";
 
 interface PendingInteractionEntry {
   requestId: string;
@@ -18,94 +20,91 @@ interface PendingInteractionsResponse {
 
 export function registerPendingCommand(program: Command): void {
   registerCommand(program, {
-    name: "pending",
+    name: pendingHelp.name,
     transport: "ipc",
-    description: "Inspect pending interactions (confirmations, secrets, host proxy requests)",
+    description: pendingHelp.description,
     build: (pending) => {
-      pending
-    .command("list")
-    .alias("ls")
-    .description("List all pending interactions across all conversations")
-    .option(
-      "--kind <kind>",
-      "Filter by kind (confirmation, secret, host_bash, etc.)",
-    )
-    .option("--conversation <id>", "Filter by conversation ID")
-    .option("--json", "Output as JSON")
-    .action(
-      async (opts: {
-        kind?: string;
-        conversation?: string;
-        json?: boolean;
-      }) => {
-        try {
-          const response =
-            await cliIpcCall<PendingInteractionsResponse>(
-              "pending_interactions",
-            );
+      applyCommandHelp(pending, pendingHelp);
 
-          if (!response.ok) {
-            return exitFromIpcResult({
-              ok: false,
-              error: response.error,
-              statusCode: response.statusCode,
-            });
-          }
-          if (!response.result) {
-            log.error(
-              "pending_interactions returned ok with no result body",
-            );
-            process.exitCode = 1;
-            return;
-          }
+      // The "ls" alias is not expressible in CliCommandHelp, so it is
+      // attached imperatively after the declarative registration.
+      subcommand(pending, "list")
+        .alias("ls")
+        .action(
+          async (opts: {
+            kind?: string;
+            conversation?: string;
+            json?: boolean;
+          }) => {
+            try {
+              const response = await cliIpcCall<PendingInteractionsResponse>(
+                "pending_interactions",
+              );
 
-          let interactions = response.result.interactions;
+              if (!response.ok) {
+                return exitFromIpcResult({
+                  ok: false,
+                  error: response.error,
+                  statusCode: response.statusCode,
+                });
+              }
+              if (!response.result) {
+                log.error(
+                  "pending_interactions returned ok with no result body",
+                );
+                process.exitCode = 1;
+                return;
+              }
 
-          if (opts.kind) {
-            interactions = interactions.filter(
-              (i: PendingInteractionEntry) => i.kind === opts.kind,
-            );
-          }
-          if (opts.conversation) {
-            interactions = interactions.filter(
-              (i: PendingInteractionEntry) =>
-                i.conversationId === opts.conversation,
-            );
-          }
+              let interactions = response.result.interactions;
 
-          if (opts.json) {
-            console.log(JSON.stringify(interactions, null, 2));
-            return;
-          }
+              if (opts.kind) {
+                interactions = interactions.filter(
+                  (i: PendingInteractionEntry) => i.kind === opts.kind,
+                );
+              }
+              if (opts.conversation) {
+                interactions = interactions.filter(
+                  (i: PendingInteractionEntry) =>
+                    i.conversationId === opts.conversation,
+                );
+              }
 
-          if (interactions.length === 0) {
-            console.log("No pending interactions.");
-            return;
-          }
+              if (opts.json) {
+                console.log(JSON.stringify(interactions, null, 2));
+                return;
+              }
 
-          const kindWidth = Math.max(
-            4,
-            ...interactions.map((i: PendingInteractionEntry) => i.kind.length),
-          );
-          const header = `${"KIND".padEnd(kindWidth)}  ${"REQUEST ID".padEnd(36)}  ${"CONVERSATION".padEnd(36)}  DETAILS`;
-          console.log(header);
+              if (interactions.length === 0) {
+                console.log("No pending interactions.");
+                return;
+              }
 
-          for (const i of interactions) {
-            const details = i.toolName
-              ? `${i.toolName} (${i.riskLevel ?? "?"})`
-              : "";
-            console.log(
-              `${i.kind.padEnd(kindWidth)}  ${i.requestId.padEnd(36)}  ${i.conversationId.padEnd(36)}  ${details}`,
-            );
-          }
+              const kindWidth = Math.max(
+                4,
+                ...interactions.map(
+                  (i: PendingInteractionEntry) => i.kind.length,
+                ),
+              );
+              const header = `${"KIND".padEnd(kindWidth)}  ${"REQUEST ID".padEnd(36)}  ${"CONVERSATION".padEnd(36)}  DETAILS`;
+              console.log(header);
 
-          console.log(`\n${interactions.length} pending interaction(s)`);
-        } catch (err) {
-          log.error({ err }, "Failed to list pending interactions");
-          process.exitCode = 1;
-        }
-      },
-    );
+              for (const i of interactions) {
+                const details = i.toolName
+                  ? `${i.toolName} (${i.riskLevel ?? "?"})`
+                  : "";
+                console.log(
+                  `${i.kind.padEnd(kindWidth)}  ${i.requestId.padEnd(36)}  ${i.conversationId.padEnd(36)}  ${details}`,
+                );
+              }
+
+              console.log(`\n${interactions.length} pending interaction(s)`);
+            } catch (err) {
+              log.error({ err }, "Failed to list pending interactions");
+              process.exitCode = 1;
+            }
+          },
+        );
     },
   });
 }

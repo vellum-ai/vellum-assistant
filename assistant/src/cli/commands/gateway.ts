@@ -2,14 +2,18 @@
  * `assistant gateway` CLI namespace.
  *
  * Subcommands:
+ *   status   — Show the gateway's public tunnel status via the daemon IPC proxy.
  *   logs tail — Show the last N gateway log entries via the daemon IPC proxy.
  */
 
 import type { Command } from "commander";
 
-import { cliIpcCall } from "../../ipc/cli-client.js";
+import { cliIpcCall, exitFromIpcResult } from "../../ipc/cli-client.js";
+import { applyCommandHelp, subcommand } from "../lib/cli-command-help.js";
 import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
+import { shouldOutputJson, writeOutput } from "../output.js";
+import { gatewayHelp } from "./gateway.help.js";
 
 // -- Types --------------------------------------------------------------------
 
@@ -19,6 +23,10 @@ interface PinoEntry {
   module?: string;
   msg?: string;
   [key: string]: unknown;
+}
+
+interface GatewayStatusResult {
+  tunnel?: string;
 }
 
 // -- Helpers ------------------------------------------------------------------
@@ -58,133 +66,107 @@ function colorLevel(name: string, levelNum: number): string {
 
 export function registerGatewayCommand(program: Command): void {
   registerCommand(program, {
-    name: "gateway",
+    name: gatewayHelp.name,
     transport: "ipc",
-    description: "Gateway management",
+    description: gatewayHelp.description,
     build: (gateway) => {
+      applyCommandHelp(gateway, gatewayHelp);
 
-  gateway.addHelpText(
-    "after",
-    `
-The gateway is the channel ingress layer — it handles inbound HTTP requests,
-manages trust rules, routes traffic to the assistant, and records
-structured logs for all inbound activity.
+      // -----------------------------------------------------------------------
+      // status
+      // -----------------------------------------------------------------------
 
-Examples:
-  $ assistant gateway logs tail
-  $ assistant gateway logs tail -n 50
-  $ assistant gateway logs tail --level warn
-  $ assistant gateway logs tail --module cors`,
-  );
+      subcommand(gateway, "status").action(async (_opts, cmd: Command) => {
+        const r = await cliIpcCall<GatewayStatusResult>("gateway_status", {});
+        if (!r.ok)
+          return exitFromIpcResult(
+            { ok: false, error: r.error, statusCode: r.statusCode },
+            cmd,
+          );
 
-  const logs = gateway.command("logs").description("Gateway log operations");
+        const result = r.result!;
 
-  logs.addHelpText(
-    "after",
-    `
-Gateway logs are structured JSON (ndjson) entries emitted by the gateway
-process. Each entry carries a timestamp, numeric pino log level, optional
-module tag, and a message. Use 'tail' to inspect recent entries.
+        if (shouldOutputJson(cmd)) {
+          writeOutput(cmd, result);
+          return;
+        }
 
-Examples:
-  $ assistant gateway logs tail
-  $ assistant gateway logs tail --level error --module cors`,
-  );
-
-  logs
-    .command("tail")
-    .description("Show last N gateway log entries")
-    .option("-n <number>", "Number of lines (default: 10)")
-    .option("-q, --quiet", "Suppress column headers")
-    .option(
-      "--level <level>",
-      "Minimum log level (trace|debug|info|warn|error|fatal)",
-      "info",
-    )
-    .option("--module <name>", "Filter to exact module name")
-    .option("--raw", "Output raw ndjson (one JSON object per line)")
-    .addHelpText(
-      "after",
-      `
-Arguments:
-  -n <number>        Number of entries to return, clamped to 1–1000 (default: 10).
-  --level <level>    Minimum log level to include. One of:
-                       trace | debug | info | warn | error | fatal
-                     Defaults to "info". Use "trace" or "debug" for verbose output.
-  --module <name>    Filter to entries whose module tag exactly matches <name>.
-                     Useful for isolating a specific subsystem (e.g. "cors", "trust").
-  --raw              Emit raw ndjson — one JSON object per line — instead of the
-                     formatted table. Useful for piping to jq or other JSON tools.
-  -q, --quiet        Suppress the column-header line in table output.
-
-Output format (default table):
-  TIME (24 chars)  LEVEL (5 chars)  MODULE (up to 12 chars)  MESSAGE (truncated at 120 chars)
-
-Truncation:
-  When more matching entries exist beyond the requested -n window, a dim
-  "(showing last N matching entries — earlier entries exist)" footer is printed.
-
-Examples:
-  $ assistant gateway logs tail
-  $ assistant gateway logs tail -n 50 --level warn
-  $ assistant gateway logs tail --module cors --raw | jq .msg`,
-    )
-    .action(async (opts) => {
-      const n = Math.max(1, Math.min(1000, parseInt(opts.n ?? "10", 10) || 10));
-      const params: Record<string, unknown> = { n };
-      if (opts.level && opts.level !== "info") params.level = opts.level;
-      if (opts.module) params.module = opts.module;
-
-      const result = await cliIpcCall<{ lines: PinoEntry[]; truncated: boolean }>(
-        "gateway_logs_tail",
-        { body: params },
-      );
-
-      if (!result.ok) {
-        log.error(result.error ?? "Failed to fetch gateway logs");
-        process.exitCode = 1;
-        return;
-      }
-
-      const { lines, truncated } = result.result!;
-
-      if (opts.raw) {
-        for (const entry of lines) process.stdout.write(JSON.stringify(entry) + "\n");
-        return;
-      }
-
-      if (lines.length === 0) {
-        if (!opts.quiet) process.stdout.write("No log entries found.\n");
-        return;
-      }
-
-      const moduleWidth = Math.min(
-        12,
-        Math.max(6, ...lines.map((l) => l.module?.length ?? 0)),
-      );
-
-      if (!opts.quiet) {
-        process.stdout.write(
-          `${"TIME".padEnd(24)}  ${"LEVEL".padEnd(5)}  ${"MODULE".padEnd(moduleWidth)}  MESSAGE\n`,
+        if (result.tunnel) {
+          log.info(`Tunnel: connected (${result.tunnel})`);
+        } else {
+          log.info("Tunnel: not connected");
+        }
+        log.info(
+          "  The public tunnel is only used to route inbound Twilio webhooks and",
         );
-      }
+        log.info(
+          "  live voice/audio WebSockets. It is not needed for text channels or",
+        );
+        log.info("  the managed LLM proxy.");
+      });
 
-      for (const entry of lines) {
-        const time = formatTime(entry.time).padEnd(24);
-        const lvlName = levelName(entry.level).padEnd(5);
-        const lvlColored = colorLevel(lvlName, entry.level);
-        const mod = (entry.module ?? "").padEnd(moduleWidth);
-        const msg = entry.msg ?? "";
-        const msgTrunc = msg.length > 120 ? msg.slice(0, 120) + "…" : msg;
-        process.stdout.write(`${time}  ${lvlColored}  ${mod}  ${msgTrunc}\n`);
-      }
+      const logs = subcommand(gateway, "logs");
 
-      if (truncated) {
-        const footer = `(showing last ${n} matching entries — earlier entries exist)`;
-        const dim = process.stdout.isTTY ? `\x1b[2m${footer}\x1b[0m` : footer;
-        process.stdout.write(dim + "\n");
-      }
-    });
+      subcommand(logs, "tail").action(async (opts) => {
+        const n = Math.max(
+          1,
+          Math.min(1000, parseInt(opts.n ?? "10", 10) || 10),
+        );
+        const params: Record<string, unknown> = { n };
+        if (opts.level && opts.level !== "info") params.level = opts.level;
+        if (opts.module) params.module = opts.module;
+
+        const result = await cliIpcCall<{
+          lines: PinoEntry[];
+          truncated: boolean;
+        }>("gateway_logs_tail", { body: params });
+
+        if (!result.ok) {
+          log.error(result.error ?? "Failed to fetch gateway logs");
+          process.exitCode = 1;
+          return;
+        }
+
+        const { lines, truncated } = result.result!;
+
+        if (opts.raw) {
+          for (const entry of lines)
+            process.stdout.write(JSON.stringify(entry) + "\n");
+          return;
+        }
+
+        if (lines.length === 0) {
+          if (!opts.quiet) process.stdout.write("No log entries found.\n");
+          return;
+        }
+
+        const moduleWidth = Math.min(
+          12,
+          Math.max(6, ...lines.map((l) => l.module?.length ?? 0)),
+        );
+
+        if (!opts.quiet) {
+          process.stdout.write(
+            `${"TIME".padEnd(24)}  ${"LEVEL".padEnd(5)}  ${"MODULE".padEnd(moduleWidth)}  MESSAGE\n`,
+          );
+        }
+
+        for (const entry of lines) {
+          const time = formatTime(entry.time).padEnd(24);
+          const lvlName = levelName(entry.level).padEnd(5);
+          const lvlColored = colorLevel(lvlName, entry.level);
+          const mod = (entry.module ?? "").padEnd(moduleWidth);
+          const msg = entry.msg ?? "";
+          const msgTrunc = msg.length > 120 ? msg.slice(0, 120) + "…" : msg;
+          process.stdout.write(`${time}  ${lvlColored}  ${mod}  ${msgTrunc}\n`);
+        }
+
+        if (truncated) {
+          const footer = `(showing last ${n} matching entries — earlier entries exist)`;
+          const dim = process.stdout.isTTY ? `\x1b[2m${footer}\x1b[0m` : footer;
+          process.stdout.write(dim + "\n");
+        }
+      });
     },
   });
 }

@@ -44,7 +44,6 @@ const baseProvider: MockProviderRow = {
 };
 
 let mockProviders: Record<string, MockProviderRow> = {};
-let mockServiceModes: Record<string, "managed" | "your-own"> = {};
 let mockActiveConnectionsByProvider: Record<string, unknown[]> = {};
 let mockAllConnections: Record<string, unknown[]> = {};
 let mockApps: Record<string, unknown> = {};
@@ -74,7 +73,6 @@ let mockResolveRequests: unknown[] = [];
 let mockSyncManualTokenCalls: string[] = [];
 
 const mockDisconnectOAuthProvider = mock(() => Promise.resolve());
-const mockSaveRawConfig = mock(() => undefined);
 
 mock.module("../oauth/oauth-store.js", () => ({
   disconnectOAuthProvider: mockDisconnectOAuthProvider,
@@ -152,37 +150,7 @@ mock.module("../security/token-manager.js", () => ({
     fn(mockTokenValue),
 }));
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({ services: {} }),
-  loadRawConfig: () => ({ services: {} }),
-  saveRawConfig: mockSaveRawConfig,
-  setNestedValue: (
-    obj: Record<string, unknown>,
-    path: string,
-    value: unknown,
-  ) => {
-    const parts = path.split(".");
-    let cur: Record<string, unknown> = obj;
-    for (let i = 0; i < parts.length - 1; i++) {
-      const k = parts[i]!;
-      if (typeof cur[k] !== "object" || cur[k] === null) cur[k] = {};
-      cur = cur[k] as Record<string, unknown>;
-    }
-    cur[parts[parts.length - 1]!] = value;
-  },
-}));
-
-mock.module("../config/schemas/services.js", () => ({
-  getServiceMode: (_services: unknown, key: string) =>
-    mockServiceModes[key] ?? "your-own",
-  ServicesSchema: {
-    shape: {
-      "google-oauth": true,
-      "byo-only": true,
-    },
-  },
-}));
-
+import { loadRawConfig } from "../config/loader.js";
 import {
   BadRequestError,
   InternalError,
@@ -190,6 +158,17 @@ import {
 } from "../runtime/routes/errors.js";
 import { ROUTES } from "../runtime/routes/oauth-commands-routes.js";
 import type { RouteHandlerArgs } from "../runtime/routes/types.js";
+import { setConfig } from "./helpers/set-config.js";
+
+/** Seed `services.<key>.mode` entries into the workspace config for real. */
+function seedServiceModes(modes: Record<string, "managed" | "your-own">): void {
+  setConfig(
+    "services",
+    Object.fromEntries(
+      Object.entries(modes).map(([key, mode]) => [key, { mode }]),
+    ),
+  );
+}
 
 function getRoute(method: string, endpoint: string) {
   const route = ROUTES.find(
@@ -215,7 +194,9 @@ function makeArgs(
 
 beforeEach(() => {
   mockProviders = { google: { ...baseProvider } };
-  mockServiceModes = {};
+  // The real schema default for `services.google-oauth.mode` is "managed";
+  // seed "your-own" so BYO-mode tests keep their baseline.
+  seedServiceModes({ "google-oauth": "your-own" });
   mockActiveConnectionsByProvider = {};
   mockAllConnections = {};
   mockApps = {};
@@ -232,7 +213,6 @@ beforeEach(() => {
   mockResolveRequests = [];
   mockSyncManualTokenCalls = [];
   mockDisconnectOAuthProvider.mockClear();
-  mockSaveRawConfig.mockClear();
 });
 
 // ---------------------------------------------------------------------------
@@ -308,7 +288,7 @@ describe("POST oauth/disconnect", () => {
   });
 
   test("managed mode with no active connections raises NotFound", async () => {
-    mockServiceModes["google-oauth"] = "managed";
+    seedServiceModes({ "google-oauth": "managed" });
     mockFetchImpl = async () => ({
       ok: true,
       status: 200,
@@ -323,7 +303,7 @@ describe("POST oauth/disconnect", () => {
   });
 
   test("managed mode with multiple connections demands disambiguation", async () => {
-    mockServiceModes["google-oauth"] = "managed";
+    seedServiceModes({ "google-oauth": "managed" });
     mockFetchImpl = async () => ({
       ok: true,
       status: 200,
@@ -354,7 +334,7 @@ describe("GET oauth/mode", () => {
   });
 
   test("returns managed-supported provider mode", async () => {
-    mockServiceModes["google-oauth"] = "managed";
+    seedServiceModes({ "google-oauth": "managed" });
     const result = (await getRoute("GET", "oauth/mode").handler(
       makeArgs({ queryParams: { provider: "google" } }),
     )) as { mode: string; managedModeSupported: boolean };
@@ -408,11 +388,13 @@ describe("POST oauth/mode", () => {
       provider: "byo",
       managedServiceConfigKey: null,
     };
+    const rawBefore = JSON.stringify(loadRawConfig());
     const result = (await getRoute("POST", "oauth/mode").handler(
       makeArgs({ body: { provider: "byo", mode: "your-own" } }),
     )) as { changed: boolean };
     expect(result.changed).toBe(false);
-    expect(mockSaveRawConfig).not.toHaveBeenCalled();
+    // The no-op path must not write the config file.
+    expect(JSON.stringify(loadRawConfig())).toBe(rawBefore);
   });
 
   test("requires platform connection when switching to managed", async () => {
@@ -425,12 +407,15 @@ describe("POST oauth/mode", () => {
   });
 
   test("persists mode change when current differs from new", async () => {
-    mockServiceModes["google-oauth"] = "your-own";
+    seedServiceModes({ "google-oauth": "your-own" });
     const result = (await getRoute("POST", "oauth/mode").handler(
       makeArgs({ body: { provider: "google", mode: "managed" } }),
     )) as { changed: boolean };
     expect(result.changed).toBe(true);
-    expect(mockSaveRawConfig).toHaveBeenCalled();
+    const raw = loadRawConfig() as {
+      services?: Record<string, { mode?: string }>;
+    };
+    expect(raw.services?.["google-oauth"]?.mode).toBe("managed");
   });
 });
 
@@ -522,7 +507,7 @@ describe("GET oauth/status", () => {
   });
 
   test("managed mode surfaces platform connections", async () => {
-    mockServiceModes["google-oauth"] = "managed";
+    seedServiceModes({ "google-oauth": "managed" });
     mockFetchImpl = async () => ({
       ok: true,
       status: 200,
@@ -594,7 +579,7 @@ describe("POST oauth/ping", () => {
 
 describe("POST oauth/token", () => {
   test("rejects managed-mode providers", async () => {
-    mockServiceModes["google-oauth"] = "managed";
+    seedServiceModes({ "google-oauth": "managed" });
     await expect(
       getRoute("POST", "oauth/token").handler(
         makeArgs({ body: { provider: "google" } }),

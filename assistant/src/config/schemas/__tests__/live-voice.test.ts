@@ -2,17 +2,28 @@ import { describe, expect, test } from "bun:test";
 
 import {
   LiveVoiceConfigSchema,
+  LiveVoiceFrontModelConfigSchema,
   LiveVoiceVadConfigSchema,
   VALID_LIVE_VOICE_MODES,
 } from "../live-voice.js";
+
+const FRONT_MODEL_DEFAULTS = {
+  endpointDecisionTimeoutMs: 1200,
+  endpointExtensionMs: 1500,
+  endpointMaxExtensions: 2,
+  ackFirstDeltaTimeoutMs: 2500,
+  ackGenerationTimeoutMs: 600,
+  llmAckText: false,
+};
 
 describe("LiveVoiceVadConfigSchema", () => {
   test("empty object parses to defaults", () => {
     const parsed = LiveVoiceVadConfigSchema.parse({});
     expect(parsed).toEqual({
       speechEnergyThreshold: 800,
-      silenceThresholdMs: 800,
+      silenceThresholdMs: 1200,
       maxTurnDurationMs: 30_000,
+      bargeInMinSpeechMs: 250,
     });
   });
 
@@ -21,10 +32,24 @@ describe("LiveVoiceVadConfigSchema", () => {
       speechEnergyThreshold: 1200,
       silenceThresholdMs: 500,
       maxTurnDurationMs: 60_000,
+      bargeInMinSpeechMs: 120,
     });
     expect(parsed.speechEnergyThreshold).toBe(1200);
     expect(parsed.silenceThresholdMs).toBe(500);
     expect(parsed.maxTurnDurationMs).toBe(60_000);
+    expect(parsed.bargeInMinSpeechMs).toBe(120);
+  });
+
+  test("accepts a bargeInMinSpeechMs of 0 (guard disabled)", () => {
+    const parsed = LiveVoiceVadConfigSchema.parse({ bargeInMinSpeechMs: 0 });
+    expect(parsed.bargeInMinSpeechMs).toBe(0);
+  });
+
+  test("rejects negative bargeInMinSpeechMs", () => {
+    const result = LiveVoiceVadConfigSchema.safeParse({
+      bargeInMinSpeechMs: -1,
+    });
+    expect(result.success).toBe(false);
   });
 
   test("rejects non-positive speechEnergyThreshold", () => {
@@ -42,6 +67,55 @@ describe("LiveVoiceVadConfigSchema", () => {
   });
 });
 
+describe("LiveVoiceFrontModelConfigSchema", () => {
+  test("empty object parses to defaults", () => {
+    const parsed = LiveVoiceFrontModelConfigSchema.parse({});
+    expect(parsed).toEqual(FRONT_MODEL_DEFAULTS);
+  });
+
+  test("accepts overrides", () => {
+    const parsed = LiveVoiceFrontModelConfigSchema.parse({
+      endpointDecisionTimeoutMs: 400,
+      endpointMaxExtensions: 0,
+      llmAckText: true,
+    });
+    expect(parsed.endpointDecisionTimeoutMs).toBe(400);
+    expect(parsed.endpointMaxExtensions).toBe(0);
+    expect(parsed.llmAckText).toBe(true);
+    // Unspecified fields still get defaults
+    expect(parsed.endpointExtensionMs).toBe(1500);
+    expect(parsed.ackFirstDeltaTimeoutMs).toBe(2500);
+    expect(parsed.ackGenerationTimeoutMs).toBe(600);
+  });
+
+  test("rejects non-positive endpointDecisionTimeoutMs", () => {
+    const result = LiveVoiceFrontModelConfigSchema.safeParse({
+      endpointDecisionTimeoutMs: 0,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test("rejects negative endpointMaxExtensions", () => {
+    const result = LiveVoiceFrontModelConfigSchema.safeParse({
+      endpointMaxExtensions: -1,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test("rejects a non-boolean llmAckText", () => {
+    const result = LiveVoiceFrontModelConfigSchema.safeParse({
+      llmAckText: "yes",
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const msgs = result.error.issues.map((i) => i.message);
+      expect(
+        msgs.some((m) => m.includes("liveVoice.frontModel.llmAckText")),
+      ).toBe(true);
+    }
+  });
+});
+
 describe("LiveVoiceConfigSchema", () => {
   test("empty object parses to defaults", () => {
     const parsed = LiveVoiceConfigSchema.parse({});
@@ -49,24 +123,48 @@ describe("LiveVoiceConfigSchema", () => {
       mode: "open-mic",
       vad: {
         speechEnergyThreshold: 800,
-        silenceThresholdMs: 800,
+        silenceThresholdMs: 1200,
         maxTurnDurationMs: 30_000,
+        bargeInMinSpeechMs: 250,
       },
+      frontModel: FRONT_MODEL_DEFAULTS,
       maxSessionDurationSeconds: 1800,
+      // Off by default: voice turns carry only their transcript, no audio
+      // artifacts on the conversation messages (JARVIS-1283).
+      archiveAudio: false,
     });
+  });
+
+  test("archiveAudio can be enabled", () => {
+    expect(
+      LiveVoiceConfigSchema.parse({ archiveAudio: true }).archiveAudio,
+    ).toBe(true);
+  });
+
+  test("rejects a non-boolean archiveAudio", () => {
+    const result = LiveVoiceConfigSchema.safeParse({ archiveAudio: "yes" });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const msgs = result.error.issues.map((i) => i.message);
+      expect(msgs.some((m) => m.includes("liveVoice.archiveAudio"))).toBe(true);
+    }
   });
 
   test("accepts overrides", () => {
     const parsed = LiveVoiceConfigSchema.parse({
       mode: "ptt",
-      vad: { silenceThresholdMs: 1200 },
+      vad: { silenceThresholdMs: 900 },
+      frontModel: { endpointDecisionTimeoutMs: 300 },
       maxSessionDurationSeconds: 600,
     });
     expect(parsed.mode).toBe("ptt");
-    expect(parsed.vad.silenceThresholdMs).toBe(1200);
+    expect(parsed.vad.silenceThresholdMs).toBe(900);
     // Unspecified vad fields still get defaults
     expect(parsed.vad.speechEnergyThreshold).toBe(800);
     expect(parsed.vad.maxTurnDurationMs).toBe(30_000);
+    // Partial frontModel overrides merge with defaults
+    expect(parsed.frontModel.endpointDecisionTimeoutMs).toBe(300);
+    expect(parsed.frontModel.endpointExtensionMs).toBe(1500);
     expect(parsed.maxSessionDurationSeconds).toBe(600);
   });
 

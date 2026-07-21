@@ -10,13 +10,17 @@
 import type { Command } from "commander";
 
 import { cliIpcCall, exitFromIpcResult } from "../../ipc/cli-client.js";
+import { applyCommandHelp } from "../lib/cli-command-help.js";
 import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
 import { shouldOutputJson, writeOutput } from "../output.js";
+import { psHelp } from "./ps.help.js";
 
 interface ProcessEntry {
   name: string;
   status: "running" | "not_running" | "unreachable";
+  /** `workspace`, or `plugin:<name>` when spawned from a plugin. */
+  origin: "workspace" | `plugin:${string}`;
   children?: ProcessEntry[];
   info?: string;
 }
@@ -25,44 +29,54 @@ interface PsResponse {
   processes: ProcessEntry[];
 }
 
-const STATUS_LABEL: Record<ProcessEntry["status"], string> = {
-  running: "running",
-  not_running: "not running",
-  unreachable: "unreachable",
-};
+/**
+ * One flattened output row. Column 1 (`name`) carries the hierarchy
+ * indentation; the remaining columns are aligned to a common start index
+ * across all rows regardless of tree depth.
+ */
+interface Row {
+  name: string;
+  origin: string;
+  info: string;
+}
 
-/** Render one entry plus its children, indented to reflect tree depth. */
-function renderEntry(entry: ProcessEntry, depth: number): void {
-  const indent = "  ".repeat(depth);
-  const status = STATUS_LABEL[entry.status] ?? entry.status;
-  const info = entry.info ? ` — ${entry.info}` : "";
-  log.info(`${indent}${entry.name}  [${status}]${info}`);
+/** Flatten the tree into rows, indenting each name to reflect tree depth. */
+function flattenEntries(entry: ProcessEntry, depth: number, rows: Row[]): void {
+  rows.push({
+    name: "  ".repeat(depth) + entry.name,
+    origin: entry.origin,
+    info: entry.info ?? "",
+  });
   for (const child of entry.children ?? []) {
-    renderEntry(child, depth + 1);
+    flattenEntries(child, depth + 1, rows);
+  }
+}
+
+/**
+ * Render the flattened rows as aligned columns. Column 1 keeps its per-row
+ * indentation for hierarchy; columns 2..N are padded to a shared width so
+ * every row's column starts at the same index. Status is not shown — the
+ * daemon only ever reports live processes, so a `[running]` label carries no
+ * information.
+ */
+function renderRows(rows: Row[]): void {
+  const nameWidth = Math.max(...rows.map((r) => r.name.length));
+  const originWidth = Math.max(...rows.map((r) => r.origin.length));
+  for (const r of rows) {
+    const line = `${r.name.padEnd(nameWidth)}  ${r.origin.padEnd(
+      originWidth,
+    )}  ${r.info}`;
+    log.info(line.trimEnd());
   }
 }
 
 export function registerPsCommand(program: Command): void {
   registerCommand(program, {
-    name: "ps",
+    name: psHelp.name,
     transport: "ipc",
-    description: "Show the assistant daemon's live process tree",
+    description: psHelp.description,
     build: (ps) => {
-      ps.option("--json", "Machine-readable JSON output").addHelpText(
-        "after",
-        `
-Walks the daemon's OS process tree and reports every descendant process
-parented to the assistant runtime — qdrant, the embed worker, the memory
-worker (when the daemon owns it), MCP servers, and any other live children.
-The tree is built from the native process table (/proc on Linux, ps on
-macOS), so it reflects what is actually running, not a fixed subsystem list.
-
-Each node shows its PID; every listed process is live by definition.
-
-Examples:
-  $ assistant ps
-  $ assistant ps --json`,
-      );
+      applyCommandHelp(ps, psHelp);
 
       ps.action(async (_opts, cmd: Command) => {
         const r = await cliIpcCall<PsResponse>("ps");
@@ -79,10 +93,13 @@ Examples:
           return;
         }
 
-        log.info("");
+        const rows: Row[] = [];
         for (const entry of processes) {
-          renderEntry(entry, 0);
+          flattenEntries(entry, 0, rows);
         }
+
+        log.info("");
+        renderRows(rows);
         log.info("");
       });
     },

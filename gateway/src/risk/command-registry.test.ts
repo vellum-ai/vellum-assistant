@@ -551,7 +551,6 @@ describe("command-registry", () => {
         "config",
         "contacts",
         "conversations",
-        "credential-execution",
         "credentials",
         "domain",
         "email",

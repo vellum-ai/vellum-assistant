@@ -1,12 +1,5 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 mock.module("../config/env.js", () => ({
   isHttpAuthDisabled: () => false,
   hasUngatedHttpAuthDisabled: () => false,
@@ -17,31 +10,6 @@ mock.module("../config/env.js", () => ({
   getRuntimeGatewayOriginSecret: () => undefined,
   getIngressPublicBaseUrl: () => undefined,
   setIngressPublicBaseUrl: () => {},
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    model: "test",
-    provider: "test",
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    secretDetection: { enabled: false },
-    contextWindow: { maxInputTokens: 200000 },
-    services: {
-      inference: {
-        mode: "your-own",
-        provider: "anthropic",
-        model: "claude-opus-4-6",
-      },
-      "image-generation": {
-        mode: "your-own",
-        provider: "gemini",
-        model: "gemini-3.1-flash-image-preview",
-      },
-      "web-search": { mode: "your-own", provider: "inference-provider-native" },
-    },
-  }),
 }));
 
 import {

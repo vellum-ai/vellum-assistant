@@ -15,8 +15,8 @@
 import type { HookFunction, InitContext } from "@vellumai/plugin-api";
 
 import { getConfig } from "../../../../config/loader.js";
-import { getLogger } from "../../../../util/logger.js";
 import { registerMemoryPluginJobHandlers } from "../job-handler-registration.js";
+import { getLogger } from "../logging.js";
 import { runMemoryStartup } from "../startup.js";
 
 const log = getLogger("memory-init");

@@ -16,6 +16,7 @@ import { FileUploadSurface } from "@/domains/chat/components/surfaces/file-uploa
 import { FormSurface } from "@/domains/chat/components/surfaces/form-surface";
 import { ListSurface } from "@/domains/chat/components/surfaces/list-surface";
 import { OAuthConnectSurface } from "@/domains/chat/components/surfaces/oauth-connect-surface";
+import { SkillCreatedCard } from "@/domains/chat/components/surfaces/skill-created-card";
 import { SurfaceContainer } from "@/domains/chat/components/surfaces/surface-container";
 import { TableSurface } from "@/domains/chat/components/surfaces/table-surface";
 import { TaskPreferencesSurface } from "@/domains/chat/components/surfaces/task-preferences-surface";
@@ -36,6 +37,9 @@ export interface SurfaceRouterProps {
    *  `DynamicPageSurface`, which derives whether the surface's originating
    *  tool call has completed before unlocking the app preview. */
   toolCalls?: ChatMessageToolCall[];
+  /** Handler for `vellum://` file links clicked inside a `dynamic_page`
+   *  surface's sandboxed iframe. Threaded to `DynamicPageSurface`. */
+  onVellumLinkClick?: (href: string, linkText: string) => void;
 }
 
 export function SurfaceRouter({
@@ -46,6 +50,7 @@ export function SurfaceRouter({
   onOpenApp,
   onOpenDocument,
   toolCalls,
+  onVellumLinkClick,
 }: SurfaceRouterProps) {
   if (surface.completed && INHERENTLY_INTERACTIVE_SURFACE_TYPES.includes(surface.surfaceType)) {
     const isCancelled = surface.completionSummary === "Cancelled";
@@ -108,6 +113,7 @@ export function SurfaceRouter({
           assistantId={assistantId}
           onOpenApp={onOpenApp}
           toolCalls={toolCalls}
+          onVellumLinkClick={onVellumLinkClick}
         />
       );
 
@@ -131,6 +137,9 @@ export function SurfaceRouter({
           onOpenDocument={onOpenDocument}
         />
       );
+
+    case "skill_card":
+      return <SkillCreatedCard surface={surface} onAction={onAction} />;
 
     default:
       // Fallback card for unsupported surface types

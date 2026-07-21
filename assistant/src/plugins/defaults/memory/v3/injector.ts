@@ -65,12 +65,12 @@ import {
   queueConversationNotice,
 } from "../../../../daemon/conversation-notices.js";
 import { isPersonalMemoryAllowed } from "../../../../daemon/trust-context.js";
-import { getLogger } from "../../../../util/logger.js";
 import {
   type InjectionBlock,
   type Injector,
   type TurnContext,
 } from "../../../types.js";
+import { getLogger } from "../logging.js";
 import { wrapMemoryBlock, wrapMemorySpotlightBlock } from "../memory-marker.js";
 import { isCapabilitySlug } from "./capabilities.js";
 import { cardBytes } from "./card.js";

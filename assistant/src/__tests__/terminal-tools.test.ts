@@ -12,27 +12,6 @@ mock.module("../util/logger.js", () => ({
 
 const testTmpDir = process.env.VELLUM_WORKSPACE_DIR!;
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-
-    timeouts: { shellDefaultTimeoutSec: 120, shellMaxTimeoutSec: 600 },
-    sandbox: {
-      enabled: false,
-      backend: "native",
-      docker: {
-        image: "vellum-sandbox:latest",
-        shell: "bash",
-        cpus: 1,
-        memoryMb: 512,
-        pidsLimit: 256,
-        network: "none",
-      },
-    },
-  }),
-  loadConfig: () => ({}),
-}));
-
 const proxyGetOrStartSession = mock(() =>
   Promise.resolve({
     session: { id: "mock-session" },
@@ -144,12 +123,17 @@ describe("buildSanitizedEnv", () => {
   test("only includes Kata apt variables for Kata-family sandbox runtimes", () => {
     process.env.VELLUM_SANDBOX_RUNTIME = "gvisor";
     process.env.PATH = "/usr/bin";
+    process.env.HOME = "/data";
     process.env.VELLUM_APT_DATA_ROOT = "/data/system";
     process.env.LD_LIBRARY_PATH = "/host/lib";
+    process.env.PYTHONPATH = "/host/python";
 
     let env = buildSanitizedEnv();
     expect(env.VELLUM_APT_DATA_ROOT).toBeUndefined();
     expect(env.LD_LIBRARY_PATH).toBeUndefined();
+    expect(env.PYTHONPATH).toBeUndefined();
+    expect(env.PYTHONUSERBASE).toBeUndefined();
+    expect(env.BUN_INSTALL).toBeUndefined();
     expect(env.PATH.split(":")).not.toContain("/data/system/usr/bin");
 
     process.env.VELLUM_SANDBOX_RUNTIME = "kata";
@@ -162,6 +146,14 @@ describe("buildSanitizedEnv", () => {
       "/data/system/usr/local/lib",
     );
     expect(env.LD_LIBRARY_PATH.split(":")).not.toContain("/host/lib");
+    expect(env.PYTHONPATH.split(":")).toContain(
+      "/data/system/usr/lib/python3/dist-packages",
+    );
+    expect(env.PYTHONPATH.split(":")).not.toContain("/host/python");
+    expect(env.PYTHONUSERBASE).toBe("/data/.python");
+    expect(env.BUN_INSTALL).toBe("/data/.bun");
+    expect(env.PATH.split(":")).toContain("/data/.python/bin");
+    expect(env.PATH.split(":")).toContain("/data/.bun/bin");
 
     process.env.VELLUM_SANDBOX_RUNTIME = "cloud-hypervisor";
     env = buildSanitizedEnv();

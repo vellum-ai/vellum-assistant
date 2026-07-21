@@ -8,13 +8,6 @@ import {
   test,
 } from "bun:test";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 mock.module("../security/secure-keys.js", () => ({
   deleteSecureKeyAsync: () => Promise.resolve("deleted" as const),
   setSecureKeyAsync: () => Promise.resolve(true),

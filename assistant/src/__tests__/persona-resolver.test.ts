@@ -94,7 +94,7 @@ mock.module("../contacts/guardian-delivery-reader.js", () => ({
 // Import AFTER mocks so the module under test binds to the stubbed
 // implementations.
 import { getGuardianDelivery } from "../contacts/guardian-delivery-reader.js";
-import type { TrustContext } from "../daemon/trust-context.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import {
   ensureGuardianPersonaFile,
   isGuardianPersonaCustomized,

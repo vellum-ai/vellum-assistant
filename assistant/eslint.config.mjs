@@ -49,10 +49,10 @@ const eslintConfig = defineConfig([
       "@typescript-eslint/no-explicit-any": "off",
     },
   },
-  // `cli/no-daemon-internals` enforces the CLI ↔ daemon import boundary
-  // that the CLI → IPC refactor is built on. Keep at `"error"`: a soft
-  // rule here would let daemon-internal imports re-enter the CLI bundle,
-  // which is the regression class this rule exists to prevent.
+  // `cli/no-daemon-internals` keeps daemon-internal modules out of the CLI's
+  // static import graph, so `assistant …` invocations (including the bash-tool
+  // fast path) don't pay the memory cost of loading daemon subsystems. Keep at
+  // `"error"`: a soft rule would let hoisted daemon imports creep back in.
   {
     files: ["src/cli/commands/**/*.ts"],
     ignores: ["src/cli/commands/**/__tests__/**"],

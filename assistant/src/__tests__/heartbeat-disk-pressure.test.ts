@@ -1,48 +1,12 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { setConfig } from "./helpers/set-config.js";
+
 // Default the warm-pool gate to OPEN — these tests probe disk-pressure
 // behavior, not the pre-first-message guard.
 mock.module("../runtime/pre-first-message-gate.js", () => ({
   hasReceivedUserMessage: () => true,
   _resetPreFirstMessageGateCacheForTests: () => {},
-}));
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () => ({
-    info: () => {},
-    debug: () => {},
-    warn: () => {},
-    error: () => {},
-  }),
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    heartbeat: {
-      enabled: true,
-      intervalMs: 60_000,
-      cronExpression: null,
-      timezone: null,
-      activeHoursStart: undefined,
-      activeHoursEnd: undefined,
-    },
-    timeouts: {
-      backgroundTurnTimeoutSec: 1800,
-      scheduleTurnTimeoutSec: 1800,
-    },
-  }),
-  loadConfig: () => ({}),
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  getConfigReadOnly: () => ({}),
-  applyNestedDefaults: (config: unknown) => config,
-  deepMergeOverwrite: (base: unknown) => base,
-  mergeDefaultWorkspaceConfig: () => {},
-  getNestedValue: () => undefined,
-  setNestedValue: () => {},
-  API_KEY_PROVIDERS: [],
-  _writeQuarantineNotice: () => {},
-  invalidateConfigCache: () => {},
 }));
 
 const mockInsertPendingHeartbeatRun = mock(() => "run-1");
@@ -150,6 +114,13 @@ const { HeartbeatService } = await import("../heartbeat/heartbeat-service.js");
 
 describe("HeartbeatService disk pressure gate", () => {
   beforeEach(() => {
+    // Null active hours disable the time-of-day guard so runs are gated by
+    // disk pressure alone, independent of the wall clock.
+    setConfig("heartbeat", {
+      intervalMs: 60_000,
+      activeHoursStart: null,
+      activeHoursEnd: null,
+    });
     createdConversations.length = 0;
     mockInsertPendingHeartbeatRun.mockClear();
     mockStartHeartbeatRun.mockClear();

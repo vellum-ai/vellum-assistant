@@ -2,6 +2,7 @@ import type {
   DoctorMessage,
   DoctorSessionStatusEnum,
 } from "@/generated/api/types.gen";
+import type { FeedbackReason } from "@/components/share-feedback-types";
 
 // ---------------------------------------------------------------------------
 // ChatEntry — discriminated union by `kind`
@@ -33,9 +34,21 @@ export interface BackupPromptMeta {
   toolName: string;
 }
 
+export interface FeedbackPromptMeta {
+  reason?: FeedbackReason;
+}
+
+export type DoctorUserOutcomeAnswer = "resolved" | "not_resolved";
+
+export interface UserOutcomePromptMeta {
+  answer?: DoctorUserOutcomeAnswer;
+}
+
 export type ChatEntry =
   | (ChatEntryBase & { kind: "user" })
   | (ChatEntryBase & { kind: "assistant" })
+  | (ChatEntryBase & { kind: "feedback_prompt"; meta?: FeedbackPromptMeta })
+  | (ChatEntryBase & { kind: "user_outcome_prompt"; meta?: UserOutcomePromptMeta })
   | (ChatEntryBase & { kind: "tool_call"; meta: ToolCallMeta })
   | (ChatEntryBase & { kind: "approval"; meta: ApprovalMeta })
   | (ChatEntryBase & { kind: "backup_prompt"; meta: BackupPromptMeta })
@@ -46,11 +59,15 @@ export type ChatEntry =
 export type NewChatEntry =
   | { kind: "user"; content: string }
   | { kind: "assistant"; content: string }
+  | { kind: "feedback_prompt"; content: string; meta?: FeedbackPromptMeta }
+  | { kind: "user_outcome_prompt"; content: string; meta?: UserOutcomePromptMeta }
   | { kind: "tool_call"; content: string; meta: ToolCallMeta }
   | { kind: "approval"; content: string; meta: ApprovalMeta }
   | { kind: "backup_prompt"; content: string; meta: BackupPromptMeta }
   | { kind: "error"; content: string }
   | { kind: "status"; content: string };
+
+export const USER_OUTCOME_PROMPT_QUESTION = "Did the Doctor solve your problem?";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -63,7 +80,33 @@ function metaRecord(metadata: unknown): Record<string, unknown> {
   return {};
 }
 
+function lastUserEntryIndex(entries: readonly ChatEntry[]): number {
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    if (entries[index]?.kind === "user") {
+      return index;
+    }
+  }
+  return -1;
+}
+
+export function hasDoctorFeedbackPromptSinceLastUser(
+  entries: readonly ChatEntry[],
+): boolean {
+  return entries
+    .slice(lastUserEntryIndex(entries) + 1)
+    .some((entry) => entry.kind === "feedback_prompt");
+}
+
 const REPLAYABLE_DOCTOR_SOURCE_EVENT_ID = /^\d+-\d+$/;
+
+function feedbackReasonFromMetadata(meta: Record<string, unknown>): FeedbackReason | undefined {
+  const rawReason = meta.reason ?? meta.classification;
+  return rawReason === "bug_report" ||
+    rawReason === "feature_request" ||
+    rawReason === "other"
+    ? rawReason
+    : undefined;
+}
 
 export function isReplayableDoctorSourceEventId(
   value: string | null | undefined,
@@ -196,6 +239,24 @@ export function mapPersistedMessagesToEntries(
             content: "Session ended with error",
             timestamp,
           });
+        } else if (message.content === "feedback_prompt") {
+          const summary =
+            typeof meta.summary === "string" ? meta.summary.trim() : "";
+          const reason = feedbackReasonFromMetadata(meta);
+          entries.push({
+            id: message.id,
+            kind: "feedback_prompt",
+            content: summary || "Share feedback",
+            ...(reason ? { meta: { reason } } : {}),
+            timestamp,
+          });
+        } else if (message.content === "user_outcome_prompt") {
+          entries.push({
+            id: message.id,
+            kind: "user_outcome_prompt",
+            content: USER_OUTCOME_PROMPT_QUESTION,
+            timestamp,
+          });
         }
         break;
       }
@@ -230,13 +291,37 @@ export function mapPersistedStatusToPanelStatus(
   }
 }
 
+/**
+ * Mark user-outcome prompts as answered from the persisted session-level
+ * `user_outcome` field, so a rebuilt transcript doesn't re-offer Yes/No
+ * buttons the user already clicked. The answer is stored on the session
+ * row (not the message ledger), so it's applied here after mapping.
+ */
+export function applySessionUserOutcome(
+  entries: ChatEntry[],
+  userOutcome: string | null | undefined,
+): ChatEntry[] {
+  if (userOutcome !== "resolved" && userOutcome !== "not_resolved") {
+    return entries;
+  }
+  return entries.map((entry) =>
+    entry.kind === "user_outcome_prompt"
+      ? { ...entry, meta: { ...entry.meta, answer: userOutcome } }
+      : entry,
+  );
+}
+
 export function hasPendingApproval(entries: ChatEntry[]): boolean {
   for (let i = entries.length - 1; i >= 0; i -= 1) {
     const entry = entries[i];
     if (!entry) {
       continue;
     }
-    if (entry.kind === "status") {
+    if (
+      entry.kind === "status" ||
+      entry.kind === "feedback_prompt" ||
+      entry.kind === "user_outcome_prompt"
+    ) {
       continue;
     }
     return entry.kind === "approval";
@@ -250,7 +335,11 @@ export function hasPendingBackup(entries: ChatEntry[]): boolean {
     if (!entry) {
       continue;
     }
-    if (entry.kind === "status") {
+    if (
+      entry.kind === "status" ||
+      entry.kind === "feedback_prompt" ||
+      entry.kind === "user_outcome_prompt"
+    ) {
       continue;
     }
     return entry.kind === "backup_prompt";
@@ -268,6 +357,18 @@ export function serializeSessionToText(entries: ChatEntry[]): string {
         break;
       case "assistant":
         lines.push(`Doctor: ${entry.content}`);
+        break;
+      case "feedback_prompt":
+        lines.push(`Feedback Prompt: ${entry.content}`);
+        break;
+      case "user_outcome_prompt":
+        lines.push(
+          `User Outcome Prompt: ${entry.content}${
+            entry.meta?.answer
+              ? ` (answered: ${entry.meta.answer === "resolved" ? "Yes" : "No"})`
+              : ""
+          }`,
+        );
         break;
       case "tool_call": {
         const { toolName, input, result, isError } = entry.meta;

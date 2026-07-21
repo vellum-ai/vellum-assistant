@@ -274,6 +274,31 @@ export function scanText(text: string): SecretMatch[] {
  * Returns the modified text.
  */
 export function redactSecrets(text: string): string {
+  return redactSecretsWith(
+    text,
+    (match) => `<redacted type="${match.type}" />`,
+  );
+}
+
+/**
+ * Core redaction walk with a caller-supplied marker builder.
+ *
+ * `markerFor` receives the {@link SecretMatch} plus the raw matched value so
+ * a caller can vary the marker per match (e.g. the chat-persist path emits a
+ * revealable sentinel when the value byte-matches a known vault credential).
+ * The default `<redacted type="…" />` marker produced via
+ * {@link redactSecrets} is consumed by ingress blocking, tool-output
+ * scanning, and log redaction — its shape must not change (see
+ * `security/AGENTS.md`), which is why this variant exists as a separate
+ * additive entry point instead of an option on `redactSecrets`.
+ *
+ * This module stays pure: `markerFor` is a plain callback, and no credential
+ * store types leak in here.
+ */
+export function redactSecretsWith(
+  text: string,
+  markerFor: (match: SecretMatch, rawValue: string) => string,
+): string {
   const matches = scanText(text);
   if (matches.length === 0) return text;
 
@@ -289,7 +314,7 @@ export function redactSecrets(text: string): string {
       continue;
     }
     result += text.slice(lastIndex, match.startIndex);
-    result += `<redacted type="${match.type}" />`;
+    result += markerFor(match, text.slice(match.startIndex, match.endIndex));
     lastIndex = match.endIndex;
   }
   result += text.slice(lastIndex);

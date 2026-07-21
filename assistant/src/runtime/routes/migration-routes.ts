@@ -262,10 +262,11 @@ async function resolveAssistantId(): Promise<string> {
  *     reflect "we couldn't read them" rather than "no secrets exist".
  *     Claiming a clean redaction in that case would be a lie.
  *
- * NOTE: a managed-mode bundle with `secrets_redacted: false` will fail
- * the validator's cross-field refine. That surfaces an existing
- * platform-side enforcement gap — the runtime emits the truthful value
- * and lets the schema flag it.
+ * Managed-mode exports never reach this with credentials: both export
+ * handlers skip credential collection entirely when `origin.mode` is
+ * "managed" (the validator's cross-field refine rejects a managed bundle
+ * with `secrets_redacted: false`, and teleport clients re-provision
+ * platform identity after a platform→local import).
  */
 export function computeSecretsRedacted(
   credentialCount: number,
@@ -369,38 +370,47 @@ export async function handleMigrationExport(
   let cleanup: (() => Promise<void>) | undefined;
 
   try {
-    // Read all stored credentials to include in the export bundle
-    const credentialList = await listSecureKeysAsync();
-    const credentials: Array<{ account: string; value: string }> = [];
-    // Track per-account read failures separately from the top-level LIST
-    // failure. A single skipped account means we cannot truthfully claim
-    // the bundle is fully redacted — we don't know what we missed.
-    let perAccountUnreachable = false;
-    if (credentialList.unreachable) {
-      log.warn(
-        "Credential store is unreachable — export will not include credentials",
-      );
-    } else {
-      for (const account of credentialList.accounts) {
-        const result = await getSecureKeyResultAsync(account);
-        if (result.unreachable) {
-          perAccountUnreachable = true;
-          log.warn(
-            { account },
-            "Credential store unreachable when reading credential — skipping",
-          );
-        } else if (result.value != null) {
-          credentials.push({ account, value: result.value });
+    const manifestInputs = await buildExportManifestInputs();
+
+    // Managed deployments never ship credentials in bundles — the manifest
+    // schema forbids it (`secrets_redacted` must be true when `origin.mode`
+    // is "managed"), and teleport clients re-provision platform identity
+    // after a platform→local import. Redact instead of emitting a bundle
+    // the importer is guaranteed to reject.
+    let credentials: Array<{ account: string; value: string }> = [];
+    let secretsRedacted = true;
+    if (manifestInputs.origin.mode !== "managed") {
+      // Read all stored credentials to include in the export bundle
+      const credentialList = await listSecureKeysAsync();
+      credentials = [];
+      // Track per-account read failures separately from the top-level LIST
+      // failure. A single skipped account means we cannot truthfully claim
+      // the bundle is fully redacted — we don't know what we missed.
+      let perAccountUnreachable = false;
+      if (credentialList.unreachable) {
+        log.warn(
+          "Credential store is unreachable — export will not include credentials",
+        );
+      } else {
+        for (const account of credentialList.accounts) {
+          const result = await getSecureKeyResultAsync(account);
+          if (result.unreachable) {
+            perAccountUnreachable = true;
+            log.warn(
+              { account },
+              "Credential store unreachable when reading credential — skipping",
+            );
+          } else if (result.value != null) {
+            credentials.push({ account, value: result.value });
+          }
         }
       }
+      secretsRedacted = computeSecretsRedacted(
+        credentials.length,
+        credentialList.unreachable,
+        perAccountUnreachable,
+      );
     }
-
-    const manifestInputs = await buildExportManifestInputs();
-    const secretsRedacted = computeSecretsRedacted(
-      credentials.length,
-      credentialList.unreachable,
-      perAccountUnreachable,
-    );
 
     const result = await streamExportVBundle({
       workspaceDir: getWorkspaceDir(),
@@ -551,7 +561,7 @@ export async function handleMigrationExportToGcs({ body }: RouteHandlerArgs) {
   // ── 2. Validate the upload URL. Never log `parsed.data.upload_url`.
   const validated = validateGcsSignedUrl(
     parsed.data.upload_url,
-    urlValidatorOptions,
+    exportValidatorOptions(),
   );
   if (!validated.ok) {
     log.warn(
@@ -570,17 +580,6 @@ export async function handleMigrationExportToGcs({ body }: RouteHandlerArgs) {
     "migration export to GCS starting",
   );
 
-  // ── 3. Collect credentials up front. Fail closed → 500.
-  let collected: CollectedCredentials;
-  try {
-    collected = await collectExportCredentials();
-  } catch (err) {
-    log.error({ err }, "Failed to collect credentials for export-to-gcs");
-    throw new InternalError(
-      err instanceof Error ? err.message : "Failed to collect credentials",
-    );
-  }
-
   const uploadUrl = parsed.data.upload_url;
 
   // Compute the v1 manifest inputs once outside the async job runner so we
@@ -596,6 +595,30 @@ export async function handleMigrationExportToGcs({ body }: RouteHandlerArgs) {
         ? err.message
         : "Failed to assemble export manifest inputs",
     );
+  }
+
+  // ── 3. Collect credentials up front. Fail closed → 500. Managed
+  // deployments never ship credentials in bundles — the manifest schema
+  // forbids it (`secrets_redacted` must be true when `origin.mode` is
+  // "managed"), and teleport clients re-provision platform identity after
+  // a platform→local import — so redact instead of emitting a bundle the
+  // importer is guaranteed to reject.
+  let collected: CollectedCredentials;
+  if (manifestInputs.origin.mode === "managed") {
+    collected = {
+      credentials: [],
+      unreachable: false,
+      perAccountUnreachable: false,
+    };
+  } else {
+    try {
+      collected = await collectExportCredentials();
+    } catch (err) {
+      log.error({ err }, "Failed to collect credentials for export-to-gcs");
+      throw new InternalError(
+        err instanceof Error ? err.message : "Failed to collect credentials",
+      );
+    }
   }
 
   const secretsRedacted = computeSecretsRedacted(
@@ -1029,8 +1052,12 @@ function wasFetchBodyTornDown(stream: PassThrough): boolean {
  * NOTE: this is intentionally NOT initialized from the environment. The
  * `VELLUM_MIGRATION_IMPORT_ALLOWED_HOSTS` env var is import-scoped and is
  * applied only by `resolveImportValidatorOptions` — never on the export
- * upload path, which must stay strict so a relaxed import allowlist can't
- * widen where the assistant is willing to PUT a bundle (SSRF).
+ * upload path, so a relaxed import allowlist can't widen where the
+ * assistant is willing to PUT a bundle (SSRF). Widening the export path is
+ * its own explicit operator opt-in via the separate
+ * `VELLUM_MIGRATION_EXPORT_ALLOWED_HOSTS` env var (local/minikube only,
+ * where the platform serves plain-http SigV4 URLs from SeaweedFS) — see
+ * `exportValidatorOptions`.
  */
 let urlValidatorOptions: ValidateGcsSignedUrlOptions | undefined;
 
@@ -1086,6 +1113,26 @@ function importValidatorOptions(): ValidateGcsSignedUrlOptions | undefined {
   return resolveImportValidatorOptions(
     urlValidatorOptions,
     process.env.VELLUM_MIGRATION_IMPORT_ALLOWED_HOSTS,
+  );
+}
+
+/**
+ * Effective validator options for the EXPORT (upload URL) handler,
+ * combining the test seam with the export-only env allowlist from
+ * `VELLUM_MIGRATION_EXPORT_ALLOWED_HOSTS`.
+ *
+ * Deliberately a separate env var from the import allowlist: the export
+ * path controls where the assistant will PUT a full workspace bundle, so
+ * widening it must be its own operator decision, never a side effect of
+ * relaxing imports. The platform injects it only where the signed upload
+ * URL is served over plain http from a non-GCS host (local/minikube
+ * SeaweedFS); it is unset in staging/prod, keeping the strict GCS-only
+ * default there.
+ */
+function exportValidatorOptions(): ValidateGcsSignedUrlOptions | undefined {
+  return resolveImportValidatorOptions(
+    urlValidatorOptions,
+    process.env.VELLUM_MIGRATION_EXPORT_ALLOWED_HOSTS,
   );
 }
 

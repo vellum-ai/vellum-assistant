@@ -243,3 +243,34 @@ describe("computeContentHash", () => {
     expect(second).not.toBe(first);
   });
 });
+
+describe("generated app build output is excluded", () => {
+  test("apps/<app>/dist is not fingerprinted, so a build is never drift", () => {
+    // Installed source: an app with a src/ entry point (no dist yet).
+    write("apps/dash/src/main.tsx", "export default 1;");
+    write("hooks/stop.ts", "export default () => 1;");
+    const baseline = computeFingerprint(root);
+    expect(Object.keys(baseline.files)).toContain("apps/dash/src/main.tsx");
+
+    // The watcher later compiles src -> apps/dash/dist. That generated output
+    // must not surface as drift (added files) against the pinned commit.
+    write("apps/dash/dist/main.js", "console.log(1)");
+    write("apps/dash/dist/index.html", "<html></html>");
+    const cmp = compareFingerprint(root, baseline);
+    expect(cmp.clean).toBe(true);
+    expect(cmp.added).toEqual([]);
+
+    // A plugin's own top-level dist/ is still tracked (not an app build dir).
+    write("dist/bundle.js", "x");
+    expect(compareFingerprint(root, baseline).added).toEqual([
+      "dist/bundle.js",
+    ]);
+  });
+
+  test("content hash ignores apps/<app>/dist", () => {
+    write("apps/dash/src/main.tsx", "export default 1;");
+    const before = computeContentHash(root);
+    write("apps/dash/dist/main.js", "console.log(1)");
+    expect(computeContentHash(root)).toBe(before);
+  });
+});

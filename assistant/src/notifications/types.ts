@@ -13,7 +13,7 @@ import { z } from "zod";
 import type { ChannelPolicies } from "../channels/config.js";
 import type { ChannelId } from "../channels/types.js";
 import { AccessRequestPayloadSchema } from "./access-request-copy.js";
-import { UrgencySchema } from "./signal.js";
+import { UrgencySchema } from "./urgency.js";
 
 /**
  * Derived from the channel policy registry: only channels whose

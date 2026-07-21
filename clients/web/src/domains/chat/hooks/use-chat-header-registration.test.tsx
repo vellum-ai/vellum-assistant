@@ -84,7 +84,6 @@ function renderRegistration() {
   return renderHook(() =>
     useChatHeaderRegistration({
       assetsRefreshKey: 0,
-      handleAnalyzeConversation: async () => {},
       handleForkConversationFromMenu: () => {},
       handleOpenInNewWindow: () => {},
       handleInspectConversation: () => {},

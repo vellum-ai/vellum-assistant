@@ -1,9 +1,14 @@
 import type { Command } from "commander";
 
 import { cliIpcCall, exitFromIpcResult } from "../../../ipc/cli-client.js";
+import { subcommand } from "../../lib/cli-command-help.js";
 import { openInHostBrowser } from "../../lib/open-browser.js";
 import { getCliLogger } from "../../logger.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
+import {
+  buildOAuthConnectSurfaceRedirect,
+  isModelSpawnedConversationShell,
+} from "./connect-surface-guidance.js";
 
 const log = getCliLogger("cli");
 
@@ -58,22 +63,9 @@ async function pollOAuthConnectStatus(
 // ---------------------------------------------------------------------------
 
 export function registerConnectCommand(oauth: Command): void {
-  oauth
-    .command("connect <provider>")
-    .description(
-      "Initiate an OAuth authorization flow for a specified provider",
-    )
-    .option("--scopes <scopes...>", "Scopes to request for the authorization")
-    .option(
-      "--no-browser",
-      "Print the auth URL instead of opening it in the browser",
-    )
-    .option("--client-id <id>", "BYO app client ID disambiguation")
-    .option(
-      "--callback-transport <transport>",
-      `How the OAuth callback is delivered after authorization. Use "loopback" when oauth connection is initiated from a local client, such as the macos desktop app (starts a temporary localhost server to receive the callback — no tunnel or public URL needed). Use "gateway" when the oauth connection is initiated from a web client (routes the callback through the public ingress URL — requires ingress.publicBaseUrl to be configured).`,
-      "loopback",
-    )
+  subcommand(oauth, "connect")
+    // The preAction validation hook is imperative behaviour, not help data,
+    // so it stays here alongside the action handler.
     .hook("preAction", (thisCommand) => {
       const transport = thisCommand.opts().callbackTransport;
       if (transport !== "loopback" && transport !== "gateway") {
@@ -82,25 +74,6 @@ export function registerConnectCommand(oauth: Command): void {
         );
       }
     })
-    .addHelpText(
-      "after",
-      `
-Arguments:
-  provider   Provider name (e.g. google, slack, notion).
-             Run 'assistant oauth providers list' to see available providers.
-
-When --scopes is provided, the specified scopes replace the provider's
-defaults entirely (use full scope URLs).
-By default, the browser opens automatically and the command waits for
-completion. Use --no-browser to print the URL instead (useful for headless
-or SSH sessions).
-
-Examples:
-  $ assistant oauth connect google
-  $ assistant oauth connect google --no-browser
-  $ assistant oauth connect google --scopes https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/calendar.events
-  $ assistant oauth connect google --client-id abc123`,
-    )
     .action(
       async (
         provider: string,
@@ -156,7 +129,9 @@ Examples:
             queryParams: { provider },
           });
 
-          if (!modeResult.ok) return exitFromIpcResult(modeResult);
+          if (!modeResult.ok) {
+            return exitFromIpcResult(modeResult);
+          }
 
           const managed = modeResult.result?.mode === "managed";
 
@@ -164,6 +139,13 @@ Examples:
             // =============================================================
             // MANAGED PATH
             // =============================================================
+
+            if (isModelSpawnedConversationShell()) {
+              const redirect = buildOAuthConnectSurfaceRedirect(provider);
+              writeOutput(cmd, redirect);
+              process.exitCode = 1;
+              return;
+            }
 
             if (opts.clientId) {
               log.info(
@@ -183,7 +165,9 @@ Examples:
               body: startBody,
             });
 
-            if (!startResult.ok) return exitFromIpcResult(startResult);
+            if (!startResult.ok) {
+              return exitFromIpcResult(startResult);
+            }
 
             const connectUrl = startResult.result!.connect_url;
 
@@ -200,7 +184,9 @@ Examples:
                 queryParams: { provider },
               });
 
-              if (!snapshotResult.ok) return exitFromIpcResult(snapshotResult);
+              if (!snapshotResult.ok) {
+                return exitFromIpcResult(snapshotResult);
+              }
 
               const snapshotIds = new Set(
                 (snapshotResult.result?.connections ?? []).map((e) => e.id),
@@ -238,7 +224,9 @@ Examples:
                   queryParams: { provider },
                 });
 
-                if (!currentResult.ok || !currentResult.result) continue;
+                if (!currentResult.ok || !currentResult.result) {
+                  continue;
+                }
 
                 const found = currentResult.result.connections.find(
                   (e) => !snapshotIds.has(e.id),
@@ -313,8 +301,12 @@ Examples:
               service: provider,
               callbackTransport: opts.callbackTransport,
             };
-            if (opts.clientId) startBody.clientId = opts.clientId;
-            if (opts.scopes) startBody.requestedScopes = opts.scopes;
+            if (opts.clientId) {
+              startBody.clientId = opts.clientId;
+            }
+            if (opts.scopes) {
+              startBody.requestedScopes = opts.scopes;
+            }
 
             const startResult = await cliIpcCall<{
               auth_url: string;

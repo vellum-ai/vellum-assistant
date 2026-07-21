@@ -19,7 +19,7 @@ let tmpDir: string;
 
 const makeScanData = (overrides?: Partial<BundleScanData>): BundleScanData => ({
   manifest: {
-    format_version: 1,
+    format_version: 2,
     name: "Test App",
     description: "A test bundle",
     icon: "🧪",

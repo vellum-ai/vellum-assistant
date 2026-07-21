@@ -6,6 +6,7 @@ import {
   readFileSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -15,6 +16,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   _getConsecutiveFailures,
   _getInitConsecutiveFailures,
+  _hasPendingHistoryCompaction,
   _resetBreaker,
   _resetGitServiceRegistry,
   _resetInitBreaker,
@@ -69,7 +71,12 @@ describe("WorkspaceGitService", () => {
       expect(content).toContain("*.sock");
       expect(content).toContain("*.pid");
       expect(content).toContain("session-token");
-      expect(content).toContain("plugins/*/node_modules/");
+      expect(content).toContain("node_modules/");
+      expect(content).toContain("/embedding-models/");
+      expect(content).toContain(".DS_Store");
+      expect(content).toContain("*.png");
+      expect(content).toContain("*.jsonl");
+      expect(content).toContain("!conversations/**");
     });
 
     test("sets git identity correctly", async () => {
@@ -694,6 +701,47 @@ describe("WorkspaceGitService", () => {
       expect(branchAfter).toBe("main");
     });
 
+    test("gitignore rules and untracking apply to main after a branch switch", async () => {
+      execFileSync("git", ["init", "-b", "main"], { cwd: testDir });
+      execFileSync("git", ["config", "user.name", "Test"], { cwd: testDir });
+      execFileSync("git", ["config", "user.email", "user@example.com"], {
+        cwd: testDir,
+      });
+      // main: committed runtime junk and a .gitignore without Vellum rules
+      writeFileSync(join(testDir, ".gitignore"), "main-rule\n");
+      mkdirSync(join(testDir, "embedding-models"), { recursive: true });
+      writeFileSync(join(testDir, "embedding-models", "model.bin"), "weights");
+      writeFileSync(join(testDir, "notes.md"), "keep me");
+      execFileSync("git", ["add", "-A", "-f"], { cwd: testDir });
+      execFileSync("git", ["commit", "-m", "init"], { cwd: testDir });
+      // Checked out on a branch whose .gitignore differs from main's
+      execFileSync("git", ["checkout", "-b", "legacy"], { cwd: testDir });
+      writeFileSync(join(testDir, ".gitignore"), "legacy-rule\n");
+      execFileSync("git", ["add", "-A"], { cwd: testDir });
+      execFileSync("git", ["commit", "-m", "legacy rule"], { cwd: testDir });
+
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      // Landed on main with the Vellum rules applied to MAIN's .gitignore
+      const branch = execFileSync("git", ["symbolic-ref", "--short", "HEAD"], {
+        cwd: testDir,
+        encoding: "utf-8",
+      }).trim();
+      expect(branch).toBe("main");
+      const content = readFileSync(join(testDir, ".gitignore"), "utf-8");
+      expect(content).toContain("main-rule");
+      expect(content).toContain("data/db/");
+
+      // Untracking ran against main's index
+      const tracked = execFileSync("git", ["ls-files"], {
+        cwd: testDir,
+        encoding: "utf-8",
+      });
+      expect(tracked).not.toContain("embedding-models/model.bin");
+      expect(tracked).toContain("notes.md");
+    });
+
     test("existing repo gets .gitignore rules appended on init", async () => {
       // Set up a pre-existing git repo without our gitignore rules
       execFileSync("git", ["init", "-b", "main"], { cwd: testDir });
@@ -721,6 +769,165 @@ describe("WorkspaceGitService", () => {
       expect(contentAfter).toContain("*.log");
       expect(contentAfter).toContain("*.sock");
       expect(contentAfter).toContain("session-token");
+    });
+
+    test("existing repo with committed runtime state gets it untracked on init", async () => {
+      // Repo that committed runtime state before the ignore rule existed
+      execFileSync("git", ["init", "-b", "main"], { cwd: testDir });
+      execFileSync("git", ["config", "user.name", "Test"], { cwd: testDir });
+      execFileSync("git", ["config", "user.email", "user@example.com"], {
+        cwd: testDir,
+      });
+      mkdirSync(join(testDir, "embedding-models"), { recursive: true });
+      writeFileSync(join(testDir, "embedding-models", "model.bin"), "weights");
+      writeFileSync(join(testDir, "notes.md"), "keep me");
+      execFileSync("git", ["add", "-A"], { cwd: testDir });
+      execFileSync("git", ["commit", "-m", "init"], { cwd: testDir });
+
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      // Now-ignored path is dropped from the index; tracked files survive.
+      const tracked = execFileSync("git", ["ls-files"], {
+        cwd: testDir,
+        encoding: "utf-8",
+      });
+      expect(tracked).not.toContain("embedding-models/model.bin");
+      expect(tracked).toContain("notes.md");
+
+      // Working tree is untouched — only the index entry is removed.
+      expect(existsSync(join(testDir, "embedding-models", "model.bin"))).toBe(
+        true,
+      );
+
+      // The staged deletion rides along with the next commit and the file
+      // is not re-added despite `git add -A`.
+      await service.commitChanges("next turn");
+      const headFiles = execFileSync(
+        "git",
+        ["ls-tree", "-r", "--name-only", "HEAD"],
+        { cwd: testDir, encoding: "utf-8" },
+      );
+      expect(headFiles).not.toContain("embedding-models/model.bin");
+      expect(headFiles).toContain("notes.md");
+    });
+
+    test("partial init with staged now-ignored files drops them from the initial commit", async () => {
+      // Interrupted previous init: `.git` exists with staged files, no commit
+      execFileSync("git", ["init", "-b", "main"], { cwd: testDir });
+      mkdirSync(join(testDir, "embedding-models"), { recursive: true });
+      writeFileSync(join(testDir, "embedding-models", "model.bin"), "weights");
+      writeFileSync(join(testDir, "notes.md"), "keep me");
+      execFileSync("git", ["add", "-A"], { cwd: testDir });
+
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      const headFiles = execFileSync(
+        "git",
+        ["ls-tree", "-r", "--name-only", "HEAD"],
+        { cwd: testDir, encoding: "utf-8" },
+      );
+      expect(headFiles).not.toContain("embedding-models/model.bin");
+      expect(headFiles).toContain("notes.md");
+    });
+
+    test("untracking is limited to Vellum rules and keeps avatar/sounds state", async () => {
+      execFileSync("git", ["init", "-b", "main"], { cwd: testDir });
+      execFileSync("git", ["config", "user.name", "Test"], { cwd: testDir });
+      execFileSync("git", ["config", "user.email", "user@example.com"], {
+        cwd: testDir,
+      });
+      // Canonical user state that matches the media extension rules
+      mkdirSync(join(testDir, "data", "avatar"), { recursive: true });
+      writeFileSync(join(testDir, "data", "avatar", "avatar-image.png"), "img");
+      mkdirSync(join(testDir, "data", "sounds"), { recursive: true });
+      writeFileSync(join(testDir, "data", "sounds", "ding.mp3"), "snd");
+      mkdirSync(join(testDir, "data", "apps", "my-app", "dist"), {
+        recursive: true,
+      });
+      writeFileSync(join(testDir, "data", "apps", "my-app", "icon.png"), "ic");
+      writeFileSync(
+        join(testDir, "data", "apps", "my-app", "dist", "bundle.png"),
+        "junk",
+      );
+      // Conversation disk views survive the *.jsonl rule
+      mkdirSync(join(testDir, "conversations", "conv-1"), { recursive: true });
+      writeFileSync(
+        join(testDir, "conversations", "conv-1", "messages.jsonl"),
+        "{}",
+      );
+      // Media junk elsewhere that should be untracked
+      mkdirSync(join(testDir, "pkb"), { recursive: true });
+      writeFileSync(join(testDir, "pkb", "photo.png"), "junk");
+      // Tracked file matching only the user's repo-local exclude file — the
+      // untrack step must not consult it.
+      writeFileSync(join(testDir, "fixture-keep.md"), "keep");
+      writeFileSync(
+        join(testDir, ".git", "info", "exclude"),
+        "fixture-keep.md\n",
+      );
+      // Force-added despite a user-authored .gitignore rule — the untrack
+      // step matches Vellum-managed rules only, so it must stay tracked.
+      writeFileSync(join(testDir, ".gitignore"), "user-secret.md\n");
+      writeFileSync(join(testDir, "user-secret.md"), "keep");
+      execFileSync("git", ["add", "-A", "-f"], { cwd: testDir });
+      execFileSync("git", ["commit", "-m", "init"], { cwd: testDir });
+
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      const tracked = execFileSync("git", ["ls-files"], {
+        cwd: testDir,
+        encoding: "utf-8",
+      });
+      expect(tracked).toContain("data/avatar/avatar-image.png");
+      expect(tracked).toContain("data/sounds/ding.mp3");
+      expect(tracked).toContain("data/apps/my-app/icon.png");
+      expect(tracked).toContain("conversations/conv-1/messages.jsonl");
+      expect(tracked).toContain("fixture-keep.md");
+      expect(tracked).toContain("user-secret.md");
+      expect(tracked).not.toContain("pkb/photo.png");
+      // The icon negation must not drag dist/ back in
+      expect(tracked).not.toContain("data/apps/my-app/dist/bundle.png");
+    });
+
+    test("appending rules keeps negations last even when already present mid-file", async () => {
+      execFileSync("git", ["init", "-b", "main"], { cwd: testDir });
+      execFileSync("git", ["config", "user.name", "Test"], { cwd: testDir });
+      execFileSync("git", ["config", "user.email", "user@example.com"], {
+        cwd: testDir,
+      });
+      // Negation already present BEFORE the extension rules get appended —
+      // if it stayed there, a later *.png would win and re-ignore the avatar.
+      writeFileSync(
+        join(testDir, ".gitignore"),
+        "!data/avatar/**\nnode_modules/\n",
+      );
+      writeFileSync(join(testDir, "file.txt"), "content");
+      execFileSync("git", ["add", "-A"], { cwd: testDir });
+      execFileSync("git", ["commit", "-m", "init"], { cwd: testDir });
+
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      const content = readFileSync(join(testDir, ".gitignore"), "utf-8");
+      expect(content.lastIndexOf("!data/avatar/**")).toBeGreaterThan(
+        content.indexOf("*.png"),
+      );
+
+      // Effective behavior: the avatar path is not ignored (check-ignore
+      // exits 1 → throws), media elsewhere is (exits 0).
+      expect(() =>
+        execFileSync(
+          "git",
+          ["check-ignore", "-q", "data/avatar/avatar-image.png"],
+          { cwd: testDir },
+        ),
+      ).toThrow();
+      execFileSync("git", ["check-ignore", "-q", "pkb/photo.png"], {
+        cwd: testDir,
+      });
     });
 
     test("existing repo with old data/ rule gets it replaced with selective rules", async () => {
@@ -830,7 +1037,7 @@ describe("WorkspaceGitService", () => {
         cwd: testDir,
       });
       const gitignoreContent =
-        "# Runtime state - excluded from git tracking\ndata/db/\ndata/qdrant/\ndata/monitoring/\ndata/apps/*/records/\ndata/apps/*/dist/\ndata/apps/*.preview\nplugins/*/node_modules/\nlogs/\n*.log\n*.sock\n*.pid\n*.sqlite\n*.sqlite-journal\n*.sqlite-wal\n*.sqlite-shm\n*.db\n*.db-journal\n*.db-wal\n*.db-shm\nvellum.pid\nsession-token\n";
+        "# Runtime state - excluded from git tracking\ndata/db/\ndata/qdrant/\ndata/monitoring/\ndata/apps/*/records/\ndata/apps/*/dist/\ndata/apps/*.preview\n/embedding-models/\n/external/\n/bin/\n/plugins-data/\nnode_modules/\n__pycache__/\n.venv/\nlogs/\n*.log\n*.jsonl\n*.sock\n*.pid\ndaemon-startup.lock\nsession-token\n*.sqlite*\n*.db\n*.db-*\n.DS_Store\n*.zip\n*.tar\n*.gz\n*.tgz\n*.bz2\n*.xz\n*.7z\n*.rar\n*.dmg\n*.iso\n*.png\n*.jpg\n*.jpeg\n*.gif\n*.webp\n*.heic\n*.bmp\n*.tiff\n*.mp3\n*.wav\n*.m4a\n*.flac\n*.ogg\n*.mp4\n*.mov\n*.avi\n*.mkv\n*.webm\n*.pdf\n*.gguf\n*.onnx\n*.safetensors\n*.pt\n*.pth\n!data/avatar/**\n!data/sounds/**\n!data/apps/*/icon.png\n!conversations/**\n";
       writeFileSync(join(testDir, ".gitignore"), gitignoreContent);
       writeFileSync(join(testDir, "file.txt"), "content");
       execFileSync("git", ["add", "-A"], { cwd: testDir });
@@ -1466,6 +1673,598 @@ describe("WorkspaceGitService", () => {
 
       expect(result.committed).toBe(true);
       expect(existsSync(markerPath)).toBe(false);
+    });
+  });
+
+  describe("oversized file exclusion", () => {
+    // Just over the default workspaceGit.maxFileSizeBytes (256000)
+    const bigContent = () => Buffer.alloc(256001, 120);
+
+    const trackedFiles = () =>
+      execFileSync("git", ["ls-files"], { cwd: testDir, encoding: "utf-8" })
+        .trim()
+        .split("\n");
+
+    test("commitChanges skips oversized files but commits the rest", async () => {
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      writeFileSync(join(testDir, "small.txt"), "small");
+      writeFileSync(join(testDir, "big.bin"), bigContent());
+      await service.commitChanges("Add files");
+
+      const tracked = trackedFiles();
+      expect(tracked).toContain("small.txt");
+      expect(tracked).not.toContain("big.bin");
+      // The oversized file stays on disk untouched
+      expect(existsSync(join(testDir, "big.bin"))).toBe(true);
+    });
+
+    test("initial commit excludes oversized pre-existing files", async () => {
+      writeFileSync(join(testDir, "existing.txt"), "keep me");
+      writeFileSync(join(testDir, "huge.bin"), bigContent());
+
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      const tracked = trackedFiles();
+      expect(tracked).toContain("existing.txt");
+      expect(tracked).not.toContain("huge.bin");
+    });
+
+    test("growth of a tracked file beyond the limit is not committed", async () => {
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      writeFileSync(join(testDir, "notes.md"), "small");
+      await service.commitChanges("Add notes");
+
+      writeFileSync(join(testDir, "notes.md"), bigContent());
+      await service.commitChanges("Grow notes");
+
+      const committed = execFileSync("git", ["show", "HEAD:notes.md"], {
+        cwd: testDir,
+        encoding: "utf-8",
+      });
+      expect(committed).toBe("small");
+    });
+
+    test("getStatus treats a workspace with only oversized changes as clean", async () => {
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      writeFileSync(join(testDir, "big.bin"), bigContent());
+
+      const status = await service.getStatus();
+      expect(status.untracked).not.toContain("big.bin");
+      expect(status.clean).toBe(true);
+    });
+
+    test("commitIfDirty ignores oversized-only changes but commits mixed ones", async () => {
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      writeFileSync(join(testDir, "big.bin"), bigContent());
+      const first = await service.commitIfDirty(() => ({ message: "big" }));
+      expect(first.committed).toBe(false);
+
+      writeFileSync(join(testDir, "small.txt"), "small");
+      const second = await service.commitIfDirty(() => ({ message: "mixed" }));
+      expect(second.committed).toBe(true);
+
+      const tracked = trackedFiles();
+      expect(tracked).toContain("small.txt");
+      expect(tracked).not.toContain("big.bin");
+    });
+
+    test("oversized blobs are never written to the object store", async () => {
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      const content = bigContent();
+      writeFileSync(join(testDir, "big.bin"), content);
+      writeFileSync(join(testDir, "small.txt"), "small");
+      await service.commitChanges("Add files");
+
+      // hash-object without -w computes the blob id git WOULD store
+      const blobSha = execFileSync("git", ["hash-object", "--stdin"], {
+        cwd: testDir,
+        input: content,
+        encoding: "utf-8",
+      }).trim();
+      expect(() =>
+        execFileSync("git", ["cat-file", "-e", blobSha], { cwd: testDir }),
+      ).toThrow();
+      expect(trackedFiles()).toContain("small.txt");
+    });
+
+    test("untracked directory holding only oversized files reads clean", async () => {
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      mkdirSync(join(testDir, "artifacts"), { recursive: true });
+      writeFileSync(join(testDir, "artifacts", "blob.bin"), bigContent());
+
+      const status = await service.getStatus();
+      expect(status.clean).toBe(true);
+
+      const result = await service.commitIfDirty(() => ({ message: "dir" }));
+      expect(result.committed).toBe(false);
+    });
+
+    test("commits small files from a directory that also holds an oversized file", async () => {
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      mkdirSync(join(testDir, "mixed"), { recursive: true });
+      writeFileSync(join(testDir, "mixed", "blob.bin"), bigContent());
+      writeFileSync(join(testDir, "mixed", "note.txt"), "keep");
+      await service.commitChanges("Add mixed dir");
+
+      const tracked = trackedFiles();
+      expect(tracked).toContain("mixed/note.txt");
+      expect(tracked).not.toContain("mixed/blob.bin");
+    });
+
+    test("externally staged oversized typechange is unstaged", async () => {
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      writeFileSync(join(testDir, "target.txt"), "target");
+      symlinkSync("target.txt", join(testDir, "link"));
+      await service.commitChanges("Add symlink");
+
+      // Replace the symlink with an oversized regular file and stage it
+      // externally — the staged change is a typechange (T), not ACMR.
+      rmSync(join(testDir, "link"));
+      writeFileSync(join(testDir, "link"), bigContent());
+      execFileSync("git", ["add", "link"], { cwd: testDir });
+
+      await service.commitChanges("Replace link");
+
+      // History must still hold the symlink (mode 120000), not the blob
+      const entry = execFileSync("git", ["ls-tree", "HEAD", "link"], {
+        cwd: testDir,
+        encoding: "utf-8",
+      });
+      expect(entry).toContain("120000");
+    });
+
+    test("oversized files with special-character names stay invisible", async () => {
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      // Quoted by default porcelain output; -z must deliver it verbatim
+      const name = "résumé archive.bin";
+      writeFileSync(join(testDir, name), bigContent());
+
+      const status = await service.getStatus();
+      expect(status.clean).toBe(true);
+
+      await service.commitChanges("Special name");
+      expect(trackedFiles()).not.toContain(name);
+    });
+
+    test("unstaging an oversized glob-like name leaves lookalike paths staged", async () => {
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      // "a?.bin" as a pathspec would also match "ab.bin"
+      writeFileSync(join(testDir, "a?.bin"), bigContent());
+      writeFileSync(join(testDir, "ab.bin"), "small");
+      execFileSync("git", ["add", "--", ":(literal)a?.bin"], { cwd: testDir });
+
+      await service.commitChanges("Add files");
+
+      const tracked = trackedFiles();
+      expect(tracked).toContain("ab.bin");
+      expect(tracked).not.toContain("a?.bin");
+    });
+
+    test("init sweep untracks previously committed oversized files", async () => {
+      const first = new WorkspaceGitService(testDir);
+      await first.ensureInitialized();
+
+      writeFileSync(join(testDir, "keep.txt"), "small");
+      await first.commitChanges("Add small file");
+
+      // Simulate an oversized file that entered history before the guard
+      writeFileSync(join(testDir, "legacy.bin"), bigContent());
+      execFileSync("git", ["add", "--", ":(literal)legacy.bin"], {
+        cwd: testDir,
+      });
+      execFileSync("git", ["commit", "--no-verify", "-m", "legacy"], {
+        cwd: testDir,
+      });
+      expect(trackedFiles()).toContain("legacy.bin");
+
+      // A fresh service init (new daemon boot) sweeps it out of the index
+      const second = new WorkspaceGitService(testDir);
+      await second.ensureInitialized();
+
+      const tracked = trackedFiles();
+      expect(tracked).not.toContain("legacy.bin");
+      expect(tracked).toContain("keep.txt");
+      // Working-tree file is preserved; only tracking is dropped
+      expect(existsSync(join(testDir, "legacy.bin"))).toBe(true);
+
+      // The staged removal rides along with the next auto-commit
+      const result = await second.commitIfDirty(() => ({ message: "sweep" }));
+      expect(result.committed).toBe(true);
+      const tree = execFileSync(
+        "git",
+        ["ls-tree", "-r", "--name-only", "HEAD"],
+        { cwd: testDir, encoding: "utf-8" },
+      );
+      expect(tree).not.toContain("legacy.bin");
+
+      // And the workspace reads clean afterwards — no dirty-loop churn
+      const status = await second.getStatus();
+      expect(status.clean).toBe(true);
+    });
+
+    test("history compaction purges oversized blobs from aged history", async () => {
+      const gitEnvAt = (daysAgo: number) => {
+        const date = new Date(Date.now() - daysAgo * 86400_000).toISOString();
+        return {
+          ...process.env,
+          GIT_AUTHOR_DATE: date,
+          GIT_COMMITTER_DATE: date,
+        };
+      };
+      // Build history externally: a big blob committed 30 days ago,
+      // untracked 20 days ago, plus a recent commit inside retention.
+      execFileSync("git", ["init", "-b", "main"], { cwd: testDir });
+      execFileSync("git", ["config", "user.name", "Test"], { cwd: testDir });
+      execFileSync("git", ["config", "user.email", "user@example.com"], {
+        cwd: testDir,
+      });
+      writeFileSync(join(testDir, "keep.txt"), "v1");
+      writeFileSync(join(testDir, "legacy.bin"), bigContent());
+      execFileSync("git", ["add", "-A"], { cwd: testDir });
+      execFileSync("git", ["commit", "--no-verify", "-m", "old with blob"], {
+        cwd: testDir,
+        env: gitEnvAt(30),
+      });
+      execFileSync("git", ["rm", "--cached", "-q", "legacy.bin"], {
+        cwd: testDir,
+      });
+      execFileSync("git", ["commit", "--no-verify", "-m", "untrack blob"], {
+        cwd: testDir,
+        env: gitEnvAt(20),
+      });
+      writeFileSync(join(testDir, "recent.txt"), "recent");
+      execFileSync("git", ["add", "recent.txt"], { cwd: testDir });
+      execFileSync("git", ["commit", "--no-verify", "-m", "recent change"], {
+        cwd: testDir,
+      });
+
+      const blobSha = execFileSync("git", ["hash-object", "--stdin"], {
+        cwd: testDir,
+        input: bigContent(),
+        encoding: "utf-8",
+      }).trim();
+      execFileSync("git", ["cat-file", "-e", blobSha], { cwd: testDir });
+
+      const service = new WorkspaceGitService(testDir);
+      const result = await service.compactHistoryNow();
+
+      // The blob is genuinely gone from .git, not just untracked — and with
+      // nothing left to reclaim, no retry is requested.
+      expect(() =>
+        execFileSync("git", ["cat-file", "-e", blobSha], { cwd: testDir }),
+      ).toThrow();
+      expect(result.retryAfterMs).toBeUndefined();
+
+      const subjects = execFileSync("git", ["log", "--format=%s"], {
+        cwd: testDir,
+        encoding: "utf-8",
+      });
+      expect(subjects).toContain("recent change");
+      expect(subjects).toContain("Compacted workspace history");
+      expect(subjects).not.toContain("old with blob");
+
+      // Working tree untouched; service keeps functioning afterwards
+      expect(readFileSync(join(testDir, "keep.txt"), "utf-8")).toBe("v1");
+      expect(existsSync(join(testDir, "legacy.bin"))).toBe(true);
+      writeFileSync(join(testDir, "after.txt"), "after");
+      await service.commitChanges("After compaction");
+      expect(trackedFiles()).toContain("after.txt");
+    });
+
+    test("history compaction is a no-op without oversized blobs", async () => {
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+      writeFileSync(join(testDir, "a.txt"), "a");
+      await service.commitChanges("Add a");
+
+      const headBefore = await service.getHeadHash();
+      const result = await service.compactHistoryNow();
+
+      expect(result.rewrote).toBe(false);
+      expect(result.retryAfterMs).toBeUndefined();
+      expect(await service.getHeadHash()).toBe(headBefore);
+    });
+
+    test("history compaction reschedules when kept commits still hold blobs", async () => {
+      const gitEnvAt = (daysAgo: number) => {
+        const date = new Date(Date.now() - daysAgo * 86400_000).toISOString();
+        return {
+          ...process.env,
+          GIT_AUTHOR_DATE: date,
+          GIT_COMMITTER_DATE: date,
+        };
+      };
+      execFileSync("git", ["init", "-b", "main"], { cwd: testDir });
+      execFileSync("git", ["config", "user.name", "Test"], { cwd: testDir });
+      execFileSync("git", ["config", "user.email", "user@example.com"], {
+        cwd: testDir,
+      });
+      // Old squashable commit, plus a RECENT commit whose tree still holds
+      // the oversized blob (tracked, added externally past the guard).
+      writeFileSync(join(testDir, "keep.txt"), "v1");
+      execFileSync("git", ["add", "keep.txt"], { cwd: testDir });
+      execFileSync("git", ["commit", "--no-verify", "-m", "old"], {
+        cwd: testDir,
+        env: gitEnvAt(30),
+      });
+      writeFileSync(join(testDir, "held.bin"), bigContent());
+      execFileSync("git", ["add", "--", ":(literal)held.bin"], {
+        cwd: testDir,
+      });
+      execFileSync("git", ["commit", "--no-verify", "-m", "recent blob"], {
+        cwd: testDir,
+      });
+
+      const blobSha = execFileSync("git", ["hash-object", "--stdin"], {
+        cwd: testDir,
+        input: bigContent(),
+        encoding: "utf-8",
+      }).trim();
+
+      const service = new WorkspaceGitService(testDir);
+      const result = await service.compactHistoryNow();
+
+      // The old prefix was squashed, but the replayed recent commit keeps
+      // the blob alive — so a retry must be requested for when it ages out.
+      expect(result.rewrote).toBe(true);
+      expect(result.retryAfterMs).toBeGreaterThan(0);
+      execFileSync("git", ["cat-file", "-e", blobSha], { cwd: testDir });
+    });
+
+    test("oversized conversation disk views keep committing", async () => {
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      // conversations/** is canonical recovery state, re-included by the
+      // managed ignore rules — the size guard must never suppress it.
+      const viewDir = join(testDir, "conversations", "conv-1");
+      mkdirSync(viewDir, { recursive: true });
+      writeFileSync(join(viewDir, "messages.jsonl"), bigContent());
+
+      const status = await service.getStatus();
+      expect(status.clean).toBe(false);
+
+      await service.commitChanges("Sync conversation");
+      expect(trackedFiles()).toContain("conversations/conv-1/messages.jsonl");
+
+      // A fresh init must not untrack it either
+      const second = new WorkspaceGitService(testDir);
+      await second.ensureInitialized();
+      const result = await second.commitIfDirty(() => ({ message: "tick" }));
+      expect(trackedFiles()).toContain("conversations/conv-1/messages.jsonl");
+
+      // And compaction sees nothing actionable — no rewrite, no retry loop
+      const compaction = await second.compactHistoryNow();
+      expect(compaction.rewrote).toBe(false);
+      expect(compaction.retryAfterMs).toBeUndefined();
+      expect(result.committed).toBe(false);
+    });
+
+    test("unstaging an externally staged oversized blob schedules compaction", async () => {
+      // Fresh repo created by the service — no boot-time compaction pending
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+      expect(_hasPendingHistoryCompaction(service)).toBe(false);
+
+      // External add hashes the blob into .git/objects and stages it; the
+      // commit's safety net unstages it and must queue a prune.
+      writeFileSync(join(testDir, "staged.bin"), bigContent());
+      execFileSync("git", ["add", "--", ":(literal)staged.bin"], {
+        cwd: testDir,
+      });
+      await service.commitChanges("Trigger safety net");
+
+      expect(trackedFiles()).not.toContain("staged.bin");
+      expect(_hasPendingHistoryCompaction(service)).toBe(true);
+    });
+
+    test("a sooner compaction request replaces a later pending timer", async () => {
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      const internal = service as unknown as {
+        scheduleHistoryCompaction: (delayMs?: number) => void;
+        historyCompactionDueAtMs: number;
+      };
+      internal.scheduleHistoryCompaction(24 * 60 * 60_000);
+      const farDueAt = internal.historyCompactionDueAtMs;
+
+      internal.scheduleHistoryCompaction(60_000);
+      const nearDueAt = internal.historyCompactionDueAtMs;
+      expect(nearDueAt).toBeLessThan(farDueAt);
+
+      // A later request never displaces the sooner pending one
+      internal.scheduleHistoryCompaction(24 * 60 * 60_000);
+      expect(internal.historyCompactionDueAtMs).toBe(nearDueAt);
+    });
+
+    test("history compaction prunes unreachable oversized blobs immediately", async () => {
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      // A loose blob with no referencing commit — e.g. an external
+      // `git add` that stageAllLocked later reset out of the index.
+      const blobSha = execFileSync("git", ["hash-object", "-w", "--stdin"], {
+        cwd: testDir,
+        input: bigContent(),
+        encoding: "utf-8",
+      }).trim();
+      execFileSync("git", ["cat-file", "-e", blobSha], { cwd: testDir });
+
+      const result = await service.compactHistoryNow();
+
+      // Reclaimed now — no waiting for retention, no retry needed
+      expect(result.retryAfterMs).toBeUndefined();
+      expect(() =>
+        execFileSync("git", ["cat-file", "-e", blobSha], { cwd: testDir }),
+      ).toThrow();
+    });
+
+    test("loose blobs in a repo with old history are pruned without a rewrite", async () => {
+      const gitEnvAt = (daysAgo: number) => {
+        const date = new Date(Date.now() - daysAgo * 86400_000).toISOString();
+        return {
+          ...process.env,
+          GIT_AUTHOR_DATE: date,
+          GIT_COMMITTER_DATE: date,
+        };
+      };
+      execFileSync("git", ["init", "-b", "main"], { cwd: testDir });
+      execFileSync("git", ["config", "user.name", "Test"], { cwd: testDir });
+      execFileSync("git", ["config", "user.email", "user@example.com"], {
+        cwd: testDir,
+      });
+      // Clean history with commits well past retention — no big blobs in it
+      writeFileSync(join(testDir, "keep.txt"), "v1");
+      execFileSync("git", ["add", "keep.txt"], { cwd: testDir });
+      execFileSync("git", ["commit", "--no-verify", "-m", "ancient"], {
+        cwd: testDir,
+        env: gitEnvAt(30),
+      });
+      const headBefore = execFileSync("git", ["rev-parse", "HEAD"], {
+        cwd: testDir,
+        encoding: "utf-8",
+      }).trim();
+
+      // Loose unreachable oversized blob
+      const blobSha = execFileSync("git", ["hash-object", "-w", "--stdin"], {
+        cwd: testDir,
+        input: bigContent(),
+        encoding: "utf-8",
+      }).trim();
+
+      const service = new WorkspaceGitService(testDir);
+      const result = await service.compactHistoryNow();
+
+      // gc suffices — history is untouched (same hashes), blob reclaimed
+      expect(result.rewrote).toBe(false);
+      expect(result.retryAfterMs).toBeUndefined();
+      expect(() =>
+        execFileSync("git", ["cat-file", "-e", blobSha], { cwd: testDir }),
+      ).toThrow();
+      const headAfter = execFileSync("git", ["rev-parse", "HEAD"], {
+        cwd: testDir,
+        encoding: "utf-8",
+      }).trim();
+      expect(headAfter).toBe(headBefore);
+    });
+
+    test("history compaction converges when a legacy branch retains the blob", async () => {
+      const gitEnvAt = (daysAgo: number) => {
+        const date = new Date(Date.now() - daysAgo * 86400_000).toISOString();
+        return {
+          ...process.env,
+          GIT_AUTHOR_DATE: date,
+          GIT_COMMITTER_DATE: date,
+        };
+      };
+      execFileSync("git", ["init", "-b", "main"], { cwd: testDir });
+      execFileSync("git", ["config", "user.name", "Test"], { cwd: testDir });
+      execFileSync("git", ["config", "user.email", "user@example.com"], {
+        cwd: testDir,
+      });
+      writeFileSync(join(testDir, "keep.txt"), "v1");
+      writeFileSync(join(testDir, "legacy.bin"), bigContent());
+      execFileSync("git", ["add", "-A"], { cwd: testDir });
+      execFileSync("git", ["commit", "--no-verify", "-m", "old with blob"], {
+        cwd: testDir,
+        env: gitEnvAt(30),
+      });
+      // Legacy pre-guard branch pins the blob commit forever
+      execFileSync("git", ["branch", "legacy-branch"], { cwd: testDir });
+      execFileSync("git", ["rm", "--cached", "-q", "legacy.bin"], {
+        cwd: testDir,
+      });
+      execFileSync("git", ["commit", "--no-verify", "-m", "untrack blob"], {
+        cwd: testDir,
+        env: gitEnvAt(20),
+      });
+      writeFileSync(join(testDir, "recent.txt"), "recent");
+      execFileSync("git", ["add", "recent.txt"], { cwd: testDir });
+      execFileSync("git", ["commit", "--no-verify", "-m", "recent change"], {
+        cwd: testDir,
+      });
+
+      const blobSha = execFileSync("git", ["hash-object", "--stdin"], {
+        cwd: testDir,
+        input: bigContent(),
+        encoding: "utf-8",
+      }).trim();
+
+      const service = new WorkspaceGitService(testDir);
+      const result = await service.compactHistoryNow();
+
+      // Main history is rewritten, but the branch-retained blob is not
+      // reclaimable — so no retry loop is started for it.
+      expect(result.rewrote).toBe(true);
+      expect(result.retryAfterMs).toBeUndefined();
+      execFileSync("git", ["cat-file", "-e", blobSha], { cwd: testDir });
+
+      // A follow-up run sees nothing actionable at all
+      const second = await service.compactHistoryNow();
+      expect(second.rewrote).toBe(false);
+      expect(second.retryAfterMs).toBeUndefined();
+    });
+
+    test("history compaction defers with a retry when blobs are within retention", async () => {
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      // Blob enters history via a recent commit (guard bypassed externally)
+      writeFileSync(join(testDir, "fresh.bin"), bigContent());
+      execFileSync("git", ["add", "--", ":(literal)fresh.bin"], {
+        cwd: testDir,
+      });
+      execFileSync("git", ["commit", "--no-verify", "-m", "fresh blob"], {
+        cwd: testDir,
+      });
+
+      const headBefore = await service.getHeadHash();
+      const result = await service.compactHistoryNow();
+
+      // Nothing is old enough to squash yet, but a retry is requested for
+      // when the oldest commit ages past retention.
+      expect(result.rewrote).toBe(false);
+      expect(result.retryAfterMs).toBeGreaterThan(0);
+      expect(await service.getHeadHash()).toBe(headBefore);
+    });
+
+    test("deletion of an oversized tracked file is committed", async () => {
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      // Simulate an oversized file that entered history before the guard
+      writeFileSync(join(testDir, "legacy.bin"), bigContent());
+      execFileSync("git", ["add", "legacy.bin"], { cwd: testDir });
+      execFileSync("git", ["commit", "--no-verify", "-m", "legacy"], {
+        cwd: testDir,
+      });
+
+      rmSync(join(testDir, "legacy.bin"));
+      await service.commitChanges("Remove legacy");
+
+      expect(trackedFiles()).not.toContain("legacy.bin");
     });
   });
 });

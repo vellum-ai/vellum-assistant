@@ -2,13 +2,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ── Mocks ────────────────────────────────────────────────────────────
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 /**
  * Fake CDP session used by the screenshot/extract/wait_for tests in
  * this file. The tests configure `sendHandler` before invoking a

@@ -9,6 +9,13 @@
  * POST   /v1/memory-items        — create a new memory item
  * PATCH  /v1/memory-items/:id    — update an existing memory item
  * DELETE /v1/memory-items/:id    — delete a memory item and its embeddings
+ *
+ * Plus the content-addressed "memory nodes" operator surface over the same
+ * graph (see the section in ROUTES):
+ *
+ * GET    /v1/memory-nodes        — list nodes (significance-ordered, content search)
+ * POST   /v1/memory-nodes/delete — delete the single node matching content
+ * POST   /v1/memory-nodes/update — replace content on the single node matching content
  */
 
 import {
@@ -44,9 +51,14 @@ import {
   NotFoundError,
 } from "../../../../runtime/routes/errors.js";
 import type { RouteDefinition } from "../../../../runtime/routes/types.js";
-import { getLogger } from "../../../../util/logger.js";
 import { embedWithBackend } from "../embeddings.js";
 import { createNode, deleteNode, getNode, updateNode } from "../graph/store.js";
+import {
+  handleDeleteMemory,
+  handleListMemory,
+  handleRemember,
+  handleUpdateMemory,
+} from "../graph/tool-handlers.js";
 import type {
   Fidelity,
   ImageRef,
@@ -54,6 +66,9 @@ import type {
   MemoryType,
   NewNode,
 } from "../graph/types.js";
+import { getLogger } from "../logging.js";
+import { getWorkspaceDir } from "../paths.js";
+import { getPageIndex } from "../v2/page-index.js";
 
 const log = getLogger("memory-item-routes");
 
@@ -118,10 +133,7 @@ function splitContent(content: string): { subject: string; statement: string } {
 /**
  * Map a graph node to the client's MemoryItemPayload shape.
  */
-function nodeToPayload(
-  node: MemoryNode,
-  scopeLabel: string | null = null,
-): Record<string, unknown> {
+function nodeToPayload(node: MemoryNode): Record<string, unknown> {
   const { subject, statement } = splitContent(node.content);
   return {
     id: node.id,
@@ -143,9 +155,6 @@ function nodeToPayload(
     reinforcementCount: node.reinforcementCount,
     stability: node.stability,
     emotionalCharge: node.emotionalCharge,
-
-    scopeId: node.scopeId,
-    scopeLabel,
 
     // Legacy fields — not applicable to graph nodes
     accessCount: null,
@@ -254,7 +263,6 @@ function rowToNode(row: typeof memoryGraphNodes.$inferSelect): MemoryNode {
     narrativeRole: row.narrativeRole as MemoryNode["narrativeRole"],
     partOfStory: row.partOfStory,
     imageRefs: row.imageRefs ? (JSON.parse(row.imageRefs) as ImageRef[]) : null,
-    scopeId: row.scopeId ?? "default",
   };
 }
 
@@ -279,7 +287,9 @@ async function handleListMemoryItems(queryParams: Record<string, string>) {
 
   if (!isValidSortField(sortParam)) {
     throw new BadRequestError(
-      `Invalid sort "${sortParam}". Must be one of: ${VALID_SORT_FIELDS.join(", ")}`,
+      `Invalid sort "${sortParam}". Must be one of: ${VALID_SORT_FIELDS.join(
+        ", ",
+      )}`,
     );
   }
 
@@ -455,6 +465,22 @@ function handleGetMemoryItem(id: string) {
   return { item: nodeToPayload(node) };
 }
 
+/**
+ * Cheap concept count for glanceable surfaces (the identity Memory card).
+ *
+ * Read straight from the CACHED page index and count only real concept pages:
+ * those carry a real file mtime (`modifiedAt > 0`), while synthetic rows
+ * (seeded skills and CLI commands) carry `modifiedAt: 0`. This mirrors the
+ * concepts-only filter in `build-memory-graph.ts`, but never triggers the
+ * expensive `getMemoryGraph` build (edge / learned / cluster graph) — the
+ * concept graph is deliberately kept off identity-page load.
+ */
+async function handleGetMemoryStats(): Promise<{ concepts: number }> {
+  const pageIndex = await getPageIndex(getWorkspaceDir());
+  const concepts = pageIndex.entries.filter((e) => e.modifiedAt > 0).length;
+  return { concepts };
+}
+
 async function handleCreateMemoryItem(body: Record<string, unknown>) {
   const { kind, subject, statement, importance } = body as {
     kind?: string;
@@ -524,7 +550,6 @@ async function handleCreateMemoryItem(body: Record<string, unknown>) {
     narrativeRole: null,
     partOfStory: null,
     imageRefs: null,
-    scopeId: "default",
   };
 
   const created = createNode(newNode);
@@ -725,9 +750,29 @@ export const ROUTES: RouteDefinition[] = [
       item: z
         .object({})
         .passthrough()
-        .describe("Memory item with scopeLabel and graph metadata"),
+        .describe("Memory item with graph metadata"),
     }),
     handler: ({ pathParams }) => handleGetMemoryItem(pathParams!.id),
+  },
+
+  {
+    operationId: "getMemoryStats",
+    endpoint: "memory/stats",
+    method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Get lightweight memory stats",
+    description:
+      "Return a cheap count of concept pages from the cached memory page " +
+      "index, for glanceable surfaces like the identity Memory card. Counts " +
+      "concept pages only and never builds the memory-concept graph.",
+    tags: ["memory"],
+    responseBody: z.object({
+      concepts: z.number().describe("Number of concept pages in memory"),
+    }),
+    handler: () => handleGetMemoryStats(),
   },
 
   {
@@ -810,5 +855,164 @@ export const ROUTES: RouteDefinition[] = [
     description: "Delete a memory graph node and its embeddings.",
     tags: ["memory"],
     handler: ({ pathParams }) => handleDeleteMemoryItem(pathParams!.id),
+  },
+
+  // ── Memory nodes (content-addressed) ───────────────────────────────────────
+  // Operator surface over raw graph nodes addressed by content text rather
+  // than UUID, mirroring how the model-facing memory tools address them. The
+  // handlers return business failures ({ success: false, message }) as data —
+  // the same shape the memory tools hand the model — so callers branch on
+  // `success` instead of catching transport errors.
+
+  {
+    operationId: "listMemoryNodes",
+    endpoint: "memory-nodes",
+    method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "List memory graph nodes",
+    description:
+      "Return active memory graph nodes ordered by significance. With `search`, all nodes are scanned so the content filter is exhaustive; without it the query is capped at `limit` rows.",
+    tags: ["memory"],
+    queryParams: [
+      {
+        name: "search",
+        schema: { type: "string" },
+        description: "Filter nodes whose content contains the query",
+      },
+      {
+        name: "limit",
+        schema: { type: "integer" },
+        description: "Max results (default 50, max 200)",
+      },
+    ],
+    responseBody: z.object({
+      success: z.boolean(),
+      message: z.string(),
+      nodes: z.array(
+        z.object({
+          id: z.string(),
+          content: z.string(),
+          type: z.string(),
+          fidelity: z.string(),
+          created: z.number(),
+        }),
+      ),
+      total: z.number(),
+    }),
+    handler: ({ queryParams }) => {
+      const limitRaw = queryParams?.limit;
+      let limit: number | undefined;
+      if (limitRaw) {
+        limit = Number.parseInt(limitRaw, 10);
+        if (!Number.isFinite(limit)) {
+          throw new BadRequestError("limit must be an integer");
+        }
+      }
+      return handleListMemory(
+        { search: queryParams?.search, limit },
+        getConfig(),
+      );
+    },
+  },
+
+  {
+    operationId: "deleteMemoryNode",
+    endpoint: "memory-nodes/delete",
+    method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Delete a memory graph node by content match",
+    description:
+      "Delete the single memory graph node matching `content`: a case-insensitive exact match takes priority; with no exact match, a substring match is tried. Fails as `{ success: false }` when zero or multiple nodes match.",
+    tags: ["memory"],
+    requestBody: z.object({
+      content: z.string(),
+    }),
+    responseBody: z.object({
+      success: z.boolean(),
+      message: z.string(),
+    }),
+    handler: ({ body }) => {
+      const parsed = z.object({ content: z.string() }).safeParse(body ?? {});
+      if (!parsed.success) {
+        throw new BadRequestError("content (string) is required");
+      }
+      return handleDeleteMemory({ content: parsed.data.content }, getConfig());
+    },
+  },
+
+  {
+    operationId: "updateMemoryNode",
+    endpoint: "memory-nodes/update",
+    method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Update a memory graph node by content match",
+    description:
+      "Replace the content of the single memory graph node matching `oldContent`: a case-insensitive exact match takes priority; with no exact match, a substring match is tried. Fails as `{ success: false }` when zero or multiple nodes match, or when another active node already has `newContent`.",
+    tags: ["memory"],
+    requestBody: z.object({
+      oldContent: z.string(),
+      newContent: z.string(),
+    }),
+    responseBody: z.object({
+      success: z.boolean(),
+      message: z.string(),
+    }),
+    handler: ({ body }) => {
+      const parsed = z
+        .object({ oldContent: z.string(), newContent: z.string() })
+        .safeParse(body ?? {});
+      if (!parsed.success) {
+        throw new BadRequestError(
+          "oldContent and newContent (strings) are required",
+        );
+      }
+      return handleUpdateMemory(
+        {
+          old_content: parsed.data.oldContent,
+          new_content: parsed.data.newContent,
+        },
+        "cli",
+        getConfig(),
+      );
+    },
+  },
+
+  {
+    operationId: "createMemory",
+    endpoint: "memory/remember",
+    method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Create a memory by remembering a fact",
+    description:
+      "Append a user-authored fact to the memory buffer via handleRemember; it is materialized into a graph node later by consolidation.",
+    tags: ["memory"],
+    requestBody: z.object({ content: z.string() }),
+    responseBody: z.object({ message: z.string(), success: z.boolean() }),
+    handler: ({ body }) => {
+      const parsed = z.object({ content: z.string() }).safeParse(body ?? {});
+      if (!parsed.success) {
+        throw new BadRequestError("content (string) is required");
+      }
+      if (parsed.data.content.trim().length === 0) {
+        throw new BadRequestError("content (non-empty string) is required");
+      }
+      return handleRemember(
+        { content: parsed.data.content },
+        "web",
+        getConfig(),
+      );
+    },
   },
 ];

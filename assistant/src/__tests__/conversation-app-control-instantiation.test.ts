@@ -30,8 +30,17 @@
  * `app-control` tools end up in the LLM tool list.
  */
 
-import * as realFs from "node:fs";
+import { createRequire } from "node:module";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+
+// Freeze the real node:fs exports before `mock.module("node:fs", ...)` below
+// registers. A live `import * as` namespace would be remapped to the mock
+// itself once the factory runs, turning the pass-through fallback into
+// unbounded self-recursion; the synchronous require + spread pins the real
+// function references.
+const realFs = {
+  ...(createRequire(import.meta.url)("node:fs") as typeof import("node:fs")),
+};
 
 import type { InterfaceId } from "../channels/types.js";
 import { supportsHostProxy } from "../channels/types.js";
@@ -43,15 +52,12 @@ import type { Tool } from "../tools/types.js";
 // Module mocks for the skill-projection layer
 // ---------------------------------------------------------------------------
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
-
 let appControlFlagEnabled = false;
 mock.module("../config/assistant-feature-flags.js", () => ({
   isAssistantFeatureFlagEnabled: (key: string) => {
-    if (key === "app-control") return appControlFlagEnabled;
+    if (key === "app-control") {
+      return appControlFlagEnabled;
+    }
     return true;
   },
   loadDefaultsRegistry: () => ({}),
@@ -60,16 +66,6 @@ mock.module("../config/assistant-feature-flags.js", () => ({
 mock.module("../config/skill-state.js", () => ({
   skillFlagKey: (skill: { featureFlag?: string }) =>
     skill.featureFlag ?? undefined,
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    skills: { entries: {}, allowBundled: null },
-  }),
-  loadConfig: () => ({
-    skills: { entries: {}, allowBundled: null },
-  }),
-  invalidateConfigCache: () => {},
 }));
 
 let mockCatalog: SkillSummary[] = [];
@@ -143,7 +139,20 @@ mock.module("../tools/registry.js", () => ({
     let found: Tool | undefined;
     for (const tools of mockRegisteredTools.values()) {
       for (const tool of tools) {
-        if (tool.name === name) found = tool;
+        if (tool.name === name) {
+          found = tool;
+        }
+      }
+    }
+    return found;
+  },
+  resolveTool: (name: string) => {
+    let found: Tool | undefined;
+    for (const tools of mockRegisteredTools.values()) {
+      for (const tool of tools) {
+        if (tool.name === name) {
+          found = tool;
+        }
       }
     }
     return found;
@@ -158,7 +167,9 @@ mock.module("../tools/registry.js", () => ({
     let ownerSkillId: string | undefined;
     for (const [skillId, tools] of mockRegisteredTools.entries()) {
       for (const tool of tools) {
-        if (tool.name === name) ownerSkillId = skillId;
+        if (tool.name === name) {
+          ownerSkillId = skillId;
+        }
       }
     }
     return ownerSkillId === undefined

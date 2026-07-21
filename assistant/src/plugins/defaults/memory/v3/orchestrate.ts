@@ -55,8 +55,12 @@
  */
 
 import type { AssistantConfig } from "../../../../config/schema.js";
+import {
+  recordLatencySubSpan,
+  timeLatencySubSpan,
+} from "../../../../daemon/turn-latency-sub-spans.js";
 import { recordWatchdogEvent } from "../../../../telemetry/watchdog-events-store.js";
-import { getLogger } from "../../../../util/logger.js";
+import { getLogger } from "../logging.js";
 import { denseLaneScored } from "./dense.js";
 import type { EdgeGraph } from "./edge.js";
 import { edgeExpand } from "./edge.js";
@@ -89,9 +93,18 @@ const log = getLogger("memory-v3-injection-gate");
 export const MEMORY_V3_INJECTION_GATE_CHECK_NAME = "memory_v3_injection_gate";
 
 /** Record one injection-gate run to usage telemetry. `detail` keys are the
- *  platform-side contract (snake_case, scores and reason codes only — never
- *  conversation content). Never throws: the gate is pass-open by design, and a
- *  telemetry failure must not cost the turn its memory either. */
+ *  platform-side contract (snake_case; scores, reason codes, and corpus-size
+ *  counts only — never page titles, slugs, or conversation content). Never
+ *  throws: the gate is pass-open by design, and a telemetry failure must not
+ *  cost the turn its memory either.
+ *
+ *  `detail.scored` says whether checkV3Gate actually weighed scores this run, as
+ *  opposed to the run taking a pass-open shortcut (dense off, dense unavailable,
+ *  gate threw). Pass rate is only meaningful over scored runs — the shortcuts are
+ *  all unconditional passes and would otherwise inflate it. It is derivable from
+ *  `reason`, but the daemon owns the reason set and adds to it freely, so it is
+ *  reported explicitly rather than left for the platform to re-derive from a
+ *  hardcoded list that would silently miscount the next reason we add. */
 function recordGateRun(detail: Record<string, unknown>): void {
   try {
     recordWatchdogEvent({
@@ -102,6 +115,35 @@ function recordGateRun(detail: Record<string, unknown>): void {
   } catch {
     // recordWatchdogEvent already no-ops on opt-out and a missing telemetry
     // DB; anything past that is not worth failing the turn over.
+  }
+}
+
+/** `check_name` of the `watchdog` telemetry event recorded once per orchestrated
+ *  turn, carrying what the SELECTOR did. Keep this string stable — the platform's
+ *  memory admin analytics filter on it. */
+export const MEMORY_V3_SELECTION_CHECK_NAME = "memory_v3_selection";
+
+/** Record one turn's selection outcome. Deliberately a SEPARATE event from
+ *  {@link MEMORY_V3_INJECTION_GATE_CHECK_NAME} rather than extra keys on it: the
+ *  gate records at decision time, before selection has run, so folding the
+ *  outcome in would mean deferring the gate event until after `selectPool` — and
+ *  losing every gate run whenever selection throws, which is exactly the
+ *  incident we would want the gate telemetry for. This event carries
+ *  `gate_reason` so the two still group together without a join.
+ *
+ *  `value` is the selection count. Never throws, same as the gate counter. */
+function recordSelectionRun(
+  value: number,
+  detail: Record<string, unknown>,
+): void {
+  try {
+    recordWatchdogEvent({
+      checkName: MEMORY_V3_SELECTION_CHECK_NAME,
+      value,
+      detail,
+    });
+  } catch {
+    // Same contract as recordGateRun: telemetry must never cost a turn.
   }
 }
 
@@ -182,6 +224,19 @@ export interface OrchestrateDeps {
    *  `enabled`, assembled in observeTurn). Omitted/disabled → the gate never
    *  runs and every turn proceeds to selectPool as before. */
   gateConfig?: V3GateConfig;
+  /** Real concept-page count at lane build — the same corpus-size signal
+   *  `resolveV3Tuning` switches the lean/full profile on. Reported with each
+   *  gate run so the reason distribution can be read against
+   *  `MEMORY_V3_FULL_PROFILE_MIN_PAGES`; omitted drops the field from the
+   *  telemetry detail (the gate itself never reads it). */
+  realConceptPageCount?: number;
+  /** Slugs already live in this conversation (prior turns' injected cards). Used
+   *  ONLY to compute the `net_new_count` telemetry field — selections minus this
+   *  set are what the injector actually renders. Read-only and side-effect-free:
+   *  selection never consults it, and omitting it just drops the field. The
+   *  injector reads the same store, so the two agree for a turn that has not yet
+   *  committed. */
+  activeSlugs?: ReadonlySet<Slug>;
 }
 
 /** A finder-lane candidate: the slug, the descriptor that justified it, and
@@ -277,11 +332,24 @@ export async function orchestrate(
   // Run the selector over a pool, or pass its candidates straight through when
   // the selector LLM is disabled (`selectorEnabled: false`, the new-user
   // profile). Shared by the normal step-3 selection and the gate's
-  // bypass-to-stable path so the two cannot diverge.
-  const runSelection = async (pool: SelectorPool): Promise<SelectedPage[]> =>
-    deps.selectorEnabled === false
-      ? selectAllPoolCandidates(pool)
-      : selectPool(pool, turn, deps.selectorPrompt);
+  // bypass-to-stable path so the two cannot diverge. `keptAll` marks the
+  // selector's recall-safe fallback ONLY — the disabled passthrough is not a
+  // selector judgment, so it reports `false` (its turns are excluded from any
+  // relevance read by `selector_ran` anyway).
+  const runSelection = (
+    pool: SelectorPool,
+  ): Promise<{ selections: SelectedPage[]; keptAll: boolean }> =>
+    timeLatencySubSpan("v3_selection", "Memory selection", async () => {
+      if (deps.selectorEnabled === false) {
+        return { selections: selectAllPoolCandidates(pool), keptAll: false };
+      }
+      const { pages, keptAll } = await selectPool(
+        pool,
+        turn,
+        deps.selectorPrompt,
+      );
+      return { selections: pages, keptAll };
+    });
 
   // Step 1: needle (sync BM25) and the enabled dense lane (async embed +
   // Qdrant) run in parallel. Both return distinct articles each tagged with
@@ -296,18 +364,31 @@ export async function orchestrate(
   const replyQuery =
     replyK > 0 ? (turn.previousAssistantMessage ?? "").trim() : "";
   const denseEnabled = denseK > 0;
-  const [needled, densed, replyNeedled, replyDensed] = await Promise.all([
-    Promise.resolve(deps.needle.queryScored(turn.currentMessage, needleK)),
-    denseEnabled
-      ? denseLaneScored(deps.denseConfig, turn.currentMessage, denseK)
-      : Promise.resolve([]),
-    Promise.resolve(
-      replyQuery.length > 0 ? deps.needle.queryScored(replyQuery, replyK) : [],
-    ),
-    replyQuery.length > 0 && denseEnabled
-      ? denseLaneScored(deps.denseConfig, replyQuery, replyK)
-      : Promise.resolve([]),
-  ]);
+  const [needled, densed, replyNeedled, replyDensed] = await timeLatencySubSpan(
+    "v3_lanes",
+    "Memory search",
+    () =>
+      Promise.all([
+        Promise.resolve(deps.needle.queryScored(turn.currentMessage, needleK)),
+        denseEnabled
+          ? denseLaneScored(deps.denseConfig, turn.currentMessage, denseK)
+          : Promise.resolve([]),
+        Promise.resolve(
+          replyQuery.length > 0
+            ? deps.needle.queryScored(replyQuery, replyK)
+            : [],
+        ),
+        replyQuery.length > 0 && denseEnabled
+          ? denseLaneScored(deps.denseConfig, replyQuery, replyK)
+          : Promise.resolve([]),
+      ]),
+  );
+  // Everything from here to the step-3 selection — finder assembly, the
+  // entity lane, the injection gate, edge + learned-edge expansion, pool
+  // assembly — is synchronous in-memory work, measured as one `v3_expand`
+  // region rather than wrapped calls. Gate-closed early returns skip the
+  // record on purpose: the expansion work didn't happen on those turns.
+  const expandStartedAt = Date.now();
 
   // Dense hits restricted to pages still in the live section index. A deleted
   // page's points can linger in Qdrant; the candidate pool already drops those
@@ -430,29 +511,108 @@ export async function orchestrate(
   //
   // The gate is dense-gated: it only runs when the live dense lane produced hits
   // (`liveDensed.length > 0`). In healthy operation dense returns top-k hits for
-  // any query, so zero live dense hits means dense is unavailable — denseK=0 (the
-  // new-user/small-corpus profile), a degraded embedding backend, a Qdrant error
-  // (`denseLaneScored` swallows these to `[]`), or only stale deleted-page points
-  // returned — NOT low relevance. checkV3Gate reads only finder scores and cannot
-  // tell those apart, so without live dense signal we pass open rather than
-  // suppress all memory (not even the core/hot/fresh prefix) on every
-  // lexically-weak turn.
+  // any query, so zero live dense hits means dense is unavailable, NOT low
+  // relevance. checkV3Gate reads only finder scores and cannot tell those apart,
+  // so without live dense signal we pass open rather than suppress all memory
+  // (not even the core/hot/fresh prefix) on every lexically-weak turn.
+  //
+  // Two very different situations reach that pass-open, and they carry distinct
+  // reason codes because only one of them is a problem:
+  //   - dense_disabled:    `denseK === 0`, so the lane never ran. The lean
+  //                        new-user profile (`MEMORY_V3_NEW_USER_TUNING`) sets it
+  //                        for sub-threshold corpora, and that same profile sets
+  //                        `selectorEnabled: false` — so there is no selectPool
+  //                        call for the gate to save and passing open is free.
+  //                        Expected, benign, and the bulk of gate runs.
+  //   - dense_unavailable: the lane ran and yielded nothing live — a degraded
+  //                        embedding backend, a Qdrant error (`denseLaneScored`
+  //                        swallows these to `[]`), or only stale deleted-page
+  //                        points. Dense SHOULD have scored this turn and did
+  //                        not, so this one is worth alerting on.
+  //
+  // Every run carries the corpus size, so the reason mix can be read against the
+  // profile threshold rather than guessed at: `dense_disabled` is sub-threshold
+  // by construction, and whether those assistants sit at 1 page or 9 is the
+  // difference between "empty" and "about to cross".
+  const recordGate = (detail: Record<string, unknown>): void =>
+    recordGateRun(
+      deps.realConceptPageCount === undefined
+        ? detail
+        : { ...detail, real_concept_page_count: deps.realConceptPageCount },
+    );
+
+  // This turn's gate decision, carried to the selection event so the two group
+  // together without a join. Null when the gate never ran (disabled/omitted).
+  let gateOutcome: { reason: string; pass: boolean } | null = null;
+
+  // What the SELECTOR did with the pool the gate let through — the outcome the
+  // gate's own pass rate cannot see. A passed gate only means selectPool got to
+  // run; the selector is told to return `[]` when no candidate is relevant, so
+  // it is the real injection decision and the pass rate is an upper bound on it.
+  //
+  // `selector_ran` marks the turns where the selector actually JUDGED the pool,
+  // and is the filter that keeps a relevance rate honest. Three ways a turn can
+  // report zero selections without the selector having been asked, all of which
+  // must stay out of that rate:
+  //   - the lean profile sets `selectorEnabled: false`, so
+  //     `selectAllPoolCandidates` returns the whole pool untouched (would read
+  //     as a 100% hit rate),
+  //   - a closed gate hard-skips selection entirely (a 0%),
+  //   - the pool is empty, and `selectPool` returns `[]` before it ever reaches
+  //     the provider (also a 0%).
+  // The last is why `poolSize` decides this rather than each call site: an empty
+  // pool is not a judgment that nothing was relevant, and no caller has to
+  // remember that.
+  // `selector_kept_all` and `net_new_count` separate what the selector JUDGED
+  // from what actually reaches the turn, which `selected_count` alone conflates:
+  //   - kept_all: the recall-safe fallback fired (model omitted `ids`), so every
+  //     candidate was kept without a real judgment. Distinguishes "kept the whole
+  //     pool because it gave up" from "explicitly selected a large set", which
+  //     otherwise look identical and inflate the same way.
+  //   - net_new: selections not already live in the conversation — the injector
+  //     renders only these (prior turns' cards ride history), so it is the real
+  //     incremental injection, where `selected_count` re-counts the whole
+  //     standing set every turn. Omitted when the caller did not supply
+  //     `activeSlugs` (tests, shadow-less paths).
+  const recordSelection = (
+    selections: SelectedPage[],
+    poolSize: number,
+    keptAll: boolean,
+  ): void => {
+    const detail: Record<string, unknown> = {
+      gate_reason: gateOutcome?.reason ?? null,
+      gate_pass: gateOutcome?.pass ?? null,
+      selector_ran: deps.selectorEnabled !== false && poolSize > 0,
+      selector_kept_all: keptAll,
+      selected_count: selections.length,
+      pool_size: poolSize,
+    };
+    if (deps.activeSlugs !== undefined) {
+      detail.net_new_count = selections.filter(
+        (s) => !deps.activeSlugs!.has(s.slug),
+      ).length;
+    }
+    if (deps.realConceptPageCount !== undefined) {
+      detail.real_concept_page_count = deps.realConceptPageCount;
+    }
+    recordSelectionRun(selections.length, detail);
+  };
   if (deps.gateConfig?.enabled) {
     if (liveDensed.length === 0) {
-      // No live dense hits (denseK=0 / degraded backend / Qdrant error swallowed
-      // to [] / only stale deleted-page points returned). That means dense is
-      // unavailable, not low relevance, so pass open — but record it so rollout
-      // telemetry sees these turns instead of silently skipping the gate.
+      const reason = denseEnabled ? "dense_unavailable" : "dense_disabled";
       log.info(
         {
           conversationId: turn.conversationId,
           turnNumber: turn.turnNumber,
-          reason: "dense_unavailable",
+          reason,
           pass: true,
         },
-        "memory-v3 injection gate: dense lane unavailable, passing open",
+        denseEnabled
+          ? "memory-v3 injection gate: dense lane unavailable, passing open"
+          : "memory-v3 injection gate: dense lane disabled, passing open",
       );
-      recordGateRun({ pass: true, reason: "dense_unavailable" });
+      gateOutcome = { reason, pass: true };
+      recordGate({ pass: true, reason, scored: false });
     } else {
       let gate: V3GateResult | null = null;
       try {
@@ -469,7 +629,8 @@ export async function orchestrate(
           },
           "memory-v3 injection gate threw; passing open (proceeding with selection)",
         );
-        recordGateRun({ pass: true, reason: "gate_error" });
+        gateOutcome = { reason: "gate_error", pass: true };
+        recordGate({ pass: true, reason: "gate_error", scored: false });
       }
       if (gate) {
         log.info(
@@ -480,9 +641,11 @@ export async function orchestrate(
           },
           "memory-v3 injection gate decision",
         );
-        recordGateRun({
+        gateOutcome = { reason: gate.reason, pass: gate.pass };
+        recordGate({
           pass: gate.pass,
           reason: gate.reason,
+          scored: true,
           top_dense_score: gate.topDenseScore,
           top_norm_sparse_score: gate.topNormSparseScore,
           checked_articles: gate.checkedArticles,
@@ -505,10 +668,18 @@ export async function orchestrate(
             // explicitly configured with `selectorEnabled: false` AND
             // `denseK > 0` (the dense-gated gate only runs with dense hits; the
             // new-user profile sets `denseK: 0`, so the gate never runs for it).
-            return closed(
-              await runSelection({ stable: buildStable(), finder: [] }),
-            );
+            const stableOnly = buildStable();
+            const { selections: bypassed, keptAll } = await runSelection({
+              stable: stableOnly,
+              finder: [],
+            });
+            recordSelection(bypassed, stableOnly.length, keptAll);
+            return closed(bypassed);
           }
+          // Hard skip: the selector is never consulted, so this is a zero
+          // selection BY CONSTRUCTION, not a judgment that nothing was relevant.
+          // `selector_ran: false` keeps it out of any relevance rate.
+          recordSelection([], 0, false);
           return closed([]);
         }
       }
@@ -601,7 +772,13 @@ export async function orchestrate(
   // contract. `selectorPrompt` is the (optionally overridden) instruction
   // scaffold; `undefined` falls through to the bundled default.
   const pool = { stable, finder: finderTail };
-  const selections = await runSelection(pool);
+  recordLatencySubSpan(
+    "v3_expand",
+    "Gate & edge expansion",
+    Date.now() - expandStartedAt,
+  );
+  const { selections, keptAll } = await runSelection(pool);
+  recordSelection(selections, stable.length + finderTail.length, keptAll);
 
   return {
     selections,

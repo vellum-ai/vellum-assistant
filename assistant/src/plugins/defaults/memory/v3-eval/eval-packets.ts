@@ -25,12 +25,12 @@ import {
 } from "node:fs";
 import { join, resolve, sep } from "node:path";
 
+import { stringifyMessageContent } from "@vellumai/plugin-api";
 import { and, desc, eq, inArray, notInArray, sql } from "drizzle-orm";
 
 import type { AssistantConfig } from "../../../../config/types.js";
 import type { getDb } from "../../../../persistence/db-connection.js";
 import { embedWithRetry } from "../../../../persistence/embeddings/embed.js";
-import { stringifyMessageContent } from "../../../../persistence/message-content.js";
 import {
   conversations,
   messages,
@@ -72,7 +72,9 @@ export function loadCorpus(dir: string): Corpus {
 
   for (const rel of readdirSync(dir, { recursive: true })) {
     const relPath = typeof rel === "string" ? rel : String(rel);
-    if (!relPath.endsWith(".md")) continue;
+    if (!relPath.endsWith(".md")) {
+      continue;
+    }
     const full = join(dir, relPath);
     const raw = readFileSync(full, "utf8");
     const slug = slugFromConceptPath(dir, full);
@@ -91,7 +93,9 @@ export function loadCorpus(dir: string): Corpus {
 
 function normalize(v: number[]): number[] {
   let sumSq = 0;
-  for (const x of v) sumSq += x * x;
+  for (const x of v) {
+    sumSq += x * x;
+  }
   const norm = Math.sqrt(sumSq) || 1;
   return v.map((x) => x / norm);
 }
@@ -100,7 +104,9 @@ function normalize(v: number[]): number[] {
 export function dot(a: number[], b: number[]): number {
   let sum = 0;
   const n = Math.min(a.length, b.length);
-  for (let i = 0; i < n; i++) sum += a[i]! * b[i]!;
+  for (let i = 0; i < n; i++) {
+    sum += a[i]! * b[i]!;
+  }
   return sum;
 }
 
@@ -147,7 +153,9 @@ export async function buildRetriever(
   }
 
   function denseHits(queryVec: number[], k: number): RetrievalHit[] {
-    if (!sectionVecs) return [];
+    if (!sectionVecs) {
+      return [];
+    }
     const scored = sectionVecs.map((sv, i) => ({
       i,
       score: dot(queryVec, sv),
@@ -157,10 +165,14 @@ export async function buildRetriever(
     const hits: RetrievalHit[] = [];
     for (const { i } of scored) {
       const slug = index.sections[i]!.article;
-      if (seen.has(slug)) continue;
+      if (seen.has(slug)) {
+        continue;
+      }
       seen.add(slug);
       hits.push({ slug, sectionIdx: i });
-      if (hits.length >= k) break;
+      if (hits.length >= k) {
+        break;
+      }
     }
     return hits;
   }
@@ -181,10 +193,14 @@ export async function buildRetriever(
     const seen = new Set<Slug>();
     for (let i = 0; i < Math.max(lexical.length, semantic.length); i++) {
       for (const hit of [lexical[i], semantic[i]]) {
-        if (!hit || seen.has(hit.slug)) continue;
+        if (!hit || seen.has(hit.slug)) {
+          continue;
+        }
         seen.add(hit.slug);
         merged.push(hit);
-        if (merged.length >= k) return merged;
+        if (merged.length >= k) {
+          return merged;
+        }
       }
     }
     return merged;
@@ -203,7 +219,9 @@ export function renderMemorySet(
   hits: RetrievalHit[],
   sectionCharCap: number,
 ): string {
-  if (hits.length === 0) return "(no pages retrieved)";
+  if (hits.length === 0) {
+    return "(no pages retrieved)";
+  }
   const parts: string[] = [];
   for (const hit of hits) {
     const raw = retriever.rawBySlug.get(hit.slug) ?? "";
@@ -320,7 +338,9 @@ export function selectPinnedTurns(
   const out: MinedTurn[] = [];
   for (const id of pinnedTurnIds) {
     const t = byId.get(id);
-    if (t) out.push(t);
+    if (t) {
+      out.push(t);
+    }
   }
   return out;
 }

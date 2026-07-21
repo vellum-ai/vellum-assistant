@@ -7,7 +7,7 @@
 // the LLM-based consolidation process, not here.
 // ---------------------------------------------------------------------------
 
-import { and, eq, sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
 import { getDb } from "../../../../persistence/db-connection.js";
 import { memoryGraphNodes } from "../../../../persistence/schema/index.js";
@@ -125,13 +125,13 @@ export interface DecayTickResult {
 }
 
 /**
- * Run a single decay tick. Processes all non-gone nodes in the given scope,
- * applying mechanical decay to emotional intensity and fidelity.
+ * Run a single decay tick. Processes all non-gone nodes in the workspace
+ * memory pool, applying mechanical decay to emotional intensity and fidelity.
  *
  * Significance decay is computed at retrieval time (not stored) via
  * computeEffectiveSignificance in scoring.ts, so it's not applied here.
  */
-export function runDecayTick(scopeId: string): DecayTickResult {
+export function runDecayTick(): DecayTickResult {
   const db = getDb();
   const result: DecayTickResult = {
     nodesProcessed: 0,
@@ -142,12 +142,7 @@ export function runDecayTick(scopeId: string): DecayTickResult {
   const rows = db
     .select()
     .from(memoryGraphNodes)
-    .where(
-      and(
-        eq(memoryGraphNodes.scopeId, scopeId),
-        sql`${memoryGraphNodes.fidelity} != 'gone'`,
-      ),
-    )
+    .where(sql`${memoryGraphNodes.fidelity} != 'gone'`)
     .all();
 
   const now = Date.now();

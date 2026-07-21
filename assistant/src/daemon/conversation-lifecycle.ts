@@ -9,9 +9,6 @@ import {
   formatStoredPathAnnotation,
 } from "../agent/attachments.js";
 import { getConfig } from "../config/loader.js";
-import type { EventBus } from "../events/bus.js";
-import type { AssistantDomainEvents } from "../events/domain-events.js";
-import type { ToolProfiler } from "../events/tool-profiling-listener.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
 import {
@@ -23,9 +20,9 @@ import { enqueueMemoryRetrospectiveIfEnabled } from "../plugins/defaults/memory/
 import type { ContentBlock, Message } from "../providers/types.js";
 import { type TrustClass } from "../runtime/actor-trust-resolver.js";
 import { resolveCapabilities } from "../runtime/capabilities.js";
-import { enqueueAutoAnalysisIfEnabled } from "../runtime/services/auto-analysis-enqueue.js";
 import { isAutoAnalysisConversation } from "../runtime/services/auto-analysis-guard.js";
 import { unregisterConversationSender } from "../tools/browser/browser-screencast.js";
+import { disposeToolProfiler } from "../tools/tool-profiler.js";
 import { type AbortReason, createAbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
 import { unregisterCallNotifiers } from "./conversation-notifiers.js";
@@ -53,7 +50,9 @@ export function reinjectAttachmentPathAnnotations(
   role: string,
   metadataJson: string | null,
 ): ContentBlock[] {
-  if (role !== "user" || !metadataJson) return content;
+  if (role !== "user" || !metadataJson) {
+    return content;
+  }
   try {
     const meta = JSON.parse(metadataJson);
     const lines: string[] = [];
@@ -116,9 +115,7 @@ export interface AbortContext {
 }
 
 export interface DisposeContext extends AbortContext {
-  eventBus: EventBus<AssistantDomainEvents>;
   readonly skillProjectionState: Map<string, string>;
-  profiler: ToolProfiler;
   messages: Message[];
   surfaceUndoStacks: Map<string, string[]>;
   currentTurnSurfaces: Array<unknown>;
@@ -185,6 +182,24 @@ export function abortConversation(
       });
     }
     ctx.queue.clear();
+  } else {
+    // The in-memory flag reads idle, but a cancel must still clear a persisted
+    // `processing_started_at` that outlived the turn that set it. This is the
+    // divergence a conversation carries after its owning turn was interrupted
+    // out-of-process (daemon crash / restart mid-turn): the row is reloaded
+    // with a fresh in-memory flag (`false`) while the persisted column stays
+    // non-NULL, and no agent-loop `finally` will ever run to clear it. Without
+    // this the user's Stop is a silent no-op — the first `if` is skipped
+    // because in-memory reads idle — and the conversation stays wedged for cold
+    // readers (`isConversationProcessing`) and the next reload.
+    //
+    // `setProcessing(false)` is idempotent — it nulls the persisted column —
+    // so clear unconditionally rather than reading the column first; a
+    // genuinely-idle conversation just rewrites NULL. It also skips the
+    // metadata sync-invalidation (its `wasProcessing && !value` guard is
+    // already false here), which is correct: the resident conversation already
+    // reports idle in-memory to clients, so no refetch needs to be pushed.
+    ctx.setProcessing(false);
   }
 }
 
@@ -224,7 +239,6 @@ export function disposeConversation(ctx: DisposeContext): void {
         try {
           enqueueMemoryJob("graph_extract", {
             conversationId: ctx.conversationId,
-            scopeId: "default",
             ...(ctx.activeContextNodeIds?.length
               ? { activeContextNodeIds: ctx.activeContextNodeIds }
               : {}),
@@ -251,18 +265,6 @@ export function disposeConversation(ctx: DisposeContext): void {
         // Best-effort — don't block conversation disposal
       }
     }
-
-    try {
-      // `enqueueAutoAnalysisIfEnabled` has its own internal recursion guard
-      // (it checks `isAutoAnalysisConversation()`), so it's safe to call
-      // unconditionally here.
-      enqueueAutoAnalysisIfEnabled({
-        conversationId: ctx.conversationId,
-        trigger: "lifecycle",
-      });
-    } catch {
-      // Best-effort — don't block conversation disposal
-    }
   }
 
   abortConversation(
@@ -276,11 +278,10 @@ export function disposeConversation(ctx: DisposeContext): void {
   unregisterCallNotifiers(ctx.conversationId);
   unregisterConversationSender(ctx.conversationId);
   resetSkillToolProjection(ctx.skillProjectionState);
-  ctx.eventBus.dispose();
 
   // Release heavy in-memory data so GC can reclaim it
   ctx.messages = [];
-  ctx.profiler.clear();
+  disposeToolProfiler(ctx.conversationId);
   ctx.surfaceUndoStacks.clear();
   ctx.currentTurnSurfaces = [];
   ctx.pendingSurfaceActions.clear();

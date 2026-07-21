@@ -429,6 +429,26 @@ import { migrateDropContactChannelTelemetry } from "./migrations/318-drop-contac
 import { migrateRemoveLegacyManagedConnections } from "./migrations/319-remove-legacy-managed-connections.js";
 import { migrateDropTraceEventsTable } from "./migrations/320-drop-trace-events-table.js";
 import { migrateCanonicalGuardianRequestTrigger } from "./migrations/321-canonical-guardian-request-trigger.js";
+import { migrateAddProcessingResumeAttempts } from "./migrations/322-add-processing-resume-attempts.js";
+import { migrateDeleteNonDefaultMemoryScopes } from "./migrations/323-delete-non-default-memory-scopes.js";
+import { migrateMessageFinalizedColumn } from "./migrations/324-message-finalized-column.js";
+import { createConfigSettingEventsTable } from "./migrations/325-create-config-setting-events.js";
+import { migrateMoveInjectionEventsToMemoryDb } from "./migrations/326-move-injection-events-to-memory-db.js";
+import { createFlushCheckpointsTable } from "./migrations/327-create-flush-checkpoints.js";
+import { migrateDropMemoryV3LearnedEdgeTables } from "./migrations/328-drop-memory-v3-learned-edge-tables.js";
+import { migrateMoveOnboardingEventsToTelemetryDb } from "./migrations/329-move-onboarding-events-to-telemetry-db.js";
+import { migrateMoveAuthFallbackEventsToTelemetryDb } from "./migrations/330-move-auth-fallback-events-to-telemetry-db.js";
+import { migrateMoveLifecycleEventsToTelemetryDb } from "./migrations/331-move-lifecycle-events-to-telemetry-db.js";
+import { migrateMoveSkillLoadedEventsToTelemetryDb } from "./migrations/332-move-skill-loaded-events-to-telemetry-db.js";
+import { migrateCreateTelemetryEventsTable } from "./migrations/333-create-telemetry-events-table.js";
+import { migrateBackfillTelemetryEventsOutbox } from "./migrations/334-backfill-telemetry-events-outbox.js";
+import { migrateCollapseMemoryEmbedBacklog } from "./migrations/335-collapse-memory-embed-backlog.js";
+import { migrateMoveMemoryV2ActivationLogsToMemoryDb } from "./migrations/336-move-memory-v2-activation-logs-to-memory-db.js";
+import { migrateMoveMemoryRecallLogsToMemoryDb } from "./migrations/337-move-memory-recall-logs-to-memory-db.js";
+import { migrateMoveMemoryV3SelectionsToMemoryDb } from "./migrations/338-move-memory-v3-selections-to-memory-db.js";
+import { migrateMoveActivationSessionsToMemoryDb } from "./migrations/339-move-activation-sessions-to-memory-db.js";
+import { migrateSweepOrphanedGraphNodeVectors } from "./migrations/340-sweep-orphaned-graph-node-vectors.js";
+import { migrateSweepCachelessGraphNodeVectors } from "./migrations/341-sweep-cacheless-graph-node-vectors.js";
 import type { MigrationStep } from "./migrations/run-migrations.js";
 
 export const migrationSteps: MigrationStep[] = [
@@ -1329,4 +1349,52 @@ export const migrationSteps: MigrationStep[] = [
   migrateRemoveLegacyManagedConnections,
   migrateDropTraceEventsTable,
   migrateCanonicalGuardianRequestTrigger,
+  migrateAddProcessingResumeAttempts,
+  migrateDeleteNonDefaultMemoryScopes,
+  migrateMessageFinalizedColumn,
+  createConfigSettingEventsTable,
+  migrateMoveInjectionEventsToMemoryDb,
+  createFlushCheckpointsTable,
+  migrateDropMemoryV3LearnedEdgeTables,
+  migrateMoveOnboardingEventsToTelemetryDb,
+  migrateMoveAuthFallbackEventsToTelemetryDb,
+  migrateMoveLifecycleEventsToTelemetryDb,
+  migrateMoveSkillLoadedEventsToTelemetryDb,
+  migrateCreateTelemetryEventsTable,
+  migrateBackfillTelemetryEventsOutbox,
+  migrateCollapseMemoryEmbedBacklog,
+  {
+    name: "migrateMoveMemoryV2ActivationLogsToMemoryDb",
+    run: migrateMoveMemoryV2ActivationLogsToMemoryDb,
+    // 256's backfill reads memory_v2_activation_logs from main, so the move
+    // must not run on a database where 256 is still pending.
+    dependsOn: [
+      "migrateMemoryV2ActivationLogs",
+      "migrateMemoryV2InjectionEvents",
+    ],
+  },
+  {
+    name: "migrateMoveMemoryRecallLogsToMemoryDb",
+    run: migrateMoveMemoryRecallLogsToMemoryDb,
+    dependsOn: [
+      "migrateCreateMemoryRecallLogs",
+      "migrateMemoryRecallLogsQueryContext",
+      "migrateDeletePrivateConversations",
+    ],
+  },
+  {
+    name: "migrateMoveMemoryV3SelectionsToMemoryDb",
+    run: migrateMoveMemoryV3SelectionsToMemoryDb,
+    dependsOn: [
+      "migrateAddMemoryV3Selections",
+      "migrateMemoryV3SelectionsMessageIdAndSections",
+    ],
+  },
+  {
+    name: "migrateMoveActivationSessionsToMemoryDb",
+    run: migrateMoveActivationSessionsToMemoryDb,
+    dependsOn: ["createActivationSessionsTable"],
+  },
+  migrateSweepOrphanedGraphNodeVectors,
+  migrateSweepCachelessGraphNodeVectors,
 ];

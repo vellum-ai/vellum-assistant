@@ -23,11 +23,10 @@ import { readArrayBufferWithProgress } from "./bundle-stream";
 import { TeleportError } from "./teleport-types";
 
 /**
- * Resolve the absolute local gateway base URL for a local assistant. Only
- * `cloud === "local"` assistants are reachable this way (`getLocalGatewayUrl`
- * resolves the `/assistant/__gateway/<port>` proxy for them); Docker and other
- * hosting kinds never reach here because `resolveDestination` doesn't offer
- * teleport for them.
+ * Resolve the absolute local gateway base URL for a local or docker assistant
+ * (`getLocalGatewayUrl` resolves the `/assistant/__gateway/<port>` proxy for
+ * both); other hosting kinds never reach here because `resolveDestination`
+ * doesn't offer teleport for them.
  */
 function localGatewayBase(assistant: LockfileAssistant): string {
   const path = getLocalGatewayUrl(assistant);

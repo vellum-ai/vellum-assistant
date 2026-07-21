@@ -30,14 +30,12 @@ import type {
   ContactRole,
   ContactWithChannels,
 } from "../contacts/types.js";
-import type { TrustContext } from "../daemon/trust-context.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
 import { getLogger } from "../util/logger.js";
 import type { TrustClass } from "./trust-class.js";
 
 const log = getLogger("actor-trust-resolver");
-
-export type { TrustContext } from "../daemon/trust-context.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -243,7 +241,7 @@ export function toTrustContext(
   ctx: ActorTrustContext,
   conversationExternalId: string,
 ): TrustContext {
-  const canonicalGuardianExternalUserId = ctx.guardianBindingMatch
+  const normalizedGuardianExternalUserId = ctx.guardianBindingMatch
     ?.guardianExternalUserId
     ? (canonicalizeInboundIdentity(
         ctx.actorMetadata.channel,
@@ -256,7 +254,7 @@ export function toTrustContext(
     guardianChatId:
       ctx.guardianBindingMatch?.guardianDeliveryChatId ??
       (ctx.trustClass === "guardian" ? conversationExternalId : undefined),
-    guardianExternalUserId: canonicalGuardianExternalUserId,
+    guardianExternalUserId: normalizedGuardianExternalUserId,
     guardianPrincipalId: ctx.guardianPrincipalId,
     requesterIdentifier: ctx.actorMetadata.identifier,
     requesterDisplayName: ctx.actorMetadata.displayName,

@@ -69,7 +69,9 @@ describe("parseDuration", () => {
 
 import { Command } from "commander";
 
+import { conversationsHelp } from "../cli/commands/conversations.help.js";
 import { registerConversationsDeferCommand } from "../cli/commands/conversations-defer.js";
+import { applyCommandHelp } from "../cli/lib/cli-command-help.js";
 
 describe("defer CLI option inheritance", () => {
   let savedExitCode: typeof process.exitCode;
@@ -88,6 +90,7 @@ describe("defer CLI option inheritance", () => {
     const program = new Command();
     program.exitOverride(); // throw instead of calling process.exit
     const conversations = program.command("conversations");
+    applyCommandHelp(conversations, conversationsHelp);
     registerConversationsDeferCommand(conversations);
     return program;
   }

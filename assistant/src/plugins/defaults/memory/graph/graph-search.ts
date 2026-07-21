@@ -2,6 +2,11 @@
 // Memory Graph — Qdrant vector search for graph nodes
 // ---------------------------------------------------------------------------
 
+import {
+  embedAndUpsert,
+  selectedBackendSupportsMultimodal,
+} from "@vellumai/plugin-api";
+
 import { getConfig } from "../../../../config/loader.js";
 import type { AssistantConfig } from "../../../../config/types.js";
 import type { EmbeddingInput } from "../../../../persistence/embeddings/embedding-types.js";
@@ -18,11 +23,7 @@ import {
   isMemoryEnabled,
   type MemoryJob,
 } from "../../../../persistence/jobs-store.js";
-import { getLogger } from "../../../../util/logger.js";
-import {
-  embedAndUpsert,
-  selectedBackendSupportsMultimodal,
-} from "../embeddings.js";
+import { getLogger } from "../logging.js";
 import { loadImageRefData } from "./image-ref-utils.js";
 import { getNode } from "./store.js";
 import type { MemoryNode } from "./types.js";
@@ -55,7 +56,9 @@ export async function searchGraphNodes(
   // active retirement and a corrupted sparse segment can OOM-crash the
   // shared Qdrant process — short-circuiting here keeps v1 background work
   // and stale callers from taking v2 down with them.
-  if (getConfig().memory.v2.enabled) return [];
+  if (getConfig().memory.v2.enabled) {
+    return [];
+  }
 
   if (isQdrantBreakerOpen()) {
     log.warn("Qdrant circuit breaker open, skipping graph search");
@@ -168,12 +171,13 @@ function formatNodeForEmbedding(node: MemoryNode): string {
  * to text embedding with image description suffixes otherwise.
  */
 export async function embedGraphNodeDirect(node: MemoryNode): Promise<void> {
-  if (node.fidelity === "gone") return;
+  if (node.fidelity === "gone") {
+    return;
+  }
 
   const text = formatNodeForEmbedding(node);
   const extraPayload: Record<string, unknown> = {
     created_at: node.created,
-    memory_scope_id: node.scopeId,
     confidence: node.confidence,
     importance: node.significance,
     kind: node.type,
@@ -220,10 +224,14 @@ export async function embedGraphNodeDirect(node: MemoryNode): Promise<void> {
  */
 export async function embedGraphNodeJob(job: MemoryJob): Promise<void> {
   const nodeId = asString(job.payload.nodeId);
-  if (!nodeId) return;
+  if (!nodeId) {
+    return;
+  }
 
   const node = getNode(nodeId);
-  if (!node) return;
+  if (!node) {
+    return;
+  }
 
   await embedGraphNodeDirect(node);
 }
@@ -232,7 +240,9 @@ export async function embedGraphNodeJob(job: MemoryJob): Promise<void> {
  * Enqueue an embedding job for a graph node (async, for live conversations).
  */
 export function enqueueGraphNodeEmbed(nodeId: string): void {
-  if (!isMemoryEnabled()) return;
+  if (!isMemoryEnabled()) {
+    return;
+  }
   enqueueMemoryJob("embed_graph_node", { nodeId });
 }
 
@@ -245,7 +255,9 @@ export async function embedGraphTriggerJob(
   config: AssistantConfig,
 ): Promise<void> {
   const triggerId = asString(job.payload.triggerId);
-  if (!triggerId) return;
+  if (!triggerId) {
+    return;
+  }
 
   // Import here to avoid circular dependency
   const { getDb } = await import("../../../../persistence/db-connection.js");
@@ -261,11 +273,15 @@ export async function embedGraphTriggerJob(
     .where(eq(memoryGraphTriggers.id, triggerId))
     .get();
 
-  if (!row || !row.condition) return;
+  if (!row || !row.condition) {
+    return;
+  }
 
   const result = await embedWithBackend(config, [row.condition]);
   const vector = result.vectors[0];
-  if (!vector) return;
+  if (!vector) {
+    return;
+  }
 
   const buffer = Buffer.from(new Float32Array(vector).buffer);
   db.update(memoryGraphTriggers)
@@ -278,6 +294,8 @@ export async function embedGraphTriggerJob(
  * Enqueue a trigger embedding job.
  */
 export function enqueueGraphTriggerEmbed(triggerId: string): void {
-  if (!isMemoryEnabled()) return;
+  if (!isMemoryEnabled()) {
+    return;
+  }
   enqueueMemoryJob("graph_trigger_embed", { triggerId });
 }

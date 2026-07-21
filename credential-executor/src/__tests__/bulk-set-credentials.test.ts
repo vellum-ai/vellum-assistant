@@ -16,7 +16,7 @@ import type { SecureKeyBackend } from "@vellumai/credential-storage";
 
 /**
  * Build a minimal BulkSetCredentials handler using the same logic as
- * main.ts / managed-main.ts, backed by the given SecureKeyBackend.
+ * main.ts, backed by the given SecureKeyBackend.
  */
 function buildBulkSetHandler(secureKeyBackend: SecureKeyBackend) {
   return async (req: { credentials: Array<{ account: string; value: string }> }) => {

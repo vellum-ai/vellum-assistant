@@ -8,14 +8,7 @@
  * matching the `session cleanup after prompt` style in `acp-session.test.ts`.
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
-
-mock.module("../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import type { ServerMessage } from "../../daemon/message-protocol.js";
 import type { AcpSessionUpdate } from "../../daemon/message-types/acp.js";

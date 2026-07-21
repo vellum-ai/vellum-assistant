@@ -2,9 +2,11 @@ import OpenAI from "openai";
 
 import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "../../prompts/cache-boundary.js";
 import { isAbortReason } from "../../util/abort-reasons.js";
-import { ProviderError } from "../../util/errors.js";
+import { ProviderError, type ProviderErrorReason } from "../../util/errors.js";
+import { getLogger } from "../../util/logger.js";
 import { extractRetryAfterMs } from "../../util/retry.js";
 import { escapeXmlAttr } from "../../util/xml.js";
+import { base64Source, resolveMediaReferences } from "../media-resolve.js";
 import { PLACEHOLDER_EMPTY_TURN } from "../placeholder-sentinels.js";
 import { createStreamTimeout } from "../stream-timeout.js";
 import { createToolProgressEmitter } from "../tool-progress-events.js";
@@ -26,6 +28,7 @@ import {
 import {
   captureRawErrorBodyFetch,
   formatNormalizedOpenAIAPIError,
+  normalizedErrorText,
   normalizeOpenAIAPIError,
 } from "./api-error-normalization.js";
 import {
@@ -149,6 +152,8 @@ export interface OpenAIChatCompletionsProviderOptions {
   coerceObjectArgsToJsonString?: boolean;
 }
 
+const log = getLogger("chat-completions");
+
 /** Wire-level reasoning_effort values. The OpenAI SDK type doesn't include
  *  `"max"`, but Fireworks accepts it for DeepSeek V4; the assignment to
  *  `params.reasoning_effort` casts through this union. */
@@ -185,6 +190,45 @@ export function clampReasoningEffort(
   return REASONING_EFFORT_RANK[value] > REASONING_EFFORT_RANK[ceiling]
     ? ceiling
     : value;
+}
+
+/**
+ * True when the request carried an explicit reasoning opt-out (`"none"` sent
+ * as flat `reasoning_effort` or nested `reasoning.effort`) and the provider
+ * rejected it with a 4xx that names the reasoning field. Reasoning-only
+ * models (e.g. DeepSeek R1) reject the opt-out rather than ignore it; that
+ * one case is worth a single retry with the reasoning params stripped —
+ * model-default reasoning beats a hard failure.
+ */
+function isReasoningOptOutRejection(error: unknown, params: unknown): boolean {
+  const p = params as {
+    reasoning_effort?: unknown;
+    reasoning?: { effort?: unknown } | null;
+  };
+  const optedOut =
+    p.reasoning_effort === "none" ||
+    (typeof p.reasoning === "object" &&
+      p.reasoning !== null &&
+      p.reasoning.effort === "none");
+  if (!optedOut) {
+    return false;
+  }
+  const status = (error as { status?: unknown }).status;
+  if (typeof status !== "number" || status < 400 || status >= 500) {
+    return false;
+  }
+  // OpenRouter wraps upstream 4xxs in a generic "Provider returned error" and
+  // stashes the real reason under `metadata.raw`, which `normalizeOpenAIAPIError`
+  // promotes into the normalized fields. Scan those, not just `error.message` —
+  // otherwise the wrapped reasoning rejection is missed and this one-shot
+  // fallback never fires.
+  const haystack =
+    error instanceof OpenAI.APIError
+      ? normalizedErrorText(normalizeOpenAIAPIError(error))
+      : error instanceof Error
+        ? error.message
+        : String(error);
+  return /reasoning/i.test(haystack);
 }
 
 /**
@@ -470,18 +514,39 @@ export class OpenAIChatCompletionsProvider implements Provider {
       let completionTokens = 0;
       let reasoningTokens = 0;
       let cachedPromptTokens = 0;
+      let cacheWritePromptTokens = 0;
 
       try {
         const requestHeaders = {
           ...this.requestHeaders,
           ...(usageAttributionHeaders ?? {}),
         };
-        const stream = await this.client.chat.completions.create(params, {
-          signal: timeoutSignal,
-          ...(Object.keys(requestHeaders).length > 0
-            ? { headers: requestHeaders }
-            : {}),
-        });
+        const createStream = () =>
+          this.client.chat.completions.create(params, {
+            signal: timeoutSignal,
+            ...(Object.keys(requestHeaders).length > 0
+              ? { headers: requestHeaders }
+              : {}),
+          });
+        let stream: Awaited<ReturnType<typeof createStream>>;
+        try {
+          stream = await createStream();
+        } catch (error) {
+          if (!isReasoningOptOutRejection(error, params)) {
+            throw error;
+          }
+          log.warn(
+            {
+              provider: this.name,
+              model: modelOverride ?? this.model,
+              error: error instanceof Error ? error.message : String(error),
+            },
+            "Model rejected the explicit reasoning opt-out; retrying without reasoning params",
+          );
+          delete params.reasoning_effort;
+          delete (params as unknown as Record<string, unknown>).reasoning;
+          stream = await createStream();
+        }
 
         for await (const chunk of stream) {
           const choice = chunk.choices[0];
@@ -581,10 +646,14 @@ export class OpenAIChatCompletionsProvider implements Provider {
             reasoningTokens = completionDetails?.reasoning_tokens ?? 0;
             const promptDetails = (
               chunk.usage as {
-                prompt_tokens_details?: { cached_tokens?: number };
+                prompt_tokens_details?: {
+                  cached_tokens?: number;
+                  cache_write_tokens?: number;
+                };
               }
             ).prompt_tokens_details;
             cachedPromptTokens = promptDetails?.cached_tokens ?? 0;
+            cacheWritePromptTokens = promptDetails?.cache_write_tokens ?? 0;
           }
 
           responseModel = chunk.model;
@@ -670,10 +739,13 @@ export class OpenAIChatCompletionsProvider implements Provider {
                 },
               }
             : {}),
-          ...(cachedPromptTokens > 0
+          ...(cachedPromptTokens > 0 || cacheWritePromptTokens > 0
             ? {
                 prompt_tokens_details: {
                   cached_tokens: cachedPromptTokens,
+                  ...(cacheWritePromptTokens > 0
+                    ? { cache_write_tokens: cacheWritePromptTokens }
+                    : {}),
                 },
               }
             : {}),
@@ -683,12 +755,16 @@ export class OpenAIChatCompletionsProvider implements Provider {
       return {
         content,
         model: responseModel,
+        resolvedEndpoint: this.client.baseURL,
         usage: {
           inputTokens: promptTokens,
           outputTokens: completionTokens,
           ...(reasoningTokens > 0 ? { reasoningTokens } : {}),
           ...(cachedPromptTokens > 0
             ? { cacheReadInputTokens: cachedPromptTokens }
+            : {}),
+          ...(cacheWritePromptTokens > 0
+            ? { cacheCreationInputTokens: cacheWritePromptTokens }
             : {}),
         },
         stopReason: finishReason,
@@ -736,7 +812,11 @@ export class OpenAIChatCompletionsProvider implements Provider {
             `This model (${model}) doesn't support image input. Remove the image or switch to a vision-capable model.`,
             this.name,
             error.status,
-            abortReason ? { abortReason } : undefined,
+            // Stamp the reason so classification is status-independent (a vision
+            // rejection returned as 401/403 must not read as an invalid key).
+            abortReason
+              ? { abortReason, reason: "vision_unsupported" }
+              : { reason: "vision_unsupported" },
           );
         }
         const retryAfterMs = extractRetryAfterMs(error.headers);
@@ -748,6 +828,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
           apiErrorParam?: string;
           requestId?: string;
           rawBody?: string;
+          reason?: ProviderErrorReason;
         } = {};
         if (retryAfterMs !== undefined)
           errorOptions.retryAfterMs = retryAfterMs;
@@ -760,6 +841,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
           errorOptions.apiErrorParam = normalized.apiErrorParam;
         if (normalized.requestId) errorOptions.requestId = normalized.requestId;
         if (normalized.rawBody) errorOptions.rawBody = normalized.rawBody;
+        if (normalized.reason) errorOptions.reason = normalized.reason;
         throw new ProviderError(
           formattedMessage,
           this.name,
@@ -806,6 +888,9 @@ export class OpenAIChatCompletionsProvider implements Provider {
     messages: Message[],
     systemPrompt?: string,
   ): OpenAI.Chat.Completions.ChatCompletionMessageParam[] {
+    // Swap any persisted attachment references back to inline base64 before
+    // serializing, so the block transforms below can read `source.data`.
+    messages = resolveMediaReferences(messages);
     const result: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [];
 
     if (systemPrompt) {
@@ -966,10 +1051,11 @@ export class OpenAIChatCompletionsProvider implements Provider {
               text: `[Image: ${block.source.media_type} — format not supported by this provider]`,
             });
           } else {
+            const imageSrc = base64Source(block.source);
             parts.push({
               type: "image_url",
               image_url: {
-                url: `data:${block.source.media_type};base64,${block.source.data}`,
+                url: `data:${imageSrc.media_type};base64,${imageSrc.data}`,
               },
             });
           }
@@ -999,7 +1085,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
     block: Extract<ContentBlock, { type: "file" }>,
   ): string {
     const header = `<attached_file name="${escapeXmlAttr(
-      block.source.filename,
+      block.source.filename ?? "",
     )}" type="${escapeXmlAttr(block.source.media_type)}" />`;
     if (block.extracted_text && block.extracted_text.trim().length > 0) {
       return `${header}\n${block.extracted_text}`;

@@ -227,9 +227,9 @@ export async function hatchLocal(
   const signingKey = generateLocalSigningKey();
   const bootstrapSecret = generateLocalSigningKey();
   // Launch the CES sibling alongside the daemon, in parallel — matching the
-  // Docker topology. Under the opt-in the assistant does not spawn its own CES,
-  // so a freshly hatched instance would otherwise come up with CES unavailable.
-  // startCes is a no-op unless CES_STANDALONE is set.
+  // Docker topology. The assistant does not spawn its own CES, so a freshly
+  // hatched instance would otherwise come up with CES unavailable.
+  // startCes always launches the CES sibling.
   await Promise.all([
     startCes(watch, resources),
     startLocalDaemon(watch, resources, {

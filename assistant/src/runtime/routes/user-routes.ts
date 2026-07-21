@@ -2,8 +2,11 @@
  * Route definitions for user-defined endpoints under `/x/*`.
  *
  * Registers one route per HTTP method that delegates to the
- * UserRouteDispatcher for file-based dispatch from
- * `$VELLUM_WORKSPACE_DIR/routes/`.
+ * UserRouteDispatcher for file-based dispatch. The dispatcher resolves each
+ * request against the filesystem at request time: workspace routes from
+ * `$VELLUM_WORKSPACE_DIR/routes/`, and a plugin's routes from
+ * `$VELLUM_WORKSPACE_DIR/plugins/<name>/routes/` under the reserved
+ * `/x/plugins/<name>/` namespace.
  *
  * The dispatcher operates on native `Request`/`Response` objects (the
  * contract with user-authored handler files). This module bridges the
@@ -12,6 +15,7 @@
  * over both HTTP and IPC.
  */
 
+import { postRouteConversationMessage } from "../../daemon/route-conversation-post.js";
 import { assistantEventHub } from "../assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
@@ -23,6 +27,9 @@ const dispatcher = new UserRouteDispatcher({
   context: {
     assistantEventHub,
     assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
+    conversations: {
+      postMessage: postRouteConversationMessage,
+    },
   },
 });
 

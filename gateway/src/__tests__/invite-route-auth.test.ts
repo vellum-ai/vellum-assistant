@@ -11,8 +11,6 @@
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 
 import "./test-preload.js";
 
@@ -39,33 +37,16 @@ const { AuthRateLimiter } = await import("../auth-rate-limiter.js");
 const { createRouter } = await import("../http/router.js");
 
 // ---------------------------------------------------------------------------
-// Source pinning — registrations in index.ts
+// Registration pinning — the route table index.ts spreads
 // ---------------------------------------------------------------------------
 
-const indexSource = readFileSync(
-  join(import.meta.dir, "..", "index.ts"),
-  "utf8",
+const { buildMarkedContactRoutes, markedHandlerName } = await import(
+  "./helpers/contact-route-table.js"
 );
 
-/** Route objects in the contacts/invites control-plane section of index.ts. */
-function extractInviteRouteObjects(): string[] {
-  const start = indexSource.indexOf("// ── Contacts/invites control plane ──");
-  const end = indexSource.indexOf("// ── Generic loopback pairing", start);
-  expect(start).toBeGreaterThan(-1);
-  expect(end).toBeGreaterThan(start);
-
-  return indexSource
-    .slice(start, end)
-    .split(/\n    \},\n/)
-    .filter((routeObject) => /handle\w*Invite/.test(routeObject));
-}
-
-describe("invite route registrations (index.ts)", () => {
-  test("all five invite routes use edge-scoped auth with the original runtime scopes", () => {
-    const routeObjects = extractInviteRouteObjects();
-    expect(routeObjects).toHaveLength(5);
-
-    const expectedScopeByHandler: Record<string, string> = {
+describe("invite route registrations (contact route table)", () => {
+  test("all five invite routes use edge-scoped auth with the original runtime scopes", async () => {
+    const expectedScopeByHandler: Record<string, RouteDefinition["scope"]> = {
       handleListInvites: "settings.read",
       handleCreateInvite: "settings.write",
       handleRedeemInvite: "settings.write",
@@ -74,18 +55,14 @@ describe("invite route registrations (index.ts)", () => {
     };
     const seen = new Set<string>();
 
-    for (const routeObject of routeObjects) {
-      expect(routeObject).toContain('auth: "edge-scoped"');
-      expect(routeObject).not.toContain('auth: "edge"');
+    for (const route of buildMarkedContactRoutes()) {
+      const name = await markedHandlerName(route);
+      const expectedScope = expectedScopeByHandler[name];
+      if (!expectedScope) continue;
 
-      const handler = Object.keys(expectedScopeByHandler).find((name) =>
-        routeObject.includes(name),
-      );
-      expect(handler).toBeDefined();
-      seen.add(handler!);
-      expect(routeObject).toContain(
-        `scope: "${expectedScopeByHandler[handler!]}"`,
-      );
+      seen.add(name);
+      expect(route.auth).toBe("edge-scoped");
+      expect(route.scope).toBe(expectedScope);
     }
 
     expect(seen.size).toBe(5);

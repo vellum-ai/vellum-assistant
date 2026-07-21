@@ -19,31 +19,18 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { z } from "zod";
 
-import { makeMockLogger } from "../__tests__/helpers/mock-logger.js";
+import { setConfig } from "../__tests__/helpers/set-config.js";
 
 // ---------------------------------------------------------------------------
 // Mocks — defined before importing the module under test.
 // ---------------------------------------------------------------------------
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
-
-const TEST_PROFILES = { balanced: {}, "cost-optimized": {} };
-
-// Mutable config the mocked `getConfig` returns. Tests reassign this to drive
-// the active-profile and memory-enabled branches.
-let testConfig: {
-  llm: { profiles: Record<string, unknown>; activeProfile?: string };
-  memory: { enabled: boolean };
-} = {
-  llm: { profiles: TEST_PROFILES },
-  memory: { enabled: false },
-};
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => testConfig,
-}));
+// The leaf runner reads `llm.activeProfile` (persona override resolution),
+// `llm.profiles` (profile validation), and `memory.enabled` (persona memory
+// pipeline) via the real config loader; tests seed those via `setConfig`. The
+// default inference profiles (`balanced`, `cost-optimized`) always resolve from
+// the code catalog, so only `activeProfile` needs seeding, and `memory.enabled`
+// defaults to true.
 
 // Persona path — identity system prompt. A sentinel marks the persona prompt
 // so tests can assert identity was assembled (vs. the anonymous task prompt).
@@ -174,10 +161,9 @@ beforeEach(() => {
   graphMemoryInstances = 0;
   prepareMemoryCalls = 0;
   disposeCalls = 0;
-  testConfig = {
-    llm: { profiles: TEST_PROFILES },
-    memory: { enabled: false },
-  };
+  // Reset to defaults each test (all tests share one workspace config.json):
+  // no active profile, memory enabled by default.
+  setConfig("llm", {});
 });
 
 describe("runLeaf — schema path", () => {
@@ -598,10 +584,7 @@ describe("runLeaf — persona path", () => {
   };
 
   test("injects identity system prompt and runs the memory pipeline", async () => {
-    testConfig = {
-      llm: { profiles: TEST_PROFILES, activeProfile: "balanced" },
-      memory: { enabled: true },
-    };
+    setConfig("llm", { activeProfile: "balanced" });
     const schema = z.object({ a: z.string() });
     responseQueue = [personaResponse];
 
@@ -632,10 +615,7 @@ describe("runLeaf — persona path", () => {
   });
 
   test("resolves the workspace active profile by default", async () => {
-    testConfig = {
-      llm: { profiles: TEST_PROFILES, activeProfile: "balanced" },
-      memory: { enabled: true },
-    };
+    setConfig("llm", { activeProfile: "balanced" });
     const schema = z.object({ a: z.string() });
     responseQueue = [personaResponse];
 
@@ -645,10 +625,7 @@ describe("runLeaf — persona path", () => {
   });
 
   test("explicit profile beats the persona active-profile default", async () => {
-    testConfig = {
-      llm: { profiles: TEST_PROFILES, activeProfile: "balanced" },
-      memory: { enabled: true },
-    };
+    setConfig("llm", { activeProfile: "balanced" });
     const schema = z.object({ a: z.string() });
     responseQueue = [personaResponse];
 
@@ -664,12 +641,8 @@ describe("runLeaf — persona path", () => {
   });
 
   test("missing active profile falls through (no override)", async () => {
-    // No `activeProfile` set → persona resolves no overrideProfile, deferring
-    // to the shipped call-site default.
-    testConfig = {
-      llm: { profiles: TEST_PROFILES },
-      memory: { enabled: true },
-    };
+    // No `activeProfile` set (beforeEach resets it) → persona resolves no
+    // overrideProfile, deferring to the shipped call-site default.
     const schema = z.object({ a: z.string() });
     responseQueue = [personaResponse];
 
@@ -679,10 +652,7 @@ describe("runLeaf — persona path", () => {
   });
 
   test("anonymous leaf carries no identity and skips the memory pipeline", async () => {
-    testConfig = {
-      llm: { profiles: TEST_PROFILES, activeProfile: "balanced" },
-      memory: { enabled: true },
-    };
+    setConfig("llm", { activeProfile: "balanced" });
     const schema = z.object({ a: z.string() });
     responseQueue = [personaResponse];
 
@@ -708,10 +678,7 @@ describe("runLeaf — persona path", () => {
     const savedAuth = process.env.DISABLE_HTTP_AUTH;
     delete process.env.DISABLE_HTTP_AUTH;
     try {
-      testConfig = {
-        llm: { profiles: TEST_PROFILES, activeProfile: "balanced" },
-        memory: { enabled: true },
-      };
+      setConfig("llm", { activeProfile: "balanced" });
       const schema = z.object({ a: z.string() });
       responseQueue = [personaResponse];
 

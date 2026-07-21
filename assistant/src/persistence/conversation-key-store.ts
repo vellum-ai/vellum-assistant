@@ -217,7 +217,6 @@ export function getOrCreateConversation(
     const conversationId = uuid();
     const customTitle = opts?.title?.trim();
     const title = customTitle || GENERATING_TITLE;
-    const memoryScopeId = "default";
     // Snapshot↔stream alignment baseline, captured at the creation instant
     // (same seed as `createConversation`; 0 is stored as NULL).
     const initialSeq = getCurrentSeq();
@@ -241,7 +240,6 @@ export function getOrCreateConversation(
         contextCompactedMessageCount: 0,
         contextCompactedAt: null,
         conversationType,
-        memoryScopeId,
       })
       .run();
 

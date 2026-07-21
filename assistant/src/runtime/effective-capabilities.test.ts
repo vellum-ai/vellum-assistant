@@ -3,7 +3,6 @@ import { describe, expect, test } from "bun:test";
 import {
   canActOnPrivilegedDocuments,
   isArchiveBySenderAuthorized,
-  isUntrustedShellLockdownActive,
 } from "./effective-capabilities.js";
 
 describe("canActOnPrivilegedDocuments", () => {
@@ -40,41 +39,6 @@ describe("canActOnPrivilegedDocuments", () => {
       }),
     ).toBe(true);
     expect(canActOnPrivilegedDocuments({ trustClass: "unknown" })).toBe(false);
-  });
-});
-
-describe("isUntrustedShellLockdownActive", () => {
-  test("inactive when the lockdown flag is off", () => {
-    expect(
-      isUntrustedShellLockdownActive({
-        trustClass: "unknown",
-        lockdownEnabled: false,
-      }),
-    ).toBe(false);
-  });
-
-  test("inactive for guardians even when the flag is on", () => {
-    expect(
-      isUntrustedShellLockdownActive({
-        trustClass: "guardian",
-        lockdownEnabled: true,
-      }),
-    ).toBe(false);
-  });
-
-  test("active for non-unsandboxed actors when the flag is on", () => {
-    expect(
-      isUntrustedShellLockdownActive({
-        trustClass: "trusted_contact",
-        lockdownEnabled: true,
-      }),
-    ).toBe(true);
-    expect(
-      isUntrustedShellLockdownActive({
-        trustClass: "unknown",
-        lockdownEnabled: true,
-      }),
-    ).toBe(true);
   });
 });
 

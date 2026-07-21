@@ -15,7 +15,7 @@
  * `TICK_INTERVAL_MS`; when the loop is blocked the callback cannot run, so it
  * fires late by roughly the block duration. On the first tick after the loop
  * frees up, the elapsed-since-last-tick beyond a normal interval is how long the
- * loop was unavailable; above a threshold it emits a warn log + Sentry capture.
+ * loop was unavailable; above a threshold it emits a warn log + telemetry event.
  *
  * What it does NOT do: capture the JS stack of the blocking operation. JS is
  * single-threaded, so while the loop is blocked no callback — including this one
@@ -43,8 +43,6 @@
  * SSE diagnostics (`runtime/routes/events-routes.ts`); this watchdog is the
  * push/alert counterpart and runs unconditionally for the daemon's lifetime.
  */
-
-import * as Sentry from "@sentry/node";
 
 import { touchDaemonHeartbeat } from "../monitoring/daemon-heartbeat.js";
 import {
@@ -154,7 +152,7 @@ async function reportBlock(
   // no-ops when usage-data collection is disabled (the event is dropped to
   // honor the opt-out), so the watchdog runs unconditionally without leaking
   // health data for opted-out owners. Never let a telemetry failure escape
-  // the timer callback — wrap it alongside the Sentry capture below.
+  // the timer callback.
   try {
     recordWatchdogEvent({
       checkName: EVENT_LOOP_BLOCKED_CHECK_NAME,
@@ -165,22 +163,6 @@ async function reportBlock(
         section_trail: sectionTrail,
         stall_capture: stallCapture,
       },
-    });
-  } catch {
-    // Never let a telemetry failure escape the timer callback.
-  }
-  try {
-    Sentry.withScope((scope) => {
-      scope.setLevel("warning");
-      scope.setTag("event_loop_blocked_ms", String(blockedMs));
-      scope.setContext("event_loop_block", {
-        blocked_ms: blockedMs,
-        threshold_ms: thresholdMs,
-        tick_interval_ms: TICK_INTERVAL_MS,
-        section_trail: sectionTrail,
-        stall_capture: stallCapture,
-      });
-      Sentry.captureMessage(EVENT_LOOP_BLOCKED_CHECK_NAME);
     });
   } catch {
     // Never let a telemetry failure escape the timer callback.

@@ -75,7 +75,7 @@ export interface TurnDetectorCallbacks {
 // ---------------------------------------------------------------------------
 
 export class MediaTurnDetector {
-  private readonly silenceThresholdMs: number;
+  private silenceThresholdMs: number;
   private readonly maxTurnDurationMs: number;
   private readonly callbacks: TurnDetectorCallbacks;
 
@@ -114,6 +114,16 @@ export class MediaTurnDetector {
    */
   get isActive(): boolean {
     return this.active;
+  }
+
+  /**
+   * Update the trailing-silence threshold mid-session (the "pause before
+   * reply" live-tuning path). Applies from the next silence-timer arm — a
+   * countdown already in flight keeps its current duration until it resets on
+   * the next speech chunk — so the change takes effect on the next utterance.
+   */
+  setSilenceThresholdMs(silenceThresholdMs: number): void {
+    this.silenceThresholdMs = silenceThresholdMs;
   }
 
   /**

@@ -6,15 +6,7 @@
  * (the `buildGenericCopy` fallback path).
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
-
-mock.module("../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-  truncateForLog: (value: string) => value,
-}));
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import { getDb } from "../../persistence/db-connection.js";
 import { initializeDb } from "../../persistence/db-init.js";

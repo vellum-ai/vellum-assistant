@@ -33,10 +33,10 @@ export function ChatConversationHeader({
   onRename,
 }: ChatConversationHeaderProps) {
   if (!activeConversation) {
-    if (!assistantId) return null;
+    if (!assistantId) {return null;}
     return (
       <span className="text-sm font-medium text-[var(--content-default)]">
-        New conversation
+        New Chat
       </span>
     );
   }
@@ -61,11 +61,6 @@ export function ChatConversationHeader({
       onRename={() => onRename(activeConversation)}
       onArchive={() => onArchive(activeConversation)}
       onUnarchive={() => onUnarchive(activeConversation)}
-      onAnalyze={
-        !isReadonly && headerSupplements?.onAnalyze && activeConversation.conversationId
-          ? () => headerSupplements.onAnalyze!(activeConversation)
-          : undefined
-      }
       onForkConversation={
         !isReadonly && headerSupplements?.hasPersistedMessage && headerSupplements?.onForkConversation
           ? headerSupplements.onForkConversation

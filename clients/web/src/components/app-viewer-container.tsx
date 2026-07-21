@@ -62,9 +62,9 @@ export function AppViewerContainer({
 
   // Escape-to-exit handler, active only while fullscreen.
   useEffect(() => {
-    if (!isFullscreen) return;
+    if (!isFullscreen) {return;}
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setIsFullscreen(false);
+      if (e.key === "Escape") {setIsFullscreen(false);}
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -86,6 +86,7 @@ export function AppViewerContainer({
   useSandboxFetchProxy(iframeRef, {
     frameId: appId,
     assistantId,
+    appId,
     onAction,
   });
 
@@ -116,8 +117,10 @@ export function AppViewerContainer({
           <div
             className="absolute z-10"
             style={{
-              top: "max(0.75rem, var(--safe-area-inset-top, env(safe-area-inset-top, 0px)))",
-              right: "max(0.75rem, var(--safe-area-inset-right, env(safe-area-inset-right, 0px)))",
+              top:
+                "max(0.75rem, var(--safe-area-inset-top, env(safe-area-inset-top, 0px)))",
+              right:
+                "max(0.75rem, var(--safe-area-inset-right, env(safe-area-inset-right, 0px)))",
             }}
           >
             <Button

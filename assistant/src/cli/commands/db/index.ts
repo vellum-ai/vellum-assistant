@@ -11,19 +11,23 @@
 
 import type { Command } from "commander";
 
+import { applyCommandHelp } from "../../lib/cli-command-help.js";
 import { registerCommand } from "../../lib/register-command.js";
+import { dbHelp } from "./index.help.js";
+import { registerDbRefresh } from "./refresh.js";
 import { registerDbRepair } from "./repair.js";
 import { registerDbStatus } from "./status.js";
 
 export function registerDbCommand(program: Command): void {
   registerCommand(program, {
-    name: "db",
+    name: dbHelp.name,
     transport: "local",
-    description: "Inspect and repair the assistant SQLite database",
+    description: dbHelp.description,
     build: (db) => {
-      db.option("--json", "Machine-readable compact JSON output");
+      applyCommandHelp(db, dbHelp);
       registerDbStatus(db);
       registerDbRepair(db);
+      registerDbRefresh(db);
     },
   });
 }

@@ -4,9 +4,9 @@
  * Validates whether a TTS provider can produce audio that is actually
  * playable over the media-stream call transport. Playability requires:
  *
- * 1. The catalog entry's `mediaStreamPlayback.outputFormat` is `"pcm"` or
- *    `"wav"` — the media-stream mu-law transcoder cannot decode compressed
- *    formats (mp3, opus).
+ * 1. The catalog entry's `mediaStreamPlayback.outputFormat` is `"pcm"` —
+ *    the media-stream mu-law transcoder cannot decode compressed formats
+ *    (mp3, opus).
  * 2. Every secret the catalog entry requires resolves to a value.
  * 3. Provider-specific config invariants hold — Fish Audio requires a
  *    configured `referenceId` (no per-request voiceId is supplied on the
@@ -37,7 +37,8 @@ import { resolveTtsConfig } from "../tts/tts-config-resolver.js";
 export type TelephonyTtsNotPlayableReason =
   | "unsupported-format"
   | "missing-credentials"
-  | "missing-fish-audio-reference-id";
+  | "missing-fish-audio-reference-id"
+  | "missing-platform-connection";
 
 /**
  * Result of resolving whether a TTS provider is playable over the
@@ -65,7 +66,7 @@ export type TelephonyTtsCapability =
  * the media-stream call transport.
  *
  * Callers can branch on the discriminated `status` field:
- * - `"playable"` — the provider produces PCM/WAV and credentials resolve.
+ * - `"playable"` — the provider produces PCM and credentials resolve.
  * - `"not-playable"` — see `reason` (`"unsupported-format"` when the
  *   provider is unknown or only produces compressed audio,
  *   `"missing-credentials"` when a required secret does not resolve,
@@ -112,6 +113,22 @@ export async function evaluateTelephonyTtsPlayability(
     }
   }
 
+  // The vellum secret alone doesn't prove usability: managed speech also
+  // needs the platform assistant identity, or synthesis fails before any
+  // request is made — with allowNativeFallback false, that would mean
+  // silent call failures instead of a BYOK fallback.
+  if (entry.id === "vellum") {
+    const { managedSpeechAvailable } =
+      await import("../platform/managed-speech.js");
+    if (!(await managedSpeechAvailable())) {
+      return {
+        status: "not-playable",
+        providerId: entry.id,
+        reason: "missing-platform-connection",
+      };
+    }
+  }
+
   if (entry.id === "fish-audio" && !fishAudioReferenceIdConfigured()) {
     return {
       status: "not-playable",
@@ -129,7 +146,7 @@ export async function evaluateTelephonyTtsPlayability(
  * Single source of truth for the fish-audio usability invariant: the
  * telephony path supplies no per-request voiceId, so synthesis requires a
  * configured reference ID. Shared by {@link evaluateTelephonyTtsPlayability}
- * and the call TTS resolver's non-WAV degrade path.
+ * and the call TTS resolver's non-PCM (native token) degrade path.
  *
  * When fish-audio is the active `services.tts.provider`, its config is
  * read through the {@link resolveTtsConfig} provider-options layer — the

@@ -25,7 +25,9 @@ interface AuthInfoResult {
   message?: string;
 }
 
-async function handleAuthInfo(_args: RouteHandlerArgs): Promise<AuthInfoResult> {
+async function handleAuthInfo(
+  _args: RouteHandlerArgs,
+): Promise<AuthInfoResult> {
   const ctx = await resolveManagedProxyContext();
 
   const platformUrl = getPlatformBaseUrl();

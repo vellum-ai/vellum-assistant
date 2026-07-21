@@ -25,14 +25,6 @@ const meta: Meta<typeof ToolStepPill> = {
       ],
     },
     label: { control: "text" },
-    riskLevel: {
-      control: "select",
-      options: [undefined, "low", "medium", "high", "workspace"],
-    },
-    tone: {
-      control: "inline-radio",
-      options: ["default", "error"],
-    },
     active: { control: "boolean" },
   },
 };
@@ -47,19 +39,10 @@ export const Default: Story = {
   },
 };
 
-export const WithRiskLow: Story = {
+export const Terminal: Story = {
   args: {
     iconName: "terminal",
     label: "bun test",
-    riskLevel: "low",
-  },
-};
-
-export const WithRiskHigh: Story = {
-  args: {
-    iconName: "terminal",
-    label: "rm -rf build",
-    riskLevel: "high",
   },
 };
 
@@ -67,7 +50,7 @@ export const LongActivity: Story = {
   args: {
     iconName: "pen",
     label:
-      "Editing the phase-grouped step list to surface a button-based pill with a trailing risk badge",
+      "Editing the phase-grouped step list to surface a button-based pill with a truncating label",
   },
   render: (args) => (
     <div className="w-[320px]">
@@ -80,16 +63,7 @@ export const Clickable: Story = {
   args: {
     iconName: "plug",
     label: "linear.createIssue",
-    riskLevel: "medium",
     onClick: () => {},
-  },
-};
-
-export const ErrorTone: Story = {
-  args: {
-    iconName: "bolt",
-    label: "Command failed with exit code 1",
-    tone: "error",
   },
 };
 
@@ -97,7 +71,6 @@ export const Active: Story = {
   args: {
     iconName: "sparkle",
     label: "review-cycle",
-    riskLevel: "low",
     active: true,
     onClick: () => {},
   },
@@ -188,23 +161,19 @@ export const AllVariants: Story = {
   render: () => (
     <div className="flex flex-col items-start gap-2">
       <ToolStepPill iconName="sparkle" label="review-cycle" />
-      <ToolStepPill iconName="terminal" label="bun test" riskLevel="low" />
-      <ToolStepPill iconName="terminal" label="rm -rf build" riskLevel="high" />
+      <ToolStepPill iconName="terminal" label="bun test" />
       <ToolStepPill
         iconName="plug"
         label="linear.createIssue"
-        riskLevel="medium"
         onClick={() => {}}
       />
       <ToolStepPill
         iconName="bolt"
         label="Command failed with exit code 1"
-        tone="error"
       />
       <ToolStepPill
         iconName="sparkle"
         label="review-cycle (active)"
-        riskLevel="low"
         active
         onClick={() => {}}
       />

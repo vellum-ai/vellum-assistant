@@ -23,10 +23,12 @@ import {
 } from "../tts/synthesis-stream.js";
 import type { TtsProvider, TtsProviderId } from "../tts/types.js";
 import { getLogger } from "../util/logger.js";
+import type { CallAudioFormat } from "./audio-store.js";
 import type { CallTransport } from "./call-transport.js";
 import {
   findPlayableTelephonyTtsFallbackProvider,
   resolveCallTtsProvider,
+  resolveSynthesisFormats,
 } from "./resolve-call-tts-provider.js";
 
 const log = getLogger("call-speech-output");
@@ -56,13 +58,13 @@ export async function speakSystemPrompt(
   text: string,
   signal?: AbortSignal,
 ): Promise<void> {
-  // When the transport requires WAV (media-stream), request WAV so
-  // the audio store entry contains PCM that audioBufferToFrames can
+  // When the transport requires PCM (media-stream), request PCM so
+  // the audio store entry contains raw PCM that audioBufferToFrames can
   // transcode to mu-law. Without this, compressed formats (mp3, opus)
   // are fetched by processFetchUrlItem and produce garbled audio.
   const { provider, useSynthesizedPath, audioFormat } =
     await resolveCallTtsProvider({
-      preferWav: relay.requiresWavAudio,
+      requiresPcmAudio: relay.requiresPcmAudio,
     });
 
   if (!useSynthesizedPath || !provider) {
@@ -90,13 +92,13 @@ export async function speakSystemPrompt(
  *
  * On synthesis failure before any audio the behavior depends on the
  * transport:
- * - WAV-requiring transports (media-stream) retry once with a playable
+ * - PCM-requiring transports (media-stream) retry once with a playable
  *   fallback provider — native token TTS cannot rescue the prompt there
  *   because text tokens are themselves synthesized via the same provider
  *   path. When no fallback exists (or the retry also fails), only an
  *   empty end-of-turn signal is sent so the transport transitions back
  *   to listening state.
- * - On non-WAV transports, providers with a native Twilio TTS fallback
+ * - On non-PCM transports, providers with a native Twilio TTS fallback
  *   (e.g. Fish Audio) fall back to `sendTextToken(text)` so the caller
  *   still hears the message; providers without one (e.g. Deepgram) log
  *   the error and send only the end-of-turn signal.
@@ -110,25 +112,14 @@ async function synthesizeAndPlay(
   relay: CallTransport,
   provider: TtsProvider,
   text: string,
-  format: "mp3" | "wav" | "opus",
+  format: CallAudioFormat,
   signal?: AbortSignal,
   isFallbackRetry = false,
 ): Promise<void> {
   let sink: AudioStoreSink | null = null;
   let playUrlSent = false;
   try {
-    // When format is WAV (media-stream transport), request raw PCM from
-    // the provider so the audio bytes match the store's content-type.
-    // Without this, providers like Fish Audio still return mp3 and the
-    // downstream mu-law transcoder fails on the format mismatch.
-    const outputFormat = format === "wav" ? ("pcm" as const) : undefined;
-
-    // Use "pcm" as the store format when requesting PCM output so the
-    // audio store entry's content-type (audio/pcm) matches the raw PCM
-    // bytes providers return. Without this, the store says "audio/wav"
-    // but the bytes have no RIFF header, causing audioBufferToFrames to
-    // fall through to the wrong decode path.
-    const storeFormat = outputFormat ? "pcm" : format;
+    const { outputFormat, storeFormat } = resolveSynthesisFormats(format);
     sink = createAudioStoreSink({
       format: storeFormat,
       onPlayUrl: (url) => {
@@ -198,8 +189,8 @@ async function synthesizeAndPlay(
       return;
     }
 
-    if (relay.requiresWavAudio) {
-      // WAV-requiring transport (media-stream): native token TTS routes
+    if (relay.requiresPcmAudio) {
+      // PCM-requiring transport (media-stream): native token TTS routes
       // back through the same synthesis path, so retry once with a
       // playable fallback provider before degrading to end-of-turn only.
       if (!isFallbackRetry) {
@@ -231,7 +222,7 @@ async function synthesizeAndPlay(
       }
       log.error(
         { err, provider: provider.id, errName, errCode },
-        "System prompt TTS synthesis failed on WAV-requiring transport — sending end-of-turn only",
+        "System prompt TTS synthesis failed on PCM-requiring transport — sending end-of-turn only",
       );
       // Send the end-of-turn signal so the transport transitions from
       // "assistant speaking" to "caller speaking" state.

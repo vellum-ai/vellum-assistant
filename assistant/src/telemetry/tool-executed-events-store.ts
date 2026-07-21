@@ -1,7 +1,7 @@
 import { and, asc, eq, gt, isNotNull, ne, or } from "drizzle-orm";
 
-import { getDb } from "../persistence/db-connection.js";
 import { toolInvocations } from "../persistence/schema/index.js";
+import { getTelemetryMainDb } from "./telemetry-main-db.js";
 
 /**
  * A `tool_invocations` audit row projected for `tool_executed` telemetry
@@ -32,8 +32,8 @@ export interface UnreportedToolExecutedEvent {
 /**
  * Query tool invocations that haven't been reported to telemetry yet.
  * Uses a compound cursor (createdAt + id) for reliable watermarking.
- * Rows are written by the tool audit listener
- * (`events/tool-audit-listener.ts`) — there is no record function here.
+ * Rows are written by the tool audit terminals (`telemetry/tool-audit.ts`) —
+ * there is no record function here.
  *
  * Two row classes are excluded:
  * - Permission-denied rows: the tool never executed.
@@ -42,9 +42,9 @@ export interface UnreportedToolExecutedEvent {
  *     since-reverted `tool_execution` event type and lacking the
  *     size/attribution columns.
  *   - Rows recorded while usage data collection was opted out: the audit
- *     listener (`events/tool-audit-listener.ts`) persists NULL telemetry
- *     columns for them at write time, making them unreportable by
- *     construction — no later opt-in or watermark race can ship them.
+ *     terminals (`telemetry/tool-audit.ts`) persist NULL telemetry columns
+ *     for them at write time, making them unreportable by construction —
+ *     no later opt-in or watermark race can ship them.
  *   Every opted-in post-migration writer path computes a non-null
  *   `arg_bytes` (the only other null writer, "permission_denied", is
  *   excluded by the decision filter), making `arg_bytes IS NOT NULL` a
@@ -62,7 +62,7 @@ export function queryUnreportedToolExecutedEvents(
   afterId: string | undefined,
   limit: number,
 ): UnreportedToolExecutedEvent[] {
-  const db = getDb();
+  const db = getTelemetryMainDb();
   const cursorPredicate = afterId
     ? or(
         gt(toolInvocations.createdAt, afterCreatedAt),

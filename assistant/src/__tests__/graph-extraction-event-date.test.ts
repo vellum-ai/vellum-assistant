@@ -80,7 +80,6 @@ describe("event_date prompt grounding", () => {
 describe("parseExtractionResponse event_date coercion", () => {
   const candidateNodeIds = new Set<string>();
   const conversationId = "test-convo";
-  const scopeId = "default";
   const now = Date.now();
 
   function makeInput(overrides: Record<string, unknown> = {}) {
@@ -110,7 +109,6 @@ describe("parseExtractionResponse event_date coercion", () => {
     const { diff } = parseExtractionResponse(
       input,
       conversationId,
-      scopeId,
       candidateNodeIds,
       now,
     );
@@ -122,7 +120,6 @@ describe("parseExtractionResponse event_date coercion", () => {
     const { diff } = parseExtractionResponse(
       input,
       conversationId,
-      scopeId,
       candidateNodeIds,
       now,
     );
@@ -134,7 +131,6 @@ describe("parseExtractionResponse event_date coercion", () => {
     const { diff } = parseExtractionResponse(
       input,
       conversationId,
-      scopeId,
       candidateNodeIds,
       now,
     );
@@ -156,7 +152,6 @@ describe("parseExtractionResponse event_date coercion", () => {
     const { deferredTriggers } = parseExtractionResponse(
       input,
       conversationId,
-      scopeId,
       candidateNodeIds,
       now,
     );
@@ -184,7 +179,6 @@ describe("parseExtractionResponse event_date coercion", () => {
     const { diff } = parseExtractionResponse(
       input,
       conversationId,
-      scopeId,
       candidates,
       now,
     );
@@ -198,7 +192,6 @@ describe("parseExtractionResponse event_date coercion", () => {
     const { deferredTriggers } = parseExtractionResponse(
       input,
       conversationId,
-      scopeId,
       candidateNodeIds,
       conversationTs,
     );
@@ -216,7 +209,6 @@ describe("parseExtractionResponse event_date coercion", () => {
     const { deferredTriggers } = parseExtractionResponse(
       input,
       conversationId,
-      scopeId,
       candidateNodeIds,
       conversationTs,
     );
@@ -241,7 +233,6 @@ describe("parseExtractionResponse event_date coercion", () => {
     const { diff } = parseExtractionResponse(
       input,
       conversationId,
-      scopeId,
       candidates,
       now,
     );

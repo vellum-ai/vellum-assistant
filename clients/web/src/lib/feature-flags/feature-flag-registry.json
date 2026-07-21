@@ -2,14 +2,6 @@
   "version": 1,
   "flags": [
     {
-      "id": "auto-analyze",
-      "scope": "assistant",
-      "key": "auto-analyze",
-      "label": "Auto-analyze conversations",
-      "description": "Automatically trigger conversation analysis on the same cadence as memory extraction (batch threshold, idle debounce, end-of-conversation). The analysis agent has full tool access and writes back to memory and skills without user approval.",
-      "defaultEnabled": false
-    },
-    {
       "id": "user-hosted-enabled",
       "scope": "client",
       "key": "user-hosted-enabled",
@@ -18,16 +10,13 @@
       "defaultEnabled": false
     },
     {
-      "id": "pre-chat-onboarding-experiment-2026-06-06",
+      "id": "proactive-tips",
       "scope": "client",
-      "key": "pre-chat-onboarding-experiment-2026-06-06",
-      "label": "Pre-chat Onboarding Experiment 2026-06-06",
-      "description": "Pre-chat onboarding experiment with control and variant-a arms. Control shows the full funnel; variant-a shows the condensed pared-down flow.",
-      "defaultEnabled": "control",
-      "values": [
-        "control",
-        "variant-a"
-      ]
+      "key": "proactive-tips",
+      "label": "Proactive Tips",
+      "description": "Gates the dismissible proactive tip card in the web sidebar. String-valued so future A/B arms can be added as new values.",
+      "defaultEnabled": "off",
+      "values": ["off", "on"]
     },
     {
       "id": "experiment-activation-flow-2026-06-03",
@@ -36,11 +25,7 @@
       "label": "Activation Flow Experiment 2026-06-03",
       "description": "Multivariate activation-flow experiment. control = standard flow; variant-a = activation rail; personal-page = new sign-up-page variant (front-end only). Targeted via LaunchDarkly.",
       "defaultEnabled": "control",
-      "values": [
-        "control",
-        "variant-a",
-        "personal-page"
-      ]
+      "values": ["control", "variant-a", "personal-page"]
     },
     {
       "id": "local-docker-enabled",
@@ -59,14 +44,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "trace-collection",
-      "scope": "assistant",
-      "key": "trace-collection",
-      "label": "Trace Collection",
-      "description": "Gate per-turn conversation trace (user/assistant/tool-call/tool-response) collection. The daemon attaches a trace to its turn telemetry only when this flag AND the owner's share_diagnostics consent are both on. Defaults off (fail-closed) \u2014 the live value is delivered from LaunchDarkly.",
-      "defaultEnabled": false
-    },
-    {
       "id": "settings-developer-nav",
       "scope": "assistant",
       "key": "settings-developer-nav",
@@ -80,38 +57,6 @@
       "key": "developer-menu-items",
       "label": "Developer Menu Items",
       "description": "Show Component Gallery and Replay Onboarding in the menu bar",
-      "defaultEnabled": false
-    },
-    {
-      "id": "ces-tools",
-      "scope": "assistant",
-      "key": "ces-tools",
-      "label": "CES Tool Exposure",
-      "description": "Register Credential Execution Service tools (credential-grant, credential-revoke, credential-list) in the agent loop",
-      "defaultEnabled": false
-    },
-    {
-      "id": "ces-shell-lockdown",
-      "scope": "assistant",
-      "key": "ces-shell-lockdown",
-      "label": "CES Shell Lockdown",
-      "description": "Enforce untrusted-agent shell lockdown when CES credentials are active, restricting direct shell access to credentialed services",
-      "defaultEnabled": false
-    },
-    {
-      "id": "ces-secure-install",
-      "scope": "assistant",
-      "key": "ces-secure-install",
-      "label": "CES Secure Command Installation",
-      "description": "Enable secure tool/command installation via CES instead of direct shell execution for untrusted agents",
-      "defaultEnabled": false
-    },
-    {
-      "id": "ces-grant-audit",
-      "scope": "assistant",
-      "key": "ces-grant-audit",
-      "label": "CES Grant & Audit Inspection",
-      "description": "Surface credential grant and audit inspection endpoints for reviewing active grants and access logs",
       "defaultEnabled": false
     },
     {
@@ -160,6 +105,22 @@
       "key": "voice-mode",
       "label": "Voice Mode",
       "description": "Show the live voice conversation button in the composer",
+      "defaultEnabled": false
+    },
+    {
+      "id": "voice-triage-escalate",
+      "scope": "assistant",
+      "key": "voice-triage-escalate",
+      "label": "Voice Triage & Escalate",
+      "description": "Front phone-call turns with a fast model that answers simple turns and escalates tricky ones to the quality model, cutting perceived latency",
+      "defaultEnabled": false
+    },
+    {
+      "id": "voice-duplex-handoff",
+      "scope": "assistant",
+      "key": "voice-duplex-handoff",
+      "label": "Voice Duplex Handoff",
+      "description": "When a user barges in during live voice, keep the interrupted turn running as a background subagent instead of discarding it (true-duplex handoff)",
       "defaultEnabled": false
     },
     {
@@ -219,14 +180,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "coding-agents-panel",
-      "scope": "client",
-      "key": "coding-agents-panel",
-      "label": "Coding Agents Panel",
-      "description": "Gate native macOS Coding Agents panel entry points and inline ACP session deep links.",
-      "defaultEnabled": false
-    },
-    {
       "id": "compaction-playground",
       "scope": "assistant",
       "key": "compaction-playground",
@@ -240,14 +193,6 @@
       "key": "app-control",
       "label": "App Control",
       "description": "Enable the app-control skill (per-app screenshot + raw input bypassing AX tree)",
-      "defaultEnabled": false
-    },
-    {
-      "id": "analyze-conversation",
-      "scope": "assistant",
-      "key": "analyze-conversation",
-      "label": "Analyze Conversation",
-      "description": "Show the 'Analyze' / 'Analyze conversation' option in conversation context menus and the conversation title actions dropdown.",
       "defaultEnabled": false
     },
     {
@@ -355,6 +300,14 @@
       "defaultEnabled": true
     },
     {
+      "id": "memory-concept-graph",
+      "scope": "assistant",
+      "key": "memory-concept-graph",
+      "label": "Memory concept graph",
+      "description": "Gates the Obsidian-style memory concept graph on its own Memory tab (/assistant/memory) and the backend-agnostic /memory-graph + /memory-graph-node routes that feed it. When off, the Memory tab is hidden; the identity page keeps the skills constellation. Only produces a graph on memory-v3 backends. Default off.",
+      "defaultEnabled": false
+    },
+    {
       "id": "self-intro-greeting",
       "scope": "both",
       "key": "self-intro-greeting",
@@ -363,28 +316,12 @@
       "defaultEnabled": false
     },
     {
-      "id": "research-onboarding",
-      "scope": "client",
-      "key": "research-onboarding",
-      "label": "Research onboarding (spike)",
-      "description": "Spike: replace pre-chat onboarding with a web-research \"here's what I know about you\" flow, including a Google Calendar \"Let's chat tomorrow\" step shown over the streaming research. Gates the /assistant/onboarding/research route and the research mock harness. Off by default; enable locally via the feature-flags panel.",
-      "defaultEnabled": false
-    },
-    {
-      "id": "personality-onboarding",
-      "scope": "client",
-      "key": "personality-onboarding",
-      "label": "Personality onboarding step (spike)",
-      "description": "Spike: show the \"Create my personality\" trait-slider step in the research-onboarding flow (between the pitch and the integration step). On continue it applies the sliders to the assistant's persona on a throwaway side conversation. When off, the step is skipped entirely. Off by default; enable locally via the feature-flags panel.",
-      "defaultEnabled": false
-    },
-    {
       "id": "channel-trust-floors",
       "scope": "assistant",
       "key": "channel-trust-floors",
       "label": "Channel Trust Floors",
-      "description": "Expose the Channel Trust Floors settings card (per-channel inbound admission policy) on the Privacy settings page. When off, the card is hidden and channels fall back to their default admission floors. Off by default while the feature is in development.",
-      "defaultEnabled": false
+      "description": "Expose the Channel Trust Floors settings card (per-channel inbound admission policy) on the Privacy settings page. When off, the card is hidden and channels fall back to their default admission floors. On by default; disable to hide the card.",
+      "defaultEnabled": true
     },
     {
       "id": "mcp-add-server",
@@ -416,6 +353,30 @@
       "key": "account-mfa",
       "label": "Account MFA",
       "description": "Surface the Security settings page where users enroll and manage TOTP two-factor authentication for their Vellum (WorkOS) account. Applies to email/password sign-in only.",
+      "defaultEnabled": false
+    },
+    {
+      "id": "credentials-settings",
+      "scope": "assistant",
+      "key": "credentials-settings",
+      "label": "Credentials settings page",
+      "description": "Show the Credentials page in web settings for listing, adding, and deleting stored credentials.",
+      "defaultEnabled": false
+    },
+    {
+      "id": "credential-requests",
+      "scope": "assistant",
+      "key": "credential-requests",
+      "label": "One-time credential request links",
+      "description": "Enable one-time credential-request links: the generate-link action in settings, the public credential entry page, and assistant-initiated links on channels without secure input.",
+      "defaultEnabled": false
+    },
+    {
+      "id": "chat-credential-reveal",
+      "scope": "assistant",
+      "key": "chat-credential-reveal",
+      "label": "Chat Credential Reveal",
+      "description": "Persist chat secret redactions as sentinel markers instead of the legacy HTML marker, enriched with the vault identity when the value byte-matches a credential revealed this turn. Also gates the `credentials reveal --for-chat` channel and the live-stream swap that replaces an echoed reveal plaintext with its sentinel before emission. Redaction itself is NOT gated: a route-proven reveal plaintext stays out of persisted rows in both modes. Client chip rendering is gated on daemon version, not on this flag.",
       "defaultEnabled": false
     }
   ]

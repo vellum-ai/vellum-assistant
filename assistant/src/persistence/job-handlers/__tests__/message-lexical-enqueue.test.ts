@@ -7,12 +7,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { eq } from "drizzle-orm";
 
-import { makeMockLogger } from "../../../__tests__/helpers/mock-logger.js";
-
-mock.module("../../../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
-
 // Spread the real lexical-index module and override only the singleton
 // accessors to return a fake that records any inline delete calls (there
 // should be none — the helpers are enqueue-only). Spreading keeps the module's

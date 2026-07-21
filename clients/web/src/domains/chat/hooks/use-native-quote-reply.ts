@@ -10,8 +10,9 @@
  *    assistant message and opens the reply bubble — reusing the same
  *    resolution logic as the web floating chip (`resolveAssistantSelection`).
  * 2. Posts `{ canReply }` to the `vellumTextSelection` script-message handler
- *    on every `selectionchange`, so native can gate the menu item to
- *    assistant-message selections only.
+ *    so native can gate the menu item to assistant-message selections only.
+ *    It primes the flag on `pointerdown` (from the touched node, before the
+ *    long-press builds the edit menu) and keeps it in sync on `selectionchange`.
  *
  * No-op outside the Capacitor shell. The wire contract is intentionally
  * minimal (one window global + one message-handler name) and resilient to
@@ -22,7 +23,10 @@
 import { type RefObject, useEffect } from "react";
 
 import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
-import { resolveAssistantSelection } from "@/domains/chat/resolve-assistant-selection";
+import {
+  isAssistantMessageNode,
+  resolveAssistantSelection,
+} from "@/domains/chat/resolve-assistant-selection";
 import { isNativePlatform } from "@/runtime/native-auth";
 
 const NATIVE_SELECTION_HANDLER = "vellumTextSelection";
@@ -85,20 +89,36 @@ export function useNativeQuoteReply(
       window.getSelection()?.removeAllRanges();
     };
 
-    const postCanReply = () => {
+    const postCanReply = (canReply: boolean) => {
       const handler = window.webkit?.messageHandlers?.[NATIVE_SELECTION_HANDLER];
       if (!handler) {
         return;
       }
-      handler.postMessage({
-        canReply: resolveAssistantSelection(containerRef.current) !== null,
-      });
+      handler.postMessage({ canReply });
+    };
+
+    // `pointerdown` fires on finger contact — well before the long-press
+    // threshold that builds the native edit menu — and, unlike `selectstart`,
+    // is reliably dispatched by the iOS WKWebView. At this point no selection
+    // range exists yet, so eligibility is derived from the touched node rather
+    // than the window selection. This primes native's `canReply` flag ahead of
+    // the first menu presentation.
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target instanceof Node ? event.target : null;
+      postCanReply(isAssistantMessageNode(target, containerRef.current));
+    };
+
+    // `selectionchange` keeps the flag in sync once a real selection exists.
+    const handleSelectionChange = () => {
+      postCanReply(resolveAssistantSelection(containerRef.current) !== null);
     };
 
     window.__vellumQuoteReplyFromSelection = openFromSelection;
-    document.addEventListener("selectionchange", postCanReply);
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("selectionchange", handleSelectionChange);
     return () => {
-      document.removeEventListener("selectionchange", postCanReply);
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("selectionchange", handleSelectionChange);
       if (window.__vellumQuoteReplyFromSelection === openFromSelection) {
         delete window.__vellumQuoteReplyFromSelection;
       }

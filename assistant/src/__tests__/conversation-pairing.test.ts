@@ -11,13 +11,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ── Mocks — declared before imports that depend on them ─────────────
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 let mockConversationId = "conv-001";
 let mockMessageId = "msg-001";
 let createConversationShouldThrow = false;

@@ -80,7 +80,6 @@ function seedConversationAndMessage(opts: {
       updatedAt: now,
       source: "test",
       conversationType: "standard",
-      memoryScopeId: "default",
     })
     .run();
   db.insert(messages)

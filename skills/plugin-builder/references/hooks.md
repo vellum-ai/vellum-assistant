@@ -32,7 +32,8 @@ These are the lifecycle hooks. The full set of wired hook names lives in the [`H
 
 **Context:** `InitContext`
 **When:** Once, when the plugin is first registered (on boot or install).
-**Use it to:** Validate config and open resources. Throwing aborts the plugin's load.
+**Use it to:** Validate config and open resources. This is where plugin-owned storage is set up: create data files under `pluginStorageDir` and apply the plugin's own schema, idempotently — `init` runs on every boot. Throwing aborts the plugin's load.
+**Example:** [image-fallback](https://github.com/vellum-ai/vellum-assistant/blob/main/assistant/src/plugins/defaults/image-fallback/hooks/init.ts)
 
 | Field              | Type           | Access    | Description                                                                                            |
 | ------------------ | -------------- | --------- | ------------------------------------------------------------------------------------------------------ |
@@ -100,7 +101,7 @@ These are the lifecycle hooks. The full set of wired hook names lives in the [`H
 
 **Context:** `PostModelCallContext`
 **When:** At every model-call outcome: a finalized assistant message, or a provider rejection. Fires once per model call, before a finalized reply is persisted and streamed.
-**Use it to:** Transform the reply's text blocks (leave tool_use intact), and own the continue decision. On a degenerate no-tool reply or a recoverable rejection, repair the history and set decision to continue to re-query the model.
+**Use it to:** Transform the reply's text blocks (leave tool_use intact), and own the continue decision. On a degenerate no-tool reply or a recoverable rejection, repair the history and set decision to continue to re-query the model. Use `isMaxTokensStopReason()` from `@vellumai/plugin-api` on `ctx.stopReason` to detect truncated replies that may need continuation.
 **Example:** [advisor](https://github.com/vellum-ai/vellum-assistant/blob/5a79f009573790dd085223a0133135410a6fe41d/assistant/src/plugins/defaults/advisor/hooks/post-model-call.ts)
 
 | Field            | Type                    | Access    | Description                                                                                                                                                                                                                                                       |
@@ -165,7 +166,8 @@ These are the lifecycle hooks. The full set of wired hook names lives in the [`H
 
 **Context:** `ShutdownContext`
 **When:** Once, when the Assistant tears down the plugin (process exit, unload).
-**Use it to:** Best-effort cleanup. Do not rely on it for critical writes; persist durably during normal operation instead.
+**Use it to:** Best-effort cleanup: close storage handles opened in `init` and release other resources. Do not rely on it for critical writes; persist durably during normal operation instead.
+**Example:** [image-fallback](https://github.com/vellum-ai/vellum-assistant/blob/main/assistant/src/plugins/defaults/image-fallback/hooks/shutdown.ts)
 
 | Field              | Type     | Access    | Description                                        |
 | ------------------ | -------- | --------- | -------------------------------------------------- |
@@ -186,23 +188,25 @@ Within a single plugin, hooks for the same name are not duplicated: each plugin 
 
 These are the hook-related exports from [`@vellumai/plugin-api`](https://github.com/vellum-ai/vellum-assistant/tree/main/assistant/src/plugin-api). Each context type's full field contract is documented in the hook sections above.
 
-| Export                       | Kind  | Purpose                                                                                                                           |
-| ---------------------------- | ----- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `HOOKS`                      | const | Wired hook names keyed by constant (INIT, PRE_MODEL_CALL, and so on). Reference hooks by this instead of free-form strings.       |
-| `HookName`                   | type  | Union of every wired hook name declared in HOOKS.                                                                                 |
-| `HookFunction`               | type  | Signature every hook implements: `(ctx) => Promise<Partial<ctx> \| void>`.                                                        |
-| `HookBroadcast`              | type  | Signature of `ctx.broadcast(detail)`: emit a transient `hook_event` to UIs watching the conversation.                             |
-| `InitContext`                | type  | Passed to the init hook at bootstrap.                                                                                             |
-| `ShutdownContext`            | type  | Passed to the shutdown hook at teardown.                                                                                          |
-| `UserPromptSubmitContext`    | type  | Passed to user-prompt-submit, before a turn's messages reach the agent loop.                                                      |
-| `PreModelCallContext`        | type  | Passed to pre-model-call, before each provider call.                                                                              |
-| `PostToolUseContext`         | type  | Passed to post-tool-use, once per tool result.                                                                                    |
-| `PostModelCallContext`       | type  | Passed to post-model-call at every model-call outcome (a finalized reply or a provider rejection); carries the continue decision. |
-| `PostCompactContext`         | type  | Passed to post-compact, after the loop compacts a conversation mid-turn.                                                          |
-| `StopContext`                | type  | Passed to stop, the terminal hook, once the turn has committed to ending.                                                         |
-| `ConversationDeletedContext` | type  | Passed to conversation-deleted, after a conversation is deleted from storage.                                                     |
-| `PostModelCallDecision`      | type  | The post-model-call decision shape: whether to end the turn or continue.                                                          |
-| `AgentLoopExitReason`        | type  | Which terminal state a turn reached, carried on StopContext.                                                                      |
+| Export                              | Kind  | Purpose                                                                                                                                                                                                                  |
+| ----------------------------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `HOOKS`                             | const | Wired hook names keyed by constant (INIT, PRE_MODEL_CALL, and so on). Reference hooks by this instead of free-form strings.                                                                                              |
+| `HookName`                          | type  | Union of every wired hook name declared in HOOKS.                                                                                                                                                                        |
+| `HookFunction`                      | type  | Signature every hook implements: `(ctx) => Promise<Partial<ctx> \| void>`.                                                                                                                                               |
+| `HookBroadcast`                     | type  | Signature of `ctx.broadcast(detail)`: emit a transient `hook_event` to UIs watching the conversation.                                                                                                                    |
+| `InitContext`                       | type  | Passed to the init hook at bootstrap.                                                                                                                                                                                    |
+| `ShutdownContext`                   | type  | Passed to the shutdown hook at teardown.                                                                                                                                                                                 |
+| `UserPromptSubmitContext`           | type  | Passed to user-prompt-submit, before a turn's messages reach the agent loop.                                                                                                                                             |
+| `PreModelCallContext`               | type  | Passed to pre-model-call, before each provider call.                                                                                                                                                                     |
+| `PostToolUseContext`                | type  | Passed to post-tool-use, once per tool result.                                                                                                                                                                           |
+| `PostModelCallContext`              | type  | Passed to post-model-call at every model-call outcome (a finalized reply or a provider rejection); carries the continue decision.                                                                                        |
+| `PostCompactContext`                | type  | Passed to post-compact, after the loop compacts a conversation mid-turn.                                                                                                                                                 |
+| `StopContext`                       | type  | Passed to stop, the terminal hook, once the turn has committed to ending.                                                                                                                                                |
+| `ConversationDeletedContext`        | type  | Passed to conversation-deleted, after a conversation is deleted from storage.                                                                                                                                            |
+| `PostModelCallDecision`             | type  | The post-model-call decision shape: whether to end the turn or continue.                                                                                                                                                 |
+| `AgentLoopExitReason`               | type  | Which terminal state a turn reached, carried on StopContext.                                                                                                                                                             |
+| `isMaxTokensStopReason`             | value | Classify a provider stop reason: true when the turn was truncated at the output token cap. Read it off `PostModelCallContext.stopReason` to decide whether to continue a cut-off reply.                                  |
+| `INTERNAL_NUDGE_OUTPUT_SUPPRESSION` | const | String clause appended to internal continuation nudges to prevent weaker models from narrating agent-loop scaffolding. Exported for plugins that construct their own continuation nudges; most plugins will not need it. |
 
 ## Anatomy of a hook
 

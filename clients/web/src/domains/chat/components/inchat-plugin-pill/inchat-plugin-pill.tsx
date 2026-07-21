@@ -43,7 +43,7 @@ export function InChatPluginPill({
 
   const handleManage = useCallback(() => {
     setOpen(false);
-    navigate(routes.plugins);
+    navigate(`${routes.superpowers}?filter=plugins`);
   }, [navigate]);
 
   // Nothing to summarize (no installed plugins), or the chat's scope isn't known

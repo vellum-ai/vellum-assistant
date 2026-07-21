@@ -44,9 +44,10 @@ import * as eventsTailApi from "@/domains/chat/api/events-tail";
 let fetchResult: unknown = undefined;
 /** Ordered trace of the reconcile's async steps, for ordering assertions. */
 const reconcileTrace: Array<{ step: string; args?: unknown[] }> = [];
-spyOn(messagesApi, "fetchConversationMessages").mockImplementation(
-  async () => fetchResult as never,
-);
+const fetchSpy = spyOn(
+  messagesApi,
+  "fetchConversationMessages",
+).mockImplementation(async () => fetchResult as never);
 spyOn(eventsTailApi, "ingestServerEventsTail").mockImplementation(
   async (...args: unknown[]) => {
     reconcileTrace.push({ step: "ingest-tail", args });
@@ -62,6 +63,13 @@ const { useChatSessionStore } = await import(
 );
 const { useConversationStore } = await import("@/stores/conversation-store");
 const { __resetLocalSeqForTesting } = await import("@/lib/streaming/local-seq");
+const { useAssistantIdentityStore } = await import(
+  "@/stores/assistant-identity-store"
+);
+
+// A daemon build at/above the events-tail floor, and one below it.
+const TAIL_CAPABLE_VERSION = "0.10.8";
+const SUB_FLOOR_VERSION = "0.10.6";
 
 const ASSISTANT_ID = "asst-1";
 const CONV_ID = "conv-A";
@@ -121,6 +129,7 @@ afterEach(() => {
   useStreamStore.getState().setStreamContext(null);
   useConversationStore.getState().setActiveConversationId(null);
   useChatSessionStore.setState({ snapshot: null } as never);
+  useAssistantIdentityStore.getState().setIdentity(null, null);
   fetchResult = undefined;
 });
 
@@ -193,5 +202,61 @@ describe("useMessageReconciliation — server event-tail catch-up", () => {
       "invalidate",
     ]);
   });
+});
 
+describe("startReconciliationLoop — off above the floor, poll loop below", () => {
+  test("tail-capable daemon: fully off — no fetch, no loop", async () => {
+    // GIVEN a daemon at/above the events-tail floor
+    useAssistantIdentityStore.getState().setIdentity("Ada", TAIL_CAPABLE_VERSION);
+    seedSnapshotProcessing(true);
+    seedServerFetch(false);
+    const { result } = renderReconciliation();
+    fetchSpy.mockClear();
+
+    // WHEN the loop-invoking method is called
+    result.current.startReconciliationLoop(
+      useStreamStore.getState().streamEpoch,
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // THEN it is a no-op: no fetch, no timer. Recovery above the floor is
+    // driven entirely by the event-triggered reconcileActiveConversation()
+    // calls (reopen / seq-gap / sync-tag), not by this method.
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  test("tail-capable daemon: cancelReconciliation is fully off", () => {
+    // GIVEN a daemon at/above the events-tail floor
+    useAssistantIdentityStore.getState().setIdentity("Ada", TAIL_CAPABLE_VERSION);
+    const { result } = renderReconciliation();
+
+    // WHEN cancel is invoked (as the stream handlers do on live events)
+    // THEN it does not throw and there is nothing to cancel — no loop runs.
+    expect(() => result.current.cancelReconciliation()).not.toThrow();
+  });
+
+  test("sub-floor daemon: runs the legacy poll loop (deferred first fetch)", async () => {
+    // GIVEN a daemon below the events-tail floor
+    useAssistantIdentityStore.getState().setIdentity("Ada", SUB_FLOOR_VERSION);
+    seedSnapshotProcessing(true);
+    seedServerFetch(false);
+    const { result } = renderReconciliation();
+    fetchSpy.mockClear();
+
+    // WHEN the loop is started
+    result.current.startReconciliationLoop(
+      useStreamStore.getState().streamEpoch,
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // THEN nothing fetched yet — the first tick is behind the 5s debounce
+    // timer, the legacy poll-until-stable path.
+    expect(fetchSpy).not.toHaveBeenCalled();
+
+    // Clean up the pending timer so it can't fire against a torn-down store.
+    result.current.cancelReconciliation();
+  });
 });

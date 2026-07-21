@@ -1,9 +1,11 @@
 import type { Command } from "commander";
 
+import { applyCommandHelp } from "../../lib/cli-command-help.js";
 import { registerCommand } from "../../lib/register-command.js";
 import { registerAppCommands } from "./apps.js";
 import { registerConnectCommand } from "./connect.js";
 import { registerDisconnectCommand } from "./disconnect.js";
+import { oauthHelp } from "./index.help.js";
 import { registerModeCommand } from "./mode.js";
 import { registerPingCommand } from "./ping.js";
 import { registerProviderCommands } from "./providers.js";
@@ -13,39 +15,11 @@ import { registerTokenCommand } from "./token.js";
 
 export function registerOAuthCommand(program: Command): void {
   registerCommand(program, {
-    name: "oauth",
+    name: oauthHelp.name,
     transport: "ipc",
-    description:
-      "Manage the full OAuth lifecycle — registering providers, creating apps, connecting accounts, and making authenticated requests",
+    description: oauthHelp.description,
     build: (oauth) => {
-      oauth.option("--json", "Machine-readable compact JSON output");
-
-      oauth.addHelpText(
-        "after",
-        `
-OAuth providers may support up to two modes – "managed" and "your-own".
-  managed:
-    Requires a Vellum Platform account. For providers that support it, managed mode offloads the burden of needing to create and register an oauth app.
-    Vellum Platform manages oauth token management and refresh and proxies requests to the provier.
-  you-own:
-    Provides ultimate control and removes dependency on Vellum Platform, but requires that you set up your own oauth app and register it
-    via \`assistant oauth apps upsert\`.
-All commands are intended to work regardless of the provider's mode. Check and set the mode for a given provider with \`assistant oauth mode\`.
-
-You can define entirely new oauth providers to integrate with even if they do not show up using \`assistant oauth providers list\` using
-\`assistant oauth providers register\`. Custom-registered providers only support "your-own" mode.
-
-
-Examples:
-  assistant oauth providers list
-  assistant oauth providers get google
-  assistant oauth mode google --set=managed
-  assistant oauth connect google
-  assistant oauth status google
-  assistant oauth ping google
-  assistant oauth request --provider google /gmail/v1/users/me/messages
-  assistant oauth disconnect google`,
-      );
+      applyCommandHelp(oauth, oauthHelp);
 
       // -----------------------------------------------------------------------
       // providers — subcommand group

@@ -4,18 +4,24 @@
  * The vbundle manifest v1 schema's `origin.mode` enum captures the deployment
  * shape that produced the bundle. The runtime's two underlying signals are:
  *
- *   - `hasManagedProxyPrereqs()` — true when the daemon has the credentials
- *     it needs to act as a managed-proxy client, i.e. this is a managed
- *     deployment.
+ *   - `getIsPlatform()` — true when the daemon runs as a platform-managed
+ *     deployment (`IS_PLATFORM`, set only on platform pods).
  *   - `getIsContainerized()` — true when the daemon runs inside a container
  *     (`IS_CONTAINERIZED`), identifying where the daemon process is running.
  *
- * Folding both into a single helper keeps callers from repeating the
- * combination logic.
+ * Deliberately NOT keyed on managed-proxy prerequisites: any logged-in
+ * local assistant holds a platform URL and `assistant_api_key` (to use the
+ * platform LLM proxy), so proxy-prereq presence does not distinguish a
+ * managed deployment from a local one. Stamping a local export as
+ * "managed" would trip the importer's `secrets_redacted must be true when
+ * origin.mode is 'managed'` rule and break local→platform teleport for
+ * every logged-in local assistant.
  */
 
-import { getIsContainerized } from "../../config/env-registry.js";
-import { hasManagedProxyPrereqs } from "../../providers/platform-proxy/context.js";
+import {
+  getIsContainerized,
+  getIsPlatform,
+} from "../../config/env-registry.js";
 
 export type VBundleOriginMode =
   | "managed"
@@ -25,12 +31,11 @@ export type VBundleOriginMode =
 /**
  * Returns the origin mode for the current daemon.
  *
- * Managed-proxy prereqs win first (a managed deployment is always
- * "managed" regardless of where the daemon process runs); otherwise
- * containerized → "self-hosted-remote", bare-metal → "self-hosted-local".
+ * Platform-managed deployments win first; otherwise containerized →
+ * "self-hosted-remote", bare-metal → "self-hosted-local".
  */
 export async function getOriginMode(): Promise<VBundleOriginMode> {
-  if (await hasManagedProxyPrereqs()) {
+  if (getIsPlatform()) {
     return "managed";
   }
   if (getIsContainerized()) {

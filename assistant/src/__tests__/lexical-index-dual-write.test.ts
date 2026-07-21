@@ -25,12 +25,6 @@ import {
 
 import { eq } from "drizzle-orm";
 
-import { makeMockLogger } from "./helpers/mock-logger.js";
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
-
 // Stub the segment indexer so the persist path's memory indexing runs cheaply.
 // The lexical enqueue is a separate call on the persist path and still fires.
 // Other exports are provided so any transitive importer of this module
@@ -251,7 +245,7 @@ describe("messages lexical-index dual-write", () => {
     // One memory-plugin job type, one host-owned job type — both keyed by the
     // conversation id.
     enqueueMemoryJob("graph_extract", { conversationId: conv.id });
-    enqueueMemoryJob("conversation_analyze", { conversationId: conv.id });
+    enqueueMemoryJob("media_processing", { conversationId: conv.id });
 
     deleteConversation(conv.id);
 
@@ -281,7 +275,7 @@ describe("messages lexical-index dual-write", () => {
     // The sweep is scoped to the plugin's own job types: host-owned jobs —
     // including the purge the delete primitive itself enqueued — stay
     // runnable.
-    expect(jobStatus("conversation_analyze")).toBe("pending");
+    expect(jobStatus("media_processing")).toBe("pending");
     expect(jobStatus("purge_conversation_lexical")).toBe("pending");
   });
 

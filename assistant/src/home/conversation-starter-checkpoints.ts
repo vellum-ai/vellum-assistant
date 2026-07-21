@@ -17,8 +17,13 @@ export const CK_BATCH = "conversation_starters:generation_batch";
 export const CK_LAST_GEN_AT = "conversation_starters:last_gen_at";
 export const CK_LAST_ATTEMPT_AT = "conversation_starters:last_attempt_at";
 
-export function checkpointKey(base: string, scopeId: string): string {
-  return `${base}:${scopeId}`;
+/**
+ * Build a conversation-starter checkpoint key. The `:default` suffix is a
+ * stable persisted key format — existing checkpoint rows are keyed this way,
+ * so it is emitted verbatim.
+ */
+export function checkpointKey(base: string): string {
+  return `${base}:default`;
 }
 
 export function parseCheckpointInt(value: string | undefined): number | null {
@@ -54,12 +59,11 @@ export function upsertCheckpoint(
 
 // ── Queries ──────────────────────────────────────────────────────
 
-export function countActiveMemoryNodes(scopeId: string): number {
+export function countActiveMemoryNodes(): number {
   return (
     rawGet<{ c: number }>(
       "starters:countActiveMemoryNodes",
-      `SELECT COUNT(*) AS c FROM memory_graph_nodes WHERE fidelity != 'gone' AND scope_id = ?`,
-      scopeId,
+      `SELECT COUNT(*) AS c FROM memory_graph_nodes WHERE fidelity != 'gone'`,
     )?.c ?? 0
   );
 }

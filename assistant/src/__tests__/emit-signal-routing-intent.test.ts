@@ -8,13 +8,6 @@ const createEventMock = mock();
 const updateEventDedupeKeyMock = mock();
 const dispatchDecisionMock = mock();
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 mock.module("../channels/config.js", () => ({
   getDeliverableChannels: () => ["vellum", "telegram"],
 }));

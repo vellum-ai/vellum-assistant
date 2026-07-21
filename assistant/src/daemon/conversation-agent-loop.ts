@@ -28,17 +28,14 @@ import {
 } from "../config/llm-context-resolution.js";
 import {
   resolveCallSiteConfig,
-  resolveDefaultProfileKey,
+  resolveEffectiveProfileKey,
   resolveProfilelessModelKey,
+  selectWinningProfile,
 } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { writeRelationshipState } from "../home/relationship-state-writer.js";
 import type { UserPromptSubmitInputContext } from "../hooks/types.js";
-import {
-  clearSentryConversationContext,
-  setSentryConversationContext,
-} from "../instrument.js";
 import {
   addMessage,
   deleteMessageById,
@@ -63,12 +60,14 @@ import { enqueueMemoryRetrospectiveOnCompaction } from "../plugins/defaults/memo
 import { runHook } from "../plugins/pipeline.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { resolveCapabilities } from "../runtime/capabilities.js";
-import { enqueueAutoAnalysisOnCompaction } from "../runtime/services/auto-analysis-enqueue.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
 import type { ActivationMomentParam } from "../telemetry/activation-funnel.js";
 import { stampTurnOutcome } from "../telemetry/turn-outcome.js";
+import {
+  emitToolProfilingSummary,
+  startToolProfilingRequest,
+} from "../tools/tool-profiler.js";
 import type { UsageActor } from "../usage/actors.js";
 import { getLogger } from "../util/logger.js";
 import { timeAgo } from "../util/time.js";
@@ -118,9 +117,13 @@ import type {
   SurfaceType,
   UsageStats,
 } from "./message-protocol.js";
-import type { TrustContext } from "./trust-context.js";
+import type { TrustContext } from "./trust-context-types.js";
 import { resolveTurnCallSite } from "./turn-call-site.js";
-import { TurnLatencyTracker } from "./turn-latency-tracker.js";
+import { runWithLatencySubSpans } from "./turn-latency-sub-spans.js";
+import {
+  MEMORY_CONTEXT_PHASE_KEY,
+  TurnLatencyTracker,
+} from "./turn-latency-tracker.js";
 
 const log = getLogger("conversation-agent-loop");
 
@@ -366,7 +369,7 @@ export async function runAgentLoopImpl(
   // contexts (heartbeat, filing, analyze, etc.) pass their own `callSite`. The
   // provider layer resolves provider/model/maxTokens via `resolveCallSiteConfig`,
   // picking up any user overrides under `llm.callSites.<id>` (falling back to
-  // `llm.default` when absent). `resolveTurnCallSite` keeps subagent
+  // the shipped call-site defaults when absent). `resolveTurnCallSite` keeps subagent
   // conversations on `subagentSpawn` when no call site is supplied.
   const turnCallSite = resolveTurnCallSite(options?.callSite, ctx);
   // Expose the turn's call site on the live conversation so the runtime
@@ -405,6 +408,42 @@ export async function runAgentLoopImpl(
   const readCurrentOverrideProfile = (): string | undefined =>
     options?.overrideProfile ?? resolveOverrideProfile(ctx);
 
+  // Best-effort attribution for error classification: names the resolved
+  // connection and profile so credential/connection errors point at the
+  // exact slot to fix instead of a generic banner. Resolution can itself
+  // throw on a broken config — attribution must never mask the real error.
+  const turnErrorAttribution = (): {
+    connectionName?: string;
+    profileName?: string;
+  } => {
+    try {
+      const overrideProfile = readCurrentOverrideProfile();
+      const resolveOpts = {
+        overrideProfile,
+        forceOverrideProfile,
+        selectionSeed: ctx.conversationId,
+      };
+      const resolved = resolveCallSiteConfig(
+        turnCallSite,
+        config.llm,
+        resolveOpts,
+      );
+      const profileName = resolveEffectiveProfileKey(
+        turnCallSite,
+        config.llm,
+        resolveOpts,
+      );
+      return {
+        ...(resolved.provider_connection
+          ? { connectionName: resolved.provider_connection }
+          : {}),
+        ...(profileName ? { profileName } : {}),
+      };
+    } catch {
+      return {};
+    }
+  };
+
   const effectiveContextWindow = resolveEffectiveContextWindow({
     llm: config.llm,
     callSite: turnCallSite,
@@ -414,11 +453,23 @@ export async function runAgentLoopImpl(
   });
   let currentEffectiveContextWindow: EffectiveContextWindow =
     effectiveContextWindow;
+  const logResolutionFallback = (info: {
+    callSite: string;
+    requested: string;
+    reason: string;
+  }) => {
+    rlog.warn(
+      { ...info, conversationId: ctx.conversationId },
+      "Inference profile fell back to the call-site default",
+    );
+  };
+
   let currentContextWindowConfig = contextWindowConfigFromEffective(
     resolveCallSiteConfig(turnCallSite, config.llm, {
       overrideProfile: turnOverrideProfile ?? undefined,
       forceOverrideProfile,
       selectionSeed: ctx.conversationId,
+      onResolutionFallback: logResolutionFallback,
     }).contextWindow,
     currentEffectiveContextWindow,
   );
@@ -439,6 +490,7 @@ export async function runAgentLoopImpl(
         resolveCallSiteConfig(turnCallSite, config.llm, {
           overrideProfile: currentOverrideProfile,
           forceOverrideProfile,
+          onResolutionFallback: logResolutionFallback,
           selectionSeed: ctx.conversationId,
         }).contextWindow,
         currentEffectiveContextWindow,
@@ -567,7 +619,7 @@ export async function runAgentLoopImpl(
   ctx.lastAssistantAttachments = [];
   ctx.lastAttachmentWarnings = [];
 
-  ctx.profiler.startRequest();
+  startToolProfilingRequest(ctx.conversationId);
   let turnStarted = false;
   const state = createEventHandlerState();
   let persistedErrorAssistantMessage = false;
@@ -594,18 +646,6 @@ export async function runAgentLoopImpl(
       publishConversationMessagesChanged(ctx.conversationId);
     }
   };
-
-  // Populate Sentry scope with conversation-specific tags so any exception
-  // captured during this turn (e.g. inside agent/loop.ts) can be
-  // filtered by conversation, assistant, or user in the dashboard.
-  setSentryConversationContext({
-    assistantId: ctx.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
-    conversationId: ctx.conversationId,
-    messageCount: ctx.messages.length,
-    userIdentifier:
-      ctx.trustContext?.guardianPrincipalId ??
-      ctx.trustContext?.requesterExternalUserId,
-  });
 
   try {
     if (diskPressureDecision.action === "block") {
@@ -893,10 +933,16 @@ export async function runAgentLoopImpl(
     // `modelProfileKey` is the actual profile used for this turn. The
     // notice key is narrower: it only marks turns where runtime context should
     // remind the model that the profile changed.
+    // The reported key must come from the same winner selection dispatch used —
+    // a hand-rolled chain would credit profiles the resolver never consulted
+    // (e.g. activeProfile on a non-mainAgent turn).
     const effectiveProfileKey =
-      turnOverrideProfile ??
-      config.llm.activeProfile ??
-      resolveDefaultProfileKey("mainAgent", config.llm) ??
+      selectWinningProfile(turnCallSite, config.llm, {
+        ...(turnOverrideProfile != null
+          ? { overrideProfile: turnOverrideProfile }
+          : {}),
+        selectionSeed: ctx.conversationId,
+      }).profileName ??
       resolveProfilelessModelKey(turnCallSite, config.llm, {
         ...(turnOverrideProfile != null
           ? { overrideProfile: turnOverrideProfile }
@@ -945,9 +991,13 @@ export async function runAgentLoopImpl(
       isNonInteractive,
     };
     latencyTracker.mark("prompt_hook_start");
-    const finalUserPromptCtx = await runHook(
-      HOOKS.USER_PROMPT_SUBMIT,
-      userPromptCtx,
+    // The scope lets instrumented steps deep inside the hook chain (memory
+    // retrieval, injectors) record sub-spans of the memory_context phase
+    // without the tracker being threaded through the plugin contracts.
+    const finalUserPromptCtx = await runWithLatencySubSpans(
+      latencyTracker,
+      MEMORY_CONTEXT_PHASE_KEY,
+      () => runHook(HOOKS.USER_PROMPT_SUBMIT, userPromptCtx),
     );
     latencyTracker.mark("prompt_hook_end");
     const runMessages = finalUserPromptCtx.latestMessages;
@@ -1523,7 +1573,10 @@ export async function runAgentLoopImpl(
         requestId: reqId,
       });
       rlog.error({ err }, "Conversation processing error");
-      const classified = classifyConversationError(err, errorCtx);
+      const classified = classifyConversationError(err, {
+        ...errorCtx,
+        ...turnErrorAttribution(),
+      });
       if (!turnReplied) {
         abnormalOutcome = { outcome: "failed", failureCode: classified.code };
       }
@@ -1538,6 +1591,21 @@ export async function runAgentLoopImpl(
       publishLoopMessagesChanged();
     }
   } finally {
+    // Clear the processing flag first. It is the release that frees the
+    // conversation for its next turn, so nothing that can throw (the
+    // turn-boundary commit, profiling) is allowed to run ahead of it and leave
+    // the row latched "mid-turn". Stamp the turn's abnormal outcome first
+    // because the telemetry reporter's settled-turn barrier only releases this
+    // turn once processing stops; null `abortController` first so a concurrent
+    // abort takes the force-clear branch rather than signalling a dead one.
+    if (abnormalOutcome) {
+      stampTurnOutcome(userMessageId, abnormalOutcome.outcome, {
+        failureCode: abnormalOutcome.failureCode,
+      });
+    }
+    ctx.abortController = null;
+    ctx.setProcessing(false);
+
     if (turnStarted) {
       ctx.turnCount++;
       const config = getConfig();
@@ -1571,26 +1639,14 @@ export async function runAgentLoopImpl(
       void writeRelationshipState().catch(() => {});
     }
 
-    ctx.profiler.emitSummary(reqId);
+    emitToolProfilingSummary(ctx.conversationId, reqId);
 
-    // Tear down this turn's per-turn state. Abort reliably drives the loop to
+    // Tear down the remaining per-turn state. Abort reliably drives the loop to
     // this `finally` within a bounded time — cooperative signal propagation
     // (provider fetch + tool race) backed by the abort watchdog — so a
     // cancelled turn always unwinds before any resend can start a new one.
     // There is therefore only ever one turn alive, and clearing the shared
     // state below cannot clobber a concurrent turn.
-    // Stamp the turn's abnormal outcome (failed / cancelled) onto its
-    // user-message row BEFORE processing clears: the telemetry reporter's
-    // settled-turn barrier only releases this turn once the conversation
-    // stops processing, so ordering the stamp first guarantees the turn
-    // event ships with the outcome. A normally-replied turn stamps nothing.
-    if (abnormalOutcome) {
-      stampTurnOutcome(userMessageId, abnormalOutcome.outcome, {
-        failureCode: abnormalOutcome.failureCode,
-      });
-    }
-    ctx.abortController = null;
-    ctx.setProcessing(false);
     ctx.onConfirmationOutcome = undefined;
     ctx.surfaceActionRequestIds.delete(ctx.currentRequestId ?? "");
     ctx.approvedViaPromptThisTurn = false;
@@ -1622,10 +1678,6 @@ export async function runAgentLoopImpl(
     // consolidates when it summarizes old messages (cache miss is expected).
 
     ctx.drainQueue(yieldedForHandoff ? "checkpoint_handoff" : "loop_complete");
-
-    // Clear conversation tags so they don't leak into unrelated error captures
-    // (e.g. unhandledRejection from a different async chain).
-    clearSentryConversationContext();
   }
 }
 
@@ -1695,7 +1747,7 @@ export interface CompactionApplyContext {
 /**
  * Applies a successful `ContextWindowResult` to a conversation: updates the
  * in-memory message buffer and compaction counters, notifies the graph memory
- * and conversation-summary store, enqueues auto-analysis, emits the
+ * and conversation-summary store, emits the
  * `context_compacted` event, and records a `context_compactor` usage event.
  *
  * The emitted `usage_update` intentionally omits `contextWindow` — the
@@ -1766,10 +1818,6 @@ export async function applyCompactionResult(
     ctx.slackContextCompactionWatermarkTs =
       options.slackContextCompactionWatermarkTs;
   }
-  enqueueAutoAnalysisOnCompaction(
-    ctx.conversationId,
-    ctx.trustContext?.trustClass,
-  );
   enqueueMemoryRetrospectiveOnCompaction(
     ctx.conversationId,
     ctx.trustContext?.trustClass,

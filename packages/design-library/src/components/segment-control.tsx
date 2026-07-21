@@ -26,6 +26,14 @@ export interface SegmentControlProps<T extends string> {
    * button's `aria-label`.
    */
   iconOnly?: boolean;
+  /**
+   * When `iconOnly`, each segment shows a hover/focus tooltip of its `label`.
+   * On touch devices Radix keeps that tooltip open while the tapped segment
+   * holds focus, leaving a phantom label floating over the UI. Set this to
+   * `false` when the icons are self-explanatory (and the `aria-label` still
+   * covers screen readers) to suppress the tooltip. Defaults to `true`.
+   */
+  showTooltips?: boolean;
   className?: string;
 }
 
@@ -70,6 +78,7 @@ export function SegmentControl<T extends string>({
   onChange,
   ariaLabel,
   iconOnly = false,
+  showTooltips = true,
   className,
 }: SegmentControlProps<T>) {
   const groupRef = useRef<HTMLDivElement>(null);
@@ -130,6 +139,11 @@ export function SegmentControl<T extends string>({
       ? items.findIndex((item) => !item.disabled)
       : activeIndex;
 
+  // Sublabels add a second line, so the fixed 32px (2px pad + 28px segment)
+  // sizing that fits single-line content would clip them — let height follow
+  // content instead. iconOnly never renders sublabels (see the render below).
+  const hasSublabels = !iconOnly && items.some((item) => item.sublabel != null);
+
   return (
     <div
       ref={groupRef}
@@ -138,9 +152,8 @@ export function SegmentControl<T extends string>({
       data-slot="segment-control"
       onKeyDown={handleKeyDown}
       className={cn(
-        "inline-flex rounded-lg bg-[var(--surface-active)] p-0.5",
+        "inline-flex rounded-md bg-[var(--surface-active)] p-0.5",
         !iconOnly && "w-full",
-        iconOnly && "rounded-[10px]",
         className,
       )}
     >
@@ -154,7 +167,7 @@ export function SegmentControl<T extends string>({
             role="radio"
             aria-checked={isActive}
             aria-label={iconOnly ? item.label : undefined}
-            tooltip={iconOnly ? item.label : undefined}
+            tooltip={iconOnly && showTooltips ? item.label : undefined}
             disabled={isDisabled}
             tabIndex={index === tabStopIndex ? 0 : -1}
             onClick={() => {
@@ -164,10 +177,11 @@ export function SegmentControl<T extends string>({
               }
             }}
             className={cn(
-              "min-w-[30px] cursor-pointer justify-center gap-1.5 rounded-md border-0 text-body-medium-default",
+              "min-w-[30px] cursor-pointer justify-center gap-1.5 rounded-[6px] border-0 text-body-medium-default",
+              hasSublabels ? "h-auto py-1.5" : "h-7",
               iconOnly
-                ? "h-7 rounded-lg px-2 py-1 max-md:h-9 max-md:min-w-9 max-md:px-2"
-                : "h-auto flex-1 px-3 py-1.5",
+                ? "px-2 max-md:h-9 max-md:min-w-9 max-md:px-2"
+                : "flex-1 px-3",
               isActive
                 ? "bg-[var(--surface-overlay)] text-[var(--content-emphasised)] shadow-sm hover:bg-[var(--surface-overlay)]"
                 : "bg-transparent text-[var(--content-tertiary)] hover:bg-transparent hover:text-[var(--content-emphasised)]",

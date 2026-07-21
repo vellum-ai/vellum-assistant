@@ -13,12 +13,6 @@
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
-import { makeMockLogger } from "./helpers/mock-logger.js";
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
-
 // AgentLoop reads the v3-live gate (`config.memory.v3.live`) via
 // `isMemoryV3Live` to decide the cache-anchor signal; drive it per-test.
 let memoryV3LiveSlot = false;

@@ -12,6 +12,13 @@ export interface PinnedAppEntry {
   icon?: string;
 }
 
+/**
+ * The subset of {@link AppSummary} the pin store reads. Pinning persists only
+ * the identity and display fields, so callers need not supply server-derived
+ * metadata (`version`, `contentId`, timestamps, `origin`) just to pin.
+ */
+export type PinnableApp = Pick<AppSummary, "id" | "name" | "icon">;
+
 function isValidEntry(value: unknown): value is PinnedAppEntry {
   if (!value || typeof value !== "object") {
     return false;
@@ -28,7 +35,9 @@ function isValidEntry(value: unknown): value is PinnedAppEntry {
 
 function parsePinnedApps(raw: string): PinnedAppEntry[] | null {
   const parsed: unknown = JSON.parse(raw);
-  if (!Array.isArray(parsed)) return null;
+  if (!Array.isArray(parsed)) {
+    return null;
+  }
   return parsed.filter(isValidEntry);
 }
 
@@ -43,7 +52,7 @@ const storage = createStorageAccessor<PinnedAppEntry[]>({
 export const loadPinnedApps = storage.load;
 export const savePinnedApps = storage.save;
 
-export function pinApp(app: AppSummary): void {
+export function pinApp(app: PinnableApp): void {
   const entries = storage.load();
   if (entries.some((e) => e.appId === app.id)) {
     return;

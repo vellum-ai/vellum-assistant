@@ -25,15 +25,10 @@ let previousWorkspaceEnv: string | undefined;
 const enqueueCalls: Array<{
   pkbRoot: string;
   absPath: string;
-  memoryScopeId: string;
 }> = [];
 
 mock.module("../../jobs/embed-pkb-file.js", () => ({
-  enqueuePkbIndexJob: (input: {
-    pkbRoot: string;
-    absPath: string;
-    memoryScopeId: string;
-  }) => {
+  enqueuePkbIndexJob: (input: { pkbRoot: string; absPath: string }) => {
     enqueueCalls.push(input);
     return "job-mock-id";
   },
@@ -89,7 +84,6 @@ describe("handleRemember — memory.v2.enabled on", () => {
     const result = handleRemember(
       { content: "do not save this" },
       "conv-memory-off",
-      "default",
       CONFIG_MEMORY_OFF,
     );
 
@@ -104,7 +98,6 @@ describe("handleRemember — memory.v2.enabled on", () => {
     const result = handleRemember(
       { content: "Alice prefers VS Code over Vim" },
       "conv-test-1",
-      "default",
       CONFIG,
     );
 
@@ -128,7 +121,6 @@ describe("handleRemember — memory.v2.enabled on", () => {
     const result = handleRemember(
       { content: "Bob lives in Austin" },
       "conv-test-2",
-      "default",
       CONFIG,
     );
 
@@ -140,7 +132,6 @@ describe("handleRemember — memory.v2.enabled on", () => {
     handleRemember(
       { content: "First entry of the day" },
       "conv-test-3",
-      "default",
       CONFIG,
     );
 
@@ -158,8 +149,8 @@ describe("handleRemember — memory.v2.enabled on", () => {
   });
 
   test("appends multiple entries to the same buffer", () => {
-    handleRemember({ content: "first" }, "c", "default", CONFIG);
-    handleRemember({ content: "second" }, "c", "default", CONFIG);
+    handleRemember({ content: "first" }, "c", CONFIG);
+    handleRemember({ content: "second" }, "c", CONFIG);
 
     const buffer = readFileSync(
       join(tmpWorkspace, "memory", "buffer.md"),
@@ -170,12 +161,7 @@ describe("handleRemember — memory.v2.enabled on", () => {
   });
 
   test("rejects empty content without writing", () => {
-    const result = handleRemember(
-      { content: "   " },
-      "conv-test-4",
-      "default",
-      CONFIG,
-    );
+    const result = handleRemember({ content: "   " }, "conv-test-4", CONFIG);
 
     expect(result.success).toBe(false);
     expect(existsSync(join(tmpWorkspace, "memory", "buffer.md"))).toBe(false);
@@ -188,7 +174,6 @@ describe("handleRemember — memory.v2.enabled off (v1 PKB path)", () => {
     const result = handleRemember(
       { content: "v1 path still works" },
       "conv-v1-1",
-      "default",
       CONFIG_V2_OFF,
     );
 
@@ -209,7 +194,6 @@ describe("handleRemember — memory.v2.enabled off (v1 PKB path)", () => {
     const result = handleRemember(
       { content: "index me" },
       "conv-v1-2",
-      "default",
       CONFIG_V2_OFF,
     );
 
@@ -233,7 +217,6 @@ describe("handleRemember — batch (array) content", () => {
     const result = handleRemember(
       { content: ["fact one", "fact two", "fact three"] },
       "conv-batch-1",
-      "default",
       CONFIG,
     );
 
@@ -260,7 +243,6 @@ describe("handleRemember — batch (array) content", () => {
     const result = handleRemember(
       { content: ["alpha", "beta", "gamma"] },
       "conv-batch-2",
-      "default",
       CONFIG_V2_OFF,
     );
 
@@ -281,7 +263,6 @@ describe("handleRemember — batch (array) content", () => {
     const ok = handleRemember(
       { content: ["   ", "kept fact", ""] },
       "conv-batch-3",
-      "default",
       CONFIG,
     );
     expect(ok.success).toBe(true);
@@ -295,7 +276,6 @@ describe("handleRemember — batch (array) content", () => {
     const empty = handleRemember(
       { content: ["   ", ""] },
       "conv-batch-4",
-      "default",
       CONFIG,
     );
     expect(empty.success).toBe(false);
@@ -306,7 +286,6 @@ describe("handleRemember — batch (array) content", () => {
     const result = handleRemember(
       { content: "lone fact" },
       "conv-batch-5",
-      "default",
       CONFIG,
     );
     expect(result.success).toBe(true);

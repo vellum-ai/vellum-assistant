@@ -23,6 +23,7 @@
 
 import { create } from "zustand";
 
+import type { LiveVoiceMetricsServerFrame } from "@/domains/chat/voice/live-voice/protocol";
 import { createSelectors } from "@/utils/create-selectors";
 
 // ---------------------------------------------------------------------------
@@ -74,6 +75,24 @@ export const LIVE_VOICE_STATE_LABELS: Record<LiveVoiceSessionState, string> = {
 };
 
 /**
+ * User-facing activity label for a session, factoring in the orthogonal
+ * `reconnecting` signal. Drives the room's aria-live label. During a retry of a
+ * dropped connection the base `connecting` phase relabels to "Reconnecting…" so
+ * surfaces distinguish it from the initial connect (the JARVIS-1255 gap);
+ * `reconnecting` is ignored for every other phase. {@link LIVE_VOICE_STATE_LABELS}
+ * stays the single source of base labels.
+ */
+export function liveVoiceStateLabel(
+  state: LiveVoiceSessionState,
+  reconnecting: boolean,
+): string {
+  if (reconnecting && state === "connecting") {
+    return "Reconnecting…";
+  }
+  return LIVE_VOICE_STATE_LABELS[state];
+}
+
+/**
  * Imperative controls for the active session, registered by the
  * {@link useLiveVoice} controller instance that owns it. Lets a globally
  * mounted component (e.g. the title-bar session pill) drive a session owned by
@@ -83,19 +102,63 @@ export interface LiveVoiceSessionControls {
   /** End the voice session (release mic, socket, and audio). */
   stop: () => void;
   /**
-   * Force-end the current user turn — a manual push-to-talk release, identical
-   * to the automatic silence release (the green ↑ "send now" button). No-op
-   * unless the session is `listening`.
+   * Force-end the current user turn — a manual "send now", identical to the
+   * automatic release. In hands-free mode it forces the server VAD's
+   * utterance boundary (`ptt_release` is honored as a manual override); in
+   * manual mode it is the classic push-to-talk release. No-op unless the
+   * session is `listening`.
    */
   release: () => void;
   /**
-   * Stop in-flight assistant playback without the user having to speak. V1
-   * behavior: same path as barge-in interrupt, which ends the session (a later
-   * engine revision makes it turn-scoped). No-op unless the session is
-   * `speaking`. Dormant until the turn-scoped interrupt lands (engine plan,
-   * JARVIS-1240) — deliberately kept registered, but no surface wires it yet.
+   * Stop in-flight assistant playback without the user having to speak.
+   * Hands-free (server-VAD) sessions: turn-scoped — the daemon cancels the
+   * turn and re-arms, and the session returns to `listening`. Manual
+   * sessions keep the V1 barge-in semantics, which end the session. No-op
+   * unless the session is `speaking`.
    */
   interrupt: () => void;
+  /**
+   * Mute (or unmute) the mic without ending the session. While muted the
+   * capture graph keeps running but silence is streamed in place of the
+   * captured PCM (keeps the server VAD / STT stream healthy) and the
+   * published amplitude pins to 0.
+   */
+  setMuted: (muted: boolean) => void;
+  /**
+   * Retune the live session's turn-detection knobs ("pause before reply" /
+   * "interrupt sensitivity") without reconnecting. Each field is optional; the
+   * daemon applies the change from the next utterance. No-op unless the
+   * transport is active.
+   */
+  updateConfig: (config: {
+    silenceThresholdMs?: number;
+    bargeInMinSpeechMs?: number;
+  }) => void;
+}
+
+/**
+ * Latency pair for the most recent live-voice turn.
+ *
+ * - `server` — the daemon's `metrics` frame for the turn, `null` until it
+ *   arrives (its `roundTripMs` is normalized to `null` by the controller when
+ *   an older daemon omits the field).
+ * - `clientHeardLatencyMs` — the client-perceived end-of-speech → first
+ *   TTS-audio-enqueued delta measured by the controller (includes network +
+ *   queueing the server can't see); `null` when the turn produced no audio or
+ *   had no pending end-of-speech stamp.
+ *
+ * Written wholesale as one object so the atomic `use.lastTurnLatency()`
+ * selector never observes a torn pair (see docs/STATE_MANAGEMENT.md).
+ */
+export interface LiveVoiceTurnLatency {
+  readonly server: LiveVoiceMetricsServerFrame | null;
+  readonly clientHeardLatencyMs: number | null;
+}
+
+/** Viewport-space point (px) the color room's entrance grows from. */
+export interface LiveVoiceEntryOrigin {
+  readonly x: number;
+  readonly y: number;
 }
 
 /**
@@ -113,6 +176,23 @@ export type LiveVoiceSessionStarter = (
 export interface LiveVoiceState {
   /** Current phase of the session lifecycle. */
   state: LiveVoiceSessionState;
+  /**
+   * Whether the assistant's TTS audio is actually queued/playing right now,
+   * tracked by the controller from the active {@link LiveVoiceAudioPlayer} with
+   * a short idle grace. The `speaking` phase mirrors server turn framing (set on
+   * the first `tts_audio`, cleared only on `tts_done`), so a turn that speaks an
+   * ack and then runs a tool stays `speaking` while silent; this flag lets the
+   * avatar distinguish "actively speaking" from "silent mid-turn" and read as
+   * `thinking` during the tool run (see `toVoiceAvatarVisual`, JARVIS-1279).
+   * Meaningful only while `state === "speaking"`.
+   */
+  assistantAudioActive: boolean;
+  /**
+   * True while the controller is retrying a dropped connection (attempt > 0),
+   * so surfaces can distinguish it from the initial-connect `connecting`.
+   * Orthogonal to `state`, which stays a 1:1 mirror of the macOS enum.
+   */
+  reconnecting: boolean;
   /** Assistant the active session was started for, `null` when idle. */
   assistantId: string | null;
   /**
@@ -146,6 +226,48 @@ export interface LiveVoiceState {
   assistantTranscript: string;
   /** Smoothed RMS mic amplitude in [0, 1] for UI / barge-in. */
   inputAmplitude: number;
+  /**
+   * True while the user muted the mic (see {@link LiveVoiceSessionControls.setMuted}).
+   * Written by the controller so surfaces render the muted state; cleared on
+   * `reset` and `setSessionContext` — a new session always starts live.
+   */
+  muted: boolean;
+  /**
+   * Whether the active session runs hands-free (server-VAD). Published by the
+   * controller at start and downgraded on the version-skew fallback (an older
+   * daemon that ignores `turnDetection`). Surfaces use it to gate hands-free-
+   * only affordances — e.g. the pill's turn-scoped ■ stop, which in a manual
+   * session would end the whole session.
+   */
+  handsFree: boolean;
+  /**
+   * Viewport-space center of the control the user tapped to start the session
+   * (the composer's voice button). The color room grows its entrance from here
+   * — "the avatar on the screen" the user acted on — instead of a fixed
+   * screen-center point. `null` when a session started without a captured
+   * origin (falls back to center). The composer publishes it just before
+   * invoking the `starter`; the controller's `connectSession` carries it across
+   * its start-time `reset()` (like `muted`), so it survives to the room mount.
+   */
+  entryOrigin: LiveVoiceEntryOrigin | null;
+  /**
+   * Latency measurements for the last turn, `null` until a turn is measured.
+   * Debug surface only — per the minimal-treatment note on
+   * {@link LIVE_VOICE_STATE_LABELS}, no surface renders this: the controller
+   * logs one `console.debug("[live-voice] turn latency", …)` line per
+   * completed turn and this field waits for a future debug panel.
+   */
+  lastTurnLatency: LiveVoiceTurnLatency | null;
+  /**
+   * Provider for the assistant's TTS *output* amplitude in [0, 1], registered
+   * by the controller from the active session's {@link LiveVoiceAudioPlayer}
+   * (its output-bus analyser). `null` when there is no session, or on a context
+   * that can't meter. Read via {@link getLiveVoiceOutputAmplitude}; the room
+   * avatar routes between this and the mic amplitude by phase — see
+   * {@link getLiveVoiceAvatarAmplitude}. A registered provider (like `controls`)
+   * so a non-`speaking` read costs nothing and it clears on session reset.
+   */
+  outputAmplitudeProvider: (() => number) | null;
   /** Human-readable error message when `state === "failed"`, `null` otherwise. */
   error: string | null;
 }
@@ -153,6 +275,10 @@ export interface LiveVoiceState {
 export interface LiveVoiceActions {
   /** Replace the session phase. */
   setState: (state: LiveVoiceSessionState) => void;
+  /** Record whether assistant TTS audio is currently queued/playing. */
+  setAssistantAudioActive: (active: boolean) => void;
+  /** Set whether the controller is retrying a dropped connection. */
+  setReconnecting: (reconnecting: boolean) => void;
   /**
    * Record which assistant/conversation the session was started for. Sets
    * both `conversationId` and `startedConversationId`; called once per
@@ -183,6 +309,19 @@ export interface LiveVoiceActions {
    */
   clearUserTranscripts: () => void;
   setInputAmplitude: (amplitude: number) => void;
+  /** Record the muted state published by the controller. */
+  setMuted: (muted: boolean) => void;
+  /** Record whether the active session runs hands-free (server-VAD). */
+  setHandsFree: (handsFree: boolean) => void;
+  /** Record the entry origin (the tapped control's center) for the entrance. */
+  setEntryOrigin: (origin: LiveVoiceEntryOrigin | null) => void;
+  /**
+   * Replace the last turn's latency pair wholesale (never patch a member in
+   * place) so subscribers of the atomic selector see one consistent object.
+   */
+  setLastTurnLatency: (lastTurnLatency: LiveVoiceTurnLatency) => void;
+  /** Register (or clear) the active player's output-amplitude provider. */
+  setOutputAmplitudeProvider: (provider: (() => number) | null) => void;
   /** Transition to `failed` with a message. */
   fail: (message: string) => void;
   /**
@@ -267,6 +406,8 @@ export function isLiveVoiceSessionOwnedBy(
 /** Session-scoped fields restored by `reset()`. Excludes `starter` (mount-scoped). */
 const INITIAL_SESSION_STATE: Omit<LiveVoiceState, "starter"> = {
   state: "idle",
+  assistantAudioActive: false,
+  reconnecting: false,
   assistantId: null,
   conversationId: null,
   startedConversationId: null,
@@ -275,6 +416,11 @@ const INITIAL_SESSION_STATE: Omit<LiveVoiceState, "starter"> = {
   finalTranscript: "",
   assistantTranscript: "",
   inputAmplitude: 0,
+  muted: false,
+  handsFree: false,
+  entryOrigin: null,
+  lastTurnLatency: null,
+  outputAmplitudeProvider: null,
   error: null,
 };
 
@@ -283,8 +429,18 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
   starter: null,
 
   setState: (state) => set({ state }),
+  setAssistantAudioActive: (assistantAudioActive) =>
+    set({ assistantAudioActive }),
+  setReconnecting: (reconnecting) => set({ reconnecting }),
   setSessionContext: (assistantId, conversationId) =>
-    set({ assistantId, conversationId, startedConversationId: conversationId }),
+    // A fresh session always opens with the mic live, even if the controller
+    // starts it without an intervening `reset`.
+    set({
+      assistantId,
+      conversationId,
+      startedConversationId: conversationId,
+      muted: false,
+    }),
   setConversationId: (conversationId) => set({ conversationId }),
   setControls: (controls) => set({ controls }),
   setStarter: (starter) => set({ starter }),
@@ -295,6 +451,12 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
   clearAssistantTranscript: () => set({ assistantTranscript: "" }),
   clearUserTranscripts: () => set({ partialTranscript: "", finalTranscript: "" }),
   setInputAmplitude: (inputAmplitude) => set({ inputAmplitude }),
+  setMuted: (muted) => set({ muted }),
+  setHandsFree: (handsFree) => set({ handsFree }),
+  setEntryOrigin: (entryOrigin) => set({ entryOrigin }),
+  setLastTurnLatency: (lastTurnLatency) => set({ lastTurnLatency }),
+  setOutputAmplitudeProvider: (outputAmplitudeProvider) =>
+    set({ outputAmplitudeProvider }),
   fail: (message) => set({ state: "failed", error: message }),
   reset: () => set({ ...INITIAL_SESSION_STATE }),
 }));
@@ -309,6 +471,18 @@ export const useLiveVoiceStore = createSelectors(useLiveVoiceStoreBase);
  */
 export function getLiveVoiceInputAmplitude(): number {
   return useLiveVoiceStore.getState().inputAmplitude;
+}
+
+/**
+ * Assistant TTS *output* amplitude in [0, 1] — the smoothed RMS of the audio the
+ * assistant is speaking right now, read from the active player's output-bus
+ * analyser via the controller-registered provider. Returns 0 when nothing is
+ * playing (or the audio context can't meter). The counterpart to
+ * {@link getLiveVoiceInputAmplitude}: mic pulse for `listening`, output pulse
+ * for `responding`.
+ */
+export function getLiveVoiceOutputAmplitude(): number {
+  return useLiveVoiceStore.getState().outputAmplitudeProvider?.() ?? 0;
 }
 
 /**
@@ -331,6 +505,52 @@ export function endLiveVoiceSession(): void {
  */
 export function releaseLiveVoiceTurn(): void {
   useLiveVoiceStore.getState().controls?.release();
+}
+
+/**
+ * Stop the in-flight assistant response through the store-registered
+ * controls. Turn-scoped for hands-free sessions (the session returns to
+ * `listening`); ends a manual session (V1 barge-in semantics). No-op unless
+ * the session is `speaking`. See {@link endLiveVoiceSession} for why this is
+ * module-level.
+ */
+export function stopLiveVoiceResponse(): void {
+  useLiveVoiceStore.getState().controls?.interrupt();
+}
+
+/**
+ * Mute or unmute the active session's mic through the store-registered
+ * controls (the controller mirrors the state into `muted`). No-op when no
+ * session exists. See {@link endLiveVoiceSession} for why this is
+ * module-level.
+ */
+export function setLiveVoiceMuted(muted: boolean): void {
+  useLiveVoiceStore.getState().controls?.setMuted(muted);
+}
+
+/**
+ * Retune the active session's "pause before reply" / "interrupt sensitivity"
+ * live through the store-registered controls (the in-session voice-room gear).
+ * No-op when no session exists or the transport isn't active. Module-level for
+ * the same stable-identity reasons as {@link endLiveVoiceSession}.
+ */
+export function updateLiveVoiceSessionConfig(config: {
+  silenceThresholdMs?: number;
+  bargeInMinSpeechMs?: number;
+}): void {
+  useLiveVoiceStore.getState().controls?.updateConfig(config);
+}
+
+/**
+ * Record the viewport-space center of the control that started the session, so
+ * the color room grows its entrance from there. Set by the composer just
+ * before it invokes the session `starter`. Module-level for the same
+ * stable-identity reasons as {@link endLiveVoiceSession}.
+ */
+export function setLiveVoiceEntryOrigin(
+  origin: LiveVoiceEntryOrigin | null,
+): void {
+  useLiveVoiceStore.getState().setEntryOrigin(origin);
 }
 
 /**

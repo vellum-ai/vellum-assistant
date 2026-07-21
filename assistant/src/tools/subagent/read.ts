@@ -1,4 +1,5 @@
 import { getMessages } from "../../persistence/conversation-crud.js";
+import { extractTextFromStoredMessageContent } from "../../persistence/message-content.js";
 import { getSubagentManager, TERMINAL_STATUSES } from "../../subagent/index.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 import { resolveSubagentId } from "./resolve.js";
@@ -58,10 +59,12 @@ export async function executeSubagentRead(
   // Group text blocks by message so last_n slices messages, not blocks.
   const messageTexts: string[] = [];
   for (const msg of dbMessages) {
-    if (msg.role !== "assistant") continue;
+    if (msg.role !== "assistant") {
+      continue;
+    }
     const blocks: string[] = [];
     try {
-      const content = JSON.parse(msg.content);
+      const content = msg.content;
       if (Array.isArray(content)) {
         for (const block of content) {
           if (block.type === "text" && typeof block.text === "string") {
@@ -72,8 +75,7 @@ export async function executeSubagentRead(
         blocks.push(content);
       }
     } catch {
-      // Content might be plain text.
-      blocks.push(msg.content);
+      blocks.push(extractTextFromStoredMessageContent(msg.content));
     }
     if (blocks.length > 0) {
       messageTexts.push(blocks.join("\n\n"));

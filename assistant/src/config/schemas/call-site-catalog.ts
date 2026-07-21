@@ -70,12 +70,6 @@ const CATALOG_RECORD: CatalogRecord = {
     description: "Compacts conversation history to stay within context limits.",
     domain: "agentLoop",
   },
-  analyzeConversation: {
-    id: "analyzeConversation",
-    displayName: "Analyze Conversation",
-    description: "Analyzes conversation content for summaries and insights.",
-    domain: "agentLoop",
-  },
   callAgent: {
     id: "callAgent",
     displayName: "Call Agent",
@@ -294,6 +288,13 @@ const CATALOG_RECORD: CatalogRecord = {
     description:
       "Captions images via a vision-capable profile for text-only model fallback.",
     domain: "skills",
+  },
+  voiceFrontDecision: {
+    id: "voiceFrontDecision",
+    displayName: "Voice Front Decision",
+    description:
+      "Fast turn-taking and presence decisions during live voice (semantic endpointing, ack generation).",
+    domain: "agentLoop",
   },
   homeGreeting: {
     id: "homeGreeting",

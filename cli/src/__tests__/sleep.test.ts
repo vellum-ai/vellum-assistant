@@ -23,10 +23,18 @@ const isProcessAliveMock = mock((): { alive: boolean; pid: number | null } => ({
   pid: null,
 }));
 
+const realProcess = { ...(await import("../lib/process.js")) };
+
 mock.module("../lib/process.js", () => ({
   isProcessAlive: isProcessAliveMock,
   stopProcessByPidFile: stopProcessByPidFileMock,
 }));
+
+// Restore the real module once this file finishes so the mock does not leak
+// into other test files in the same `bun test` run.
+afterAll(() => {
+  mock.module("../lib/process.js", () => realProcess);
+});
 
 import { sleep } from "../commands/sleep.js";
 import {
@@ -172,8 +180,7 @@ describe("sleep command", () => {
       undefined,
       7000,
     );
-    // The CES sibling (CES_STANDALONE opt-in) is stopped by its PID file; a
-    // no-op when absent on the default topology.
+    // The CES sibling is stopped by its PID file; a no-op when absent.
     expect(stopProcessByPidFileMock).toHaveBeenNthCalledWith(
       3,
       join(assistantRootDir, "ces.pid"),

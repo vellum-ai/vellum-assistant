@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { type LLMConfigBase, LLMSchema } from "../../config/schemas/llm.js";
+import { LLMSchema } from "../../config/schemas/llm.js";
 import type { ProviderConnection } from "../inference/auth.js";
 import type { ProvidersConfig } from "../registry.js";
 
@@ -46,7 +46,8 @@ import {
 } from "../registry.js";
 
 function makeConfig(): ProvidersConfig {
-  const baseLlm = LLMSchema.parse({});
+  // Every test passes an explicit `opts.model`, so the llm config only needs
+  // to be schema-valid — resolution is never consulted for the model here.
   return {
     services: {
       inference: {},
@@ -60,14 +61,7 @@ function makeConfig(): ProvidersConfig {
         provider: "inference-provider-native",
       },
     },
-    llm: {
-      ...baseLlm,
-      default: {
-        ...baseLlm.default,
-        provider: "openrouter" as LLMConfigBase["provider"],
-        model: "x-ai/grok-4.20-beta",
-      },
-    },
+    llm: LLMSchema.parse({}),
   };
 }
 
@@ -103,7 +97,7 @@ describe("resolveProviderFromConnection native web search selection", () => {
 
   test("keeps OpenRouter native web search model-specific across cached connections", async () => {
     await resolveProviderFromConnection(openRouterConnection, makeConfig(), {
-      model: "x-ai/grok-4.20-beta",
+      model: "x-ai/grok-4.20",
     });
     await resolveProviderFromConnection(openRouterConnection, makeConfig(), {
       model: "anthropic/claude-opus-4-7",
@@ -111,7 +105,7 @@ describe("resolveProviderFromConnection native web search selection", () => {
 
     expect(adapterCalls.map((call) => call.opts)).toEqual([
       expect.objectContaining({
-        model: "x-ai/grok-4.20-beta",
+        model: "x-ai/grok-4.20",
         useNativeWebSearch: false,
       }),
       expect.objectContaining({
@@ -134,10 +128,7 @@ describe("isNativeWebSearchCapableProvider gateway anthropic routing", () => {
 
   test("vercel-ai-gateway non-Anthropic models are not capable", () => {
     expect(
-      isNativeWebSearchCapableProvider(
-        "vercel-ai-gateway",
-        "x-ai/grok-4.20-beta",
-      ),
+      isNativeWebSearchCapableProvider("vercel-ai-gateway", "x-ai/grok-4.20"),
     ).toBe(false);
   });
 });

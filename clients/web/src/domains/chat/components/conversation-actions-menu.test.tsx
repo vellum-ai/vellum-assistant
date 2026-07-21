@@ -95,7 +95,9 @@ mock.module("@vellumai/design-library", () => {
 
 import {
     ConversationActionsMenu,
+    ConversationActionsSheet,
     renderConversationMenuItems,
+    renderConversationMenuItemsAsPanelItems,
     type ConversationMenuPrimitive,
 } from "@/domains/chat/components/conversation-actions-menu";
 import { Menu } from "@vellumai/design-library";
@@ -155,19 +157,17 @@ describe("renderConversationMenuItems", () => {
     expect(html).toContain("Unarchive");
   });
 
-  test("hides Mark as unread and Analyze when isReadonly", () => {
+  test("hides Mark as unread when isReadonly", () => {
     const html = renderToStaticMarkup(
       <>{renderConversationMenuItems({
         Primitive: Menu as unknown as ConversationMenuPrimitive,
         isReadonly: true,
         onArchive: () => {},
-        onAnalyze: () => {},
         onMarkUnread: () => {},
       })}</>,
     );
     expect(html).toContain("Archive");
     expect(html).not.toContain("Mark as unread");
-    expect(html).not.toContain("Analyze");
   });
 
   test("renders header variant with correct item order", () => {
@@ -177,14 +177,12 @@ describe("renderConversationMenuItems", () => {
         variant: "header",
         onCopyConversation: () => {},
         onForkConversation: () => {},
-        onAnalyze: () => {},
         onPinToggle: () => {},
         onRename: () => {},
       })}</>,
     );
     expect(html).toContain("Copy full conversation");
     expect(html).toContain("Fork conversation");
-    expect(html).toContain("Analyze conversation");
     expect(html).toContain("Pin");
     expect(html).toContain("Rename");
   });
@@ -310,16 +308,93 @@ describe("ConversationActionsMenu — mobile panel details", () => {
         variant="header"
         onCopyConversation={() => {}}
         onForkConversation={() => {}}
-        onAnalyze={() => {}}
         onPinToggle={() => {}}
         onRename={() => {}}
       />,
     );
     expect(html).toContain("Copy full conversation");
     expect(html).toContain("Fork conversation");
-    expect(html).toContain("Analyze conversation");
     expect(html).toContain("Pin");
     expect(html).toContain("Rename");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ConversationActionsSheet — shared controlled sheet (row long-press + ellipsis)
+// ---------------------------------------------------------------------------
+
+describe("ConversationActionsSheet", () => {
+  test("renders the actions title and the provided items", () => {
+    const html = renderToStaticMarkup(
+      <ConversationActionsSheet
+        open
+        onOpenChange={() => {}}
+        onPinToggle={() => {}}
+        onRename={() => {}}
+      />,
+    );
+    expect(html).toContain("Conversation actions");
+    expect(html).toContain("Pin");
+    expect(html).toContain("Rename");
+  });
+
+  test("renders a trigger when one is provided (ellipsis path)", () => {
+    const html = renderToStaticMarkup(
+      <ConversationActionsSheet
+        open={false}
+        onOpenChange={() => {}}
+        onArchive={() => {}}
+        trigger={<button aria-label="Conversation actions" />}
+      />,
+    );
+    expect(html).toContain('aria-label="Conversation actions"');
+    expect(html).toContain("Archive");
+  });
+
+  test("omits a trigger when none is provided (row long-press path)", () => {
+    const html = renderToStaticMarkup(
+      <ConversationActionsSheet
+        open
+        onOpenChange={() => {}}
+        onArchive={() => {}}
+      />,
+    );
+    // No trigger button, but the sheet body still renders the item set.
+    expect(html).not.toContain("<button");
+    expect(html).toContain("Archive");
+  });
+
+  test("hides Open in New Window on native iOS", () => {
+    mockIsNativePlatform = true;
+    const html = renderToStaticMarkup(
+      <ConversationActionsSheet
+        open
+        onOpenChange={() => {}}
+        variant="header"
+        onOpenInNewWindow={() => {}}
+        onPinToggle={() => {}}
+      />,
+    );
+    expect(html).not.toContain("Open in new window");
+    expect(html).toContain("Pin");
+  });
+});
+
+describe("renderConversationMenuItemsAsPanelItems", () => {
+  test("flattens the item set into panel rows with a close handler", () => {
+    const html = renderToStaticMarkup(
+      <>
+        {renderConversationMenuItemsAsPanelItems({
+          onPinToggle: () => {},
+          onRename: () => {},
+          onArchive: () => {},
+          onClose: () => {},
+        })}
+      </>,
+    );
+    expect(html).toContain("Pin");
+    expect(html).toContain("Rename");
+    expect(html).toContain("Archive");
   });
 });
 
@@ -330,13 +405,11 @@ describe("ConversationActionsMenu — read-only conversations", () => {
       <ConversationActionsMenu
         isReadonly
         onArchive={() => {}}
-        onAnalyze={() => {}}
         onMarkUnread={() => {}}
       />,
     );
     expect(html).toContain("Archive");
     expect(html).not.toContain("Mark as unread");
-    expect(html).not.toContain("Analyze");
   });
 
   test("Unarchive renders when archived and read-only", () => {

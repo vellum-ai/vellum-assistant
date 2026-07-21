@@ -24,6 +24,7 @@ import type {
 import { deepgramTtsProviderDefinition } from "./providers/deepgram-provider.js";
 import { elevenLabsTtsProviderDefinition } from "./providers/elevenlabs-provider.js";
 import { fishAudioTtsProviderDefinition } from "./providers/fish-audio-provider.js";
+import { vellumTtsProviderDefinition } from "./providers/vellum-provider.js";
 import { xaiTtsProviderDefinition } from "./providers/xai-provider.js";
 import type { TtsProvider, TtsProviderId } from "./types.js";
 
@@ -47,12 +48,15 @@ const DEFINITIONS = {
   "fish-audio": fishAudioTtsProviderDefinition,
   deepgram: deepgramTtsProviderDefinition,
   xai: xaiTtsProviderDefinition,
+  vellum: vellumTtsProviderDefinition,
 } as const satisfies Record<TtsProviderId, TtsProviderDefinition>;
 
 /**
  * Definitions in display order (e.g. settings dropdowns).
  */
+// vellum leads: it is the managed option, selected like any other provider.
 const CATALOG: readonly TtsProviderDefinition[] = [
+  DEFINITIONS.vellum,
   DEFINITIONS.elevenlabs,
   DEFINITIONS["fish-audio"],
   DEFINITIONS.deepgram,

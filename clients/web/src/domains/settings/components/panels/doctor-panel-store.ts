@@ -99,6 +99,7 @@ export type DoctorPanelStore = DoctorPanelState & DoctorPanelActions;
 // ---------------------------------------------------------------------------
 
 export interface DoctorPanelContext {
+  getEntries: () => ChatEntry[];
   updateEntries: (updater: (entries: ChatEntry[]) => ChatEntry[]) => void;
   setThinking: (v: boolean) => void;
   setPendingApproval: (v: boolean) => void;

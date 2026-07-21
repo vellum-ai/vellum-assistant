@@ -10,20 +10,12 @@ let mockConnections:
   | Array<Record<string, unknown> & { clientId?: string; accountInfo?: string }>
   | undefined;
 let mockAccessToken: string | undefined;
-let mockConfig: Record<string, unknown> = {};
 let mockPlatformClient: Record<string, unknown> | null = null;
 let syncManualTokenCalls: string[] = [];
 
 // ---------------------------------------------------------------------------
 // Module mocks (must precede imports of the module under test)
 // ---------------------------------------------------------------------------
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
 
 mock.module("./oauth-store.js", () => ({
   getProvider: () => mockProvider,
@@ -62,10 +54,6 @@ mock.module("./manual-token-connection.js", () => ({
   },
 }));
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => mockConfig,
-}));
-
 mock.module("../platform/client.js", () => ({
   VellumPlatformClient: {
     create: async () => mockPlatformClient,
@@ -76,13 +64,25 @@ mock.module("../platform/client.js", () => ({
 // Import the module under test (after all mocks are registered)
 // ---------------------------------------------------------------------------
 
+import { setConfig } from "../__tests__/helpers/set-config.js";
 import { BYOOAuthConnection } from "./byo-connection.js";
 import {
+  formatNoConnectionError,
   resolveEffectiveBaseUrl,
   resolveOAuthConnection,
   resolveOAuthConnectionWithMeta,
 } from "./connection-resolver.js";
 import { PlatformOAuthConnection } from "./platform-connection.js";
+
+/** Seed `services.<key>.mode` entries into the workspace config for real. */
+function seedServiceModes(modes: Record<string, "managed" | "your-own">): void {
+  setConfig(
+    "services",
+    Object.fromEntries(
+      Object.entries(modes).map(([key, mode]) => [key, { mode }]),
+    ),
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -121,22 +121,7 @@ function setupDefaults(): void {
     clientId: "client-1",
   };
   mockAccessToken = "tok-valid";
-  mockConfig = {
-    services: {
-      inference: {
-        mode: "your-own",
-        provider: "anthropic",
-        model: "claude-opus-4-6",
-      },
-      "image-generation": {
-        mode: "your-own",
-        provider: "gemini",
-        model: "gemini-3.1-flash-image-preview",
-      },
-      "web-search": { mode: "your-own", provider: "inference-provider-native" },
-      "google-oauth": { mode: "managed" },
-    },
-  };
+  seedServiceModes({ "google-oauth": "managed" });
   mockConnections = undefined;
   mockPlatformClient = makeMockClient();
   syncManualTokenCalls = [];
@@ -217,9 +202,7 @@ describe("resolveOAuthConnection", () => {
   test("returns PlatformOAuthConnection when GitHub is in managed mode", async () => {
     mockProvider!.provider = "github";
     mockProvider!.managedServiceConfigKey = "github-oauth";
-    (mockConfig.services as Record<string, unknown>)["github-oauth"] = {
-      mode: "managed",
-    };
+    seedServiceModes({ "google-oauth": "managed", "github-oauth": "managed" });
 
     const result = await resolveOAuthConnection("github");
     expect(result).toBeInstanceOf(PlatformOAuthConnection);
@@ -229,9 +212,7 @@ describe("resolveOAuthConnection", () => {
 
   test("returns BYOOAuthConnection when service config mode is your-own", async () => {
     mockProvider!.managedServiceConfigKey = "google-oauth";
-    (mockConfig.services as Record<string, unknown>)["google-oauth"] = {
-      mode: "your-own",
-    };
+    seedServiceModes({ "google-oauth": "your-own" });
 
     const result = await resolveOAuthConnection("google");
     expect(result).toBeInstanceOf(BYOOAuthConnection);
@@ -398,9 +379,7 @@ describe("resolveOAuthConnection scope-awareness", () => {
   });
 
   test("BYO: rejects when granted scopes are known and missing the requirement", async () => {
-    (mockConfig.services as Record<string, unknown>)["google-oauth"] = {
-      mode: "your-own",
-    };
+    seedServiceModes({ "google-oauth": "your-own" });
     mockConnection!.grantedScopes = JSON.stringify(CALENDAR_ONLY);
 
     await expect(
@@ -409,9 +388,7 @@ describe("resolveOAuthConnection scope-awareness", () => {
   });
 
   test("BYO: treats full Gmail access as covering Gmail read access", async () => {
-    (mockConfig.services as Record<string, unknown>)["google-oauth"] = {
-      mode: "your-own",
-    };
+    seedServiceModes({ "google-oauth": "your-own" });
     mockConnection!.grantedScopes = JSON.stringify([GMAIL_FULL_ACCESS_SCOPE]);
 
     const result = await resolveOAuthConnection("google", {
@@ -421,9 +398,7 @@ describe("resolveOAuthConnection scope-awareness", () => {
   });
 
   test("BYO: unknown granted scopes never block", async () => {
-    (mockConfig.services as Record<string, unknown>)["google-oauth"] = {
-      mode: "your-own",
-    };
+    seedServiceModes({ "google-oauth": "your-own" });
     mockConnection!.grantedScopes = JSON.stringify([]);
 
     const result = await resolveOAuthConnection("google", {
@@ -433,9 +408,7 @@ describe("resolveOAuthConnection scope-awareness", () => {
   });
 
   test("BYO: picks an older scope-satisfying connection over a newer narrow one", async () => {
-    (mockConfig.services as Record<string, unknown>)["google-oauth"] = {
-      mode: "your-own",
-    };
+    seedServiceModes({ "google-oauth": "your-own" });
     // Newest first (matching the store's ordering): a Calendar-only row, then
     // an older row that carries the Gmail scope. The narrow row must not win.
     mockConnections = [
@@ -573,6 +546,145 @@ describe("resolveOAuthConnectionWithMeta multi-account visibility", () => {
 
     expect(ambiguous).toBe(false);
     expect(allAccounts).toEqual(["user@example.com"]);
+  });
+});
+
+describe("no-match error lists available accounts", () => {
+  function clientReturning(results: unknown[]) {
+    return {
+      ...makeMockClient(),
+      fetch: mock(
+        async (path: string) =>
+          new Response(
+            JSON.stringify({
+              // Filtered lookups (account_identifier present) return nothing;
+              // the unfiltered fallback returns the real connections.
+              results: path.includes("account_identifier=") ? [] : results,
+            }),
+            { status: 200 },
+          ),
+      ),
+    };
+  }
+
+  beforeEach(() => {
+    setupDefaults();
+  });
+
+  test("BYO: names the provider's active accounts when the requested account misses", async () => {
+    mockConnections = [
+      {
+        id: "conn-personal",
+        provider: "google",
+        accountInfo: "user@example.com",
+        grantedScopes: JSON.stringify([]),
+        status: "active",
+      },
+      {
+        id: "conn-work",
+        provider: "google",
+        accountInfo: "other@example.org",
+        grantedScopes: JSON.stringify([]),
+        status: "active",
+      },
+    ];
+
+    let message = "";
+    try {
+      await resolveOAuthConnection("google", {
+        account: "missing@example.com",
+      });
+    } catch (error) {
+      message = (error as Error).message;
+    }
+
+    expect(message).toContain('account "missing@example.com"');
+    expect(message).toContain(
+      "Active google connections: user@example.com, other@example.org",
+    );
+    expect(message).toContain("Check the account spelling.");
+  });
+
+  test("BYO: zero connections keeps the plain 'needs to be connected' shape", async () => {
+    mockConnections = [];
+
+    let message = "";
+    try {
+      await resolveOAuthConnection("google", {
+        account: "missing@example.com",
+      });
+    } catch (error) {
+      message = (error as Error).message;
+    }
+
+    expect(message).not.toContain("Active google connections:");
+    expect(message).toContain(
+      "The google service needs to be connected before it can be used.",
+    );
+  });
+
+  test("managed: names the provider's active accounts when the requested account misses", async () => {
+    mockProvider!.managedServiceConfigKey = "google-oauth";
+    mockPlatformClient = clientReturning([
+      { id: "conn-personal", account_label: "user@example.com" },
+      { id: "conn-work", account_label: "other@example.org" },
+    ]);
+
+    let message = "";
+    try {
+      await resolveOAuthConnection("google", {
+        account: "missing@example.com",
+      });
+    } catch (error) {
+      message = (error as Error).message;
+    }
+
+    expect(message).toContain('account "missing@example.com"');
+    expect(message).toContain(
+      "Active google connections: user@example.com, other@example.org",
+    );
+    expect(message).toContain("Check the account spelling.");
+  });
+});
+
+describe("formatNoConnectionError", () => {
+  test("appends available account labels when the provider has active connections", () => {
+    // The requested account is a one-letter misspelling of an active one.
+    const message = formatNoConnectionError({
+      provider: "outlook",
+      account: "usr@example.com",
+      availableLabels: ["user@example.com", "other@example.org"],
+    });
+    expect(message).toBe(
+      'No active OAuth connection found for provider "outlook" with account ' +
+        '"usr@example.com". Active outlook connections: user@example.com, ' +
+        "other@example.org. Check the account spelling.",
+    );
+  });
+
+  test("keeps the plain message shape when no active connections exist", () => {
+    const message = formatNoConnectionError({
+      provider: "outlook",
+      account: "user@example.com",
+      availableLabels: [],
+    });
+    expect(message).toBe(
+      'No active OAuth connection found for provider "outlook" with account ' +
+        '"user@example.com". The outlook service needs to be connected before ' +
+        "it can be used.",
+    );
+  });
+
+  test("includes both account and client ID qualifiers when present", () => {
+    const message = formatNoConnectionError({
+      provider: "outlook",
+      account: "user@example.com",
+      clientId: "client-1",
+      availableLabels: [],
+    });
+    expect(message).toContain(
+      'with account "user@example.com" and client ID "client-1"',
+    );
   });
 });
 

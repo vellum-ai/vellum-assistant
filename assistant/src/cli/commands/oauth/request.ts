@@ -4,6 +4,7 @@ import type { Command } from "commander";
 
 import { cliIpcCall, exitFromIpcResult } from "../../../ipc/cli-client.js";
 import { readStdinSync } from "../../../util/read-stdin.js";
+import { subcommand } from "../../lib/cli-command-help.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
 
 // ---------------------------------------------------------------------------
@@ -74,11 +75,11 @@ function readBodyData(data: string): unknown {
 // ---------------------------------------------------------------------------
 
 export function registerRequestCommand(oauth: Command): void {
-  oauth
-    .command("request <url>")
-    .description(
-      "The recommended way to make an authenticated request to an OAuth provider (supports a curl-like interface)",
-    )
+  // Options are registered imperatively (not in index.help.ts): the
+  // repeatable "-H, --header" flag needs a Commander collect parser
+  // (function + array default) that the declarative help contract cannot
+  // express, and option order around it must be preserved for help output.
+  subcommand(oauth, "request")
     .requiredOption("--provider <key>", "Provider name (e.g. google, slack)")
     .option("-X, --request <method>", "HTTP method (default: GET)")
     .option(
@@ -99,36 +100,6 @@ export function registerRequestCommand(oauth: Command): void {
     .option("-i, --include", "Show response headers on stderr")
     .option("--account <account>", "Account identifier for multi-account")
     .option("--client-id <id>", "BYO app client ID disambiguation")
-    .addHelpText(
-      "after",
-      `
-This is the first-class mechanism for making authenticated HTTP requests
-to an OAuth provider. By using this CLI, you follow security best-practices
-regarding how the OAuth token is used. This approach is preferred over retrieving
-the token (using \`assistant oauth token\`) and making the request directly.
-
-This command resolves the OAuth connection automatically (regardless of whether
-the provider's mode is set to "managed" or "your-own") and injects tokens transparently.
-
-URL can be absolute (https://api.x.com/2/tweets) or relative (/2/tweets).
-An absolute URL sets the host and full path explicitly. A relative path is
-joined onto the provider's configured default base URL — the base URL shown by
-'assistant oauth providers get <provider>'. For providers whose default base
-URL points at one specific service, a relative path for a different service on
-the same provider will resolve against the wrong host or path and fail (often
-with an opaque HTML 404). When in doubt, pass an absolute URL: it is the safe
-form for any service other than the provider's default.
-
-Note: The Authorization header is set automatically. User-supplied
--H "Authorization: ..." will be overridden by the OAuth bearer token.
-
-Examples:
-  $ assistant oauth request --provider twitter https://api.x.com/2/tweets
-  $ assistant oauth request --provider google /gmail/v1/users/me/messages -G
-  $ assistant oauth request --provider twitter -X POST -d '{"text":"Hello"}' https://api.x.com/2/tweets
-  $ assistant oauth request --provider google https://www.googleapis.com/calendar/v3/calendars/primary/events
-  $ assistant oauth request --provider slack -H "Content-Type: application/json" -d '{"channel":"C123"}' /api/chat.postMessage --json`,
-    )
     .action(
       async (
         url: string,

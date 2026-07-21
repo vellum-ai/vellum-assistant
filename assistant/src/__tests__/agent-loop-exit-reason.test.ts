@@ -24,7 +24,7 @@ import type {
 } from "../agent/loop.js";
 import { AgentLoop } from "../agent/loop.js";
 import type { ContextWindowConfig } from "../config/types.js";
-import type { TrustContext } from "../daemon/trust-context.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import {
   createContextWindowManager,

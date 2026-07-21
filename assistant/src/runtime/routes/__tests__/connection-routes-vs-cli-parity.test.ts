@@ -9,23 +9,9 @@
  * Rule: cc-cutover-proof (see PR_B_TASK.md).
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
-
-// ── Module mocks (must come before imports) ──────────────────────────────────
-
-mock.module("../../../config/loader.js", () => ({
-  getConfigReadOnly: () => ({}),
-  getConfig: () => ({}),
-  invalidateConfigCache: () => {},
-}));
-
-mock.module("../../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
+import { beforeEach, describe, expect, test } from "bun:test";
 
 // ── Real imports ──────────────────────────────────────────────────────────────
-
 import { getDb } from "../../../persistence/db-connection.js";
 import { initializeDb } from "../../../persistence/db-init.js";
 import { providerConnections } from "../../../persistence/schema/inference.js";

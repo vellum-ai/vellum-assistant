@@ -34,7 +34,6 @@ const realTtsCapabilityModule = {
 const realCallTtsResolverModule = {
   ...(await import("../calls/resolve-call-tts-provider.js")),
 };
-const realConfigLoaderModule = { ...(await import("../config/loader.js")) };
 
 // -- Mutable capability results -----------------------------------------------
 
@@ -46,10 +45,6 @@ let sttCapability: TelephonySttCapability;
 let ttsCapability: TelephonyTtsCapability;
 let fallbackProviderId: TtsProviderId | null;
 let fallbackScanCalls: Array<TtsProviderId | undefined> = [];
-
-const testConfig = {
-  services: { stt: { provider: "acme-stt" } },
-} as unknown as ReturnType<typeof realConfigLoaderModule.getConfig>;
 
 mock.module("../providers/speech-to-text/resolve.js", () => ({
   ...realSttResolveModule,
@@ -82,16 +77,17 @@ mock.module("../calls/resolve-call-tts-provider.js", () => ({
   },
 }));
 
-mock.module("../config/loader.js", () => ({
-  ...realConfigLoaderModule,
-  getConfig: () =>
-    preflightMocksActive ? testConfig : realConfigLoaderModule.getConfig(),
-}));
-
 import { resolveTelephonyCredentialReadiness } from "../calls/telephony-credential-preflight.js";
+import { getConfig } from "../config/loader.js";
 
 beforeAll(() => {
   preflightMocksActive = true;
+  // The catalog-miss test needs `services.stt.provider` set to a name absent
+  // from the STT provider catalog. That field is a schema enum, so the value
+  // cannot be seeded through config.json; mutate the loader's cached config
+  // object directly. No test in this file writes the config file, so the
+  // mutation persists for the whole suite.
+  (getConfig().services.stt as { provider: string }).provider = "acme-stt";
 });
 
 afterAll(() => {

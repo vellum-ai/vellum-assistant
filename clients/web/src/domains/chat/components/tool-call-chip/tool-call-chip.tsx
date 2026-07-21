@@ -25,6 +25,8 @@ import {
   type ReactNode,
 } from "react";
 
+import { Button } from "@vellumai/design-library";
+
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 
 import {
@@ -123,10 +125,19 @@ function StatusIcon({
 
 /**
  * Inline confirmation card rendered inside the expanded tool call panel
- * when `toolCall.pendingConfirmation` is set. Matches the macOS
- * `PermissionPromptView` layout.
+ * when `toolCall.pendingConfirmation` is set.
+ *
+ * Layout mirrors the Figma spec (New App / node 6648:95696):
+ *   - meta line: "Confirmation required · <activity>" (small, secondary)
+ *   - the human-readable ask (`description`, falling back to `riskReason`)
+ *     as the prominent body
+ *   - left-aligned Allow (split when allowlist options exist) + Deny
+ *   - a divider, then a small tertiary "Show Details" disclosure
+ *
+ * The risk badge is intentionally absent — the risk assessment lives in the
+ * rule editor / detail surfaces, and the ask itself carries the severity.
  */
-function InlineConfirmationCard({
+export function InlineConfirmationCard({
   toolCall,
   isSubmitting,
   onSubmit,
@@ -159,65 +170,86 @@ function InlineConfirmationCard({
   const confirmation = toolCall.pendingConfirmation;
   if (!confirmation) return null;
 
-  const riskBadge = confirmation.riskLevel
-    ? getRiskBadgeStyle(confirmation.riskLevel)
-    : null;
   const hasDetails = !!confirmation.input;
   const hasAllowlistOptions = (confirmation.allowlistOptions?.length ?? 0) > 0;
 
-  return (
-    <div className="rounded-lg border border-[var(--border-base)] bg-[var(--surface-overlay)] p-3">
-      {/* Row 1: title + risk badge */}
-      <div className="flex items-center gap-2">
-        {/* typography: off-scale — semibold to match macOS bodyMediumEmphasised */}
-        <span className="text-body-medium-default font-semibold text-[var(--content-default)]">
-          {confirmation.title ?? "Confirmation required"}
-        </span>
-        {riskBadge && (
-          <span
-            // typography: off-scale — compact risk badge pill
+  // Meta-line context: what the agent was doing when it hit the gate. The
+  // live activity label wins; a custom confirmation title and the friendly
+  // tool label are fallbacks.
+  const activity = toolCall.input?.activity ?? toolCall.input?.reason;
+  const contextLabel =
+    (typeof activity === "string" && activity.trim()) ||
+    confirmation.title ||
+    friendlyToolLabel(
+      toolCall.name,
+      extractInputSummary(toolCall.name, toolCall.input),
+    );
 
-            className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium leading-tight ${riskBadge.bg} ${riskBadge.text}`}
-          >
-            {riskBadge.label}
+  // The prominent body is the human-readable ask; older daemons only send
+  // the risk reason, which reads well enough in the same slot.
+  const body = confirmation.description || confirmation.riskReason || null;
+
+  return (
+    <div
+      data-testid="inline-confirmation-card"
+      className="flex w-full flex-col gap-4 rounded-xl bg-[var(--surface-overlay)] p-3"
+    >
+      {/* Meta line + ask */}
+      <div className="flex w-full flex-col gap-2">
+        {/* typography: off-scale — 12px meta line per the Figma spec */}
+        <div className="flex min-w-0 items-center gap-1.5 text-[12px] font-medium text-[var(--content-secondary)]">
+          <span className="shrink-0 whitespace-nowrap">
+            Confirmation required
           </span>
+          {contextLabel ? (
+            <>
+              <span
+                aria-hidden
+                className="size-[3px] shrink-0 rounded-full bg-[var(--content-tertiary)]"
+              />
+              <span className="min-w-0 truncate">{contextLabel}</span>
+            </>
+          ) : null}
+        </div>
+        {body && (
+          <p className="w-full text-body-medium-default text-[var(--content-default)]">
+            {body}
+          </p>
         )}
       </div>
 
-      {/* Row 2: risk reason */}
-      {confirmation.riskReason && (
-        <p className="mt-1 text-label-medium-default text-[var(--content-tertiary)]">
-          {confirmation.riskReason}
-        </p>
-      )}
-
-      {/* Row 3: action buttons (right-aligned) */}
-      <div className="mt-3 flex justify-end gap-2">
-        {/* Allow button — split when allowlistOptions present */}
+      {/* Actions — left-aligned. Allow splits into Allow | ⌄ when allowlist
+          options exist; the chevron opens the "Allow & Create Rule" menu. */}
+      <div className="flex items-start gap-2">
         {hasAllowlistOptions && onAllowAndCreateRule ? (
           <div ref={splitMenuRef} className="relative flex">
-            <button
-              type="button"
+            <Button
+              variant="primary"
               disabled={isSubmitting}
               onClick={() => onSubmit?.("allow")}
-              className="flex items-center gap-1.5 rounded-l-md bg-[var(--primary-base)] px-3 py-1.5 text-body-small-default text-[var(--content-inset)] transition-colors hover:opacity-90 disabled:opacity-50"
+              className="rounded-r-none"
             >
               {isSubmitting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
               Allow
-            </button>
-            <button
-              type="button"
+            </Button>
+            {/* Internal divider between the two halves of the split pill. */}
+            <span
+              aria-hidden
+              className="h-5 w-px self-center bg-[var(--content-inset)] opacity-20"
+            />
+            <Button
+              variant="primary"
               disabled={isSubmitting}
               onClick={() => setShowSplitMenu((v) => !v)}
-              className="flex items-center rounded-r-md border-l border-[var(--content-inset)]/30 bg-[var(--primary-base)] px-1.5 py-1.5 text-[var(--content-inset)] transition-colors hover:opacity-90 disabled:opacity-50"
+              className="rounded-l-none px-1.5"
               aria-label="More allow options"
               aria-haspopup="menu"
               aria-expanded={showSplitMenu}
             >
               <ChevronDown className="h-3.5 w-3.5" />
-            </button>
+            </Button>
             {showSplitMenu && (
-              <div className="absolute right-0 top-full z-10 mt-1 min-w-[180px] rounded-md border border-[var(--border-base)] bg-[var(--surface-lift)] py-1 shadow-lg">
+              <div className="absolute left-0 top-full z-10 mt-1 min-w-[180px] rounded-md border border-[var(--border-base)] bg-[var(--surface-lift)] py-1 shadow-lg">
                 <button
                   type="button"
                   onClick={() => {
@@ -232,44 +264,44 @@ function InlineConfirmationCard({
             )}
           </div>
         ) : (
-          <button
-            type="button"
+          <Button
+            variant="primary"
             disabled={isSubmitting}
             onClick={() => onSubmit?.("allow")}
-            className="flex items-center gap-1.5 rounded-md bg-[var(--primary-base)] px-3 py-1.5 text-body-small-default text-[var(--content-inset)] transition-colors hover:opacity-90 disabled:opacity-50"
           >
             {isSubmitting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
             Allow
-          </button>
+          </Button>
         )}
 
-        <button
-          type="button"
+        <Button
+          variant="danger"
           disabled={isSubmitting}
           onClick={() => onSubmit?.("deny")}
-          className="flex items-center gap-1.5 rounded-md bg-[var(--system-negative-strong)] px-3 py-1.5 text-body-small-default text-white transition-colors hover:opacity-90 disabled:opacity-50"
         >
           Deny
-        </button>
+        </Button>
       </div>
 
-      {/* Row 4: Show/Hide details toggle */}
+      {/* Divider + Show Details disclosure */}
       {hasDetails && (
-        <div className="mt-3">
+        <div className="flex w-full flex-col gap-3">
+          <div className="h-px w-full bg-[var(--border-base)]" />
           <button
             type="button"
             onClick={() => setShowDetails(!showDetails)}
-            className="flex items-center gap-1 text-label-medium-default text-[var(--content-default)]"
+            // typography: off-scale — 11px tertiary disclosure per the Figma spec
+            className="flex items-center gap-1 self-start text-[11px] font-medium text-[var(--content-tertiary)] transition-colors hover:text-[var(--content-secondary)]"
           >
-            <ChevronRight
-              className={`h-3 w-3 transition-transform ${showDetails ? "rotate-90" : ""}`}
+            {showDetails ? "Hide Details" : "Show Details"}
+            <ChevronDown
+              className={`size-2.5 transition-transform ${showDetails ? "rotate-180" : ""}`}
             />
-            {showDetails ? "Hide details" : "Show details"}
           </button>
 
-          {/* Row 5: details content — single formatted input block matching macOS codePreviewBlock */}
+          {/* Details content — single formatted input block matching macOS codePreviewBlock */}
           {showDetails && confirmation.input && (
-            <div className="mt-2 max-h-[220px] overflow-y-auto rounded bg-[var(--surface-overlay)] p-2">
+            <div className="max-h-[220px] overflow-y-auto rounded bg-[var(--surface-base)] p-2">
               <pre className="whitespace-pre-wrap break-words font-mono text-body-small-default text-[var(--content-secondary)]">
                 {JSON.stringify(confirmation.input, null, 2)}
               </pre>

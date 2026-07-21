@@ -26,10 +26,6 @@ mock.module("../persistence/conversation-crud.js", () => ({
   getConversationOverrideProfile: () => undefined,
 }));
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({ llm: {} }),
-}));
-
 mock.module("../config/llm-context-resolution.js", () => ({
   resolveEffectiveContextWindow: () => ({ maxInputTokens: 200_000 }),
 }));
@@ -84,6 +80,7 @@ function makeTarget(): Conversation {
     messages,
     getMessages: () => messages,
     isProcessing: () => processing,
+    waitForIdle: async () => !processing,
     setProcessing: (on: boolean) => {
       processing = on;
     },

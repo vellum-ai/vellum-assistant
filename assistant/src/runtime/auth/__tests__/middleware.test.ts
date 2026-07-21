@@ -18,13 +18,6 @@ const testDir = realpathSync(
   mkdtempSync(join(tmpdir(), "auth-middleware-test-")),
 );
 
-mock.module("../../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // Track auth bypass state for tests
 let authDisabled = false;
 mock.module("../../../config/env.js", () => ({
@@ -34,9 +27,7 @@ mock.module("../../../config/env.js", () => ({
 }));
 
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../assistant-scope.js";
-import {
-  authenticateRequest,
-} from "../middleware.js";
+import { authenticateRequest } from "../middleware.js";
 import { initAuthSigningKey, mintToken } from "../token-service.js";
 import type { ScopeProfile, TokenAudience } from "../types.js";
 

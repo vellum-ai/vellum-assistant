@@ -28,8 +28,10 @@ import {
   handleApprovalRequired,
   handleBackupPrompt,
   handleError,
+  handleFeedbackPrompt,
   handleMessageComplete,
   handleMessageDelta,
+  handleUserOutcomePrompt,
   handleStatus,
   handleToolCall,
   handleToolResult,
@@ -165,6 +167,7 @@ export function useDoctorSSE() {
       const isCurrentStream = () => controllerRef.current === controller;
 
       const ctx: DoctorPanelContext = {
+        getEntries: () => useDoctorPanelStore.getState().entries,
         updateEntries: (updater) =>
           useDoctorPanelStore.getState().updateEntries(updater),
         setThinking: (v) => useDoctorPanelStore.getState().setThinking(v),
@@ -230,6 +233,12 @@ export function useDoctorSSE() {
             break;
           case "backup_prompt":
             handleBackupPrompt(ctx, event);
+            break;
+          case "feedback_prompt":
+            handleFeedbackPrompt(ctx, event);
+            break;
+          case "user_outcome_prompt":
+            handleUserOutcomePrompt(ctx);
             break;
           case "status":
             if (handleStatus(ctx, event)) {

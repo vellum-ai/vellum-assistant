@@ -66,6 +66,18 @@ export const hasLivePlatformSession = (
 ): boolean => status === "present";
 
 /**
+ * The platform-session probe has settled — `platformSession` left the
+ * `"unknown"` window and is now a definite `"present"` / `"absent"`. Distinct
+ * from {@link isSessionSettled}: the local-gateway path flips `sessionStatus`
+ * to `"authenticated"` before `getSession()` resolves `platformSession`, so a
+ * consumer whose behavior turns on platform-session liveness must wait on this,
+ * not on the (earlier) `sessionStatus` settlement.
+ */
+export const isPlatformSessionSettled = (
+  status: PlatformSessionStatus,
+): boolean => status !== "unknown";
+
+/**
  * A platform session a live probe confirmed — `"present"` AND not a believed
  * offline restore (LUM-2412). Stricter than {@link hasLivePlatformSession}:
  * telemetry consent gates on this so it never enables on a restored-offline

@@ -30,6 +30,14 @@ interface RepairStats {
 interface RepairResult {
   messages: Message[];
   stats: RepairStats;
+  /**
+   * For each input message index, the index in `messages` of the output
+   * message that carries that input's content. Merges map several inputs to
+   * the same output; synthetic insertions occupy output slots no input maps
+   * to. Absent when input indices are not traceable through the transform
+   * ({@link deepRepairHistory} drops and merges messages in pre-passes).
+   */
+  inputToOutputIndex?: number[];
 }
 
 const SYNTHETIC_RESULT =
@@ -49,11 +57,14 @@ export function repairHistory(messages: Message[]): RepairResult {
   };
 
   const result: Message[] = [];
+  // Input index each `result` entry originated from; -1 for synthetic
+  // insertions. Feeds `inputToOutputIndex` through the merge pass below.
+  const resultSourceIndex: number[] = [];
   let pendingToolUseIds = new Set<string>();
   // tool_result blocks stripped from assistant messages, keyed by tool_use_id
   let recoveredResults = new Map<string, ToolResultContent>();
 
-  for (const msg of messages) {
+  for (const [msgIndex, msg] of messages.entries()) {
     if (msg.role === "assistant") {
       // If previous assistant had unfulfilled tool_use, inject user message
       // using recovered results where available, synthetic for the rest
@@ -61,6 +72,7 @@ export function repairHistory(messages: Message[]): RepairResult {
         result.push(
           buildResultMessage(pendingToolUseIds, recoveredResults, stats),
         );
+        resultSourceIndex.push(-1);
         pendingToolUseIds = new Set();
         recoveredResults = new Map();
       }
@@ -155,6 +167,7 @@ export function repairHistory(messages: Message[]): RepairResult {
       }
 
       result.push({ role: "assistant", content: repairedContent });
+      resultSourceIndex.push(msgIndex);
 
       // Only track client-side tool_use IDs as pending (not server_tool_use)
       pendingToolUseIds = new Set(
@@ -218,6 +231,7 @@ export function repairHistory(messages: Message[]): RepairResult {
         }
 
         result.push({ role: "user", content: newContent });
+        resultSourceIndex.push(msgIndex);
         pendingToolUseIds = new Set();
         recoveredResults = new Map();
       } else {
@@ -241,6 +255,7 @@ export function repairHistory(messages: Message[]): RepairResult {
         });
 
         result.push({ role: "user", content: newContent });
+        resultSourceIndex.push(msgIndex);
       }
     }
   }
@@ -248,6 +263,7 @@ export function repairHistory(messages: Message[]): RepairResult {
   // Trailing unfulfilled tool_use at end of history
   if (pendingToolUseIds.size > 0) {
     result.push(buildResultMessage(pendingToolUseIds, recoveredResults, stats));
+    resultSourceIndex.push(-1);
   }
 
   // Merge consecutive same-role messages. This can occur after a checkpoint
@@ -257,7 +273,8 @@ export function repairHistory(messages: Message[]): RepairResult {
   // always be merged. Undo semantics for mixed tool_result+text messages are
   // handled by isUndoableUserMessage in conversation.ts.
   const merged: Message[] = [];
-  for (const msg of result) {
+  const inputToOutputIndex = new Array<number>(messages.length);
+  for (const [resultIndex, msg] of result.entries()) {
     const prev = merged[merged.length - 1];
     if (prev && prev.role === msg.role) {
       prev.content = [...prev.content, ...msg.content];
@@ -265,9 +282,13 @@ export function repairHistory(messages: Message[]): RepairResult {
     } else {
       merged.push({ role: msg.role, content: [...msg.content] });
     }
+    const sourceIndex = resultSourceIndex[resultIndex];
+    if (sourceIndex >= 0) {
+      inputToOutputIndex[sourceIndex] = merged.length - 1;
+    }
   }
 
-  return { messages: merged, stats };
+  return { messages: merged, stats, inputToOutputIndex };
 }
 
 function buildResultMessage(
@@ -329,7 +350,9 @@ function formatWebSearchContent(content: unknown): string {
       const idx = entries.length + 1;
       entries.push(url ? `${idx}. ${title}\n   ${url}` : `${idx}. ${title}`);
     }
-    if (entries.length > 0) return entries.join("\n");
+    if (entries.length > 0) {
+      return entries.join("\n");
+    }
   }
   return "results unavailable";
 }
@@ -398,6 +421,9 @@ export function deepRepairHistory(messages: Message[]): RepairResult {
     }
   }
 
-  // 4. Apply standard tool-use/tool-result repair on top
-  return repairHistory(merged);
+  // 4. Apply standard tool-use/tool-result repair on top. The inner mapping
+  // is keyed to `merged`'s indices, not the caller's input — steps 1–3 drop
+  // and merge messages untracked — so it is not returned.
+  const { messages: repaired, stats } = repairHistory(merged);
+  return { messages: repaired, stats };
 }

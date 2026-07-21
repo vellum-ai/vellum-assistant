@@ -1,6 +1,10 @@
 import { afterAll, describe, expect, spyOn, test } from "bun:test";
 
-import { TurnLatencyTracker } from "./turn-latency-tracker.js";
+import { LatencyBreakdownSchema } from "../api/responses/llm-request-log-entry.js";
+import {
+  MEMORY_CONTEXT_PHASE_KEY,
+  TurnLatencyTracker,
+} from "./turn-latency-tracker.js";
 
 // Drive `Date.now()` deterministically so phase durations are exact.
 let clock = 0;
@@ -226,5 +230,160 @@ describe("TurnLatencyTracker", () => {
     t.mark("call_complete");
     const { cursor } = t.serializeSince(0);
     expect(t.serializeSince(cursor).breakdown).toBeNull();
+  });
+});
+
+describe("TurnLatencyTracker — sub-spans", () => {
+  /** Stamp a complete first-call waterfall so `memory_context` serializes. */
+  function markFirstCall(t: TurnLatencyTracker): void {
+    clock = 0;
+    t.mark("turn_start");
+    clock = 10;
+    t.mark("prompt_hook_start");
+    clock = 110;
+    t.mark("prompt_hook_end");
+    clock = 120;
+    t.mark("tools_resolved");
+    clock = 130;
+    t.mark("request_sent");
+    clock = 430;
+    t.markFirstToken("text");
+    clock = 700;
+    t.mark("call_complete");
+  }
+
+  function memoryPhase(t: TurnLatencyTracker, cursor = 0) {
+    return t
+      .serializeSince(cursor)
+      .breakdown?.phases.find((p) => p.key === MEMORY_CONTEXT_PHASE_KEY);
+  }
+
+  test("sub-spans attach to their phase in recorded order; other phases carry none", () => {
+    const t = new TurnLatencyTracker();
+    t.recordSubSpan(MEMORY_CONTEXT_PHASE_KEY, "v3_lanes", "Memory search", 40);
+    t.recordSubSpan(
+      MEMORY_CONTEXT_PHASE_KEY,
+      "v3_selection",
+      "Memory selection",
+      55,
+    );
+    markFirstCall(t);
+    const { breakdown } = t.serializeSince(0);
+    const memory = breakdown!.phases.find(
+      (p) => p.key === MEMORY_CONTEXT_PHASE_KEY,
+    )!;
+    expect(memory.subPhases).toEqual([
+      { key: "v3_lanes", label: "Memory search", ms: 40 },
+      { key: "v3_selection", label: "Memory selection", ms: 55 },
+    ]);
+    for (const phase of breakdown!.phases) {
+      if (phase.key !== MEMORY_CONTEXT_PHASE_KEY) {
+        expect(phase.subPhases).toBeUndefined();
+      }
+    }
+  });
+
+  test("sub-spans are consumed on first attach — a re-serialize emits the phase bare", () => {
+    const t = new TurnLatencyTracker();
+    t.recordSubSpan(MEMORY_CONTEXT_PHASE_KEY, "v3_lanes", "Memory search", 40);
+    markFirstCall(t);
+    expect(memoryPhase(t)?.subPhases).toHaveLength(1);
+    expect(memoryPhase(t)?.subPhases).toBeUndefined();
+  });
+
+  test("a second-call segment carries no sub-phases", () => {
+    const t = new TurnLatencyTracker();
+    t.recordSubSpan(MEMORY_CONTEXT_PHASE_KEY, "v3_lanes", "Memory search", 40);
+    markFirstCall(t);
+    const first = t.serializeSince(0);
+    clock = 1000;
+    t.mark("tools_resolved");
+    clock = 1010;
+    t.mark("request_sent");
+    clock = 1200;
+    t.markFirstToken("text");
+    clock = 1260;
+    t.mark("call_complete");
+    const { breakdown } = t.serializeSince(first.cursor);
+    expect(breakdown!.phases.every((p) => p.subPhases === undefined)).toBe(
+      true,
+    );
+  });
+
+  test("a sub-span recorded after the phase's closing mark still attaches at serialize time", () => {
+    const t = new TurnLatencyTracker();
+    markFirstCall(t);
+    t.recordSubSpan(MEMORY_CONTEXT_PHASE_KEY, "late", "Late stage", 25);
+    expect(memoryPhase(t)?.subPhases).toEqual([
+      { key: "late", label: "Late stage", ms: 25 },
+    ]);
+  });
+
+  test("sub-spans for a phase that never serializes are inert", () => {
+    const t = new TurnLatencyTracker();
+    t.recordSubSpan(MEMORY_CONTEXT_PHASE_KEY, "v3_lanes", "Memory search", 40);
+    clock = 0;
+    t.mark("turn_start");
+    clock = 10;
+    t.mark("request_sent");
+    clock = 50;
+    t.markFirstToken("text");
+    clock = 90;
+    t.mark("call_complete");
+    const { breakdown } = t.serializeSince(0);
+    expect(breakdown!.phases.every((p) => p.subPhases === undefined)).toBe(
+      true,
+    );
+  });
+
+  test("negative-duration sub-spans are dropped", () => {
+    const t = new TurnLatencyTracker();
+    t.recordSubSpan(MEMORY_CONTEXT_PHASE_KEY, "bad", "Bad clock", -5);
+    markFirstCall(t);
+    expect(memoryPhase(t)?.subPhases).toBeUndefined();
+  });
+
+  test("sub-spans survive a failed-attempt splice", () => {
+    const t = new TurnLatencyTracker();
+    t.recordSubSpan(MEMORY_CONTEXT_PHASE_KEY, "v3_lanes", "Memory search", 40);
+    clock = 0;
+    t.mark("turn_start");
+    clock = 10;
+    t.mark("prompt_hook_start");
+    clock = 110;
+    t.mark("prompt_hook_end");
+    // Failed first attempt (no call_complete), then the retry succeeds.
+    clock = 120;
+    t.mark("tools_resolved");
+    clock = 130;
+    t.mark("request_sent");
+    clock = 1000;
+    t.mark("tools_resolved");
+    clock = 1010;
+    t.mark("request_sent");
+    clock = 1200;
+    t.markFirstToken("text");
+    clock = 1260;
+    t.mark("call_complete");
+    expect(memoryPhase(t)?.subPhases).toEqual([
+      { key: "v3_lanes", label: "Memory search", ms: 40 },
+    ]);
+  });
+
+  test("sub-phases round-trip through the wire schema", () => {
+    const t = new TurnLatencyTracker();
+    t.recordSubSpan(MEMORY_CONTEXT_PHASE_KEY, "v3_lanes", "Memory search", 40);
+    markFirstCall(t);
+    const { breakdown } = t.serializeSince(0);
+    const parsed = LatencyBreakdownSchema.safeParse(
+      JSON.parse(JSON.stringify(breakdown)),
+    );
+    expect(parsed.success).toBe(true);
+    const memory = parsed.data!.phases.find(
+      (p) => p.key === MEMORY_CONTEXT_PHASE_KEY,
+    );
+    expect(memory?.subPhases).toEqual([
+      { key: "v3_lanes", label: "Memory search", ms: 40 },
+    ]);
   });
 });

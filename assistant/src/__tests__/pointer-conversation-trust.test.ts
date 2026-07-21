@@ -1,10 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
 import { elevatePointerConversationToGuardian } from "../daemon/pointer-conversation-trust.js";
-import {
-  INTERNAL_GUARDIAN_TRUST_CONTEXT,
-  type TrustContext,
-} from "../daemon/trust-context.js";
+import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "../daemon/trust-context.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import { resolveCapabilities } from "../runtime/capabilities.js";
 
 /**

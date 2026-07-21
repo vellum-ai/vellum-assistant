@@ -8,7 +8,10 @@ import {
   Copy,
   HardDrive,
   Loader2,
+  MessageSquareText,
   Shield,
+  ThumbsDown,
+  ThumbsUp,
   Wrench,
   XCircle,
 } from "lucide-react";
@@ -34,7 +37,9 @@ export function MessageCopyButton({ text }: { text: string }) {
 
   useEffect(() => {
     return () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+      }
     };
   }, []);
 
@@ -43,7 +48,9 @@ export function MessageCopyButton({ text }: { text: string }) {
       .writeText(text)
       .then(() => {
         setCopied(true);
-        if (timerRef.current) clearTimeout(timerRef.current);
+        if (timerRef.current) {
+          clearTimeout(timerRef.current);
+        }
         timerRef.current = setTimeout(() => {
           setCopied(false);
           timerRef.current = null;
@@ -104,7 +111,9 @@ export function ToolCallBlock({
       <button
         type="button"
         onClick={() => {
-          if (canExpand) setExpanded(!expanded);
+          if (canExpand) {
+            setExpanded(!expanded);
+          }
         }}
         className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 transition-colors ${
           isError
@@ -354,6 +363,101 @@ export function BackupPromptBlock({
             Skip
           </Button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+export function FeedbackPromptBlock({
+  onOpenFeedback,
+}: {
+  onOpenFeedback: () => void;
+}) {
+  return (
+    <div className="rounded-lg border border-[var(--border-base)] bg-[var(--surface-lift)] p-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex min-w-0 flex-1 items-start gap-2">
+          <MessageSquareText className="mt-0.5 h-4 w-4 shrink-0 text-[var(--content-disabled)]" />
+          <div className="flex flex-col gap-1">
+            <span className="text-body-medium-default text-[var(--content-default)]">
+              This sounds like feedback for the Vellum team.
+            </span>
+            <span className="text-body-small-default text-[var(--content-tertiary)]">
+              You can send it with logs while the Doctor keeps looking for a fix
+              or workaround here.
+            </span>
+          </div>
+        </div>
+
+        <div className="flex shrink-0">
+          <Button
+            variant="outlined"
+            onClick={onOpenFeedback}
+            leftIcon={<MessageSquareText />}
+          >
+            Share Feedback
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function UserOutcomePromptBlock({
+  question,
+  answer,
+  onRespond,
+  disabled,
+}: {
+  question: string;
+  answer?: "resolved" | "not_resolved";
+  onRespond: (resolved: boolean) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="rounded-lg border border-[var(--border-base)] bg-[var(--surface-lift)] p-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 flex-1 items-start gap-2">
+          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-[var(--content-disabled)]" />
+          <span className="text-body-medium-default text-[var(--content-default)]">
+            {question}
+          </span>
+        </div>
+
+        {answer ? (
+          <span className="flex shrink-0 items-center gap-1.5 text-body-small-default text-[var(--content-tertiary)]">
+            {answer === "resolved" ? (
+              <>
+                <ThumbsUp className="h-4 w-4 text-[var(--system-positive-strong)]" />
+                Glad it&apos;s solved!
+              </>
+            ) : (
+              <>
+                <ThumbsDown className="h-4 w-4" />
+                Not solved
+              </>
+            )}
+          </span>
+        ) : (
+          <div className="flex shrink-0 gap-2">
+            <Button
+              variant="outlined"
+              onClick={() => onRespond(true)}
+              disabled={disabled}
+              iconOnly={<ThumbsUp />}
+              aria-label="Yes, my problem is solved"
+              title="Yes, my problem is solved"
+            />
+            <Button
+              variant="outlined"
+              onClick={() => onRespond(false)}
+              disabled={disabled}
+              iconOnly={<ThumbsDown />}
+              aria-label="No, my problem is not solved"
+              title="No, my problem is not solved"
+            />
+          </div>
+        )}
       </div>
     </div>
   );

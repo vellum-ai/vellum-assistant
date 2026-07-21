@@ -41,16 +41,17 @@ mock.module("../../../config/assistant-feature-flags.js", () => ({
 }));
 
 // Mock platform detection: tests default to platform mode (SSRF enforced).
-// Individual tests can override via `mockIsPlatform = false`.
+// Individual tests can override via `mockIsPlatform = false`. Spread the real
+// module so the (now real) config loader's transitive `util/platform` import of
+// `getWorkspaceDirOverride` still resolves — only `getIsPlatform` is overridden.
 let mockIsPlatform = true;
 
+const realEnvRegistry = {
+  ...(await import("../../../config/env-registry.js")),
+};
 mock.module("../../../config/env-registry.js", () => ({
+  ...realEnvRegistry,
   getIsPlatform: () => mockIsPlatform,
-}));
-
-mock.module("../../../config/loader.js", () => ({
-  getConfig: () => ({ llm: {} }),
-  getConfigReadOnly: () => ({ llm: {} }),
 }));
 
 // Mock DNS resolution: all hostnames resolve to a public IP by default.

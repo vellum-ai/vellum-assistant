@@ -6,7 +6,8 @@
  * host_file_edit, host_file_transfer.
  *
  * Risk escalation paths:
- * - file_read: Low by default, High if targeting the actor token signing key.
+ * - file_read: Low by default, High if targeting the actor token signing key
+ *   or the monitoring data directory (snapshot files may contain secrets).
  * - file_write / file_edit: Low by default, High if targeting skill source
  *   code, the workspace hooks directory, the user plugins directory, the
  *   workspace tools directory, the workspace routes directory, the workspace
@@ -514,6 +515,26 @@ export class FileRiskClassifier implements RiskClassifier<
             assessment = {
               riskLevel: "high",
               reason: "Reads actor token signing key",
+              scopeOptions: [],
+              matchType: "registry",
+              allowlistOptions,
+            };
+            break;
+          }
+          // Monitor snapshots contain process command lines that may carry
+          // secrets (tokens, API keys, DB URLs). Escalate reads of the
+          // monitoring data directory to High so they require explicit
+          // approval, even though the redaction at the source (process-tree
+          // and process-memory) strips most sensitive data. This is
+          // defense-in-depth — other low-risk tools (bash cat) can also
+          // read these files, so redaction is the primary fix.
+          if (
+            isMonitoringPath(lexicalPath, context) ||
+            isMonitoringPath(realPath, context)
+          ) {
+            assessment = {
+              riskLevel: "high",
+              reason: "Reads monitoring directory (snapshot data)",
               scopeOptions: [],
               matchType: "registry",
               allowlistOptions,

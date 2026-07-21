@@ -10,7 +10,7 @@ import { RestartAssistant } from "@/domains/settings/components/restart-assistan
 import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useAuthStore } from "@/stores/auth-store";
-import { clearConsentForUser } from "@/utils/onboarding-cleanup";
+import { clearConsentForUser } from "@/lib/consent/consent-persistence";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
 import { toast } from "@vellumai/design-library/components/toast";

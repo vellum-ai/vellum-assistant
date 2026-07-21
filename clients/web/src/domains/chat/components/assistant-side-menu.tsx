@@ -1,14 +1,18 @@
 import {
-    Brain,
-    Calendar,
     Clock,
-    LayoutGrid,
     Pin,
     Search,
     SquarePen,
     X,
 } from "lucide-react";
-import { useCallback, type ReactNode } from "react";
+import {
+    useCallback,
+    useLayoutEffect,
+    useRef,
+    useState,
+    type CSSProperties,
+    type ReactNode,
+} from "react";
 
 import { useCommandPaletteStore } from "@/stores/command-palette-store";
 
@@ -24,6 +28,7 @@ import {
 } from "@/domains/chat/components/conversation-nav-section";
 import { CollapsedGroupFlyout } from "@/domains/chat/components/conversation-rail-flyout";
 import { GroupActionsMenu, renderGroupMenuItems } from "@/domains/chat/components/group-actions-menu";
+import { AssistantNavItem } from "@/domains/chat/components/assistant-nav-item";
 import { PinnedAppNavItem } from "@/domains/chat/components/pinned-app-nav-item";
 import { useDragReorder } from "@/domains/chat/hooks/use-drag-reorder";
 import { SIDEBAR_CONVERSATION_LIMIT, useSidebarState, type UseSidebarStateParams } from "@/domains/chat/use-sidebar-state";
@@ -50,15 +55,15 @@ export interface AssistantSideMenuProps extends UseSidebarStateParams {
   onSelectConversation: (key: string) => void;
   isIntelligenceActive?: boolean;
   onOpenIntelligence?: () => void;
-  isLibraryActive?: boolean;
-  onOpenLibrary?: () => void;
-  isHomeActive?: boolean;
-  onOpenHome?: () => void;
-  hasUnreadHome?: boolean;
   onOpenApp?: (appId: string) => void;
   activeAppId?: string;
   onStartNewConversation?: () => void;
   footerAction?: ReactNode;
+  /**
+   * Rendered above `footerAction` in the rail footer (hidden when collapsed)
+   * and above the floating action pills on the overlay.
+   */
+  tipCard?: ReactNode;
   onClose?: () => void;
 
   onPinConversation?: (conversation: Conversation) => void;
@@ -80,18 +85,18 @@ export interface AssistantSideMenuProps extends UseSidebarStateParams {
   onArchiveAllInGroup?: (groupName: string, conversations: Conversation[]) => void;
   processingConversationIds?: Set<string>;
   activeConversationProcessing?: boolean;
-  onAnalyze?: (conversation: Conversation) => void;
   onOpenInNewWindow?: (conversation: Conversation) => void;
   onShareFeedback?: () => void;
   onInspect?: (conversation: Conversation) => void;
 }
 
-function SearchButton({ onClose }: { onClose?: () => void }) {
+function SearchButton() {
   const toggle = useCommandPaletteStore.use.toggle();
+  // Leaves the drawer open: the palette (fixed z-50) covers it, so dismissing
+  // search returns to the menu rather than the chat behind it.
   const handleClick = useCallback(() => {
-    onClose?.();
     toggle();
-  }, [onClose, toggle]);
+  }, [toggle]);
   return (
     <Button
       variant="ghost"
@@ -113,13 +118,14 @@ function SearchButton({ onClose }: { onClose?: () => void }) {
  *     • ───────────────
  *   Body · Pinned section (when non-empty)
  *     • pinned thread
- *   Body · Conversations section
+ *   Body · Chats section
  *     • thread …       — recent conversations inline
  *     • …
  *     • Show more/less — page through recent conversations
  *     • Channel ▾      — one collapsible section per origin channel
  *                        (Slack, Telegram, WhatsApp, …)
  *   Footer
+ *     • caller-provided tip card (SidebarTipCard) — hidden on the collapsed rail
  *     • ───────────────
  *     • caller-provided action (PreferencesMenu)
  *
@@ -140,15 +146,11 @@ export function AssistantSideMenu({
   onSelectConversation,
   isIntelligenceActive = false,
   onOpenIntelligence,
-  isLibraryActive = false,
-  onOpenLibrary,
-  isHomeActive = false,
-  onOpenHome,
-  hasUnreadHome = false,
   onOpenApp,
   activeAppId,
   onStartNewConversation,
   footerAction,
+  tipCard,
   onPinConversation,
   onReorderConversations,
   onRenameConversation,
@@ -165,7 +167,6 @@ export function AssistantSideMenu({
   processingConversationIds,
   attentionConversationIds,
   activeConversationProcessing,
-  onAnalyze,
   onOpenInNewWindow,
   onShareFeedback,
   onInspect,
@@ -178,6 +179,45 @@ export function AssistantSideMenu({
   });
 
   const pinnedApps = usePinnedAppsStore.use.pinnedApps();
+
+  const isCollapsedRail = collapsed && variant === "rail";
+
+  // --- Overlay bottom reserve ---
+  // The overlay's floating bottom column (tip card + action pills) covers the
+  // scrollable body, so the body reserves matching bottom padding to keep the
+  // last conversation rows scrollable clear of it. Measured (not static)
+  // because the tip card appears/disappears and its copy length varies.
+  const overlayBottomColumnRef = useRef<HTMLDivElement | null>(null);
+  const [overlayBottomColumnHeight, setOverlayBottomColumnHeight] = useState(0);
+
+  useLayoutEffect(() => {
+    if (variant !== "overlay") {
+      setOverlayBottomColumnHeight(0);
+      return;
+    }
+
+    const el = overlayBottomColumnRef.current;
+    if (!el) {
+      return;
+    }
+
+    const updateHeight = () => {
+      const nextHeight = Math.ceil(el.getBoundingClientRect().height);
+      setOverlayBottomColumnHeight((currentHeight) =>
+        currentHeight === nextHeight ? currentHeight : nextHeight,
+      );
+    };
+
+    updateHeight();
+
+    if (typeof ResizeObserver === "undefined") {
+      return;
+    }
+
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [variant]);
 
   // --- Drag-reorder (Pinned + custom groups; sections sorted by displayOrder) ---
 
@@ -195,7 +235,9 @@ export function AssistantSideMenu({
   ) => {
     const hasAnyAction =
       onMarkAllReadInGroup || onArchiveAllInGroup || options?.onRename || options?.onDelete;
-    if (!hasAnyAction) return undefined;
+    if (!hasAnyAction) {
+      return undefined;
+    }
 
     return renderGroupMenuItems({
       Primitive: ContextMenu,
@@ -234,7 +276,6 @@ export function AssistantSideMenu({
     onUnarchive: onUnarchiveConversation,
     onMarkRead: onMarkConversationRead,
     onMarkUnread: onMarkConversationUnread,
-    onAnalyze,
     onOpenInNewWindow,
     onShareFeedback,
     onInspect,
@@ -250,9 +291,10 @@ export function AssistantSideMenu({
       variant="ghost"
       size="compact"
       iconOnly={<SquarePen />}
-      aria-label="New conversation"
-      tooltip="New conversation"
+      aria-label="New Chat"
+      tooltip="New Chat"
       tooltipSide="right"
+      className="text-[var(--content-tertiary)]"
       onClick={() => {
         onStartNewConversation();
         onClose?.();
@@ -260,68 +302,17 @@ export function AssistantSideMenu({
     />
   ) : null;
 
-  // --- JSX ---
+  // --- Built-in navigation ---
+  // Pinned apps above the built-in nav, separated by a divider. On the rail
+  // this block lives in the non-scrolling header; on the overlay it renders
+  // at the top of the body so the whole menu scrolls as one surface (Figma
+  // 6764:6745).
 
-  return (
-    <ConversationListProvider value={listContext}>
-      <SideMenu
-        ariaLabel="Assistant navigation"
-        collapsed={collapsed}
-        variant={variant}
-        width={width}
-        onWidthChange={onWidthChange}
-        className="h-full"
-      >
-        <SideMenu.Header>
-          {variant === "overlay" ? (
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="ghost"
-                  iconOnly={<X />}
-                  aria-label="Close navigation"
-                  onClick={() => onClose?.()}
-                />
-                <SearchButton onClose={onClose} />
-              </div>
-              <div className="flex items-center gap-2">{headerActions}</div>
-            </div>
-          ) : null}
-          {/* 2px row gap to match the conversation list. */}
-          <div className="flex flex-col gap-[2px]">
-            <SideMenu.Item
-              icon={Brain}
-              label={assistantName || "Your Assistant"}
-              showCollapsedTooltip
-              active={isIntelligenceActive}
-              onSelect={onOpenIntelligence ? () => { onOpenIntelligence(); onClose?.(); } : undefined}
-            />
-            {onOpenLibrary ? (
-              <SideMenu.Item
-                icon={LayoutGrid}
-                label="Library"
-                showCollapsedTooltip
-                active={isLibraryActive}
-                onSelect={onOpenLibrary ? () => { onOpenLibrary(); onClose?.(); } : undefined}
-              />
-            ) : null}
-            {onOpenHome ? (
-              <SideMenu.Item
-                icon={Calendar}
-                label="Activity"
-                showCollapsedTooltip
-                active={isHomeActive}
-                badge={
-                  hasUnreadHome && !isHomeActive ? (
-                    <span
-                      className="h-2 w-2 rounded-full bg-[var(--system-negative-strong)]"
-                      aria-hidden="true"
-                    />
-                  ) : undefined
-                }
-                onSelect={onOpenHome ? () => { onOpenHome(); onClose?.(); } : undefined}
-              />
-            ) : null}
+  const builtInNav = (
+    <>
+      {pinnedApps.length > 0 ? (
+        <>
+          <div className="flex flex-col gap-[4px]">
             {pinnedApps.map((app) => (
               <PinnedAppNavItem
                 key={app.appId}
@@ -333,11 +324,85 @@ export function AssistantSideMenu({
             ))}
           </div>
           <SideMenu.Separator />
+        </>
+      ) : null}
+      {/* The assistant cluster: the avatar-colored assistant row with the
+          New Chat row beneath it (one component — the eyes migrate
+          between the two rows). No divider; breathing room below instead.
+          The overlay drawer skips the New Chat row — its floating New Chat
+          pill already owns that action in the thumb zone. */}
+      <div className="mb-4">
+        <AssistantNavItem
+          assistantId={assistantId ?? null}
+          label={assistantName || "Your Assistant"}
+          active={isIntelligenceActive}
+          collapsed={collapsed}
+          onSelect={onOpenIntelligence ? () => { onOpenIntelligence(); onClose?.(); } : undefined}
+          onNewConversation={
+            variant === "rail" && onStartNewConversation
+              ? () => { onStartNewConversation(); onClose?.(); }
+              : undefined
+          }
+        />
+      </div>
+    </>
+  );
+
+  // --- JSX ---
+
+  return (
+    <ConversationListProvider value={listContext}>
+      <SideMenu
+        ariaLabel="Assistant navigation"
+        collapsed={collapsed}
+        variant={variant}
+        width={width}
+        onWidthChange={onWidthChange}
+        className="relative h-full"
+      >
+        <SideMenu.Header>
+          {variant === "overlay" ? (
+            /* Close on the left, Search pinned to the right so it stays put
+               and always reads as the persistent search affordance
+               (Figma 6788:6749). */
+            <div className="flex items-center justify-between gap-2">
+              <Button
+                variant="ghost"
+                iconOnly={<X />}
+                aria-label="Close navigation"
+                onClick={() => onClose?.()}
+              />
+              <SearchButton />
+            </div>
+          ) : (
+            builtInNav
+          )}
         </SideMenu.Header>
 
-        <SideMenu.Body className="gap-1 pt-3 max-md:pt-4">
-          {collapsed && variant === "rail" ? (
-            <div className="flex flex-col items-center gap-1">
+        <SideMenu.Body
+          className={
+            variant === "overlay"
+              /* pb-24 is a coarse floating-column reserve until the measured
+                 inline padding below is applied. */
+              ? "gap-4 pt-3 pb-24 max-md:pt-4"
+              : "gap-4 pt-3 max-md:pt-4"
+          }
+          style={
+            variant === "overlay" && overlayBottomColumnHeight > 0
+              ? {
+                  /* The floating column overlaps the scrollport by its own
+                     height + the safe-area inset (its 1rem bottom offset
+                     cancels against the root's p-4); + 1rem breathing gap. */
+                  "--overlay-bottom-column-h": `${overlayBottomColumnHeight}px`,
+                  paddingBottom:
+                    "calc(var(--overlay-bottom-column-h) + 1rem + var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)))",
+                } as CSSProperties
+              : undefined
+          }
+        >
+          {variant === "overlay" ? builtInNav : null}
+          {isCollapsedRail ? (
+            <div className="flex flex-col items-center gap-2">
               {headerActions}
               {sidebar.pinned.length > 0 ? (
                 <CollapsedGroupIcon
@@ -389,16 +454,14 @@ export function AssistantSideMenu({
           ) : (
             <>
               {sidebar.pinned.length > 0 ? (
-                <SideMenu.Section title="Pinned">
+                <SideMenu.Section title="Pinned" className="gap-1">
                   <ConversationRowList items={sidebar.pinned} dragSection="pinned" />
                 </SideMenu.Section>
               ) : null}
 
-              <SideMenu.Section
-                title="Conversations"
-                className="gap-1"
-                actions={variant === "overlay" ? undefined : headerActions}
-              >
+              {/* New Chat lives in the assistant cluster above, not as a
+                  section-header action. */}
+              <SideMenu.Section title="Chats" className="gap-1">
                 <ConversationRowList
                   items={sidebar.recents.items}
                   pagination={sidebar.recents}
@@ -475,9 +538,54 @@ export function AssistantSideMenu({
           )}
         </SideMenu.Body>
 
-        {footerAction ? (
+        {variant === "overlay" ? (
+          /* Overlay: the footer bar is replaced by floating action pills so
+             the primary actions sit in the thumb zone without spending two
+             fixed rows (Figma 6764:6745). `pointer-events-none` on the
+             container keeps the list scrollable between/around the pills.
+             The container offsets itself by the bottom safe-area inset
+             because the overlay sheet runs full-bleed to the physical
+             screen edge — this keeps the pills above the home indicator
+             while letting their drop shadows fade out naturally instead of
+             being clipped at a safe-area boundary. */
+          <div
+            ref={overlayBottomColumnRef}
+            className="pointer-events-none absolute inset-x-4 z-10 flex flex-col gap-4"
+            style={{
+              bottom:
+                "calc(1rem + var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)))",
+            }}
+          >
+            {/* `empty:hidden` collapses the row when the tip card renders
+               null, so the column gap adds no phantom spacing. */}
+            {tipCard ? (
+              <div className="pointer-events-auto empty:hidden">{tipCard}</div>
+            ) : null}
+            <div className="flex items-center justify-center gap-4">
+              {footerAction ? (
+                <div className="pointer-events-auto flex-1">{footerAction}</div>
+              ) : null}
+              {onStartNewConversation ? (
+                <Button
+                  variant="primary"
+                  className="pointer-events-auto h-10 flex-1 rounded-full px-4 shadow-[var(--shadow-lg)]"
+                  leftIcon={<SquarePen />}
+                  onClick={() => {
+                    onStartNewConversation();
+                    onClose?.();
+                  }}
+                >
+                  New Chat
+                </Button>
+              ) : null}
+            </div>
+          </div>
+        ) : footerAction || tipCard ? (
           <SideMenu.Footer>
-            <SideMenu.Separator />
+            {/* Tip card first, divider between it and the footer action. The
+               collapsed rail drops both (per design). */}
+            {isCollapsedRail ? null : tipCard}
+            {isCollapsedRail ? null : <SideMenu.Separator />}
             {footerAction}
           </SideMenu.Footer>
         ) : null}

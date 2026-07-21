@@ -125,7 +125,7 @@ const { createSurfaceMutex, handleSurfaceAction } =
   await import("../conversation-surfaces.js");
 type SurfaceConversationContext =
   import("../conversation-surfaces.js").SurfaceConversationContext;
-type TrustContext = import("../trust-context.js").TrustContext;
+type TrustContext = import("../trust-context-types.js").TrustContext;
 type ServerMessage = import("../message-protocol.js").ServerMessage;
 type SurfaceData = import("../message-protocol.js").SurfaceData;
 type SurfaceType = import("../message-protocol.js").SurfaceType;

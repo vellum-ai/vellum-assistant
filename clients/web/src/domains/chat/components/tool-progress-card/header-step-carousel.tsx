@@ -3,6 +3,8 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { Typography } from "@vellumai/design-library";
 
+import { StreamingShimmerText } from "@/domains/chat/components/streaming-shimmer-text";
+
 /**
  * Animated tuple of (currentStepTitle, currentStepInfo) rendered inside
  * the collapsed header of a `ToolProgressCardShell`. Both texts animate
@@ -88,7 +90,9 @@ function useThrottledValue<T>(
     }
     const elapsed = nowMs - lastChangeAt.current;
     const wait = Math.max(0, minDwellMs - elapsed);
-    if (timer.current) clearTimeout(timer.current);
+    if (timer.current) {
+      clearTimeout(timer.current);
+    }
     timer.current = setTimeout(() => {
       // Land on whatever the latest pending value is — newer updates that
       // arrived while we were waiting will have overwritten it.
@@ -115,6 +119,8 @@ export function HeaderStepCarousel({
   currentStepInfo,
   bypassDwell = false,
   animationKey,
+  shimmer = false,
+  inline = false,
 }: {
   currentStepTitle: string;
   currentStepInfo: ReactNode;
@@ -138,6 +144,23 @@ export function HeaderStepCarousel({
    * in place — no per-tick slide.
    */
   animationKey?: string;
+  /**
+   * When `true`, the primary header label (the title, or the promoted
+   * title-less info text) renders through {@link StreamingShimmerText} — the
+   * avatar-tinted gradient sweep that marks in-flight work. Secondary info
+   * subtext stays plain.
+   */
+  shimmer?: boolean;
+  /**
+   * Inline (bare-header) mode, passed through from the shell's `bare`
+   * variant. The primary label mirrors the inline `SingleActivity` link —
+   * 13px medium in `--content-secondary`, flush left (no `ml-1`, since bare
+   * headers render no leading status icon) — so the multi-activity header
+   * reads as the same affordance family and left-aligns with the links
+   * around it. Boxed cards (web search, subagent) keep the Typography
+   * emphasised title.
+   */
+  inline?: boolean;
 }) {
   const reduce = useReducedMotion();
   const tuple = useMemo(
@@ -204,54 +227,104 @@ export function HeaderStepCarousel({
         className="flex min-w-0 flex-1 items-center gap-1"
       >
         {hasTitle ? (
-          <Typography
-            variant="body-medium-default"
-            className={
-              hasInfo
-                ? "ml-1 shrink-0 whitespace-nowrap text-[var(--content-emphasised)]"
-                : "ml-1 block min-w-0 flex-1 truncate text-left text-[var(--content-emphasised)]"
-            }
-          >
-            {displayed.title}
-          </Typography>
+          inline ? (
+            // typography: off-scale — pixel-matches the inline
+            // `SingleActivity` label (13px medium, secondary) so the bare
+            // multi-activity header reads as the same affordance.
+            // `leading-[16px]` overrides the Button's `label-medium-default`
+            // line-height of 1, which clips descenders (the "g" in
+            // "Working") behind the shimmer/truncate overflow clipping.
+            <span
+              className={
+                hasInfo
+                  ? "shrink-0 whitespace-nowrap text-[13px] font-medium leading-[16px] text-[var(--content-secondary)]"
+                  : "block min-w-0 flex-1 truncate text-left text-[13px] font-medium leading-[16px] text-[var(--content-secondary)]"
+              }
+            >
+              {shimmer ? (
+                <StreamingShimmerText>{displayed.title}</StreamingShimmerText>
+              ) : (
+                displayed.title
+              )}
+            </span>
+          ) : (
+            <Typography
+              variant="body-medium-default"
+              className={
+                hasInfo
+                  ? "ml-1 shrink-0 whitespace-nowrap text-[var(--content-emphasised)]"
+                  : "ml-1 block min-w-0 flex-1 truncate text-left text-[var(--content-emphasised)]"
+              }
+            >
+              {shimmer ? (
+                <StreamingShimmerText>{displayed.title}</StreamingShimmerText>
+              ) : (
+                displayed.title
+              )}
+            </Typography>
+          )
         ) : null}
         {hasInfo ? (
           <>
             {hasTitle ? (
-              // `max-md:text-[17px]`: the pipe divider reads too small
-              // next to the labels on mobile. Bumping the glyph's font size
-              // grows it there; desktop and electron keep the inherited size.
+              // Vertical rule divider between title and info. A real 14px
+              // rule (not a `|` glyph) so its height matches the labels'
+              // cap height regardless of font metrics. `ml-1` mirrors the
+              // info's own `ml-1` so the divider sits an even 8px
+              // (row `gap-1` + 4px margin) from BOTH labels.
               <span
                 aria-hidden="true"
-                className="shrink-0 text-[var(--border-element)] max-md:text-[17px] max-md:leading-none"
-              >
-                |
-              </span>
+                className="ml-1 h-3.5 w-px shrink-0 bg-[var(--border-element)]"
+              />
             ) : null}
             {isTextInfo ? (
-              <Typography
-                // With a title present, the info is subtext (small, tertiary).
-                // With no title it IS the header label, so it takes the
-                // title's emphasis (medium, emphasised) instead.
-                variant={
-                  hasTitle ? "body-small-default" : "body-medium-default"
-                }
-                // `body-small-default` ships line-height: 1, which clips
-                // descenders (e.g. the "g" in "subagent") once `truncate`
-                // adds overflow:hidden. Bump to 16px — the same ~1.3 ratio
-                // the title's `body-medium-default` (18/14) uses — so the
-                // glyphs get vertical breathing room while staying centered.
-                // `ml-1` adds 4px on top of the row's `gap-1` (also 4px) so
-                // the descriptor sits ~8px clear of the `|` separator (or, when
-                // title-less, aligns where the title would have sat).
-                className={`ml-1 block min-w-0 flex-1 truncate text-left leading-[16px] ${
-                  hasTitle
-                    ? "text-[var(--content-tertiary)]"
-                    : "text-[var(--content-emphasised)]"
-                }`}
-              >
-                {displayed.info}
-              </Typography>
+              inline && !hasTitle ? (
+                // Title-less inline header: the info IS the primary label, so
+                // it takes the same off-scale `SingleActivity`-matched style
+                // as the inline title above (13px medium, secondary, flush
+                // left — no `ml-1` since it's the row's first element).
+                <span className="block min-w-0 flex-1 truncate text-left text-[13px] font-medium leading-[16px] text-[var(--content-secondary)]">
+                  {shimmer && typeof displayed.info === "string" ? (
+                    <StreamingShimmerText>
+                      {displayed.info}
+                    </StreamingShimmerText>
+                  ) : (
+                    displayed.info
+                  )}
+                </span>
+              ) : (
+                <Typography
+                  // With a title present, the info is subtext (small, tertiary).
+                  // With no title it IS the header label, so it takes the
+                  // title's emphasis (medium, emphasised) instead.
+                  variant={
+                    hasTitle ? "body-small-default" : "body-medium-default"
+                  }
+                  // `body-small-default` ships line-height: 1, which clips
+                  // descenders (e.g. the "g" in "subagent") once `truncate`
+                  // adds overflow:hidden. Bump to 16px — the same ~1.3 ratio
+                  // the title's `body-medium-default` (18/14) uses — so the
+                  // glyphs get vertical breathing room while staying centered.
+                  // `ml-1` adds 4px on top of the row's `gap-1` (also 4px) so
+                  // the descriptor sits ~8px clear of the `|` separator (or, when
+                  // title-less, aligns where the title would have sat).
+                  className={`ml-1 block min-w-0 flex-1 truncate text-left leading-[16px] ${
+                    hasTitle
+                      ? "text-[var(--content-tertiary)]"
+                      : "text-[var(--content-emphasised)]"
+                  }`}
+                >
+                  {/* When the info IS the primary label (title-less headers,
+                      e.g. bash), the shimmer applies to it instead. */}
+                  {shimmer &&
+                  !hasTitle &&
+                  typeof displayed.info === "string" ? (
+                    <StreamingShimmerText>{displayed.info}</StreamingShimmerText>
+                  ) : (
+                    displayed.info
+                  )}
+                </Typography>
+              )
             ) : (
               <span className="ml-1 block min-w-0 flex-1">
                 {displayed.info}

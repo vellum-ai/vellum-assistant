@@ -15,7 +15,7 @@
 
 import { randomInt } from "node:crypto";
 
-import type { TrustContext } from "../daemon/trust-context.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import type { addMessage as addMessageFn } from "../persistence/conversation-crud.js";
 import { notifyGuardianOfAccessRequest as notifyGuardianOfAccessRequestImpl } from "../runtime/access-request-helper.js";
 import { toTrustContext } from "../runtime/actor-trust-resolver.js";
@@ -139,7 +139,7 @@ export interface CallSetupFlowDeps {
 
   // ── Name-capture sub-flow deps ──────────────────────────────────────
   /**
-   * Create the canonical access request and notify the guardian. Defaults
+   * Create the access request and notify the guardian. Defaults
    * to access-request-helper's {@link notifyGuardianOfAccessRequestImpl}.
    */
   notifyGuardianOfAccessRequest?: typeof notifyGuardianOfAccessRequestImpl;
@@ -277,9 +277,7 @@ export async function resolveMidCallTrustContext(
 ): Promise<TrustContext> {
   const usability = verdictUsability(await getPhoneCallerVerdict(fromNumber));
   if (!usability.usable) {
-    throw new Error(
-      `Mid-call trust verdict unavailable (${usability.reason})`,
-    );
+    throw new Error(`Mid-call trust verdict unavailable (${usability.reason})`);
   }
   return trustContextFromVerdict(usability.verdict, {
     sourceChannel: "phone",
@@ -1361,7 +1359,7 @@ export class CallSetupFlow {
   }
 
   /**
-   * Handle the caller's name: create the canonical access request, notify
+   * Handle the caller's name: create the guardian access request, notify
    * the guardian, and hand the wait off to a {@link GuardianWaitController}.
    * Fails closed to the timeout copy when no request id comes back.
    */

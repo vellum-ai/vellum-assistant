@@ -38,12 +38,11 @@ import {
 
 // Imported after the connection mock so the real connection.ts never enters
 // the static import graph.
-const { useLiveVoiceSessionController } = await import(
-  "@/domains/chat/voice/live-voice/use-live-voice-session-controller"
-);
-const { useLiveVoiceStore } = await import(
-  "@/domains/chat/voice/live-voice/live-voice-store"
-);
+const { useLiveVoiceSessionController } =
+  await import("@/domains/chat/voice/live-voice/use-live-voice-session-controller");
+const { useVoicePrefsStore } = await import("@/stores/voice-prefs-store");
+const { useLiveVoiceStore } =
+  await import("@/domains/chat/voice/live-voice/live-voice-store");
 
 // ---------------------------------------------------------------------------
 // Harness
@@ -108,6 +107,13 @@ async function startListeningViaStarter(
 beforeEach(() => {
   useLiveVoiceStore.getState().reset();
   useLiveVoiceStore.getState().setStarter(null);
+  // The voice-prefs store is a persisted singleton shared across test files;
+  // pin the turn-taking settings to unset (null) so connect-args assertions are
+  // deterministic regardless of test order.
+  useVoicePrefsStore.setState({
+    pauseBeforeReplyMs: null,
+    interruptSensitivity: null,
+  });
 });
 
 afterEach(() => {

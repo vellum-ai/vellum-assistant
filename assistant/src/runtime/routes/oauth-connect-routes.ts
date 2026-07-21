@@ -128,9 +128,18 @@ async function handleOAuthConnectStart({
       onDeferredComplete: (r) => {
         if (!resolvedState) return;
         if (r.success) {
-          setOAuthConnectComplete(resolvedState, r.service, r.accountInfo, r.grantedScopes);
+          setOAuthConnectComplete(
+            resolvedState,
+            r.service,
+            r.accountInfo,
+            r.grantedScopes,
+          );
         } else {
-          setOAuthConnectError(resolvedState, r.service, r.error ?? "OAuth connect failed");
+          setOAuthConnectError(
+            resolvedState,
+            r.service,
+            r.error ?? "OAuth connect failed",
+          );
         }
       },
     });
@@ -166,19 +175,28 @@ function handleOAuthConnectStatus({
   const flowState = getOAuthConnectState(state);
 
   if (flowState === null) {
-    throw new NotFoundError(`No active OAuth connect flow for state "${state}"`);
+    throw new NotFoundError(
+      `No active OAuth connect flow for state "${state}"`,
+    );
   }
 
-  if (flowState.status === "pending") return { status: "pending", service: flowState.service };
+  if (flowState.status === "pending")
+    return { status: "pending", service: flowState.service };
   if (flowState.status === "complete") {
     return {
       status: "complete",
       service: flowState.service,
       ...(flowState.accountInfo ? { account_info: flowState.accountInfo } : {}),
-      ...(flowState.grantedScopes ? { granted_scopes: flowState.grantedScopes } : {}),
+      ...(flowState.grantedScopes
+        ? { granted_scopes: flowState.grantedScopes }
+        : {}),
     };
   }
-  return { status: "error", service: flowState.service, error: flowState.error };
+  return {
+    status: "error",
+    service: flowState.service,
+    error: flowState.error,
+  };
 }
 
 export const ROUTES: RouteDefinition[] = [
@@ -217,7 +235,9 @@ export const ROUTES: RouteDefinition[] = [
     tags: ["internal"],
     pathParams: [{ name: "state" }],
     additionalResponses: {
-      "404": { description: "No active OAuth connect flow for the given state token" },
+      "404": {
+        description: "No active OAuth connect flow for the given state token",
+      },
     },
     handler: handleOAuthConnectStatus,
   },

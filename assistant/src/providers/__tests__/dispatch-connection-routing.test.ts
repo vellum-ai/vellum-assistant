@@ -25,24 +25,17 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { setConfig } from "../../__tests__/helpers/set-config.js";
+
+// Connection-routing plumbing over legacy-shaped fixtures (llm.default /
+// activeProfile-centric, no defaultProvider): pinned to the flag-off
+// cascade. Flag-on dispatch behavior is covered by
+// inference-no-mode-boot-e2e.test.ts and the override-or-default resolver
+// suite.
+
 // ---------------------------------------------------------------------------
 // Module mocks (must be declared before the import-under-test).
 // ---------------------------------------------------------------------------
-
-mock.module("../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
-
-// Test fixtures for the mocked config loader.
-let mockLlmConfig: Record<string, unknown> = {};
-
-mock.module("../../config/loader.js", () => ({
-  getConfig: () => ({
-    llm: mockLlmConfig,
-    services: { inference: { mode: "your-own" } },
-  }),
-}));
 
 // Mock the DB getter — we never actually hit SQLite since `getConnection` is
 // also mocked. Returning a sentinel keeps the call signature satisfied.
@@ -100,7 +93,7 @@ import { getConfiguredProvider } from "../provider-send-message.js";
 // ---------------------------------------------------------------------------
 
 function setLlmConfig(c: Record<string, unknown>): void {
-  mockLlmConfig = c;
+  setConfig("llm", c);
 }
 
 function registerConnection(
@@ -115,7 +108,7 @@ function reset(): void {
   resolveProviderCalls.length = 0;
   fakeConnections.clear();
   fakeProviders.clear();
-  mockLlmConfig = {};
+  setConfig("llm", {});
 }
 
 // ---------------------------------------------------------------------------
@@ -149,15 +142,16 @@ describe("dispatch routes through provider_connection (Phase 1: connection-only)
     );
 
     setLlmConfig({
-      default: { provider: "anthropic", model: "claude-opus-4-7" },
       profiles: {
         "anthropic-managed-profile": {
           provider: "anthropic",
           provider_connection: "anthropic-managed",
+          model: "claude-opus-4-7",
         },
         "anthropic-personal-profile": {
           provider: "anthropic",
           provider_connection: "anthropic-personal",
+          model: "claude-opus-4-7",
         },
       },
     });
@@ -192,10 +186,10 @@ describe("dispatch routes through provider_connection (Phase 1: connection-only)
 
   test("profile WITHOUT provider_connection returns null (graceful fallback)", async () => {
     setLlmConfig({
-      default: { provider: "anthropic", model: "claude-opus-4-7" },
       profiles: {
         "legacy-profile": {
           provider: "anthropic",
+          model: "claude-opus-4-7",
           // no provider_connection — boot-time backfill is expected to
           // populate this in production. When unset, the per-callsite
           // resolver returns null so callsites with deterministic
@@ -219,11 +213,11 @@ describe("dispatch routes through provider_connection (Phase 1: connection-only)
     // No connection registered — the dispatcher should throw with reason
     // 'not_found' rather than falling through to a legacy lookup.
     setLlmConfig({
-      default: { provider: "anthropic", model: "claude-opus-4-7" },
       profiles: {
         broken: {
           provider: "anthropic",
           provider_connection: "does-not-exist",
+          model: "claude-opus-4-7",
         },
       },
     });
@@ -255,11 +249,11 @@ describe("dispatch routes through provider_connection (Phase 1: connection-only)
     // `conn:anthropic-broken-personal` — resolver returns null.
 
     setLlmConfig({
-      default: { provider: "anthropic", model: "claude-opus-4-7" },
       profiles: {
         "broken-creds": {
           provider: "anthropic",
           provider_connection: "anthropic-broken-personal",
+          model: "claude-opus-4-7",
         },
       },
     });

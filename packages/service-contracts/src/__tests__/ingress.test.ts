@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   normalizeHttpPublicBaseUrl,
   normalizePublicBaseUrl,
+  velayHostForPlatformHost,
 } from "../ingress.js";
 import {
   buildTwilioMediaStreamUrl,
@@ -10,6 +11,31 @@ import {
   buildTwilioVoiceWebhookUrl,
   resolveTwilioPublicBaseUrl,
 } from "../twilio-ingress.js";
+
+describe("velayHostForPlatformHost", () => {
+  test("maps the prod platform host to prod velay", () => {
+    expect(velayHostForPlatformHost("platform.vellum.ai")).toBe(
+      "velay.vellum.ai",
+    );
+  });
+
+  test("maps env-prefixed platform hosts to their env velay", () => {
+    expect(velayHostForPlatformHost("staging-platform.vellum.ai")).toBe(
+      "velay-staging.vellum.ai",
+    );
+    expect(velayHostForPlatformHost("dev-platform.vellum.ai")).toBe(
+      "velay-dev.vellum.ai",
+    );
+  });
+
+  test("returns null for hosts outside the deployment convention", () => {
+    expect(velayHostForPlatformHost("localhost")).toBeNull();
+    expect(velayHostForPlatformHost("platform.example.com")).toBeNull();
+    expect(
+      velayHostForPlatformHost("staging-platform.vellum.ai.evil.com"),
+    ).toBeNull();
+  });
+});
 
 describe("normalizePublicBaseUrl", () => {
   test("trims whitespace and trailing slashes", () => {

@@ -12,103 +12,22 @@ import type {
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
 import { stampAndBuffer } from "../runtime/assistant-stream-state.js";
+import { setConfig } from "./helpers/set-config.js";
 
 // ---------------------------------------------------------------------------
 // Mocks — must precede the Conversation import so Bun applies them at load time.
 // ---------------------------------------------------------------------------
-
-function makeLoggerStub(): Record<string, unknown> {
-  const stub: Record<string, unknown> = {};
-  for (const m of [
-    "info",
-    "warn",
-    "error",
-    "debug",
-    "trace",
-    "fatal",
-    "silent",
-    "child",
-  ]) {
-    stub[m] = m === "child" ? () => makeLoggerStub() : () => {};
-  }
-  return stub;
-}
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () => makeLoggerStub(),
-}));
 
 mock.module("../providers/registry.js", () => ({
   getProvider: () => ({ name: "mock-provider" }),
   initializeProviders: async () => {},
 }));
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-
-    llm: {
-      default: {
-        provider: "mock-provider",
-        model: "mock-model",
-        maxTokens: 4096,
-        effort: "max" as const,
-        speed: "standard" as const,
-        temperature: null,
-        thinking: { enabled: false, streamThinking: true },
-        contextWindow: {
-          enabled: true,
-          maxInputTokens: 100000,
-          targetBudgetRatio: 0.3,
-          compactThreshold: 0.8,
-          summaryBudgetRatio: 0.05,
-          overflowRecovery: {
-            enabled: true,
-            safetyMarginRatio: 0.05,
-            maxAttempts: 3,
-            interactiveLatestTurnCompression: "summarize",
-            nonInteractiveLatestTurnCompression: "truncate",
-          },
-        },
-      },
-      profiles: {},
-      callSites: {},
-      pricingOverrides: [],
-    },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    memory: {
-      v2: { enabled: false },
-      retrieval: { scratchpadInjection: { enabled: true } },
-    },
-    conversations: { skipAutoRetitling: false },
-    timeouts: { permissionTimeoutSec: 1 },
-    skills: { entries: {}, allowBundled: true },
-    permissions: { mode: "workspace" },
-    daemon: {
-      startupSocketWaitMs: 5000,
-      stopTimeoutMs: 5000,
-      sigkillGracePeriodMs: 2000,
-      titleGenerationMaxTokens: 30,
-      standaloneRecording: true,
-    },
-    services: {
-      inference: {
-        mode: "your-own",
-        provider: "anthropic",
-        model: "claude-opus-4-6",
-      },
-      "image-generation": {
-        mode: "your-own",
-        provider: "gemini",
-        model: "gemini-3.1-flash-image-preview",
-      },
-      "web-search": { mode: "your-own", provider: "inference-provider-native" },
-    },
-  }),
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  invalidateConfigCache: () => {},
-}));
+// Seed the workspace config for real: memory off so no memory subsystem work
+// runs inside these turns, and a short permission timeout so any permission
+// wait resolves quickly.
+setConfig("memory", { enabled: false, v2: { enabled: false } });
+setConfig("timeouts", { permissionTimeoutSec: 1 });
 
 const capturedAddMessages: Array<{
   id: string;
@@ -225,10 +144,40 @@ let mockAttachmentIdCounter = 0;
 mock.module("../persistence/attachments-store.js", () => ({
   AttachmentUploadError: class AttachmentUploadError extends Error {},
   uploadAttachment: () => ({ id: `att-${Date.now()}` }),
+  attachmentExists: () => false,
+  validateAttachmentUpload: () => ({ ok: true }),
+  scopeAttachmentToMessageConversation: () => null,
+  getAttachmentContent: () => null,
   linkAttachmentToMessage: () => {
     if (linkAttachmentShouldThrow) {
       throw new Error("Simulated linkAttachmentToMessage failure");
     }
+  },
+  createInlineAttachment: (
+    _conversationId: string,
+    _conversationCreatedAt: number,
+    filename: string,
+    mimeType: string,
+    dataBase64: string,
+  ) => {
+    if (linkAttachmentShouldThrow) {
+      throw new Error("Simulated createInlineAttachment failure");
+    }
+
+    return {
+      id: `att-inline-${++mockAttachmentIdCounter}`,
+      originalFilename: filename,
+      mimeType,
+      sizeBytes: Buffer.from(dataBase64, "base64").byteLength,
+      kind: mimeType.startsWith("image/")
+        ? "image"
+        : mimeType.startsWith("video/")
+          ? "video"
+          : "file",
+      thumbnailBase64: null,
+      createdAt: Date.now(),
+      filePath: `/tmp/${filename}`,
+    };
   },
   attachInlineAttachmentToMessage: (
     _messageId: string,
@@ -404,25 +353,6 @@ mock.module("../agent/loop.js", () => ({
     }
   },
 }));
-mock.module("../contacts/canonical-guardian-store.js", () => ({
-  listPendingCanonicalGuardianRequestsByDestinationConversation: () => [],
-  listCanonicalGuardianRequests: () => [],
-  listPendingRequestsByConversationScope: () => [],
-  createCanonicalGuardianRequest: () => ({
-    id: "mock-cg-id",
-    code: "MOCK",
-    status: "pending",
-  }),
-  getCanonicalGuardianRequest: () => null,
-  getCanonicalGuardianRequestByCode: () => null,
-  updateCanonicalGuardianRequest: () => {},
-  resolveCanonicalGuardianRequest: () => {},
-  createCanonicalGuardianDelivery: () => ({ id: "mock-cgd-id" }),
-  listCanonicalGuardianDeliveries: () => [],
-  listPendingCanonicalGuardianRequestsByDestinationChat: () => [],
-  updateCanonicalGuardianDelivery: () => {},
-  generateCanonicalRequestCode: () => "MOCK-CODE",
-}));
 
 // ---------------------------------------------------------------------------
 // Import Conversation AFTER mocks are registered.
@@ -527,7 +457,9 @@ async function waitForCondition(
  */
 async function resolveRun(index: number) {
   const run = pendingRuns[index];
-  if (!run) throw new Error(`No pending run at index ${index}`);
+  if (!run) {
+    throw new Error(`No pending run at index ${index}`);
+  }
   // Emit the events runAgentLoop expects
   const assistantMsg: Message = {
     role: "assistant",
@@ -2164,7 +2096,9 @@ describe("Conversation checkpoint handoff", () => {
 
     const eventsA: ServerMessage[] = [];
     const makeHandler = (label: string) => (e: ServerMessage) => {
-      if (e.type === "message_dequeued") dequeueOrder.push(label);
+      if (e.type === "message_dequeued") {
+        dequeueOrder.push(label);
+      }
     };
 
     // Start processing message A

@@ -55,6 +55,19 @@ export interface LiveVoiceClientStartFrame {
    * utterance boundaries and runs repeated utterance→turn cycles.
    */
   readonly turnDetection?: LiveVoiceTurnDetectionMode;
+  /**
+   * Per-session override for the trailing-silence duration (ms) that ends the
+   * user's turn — the "pause before reply" voice setting. Absent lets the
+   * daemon use its configured default. Only meaningful for `server_vad`.
+   */
+  readonly silenceThresholdMs?: number;
+  /**
+   * Per-session override for the sustained speech (ms) required to interrupt
+   * the assistant mid-reply — the "interrupt sensitivity" voice setting
+   * (higher = harder to interrupt; 0 = instant barge-in). Absent lets the
+   * daemon use its configured default.
+   */
+  readonly bargeInMinSpeechMs?: number;
 }
 
 export interface LiveVoiceClientPttReleaseFrame {
@@ -69,11 +82,23 @@ export interface LiveVoiceClientEndFrame {
   readonly type: "end";
 }
 
+/**
+ * Mid-session tuning update — retunes "pause before reply" / "interrupt
+ * sensitivity" on the running server_vad session without reconnecting. Each
+ * field is optional; the daemon applies changes from the next utterance.
+ */
+export interface LiveVoiceClientUpdateConfigFrame {
+  readonly type: "update_config";
+  readonly silenceThresholdMs?: number;
+  readonly bargeInMinSpeechMs?: number;
+}
+
 export type LiveVoiceClientFrame =
   | LiveVoiceClientStartFrame
   | LiveVoiceClientPttReleaseFrame
   | LiveVoiceClientInterruptFrame
-  | LiveVoiceClientEndFrame;
+  | LiveVoiceClientEndFrame
+  | LiveVoiceClientUpdateConfigFrame;
 
 // ---------------------------------------------------------------------------
 // Server frames (text/JSON; every frame carries `seq`)
@@ -144,8 +169,7 @@ export interface LiveVoiceUtteranceEndServerFrame extends LiveVoiceServerFrameBa
  * usable speech (noise/cough): it is dropped without an assistant turn and
  * the client should return to listening.
  */
-export interface LiveVoiceUtteranceDiscardedServerFrame
-  extends LiveVoiceServerFrameBase {
+export interface LiveVoiceUtteranceDiscardedServerFrame extends LiveVoiceServerFrameBase {
   readonly type: "utterance_discarded";
 }
 
@@ -164,8 +188,7 @@ export interface LiveVoiceThinkingServerFrame extends LiveVoiceServerFrameBase {
   readonly turnId: string;
 }
 
-export interface LiveVoiceAssistantTextDeltaServerFrame
-  extends LiveVoiceServerFrameBase {
+export interface LiveVoiceAssistantTextDeltaServerFrame extends LiveVoiceServerFrameBase {
   readonly type: "assistant_text_delta";
   readonly text: string;
 }
@@ -193,11 +216,34 @@ export interface LiveVoiceTurnCancelledServerFrame extends LiveVoiceServerFrameB
 
 export interface LiveVoiceMetricsServerFrame extends LiveVoiceServerFrameBase {
   readonly type: "metrics";
+  /**
+   * What the frame reports: `"turn_completed"`, `"turn_cancelled"`, or
+   * `"session_ended"`. Optional: daemons predating the field omit it, and
+   * readers treat absent as a completed turn.
+   */
+  readonly event?: string;
   readonly turnId: string;
   readonly sttMs: number | null;
   readonly llmFirstDeltaMs: number | null;
   readonly ttsFirstAudioMs: number | null;
+  /**
+   * End-of-speech (utterance_end, or ptt_release in manual mode) to first
+   * TTS audio, measured server-side. Optional: daemons predating the field
+   * omit it — readers treat absent as null (read fallback, no compat gate
+   * for a read-only debug surface; see docs/BACKWARDS_COMPAT.md).
+   */
+  readonly roundTripMs?: number | null;
   readonly totalMs: number | null;
+  /**
+   * Semantic-endpointing "hold" decisions taken during the turn. Present only
+   * when the endpoint decider was consulted (with the
+   * feature off the field is absent, keeping frames unchanged).
+   */
+  readonly endpointHoldCount?: number;
+  /** Worst endpoint-decision latency observed during the turn. */
+  readonly endpointDecisionMaxLatencyMs?: number;
+  /** Which floor-holding ack actually spoke during the turn, if any. */
+  readonly ackSpoken?: "first_delta" | "tool_use";
 }
 
 export interface LiveVoiceArchivedServerFrame extends LiveVoiceServerFrameBase {
@@ -290,7 +336,10 @@ function isLiveVoiceServerFrameType(
  */
 export function parseServerFrame(
   raw: string,
-): LiveVoiceServerFrame | LiveVoiceInvalidJsonFrame | LiveVoiceUnknownServerFrame {
+):
+  | LiveVoiceServerFrame
+  | LiveVoiceInvalidJsonFrame
+  | LiveVoiceUnknownServerFrame {
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);

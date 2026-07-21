@@ -16,11 +16,11 @@ import {
 import { loadRawConfig, saveRawConfig } from "../../config/loader.js";
 import { loadSkillCatalog } from "../../config/skills.js";
 import { getGuardianDelivery } from "../../contacts/guardian-delivery-reader.js";
+import type { Conversation } from "../../daemon/conversation.js";
 import { findConversation } from "../../daemon/conversation-registry.js";
 import {
   createResolveToolsCallback,
   DEFAULT_PREACTIVATED_SKILL_IDS,
-  type SkillProjectionContext,
 } from "../../daemon/conversation-tool-setup.js";
 import {
   computeGatewayTarget,
@@ -487,8 +487,8 @@ function handleToolNamesList(
  * Resolve the tool surface a subagent would receive, identified either by a
  * role name (e.g. "researcher") or a live subagent id.
  *
- * For a role name: build a {@link SkillProjectionContext} matching what the
- * {@link SubagentManager} sets up at spawn time (isSubagent, allowedTools,
+ * For a role name: build a minimal {@link Conversation} stand-in matching what
+ * the {@link SubagentManager} sets up at spawn time (isSubagent, allowedTools,
  * preactivated skill ids, no client), then run the exact same
  * {@link createResolveToolsCallback} the real subagent uses to project tools
  * for its first turn. This ensures the diagnostic reports the same tool set
@@ -516,19 +516,20 @@ function handleAgentToolList(agent: string): ToolNamesListResponse {
     );
   }
 
-  // Build the same context the SubagentManager creates at spawn time:
+  // Build the same context the SubagentManager creates at spawn time. The
+  // resolver reads only this subset of Conversation state, so a minimal
+  // stand-in cast to Conversation is enough:
   //   - isSubagent: true (gates subagent-only tools like notify_parent)
   //   - subagentAllowedTools: the role's allowlist (wire gate mode by default)
   //   - preactivatedSkillIds: role skill ids merged with defaults
   //   - hasNoClient: true (subagents have no direct client)
   //   - no channel capabilities, no disk pressure, tools enabled
   const toolDefs = getAllToolDefinitions();
-  const coreToolNames = new Set(toolDefs.map((d) => d.name));
   const mergedSkillIds = mergeSkillIds(
     roleConfig.skillIds,
     DEFAULT_PREACTIVATED_SKILL_IDS,
   );
-  const ctx: SkillProjectionContext = {
+  const ctx = {
     isSubagent: true,
     subagentAllowedTools: roleConfig.allowedTools
       ? new Set(roleConfig.allowedTools)
@@ -538,10 +539,9 @@ function handleAgentToolList(agent: string): ToolNamesListResponse {
     diskPressureCleanupModeActive: false,
     skillProjectionState: new Map<string, string>(),
     skillProjectionCache: {},
-    coreToolNames,
     hasNoClient: true,
     preactivatedSkillIds: mergedSkillIds,
-  };
+  } as unknown as Conversation;
 
   // Run the real tool resolver — the same callback a subagent conversation
   // uses each turn. An empty message history simulates the first turn before
@@ -579,7 +579,7 @@ function handleAgentToolList(agent: string): ToolNamesListResponse {
  * Scope the tool inventory to a single conversation. Conversations gain
  * tools over their lifecycle (skill loads, MCP reloads), so the global
  * registry over-reports what a given conversation can actually call. We
- * read the conversation's turn snapshot (`getRegisteredToolNames()`) — a
+ * read the conversation's turn snapshot (`getRegisteredToolDefinitions()`) — a
  * pure read that does not re-run the side-effecting `resolveTools`
  * callback — and resolve each name's metadata/schema from the registry.
  */
@@ -593,25 +593,21 @@ function handleConversationToolList(
     );
   }
 
-  const names = Array.from(conversation.getRegisteredToolNames()).sort((a, b) =>
-    a.localeCompare(b),
-  );
+  // The snapshot already carries each tool's definition, so read schemas off it
+  // directly (activity-injected the same way the global catalog is) rather than
+  // flattening to names and re-looking-them-up in the registry.
+  const defs = injectActivityField(
+    conversation.getRegisteredToolDefinitions(),
+    ACTIVITY_SKIP_SET,
+  ).sort((a, b) => a.name.localeCompare(b.name));
 
-  const schemaByName = new Map<string, SchemaShape>(
-    injectActivityField(getAllTools(), ACTIVITY_SKIP_SET).map((d) => [
-      d.name,
-      d.input_schema as SchemaShape,
-    ]),
-  );
-
+  const names: string[] = [];
   const schemas: Record<string, SchemaShape> = {};
   const tools: ToolListEntry[] = [];
-  for (const name of names) {
-    const schema = schemaByName.get(name);
-    if (schema) {
-      schemas[name] = schema;
-    }
-    tools.push(toolEntryForName(name));
+  for (const def of defs) {
+    names.push(def.name);
+    schemas[def.name] = def.input_schema as SchemaShape;
+    tools.push(toolEntryForName(def.name));
   }
 
   return { names, schemas, tools };
@@ -622,7 +618,7 @@ interface ToolListEntry {
   description: string;
   riskLevel: string;
   category: string;
-  /** Tool origin: "core" for built-ins, otherwise "<kind>:<id>" (e.g. "plugin:echo"). */
+  /** Tool origin as "<kind>:<id>" (e.g. "default:default" for built-ins, "plugin:echo"). */
   source: string;
 }
 
@@ -630,9 +626,10 @@ interface ToolListEntry {
  * Build a catalog entry for one tool name, reading metadata and ownership
  * from the registry (the single source of truth) rather than off any
  * caller-supplied object, so `source` cannot be spoofed by a manifest
- * field. `source` is `core` for built-ins, `<kind>:<id>` for an owned tool
- * (e.g. `plugin:echo`), and `unknown` for a name no longer in the registry
- * (e.g. a conversation snapshot referencing a since-unloaded skill tool).
+ * field. `source` is `<kind>:<id>` for a registered tool (e.g.
+ * `default:default` for a built-in, `plugin:echo` for an owned tool), and
+ * `unknown` for a name no longer in the registry (e.g. a conversation snapshot
+ * referencing a since-unloaded skill tool).
  */
 function toolEntryForName(name: string): ToolListEntry {
   const tool = getTool(name);
@@ -642,7 +639,7 @@ function toolEntryForName(name: string): ToolListEntry {
     description: tool?.description ?? "",
     riskLevel: tool?.defaultRiskLevel ?? "unknown",
     category: tool?.category ?? "",
-    source: owner ? `${owner.kind}:${owner.id}` : tool ? "core" : "unknown",
+    source: owner ? `${owner.kind}:${owner.id}` : "unknown",
   };
 }
 
@@ -1010,7 +1007,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "List registered tools with metadata and schemas",
     description:
-      "Return registered tools. Without `conversationId`, returns every tool in the global registry; `tools` carries per-tool metadata (description, author-asserted risk level, category, and contributing source: core, skill, plugin, or MCP server) and `names`/`schemas` additionally cover skill tools whose manifests are present but not yet loaded, for the permission-simulator catalog. With `conversationId`, scopes the result to the tools available to that conversation as of its most recent turn (including skill/MCP tools registered over its lifecycle); 404 if no such conversation is active. With `agent`, simulates the subagent tool projection for a given role or resolves a live subagent's conversation.",
+      "Return registered tools. Without `conversationId`, returns every tool in the global registry; `tools` carries per-tool metadata (description, author-asserted risk level, category, and contributing source: default (built-in), skill, plugin, or MCP server) and `names`/`schemas` additionally cover skill tools whose manifests are present but not yet loaded, for the permission-simulator catalog. With `conversationId`, scopes the result to the tools available to that conversation as of its most recent turn (including skill/MCP tools registered over its lifecycle); 404 if no such conversation is active. With `agent`, simulates the subagent tool projection for a given role or resolves a live subagent's conversation.",
     tags: ["tools"],
     queryParams: [
       {
@@ -1040,7 +1037,7 @@ export const ROUTES: RouteDefinition[] = [
           source: z
             .string()
             .describe(
-              'Tool origin: "core" for built-ins, otherwise "<kind>:<id>" (e.g. "plugin:echo", "skill:my-skill", "mcp:server").',
+              'Tool origin as "<kind>:<id>" (e.g. "default:default" for built-ins, "plugin:echo", "skill:my-skill", "mcp:server").',
             ),
         }),
       ),

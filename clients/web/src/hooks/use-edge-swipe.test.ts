@@ -7,8 +7,8 @@ import {
   computeVisualOffset,
   decideDirection,
   isCommitted,
-  isEditableTarget,
   isVerticalEscape,
+  ownsHorizontalTextDrag,
   shouldArmAt,
 } from "@/hooks/use-edge-swipe";
 
@@ -19,11 +19,11 @@ describe("activationZonePx", () => {
   });
 });
 
-describe("isEditableTarget", () => {
+describe("ownsHorizontalTextDrag", () => {
   test("is true for a text field and its descendants", () => {
     const textarea = document.createElement("textarea");
-    expect(isEditableTarget(textarea)).toBe(true);
-    expect(isEditableTarget(document.createElement("input"))).toBe(true);
+    expect(ownsHorizontalTextDrag(textarea)).toBe(true);
+    expect(ownsHorizontalTextDrag(document.createElement("input"))).toBe(true);
   });
 
   test("is true inside a contenteditable region", () => {
@@ -32,16 +32,38 @@ describe("isEditableTarget", () => {
     const child = document.createElement("span");
     editor.appendChild(child);
     document.body.appendChild(editor);
-    expect(isEditableTarget(child)).toBe(true);
+    expect(ownsHorizontalTextDrag(child)).toBe(true);
     editor.remove();
   });
 
+  test("is true inside a selectable transcript message text block", () => {
+    const textBlock = document.createElement("div");
+    textBlock.setAttribute("data-message-text", "");
+    const child = document.createElement("span");
+    textBlock.appendChild(child);
+    document.body.appendChild(textBlock);
+    expect(ownsHorizontalTextDrag(child)).toBe(true);
+    textBlock.remove();
+  });
+
+  test("is false over a message row outside its text block", () => {
+    // The whole row wrapper carries data-message-id, but the forgiving swipe
+    // band must still arm over its gaps/attachments/action areas.
+    const row = document.createElement("div");
+    row.setAttribute("data-message-id", "msg-1");
+    const attachment = document.createElement("div");
+    row.appendChild(attachment);
+    document.body.appendChild(row);
+    expect(ownsHorizontalTextDrag(attachment)).toBe(false);
+    row.remove();
+  });
+
   test("is false for non-editable content and explicit contenteditable=false", () => {
-    expect(isEditableTarget(document.createElement("div"))).toBe(false);
+    expect(ownsHorizontalTextDrag(document.createElement("div"))).toBe(false);
     const readOnly = document.createElement("div");
     readOnly.setAttribute("contenteditable", "false");
-    expect(isEditableTarget(readOnly)).toBe(false);
-    expect(isEditableTarget(null)).toBe(false);
+    expect(ownsHorizontalTextDrag(readOnly)).toBe(false);
+    expect(ownsHorizontalTextDrag(null)).toBe(false);
   });
 });
 
@@ -55,10 +77,10 @@ describe("shouldArmAt", () => {
     expect(shouldArmAt(196, 390, false)).toBe(false);
   });
 
-  test("stays edge-only over editable surfaces", () => {
-    // Deliberate edge swipe still arms over an editor…
+  test("stays edge-only over text-drag surfaces", () => {
+    // Deliberate edge swipe still arms over a text-drag surface…
     expect(shouldArmAt(20, 390, true)).toBe(true);
-    // …but a mid-band start on an editable surface does not.
+    // …but a mid-band start on a text-drag surface does not.
     expect(shouldArmAt(150, 390, true)).toBe(false);
   });
 });

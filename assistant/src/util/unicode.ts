@@ -16,7 +16,7 @@ const LOW_SURROGATE_START = 0xdc00;
 const LOW_SURROGATE_END = 0xdfff;
 const REPLACEMENT_CHAR = "\ufffd";
 
-function isHighSurrogate(code: number): boolean {
+export function isHighSurrogate(code: number): boolean {
   return code >= HIGH_SURROGATE_START && code <= HIGH_SURROGATE_END;
 }
 

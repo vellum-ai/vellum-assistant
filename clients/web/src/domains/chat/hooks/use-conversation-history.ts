@@ -27,6 +27,7 @@ import { type InfiniteData, useQueryClient } from "@tanstack/react-query";
 
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import {
+  extractWirePendingAcpConnect,
   extractWirePendingConfirmation,
   extractWirePendingQuestion,
 } from "@/domains/chat/utils/chat";
@@ -191,7 +192,7 @@ export function useConversationHistory({
       // ride every (re)seed: the stream reducer can only advance a defined
       // flag (`nextProcessingState` pins `undefined` forever), and the
       // `snapshotProcessing === false` close-gate in
-      // `shouldShowThinkingIndicator` / `canStopGeneration` starves without it.
+      // `shouldShowThinkingIndicator` / `isAssistantBusy` starves without it.
       processing: pagination.latestPage?.processing,
     });
 
@@ -232,6 +233,22 @@ export function useConversationHistory({
     const wirePendingQuestion = extractWirePendingQuestion(pagination.messages);
     if (wirePendingQuestion && !useInteractionStore.getState().pendingQuestion) {
       useInteractionStore.getState().showQuestion(wirePendingQuestion);
+    }
+
+    // Restore the inline "Connect Claude Code" card the snapshot carries on a
+    // failed acp_spawn (persisted `acp_claude_oauth_missing` marker). Without
+    // this, a page reload or SSE reconnect wipes the in-memory prompt and the
+    // card silently disappears. Skipped when a prompt is already active;
+    // `showAcpConnect` additionally no-ops a failure the user already dismissed
+    // this session, so a reseed can't resurrect a card after dismiss-on-send.
+    const wirePendingAcpConnect = extractWirePendingAcpConnect(
+      pagination.messages,
+    );
+    if (
+      wirePendingAcpConnect &&
+      !useInteractionStore.getState().pendingAcpConnect
+    ) {
+      useInteractionStore.getState().showAcpConnect(wirePendingAcpConnect);
     }
 
     // Refresh embedded surface content into the history cache.

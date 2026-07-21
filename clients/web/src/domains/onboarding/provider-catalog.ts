@@ -110,8 +110,8 @@ export const ONBOARDING_PROVIDERS: readonly OnboardingProvider[] = [
         maxOutputTokens: 128_000,
       },
       {
-        id: "x-ai/grok-4.20-beta",
-        displayName: "Grok 4.20 Beta",
+        id: "x-ai/grok-4.20",
+        displayName: "Grok 4.20",
         contextWindowTokens: 200_000,
         maxOutputTokens: 16_000,
       },

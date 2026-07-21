@@ -1,5 +1,5 @@
 
-import { Bookmark, Check, Copy, ExternalLink, FileCode, GitBranch } from "lucide-react";
+import { Bookmark, Check, Copy, ExternalLink, FileCode, GitBranch, ListCollapse, RotateCcw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { DisplayMessage } from "@/domains/chat/types/types";
@@ -10,7 +10,7 @@ import {
   useIsBookmarked,
 } from "@/hooks/use-bookmarks";
 
-type MessageHoverActionsProps = {
+export type MessageHoverActionsProps = {
   /** The message whose text is copied and whose role/timestamp drive the row. */
   message: DisplayMessage;
   /** Conversation the message belongs to. Required for the bookmark toggle —
@@ -20,8 +20,14 @@ type MessageHoverActionsProps = {
   openInSlackUrl?: string;
   /** Callback when "Fork from here" is clicked. */
   onFork?: () => void;
+  /** Callback when "Summarize up to here" is clicked. */
+  onSummarizeUpToHere?: () => void;
   /** Callback when "Inspect" is clicked. */
   onInspect?: () => void;
+  /** Callback when "Retry" is clicked. Only provided on the latest assistant
+   *  message while no turn is in flight — retry discards that response and
+   *  regenerates it. */
+  onRetry?: () => void;
 };
 
 function formatTimestamp(epoch: number): string {
@@ -91,7 +97,9 @@ export function MessageHoverActions({
   conversationId,
   openInSlackUrl,
   onFork,
+  onSummarizeUpToHere,
   onInspect,
+  onRetry,
 }: MessageHoverActionsProps) {
   const { role } = message;
 
@@ -178,6 +186,17 @@ export function MessageHoverActions({
         </button>
       )}
 
+      {onRetry && (
+        <button
+          type="button"
+          onClick={onRetry}
+          title="Retry"
+          className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-[var(--content-tertiary)] transition-colors hover:bg-[var(--surface-active)] hover:text-[var(--content-default)]"
+        >
+          <RotateCcw className="h-3.5 w-3.5" />
+        </button>
+      )}
+
       {canBookmark && conversationId && message.id && (
         <MessageBookmarkButton
           messageId={message.id}
@@ -206,6 +225,17 @@ export function MessageHoverActions({
           className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-[var(--content-tertiary)] transition-colors hover:bg-[var(--surface-active)] hover:text-[var(--content-default)]"
         >
           <GitBranch className="h-3.5 w-3.5" />
+        </button>
+      )}
+
+      {onSummarizeUpToHere && (
+        <button
+          type="button"
+          onClick={onSummarizeUpToHere}
+          title="Summarize up to here"
+          className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-[var(--content-tertiary)] transition-colors hover:bg-[var(--surface-active)] hover:text-[var(--content-default)]"
+        >
+          <ListCollapse className="h-3.5 w-3.5" />
         </button>
       )}
 

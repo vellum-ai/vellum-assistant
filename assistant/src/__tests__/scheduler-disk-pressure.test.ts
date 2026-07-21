@@ -1,35 +1,9 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () => ({
-    info: () => {},
-    debug: () => {},
-    warn: () => {},
-    error: () => {},
-  }),
-  truncateForLog: (value: string) => value,
-}));
-
 mock.module("../runtime/agent-wake.js", () => ({
   wakeAgentForOpportunity: mock(() =>
     Promise.resolve({ invoked: true, producedToolCalls: false }),
   ),
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({}),
-  loadConfig: () => ({}),
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  getConfigReadOnly: () => ({}),
-  applyNestedDefaults: (config: unknown) => config,
-  deepMergeOverwrite: (base: unknown) => base,
-  mergeDefaultWorkspaceConfig: () => {},
-  getNestedValue: () => undefined,
-  setNestedValue: () => {},
-  API_KEY_PROVIDERS: [],
-  _writeQuarantineNotice: () => {},
-  invalidateConfigCache: () => {},
 }));
 
 let locked = true;

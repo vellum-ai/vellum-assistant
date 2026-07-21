@@ -7,11 +7,13 @@ const SETTINGS_TABS = [
   "General",
   "Models & Services",
   "Voice",
+  "Services",
   "Sounds",
   "Permissions & Privacy",
   "Billing",
   "Archive",
   "Schedules",
+  "Debug",
   "Developer",
 ] as const;
 

@@ -1,11 +1,11 @@
 import { consumeGrantForInvocation } from "../approvals/approval-primitive.js";
+import {
+  getGuardianRequestOrNull,
+  updateGuardianRequest,
+} from "../channels/gateway-guardian-requests.js";
 import { isToolAllowedInChannel } from "../channels/permission-profiles.js";
 import type { ChannelId } from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
-import {
-  getCanonicalGuardianRequest,
-  updateCanonicalGuardianRequest,
-} from "../contacts/canonical-guardian-store.js";
 import type { AutoApproveThreshold } from "../permissions/approval-policy.js";
 import {
   isUnparseableToolArgs,
@@ -18,11 +18,14 @@ import {
 import { createOrReuseToolGrantRequest } from "../runtime/tool-grant-request-helper.js";
 import { redactSecrets } from "../security/secret-scanner.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
+import { recordToolDenied, recordToolError } from "../telemetry/tool-audit.js";
 import { getLogger } from "../util/logger.js";
+import { resolveExecutionTarget } from "./execution-target.js";
 import { getAllTools, getTool, getToolOwner } from "./registry.js";
 import { isSideEffectTool } from "./side-effects.js";
 import { summarizeToolInput } from "./tool-input-summary.js";
 import { suggestToolName } from "./tool-name-aliases.js";
+import { recordToolCompletion } from "./tool-profiler.js";
 import type { ExecutionTarget } from "./tool-types.js";
 import {
   isDiskPressureCleanupToolName,
@@ -30,7 +33,6 @@ import {
   type Tool,
   type ToolContext,
   type ToolExecutionResult,
-  type ToolLifecycleEvent,
 } from "./types.js";
 import { enforceVerificationControlPlanePolicy } from "./verification-control-plane-policy.js";
 
@@ -125,7 +127,7 @@ export type InlineGrantWaitOutcome =
 
 /**
  * Wait bounded for a guardian to approve a tool grant request and for the
- * resulting grant to become consumable. Polls both the canonical request
+ * resulting grant to become consumable. Polls both the gateway request
  * status (to detect early rejection) and the grant store (to detect approval
  * and atomically consume the grant).
  *
@@ -163,9 +165,11 @@ export async function waitForInlineGrant(
       return { outcome: "aborted" };
     }
 
-    // Check if the canonical request was rejected - exit early without
-    // waiting for the full timeout.
-    const request = getCanonicalGuardianRequest(escalationRequestId);
+    // Check if the guardian request was rejected - exit early without
+    // waiting for the full timeout. Degrades to null on gateway failure so
+    // one bad read never aborts the wait; grant consumption stays the
+    // authoritative approval signal.
+    const request = await getGuardianRequestOrNull(escalationRequestId);
     if (request && request.status === "denied") {
       log.info(
         {
@@ -179,7 +183,7 @@ export async function waitForInlineGrant(
       return { outcome: "denied", requestId: escalationRequestId };
     }
 
-    // Try to consume the grant - if the guardian approved, the canonical
+    // Try to consume the grant - if the guardian approved, the guardian
     // decision primitive will have minted a scoped grant by now.
     const grantResult = await consumeGrantForInvocation(consumeParams, {
       maxWaitMs: 0,
@@ -209,6 +213,25 @@ export async function waitForInlineGrant(
     "Inline grant wait timed out - no guardian decision within budget",
   );
   return { outcome: "timeout", requestId: escalationRequestId };
+}
+
+/**
+ * Stamp `followupState` on the escalation's gateway row. Best-effort: the
+ * stamp only steers the resolver's retry notification, never the decision,
+ * so a failed write logs and the invocation proceeds.
+ */
+async function stampFollowupState(
+  requestId: string,
+  followupState: string | null,
+): Promise<void> {
+  try {
+    await updateGuardianRequest(requestId, { followupState });
+  } catch (err) {
+    log.warn(
+      { err, requestId, followupState },
+      "Failed to stamp inline-wait followup state on guardian request",
+    );
+  }
 }
 
 const UI_SURFACE_TOOLS = new Set(["ui_show", "ui_update", "ui_dismiss"]);
@@ -332,33 +355,71 @@ export class ToolApprovalHandler {
    * Returns the resolved Tool if all gates pass, or an early-return
    * ToolExecutionResult if any gate blocks execution.
    */
+  /**
+   * Audit a gate that failed the invocation with an error (never executed).
+   * All pre-execution gate errors are anticipated control flow (abort, unknown
+   * tool, disk pressure, unparseable args), so they audit as expected failures.
+   */
+  private auditGateError(
+    context: ToolContext,
+    name: string,
+    input: Record<string, unknown>,
+    riskLevel: string,
+    startTime: number,
+    errorMessage: string,
+  ): void {
+    const durationMs = Date.now() - startTime;
+    recordToolError({
+      conversationId: context.conversationId,
+      requestId: context.requestId,
+      toolName: name,
+      input,
+      errorMessage,
+      isExpected: true,
+      riskLevel,
+      durationMs,
+      attribution: context.attribution ?? null,
+    });
+    recordToolCompletion(context.conversationId, name, durationMs, true);
+  }
+
+  /** Audit a gate that blocked the invocation (deterministic, no user prompt). */
+  private auditGateDenied(
+    context: ToolContext,
+    name: string,
+    input: Record<string, unknown>,
+    riskLevel: string,
+    startTime: number,
+    reason: string,
+  ): void {
+    recordToolDenied({
+      conversationId: context.conversationId,
+      toolName: name,
+      input,
+      reason,
+      riskLevel,
+      durationMs: Date.now() - startTime,
+      wasPrompted: false,
+    });
+  }
+
   async checkPreExecutionGates(
     name: string,
     input: Record<string, unknown>,
     context: ToolContext,
-    executionTarget: ExecutionTarget,
     riskLevel: string,
     startTime: number,
-    emitLifecycleEvent: (event: ToolLifecycleEvent) => void,
   ): Promise<PreExecutionGateResult> {
     // Bail out immediately if the session was aborted before this tool started.
     if (context.signal?.aborted) {
-      const durationMs = Date.now() - startTime;
-      emitLifecycleEvent({
-        type: "error",
-        toolName: name,
-        executionTarget,
+      this.auditGateError(
+        context,
+        name,
         input,
-        workingDir: context.workingDir,
-        conversationId: context.conversationId,
-        requestId: context.requestId,
         riskLevel,
-        decision: "error",
-        durationMs,
-        errorMessage: "Cancelled",
-        isExpected: true,
-        errorCategory: "tool_failure",
-      });
+        startTime,
+        "Cancelled",
+      );
       return {
         allowed: false,
         result: { content: "Cancelled", isError: true },
@@ -373,22 +434,7 @@ export class ToolApprovalHandler {
     // mangled. Fail loudly instead so the model retries.
     if (isUnparseableToolArgs(input)) {
       const msg = unparseableToolArgsMessage(name, input._raw);
-      const durationMs = Date.now() - startTime;
-      emitLifecycleEvent({
-        type: "error",
-        toolName: name,
-        executionTarget,
-        input,
-        workingDir: context.workingDir,
-        conversationId: context.conversationId,
-        requestId: context.requestId,
-        riskLevel,
-        decision: "error",
-        durationMs,
-        errorMessage: msg,
-        isExpected: true,
-        errorCategory: "tool_failure",
-      });
+      this.auditGateError(context, name, input, riskLevel, startTime, msg);
       return { allowed: false, result: { content: msg, isError: true } };
     }
 
@@ -408,25 +454,27 @@ export class ToolApprovalHandler {
         },
         "Guardian-only policy blocked tool invocation",
       );
-      const durationMs = Date.now() - startTime;
-      emitLifecycleEvent({
-        type: "permission_denied",
-        toolName: name,
-        executionTarget,
+      this.auditGateDenied(
+        context,
+        name,
         input,
-        workingDir: context.workingDir,
-        conversationId: context.conversationId,
-        requestId: context.requestId,
         riskLevel,
-        decision: "deny",
-        reason: guardianCheck.reason!,
-        durationMs,
-      });
+        startTime,
+        guardianCheck.reason!,
+      );
       return {
         allowed: false,
         result: { content: guardianCheck.reason!, isError: true },
       };
     }
+
+    // Resolve the tool once, up front. Its manifest execution target
+    // (sandbox/host) gates the sensitive-tool check below; its absence is the
+    // "unknown tool" gate further down. Looking it up here also means the
+    // sandbox/host routing reflects the tool actually registered under this
+    // name at execution time.
+    const tool = getTool(name);
+    const executionTarget = resolveExecutionTarget(tool ?? { name });
 
     // Determine whether this invocation requires a scoped grant. Capture
     // the consume params now but defer the actual atomic consumption until
@@ -473,29 +521,13 @@ export class ToolApprovalHandler {
       !isDiskPressureCleanupToolName(name)
     ) {
       const msg = `Tool "${name}" is not available during disk pressure cleanup mode.`;
-      const durationMs = Date.now() - startTime;
-      emitLifecycleEvent({
-        type: "error",
-        toolName: name,
-        executionTarget,
-        input,
-        workingDir: context.workingDir,
-        conversationId: context.conversationId,
-        requestId: context.requestId,
-        riskLevel,
-        decision: "error",
-        durationMs,
-        errorMessage: msg,
-        isExpected: true,
-        errorCategory: "tool_failure",
-      });
+      this.auditGateError(context, name, input, riskLevel, startTime, msg);
       return { allowed: false, result: { content: msg, isError: true } };
     }
 
-    // Look up the tool before the allowedToolNames gate so a name no skill
-    // provides surfaces as "Unknown tool" (with the real list) instead of
-    // the misleading "load the skill" hint.
-    const tool = getTool(name);
+    // Reject a name no tool provides before the allowedToolNames gate, so it
+    // surfaces as "Unknown tool" (with the real list) instead of the
+    // misleading "load the skill" hint. (`tool` was resolved up front.)
     if (!tool) {
       const allowedToolNames = context.allowedToolNames;
       // List every registered tool. Tools that need an external resolver
@@ -510,22 +542,7 @@ export class ToolApprovalHandler {
       const suggestion = suggestToolName(name, availableNames);
       const didYouMean = suggestion ? ` Did you mean "${suggestion}"?` : "";
       const msg = `Unknown tool: ${name}.${didYouMean} Available tools: ${availableNames.join(", ")}`;
-      const durationMs = Date.now() - startTime;
-      emitLifecycleEvent({
-        type: "error",
-        toolName: name,
-        executionTarget,
-        input,
-        workingDir: context.workingDir,
-        conversationId: context.conversationId,
-        requestId: context.requestId,
-        riskLevel,
-        decision: "error",
-        durationMs,
-        errorMessage: msg,
-        isExpected: true,
-        errorCategory: "tool_failure",
-      });
+      this.auditGateError(context, name, input, riskLevel, startTime, msg);
       return { allowed: false, result: { content: msg, isError: true } };
     }
 
@@ -544,22 +561,7 @@ export class ToolApprovalHandler {
         memoryEnabled,
         activeToolNames: context.allowedToolNames,
       });
-      const durationMs = Date.now() - startTime;
-      emitLifecycleEvent({
-        type: "error",
-        toolName: name,
-        executionTarget,
-        input,
-        workingDir: context.workingDir,
-        conversationId: context.conversationId,
-        requestId: context.requestId,
-        riskLevel,
-        decision: "error",
-        durationMs,
-        errorMessage: msg,
-        isExpected: true,
-        errorCategory: "tool_failure",
-      });
+      this.auditGateError(context, name, input, riskLevel, startTime, msg);
       return { allowed: false, result: { content: msg, isError: true } };
     }
 
@@ -589,20 +591,7 @@ export class ToolApprovalHandler {
           },
           "Channel permission policy blocked tool invocation",
         );
-        const durationMs = Date.now() - startTime;
-        emitLifecycleEvent({
-          type: "permission_denied",
-          toolName: name,
-          executionTarget,
-          input,
-          workingDir: context.workingDir,
-          conversationId: context.conversationId,
-          requestId: context.requestId,
-          riskLevel,
-          decision: "deny",
-          reason: msg,
-          durationMs,
-        });
+        this.auditGateDenied(context, name, input, riskLevel, startTime, msg);
         return { allowed: false, result: { content: msg, isError: true } };
       }
     }
@@ -643,22 +632,14 @@ export class ToolApprovalHandler {
       // sees a consistent "Cancelled" result instead of a spurious
       // guardian_approval_required denial during voice barge-in.
       if (grantResult.reason === "aborted") {
-        const durationMs = Date.now() - startTime;
-        emitLifecycleEvent({
-          type: "error",
-          toolName: name,
-          executionTarget,
+        this.auditGateError(
+          context,
+          name,
           input,
-          workingDir: context.workingDir,
-          conversationId: context.conversationId,
-          requestId: context.requestId,
           riskLevel,
-          decision: "error",
-          durationMs,
-          errorMessage: "Cancelled",
-          isExpected: true,
-          errorCategory: "tool_failure",
-        });
+          startTime,
+          "Cancelled",
+        );
         return {
           allowed: false,
           result: { content: "Cancelled", isError: true },
@@ -669,7 +650,7 @@ export class ToolApprovalHandler {
       //
       // For non-guardian actors with established identity (trusted_contact
       // or unverified_contact) and sufficient context, escalate to the
-      // guardian by creating a canonical tool_grant_request. Then wait
+      // guardian by creating a tool_grant_request guardian request. Then wait
       // bounded for the grant to become available - this lets the tool call
       // succeed inline after guardian approval without the requester having
       // to retry manually.
@@ -702,13 +683,14 @@ export class ToolApprovalHandler {
         // If escalation failed (no binding, missing identity), fall through
         // to the generic denial path.
         if ("created" in escalation || "deduped" in escalation) {
-          // Stamp the canonical request so the approval resolver knows an
+          // Stamp the guardian request so the approval resolver knows an
           // inline consumer is waiting. Without this, the resolver would
           // send a stale "please retry" notification even though the
           // original invocation is about to resume inline.
-          updateCanonicalGuardianRequest(escalation.requestId, {
-            followupState: "inline_wait_active:" + Date.now(),
-          });
+          await stampFollowupState(
+            escalation.requestId,
+            "inline_wait_active:" + Date.now(),
+          );
 
           const waitResult = await waitForInlineGrant(
             escalation.requestId,
@@ -722,9 +704,7 @@ export class ToolApprovalHandler {
 
           if (waitResult.outcome === "granted") {
             // Clear the inline-wait stamp now that the grant has been consumed.
-            updateCanonicalGuardianRequest(escalation.requestId, {
-              followupState: null,
-            });
+            await stampFollowupState(escalation.requestId, null);
             log.info(
               {
                 toolName: name,
@@ -742,25 +722,15 @@ export class ToolApprovalHandler {
           if (waitResult.outcome === "aborted") {
             // Clear the inline-wait stamp so a later guardian approval
             // (if the request is still pending) will send the retry notification.
-            updateCanonicalGuardianRequest(escalation.requestId, {
-              followupState: null,
-            });
-            const durationMs = Date.now() - startTime;
-            emitLifecycleEvent({
-              type: "error",
-              toolName: name,
-              executionTarget,
+            await stampFollowupState(escalation.requestId, null);
+            this.auditGateError(
+              context,
+              name,
               input,
-              workingDir: context.workingDir,
-              conversationId: context.conversationId,
-              requestId: context.requestId,
               riskLevel,
-              decision: "error",
-              durationMs,
-              errorMessage: "Cancelled",
-              isExpected: true,
-              errorCategory: "tool_failure",
-            });
+              startTime,
+              "Cancelled",
+            );
             return {
               allowed: false,
               result: { content: "Cancelled", isError: true },
@@ -770,9 +740,7 @@ export class ToolApprovalHandler {
           // Clear the inline-wait stamp so a later guardian approval
           // (if the request is still pending after timeout) will send
           // the retry notification as expected.
-          updateCanonicalGuardianRequest(escalation.requestId, {
-            followupState: null,
-          });
+          await stampFollowupState(escalation.requestId, null);
 
           const codeSuffix = escalation.requestCode
             ? ` (request code: ${escalation.requestCode})`
@@ -801,20 +769,14 @@ export class ToolApprovalHandler {
             },
             "Inline grant wait ended without approval - denying trusted contact tool invocation",
           );
-          const durationMs = Date.now() - startTime;
-          emitLifecycleEvent({
-            type: "permission_denied",
-            toolName: name,
-            executionTarget,
+          this.auditGateDenied(
+            context,
+            name,
             input,
-            workingDir: context.workingDir,
-            conversationId: context.conversationId,
-            requestId: context.requestId,
             riskLevel,
-            decision: "deny",
-            reason: escalationMessage,
-            durationMs,
-          });
+            startTime,
+            escalationMessage,
+          );
           return {
             allowed: false,
             result: { content: escalationMessage, isError: true },
@@ -837,20 +799,7 @@ export class ToolApprovalHandler {
         },
         "Guardian approval gate blocked untrusted actor tool invocation (no matching grant)",
       );
-      const durationMs = Date.now() - startTime;
-      emitLifecycleEvent({
-        type: "permission_denied",
-        toolName: name,
-        executionTarget,
-        input,
-        workingDir: context.workingDir,
-        conversationId: context.conversationId,
-        requestId: context.requestId,
-        riskLevel,
-        decision: "deny",
-        reason,
-        durationMs,
-      });
+      this.auditGateDenied(context, name, input, riskLevel, startTime, reason);
       return { allowed: false, result: { content: reason, isError: true } };
     }
 

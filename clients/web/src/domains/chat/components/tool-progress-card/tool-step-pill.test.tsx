@@ -28,16 +28,7 @@ describe("ToolStepPill", () => {
     expect(html).toContain('data-testid="tool-step-pill"');
   });
 
-  test("renders the risk badge when a level is set", () => {
-    const html = renderToStaticMarkup(
-      <ToolStepPill iconName="code" label="bun test" riskLevel="high" />,
-    );
-    expect(html).toContain('data-testid="risk-badge"');
-    expect(html).toContain('data-risk-level="high"');
-    expect(html).toContain("High");
-  });
-
-  test("omits the risk badge when no level is set", () => {
+  test("never renders a risk badge (risk lives in the detail drawer)", () => {
     const html = renderToStaticMarkup(
       <ToolStepPill iconName="code" label="bun test" />,
     );

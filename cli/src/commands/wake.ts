@@ -210,9 +210,8 @@ export async function wake(): Promise<void> {
     // CES socket during startup (discoverCesWithRetry), so it tolerates CES
     // still binding. CES's lifecycle tracks the daemon (its only consumer):
     // restarting it under a live daemon would sever the daemon's open
-    // connection, so it is only (re)started alongside the daemon. startCes is a
-    // no-op unless CES_STANDALONE is set, in which case the assistant spawns
-    // CES itself as today.
+    // connection, so it is only (re)started alongside the daemon. startCes
+    // always launches the CES sibling unconditionally.
     await Promise.all([
       startCes(watch, resources),
       startLocalDaemon(watch, resources, { foreground, signingKey }),
@@ -229,7 +228,7 @@ export async function wake(): Promise<void> {
     // died independently (crash, OOM kill). A dead ces.pid under a live daemon
     // means credential operations will fail until the next wake. Relaunch the
     // sibling so the daemon's lazy reconnect (secure-keys.ts) picks it up on
-    // the next credential read. startCes is a no-op unless CES_STANDALONE.
+    // the next credential read. startCes always launches the sibling.
     const vellumDir = join(resources.instanceDir, ".vellum");
     const cesPidFile = join(vellumDir, "ces.pid");
     const cesAlive = isProcessAlive(cesPidFile).alive;

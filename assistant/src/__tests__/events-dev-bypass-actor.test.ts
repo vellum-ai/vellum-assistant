@@ -38,13 +38,6 @@ mock.module("../runtime/local-actor-identity.js", () => ({
   },
 }));
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // ── Real imports (after mocks) ────────────────────────────────────────────
 
 import { AssistantEventHub } from "../runtime/assistant-event-hub.js";

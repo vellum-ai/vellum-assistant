@@ -63,6 +63,30 @@
       "updatedAt": "2026-06-15T21:08:24.000Z"
     },
     {
+      "id": "chat-complex-documents",
+      "name": "chat-complex-documents",
+      "description": "Chat with and search your complex documents — ask questions, extract tables and fields, and get answers grounded in the source. Connects the hosted Unstructured Transform MCP server to parse, structure, and enrich PDFs, Word/Excel/PowerPoint, images, scanned files, emails, and 60+ other formats into clean, AI-ready text for search, Q&A, and summarization without building a custom parsing pipeline.",
+      "metadata": {
+        "icon": "assets/icon.svg",
+        "emoji": "📄",
+        "vellum": {
+          "category": "integrations",
+          "display-name": "Chat with Complex Documents",
+          "user-invocable": "true",
+          "activation-hints": [
+            "User wants to pull content out of documents — PDFs, Word/Excel/PowerPoint, images, emails, scanned files",
+            "User wants to make a set of documents searchable, or answer questions / ground summaries against them (RAG, Q&A, knowledge base)",
+            "User mentions Unstructured, Unstructured Transform, document parsing, partitioning, table extraction, or OCR"
+          ],
+          "avoid-when": [
+            "User just needs the plain text of one small local file (use built-in file reading instead)"
+          ]
+        }
+      },
+      "compatibility": "Works on both the Vellum desktop app (local daemon) and the Vellum web app (platform-hosted). Requires an Unstructured account to authorize during the OAuth step.",
+      "updatedAt": "2026-07-13T20:48:26.000Z"
+    },
+    {
       "id": "chatgpt-import",
       "name": "chatgpt-import",
       "description": "Import conversation history from ChatGPT into Vellum",
@@ -287,6 +311,32 @@
       "updatedAt": "2026-07-07T04:41:23.000Z"
     },
     {
+      "id": "gmail-trigger",
+      "name": "gmail-trigger",
+      "description": "Beta. Act on new Gmail as it arrives: get pinged only for urgent mail, digest newsletters, forward invoices — any standing instruction, across one or several accounts.",
+      "metadata": {
+        "emoji": "📬",
+        "vellum": {
+          "category": "email",
+          "display-name": "Gmail Triggers (Beta)",
+          "includes": [
+            "schedule"
+          ],
+          "activation-hints": [
+            "User wants hands-off monitoring of their Gmail inbox",
+            "Ping me / tell me when a new email arrives",
+            "Watch my inbox for new messages"
+          ],
+          "avoid-when": [
+            "Recurring inbox cleanup, archiving, triage, or reply drafting — use inbox-management",
+            "A one-time inbox summary or search, or reading a specific email"
+          ]
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants",
+      "updatedAt": "2026-07-10T11:09:04.000Z"
+    },
+    {
       "id": "google-calendar",
       "name": "google-calendar",
       "description": "View, create, and manage Google Calendar events and check availability",
@@ -435,7 +485,7 @@
     {
       "id": "llm-cost-optimizer",
       "name": "llm-cost-optimizer",
-      "description": "Analyze and reduce LLM spend by mapping call-site overrides to managed profiles (Balanced / Quality / Speed). Covers spend analysis, profile assignment, and config correctness.",
+      "description": "Analyze and reduce LLM spend: read usage breakdowns by call site, model, and inference profile, understand single-winner profile resolution, and pin call sites to managed profiles (Balanced / Quality / Speed) only where they should deviate from shipped defaults.",
       "metadata": {
         "emoji": "💸",
         "vellum": {
@@ -443,7 +493,20 @@
           "display-name": "LLM Cost Optimizer"
         }
       },
-      "updatedAt": "2026-06-15T21:08:24.000Z"
+      "updatedAt": "2026-07-10T04:43:15.000Z"
+    },
+    {
+      "id": "llm-provider-setup",
+      "name": "llm-provider-setup",
+      "description": "Set up a new LLM provider connection, discover valid model ids, create and validate a model profile — securely and end-to-end via CLI. Covers managed vs BYO keys, secure credential collection, model discovery, profile creation, and live verification.",
+      "metadata": {
+        "emoji": "🔌",
+        "vellum": {
+          "category": "development",
+          "display-name": "LLM Provider Setup"
+        }
+      },
+      "updatedAt": "2026-07-10T04:43:15.000Z"
     },
     {
       "id": "macos-automation",
@@ -631,7 +694,7 @@
     {
       "id": "plugin-builder",
       "name": "plugin-builder",
-      "description": "Use when the user wants to build, scaffold, ship, or edit a Vellum plugin that bundles hooks, tools, and skills into one installable package.",
+      "description": "Use when the user wants to build, scaffold, ship, or edit a Vellum plugin that bundles multiple surfaces (hooks, tools, skills, and more) into one installable package.",
       "metadata": {
         "emoji": "🧩",
         "vellum": {
@@ -653,7 +716,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-07T12:59:27.000Z"
+      "updatedAt": "2026-07-16T14:06:51.000Z"
     },
     {
       "id": "public-ingress",
@@ -872,20 +935,6 @@
       "updatedAt": "2026-06-15T21:08:24.000Z"
     },
     {
-      "id": "time-based-actions",
-      "name": "time-based-actions",
-      "description": "Unified routing guide for reminders, schedules, notifications, and tasks - prevents common misrouting",
-      "metadata": {
-        "emoji": "⏰",
-        "vellum": {
-          "category": "productivity",
-          "display-name": "Time-Based Actions"
-        }
-      },
-      "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
-    },
-    {
       "id": "twilio-setup",
       "name": "twilio-setup",
       "description": "Configure Twilio credentials and phone numbers for voice calls",
@@ -901,7 +950,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-15T21:08:24.000Z"
+      "updatedAt": "2026-07-14T20:56:46.000Z"
     },
     {
       "id": "typescript-eval",
@@ -946,7 +995,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-07T19:43:50.000Z"
+      "updatedAt": "2026-07-07T20:33:02.000Z"
     },
     {
       "id": "vellum-conversation-management",
@@ -1149,6 +1198,20 @@
       "updatedAt": "2026-06-03T03:10:07.000Z"
     },
     {
+      "id": "vellum-workspace-theme",
+      "name": "vellum-workspace-theme",
+      "description": "Customize the app's visual theme — author design-token overrides (accent, background, surfaces, text, message-bubble colors) in the workspace ui/theme.json, validated by the assistant runtime and applied live to connected clients. Covers the token slots, the all-or-none override groups, the contrast floor, and reading back validation issues.",
+      "metadata": {
+        "emoji": "🖌️",
+        "vellum": {
+          "category": "content",
+          "display-name": "Workspace Theme"
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants",
+      "updatedAt": "2026-07-11T00:56:00.000Z"
+    },
+    {
       "id": "vercel-token-setup",
       "name": "vercel-token-setup",
       "description": "Set up a Vercel API token for publishing apps using browser automation",
@@ -1194,7 +1257,7 @@
     {
       "id": "watch-together",
       "name": "watch-together",
-      "description": "Watch TV shows and movies with the user in real time by processing screen captures into frames and audio analysis.",
+      "description": "Watch TV shows and movies with the user in real time. A fast editor model watches every window of playback, transcribes dialogue, and picks story-critical frames, waking the assistant at the moments that matter instead of on a fixed timer. Plays media files directly via mpv (no screen capture), with screen capture as a fallback for browser-only content.",
       "metadata": {
         "emoji": "📺",
         "vellum": {
@@ -1203,7 +1266,7 @@
           "emoji": "📺"
         }
       },
-      "updatedAt": "2026-06-12T18:05:36.000Z"
+      "updatedAt": "2026-07-15T00:42:43.000Z"
     },
     {
       "id": "watcher",

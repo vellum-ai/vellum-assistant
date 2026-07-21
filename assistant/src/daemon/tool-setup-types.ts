@@ -6,7 +6,7 @@
 import type { InterfaceId } from "../channels/types.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import type { SurfaceConversationContext } from "./conversation-surfaces.js";
-import type { TrustContext } from "./trust-context.js";
+import type { TrustContext } from "./trust-context-types.js";
 
 /**
  * How a subagent/wake tool allowlist is enforced.
@@ -33,7 +33,7 @@ export type SubagentToolGateMode = "wire" | "execution";
  * but the definitions themselves are resolved from the live context: a
  * fork-retrospective wake hydrates clientless (`hasNoClient = true`, no
  * transport interface, no channel capabilities), which drops client-gated
- * tools (`host_*`, `ui_*`, `app_open`, `request_system_permission`) from
+ * tools (`host_*`, `ui_*`, `ask_question`, `request_system_permission`) from
  * the wire definitions and breaks the cache prefix anyway. When this pin is
  * set on the conversation, `isToolActiveForContext` reads `hasNoClient` and
  * `transportInterface` exclusively from the pin and treats channel
@@ -80,6 +80,18 @@ export interface ToolSetupContext extends SurfaceConversationContext {
   allowedToolNames?: Set<string>;
   /** When set, the subagent/wake tool allowlist (see {@link subagentToolGateMode}). */
   subagentAllowedTools?: Set<string>;
+  /**
+   * When true, side-effecting tools are refused for this subagent regardless of
+   * trust class (the read-only background continuation): kept off the wire tool
+   * surface and rejected in the executor gate. Independent of the allowlist.
+   */
+  subagentDenySideEffects?: boolean;
+  /**
+   * Collects tool names the subagent attempted but that
+   * {@link subagentAllowedTools} denied, for parent-visible reporting. The
+   * executor records into this Set (shared by reference with the Conversation).
+   */
+  subagentDeniedToolNames?: Set<string>;
   /**
    * How {@link subagentAllowedTools} is enforced. Absent or `"wire"` keeps
    * the historical behavior (definitions filtered before the provider

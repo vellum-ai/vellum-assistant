@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { credentialKey } from "../security/credential-key.js";
+import { setConfig } from "./helpers/set-config.js";
 
 let mockSecureKeys: Record<string, string>;
-let mockRawConfig: Record<string, unknown>;
 
 mock.module("../security/secure-keys.js", () => ({
   getSecureKeyAsync: async (key: string) => mockSecureKeys[key] ?? null,
@@ -15,24 +15,6 @@ mock.module("../security/secure-keys.js", () => ({
     delete mockSecureKeys[key];
     return true;
   },
-}));
-
-mock.module("../config/loader.js", () => ({
-  loadRawConfig: () => mockRawConfig,
-  getConfig: () => ({ email: { enabled: false } }),
-  getNestedValue: (obj: Record<string, unknown>, path: string) => {
-    const keys = path.split(".");
-    let current: unknown = obj;
-    for (const key of keys) {
-      if (current == null || typeof current !== "object") return undefined;
-      current = (current as Record<string, unknown>)[key];
-    }
-    return current;
-  },
-}));
-
-mock.module("../config/env-registry.js", () => ({
-  getIsPlatform: () => false,
 }));
 
 mock.module("../calls/twilio-rest.js", () => ({
@@ -56,7 +38,8 @@ let fetchHandler: (
 
 beforeEach(() => {
   mockSecureKeys = {};
-  mockRawConfig = {};
+  // Reset the seeded slack section to its empty (all-defaults) state.
+  setConfig("slack", {});
   fetchCalls = [];
   fetchHandler = () => ({ ok: true, body: { ok: true } });
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -95,7 +78,7 @@ describe("slack remote probe (auth.test)", () => {
 
   test("passes when Slack auth.test returns ok and workspaces match", async () => {
     mockSecureKeys[credentialKey("slack_channel", "bot_token")] = "xoxb-fake";
-    mockRawConfig = { slack: { teamId: "T123" } };
+    setConfig("slack", { teamId: "T123" });
     fetchHandler = () => ({
       ok: true,
       body: { ok: true, team_id: "T123", team: "acme", user: "apollobot" },
@@ -134,7 +117,7 @@ describe("slack remote probe (auth.test)", () => {
 
   test("flags workspace mismatch between stored config and live token", async () => {
     mockSecureKeys[credentialKey("slack_channel", "bot_token")] = "xoxb-fake";
-    mockRawConfig = { slack: { teamId: "T_old" } };
+    setConfig("slack", { teamId: "T_old" });
     fetchHandler = () => ({
       ok: true,
       body: { ok: true, team_id: "T_new", team: "newco", user: "apollobot" },

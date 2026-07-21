@@ -4,25 +4,21 @@
  * Covers: list with filters, get by ID, create + duplicate rejection,
  * update + fingerprint collision, delete + 404.
  */
-import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
-
-mock.module("../../../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-// Stub config loader — return a config with memory.v2.enabled=false so the
-// v1 paths under test stay active.
-mock.module("../../../../config/loader.js", () => ({
-  loadConfig: () => mockConfig,
-  getConfig: () => mockConfig,
-  invalidateConfigCache: () => {},
-}));
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
 
 // ── Controllable mocks for semantic search ─────────────────────────────
-const mockConfig: unknown = { memory: { v2: { enabled: false } } };
 
 let mockBackendStatus: {
   enabled: boolean;
@@ -67,8 +63,19 @@ mock.module(
   }),
 );
 
+// Programmable synthetic skill list for the memory-stats page-index count.
+// `getPageIndex` dynamically imports skill-store, so mocking it here lets the
+// stats test seed synthetic (modifiedAt: 0) rows and assert they're excluded.
+let mockSkillEntries: Array<{ id: string; content: string }> = [];
+
+mock.module("../v2/skill-store.js", () => ({
+  SKILL_SLUG_PREFIX: "skills/",
+  listSkillEntries: () => mockSkillEntries,
+}));
+
 import { eq } from "drizzle-orm";
 
+import { setConfig } from "../../../../__tests__/helpers/set-config.js";
 import {
   getDb,
   getMemoryDb,
@@ -85,6 +92,9 @@ import {
   NotFoundError,
 } from "../../../../runtime/routes/errors.js";
 import type { RouteDefinition } from "../../../../runtime/routes/types.js";
+import { invalidatePageIndex } from "../v2/page-index.js";
+import { writePage } from "../v2/page-store.js";
+import type { ConceptPage } from "../v2/types.js";
 import { ROUTES } from "./memory-item-routes.js";
 
 // ---------------------------------------------------------------------------
@@ -180,7 +190,6 @@ function insertItem(opts: {
       narrativeRole: null,
       partOfStory: null,
       imageRefs: null,
-      scopeId: "default",
     })
     .run();
 }
@@ -195,6 +204,8 @@ describe("Memory Item Routes", () => {
   });
 
   beforeEach(() => {
+    // Keep memory v2 disabled so the v1 paths under test stay active.
+    setConfig("memory", { v2: { enabled: false } });
     const db = getDb();
     db.run("DELETE FROM memory_graph_node_edits");
     db.run("DELETE FROM memory_graph_triggers");
@@ -917,6 +928,296 @@ describe("Memory Item Routes", () => {
       const payload = JSON.parse(deleteJobs[0].payload);
       expect(payload.targetType).toBe("graph_node");
       expect(payload.targetId).toBe("i1");
+    });
+  });
+  // ── Memory nodes (content-addressed) ──────────────────────────────────────
+
+  describe("memory nodes routes", () => {
+    // These routes require memory v2 enabled.
+    beforeEach(() => {
+      setConfig("memory", { v2: { enabled: true } });
+    });
+
+    afterEach(() => {
+      setConfig("memory", { v2: { enabled: false } });
+    });
+
+    interface NodesListBody {
+      success: boolean;
+      message: string;
+      nodes: Array<{ id: string; content: string }>;
+      total: number;
+    }
+
+    interface NodesMutationBody {
+      success: boolean;
+      message: string;
+    }
+
+    test("listMemoryNodes lists seeded nodes and filters by search", async () => {
+      insertItem({
+        id: "n1",
+        type: "semantic",
+        content: "User prefers TypeScript",
+        significance: 0.9,
+      });
+      insertItem({
+        id: "n2",
+        type: "episodic",
+        content: "User visited Springfield",
+        significance: 0.5,
+      });
+
+      const route = getRoute("memory-nodes", "GET");
+      const all = (await (
+        await callHandler(route, { queryParams: {} })
+      ).json()) as NodesListBody;
+      expect(all.success).toBe(true);
+      expect(all.total).toBe(2);
+
+      const filtered = (await (
+        await callHandler(route, {
+          queryParams: { search: "TypeScript", limit: "10" },
+        })
+      ).json()) as NodesListBody;
+      expect(filtered.success).toBe(true);
+      expect(filtered.nodes.map((n) => n.id)).toEqual(["n1"]);
+    });
+
+    test("listMemoryNodes reports memory v2 disabled as a business failure", async () => {
+      setConfig("memory", { v2: { enabled: false } });
+      const body = (await (
+        await callHandler(getRoute("memory-nodes", "GET"), { queryParams: {} })
+      ).json()) as NodesListBody;
+      expect(body.success).toBe(false);
+      expect(body.message.length).toBeGreaterThan(0);
+    });
+
+    test("deleteMemoryNode deletes the node matching exact content", async () => {
+      insertItem({
+        id: "n1",
+        type: "semantic",
+        content: "User prefers TypeScript",
+      });
+
+      const body = (await (
+        await callHandler(getRoute("memory-nodes/delete", "POST"), {
+          body: { content: "User prefers TypeScript" },
+        })
+      ).json()) as NodesMutationBody;
+      expect(body.success).toBe(true);
+
+      const after = (await (
+        await callHandler(getRoute("memory-nodes", "GET"), { queryParams: {} })
+      ).json()) as NodesListBody;
+      expect(after.nodes.map((n) => n.id)).not.toContain("n1");
+    });
+
+    test("listMemoryNodes rejects a non-numeric limit as 400", async () => {
+      const res = await callHandler(getRoute("memory-nodes", "GET"), {
+        queryParams: { limit: "abc" },
+      });
+      expect(res.status).toBe(400);
+    });
+
+    test("deleteMemoryNode rejects a missing content body as 400", async () => {
+      const res = await callHandler(getRoute("memory-nodes/delete", "POST"), {
+        body: {},
+      });
+      expect(res.status).toBe(400);
+    });
+
+    test("updateMemoryNode rejects a non-string body field as 400", async () => {
+      const res = await callHandler(getRoute("memory-nodes/update", "POST"), {
+        body: { oldContent: "x", newContent: 42 },
+      });
+      expect(res.status).toBe(400);
+    });
+
+    test("deleteMemoryNode fails as data when nothing matches", async () => {
+      const body = (await (
+        await callHandler(getRoute("memory-nodes/delete", "POST"), {
+          body: { content: "does not exist anywhere" },
+        })
+      ).json()) as NodesMutationBody;
+      expect(body.success).toBe(false);
+      expect(body.message.length).toBeGreaterThan(0);
+    });
+
+    test("updateMemoryNode replaces content on the exact-match node", async () => {
+      insertItem({
+        id: "n1",
+        type: "semantic",
+        content: "User prefers TypeScript",
+      });
+
+      const body = (await (
+        await callHandler(getRoute("memory-nodes/update", "POST"), {
+          body: {
+            oldContent: "User prefers TypeScript",
+            newContent: "User prefers TypeScript and Bun",
+          },
+        })
+      ).json()) as NodesMutationBody;
+      expect(body.success).toBe(true);
+
+      const after = (await (
+        await callHandler(getRoute("memory-nodes", "GET"), { queryParams: {} })
+      ).json()) as NodesListBody;
+      expect(after.nodes.map((n) => n.content)).toContain(
+        "User prefers TypeScript and Bun",
+      );
+    });
+  });
+
+  // ── Create memory (remember) ──────────────────────────────────────────────
+
+  describe("POST /v1/memory/remember (createMemory)", () => {
+    // handleRemember writes to getWorkspaceDir(); point it at a throwaway
+    // tmpdir so the buffer/archive writes stay isolated. Enable memory v2 so
+    // writes take the memory/ path and skip PKB re-index jobs.
+    let tmpWorkspace: string;
+    let previousWorkspaceEnv: string | undefined;
+
+    beforeAll(() => {
+      tmpWorkspace = mkdtempSync(join(tmpdir(), "create-memory-route-test-"));
+      previousWorkspaceEnv = process.env.VELLUM_WORKSPACE_DIR;
+      process.env.VELLUM_WORKSPACE_DIR = tmpWorkspace;
+    });
+
+    afterAll(() => {
+      if (previousWorkspaceEnv === undefined) {
+        delete process.env.VELLUM_WORKSPACE_DIR;
+      } else {
+        process.env.VELLUM_WORKSPACE_DIR = previousWorkspaceEnv;
+      }
+      rmSync(tmpWorkspace, { recursive: true, force: true });
+    });
+
+    beforeEach(() => {
+      setConfig("memory", { v2: { enabled: true } });
+    });
+
+    afterEach(() => {
+      setConfig("memory", { v2: { enabled: false } });
+    });
+
+    interface RememberBody {
+      success: boolean;
+      message: string;
+    }
+
+    test("appends a valid fact and returns { success, message }", async () => {
+      const res = await callHandler(getRoute("memory/remember", "POST"), {
+        body: { content: "User prefers dark mode" },
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as RememberBody;
+      expect(body.success).toBe(true);
+      expect(body.message.length).toBeGreaterThan(0);
+    });
+
+    test("rejects a missing content body as 400", async () => {
+      const res = await callHandler(getRoute("memory/remember", "POST"), {
+        body: {},
+      });
+      expect(res.status).toBe(400);
+    });
+
+    test("rejects a non-string content field as 400", async () => {
+      const res = await callHandler(getRoute("memory/remember", "POST"), {
+        body: { content: 42 },
+      });
+      expect(res.status).toBe(400);
+    });
+
+    test("rejects empty content as 400", async () => {
+      const res = await callHandler(getRoute("memory/remember", "POST"), {
+        body: { content: "" },
+      });
+      expect(res.status).toBe(400);
+    });
+
+    test("rejects whitespace-only content as 400", async () => {
+      const res = await callHandler(getRoute("memory/remember", "POST"), {
+        body: { content: "   " },
+      });
+      expect(res.status).toBe(400);
+    });
+  });
+
+  // ── Memory stats (page-index concept count) ───────────────────────────────
+
+  describe("GET /v1/memory/stats (getMemoryStats)", () => {
+    // handleGetMemoryStats reads concept pages from getWorkspaceDir(); point
+    // it at a throwaway tmpdir so the page scan stays isolated from ~/.vellum.
+    // A fresh workspace per test keeps each concept count independent.
+    let tmpWorkspace: string;
+    let previousWorkspaceEnv: string | undefined;
+
+    beforeEach(() => {
+      tmpWorkspace = mkdtempSync(join(tmpdir(), "memory-stats-route-test-"));
+      previousWorkspaceEnv = process.env.VELLUM_WORKSPACE_DIR;
+      process.env.VELLUM_WORKSPACE_DIR = tmpWorkspace;
+      // A no-skill baseline; the exclusion test seeds synthetic rows itself.
+      mockSkillEntries = [];
+      // Drop any cached index so each run re-scans this fresh workspace.
+      invalidatePageIndex();
+    });
+
+    afterEach(() => {
+      if (previousWorkspaceEnv === undefined) {
+        delete process.env.VELLUM_WORKSPACE_DIR;
+      } else {
+        process.env.VELLUM_WORKSPACE_DIR = previousWorkspaceEnv;
+      }
+      rmSync(tmpWorkspace, { recursive: true, force: true });
+      invalidatePageIndex();
+    });
+
+    const route = getRoute("memory/stats", "GET");
+
+    function makeConceptPage(slug: string): ConceptPage {
+      return {
+        slug,
+        frontmatter: { edges: [], ref_files: [], ref_urls: [] },
+        body: `Body for ${slug}`,
+      };
+    }
+
+    test("counts concept pages in the workspace", async () => {
+      await writePage(tmpWorkspace, makeConceptPage("alice"));
+      await writePage(tmpWorkspace, makeConceptPage("bob"));
+      await writePage(tmpWorkspace, makeConceptPage("carol"));
+
+      const res = await callHandler(route);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { concepts: number };
+      expect(body.concepts).toBe(3);
+    });
+
+    test("returns zero for an empty workspace", async () => {
+      const res = await callHandler(route);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { concepts: number };
+      expect(body.concepts).toBe(0);
+    });
+
+    test("excludes synthetic (modifiedAt <= 0) skill entries", async () => {
+      // Synthetic skill rows (seeded skills / CLI commands) carry
+      // modifiedAt: 0 and must not inflate the concept count.
+      mockSkillEntries = [
+        { id: "agent-mail", content: "Send and read email" },
+        { id: "calendar", content: "Manage the calendar" },
+      ];
+      await writePage(tmpWorkspace, makeConceptPage("alice"));
+      await writePage(tmpWorkspace, makeConceptPage("bob"));
+
+      const res = await callHandler(route);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { concepts: number };
+      // Two real concept pages; the two synthetic skill rows are excluded.
+      expect(body.concepts).toBe(2);
     });
   });
 });

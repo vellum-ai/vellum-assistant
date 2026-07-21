@@ -36,6 +36,14 @@ export interface ThinkingItem extends TranscriptItemBase {
   /** Daemon-provided activity label (e.g. "Processing bash results").
    *  When absent, the render layer falls back to a generic default. */
   label?: string;
+  /**
+   * Whether the shimmering label is currently visible. The item itself exists
+   * for the WHOLE in-flight turn (a fixed-height slot, so the transcript never
+   * reflows), while `active` fades the label in during the gaps where no other
+   * affordance — streaming text, a shimmering inline thinking link, a pending
+   * prompt — is signaling progress (see `shouldShowThinkingIndicator`).
+   */
+  active: boolean;
 }
 
 export interface PendingSecretItem extends TranscriptItemBase {

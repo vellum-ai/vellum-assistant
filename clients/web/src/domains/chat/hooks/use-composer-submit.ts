@@ -108,6 +108,7 @@ export function useComposerSubmit({
         mimeType: att.mimeType,
         sizeBytes: att.sizeBytes,
         previewUrl: att.previewUrl ?? null,
+        thumbnailUrl: att.thumbnailUrl ?? null,
       }));
 
     useComposerStore.getState().setInput("");

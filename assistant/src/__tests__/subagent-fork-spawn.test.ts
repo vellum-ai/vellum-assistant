@@ -28,6 +28,7 @@ interface FakeManagedSubagent {
       outputTokens: number;
       estimatedCost: number;
     };
+    subagentDeniedToolNames: Set<string>;
   } | null;
   state: SubagentState;
   parentSendToClient: (msg: ServerMessage) => void;
@@ -57,6 +58,7 @@ function makeFakeConversation(): NonNullable<
     messages: [],
     sendToClient: () => {},
     usageStats: { inputTokens: 100, outputTokens: 50, estimatedCost: 0.005 },
+    subagentDeniedToolNames: new Set<string>(),
   };
 }
 
@@ -234,43 +236,6 @@ describe("SubagentManager fork spawn", () => {
 
     // Non-fork: sendResultToUser should remain undefined (caller handles default)
     expect(resolvedSendResultToUser).toBeUndefined();
-  });
-
-  test("fork uses default memory scope, not isolated subagent scope", () => {
-    // Validate the fork memory policy shape matches what spawn() produces.
-    const isFork = true;
-    const subagentId = "sub-fork-mem";
-
-    const memoryPolicy = isFork
-      ? {
-          scopeId: "default",
-          includeDefaultFallback: false,
-        }
-      : {
-          scopeId: `subagent:${subagentId}`,
-          includeDefaultFallback: true,
-        };
-
-    expect(memoryPolicy.scopeId).toBe("default");
-    expect(memoryPolicy.includeDefaultFallback).toBe(false);
-  });
-
-  test("non-fork uses isolated subagent memory scope", () => {
-    const isFork = false;
-    const subagentId = "sub-normal-mem";
-
-    const memoryPolicy = isFork
-      ? {
-          scopeId: "default",
-          includeDefaultFallback: false,
-        }
-      : {
-          scopeId: `subagent:${subagentId}`,
-          includeDefaultFallback: true,
-        };
-
-    expect(memoryPolicy.scopeId).toBe(`subagent:${subagentId}`);
-    expect(memoryPolicy.includeDefaultFallback).toBe(true);
   });
 
   test("fork defaults to general role (which has no tool allowlist)", async () => {

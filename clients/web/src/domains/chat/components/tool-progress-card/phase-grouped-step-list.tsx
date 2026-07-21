@@ -16,8 +16,6 @@
  */
 
 import {
-  AlertCircle,
-  AlertTriangle,
   Bolt,
   Brain,
   Check,
@@ -188,19 +186,15 @@ export function sumDurationLabels(labels: string[]): string {
   return formatMs(total);
 }
 
-/**
- * Header status states a phase can render. "Running" wins over "failed" so
- * an in-flight retry inside a phase that has already produced a failure
- * still reads as in-progress.
- */
-type PhaseHeaderStatus = "completed" | "failed" | "running";
+/** Header status states a phase can render. */
+type PhaseHeaderStatus = "completed" | "running";
 
 /**
- * Classify a phase's overall status for header icon rendering.
- *
- * Precedence: any running step → "running"; otherwise any failure
- * (`tool_error` / `web_search_error` / `tool` status `error`|`denied`) →
- * "failed"; otherwise → "completed".
+ * Classify a phase's overall status for header icon rendering: any running
+ * step → "running"; otherwise → "completed". Failures (`tool_error` /
+ * `web_search_error` / `tool` status `error`|`denied`) intentionally read as
+ * "completed" — error chrome carries no value for the user, so settled phases
+ * all render the same regardless of outcome.
  *
  * `web_search` steps carry no explicit status field — `useToolCallCardData`
  * encodes "in-flight" via the present-tense title ("Searching the web" vs
@@ -211,25 +205,18 @@ export function phaseHeaderStatus(
   steps: ToolCallCardStep[],
 ): PhaseHeaderStatus {
   if (steps.length === 0) return "running";
-  let failed = false;
   for (const step of steps) {
     if (step.kind === "tool") {
       if (step.status === "running") return "running";
-      if (step.status === "error" || step.status === "denied") failed = true;
       continue;
     }
     if (step.kind === "web_search") {
       // Title is the canonical in-flight signal — see `webSearchStepTitle`
       // in `use-tool-call-card-data.ts`.
       if (step.title === "Searching the web") return "running";
-      continue;
     }
-    if (step.kind === "tool_error" || step.kind === "web_search_error") {
-      failed = true;
-    }
-    // `thinking` is neutral — see docstring.
   }
-  return failed ? "failed" : "completed";
+  return "completed";
 }
 
 /** Phase-grouped section as consumed by the renderer. */
@@ -455,7 +442,7 @@ export function TimelineConnector({ className }: { className?: string }) {
     <div
       aria-hidden
       className={cn(
-        "absolute bottom-0 left-[6.5px] top-6 w-px bg-[var(--border-element)]",
+        "absolute bottom-0 left-[6.5px] top-6 w-px bg-[var(--border-subtle)]",
         className,
       )}
     />
@@ -490,10 +477,9 @@ export function TimelineNode({
 /**
  * Circular status node for the vertical timeline. Mirrors the card header's
  * iconography for visual harmony — a green `CheckCircle2` when the phase
- * completed, a red `AlertCircle` when it failed, and the animated
- * `ThreeDotIndicator` while running. Keeps the `data-testid` /
- * `data-status` attributes the flat `PhaseHeaderRow` stamps so existing
- * status-icon assertions resolve against either layout.
+ * settled and the animated `ThreeDotIndicator` while running. Keeps the
+ * `data-testid` / `data-status` attributes the flat `PhaseHeaderRow` stamps
+ * so existing status-icon assertions resolve against either layout.
  */
 function TimelineNodeIcon({
   status,
@@ -509,16 +495,6 @@ function TimelineNodeIcon({
         data-testid={testId}
         data-status="completed"
         className="h-[14px] w-[14px] shrink-0 text-[var(--system-positive-strong)]"
-      />
-    );
-  }
-  if (status === "failed") {
-    return (
-      <AlertCircle
-        aria-hidden="true"
-        data-testid={testId}
-        data-status="failed"
-        className="h-[14px] w-[14px] shrink-0 text-[var(--system-negative-strong)]"
       />
     );
   }
@@ -558,13 +534,6 @@ function PhaseHeaderRow({
             data-testid="phase-header-status-icon"
             data-status="completed"
             className="h-[14px] w-[14px] text-[var(--system-positive-strong)]"
-          />
-        ) : status === "failed" ? (
-          <AlertTriangle
-            aria-hidden="true"
-            data-testid="phase-header-status-icon"
-            data-status="failed"
-            className="h-[14px] w-[14px] text-[var(--system-negative-strong)]"
           />
         ) : (
           <ThreeDotIndicator
@@ -660,14 +629,14 @@ export function DefaultStepPill({ step }: { step: ToolCallCardStep }) {
   }
   if (step.kind === "tool_error") {
     return (
-      <StepPill tone="error">
+      <StepPill>
         <PillText>{step.message}</PillText>
       </StepPill>
     );
   }
   if (step.kind === "web_search_error") {
     return (
-      <StepPill tone="error">
+      <StepPill>
         <PillText>{step.errorMessage}</PillText>
       </StepPill>
     );
@@ -699,21 +668,11 @@ function PillText({ children }: { children: ReactNode }) {
   );
 }
 
-function StepPill({
-  tone = "default",
-  children,
-}: {
-  tone?: "default" | "error";
-  children: ReactNode;
-}) {
-  const toneClasses =
-    tone === "error"
-      ? "border-[var(--system-negative-weak)] bg-[var(--system-negative-weak)] text-[var(--system-negative-strong)]"
-      : "border-[var(--border-element)] bg-transparent text-[var(--content-default)]";
+function StepPill({ children }: { children: ReactNode }) {
   return (
     <div
       data-testid="phase-step-pill"
-      className={`inline-flex min-w-0 max-w-full items-center gap-1 self-start rounded-full border px-2 py-1 ${toneClasses}`}
+      className="inline-flex min-w-0 max-w-full items-center gap-1 self-start rounded-full border border-[var(--border-element)] bg-transparent px-2 py-1 text-[var(--content-default)]"
     >
       {children}
     </div>

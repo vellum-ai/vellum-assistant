@@ -57,6 +57,7 @@ import { ComposerNotices } from "@/domains/chat/components/composer-notices";
 import { ComposerSettingsMenu } from "@/domains/chat/components/composer-settings-menu";
 import { ContextWindowIndicator } from "@/domains/chat/components/context-window-indicator";
 import { CreditsExhaustedBanner } from "@/domains/chat/components/credits-exhausted-banner";
+import { DailyLimitBanner } from "@/domains/chat/components/daily-limit-banner";
 import { MicPermissionPrimer } from "@/domains/chat/components/mic-permission-primer";
 import { OnboardingChoiceCard } from "@/domains/chat/components/onboarding-choice-card";
 import { ProviderBillingBanner } from "@/domains/chat/components/provider-billing-banner";
@@ -131,6 +132,10 @@ export interface ChatMainPanelProps {
 
   // Conversation secondary actions (orchestration dependency)
   handleForkConversation: (throughMessageId: string) => Promise<void>;
+  /** Opens the "Summarize up to here" confirm dialog for a message. */
+  onSummarizeUpToHere?: (messageId: string) => void;
+  /** Opens the "Retry" confirm dialog for the latest assistant turn. */
+  onRetryLatestTurn?: () => void;
   handleInspectMessage?: (messageId: string) => void;
 
   // History pagination (from useConversationLoader in ActiveChatView)
@@ -211,6 +216,8 @@ export function ChatMainPanel({
   handleSteerMessage,
   handleEditQueueTail,
   handleForkConversation,
+  onSummarizeUpToHere,
+  onRetryLatestTurn,
   handleInspectMessage,
   historyPagination,
   diskPressure,
@@ -238,8 +245,7 @@ export function ChatMainPanel({
     uiContext,
     isIdle,
     showThinking,
-    isAssistantStreaming,
-    canStopGenerating,
+    isAssistantBusy,
     isSendDisabledFromTurn,
     thinkingLabel,
     liveAssistantMessageId,
@@ -365,6 +371,10 @@ export function ChatMainPanel({
 
   const pushToAiSettings = useCallback(() => {
     void navigate(routes.settings.ai);
+  }, [navigate]);
+
+  const pushToBillingSettings = useCallback(() => {
+    void navigate(routes.settings.usageBilling);
   }, [navigate]);
 
   const checkAssistant = useCallback(() => lifecycleService.checkAssistant(), []);
@@ -506,6 +516,7 @@ export function ChatMainPanel({
   const { sanitizedMessages, transcriptItems } = useTranscriptData({
     messages,
     showThinking,
+    turnActive: isAssistantBusy,
     thinkingLabel,
     showOnboardingChoice,
   });
@@ -554,7 +565,7 @@ export function ChatMainPanel({
     // streaming reply materializes (notably across the onboarding draft→real
     // conversation switch, which resets the snapshot mid-turn).
     !activeConversationIsProcessing &&
-    !isAssistantStreaming &&
+    !isAssistantBusy &&
     !(assistantState.kind === "active" && assistantState.maintenanceMode?.enabled);
 
   const showDoctorAction =
@@ -845,8 +856,7 @@ export function ChatMainPanel({
     avatar,
     mainView,
     openedAppState,
-    isAssistantStreaming,
-    activeConversationIsProcessing,
+    isAssistantBusy,
     onSelectStarter: handleSelectStarter,
     onSelectSuggestion: newThreadSuggestionsEnabled
       ? setSelectedSuggestion
@@ -891,6 +901,10 @@ export function ChatMainPanel({
     onConfirmationSubmit: handleConfirmationSubmit,
     onAllowAndCreateRule: handleAllowAndCreateRule,
     onForkConversation: handleForkConversationCallback,
+    onSummarizeUpToHere,
+    // Hidden while a turn is in flight: retrying mid-generation would 409,
+    // and the affordance targets the settled latest response.
+    onRetryLatestTurn: isAssistantBusy ? undefined : onRetryLatestTurn,
     onInspectMessage: handleInspectMessage,
     renderAvatar,
     onPullRefresh: handlePullRefresh,
@@ -929,7 +943,7 @@ export function ChatMainPanel({
       onVoiceError={setVoiceError}
       onVoiceBeforeStart={handleVoiceBeforeStart}
       onStopGenerating={handleStopGenerating}
-      canStopGenerating={canStopGenerating}
+      isAssistantBusy={isAssistantBusy}
       assistantId={assistantId}
       // Routing-truth id (NOT `activeConversation?.conversationId`, which is
       // transiently undefined until the row loads and always undefined for
@@ -969,7 +983,9 @@ export function ChatMainPanel({
           onOpenMicSettings={handleOpenMicSettings}
           onOpenTextInsertionSettings={handleOpenTextInsertionSettings}
           billingBannerSlot={
-            billingBannerDecision === "managed_credits" ? (
+            billingBannerDecision === "daily_limit" ? (
+              <DailyLimitBanner onAdjustLimit={pushToBillingSettings} />
+            ) : billingBannerDecision === "managed_credits" ? (
               <CreditsExhaustedBanner
                 onAddFunds={() => setShowAddCreditsModal(true)}
               />
@@ -1046,7 +1062,7 @@ export function ChatMainPanel({
         scrollCoordinator.showScrollToLatest && messages.length > 0
       }
       onScrollToLatest={handleScrollToLatest}
-      isStreaming={isAssistantStreaming}
+      isAssistantBusy={isAssistantBusy}
       refreshFeedback={refreshFeedback}
       onDismissRefreshFeedback={handleDismissRefreshFeedback}
       onRetryRefresh={handleRetryRefreshFromPill}

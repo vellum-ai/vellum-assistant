@@ -55,9 +55,6 @@ mock.module("../daemon/conversation-registry.js", () => ({
 mock.module("../daemon/trust-context.js", () => ({
   resolveTrustClass: () => currentTrustClass,
 }));
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({}) as AssistantConfig,
-}));
 
 // The hook publishes `memory_recalled` (and forwards the sink into
 // `prepareMemory` for `memory_status`) through the shared `broadcastMessage`

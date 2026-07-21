@@ -40,9 +40,13 @@ const OTHER_CONVERSATION_ID = "conv-other";
 const ASSISTANT_ID = "assistant-1";
 
 let mockPathname = routes.conversation(OTHER_CONVERSATION_ID);
+// The pill's visibility is popout-independent by design (it keys off the
+// room's popout-free owning-surface core), so `search` never changes what the
+// pill sees — it exists here only to exercise that invariant explicitly.
+let mockSearch = "";
 const navigateFn = mock(() => {});
 mock.module("react-router", () => ({
-  useLocation: () => ({ pathname: mockPathname }),
+  useLocation: () => ({ pathname: mockPathname, search: mockSearch }),
   useNavigate: () => navigateFn,
 }));
 
@@ -98,6 +102,7 @@ function startSession(
 
 beforeEach(() => {
   mockPathname = routes.conversation(OTHER_CONVERSATION_ID);
+  mockSearch = "";
   mockMainView = "chat";
   mockIsMobile = false;
   mockOwningConversation = {
@@ -311,6 +316,31 @@ describe("VoiceSessionPillHost — standalone variant (headerless pop-outs)", ()
     mockPathname = routes.conversation(OWNING_CONVERSATION_ID);
     const { container } = render(<VoiceSessionPillHost variant="standalone" />);
     expect(container.firstChild).toBeNull();
+  });
+
+  test("in a pop-out, still hides while the composer owns the session (no double control with its voice bar)", () => {
+    // The room is gated off in pop-outs, but the composer's voice bar still
+    // renders there and owns the session — so the standalone pill must keep
+    // deferring to it. The pill's owning-surface complement is popout-free, so
+    // `?popout=1` does not resurrect it.
+    startSession("listening");
+    useConversationStore
+      .getState()
+      .setActiveConversationId(OWNING_CONVERSATION_ID);
+    mockPathname = routes.conversation(OWNING_CONVERSATION_ID);
+    mockSearch = "?popout=1";
+    const { container } = render(<VoiceSessionPillHost variant="standalone" />);
+    expect(container.firstChild).toBeNull();
+  });
+
+  test("in a pop-out, floats the pill once another conversation is viewed", () => {
+    // Complement of the room's pop-out exclusion: with the room gone, the
+    // standalone pill is the pop-out's only session surface when the on-screen
+    // composer does not own the session.
+    startSession("listening");
+    mockSearch = "?popout=1";
+    render(<VoiceSessionPillHost variant="standalone" />);
+    expect(pill()).not.toBeNull();
   });
 
   test("floats the error chip for a failure on a composer-less route", () => {

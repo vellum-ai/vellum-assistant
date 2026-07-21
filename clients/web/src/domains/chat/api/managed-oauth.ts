@@ -65,11 +65,7 @@ async function listOAuthConnections(
   });
   if (error || !data) {
     throw new Error(
-      extractErrorMessage(
-        error,
-        response,
-        "Failed to load OAuth connections.",
-      ),
+      extractErrorMessage(error, response, "Failed to load OAuth connections."),
     );
   }
   return data;
@@ -118,8 +114,7 @@ export async function fetchManagedOAuthProvider(
   return (
     data.providers.find(
       (provider) =>
-        provider.provider_key === providerKey &&
-        provider.supports_managed_mode,
+        provider.provider_key === providerKey && provider.supports_managed_mode,
     ) ?? null
   );
 }
@@ -165,7 +160,7 @@ function readStoredCompletion(requestId: string): OAuthCompletePayload | null {
   }
 }
 
-export async function connectManagedOAuthProvider({
+function runManagedOAuthConnect({
   assistantId,
   providerKey,
   providerLabel,
@@ -335,7 +330,8 @@ export async function connectManagedOAuthProvider({
       }
 
       try {
-        platformAssistantId = await resolveLocalAssistantPlatformIdentity(assistantId);
+        platformAssistantId =
+          await resolveLocalAssistantPlatformIdentity(assistantId);
         baselineSignatures = getProviderConnectionSignatures(
           await listOAuthConnections(platformAssistantId).catch(() => []),
           providerKey,
@@ -383,6 +379,53 @@ export async function connectManagedOAuthProvider({
 
     void start();
   });
+}
+
+/**
+ * In-flight managed-OAuth connects keyed by `${assistantId}::${providerKey}`.
+ * The map lives at module scope so the guard survives React remounts — the
+ * `oauth_connect` card's local `"connecting"` state does not (JARVIS-1286).
+ */
+const inFlightManagedOAuthConnects = new Map<
+  string,
+  Promise<ManagedOAuthConnectResult>
+>();
+
+/**
+ * Connect a managed OAuth provider, deduping concurrent connects for the same
+ * assistant + provider.
+ *
+ * A live-voice transcript re-renders constantly, so the `oauth_connect` card
+ * remounts mid-flow and resets its per-instance `"connecting"` guard. Without a
+ * cross-instance guard a second trigger opened a *second* popup and stacked a
+ * second `storage`/`message` listener bound to a fresh `requestId`; only the
+ * popup the user actually completed wrote its own `requestId`'s key, so every
+ * other in-flight connect hung on "Waiting…" forever and the surface never
+ * flipped to "Connected" even though the account did connect (JARVIS-1286).
+ *
+ * Returning the already-running promise means repeat triggers latch onto the
+ * one popup + one listener set that will actually resolve.
+ */
+export function connectManagedOAuthProvider(
+  options: ManagedOAuthConnectOptions,
+): Promise<ManagedOAuthConnectResult> {
+  const dedupeKey = `${options.assistantId}::${options.providerKey}`;
+  const existing = inFlightManagedOAuthConnects.get(dedupeKey);
+  if (existing) {
+    return existing;
+  }
+
+  const connectPromise = runManagedOAuthConnect(options);
+  inFlightManagedOAuthConnects.set(dedupeKey, connectPromise);
+  void connectPromise.finally(() => {
+    // Only clear the entry if it is still this promise — a later connect for the
+    // same key can only start after this one settled and cleared itself, but the
+    // identity check keeps that invariant explicit and race-proof.
+    if (inFlightManagedOAuthConnects.get(dedupeKey) === connectPromise) {
+      inFlightManagedOAuthConnects.delete(dedupeKey);
+    }
+  });
+  return connectPromise;
 }
 
 export const defaultManagedOAuthConnectClient: ManagedOAuthConnectClient = {

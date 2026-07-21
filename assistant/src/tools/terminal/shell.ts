@@ -2,12 +2,11 @@ import type { ChildProcess } from "node:child_process";
 import { spawn } from "node:child_process";
 
 import { getConfig } from "../../config/loader.js";
-import { isCesShellLockdownEnabled } from "../../credential-execution/feature-gates.js";
 import type { BackgroundToolCompleted } from "../../daemon/message-types/background-tools.js";
 import { RiskLevel } from "../../permissions/types.js";
 import { wakeAgentForOpportunity } from "../../runtime/agent-wake.js";
 import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
-import { isUntrustedShellLockdownActive } from "../../runtime/effective-capabilities.js";
+import { conversationRevealNonce } from "../../runtime/reveal-nonce.js";
 import { redactSecrets } from "../../security/secret-scanner.js";
 import { getLogger } from "../../util/logger.js";
 import { getDataDir } from "../../util/platform.js";
@@ -123,32 +122,9 @@ export const shellTool = {
     }
 
     const config = getConfig();
-    const shellLockdownActive = isUntrustedShellLockdownActive({
-      trustClass: context.trustClass,
-      lockdownEnabled: isCesShellLockdownEnabled(config),
-    });
 
     const networkMode: "off" | "proxied" =
       input.network_mode === "proxied" ? "proxied" : "off";
-
-    // -----------------------------------------------------------------------
-    // CES shell lockdown - reject proxied credential sessions for untrusted
-    // actors when the lockdown flag is active. Proxied sessions grant the
-    // subprocess access to credentials through the egress proxy, which
-    // violates the secrecy guarantee.
-    // -----------------------------------------------------------------------
-    if (shellLockdownActive && networkMode === "proxied") {
-      log.warn(
-        { trustClass: context.trustClass },
-        "CES shell lockdown: rejecting proxied credential session for untrusted actor",
-      );
-      return {
-        content:
-          "Error: proxied credential sessions are not available in untrusted shell mode. " +
-          "Use the credential grant workflow to request access through a guardian.",
-        isError: true,
-      };
-    }
 
     const rawCredentialRefs: string[] = [];
     if (Array.isArray(input.credential_ids)) {
@@ -157,24 +133,6 @@ export const shellTool = {
           rawCredentialRefs.push(id);
         }
       }
-    }
-
-    // -----------------------------------------------------------------------
-    // CES shell lockdown - reject non-empty credential-ref mode for untrusted
-    // actors. Even when network_mode is "off", passing credential_ids could
-    // allow the model to probe stored credential metadata.
-    // -----------------------------------------------------------------------
-    if (shellLockdownActive && rawCredentialRefs.length > 0) {
-      log.warn(
-        { trustClass: context.trustClass, refCount: rawCredentialRefs.length },
-        "CES shell lockdown: rejecting credential-ref mode for untrusted actor",
-      );
-      return {
-        content:
-          "Error: credential references are not available in untrusted shell mode. " +
-          "Use the credential grant workflow to request access through a guardian.",
-        isError: true,
-      };
     }
 
     // Resolve credential refs (UUID or service/field) to canonical UUIDs.
@@ -314,6 +272,8 @@ export const shellTool = {
 
     const env = buildSanitizedEnv();
     env.__CONVERSATION_ID = context.conversationId;
+    // Secret binding for reveal-derived chat authority — see reveal-nonce.ts.
+    env.__REVEAL_NONCE = conversationRevealNonce(context.conversationId);
     // Surface the resolving model to assistant CLI commands so they can tailor
     // remediation guidance for weak open models (see isWeakOpenModel).
     if (context.attribution?.resolvedModel) {
@@ -321,12 +281,6 @@ export const shellTool = {
     }
     if (proxyEnv) {
       Object.assign(env, proxyEnv);
-    }
-
-    // Inject VELLUM_UNTRUSTED_SHELL=1 so assistant CLI commands can self-deny
-    // raw-token/secret reveal flows when invoked from an untrusted shell.
-    if (shellLockdownActive) {
-      env.VELLUM_UNTRUSTED_SHELL = "1";
     }
 
     const wrapped = { command: "bash", args: ["-c", "--", command] };
@@ -386,7 +340,7 @@ export const shellTool = {
       let completed = false;
 
       child.on("close", (code, signal) => {
-        if (completed) return;
+        if (completed) {return;}
         completed = true;
         clearTimeout(timer);
         removeBackgroundTool(bgId);
@@ -476,7 +430,7 @@ export const shellTool = {
       });
 
       child.on("error", (err) => {
-        if (completed) return;
+        if (completed) {return;}
         completed = true;
         clearTimeout(timer);
         removeBackgroundTool(bgId);

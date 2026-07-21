@@ -1,4 +1,10 @@
-import { mkdtempSync, rmSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
+import {
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+  existsSync,
+  mkdirSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
@@ -9,10 +15,23 @@ import { startCes } from "../local.js";
 // Mocks
 // ---------------------------------------------------------------------------
 
+// Snapshot the real modules before any `mock.module()` call so we can
+// re-register them in a module-scoped `afterAll` below. Bun runs every test
+// file in one process with a shared loader; without restoring, these mocks
+// leak into sibling files (e.g. `step-runner.test.ts`, whose real `spawn`
+// then returns this file's fake child with no `stdin` and a no-op `on`).
+const realChildProcess = { ...(await import("node:child_process")) };
+const realXdgLog = { ...(await import("../xdg-log.js")) };
+const realProcess = { ...(await import("../process.js")) };
+
 // Capture spawn calls so we can assert on cmd/env.
 let lastSpawnCall: {
   cmd: string[];
-  options: { detached?: boolean; env?: Record<string, string | undefined>; cwd?: string };
+  options: {
+    detached?: boolean;
+    env?: Record<string, string | undefined>;
+    cwd?: string;
+  };
 } | null = null;
 
 mock.module("node:child_process", () => ({
@@ -44,6 +63,15 @@ mock.module("../process.js", () => ({
   isProcessAlive: mock(() => false),
   stopProcessGracefully: mock(async () => {}),
 }));
+
+// Restore the real modules once this file finishes so the mocks above do not
+// leak into other test files in the same `bun test` run. `mock.restore()` does
+// not undo `mock.module()`, so we re-register the captured real exports.
+afterAll(() => {
+  mock.module("node:child_process", () => realChildProcess);
+  mock.module("../xdg-log.js", () => realXdgLog);
+  mock.module("../process.js", () => realProcess);
+});
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -90,9 +118,14 @@ describe("startCes", () => {
     expect(lastSpawnCall).not.toBeNull();
     expect(lastSpawnCall!.options.detached).toBe(true);
 
+    // Under plain bun (source tree / tests), CES must run via `bun run
+    // src/main.ts` — never an adjacent `credential-executor` binary, which in
+    // bun's own bin dir is an unrelated globally-installed package bin.
+    expect(lastSpawnCall!.cmd[0]).toBe(process.execPath);
+    expect(lastSpawnCall!.cmd).toContain("src/main.ts");
+
     // Verify env vars
     const env = lastSpawnCall!.options.env!;
-    expect(env["CES_STANDALONE"]).toBe("1");
     expect(env["CES_LOCAL_SOCKET"]).toBeDefined();
     expect(env["CREDENTIAL_SECURITY_DIR"]).toBeDefined();
     expect(env["VELLUM_WORKSPACE_DIR"]).toBeDefined();

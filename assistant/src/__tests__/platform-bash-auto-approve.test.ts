@@ -24,34 +24,6 @@ import type { ToolExecutionResult } from "../tools/types.js";
 // Mock setup — mirrors require-fresh-approval.test.ts patterns
 // ---------------------------------------------------------------------------
 
-const mockConfig = {
-  provider: "anthropic",
-  model: "test",
-  maxTokens: 4096,
-  dataDir: "/tmp",
-  timeouts: {
-    shellDefaultTimeoutSec: 120,
-    shellMaxTimeoutSec: 600,
-    permissionTimeoutSec: 300,
-  },
-  sandbox: {
-    enabled: false,
-    backend: "native" as const,
-    docker: {
-      image: "vellum-sandbox:latest",
-      cpus: 1,
-      memoryMb: 512,
-      pidsLimit: 256,
-      network: "none" as const,
-    },
-  },
-  rateLimit: { maxRequestsPerMinute: 0 },
-  secretDetection: {
-    enabled: false,
-  },
-  permissions: {},
-};
-
 let fakeToolResult: ToolExecutionResult = { content: "ok", isError: false };
 
 /** Override the check() result for specific tests. */
@@ -63,29 +35,13 @@ let riskOverride: string = "medium";
 /** Scope options override. */
 let scopeOptionsOverride: ScopeOption[] | undefined;
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => mockConfig,
-  loadConfig: () => mockConfig,
-  invalidateConfigCache: () => {},
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  getNestedValue: () => undefined,
-  setNestedValue: () => {},
-}));
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-  truncateForLog: (value: string) => value,
-}));
-
 mock.module("../permissions/checker.js", () => ({
   isDynamicSkillLoadInvocation: () => false,
   classifyRisk: async () => ({ level: riskOverride }),
   check: async () => {
-    if (checkResultOverride) return checkResultOverride;
+    if (checkResultOverride) {
+      return checkResultOverride;
+    }
     return { decision: "allow", reason: "allowed" };
   },
   generateAllowlistOptions: () => [
@@ -106,7 +62,22 @@ mock.module("../telemetry/tool-usage-store.js", () => ({
 
 mock.module("../tools/registry.js", () => ({
   getTool: (name: string) => {
-    if (name === "unknown_tool") return undefined;
+    if (name === "unknown_tool") {
+      return undefined;
+    }
+    return {
+      name,
+      description: "test tool",
+      category: "shell",
+      defaultRiskLevel: "medium",
+      input_schema: {},
+      execute: async () => fakeToolResult,
+    };
+  },
+  resolveTool: (name: string) => {
+    if (name === "unknown_tool") {
+      return undefined;
+    }
     return {
       name,
       description: "test tool",

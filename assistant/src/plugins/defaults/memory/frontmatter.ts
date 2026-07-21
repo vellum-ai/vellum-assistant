@@ -8,7 +8,7 @@
 
 import { parse as parseYaml } from "yaml";
 
-import { getLogger } from "../../../util/logger.js";
+import { getLogger } from "./logging.js";
 
 const log = getLogger("memory-frontmatter");
 

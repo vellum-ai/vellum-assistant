@@ -58,6 +58,7 @@ const EXPECTED_ORDER = [
   "background-turn", // 15
   "unified-turn-context", // 20
   "config-quarantine-notice", // 25
+  "config-validation-reset-notice", // 26
   "pkb-context", // 30
   "pkb-reminder", // 35
   "memory-v2-static", // 38

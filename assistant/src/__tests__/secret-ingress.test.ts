@@ -1,21 +1,10 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { setConfig } from "./helpers/set-config.js";
+
 // ---------------------------------------------------------------------------
 // Mocks — must be declared before any imports that depend on them
 // ---------------------------------------------------------------------------
-
-let mockConfig = {
-  secretDetection: {
-    enabled: true,
-    blockIngress: true,
-  },
-};
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => mockConfig,
-  loadConfig: () => mockConfig,
-  invalidateConfigCache: () => {},
-}));
 
 mock.module("../util/logger.js", () => ({
   getLogger: () => ({
@@ -41,12 +30,10 @@ import { checkIngressForSecrets } from "../security/secret-ingress.js";
 
 describe("checkIngressForSecrets", () => {
   beforeEach(() => {
-    mockConfig = {
-      secretDetection: {
-        enabled: true,
-        blockIngress: true,
-      },
-    };
+    setConfig("secretDetection", {
+      enabled: true,
+      blockIngress: true,
+    });
     resetAllowlist();
   });
 
@@ -210,12 +197,10 @@ describe("checkIngressForSecrets", () => {
   // ── Config flags ───────────────────────────────────────────────────
 
   test("does not block when secretDetection.enabled is false", () => {
-    mockConfig = {
-      secretDetection: {
-        enabled: false,
-        blockIngress: true,
-      },
-    };
+    setConfig("secretDetection", {
+      enabled: false,
+      blockIngress: true,
+    });
     const result = checkIngressForSecrets(
       "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij",
     );
@@ -223,12 +208,10 @@ describe("checkIngressForSecrets", () => {
   });
 
   test("does not block when blockIngress is false", () => {
-    mockConfig = {
-      secretDetection: {
-        enabled: true,
-        blockIngress: false,
-      },
-    };
+    setConfig("secretDetection", {
+      enabled: true,
+      blockIngress: false,
+    });
     const result = checkIngressForSecrets(
       "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij",
     );

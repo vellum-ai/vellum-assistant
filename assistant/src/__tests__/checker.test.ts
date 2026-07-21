@@ -37,26 +37,6 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-// Mutable config object for tests that need per-test config overrides.
-interface TestConfig {
-  skills: { load: { extraDirs: string[] } };
-  [key: string]: unknown;
-}
-
-const testConfig: TestConfig = {
-  skills: { load: { extraDirs: [] } },
-};
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => testConfig,
-  loadConfig: () => testConfig,
-  invalidateConfigCache: () => {},
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  getNestedValue: () => undefined,
-  setNestedValue: () => {},
-}));
-
 import {
   installIpcMock,
   mockIpcResponse,
@@ -202,7 +182,6 @@ describe("Permission Checker", () => {
     _clearGlobalCacheForTesting();
     // Reset trust-store state and risk classification cache between tests
     clearRiskCache();
-    testConfig.skills = { load: { extraDirs: [] } };
     // Reset guardian persona mock so each test opts in explicitly
     mockGuardianPersonaPath = null;
     loggerWarnCalls.length = 0;
@@ -1536,7 +1515,6 @@ describe("bash network_mode=proxied — risk capped at medium", () => {
     mockIpcResponse("get_global_thresholds", DEFAULT_GATEWAY_THRESHOLDS);
     _clearGlobalCacheForTesting();
     clearRiskCache();
-    testConfig.skills = { load: { extraDirs: [] } };
   });
 
   test("proxied bash follows risk-based policy (medium risk → prompt outside container)", async () => {
@@ -1585,7 +1563,6 @@ describe("credentialed proxied bash — high risk escalation", () => {
     mockIpcResponse("get_global_thresholds", DEFAULT_GATEWAY_THRESHOLDS);
     _clearGlobalCacheForTesting();
     clearRiskCache();
-    testConfig.skills = { load: { extraDirs: [] } };
   });
 
   test("proxied bash with credential_ids sends credentialRefCount in IPC params", async () => {
@@ -1676,7 +1653,6 @@ describe("workspace mode — auto-allow workspace-scoped operations", () => {
     mockIpcResponse("get_global_thresholds", DEFAULT_GATEWAY_THRESHOLDS);
     _clearGlobalCacheForTesting();
     clearRiskCache();
-    testConfig.skills = { load: { extraDirs: [] } };
     try {
       rmSync(join(checkerTestDir, "protected", "trust.json"));
     } catch {

@@ -1,8 +1,10 @@
 import type { Command } from "commander";
 
 import { cliIpcCall, exitFromIpcResult } from "../../ipc/cli-client.js";
+import { applyCommandHelp, subcommand } from "../lib/cli-command-help.js";
 import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
+import { skillsHelp } from "./skills.help.js";
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -48,46 +50,14 @@ function exitFromCliResult(
 
 export function registerSkillsCommand(program: Command): void {
   registerCommand(program, {
-    name: "skills",
+    name: skillsHelp.name,
     transport: "ipc",
-    description: "Browse and install skills from the Vellum catalog",
+    description: skillsHelp.description,
     build: (skills) => {
-      skills.addHelpText(
-        "after",
-        `
-Manage skills from the Vellum catalog. Skills extend the assistant's
-capabilities with pre-built workflows and tools.
+      applyCommandHelp(skills, skillsHelp);
 
-Examples:
-  $ assistant skills list
-  $ assistant skills list --json
-  $ assistant skills inspect slack
-  $ assistant skills inspect resend-setup --json
-  $ assistant skills search react
-  $ assistant skills search react --limit 5 --json
-  $ assistant skills install weather
-  $ assistant skills install weather --overwrite
-  $ assistant skills uninstall weather
-  $ assistant skills add vercel-labs/skills@find-skills
-  $ assistant skills add vercel-labs/skills/find-skills --overwrite`,
-      );
-
-      skills
-        .command("list")
-        .description("List bundled and installed skills")
-        .option("--json", "Machine-readable JSON output")
-        .addHelpText(
-          "after",
-          `
-Lists all bundled and installed skills with their source, state, and
-description. Use 'assistant skills inspect <id>' for detailed metadata
-or 'assistant skills search' to discover catalog skills.
-
-Examples:
-  $ assistant skills list
-  $ assistant skills list --json`,
-        )
-        .action(async (opts: { json?: boolean }, _cmd) => {
+      subcommand(skills, "list").action(
+        async (opts: { json?: boolean }, _cmd) => {
           const r = await cliIpcCall<{
             skills: Array<{
               id: string;
@@ -154,27 +124,11 @@ Examples:
             );
             log.info(`    ${emoji}${s.name} — ${s.description}`);
           }
-        });
+        },
+      );
 
-      skills
-        .command("inspect <skill-id>")
-        .description("Show detailed information about a skill")
-        .option("--json", "Machine-readable JSON output")
-        .addHelpText(
-          "after",
-          `
-Arguments:
-  skill-id   Skill identifier. Run 'assistant skills list' to see available IDs.
-
-Displays detailed metadata about a skill including its source, state,
-description, install metadata (origin, version, content hash), config
-entries, tool manifest, activation hints, and feature flags.
-
-Examples:
-  $ assistant skills inspect slack
-  $ assistant skills inspect resend-setup --json`,
-        )
-        .action(async (skillId: string, opts: { json?: boolean }, _cmd) => {
+      subcommand(skills, "inspect").action(
+        async (skillId: string, opts: { json?: boolean }, _cmd) => {
           const r = await cliIpcCall<{
             id: string;
             name: string;
@@ -261,268 +215,201 @@ Examples:
                 `    Config keys: ${detail.config.configKeys.join(", ")}`,
               );
           }
-        });
+        },
+      );
 
-      skills
-        .command("search <query>")
-        .description(
-          "Search the Vellum catalog, skills.sh, and clawhub community registries",
-        )
-        .option("--limit <n>", "Maximum number of community results", "10")
-        .option("--json", "Machine-readable JSON output")
-        .addHelpText(
-          "after",
-          `
-Arguments:
-  query    Free-text search term matched against skill names, descriptions,
-           and tags. Searches the Vellum catalog, the skills.sh community
-           registry, and the clawhub registry.
+      subcommand(skills, "search").action(
+        async (query: string, opts: { limit: string; json?: boolean }) => {
+          const json = opts.json ?? false;
+          const limit = parseInt(opts.limit, 10) || 10;
 
-Displays results from all sources with clear labels. When a skill ID
-exists in both the Vellum catalog and a community registry, a conflict
-note is shown with guidance on which install command to use.
+          // Step 1: Vellum catalog (installed + remote available)
+          const catalogR = await cliIpcCall<{
+            skills: Array<{
+              id: string;
+              name: string;
+              description: string;
+              emoji?: string;
+              origin: string;
+              kind: string;
+              status: string;
+              updatedAt?: string;
+            }>;
+          }>("listSkills", { queryParams: { include: "catalog", q: query } });
+          const vellumSkills = catalogR.ok
+            ? catalogR.result!.skills.filter((s) => s.origin === "vellum")
+            : [];
 
-Examples:
-  $ assistant skills search react
-  $ assistant skills search "file management" --limit 3
-  $ assistant skills search deploy --json`,
-        )
-        .action(
-          async (query: string, opts: { limit: string; json?: boolean }) => {
-            const json = opts.json ?? false;
-            const limit = parseInt(opts.limit, 10) || 10;
+          // Step 2: community (skills.sh with audits + clawhub) + local bundled/installed
+          const communityR = await cliIpcCall<{
+            skills: Array<{
+              id: string;
+              name: string;
+              description: string;
+              emoji?: string;
+              origin: string;
+              kind: string;
+              status: string;
+              slug?: string;
+              author?: string;
+              stars?: number;
+              installs?: number;
+              publishedAt?: string;
+              version?: string;
+              sourceRepo?: string;
+            }>;
+          }>("searchSkills", {
+            queryParams: { q: query, limit: String(limit) },
+          });
+          const communitySkills = communityR.ok
+            ? communityR.result!.skills.filter((s) => s.origin !== "vellum")
+            : [];
 
-            // Step 1: Vellum catalog (installed + remote available)
-            const catalogR = await cliIpcCall<{
-              skills: Array<{
-                id: string;
-                name: string;
-                description: string;
-                emoji?: string;
-                origin: string;
-                kind: string;
-                status: string;
-                updatedAt?: string;
-              }>;
-            }>("listSkills", { queryParams: { include: "catalog", q: query } });
-            const vellumSkills = catalogR.ok
-              ? catalogR.result!.skills.filter((s) => s.origin === "vellum")
-              : [];
+          // Deduplicate by id — vellum wins
+          const seen = new Set(vellumSkills.map((s) => s.id));
+          const dedupedCommunity = communitySkills.filter((s) => {
+            if (seen.has(s.id)) return false;
+            seen.add(s.id);
+            return true;
+          });
+          const clawhubResults = dedupedCommunity
+            .filter((s) => s.origin === "clawhub")
+            .slice(0, limit);
+          const skillsshResults = dedupedCommunity
+            .filter((s) => s.origin === "skillssh")
+            .slice(0, limit);
 
-            // Step 2: community (skills.sh with audits + clawhub) + local bundled/installed
-            const communityR = await cliIpcCall<{
-              skills: Array<{
-                id: string;
-                name: string;
-                description: string;
-                emoji?: string;
-                origin: string;
-                kind: string;
-                status: string;
-                slug?: string;
-                author?: string;
-                stars?: number;
-                installs?: number;
-                publishedAt?: string;
-                version?: string;
-                sourceRepo?: string;
-              }>;
-            }>("searchSkills", {
-              queryParams: { q: query, limit: String(limit) },
-            });
-            const communitySkills = communityR.ok
-              ? communityR.result!.skills.filter((s) => s.origin !== "vellum")
-              : [];
+          const hasResults =
+            vellumSkills.length > 0 ||
+            clawhubResults.length > 0 ||
+            skillsshResults.length > 0;
 
-            // Deduplicate by id — vellum wins
-            const seen = new Set(vellumSkills.map((s) => s.id));
-            const dedupedCommunity = communitySkills.filter((s) => {
-              if (seen.has(s.id)) return false;
-              seen.add(s.id);
-              return true;
-            });
-            const clawhubResults = dedupedCommunity
-              .filter((s) => s.origin === "clawhub")
-              .slice(0, limit);
-            const skillsshResults = dedupedCommunity
-              .filter((s) => s.origin === "skillssh")
-              .slice(0, limit);
+          if (json) {
+            console.log(
+              JSON.stringify({
+                ok: true,
+                catalog: vellumSkills,
+                community: skillsshResults,
+                clawhub: clawhubResults,
+                ...(catalogR.ok ? {} : { catalogError: catalogR.error }),
+                ...(communityR.ok ? {} : { communityError: communityR.error }),
+              }),
+            );
+            return;
+          }
 
-            const hasResults =
-              vellumSkills.length > 0 ||
-              clawhubResults.length > 0 ||
-              skillsshResults.length > 0;
+          if (!hasResults) {
+            log.info(`No skills found for "${query}".`);
+            if (!catalogR.ok)
+              log.warn(`(Vellum catalog unavailable: ${catalogR.error})`);
+            if (!communityR.ok)
+              log.warn(`(Community registry unavailable: ${communityR.error})`);
+            return;
+          }
 
+          if (vellumSkills.length > 0) {
+            log.info(`Vellum catalog (${vellumSkills.length}):\n`);
+            for (const s of vellumSkills) {
+              const emoji = s.emoji ? `${s.emoji} ` : "";
+              const badge = s.kind === "installed" ? " [installed]" : "";
+              log.info(`  ${emoji}${s.name}${badge}`);
+              if (s.name !== s.id) log.info(`    ID: ${s.id}`);
+              log.info(`    ${s.description}`);
+              if (s.updatedAt) log.info(`    Updated: ${s.updatedAt}`);
+              if (s.kind !== "installed")
+                log.info(`    Install: assistant skills install ${s.id}`);
+              log.info("");
+            }
+          }
+
+          if (skillsshResults.length > 0) {
+            log.info(`Community — skills.sh (${skillsshResults.length}):\n`);
+            for (const r of skillsshResults) {
+              const badge = r.kind === "installed" ? " [installed]" : "";
+              log.info(`  ${r.name}${badge}`);
+              if (r.name !== r.id) log.info(`    ID: ${r.id}`);
+              if (r.sourceRepo) log.info(`    Source: ${r.sourceRepo}`);
+              if (r.installs !== undefined)
+                log.info(`    Installs: ${r.installs}`);
+              if (r.kind !== "installed")
+                // Use the fully-qualified 3-segment id (owner/repo/skill) — this
+                // matches the `owner/repo/skill-name` form accepted by
+                // `resolveSkillSource()`. Building `sourceRepo@slug` fails for
+                // skills.sh because the registry returns `slug` as the full id,
+                // producing `owner/repo@owner/repo/skill` which the parser rejects.
+                log.info(`    Install: assistant skills add ${r.id}`);
+              log.info("");
+            }
+          } else if (!communityR.ok) {
+            log.warn(`\n(skills.sh registry unavailable: ${communityR.error})`);
+          }
+
+          if (clawhubResults.length > 0) {
+            log.info(`Community — Clawhub (${clawhubResults.length}):\n`);
+            for (const r of clawhubResults) {
+              const badge = r.kind === "installed" ? " [installed]" : "";
+              log.info(`  ${r.name}${badge}`);
+              if (r.name !== r.id) log.info(`    ID: ${r.id}`);
+              if (r.author) log.info(`    Author: ${r.author}`);
+              if (r.description) log.info(`    ${r.description}`);
+              if (r.stars) log.info(`    Stars: ${r.stars}`);
+              if (r.installs) log.info(`    Installs: ${r.installs}`);
+              if (r.kind !== "installed")
+                log.info(`    Install: npx clawhub install ${r.slug ?? r.id}`);
+              log.info("");
+            }
+          }
+        },
+      );
+
+      subcommand(skills, "install").action(
+        async (
+          skillId: string,
+          opts: { overwrite?: boolean; json?: boolean },
+          _cmd,
+        ) => {
+          const json = opts.json ?? false;
+
+          // Restrict to catalog-only; community installs use `skills add`.
+          const installR = await cliIpcCall<{
+            ok: boolean;
+            skillId?: string;
+          }>("installSkill", {
+            body: {
+              slug: skillId,
+              overwrite: opts.overwrite ?? false,
+              catalogOnly: true,
+            },
+          });
+          if (!installR.ok) {
             if (json) {
               console.log(
                 JSON.stringify({
-                  ok: true,
-                  catalog: vellumSkills,
-                  community: skillsshResults,
-                  clawhub: clawhubResults,
-                  ...(catalogR.ok ? {} : { catalogError: catalogR.error }),
-                  ...(communityR.ok
-                    ? {}
-                    : { communityError: communityR.error }),
+                  ok: false,
+                  error: installR.error,
                 }),
-              );
-              return;
-            }
-
-            if (!hasResults) {
-              log.info(`No skills found for "${query}".`);
-              if (!catalogR.ok)
-                log.warn(`(Vellum catalog unavailable: ${catalogR.error})`);
-              if (!communityR.ok)
-                log.warn(
-                  `(Community registry unavailable: ${communityR.error})`,
-                );
-              return;
-            }
-
-            if (vellumSkills.length > 0) {
-              log.info(`Vellum catalog (${vellumSkills.length}):\n`);
-              for (const s of vellumSkills) {
-                const emoji = s.emoji ? `${s.emoji} ` : "";
-                const badge = s.kind === "installed" ? " [installed]" : "";
-                log.info(`  ${emoji}${s.name}${badge}`);
-                if (s.name !== s.id) log.info(`    ID: ${s.id}`);
-                log.info(`    ${s.description}`);
-                if (s.updatedAt) log.info(`    Updated: ${s.updatedAt}`);
-                if (s.kind !== "installed")
-                  log.info(`    Install: assistant skills install ${s.id}`);
-                log.info("");
-              }
-            }
-
-            if (skillsshResults.length > 0) {
-              log.info(`Community — skills.sh (${skillsshResults.length}):\n`);
-              for (const r of skillsshResults) {
-                const badge = r.kind === "installed" ? " [installed]" : "";
-                log.info(`  ${r.name}${badge}`);
-                if (r.name !== r.id) log.info(`    ID: ${r.id}`);
-                if (r.sourceRepo) log.info(`    Source: ${r.sourceRepo}`);
-                if (r.installs !== undefined)
-                  log.info(`    Installs: ${r.installs}`);
-                if (r.kind !== "installed")
-                  // Use the fully-qualified 3-segment id (owner/repo/skill) — this
-                  // matches the `owner/repo/skill-name` form accepted by
-                  // `resolveSkillSource()`. Building `sourceRepo@slug` fails for
-                  // skills.sh because the registry returns `slug` as the full id,
-                  // producing `owner/repo@owner/repo/skill` which the parser rejects.
-                  log.info(`    Install: assistant skills add ${r.id}`);
-                log.info("");
-              }
-            } else if (!communityR.ok) {
-              log.warn(
-                `\n(skills.sh registry unavailable: ${communityR.error})`,
-              );
-            }
-
-            if (clawhubResults.length > 0) {
-              log.info(`Community — Clawhub (${clawhubResults.length}):\n`);
-              for (const r of clawhubResults) {
-                const badge = r.kind === "installed" ? " [installed]" : "";
-                log.info(`  ${r.name}${badge}`);
-                if (r.name !== r.id) log.info(`    ID: ${r.id}`);
-                if (r.author) log.info(`    Author: ${r.author}`);
-                if (r.description) log.info(`    ${r.description}`);
-                if (r.stars) log.info(`    Stars: ${r.stars}`);
-                if (r.installs) log.info(`    Installs: ${r.installs}`);
-                if (r.kind !== "installed")
-                  log.info(
-                    `    Install: npx clawhub install ${r.slug ?? r.id}`,
-                  );
-                log.info("");
-              }
-            }
-          },
-        );
-
-      skills
-        .command("install <skill-id>")
-        .description("Install a skill from the catalog")
-        .option("--overwrite", "Replace an already installed skill")
-        .option("--json", "Machine-readable JSON output")
-        .addHelpText(
-          "after",
-          `
-Arguments:
-  skill-id   Skill identifier from the Vellum catalog. Run 'assistant skills list'
-             to see available IDs. For community skills, use 'assistant skills add'.
-
-Downloads and installs the skill into the workspace skills directory. If the
-skill is already installed, use --overwrite to replace it.
-
-Examples:
-  $ assistant skills install weather
-  $ assistant skills install weather --overwrite
-  $ assistant skills install weather --json`,
-        )
-        .action(
-          async (
-            skillId: string,
-            opts: { overwrite?: boolean; json?: boolean },
-            _cmd,
-          ) => {
-            const json = opts.json ?? false;
-
-            // Restrict to catalog-only; community installs use `skills add`.
-            const installR = await cliIpcCall<{
-              ok: boolean;
-              skillId?: string;
-            }>("installSkill", {
-              body: {
-                slug: skillId,
-                overwrite: opts.overwrite ?? false,
-                catalogOnly: true,
-              },
-            });
-            if (!installR.ok) {
-              if (json) {
-                console.log(
-                  JSON.stringify({
-                    ok: false,
-                    error: installR.error,
-                  }),
-                );
-                process.exitCode = 1;
-                return;
-              }
-              log.error(installR.error);
-              log.error(
-                `Run 'assistant skills search ${skillId}' to check available skills.`,
               );
               process.exitCode = 1;
               return;
             }
+            log.error(installR.error);
+            log.error(
+              `Run 'assistant skills search ${skillId}' to check available skills.`,
+            );
+            process.exitCode = 1;
+            return;
+          }
 
-            if (json) {
-              console.log(JSON.stringify({ ok: true, skillId }));
-            } else {
-              log.info(`Installed skill "${skillId}".`);
-            }
-          },
-        );
+          if (json) {
+            console.log(JSON.stringify({ ok: true, skillId }));
+          } else {
+            log.info(`Installed skill "${skillId}".`);
+          }
+        },
+      );
 
-      skills
-        .command("uninstall <skill-id>")
-        .description("Uninstall a previously installed skill")
-        .option("--json", "Machine-readable JSON output")
-        .addHelpText(
-          "after",
-          `
-Arguments:
-  skill-id   Skill identifier to remove. Run 'assistant skills list' to see
-             installed skills.
-
-Removes the skill directory from the workspace. This action cannot be undone.
-
-Examples:
-  $ assistant skills uninstall weather
-  $ assistant skills uninstall weather --json`,
-        )
-        .action(async (skillId: string, opts: { json?: boolean }, _cmd) => {
+      subcommand(skills, "uninstall").action(
+        async (skillId: string, opts: { json?: boolean }, _cmd) => {
           const r = await cliIpcCall<null>("deleteSkill", {
             pathParams: { id: skillId },
           });
@@ -536,77 +423,52 @@ Examples:
           } else {
             log.info(`Uninstalled skill "${skillId}".`);
           }
-        });
+        },
+      );
 
-      skills
-        .command("add <source>")
-        .description(
-          "Install a community skill from the skills.sh registry (GitHub)",
-        )
-        .option("--overwrite", "Replace an already installed skill")
-        .option("--json", "Machine-readable JSON output")
-        .addHelpText(
-          "after",
-          `
-Arguments:
-  source   Skill source in one of these formats:
-             owner/repo@skill-name
-             owner/repo/skill-name
-             https://github.com/owner/repo/tree/<branch>/skills/skill-name
+      subcommand(skills, "add").action(
+        async (
+          source: string,
+          opts: { overwrite?: boolean; json?: boolean },
+          _cmd,
+        ) => {
+          const json = opts.json ?? false;
 
-Notes:
-  Fetches the skill's SKILL.md and supporting files from the specified GitHub
-  repository and installs them into the workspace skills directory. An
-  install-meta.json file is written with origin metadata for provenance tracking.
-
-Examples:
-  $ assistant skills add vercel-labs/skills@find-skills
-  $ assistant skills add vercel-labs/skills/find-skills
-  $ assistant skills add vercel-labs/skills@find-skills --overwrite`,
-        )
-        .action(
-          async (
-            source: string,
-            opts: { overwrite?: boolean; json?: boolean },
-            _cmd,
-          ) => {
-            const json = opts.json ?? false;
-
-            // `add` is the community-install entry point (skills.sh-flavoured
-            // sources: `owner/repo@skill`, `owner/repo/skill`, or full GitHub
-            // URL). Pass `origin: "skillssh"` so the daemon routes via
-            // `resolveSkillSource()` + `installExternalSkill()` regardless of
-            // slug shape — the auto-detect (`looksLikeSkillsShSlug`) only
-            // recognises 3-segment `/`-delimited slugs, so the `@`-format
-            // documented in the help text otherwise misroutes to clawhub.
-            const r = await cliIpcCall<{ ok: boolean; skillId?: string }>(
-              "installSkill",
-              {
-                body: {
-                  slug: source,
-                  origin: "skillssh",
-                  overwrite: opts.overwrite ?? false,
-                },
+          // `add` is the community-install entry point (skills.sh-flavoured
+          // sources: `owner/repo@skill`, `owner/repo/skill`, or full GitHub
+          // URL). Pass `origin: "skillssh"` so the daemon routes via
+          // `resolveSkillSource()` + `installExternalSkill()` regardless of
+          // slug shape — the auto-detect (`looksLikeSkillsShSlug`) only
+          // recognises 3-segment `/`-delimited slugs, so the `@`-format
+          // documented in the help text otherwise misroutes to clawhub.
+          const r = await cliIpcCall<{ ok: boolean; skillId?: string }>(
+            "installSkill",
+            {
+              body: {
+                slug: source,
+                origin: "skillssh",
+                overwrite: opts.overwrite ?? false,
               },
+            },
+          );
+          if (!r.ok)
+            return exitFromCliResult(
+              { ok: false, error: r.error, statusCode: r.statusCode },
+              json,
             );
-            if (!r.ok)
-              return exitFromCliResult(
-                { ok: false, error: r.error, statusCode: r.statusCode },
-                json,
-              );
 
-            if (json) {
-              console.log(
-                JSON.stringify({
-                  ok: true,
-                  skillId: r.result?.skillId ?? source,
-                }),
-              );
-            } else {
-              log.info(`Installed skill from ${source}.`);
-            }
-          },
-        );
+          if (json) {
+            console.log(
+              JSON.stringify({
+                ok: true,
+                skillId: r.result?.skillId ?? source,
+              }),
+            );
+          } else {
+            log.info(`Installed skill from ${source}.`);
+          }
+        },
+      );
     },
   });
 }

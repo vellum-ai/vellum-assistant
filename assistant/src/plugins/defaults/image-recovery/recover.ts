@@ -1,26 +1,36 @@
 /**
- * Image-too-large recovery transforms for the image-recovery plugin.
+ * Image-rejection recovery transforms for the image-recovery plugin.
  *
- * When the provider rejects a turn because an attached image exceeds its
- * limits, the `stop` hook downgrades the offending image blocks in the working
- * history and asks the loop to retry. {@link recoverOversizedImages} performs
- * that in-memory transform for the immediate retry; {@link
- * persistUnsendableImageDowngrades} makes the same downgrade durable, because
- * the stored message row otherwise keeps the full-size image block and the
- * rejected image rehydrates on every later turn and keeps re-entering the
- * model's context. The durable rewrite replaces the oversized block with its
- * downscaled form, or with a text note when it cannot be shrunk on this host,
+ * When the provider rejects a turn because an attached image violates its
+ * limits — too large on a side, over the payload cap, or below the minimum
+ * size floor — the `post-model-call` hook rewrites the offending image blocks
+ * in the working history and asks the loop to retry. {@link
+ * recoverUnsendableImages} performs that in-memory transform for the immediate
+ * retry; {@link persistUnsendableImageDowngrades} makes the same rewrite
+ * durable, because the stored message row otherwise keeps the rejected image
+ * block and it rehydrates on every later turn and keeps re-entering the
+ * model's context. The durable rewrite replaces the unsendable block with its
+ * resized form, or with a text note when it cannot be resized on this host,
  * so a rejected image cannot resurface and re-reject on every later turn.
  */
 
-import type { ContentBlock, Message } from "@vellumai/plugin-api";
+import {
+  type ContentBlock,
+  type Message,
+  resolveMediaSourceData,
+} from "@vellumai/plugin-api";
 
-import { optimizeImageForTransport } from "../../../agent/image-optimize.js";
+import {
+  isBelowMinDimension,
+  optimizeImageForTransport,
+  upscaleImageToMinimum,
+} from "../../../agent/image-optimize.js";
 import { parseImageDimensions } from "../../../context/image-dimensions.js";
 import {
   getMessages,
   updateMessageContent,
 } from "../../../persistence/conversation-crud.js";
+import { sniffBase64ImageMimeType } from "../../../util/image-conversion.js";
 import { getLogger } from "../../../util/logger.js";
 
 const log = getLogger("image-recovery");
@@ -41,42 +51,76 @@ const PROVIDER_MAX_IMAGE_PAYLOAD_BYTES = 5 * 1024 * 1024;
  * model saw on the turn the image was rejected.
  */
 export const UNSENDABLE_IMAGE_NOTE =
-  "(An image was attached but could not be sent — its dimensions exceed the provider limit and automatic resize was not available. Please resize the image and try again.)";
+  "(An image was attached but could not be sent — it does not meet the provider's image size limits and automatic resizing was not available. Please resize the image and try again.)";
 
 /**
  * Replacement for an image that violates a provider hard limit (per-side pixel
- * cap or payload size), or null when the image is within limits and should be
- * left untouched. Gating on the provider hard caps is what keeps still-sendable
- * images intact: a normally sized image is left alone rather than being noted or
- * needlessly rewritten.
+ * cap, payload size, the minimum-size floor, or a declared media type that
+ * disagrees with the actual bytes), or null when the image is within limits
+ * and should be left untouched. Gating on the provider hard caps is what
+ * keeps still-sendable images intact: a normally sized image is left alone
+ * rather than being noted or needlessly rewritten.
  *
- * An oversized image that can be shrunk is rewritten to its downscaled form; one
- * that cannot be shrunk on this host (resize is a no-op, e.g. `sips` is absent
- * off macOS or the format is unsupported) is replaced with a text note.
+ * A mislabeled image (e.g. JPEG bytes declared `image/png` — clients derive
+ * the MIME from the filename extension) is relabeled with its sniffed type,
+ * bytes untouched. An unsendable image that can be resized is rewritten to
+ * its resized form (downscaled when oversized, upscaled to the minimum floor
+ * when undersized); one that cannot be resized on this host (resize is a
+ * no-op, e.g. `sips` is absent off macOS or the format is unsupported) is
+ * replaced with a text note.
  *
- * Shared by the in-memory recovery transform and this durable persist pass so
- * both apply the identical rule. Persisting the downscaled form is what lets a
+ * Shared by the in-memory recovery transform and the durable persist pass so
+ * both apply the identical rule. Persisting the resized form is what lets a
  * poisoned conversation durably self-heal — the latest tool-result media is kept
- * in context, so without it the original oversized block rehydrates and
+ * in context, so without it the original rejected block rehydrates and
  * re-rejects on every later turn.
  */
-export function oversizedImageReplacement(
+export function unsendableImageReplacement(
   block: Extract<ContentBlock, { type: "image" }>,
 ): ContentBlock | null {
-  const payloadBytes = block.source.data.length;
-  const dims = parseImageDimensions(block.source.data, block.source.media_type);
+  // Resolve reference sources to their bytes so a reloaded (referenced) image
+  // is gated on the same payload/dimension caps as an inline one. When the
+  // attachment can no longer be read, leave the block untouched.
+  const resolved = resolveMediaSourceData(block.source);
+  if (!resolved) {
+    return null;
+  }
+  const sniffed = sniffBase64ImageMimeType(resolved.data);
+  const mediaTypeMismatch = sniffed != null && sniffed !== resolved.media_type;
+  // The sniffed type also drives the resize paths: dimension parsing keyed on
+  // the wrong declared type fails, which would misroute a mislabeled image to
+  // the unsendable note.
+  const effectiveMediaType = sniffed ?? resolved.media_type;
+  const payloadBytes = resolved.data.length;
+  const dims = mediaTypeMismatch
+    ? parseImageDimensions(resolved.data, effectiveMediaType)
+    : parseImageDimensions(block.source);
   const exceedsDimensionCap =
     dims != null &&
     (dims.width > PROVIDER_MAX_IMAGE_DIMENSION ||
       dims.height > PROVIDER_MAX_IMAGE_DIMENSION);
   const exceedsPayloadCap = payloadBytes > PROVIDER_MAX_IMAGE_PAYLOAD_BYTES;
-  if (!exceedsDimensionCap && !exceedsPayloadCap) return null;
+  const belowMinDimension = isBelowMinDimension(dims);
+  if (!exceedsDimensionCap && !exceedsPayloadCap && !belowMinDimension) {
+    if (mediaTypeMismatch) {
+      // Only the label is wrong, so keep the source shape: a workspace_ref
+      // stays a reference (inlining it would bake the full payload into the
+      // stored message row) and only media_type is corrected.
+      return {
+        type: "image",
+        source: { ...block.source, media_type: effectiveMediaType },
+      };
+    }
+    return null;
+  }
 
-  const optimized = optimizeImageForTransport(
-    block.source.data,
-    block.source.media_type,
-  );
-  if (optimized.data !== block.source.data) {
+  // The floor is undocumented, so undersized images are never touched
+  // pre-send — the upscale runs only here, in response to an actual
+  // provider rejection. Oversized images reuse the transport downscale.
+  const optimized = belowMinDimension
+    ? upscaleImageToMinimum(resolved.data, effectiveMediaType)
+    : optimizeImageForTransport(resolved.data, effectiveMediaType);
+  if (optimized && optimized.data !== resolved.data) {
     return {
       type: "image",
       source: {
@@ -90,14 +134,14 @@ export function oversizedImageReplacement(
 }
 
 /**
- * Rewrite every stored message in a conversation that holds an oversized image
- * the provider rejects — whether a top-level block or one nested in a
- * tool_result's contentBlocks — replacing it with its downscaled form, or with
- * {@link UNSENDABLE_IMAGE_NOTE} when it cannot be shrunk on this host. Reads
+ * Rewrite every stored message in a conversation that holds an image the
+ * provider rejects — whether a top-level block or one nested in a
+ * tool_result's contentBlocks — replacing it with its resized form, or with
+ * {@link UNSENDABLE_IMAGE_NOTE} when it cannot be resized on this host. Reads
  * stored content directly (not the in-memory, injection-enriched copy) so
  * injected prefixes and hydrated source paths are never written back.
  *
- * Idempotent: a downscaled image is within limits and a note is no longer an
+ * Idempotent: a resized image is within limits and a note is no longer an
  * image, so neither matches on a second run. Returns the number of rewritten
  * messages.
  */
@@ -106,23 +150,25 @@ export function persistUnsendableImageDowngrades(
 ): number {
   let rewritten = 0;
   for (const row of getMessages(conversationId)) {
-    // Cheap prefilter — JSON.stringify emits no spaces, so an image block
-    // always serializes with this exact substring.
-    if (!row.content.includes('"type":"image"')) continue;
-
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(row.content);
-    } catch {
+    const hasImageBlock = row.content.some(
+      (b) =>
+        b.type === "image" ||
+        (b.type === "tool_result" &&
+          b.contentBlocks?.some((cb) => cb.type === "image")),
+    );
+    if (!hasImageBlock) {
       continue;
     }
-    if (!Array.isArray(parsed)) continue;
+
+    const parsed = row.content;
 
     let changed = false;
     const next = (parsed as ContentBlock[]).map((block): ContentBlock => {
       if (block.type === "image") {
-        const replacement = oversizedImageReplacement(block);
-        if (!replacement) return block;
+        const replacement = unsendableImageReplacement(block);
+        if (!replacement) {
+          return block;
+        }
         changed = true;
         return replacement;
       }
@@ -132,19 +178,27 @@ export function persistUnsendableImageDowngrades(
       if (block.type === "tool_result" && block.contentBlocks?.length) {
         let nestedChanged = false;
         const contentBlocks = block.contentBlocks.map((cb): ContentBlock => {
-          if (cb.type !== "image") return cb;
-          const replacement = oversizedImageReplacement(cb);
-          if (!replacement) return cb;
+          if (cb.type !== "image") {
+            return cb;
+          }
+          const replacement = unsendableImageReplacement(cb);
+          if (!replacement) {
+            return cb;
+          }
           nestedChanged = true;
           return replacement;
         });
-        if (!nestedChanged) return block;
+        if (!nestedChanged) {
+          return block;
+        }
         changed = true;
         return { ...block, contentBlocks };
       }
       return block;
     });
-    if (!changed) continue;
+    if (!changed) {
+      continue;
+    }
 
     updateMessageContent(row.id, JSON.stringify(next));
     rewritten++;
@@ -158,8 +212,8 @@ export function persistUnsendableImageDowngrades(
 
 /**
  * True when a message's content holds an image the provider may have rejected
- * for being oversized — either a top-level image block (user upload) or one
- * nested inside a tool_result's contentBlocks (e.g. a browser screenshot).
+ * — either a top-level image block (user upload) or one nested inside a
+ * tool_result's contentBlocks (e.g. a browser screenshot).
  */
 function messageHasImageBlock(content: ReadonlyArray<ContentBlock>): boolean {
   return content.some(
@@ -171,35 +225,59 @@ function messageHasImageBlock(content: ReadonlyArray<ContentBlock>): boolean {
 }
 
 /**
- * Downscale every oversized image in the working history for an immediate
+ * Resize every unsendable image in the working history for an immediate
  * retry, leaving still-sendable images untouched. Recovers both top-level image
  * blocks (user uploads) and images nested inside a tool_result's contentBlocks
  * (e.g. a browser screenshot) in place, so the tool_use/tool_result pairing
  * stays intact rather than dropping the whole tool_result. Applies the same
  * provider-cap gate as {@link persistUnsendableImageDowngrades} so the in-memory
  * retry and the durable rewrite agree on which images are unsendable.
+ *
+ * Reports whether any block was actually rewritten. A provider rejection can
+ * be classified as recoverable yet leave nothing to fix — e.g. a media-type
+ * mismatch on a format {@link sniffBase64ImageMimeType} cannot identify (a
+ * renamed BMP/TIFF/SVG, or an unconvertible HEIF) yields no replacement. The
+ * caller must not retry an unchanged history: it would resend the identical
+ * rejected image and falsely report a correction.
  */
-export function recoverOversizedImages(
-  messages: ReadonlyArray<Message>,
-): Message[] {
-  return messages.map((msg) => {
-    if (!Array.isArray(msg.content)) return msg;
-    if (!messageHasImageBlock(msg.content)) return msg;
+export function recoverUnsendableImages(messages: ReadonlyArray<Message>): {
+  messages: Message[];
+  changed: boolean;
+} {
+  let changed = false;
+  const recovered = messages.map((msg) => {
+    if (!Array.isArray(msg.content)) {
+      return msg;
+    }
+    if (!messageHasImageBlock(msg.content)) {
+      return msg;
+    }
     return {
       ...msg,
       content: msg.content.flatMap((b): ContentBlock[] => {
         if (b.type === "image") {
-          return [oversizedImageReplacement(b) ?? b];
+          const replacement = unsendableImageReplacement(b);
+          if (replacement) {
+            changed = true;
+            return [replacement];
+          }
+          return [b];
         }
         if (b.type === "tool_result" && b.contentBlocks?.length) {
           return [
             {
               ...b,
-              contentBlocks: b.contentBlocks.map((cb) =>
-                cb.type === "image"
-                  ? (oversizedImageReplacement(cb) ?? cb)
-                  : cb,
-              ),
+              contentBlocks: b.contentBlocks.map((cb) => {
+                if (cb.type !== "image") {
+                  return cb;
+                }
+                const replacement = unsendableImageReplacement(cb);
+                if (replacement) {
+                  changed = true;
+                  return replacement;
+                }
+                return cb;
+              }),
             },
           ];
         }
@@ -207,4 +285,5 @@ export function recoverOversizedImages(
       }),
     };
   });
+  return { messages: recovered, changed };
 }

@@ -1,15 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-
-// Silence the logger so a skipped-file warning doesn't spam the test output.
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { getWorkflow, listWorkflows } from "./library.js";
 

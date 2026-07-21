@@ -2,59 +2,15 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { setConfig } from "./helpers/set-config.js";
+
 let TEST_DIR = "";
 const seedUpsertSlugs: string[] = [];
 
-const mockConfig = {
-  provider: "anthropic",
-  model: "test",
-  maxTokens: 4096,
-  dataDir: "/tmp",
-  timeouts: {
-    shellDefaultTimeoutSec: 120,
-    shellMaxTimeoutSec: 600,
-    permissionTimeoutSec: 300,
-  },
-  rateLimit: { maxRequestsPerMinute: 0 },
-  secretDetection: {
-    enabled: true,
-  },
-  auditLog: { retentionDays: 0 },
-  services: {
-    inference: {
-      mode: "your-own",
-      provider: "anthropic",
-      model: "claude-opus-4-6",
-    },
-    "image-generation": {
-      mode: "your-own",
-      provider: "gemini",
-      model: "gemini-3.1-flash-image-preview",
-    },
-    "web-search": { mode: "your-own", provider: "inference-provider-native" },
-  },
-  skills: {
-    entries: {},
-    allowBundled: [],
-  },
-};
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => mockConfig,
-  loadConfig: () => mockConfig,
-  invalidateConfigCache: () => {},
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  getNestedValue: () => undefined,
-  setNestedValue: () => {},
-}));
+// Keep bundled skills out of the catalog so the lifecycle assertions only
+// see the managed skills these tests create (default `allowBundled: null`
+// would load every bundled skill).
+setConfig("skills", { allowBundled: [] });
 
 mock.module("../skills/catalog-cache.js", () => ({
   getCatalog: async () => [],

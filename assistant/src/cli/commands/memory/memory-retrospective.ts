@@ -8,95 +8,124 @@
  * Subcommands:
  *
  *   - `run <conversationId>` — run a fork-based retrospective on a conversation.
- *   - `list` — list the last five retrospectives (TODO).
+ *   - `list` — list the most-recently-run retrospective state rows.
  */
 
 import type { Command } from "commander";
 
-import { getConfig } from "../../../config/loader.js";
-import {
-  type MemoryRetrospectiveOutcome,
-  runForkBasedRetrospective,
-} from "../../../plugins/defaults/memory/memory-retrospective-job.js";
-import { registerCommand } from "../../lib/register-command.js";
+import type { MemoryRetrospectiveOutcome } from "../../../plugins/defaults/memory/memory-retrospective-job.js";
+import { subcommand } from "../../lib/cli-command-help.js";
 import { log } from "../../logger.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
 
 export function registerMemoryRetrospectiveCommand(memory: Command): void {
-  registerCommand(memory, {
-    name: "retrospective",
-    transport: "local",
-    description: "Run and inspect memory retrospectives (direct, no IPC)",
-    build: (retro) => {
-      retro.addHelpText(
-        "after",
-        `
-Runs memory retrospectives directly against the workspace database — the CLI
-process imports the retrospective machinery and calls it in-process, so no
-running daemon is required.
+  const retro = subcommand(memory, "retrospective");
 
-Examples:
-  $ assistant memory retrospective run <conversationId>`,
-      );
+  // ── run ───────────────────────────────────────────────────────────────
 
-      // ── run ───────────────────────────────────────────────────────────────
+  subcommand(retro, "run").action(
+    async (conversationId: string, opts: { json?: boolean }, cmd: Command) => {
+      // Deferred: loads the config loader and retrospective job graph.
+      const [{ getConfig }, { runForkBasedRetrospective }] = await Promise.all([
+        import("../../../config/loader.js"),
+        import("../../../plugins/defaults/memory/memory-retrospective-job.js"),
+      ]);
+      const config = getConfig();
+      let outcome: MemoryRetrospectiveOutcome;
+      try {
+        outcome = await runForkBasedRetrospective(conversationId, config);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        log.error({ err, conversationId }, "memory-retrospective: run threw");
+        if (opts.json === true) {
+          writeOutput(cmd, { kind: "error", error: msg });
+        } else {
+          log.error(msg);
+        }
+        process.exitCode = 1;
+        return;
+      }
 
-      retro
-        .command("run")
-        .description("Run a fork-based retrospective on a conversation")
-        .argument("<conversationId>", "Source conversation to retrospective")
-        .option("--json", "Emit raw JSON instead of a formatted summary")
-        .addHelpText(
-          "after",
-          `
-Forks the source conversation through its latest message, persists a
-retrospective instruction, and wakes the fork so the agent reviews the new
-messages and calls \`remember\` on anything worth saving. Runs entirely in the
-CLI process — no IPC round-trip to the daemon.
+      if (shouldOutputJson(cmd)) {
+        writeOutput(cmd, outcome);
+        return;
+      }
 
-Examples:
-  $ assistant memory retrospective run abc123`,
-        )
-        .action(
-          async (
-            conversationId: string,
-            opts: { json?: boolean },
-            cmd: Command,
-          ) => {
-            const config = getConfig();
-            let outcome: MemoryRetrospectiveOutcome;
-            try {
-              outcome = await runForkBasedRetrospective(conversationId, config);
-            } catch (err) {
-              const msg = err instanceof Error ? err.message : String(err);
-              log.error(
-                { err, conversationId },
-                "memory-retrospective: run threw",
-              );
-              if (opts.json === true) {
-                writeOutput(cmd, { kind: "error", error: msg });
-              } else {
-                log.error(msg);
-              }
-              process.exitCode = 1;
-              return;
-            }
-
-            if (shouldOutputJson(cmd)) {
-              writeOutput(cmd, outcome);
-              return;
-            }
-
-            renderOutcome(outcome);
-          },
-        );
+      renderOutcome(outcome);
     },
-  });
+  );
+
+  // ── list ──────────────────────────────────────────────────────────────
+
+  subcommand(retro, "list")
+    .alias("ls")
+    .action(async (opts: { limit?: string; json?: boolean }, cmd: Command) => {
+      const limit = Math.min(
+        200,
+        Math.max(1, opts.limit !== undefined ? parseInt(opts.limit, 10) : 10),
+      );
+      if (isNaN(limit)) {
+        log.error("--limit must be a number.");
+        process.exitCode = 1;
+        return;
+      }
+
+      const { listRetrospectiveStates } =
+        await import("../../../plugins/defaults/memory/memory-retrospective-state.js");
+      const rows = listRetrospectiveStates(limit);
+
+      if (opts.json) {
+        writeOutput(cmd, { rows, total: rows.length });
+        return;
+      }
+
+      renderList(rows);
+    });
 }
 
 // ---------------------------------------------------------------------------
 // Human-readable rendering
 // ---------------------------------------------------------------------------
+
+interface RetrospectiveStateRow {
+  conversationId: string;
+  lastProcessedMessageId: string;
+  lastRunAt: number;
+  rememberedLog: string[];
+}
+
+function renderList(rows: RetrospectiveStateRow[]): void {
+  if (rows.length === 0) {
+    log.info("No retrospective state found. Run a retrospective first with:");
+    log.info("  assistant memory retrospective run <conversationId>");
+    return;
+  }
+
+  const DATE_WIDTH = 20;
+  const CONV_WIDTH = 12;
+  const MEM_WIDTH = 10;
+
+  console.log(
+    `${"CONVERSATION".padEnd(CONV_WIDTH)}  ${"LAST RUN".padEnd(DATE_WIDTH)}  ${"RETAINED".padEnd(MEM_WIDTH)}  STATUS`,
+  );
+
+  for (const row of rows) {
+    const conv = row.conversationId.slice(0, CONV_WIDTH - 1).padEnd(CONV_WIDTH);
+    const runAt = new Date(row.lastRunAt).toLocaleString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+    const retained = String(row.rememberedLog.length).padEnd(MEM_WIDTH);
+    const status =
+      row.lastProcessedMessageId === "" ? "pending (no success yet)" : "ok";
+    console.log(`${conv}  ${runAt.padEnd(DATE_WIDTH)}  ${retained}  ${status}`);
+  }
+
+  console.log(`\n${rows.length} row${rows.length === 1 ? "" : "s"}`);
+}
 
 function renderOutcome(outcome: MemoryRetrospectiveOutcome): void {
   switch (outcome.kind) {

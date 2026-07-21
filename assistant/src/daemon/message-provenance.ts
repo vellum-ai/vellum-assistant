@@ -35,15 +35,24 @@ export function parseProvenanceTrustClass(
   return undefined;
 }
 
+/**
+ * Per-row form of {@link filterMessagesForUntrustedActor}: whether a single
+ * persisted row's provenance is visible to an untrusted (non-guardian)
+ * actor view. Exported so consumers that scan raw rows outside a full
+ * history load (e.g. the persisted-surface fallback in the surface routes)
+ * apply the identical predicate instead of duplicating the allowlist.
+ */
+export function isRowVisibleToUntrustedActor(metadata: string | null): boolean {
+  const provenanceTrustClass = parseProvenanceTrustClass(metadata);
+  return (
+    provenanceTrustClass === "trusted_contact" ||
+    provenanceTrustClass === "unverified_contact" ||
+    provenanceTrustClass === "unknown"
+  );
+}
+
 export function filterMessagesForUntrustedActor(
   messages: MessageRow[],
 ): MessageRow[] {
-  return messages.filter((m) => {
-    const provenanceTrustClass = parseProvenanceTrustClass(m.metadata);
-    return (
-      provenanceTrustClass === "trusted_contact" ||
-      provenanceTrustClass === "unverified_contact" ||
-      provenanceTrustClass === "unknown"
-    );
-  });
+  return messages.filter((m) => isRowVisibleToUntrustedActor(m.metadata));
 }

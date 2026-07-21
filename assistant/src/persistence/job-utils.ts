@@ -137,6 +137,21 @@ export function truncate(text: string, max: number): string {
   return `${text.slice(0, max - 3)}...`;
 }
 
+/**
+ * Get the initialized Qdrant client, converting the "not initialized" error
+ * into a retryable {@link BackendUnavailableError} so a background job defers and
+ * retries once Qdrant is up instead of failing fatally (the raw error classifies
+ * as fatal). Under memory v2 the worker short-circuits v1 Qdrant job types before
+ * dispatch, so a handler only reaches here when the client is expected to exist.
+ */
+export function requireQdrantClient(): ReturnType<typeof getQdrantClient> {
+  try {
+    return getQdrantClient();
+  } catch {
+    throw new BackendUnavailableError("Qdrant client not initialized");
+  }
+}
+
 // ── Embedding helper ───────────────────────────────────────────────
 
 export async function embedAndUpsert(
@@ -253,12 +268,7 @@ export async function embedAndUpsert(
     log.warn({ err, targetType, targetId }, "Failed to write embedding cache");
   }
 
-  let qdrant;
-  try {
-    qdrant = getQdrantClient();
-  } catch {
-    throw new BackendUnavailableError("Qdrant client not initialized");
-  }
+  const qdrant = requireQdrantClient();
 
   try {
     const modality = normalized.type;

@@ -11,7 +11,10 @@ import { getOrCreateConversation } from "../../daemon/conversation-store.js";
 import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "../../daemon/trust-context.js";
 import { bootstrapConversation } from "../../persistence/conversation-bootstrap.js";
 import { getConversation } from "../../persistence/conversation-crud.js";
-import { getUsageCostForRun } from "../../persistence/llm-usage-store.js";
+import {
+  getUsageCostForRun,
+  listRunConversationIds,
+} from "../../persistence/llm-usage-store.js";
 import { validateScheduleInferenceProfile } from "../../schedule/inference-profile.js";
 import {
   describeRRuleExpression,
@@ -34,22 +37,16 @@ import {
   getScheduleRuns,
   listSchedules,
   type ScheduleJob,
-  setScheduleRunConversationId,
   updateSchedule,
 } from "../../schedule/schedule-store.js";
 import { getScheduleUsageSummaries } from "../../schedule/schedule-usage-store.js";
-import { areCoreToolsInitialized } from "../../tools/registry.js";
+import { initializeTools } from "../../tools/registry.js";
 import { getLogger } from "../../util/logger.js";
 import { normalizeCapabilityManifest } from "../../workflows/capabilities.js";
 import { getWorkflowRunManager } from "../../workflows/run-manager.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { parseEpochMillisRange } from "./epoch-millis-range.js";
-import {
-  BadRequestError,
-  InternalError,
-  NotFoundError,
-  ServiceUnavailableError,
-} from "./errors.js";
+import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
 import {
   paginateRuns,
   parseRunsBeforeCursor,
@@ -109,6 +106,20 @@ const scheduleRunSchema = z.object({
   conversationId: z.string().nullable(),
   conversationExists: z.boolean(),
   conversationArchivedAt: z.number().nullable(),
+  // Every real conversation this firing touched. Script runs store a
+  // synthetic "script:<jobId>" sentinel in the legacy `conversationId` field,
+  // so their real conversations are recovered from the usage ledger via
+  // `cron_run_id`. Execute and wake runs contribute their legacy pointer as
+  // well. A pruned conversation keeps its entry with `exists` set to false so
+  // the UI can label it as unavailable.
+  conversations: z.array(
+    z.object({
+      id: z.string(),
+      title: z.string().nullable(),
+      exists: z.boolean(),
+      archivedAt: z.number().nullable(),
+    }),
+  ),
   estimatedCostUsd: z.number(),
   createdAt: z.number(),
 });
@@ -584,6 +595,25 @@ function handleListScheduleRuns(
       const conversation = r.conversationId
         ? getConversation(r.conversationId)
         : null;
+      // The usage ledger supplies every conversation stamped with this run's
+      // cron_run_id. The legacy single pointer is added on top, which covers
+      // runs whose usage predates cron_run_id stamping. The synthetic
+      // "script:<jobId>" sentinel never resolves to a conversation, so it
+      // drops out here on its own.
+      const runConversationIds = new Set(listRunConversationIds(r.id));
+      if (r.conversationId && conversation) {
+        runConversationIds.add(r.conversationId);
+      }
+      const conversations = [...runConversationIds].map((cid) => {
+        const c =
+          cid === r.conversationId ? conversation : getConversation(cid);
+        return {
+          id: cid,
+          title: c?.title ?? null,
+          exists: c != null,
+          archivedAt: c?.archivedAt ?? null,
+        };
+      });
       return {
         id: r.id,
         jobId: r.jobId,
@@ -596,6 +626,7 @@ function handleListScheduleRuns(
         conversationId: r.conversationId,
         conversationExists: conversation != null,
         conversationArchivedAt: conversation?.archivedAt ?? null,
+        conversations,
         estimatedCostUsd: getUsageCostForRun({
           cronRunId: r.id,
           conversationId: r.conversationId ?? undefined,
@@ -971,19 +1002,12 @@ async function handleRunScheduleNow(id: string) {
     if (!schedule.workflowName) {
       throw new BadRequestError("Workflow schedule has no workflowName");
     }
-    // Boot race: resolveCapabilities grants the read-only baseline (file_read,
-    // web_search, …) from the tool registry, which initializeProvidersAndTools()
-    // populates during startup. The scheduler's automatic firing path DEFERS a
-    // workflow trigger to a later tick while `!areCoreToolsInitialized()` so a
-    // run never launches with an empty baseline. A manual "run now" has no later
-    // tick to defer to, so fail fast with a retryable 503 rather than launch a
-    // degraded run; the window is just the few seconds of assistant boot.
-    if (!areCoreToolsInitialized()) {
-      throw new ServiceUnavailableError(
-        "The assistant is still starting up and its tools are not ready yet. " +
-          "Try running this workflow again in a moment.",
-      );
-    }
+    // resolveCapabilities grants the read-only baseline (file_read, web_search,
+    // …) from the tool registry, so the baseline must be registered before the
+    // run launches or it would get an empty toolset. Ensure it — idempotent and
+    // cached, so this is a settled-promise await except in the few-seconds boot
+    // window, where it blocks until the registry is populated.
+    await initializeTools();
     const runId = await createScheduleRun(
       schedule.id,
       `workflow:${schedule.id}`,
@@ -1032,64 +1056,19 @@ async function handleRunScheduleNow(id: string) {
     return handleListSchedules({});
   }
 
-  // Check if message is a task invocation (run_task:<task_id>)
-  const taskMatch = schedule.message.match(/^run_task:(\S+)$/);
-  if (taskMatch) {
-    const taskId = taskMatch[1];
+  // Legacy task-template schedules (message `run_task:<id>`) reference a
+  // capability that has been removed. Record a failed run instead of forwarding
+  // the raw `run_task:<id>` string to the agent.
+  if (/^run_task:\S+$/.test(schedule.message)) {
     const runId = await createScheduleRun(schedule.id, null);
-    try {
-      log.info(
-        { jobId: schedule.id, name: schedule.name, taskId },
-        "Executing scheduled task manually (run now)",
-      );
-      const { runTask } = await import("../../tasks/task-runner.js");
-      const result = await runTask(
-        { taskId, workingDir: process.cwd(), source: "schedule" },
-        async (conversationId, message, taskRunId) => {
-          const conversation = await getOrCreateConversation(conversationId, {
-            trustContext: INTERNAL_GUARDIAN_TRUST_CONTEXT,
-          });
-          conversation.taskRunId = taskRunId;
-          try {
-            await conversation.processMessage({
-              content: message,
-              attachments: [],
-              onEvent: () => {},
-              isInteractive: false,
-              ...(schedule.inferenceProfile
-                ? { overrideProfile: schedule.inferenceProfile }
-                : {}),
-            });
-          } finally {
-            conversation.taskRunId = undefined;
-          }
-        },
-      );
-
-      await setScheduleRunConversationId(runId, result.conversationId);
-      if (result.status === "failed") {
-        await completeScheduleRun(runId, {
-          status: "error",
-          error: result.error ?? "Task run failed",
-        });
-      } else {
-        await completeScheduleRun(runId, { status: "ok" });
-      }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      log.warn(
-        { err, jobId: schedule.id, name: schedule.name, taskId },
-        "Manual scheduled task execution failed",
-      );
-      const fallbackConversation = await bootstrapConversation({
-        source: "schedule",
-        groupId: "system:scheduled",
-        origin: "schedule",
-        systemHint: `Schedule (manual): ${schedule.name}`,
-      });
-      await setScheduleRunConversationId(runId, fallbackConversation.id);
-      await completeScheduleRun(runId, { status: "error", error: message });
-    }
+    await completeScheduleRun(runId, {
+      status: "error",
+      error: "Scheduled task templates are no longer supported.",
+    });
+    log.warn(
+      { jobId: schedule.id, name: schedule.name },
+      "Skipped unsupported task-template schedule (run_task, manual run-now)",
+    );
     return handleListSchedules({});
   }
 

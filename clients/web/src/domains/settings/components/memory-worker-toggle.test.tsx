@@ -1,11 +1,16 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 type WorkerStatus = {
   status: "running" | "not_running";
-  workerEnabled: boolean;
-  syncRunner: { status: "running" | "not_running" };
+  pid?: number;
   embedding: {
     enabled: boolean;
     degraded: boolean;
@@ -16,15 +21,17 @@ type WorkerStatus = {
 } | null;
 
 let workerStatus: WorkerStatus;
-const startMock = mock(async () => ({ workerEnabled: true }));
-const stopMock = mock(async () => ({ workerEnabled: false }));
+const startMock = mock(async () => ({}));
+const stopMock = mock(async () => ({}));
 
 mock.module("@/assistant/use-active-assistant-id", () => ({
   useActiveAssistantId: () => "assistant-1",
 }));
 
 mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
-  memoryWorkerStatusGetOptions: (options: { path: { assistant_id: string } }) => ({
+  memoryWorkerStatusGetOptions: (options: {
+    path: { assistant_id: string };
+  }) => ({
     queryKey: [{ _id: "memoryWorkerStatusGet", path: options.path }],
     queryFn: async () => {
       if (!workerStatus) throw new Error("not found");
@@ -36,9 +43,9 @@ mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
     _opts: unknown,
     _updater: unknown,
   ) => {},
-  useMemoryWorkerStartPostMutation: (
-    opts?: { onSuccess?: (data: unknown) => void },
-  ) => ({
+  useMemoryWorkerStartPostMutation: (opts?: {
+    onSuccess?: (data: unknown) => void;
+  }) => ({
     mutateAsync: async (_args: unknown) => {
       const result = await startMock();
       opts?.onSuccess?.(result);
@@ -46,9 +53,9 @@ mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
     },
     isPending: false,
   }),
-  useMemoryWorkerStopPostMutation: (
-    opts?: { onSuccess?: (data: unknown) => void },
-  ) => ({
+  useMemoryWorkerStopPostMutation: (opts?: {
+    onSuccess?: (data: unknown) => void;
+  }) => ({
     mutateAsync: async (_args: unknown) => {
       const result = await stopMock();
       opts?.onSuccess?.(result);
@@ -60,11 +67,9 @@ mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
 
 const { MemoryWorkerToggle } = await import("./memory-worker-toggle");
 
-function makeStatus(workerEnabled: boolean): WorkerStatus {
+function makeStatus(running: boolean): WorkerStatus {
   return {
-    status: workerEnabled ? "running" : "not_running",
-    workerEnabled,
-    syncRunner: { status: workerEnabled ? "not_running" : "running" },
+    status: running ? "running" : "not_running",
     embedding: {
       enabled: true,
       degraded: false,

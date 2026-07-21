@@ -8,47 +8,12 @@ import type { ServerMessage } from "../daemon/message-protocol.js";
 
 type Context = Conversation;
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
+import { setConfig } from "./helpers/set-config.js";
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    llm: {
-      default: {
-        provider: "mock-provider",
-        model: "mock-model",
-        maxTokens: 4096,
-        effort: "max" as const,
-        speed: "standard" as const,
-        temperature: null,
-        thinking: { enabled: false, streamThinking: true },
-        contextWindow: {
-          enabled: true,
-          maxInputTokens: 100000,
-          targetBudgetRatio: 0.3,
-          compactThreshold: 0.8,
-          summaryBudgetRatio: 0.05,
-          overflowRecovery: {
-            enabled: true,
-            safetyMarginRatio: 0.05,
-            maxAttempts: 3,
-            interactiveLatestTurnCompression: "summarize",
-            nonInteractiveLatestTurnCompression: "truncate",
-          },
-        },
-      },
-      profiles: {},
-      callSites: {},
-      pricingOverrides: [],
-    },
-    workspaceGit: { turnCommitMaxWaitMs: 10 },
-    conversations: { skipAutoRetitling: true },
-  }),
-}));
+// Keep the turn-boundary commit wait short and skip second-pass retitling so
+// the blocked-turn cleanup path stays fast and deterministic.
+setConfig("workspaceGit", { turnCommitMaxWaitMs: 10 });
+setConfig("conversations", { skipAutoRetitling: true });
 
 const lockedDiskPressureStatus: DiskPressureStatus = {
   enabled: true,
@@ -139,7 +104,6 @@ function makeCtx(overrides: Partial<Context> = {}): Conversation {
     contextCompactedAt: null,
     conversationType: "background",
     source: "memory",
-    memoryPolicy: { scopeId: "default", includeDefaultFallback: true },
     currentActiveSurfaceId: undefined,
     currentPage: undefined,
     surfaceState: new Map(),
@@ -150,15 +114,10 @@ function makeCtx(overrides: Partial<Context> = {}): Conversation {
     channelCapabilities: undefined,
     commandIntent: undefined,
     trustContext: undefined,
-    coreToolNames: new Set(),
     allowedToolNames: undefined,
     preactivatedSkillIds: undefined,
     skillProjectionState: new Map(),
     skillProjectionCache: new Map() as Context["skillProjectionCache"],
-    profiler: {
-      startRequest: () => {},
-      emitSummary: () => {},
-    } as unknown as Context["profiler"],
     usageStats: {
       totalInputTokens: 0,
       totalOutputTokens: 0,

@@ -1,19 +1,11 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-// Silence the logger.
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // Toggle for the share_analytics opt-out gate the audit listener consults
 // when populating the telemetry columns.
 let shareAnalytics = true;
 
 mock.module("../platform/consent-cache.js", () => ({
-  getCachedShareAnalytics: () => shareAnalytics,
+  getRawShareAnalytics: () => shareAnalytics,
 }));
 
 import {
@@ -21,11 +13,10 @@ import {
   TOOL_INVOCATION_PII_SENTINEL as PII_SENTINEL,
   type ToolInvocationSeedSpec,
 } from "../__tests__/test-support/tool-invocation-seed.js";
-import { createToolAuditListener } from "../events/tool-audit-listener.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { conversations, toolInvocations } from "../persistence/schema/index.js";
-import type { ToolLifecycleEvent } from "../tools/types.js";
+import { recordToolExecuted } from "./tool-audit.js";
 import { queryUnreportedToolExecutedEvents } from "./tool-executed-events-store.js";
 
 await initializeDb();
@@ -117,30 +108,31 @@ describe("tool-executed-events-store", () => {
   });
 
   test("rows recorded while opted out are never projected, even from a zero watermark", () => {
-    // End-to-end through the real audit listener: the write-time opt-out
+    // End-to-end through the real audit terminal: the write-time opt-out
     // gate persists NULL telemetry columns, which the arg_bytes IS NOT NULL
     // filter excludes permanently — the same mechanism as legacy rows. No
     // watermark state is involved, so no later opt-in can ship these rows.
-    const listener = createToolAuditListener();
-    const executedEvent = (toolName: string): ToolLifecycleEvent => ({
-      type: "executed",
-      toolName,
-      input: { path: "/tmp/a" },
-      workingDir: "/tmp",
-      conversationId: CONVERSATION_ID,
-      riskLevel: "low",
-      decision: "allow",
-      durationMs: 5,
-      result: { content: "ok", isError: false },
-    });
+    const recordExecuted = (toolName: string): void =>
+      recordToolExecuted({
+        conversationId: CONVERSATION_ID,
+        toolName,
+        input: { path: "/tmp/a" },
+        resultContent: "ok",
+        resultBytes: 2,
+        decision: "allow",
+        riskLevel: "low",
+        durationMs: 5,
+        attribution: null,
+        wasPrompted: false,
+      });
 
-    listener(executedEvent("t-opted-in-before"));
+    recordExecuted("t-opted-in-before");
 
     shareAnalytics = false;
-    listener(executedEvent("t-opted-out"));
+    recordExecuted("t-opted-out");
 
     shareAnalytics = true;
-    listener(executedEvent("t-opted-in-after"));
+    recordExecuted("t-opted-in-after");
 
     // Mid-session opt-out flip: only rows recorded while opted in project.
     const rows = queryUnreportedToolExecutedEvents(0, undefined, 100);

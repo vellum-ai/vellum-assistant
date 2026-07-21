@@ -54,7 +54,6 @@ function rowToNode(row: typeof memoryGraphNodes.$inferSelect): MemoryNode {
     narrativeRole: row.narrativeRole,
     partOfStory: row.partOfStory,
     imageRefs: row.imageRefs ? (JSON.parse(row.imageRefs) as ImageRef[]) : null,
-    scopeId: row.scopeId,
   };
 }
 
@@ -79,7 +78,6 @@ function nodeToInsertValues(node: NewNode, id: string) {
     narrativeRole: node.narrativeRole,
     partOfStory: node.partOfStory,
     imageRefs: node.imageRefs ? JSON.stringify(node.imageRefs) : null,
-    scopeId: node.scopeId,
   };
 }
 
@@ -243,7 +241,6 @@ export function updateNode(
     updates.imageRefs = changes.imageRefs
       ? JSON.stringify(changes.imageRefs)
       : null;
-  if (changes.scopeId !== undefined) updates.scopeId = changes.scopeId;
   if (changes.eventDate !== undefined) updates.eventDate = changes.eventDate;
 
   if (Object.keys(updates).length === 0) return;
@@ -286,7 +283,6 @@ export function deleteNode(id: string): void {
 // ---------------------------------------------------------------------------
 
 export interface NodeQueryFilters {
-  scopeId?: string;
   types?: MemoryType[];
   fidelityNot?: Fidelity[];
   minSignificance?: number;
@@ -302,9 +298,6 @@ export function queryNodes(filters: NodeQueryFilters): MemoryNode[] {
   const db = getDb();
   const conditions = [];
 
-  if (filters.scopeId) {
-    conditions.push(eq(memoryGraphNodes.scopeId, filters.scopeId));
-  }
   if (filters.types && filters.types.length > 0) {
     conditions.push(inArray(memoryGraphNodes.type, filters.types));
   }
@@ -370,17 +363,13 @@ export function queryNodes(filters: NodeQueryFilters): MemoryNode[] {
  * whose embedding jobs haven't completed yet). The content-pattern filter
  * prevents organic procedural memories from crowding out real capabilities.
  */
-export function queryCapabilityNodes(
-  scopeId: string,
-  limit: number,
-): MemoryNode[] {
+export function queryCapabilityNodes(limit: number): MemoryNode[] {
   const db = getDb();
   const rows = db
     .select()
     .from(memoryGraphNodes)
     .where(
       and(
-        eq(memoryGraphNodes.scopeId, scopeId),
         eq(memoryGraphNodes.type, "procedural"),
         sql`${memoryGraphNodes.fidelity} != 'gone'`,
         or(
@@ -399,18 +388,13 @@ export function queryCapabilityNodes(
   return rows.map(rowToNode);
 }
 
-/** Count all non-gone nodes in a scope. */
-export function countNodes(scopeId: string): number {
+/** Count all non-gone nodes in the workspace memory pool. */
+export function countNodes(): number {
   const db = getDb();
   const result = db
     .select({ count: sql<number>`count(*)` })
     .from(memoryGraphNodes)
-    .where(
-      and(
-        eq(memoryGraphNodes.scopeId, scopeId),
-        sql`${memoryGraphNodes.fidelity} != 'gone'`,
-      ),
-    )
+    .where(sql`${memoryGraphNodes.fidelity} != 'gone'`)
     .get();
   return result?.count ?? 0;
 }
@@ -541,7 +525,6 @@ export function getTriggersForNode(nodeId: string): MemoryTrigger[] {
 
 export function getActiveTriggersByType(
   type: MemoryTrigger["type"],
-  scopeId?: string,
 ): MemoryTrigger[] {
   const db = getDb();
   const conditions = [
@@ -549,28 +532,7 @@ export function getActiveTriggersByType(
     eq(memoryGraphTriggers.consumed, false),
   ];
 
-  // Join to nodes table to filter by scope if needed
-  if (scopeId) {
-    const rows = db
-      .select({
-        trigger: memoryGraphTriggers,
-      })
-      .from(memoryGraphTriggers)
-      .innerJoin(
-        memoryGraphNodes,
-        eq(memoryGraphTriggers.nodeId, memoryGraphNodes.id),
-      )
-      .where(
-        and(
-          ...conditions,
-          eq(memoryGraphNodes.scopeId, scopeId),
-          sql`${memoryGraphNodes.fidelity} != 'gone'`,
-        ),
-      )
-      .all();
-    return rows.map((r) => rowToTrigger(r.trigger));
-  }
-
+  // Join to nodes table to exclude triggers whose node is soft-deleted.
   const rows = db
     .select({
       trigger: memoryGraphTriggers,
@@ -719,6 +681,8 @@ export function applyDiff(
       if (c.confidence !== undefined) updates.confidence = c.confidence;
       if (c.significance !== undefined) updates.significance = c.significance;
       if (c.stability !== undefined) updates.stability = c.stability;
+      if (c.reinforcementCount !== undefined)
+        updates.reinforcementCount = c.reinforcementCount;
       if (c.narrativeRole !== undefined)
         updates.narrativeRole = c.narrativeRole;
       if (c.partOfStory !== undefined) updates.partOfStory = c.partOfStory;
@@ -920,4 +884,118 @@ export function getNodeEditHistory(
     .orderBy(desc(memoryGraphNodeEdits.created))
     .limit(limit)
     .all();
+}
+
+// ---------------------------------------------------------------------------
+// Graph stats
+// ---------------------------------------------------------------------------
+
+/** Fidelity counts for active (non-gone) nodes. */
+export interface FidelityBreakdown {
+  vivid: number;
+  clear: number;
+  faded: number;
+  gist: number;
+}
+
+/** Aggregate health snapshot of the memory v2 graph. */
+export interface GraphStats {
+  /** Total active (non-gone) node count. */
+  total: number;
+  /** Node count by MemoryType. */
+  byType: Partial<Record<MemoryType, number>>;
+  /** Node count by fidelity, excluding gone. */
+  byFidelity: FidelityBreakdown;
+  /** Nodes with significance < 0.15 (at risk of decaying away). */
+  atRisk: number;
+  /** Live edge count — both endpoints are non-gone. */
+  edgeCount: number;
+  /** Epoch ms of the oldest active node, or null if the graph is empty. */
+  oldestCreated: number | null;
+  /** Epoch ms of the newest active node, or null if the graph is empty. */
+  newestCreated: number | null;
+  /** Epoch ms of the most recent reinforcement event, or null if none. */
+  lastReinforced: number | null;
+  /** Mean significance across all active nodes (0–1). */
+  avgSignificance: number;
+  /** Up to 5 highest-significance nodes (content, significance, fidelity, type). */
+  topNodes: Array<{
+    content: string;
+    significance: number;
+    fidelity: string;
+    type: string;
+  }>;
+}
+
+/**
+ * Compute a health snapshot of the memory v2 graph in two queries:
+ *   1. A full scan of active nodes (significance DESC) to derive all
+ *      per-node aggregates in one JS pass.
+ *   2. A SQL COUNT of live edges (both endpoints non-gone).
+ *
+ * Callers that only need the summary number can use `countNodes()` instead.
+ */
+export function computeGraphStats(): GraphStats {
+  // Full scan — significance DESC so topNodes is just the first slice.
+  const nodes = queryNodes({ fidelityNot: ["gone"] });
+
+  const byType: Partial<Record<MemoryType, number>> = {};
+  const byFidelity: FidelityBreakdown = {
+    vivid: 0,
+    clear: 0,
+    faded: 0,
+    gist: 0,
+  };
+  let atRisk = 0;
+  let sigSum = 0;
+  let oldestCreated: number | null = null;
+  let newestCreated: number | null = null;
+  let lastReinforced: number | null = null;
+
+  for (const n of nodes) {
+    byType[n.type] = (byType[n.type] ?? 0) + 1;
+    if (n.fidelity !== "gone") {
+      byFidelity[n.fidelity as keyof FidelityBreakdown] += 1;
+    }
+    if (n.significance < 0.15) atRisk++;
+    sigSum += n.significance;
+    if (oldestCreated === null || n.created < oldestCreated)
+      oldestCreated = n.created;
+    if (newestCreated === null || n.created > newestCreated)
+      newestCreated = n.created;
+    if (lastReinforced === null || n.lastReinforced > lastReinforced)
+      lastReinforced = n.lastReinforced;
+  }
+
+  // Live edge count: both endpoints must be non-gone.
+  const db = getDb();
+  const edgeResult = db
+    .select({ count: sql<number>`count(*)` })
+    .from(memoryGraphEdges)
+    .where(
+      and(
+        sql`NOT EXISTS (SELECT 1 FROM ${memoryGraphNodes} WHERE ${memoryGraphNodes.id} = ${memoryGraphEdges.sourceNodeId} AND ${memoryGraphNodes.fidelity} = 'gone')`,
+        sql`NOT EXISTS (SELECT 1 FROM ${memoryGraphNodes} WHERE ${memoryGraphNodes.id} = ${memoryGraphEdges.targetNodeId} AND ${memoryGraphNodes.fidelity} = 'gone')`,
+      ),
+    )
+    .get();
+
+  return {
+    total: nodes.length,
+    byType,
+    byFidelity,
+    atRisk,
+    edgeCount: edgeResult?.count ?? 0,
+    oldestCreated,
+    newestCreated,
+    lastReinforced,
+    avgSignificance: nodes.length > 0 ? sigSum / nodes.length : 0,
+    // nodes is already sorted significance DESC — slice gives the top N.
+    topNodes: nodes.slice(0, 5).map((n) => ({
+      content: n.content,
+      significance: n.significance,
+      fidelity: n.fidelity,
+      type: n.type,
+    })),
+  };
 }

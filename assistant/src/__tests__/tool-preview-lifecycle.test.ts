@@ -10,35 +10,6 @@
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-// ── Mock platform (must precede imports that read it) ─────────────────────────
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    skills: {
-      entries: {},
-      load: { extraDirs: [], watch: true, watchDebounceMs: 250 },
-      install: { nodeManager: "npm" },
-      allowBundled: null,
-      remoteProviders: {
-        skillssh: { enabled: true },
-        clawhub: { enabled: true },
-      },
-      remotePolicy: {
-        blockSuspicious: true,
-        blockMalware: true,
-        maxSkillsShRisk: "medium",
-      },
-    },
-  }),
-  loadConfig: () => ({}),
-}));
-
 // ── Mock conversation-crud (used by handleToolResult/handleMessageComplete) ──
 // Reserve returns a role-distinct id so tests can tell the grouped tool-result
 // `user` row apart from the assistant row, and assert it is reserved exactly
@@ -71,6 +42,8 @@ mock.module("../persistence/conversation-crud.js", () => ({
   getConversation: () => null,
   getMessageById: () => null,
   updateMessageContent: updateMessageContentMock,
+  markMessageContentInflight: () => {},
+  finalizeMessageContent: updateMessageContentMock,
   provenanceFromTrustContext: () => ({}),
   reserveMessage: reserveMessageMock,
   recordConversationPersistedSeq: (id: string, seq: number) => {

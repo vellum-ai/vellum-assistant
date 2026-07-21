@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
+import { conversationRevealNonce } from "../../runtime/reveal-nonce.js";
 import { computeSkillVersionHash } from "../../skills/version-hash.js";
 import { safeStringSlice } from "../../util/unicode.js";
 import { buildSanitizedEnv } from "../terminal/safe-env.js";
@@ -148,6 +149,8 @@ function spawnRunner(
       conversationId: context.conversationId,
     });
     env.__CONVERSATION_ID = context.conversationId;
+    // Secret binding for reveal-derived chat authority — see reveal-nonce.ts.
+    env.__REVEAL_NONCE = conversationRevealNonce(context.conversationId);
 
     const child = spawn(wrapped.command, wrapped.args, {
       cwd: runDir,
@@ -255,7 +258,7 @@ function parseSkillResult(
   let searchFrom = stdout.length;
   while (searchFrom > 0) {
     const markerIdx = stdout.lastIndexOf("__skill_result", searchFrom - 1);
-    if (markerIdx === -1) break;
+    if (markerIdx === -1) {break;}
 
     const lineStart = stdout.lastIndexOf("\n", markerIdx) + 1;
     const lineEnd = stdout.indexOf("\n", markerIdx);
@@ -279,7 +282,7 @@ function parseSkillResult(
   searchFrom = stdout.length;
   while (searchFrom > 0) {
     const markerIdx = stdout.lastIndexOf("__skill_error", searchFrom - 1);
-    if (markerIdx === -1) break;
+    if (markerIdx === -1) {break;}
 
     const lineStart = stdout.lastIndexOf("\n", markerIdx) + 1;
     const lineEnd = stdout.indexOf("\n", markerIdx);

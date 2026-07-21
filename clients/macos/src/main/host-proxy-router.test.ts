@@ -29,13 +29,15 @@ mock.module("./lockfile-watcher", () => ({
   getWatchedLockfile: () => ({ assistants: [], activeAssistant: null }),
 }));
 
-// Stub electron-log
+// Stub electron-log. `warn` is a tracked mock so tests can assert the
+// router doesn't log for expected firehose traffic.
+const mockLogWarn = mock((..._args: unknown[]) => {});
 mock.module("electron-log/main", () => {
   const noop = () => {};
   return {
     default: {
       info: noop,
-      warn: noop,
+      warn: mockLogWarn,
       error: noop,
       debug: noop,
       initialize: noop,
@@ -530,6 +532,43 @@ describe("host-proxy-router", () => {
         { type: "host_unknown_request", requestId: "u1" },
         poster,
       );
+    });
+
+    test("drops non-host firehose events silently (no warn spam)", () => {
+      const poster = new HostProxyPoster({
+        endpointBase: "http://127.0.0.1:9000/v1",
+        authHeaders: () => ({ Authorization: "Bearer t" }),
+        fetch: (async () => new Response("ok")) as unknown as typeof globalThis.fetch,
+      });
+
+      mockLogWarn.mockClear();
+      // /v1/events is the full assistant-event firehose. These are the
+      // high-volume streaming/tool events this connection ignores — none
+      // should warn, or the log fills with tens of thousands of lines.
+      for (const type of [
+        "assistant_thinking_delta",
+        "assistant_text_delta",
+        "tool_output_chunk",
+        "message_complete",
+        "sync_changed",
+      ]) {
+        __testing.dispatchMessage({ type }, poster);
+      }
+
+      expect(mockLogWarn).not.toHaveBeenCalled();
+    });
+
+    test("warns on a host_*-shaped type it cannot route", () => {
+      const poster = new HostProxyPoster({
+        endpointBase: "http://127.0.0.1:9000/v1",
+        authHeaders: () => ({ Authorization: "Bearer t" }),
+        fetch: (async () => new Response("ok")) as unknown as typeof globalThis.fetch,
+      });
+
+      mockLogWarn.mockClear();
+      __testing.dispatchMessage({ type: "host_teleport_request" }, poster);
+
+      expect(mockLogWarn).toHaveBeenCalledTimes(1);
     });
   });
 

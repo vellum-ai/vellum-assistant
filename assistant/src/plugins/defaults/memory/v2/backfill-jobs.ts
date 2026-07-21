@@ -18,15 +18,18 @@
 // the same code paths exercised by tests of those modules run unchanged when
 // a backfill kicks them off.
 
+import {
+  getMessages,
+  listConversations,
+  stringifyMessageContent,
+} from "@vellumai/plugin-api";
+
 import type { AssistantConfig } from "../../../../config/types.js";
-import { getMessages } from "../../../../persistence/conversation-crud.js";
-import { listConversations } from "../../../../persistence/conversation-queries.js";
 import { getDb } from "../../../../persistence/db-connection.js";
 import type { MemoryJob } from "../../../../persistence/jobs-store.js";
-import { stringifyMessageContent } from "../../../../persistence/message-content.js";
-import { getLogger } from "../../../../util/logger.js";
-import { getWorkspaceDir } from "../../../../util/platform.js";
 import { enqueueEmbedConceptPageJob } from "../jobs/embed-concept-page.js";
+import { getLogger } from "../logging.js";
+import { getWorkspaceDir } from "../paths.js";
 import {
   computeOwnActivation,
   selectCandidates,
@@ -94,9 +97,12 @@ export async function memoryV2MigrateJob(
 
 /**
  * Job handler: enqueue an `embed_concept_page` job per concept-page slug.
+ * Each enqueue coalesces with an already-pending job for the same slug, so
+ * stacked reembed runs converge on at most one pending embed per page.
  *
- * Returns the total number of jobs enqueued. Callers (and tests) use the
- * return value to assert progress without inspecting the job table directly.
+ * Returns the number of pages fanned out (enqueue attempts, not necessarily
+ * fresh rows). Callers (and tests) use the return value to assert progress
+ * without inspecting the job table directly.
  *
  * Note on meta files: `essentials.md` / `threads.md` / `recent.md` /
  * `buffer.md` are direct-injected into the system prompt every turn via
@@ -160,7 +166,7 @@ export async function memoryV2ActivationRecomputeJob(
   // Activation maps still need to refresh for archived conversations — a
   // consolidated page can leave stale slugs above epsilon in their persisted
   // state — so this job opts back into seeing archived rows.
-  const conversations = listConversations(
+  const conversations = await listConversations(
     ACTIVATION_RECOMPUTE_CONVERSATION_LIMIT,
     "standard",
     0,
@@ -172,7 +178,9 @@ export async function memoryV2ActivationRecomputeJob(
   let updated = 0;
   for (const conv of conversations) {
     const priorState = await hydrate(database, conv.id);
-    if (!priorState) continue; // Nothing to recompute when no row exists.
+    if (!priorState) {
+      continue;
+    } // Nothing to recompute when no row exists.
 
     let nextState;
     try {
@@ -191,7 +199,9 @@ export async function memoryV2ActivationRecomputeJob(
       continue;
     }
 
-    if (!nextState) continue;
+    if (!nextState) {
+      continue;
+    }
     await save(database, conv.id, nextState);
     updated += 1;
   }
@@ -224,8 +234,10 @@ async function recomputeForConversation(
 ): Promise<Awaited<ReturnType<typeof hydrate>> | null> {
   const { conversationId, priorState, edgeIndex, nowText, config } = params;
 
-  const { userText, assistantText } = lastExchangeTexts(conversationId);
-  if (!userText && !assistantText) return null;
+  const { userText, assistantText } = await lastExchangeTexts(conversationId);
+  if (!userText && !assistantText) {
+    return null;
+  }
 
   const { candidates } = await selectCandidates({
     priorState,
@@ -252,7 +264,9 @@ async function recomputeForConversation(
   const epsilon = config.memory.v2.epsilon;
   const sparseState: Record<string, number> = {};
   for (const [slug, value] of spread) {
-    if (value > epsilon) sparseState[slug] = value;
+    if (value > epsilon) {
+      sparseState[slug] = value;
+    }
   }
 
   return {
@@ -274,12 +288,14 @@ async function recomputeForConversation(
  * circuit cleanly. Tool-call content is dropped (only `text` blocks survive)
  * — same shape `loadRecentMessagesText` produces in `sweep-job.ts`.
  */
-function lastExchangeTexts(conversationId: string): {
+async function lastExchangeTexts(conversationId: string): Promise<{
   userText: string;
   assistantText: string;
-} {
-  const all = getMessages(conversationId);
-  if (all.length === 0) return { userText: "", assistantText: "" };
+}> {
+  const all = await getMessages(conversationId);
+  if (all.length === 0) {
+    return { userText: "", assistantText: "" };
+  }
 
   let userText = "";
   let assistantText = "";
@@ -290,7 +306,9 @@ function lastExchangeTexts(conversationId: string): {
     } else if (!assistantText && row.role === "assistant") {
       assistantText = stringifyMessageContent(row.content);
     }
-    if (userText && assistantText) break;
+    if (userText && assistantText) {
+      break;
+    }
   }
   return { userText, assistantText };
 }

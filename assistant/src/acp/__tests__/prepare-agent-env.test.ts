@@ -12,6 +12,8 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { FailedDependencyError } from "../../runtime/routes/errors.js";
+
 // ---------------------------------------------------------------------------
 // Stubs — wired BEFORE importing the helper via dynamic import.
 // ---------------------------------------------------------------------------
@@ -100,7 +102,8 @@ mock.module("../../tools/credentials/broker.js", () => ({
   },
 }));
 
-const { prepareAgentEnv } = await import("../prepare-agent-env.js");
+const { prepareAgentEnv, ACP_CLAUDE_OAUTH_MISSING_CODE, grantAcpSpawnPolicy } =
+  await import("../prepare-agent-env.js");
 
 beforeEach(() => {
   metadataStore.clear();
@@ -202,6 +205,127 @@ describe("prepareAgentEnv — claude-agent-acp gating", () => {
     await expect(
       prepareAgentEnv({ command: "claude-agent-acp", args: [] }),
     ).rejects.toThrow("CLAUDE_CODE_OAUTH_TOKEN");
+  });
+
+  test("enriches the missing-token error with the acp_claude_oauth_missing marker AND directs the model at the inline Connect card", async () => {
+    let caught: unknown;
+    try {
+      await prepareAgentEnv({ command: "claude-agent-acp", args: [] });
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(FailedDependencyError);
+    // Structured marker survives as `details` for the client to branch on.
+    expect((caught as FailedDependencyError).details).toEqual({
+      code: ACP_CLAUDE_OAUTH_MISSING_CODE,
+    });
+    const message = (caught as Error).message;
+    // Names the missing env var (the token) so the failure is legible.
+    expect(message).toContain("CLAUDE_CODE_OAUTH_TOKEN");
+    // Directs the model at the inline card, not a CLI/token-paste workaround.
+    expect(message).toContain("Connect Claude Code");
+    expect(message).toContain("Do NOT");
+    expect(message).toContain("claude setup-token");
+    // Keeps the headless CLI fallback available.
+    expect(message).toContain("assistant credentials set");
+    // Corrects the earlier "nothing to paste" framing — the cloud (manual) flow
+    // does paste a key, and the model is told not to claim otherwise.
+    expect(message).toContain("does paste a key");
+    // Steers the model toward a terse reply, not meta-narration about the card.
+    expect(message).toContain("ONE short sentence");
+    // Tells the model the task auto-continues after connect (no manual retry).
+    expect(message).toContain("continue automatically");
+    expect(message).toContain("do NOT retry the spawn yourself");
+    // Forbids positional claims about the card — placement is a client-render
+    // detail the model can't see, so "below"/"above" are hallucinations. The
+    // card actually renders above the model's reply, so "below" is always wrong.
+    expect(message).toContain('never say "below"');
+    expect(message).toContain('"above"');
+  });
+
+  test("does NOT attach the marker when a token is present (happy path unchanged)", async () => {
+    seedVaultToken("vault-marker-absent");
+
+    const prepared = await prepareAgentEnv({
+      command: "claude-agent-acp",
+      args: [],
+    });
+
+    expect(prepared.env?.CLAUDE_CODE_OAUTH_TOKEN).toBe("vault-marker-absent");
+  });
+
+  test("routes a legacy API key in the OAuth field to the repairable missing-token path", async () => {
+    // A workspace that stored an `sk-ant-api…` key here before the write-path
+    // format guard existed must not spawn with a doomed credential (a 401 with
+    // no repair). The presence check alone would pass, so the injected value is
+    // classified and an API key is treated as missing → the Connect card fires.
+    seedVaultToken("sk-ant-api03-legacy-bad-value");
+
+    let caught: unknown;
+    try {
+      await prepareAgentEnv({ command: "claude-agent-acp", args: [] });
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(FailedDependencyError);
+    expect((caught as FailedDependencyError).details).toEqual({
+      code: ACP_CLAUDE_OAUTH_MISSING_CODE,
+    });
+  });
+
+  test("routes an API key supplied via agent.env (config override) to the missing-token path", async () => {
+    // The override wins over the vault, so an API key here would otherwise be
+    // spawned as an OAuth token. It must be classified and repaired the same way.
+    let caught: unknown;
+    try {
+      await prepareAgentEnv({
+        command: "claude-agent-acp",
+        args: [],
+        env: { CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-api03-override-bad" },
+      });
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(FailedDependencyError);
+    expect((caught as FailedDependencyError).details).toEqual({
+      code: ACP_CLAUDE_OAUTH_MISSING_CODE,
+    });
+  });
+
+  test("a stale API-key config override does NOT shadow a valid vault OAuth token (auto-continue recovers)", async () => {
+    // The loop bug: after the user connects (OAuth token stored in the vault), a
+    // re-spawn still carries the legacy `sk-ant-api…` value in config `env`. If
+    // that override skipped the vault read, the freshly-stored token would never
+    // be used and the Connect card would re-fire forever. The bad override is
+    // dropped BEFORE the read, so the vault OAuth token is picked up and spawn
+    // proceeds instead of looping.
+    seedVaultToken("sk-ant-oat01-freshly-connected");
+
+    const prepared = await prepareAgentEnv({
+      command: "claude-agent-acp",
+      args: [],
+      env: { CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-api03-stale-override" },
+    });
+
+    expect(prepared.env?.CLAUDE_CODE_OAUTH_TOKEN).toBe(
+      "sk-ant-oat01-freshly-connected",
+    );
+  });
+
+  test("keeps a valid OAuth token (sk-ant-oat…) usable (not misclassified)", async () => {
+    seedVaultToken("sk-ant-oat01-good-token");
+
+    const prepared = await prepareAgentEnv({
+      command: "claude-agent-acp",
+      args: [],
+    });
+
+    expect(prepared.env?.CLAUDE_CODE_OAUTH_TOKEN).toBe(
+      "sk-ant-oat01-good-token",
+    );
   });
 
   test("gates on the resolved command BASENAME (alias to /custom/path/claude-agent-acp still gets the token)", async () => {
@@ -328,5 +452,41 @@ describe("prepareAgentEnv — non-claude commands", () => {
     });
 
     expect(prepared.env).toEqual({ FOO: "bar" });
+  });
+});
+
+describe("grantAcpSpawnPolicy — force-grant (union)", () => {
+  test("creates metadata with acp_spawn when none exists", () => {
+    grantAcpSpawnPolicy("claude_oauth_token", "desc");
+    expect(metadataStore.get("acp/claude_oauth_token")!.allowedTools).toEqual([
+      "acp_spawn",
+    ]);
+  });
+
+  test("unions acp_spawn into an explicit policy that omitted it (repair)", () => {
+    metadataStore.set("acp/claude_oauth_token", {
+      allowedTools: ["other_tool"],
+    });
+
+    grantAcpSpawnPolicy("claude_oauth_token", "desc");
+
+    // Unlike ensureAcpCredentialPolicy (which preserves), grant adds acp_spawn.
+    expect(metadataStore.get("acp/claude_oauth_token")!.allowedTools).toEqual([
+      "other_tool",
+      "acp_spawn",
+    ]);
+  });
+
+  test("leaves an allowedTools that already includes acp_spawn unchanged", () => {
+    metadataStore.set("acp/claude_oauth_token", {
+      allowedTools: ["acp_spawn", "other_tool"],
+    });
+
+    grantAcpSpawnPolicy("claude_oauth_token", "desc");
+
+    expect(metadataStore.get("acp/claude_oauth_token")!.allowedTools).toEqual([
+      "acp_spawn",
+      "other_tool",
+    ]);
   });
 });

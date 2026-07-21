@@ -217,6 +217,10 @@ interface CreateManagedSkillParams {
   version?: string;
   contactId?: string;
   author?: "assistant" | "user";
+  // Conversation lineage for retrospective-authored skills — see the field
+  // docs on `SkillInstallMeta` (install-meta.ts).
+  sourceConversationId?: string;
+  retrospectiveConversationId?: string;
   files?: Array<{ path: string; content: string }>;
 }
 
@@ -315,6 +319,12 @@ export function createManagedSkill(
     ...(params.version ? { version: params.version } : {}),
     ...(params.contactId ? { installedBy: params.contactId } : {}),
     ...(params.author ? { author: params.author } : {}),
+    ...(params.sourceConversationId
+      ? { sourceConversationId: params.sourceConversationId }
+      : {}),
+    ...(params.retrospectiveConversationId
+      ? { retrospectiveConversationId: params.retrospectiveConversationId }
+      : {}),
   });
 
   // Clean up legacy version.json if present (superseded by install-meta.json)

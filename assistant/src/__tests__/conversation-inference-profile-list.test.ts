@@ -9,12 +9,6 @@
  */
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { makeMockLogger } from "./helpers/mock-logger.js";
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
-
 mock.module("../config/env.js", () => ({
   isHttpAuthDisabled: () => true,
   hasUngatedHttpAuthDisabled: () => false,
@@ -25,17 +19,6 @@ mock.module("../config/env.js", () => ({
   getRuntimeGatewayOriginSecret: () => undefined,
   getIngressPublicBaseUrl: () => undefined,
   setIngressPublicBaseUrl: () => {},
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    model: "test",
-    provider: "test",
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    secretDetection: { enabled: false },
-  }),
 }));
 
 import {

@@ -24,7 +24,7 @@ function messageItem(message: DisplayMessage): MessageItem {
 }
 
 function thinkingItem(): ThinkingItem {
-  return { kind: "thinking", key: "thinking" };
+  return { kind: "thinking", key: "thinking", active: true };
 }
 
 describe("partitionLatestTurn", () => {

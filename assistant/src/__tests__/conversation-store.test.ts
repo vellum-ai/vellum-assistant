@@ -1,11 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import {
   getAttachmentById,
@@ -18,16 +11,39 @@ import {
   clearAll,
   createConversation,
   deleteConversation,
+  deleteConversationGently,
   deleteLastExchange,
   getConversation,
   getMessages,
 } from "../persistence/conversation-crud.js";
 import { isLastUserMessageToolResult } from "../persistence/conversation-queries.js";
-import { getDb } from "../persistence/db-connection.js";
+import { getDb, getTelemetryDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
-import { skillLoadedEvents } from "../persistence/schema/index.js";
+import { telemetryEvents } from "../persistence/schema/index.js";
 // Initialize db once before all tests
 await initializeDb();
+
+/** Seed a pending telemetry outbox row (default name: skill_loaded). */
+function seedTelemetryEvent(
+  id: string,
+  createdAt: number,
+  conversationId: string | null,
+  name = "skill_loaded",
+): void {
+  getTelemetryDb()!
+    .insert(telemetryEvents)
+    .values({ id, name, createdAt, conversationId, payload: "{}" })
+    .run();
+}
+
+function pendingTelemetryEventIds(): string[] {
+  return getTelemetryDb()!
+    .select()
+    .from(telemetryEvents)
+    .all()
+    .map((r) => r.id)
+    .sort();
+}
 
 describe("deleteLastExchange", () => {
   beforeEach(() => {
@@ -49,8 +65,12 @@ describe("deleteLastExchange", () => {
 
     const remaining = getMessages(conv.id);
     expect(remaining).toHaveLength(2);
-    expect(remaining[0].content).toBe("first question");
-    expect(remaining[1].content).toBe("first answer");
+    expect(remaining[0].content).toEqual([
+      { type: "text", text: "first question" },
+    ]);
+    expect(remaining[1].content).toEqual([
+      { type: "text", text: "first answer" },
+    ]);
   });
 
   test("returns 0 when no user messages exist", () => {
@@ -94,8 +114,8 @@ describe("deleteLastExchange", () => {
 
     const remaining = getMessages(conv.id);
     expect(remaining).toHaveLength(2);
-    expect(remaining[0].content).toBe("first");
-    expect(remaining[1].content).toBe("reply1");
+    expect(remaining[0].content).toEqual([{ type: "text", text: "first" }]);
+    expect(remaining[1].content).toEqual([{ type: "text", text: "reply1" }]);
   });
 });
 
@@ -353,76 +373,62 @@ describe("attachment orphan cleanup", () => {
     expect(linkCount.c).toBe(0);
   });
 
-  test("clearAll removes skill_loaded_events", async () => {
-    // Privacy posture: Clear All wins over unflushed telemetry — the
-    // skill_loaded_events rows (conversation id, skill name, model
-    // attribution) must not survive the wipe and ship later.
-    getDb().delete(skillLoadedEvents).run();
+  test("clearAll removes pending skill_loaded telemetry_events rows", async () => {
+    // Privacy posture: Clear All wins over unflushed telemetry — the pending
+    // skill_loaded rows (conversation id, skill name, model attribution)
+    // must not survive the wipe and ship later.
+    getTelemetryDb()!.delete(telemetryEvents).run();
     const conv = createConversation("test");
-    getDb()
-      .insert(skillLoadedEvents)
-      .values([
-        {
-          id: "sle-clear-1",
-          createdAt: 1000,
-          conversationId: conv.id,
-          skillName: "web-research",
-        },
-        // Rows without a conversation are wiped too.
-        { id: "sle-clear-2", createdAt: 2000, skillName: "tasks" },
-      ])
-      .run();
+    seedTelemetryEvent("sle-clear-1", 1000, conv.id);
+    // Rows without a conversation are wiped too.
+    seedTelemetryEvent("sle-clear-2", 2000, null);
 
     await clearAll();
 
-    expect(getDb().select().from(skillLoadedEvents).all()).toHaveLength(0);
+    const skillRows = getTelemetryDb()!
+      .select()
+      .from(telemetryEvents)
+      .all()
+      .filter((r) => r.name === "skill_loaded");
+    expect(skillRows).toHaveLength(0);
   });
 
-  test("deleteConversation removes that conversation's skill_loaded_events", async () => {
-    getDb().delete(skillLoadedEvents).run();
+  test("deleteConversation removes that conversation's telemetry_events rows", async () => {
+    getTelemetryDb()!.delete(telemetryEvents).run();
     const conv = createConversation("doomed");
     await addMessage(conv.id, "user", "hello");
     const other = createConversation("kept");
-    getDb()
-      .insert(skillLoadedEvents)
-      .values([
-        {
-          id: "sle-del-1",
-          createdAt: 1000,
-          conversationId: conv.id,
-          skillName: "web-research",
-        },
-        {
-          id: "sle-del-2",
-          createdAt: 2000,
-          conversationId: other.id,
-          skillName: "tasks",
-        },
-      ])
-      .run();
+    seedTelemetryEvent("te-del-1", 1000, conv.id);
+    seedTelemetryEvent("te-del-2", 2000, other.id);
+    // Redaction keys on conversation_id regardless of event name.
+    seedTelemetryEvent("te-del-3", 3000, conv.id, "future_event");
 
     deleteConversation(conv.id);
 
-    const remaining = getDb().select().from(skillLoadedEvents).all();
-    expect(remaining.map((r) => r.id)).toEqual(["sle-del-2"]);
+    expect(pendingTelemetryEventIds()).toEqual(["te-del-2"]);
   });
 
-  test("deleteConversation removes skill_loaded_events when the conversation has no messages", () => {
-    getDb().delete(skillLoadedEvents).run();
+  test("deleteConversation removes telemetry_events rows when the conversation has no messages", () => {
+    getTelemetryDb()!.delete(telemetryEvents).run();
     const conv = createConversation("empty");
-    getDb()
-      .insert(skillLoadedEvents)
-      .values({
-        id: "sle-del-empty",
-        createdAt: 1000,
-        conversationId: conv.id,
-        skillName: "web-research",
-      })
-      .run();
+    seedTelemetryEvent("te-del-empty", 1000, conv.id);
 
     deleteConversation(conv.id);
 
-    expect(getDb().select().from(skillLoadedEvents).all()).toHaveLength(0);
+    expect(pendingTelemetryEventIds()).toHaveLength(0);
+  });
+
+  test("deleteConversationGently removes that conversation's telemetry_events rows", async () => {
+    getTelemetryDb()!.delete(telemetryEvents).run();
+    const conv = createConversation("doomed");
+    await addMessage(conv.id, "user", "hello");
+    const other = createConversation("kept");
+    seedTelemetryEvent("te-gentle-1", 1000, conv.id);
+    seedTelemetryEvent("te-gentle-2", 2000, other.id);
+
+    await deleteConversationGently(conv.id);
+
+    expect(pendingTelemetryEventIds()).toEqual(["te-gentle-2"]);
   });
 
   test("deleteLastExchange does not delete unlinked user uploads", async () => {
@@ -467,17 +473,11 @@ describe("conversation metadata defaults", () => {
     expect(conv.conversationType).toBe("standard");
   });
 
-  test("new conversation has memoryScopeId defaulting to default", () => {
-    const conv = createConversation("test");
-    expect(conv.memoryScopeId).toBe("default");
-  });
-
   test("defaults are persisted and retrievable from DB", () => {
     const conv = createConversation("test");
     const loaded = getConversation(conv.id);
     expect(loaded).not.toBeNull();
     expect(loaded!.conversationType).toBe("standard");
-    expect(loaded!.memoryScopeId).toBe("default");
   });
 
   test("existing conversations without explicit values get defaults via migration", () => {
@@ -493,7 +493,6 @@ describe("conversation metadata defaults", () => {
     const loaded = getConversation(id);
     expect(loaded).not.toBeNull();
     expect(loaded!.conversationType).toBe("standard");
-    expect(loaded!.memoryScopeId).toBe("default");
   });
 });
 
@@ -508,7 +507,6 @@ describe("createConversation with conversation type option", () => {
     const conv = createConversation("hello");
     expect(conv.title).toBe("hello");
     expect(conv.conversationType).toBe("standard");
-    expect(conv.memoryScopeId).toBe("default");
   });
 
   test("standard create with options object uses defaults", () => {
@@ -517,13 +515,11 @@ describe("createConversation with conversation type option", () => {
       conversationType: "standard",
     });
     expect(conv.conversationType).toBe("standard");
-    expect(conv.memoryScopeId).toBe("default");
   });
 
   test("no-arg create uses defaults", () => {
     const conv = createConversation();
     expect(conv.conversationType).toBe("standard");
-    expect(conv.memoryScopeId).toBe("default");
   });
 });
 

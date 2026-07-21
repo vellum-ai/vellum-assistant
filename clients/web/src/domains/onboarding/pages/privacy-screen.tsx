@@ -11,22 +11,19 @@ import {
     emitOnboardingFunnelStepCompleted,
     getOnboardingFunnelSessionId,
     ONBOARDING_FUNNEL_STEPS,
-    onboardingFunnelVariantFromExperiment,
-    resolveOnboardingFunnelVariant,
 } from "@/domains/onboarding/funnel-events";
 import { onboardingDestinationAfterConsent } from "@/domains/onboarding/onboarding-destination";
+import { ATTRIBUTED_PLUGIN_PARAM } from "@/domains/onboarding/plugin-attribution";
 import { isLocalMode } from "@/lib/local-mode";
 import {
     usePrivacyConsent,
-    useShareAnalytics,
     useShareDiagnostics,
     useTosAccepted,
 } from "@/domains/onboarding/prefs";
 import { isElectron } from "@/runtime/is-electron";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { useAuthStore, useHasPlatformSession } from "@/stores/auth-store";
-import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
-import { saveConsent } from "@/utils/onboarding-cleanup";
+import { saveConsent } from "@/lib/consent/consent-persistence";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
 
@@ -36,12 +33,11 @@ export function PrivacyScreen() {
   const userId = useAuthStore.use.user()?.id ?? null;
   const electron = isElectron();
   const isNative = useIsNativePlatform();
-  const preChatExperimentArm =
-    useClientFeatureFlagStore.use.stringFlags().preChatOnboardingExperiment20260606 ?? "control";
-  const preferredFunnelVariant =
-    onboardingFunnelVariantFromExperiment(preChatExperimentArm);
-  const [shareAnalytics, setShareAnalyticsReal] = useShareAnalytics();
   const [shareDiagnostics, setShareDiagnosticsReal] = useShareDiagnostics();
+  // Never-asked (null) displays as on — diagnostics is opt-out — and the
+  // toggle is on screen, so Start records the displayed value as an explicit
+  // choice.
+  const shareDiagnosticsChecked = shareDiagnostics ?? true;
   const [tosAccepted, setTosAcceptedReal] = useTosAccepted();
   const [privacyConsent, setPrivacyConsentReal] = usePrivacyConsent();
   const hasPlatformSession = useHasPlatformSession();
@@ -54,33 +50,35 @@ export function PrivacyScreen() {
 
   const isPreview = searchParams.get("preview") === "true";
   const noop = useCallback((_next: boolean) => {}, []);
-  const setShareAnalytics = isPreview ? noop : setShareAnalyticsReal;
   const setShareDiagnostics = isPreview ? noop : setShareDiagnosticsReal;
   const setTosAccepted = isPreview ? noop : setTosAcceptedReal;
   const setPrivacyConsent = isPreview ? noop : setPrivacyConsentReal;
 
   const onStart = useCallback(() => {
     if (isPreview) {
-      // Developer "Replay Onboarding": advance through the sandboxed flow
-      // (privacy → prechat) rather than exiting here. Hatching is intentionally
-      // skipped — it has real side effects and is excluded from the preview
-      // route allowlist in onboardingCompletedMiddleware.
-      void navigate(`${routes.onboarding.prechat}?preview=true`);
+      // Developer "Replay Onboarding": preview mode does not advance to any
+      // side-effecting onboarding route. Hatching is excluded from the preview
+      // route allowlist in onboardingCompletedMiddleware (it has real side
+      // effects), so Start is a no-op here.
       return;
     }
 
-    saveConsent({ userId, tos: tosAccepted, privacy: privacyConsent, shareAnalytics, shareDiagnostics, hasPlatformSession });
+    // Analytics isn't asked here — the server keeps share_analytics null
+    // until the user opts in via settings or review-terms.
+    saveConsent({ userId, tos: tosAccepted, privacy: privacyConsent, shareAnalytics: null, shareDiagnostics: shareDiagnosticsChecked, hasPlatformSession });
     if (!isNative) {
-      const variant = resolveOnboardingFunnelVariant(preferredFunnelVariant);
       emitOnboardingFunnelStepCompleted(ONBOARDING_FUNNEL_STEPS.privacyTos, {
         userId,
-        variant,
       });
     }
 
     const hostingParam = searchParams.get("hosting");
     const params = new URLSearchParams();
     if (hostingParam) params.set("hosting", hostingParam);
+    // Carry the marketing plugin attribution forward so the research runner can
+    // read it off the URL and pre-install that plugin (see `plugin-attribution`).
+    const pluginParam = searchParams.get(ATTRIBUTED_PLUGIN_PARAM);
+    if (pluginParam) params.set(ATTRIBUTED_PLUGIN_PARAM, pluginParam);
     const qs = params.toString();
     // A local-hosting onboarding (hosting=local/docker in a local-mode build)
     // must run the foreground local hatch first, so it goes to `hatching`, which
@@ -99,10 +97,8 @@ export function PrivacyScreen() {
     isNative,
     isPreview,
     navigate,
-    preferredFunnelVariant,
     searchParams,
-    shareAnalytics,
-    shareDiagnostics,
+    shareDiagnosticsChecked,
     tosAccepted,
     userId,
   ]);
@@ -136,9 +132,10 @@ export function PrivacyScreen() {
 
         <PrivacyPreferencesCard
           electron={electron}
-          shareAnalytics={shareAnalytics}
-          shareDiagnostics={shareDiagnostics}
-          onShareAnalyticsChange={setShareAnalytics}
+          showAnalytics={false}
+          shareAnalytics={false}
+          shareDiagnostics={shareDiagnosticsChecked}
+          onShareAnalyticsChange={noop}
           onShareDiagnosticsChange={setShareDiagnostics}
           className="mt-8 w-full"
           style={{ animation: "fadeInUp 0.5s ease-out 0.4s both" }}
@@ -168,11 +165,31 @@ export function PrivacyScreen() {
           >
             Start
           </Button>
+          {/*
+           * Back's destination is mode-specific, but always stays inside the SPA
+           * (react-router `navigate`, never a full-document nav). In local mode
+           * hosting is the screen that leads here (welcome → hosting → privacy),
+           * so go there deterministically rather than `navigate(-1)`. In platform
+           * mode privacy IS the funnel entrypoint — hosting is local-only
+           * (`enforceModeBoundary` bounces a platform user off it to `/assistant`,
+           * which trips a non-onboarding hatch) — so Back lands on the onboarding
+           * `start` welcome screen instead. It must NOT leave the SPA for the
+           * marketing host (`/`): on a Capacitor staging/dev shell that host's CTA
+           * points at production `www.vellum.ai/assistant`, so a full-document nav
+           * would switch the native app off its own environment. `start` keeps the
+           * running environment intact on web and native alike.
+           */}
           <Button
             variant="outlined"
             size="regular"
             fullWidth
-            onClick={() => navigate(-1)}
+            onClick={() =>
+              navigate(
+                isLocalMode()
+                  ? routes.onboarding.hosting
+                  : routes.onboarding.start,
+              )
+            }
             className={electron ? undefined : "h-11 text-base"}
           >
             Back

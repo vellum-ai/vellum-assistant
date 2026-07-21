@@ -1,29 +1,40 @@
 import {
-    lazy,
-    useCallback,
-    useEffect,
-    useRef,
-    useState,
-    type ReactNode,
+  lazy,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
 } from "react";
-import { Outlet, useLocation, useNavigate, useNavigationType } from "react-router";
+import {
+  Outlet,
+  useLocation,
+  useNavigate,
+  useNavigationType,
+} from "react-router";
 
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { MOBILE_MEDIA_QUERY, useIsMobile } from "@/hooks/use-is-mobile";
-import { getLocalBool, getLocalNumber, setLocalBool, setLocalNumber } from "@/utils/local-settings";
-import { isAboutAssistantPath, isConversationPath, routes } from "@/utils/routes";
+import {
+  getLocalBool,
+  getLocalNumber,
+  setLocalBool,
+  setLocalNumber,
+} from "@/utils/local-settings";
+import {
+  isAboutAssistantPath,
+  isConversationChatPath,
+  isConversationPath,
+  routes,
+} from "@/utils/routes";
 
 import { useChatLayoutSlotsStore } from "@/components/layout/chat-layout-slots-store";
 import { useElectronDockSync } from "@/domains/chat/hooks/use-electron-dock-sync";
+import { useOpenAppFromChat } from "@/domains/chat/hooks/use-open-app-from-chat";
 import {
-    chooseSidebarOpenAppDestination,
-    useOpenAppFromChat,
-} from "@/domains/chat/hooks/use-open-app-from-chat";
-import { useHomeUnreadBadge } from "@/hooks/use-home-unread-badge";
-import {
-    DRAWER_SLIDE_MS,
-    useEdgeSwipeDrawer,
+  DRAWER_SLIDE_MS,
+  useEdgeSwipeDrawer,
 } from "@/hooks/use-edge-swipe-drawer";
 import { useCommandPaletteStore } from "@/stores/command-palette-store";
 import { useEdgeSwipeArbiterStore } from "@/stores/edge-swipe-arbiter-store";
@@ -36,14 +47,14 @@ import { useConversationActions } from "@/domains/chat/hooks/use-conversation-ac
 import { useConversationGroupActions } from "@/domains/chat/hooks/use-conversation-group-actions";
 import { useCanUseLlmInspector } from "@/domains/chat/inspector/access";
 import {
-    navigateToConversation,
-    navigateToNewConversation,
+  navigateToConversation,
+  navigateToNewConversation,
 } from "@/utils/conversation-navigation";
 import { haptic } from "@/utils/haptics";
 
 import {
-    useConversationGroupsQuery,
-    useConversationListQuery,
+  useConversationGroupsQuery,
+  useConversationListQuery,
 } from "@/hooks/conversation-queries";
 import { openCommandPaletteWindow } from "@/runtime/command-palette-window";
 import { isElectron } from "@/runtime/is-electron";
@@ -59,6 +70,8 @@ import { requestComposerFocus } from "./composer-focus";
 import { LazyBoundary } from "@/components/lazy-boundary";
 import { RuntimeUpgradeBanner } from "@/components/runtime-upgrade-banner";
 import { StatusBanner } from "@/components/status-banner";
+import { SidebarTipCard } from "@/components/tips/sidebar-tip-card";
+import { ensureTipsFirstSeenAt } from "@/utils/tips-storage";
 import { AssistantSideMenu } from "@/domains/chat/components/assistant-side-menu";
 import { PreferencesMenu } from "@/domains/chat/components/preferences-menu";
 import { useCommandPaletteOrchestrator } from "@/domains/chat/hooks/use-command-palette-orchestrator";
@@ -68,6 +81,9 @@ import { OnboardingCheckinOverlay } from "@/components/onboarding-checkin-overla
 import { OnboardingAvatarApplier } from "@/components/onboarding-avatar-applier";
 import { VoiceSessionPillHost } from "@/domains/chat/components/voice-session-pill-host";
 import { useLiveVoiceSessionController } from "@/domains/chat/voice/live-voice/use-live-voice-session-controller";
+import { useSeedLiveVoiceSnapshot } from "@/domains/chat/voice/live-voice/use-seed-live-voice-snapshot";
+import { VoiceRoom } from "@/domains/chat/voice/voice-room/voice-room";
+import { useIsVoiceRoomVisible } from "@/domains/chat/voice/voice-room/use-is-voice-room-visible";
 import { ChatConversationHeader } from "./chat-conversation-header";
 import { ChatLayoutHeader } from "./chat-layout-header";
 import { RenameDialogFromStore } from "./rename-dialog-from-store";
@@ -116,7 +132,17 @@ interface SideMenuRenderArgs {
  *
  * @see https://reactrouter.com/start/data/routing
  */
-export function ChatLayout() {
+export function ChatLayout({
+  topBarAccessory,
+}: {
+  /**
+   * Persistent element for the header's top-right, after the per-route
+   * slot content (currently the notifications bell). Injected by
+   * `routes.tsx` because its implementation lives in another domain,
+   * which this layout must not import directly.
+   */
+  topBarAccessory?: ReactNode;
+} = {}) {
   const navigate = useNavigate();
   const location = useLocation();
   const navigationType = useNavigationType();
@@ -151,6 +177,9 @@ export function ChatLayout() {
   // pill as its control surface. The composer starts/stops sessions
   // through the seams this registers in `useLiveVoiceStore`.
   useLiveVoiceSessionController();
+  // Fold a live-voice turn into the transcript on a fresh/empty chat, where the
+  // unseeded draft snapshot would otherwise drop the turn's echo (JARVIS-1265).
+  useSeedLiveVoiceSnapshot();
 
   // Subscribe to the sidebar conversation list at the layout level so every
   // chat-layout child route (home, library, contacts, identity, chat)
@@ -179,15 +208,10 @@ export function ChatLayout() {
   // create/rename/delete affordances are rendered here, not in ChatPage.
   // The hook is self-sufficient (cache invalidation handles rollback), so
   // it can live wherever the sidebar lives.
-  const { handleRenameGroup, handleDeleteGroup } =
-    useConversationGroupActions({
-      assistantId,
-      conversationGroups,
-    });
-
-  // Home page unread indicator — drives the red dot on the Home button in
-  // the layout header.
-  const { hasUnreadHome } = useHomeUnreadBadge(assistantId);
+  const { handleRenameGroup, handleDeleteGroup } = useConversationGroupActions({
+    assistantId,
+    conversationGroups,
+  });
 
   // Mirror the unread count + signed-in flag into the Electron Dock
   // (no-op off Electron). Uses the conversation list this layout
@@ -230,15 +254,13 @@ export function ChatLayout() {
     setHistoryIndex(idx);
     // Only PUSH clears forward entries (pushState). REPLACE (replaceState)
     // and POP preserve them, so max must not reset.
-    setMaxHistoryIndex(navigationType === "PUSH" ? idx : (prev) => Math.max(prev, idx));
+    setMaxHistoryIndex(
+      navigationType === "PUSH" ? idx : (prev) => Math.max(prev, idx),
+    );
   }
 
   const canGoBack = historyIndex > 0;
   const canGoForward = historyIndex < maxHistoryIndex;
-
-  const handleOpenHome = useCallback(() => {
-    navigate(routes.home);
-  }, [navigate]);
 
   const handleOpenIdentity = useCallback(() => {
     navigate(routes.identity);
@@ -252,10 +274,8 @@ export function ChatLayout() {
     navigate(1);
   }, [navigate]);
 
-  const isHomeActive =
-    location.pathname === routes.home ||
-    location.pathname === routes.schedules.root ||
-    location.pathname.startsWith(`${routes.schedules.root}/`);
+  // Schedules paths count as About Assistant (via isAboutAssistantPath) —
+  // the Schedules surface is a drill-down section under the overview.
   const isIdentityActive = isAboutAssistantPath(location.pathname);
 
   // --- Sidebar collapsed / drawer state ---
@@ -285,8 +305,26 @@ export function ChatLayout() {
     }
   }, [isMobile]);
 
+  // Close the drawer on any navigation, covering sources that don't manage
+  // drawer state themselves (e.g. command palette results). `location.key`
+  // changes on every navigation — including query-only changes and same-URL
+  // history moves that `pathname` misses. Opening the drawer never navigates,
+  // so this can't fight it.
   useEffect(() => {
-    if (!sidebarCollapseRequested) {return;}
+    setDrawerOpen(false);
+  }, [location.key]);
+
+  // The tips new-user grace clock anchors to first app use. Stamping here
+  // (not only in the tip hook) covers mobile, where the drawer-gated tip
+  // card may not mount for days.
+  useEffect(() => {
+    ensureTipsFirstSeenAt();
+  }, []);
+
+  useEffect(() => {
+    if (!sidebarCollapseRequested) {
+      return;
+    }
     // One-shot: research-onboarding asked us to open with the side panel
     // collapsed across the whole web experience (not just desktop). Collapse
     // the desktop sidebar — `setCollapsed(true)` flows through the persistence
@@ -297,12 +335,26 @@ export function ChatLayout() {
     consumeSidebarCollapse();
   }, [sidebarCollapseRequested, consumeSidebarCollapse]);
 
+  // Voice-room visibility. The room is a full-viewport takeover on every
+  // platform (mounted at layout scope below): it covers the header and
+  // sidebar, and ending the session is the only way out of it.
+  const voiceRoomVisible = useIsVoiceRoomVisible();
+
   const drawerVisible = isMobile && drawerOpen;
 
   const toggleSidebar = useCallback(() => {
     haptic.light();
     if (window.matchMedia(MOBILE_MEDIA_QUERY).matches) {
-      setDrawerOpen((value) => !value);
+      setDrawerOpen((value) => {
+        // Opening the drawer over a focused composer: drop focus so iOS
+        // dismisses the soft keyboard. Left up, the keyboard stays raised and
+        // the drawer appears wedged behind it. Only blur on open — closing
+        // should not steal focus from whatever the user tapped into next.
+        if (!value) {
+          (document.activeElement as HTMLElement | null)?.blur();
+        }
+        return !value;
+      });
     } else {
       setCollapsed((value) => !value);
     }
@@ -333,12 +385,22 @@ export function ChatLayout() {
   // past threshold. Suppressed whenever a back-swipe owner is active (a pushed
   // page under this layout) so a single left-edge swipe resolves to exactly one
   // action — back-navigation on detail pages, open-menu at the stack root.
+  // Also suppressed while a swipe-action row is revealed anywhere under the
+  // layout (e.g. a library card showing Pin/Delete): swiping the open row back
+  // toward centre must close it, matching the iOS table-row model where the
+  // open row owns the gesture and the enclosing container yields.
   const backSwipeOwnerCount = useEdgeSwipeArbiterStore.use.backOwnerCount();
+  const openRowCount = useEdgeSwipeArbiterStore.use.openRowCount();
   useEdgeSwipeDrawer({
     panelRef: drawerRef,
-    enabled: isMobile && !drawerOpen && backSwipeOwnerCount === 0,
+    enabled:
+      isMobile && !drawerOpen && backSwipeOwnerCount === 0 && openRowCount === 0,
     onDragStart: () => setDrawerDragging(true),
     onOpen: () => {
+      // Same as the button path: swiping the drawer in over a focused
+      // composer must blur it so iOS dismisses the soft keyboard, otherwise
+      // the drawer slides in behind a raised keyboard and looks stuck.
+      (document.activeElement as HTMLElement | null)?.blur();
       setDrawerOpen(true);
       setDrawerDragging(false);
     },
@@ -346,8 +408,10 @@ export function ChatLayout() {
   });
 
   const activeConversationId = useConversationStore.use.activeConversationId();
-  const processingConversationIds = useConversationStore.use.processingConversationIds();
-  const attentionConversationIds = useConversationStore.use.attentionConversationIds();
+  const processingConversationIds =
+    useConversationStore.use.processingConversationIds();
+  const attentionConversationIds =
+    useConversationStore.use.attentionConversationIds();
 
   const handleSelectConversation = useCallback(
     (key: string) => {
@@ -400,20 +464,22 @@ export function ChatLayout() {
       isAssistantActive,
     ) ?? null;
 
-  const topBarCenter = topBarCenterSlot ?? (headerSupplements ? (
-    <ChatConversationHeader
-      assistantId={assistantId}
-      activeConversation={activeConversation}
-      headerSupplements={headerSupplements}
-      showLlmInspector={showLlmInspector}
-      onArchive={handleArchiveConversation}
-      onUnarchive={handleUnarchiveConversation}
-      onMarkUnread={handleMarkConversationUnread}
-      onMarkRead={handleMarkConversationRead}
-      onPinToggle={handleTogglePinConversation}
-      onRename={handleRenameConversation}
-    />
-  ) : null);
+  const topBarCenter =
+    topBarCenterSlot ??
+    (headerSupplements ? (
+      <ChatConversationHeader
+        assistantId={assistantId}
+        activeConversation={activeConversation}
+        headerSupplements={headerSupplements}
+        showLlmInspector={showLlmInspector}
+        onArchive={handleArchiveConversation}
+        onUnarchive={handleUnarchiveConversation}
+        onMarkUnread={handleMarkConversationUnread}
+        onMarkRead={handleMarkConversationRead}
+        onPinToggle={handleTogglePinConversation}
+        onRename={handleRenameConversation}
+      />
+    ) : null);
 
   // -------------------------------------------------------------------------
   // Command palette — sections, item dispatch
@@ -475,27 +541,37 @@ export function ChatLayout() {
     commandPalette: () => {
       void openCommandPaletteWindow()
         .then((opened) => {
-          if (!opened) {useCommandPaletteStore.getState().toggle();}
+          if (!opened) {
+            useCommandPaletteStore.getState().toggle();
+          }
         })
         .catch(() => {
           useCommandPaletteStore.getState().toggle();
         });
     },
     previousConversation: () => {
-      if (!activeConversationId || conversations.length === 0) {return;}
+      if (!activeConversationId || conversations.length === 0) {
+        return;
+      }
       const idx = conversations.findIndex(
         (c) => c.conversationId === activeConversationId,
       );
       const prev = conversations[idx - 1];
-      if (prev) {handleSelectConversation(prev.conversationId);}
+      if (prev) {
+        handleSelectConversation(prev.conversationId);
+      }
     },
     nextConversation: () => {
-      if (!activeConversationId || conversations.length === 0) {return;}
+      if (!activeConversationId || conversations.length === 0) {
+        return;
+      }
       const idx = conversations.findIndex(
         (c) => c.conversationId === activeConversationId,
       );
       const next = conversations[idx + 1];
-      if (next) {handleSelectConversation(next.conversationId);}
+      if (next) {
+        handleSelectConversation(next.conversationId);
+      }
     },
     openConversation: (command) => {
       if (command.kind === "openConversation") {
@@ -535,12 +611,6 @@ export function ChatLayout() {
     },
   });
 
-  const handleOpenLibrary = useCallback(() => {
-    navigate(routes.library.root);
-  }, [navigate]);
-
-  const isLibraryActive = location.pathname.startsWith(routes.library.root);
-
   // Only highlight a conversation row in the sidebar when the user is
   // actually viewing it. On non-conversation routes (Identity, Library,
   // Home, etc.) no conversation row should appear active. The store value
@@ -560,18 +630,31 @@ export function ChatLayout() {
   //
   // See `use-open-app-from-chat.ts` for the loadApp → enterAppEditing flow
   // shared with the transcript / assets-pill open path.
-  const openAppFromChat = useOpenAppFromChat();
+  const openAppFromChat = useOpenAppFromChat({
+    // When the user is off a chat route (home, library, identity, …), do
+    // not bind the stale `activeConversationId` as the editing target —
+    // the store value persists across route changes for SSE / attention
+    // consumers and doesn't reflect the user's current intent (LUM-2691).
+    bindConversation: isConversationChatPath(location.pathname),
+  });
   const activeAppId = useViewerStore.use.activeAppId();
   const handleOpenAppFromSidebar = useCallback(
     async (appId: string) => {
-      const dest = chooseSidebarOpenAppDestination(
-        location.pathname,
-        activeConversationId,
-      );
-      if (dest) {void navigate(dest);}
+      // Off a chat route the viewer panel has no surface to render against, so
+      // we must land on one before opening the app. Routing to `/assistant`
+      // isn't neutral: the chat index auto-bootstraps to the last active /
+      // latest conversation (`use-conversation-loader`), which resurfaces the
+      // stale conversation behind the app and once it's closed (LUM-2691) —
+      // `activeConversationId` persists across route changes for SSE /
+      // attention consumers, so it doesn't reflect the user's intent. Opening
+      // over a fresh silent draft hands the loader an explicit id it won't
+      // override and leaves a clean new-chat surface on close.
+      if (!isConversationChatPath(location.pathname)) {
+        navigateToNewConversation(navigate, { silent: true });
+      }
       await openAppFromChat(appId);
     },
-    [location.pathname, navigate, activeConversationId, openAppFromChat],
+    [location.pathname, navigate, openAppFromChat],
   );
 
   // Inspector affordance for the sidebar context menu. The topbar variant
@@ -615,11 +698,6 @@ export function ChatLayout() {
       onStartNewConversation={startNewConversation}
       isIntelligenceActive={isIdentityActive}
       onOpenIntelligence={handleOpenIdentity}
-      isLibraryActive={isLibraryActive}
-      onOpenLibrary={handleOpenLibrary}
-      isHomeActive={isHomeActive}
-      onOpenHome={handleOpenHome}
-      hasUnreadHome={hasUnreadHome}
       activeAppId={activeAppId ?? undefined}
       onOpenApp={handleOpenAppFromSidebar}
       onPinConversation={handleTogglePinConversation}
@@ -640,11 +718,27 @@ export function ChatLayout() {
           assistantId={assistantId}
           assistantVersion={assistantVersion}
           activeConversationId={activeConversationId}
+          triggerVariant={args.variant === "overlay" ? "pill" : "item"}
         />
+      }
+      // The overlay subtree mounts mid edge-swipe while still off-screen;
+      // mounting the tip card there stamps an impression for a tip never
+      // seen, so the overlay only gets it once the drawer settles open.
+      tipCard={
+        args.variant === "overlay" && !drawerOpen ? undefined : (
+          <SidebarTipCard />
+        )
       }
       onClose={args.onClose}
     />
   );
+
+  // Blur + freeze the chat body under the voice room, a full-viewport
+  // takeover. The room is an opaque overlay, so this mainly matters for the
+  // fade transition and to stop stray interaction with the covered chat.
+  const mainRoomClass = voiceRoomVisible
+    ? "pointer-events-none blur-sm opacity-40 transition-[filter,opacity]"
+    : "";
 
   return (
     <>
@@ -666,6 +760,7 @@ export function ChatLayout() {
             <>
               {topBarRightSlot}
               <VoiceSessionPillHost />
+              {topBarAccessory}
             </>
           }
           canGoBack={canGoBack}
@@ -687,8 +782,10 @@ export function ChatLayout() {
       ) : null}
 
       {isMobile ? (
-        <main className="relative flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden">
-          <Outlet  />
+        <main
+          className={`relative flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden ${mainRoomClass}`}
+        >
+          <Outlet />
           {/* A popout narrowed below the mobile breakpoint lands in this
               branch — still headerless, so it still needs the floating
               session surface (see the desktop popout branch below). */}
@@ -706,17 +803,27 @@ export function ChatLayout() {
               aria-modal="true"
               aria-label="Navigation"
             >
+              {/* The aside must paint the same token as the SideMenu it
+                  hosts (`--surface-overlay`): its safe-area padding ring is
+                  the only part of it that shows around the full-bleed menu,
+                  and a mismatched background renders as tinted strips along
+                  the notch / home-indicator edges on iOS. No border — the
+                  sheet covers the full screen, so there is no edge to draw.
+                  No bottom padding either: the SideMenu root clips its
+                  children (`overflow-hidden`), so a bottom inset places the
+                  clip boundary at the home-indicator line and guillotines
+                  the floating action pills' drop shadows into a visible
+                  hard edge in light mode. The menu runs full-bleed to the
+                  physical bottom edge and the pills offset themselves by
+                  the safe-area inset instead. */}
               <aside
                 id="chat-side-menu"
                 className="relative flex h-full w-full flex-col shadow-xl"
                 style={{
-                  background: "var(--surface-lift)",
-                  borderRight: "1px solid var(--border-base)",
+                  background: "var(--surface-overlay)",
                   zIndex: 50,
                   paddingTop:
                     "var(--safe-area-inset-top, env(safe-area-inset-top, 0px))",
-                  paddingBottom:
-                    "var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px))",
                   paddingLeft:
                     "var(--safe-area-inset-left, env(safe-area-inset-left, 0px))",
                 }}
@@ -732,7 +839,9 @@ export function ChatLayout() {
           ) : null}
         </main>
       ) : isPopout ? (
-        <main className="relative flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden p-4">
+        <main
+          className={`relative flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden p-4 ${mainRoomClass}`}
+        >
           <Outlet />
           {/* Pop-outs render no header, but they DO support in-window
               conversation switching (Cmd+Up/Down) — so a live session started
@@ -749,9 +858,16 @@ export function ChatLayout() {
             className="shrink-0"
             aria-label="Navigation"
           >
-            {renderSideMenu({ collapsed, variant: "rail", width: sidebarWidth, onWidthChange: handleSidebarWidthChange })}
+            {renderSideMenu({
+              collapsed,
+              variant: "rail",
+              width: sidebarWidth,
+              onWidthChange: handleSidebarWidthChange,
+            })}
           </aside>
-          <main className="flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden">
+          <main
+            className={`relative flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden ${mainRoomClass}`}
+          >
             <Outlet />
           </main>
         </div>
@@ -763,6 +879,11 @@ export function ChatLayout() {
           overlay; it never remounts the chat, so a suggestion click's
           navigate + `?prompt=` auto-send isn't raced by a remount. */}
       {isFocused ? <ResearchResultsOverlay /> : null}
+      {/* Live-voice room — a full-viewport takeover mounted at layout scope,
+          next to the other full-viewport overlays. Self-gates on
+          `useIsVoiceRoomVisible()` (which excludes pop-outs); the composer's
+          voice bar and transcript render underneath, hidden by it. */}
+      <VoiceRoom />
       {/* First step of the focused flow: the gcal "Let's chat tomorrow" page,
           shown over the streaming research output until connect/skip. Self-gates
           on `checkinPending`; top-level so it can compose the onboarding screen. */}

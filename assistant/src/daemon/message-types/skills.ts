@@ -235,6 +235,12 @@ interface AssistantMemorySkillDetail extends SkillDetailBase {
   origin: "assistant-memory";
   /** See {@link VellumSkillDetail.owner}. */
   owner?: OwnerInfo;
+  /**
+   * Conversation whose trace the retrospective distilled this skill from —
+   * the durable lineage recorded in install-meta. Present only when the
+   * scaffold recorded it; lets clients link back to the source conversation.
+   */
+  sourceConversationId?: string;
 }
 
 export type SkillDetailResponse =

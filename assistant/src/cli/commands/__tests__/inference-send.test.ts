@@ -60,16 +60,6 @@ mock.module("../../../providers/provider-send-message.js", () => ({
   }),
 }));
 
-mock.module("../../../config/loader.js", () => ({
-  getConfig: () => ({ llm: { profiles: {} } }),
-  getConfigReadOnly: () => ({ llm: { profiles: {} } }),
-  loadConfig: () => ({ llm: { profiles: {} } }),
-  loadRawConfig: () => ({}) as Record<string, unknown>,
-  saveRawConfig: () => {},
-  invalidateConfigCache: () => {},
-  applyNestedDefaults: () => ({ llm: { profiles: {} } }),
-}));
-
 mock.module("../../../util/logger.js", () => ({
   getLogger: () => ({
     info: () => {},
@@ -249,6 +239,56 @@ describe("no message provided", () => {
     const parsed = JSON.parse(stdout);
     expect(parsed.ok).toBe(false);
     expect(parsed.error).toContain("No message provided");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Runtime evidence passthrough
+// ---------------------------------------------------------------------------
+
+describe("evidence passthrough", () => {
+  test("forwards evidence.resolved_endpoint into --json output", async () => {
+    // GIVEN the daemon reports a runtime-resolved endpoint in the IPC result
+    mockIpcResult = {
+      ok: true,
+      result: {
+        response: "Hello from the model.",
+        model: "test-model",
+        usage: { inputTokens: 3, outputTokens: 4 },
+        evidence: { resolved_endpoint: "https://inference.example.test/v1" },
+      },
+    };
+
+    // WHEN the CLI runs `inference send --json`
+    const { exitCode, stdout } = await runCommand([
+      "inference",
+      "send",
+      "--json",
+      "Hello",
+    ]);
+
+    // THEN the JSON output carries the evidence verbatim for callers to read
+    expect(exitCode).toBe(0);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.evidence).toEqual({
+      resolved_endpoint: "https://inference.example.test/v1",
+    });
+  });
+
+  test("omits evidence from --json output when the daemon reports none", async () => {
+    // GIVEN an IPC result with no evidence field (default fixture)
+    // WHEN the CLI runs `inference send --json`
+    const { exitCode, stdout } = await runCommand([
+      "inference",
+      "send",
+      "--json",
+      "Hello",
+    ]);
+
+    // THEN no evidence key is emitted
+    expect(exitCode).toBe(0);
+    const parsed = JSON.parse(stdout);
+    expect(parsed).not.toHaveProperty("evidence");
   });
 });
 

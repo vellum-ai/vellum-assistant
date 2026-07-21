@@ -10,20 +10,11 @@ import {
 
 import type { ToolContext } from "../tools/types.js";
 
-let callsEnabled = true;
 const startCallInputs: Array<Record<string, unknown>> = [];
 let activeVoiceSession: {
   destinationAddress: string | null;
   expectedPhoneE164: string | null;
 } | null = null;
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-
-    calls: { enabled: callsEnabled },
-  }),
-}));
 
 mock.module("../calls/call-domain.js", () => ({
   startCall: async (input: Record<string, unknown>) => {
@@ -76,7 +67,6 @@ describe("call_start guardian verification guard", () => {
   });
 
   beforeEach(() => {
-    callsEnabled = true;
     startCallInputs.length = 0;
     activeVoiceSession = null;
   });

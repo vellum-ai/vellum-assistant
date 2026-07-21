@@ -93,6 +93,7 @@ export function canOpenScheduleSourceConversation(schedule: Schedule): boolean {
   );
 }
 
+/** Legacy single-conversation rule. See {@link getOpenableScheduleRunConversationId}. */
 export function canOpenScheduleRunConversation(run: ScheduleRun): boolean {
   return (
     !!run.conversationId &&
@@ -109,6 +110,18 @@ export function getOpenableScheduleSourceConversationId(
     : null;
 }
 
+/**
+ * @deprecated Prefer `ScheduleRun.conversations`. A schedule run can touch
+ * multiple conversations, and script runs usually do. The schedule-runs
+ * endpoint now derives the full list from the usage ledger and returns it as
+ * `conversations`, where each entry carries its own title, exists flag, and
+ * archive timestamp. This helper reads the legacy scalar fields and can only
+ * ever name one conversation.
+ *
+ * It remains in use where the new list is never sent. That covers daemons
+ * that predate `conversations`, and the system-task run endpoints for
+ * heartbeat, consolidation, and retrospective runs.
+ */
 export function getOpenableScheduleRunConversationId(
   run: ScheduleRun,
 ): string | null {

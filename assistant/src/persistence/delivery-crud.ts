@@ -5,11 +5,13 @@
  * finding messages by source identifiers, and managing raw payload storage.
  */
 
-import { and, eq, isNotNull, or } from "drizzle-orm";
+import { and, eq, isNotNull, ne, or } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { readSlackMetadataFromMessageMetadata } from "../messaging/providers/slack/message-metadata.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
+import { parseJsonSafe } from "../util/json.js";
+import { isPlainObject } from "../util/object.js";
 import { selectSlackMetaCandidateMetadata } from "./conversation-crud.js";
 import {
   getConversationByKey,
@@ -314,6 +316,20 @@ export function storePayload(
 }
 
 /**
+ * Parse a stored `rawPayload` string into a plain object, or `undefined` when
+ * it is absent, malformed, or not a JSON object.
+ */
+function parseRawPayloadObject(
+  rawPayload: string | null | undefined,
+): Record<string, unknown> | undefined {
+  if (!rawPayload) {
+    return undefined;
+  }
+  const parsed = parseJsonSafe(rawPayload);
+  return isPlainObject(parsed) ? parsed : undefined;
+}
+
+/**
  * Merge a patch into an inbound event's stored payload, preserving existing
  * keys. No-ops when the event has no payload or the stored value is not a JSON
  * object.
@@ -328,20 +344,8 @@ function mergeRawPayload(
     .from(channelInboundEvents)
     .where(eq(channelInboundEvents.id, eventId))
     .get();
-  if (!row?.rawPayload) return;
-
-  let payload: Record<string, unknown>;
-  try {
-    const parsed = JSON.parse(row.rawPayload) as unknown;
-    if (
-      parsed === null ||
-      typeof parsed !== "object" ||
-      Array.isArray(parsed)
-    ) {
-      return;
-    }
-    payload = parsed as Record<string, unknown>;
-  } catch {
+  const payload = parseRawPayloadObject(row?.rawPayload);
+  if (!payload) {
     return;
   }
 
@@ -373,6 +377,41 @@ export function storeReplyMessageId(
  */
 export function storeStreamedReplyTs(eventId: string, streamTs: string): void {
   mergeRawPayload(eventId, { slackStreamMessageTs: streamTs });
+}
+
+/**
+ * Return the `slackStreamMessageTs` durably recorded by any sibling inbound
+ * event linked to the given user message (excluding `excludeEventId`).
+ *
+ * A deduplicated redelivery is `linkMessage`d to the original turn's
+ * `messageId`, so the two events share it. When the original attempt streamed
+ * its reply live into Slack but crashed before finalizing delivery, its `ts`
+ * survives on the sibling row — the redelivery reads it here to edit that
+ * message in place instead of posting the persisted reply a second time.
+ */
+export function getSiblingStreamedReplyTs(
+  messageId: string,
+  excludeEventId: string,
+): string | undefined {
+  const db = getDb();
+  const rows = db
+    .select({ rawPayload: channelInboundEvents.rawPayload })
+    .from(channelInboundEvents)
+    .where(
+      and(
+        eq(channelInboundEvents.messageId, messageId),
+        ne(channelInboundEvents.id, excludeEventId),
+      ),
+    )
+    .all();
+
+  for (const row of rows) {
+    const ts = parseRawPayloadObject(row.rawPayload)?.slackStreamMessageTs;
+    if (typeof ts === "string" && ts.length > 0) {
+      return ts;
+    }
+  }
+  return undefined;
 }
 
 /**

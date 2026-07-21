@@ -4,13 +4,6 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 // Module mocks — must appear before any imports of the modules under test
 // ---------------------------------------------------------------------------
 
-mock.module("../../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // -- Config mock -----------------------------------------------------------
 
 const mockConfig = {
@@ -24,10 +17,6 @@ const mockConfig = {
     },
   },
 };
-
-mock.module("../../../config/loader.js", () => ({
-  getConfig: () => mockConfig,
-}));
 
 // -- TTS config resolver mock ----------------------------------------------
 
@@ -132,12 +121,16 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("tts-routes", () => {
-  test("exports route definitions for tts/providers, tts/synthesize, and tts/synthesize-cli", () => {
-    expect(ROUTES).toHaveLength(3);
+  test("exports route definitions for tts/providers, tts/managed-voices, tts/synthesize, and tts/synthesize-cli", () => {
+    expect(ROUTES).toHaveLength(4);
 
     const providers = getRoute("tts/providers");
     expect(providers.method).toBe("GET");
     expect(providers.policy?.requiredScopes).toContain("settings.read");
+
+    const managedVoices = getRoute("tts/managed-voices");
+    expect(managedVoices.method).toBe("GET");
+    expect(managedVoices.policy?.requiredScopes).toContain("settings.read");
 
     const synthesize = getRoute("tts/synthesize");
     expect(synthesize.method).toBe("POST");

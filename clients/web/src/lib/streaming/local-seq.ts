@@ -62,7 +62,27 @@ export function getLocalSeq(conversationId: string): number | null {
   return localSeqByConversation.get(conversationId) ?? null;
 }
 
+/**
+ * Drop every recorded frontier. Called when connection-wide gap detection
+ * observes a seq generation reset (the daemon's counter restarted below
+ * the stored cursor): frontiers recorded against the old seq space sit
+ * above every seq the new space issues, so keeping them would classify
+ * all live events as already-applied replays.
+ */
+export function resetLocalSeqs(): void {
+  localSeqByConversation.clear();
+}
+
+/**
+ * Drop one conversation's frontier. Used when the frontier is discovered
+ * to belong to a stale seq generation (see `sse-event-consumer`'s
+ * stale-frontier guard) so the live event can apply and re-seed it.
+ */
+export function clearLocalSeq(conversationId: string): void {
+  localSeqByConversation.delete(conversationId);
+}
+
 /** Reset state. Test-only. */
 export function __resetLocalSeqForTesting(): void {
-  localSeqByConversation.clear();
+  resetLocalSeqs();
 }

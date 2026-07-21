@@ -74,6 +74,20 @@ describe("buildResearchCorrection", () => {
     expect(msg).toContain("disregard");
   });
 
+  test("builds a correction from folded drops even when the user pruned nothing", () => {
+    // A search can surface no card claims yet still leave aggregator-only drops
+    // in memory. The route folds those hidden drops into removedClaims (as if
+    // the user pruned them), so a non-empty list of drops alone still yields a
+    // real correction to scrub them — not a no-op.
+    const msg = buildResearchCorrection({
+      removedClaims: ["Lives in Dallas", "Founded Weird Canada"],
+      rejectedAll: false,
+    });
+    expect(msg).toContain("- Lives in Dallas");
+    expect(msg).toContain("- Founded Weird Canada");
+    expect(msg).toContain("disregard");
+  });
+
   test("returns null when nothing was removed (no correction to send)", () => {
     expect(
       buildResearchCorrection({ removedClaims: [], rejectedAll: false }),

@@ -12,8 +12,10 @@
 
 import { getConfig } from "../../config/loader.js";
 import type { TtsDeepgramProviderConfig } from "../../config/schemas/tts.js";
+import { describeTtsAuthFailure } from "../../providers/voice-error-copy.js";
 import { getProviderKeyAsync } from "../../security/secure-keys.js";
 import { getLogger } from "../../util/logger.js";
+import { resolvePcmOutputSampleRateHz } from "../pcm-sample-rates.js";
 import type { TtsProviderDefinition } from "../provider-definition.js";
 import {
   consumeSynthesisResponse,
@@ -62,13 +64,6 @@ export class DeepgramTtsError extends Error {
 const DEEPGRAM_API_BASE = "https://api.deepgram.com";
 
 /**
- * Sample rate for PCM requests that carry no `sampleRateHz` hint. The
- * media-stream transcoder assumes headerless PCM is 16 kHz (the shared
- * no-hint default across TTS providers) and downsamples to 8 kHz telephony.
- */
-const DEFAULT_PCM_SAMPLE_RATE_HZ = 16_000;
-
-/**
  * Sample rates Deepgram's linear16 encoding accepts. Per
  * https://developers.deepgram.com/docs/tts-media-output-settings
  * these are 8/16/24/32/48 kHz (22.05 and 44.1 kHz are not supported).
@@ -101,34 +96,9 @@ interface DeepgramOutputParams {
   contentTypeKey: string;
 }
 
-/** Nearest Deepgram-supported PCM sample rate to `hintHz`; ties prefer the higher rate. */
-function nearestSupportedPcmSampleRateHz(hintHz: number): number {
-  return SUPPORTED_PCM_SAMPLE_RATES_HZ.reduce((best, rate) => {
-    const bestDelta = Math.abs(best - hintHz);
-    const delta = Math.abs(rate - hintHz);
-    if (delta < bestDelta || (delta === bestDelta && rate > best)) {
-      return rate;
-    }
-    return best;
-  });
-}
-
-/**
- * Actual PCM output sample rate for a request. A PCM request's hint is clamped
- * to the nearest Deepgram-supported rate (e.g. 44.1 kHz → 48 kHz) so the same
- * value is both sent to the API and reported to callers; non-PCM formats carry
- * their rate in the container and report undefined.
- */
-function resolvePcmOutputSampleRateHz(
-  request: TtsSynthesisRequest,
-): number | undefined {
-  if (request.outputFormat !== "pcm") {
-    return undefined;
-  }
-  return nearestSupportedPcmSampleRateHz(
-    request.sampleRateHz ?? DEFAULT_PCM_SAMPLE_RATE_HZ,
-  );
-}
+/** PCM rate resolver bound to the Deepgram-supported rate list (e.g. 44.1 kHz → 48 kHz). */
+const resolveDeepgramPcmSampleRateHz = (request: TtsSynthesisRequest) =>
+  resolvePcmOutputSampleRateHz(request, SUPPORTED_PCM_SAMPLE_RATES_HZ);
 
 /**
  * Resolve the Deepgram output encoding, container, and sample rate based on
@@ -157,7 +127,7 @@ function resolveOutputParams(
     return {
       encoding: "linear16",
       container: "none",
-      sample_rate: resolvePcmOutputSampleRateHz(request),
+      sample_rate: resolveDeepgramPcmSampleRateHz(request),
       contentTypeKey: "linear16",
     };
   }
@@ -239,9 +209,17 @@ async function performTtsRequest(
 
   if (!response.ok) {
     const errorText = await response.text().catch(() => "");
+    log.debug(
+      { status: response.status, body: errorText.slice(0, 300) },
+      "Deepgram TTS non-200 response",
+    );
+    const message =
+      response.status === 401 || response.status === 403
+        ? describeTtsAuthFailure("Deepgram")
+        : `Deepgram text-to-speech failed (HTTP ${response.status}).`;
     throw new DeepgramTtsError(
       "DEEPGRAM_TTS_HTTP_ERROR",
-      `Deepgram TTS returned ${response.status}: ${errorText}`,
+      message,
       response.status,
     );
   }
@@ -301,7 +279,7 @@ export function createDeepgramProvider(
   return {
     id: "deepgram",
     capabilities,
-    resolveOutputSampleRateHz: resolvePcmOutputSampleRateHz,
+    resolveOutputSampleRateHz: resolveDeepgramPcmSampleRateHz,
     synthesize: (request) => performSynthesis(request, { stream: false }),
     synthesizeStream: (request, onChunk) =>
       performSynthesis(request, { stream: true, onChunk, ...streamTimeouts }),
