@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import type { ReactNode } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 // The transcript reveal leans on the app's global CSS (content tokens, the
@@ -208,6 +209,40 @@ export const Reveal: Story = {
   render: (args) => <RevealScene wordMs={args.wordMs} replay={args.replay} />,
 };
 
+/**
+ * The spoken-word cursor look (JARVIS-1309): the full sentence has already
+ * streamed in, but a static mid-sentence `highlightIndex` keeps the bright
+ * leading-edge tone on the word currently being spoken — the text ahead of the
+ * cursor stays muted instead of the highlight parking on the final word.
+ */
+export const SpokenWordHighlight: Story = {
+  argTypes: {
+    role: { table: { disable: true } },
+    wordMs: { table: { disable: true } },
+    replay: { table: { disable: true } },
+  },
+  render: () => (
+    <CaptionSurface>
+      <VoiceTranscriptText text={ASSISTANT_LINE} highlightIndex={9} />
+    </CaptionSurface>
+  ),
+};
+
+/** Neutral dark surface for the isolated caption scenes (no room plumbing). */
+function CaptionSurface({ children }: { children: ReactNode }) {
+  return (
+    <div
+      data-theme="dark"
+      className="flex min-h-[240px] items-center justify-center rounded-lg p-10"
+      style={{ backgroundColor: "#17191C" }}
+    >
+      <p className="max-w-[36rem] text-center text-[15px] leading-relaxed text-balance">
+        {children}
+      </p>
+    </div>
+  );
+}
+
 function RevealScene({ wordMs, replay }: { wordMs: number; replay: number }) {
   const [text, setText] = useState("");
   const words = ASSISTANT_LINE.split(" ");
@@ -219,14 +254,8 @@ function RevealScene({ wordMs, replay }: { wordMs: number; replay: number }) {
     useCallback(() => setText(""), []),
   );
   return (
-    <div
-      data-theme="dark"
-      className="flex min-h-[240px] items-center justify-center rounded-lg p-10"
-      style={{ backgroundColor: "#17191C" }}
-    >
-      <p className="max-w-[36rem] text-center text-[15px] leading-relaxed text-balance">
-        <VoiceTranscriptText text={text} />
-      </p>
-    </div>
+    <CaptionSurface>
+      <VoiceTranscriptText text={text} />
+    </CaptionSurface>
   );
 }
