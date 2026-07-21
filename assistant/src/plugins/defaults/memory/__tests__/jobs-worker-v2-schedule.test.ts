@@ -77,7 +77,7 @@ const { getMemoryCheckpoint, setMemoryCheckpoint, deleteMemoryCheckpoint } =
 const { maybeEnqueueGraphMaintenanceJobs, consolidationFailureBackoffMs } =
   await import("../jobs-worker.js");
 const { CONSOLIDATION_FAILURE_CHECKPOINT_KEY } =
-  await import("../v2/consolidation-job.js");
+  await import("../v3/substrate/consolidation-job.js");
 const CONSOLIDATE_CHECKPOINT_KEY = "memory_v2_consolidate_last_run";
 
 function buildConfig(overrides: {

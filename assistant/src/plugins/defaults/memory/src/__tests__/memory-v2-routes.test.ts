@@ -14,8 +14,8 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import type { RouteDefinition } from "../../../../../runtime/routes/types.js";
-import { writePage } from "../../v2/page-store.js";
-import type { ConceptPage } from "../../v2/types.js";
+import { writePage } from "../../v3/substrate/page-store.js";
+import type { ConceptPage } from "../../v3/substrate/types.js";
 import type { MemoryV2ListConceptPagesResult } from "../memory-v2-routes.js";
 import { ROUTES } from "../memory-v2-routes.js";
 

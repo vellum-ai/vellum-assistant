@@ -14,7 +14,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { AssistantConfig } from "../../../../../config/schema.js";
+import type { AssistantConfig } from "../../../../../../config/schema.js";
 
 const warnCalls: Array<{ data: Record<string, unknown>; msg: string }> = [];
 const recordingLogger = {
@@ -29,7 +29,7 @@ const recordingLogger = {
   child: () => recordingLogger,
 };
 
-mock.module("../../../../../util/logger.js", () => ({
+mock.module("../../../../../../util/logger.js", () => ({
   getLogger: () => recordingLogger,
 }));
 

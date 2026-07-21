@@ -73,7 +73,7 @@ import type {
 import { consolidationBackoffRemainingMs } from "../jobs-worker.js";
 import { getLogger } from "../logging.js";
 import { getWorkspaceDir } from "../paths.js";
-import { getPageIndex } from "../v2/page-index.js";
+import { getPageIndex } from "../v3/substrate/page-index.js";
 
 const log = getLogger("memory-item-routes");
 

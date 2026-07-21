@@ -7,10 +7,10 @@
 // capability reseed, from the secrets route). Lives in its own file so the unit
 // test for the gate does not have to mount the entire lifecycle import graph.
 
-import { usesConceptPageMemory } from "../../../../config/memory-v3-gate.js";
-import type { AssistantConfig } from "../../../../config/schema.js";
-import { getLogger } from "../logging.js";
-import { getWorkspaceDir } from "../paths.js";
+import { usesConceptPageMemory } from "../../../../../config/memory-v3-gate.js";
+import type { AssistantConfig } from "../../../../../config/schema.js";
+import { getLogger } from "../../logging.js";
+import { getWorkspaceDir } from "../../paths.js";
 
 const log = getLogger("memory-v2-startup");
 
@@ -135,7 +135,7 @@ export async function maybeReseedCapabilitiesAfterManagedCredential(
   if (!usesConceptPageMemory(config.memory)) return;
 
   const { hasManagedProxyPrereqs } =
-    await import("../../../../providers/platform-proxy/context.js");
+    await import("../../../../../providers/platform-proxy/context.js");
   if (!(await hasManagedProxyPrereqs())) return;
 
   // The managed credential has just landed, so the embedding backend is now
@@ -151,7 +151,7 @@ export async function maybeReseedCapabilitiesAfterManagedCredential(
   // never rejects the detached caller.
   try {
     const { reconcileEmbeddingIdentity } =
-      await import("../../../../daemon/embedding-reconcile.js");
+      await import("../../../../../daemon/embedding-reconcile.js");
     await reconcileEmbeddingIdentity(config);
   } catch (err) {
     log.warn(
@@ -204,13 +204,13 @@ export async function maybeReseedCapabilitiesAfterManagedCredential(
   // Resolve the gate + enqueuer once and reuse for the post-barrier enqueue and
   // the straggler re-enqueue below.
   const { isMemoryV3Live } =
-    await import("../../../../config/memory-v3-gate.js");
+    await import("../../../../../config/memory-v3-gate.js");
   const v3Live = isMemoryV3Live(config);
   const enqueueMaintain = async (): Promise<void> => {
     if (!v3Live) return;
     try {
       const { enqueueMemoryJob } =
-        await import("../../../../persistence/jobs-store.js");
+        await import("../../../../../persistence/jobs-store.js");
       enqueueMemoryJob("memory_v3_maintain", {});
     } catch (err) {
       log.warn(
@@ -336,7 +336,7 @@ export async function maybeRebuildMemoryV2Concepts(
     } = await import("./qdrant.js");
     const { hasConceptPages } = await import("./page-store.js");
     const { enqueueMemoryJob, hasActiveJobOfType } =
-      await import("../../../../persistence/jobs-store.js");
+      await import("../../../../../persistence/jobs-store.js");
 
     const { migrated } = await ensureConceptPageCollection();
 

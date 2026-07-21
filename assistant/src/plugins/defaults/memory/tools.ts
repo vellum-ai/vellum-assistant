@@ -25,7 +25,7 @@ import {
   graphRememberDefinition,
 } from "./graph/tools.js";
 import { getWorkspaceDir } from "./paths.js";
-import { deletePage } from "./v2/page-store.js";
+import { deletePage } from "./v3/substrate/page-store.js";
 
 // ── remember ────────────────────────────────────────────────────────
 

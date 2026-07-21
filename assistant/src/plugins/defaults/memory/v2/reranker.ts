@@ -6,7 +6,7 @@ import type { AssistantConfig } from "../../../../config/types.js";
 import { getLogger } from "../logging.js";
 import { getWorkspaceDir } from "../paths.js";
 import { getOrCreateRerankBackend } from "../rerank-local.js";
-import { readPage } from "./page-store.js";
+import { readPage } from "../v3/substrate/page-store.js";
 
 const log = getLogger("memory-v2-reranker");
 

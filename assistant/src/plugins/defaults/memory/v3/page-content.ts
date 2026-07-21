@@ -1,8 +1,8 @@
 import { getWorkspaceDir } from "../paths.js";
-import { injectedConceptHeader } from "../v2/injected-block-slugs.js";
-import { readPage, renderPageContent } from "../v2/page-store.js";
 import { renderCapabilityContent } from "./capabilities.js";
 import { renderCard } from "./card.js";
+import { injectedConceptHeader } from "./substrate/injected-block-slugs.js";
+import { readPage, renderPageContent } from "./substrate/page-store.js";
 import type { Section, Slug } from "./types.js";
 
 /**

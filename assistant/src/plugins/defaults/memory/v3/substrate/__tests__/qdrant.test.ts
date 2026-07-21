@@ -15,16 +15,19 @@ const REEMBED_SENTINEL_PATH = join(
 // tmp dir. Spread the real module so the config loader's own platform reads
 // (config path, quarantine notice) keep resolving against the seeded
 // workspace once the loader is real.
-const realPlatform = await import("../../../../../util/platform.js");
-mock.module("../../../../../util/platform.js", () => ({
+const realPlatform = await import("../../../../../../util/platform.js");
+mock.module("../../../../../../util/platform.js", () => ({
   ...realPlatform,
   getDataDir: () => TEST_DATA_DIR,
   getWorkspaceDir: () => TEST_DATA_DIR,
 }));
 
-mock.module("../../../../../persistence/embeddings/qdrant-client.js", () => ({
-  resolveQdrantUrl: () => "http://127.0.0.1:6333",
-}));
+mock.module(
+  "../../../../../../persistence/embeddings/qdrant-client.js",
+  () => ({
+    resolveQdrantUrl: () => "http://127.0.0.1:6333",
+  }),
+);
 
 // Mock the underlying @qdrant/js-client-rest package. The mock client
 // records every call and lets each test program the next response.

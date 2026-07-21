@@ -21,8 +21,8 @@ const noopLogger: Record<string, unknown> = new Proxy(
 );
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const realLogger = require("../../../../../util/logger.js");
-mock.module("../../../../../util/logger.js", () => ({
+const realLogger = require("../../../../../../util/logger.js");
+mock.module("../../../../../../util/logger.js", () => ({
   ...realLogger,
   getLogger: () => noopLogger,
   getCliLogger: () => noopLogger,
@@ -35,7 +35,7 @@ let configMemoryV2Enabled = true;
 let configMemoryEnabled = true;
 
 // static-context reads its gates through the plugin's own config accessor.
-mock.module("../../config.js", () => ({
+mock.module("../../../config.js", () => ({
   getMemoryConfig: () => ({
     enabled: configMemoryEnabled,
     v2: { enabled: configMemoryV2Enabled },

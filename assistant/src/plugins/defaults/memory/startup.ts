@@ -38,11 +38,11 @@ import { resolveQdrantUrl } from "./embeddings.js";
 import { startMemoryJobsWorker } from "./jobs-worker.js";
 import { getLogger } from "./logging.js";
 import { getWorkspaceDir } from "./paths.js";
-import { sweepConceptPageFrontmatter } from "./v2/frontmatter-sweep.js";
+import { sweepConceptPageFrontmatter } from "./v3/substrate/frontmatter-sweep.js";
 import {
   maybeRebuildMemoryV2Concepts,
   rebuildBm25CorpusStatsAndReseedSkills,
-} from "./v2/memory-v2-startup.js";
+} from "./v3/substrate/memory-v2-startup.js";
 
 const log = getLogger("memory-startup");
 

@@ -26,11 +26,11 @@
 
 import { CLI_COMMAND_HELP } from "@vellumai/plugin-api";
 
-import { getConfig } from "../../../../config/loader.js";
-import { generateSparseEmbedding } from "../../../../persistence/embeddings/embedding-backend.js";
-import { applyCorrectionIfCalibrated } from "../anisotropy.js";
-import { embedWithBackend } from "../embeddings.js";
-import { getLogger } from "../logging.js";
+import { getConfig } from "../../../../../config/loader.js";
+import { generateSparseEmbedding } from "../../../../../persistence/embeddings/embedding-backend.js";
+import { applyCorrectionIfCalibrated } from "../../anisotropy.js";
+import { embedWithBackend } from "../../embeddings.js";
+import { getLogger } from "../../logging.js";
 import { buildCliCommandHelpContent } from "./cli-command-content.js";
 import { invalidatePageIndex } from "./page-index.js";
 import {

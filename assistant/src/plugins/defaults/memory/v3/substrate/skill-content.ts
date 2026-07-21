@@ -1,4 +1,4 @@
-import { getConfig } from "../../../../config/loader.js";
+import { getConfig } from "../../../../../config/loader.js";
 
 /**
  * Generic input for building capability statements: the capability fields of

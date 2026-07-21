@@ -141,8 +141,8 @@ mock.module("../reranker.js", () => ({
 
 // Static `import type` is fine — types erase, so they don't run module-init
 // code that would race the mocks above.
-import type { EdgeIndex } from "../edge-index.js";
-import type { ActivationState } from "../types.js";
+import type { EdgeIndex } from "../../v3/substrate/edge-index.js";
+import type { ActivationState } from "../../v3/substrate/types.js";
 
 const {
   computeOwnActivation,
@@ -150,7 +150,8 @@ const {
   selectInjections,
   spreadActivation,
 } = await import("../activation.js");
-const { _resetMemoryV2QdrantForTests } = await import("../qdrant.js");
+const { _resetMemoryV2QdrantForTests } =
+  await import("../../v3/substrate/qdrant.js");
 
 // ---------------------------------------------------------------------------
 // Helpers

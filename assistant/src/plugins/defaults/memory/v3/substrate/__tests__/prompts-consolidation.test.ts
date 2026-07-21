@@ -38,7 +38,7 @@ const recordingLogger = {
   child: () => recordingLogger,
 };
 
-mock.module("../../../../../util/logger.js", () => ({
+mock.module("../../../../../../util/logger.js", () => ({
   getLogger: () => recordingLogger,
 }));
 

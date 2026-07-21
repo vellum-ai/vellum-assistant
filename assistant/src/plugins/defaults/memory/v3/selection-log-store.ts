@@ -22,12 +22,12 @@ import { isMemoryV3Live } from "../../../../config/memory-v3-gate.js";
 import { getDb, getSqliteFrom } from "../../../../persistence/db-connection.js";
 import { memorySqliteOrNull } from "../memory-db.js";
 import { getWorkspaceDir } from "../paths.js";
-import { readPage } from "../v2/page-store.js";
 import { capabilityOrDiskBody } from "./capabilities.js";
 import { sectionByOrdinal } from "./orchestrate.js";
 import { renderV3SectionContent } from "./page-content.js";
 import { renderMemoryBlock } from "./render-injection.js";
 import { buildSectionIndex } from "./sections.js";
+import { readPage } from "./substrate/page-store.js";
 import {
   type Section,
   SELECTION_SOURCES,

@@ -26,27 +26,27 @@ import {
   getConceptFrequencySummary,
 } from "../memory-v2-concept-frequency.js";
 import { getWorkspaceDir } from "../paths.js";
-import {
-  getEdgeIndex,
-  totalEdgeCount,
-  validateEdgeTargets,
-} from "../v2/edge-index.js";
 import { runComparisonOverHistory } from "../v2/harness/compare.js";
 import type { Retriever } from "../v2/harness/retriever.js";
 import { createRouterRetriever } from "../v2/harness/router-retriever.js";
 import type { ComparisonReport } from "../v2/harness/runner.js";
 import { computeInjectionScores } from "../v2/injection-events.js";
 import { loadNowText } from "../v2/now-text.js";
-import { getPageIndex } from "../v2/page-index.js";
+import { ROUTER_PROMPT } from "../v2/prompts/router.js";
+import { type RouterSource, runRouter } from "../v2/router.js";
+import {
+  getEdgeIndex,
+  totalEdgeCount,
+  validateEdgeTargets,
+} from "../v3/substrate/edge-index.js";
+import { getPageIndex } from "../v3/substrate/page-index.js";
 import {
   getConceptsDir,
   listPages,
   readPage,
   renderPageContent,
-} from "../v2/page-store.js";
-import { ROUTER_PROMPT } from "../v2/prompts/router.js";
-import { type RouterSource, runRouter } from "../v2/router.js";
-import { seedV2SkillEntries } from "../v2/skill-store.js";
+} from "../v3/substrate/page-store.js";
+import { seedV2SkillEntries } from "../v3/substrate/skill-store.js";
 
 const log = getLogger("memory-v2-routes");
 
