@@ -54,6 +54,8 @@ mock.module("@/assistant/lifecycle-service", () => ({
 const resetReconnectCursorMock = mock(() => {});
 mock.module("@/lib/streaming/reconnect-cursor", () => ({
   getReconnectCursor: () => null,
+  getAbandonedGenerationCeiling: () => null,
+  recordAbandonedGeneration: () => {},
   advanceReconnectCursor: () => {},
   replaceReconnectCursor: () => {},
   resetReconnectCursor: resetReconnectCursorMock,
