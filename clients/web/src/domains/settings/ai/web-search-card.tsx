@@ -20,15 +20,14 @@ import { Input } from "@vellumai/design-library/components/input";
 import { toast } from "@vellumai/design-library/components/toast";
 
 import {
-  ServiceCard,
+  ByoServiceCard,
 } from "@/domains/settings/ai/shared-ui";
 import {
   ResetButton,
   SaveButton,
 } from "@/components/service-form-controls";
-import { LS_WEB_SEARCH_MODE, LS_WEB_SEARCH_PROVIDER } from "@/utils/local-settings-keys";
-import { getWebSearchProviderKeyStorage, parseServiceMode } from "@/domains/settings/ai/utils";
-import type { ServiceMode } from "@/generated/daemon/types.gen";
+import { LS_WEB_SEARCH_PROVIDER } from "@/utils/local-settings-keys";
+import { getWebSearchProviderKeyStorage } from "@/domains/settings/ai/utils";
 import { useProvisionProviderKey } from "@/domains/settings/ai/use-daemon-config";
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { configGetOptions, configGetSetQueryData, useConfigPatchMutation } from "@/generated/daemon/@tanstack/react-query.gen";
@@ -52,31 +51,29 @@ export function WebSearchCard() {
   });
   const provisionProviderKey = useProvisionProviderKey();
 
-  // Server values derived from daemon config, falling back to localStorage.
-  // When the cache refreshes (after save + invalidation), these update
+  // Server value derived from daemon config, falling back to localStorage.
+  // When the cache refreshes (after save + invalidation), this updates
   // automatically.
-  const { serverWebSearchMode, serverWebSearchProvider } = useMemo((): {
-    serverWebSearchMode: ServiceMode;
-    serverWebSearchProvider: string;
-  } => {
+  const serverWebSearchProvider = useMemo((): string => {
     if (!daemonConfig) {
-      return {
-        serverWebSearchMode: parseServiceMode(getLocalSetting(LS_WEB_SEARCH_MODE, "your-own"), "your-own"),
-        serverWebSearchProvider: getLocalSetting(LS_WEB_SEARCH_PROVIDER, "inference-provider-native"),
-      };
+      return getLocalSetting(LS_WEB_SEARCH_PROVIDER, "inference-provider-native");
     }
-    const wsService = daemonConfig.services?.["web-search"];
-    return {
-      serverWebSearchMode: parseServiceMode(
-        wsService?.mode ?? getLocalSetting(LS_WEB_SEARCH_MODE, "your-own"),
-        "your-own",
-      ),
-      serverWebSearchProvider: wsService?.provider || getLocalSetting(LS_WEB_SEARCH_PROVIDER, "inference-provider-native"),
-    };
+    const wsService = daemonConfig.services?.["web-search"] as
+      | { provider?: string; mode?: string }
+      | undefined;
+    // A config written by the legacy mode toggle marks managed via `mode`
+    // while `provider` holds the BYOK restore value — the daemon routes it to
+    // Vellum, so the card must render it as Vellum too. Provider Native is
+    // exempt: it stays itself under managed mode (see migration 132).
+    const daemonProvider =
+      wsService?.mode === "managed" &&
+      wsService?.provider !== "inference-provider-native"
+        ? "vellum"
+        : wsService?.provider;
+    return daemonProvider || getLocalSetting(LS_WEB_SEARCH_PROVIDER, "inference-provider-native");
   }, [daemonConfig]);
 
   const [saving, setSaving] = useState(false);
-  const [webSearchMode, setDraftWebSearchMode] = useDraftOverride(serverWebSearchMode);
   const [webSearchProvider, setDraftWebSearchProvider] = useDraftOverride(serverWebSearchProvider);
 
   const [webSearchApiKey, setWebSearchApiKey] = useState("");
@@ -92,13 +89,8 @@ export function WebSearchCard() {
 
   // --- Derived state ---
   const hasNewApiKey = webSearchApiKey.trim().length > 0;
-  const effectiveProvider =
-    webSearchMode === "managed" ? "inference-provider-native" : webSearchProvider;
-  const configChanged =
-    webSearchMode !== serverWebSearchMode ||
-    effectiveProvider !== serverWebSearchProvider;
+  const configChanged = webSearchProvider !== serverWebSearchProvider;
   const needsKeyBeforeSave =
-    webSearchMode === "your-own" &&
     requiresProviderCredential &&
     !webSearchHasStoredKey &&
     !hasNewApiKey;
@@ -112,20 +104,24 @@ export function WebSearchCard() {
   const handleSave = useCallback(async () => {
     setSaving(true);
     const trimmed = webSearchApiKey.trim();
-    const providerToSave =
-      webSearchMode === "managed" ? "inference-provider-native" : webSearchProvider;
-    const storageKey = getWebSearchProviderKeyStorage(providerToSave);
-    const hasUserKey =
-      webSearchMode === "your-own" && requiresProviderCredential && trimmed.length > 0;
+    const storageKey = getWebSearchProviderKeyStorage(webSearchProvider);
+    const hasUserKey = requiresProviderCredential && trimmed.length > 0;
     try {
       if (hasUserKey) {
-        await provisionProviderKey(providerToSave, trimmed);
+        await provisionProviderKey(webSearchProvider, trimmed);
       }
       await configMutation.mutateAsync({
         path: { assistant_id: assistantId },
         body: {
           services: {
-            "web-search": { mode: webSearchMode, provider: providerToSave },
+            // The provider is written as a pair with `mode`: older daemon
+            // schemas reject provider "vellum" without mode "managed", and a
+            // stale `mode: "managed"` from the legacy toggle would win over a
+            // BYOK choice unless reset.
+            "web-search": {
+              provider: webSearchProvider,
+              mode: webSearchProvider === "vellum" ? "managed" : "your-own",
+            },
           },
         },
       }).catch((error) => {
@@ -139,8 +135,7 @@ export function WebSearchCard() {
     }
     setSaving(false);
     try {
-      setLocalSetting(LS_WEB_SEARCH_MODE, webSearchMode);
-      setLocalSetting(LS_WEB_SEARCH_PROVIDER, providerToSave);
+      setLocalSetting(LS_WEB_SEARCH_PROVIDER, webSearchProvider);
       if (hasUserKey) {
         if (storageKey) {
           setLocalSetting(storageKey, trimmed);
@@ -168,7 +163,6 @@ export function WebSearchCard() {
     queryClient,
     assistantId,
     webSearchApiKey,
-    webSearchMode,
     webSearchProvider,
   ]);
 
@@ -183,58 +177,51 @@ export function WebSearchCard() {
   }, [webSearchProvider, setDraftWebSearchProvider]);
 
   return (
-    <ServiceCard
+    <ByoServiceCard
       title="Web Search"
       subtitle="Configure how your assistant should search the web"
-      mode={webSearchMode}
-      onModeChange={(m) => setDraftWebSearchMode(m)}
     >
-      {webSearchMode === "managed" ? (
-        <div className="space-y-3">
+      <div className="space-y-4">
+        <div className="space-y-1">
+          <label className="block text-body-small-default text-[var(--content-tertiary)]">
+            Provider
+          </label>
+          <Dropdown
+            aria-label="Web search provider"
+            value={webSearchProvider}
+            onChange={setDraftWebSearchProvider}
+            options={WEB_SEARCH_PROVIDER_IDS.map((p) => ({
+              value: p,
+              label: WEB_SEARCH_PROVIDER_DISPLAY_NAMES[p] ?? p,
+            }))}
+          />
+        </div>
+
+        {webSearchProvider === "vellum" && (
           <p className="text-body-medium-lighter text-[var(--content-tertiary)]">
-            Web search is included with managed inference.
+            Search runs through your Vellum account.
           </p>
-          <div className="flex items-center gap-2">
-            <SaveButton onClick={handleSave} disabled={saveDisabled} />
-            {saving && <Loader2 className="h-4 w-4 animate-spin text-[var(--content-disabled)]" />}
-          </div>
-        </div>
-      ) : (
-        <div className="space-y-4">
-          <div className="space-y-1">
-            <label className="block text-body-small-default text-[var(--content-tertiary)]">
-              Provider
-            </label>
-            <Dropdown
-              value={webSearchProvider}
-              onChange={setDraftWebSearchProvider}
-              options={WEB_SEARCH_PROVIDER_IDS.map((p) => ({
-                value: p,
-                label: WEB_SEARCH_PROVIDER_DISPLAY_NAMES[p] ?? p,
-              }))}
-            />
-          </div>
+        )}
 
+        {requiresProviderCredential && (
+          <Input
+            label="API Key"
+            type="password"
+            value={webSearchApiKey}
+            onChange={(e) => setWebSearchApiKey(e.target.value)}
+            placeholder={apiKeyPlaceholder}
+            fullWidth
+          />
+        )}
+
+        <div className="flex items-center gap-2">
+          <SaveButton onClick={handleSave} disabled={saveDisabled} />
+          {saving && <Loader2 className="h-4 w-4 animate-spin text-[var(--content-disabled)]" />}
           {requiresProviderCredential && (
-            <Input
-              label="API Key"
-              type="password"
-              value={webSearchApiKey}
-              onChange={(e) => setWebSearchApiKey(e.target.value)}
-              placeholder={apiKeyPlaceholder}
-              fullWidth
-            />
+            <ResetButton onClick={handleReset} filled />
           )}
-
-          <div className="flex items-center gap-2">
-            <SaveButton onClick={handleSave} disabled={saveDisabled} />
-            {saving && <Loader2 className="h-4 w-4 animate-spin text-[var(--content-disabled)]" />}
-            {requiresProviderCredential && (
-              <ResetButton onClick={handleReset} filled />
-            )}
-          </div>
         </div>
-      )}
-    </ServiceCard>
+      </div>
+    </ByoServiceCard>
   );
 }
