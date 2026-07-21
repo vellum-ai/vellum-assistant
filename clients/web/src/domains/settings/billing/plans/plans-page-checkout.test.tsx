@@ -235,10 +235,12 @@ describe("PlansPage checkout — base subscriber", () => {
 });
 
 describe("PlansPage checkout — Pro subscriber", () => {
-  test("routes to the manage modal instead of a package checkout", async () => {
+  // Below Mighty, Free reads "Downgrade to Free"; the downgrade CTA still
+  // routes to the manage modal and fires no checkout (dispatch unchanged).
+  test("routes a downgrade CTA to the manage modal instead of a checkout", async () => {
     const { getByRole, getByTestId } = renderPage(proMightySubscription());
 
-    fireEvent.click(getByRole("button", { name: "Go Super" }));
+    fireEvent.click(getByRole("button", { name: "Downgrade to Free" }));
 
     await waitFor(() => {
       expect(getByTestId("loc").textContent).toBe(
