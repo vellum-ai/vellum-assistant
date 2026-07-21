@@ -235,8 +235,9 @@ describe("PlansPage checkout — base subscriber", () => {
 });
 
 describe("PlansPage checkout — Pro subscriber", () => {
-  // Below Mighty, Free reads "Downgrade to Free"; the downgrade CTA still
-  // routes to the manage modal and fires no checkout (dispatch unchanged).
+  // Below Mighty, Free reads "Downgrade to Free". For a Pro subscriber the
+  // tier CTA routes to the manage-plan flow via `?adjust_plan` and fires no
+  // checkout.
   test("routes a downgrade CTA to the manage modal instead of a checkout", async () => {
     const { getByRole, getByTestId } = renderPage(proMightySubscription());
 
