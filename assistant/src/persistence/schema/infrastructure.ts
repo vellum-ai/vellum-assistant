@@ -275,6 +275,17 @@ export const llmUsageEvents = sqliteTable(
      * persisted before migration 267 ran.
      */
     assistantVersion: text("assistant_version"),
+    /**
+     * `conversations.conversation_type` of the parent conversation
+     * (`"standard"` / `"background"` / `"scheduled"`), captured at RECORD
+     * time. The parent conversation can be deleted before the telemetry
+     * flush joins against it (memory-retrospective forks are GC'd once
+     * superseded; users delete conversations), so a flush-time JOIN alone
+     * under-labels usage rows. Null when the call has no parent
+     * conversation and for rows persisted before migration 348 ran (the
+     * telemetry read path falls back to the JOIN for those).
+     */
+    conversationType: text("conversation_type"),
   },
   (table) => [
     index("idx_llm_usage_events_conversation_id").on(table.conversationId),
