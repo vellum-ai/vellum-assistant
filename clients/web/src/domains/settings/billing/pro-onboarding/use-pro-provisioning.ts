@@ -12,16 +12,24 @@
  * surfaces them. Platform-side fetches are different: a CONFIRMING-phase
  * subscription error maps to `confirmError`, and a post-confirm onboarding
  * fetch failure with no cached data maps to `targetsError`.
+ *
+ * On top of the observation it also *acts* once: the moment the subscription
+ * first reports Pro it calls the idempotent ensure-provisioned reconcile
+ * endpoint, so a webhook that never fired (or whose resize was lost) still
+ * gets provisioned. The returned verdict feeds the state machine's
+ * `serverVerdict` slot; the endpoint failing is not an error state — the
+ * polling above converges on its own.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
   assistantsActiveRetrieveOptions,
   assistantsOperationalStatusDetailReadOptions,
   assistantsRetrieveOptions,
+  organizationsBillingSubscriptionOnboardingEnsureProvisionedCreateMutation,
   organizationsBillingSubscriptionOnboardingRetrieveOptions,
   organizationsBillingSubscriptionOnboardingRetrieveQueryKey,
   organizationsBillingSubscriptionRetrieveOptions,
@@ -39,6 +47,7 @@ import {
   type ProvisioningStateKind,
 } from "./provisioning-machine";
 import {
+  ENSURE_PROVISIONED_RACE_RETRY_MS,
   PRO_POLL_INTERVAL_MS,
   PRO_POLL_TIMEOUT_MS,
   PROVISION_ESCAPE_MS,
@@ -75,7 +84,17 @@ function isResizeOperationInFlight(
 
 export interface UseProProvisioningOptions {
   open: boolean;
-  serverVerdict?: ProvisioningServerVerdict | null;
+}
+
+/**
+ * Stalled-state recovery affordance, shaped for `StalledApplyAction`. `error`
+ * is only ever populated by a user-initiated call — the automatic reconcile
+ * failing is deliberately silent.
+ */
+export interface ProvisioningRetryAction {
+  onApply: () => void;
+  pending: boolean;
+  error: unknown;
 }
 
 export interface ProProvisioningResult {
@@ -111,16 +130,15 @@ export interface ProProvisioningResult {
   /** Reset the confirm timeout and re-poll the subscription. */
   retryConfirm: () => void;
   /**
-   * Resume observation after a manual STALLED-state resize succeeds: latches
-   * the operation as seen (back to RESIZING) and re-bases the stall clock so
-   * polling and the stall timeout start over.
+   * STALLED-state recovery: re-calls the idempotent ensure-provisioned
+   * reconcile (grow-only, in-flight-guarded, so a repeat never double-fires a
+   * resize) and re-bases the stall clock on success so observation resumes.
    */
-  resumeAfterManualApply: () => void;
+  stalledAction: ProvisioningRetryAction;
 }
 
 export function useProProvisioning({
   open,
-  serverVerdict = null,
 }: UseProProvisioningOptions): ProProvisioningResult {
   const queryClient = useQueryClient();
   // Every query here is org-scoped (needs the Vellum-Organization-Id header).
@@ -135,8 +153,23 @@ export function useProProvisioning({
   // after this instant may confirm pro.
   const [openedAt, setOpenedAt] = useState<number | null>(null);
   const [proConfirmedAt, setProConfirmedAt] = useState<number | null>(null);
-  // Stall-clock re-base set by resumeAfterManualApply; proConfirmedAt otherwise.
+  // Stall-clock re-base set by a successful manual reconcile; proConfirmedAt
+  // otherwise.
   const [resumedAt, setResumedAt] = useState<number | null>(null);
+  // Latest adopted ensure-provisioned verdict; null while the endpoint hasn't
+  // answered (or answered something we deliberately don't adopt), in which
+  // case the machine falls back to pure client-side inference.
+  const [serverVerdict, setServerVerdict] =
+    useState<ProvisioningServerVerdict | null>(null);
+  // Only ever set by a user-initiated reconcile — see runEnsureProvisioned.
+  const [ensureError, setEnsureError] = useState<unknown>(null);
+  const [raceRetryScheduled, setRaceRetryScheduled] = useState(false);
+  // Fire-once-per-open guard for the automatic reconcile. A ref (not state) so
+  // it can't be lost to a re-render between the check and the call, and it
+  // outlives the confirm-generation counter that retryConfirm bumps.
+  const ensureRequestedRef = useRef(false);
+  // At most one automatic re-call for the no_active_pro entitlement race.
+  const ensureRaceRetriedRef = useRef(false);
   const [sawOperation, setSawOperation] = useState(false);
   const [actualsSnapshot, setActualsSnapshot] =
     useState<ProvisioningDimensions | null>(null);
@@ -164,6 +197,11 @@ export function useProProvisioning({
     setActualsSnapshot(null);
     setSnapshotAssistantId(null);
     setTracking(true);
+    setServerVerdict(null);
+    setEnsureError(null);
+    setRaceRetryScheduled(false);
+    ensureRequestedRef.current = false;
+    ensureRaceRetriedRef.current = false;
   }, [open]);
 
   // Refetch pre-checkout caches on open. Invalidation keeps serving cached
@@ -226,12 +264,84 @@ export function useProProvisioning({
     });
   }, [queryClient]);
 
-  const resumeAfterManualApply = useCallback(() => {
+  /** Re-base the stall/grace clock so observation starts over. */
+  const resumeWatch = useCallback(() => {
     const t = Date.now();
-    setSawOperation(true);
     setResumedAt(t);
     setNow(t);
   }, []);
+
+  const ensureProvisionedMutation = useMutation(
+    organizationsBillingSubscriptionOnboardingEnsureProvisionedCreateMutation(),
+  );
+  const { mutate: ensureProvisioned } = ensureProvisionedMutation;
+
+  const runEnsureProvisioned = useCallback(
+    (source: "auto" | "manual") => {
+      if (source === "manual") setEnsureError(null);
+      ensureProvisioned(
+        {},
+        {
+          onSuccess: (data) => {
+            setEnsureError(null);
+            // `not_applicable` + `no_active_pro` is the subscription-flipped-
+            // but-entitlement-not-yet-visible race, not an answer: adopting it
+            // would park the wizard in a terminal state with an unprovisioned
+            // assistant. Leave the verdict null (pure inference keeps running)
+            // and re-ask once — the race resolves in a beat.
+            if (
+              data.state === "not_applicable" &&
+              data.reason === "no_active_pro"
+            ) {
+              if (!ensureRaceRetriedRef.current) {
+                ensureRaceRetriedRef.current = true;
+                setRaceRetryScheduled(true);
+              }
+            } else {
+              setServerVerdict(data.state);
+            }
+            if (source === "manual") resumeWatch();
+          },
+          onError: (error) => {
+            // 503 (submission couldn't be queued) or a network blip: nothing
+            // was queued and nothing is broken — the actuals polling still
+            // converges, so the automatic call degrades silently to inference.
+            // Only a user-initiated retry earns a visible error.
+            if (source === "manual") setEnsureError(error);
+          },
+        },
+      );
+    },
+    [ensureProvisioned, resumeWatch],
+  );
+
+  // Reconcile once per wizard open, at the moment the subscription poll first
+  // reports Pro. The ref guard survives re-renders and the confirm-generation
+  // retry counter; `proConfirmed` itself only latches once per open.
+  useEffect(() => {
+    if (!open || !orgReady || !proConfirmed) return;
+    if (ensureRequestedRef.current) return;
+    ensureRequestedRef.current = true;
+    runEnsureProvisioned("auto");
+  }, [open, orgReady, proConfirmed, runEnsureProvisioned]);
+
+  useEffect(() => {
+    if (!raceRetryScheduled) return;
+    const t = setTimeout(() => {
+      setRaceRetryScheduled(false);
+      runEnsureProvisioned("auto");
+    }, ENSURE_PROVISIONED_RACE_RETRY_MS);
+    return () => clearTimeout(t);
+  }, [raceRetryScheduled, runEnsureProvisioned]);
+
+  const stalledAction = useMemo<ProvisioningRetryAction>(
+    () => ({
+      onApply: () => runEnsureProvisioned("manual"),
+      pending: ensureProvisionedMutation.isPending,
+      error: ensureError,
+    }),
+    [runEnsureProvisioned, ensureProvisionedMutation.isPending, ensureError],
+  );
 
   const onboardingQuery = useQuery({
     ...organizationsBillingSubscriptionOnboardingRetrieveOptions(),
@@ -389,6 +499,6 @@ export function useProProvisioning({
     escapeEligible:
       msSinceWatchStart != null && msSinceWatchStart >= PROVISION_ESCAPE_MS,
     retryConfirm,
-    resumeAfterManualApply,
+    stalledAction,
   };
 }

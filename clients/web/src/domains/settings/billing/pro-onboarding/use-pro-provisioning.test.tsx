@@ -19,6 +19,7 @@ import {
 import * as sdkGen from "@/generated/api/sdk.gen";
 import type {
   Assistant,
+  EnsureProvisionedResponse,
   OnboardingStateResponse,
   OperationalStatus,
   SubscriptionResponse,
@@ -29,10 +30,13 @@ import * as proOnboardingUtils from "./utils";
 
 /** Shrunk so confirm-timeout reachability doesn't wait out the real 10s poll. */
 const TEST_CONFIRM_TIMEOUT_MS = 800;
+/** Shrunk so the no_active_pro race retry doesn't wait out the real 2s. */
+const TEST_RACE_RETRY_MS = 150;
 
 mock.module("./utils", () => ({
   ...proOnboardingUtils,
   PRO_POLL_TIMEOUT_MS: TEST_CONFIRM_TIMEOUT_MS,
+  ENSURE_PROVISIONED_RACE_RETRY_MS: TEST_RACE_RETRY_MS,
 }));
 
 // Stall detection compares wall-clock time against the 90s threshold; the
@@ -121,6 +125,26 @@ let operationalStatusCalls = 0;
 let subscriptionCalls = 0;
 let isOrgReadyMock = true;
 let fetchOrganizationsCalls = 0;
+let ensureCalls = 0;
+/**
+ * The ensure-provisioned response is *held in flight* by default so the
+ * inference-path tests below keep observing the exact WAITING → RESIZING
+ * sequence they always have (a verdict resolving mid-sequence would race
+ * them). Verdict tests opt in by assigning `ensureResponse`/`ensureError`.
+ */
+let ensureResponse: EnsureProvisionedResponse | null = null;
+let ensureError: unknown = null;
+
+function makeEnsureResponse(
+  state: EnsureProvisionedResponse["state"],
+  reason: EnsureProvisionedResponse["reason"] = null,
+): EnsureProvisionedResponse {
+  return {
+    state,
+    reason,
+    targets: { machine_size: "large", storage_gib: 50 },
+  };
+}
 
 mock.module("@/hooks/use-is-org-ready", () => ({
   useIsOrgReady: () => isOrgReadyMock,
@@ -181,6 +205,17 @@ mock.module("@/generated/api/sdk.gen", () => ({
       data: operationalStatusResponse,
       response: { ok: true },
     });
+  },
+  organizationsBillingSubscriptionOnboardingEnsureProvisionedCreate: () => {
+    ensureCalls += 1;
+    if (ensureError != null) {
+      return Promise.reject(ensureError);
+    }
+    if (!ensureResponse) {
+      // Held in flight — see the `ensureResponse` docstring.
+      return new Promise(() => {});
+    }
+    return Promise.resolve({ data: ensureResponse, response: { ok: true } });
   },
 }));
 
@@ -248,6 +283,9 @@ beforeEach(() => {
   subscriptionCalls = 0;
   isOrgReadyMock = true;
   fetchOrganizationsCalls = 0;
+  ensureCalls = 0;
+  ensureResponse = null;
+  ensureError = null;
   dateNowOffsetMs = 0;
   latest = null;
 });
@@ -369,10 +407,11 @@ describe("useProProvisioning", () => {
   );
 
   test(
-    "resumeAfterManualApply leaves STALLED for RESIZING and can reach DONE",
+    "the stalled action re-calls ensure-provisioned, leaves STALLED and can reach DONE",
     async () => {
       const { client } = renderProbe();
       await reachResizing(client);
+      const autoCalls = ensureCalls;
 
       // Jump the wall clock past the stall threshold; the next 1s clock tick
       // re-derives the state as STALLED.
@@ -381,8 +420,46 @@ describe("useProProvisioning", () => {
         timeout: 5000,
       });
 
-      act(() => latest!.resumeAfterManualApply());
-      await waitFor(() => expect(latest!.state).toBe("RESIZING"));
+      // The reconcile answers "started": the verdict alone lifts the wizard
+      // back to RESIZING and the success re-bases the stall clock.
+      ensureResponse = makeEnsureResponse("started");
+      act(() => latest!.stalledAction.onApply());
+      await waitFor(() => expect(ensureCalls).toBe(autoCalls + 1));
+      await waitFor(() => expect(latest!.state).toBe("RESIZING"), {
+        timeout: 5000,
+      });
+      expect(latest!.stalledAction.error).toBeNull();
+
+      assistantResponse = makeAssistant("large", 50);
+      await refetchAll(client);
+      await waitFor(() => expect(latest!.state).toBe("DONE"), {
+        timeout: 5000,
+      });
+    },
+    20_000,
+  );
+
+  test(
+    "a failed stalled retry surfaces its error without leaving STALLED wedged",
+    async () => {
+      const { client } = renderProbe();
+      await reachResizing(client);
+
+      dateNowOffsetMs = 200_000;
+      await waitFor(() => expect(latest!.state).toBe("STALLED"), {
+        timeout: 5000,
+      });
+
+      ensureError = { error: "provisioning_submission_failed" };
+      act(() => latest!.stalledAction.onApply());
+      await waitFor(() =>
+        expect(latest!.stalledAction.error).toEqual({
+          error: "provisioning_submission_failed",
+        }),
+      );
+      // A user-visible error, but not a terminal one: still STALLED, still
+      // polling, so a late-landing resize recovers on its own.
+      expect(latest!.state).toBe("STALLED");
 
       assistantResponse = makeAssistant("large", 50);
       await refetchAll(client);
@@ -442,9 +519,13 @@ describe("useProProvisioning", () => {
       });
       expect(latest!.escapeEligible).toBe(true);
 
-      // The resume re-bases the watch clock, so eligibility starts over.
-      act(() => latest!.resumeAfterManualApply());
-      await waitFor(() => expect(latest!.escapeEligible).toBe(false));
+      // A successful stalled retry re-bases the watch clock, so eligibility
+      // starts over.
+      ensureResponse = makeEnsureResponse("started");
+      act(() => latest!.stalledAction.onApply());
+      await waitFor(() => expect(latest!.escapeEligible).toBe(false), {
+        timeout: 5000,
+      });
       expect(latest!.state).toBe("RESIZING");
     },
     20_000,
@@ -815,4 +896,128 @@ describe("useProProvisioning", () => {
     expect(latest!.targets).toEqual({ machineSize: "large", storageGib: 50 });
     expect(latest!.state).toBe("RESIZING");
   });
+});
+
+describe("useProProvisioning — ensure-provisioned reconcile", () => {
+  test("is not called before the subscription reports pro", async () => {
+    renderProbe();
+
+    await waitFor(() => expect(latest!.state).toBe("CONFIRMING"));
+    // Let several confirm polls land on the non-pro plan.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(subscriptionCalls).toBeGreaterThan(0);
+    expect(ensureCalls).toBe(0);
+  });
+
+  test(
+    "fires exactly once on the pro transition, across re-renders and repolls",
+    async () => {
+      ensureResponse = makeEnsureResponse("started");
+      const { client, rerender } = renderProbe();
+      await waitFor(() => expect(latest!.state).toBe("CONFIRMING"));
+      expect(ensureCalls).toBe(0);
+
+      subscriptionPlanId = "pro";
+      await refetchAll(client);
+      await waitFor(() => expect(ensureCalls).toBe(1), { timeout: 5000 });
+
+      // Re-renders, further polls and the still-running clock must not re-fire
+      // the reconcile — it is once per wizard open.
+      rerender();
+      await refetchAll(client);
+      rerender();
+      await refetchAll(client);
+      await new Promise((resolve) => setTimeout(resolve, 1200));
+      expect(ensureCalls).toBe(1);
+    },
+    20_000,
+  );
+
+  test("a started verdict drives RESIZING with no operation ever observed", async () => {
+    ensureResponse = makeEnsureResponse("started");
+    subscriptionPlanId = "pro";
+    renderProbe();
+
+    // The operational status never reports a resize; the verdict alone is
+    // enough to leave WAITING.
+    await waitFor(() => expect(latest!.state).toBe("RESIZING"), {
+      timeout: 5000,
+    });
+  });
+
+  test("an already_done verdict finishes the wizard while the actuals still lag", async () => {
+    ensureResponse = makeEnsureResponse("already_done");
+    subscriptionPlanId = "pro";
+    renderProbe();
+
+    await waitFor(() => expect(latest!.state).toBe("DONE"), { timeout: 5000 });
+  });
+
+  test("a not_applicable / no_targets verdict is adopted as terminal", async () => {
+    ensureResponse = makeEnsureResponse("not_applicable", "no_targets");
+    subscriptionPlanId = "pro";
+    renderProbe();
+
+    await waitFor(() => expect(latest!.state).toBe("NOT_APPLICABLE"), {
+      timeout: 5000,
+    });
+  });
+
+  test(
+    "a not_applicable / no_active_pro verdict is never adopted and is retried once",
+    async () => {
+      // The entitlement race: the subscription flipped to pro but the
+      // reconcile can't see the active pro entitlement yet.
+      ensureResponse = makeEnsureResponse("not_applicable", "no_active_pro");
+      subscriptionPlanId = "pro";
+      renderProbe();
+
+      await waitFor(() => expect(ensureCalls).toBe(1), { timeout: 5000 });
+      // Adopting it would strand the wizard in a terminal NOT_APPLICABLE with
+      // an unprovisioned assistant; inference keeps running instead.
+      await waitFor(() => expect(latest!.state).toBe("WAITING"), {
+        timeout: 5000,
+      });
+
+      // Exactly one automatic re-ask, which the race has resolved by now.
+      ensureResponse = makeEnsureResponse("started");
+      await waitFor(() => expect(ensureCalls).toBe(2), { timeout: 5000 });
+      await waitFor(() => expect(latest!.state).toBe("RESIZING"), {
+        timeout: 5000,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      expect(ensureCalls).toBe(2);
+    },
+    20_000,
+  );
+
+  test(
+    "a 503 leaves the wizard inferring rather than erroring",
+    async () => {
+      ensureError = { error: "provisioning_submission_failed" };
+      subscriptionPlanId = "pro";
+      const { client } = renderProbe();
+
+      await waitFor(() => expect(ensureCalls).toBe(1), { timeout: 5000 });
+      await waitFor(() => expect(latest!.state).toBe("WAITING"), {
+        timeout: 5000,
+      });
+      // The automatic call failing is silent: no error surface, no new
+      // blocking state, no auto-retry storm.
+      expect(latest!.stalledAction.error).toBeNull();
+      expect(latest!.confirmError).toBe(false);
+      expect(latest!.targetsError).toBe(false);
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      expect(ensureCalls).toBe(1);
+
+      // The webhook-driven resize lands anyway and the flow completes on pure
+      // client-side inference.
+      assistantResponse = makeAssistant("large", 50);
+      await refetchAll(client);
+      await waitFor(() => expect(latest!.state).toBe("DONE"), {
+        timeout: 5000,
+      });
+    },
+    20_000,
+  );
 });

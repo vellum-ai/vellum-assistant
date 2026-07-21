@@ -1,8 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
 
-import { useMutation } from "@tanstack/react-query";
-
-import { assistantsResizeMutation } from "@/generated/api/@tanstack/react-query.gen";
 import {
     clearCheckoutIntent,
     readCheckoutIntent,
@@ -99,37 +96,14 @@ export function BillingOnboardingModal({
     advanceFromProvisioning();
   }, [advanceFromProvisioning]);
 
-  const resizeMutation = useMutation(assistantsResizeMutation());
-  const applyStalledResize = () => {
-    if (resizeMutation.isPending || !assistantId || !targets) return;
-    resizeMutation.mutate(
-      {
-        path: { id: assistantId },
-        body: {
-          ...(targets.machineSize != null
-            ? { machine_size: targets.machineSize }
-            : {}),
-          ...(targets.storageGib != null
-            ? { storage_gib: targets.storageGib }
-            : {}),
-        },
-      },
-      {
-        // A manual apply un-stalls the flow: the hook goes back to RESIZING
-        // and resumes its actuals polling so the normal DONE path can
-        // complete.
-        onSuccess: () => provisioning.resumeAfterManualApply(),
-      },
-    );
-  };
-  // Apply errors surface as-is; if a server-side resize is actually still
-  // running, the actuals polling converges to DONE and replaces the stalled
-  // UI regardless.
-  const stalledAction = {
-    onApply: applyStalledResize,
-    pending: resizeMutation.isPending,
-    error: resizeMutation.error,
-  };
+  // Stalled recovery re-calls the idempotent ensure-provisioned reconcile —
+  // the same path the wizard already fired on Pro confirmation — rather than a
+  // raw per-assistant resize. It is org-wide, grow-only, guarded against
+  // double-submitting, and needs no client-derived targets, so it strictly
+  // dominates the resize it replaces. Apply errors surface as-is; if a
+  // server-side resize is actually still running, the actuals polling
+  // converges to DONE and replaces the stalled UI regardless.
+  const { stalledAction } = provisioning;
   const stalledActionIfStalled =
     provisioning.state === "STALLED" ? stalledAction : undefined;
 

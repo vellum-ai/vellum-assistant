@@ -17,6 +17,7 @@ import { MemoryRouter } from "react-router";
 import * as sdkGen from "@/generated/api/sdk.gen";
 import type {
   Assistant,
+  EnsureProvisionedResponse,
   OnboardingStateResponse,
   OperationalStatus,
   SubscriptionResponse,
@@ -116,7 +117,16 @@ function makeOperationalStatus(
   } as OperationalStatus;
 }
 
-type Captured = { path?: unknown; body?: unknown };
+function makeEnsureResponse(
+  state: EnsureProvisionedResponse["state"],
+  reason: EnsureProvisionedResponse["reason"] = null,
+): EnsureProvisionedResponse {
+  return {
+    state,
+    reason,
+    targets: { machine_size: "large", storage_gib: 50 },
+  };
+}
 
 let subscriptionPlanId: SubscriptionResponse["plan_id"] = "base";
 let onboardingResponse = makeOnboarding();
@@ -125,9 +135,11 @@ let operationalStatusResponse = makeOperationalStatus("active");
 let onboardingFails = false;
 /** When set, onboarding responses hold until this promise resolves. */
 let onboardingHold: Promise<void> | null = null;
-let resizeCall: Captured | null = null;
-/** When set, the resize mutation rejects with this error body. */
-let resizeError: unknown = null;
+let ensureCalls = 0;
+/** Verdict the reconcile endpoint answers with; "started" is the norm. */
+let ensureResponse = makeEnsureResponse("started");
+/** When set, the reconcile rejects with this error body (e.g. the 503). */
+let ensureError: unknown = null;
 
 mock.module("@/generated/api/sdk.gen", () => ({
   ...sdkGen,
@@ -154,15 +166,12 @@ mock.module("@/generated/api/sdk.gen", () => ({
       data: operationalStatusResponse,
       response: { ok: true },
     }),
-  assistantsResize: (opts: Captured) => {
-    resizeCall = opts;
-    if (resizeError != null) {
-      return Promise.reject(resizeError);
+  organizationsBillingSubscriptionOnboardingEnsureProvisionedCreate: () => {
+    ensureCalls += 1;
+    if (ensureError != null) {
+      return Promise.reject(ensureError);
     }
-    return Promise.resolve({
-      data: { machine_size: "large", provisioned_storage_gib: 50 },
-      response: { ok: true },
-    });
+    return Promise.resolve({ data: ensureResponse, response: { ok: true } });
   },
   assistantsDomainsList: () =>
     Promise.resolve({ data: { results: [] }, response: { ok: true } }),
@@ -203,8 +212,9 @@ beforeEach(() => {
   operationalStatusResponse = makeOperationalStatus("active");
   onboardingFails = false;
   onboardingHold = null;
-  resizeCall = null;
-  resizeError = null;
+  ensureCalls = 0;
+  ensureResponse = makeEnsureResponse("started");
+  ensureError = null;
   dateNowOffsetMs = 0;
   sessionStorage.clear();
 });
@@ -310,18 +320,37 @@ describe("BillingOnboardingModal", () => {
     });
   });
 
-  test("not-applicable fast path celebrates and advances without a resize", async () => {
+  test("already-provisioned fast path reconciles, celebrates and advances", async () => {
     subscriptionPlanId = "pro";
     assistantResponse = makeAssistant("large", 50);
+    // Nothing to do: the reconcile confirms it rather than queueing a resize.
+    ensureResponse = makeEnsureResponse("already_done");
     const { getByText } = renderModal();
 
-    await waitFor(() => expect(getByText("Your plan is ready")).toBeTruthy(), {
+    await waitFor(() => expect(getByText("All done!")).toBeTruthy(), {
       timeout: 5000,
     });
     await waitFor(() => expect(getByText("Assistant Email")).toBeTruthy(), {
       timeout: 5000,
     });
-    expect(resizeCall).toBeNull();
+    expect(ensureCalls).toBe(1);
+  });
+
+  test("ensure-provisioned being unavailable still lets the fast path resolve by inference", async () => {
+    subscriptionPlanId = "pro";
+    assistantResponse = makeAssistant("large", 50);
+    // The reconcile 503s: no verdict, no error surface — the actuals the
+    // wizard polls already meet the targets, so it reads NOT_APPLICABLE.
+    ensureError = { error: "provisioning_submission_failed" };
+    const { getByText, queryByText } = renderModal();
+
+    await waitFor(() => expect(getByText("Your plan is ready")).toBeTruthy(), {
+      timeout: 5000,
+    });
+    expect(queryByText("Couldn't reach billing")).toBeNull();
+    await waitFor(() => expect(getByText("Assistant Email")).toBeTruthy(), {
+      timeout: 5000,
+    });
   });
 
   test("provisioning renders a full-bleed dark takeover; the domain step reverts to a standard card", async () => {
@@ -330,7 +359,7 @@ describe("BillingOnboardingModal", () => {
     const { getByText } = renderModal();
 
     // Provisioning phase: full-bleed, dark-themed Modal.Content.
-    await waitFor(() => expect(getByText("Your plan is ready")).toBeTruthy(), {
+    await waitFor(() => expect(getByText("All done!")).toBeTruthy(), {
       timeout: 5000,
     });
     const takeover = document.body.querySelector('[data-slot="modal-content"]');
@@ -354,6 +383,8 @@ describe("BillingOnboardingModal", () => {
       () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
       { timeout: 5000 },
     );
+    // The wizard reconciled once on the pro transition.
+    await waitFor(() => expect(ensureCalls).toBe(1));
 
     // Jump the wall clock past the stall threshold; the hook's next clock
     // tick re-derives the state as STALLED.
@@ -362,10 +393,9 @@ describe("BillingOnboardingModal", () => {
       timeout: 5000,
     });
 
+    // The stalled button re-calls the same idempotent reconcile.
     fireEvent.click(getByTestId("provisioning-apply"));
-    await waitFor(() => expect(resizeCall).not.toBeNull());
-    expect(resizeCall!.path).toEqual({ id: "assistant-1" });
-    expect(resizeCall!.body).toEqual({ machine_size: "large", storage_gib: 50 });
+    await waitFor(() => expect(ensureCalls).toBe(2));
 
     // The successful apply resumes observation: back to the resizing UI…
     await waitFor(
@@ -574,9 +604,6 @@ describe("BillingOnboardingModal", () => {
 
   test("a failed apply surfaces its error and a late-landing resize still recovers", async () => {
     subscriptionPlanId = "pro";
-    resizeError = {
-      detail: "Another assistant operation is already in progress.",
-    };
     const { client, getByText, getByTestId } = renderModal();
 
     await waitFor(
@@ -588,12 +615,14 @@ describe("BillingOnboardingModal", () => {
       timeout: 5000,
     });
 
-    // The rejection renders as-is on the stalled screen.
+    // Only a user-initiated reconcile surfaces its failure — the automatic one
+    // on the pro transition degrades silently.
+    ensureError = { error: "provisioning_submission_failed" };
     fireEvent.click(getByTestId("provisioning-apply"));
-    await waitFor(() => expect(resizeCall).not.toBeNull());
+    await waitFor(() => expect(ensureCalls).toBe(2));
     await waitFor(() =>
       expect(
-        getByText("Another assistant operation is already in progress."),
+        getByText("We couldn't queue your upgrade just now. Try again in a moment."),
       ).toBeTruthy(),
     );
     expect(getByText("We couldn't finish this automatically")).toBeTruthy();
@@ -640,7 +669,7 @@ describe("BillingOnboardingModal", () => {
 
       // Applying resumes observation — the finishing line returns…
       fireEvent.click(getByTestId("complete-stalled-apply"));
-      await waitFor(() => expect(resizeCall).not.toBeNull());
+      await waitFor(() => expect(ensureCalls).toBe(2));
       await waitFor(() => expect(getByText(BACKGROUND_LINE)).toBeTruthy(), {
         timeout: 5000,
       });
@@ -706,7 +735,7 @@ describe("BillingOnboardingModal", () => {
       // Applying resumes observation: the stalled controls give way to the
       // neutral busy notice while the resize is re-observed…
       fireEvent.click(getByTestId("domain-stalled-apply"));
-      await waitFor(() => expect(resizeCall).not.toBeNull());
+      await waitFor(() => expect(ensureCalls).toBe(2));
       await waitFor(() =>
         expect(
           getByText(
