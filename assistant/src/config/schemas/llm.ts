@@ -1,7 +1,10 @@
 import { z } from "zod";
 
 import { isCodexSubscriptionModel } from "../../providers/openai/codex-models.js";
-import { getManagedUpstream } from "../../providers/vellum-model-routing.js";
+import {
+  getManagedUpstream,
+  parseVellumModel,
+} from "../../providers/vellum-model-routing.js";
 import {
   DEFAULT_PROFILE_KEYS,
   DEFAULT_PROFILE_PROVIDERS,
@@ -68,6 +71,14 @@ export function routingIdentityModelIssue(
   if (provider === "vellum") {
     if (!model) {
       return 'Provider "vellum" requires an explicit model.';
+    }
+    // Stored config holds the bare native model id only. The encoded
+    // `<provider>/<model>` routing string is a telemetry/display codec —
+    // dispatch passes the stored model to the upstream adapter verbatim, so
+    // an encoded value would name a nonexistent upstream model.
+    const routed = parseVellumModel(model);
+    if (routed) {
+      return `Model "${model}" is an encoded routing string; store the native model id "${routed.model}".`;
     }
     return getManagedUpstream(model) === null
       ? `Model "${model}" is not served by the Vellum managed route.`

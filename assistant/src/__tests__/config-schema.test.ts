@@ -438,6 +438,20 @@ describe("AssistantConfigSchema", () => {
         },
       }).success,
     ).toBe(false);
+    // Encoded routing strings are a telemetry/display codec, not a stored
+    // model id — dispatch would pass one to the upstream adapter verbatim.
+    expect(
+      AssistantConfigSchema.safeParse({
+        llm: {
+          profiles: {
+            custom: {
+              provider: "vellum",
+              model: "fireworks/accounts/fireworks/models/glm-5p2",
+            },
+          },
+        },
+      }).success,
+    ).toBe(false);
   });
 
   test("rejects negative llm.callSites maxTokens", () => {

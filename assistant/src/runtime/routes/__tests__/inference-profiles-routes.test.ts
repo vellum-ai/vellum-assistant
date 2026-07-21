@@ -123,6 +123,18 @@ describe("POST inference/profiles (create) validation", () => {
     );
   });
 
+  test("rejects a vellum profile with an encoded routing string as its model", async () => {
+    await expect(
+      call("inference_profiles_create", {
+        body: {
+          name: "my-managed",
+          provider: "vellum",
+          model: "fireworks/accounts/fireworks/models/glm-5p2",
+        },
+      }),
+    ).rejects.toThrow(/encoded routing string/);
+  });
+
   test("creates a chatgpt profile for a Codex model", async () => {
     const result = (await call("inference_profiles_create", {
       body: {
