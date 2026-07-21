@@ -379,6 +379,11 @@ interface TurnProgressState {
   // When the last spoken floor-holder (ack or narration) enqueued — gates the
   // progress.minGapMs spacing guard. Null until something speaks.
   lastFloorHolderAtMs: number | null;
+  // When the turn's last TTS segment finished emitting (turn launch until
+  // anything speaks). Together with the session-level playback-tail estimate
+  // this anchors the dead-air countdown: idle time is measured from when the
+  // user last heard something, not from when the turn started.
+  lastAudibleAtMs: number;
   // Self-re-arming dead-air narration timer; null once cleared or fired.
   idleTimer: ReturnType<typeof setTimeout> | null;
   // A narration generation is awaiting the decider; serializes narrations.
@@ -434,6 +439,11 @@ interface ActiveAssistantTurn {
   // The model's first streamed delta reached this session — the spoken-ack
   // timer is moot once real output is flowing.
   firstDeltaSeen: boolean;
+  // Counts assistant text deltas seen this turn. A narration generation
+  // captures it at launch and discards its result if it moved: text the model
+  // produced mid-generation makes the narration stale, and proves the model
+  // is alive — which is exactly what narration exists to paper over.
+  deltaEpoch: number;
   // A spoken ack was enqueued this turn. Every ack trigger shares this
   // one-per-turn budget so a slow turn never stacks fillers.
   ackSpoken: boolean;
@@ -2246,6 +2256,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         opsSinceNarration: 0,
         updatesSpoken: 0,
         lastFloorHolderAtMs: null,
+        lastAudibleAtMs: Date.now(),
         idleTimer: null,
         narrationInFlight: false,
       },
@@ -2257,6 +2268,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       continuationResult: opts?.continuationResult ?? null,
       toolUseStarted: false,
       firstDeltaSeen: false,
+      deltaEpoch: 0,
       ackSpoken: false,
       ackGenerationPending: false,
       ackTimer: null,
@@ -2285,9 +2297,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       this.armAckTimer(activeTurn);
     }
 
-    // Progress narration speaks into pre-first-delta dead air on a cadence;
-    // without TTS or a decider there is nothing to speak (the idle trigger's
-    // static fallback still needs a generation attempt to fall back from).
+    // Progress narration speaks into the turn's audible dead air on a
+    // cadence, wherever in the turn it occurs; without TTS or a decider there
+    // is nothing to speak (the idle trigger's static fallback still needs a
+    // generation attempt to fall back from).
     if (
       this.frontModelConfig.progress.enabled &&
       this.streamTtsAudio &&
@@ -2754,28 +2767,86 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     }
   }
 
-  // The model produced real output for this turn, so a pending ack is moot —
-  // and so is progress narration: firstDeltaSeen latches for the rest of the
-  // turn, so narration stays off even if the model goes quiet again.
+  // The model produced real output for this turn: the pending slow-first-delta
+  // ack is moot, and any in-flight narration generation is stale (it captures
+  // deltaEpoch to notice). The narration idle timer stays armed — the dead air
+  // narration exists to fill is almost always MID-turn (between tool phases,
+  // during long silent LLM calls after the model's opening words), so it must
+  // keep watching after the model speaks and re-trigger once the audio drains
+  // and silence stretches again.
   private markFirstDeltaForAck(turn: ActiveAssistantTurn): void {
     turn.firstDeltaSeen = true;
-    this.clearFillerTimers(turn);
+    turn.deltaEpoch += 1;
+    this.clearAckTimer(turn);
   }
 
-  // Arms (or re-arms) the dead-air narration timer: on expiry, if the turn is
-  // still live and silent, an idle-triggered narration may speak, and the
-  // timer re-arms for the next interval.
-  private armProgressIdleTimer(turn: ActiveAssistantTurn): void {
+  // Arms (or re-arms) the dead-air narration timer. The countdown measures
+  // audible silence — time since the turn's audio last (estimatedly) reached
+  // the user's ears — not time since launch, so it covers mid-turn silences
+  // for the whole turn. On expiry with audio still pending, or with the
+  // silence not yet a full interval old, it re-arms for the remainder; only a
+  // full interval of audible silence narrates.
+  private armProgressIdleTimer(
+    turn: ActiveAssistantTurn,
+    delayMs?: number,
+  ): void {
     const { token } = turn;
     this.clearProgressIdleTimer(turn);
-    turn.progress.idleTimer = setTimeout(() => {
-      turn.progress.idleTimer = null;
-      if (!this.isActiveAssistantTurn(token) || turn.firstDeltaSeen) {
-        return;
-      }
-      this.maybeNarrateProgress(turn, "idle");
-      this.armProgressIdleTimer(turn);
-    }, this.frontModelConfig.progress.idleIntervalMs);
+    turn.progress.idleTimer = setTimeout(
+      () => {
+        turn.progress.idleTimer = null;
+        if (!this.isActiveAssistantTurn(token) || turn.assistantCompleted) {
+          return;
+        }
+        if (!this.turnAudioIdle(turn)) {
+          // Audio is buffered, queued, or still playing: a fresh silence can
+          // only be a full interval old one interval from now.
+          this.armProgressIdleTimer(turn);
+          return;
+        }
+        const remaining = this.progressIdleDeadlineMs(turn) - Date.now();
+        if (remaining > 0) {
+          this.armProgressIdleTimer(turn, remaining);
+          return;
+        }
+        this.maybeNarrateProgress(turn, "idle");
+        this.armProgressIdleTimer(turn);
+      },
+      delayMs ?? this.progressIdleIntervalMs(turn),
+    );
+  }
+
+  // Next-update interval: the configured base, doubled per update already
+  // spoken (capped at 8x). A bounded update budget then spreads across a long
+  // silence — updates at ~5s/15s/35s for the defaults — instead of clustering
+  // at its start and leaving the tail of the wait unnarrated.
+  private progressIdleIntervalMs(turn: ActiveAssistantTurn): number {
+    const cfg = this.frontModelConfig.progress;
+    return cfg.idleIntervalMs * Math.min(2 ** turn.progress.updatesSpoken, 8);
+  }
+
+  // Wall-clock instant the current audible silence turns a full (backed-off)
+  // interval old: measured from the latest of the last emitted segment, the
+  // estimated client playback end, and the last enqueued filler.
+  private progressIdleDeadlineMs(turn: ActiveAssistantTurn): number {
+    return (
+      Math.max(
+        turn.progress.lastAudibleAtMs,
+        this.assistantPlaybackTailUntilMs,
+        turn.progress.lastFloorHolderAtMs ?? 0,
+      ) + this.progressIdleIntervalMs(turn)
+    );
+  }
+
+  // No assistant audio is pending or (estimatedly) still playing: nothing
+  // buffered toward the next sentence, every queued TTS segment fully
+  // emitted, and the client-side playback-tail estimate expired.
+  private turnAudioIdle(turn: ActiveAssistantTurn): boolean {
+    return (
+      turn.ttsBuffer.length === 0 &&
+      turn.ttsJobs.every((job) => job.settled) &&
+      Date.now() >= this.assistantPlaybackTailUntilMs
+    );
   }
 
   private clearProgressIdleTimer(turn: ActiveAssistantTurn): void {
@@ -2785,23 +2856,23 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     }
   }
 
-  // Both filler timers (slow-first-delta ack + dead-air narration) share a
-  // lifecycle: every event that moots one moots the other — real output,
-  // escalation hand-off, barge-in, cancellation, finalize. The in-turn
-  // tool-use ack is the one exception; it clears only the ack timer and
-  // leaves idle narration armed.
+  // Clears both filler timers (slow-first-delta ack + dead-air narration) for
+  // events that end the turn's filler lifecycle outright: escalation
+  // hand-off, barge-in, cancellation, tts-completion, finalize. Real output
+  // moots only the ack (markFirstDeltaForAck) — the narration timer keeps
+  // watching for mid-turn dead air.
   private clearFillerTimers(turn: ActiveAssistantTurn): void {
     this.clearAckTimer(turn);
     this.clearProgressIdleTimer(turn);
   }
 
-  // A filler (spoken ack or progress narration) may only speak into a live
-  // turn's pre-first-delta dead air. Once the turn is stale, the brain's
-  // first delta has arrived, an escalation hand-off has enqueued its bridge
-  // phrase (which holds the floor itself), or the turn has completed
-  // outright — a tool-only/no-text turn completes with firstDeltaSeen still
-  // false — a filler is moot and must not speak over real output, stack on
-  // the escalation bridge, or voice a finished turn.
+  // A spoken ack may only speak into a live turn's pre-first-delta dead air.
+  // Once the turn is stale, the brain's first delta has arrived, an
+  // escalation hand-off has enqueued its bridge phrase (which holds the floor
+  // itself), or the turn has completed outright — a tool-only/no-text turn
+  // completes with firstDeltaSeen still false — an ack is moot and must not
+  // speak over real output, stack on the escalation bridge, or voice a
+  // finished turn.
   private turnCanSpeakFiller(turn: ActiveAssistantTurn): boolean {
     return (
       this.isActiveAssistantTurn(turn.token) &&
@@ -2811,11 +2882,26 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     );
   }
 
-  // Gatekeeper for spoken progress narration: it speaks only into
-  // pre-first-delta dead air, spaced `minGapMs` from any spoken floor-holder
-  // (ack or narration), at most `maxPerTurn` times, one generation at a time,
-  // and — on the ops trigger — only once `opsThreshold` ops accumulated.
-  // Every failing guard short-circuits silently.
+  // Narration, unlike the ack, is not confined to the pre-first-delta window:
+  // the dead air it exists to fill is almost always mid-turn, after the
+  // model's opening words. It may speak whenever the live turn is audibly
+  // silent right now — nothing streaming, queued, or still playing — and has
+  // not escalated (the bridge phrase holds the floor) or completed.
+  private turnCanNarrateProgress(turn: ActiveAssistantTurn): boolean {
+    return (
+      this.isActiveAssistantTurn(turn.token) &&
+      !turn.escalationHandedOff &&
+      !turn.assistantCompleted &&
+      this.turnAudioIdle(turn)
+    );
+  }
+
+  // Gatekeeper for spoken progress narration: it speaks only while the turn
+  // is audibly silent, spaced `minGapMs` from any spoken floor-holder (ack or
+  // narration), at most `maxPerTurn` times, one generation at a time, and —
+  // on the ops trigger — only once `opsThreshold` ops accumulated. Every
+  // failing guard short-circuits silently; a skipped ops trigger keeps its
+  // accumulated count, so the next tool event or idle tick retries.
   private maybeNarrateProgress(
     turn: ActiveAssistantTurn,
     trigger: "ops" | "idle",
@@ -2827,7 +2913,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       !cfg.enabled ||
       !this.streamTtsAudio ||
       !frontDecider ||
-      !this.turnCanSpeakFiller(turn) ||
+      !this.turnCanNarrateProgress(turn) ||
       // A pending ack generation is a floor-holder-in-waiting: starting a
       // narration generation now would only be discarded by the post-await
       // re-check once the ack enqueues — a guaranteed wasted provider call.
@@ -2857,6 +2943,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   ): Promise<void> {
     const { progress } = turn;
     progress.narrationInFlight = true;
+    // Any delta that lands while the decider call is in flight makes the
+    // generated text stale — and proves the model is speaking again.
+    const deltaEpochAtLaunch = turn.deltaEpoch;
     try {
       const now = Date.now();
       const currentOp = findLastIncompleteOp(progress.ops);
@@ -2892,9 +2981,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         .generateProgressText(input, turn.abortController.signal)
         // The decider contract never rejects; belt-and-braces for a stub.
         .catch(() => null);
-      // Liveness re-check after the await: any turnCanSpeakFiller condition
-      // may have flipped while generating. The ack-generation and floor
-      // re-checks close the race with a generated ack (llmAckText) that
+      // Liveness re-check after the await: any turnCanNarrateProgress
+      // condition may have flipped while generating, and a delta that landed
+      // mid-generation (deltaEpoch moved) makes the text stale even when the
+      // resulting audio has already drained by now. The ack-generation and
+      // floor re-checks close the race with a generated ack (llmAckText) that
       // STARTED after this generation did — the entry guard rejects a
       // narration while an ack generation is already pending, but cannot see
       // one that begins mid-generation: while that ack is pending it has not
@@ -2903,7 +2994,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       // now would stack back-to-back filler. A bail here is silent and keeps
       // the update budget, exactly like the stale-turn bail.
       if (
-        !this.turnCanSpeakFiller(turn) ||
+        !this.turnCanNarrateProgress(turn) ||
+        turn.deltaEpoch !== deltaEpochAtLaunch ||
         turn.ackGenerationPending ||
         (progress.lastFloorHolderAtMs !== null &&
           Date.now() - progress.lastFloorHolderAtMs <
@@ -3277,6 +3369,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       }
     } finally {
       job.settled = true;
+      const settledTurn = this.activeAssistantTurn;
+      if (settledTurn?.token === token) {
+        // Anchor the dead-air countdown to the end of emission; the playback
+        // -tail estimate covers any client-side buffer still draining.
+        settledTurn.progress.lastAudibleAtMs = Date.now();
+      }
       this.pumpTtsSynthesis(token);
     }
   }

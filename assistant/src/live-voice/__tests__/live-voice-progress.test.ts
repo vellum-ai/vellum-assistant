@@ -105,13 +105,18 @@ function createCapturingTurnStarter(): {
   return { startVoiceTurn, getCallbacks: () => callbacks };
 }
 
-function createRecordingTtsStreamer(): {
+function createRecordingTtsStreamer(
+  // Per-segment synthesis stall: a non-null promise keeps that segment's TTS
+  // job unsettled (audio still emitting) until it resolves.
+  gateTtsText?: (text: string) => Promise<void> | null,
+): {
   streamTtsAudio: LiveVoiceTtsStreamer;
   ttsTexts: string[];
 } {
   const ttsTexts: string[] = [];
   const streamTtsAudio = mock(async (options: LiveVoiceTtsOptions) => {
     ttsTexts.push(options.text);
+    await gateTtsText?.(options.text);
     return {
       provider: "fish-audio" as const,
       contentType: "audio/pcm",
@@ -154,9 +159,12 @@ function createProgressHarness(options: {
   frontModelConfig: Partial<LiveVoiceFrontModelConfig>;
   frontDecider: VoiceFrontDecider;
   emitMetrics?: boolean;
+  gateTtsText?: (text: string) => Promise<void> | null;
 }) {
   const { startVoiceTurn, getCallbacks } = createCapturingTurnStarter();
-  const { streamTtsAudio, ttsTexts } = createRecordingTtsStreamer();
+  const { streamTtsAudio, ttsTexts } = createRecordingTtsStreamer(
+    options.gateTtsText,
+  );
   const { context, frames } = createContext();
   const session = new LiveVoiceSession(context, {
     resolveTranscriber: mock(async () => new MockStreamingTranscriber()),
@@ -564,10 +572,16 @@ describe("LiveVoiceSession progress narration", () => {
     emitMessageComplete(getCallbacks);
   });
 
-  test("first delta stops the idle timer and discards an in-flight generation", async () => {
+  test("a delta mid-generation discards it; the idle timer re-narrates the next silence", async () => {
     const generation = deferred<string | null>();
-    const generateProgressText = mock(() => generation.promise);
-    const { frames, session, getCallbacks, ttsTexts } = createProgressHarness({
+    let generationCalls = 0;
+    const generateProgressText = mock((): Promise<string | null> => {
+      generationCalls += 1;
+      return generationCalls === 1
+        ? generation.promise
+        : Promise.resolve("Second narration.");
+    });
+    const { session, getCallbacks, ttsTexts } = createProgressHarness({
       frontModelConfig: progressConfig({
         opsThreshold: 1,
         idleIntervalMs: 40,
@@ -579,18 +593,51 @@ describe("LiveVoiceSession progress narration", () => {
     await startReleasedTurn(session, getCallbacks);
     // The idle trigger starts a generation…
     await waitFor(() => generateProgressText.mock.calls.length === 1);
-    // …then the brain's first delta arrives before it resolves.
+    // …then the brain's first delta arrives before it resolves: the text is
+    // stale (deltaEpoch moved), so it must never speak — even though the
+    // sentence's audio has already drained by the time it resolves.
     emitTextDelta(getCallbacks, "Hello there.");
     generation.resolve("Late narration.");
-    await sleep(120);
+    await sleep(60);
+    expect(ttsTexts).not.toContain("Late narration.");
 
-    // The stale generation never speaks and the idle timer never re-fires.
-    expect(generateProgressText).toHaveBeenCalledTimes(1);
-    expect(ttsTexts).toEqual(["Hello there."]);
+    // The timer survived the delta: dead air is mostly mid-turn, so once the
+    // spoken sentence drains and the silence stretches another interval,
+    // narration fires again.
+    await waitFor(() => ttsTexts.includes("Second narration."));
+    expect(ttsTexts[0]).toBe("Hello there.");
+    expect(ttsTexts).not.toContain("Late narration.");
 
     emitMessageComplete(getCallbacks);
-    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
-    expect(ttsTexts).toEqual(["Hello there."]);
+  });
+
+  test("no narration while a TTS segment is still emitting; the countdown restarts once it drains", async () => {
+    const ttsGate = deferred<void>();
+    const generateProgressText = mock(async () => GENERATED_NARRATION);
+    const { session, getCallbacks, ttsTexts } = createProgressHarness({
+      frontModelConfig: progressConfig({
+        idleIntervalMs: 40,
+        minGapMs: 10,
+        maxPerTurn: 1,
+      }),
+      frontDecider: makeProgressDecider(generateProgressText),
+      gateTtsText: (text) => (text === "Hello there." ? ttsGate.promise : null),
+    });
+
+    await startReleasedTurn(session, getCallbacks);
+    // The model speaks immediately, and its segment's synthesis stalls: the
+    // turn is not audibly silent, so idle ticks must not narrate over it.
+    emitTextDelta(getCallbacks, "Hello there.");
+    await waitFor(() => ttsTexts.length === 1);
+    await sleep(120);
+    expect(generateProgressText).not.toHaveBeenCalled();
+
+    // Once the segment drains, a fresh full interval of silence narrates.
+    ttsGate.resolve();
+    await waitFor(() => ttsTexts.length === 2);
+    expect(ttsTexts).toEqual(["Hello there.", GENERATED_NARRATION]);
+
+    emitMessageComplete(getCallbacks);
   });
 
   test("cancel clears the idle timer and an in-flight generation speaks nothing", async () => {
