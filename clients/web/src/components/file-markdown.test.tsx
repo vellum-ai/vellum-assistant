@@ -48,6 +48,21 @@ describe("FileMarkdown", () => {
     expect(html).not.toContain("alert(1)");
   });
 
+  test("leaves the pre as the only scroll container for block code", () => {
+    const html = renderToStaticMarkup(
+      <FileMarkdown content={"```ts\nconst a = 1;\n```"} />,
+    );
+
+    const codeTag = html.match(/<code[^>]*>/)?.[0] ?? "";
+    expect(codeTag).not.toContain("overflow-");
+    expect(codeTag).not.toContain("p-3");
+    expect(codeTag).not.toContain("background-color");
+
+    const preTag = html.match(/<pre[^>]*>/)?.[0] ?? "";
+    expect(preTag).toContain("overflow-x-auto");
+    expect(preTag).toContain("p-3");
+  });
+
   test("still renders ordinary markdown", () => {
     const html = renderToStaticMarkup(
       <FileMarkdown content={"# Title\n\nSome **bold** text."} />,
