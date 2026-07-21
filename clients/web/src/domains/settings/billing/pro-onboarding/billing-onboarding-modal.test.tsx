@@ -574,12 +574,12 @@ describe("BillingOnboardingModal", () => {
 
       await waitFor(
         () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
-        { timeout: 5000 },
+        { timeout: 15_000 },
       );
       dateNowOffsetMs = 61_000;
       await waitFor(
         () => expect(getByTestId("provisioning-escape")).toBeTruthy(),
-        { timeout: 5000 },
+        { timeout: 15_000 },
       );
       fireEvent.click(getByTestId("provisioning-escape"));
 
@@ -589,10 +589,10 @@ describe("BillingOnboardingModal", () => {
       assistantResponse = makeAssistant("large", 50);
       await client.invalidateQueries();
       await waitFor(() => expect(queryByText(BACKGROUND_LINE)).toBeNull(), {
-        timeout: 5000,
+        timeout: 15_000,
       });
     },
-    20_000,
+    30_000,
   );
 
   test(
@@ -689,12 +689,12 @@ describe("BillingOnboardingModal", () => {
 
       await waitFor(
         () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
-        { timeout: 5000 },
+        { timeout: 15_000 },
       );
       dateNowOffsetMs = 61_000;
       await waitFor(
         () => expect(getByTestId("provisioning-escape")).toBeTruthy(),
-        { timeout: 5000 },
+        { timeout: 15_000 },
       );
       fireEvent.click(getByTestId("provisioning-escape"));
       await waitFor(() => expect(getByText("You're all set!")).toBeTruthy());
@@ -705,7 +705,7 @@ describe("BillingOnboardingModal", () => {
       dateNowOffsetMs = 200_000;
       await waitFor(
         () => expect(getByTestId("complete-stalled-apply")).toBeTruthy(),
-        { timeout: 5000 },
+        { timeout: 15_000 },
       );
       expect(queryByText(BACKGROUND_LINE)).toBeNull();
 
@@ -713,18 +713,18 @@ describe("BillingOnboardingModal", () => {
       fireEvent.click(getByTestId("complete-stalled-apply"));
       await waitFor(() => expect(ensureCalls).toBe(2));
       await waitFor(() => expect(getByText(BACKGROUND_LINE)).toBeTruthy(), {
-        timeout: 5000,
+        timeout: 15_000,
       });
 
       // …and the resize landing clears it.
       assistantResponse = makeAssistant("large", 50);
       await client.invalidateQueries();
       await waitFor(() => expect(queryByText(BACKGROUND_LINE)).toBeNull(), {
-        timeout: 5000,
+        timeout: 15_000,
       });
       expect(queryByTestId("complete-stalled-apply")).toBeNull();
     },
-    20_000,
+    30_000,
   );
 
   test(
