@@ -51,7 +51,7 @@ Examples:
         { flags: "--force", description: "Overwrite an existing install" },
         {
           flags: "--ref <ref>",
-          description: `For a marketplace install, the manifest revision to read the pin from (default: ${DEFAULT_PLUGIN_REF}). For a GitHub URL, the git ref (branch/tag/SHA) to clone — required for a ref whose name contains a slash (e.g. feature/x), which the /tree/<ref>/ URL cannot express on its own`,
+          description: `For a marketplace install, the manifest revision to read the pin from (default: ${DEFAULT_PLUGIN_REF}). For a GitHub URL, the git ref (branch/tag/SHA) to clone — states a slash-containing branch (e.g. feature/x) explicitly and skips the remote ref lookup a bare /tree/ URL otherwise does`,
         },
         {
           flags: "--pin <sha>",
@@ -75,13 +75,15 @@ bypassing the marketplace whitelist. Such a plugin is UNTRUSTED — it has not
 been reviewed and its hooks/tools run with full assistant access — so the
 install prints a warning. Use it for a plugin still under development that is
 not in the catalog yet. The ref comes from the URL's /tree/<ref>/ segment, or
-defaults to the repository's default branch. A ref whose name contains a slash
-(e.g. feature/x) can't be read from the URL alone — pass it with --ref.
+defaults to the repository's default branch. A branch whose name contains a
+slash (e.g. feature/x) is resolved automatically against the repo's refs, just
+as github.com does — paste the /tree/ URL as-is, or pass --ref to skip the
+lookup (e.g. offline, or to force a specific ref).
 
 Examples:
   $ assistant plugins install https://github.com/owner/repo
   $ assistant plugins install https://github.com/owner/repo/tree/my-branch/path/to/plugin
-  $ assistant plugins install https://github.com/owner/repo/tree/feat/results-viewer/path --ref feat/results-viewer
+  $ assistant plugins install https://github.com/owner/repo/tree/feat/results-viewer/path
   $ assistant plugins install owner/repo --name my-plugin --force`,
     },
     {

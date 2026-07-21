@@ -56,6 +56,9 @@ describe("parseGitHubPluginSpec", () => {
       path: "packages/cool-plugin",
       ref: "my-branch",
       defaultName: "cool-plugin",
+      // The URL alone can't rule out a slash-containing branch, so the raw tail
+      // is exposed for the install path to resolve against the remote.
+      ambiguousTreeSegments: ["my-branch", "packages", "cool-plugin"],
     });
   });
 
@@ -66,6 +69,9 @@ describe("parseGitHubPluginSpec", () => {
     expect(spec.path).toBe("");
     expect(spec.ref).toBe("v1.2.3");
     expect(spec.defaultName).toBe("repo");
+    // A single trailing segment is unambiguously the whole ref — nothing to
+    // resolve.
+    expect(spec.ambiguousTreeSegments).toBeUndefined();
   });
 
   test("treats a non-tree trailing segment as the sub-path", () => {
