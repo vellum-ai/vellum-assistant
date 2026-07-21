@@ -28,7 +28,11 @@ import {
   getConfigReadOnly,
   loadRawConfig,
 } from "../../config/loader.js";
-import { LLMProvider, ProfileEntry } from "../../config/schemas/llm.js";
+import {
+  LLMProvider,
+  ProfileEntry,
+  WRITE_LOCKED_PROVIDERS,
+} from "../../config/schemas/llm.js";
 import { getDb } from "../../persistence/db-connection.js";
 import { computeConnectionAvailability } from "../../providers/inference/connection-availability.js";
 import { getConnection } from "../../providers/inference/connections.js";
@@ -138,8 +142,9 @@ function assertValidProvider(provider: string): void {
   }
   // Schema-admitted but rejected on writes until dispatch resolves these
   // routing identities to a real upstream — accepting them earlier would
-  // store profiles that cannot dispatch.
-  if (provider === "vellum" || provider === "chatgpt") {
+  // store profiles that cannot dispatch. Consults the same set as the
+  // schema and commitConfigWrite guards so all three lift together.
+  if (WRITE_LOCKED_PROVIDERS.has(provider)) {
     throw new BadRequestError(
       `Provider "${provider}" is not yet enabled for profiles.`,
     );
