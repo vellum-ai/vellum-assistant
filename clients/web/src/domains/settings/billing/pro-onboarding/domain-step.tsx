@@ -157,7 +157,7 @@ export function DomainStep({
             <span className="flex h-8 items-center text-[var(--content-secondary)]">
               @
             </span>
-            <div className="flex flex-1 flex-col gap-1.5">
+            <div className="flex min-w-0 flex-1 flex-col gap-1.5">
               <label htmlFor="onboarding-email-handle" className={LABEL_CLASSES}>
                 Handle (public)
               </label>
@@ -173,7 +173,7 @@ export function DomainStep({
                 autoFocus
                 placeholder="my-assistant"
                 aria-invalid={!!errorMsg}
-                className={`${FIELD_CLASSES} w-full`}
+                className={`${FIELD_CLASSES} w-full min-w-0`}
               />
             </div>
             <span className="flex h-8 shrink-0 items-center text-[14px] text-[var(--content-tertiary)]">
