@@ -5,6 +5,7 @@ import {
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { resolveRoutingIdentity } from "../providers/connection-resolution.js";
+import { ROUTING_IDENTITY_PROVIDERS } from "../providers/inference/auth.js";
 import { safeStringSlice } from "../util/unicode.js";
 
 const MAX_METADATA_VALUE_LENGTH = 128;
@@ -112,7 +113,7 @@ function attributedProvider(
   provider: string | undefined,
   model: string | undefined,
 ): string | undefined {
-  if (provider !== "vellum" && provider !== "chatgpt") {
+  if (provider === undefined || !ROUTING_IDENTITY_PROVIDERS.has(provider)) {
     return provider;
   }
   try {
