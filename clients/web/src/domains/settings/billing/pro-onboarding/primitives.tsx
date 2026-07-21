@@ -188,8 +188,8 @@ interface CreaturePlacement {
 }
 
 /**
- * Deterministic creature scatter per variant. Ordered top-edge first so the
- * `"top"` variant is simply the first three of the `"full"` set.
+ * Deterministic creature scatter for the all-set card (`variant="full"`): six
+ * creatures scattered around every edge.
  */
 const CREATURE_PLACEMENTS: CreaturePlacement[] = [
   { bodyShape: "blob", eyeStyle: "goofy", color: "green", size: 56, position: "-left-4 -top-6", rotate: -12 },
@@ -198,6 +198,18 @@ const CREATURE_PLACEMENTS: CreaturePlacement[] = [
   { bodyShape: "star", eyeStyle: "gentle", color: "purple", size: 44, position: "-left-6 top-1/2 -translate-y-1/2", rotate: -20 },
   { bodyShape: "ghost", eyeStyle: "bashful", color: "pink", size: 44, position: "-right-6 top-1/2 -translate-y-1/2", rotate: 18 },
   { bodyShape: "flower", eyeStyle: "quirky", color: "yellow", size: 52, position: "left-1/2 -bottom-8 -translate-x-1/2", rotate: -8 },
+];
+
+/**
+ * Deterministic creature scatter for the email card (`variant="top"`): three
+ * creatures tuned to the email-step mock — a rotated yellow star hanging off
+ * the top-left corner, an orange spiky creature upper-center-right, and a
+ * green blob peeking in from the right edge.
+ */
+const TOP_CREATURE_PLACEMENTS: CreaturePlacement[] = [
+  { bodyShape: "star", eyeStyle: "gentle", color: "yellow", size: 76, position: "-left-6 -top-7", rotate: 180 },
+  { bodyShape: "urchin", eyeStyle: "curious", color: "orange", size: 72, position: "left-[58%] -top-12 -translate-x-1/2", rotate: -8 },
+  { bodyShape: "blob", eyeStyle: "gentle", color: "green", size: 60, position: "-right-4 top-11", rotate: 1 },
 ];
 
 /**
@@ -218,7 +230,7 @@ export function CreatureCorners({
   }
 
   const placements =
-    variant === "top" ? CREATURE_PLACEMENTS.slice(0, 3) : CREATURE_PLACEMENTS;
+    variant === "top" ? TOP_CREATURE_PLACEMENTS : CREATURE_PLACEMENTS;
 
   return (
     <div
