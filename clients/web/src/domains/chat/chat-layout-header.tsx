@@ -28,6 +28,10 @@ export interface ChatLayoutHeaderProps {
   collapsed: boolean;
   sidebarWidth?: number;
   toggleSidebar: () => void;
+  /** Fades out and disables every header control (the in-chat onboarding
+   *  prototype's focused stage) while keeping the bar itself for layout
+   *  and Electron window dragging. */
+  controlsHidden?: boolean;
   topBarCenter?: ReactNode;
   topBarRightSlot?: ReactNode;
   canGoBack?: boolean;
@@ -42,6 +46,7 @@ export function ChatLayoutHeader({
   collapsed,
   sidebarWidth,
   toggleSidebar,
+  controlsHidden = false,
   topBarCenter,
   topBarRightSlot,
   canGoBack,
@@ -65,7 +70,9 @@ export function ChatLayoutHeader({
   const setInlineTitleBarActive =
     useTitleBarStore.use.setInlineTitleBarActive();
   useEffect(() => {
-    if (!electron) return;
+    if (!electron) {
+      return;
+    }
     setInlineTitleBarActive(true);
     return () => setInlineTitleBarActive(false);
   }, [electron, setInlineTitleBarActive]);
@@ -85,7 +92,7 @@ export function ChatLayoutHeader({
       }}
     >
       <div
-        className="flex items-center gap-2 transition-[min-width] duration-150 ease-in-out max-md:min-w-0 max-md:flex-1"
+        className={`flex items-center gap-2 transition-[min-width,opacity] duration-300 ease-in-out max-md:min-w-0 max-md:flex-1${controlsHidden ? " pointer-events-none opacity-0" : ""}`}
         style={{
           // `minWidth` reserves the sidebar column on desktop only. The Electron
           // inset clears the inline traffic lights regardless of `isMobile` —
@@ -146,11 +153,15 @@ export function ChatLayoutHeader({
         ) : null}
       </div>
 
-      <div className="flex min-w-0 flex-1 items-center justify-center">
+      <div
+        className={`flex min-w-0 flex-1 items-center justify-center transition-opacity duration-300${controlsHidden ? " pointer-events-none opacity-0" : ""}`}
+      >
         {topBarCenter}
       </div>
 
-      <div className="flex items-center gap-2 max-md:flex-1 max-md:justify-end">
+      <div
+        className={`flex items-center gap-2 max-md:flex-1 max-md:justify-end transition-opacity duration-300${controlsHidden ? " pointer-events-none opacity-0" : ""}`}
+      >
         {isMobile ? (
           <Button
             variant="ghost"

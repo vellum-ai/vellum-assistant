@@ -14,6 +14,12 @@ import {
 } from "react-router";
 
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
+import { PrototypeChatPane } from "@/domains/chat/in-chat-onboarding/prototype-chat-pane";
+import {
+  selectChatFocusActive,
+  selectHeaderControlsHidden,
+  useInChatOnboardingStore,
+} from "@/stores/in-chat-onboarding-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { MOBILE_MEDIA_QUERY, useIsMobile } from "@/hooks/use-is-mobile";
 import {
@@ -236,6 +242,14 @@ export function ChatLayout({
   const showLlmInspector = useCanUseLlmInspector();
   const isNative = useIsNativePlatform();
   const electron = isElectron();
+  // In-chat onboarding prototype: while active, a pretend post-onboarding
+  // conversation covers the route content; its focused stage additionally
+  // hides the sidebar and header controls.
+  const prototypeActive = useInChatOnboardingStore.use.prototypeActive();
+  const chatFocusActive = useInChatOnboardingStore(selectChatFocusActive);
+  const headerControlsHidden = useInChatOnboardingStore(
+    selectHeaderControlsHidden,
+  );
 
   // --- Assistant identity from store (written by ChatPage) ---
   const assistantName = useAssistantIdentityStore.use.name();
@@ -749,6 +763,7 @@ export function ChatLayout({
           collapsed={collapsed}
           sidebarWidth={sidebarWidth}
           toggleSidebar={toggleSidebar}
+          controlsHidden={headerControlsHidden}
           topBarCenter={topBarCenter}
           // The voice-session pill is composed here — NOT registered through
           // useChatLayoutSlotsStore — because slot registration is owned by
@@ -786,6 +801,9 @@ export function ChatLayout({
           className={`relative flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden ${mainRoomClass}`}
         >
           <Outlet />
+          {prototypeActive && !isPopout ? (
+            <PrototypeChatPane assistantId={assistantId} />
+          ) : null}
           {/* A popout narrowed below the mobile breakpoint lands in this
               branch — still headerless, so it still needs the floating
               session surface (see the desktop popout branch below). */}
@@ -855,8 +873,21 @@ export function ChatLayout({
         <div className="flex min-w-0 flex-1 gap-4 p-4 min-h-0 overflow-hidden flex-col md:flex-row">
           <aside
             id="chat-side-menu"
-            className="shrink-0"
+            className="shrink-0 overflow-hidden"
             aria-label="Navigation"
+            // Explicit width (matching the rail's own) so the onboarding
+            // prototype's focused stage can slide the whole rail away; the
+            // negative margin cancels the row gap so the chat goes full-width.
+            // Hiding eases smoothly; revealing uses a back-ease so the rail
+            // lands with a slight bounce (the tour's takeover moment).
+            style={{
+              width: chatFocusActive ? 0 : collapsed ? 48 : sidebarWidth,
+              opacity: chatFocusActive ? 0 : 1,
+              marginRight: chatFocusActive ? -16 : 0,
+              transition: chatFocusActive
+                ? "width 500ms ease-in-out, opacity 300ms ease-in-out, margin-right 500ms ease-in-out"
+                : "width 550ms cubic-bezier(0.34, 1.56, 0.64, 1), opacity 250ms ease-out, margin-right 550ms cubic-bezier(0.34, 1.56, 0.64, 1)",
+            }}
           >
             {renderSideMenu({
               collapsed,
@@ -869,6 +900,9 @@ export function ChatLayout({
             className={`relative flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden ${mainRoomClass}`}
           >
             <Outlet />
+            {prototypeActive ? (
+              <PrototypeChatPane assistantId={assistantId} />
+            ) : null}
           </main>
         </div>
       )}
