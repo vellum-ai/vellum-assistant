@@ -1,6 +1,7 @@
 /**
  * The selectable list of managed (Vellum) voices, shared by the live-voice
- * first-run card and the voice-room settings, both via {@link VoicePickerModal}.
+ * first-run card (which renders it as one of its own views) and the voice-room
+ * settings popover (via {@link VoicePickerModal}).
  *
  * Each row shows the voice's short character description (e.g.
  * "American · warm, clear") — NOT the catalog's proper name (the assistant has
