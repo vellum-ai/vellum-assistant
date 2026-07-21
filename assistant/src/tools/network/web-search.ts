@@ -137,8 +137,12 @@ function getWebSearchProvider(): WebSearchProvider {
   // inference provider swaps this tool for a native hosted-search definition.
   // If this app-executed tool is still invoked, fall back to the existing BYOK
   // provider chain. Managed mode short-circuits before this function and uses
-  // the platform search proxy instead.
-  if (configured === "inference-provider-native") return "perplexity";
+  // the platform search proxy instead. `vellum` is coerced the same way so a
+  // config that names it before the managed routing ships can never reach an
+  // undefined WEB_SEARCH_ADAPTERS lookup.
+  if (configured === "inference-provider-native" || configured === "vellum") {
+    return "perplexity";
+  }
   return configured as WebSearchProvider;
 }
 

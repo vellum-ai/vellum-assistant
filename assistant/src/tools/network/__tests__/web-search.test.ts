@@ -108,6 +108,15 @@ describe("web_search tool", () => {
     expect(result.content).toContain("No web search API key configured");
   });
 
+  test("provider vellum in your-own mode is coerced instead of crashing", async () => {
+    // "vellum" has no BYOK adapter; until the managed routing ships it must
+    // coerce into the BYOK chain rather than dereference an undefined adapter.
+    seedWebSearch("your-own", "vellum");
+    const result = await execute({ query: "test" });
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("No web search API key configured");
+  });
+
   // ---- Perplexity provider ------------------------------------------------
 
   test("executes Perplexity search successfully", async () => {
