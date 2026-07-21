@@ -720,6 +720,42 @@ describe("computeRefusedExchangeDrops — thread-scoped pairing", () => {
     const kept = messages.filter((_, i) => !dropIndices.has(i));
     expect(kept).toEqual([userPrompt("legacy provenance-less prompt")]);
   });
+
+  test("keeps a sibling thread's intact tool pair interleaved before the fallback", () => {
+    // A sibling thread's exchange lands between the refused prompt and the
+    // fallback: its assistant `tool_use` is Slack-visible (keyed to the sibling
+    // thread B) but its synthetic `tool_result` has no provenance (keyed null).
+    // The null-keyed result must be tied back to its sibling `tool_use` and left
+    // in place — dropping it as generic churn would orphan the kept `tool_use`
+    // (the transcript's orphan-tool prune has already run) and hard-fail the
+    // provider, the exact failure this pairing guards against.
+    const messages = [
+      userPrompt("flagged prompt"), // 0, thread P (refused)
+      toolUseTurn("tu_sib"), // 1, thread B (sibling, Slack-visible)
+      toolResultTurn("tu_sib"), // 2, null (sibling synthetic result)
+      refusalFallbackTurn, // 3, thread P
+    ];
+    const threadKeys = ["P", "B", null, "P"];
+    const { dropIndices, droppedExchanges } = computeRefusedExchangeDrops(
+      messages,
+      { threadKeys },
+    );
+    expect(droppedExchanges).toBe(1);
+    // Only the refused prompt and its fallback go; the sibling pair is intact.
+    expect([...dropIndices].sort((a, b) => a - b)).toEqual([0, 3]);
+    const kept = messages.filter((_, i) => !dropIndices.has(i));
+    expect(kept).toEqual([toolUseTurn("tu_sib"), toolResultTurn("tu_sib")]);
+    // No half-pair: every surviving tool_use is matched by its tool_result.
+    const producedIds = kept.flatMap((m) =>
+      m.content.flatMap((b) => (b.type === "tool_use" ? [b.id] : [])),
+    );
+    const consumedIds = kept.flatMap((m) =>
+      m.content.flatMap((b) =>
+        b.type === "tool_result" ? [b.tool_use_id] : [],
+      ),
+    );
+    expect(consumedIds).toEqual(producedIds);
+  });
 });
 
 describe("empty-response user-prompt-submit hook", () => {

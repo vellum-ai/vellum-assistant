@@ -64,6 +64,33 @@ export function isRefusalFallbackMessage(message: Message): boolean {
 }
 
 /**
+ * Whether a synthetic (always null-keyed) `tool_result` row pairs with a
+ * `tool_use` produced in a *sibling* Slack thread — a non-null thread other than
+ * the refused fallback's. Such a result belongs to that sibling exchange, so the
+ * thread-scoped walk-back must leave it in place: it keeps the sibling
+ * `tool_use`, and dropping only the result would strand a half-pair past the
+ * transcript's earlier orphan-tool prune. Returns false for a result whose
+ * `tool_use` is same-thread, itself null-keyed, or absent — that churn is the
+ * refused exchange's and is dropped.
+ */
+function pairsWithSiblingThreadToolUse(
+  message: Message,
+  toolUseThreadKey: ReadonlyMap<string, string | null>,
+  fallbackThreadKey: string | null,
+): boolean {
+  if (!isToolResultMessage(message)) {
+    return false;
+  }
+  return message.content.some((block) => {
+    if (block.type !== "tool_result") {
+      return false;
+    }
+    const toolUseKey = toolUseThreadKey.get(block.tool_use_id);
+    return toolUseKey != null && toolUseKey !== fallbackThreadKey;
+  });
+}
+
+/**
  * Indices of every message belonging to a previously-refused exchange: for each
  * assistant message that is exactly the refusal fallback, its own index plus the
  * run back to (and including) the genuine user prompt that tripped it — the
@@ -84,13 +111,16 @@ export function isRefusalFallbackMessage(message: Message): boolean {
  *   walk-back keeps only the refused exchange and leaves the rest in place:
  *     - a row in another (non-null) thread is a genuine interleaved post —
  *       left in place;
- *     - a null-keyed row has no Slack provenance. Synthetic tool churn
- *       (assistant `tool_use` turns and their `tool_result` rows) is never
- *       Slack-visible, so it always keys `null` even mid-thread; it belongs to
- *       the refused exchange and is dropped. Leaving it behind would strand
- *       half a tool pair, and the Slack transcript's orphan-tool prune runs
- *       *before* this sweep, so nothing would repair the resulting invalid
- *       history. A null-keyed genuine user prompt is a different turn
+ *     - a null-keyed row has no Slack provenance. A synthetic `tool_result`
+ *       (never Slack-visible, so always null-keyed) is tied back to its
+ *       `tool_use` by id: if that `tool_use` sits in another (non-null) thread,
+ *       the pair is a sibling exchange's — the walk-back keeps the `tool_use`,
+ *       so its result is kept too rather than stranded as a half-pair. Any other
+ *       null-keyed tool churn (its `tool_use` is same-thread or itself
+ *       null-keyed) belongs to the refused exchange and is dropped; the Slack
+ *       transcript's orphan-tool prune runs *before* this sweep, so a stranded
+ *       half-pair would otherwise reach the provider as invalid history. A
+ *       null-keyed genuine user prompt is a different turn
  *       (legacy/provenance-less), so it is left in place and the walk continues
  *       to the same-thread prompt.
  *   A `null` fallback key (non-Slack / legacy) always uses adjacency.
@@ -108,21 +138,32 @@ export function computeRefusedExchangeDrops(
   droppedExchanges: number;
 } {
   const { threadKeys } = opts;
-  // A thread key only carries pairing signal when it is shared: a lone
-  // top-level or DM row has its own `channelTs` as its key, so treating it as a
-  // one-message "thread" would strand the prompt. Count keys once so each
-  // fallback can tell whether it sits in a real (multi-row) thread.
+  // Two lookups derived from the per-message thread keys (aligned 1:1 with
+  // `messages`):
+  //  - `sharedThreadKeys`: keys appearing on more than one row. A thread key
+  //    only carries pairing signal when it is shared — a lone top-level/DM row
+  //    keys by its own `channelTs`, so treating it as a one-message "thread"
+  //    would strand the prompt.
+  //  - `toolUseThreadKey`: each `tool_use` id → the thread key of the row that
+  //    produced it, so a synthetic (always null-keyed) `tool_result` can be tied
+  //    back to the thread its `tool_use` belongs to.
   const sharedThreadKeys = new Set<string>();
+  const toolUseThreadKey = new Map<string, string | null>();
   if (threadKeys) {
     const seen = new Set<string>();
-    for (const key of threadKeys) {
-      if (key === null) {
-        continue;
+    for (let i = 0; i < messages.length; i++) {
+      const key = threadKeys[i] ?? null;
+      if (key !== null) {
+        if (seen.has(key)) {
+          sharedThreadKeys.add(key);
+        } else {
+          seen.add(key);
+        }
       }
-      if (seen.has(key)) {
-        sharedThreadKeys.add(key);
-      } else {
-        seen.add(key);
+      for (const block of messages[i].content) {
+        if (block.type === "tool_use") {
+          toolUseThreadKey.set(block.id, key);
+        }
       }
     }
   }
@@ -145,15 +186,25 @@ export function computeRefusedExchangeDrops(
     for (let s = r - 1; s >= 0; s--) {
       const isGenuinePrompt =
         messages[s].role === "user" && !isToolResultMessage(messages[s]);
-      // Under thread scope, leave rows outside the fallback's thread in place —
-      // genuine interleaved posts from other (non-null) threads, and
-      // provenance-less genuine prompts (someone else's turn). Drop only
-      // null-keyed tool churn: this refused exchange's own synthetic
-      // tool_use / tool_result rows, which would otherwise strand half a tool
-      // pair past the earlier orphan prune.
+      // Under thread scope, leave rows outside the fallback's thread in place:
+      //  - a genuine interleaved post from another (non-null) thread;
+      //  - a provenance-less genuine prompt (someone else's turn);
+      //  - a synthetic `tool_result` whose `tool_use` sits in a sibling thread —
+      //    dropping it would orphan that kept sibling `tool_use`.
+      // Everything else outside the thread is this refused exchange's own
+      // null-keyed tool churn, dropped so it can't strand half a tool pair past
+      // the earlier orphan prune.
       if (threadScope) {
         const key = threadScope[s] ?? null;
-        if (key !== fallbackThreadKey && (key !== null || isGenuinePrompt)) {
+        const keepOutsideThread =
+          key !== null ||
+          isGenuinePrompt ||
+          pairsWithSiblingThreadToolUse(
+            messages[s],
+            toolUseThreadKey,
+            fallbackThreadKey,
+          );
+        if (key !== fallbackThreadKey && keepOutsideThread) {
           continue;
         }
       }
