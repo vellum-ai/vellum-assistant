@@ -36,6 +36,7 @@ import {
   usePlatformGate,
 } from "@/hooks/use-platform-gate";
 import { saveCheckoutIntent } from "@/lib/billing/checkout-intent";
+import { checkoutReturnTarget } from "@/lib/billing/checkout-return-target";
 import { SIZE_LABEL } from "@/lib/billing/machine-sizes";
 import { openUrl } from "@/runtime/browser";
 import { isElectron } from "@/runtime/is-electron";
@@ -151,7 +152,9 @@ export function PlansPage() {
   const startCheckout = async (body: SubscriptionUpgradeRequestRequest) => {
     setPending(true);
     try {
-      const result = await upgradeMutation.mutateAsync({ body });
+      const result = await upgradeMutation.mutateAsync({
+        body: { ...body, return_target: checkoutReturnTarget() },
+      });
       if (result.status === "redirect" && result.checkout_url) {
         // Stash the selection so the post-checkout provisioning screen can
         // show the purchased upgrade before the subscribe webhook lands.

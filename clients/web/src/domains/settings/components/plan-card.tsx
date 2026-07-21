@@ -27,6 +27,7 @@ import {
     organizationsBillingSubscriptionUpgradeCreateMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
 import type { MachineSizeEnum, ProPlan } from "@/generated/api/types.gen";
+import { checkoutReturnTarget } from "@/lib/billing/checkout-return-target";
 import { SIZE_LABEL } from "@/lib/billing/machine-sizes";
 import { openUrl } from "@/runtime/browser";
 import { routes } from "@/utils/routes";
@@ -203,12 +204,13 @@ function RecommendedUpgrade({
                     target_plan_id: "pro",
                     package: recommended.key,
                     confirm: true,
+                    return_target: checkoutReturnTarget(),
                 },
             });
             if (result.status === "redirect" && result.checkout_url) {
-                // Stripe redirects back to the billing page with a
-                // `session_id`, which opens the post-checkout Pro onboarding
-                // wizard.
+                // Stripe returns with a `session_id`, which opens the
+                // post-checkout Pro onboarding wizard — via the billing page on
+                // web, via the `billing/checkout-complete` deep link on macOS.
                 openUrl(result.checkout_url);
             } else {
                 await queryClient.invalidateQueries({

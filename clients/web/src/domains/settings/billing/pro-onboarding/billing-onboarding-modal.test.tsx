@@ -17,6 +17,7 @@ import { MemoryRouter } from "react-router";
 import * as sdkGen from "@/generated/api/sdk.gen";
 import type {
   Assistant,
+  EnsureProvisionedResponse,
   OnboardingStateResponse,
   OperationalStatus,
   SubscriptionResponse,
@@ -41,6 +42,19 @@ mock.module("@/stores/organization-store", () => ({
   useOrganizationStore: {
     getState: () => ({ fetchOrganizations: () => Promise.resolve() }),
   },
+}));
+
+// Stub the takeover avatar hook so the provisioning target's avatar doesn't
+// fire (404-ing) fetches that each invalidateQueries() would await, slowing
+// the polls past the test budget.
+mock.module("@/hooks/use-assistant-avatar", () => ({
+  useAssistantAvatar: () => ({
+    components: null,
+    traits: null,
+    customImageUrl: null,
+    isLoading: false,
+    invalidate: () => {},
+  }),
 }));
 
 const realDateNow = Date.now.bind(Date);
@@ -103,7 +117,16 @@ function makeOperationalStatus(
   } as OperationalStatus;
 }
 
-type Captured = { path?: unknown; body?: unknown };
+function makeEnsureResponse(
+  state: EnsureProvisionedResponse["state"],
+  reason: EnsureProvisionedResponse["reason"] = null,
+): EnsureProvisionedResponse {
+  return {
+    state,
+    reason,
+    targets: { machine_size: "large", storage_gib: 50 },
+  };
+}
 
 let subscriptionPlanId: SubscriptionResponse["plan_id"] = "base";
 let onboardingResponse = makeOnboarding();
@@ -112,9 +135,11 @@ let operationalStatusResponse = makeOperationalStatus("active");
 let onboardingFails = false;
 /** When set, onboarding responses hold until this promise resolves. */
 let onboardingHold: Promise<void> | null = null;
-let resizeCall: Captured | null = null;
-/** When set, the resize mutation rejects with this error body. */
-let resizeError: unknown = null;
+let ensureCalls = 0;
+/** Verdict the reconcile endpoint answers with; "started" is the norm. */
+let ensureResponse = makeEnsureResponse("started");
+/** When set, the reconcile rejects with this error body (e.g. the 503). */
+let ensureError: unknown = null;
 
 mock.module("@/generated/api/sdk.gen", () => ({
   ...sdkGen,
@@ -141,15 +166,12 @@ mock.module("@/generated/api/sdk.gen", () => ({
       data: operationalStatusResponse,
       response: { ok: true },
     }),
-  assistantsResize: (opts: Captured) => {
-    resizeCall = opts;
-    if (resizeError != null) {
-      return Promise.reject(resizeError);
+  organizationsBillingSubscriptionOnboardingEnsureProvisionedCreate: () => {
+    ensureCalls += 1;
+    if (ensureError != null) {
+      return Promise.reject(ensureError);
     }
-    return Promise.resolve({
-      data: { machine_size: "large", provisioned_storage_gib: 50 },
-      response: { ok: true },
-    });
+    return Promise.resolve({ data: ensureResponse, response: { ok: true } });
   },
   assistantsDomainsList: () =>
     Promise.resolve({ data: { results: [] }, response: { ok: true } }),
@@ -159,7 +181,8 @@ mock.module("@/generated/api/sdk.gen", () => ({
 
 const { BillingOnboardingModal } = await import("./billing-onboarding-modal");
 
-const BACKGROUND_LINE = "We're finishing your machine upgrade in the background.";
+const BACKGROUND_LINE =
+  "Assistant will go offline briefly while it resizes. Chat might not work during that time.";
 
 /**
  * Fast celebration dwell. Long enough for waitFor (50ms polls) to reliably
@@ -189,8 +212,9 @@ beforeEach(() => {
   operationalStatusResponse = makeOperationalStatus("active");
   onboardingFails = false;
   onboardingHold = null;
-  resizeCall = null;
-  resizeError = null;
+  ensureCalls = 0;
+  ensureResponse = makeEnsureResponse("started");
+  ensureError = null;
   dateNowOffsetMs = 0;
   sessionStorage.clear();
 });
@@ -210,7 +234,7 @@ describe("BillingOnboardingModal", () => {
 
     await waitFor(() =>
       expect(
-        getByText("Payment confirmed — setting up your upgrade…"),
+        getByText("Confirming your upgrade…"),
       ).toBeTruthy(),
     );
     expect(getByText("Super package")).toBeTruthy();
@@ -218,25 +242,25 @@ describe("BillingOnboardingModal", () => {
     subscriptionPlanId = "pro";
     await client.invalidateQueries();
     await waitFor(
-      () => expect(getByText("Setting up your new resources…")).toBeTruthy(),
+      () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
       { timeout: 5000 },
     );
 
     operationalStatusResponse = makeOperationalStatus("resizing_machine");
     await client.invalidateQueries();
     await waitFor(
-      () => expect(getByText("Resizing your assistant…")).toBeTruthy(),
+      () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
       { timeout: 5000 },
     );
 
     assistantResponse = makeAssistant("large", 50);
     operationalStatusResponse = makeOperationalStatus("active");
     await client.invalidateQueries();
-    await waitFor(() => expect(getByText("Your upgrade is ready")).toBeTruthy(), {
+    await waitFor(() => expect(getByText("All done!")).toBeTruthy(), {
       timeout: 5000,
     });
     // The celebration dwell elapses and the wizard advances to the domain step.
-    await waitFor(() => expect(getByText("Assistant email")).toBeTruthy(), {
+    await waitFor(() => expect(getByText("Assistant Email")).toBeTruthy(), {
       timeout: 5000,
     });
   });
@@ -248,7 +272,7 @@ describe("BillingOnboardingModal", () => {
     const { client, getByText, queryByText } = renderModal();
 
     await waitFor(
-      () => expect(getByText("Setting up your new resources…")).toBeTruthy(),
+      () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
       { timeout: 5000 },
     );
     // Wait for the pre-resize actuals to land (the "from" card) before
@@ -260,10 +284,10 @@ describe("BillingOnboardingModal", () => {
 
     assistantResponse = makeAssistant("large", 50);
     await client.invalidateQueries();
-    await waitFor(() => expect(getByText("You're all set")).toBeTruthy(), {
+    await waitFor(() => expect(getByText("You're all set!")).toBeTruthy(), {
       timeout: 5000,
     });
-    expect(queryByText("Assistant email")).toBeNull();
+    expect(queryByText("Assistant Email")).toBeNull();
     expect(queryByText(BACKGROUND_LINE)).toBeNull();
     expect(readCheckoutIntent()).toBeNull();
   });
@@ -274,7 +298,7 @@ describe("BillingOnboardingModal", () => {
     const { client, getByText, queryByText } = renderModal();
 
     await waitFor(
-      () => expect(getByText("Setting up your new resources…")).toBeTruthy(),
+      () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
       { timeout: 5000 },
     );
     // The resource cards appear once the onboarding targets land.
@@ -291,23 +315,64 @@ describe("BillingOnboardingModal", () => {
 
     assistantResponse = makeAssistant("small", 50);
     await client.invalidateQueries();
-    await waitFor(() => expect(getByText("Assistant email")).toBeTruthy(), {
+    await waitFor(() => expect(getByText("Assistant Email")).toBeTruthy(), {
       timeout: 5000,
     });
   });
 
-  test("not-applicable fast path celebrates and advances without a resize", async () => {
+  test("already-provisioned fast path reconciles, celebrates and advances", async () => {
     subscriptionPlanId = "pro";
     assistantResponse = makeAssistant("large", 50);
+    // Nothing to do: the reconcile confirms it rather than queueing a resize.
+    ensureResponse = makeEnsureResponse("already_done");
     const { getByText } = renderModal();
+
+    await waitFor(() => expect(getByText("All done!")).toBeTruthy(), {
+      timeout: 5000,
+    });
+    await waitFor(() => expect(getByText("Assistant Email")).toBeTruthy(), {
+      timeout: 5000,
+    });
+    expect(ensureCalls).toBe(1);
+  });
+
+  test("ensure-provisioned being unavailable still lets the fast path resolve by inference", async () => {
+    subscriptionPlanId = "pro";
+    assistantResponse = makeAssistant("large", 50);
+    // The reconcile 503s: no verdict, no error surface — the actuals the
+    // wizard polls already meet the targets, so it reads NOT_APPLICABLE.
+    ensureError = { error: "provisioning_submission_failed" };
+    const { getByText, queryByText } = renderModal();
 
     await waitFor(() => expect(getByText("Your plan is ready")).toBeTruthy(), {
       timeout: 5000,
     });
-    await waitFor(() => expect(getByText("Assistant email")).toBeTruthy(), {
+    expect(queryByText("Couldn't reach billing")).toBeNull();
+    await waitFor(() => expect(getByText("Assistant Email")).toBeTruthy(), {
       timeout: 5000,
     });
-    expect(resizeCall).toBeNull();
+  });
+
+  test("provisioning renders a full-bleed dark takeover; the domain step reverts to a standard card", async () => {
+    subscriptionPlanId = "pro";
+    assistantResponse = makeAssistant("large", 50);
+    const { getByText } = renderModal();
+
+    // Provisioning phase: full-bleed, dark-themed Modal.Content.
+    await waitFor(() => expect(getByText("All done!")).toBeTruthy(), {
+      timeout: 5000,
+    });
+    const takeover = document.body.querySelector('[data-slot="modal-content"]');
+    expect(takeover?.getAttribute("data-theme")).toBe("dark");
+    expect(takeover?.className).toContain("w-screen");
+
+    // Domain step: standard card — no dark theme, no full-bleed sizing.
+    await waitFor(() => expect(getByText("Assistant Email")).toBeTruthy(), {
+      timeout: 5000,
+    });
+    const card = document.body.querySelector('[data-slot="modal-content"]');
+    expect(card?.getAttribute("data-theme")).toBeNull();
+    expect(card?.className).not.toContain("w-screen");
   });
 
   test("stall surfaces Apply & Restart; a successful apply resumes resizing through DONE", async () => {
@@ -315,25 +380,26 @@ describe("BillingOnboardingModal", () => {
     const { client, getByText, getByTestId } = renderModal();
 
     await waitFor(
-      () => expect(getByText("Setting up your new resources…")).toBeTruthy(),
+      () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
       { timeout: 5000 },
     );
+    // The wizard reconciled once on the pro transition.
+    await waitFor(() => expect(ensureCalls).toBe(1));
 
     // Jump the wall clock past the stall threshold; the hook's next clock
     // tick re-derives the state as STALLED.
     dateNowOffsetMs = 200_000;
-    await waitFor(() => expect(getByText("One more step")).toBeTruthy(), {
+    await waitFor(() => expect(getByText("We couldn't finish this automatically")).toBeTruthy(), {
       timeout: 5000,
     });
 
+    // The stalled button re-calls the same idempotent reconcile.
     fireEvent.click(getByTestId("provisioning-apply"));
-    await waitFor(() => expect(resizeCall).not.toBeNull());
-    expect(resizeCall!.path).toEqual({ id: "assistant-1" });
-    expect(resizeCall!.body).toEqual({ machine_size: "large", storage_gib: 50 });
+    await waitFor(() => expect(ensureCalls).toBe(2));
 
     // The successful apply resumes observation: back to the resizing UI…
     await waitFor(
-      () => expect(getByText("Resizing your assistant…")).toBeTruthy(),
+      () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
       { timeout: 5000 },
     );
 
@@ -341,10 +407,10 @@ describe("BillingOnboardingModal", () => {
     assistantResponse = makeAssistant("large", 50);
     await client.invalidateQueries();
     await waitFor(
-      () => expect(getByText("Your upgrade is ready")).toBeTruthy(),
+      () => expect(getByText("All done!")).toBeTruthy(),
       { timeout: 5000 },
     );
-    await waitFor(() => expect(getByText("Assistant email")).toBeTruthy(), {
+    await waitFor(() => expect(getByText("Assistant Email")).toBeTruthy(), {
       timeout: 5000,
     });
   });
@@ -363,6 +429,32 @@ describe("BillingOnboardingModal", () => {
     expect(onClose).toHaveBeenCalled();
   });
 
+  test("the fetch-error state renders as a standard card, not the full-bleed dark takeover", async () => {
+    subscriptionPlanId = "pro";
+    onboardingFails = true;
+    const { getByText, getByTestId, onClose } = renderModal();
+
+    await waitFor(
+      () => expect(getByText("Couldn't reach billing")).toBeTruthy(),
+      { timeout: 5000 },
+    );
+
+    // The error card must not inherit the provisioning takeover's full-bleed
+    // dark treatment — it's a standard, legible, dismissible card.
+    const content = document.body.querySelector('[data-slot="modal-content"]');
+    expect(content?.getAttribute("data-theme")).toBeNull();
+    expect(content?.className).not.toContain("w-screen");
+
+    // The FetchErrorState UI and its go-to-billing action still render and act.
+    expect(
+      getByText(
+        "We hit a problem checking your subscription. Your upgrade may still be processing — return to billing to refresh.",
+      ),
+    ).toBeTruthy();
+    fireEvent.click(getByTestId("onboarding-go-to-billing"));
+    expect(onClose).toHaveBeenCalled();
+  });
+
   test("confirm timeout shows the payment-safe copy and retry restarts polling", async () => {
     const { getByText, getByTestId } = renderModal();
 
@@ -370,7 +462,7 @@ describe("BillingOnboardingModal", () => {
       () =>
         expect(
           getByText(
-            "Your payment went through safely — we're still confirming your upgrade with Stripe. This can take a minute.",
+            "Your payment went through safely — this can take a minute.",
           ),
         ).toBeTruthy(),
       { timeout: TEST_CONFIRM_TIMEOUT_MS + 3000 },
@@ -379,7 +471,7 @@ describe("BillingOnboardingModal", () => {
     subscriptionPlanId = "pro";
     fireEvent.click(getByTestId("onboarding-retry"));
     await waitFor(
-      () => expect(getByText("Setting up your new resources…")).toBeTruthy(),
+      () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
       { timeout: 5000 },
     );
   });
@@ -389,7 +481,7 @@ describe("BillingOnboardingModal", () => {
     const { client, getByText, getByTestId, getByLabelText } = renderModal();
 
     await waitFor(
-      () => expect(getByText("Setting up your new resources…")).toBeTruthy(),
+      () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
       { timeout: 5000 },
     );
 
@@ -401,7 +493,7 @@ describe("BillingOnboardingModal", () => {
       { timeout: 5000 },
     );
     fireEvent.click(getByTestId("provisioning-escape"));
-    await waitFor(() => expect(getByText("Assistant email")).toBeTruthy());
+    await waitFor(() => expect(getByText("Assistant Email")).toBeTruthy());
 
     expect(
       getByText(
@@ -411,7 +503,7 @@ describe("BillingOnboardingModal", () => {
     // Wait for the handle prefill: with an empty subdomain the submit would be
     // disabled regardless, masking a missing machine-busy guard.
     await waitFor(() =>
-      expect((getByLabelText("Subdomain") as HTMLInputElement).value).toBe(
+      expect((getByLabelText("Handle (public)") as HTMLInputElement).value).toBe(
         "casey",
       ),
     );
@@ -439,7 +531,7 @@ describe("BillingOnboardingModal", () => {
       const { client, getByText, getByTestId, queryByText } = renderModal();
 
       await waitFor(
-        () => expect(getByText("Setting up your new resources…")).toBeTruthy(),
+        () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
         { timeout: 5000 },
       );
       dateNowOffsetMs = 61_000;
@@ -449,7 +541,7 @@ describe("BillingOnboardingModal", () => {
       );
       fireEvent.click(getByTestId("provisioning-escape"));
 
-      await waitFor(() => expect(getByText("You're all set")).toBeTruthy());
+      await waitFor(() => expect(getByText("You're all set!")).toBeTruthy());
       expect(getByText(BACKGROUND_LINE)).toBeTruthy();
 
       assistantResponse = makeAssistant("large", 50);
@@ -468,7 +560,7 @@ describe("BillingOnboardingModal", () => {
       const { getByText, getByTestId, queryByTestId } = renderModal();
 
       await waitFor(
-        () => expect(getByText("Setting up your new resources…")).toBeTruthy(),
+        () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
         { timeout: 5000 },
       );
       // Give the routing latch time to settle: still no escape hatch, because
@@ -494,7 +586,7 @@ describe("BillingOnboardingModal", () => {
     const { getByText, getByTestId, queryByTestId } = renderModal();
 
     await waitFor(
-      () => expect(getByText("Setting up your new resources…")).toBeTruthy(),
+      () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
       { timeout: 5000 },
     );
     dateNowOffsetMs = 61_000;
@@ -512,36 +604,35 @@ describe("BillingOnboardingModal", () => {
 
   test("a failed apply surfaces its error and a late-landing resize still recovers", async () => {
     subscriptionPlanId = "pro";
-    resizeError = {
-      detail: "Another assistant operation is already in progress.",
-    };
     const { client, getByText, getByTestId } = renderModal();
 
     await waitFor(
-      () => expect(getByText("Setting up your new resources…")).toBeTruthy(),
+      () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
       { timeout: 5000 },
     );
     dateNowOffsetMs = 200_000;
-    await waitFor(() => expect(getByText("One more step")).toBeTruthy(), {
+    await waitFor(() => expect(getByText("We couldn't finish this automatically")).toBeTruthy(), {
       timeout: 5000,
     });
 
-    // The rejection renders as-is on the stalled screen.
+    // Only a user-initiated reconcile surfaces its failure — the automatic one
+    // on the pro transition degrades silently.
+    ensureError = { error: "provisioning_submission_failed" };
     fireEvent.click(getByTestId("provisioning-apply"));
-    await waitFor(() => expect(resizeCall).not.toBeNull());
+    await waitFor(() => expect(ensureCalls).toBe(2));
     await waitFor(() =>
       expect(
-        getByText("Another assistant operation is already in progress."),
+        getByText("We couldn't queue your upgrade just now. Try again in a moment."),
       ).toBeTruthy(),
     );
-    expect(getByText("One more step")).toBeTruthy();
+    expect(getByText("We couldn't finish this automatically")).toBeTruthy();
 
     // If a server-side resize was in fact still running, its landing is
     // observed by the actuals polling and replaces the stalled UI.
     assistantResponse = makeAssistant("large", 50);
     await client.invalidateQueries();
     await waitFor(
-      () => expect(getByText("Your upgrade is ready")).toBeTruthy(),
+      () => expect(getByText("All done!")).toBeTruthy(),
       { timeout: 5000 },
     );
   });
@@ -555,7 +646,7 @@ describe("BillingOnboardingModal", () => {
         renderModal();
 
       await waitFor(
-        () => expect(getByText("Setting up your new resources…")).toBeTruthy(),
+        () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
         { timeout: 5000 },
       );
       dateNowOffsetMs = 61_000;
@@ -564,7 +655,7 @@ describe("BillingOnboardingModal", () => {
         { timeout: 5000 },
       );
       fireEvent.click(getByTestId("provisioning-escape"));
-      await waitFor(() => expect(getByText("You're all set")).toBeTruthy());
+      await waitFor(() => expect(getByText("You're all set!")).toBeTruthy());
       expect(getByText(BACKGROUND_LINE)).toBeTruthy();
 
       // The backgrounded resize stalls: the finishing line swaps for a warning
@@ -578,7 +669,7 @@ describe("BillingOnboardingModal", () => {
 
       // Applying resumes observation — the finishing line returns…
       fireEvent.click(getByTestId("complete-stalled-apply"));
-      await waitFor(() => expect(resizeCall).not.toBeNull());
+      await waitFor(() => expect(ensureCalls).toBe(2));
       await waitFor(() => expect(getByText(BACKGROUND_LINE)).toBeTruthy(), {
         timeout: 5000,
       });
@@ -608,7 +699,7 @@ describe("BillingOnboardingModal", () => {
       } = renderModal();
 
       await waitFor(
-        () => expect(getByText("Setting up your new resources…")).toBeTruthy(),
+        () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
         { timeout: 5000 },
       );
       dateNowOffsetMs = 61_000;
@@ -617,9 +708,9 @@ describe("BillingOnboardingModal", () => {
         { timeout: 5000 },
       );
       fireEvent.click(getByTestId("provisioning-escape"));
-      await waitFor(() => expect(getByText("Assistant email")).toBeTruthy());
+      await waitFor(() => expect(getByText("Assistant Email")).toBeTruthy());
       await waitFor(() =>
-        expect((getByLabelText("Subdomain") as HTMLInputElement).value).toBe(
+        expect((getByLabelText("Handle (public)") as HTMLInputElement).value).toBe(
           "casey",
         ),
       );
@@ -644,7 +735,7 @@ describe("BillingOnboardingModal", () => {
       // Applying resumes observation: the stalled controls give way to the
       // neutral busy notice while the resize is re-observed…
       fireEvent.click(getByTestId("domain-stalled-apply"));
-      await waitFor(() => expect(resizeCall).not.toBeNull());
+      await waitFor(() => expect(ensureCalls).toBe(2));
       await waitFor(() =>
         expect(
           getByText(

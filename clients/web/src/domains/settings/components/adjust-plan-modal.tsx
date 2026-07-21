@@ -28,6 +28,7 @@ import type {
     StorageTierEnum,
 } from "@/generated/api/types.gen";
 import { saveCheckoutIntent } from "@/lib/billing/checkout-intent";
+import { checkoutReturnTarget } from "@/lib/billing/checkout-return-target";
 import { openUrl, openUrlFinishedListener } from "@/runtime/browser";
 import { Button } from "@vellumai/design-library/components/button";
 import { Modal } from "@vellumai/design-library/components/modal";
@@ -229,6 +230,7 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
           machine_tier: selectedMachineTier,
           storage_tier: selectedStorageTier,
           credit_tier: displayCreditTier,
+          return_target: checkoutReturnTarget(),
         },
       },
       {

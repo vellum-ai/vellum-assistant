@@ -221,6 +221,9 @@ describe("PlansPage checkout — base subscriber", () => {
         target_plan_id: "pro",
         package: pkg,
         confirm: true,
+        // Off Electron the web return URL is kept — a browser can't open
+        // the `vellum://` bounce the native return relies on.
+        return_target: "web",
       });
       await waitFor(() => expect(openedUrl).toBe(CHECKOUT_URL));
       expect(readCheckoutIntent()).toMatchObject({

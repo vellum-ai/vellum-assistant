@@ -1,13 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 
-import { useMutation } from "@tanstack/react-query";
-
-import { assistantsResizeMutation } from "@/generated/api/@tanstack/react-query.gen";
 import {
     clearCheckoutIntent,
     readCheckoutIntent,
     type CheckoutIntent,
 } from "@/lib/billing/checkout-intent";
+import { isElectron } from "@/runtime/is-electron";
+import { cn } from "@/utils/misc";
 import { Modal } from "@vellumai/design-library/components/modal";
 import { toast } from "@vellumai/design-library/components/toast";
 
@@ -97,63 +96,61 @@ export function BillingOnboardingModal({
     advanceFromProvisioning();
   }, [advanceFromProvisioning]);
 
-  const resizeMutation = useMutation(assistantsResizeMutation());
-  const applyStalledResize = () => {
-    if (resizeMutation.isPending || !assistantId || !targets) return;
-    resizeMutation.mutate(
-      {
-        path: { id: assistantId },
-        body: {
-          ...(targets.machineSize != null
-            ? { machine_size: targets.machineSize }
-            : {}),
-          ...(targets.storageGib != null
-            ? { storage_gib: targets.storageGib }
-            : {}),
-        },
-      },
-      {
-        // A manual apply un-stalls the flow: the hook goes back to RESIZING
-        // and resumes its actuals polling so the normal DONE path can
-        // complete.
-        onSuccess: () => provisioning.resumeAfterManualApply(),
-      },
-    );
-  };
-  // Apply errors surface as-is; if a server-side resize is actually still
-  // running, the actuals polling converges to DONE and replaces the stalled
-  // UI regardless.
-  const stalledAction = {
-    onApply: applyStalledResize,
-    pending: resizeMutation.isPending,
-    error: resizeMutation.error,
-  };
+  // Stalled recovery re-calls the idempotent, org-wide ensure-provisioned
+  // reconcile — the same path the wizard fires on Pro confirmation. Its errors
+  // surface as-is; a server-side resize that is still running converges the
+  // actuals polling to DONE and replaces the stalled UI regardless.
+  const { stalledAction } = provisioning;
   const stalledActionIfStalled =
     provisioning.state === "STALLED" ? stalledAction : undefined;
 
+  // The fetch-error variant of the provisioning step is a standard dismissible
+  // card, not the locked full-bleed takeover — otherwise the light error UI is
+  // marooned in the dark full-screen viewport and the user can't act on it.
+  const provisioningError =
+    step === "provisioning" &&
+    (provisioning.confirmError || provisioning.targetsError);
+
   const handleClose = () => {
-    if (step === "provisioning" && machineBusy) {
+    if (step === "provisioning" && !provisioningError && machineBusy) {
       toast.info("Your upgrade continues in the background.");
     }
     onClose();
   };
 
-  // The provisioning card is the user's first real touchpoint with the flow;
-  // we lock it so an accidental backdrop click or Esc can't bail them out
+  // The live provisioning takeover is the user's first real touchpoint with the
+  // flow; we lock it so an accidental backdrop click or Esc can't bail them out
   // mid-provisioning. The explicit X (shown only here) is the deliberate exit.
-  const isFirstCard = step === "provisioning";
+  const isTakeover = step === "provisioning" && !provisioningError;
+
+  // data-theme="dark" also themes Modal.Content's close button so it reads on
+  // the dark backdrop. In Electron the X clears the title-bar drag strip (a
+  // fixed z-100 band over the top 28px) so it stays clickable.
+  const provisioningContentClass = cn(
+    "overflow-hidden inset-0 max-w-none w-screen h-screen max-h-none rounded-none border-0",
+    "[&_[aria-label=Close]]:[-webkit-app-region:no-drag]",
+    isElectron() && "[&_[aria-label=Close]]:top-12",
+  );
 
   return (
     <Modal.Root open={open} onOpenChange={(o) => { if (!o) handleClose(); }}>
       <Modal.Content
         size="md"
-        hideCloseButton={!isFirstCard}
-        dismissOnOverlayClick={!isFirstCard}
-        onEscapeKeyDown={isFirstCard ? (e) => e.preventDefault() : undefined}
-        onInteractOutside={isFirstCard ? (e) => e.preventDefault() : undefined}
-        className="overflow-hidden"
+        hideCloseButton={!isTakeover}
+        dismissOnOverlayClick={!isTakeover}
+        onEscapeKeyDown={isTakeover ? (e) => e.preventDefault() : undefined}
+        onInteractOutside={isTakeover ? (e) => e.preventDefault() : undefined}
+        data-theme={isTakeover ? "dark" : undefined}
+        overlayClassName={isTakeover ? "bg-black p-0" : undefined}
+        className={isTakeover ? provisioningContentClass : "overflow-hidden"}
       >
-        {renderStep()}
+        {/* Keyed on step so the fade replays as we swap takeover ⇄ card. */}
+        <div
+          key={step}
+          className="flex min-h-0 flex-1 flex-col [animation:fadeIn_0.25s_ease-out_both] motion-reduce:[animation:none]"
+        >
+          {renderStep()}
+        </div>
       </Modal.Content>
     </Modal.Root>
   );
@@ -172,6 +169,7 @@ export function BillingOnboardingModal({
           fromSnapshot={provisioning.actualsSnapshot ?? EMPTY_DIMENSIONS}
           celebrating={routingSettled}
           onCelebrationEnd={advanceFromProvisioning}
+          assistantId={assistantId}
           escapeAvailable={
             machineBusy && routingSettled && provisioning.escapeEligible
           }
