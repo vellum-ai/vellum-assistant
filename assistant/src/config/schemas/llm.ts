@@ -44,11 +44,12 @@ export const LLMProvider = z
 type LLMProvider = z.infer<typeof LLMProvider>;
 
 /**
- * Routing identities the schema admits but no write may store yet: dispatch
+ * Routing identities the schema admits but no write may store: dispatch
  * cannot resolve them to a real upstream, so a stored profile or call-site
- * fragment carrying one would fail every model call. Enforced both at parse
- * time (LLMSchema.superRefine) and at the config write choke point
- * (commitConfigWrite), and lifted together once dispatch resolution lands.
+ * fragment carrying one fails every model call. Enforced at parse time
+ * (LLMSchema.superRefine), at the config write choke point
+ * (commitConfigWrite), and at the profile write route — all three consult
+ * this set.
  */
 export const WRITE_LOCKED_PROVIDERS: ReadonlySet<string> = new Set([
   "vellum",

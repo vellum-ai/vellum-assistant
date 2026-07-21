@@ -210,7 +210,7 @@ describe("PUT /v1/config/llm/profiles/:name — managed profile guard", () => {
   test("rejects write-locked routing identities on the replace path", async () => {
     // This route validates with ProfileEntry.safeParse only, so the
     // commitConfigWrite choke-point guard is what keeps the schema-admitted
-    // identities from reaching disk before dispatch can resolve them.
+    // identities from reaching disk.
     for (const provider of ["vellum", "chatgpt"]) {
       await expect(
         replaceRoute.handler({

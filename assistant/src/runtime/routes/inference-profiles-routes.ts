@@ -140,10 +140,9 @@ function assertValidProvider(provider: string): void {
       `Invalid provider "${provider}". Valid providers: ${LLMProvider.options.join(", ")}.`,
     );
   }
-  // Schema-admitted but rejected on writes until dispatch resolves these
-  // routing identities to a real upstream — accepting them earlier would
-  // store profiles that cannot dispatch. Consults the same set as the
-  // schema and commitConfigWrite guards so all three lift together.
+  // Write-locked routing identities: dispatch cannot resolve them to a real
+  // upstream, so a stored profile carrying one cannot serve requests.
+  // Consults the same set as the schema and commitConfigWrite guards.
   if (WRITE_LOCKED_PROVIDERS.has(provider)) {
     throw new BadRequestError(
       `Provider "${provider}" is not yet enabled for profiles.`,
