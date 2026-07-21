@@ -4,7 +4,6 @@ import { setOverridesForTesting } from "../../__tests__/feature-flag-test-helper
 import type { VoiceTurnOptions } from "../../calls/voice-session-bridge.js";
 import {
   ESCALATION_CONTINUATION_CONTENT,
-  ESCALATION_PROFILE,
   FRONT_DOOR_PROFILE,
   VOICE_TRIAGE_ESCALATE_FLAG,
 } from "../../calls/voice-triage-escalate.js";
@@ -218,7 +217,8 @@ describe("live-voice triage-and-escalate routing", () => {
     const escalated = starter.mock.calls[1]?.[0];
     expect(frontDoor?.overrideProfile).toBe(FRONT_DOOR_PROFILE);
     expect(frontDoor?.routingLeg).toBe("front-door");
-    expect(escalated?.overrideProfile).toBe(ESCALATION_PROFILE);
+    // The escalated leg runs on the call-site default profile: no override.
+    expect(escalated?.overrideProfile).toBeUndefined();
     expect(escalated?.routingLeg).toBe("escalated");
     expect(escalated?.content).toBe(ESCALATION_CONTINUATION_CONTENT);
   });

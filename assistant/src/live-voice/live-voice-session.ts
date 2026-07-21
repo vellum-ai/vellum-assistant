@@ -23,7 +23,6 @@ import {
 } from "../calls/voice-session-bridge.js";
 import {
   ESCALATION_CONTINUATION_CONTENT,
-  ESCALATION_PROFILE,
   FALLBACK_ESCALATION_BRIDGE,
   FRONT_DOOR_PROFILE,
   isVoiceTriageEscalateEnabled,
@@ -2673,9 +2672,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // during the escalated model's call.
     this.flushTtsBuffer(activeTurn.token, true);
 
+    // No overrideProfile: the escalated leg runs on the call-site default —
+    // the exact profile an un-routed voice turn would use (see
+    // voice-triage-escalate.ts).
     void this.startAssistantLeg(activeTurn, {
       content: ESCALATION_CONTINUATION_CONTENT,
-      overrideProfile: ESCALATION_PROFILE,
       routingLeg: "escalated",
     });
   }

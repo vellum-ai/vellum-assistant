@@ -5,9 +5,10 @@
  * turns outright (low first-token latency -> the caller hears audio fast).
  * When a turn is too tricky, the front-door model speaks a brief natural
  * holding phrase, appends the `[ESCALATE]` marker, and stops. The call
- * controller then re-runs the same turn on the stronger "quality" model, whose
- * answer streams into the same TTS pipe. Because the holding phrase is spoken,
- * the caller never hears the quality model's think-time as silence.
+ * controller then re-runs the same turn on the call-site default profile —
+ * the model an un-routed voice turn would have used — whose answer streams
+ * into the same TTS pipe. Because the holding phrase is spoken, the caller
+ * never hears the stronger model's think-time as silence.
  *
  * This module owns the routing policy in one place: the feature gate, the two
  * profile keys, the leg-specific prompt fragments, and the fallback bridge.
@@ -34,8 +35,11 @@ export const VOICE_TRIAGE_ESCALATE_FLAG = "voice-triage-escalate";
 /** Fast/weak profile that fronts every turn when the flag is on. */
 export const FRONT_DOOR_PROFILE: DefaultProfileKey = "cost-optimized";
 
-/** Strong/quality profile a tricky turn escalates to. */
-export const ESCALATION_PROFILE: DefaultProfileKey = "quality-optimized";
+// The escalated leg deliberately carries NO profile override: it runs on the
+// call-site default, i.e. exactly the profile an un-routed voice turn would
+// use (balanced for a fresh workspace, or whatever the user pinned). That
+// guarantees an escalated answer is never weaker OR stronger than the
+// pre-routing behavior, and honors per-user profile choices.
 
 /**
  * Which leg of a triaged turn a `startVoiceTurn` call represents. Undefined
@@ -103,21 +107,43 @@ export function isVoiceTriageEscalateEnabled(
 }
 
 /**
+ * Compact, registry-derived digest of the tools the ESCALATED leg can use.
+ * The front-door leg runs toolless, so without this it has no way to know
+ * what the assistant can actually do — and its failure mode is refusing or
+ * fabricating instead of escalating. The digest teaches routing (and lets
+ * the holding phrase name the action) without carrying executable schemas.
+ * Empty input (registry unavailable) yields an empty digest; the triage
+ * rule still works, it just can't enumerate capabilities.
+ */
+export function frontDoorCapabilityDigest(toolNames: string[]): string {
+  if (toolNames.length === 0) {
+    return "";
+  }
+  return [
+    "You have no tools on this leg, but the stronger model you can escalate to has these:",
+    `${toolNames.join(", ")}.`,
+    "Any request that needs one of them must escalate — name the action in your holding phrase",
+    '(for example "Let me check your calendar") instead of refusing or guessing.',
+  ].join(" ");
+}
+
+/**
  * Extra CALL PROTOCOL RULE injected into the front-door leg's control prompt.
  * The decision must happen up front: the model triages BEFORE it starts
  * answering so it never speaks half an answer and then bails — spoken audio
  * cannot be un-said. Escalation triggers include anything needing careful
- * reasoning, research, or a tool it is unsure of, so the weak model never
- * fabricates an answer that actually required a tool.
+ * reasoning, research, or any tool at all (this leg carries no tool schemas),
+ * so the weak model never fabricates an answer that actually required a tool.
  */
-export function frontDoorTriageRule(): string {
-  return [
+export function frontDoorTriageRule(capabilityDigest = ""): string {
+  const rule = [
     "TRIAGE FIRST: Before you begin answering, judge whether this turn is within your reach.",
     "If it is simple, conversational, or clearly factual, just answer it normally.",
-    "If it needs careful reasoning, research, multi-step work, or a tool you are unsure how to use,",
+    "If it needs careful reasoning, research, multi-step work, or any tool,",
     `do NOT attempt the answer. Instead say one short, natural holding phrase out loud (for example "${FALLBACK_ESCALATION_BRIDGE}" or "Give me one second to look into that"), then append ${ESCALATE_MARKER} and stop.`,
     `Make this decision in your first words. Never start answering and then emit ${ESCALATE_MARKER}. Everything you say before ${ESCALATE_MARKER} is spoken to the caller; everything after it is discarded.`,
   ].join(" ");
+  return capabilityDigest ? `${rule} ${capabilityDigest}` : rule;
 }
 
 /**

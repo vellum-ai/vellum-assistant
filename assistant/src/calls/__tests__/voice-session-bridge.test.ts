@@ -73,6 +73,7 @@ interface FakeConversation {
   updateClient: (cb: unknown, reset?: boolean) => void;
   runAgentLoop: (...args: unknown[]) => Promise<void>;
   abort: (reason?: unknown) => void;
+  toolsDisabledDepth: number;
 }
 
 function makeFakeConversation(opts: {
@@ -128,6 +129,7 @@ function makeFakeConversation(opts: {
     },
     runAgentLoop: () => (opts.runAgentLoop ?? (async () => {}))(),
     abort: () => {},
+    toolsDisabledDepth: 0,
   };
   return {
     conversation,
@@ -1169,5 +1171,50 @@ describe("startVoiceTurn tool-event forwarding", () => {
     await flushMicrotasks();
 
     expect(handle.turnId).toBeString();
+  });
+});
+
+describe("front-door leg tool suppression", () => {
+  test("tools are disabled for exactly the front-door loop's duration", async () => {
+    let depthDuringLoop = -1;
+    const fake = makeFakeConversation({
+      processing: false,
+      runAgentLoop: async () => {
+        depthDuringLoop = fake.conversation.toolsDisabledDepth;
+      },
+    });
+    fakeConversation = fake.conversation;
+
+    await startVoiceTurn({
+      ...makeTurnOptions(undefined, "conv-front-door-tools"),
+      routingLeg: "front-door",
+    });
+    await flushMicrotasks();
+
+    // Suppressed while the loop ran; the finally released it.
+    expect(depthDuringLoop).toBe(1);
+    expect(fake.conversation.toolsDisabledDepth).toBe(0);
+  });
+
+  test("non-routed and escalated legs leave tools enabled", async () => {
+    for (const routingLeg of [undefined, "escalated" as const]) {
+      let depthDuringLoop = -1;
+      const fake = makeFakeConversation({
+        processing: false,
+        runAgentLoop: async () => {
+          depthDuringLoop = fake.conversation.toolsDisabledDepth;
+        },
+      });
+      fakeConversation = fake.conversation;
+
+      await startVoiceTurn({
+        ...makeTurnOptions(undefined, "conv-tools-untouched"),
+        ...(routingLeg ? { routingLeg } : {}),
+      });
+      await flushMicrotasks();
+
+      expect(depthDuringLoop).toBe(0);
+      expect(fake.conversation.toolsDisabledDepth).toBe(0);
+    }
   });
 });

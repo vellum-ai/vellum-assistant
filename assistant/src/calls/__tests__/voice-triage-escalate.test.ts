@@ -7,8 +7,8 @@ import { ESCALATE_MARKER } from "../voice-control-protocol.js";
 import {
   escalatedContinuationRule,
   ESCALATION_CONTINUATION_CONTENT,
-  ESCALATION_PROFILE,
   FRONT_DOOR_PROFILE,
+  frontDoorCapabilityDigest,
   frontDoorTriageRule,
   isVoiceTriageEscalateEnabled,
   needsFallbackBridge,
@@ -24,9 +24,33 @@ afterEach(() => {
 });
 
 describe("voice-triage-escalate profiles", () => {
-  test("front door is the fast Speed profile, escalation is the Quality profile", () => {
+  test("front door is the fast Speed profile", () => {
     expect(FRONT_DOOR_PROFILE).toBe("cost-optimized");
-    expect(ESCALATION_PROFILE).toBe("quality-optimized");
+  });
+});
+
+describe("frontDoorCapabilityDigest", () => {
+  test("names the escalated leg's tools and demands escalation for them", () => {
+    const digest = frontDoorCapabilityDigest(["calendar_read", "web_search"]);
+    expect(digest).toContain("calendar_read, web_search");
+    expect(digest.toLowerCase()).toContain("escalate");
+    // The digest teaches routing, and the bridge phrase should name the
+    // action rather than the model refusing or guessing.
+    expect(digest.toLowerCase()).toContain("holding phrase");
+  });
+
+  test("is empty when no tool names are available (registry-less contexts)", () => {
+    expect(frontDoorCapabilityDigest([])).toBe("");
+  });
+
+  test("appends to the triage rule only when non-empty", () => {
+    const bare = frontDoorTriageRule();
+    expect(frontDoorTriageRule("")).toBe(bare);
+    const withDigest = frontDoorTriageRule(
+      frontDoorCapabilityDigest(["calendar_read"]),
+    );
+    expect(withDigest.startsWith(bare)).toBe(true);
+    expect(withDigest).toContain("calendar_read");
   });
 });
 

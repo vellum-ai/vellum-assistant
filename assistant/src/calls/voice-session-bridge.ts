@@ -28,6 +28,7 @@ import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
+import { getAllTools } from "../tools/registry.js";
 import { createAbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
 import { truncate } from "../util/truncate.js";
@@ -38,11 +39,28 @@ import {
 import {
   escalatedContinuationRule,
   ESCALATION_CONTINUATION_CONTENT,
+  frontDoorCapabilityDigest,
   frontDoorTriageRule,
   type VoiceRoutingLeg,
 } from "./voice-triage-escalate.js";
 
 const log = getLogger("voice-session-bridge");
+
+/**
+ * Front-door triage rule with the registry-derived capability digest. The
+ * front-door leg runs toolless (see the `toolsDisabledDepth` bracket in
+ * `startVoiceTurn`), so the digest is its only knowledge of what the
+ * escalated leg can do. Registry unavailability degrades to the bare rule.
+ */
+function frontDoorRuleWithDigest(): string {
+  let toolNames: string[] = [];
+  try {
+    toolNames = getAllTools().map((tool) => tool.name);
+  } catch {
+    // Tool registry not initialized (e.g. unit tests): digest-less rule.
+  }
+  return frontDoorTriageRule(frontDoorCapabilityDigest(toolNames));
+}
 
 /**
  * Exact message thrown when `opts.signal` aborts while the turn is waiting
@@ -403,7 +421,7 @@ function buildVoiceCallControlPrompt(opts: {
   // front-door leg triages and may hand off; the escalated leg continues the
   // answer after a holding phrase was already spoken.
   if (opts.routingLeg === "front-door") {
-    lines.push(`13. ${frontDoorTriageRule()}`);
+    lines.push(`13. ${frontDoorRuleWithDigest()}`);
   } else if (opts.routingLeg === "escalated") {
     lines.push(`13. ${escalatedContinuationRule()}`);
   }
@@ -546,7 +564,7 @@ export async function startVoiceTurn(
     voiceCallControlPrompt = opts.voiceControlPrompt;
     const routingLegRule =
       opts.routingLeg === "front-door"
-        ? frontDoorTriageRule()
+        ? frontDoorRuleWithDigest()
         : opts.routingLeg === "escalated"
           ? escalatedContinuationRule()
           : null;
@@ -1029,6 +1047,10 @@ export async function startVoiceTurn(
     resolveTeardown();
   };
 
+  // Pairs the front-door leg's toolsDisabledDepth increment with its
+  // decrement in the IIFE's finally, even when runAgentLoop throws.
+  let frontDoorToolsSuppressed = false;
+
   // Fire-and-forget the agent loop
   void (async () => {
     const loopEnterAt = Date.now();
@@ -1057,6 +1079,14 @@ export async function startVoiceTurn(
       // try/finally so a failed setup before this point cannot leak the
       // flag into subsequent non-voice turns on the same conversation.
       conversation.forcePromptSideEffects = !isGuardian;
+      // The front-door leg runs toolless: no schemas on the wire and the
+      // executor gate closed (same depth-counter bracket the pointer-turn
+      // runner uses). Anything needing a tool must escalate — the capability
+      // digest in its control prompt tells it what the escalated leg can do.
+      if (opts.routingLeg === "front-door") {
+        conversation.toolsDisabledDepth++;
+        frontDoorToolsSuppressed = true;
+      }
       await conversation.runAgentLoop(persistedContent, messageId, {
         onEvent: (msg: ServerMessage) => {
           if (msg.type === "error") {
@@ -1123,6 +1153,9 @@ export async function startVoiceTurn(
       log.error({ err, turnId }, "Voice turn failed");
       eventSink.onError(message);
     } finally {
+      if (frontDoorToolsSuppressed) {
+        conversation.toolsDisabledDepth--;
+      }
       cleanup();
       settleTurnTeardown();
     }
