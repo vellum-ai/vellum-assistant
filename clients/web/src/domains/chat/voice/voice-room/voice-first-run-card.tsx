@@ -206,12 +206,7 @@ export function VoiceFirstRunCard({
             <Modal.Header>
               <div className="flex items-center gap-2">
                 <BackButton onClick={backToIntro} />
-                <div className="flex min-w-0 flex-col">
-                  <Modal.Title>Use your own API keys</Modal.Title>
-                  <Modal.Description>
-                    Run voice on your own providers instead of the managed ones.
-                  </Modal.Description>
-                </div>
+                <Modal.Title>Use your own API keys</Modal.Title>
               </div>
             </Modal.Header>
             <Modal.Body className="space-y-6">
