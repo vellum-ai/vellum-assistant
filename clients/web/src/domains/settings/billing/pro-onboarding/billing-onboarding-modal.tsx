@@ -122,6 +122,11 @@ export function BillingOnboardingModal({
   // actions) live inside the step content.
   const isTakeover = step === "provisioning" && !provisioningError;
 
+  // Lock Esc/backdrop only while provisioning is active — the terminal ready
+  // states unlock dismissal, so a hung routing refetch that blocks the
+  // auto-advance is never a dead-end.
+  const lockTakeover = isTakeover && !provisioningSettled;
+
   // Full-bleed dark content that fills the viewport for the takeover.
   const provisioningContentClass =
     "overflow-hidden inset-0 max-w-none w-screen h-screen max-h-none rounded-none border-0";
@@ -131,9 +136,9 @@ export function BillingOnboardingModal({
       <Modal.Content
         size="md"
         hideCloseButton
-        dismissOnOverlayClick={!isTakeover}
-        onEscapeKeyDown={isTakeover ? (e) => e.preventDefault() : undefined}
-        onInteractOutside={isTakeover ? (e) => e.preventDefault() : undefined}
+        dismissOnOverlayClick={!lockTakeover}
+        onEscapeKeyDown={lockTakeover ? (e) => e.preventDefault() : undefined}
+        onInteractOutside={lockTakeover ? (e) => e.preventDefault() : undefined}
         data-theme={isTakeover ? "dark" : undefined}
         overlayClassName={isTakeover ? "bg-black p-0" : undefined}
         className={isTakeover ? provisioningContentClass : "overflow-hidden"}

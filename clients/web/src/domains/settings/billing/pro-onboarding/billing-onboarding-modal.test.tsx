@@ -377,6 +377,46 @@ describe("BillingOnboardingModal", () => {
     expect(card?.className).not.toContain("w-screen");
   });
 
+  test(
+    "a terminal takeover stays dismissable via the backdrop when routing is still resolving",
+    async () => {
+      // DONE lands from the reconcile verdict while the onboarding refetch is
+      // held open: routing never settles, so the celebration auto-advance can't
+      // fire. The backdrop must still dismiss — otherwise the user is stranded.
+      onboardingHold = new Promise(() => {});
+      subscriptionPlanId = "pro";
+      ensureResponse = makeEnsureResponse("already_done");
+      const { getByText, onClose } = renderModal();
+
+      await waitFor(() => expect(getByText("All done!")).toBeTruthy(), {
+        timeout: 5000,
+      });
+      // The X stays hidden throughout — the exit is the backdrop, not a button.
+      expect(document.body.querySelector('[aria-label="Close"]')).toBeNull();
+
+      const overlay = document.body.querySelector('[data-slot="modal-overlay"]');
+      expect(overlay).not.toBeNull();
+      fireEvent.click(overlay as Element);
+      expect(onClose).toHaveBeenCalled();
+    },
+    20_000,
+  );
+
+  test("an active provisioning takeover stays locked against backdrop dismissal", async () => {
+    subscriptionPlanId = "pro";
+    const { getByText, onClose } = renderModal();
+
+    await waitFor(
+      () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
+      { timeout: 5000 },
+    );
+
+    const overlay = document.body.querySelector('[data-slot="modal-overlay"]');
+    expect(overlay).not.toBeNull();
+    fireEvent.click(overlay as Element);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
   test("stall surfaces Apply & Restart; a successful apply resumes resizing through DONE", async () => {
     subscriptionPlanId = "pro";
     const { client, getByText, getByTestId } = renderModal();
