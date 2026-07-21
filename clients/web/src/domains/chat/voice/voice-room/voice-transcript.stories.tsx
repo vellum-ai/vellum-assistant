@@ -210,7 +210,7 @@ export const Reveal: Story = {
 };
 
 /**
- * The spoken-word cursor look (JARVIS-1309): the full sentence has already
+ * The spoken-word cursor look: the full sentence has already
  * streamed in, but a static mid-sentence `highlightIndex` keeps the bright
  * leading-edge tone on the word currently being spoken — the text ahead of the
  * cursor stays muted instead of the highlight parking on the final word.
