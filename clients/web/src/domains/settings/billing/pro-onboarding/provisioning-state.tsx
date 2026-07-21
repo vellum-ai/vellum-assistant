@@ -36,6 +36,8 @@ export interface ProvisioningStateProps {
   fromSnapshot: ProvisioningDimensions;
   celebrating: boolean;
   onCelebrationEnd: () => void;
+  /** The assistant being provisioned — drives the takeover avatar. */
+  assistantId?: string | null;
   escapeAvailable: boolean;
   onEscape: () => void;
   stalledAction: StalledApplyAction;
@@ -50,9 +52,10 @@ export interface ProvisioningStateProps {
  * the avatar resolves or when none is configured. The idle breathe + reduced
  * -motion gating come from `AnimatedAvatar` inside `ChatAvatar`.
  */
-function TakeoverAvatar() {
-  const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
-  const { components, traits, customImageUrl } = useAssistantAvatar(assistantId);
+function TakeoverAvatar({ assistantId }: { assistantId?: string | null }) {
+  const activeId = useResolvedAssistantsStore.use.activeAssistantId();
+  const resolvedId = assistantId ?? activeId;
+  const { components, traits, customImageUrl } = useAssistantAvatar(resolvedId);
   const fallbackComponents = useBundledAvatarComponents();
   return (
     <div aria-hidden className="flex flex-col items-center">
@@ -255,6 +258,7 @@ export function ProvisioningState({
   fromSnapshot,
   celebrating,
   onCelebrationEnd,
+  assistantId,
   escapeAvailable,
   onEscape,
   stalledAction,
@@ -282,7 +286,7 @@ export function ProvisioningState({
       className="relative flex h-full min-h-[420px] w-full flex-col items-center justify-center gap-6 px-6 py-10 text-center"
       style={{ backgroundColor: TAKEOVER_BACKGROUND }}
     >
-      <TakeoverAvatar />
+      <TakeoverAvatar assistantId={assistantId} />
       <div className="flex flex-col items-center gap-2 [animation:onboarding-step-in_350ms_ease-out] motion-reduce:[animation:none]">
         {renderPhase()}
       </div>

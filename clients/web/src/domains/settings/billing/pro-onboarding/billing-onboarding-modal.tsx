@@ -172,6 +172,7 @@ export function BillingOnboardingModal({
           fromSnapshot={provisioning.actualsSnapshot ?? EMPTY_DIMENSIONS}
           celebrating={routingSettled}
           onCelebrationEnd={advanceFromProvisioning}
+          assistantId={assistantId}
           escapeAvailable={
             machineBusy && routingSettled && provisioning.escapeEligible
           }

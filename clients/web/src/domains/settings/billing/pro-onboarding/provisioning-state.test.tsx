@@ -1,17 +1,41 @@
 /**
  * Tests for the pure-props `ProvisioningState` takeover. Renders via
  * `@testing-library/react` (happy-dom registered in test-setup.ts) wrapped in
- * a `QueryClientProvider` because the takeover avatar reads the active
- * assistant's avatar through React Query — no active assistant is set, so the
- * avatar resolves to its neutral fallback and every phase is still driven
- * entirely through props.
+ * a `QueryClientProvider`. The takeover avatar hook is mocked to record the id
+ * it's queried with — the avatar resolves to its neutral fallback (null
+ * components) — so every phase stays driven through props while the
+ * avatar-target wiring can be asserted directly.
  */
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+
 import type { ProvisioningStateProps } from "./provisioning-state";
-import { ProvisioningState } from "./provisioning-state";
+
+/** The id handed to the avatar hook, captured so the target-selection wiring
+ *  can be asserted without a network fetch. */
+let avatarQueryId: string | null | undefined;
+mock.module("@/hooks/use-assistant-avatar", () => ({
+  useAssistantAvatar: (assistantId: string | null) => {
+    avatarQueryId = assistantId;
+    return {
+      components: null,
+      traits: null,
+      customImageUrl: null,
+      isLoading: false,
+      invalidate: () => {},
+    };
+  },
+}));
+
+const { ProvisioningState } = await import("./provisioning-state");
+
+beforeEach(() => {
+  avatarQueryId = undefined;
+  useResolvedAssistantsStore.setState({ activeAssistantId: null });
+});
 
 afterEach(() => {
   cleanup();
@@ -287,5 +311,25 @@ describe("escape hatch", () => {
       escapeAvailable: false,
     });
     expect(queryByTestId("provisioning-escape")).toBeNull();
+  });
+});
+
+describe("takeover avatar", () => {
+  test("queries the avatar for the passed provisioning target assistant", () => {
+    useResolvedAssistantsStore.setState({
+      activeAssistantId: "active-assistant",
+    });
+    renderState({ assistantId: "primary-assistant" });
+
+    expect(avatarQueryId).toBe("primary-assistant");
+  });
+
+  test("falls back to the active-store assistant when no target is passed", () => {
+    useResolvedAssistantsStore.setState({
+      activeAssistantId: "active-assistant",
+    });
+    renderState();
+
+    expect(avatarQueryId).toBe("active-assistant");
   });
 });

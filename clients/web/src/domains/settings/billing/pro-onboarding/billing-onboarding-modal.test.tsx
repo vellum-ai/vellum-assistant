@@ -43,6 +43,19 @@ mock.module("@/stores/organization-store", () => ({
   },
 }));
 
+// Stub the takeover avatar hook so the provisioning target's avatar doesn't
+// fire (404-ing) fetches that each invalidateQueries() would await, slowing
+// the polls past the test budget.
+mock.module("@/hooks/use-assistant-avatar", () => ({
+  useAssistantAvatar: () => ({
+    components: null,
+    traits: null,
+    customImageUrl: null,
+    isLoading: false,
+    invalidate: () => {},
+  }),
+}));
+
 const realDateNow = Date.now.bind(Date);
 let dateNowOffsetMs = 0;
 Date.now = () => realDateNow() + dateNowOffsetMs;
