@@ -23,7 +23,7 @@
 // The schema enforces the foreign key with ON DELETE CASCADE, so deleting a
 // conversation collects its state row automatically.
 
-import { and, asc, desc, eq, isNull, ne, notInArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, isNull, ne, notInArray } from "drizzle-orm";
 
 import { type DrizzleDb, getDb } from "../../../persistence/db-connection.js";
 import {
@@ -141,9 +141,14 @@ export interface ConversationSweepEntry {
 }
 
 /**
- * Return up to `limit` active, non-excluded conversations ordered by how long
- * ago their last retrospective ran (stalest first). Conversations with no
- * state row (never retro'd) sort to the front (their implicit lastRunAt is 0).
+ * Return up to `limit` active, non-excluded conversations in stable id-order,
+ * starting strictly after `afterConversationId` (the sweep cursor). An empty
+ * `afterConversationId` starts from the beginning of the list.
+ *
+ * Id-ordering with a cursor lets the caller page through the FULL conversation
+ * set across successive sweep passes. A stalest-first ordering without a cursor
+ * would permanently pin zero-work rows at the front of the query, so
+ * conversations beyond the batch limit could never be examined.
  *
  * Used by the scheduled sweep in jobs-worker.ts to find conversations that may
  * have unprocessed messages regardless of whether a turn-end trigger fired.
@@ -153,6 +158,7 @@ export interface ConversationSweepEntry {
  */
 export function listConversationsNeedingRetrospective(
   limit: number,
+  afterConversationId = "",
 ): ConversationSweepEntry[] {
   const db = getDb();
   const rows = db
@@ -171,9 +177,12 @@ export function listConversationsNeedingRetrospective(
         ne(conversations.conversationType, "scheduled"),
         notInArray(conversations.source, [...SWEEP_EXCLUDED_SOURCES]),
         isNull(conversations.archivedAt),
+        ...(afterConversationId
+          ? [gt(conversations.id, afterConversationId)]
+          : []),
       ),
     )
-    .orderBy(asc(sql`COALESCE(${memoryRetrospectiveState.lastRunAt}, 0)`))
+    .orderBy(asc(conversations.id))
     .limit(limit)
     .all();
 

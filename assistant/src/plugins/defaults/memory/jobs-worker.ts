@@ -816,23 +816,31 @@ export function maybeEnqueueScheduledCleanupJobs(
 
 /**
  * Max conversations examined per sweep pass. Keeps the per-tick DB load
- * bounded even on instances with large conversation histories; the stalest-
- * first ordering ensures every conversation is eventually reached across
- * successive passes.
+ * bounded even on instances with large conversation histories; the cursor
+ * checkpoint advances through the full set across successive passes.
  */
 export const RETRO_SWEEP_BATCH_LIMIT = 50;
 
 /**
- * Walk the `limit` stalest conversations and enqueue a retrospective for each
- * one that has unprocessed messages and is past its cooldown. Runs on the
- * cadence set by `config.memory.retrospective.sweepIntervalMs` (default 8h),
- * using a durable checkpoint so the cadence survives daemon restarts.
+ * Walk up to `RETRO_SWEEP_BATCH_LIMIT` conversations (paginated via a durable
+ * cursor) and enqueue a retrospective for each one that has unprocessed
+ * messages and is past its cooldown. Runs on the cadence set by
+ * `config.memory.retrospective.sweepIntervalMs` (default 8h).
  *
  * This is the catch-all backstop for turns that ended without firing the
  * normal turn-end trigger (crash, IPC drop, early exit). It never fires
  * duplicate jobs — `upsertMemoryRetrospectiveJob` coalesces rapid enqueues
  * per conversation — and it respects the same cooldown as the turn-end path
  * so it cannot spin a tight retry loop.
+ *
+ * Two durable checkpoints drive this function:
+ *   - `retro_sweep:last_run`  — epoch-ms timestamp of the last sweep start.
+ *     Seeded to `nowMs` on first startup so the first actual sweep fires a
+ *     full interval later (matches the PKB/cleanup no-LLM-work-at-boot rule).
+ *   - `retro_sweep:cursor`    — last conversation id examined. Advances by
+ *     `RETRO_SWEEP_BATCH_LIMIT` per sweep pass so the full conversation list
+ *     is eventually covered even when many candidates have no new messages.
+ *     Resets to "" when the end of the list is reached.
  *
  * Returns the number of retrospective jobs enqueued this pass.
  */
@@ -841,21 +849,47 @@ export function maybeEnqueueRetrospectiveSweepJobs(
   nowMs = Date.now(),
 ): number {
   const sweepIntervalMs = config.memory.retrospective.sweepIntervalMs;
-  const lastRun = parseInt(
-    getMemoryCheckpoint(GRAPH_MAINTENANCE_CHECKPOINTS.retroSweep) ?? "0",
-    10,
+  const rawCheckpoint = getMemoryCheckpoint(
+    GRAPH_MAINTENANCE_CHECKPOINTS.retroSweep,
   );
+
+  // Seed to nowMs on first startup (missing checkpoint) so the first actual
+  // sweep fires after a full interval, matching the PKB and cleanup schedule
+  // patterns — no LLM-backed retrospective jobs should fire at boot.
+  if (rawCheckpoint === null) {
+    setMemoryCheckpoint(
+      GRAPH_MAINTENANCE_CHECKPOINTS.retroSweep,
+      String(nowMs),
+    );
+    return 0;
+  }
+
+  const lastRun = parseInt(rawCheckpoint, 10);
   if (nowMs - lastRun < sweepIntervalMs) {
     return 0;
   }
 
   setMemoryCheckpoint(GRAPH_MAINTENANCE_CHECKPOINTS.retroSweep, String(nowMs));
 
-  const minCooldownMs = config.memory.retrospective.minCooldownMs;
+  // Advance the cursor so each sweep pass covers a different window of
+  // conversations. Without a cursor, the query always returns the same top-N
+  // rows and conversations beyond index N are never examined.
+  const cursor =
+    getMemoryCheckpoint(GRAPH_MAINTENANCE_CHECKPOINTS.retroSweepCursor) ?? "";
   const candidates = listConversationsNeedingRetrospective(
     RETRO_SWEEP_BATCH_LIMIT,
+    cursor,
   );
 
+  // Advance or reset the cursor. < limit means we reached the end of the list.
+  if (candidates.length < RETRO_SWEEP_BATCH_LIMIT) {
+    setMemoryCheckpoint(GRAPH_MAINTENANCE_CHECKPOINTS.retroSweepCursor, "");
+  } else {
+    const lastId = candidates[candidates.length - 1]!.conversationId;
+    setMemoryCheckpoint(GRAPH_MAINTENANCE_CHECKPOINTS.retroSweepCursor, lastId);
+  }
+
+  const minCooldownMs = config.memory.retrospective.minCooldownMs;
   let enqueued = 0;
   for (const {
     conversationId,
@@ -878,7 +912,7 @@ export function maybeEnqueueRetrospectiveSweepJobs(
 
   if (enqueued > 0) {
     log.info(
-      { enqueued, candidates: candidates.length },
+      { enqueued, candidates: candidates.length, cursor },
       "Retrospective sweep enqueued jobs",
     );
   }
@@ -909,6 +943,7 @@ export const GRAPH_MAINTENANCE_CHECKPOINTS = {
   pkbFiling: "pkb_filing_last_run",
   pkbCompaction: "pkb_compaction_last_run",
   retroSweep: "retro_sweep:last_run",
+  retroSweepCursor: "retro_sweep:cursor",
 } as const;
 
 /**
