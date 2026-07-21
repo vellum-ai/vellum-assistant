@@ -1712,14 +1712,29 @@ export function deleteConversation(id: string): DeletedMemoryIds {
   // conversation intact for a retried delete. Telemetry redaction keys on
   // conversation_id regardless of event name, so every conversation-scoped
   // pending event is covered.
-  logsDb()
-    .delete(llmRequestLogs)
-    .where(eq(llmRequestLogs.conversationId, id))
-    .run();
-  telemetryDb()
-    .delete(telemetryEvents)
-    .where(eq(telemetryEvents.conversationId, id))
-    .run();
+  //
+  // Both files are created and schema-migrated by the daemon's migration
+  // runner. Open them with `createIfMissing: false`: when a file does not
+  // exist yet there are no rows to delete, so skip rather than let the opener
+  // fabricate an empty, table-less file. The memory worker's startup orphan
+  // sweep runs as a separate process that can race ahead of the daemon's async
+  // migrations — without this it would create an empty logs file and throw
+  // `no such table: llm_request_logs` on every orphan delete. No file, nothing
+  // to sweep.
+  const logsForDelete = getLogsDb({ createIfMissing: false });
+  if (logsForDelete) {
+    logsForDelete
+      .delete(llmRequestLogs)
+      .where(eq(llmRequestLogs.conversationId, id))
+      .run();
+  }
+  const telemetryForDelete = getTelemetryDb({ createIfMissing: false });
+  if (telemetryForDelete) {
+    telemetryForDelete
+      .delete(telemetryEvents)
+      .where(eq(telemetryEvents.conversationId, id))
+      .run();
+  }
 
   db.transaction((tx) => {
     // Collect all message IDs for this conversation.
