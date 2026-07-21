@@ -109,7 +109,7 @@ export function VoiceAmbientTranscript() {
               >
                 <div
                   data-testid="voice-ambient-user-bubble"
-                  className="max-w-[85%] break-words rounded-2xl px-4 py-2.5 text-[clamp(15px,2vmin,19px)] leading-snug"
+                  className="max-w-[85%] break-words rounded-lg border border-[var(--room-border)] px-4 py-2.5 text-[clamp(15px,2vmin,19px)] leading-snug"
                   style={{ backgroundColor: "var(--room-bubble-bg)" }}
                 >
                   <VoiceTranscriptText

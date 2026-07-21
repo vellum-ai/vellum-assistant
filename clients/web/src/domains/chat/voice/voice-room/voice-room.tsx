@@ -191,8 +191,8 @@ function VoiceRoomOverlay() {
     "--room-fg-muted": tone?.fgMuted ?? "rgba(255,255,255,0.7)",
     "--room-wash": tone?.wash ?? "rgba(255,255,255,0.1)",
     "--room-border": tone?.wash ?? "rgba(255,255,255,0.15)",
-    "--room-bubble-bg": tone?.bubbleBg ?? "#FFFFFF",
-    "--room-bubble-fg": tone?.bubbleFg ?? "#1A1A1A",
+    "--room-bubble-bg": tone?.bubbleBg ?? "rgba(255,255,255,0.16)",
+    "--room-bubble-fg": tone?.bubbleFg ?? "#FFFFFF",
   } as CSSProperties;
 
   // Global Escape, live only while the room is mounted: ends the session,

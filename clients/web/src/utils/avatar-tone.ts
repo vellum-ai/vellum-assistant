@@ -27,11 +27,18 @@ export interface AvatarTone {
   /** A subtle hover/fill wash at the matching tone. */
   wash: string;
   /**
-   * Solid raised-surface fill for a user speech bubble that contrasts the
-   * avatar color: white over dark/saturated avatars, dark over the light one.
+   * Soft raised-surface fill for a user speech bubble — the room's analog of
+   * the app's `--surface-lift`: a translucent lift of the foreground over the
+   * avatar color (a subtle white wash over dark/saturated avatars, a subtle
+   * dark wash over the light one), not an opaque max-contrast chip.
    */
   bubbleBg: string;
-  /** Text color drawn on that bubble (the inverse of {@link bubbleBg}). */
+  /**
+   * Text color for that bubble, chosen for WCAG-AA contrast against the
+   * *blended* bubble pixel (the lift composited over the avatar fill) — white
+   * over dark avatars, near-black over lighter/mid-tone ones — so live captions
+   * stay legible on every palette color, not a fixed room foreground.
+   */
   bubbleFg: string;
 }
 
@@ -61,6 +68,24 @@ export function darkenHex(hex: string, factor: number): string {
   const ch = (shift: number) =>
     Math.max(0, Math.min(255, Math.round(((n >> shift) & 0xff) * factor)));
   return `#${((1 << 24) | (ch(16) << 16) | (ch(8) << 8) | ch(0)).toString(16).slice(1)}`;
+}
+
+/**
+ * Composite a solid `base` #rrggbb under a white (255) or black (0) overlay at
+ * `alpha`, returning the resulting opaque #rrggbb — the actual pixel color a
+ * translucent bubble lift resolves to when painted over the avatar fill. Bubble
+ * text is picked against this, not the raw avatar color, so contrast reflects
+ * what the eye sees.
+ */
+function compositeOverlay(base: string, overlay: 0 | 255, alpha: number): string {
+  const m = /^#?([0-9a-f]{6})$/i.exec(base);
+  if (!m) {
+    return base;
+  }
+  const n = parseInt(m[1]!, 16);
+  const mix = (shift: number) =>
+    Math.round(((n >> shift) & 0xff) * (1 - alpha) + overlay * alpha);
+  return `#${((1 << 24) | (mix(16) << 16) | (mix(8) << 8) | mix(0)).toString(16).slice(1)}`;
 }
 
 /** WCAG relative luminance (sRGB-linearized), 0–1. */
@@ -100,8 +125,14 @@ export function toneForBg(bg: string): AvatarTone {
     fgDeep: darkenHex(bg, 0.6),
     fgMuted: isLight ? "rgba(0,0,0,0.6)" : "rgba(255,255,255,0.65)",
     wash: isLight ? "rgba(0,0,0,0.08)" : "rgba(255,255,255,0.12)",
-    // A raised surface reads as the foreground tone; its text is the inverse.
-    bubbleBg: fg,
-    bubbleFg: isLight ? FG_LIGHT : FG_DARK,
+    // A soft raised surface (the room's analog of the app's --surface-lift user
+    // bubble): a translucent lift of the foreground over the avatar color — not
+    // an opaque max-contrast chip. Its text is chosen for WCAG-AA contrast
+    // against the *blended* bubble pixel (lift over the avatar fill), so mid-tone
+    // saturated avatars get near-black text instead of failing white-on-color.
+    bubbleBg: isLight ? "rgba(0,0,0,0.10)" : "rgba(255,255,255,0.16)",
+    bubbleFg: isLight
+      ? contrastForeground(compositeOverlay(bg, 0, 0.1))
+      : contrastForeground(compositeOverlay(bg, 255, 0.16)),
   };
 }
