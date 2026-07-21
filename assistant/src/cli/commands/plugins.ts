@@ -195,7 +195,7 @@ export function registerPluginsCommand(program: Command): void {
               }
             } else {
               const installOpts = direct
-                ? resolveDirectInstallOptions(nameOrUrl, opts)
+                ? await resolveDirectInstallOptions(nameOrUrl, opts)
                 : await resolveInstallOptions(nameOrUrl, opts);
               if (installOpts === null) {
                 process.exitCode = 1;
@@ -832,12 +832,16 @@ async function resolveInstallOptions(
  * untrusted direct install, or `null` when the URL or flag combination is
  * invalid (a message is printed in that case, and the caller exits non-zero).
  *
- * The marketplace-only flags (`--ref`, `--pin`, `--allow-unreviewed`) do not
- * apply to a direct install — the ref lives in the URL — so combining them is
- * rejected. The install name defaults to the repo / sub-path leaf and can be
- * overridden with `--name`.
+ * A `/tree/<ref>/<path>` URL cannot mark where a slash-containing branch name
+ * (`feature/x`) ends and the sub-path begins, so when the ref is left implicit
+ * the real split is resolved against the repository's refs — exactly as
+ * github.com does — before building the install coordinates. `--ref` states the
+ * ref explicitly and skips that lookup (useful offline, or to force a specific
+ * ref). `--pin` and `--allow-unreviewed` are marketplace-only and rejected here.
+ * The install name defaults to the resolved sub-path leaf (or the repo) and can
+ * be overridden with `--name`.
  */
-function resolveDirectInstallOptions(
+async function resolveDirectInstallOptions(
   spec: string,
   opts: {
     force?: boolean;
@@ -846,13 +850,7 @@ function resolveDirectInstallOptions(
     allowUnreviewed?: boolean;
     name?: string;
   },
-): InstallPluginOptions | null {
-  if (opts.ref) {
-    console.error(
-      "--ref does not apply to a GitHub-URL install; put the ref in the URL (e.g. .../tree/<ref>/...).",
-    );
-    return null;
-  }
+): Promise<InstallPluginOptions | null> {
   if (opts.pin || opts.allowUnreviewed) {
     console.error(
       "--pin and --allow-unreviewed only apply to marketplace installs by name, not a GitHub URL.",
@@ -862,7 +860,7 @@ function resolveDirectInstallOptions(
 
   let parsed;
   try {
-    parsed = parseGitHubPluginSpec(spec);
+    parsed = parseGitHubPluginSpec(spec, opts.ref);
   } catch (err) {
     if (err instanceof InvalidGitHubPluginSpecError) {
       console.error(err.message);
@@ -871,7 +869,24 @@ function resolveDirectInstallOptions(
     throw err;
   }
 
-  const requested = opts.name ?? parsed.defaultName;
+  // The offline parse guesses the first `/tree/` segment is the whole ref; when
+  // the tail could hide a slash-containing ref, ask the remote which leading
+  // prefix is a real branch/tag and re-derive the sub-path (and default name)
+  // from the answer. Falls back to the guess when the remote can't be listed.
+  let { path, ref, defaultName } = parsed;
+  if (parsed.ambiguousTreeSegments) {
+    const resolved = await libs.installGitHub.resolveTreeRefPath(
+      parsed.owner,
+      parsed.repo,
+      parsed.ambiguousTreeSegments,
+    );
+    ref = resolved.ref;
+    path = resolved.path;
+    const leaf = path.split("/").filter(Boolean).at(-1) ?? parsed.repo;
+    defaultName = leaf.toLowerCase();
+  }
+
+  const requested = opts.name ?? defaultName;
   let name: string;
   try {
     name = libs.installGitHub.sanitizePluginName(requested);
@@ -880,7 +895,7 @@ function resolveDirectInstallOptions(
       console.error(
         opts.name
           ? err.message
-          : `Could not derive a valid plugin name from "${parsed.defaultName}". ` +
+          : `Could not derive a valid plugin name from "${defaultName}". ` +
               "Pass --name <name> to choose one (lowercase letters, digits, '-', '_').",
       );
       return null;
@@ -891,8 +906,8 @@ function resolveDirectInstallOptions(
   const directSource: PluginFetchSource = {
     owner: parsed.owner,
     repo: parsed.repo,
-    rootPath: parsed.path,
-    ref: parsed.ref,
+    rootPath: path,
+    ref,
   };
   return { name, force: opts.force ?? false, directSource };
 }
