@@ -634,6 +634,31 @@ describe("quarantineRefusedExchanges", () => {
     ).toBe(false);
   });
 
+  test("walks back over a web-search run to the genuine prompt", () => {
+    const serverToolUseTurn: Message = {
+      role: "assistant",
+      content: [
+        { type: "server_tool_use", id: "stu_1", name: "web_search", input: {} },
+      ],
+    };
+    const webSearchResultTurn: Message = {
+      role: "user",
+      content: [
+        { type: "web_search_tool_result", tool_use_id: "stu_1", content: [] },
+      ],
+    };
+    const history = [
+      userPrompt("flagged prompt"),
+      serverToolUseTurn,
+      webSearchResultTurn,
+      refusalFallbackTurn,
+      userPrompt("follow-up"),
+    ];
+    const { messages, droppedExchanges } = quarantineRefusedExchanges(history);
+    expect(droppedExchanges).toBe(1);
+    expect(messages).toEqual([userPrompt("follow-up")]);
+  });
+
   test("handles a marker at index 0 with no preceding prompt", () => {
     const history = [refusalFallbackTurn, userPrompt("next")];
     const { messages, droppedExchanges } = quarantineRefusedExchanges(history);
