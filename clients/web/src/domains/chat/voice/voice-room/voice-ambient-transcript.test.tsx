@@ -198,13 +198,6 @@ describe("VoiceAmbientTranscript — spoken-word cursor", () => {
   let raf: RafTestHarness;
   let progress: LiveVoicePlaybackProgress | null;
 
-  /** Fire every pending rAF callback once, inside `act()`. */
-  function pumpFrame() {
-    act(() => {
-      raf.fireFrame();
-    });
-  }
-
   /** Text of the word span carrying the bright leading-edge tone. */
   function leadingWordIn(half: HTMLElement) {
     return half.querySelector("[data-leading]")?.textContent;
@@ -232,16 +225,39 @@ describe("VoiceAmbientTranscript — spoken-word cursor", () => {
     seedAssistant("alpha beta gamma delta");
     setPrefs({ user: false, assistant: true });
     render(<VoiceAmbientTranscript />);
-    pumpFrame();
+    raf.pumpFrame();
     // floor(0.5 * 4 words) = index 2 — mid-transcript, not the last word.
     expect(leadingWordIn(assistantText()!)).toBe("gamma");
+  });
+
+  test("a first read that is already drained keeps the default last-word edge", () => {
+    // The response's audio finished before the cursor loop ever observed a
+    // sub-total frame: the rail keeps the default reveal, not a pinned first
+    // word.
+    progress = { playedSeconds: 3, totalSeconds: 3 };
+    registerProgressProvider();
+    seedAssistant("alpha beta gamma delta");
+    setPrefs({ user: false, assistant: true });
+    render(<VoiceAmbientTranscript />);
+    raf.pumpFrame();
+    raf.pumpFrame();
+    expect(leadingWordIn(assistantText()!)).toBe("delta");
+  });
+
+  test("schedules no frames while assistant captions are off", () => {
+    registerProgressProvider();
+    seedAssistant("alpha beta gamma delta");
+    setPrefs({ user: false, assistant: false });
+    render(<VoiceAmbientTranscript />);
+    expect(raf.requestCount()).toBe(0);
+    expect(raf.pendingCallbacks()).toHaveLength(0);
   });
 
   test("no registered provider keeps the default last-word leading edge", () => {
     seedAssistant("alpha beta gamma delta");
     setPrefs({ user: false, assistant: true });
     render(<VoiceAmbientTranscript />);
-    pumpFrame();
+    raf.pumpFrame();
     expect(leadingWordIn(assistantText()!)).toBe("delta");
   });
 
@@ -250,12 +266,12 @@ describe("VoiceAmbientTranscript — spoken-word cursor", () => {
     seedAssistant("alpha beta gamma delta");
     setPrefs({ user: false, assistant: true });
     render(<VoiceAmbientTranscript />);
-    pumpFrame();
+    raf.pumpFrame();
     // No audio yet: default reveal, the newest word leads.
     expect(leadingWordIn(assistantText()!)).toBe("delta");
 
     progress = { playedSeconds: 5, totalSeconds: 10 };
-    pumpFrame();
+    raf.pumpFrame();
     expect(leadingWordIn(assistantText()!)).toBe("gamma");
   });
 
@@ -265,17 +281,17 @@ describe("VoiceAmbientTranscript — spoken-word cursor", () => {
     seedAssistant("alpha beta gamma delta");
     setPrefs({ user: false, assistant: true });
     render(<VoiceAmbientTranscript />);
-    pumpFrame();
+    raf.pumpFrame();
     expect(leadingWordIn(assistantText()!)).toBe("gamma");
 
     // Next response: the transcript clears (shorter word list), no audio yet.
     progress = null;
     seedAssistant("fresh words");
-    pumpFrame();
+    raf.pumpFrame();
     expect(leadingWordIn(assistantText()!)).toBe("words");
 
     progress = { playedSeconds: 1, totalSeconds: 4 };
-    pumpFrame();
+    raf.pumpFrame();
     // floor(0.25 * 2 words) = index 0 — the cursor is live again.
     expect(leadingWordIn(assistantText()!)).toBe("fresh");
   });
@@ -286,7 +302,7 @@ describe("VoiceAmbientTranscript — spoken-word cursor", () => {
     seedUser("one two three four");
     setPrefs({ user: true, assistant: false });
     render(<VoiceAmbientTranscript />);
-    pumpFrame();
+    raf.pumpFrame();
     expect(leadingWordIn(userText()!)).toBe("four");
   });
 });

@@ -2,14 +2,14 @@
  * Tests for `useSpokenWordCursor`.
  *
  * Frames are driven manually through the shared rAF harness
- * (`raf.test-helper.ts`), pumped inside `act()`. Playback progress is driven
- * through the real live-voice store by registering a provider that reads a
- * mutable local value; the store is reset between tests.
+ * (`raf.test-helper.ts`) via its act-aware `pumpFrame`. Playback progress is
+ * driven through the real live-voice store by registering a provider that
+ * reads a mutable local value; the store is reset between tests.
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { act, cleanup, renderHook } from "@testing-library/react";
+import { cleanup, renderHook } from "@testing-library/react";
 
 import { useLiveVoiceStore } from "@/domains/chat/voice/live-voice/live-voice-store";
 import type { LiveVoicePlaybackProgress } from "@/domains/chat/voice/live-voice/tts-playback";
@@ -21,13 +21,6 @@ import { useSpokenWordCursor } from "@/domains/chat/voice/voice-room/use-spoken-
 
 let raf: RafTestHarness;
 let progress: LiveVoicePlaybackProgress | null;
-
-/** Fire every pending rAF callback once, inside `act()`. */
-function pumpFrame() {
-  act(() => {
-    raf.fireFrame();
-  });
-}
 
 beforeEach(() => {
   raf = installRafTestHarness();
@@ -45,21 +38,21 @@ afterEach(() => {
 describe("useSpokenWordCursor — mapping", () => {
   test("null progress yields a null cursor (caller keeps its default highlight)", () => {
     const { result } = renderHook(() => useSpokenWordCursor(10));
-    pumpFrame();
+    raf.pumpFrame();
     expect(result.current).toBeNull();
   });
 
   test("fraction 0.5 over 10 words maps to index 5", () => {
     progress = { playedSeconds: 5, totalSeconds: 10 };
     const { result } = renderHook(() => useSpokenWordCursor(10));
-    pumpFrame();
+    raf.pumpFrame();
     expect(result.current).toBe(5);
   });
 
   test("zero-duration progress is not usable audio and keeps the cursor null", () => {
     progress = { playedSeconds: 0, totalSeconds: 0 };
     const { result } = renderHook(() => useSpokenWordCursor(10));
-    pumpFrame();
+    raf.pumpFrame();
     expect(result.current).toBeNull();
   });
 });
@@ -68,13 +61,13 @@ describe("useSpokenWordCursor — drained-queue hold", () => {
   test("a caught-up queue (played == total) does not advance the cursor past its floor", () => {
     progress = { playedSeconds: 5, totalSeconds: 10 };
     const { result } = renderHook(() => useSpokenWordCursor(20));
-    pumpFrame();
+    raf.pumpFrame();
     expect(result.current).toBe(10);
 
     // Mid-response silence: the queue drains while the LLM text streams ahead.
     progress = { playedSeconds: 10, totalSeconds: 10 };
-    pumpFrame();
-    pumpFrame();
+    raf.pumpFrame();
+    raf.pumpFrame();
     expect(result.current).toBe(10);
   });
 
@@ -84,27 +77,50 @@ describe("useSpokenWordCursor — drained-queue hold", () => {
       ({ count }: { count: number }) => useSpokenWordCursor(count),
       { initialProps: { count: 10 } },
     );
-    pumpFrame();
+    raf.pumpFrame();
     expect(result.current).toBe(5);
 
     progress = { playedSeconds: 10, totalSeconds: 10 };
     rerender({ count: 20 });
-    pumpFrame();
+    raf.pumpFrame();
     expect(result.current).toBe(5);
 
     rerender({ count: 30 });
-    pumpFrame();
+    raf.pumpFrame();
     expect(result.current).toBe(5);
+  });
+
+  test("a first read that is already drained keeps the cursor null", () => {
+    // The audio finished before the loop ever observed a sub-total frame
+    // (short response under a throttled or busy main thread): the caller
+    // keeps its default highlight instead of a pinned early word.
+    progress = { playedSeconds: 10, totalSeconds: 10 };
+    const { result } = renderHook(() => useSpokenWordCursor(10));
+    raf.pumpFrame();
+    raf.pumpFrame();
+    expect(result.current).toBeNull();
+  });
+
+  test("adoption happens on the first frame with audio still scheduled", () => {
+    progress = { playedSeconds: 10, totalSeconds: 10 };
+    const { result } = renderHook(() => useSpokenWordCursor(10));
+    raf.pumpFrame();
+    expect(result.current).toBeNull();
+
+    // A new audio burst grows the total: audio is scheduled again.
+    progress = { playedSeconds: 10, totalSeconds: 12 };
+    raf.pumpFrame();
+    expect(result.current).toBe(8);
   });
 
   test("the cursor reaches the last word during final-buffer playback and holds after the drain", () => {
     progress = { playedSeconds: 9.9, totalSeconds: 10 };
     const { result } = renderHook(() => useSpokenWordCursor(10));
-    pumpFrame();
+    raf.pumpFrame();
     expect(result.current).toBe(9);
 
     progress = { playedSeconds: 10, totalSeconds: 10 };
-    pumpFrame();
+    raf.pumpFrame();
     expect(result.current).toBe(9);
   });
 });
@@ -113,36 +129,80 @@ describe("useSpokenWordCursor — monotonicity", () => {
   test("a smaller fraction does not move the cursor backward", () => {
     progress = { playedSeconds: 5, totalSeconds: 10 };
     const { result } = renderHook(() => useSpokenWordCursor(10));
-    pumpFrame();
+    raf.pumpFrame();
     expect(result.current).toBe(5);
 
     // Total grows faster than played (a new audio burst), dipping the ratio.
     progress = { playedSeconds: 6, totalSeconds: 20 };
-    pumpFrame();
+    raf.pumpFrame();
     expect(result.current).toBe(5);
   });
 
   test("progress flipping to null (barge-in flush) freezes the cursor", () => {
     progress = { playedSeconds: 5, totalSeconds: 10 };
     const { result } = renderHook(() => useSpokenWordCursor(10));
-    pumpFrame();
+    raf.pumpFrame();
     expect(result.current).toBe(5);
 
     progress = null;
-    pumpFrame();
-    pumpFrame();
+    raf.pumpFrame();
+    raf.pumpFrame();
     expect(result.current).toBe(5);
+  });
+});
+
+describe("useSpokenWordCursor — rate cap", () => {
+  test("a mapped candidate sweeping far ahead advances only by the played-audio budget", () => {
+    progress = { playedSeconds: 1, totalSeconds: 10 };
+    const { result } = renderHook(() => useSpokenWordCursor(50));
+    raf.pumpFrame();
+    // Adoption: floor(0.1 * 50) = 5.
+    expect(result.current).toBe(5);
+
+    // Near-underrun: played approaches total, so the fraction sweeps toward 1
+    // and the candidate lands near the end of the transcript
+    // (floor((1.5 / 1.6) * 50) = 46) while only 0.5s of audio actually
+    // played. Budget = 0.5 * 5 words/sec = 2 whole words.
+    progress = { playedSeconds: 1.5, totalSeconds: 1.6 };
+    raf.pumpFrame();
+    expect(result.current).toBe(7);
+  });
+
+  test("a normal speaking cadence is never rate-limited", () => {
+    // ~1 word per 0.4s of played audio (2.5 words/sec), under the cap.
+    progress = { playedSeconds: 0.4, totalSeconds: 4 };
+    const { result } = renderHook(() => useSpokenWordCursor(10));
+    raf.pumpFrame();
+    expect(result.current).toBe(1);
+
+    for (let step = 2; step <= 9; step += 1) {
+      progress = { playedSeconds: 0.4 * step, totalSeconds: 4 };
+      raf.pumpFrame();
+      expect(result.current).toBe(step);
+    }
+  });
+
+  test("the adoption jump is uncapped", () => {
+    const { result } = renderHook(() => useSpokenWordCursor(40));
+    raf.pumpFrame();
+    expect(result.current).toBeNull();
+
+    // Mid-response mount: the first usable frame syncs straight to the
+    // playhead, floor(0.8 * 40) = 32, with no budget accrued yet.
+    progress = { playedSeconds: 8, totalSeconds: 10 };
+    raf.pumpFrame();
+    expect(result.current).toBe(32);
   });
 });
 
 describe("useSpokenWordCursor — audio-less responses", () => {
   test("the cursor takes over once the response's first progress arrives", () => {
     const { result } = renderHook(() => useSpokenWordCursor(10));
-    pumpFrame();
+    raf.pumpFrame();
     expect(result.current).toBeNull();
 
     progress = { playedSeconds: 4, totalSeconds: 10 };
-    pumpFrame();
+    raf.pumpFrame();
     expect(result.current).toBe(4);
   });
 });
@@ -154,17 +214,17 @@ describe("useSpokenWordCursor — per-response reset", () => {
       ({ count }: { count: number }) => useSpokenWordCursor(count),
       { initialProps: { count: 10 } },
     );
-    pumpFrame();
+    raf.pumpFrame();
     expect(result.current).toBe(8);
 
     // New response: the transcript clears (shorter word list), progress resets.
     progress = null;
     rerender({ count: 3 });
-    pumpFrame();
+    raf.pumpFrame();
     expect(result.current).toBeNull();
 
     progress = { playedSeconds: 1, totalSeconds: 3 };
-    pumpFrame();
+    raf.pumpFrame();
     expect(result.current).toBe(1);
   });
 
@@ -174,12 +234,12 @@ describe("useSpokenWordCursor — per-response reset", () => {
       ({ count }: { count: number }) => useSpokenWordCursor(count),
       { initialProps: { count: 10 } },
     );
-    pumpFrame();
+    raf.pumpFrame();
     expect(result.current).toBe(5);
 
     progress = null;
     rerender({ count: 12 });
-    pumpFrame();
+    raf.pumpFrame();
     expect(result.current).toBe(5);
   });
 });
@@ -192,17 +252,17 @@ describe("useSpokenWordCursor — render economy and lifecycle", () => {
       renders += 1;
       return useSpokenWordCursor(10);
     });
-    pumpFrame();
+    raf.pumpFrame();
     expect(result.current).toBe(5);
     const rendersAfterFirstIndex = renders;
 
-    pumpFrame();
-    pumpFrame();
-    pumpFrame();
+    raf.pumpFrame();
+    raf.pumpFrame();
+    raf.pumpFrame();
     expect(renders).toBe(rendersAfterFirstIndex);
 
     progress = { playedSeconds: 6, totalSeconds: 10 };
-    pumpFrame();
+    raf.pumpFrame();
     expect(result.current).toBe(6);
     expect(renders).toBe(rendersAfterFirstIndex + 1);
   });
