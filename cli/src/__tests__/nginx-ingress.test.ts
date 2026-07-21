@@ -59,6 +59,13 @@ describe("buildIngressNginxConfig", () => {
     }
   });
 
+  test("emits relative redirects so a fronting proxy keeps scheme and port", () => {
+    for (const config of [conf, remoteConf]) {
+      expect(config).toContain("absolute_redirect off;");
+      expect(config).toContain("port_in_redirect off;");
+    }
+  });
+
   test("proxies requests to the gateway", () => {
     expect(conf).toContain("location / {");
     expect(conf).toContain("proxy_pass http://127.0.0.1:7830;");

@@ -230,6 +230,13 @@ http {
     listen 127.0.0.1:${opts.listenPort};
     client_max_body_size 512m;
 
+    # This edge sits behind a TLS-terminating front (tunnel or tailscale serve),
+    # so redirects must be relative: emit "Location: /assistant/" and let the
+    # client resolve it against the origin it used, rather than an absolute URL
+    # built from nginx's own loopback scheme and port.
+    absolute_redirect off;
+    port_in_redirect off;
+
 ${serverLocations}
   }
 }
