@@ -58,9 +58,12 @@ const CREATE_TABLE = /*sql*/ `
 /**
  * Create the `memory_jobs` table and its indexes on the memory connection.
  * Idempotent (`IF NOT EXISTS`) — the dedicated connection itself performs no DDL
- * on open, so this migration owns the schema.
+ * on open, so this migration owns the schema. Exported so later memory-DB
+ * migrations can self-heal a memory database that is missing the table (e.g. a
+ * vbundle import carries the main DB's migration bookkeeping but not
+ * `assistant-memory.db`, so this relocation never re-runs there).
  */
-function ensureMemoryJobsSchema(memoryRaw: Database): void {
+export function ensureMemoryJobsSchema(memoryRaw: Database): void {
   memoryRaw.exec(CREATE_TABLE);
   createIndexes(memoryRaw);
 }

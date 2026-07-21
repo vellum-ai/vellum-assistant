@@ -449,6 +449,7 @@ import { migrateMoveMemoryV3SelectionsToMemoryDb } from "./migrations/338-move-m
 import { migrateMoveActivationSessionsToMemoryDb } from "./migrations/339-move-activation-sessions-to-memory-db.js";
 import { migrateSweepOrphanedGraphNodeVectors } from "./migrations/340-sweep-orphaned-graph-node-vectors.js";
 import { migrateSweepCachelessGraphNodeVectors } from "./migrations/341-sweep-cacheless-graph-node-vectors.js";
+import { migrateEnsureRelocatedSideDbSchemas } from "./migrations/342-ensure-relocated-side-db-schemas.js";
 import type { MigrationStep } from "./migrations/run-migrations.js";
 
 export const migrationSteps: MigrationStep[] = [
@@ -1397,4 +1398,5 @@ export const migrationSteps: MigrationStep[] = [
   },
   migrateSweepOrphanedGraphNodeVectors,
   migrateSweepCachelessGraphNodeVectors,
+  migrateEnsureRelocatedSideDbSchemas,
 ];

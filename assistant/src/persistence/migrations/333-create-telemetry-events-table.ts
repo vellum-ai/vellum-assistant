@@ -25,6 +25,18 @@ export function migrateCreateTelemetryEventsTable(_mainDb: DrizzleDb): void {
     // fail-soft pattern of the other dedicated-DB migrations.
     raw = new Database(getTelemetryDbPath());
   }
+  ensureTelemetryEventsSchema(raw);
+}
+
+/**
+ * Create the `telemetry_events` table and its indexes on the telemetry
+ * connection. Idempotent (`IF NOT EXISTS`) — the dedicated connection itself
+ * performs no DDL on open, so this migration owns the schema. Exported so
+ * migration 342 can self-heal a telemetry database that is missing the table
+ * (e.g. a vbundle import carries the main DB's migration bookkeeping but not
+ * `assistant-telemetry.db`, so this migration never re-runs there).
+ */
+export function ensureTelemetryEventsSchema(raw: Database): void {
   raw.exec(/*sql*/ `
     CREATE TABLE IF NOT EXISTS telemetry_events (
       id TEXT PRIMARY KEY,
