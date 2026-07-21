@@ -21,6 +21,7 @@ import { dirname, join, resolve } from "node:path";
 const DEFAULTS_DIR = import.meta.dir;
 
 let cachedNames: readonly string[] | null = null;
+let cachedDirToManifest: ReadonlyMap<string, string> | null = null;
 
 /**
  * Names of every first-party default plugin (their `package.json` names,
@@ -51,6 +52,39 @@ export function getAllDefaultPluginNames(): readonly string[] {
     cachedNames = names.sort();
   }
   return cachedNames;
+}
+
+/**
+ * Manifest name (e.g. `default-platform-hosted`) for a default plugin's
+ * *directory* name (e.g. `platform-hosted`), or `null` when `<dirName>` is not
+ * a default plugin. Memoized alongside {@link getAllDefaultPluginNames}.
+ *
+ * Default-plugin `.disabled` sentinels are keyed by the manifest name (the CLI
+ * and bootstrap write `<workspace>/plugins/<manifest-name>/.disabled`), while a
+ * default plugin's route namespace is its directory name — this bridges the two
+ * so the disabled gate can be checked from a route path segment.
+ */
+export function getDefaultPluginManifestName(dirName: string): string | null {
+  if (cachedDirToManifest === null) {
+    const map = new Map<string, string>();
+    for (const entry of readdirSync(DEFAULTS_DIR, { withFileTypes: true })) {
+      if (!entry.isDirectory()) {
+        continue;
+      }
+      try {
+        const manifest = JSON.parse(
+          readFileSync(join(DEFAULTS_DIR, entry.name, "package.json"), "utf-8"),
+        ) as { name?: unknown };
+        if (typeof manifest.name === "string" && manifest.name.length > 0) {
+          map.set(entry.name, manifest.name);
+        }
+      } catch {
+        // A subdirectory without a readable package.json is not a plugin.
+      }
+    }
+    cachedDirToManifest = map;
+  }
+  return cachedDirToManifest.get(dirName) ?? null;
 }
 
 /**

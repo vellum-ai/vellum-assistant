@@ -15,6 +15,7 @@ import { dirname, join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 
 import {
+  getDefaultPluginManifestName,
   getDefaultPluginRouteRoots,
   getDefaultPluginRoutesDir,
 } from "../../../plugins/defaults/main.js";
@@ -29,6 +30,7 @@ import {
 } from "../user-route-resolution.js";
 
 const DEFAULT_PLUGIN = "platform-hosted";
+const DEFAULT_PLUGIN_MANIFEST = getDefaultPluginManifestName(DEFAULT_PLUGIN)!;
 
 function makeDispatcher(): UserRouteDispatcher {
   const context: UserRouteContext = {
@@ -56,10 +58,12 @@ function writeWorkspacePluginHandler(
 }
 
 afterEach(() => {
-  rmSync(join(getWorkspacePluginsDir(), DEFAULT_PLUGIN), {
-    recursive: true,
-    force: true,
-  });
+  for (const name of [DEFAULT_PLUGIN, DEFAULT_PLUGIN_MANIFEST]) {
+    rmSync(join(getWorkspacePluginsDir(), name), {
+      recursive: true,
+      force: true,
+    });
+  }
 });
 
 describe("default plugin route source resolution", () => {
@@ -102,6 +106,20 @@ describe("default plugin route source resolution", () => {
     const roots = listPluginRouteRoots();
     expect(roots.some((r) => r.pluginName === DEFAULT_PLUGIN)).toBe(true);
   });
+
+  test("does not advertise memory (its ROUTES modules live in src/, not routes/)", () => {
+    // memory's shared-table `RouteDefinition` modules are internal (registered
+    // into the /v1 table), not userland `/x/plugins/memory/*` handlers, so the
+    // source-tree fallback must not surface them.
+    expect(getDefaultPluginRoutesDir("memory")).not.toBeNull();
+    expect(existsSync(getDefaultPluginRoutesDir("memory")!)).toBe(false);
+    expect(
+      getDefaultPluginRouteRoots().some((r) => r.pluginName === "memory"),
+    ).toBe(false);
+    expect(listPluginRouteRoots().some((r) => r.pluginName === "memory")).toBe(
+      false,
+    );
+  });
 });
 
 describe("default plugin route dispatch", () => {
@@ -117,16 +135,19 @@ describe("default plugin route dispatch", () => {
     expect(response.headers.get("Allow")).toBe("POST");
   });
 
-  test("a disabled default plugin serves no routes (404)", async () => {
-    // The `.disabled` sentinel lives in the workspace plugins dir even for
-    // default plugins (the shared enabled/disabled source of truth).
-    const pluginDir = join(getWorkspacePluginsDir(), DEFAULT_PLUGIN);
+  test("honors the manifest-name .disabled sentinel (how the CLI keys defaults)", async () => {
+    // The CLI/bootstrap key default-plugin sentinels by manifest name
+    // (`default-platform-hosted`), not the route namespace (`platform-hosted`).
+    const pluginDir = join(getWorkspacePluginsDir(), DEFAULT_PLUGIN_MANIFEST);
     mkdirSync(pluginDir, { recursive: true });
     writeFileSync(join(pluginDir, ".disabled"), "");
 
     expect(
       resolveRouteLocation(`plugins/${DEFAULT_PLUGIN}/reengage`),
     ).toBeNull();
+    expect(
+      listPluginRouteRoots().some((r) => r.pluginName === DEFAULT_PLUGIN),
+    ).toBe(false);
 
     const dispatcher = makeDispatcher();
     const response = await dispatcher.dispatch(
@@ -136,6 +157,16 @@ describe("default plugin route dispatch", () => {
       }),
     );
     expect(response.status).toBe(404);
+  });
+
+  test("a namespace-name .disabled sentinel also disables the default", async () => {
+    const pluginDir = join(getWorkspacePluginsDir(), DEFAULT_PLUGIN);
+    mkdirSync(pluginDir, { recursive: true });
+    writeFileSync(join(pluginDir, ".disabled"), "");
+
+    expect(
+      resolveRouteLocation(`plugins/${DEFAULT_PLUGIN}/reengage`),
+    ).toBeNull();
   });
 
   test("an installed workspace plugin overrides the default of the same name", async () => {
