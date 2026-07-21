@@ -323,6 +323,28 @@ describe("BillingOnboardingModal", () => {
     expect(resizeCall).toBeNull();
   });
 
+  test("provisioning renders a full-bleed dark takeover; the domain step reverts to a standard card", async () => {
+    subscriptionPlanId = "pro";
+    assistantResponse = makeAssistant("large", 50);
+    const { getByText } = renderModal();
+
+    // Provisioning phase: full-bleed, dark-themed Modal.Content.
+    await waitFor(() => expect(getByText("Your plan is ready")).toBeTruthy(), {
+      timeout: 5000,
+    });
+    const takeover = document.body.querySelector('[data-slot="modal-content"]');
+    expect(takeover?.getAttribute("data-theme")).toBe("dark");
+    expect(takeover?.className).toContain("w-screen");
+
+    // Domain step: standard card — no dark theme, no full-bleed sizing.
+    await waitFor(() => expect(getByText("Assistant email")).toBeTruthy(), {
+      timeout: 5000,
+    });
+    const card = document.body.querySelector('[data-slot="modal-content"]');
+    expect(card?.getAttribute("data-theme")).toBeNull();
+    expect(card?.className).not.toContain("w-screen");
+  });
+
   test("stall surfaces Apply & Restart; a successful apply resumes resizing through DONE", async () => {
     subscriptionPlanId = "pro";
     const { client, getByText, getByTestId } = renderModal();

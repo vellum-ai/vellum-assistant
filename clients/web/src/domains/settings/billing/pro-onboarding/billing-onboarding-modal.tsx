@@ -8,6 +8,8 @@ import {
     readCheckoutIntent,
     type CheckoutIntent,
 } from "@/lib/billing/checkout-intent";
+import { isElectron } from "@/runtime/is-electron";
+import { cn } from "@/utils/misc";
 import { Modal } from "@vellumai/design-library/components/modal";
 import { toast } from "@vellumai/design-library/components/toast";
 
@@ -143,6 +145,15 @@ export function BillingOnboardingModal({
   // mid-provisioning. The explicit X (shown only here) is the deliberate exit.
   const isFirstCard = step === "provisioning";
 
+  // data-theme="dark" also themes Modal.Content's close button so it reads on
+  // the dark backdrop. In Electron the X clears the title-bar drag strip (a
+  // fixed z-100 band over the top 28px) so it stays clickable.
+  const provisioningContentClass = cn(
+    "overflow-hidden inset-0 max-w-none w-screen h-screen max-h-none rounded-none border-0",
+    "[&_[aria-label=Close]]:[-webkit-app-region:no-drag]",
+    isElectron() && "[&_[aria-label=Close]]:top-12",
+  );
+
   return (
     <Modal.Root open={open} onOpenChange={(o) => { if (!o) handleClose(); }}>
       <Modal.Content
@@ -151,9 +162,17 @@ export function BillingOnboardingModal({
         dismissOnOverlayClick={!isFirstCard}
         onEscapeKeyDown={isFirstCard ? (e) => e.preventDefault() : undefined}
         onInteractOutside={isFirstCard ? (e) => e.preventDefault() : undefined}
-        className="overflow-hidden"
+        data-theme={isFirstCard ? "dark" : undefined}
+        overlayClassName={isFirstCard ? "bg-black p-0" : undefined}
+        className={isFirstCard ? provisioningContentClass : "overflow-hidden"}
       >
-        {renderStep()}
+        {/* Keyed on step so the fade replays as we swap takeover ⇄ card. */}
+        <div
+          key={step}
+          className="flex min-h-0 flex-1 flex-col [animation:fadeIn_0.25s_ease-out_both] motion-reduce:[animation:none]"
+        >
+          {renderStep()}
+        </div>
       </Modal.Content>
     </Modal.Root>
   );

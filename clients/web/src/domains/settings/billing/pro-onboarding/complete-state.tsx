@@ -1,5 +1,3 @@
-import { PartyPopper } from "lucide-react";
-
 import { useNavigate } from "react-router";
 
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
@@ -8,8 +6,17 @@ import { Button } from "@vellumai/design-library/components/button";
 import { Notice } from "@vellumai/design-library/components/notice";
 
 import type { StalledApplyAction } from "./primitives";
-import { STALLED_UPGRADE_WARNING, StalledApplyControls } from "./primitives";
+import {
+  CreatureCorners,
+  STALLED_UPGRADE_WARNING,
+  StalledApplyControls,
+  WizardCardHeading,
+} from "./primitives";
 import { usePreferredOrActiveAssistant } from "./use-preferred-or-active-assistant";
+
+/** Shown while a backgrounded resize is still finishing; cleared once done. */
+const OFFLINE_WHILE_RESIZING =
+  "Assistant will go offline briefly while it resizes. Chat might not work during that time.";
 
 export function CompleteState({
   finishedInBackground = false,
@@ -29,83 +36,44 @@ export function CompleteState({
   const assistantName = assistant?.name || "your assistant";
 
   return (
-    <div className="relative flex min-h-[320px] flex-col items-center justify-center overflow-hidden px-8 text-center">
-      <div
-        className="pointer-events-none absolute inset-0"
-        style={{
-          background:
-            "radial-gradient(ellipse 60% 50% at 50% 38%, color-mix(in oklab, var(--system-positive-strong) 14%, transparent), transparent)",
-        }}
-        aria-hidden="true"
-      />
+    <div className="relative flex min-h-[320px] flex-col items-center overflow-hidden px-8 pb-10 [animation:onboarding-step-in_350ms_ease-out] motion-reduce:[animation:none]">
+      <CreatureCorners variant="full" />
 
-      <div className="relative mb-5 flex items-center justify-center [animation:welcome-reveal_600ms_ease-out_both] motion-reduce:[animation:none]">
-        <div
-          className="absolute h-24 w-24 rounded-full [animation:welcome-crown-glow_3s_ease-in-out_infinite] motion-reduce:[animation:none]"
-          style={{
-            background:
-              "radial-gradient(circle, color-mix(in oklab, var(--system-positive-strong) 18%, transparent), transparent 70%)",
-          }}
-          aria-hidden="true"
+      {/* `relative` lifts the content above the absolute creature layer. */}
+      <div className="relative flex w-full flex-col items-center">
+        <WizardCardHeading
+          title="You're all set!"
+          subtitle="Enjoy the new found power."
         />
-        <div
-          className="absolute h-16 w-16 rounded-full [animation:welcome-crown-glow_3s_ease-in-out_infinite_0.5s] motion-reduce:[animation:none]"
-          style={{
-            background:
-              "radial-gradient(circle, color-mix(in oklab, var(--system-positive-strong) 12%, transparent), transparent 70%)",
-          }}
-          aria-hidden="true"
-        />
-        <PartyPopper
-          className="relative h-8 w-8 text-[var(--system-positive-strong)]"
-          strokeWidth={1.5}
-          aria-hidden="true"
-        />
-      </div>
 
-      <h1
-        className="relative mb-2 text-[var(--content-emphasised)] [animation:welcome-reveal_600ms_ease-out_150ms_both] motion-reduce:[animation:none]"
-        style={{
-          fontFamily: "var(--font-serif)",
-          fontSize: "28px",
-          lineHeight: 1,
-          fontWeight: 400,
-        }}
-      >
-        You&apos;re all set
-      </h1>
+        <div className="mt-8 flex w-full flex-col items-center gap-4">
+          {stalledAction ? (
+            <div className="flex w-full flex-col items-center gap-2">
+              <Notice tone="warning" className="w-full text-left">
+                {STALLED_UPGRADE_WARNING}
+              </Notice>
+              <StalledApplyControls
+                action={stalledAction}
+                buttonVariant="outlined"
+                buttonTestId="complete-stalled-apply"
+              />
+            </div>
+          ) : (
+            finishedInBackground && (
+              <Notice tone="neutral" className="w-full text-left">
+                {OFFLINE_WHILE_RESIZING}
+              </Notice>
+            )
+          )}
 
-      <p className="relative mb-6 max-w-[320px] text-body-medium-lighter text-[var(--content-secondary)] [animation:welcome-reveal_600ms_ease-out_300ms_both] motion-reduce:[animation:none]">
-        Your assistant just got a serious upgrade.
-      </p>
-
-      {stalledAction ? (
-        <div className="relative -mt-4 mb-6 flex w-full flex-col items-center gap-2 [animation:welcome-reveal_600ms_ease-out_350ms_both] motion-reduce:[animation:none]">
-          <Notice tone="warning" className="w-full text-left">
-            {STALLED_UPGRADE_WARNING}
-          </Notice>
-          <StalledApplyControls
-            action={stalledAction}
-            buttonVariant="outlined"
-            buttonTestId="complete-stalled-apply"
-          />
+          <Button
+            variant="primary"
+            data-testid="onboarding-complete-return"
+            onClick={() => navigate(routes.assistant, { replace: true })}
+          >
+            Return to {assistantName}
+          </Button>
         </div>
-      ) : (
-        finishedInBackground && (
-          <p className="relative -mt-4 mb-6 max-w-[320px] text-body-small-default text-[var(--content-tertiary)] [animation:welcome-reveal_600ms_ease-out_350ms_both] motion-reduce:[animation:none]">
-            We&apos;re finishing your machine upgrade in the background.
-          </p>
-        )
-      )}
-
-      <div className="[animation:welcome-reveal_600ms_ease-out_450ms_both] motion-reduce:[animation:none]">
-        <Button
-          variant="primary"
-          data-testid="onboarding-complete-return"
-          onClick={() => navigate(routes.assistant, { replace: true })}
-        >
-          Return to {assistantName}
-        </Button>
       </div>
     </div>
   );
