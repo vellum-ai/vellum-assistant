@@ -805,16 +805,26 @@ describe("Slash popup — SSR rendering", () => {
 // mic affordances are in play.
 // ---------------------------------------------------------------------------
 
-/** Render the composer with the dictation voice props supplied. */
+/**
+ * Render the composer with the dictation voice props supplied.
+ *
+ * Also returns `rerenderWith`, which re-renders the same mounted instance with
+ * overridden props — used to simulate the user switching chats. The refs are
+ * hoisted so a re-render doesn't hand the composer fresh ones.
+ */
 function renderVoiceComposer(
   props: Partial<Parameters<typeof ChatComposer>[0]> & { input?: string } = {},
 ) {
   const { input = "", ...rest } = props;
   useComposerStore.setState({ input, attachments: [] });
-  return render(
+  const inputRef = createRef<HTMLTextAreaElement>();
+  const voiceInputRef = createRef<VoiceInputButtonHandle>();
+  const element = (
+    overrides: Partial<Parameters<typeof ChatComposer>[0]> = {},
+  ) => (
     <ChatComposer
       onSubmit={() => {}}
-      inputRef={createRef<HTMLTextAreaElement>()}
+      inputRef={inputRef}
       typingDisabled={false}
       sendDisabled={false}
       onAddAttachmentFiles={() => {}}
@@ -822,11 +832,18 @@ function renderVoiceComposer(
       isAssistantBusy={false}
       assistantId="asst_test"
       conversationId="conv_test"
-      voiceInputRef={createRef<VoiceInputButtonHandle>()}
+      voiceInputRef={voiceInputRef}
       onVoiceTranscript={() => {}}
       {...rest}
-    />,
+      {...overrides}
+    />
   );
+  const result = render(element());
+  return {
+    ...result,
+    rerenderWith: (overrides: Partial<Parameters<typeof ChatComposer>[0]>) =>
+      result.rerender(element(overrides)),
+  };
 }
 
 describe("ChatComposer — live-voice integration", () => {
@@ -947,6 +964,33 @@ describe("ChatComposer — live-voice integration", () => {
     // the WS-level handshake surfaces any real credential problem
     expect(liveStarterSpy).toHaveBeenCalledTimes(1);
     expect(liveStarterSpy).toHaveBeenCalledWith("asst_test", "conv_test");
+  });
+
+  test("switching chats mid-preflight drops the verdict instead of binding the room to the chat the user left", async () => {
+    // GIVEN the flag is on and a preflight that stays in flight until we say so
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockVoiceMode = true;
+    let resolvePreflight!: (verdict: LiveVoicePreflightVerdict | null) => void;
+    preflightSpy.mockImplementationOnce(
+      () =>
+        new Promise<LiveVoicePreflightVerdict | null>((resolve) => {
+          resolvePreflight = resolve;
+        }),
+    );
+
+    // WHEN the user starts voice, then navigates to another conversation
+    // before the verdict comes back
+    const { getByLabelText, rerenderWith } = renderVoiceComposer();
+    fireEvent.click(getByLabelText("Start voice mode"));
+    rerenderWith({ conversationId: "conv_other" });
+    resolvePreflight({ status: "ready" });
+    await flushPreflight();
+
+    // THEN the stale verdict is dropped — no room is opened, and critically it
+    // is not opened against `conv_test`, the chat the user already left
+    expect(preflightSpy).toHaveBeenCalledWith("asst_test");
+    expect(liveStarterSpy).not.toHaveBeenCalled();
+    expect(useLiveVoiceStore.getState().state).toBe("idle");
   });
 
   test("first-ever entry opens the prefs card instead of starting the session", () => {

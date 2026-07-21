@@ -350,6 +350,15 @@ export function ChatComposer({
   // race to start). A ref, not state — this must gate synchronously and never
   // trigger a re-render.
   const liveVoicePreflightPendingRef = useRef(false);
+  // Latest chat identity, re-read after the preflight await. The awaiting
+  // callback holds the assistant/conversation captured when it was created, so
+  // a user who switches chats (or leaves) mid-flight would otherwise resume and
+  // bind the room to the chat they left. Kept in a ref so the check sees the
+  // current render's values rather than the closure's.
+  const liveVoiceChatIdentityRef = useRef({ assistantId, conversationId });
+  useEffect(() => {
+    liveVoiceChatIdentityRef.current = { assistantId, conversationId };
+  }, [assistantId, conversationId]);
   const startLiveVoiceSession = useCallback(async () => {
     if (!assistantId || liveVoicePreflightPendingRef.current) {
       return;
@@ -365,6 +374,17 @@ export function ChatComposer({
       verdict = await preflightLiveVoice(assistantId);
     } finally {
       liveVoicePreflightPendingRef.current = false;
+    }
+    // The user may have moved to another chat while the POST was in flight.
+    // Drop the result entirely rather than opening a room bound to the chat
+    // they left — and skip the notice too, which would otherwise surface
+    // against whatever conversation they navigated to.
+    const latest = liveVoiceChatIdentityRef.current;
+    if (
+      latest.assistantId !== assistantId ||
+      latest.conversationId !== conversationId
+    ) {
+      return;
     }
     // Fail OPEN on a null verdict (preflight network/daemon error): a preflight
     // outage must not block voice entirely — proceed to `starter` and let the
