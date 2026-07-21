@@ -3980,9 +3980,12 @@ async function defaultSpawnBackgroundContinuation(args: {
 async function defaultResolveStreamingTranscriber(
   options: ResolveStreamingTranscriberOptions,
 ): Promise<StreamingTranscriber | null> {
+  const { resolveEffectiveSpeechProviders } =
+    await import("../config/managed-speech-defaults.js");
   const { resolveStreamingTranscriber } =
     await import("../providers/speech-to-text/resolve.js");
-  return resolveStreamingTranscriber(options);
+  const { stt } = await resolveEffectiveSpeechProviders();
+  return resolveStreamingTranscriber({ ...options, providerId: stt });
 }
 
 async function defaultResolveLiveVoiceCredentialReadiness(): Promise<LiveVoiceCredentialReadiness> {
