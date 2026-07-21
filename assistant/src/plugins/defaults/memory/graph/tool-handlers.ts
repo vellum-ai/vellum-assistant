@@ -22,6 +22,7 @@ import {
   recordNodeEdit,
   updateNode,
 } from "./store.js";
+import { type CapabilityKind, capabilityKind } from "./types.js";
 
 const log = getLogger("graph-tool-handlers");
 
@@ -376,6 +377,12 @@ export function handleUpdateMemory(
 export interface ListMemoryInput {
   search?: string;
   limit?: number;
+  /**
+   * Restrict results to auto-seeded capability nodes of a given flavor:
+   * `skill` (one node per enabled/catalog skill) or `cli` (one per CLI
+   * command). Omit to list every kind of node.
+   */
+  kind?: CapabilityKind;
 }
 
 export interface ListMemoryItem {
@@ -408,20 +415,26 @@ export function handleListMemory(
 
   const limit = Math.min(Math.max(1, input.limit ?? 50), 200);
   const search = input.search?.trim().toLowerCase();
+  const kind = input.kind;
 
-  // When searching, fetch all active nodes (no limit) so content filtering is
-  // exhaustive regardless of graph size. Without a limit the DB still orders by
-  // significance DESC, so the most relevant matches surface first after slicing.
+  // When a filter (search or kind) is active, fetch all active nodes (no
+  // limit) so filtering is exhaustive regardless of graph size — capability
+  // nodes carry only middling significance and would otherwise fall outside a
+  // significance-capped page. The DB still orders by significance DESC, so the
+  // most relevant matches surface first after slicing.
   const allNodes = queryNodes({
     fidelityNot: ["gone"],
-    ...(search ? {} : { limit }),
+    ...(search || kind ? {} : { limit }),
   });
 
-  const filtered = search
-    ? allNodes
-        .filter((n) => n.content.toLowerCase().includes(search))
-        .slice(0, limit)
-    : allNodes.slice(0, limit);
+  let matches = allNodes;
+  if (kind) {
+    matches = matches.filter((n) => capabilityKind(n) === kind);
+  }
+  if (search) {
+    matches = matches.filter((n) => n.content.toLowerCase().includes(search));
+  }
+  const filtered = matches.slice(0, limit);
 
   return {
     success: true,
