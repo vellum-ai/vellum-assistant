@@ -32,4 +32,9 @@ describe("tierRelation", () => {
   test("defaults to upgrade when current key is unknown", () => {
     expect(tierRelation("bogus", "super")).toBe("upgrade");
   });
+
+  test("defaults to upgrade when target key is unknown", () => {
+    expect(tierRelation("super", "enterprise")).toBe("upgrade");
+    expect(tierRelation("mighty", "bogus")).toBe("upgrade");
+  });
 });

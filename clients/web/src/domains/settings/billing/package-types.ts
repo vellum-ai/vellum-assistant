@@ -31,18 +31,25 @@ export type TierRelation = "current" | "downgrade" | "upgrade";
 
 /**
  * Classify a target tier relative to the user's current tier. When the current
- * tier is unknown (null, or an unrecognized key) every target defaults to
- * "upgrade", preserving base-user behavior.
+ * tier is unknown (null, or an unrecognized key), or the target tier is
+ * unrecognized, the result defaults to "upgrade", preserving base-user
+ * behavior and avoiding a false "downgrade" for keys this bundle doesn't know.
  */
 export function tierRelation(
   currentTierKey: string | null,
   targetKey: string,
 ): TierRelation {
-  if (currentTierKey === null) return "upgrade";
+  if (currentTierKey === null) {
+    return "upgrade";
+  }
   const current = packageRank(currentTierKey);
   const target = packageRank(targetKey);
-  if (current === -1) return "upgrade";
-  if (target === current) return "current";
+  if (current === -1 || target === -1) {
+    return "upgrade";
+  }
+  if (target === current) {
+    return "current";
+  }
   return target < current ? "downgrade" : "upgrade";
 }
 
