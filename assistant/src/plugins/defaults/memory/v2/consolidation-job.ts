@@ -18,7 +18,7 @@
  * run must not carry network egress or host-proxy tools.
  *
  * Lifecycle:
- *   1. Bail if `config.memory.enabled` or `config.memory.v2.enabled` is false
+ *   1. Bail if memory is disabled or concept-page memory is not active
  *      (the worker may have claimed a stale row from before memory was
  *      disabled).
  *   2. Acquire a single-process lock at `memory/.v2-state/consolidation.lock`
@@ -77,7 +77,10 @@ import {
 } from "node:fs";
 import { dirname, join } from "node:path";
 
-import { isMemoryV3Live } from "../../../../config/memory-v3-gate.js";
+import {
+  isMemoryV3Live,
+  usesConceptPageMemory,
+} from "../../../../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../../../../config/types.js";
 import {
   deleteMemoryCheckpoint,
@@ -324,8 +327,8 @@ export async function memoryV2ConsolidateJob(
     return { kind: "disabled" };
   }
 
-  if (!config.memory.v2.enabled) {
-    log.debug("memory.v2.enabled is false; consolidation skipped");
+  if (!usesConceptPageMemory(config.memory)) {
+    log.debug("concept-page memory is not active; consolidation skipped");
     return { kind: "disabled" };
   }
 

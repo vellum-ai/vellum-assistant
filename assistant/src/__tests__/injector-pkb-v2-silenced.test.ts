@@ -18,24 +18,32 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { setConfig } from "./helpers/set-config.js";
 
-let v2Active = false;
+let memoryState: {
+  enabled?: boolean;
+  v2: { enabled: boolean };
+  v3?: { live?: boolean };
+} = { v2: { enabled: false } };
 
 /**
- * Flip the v2 gate: seeds the workspace config for real (covering any
- * loader-based readers) and drives the mocked plugin accessor below.
+ * Set the memory gate state: seeds the workspace config for real (covering
+ * any loader-based readers) and drives the mocked plugin accessor below.
  */
-function setV2Active(enabled: boolean): void {
-  v2Active = enabled;
+function setMemoryState(state: typeof memoryState): void {
+  memoryState = state;
   setConfig("memory", {
-    v2: { enabled },
+    ...state,
     retrieval: { scratchpadInjection: { enabled: true } },
   });
+}
+
+function setV2Active(enabled: boolean): void {
+  setMemoryState({ v2: { enabled } });
 }
 
 // The PKB silencing gate reads the plugin's own config accessor.
 mock.module("../plugins/defaults/memory/config.js", () => ({
   getMemoryConfig: () => ({
-    v2: { enabled: v2Active },
+    ...memoryState,
     retrieval: { scratchpadInjection: { enabled: true } },
   }),
 }));
@@ -123,5 +131,27 @@ describe("PKB injector v2 cutover behavior", () => {
     expect(texts.some((t) => t.includes("<system_reminder>"))).toBe(false);
     expect(texts.some((t) => t.includes("<NOW.md"))).toBe(true);
     expect(texts).toContain("What next?");
+  });
+
+  test("v3 live with the v2 flag off → pkb-context and pkb-reminder silenced", async () => {
+    setMemoryState({ v2: { enabled: false }, v3: { live: true } });
+    const result = await applyRuntimeInjections(RUN_MESSAGES, {
+      ...makeTurnContext(),
+    });
+
+    const texts = tailTexts(result.messages);
+    expect(texts.some((t) => t.includes("<knowledge_base>"))).toBe(false);
+    expect(texts.some((t) => t.includes("<system_reminder>"))).toBe(false);
+  });
+
+  test("memory disabled → pkb-context and pkb-reminder stay silenced even with no engine active", async () => {
+    setMemoryState({ enabled: false, v2: { enabled: false } });
+    const result = await applyRuntimeInjections(RUN_MESSAGES, {
+      ...makeTurnContext(),
+    });
+
+    const texts = tailTexts(result.messages);
+    expect(texts.some((t) => t.includes("<knowledge_base>"))).toBe(false);
+    expect(texts.some((t) => t.includes("<system_reminder>"))).toBe(false);
   });
 });

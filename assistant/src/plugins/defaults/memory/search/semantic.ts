@@ -1,5 +1,6 @@
 import { inArray } from "drizzle-orm";
 
+import { usesConceptPageMemory } from "../../../../config/memory-v3-gate.js";
 import { getDb } from "../../../../persistence/db-connection.js";
 import { withQdrantBreaker } from "../../../../persistence/embeddings/qdrant-circuit-breaker.js";
 import type {
@@ -59,10 +60,11 @@ export async function semanticSearch(
 ): Promise<Candidate[]> {
   if (limit <= 0) return [];
 
-  // v2 owns the read path when enabled; the v1 `memory` collection is in
-  // active retirement, and routing semantic recall there would re-enter the
-  // same corrupted sparse segments that can OOM-crash Qdrant.
-  if (getMemoryConfig().v2.enabled) return [];
+  // Concept-page memory owns the read path when active; the v1 `memory`
+  // collection is in active retirement, and routing semantic recall there
+  // would re-enter the same corrupted sparse segments that can OOM-crash
+  // Qdrant.
+  if (usesConceptPageMemory(getMemoryConfig())) return [];
 
   const qdrant = getQdrantClient();
 

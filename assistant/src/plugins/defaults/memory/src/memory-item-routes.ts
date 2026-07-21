@@ -32,6 +32,7 @@ import {
 import { z } from "zod";
 
 import { getConfig } from "../../../../config/loader.js";
+import { usesConceptPageMemory } from "../../../../config/memory-v3-gate.js";
 import { getDb } from "../../../../persistence/db-connection.js";
 import {
   generateSparseEmbedding,
@@ -187,11 +188,11 @@ async function searchNodesSemantic(
 ): Promise<{ ids: string[]; total: number } | null> {
   try {
     const config = getConfig();
-    // v2 owns the read path when enabled. Fall back to SQL search (the
-    // caller's `null` branch) instead of querying the v1 collection, which
-    // is in active retirement and a corrupted sparse segment can OOM-crash
-    // the shared Qdrant process.
-    if (config.memory.v2.enabled) return null;
+    // Concept-page memory owns the read path when active. Fall back to SQL
+    // search (the caller's `null` branch) instead of querying the v1
+    // collection, which is in active retirement and a corrupted sparse
+    // segment can OOM-crash the shared Qdrant process.
+    if (usesConceptPageMemory(config.memory)) return null;
     const backendStatus = await getMemoryBackendStatus(config);
     if (!backendStatus.provider) return null;
 

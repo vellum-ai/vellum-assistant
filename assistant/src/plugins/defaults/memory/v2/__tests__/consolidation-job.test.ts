@@ -162,6 +162,13 @@ mock.module("../../../../../config/assistant-feature-flags.js", () => ({
 // `v3FlagOn` for the existing on/off tests).
 mock.module("../../../../../config/memory-v3-gate.js", () => ({
   isMemoryV3Live: () => flagStates["memory-v3-live"] ?? v3FlagOn,
+  usesConceptPageMemory: (memory?: {
+    enabled?: boolean;
+    v2?: { enabled?: boolean };
+    v3?: { live?: boolean };
+  }) =>
+    memory?.enabled !== false &&
+    (memory?.v3?.live === true || memory?.v2?.enabled === true),
 }));
 
 // ── Workspace pin ───────────────────────────────────────────────────
