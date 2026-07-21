@@ -2,9 +2,9 @@
  * Tests for `VoiceFirstRunCard`.
  *
  * The card is exercised in isolation: `onStart` is a spy, and the assistant
- * avatar / BYOK-form dependencies are stubbed so the card renders without the
- * React Query graph — they are chrome around the card's own behavior, and each
- * has its own tests.
+ * avatar / provider-form dependencies are stubbed so the card renders without
+ * the React Query graph — they are chrome around the card's own behavior, and
+ * each has its own tests.
  *
  * Load-bearing behavior:
  *   - the card renders on first run and does NOT start on its own,
@@ -13,7 +13,7 @@
  *   - "Start" invokes the caller's `onStart`; wiring that `onStart` to
  *     `markFirstRunSeen` (as the composer does) consumes the first run so a
  *     second entry would skip the card,
- *   - the bring-your-own-key detour is a VIEW of this one modal, not a modal
+ *   - the voice-settings detour is a VIEW of this one modal, not a modal
  *     stacked on it, and returns to the intro.
  */
 import { useEffect } from "react";
@@ -34,8 +34,8 @@ mock.module("@/hooks/use-assistant-avatar", () => ({
   }),
 }));
 
-// The BYOK forms own the daemon config/credential graph and are covered by the
-// settings-page tests. Here they stand in as save handles: each publishes a
+// The provider forms own the daemon config/credential graph and are covered by
+// the settings-page tests. Here they stand in as save handles: each publishes a
 // dirty flag and a `save` the card's single footer button has to drive, which
 // is what's under test.
 type StubFormProps = {
@@ -86,7 +86,16 @@ const { VoiceFirstRunCard } = await import(
   "@/domains/chat/voice/voice-room/voice-first-run-card"
 );
 
-const BYOK_LINK = "I have my own STT/TTS API key";
+const SETTINGS_LINK = "Voice settings";
+
+/**
+ * The dialog's current title. The settings view shares its copy with the footer
+ * link, so assertions read the heading rather than matching text anywhere —
+ * otherwise the link alone would satisfy them.
+ */
+function dialogTitle(): string {
+  return document.querySelector('[data-slot="modal-title"]')?.textContent ?? "";
+}
 
 afterEach(cleanup);
 beforeEach(() => {
@@ -173,15 +182,15 @@ describe("VoiceFirstRunCard", () => {
     expect(getByText("Start talking")).toBeTruthy();
   });
 
-  describe("bring-your-own-key view", () => {
-    test("the link opens the key view in place — one dialog, no stack", () => {
+  describe("voice settings view", () => {
+    test("the link opens the settings view in place — one dialog, no stack", () => {
       const { getByText, queryByText, baseElement } = render(
         <VoiceFirstRunCard assistantId="asst_test" onStart={() => {}} />,
       );
 
-      fireEvent.click(getByText(BYOK_LINK));
+      fireEvent.click(getByText(SETTINGS_LINK));
 
-      expect(getByText("Use your own API keys")).toBeTruthy();
+      expect(dialogTitle()).toBe("Voice settings");
       // Section copy matches Settings → Services so the two read as one.
       expect(getByText("Text-to-Speech")).toBeTruthy();
       expect(getByText("Configure how your assistant speaks")).toBeTruthy();
@@ -201,7 +210,7 @@ describe("VoiceFirstRunCard", () => {
         <VoiceFirstRunCard assistantId="asst_test" onStart={onStart} />,
       );
 
-      fireEvent.click(getByText(BYOK_LINK));
+      fireEvent.click(getByText(SETTINGS_LINK));
       fireEvent.click(getByLabelText("Back"));
 
       expect(getByText("Start talking")).toBeTruthy();
@@ -216,7 +225,7 @@ describe("VoiceFirstRunCard", () => {
         <VoiceFirstRunCard assistantId="asst_test" onStart={() => {}} />,
       );
 
-      fireEvent.click(getByText(BYOK_LINK));
+      fireEvent.click(getByText(SETTINGS_LINK));
       await act(async () => {
         fireEvent.click(getByText("Save"));
       });
@@ -231,7 +240,7 @@ describe("VoiceFirstRunCard", () => {
         <VoiceFirstRunCard assistantId="asst_test" onStart={() => {}} />,
       );
 
-      fireEvent.click(getByText(BYOK_LINK));
+      fireEvent.click(getByText(SETTINGS_LINK));
       await act(async () => {
         fireEvent.click(getByText("Save"));
       });
@@ -245,11 +254,11 @@ describe("VoiceFirstRunCard", () => {
         <VoiceFirstRunCard assistantId="asst_test" onStart={() => {}} />,
       );
 
-      fireEvent.click(getByText(BYOK_LINK));
+      fireEvent.click(getByText(SETTINGS_LINK));
       expect((getByText("Save") as HTMLButtonElement).disabled).toBe(true);
     });
 
-    test("a failed save keeps the user on the key view", async () => {
+    test("a failed save keeps the user on the settings view", async () => {
       // The typed key has to stay on screen with its failure toast, not
       // vanish behind the intro.
       formState.tts = { dirty: true, saveOk: false };
@@ -257,12 +266,12 @@ describe("VoiceFirstRunCard", () => {
         <VoiceFirstRunCard assistantId="asst_test" onStart={() => {}} />,
       );
 
-      fireEvent.click(getByText(BYOK_LINK));
+      fireEvent.click(getByText(SETTINGS_LINK));
       await act(async () => {
         fireEvent.click(getByText("Save"));
       });
 
-      expect(getByText("Use your own API keys")).toBeTruthy();
+      expect(dialogTitle()).toBe("Voice settings");
       expect(queryByText("Start talking")).toBeNull();
     });
 
@@ -277,8 +286,8 @@ describe("VoiceFirstRunCard", () => {
         />,
       );
 
-      fireEvent.click(getByText(BYOK_LINK));
-      expect(getByText("Use your own API keys")).toBeTruthy();
+      fireEvent.click(getByText(SETTINGS_LINK));
+      expect(dialogTitle()).toBe("Voice settings");
       fireEvent.click(getByLabelText("Back"));
       expect(getByText("Start talking")).toBeTruthy();
     });

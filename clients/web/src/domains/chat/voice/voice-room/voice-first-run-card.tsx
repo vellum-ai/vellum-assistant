@@ -1,6 +1,6 @@
 import { type ReactNode, useState } from "react";
 
-import { ArrowLeft, AudioLines, Captions, MicOff } from "lucide-react";
+import { ArrowLeft, AudioLines, Captions, MicOff, Settings } from "lucide-react";
 
 import { cn } from "@vellumai/design-library";
 import { Button } from "@vellumai/design-library/components/button";
@@ -24,13 +24,15 @@ import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
  * before the user has ever experienced voice mode is the wrong moment. The card
  * just sets expectations and starts.
  *
- * The one exception is bringing your own STT/TTS key: a quiet link in the
- * footer for users who would rather run voice on their own providers than the
- * managed ones. It has to live here because it gates whether voice works at
- * all. Quiet by design — managed is the path nearly everyone should take.
+ * The one exception is the voice settings behind the footer link: the speech
+ * providers, the assistant's voice, and API keys for users running voice on
+ * their own providers. It lives here because it gates whether voice works at
+ * all. The label names a destination rather than an action — the defaults work
+ * untouched, and a link reading like a task would imply setup is owed. Quiet by
+ * design so it never competes with "Start talking".
  *
- * That key entry is a **view within this one modal**, not a modal stacked on
- * it: entering it swaps the card's header, body, and footer, and a back arrow
+ * Those settings are a **view within this one modal**, not a modal stacked on
+ * it: entering swaps the card's header, body, and footer, and a back arrow
  * returns to the intro. Width is held constant across views so navigating
  * doesn't resize the dialog under the cursor.
  *
@@ -56,10 +58,10 @@ import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 const AVATAR_SIZE = 44;
 
 /**
- * Which view the card is showing: the welcome content, or the optional key
- * entry reached from it.
+ * Which view the card is showing: the welcome content, or the optional voice
+ * settings reached from it.
  */
-type FirstRunView = "intro" | "byok";
+type FirstRunView = "intro" | "settings";
 
 export interface VoiceFirstRunCardProps {
   /** Assistant whose avatar anchors the card; `null` renders the "V" fallback. */
@@ -162,7 +164,7 @@ export function VoiceFirstRunCard({
                   />
                 </span>
                 <div className="flex min-w-0 flex-col">
-                  <Modal.Title>Voice mode</Modal.Title>
+                  <Modal.Title className="leading-tight">Voice mode</Modal.Title>
                   <Modal.Description>
                     A hands-free, spoken conversation with{" "}
                     {assistantName ?? "your assistant"}.
@@ -205,15 +207,19 @@ export function VoiceFirstRunCard({
               </ul>
             </Modal.Body>
             <Modal.Footer className="items-center justify-between">
-              {/* Quiet by design: managed speech is the path nearly everyone
-                  should take, so this reads as an escape hatch, not an
-                  alternative of equal weight. */}
+              {/* A destination, not a task: the defaults work, so this names
+                  a place to change them rather than asking for setup. The gear
+                  is the same control the voice room uses for its in-session
+                  settings, so the card previews the affordance the user meets
+                  a moment later. Quiet by design — it must not compete with
+                  "Start talking". */}
               <button
                 type="button"
-                onClick={() => setView("byok")}
-                className="cursor-pointer rounded text-left text-label-small-default text-[var(--content-tertiary)] underline-offset-2 transition-colors hover:text-[var(--content-secondary)] hover:underline"
+                onClick={() => setView("settings")}
+                className="flex cursor-pointer items-center gap-1.5 rounded text-left text-label-small-default text-[var(--content-tertiary)] underline-offset-2 transition-colors hover:text-[var(--content-secondary)]"
               >
-                I have my own STT/TTS API key
+                <Settings aria-hidden className="size-3.5 shrink-0" />
+                <span className="hover:underline">Voice settings</span>
               </button>
               <Button variant="primary" onClick={onStart}>
                 Start talking
@@ -222,12 +228,12 @@ export function VoiceFirstRunCard({
           </>
         )}
 
-        {view === "byok" && (
+        {view === "settings" && (
           <>
             <Modal.Header>
               <div className="flex items-center gap-2">
                 <BackButton onClick={backToIntro} />
-                <Modal.Title>Use your own API keys</Modal.Title>
+                <Modal.Title className="leading-tight">Voice settings</Modal.Title>
               </div>
             </Modal.Header>
             <Modal.Body className="space-y-6">
@@ -275,9 +281,11 @@ export function VoiceFirstRunCard({
 }
 
 /**
- * One titled provider block in the key-entry view — the modal-scale echo of a
+ * One titled provider block in the settings view — the modal-scale echo of a
  * Settings → Services card, sharing its title and subtitle copy so the two
- * surfaces read as one. `divided` rules off the block from the one above it.
+ * surfaces read as one. The subtitle sits on the title's line behind a rule,
+ * keeping each block one row tall so both services fit without scrolling.
+ * `divided` rules off the block from the one above it.
  */
 function ProviderSection({
   title,
@@ -297,10 +305,15 @@ function ProviderSection({
         divided && "border-t border-[var(--border-subtle)] pt-5",
       )}
     >
-      <div className="flex flex-col gap-0.5">
+      {/* Wraps rather than truncates: the subtitle dropping to its own line on
+          a narrow viewport is better than losing the end of the sentence. */}
+      <div className="flex flex-wrap items-baseline gap-x-2">
         <h3 className="text-body-medium-default text-[var(--content-emphasised)]">
           {title}
         </h3>
+        <span aria-hidden className="text-[var(--content-quiet)]">
+          |
+        </span>
         <p className="text-label-small-default text-[var(--content-tertiary)]">
           {subtitle}
         </p>
