@@ -2,11 +2,11 @@ import type { CSSProperties } from "react";
 import type { LucideIcon } from "lucide-react";
 import { ArrowRight } from "lucide-react";
 
-import type { ButtonVariant } from "@vellumai/design-library/components/button";
 import { Button } from "@vellumai/design-library/components/button";
 import { Notice } from "@vellumai/design-library/components/notice";
 
 import { AvatarRenderer } from "@/components/avatar-renderer";
+import { cn } from "@/utils/misc";
 import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
 
 import { extractOnboardingErrorMessage } from "./utils";
@@ -19,25 +19,29 @@ export interface StalledApplyAction {
 }
 
 /** Warning shown when a backgrounded resize stalls mid-wizard. */
-export const STALLED_UPGRADE_WARNING =
+const STALLED_UPGRADE_WARNING =
   "We couldn't finish your machine upgrade automatically. Apply it now to finish — your assistant will briefly restart.";
 
 /**
- * Error notice + Apply & Restart button for recovering a stalled resize.
- * Shared by the provisioning screen, the complete screen, and the domain
- * step so the recovery affordance can't drift between them.
+ * Warning notice + Apply & Restart button for recovering a stalled resize.
+ * Shared by the complete screen and the domain step so the recovery affordance
+ * can't drift between them. (The dark provisioning takeover renders its own
+ * inline button by design.)
  */
 export function StalledApplyControls({
   action,
-  buttonVariant = "primary",
   buttonTestId,
+  className,
 }: {
   action: StalledApplyAction;
-  buttonVariant?: ButtonVariant;
   buttonTestId: string;
+  className?: string;
 }) {
   return (
-    <>
+    <div className={cn("flex flex-col items-center gap-2", className)}>
+      <Notice tone="warning" className="w-full text-left">
+        {STALLED_UPGRADE_WARNING}
+      </Notice>
       {action.error != null && (
         <Notice tone="error" className="w-full text-left">
           {extractOnboardingErrorMessage(
@@ -47,40 +51,29 @@ export function StalledApplyControls({
         </Notice>
       )}
       <Button
-        variant={buttonVariant}
+        variant="outlined"
         data-testid={buttonTestId}
         disabled={action.pending}
         onClick={action.onApply}
       >
         Apply &amp; Restart
       </Button>
-    </>
+    </div>
   );
 }
 
-export function IconBadge({
-  icon: Icon,
-  tone = "positive",
-}: {
-  icon: LucideIcon;
-  tone?: "positive" | "negative" | "warning";
-}) {
-  const toneVar =
-    tone === "positive"
-      ? "--system-positive-strong"
-      : tone === "warning"
-        ? "--system-mid-strong"
-        : "--system-negative-strong";
+export function IconBadge({ icon: Icon }: { icon: LucideIcon }) {
   return (
     <span
       className="flex h-11 w-11 items-center justify-center rounded-full"
       style={{
-        backgroundColor: `color-mix(in oklab, var(${toneVar}) 12%, transparent)`,
+        backgroundColor:
+          "color-mix(in oklab, var(--system-negative-strong) 12%, transparent)",
       }}
     >
       <Icon
         className="h-5 w-5"
-        style={{ color: `var(${toneVar})` }}
+        style={{ color: "var(--system-negative-strong)" }}
         aria-hidden="true"
       />
     </span>
