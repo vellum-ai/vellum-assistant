@@ -4,7 +4,10 @@ import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "../../prompts/cache-boundary.js";
 import { isAbortReason } from "../../util/abort-reasons.js";
 import { ProviderError, type ProviderErrorReason } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
-import { INSUFFICIENT_CREDITS_PATTERNS } from "../../util/provider-error-patterns.js";
+import {
+  DAILY_LIMIT_PATTERNS,
+  INSUFFICIENT_CREDITS_PATTERNS,
+} from "../../util/provider-error-patterns.js";
 import { extractRetryAfterMs } from "../../util/retry.js";
 import { stripOrphanedSurrogatesDeep } from "../../util/unicode.js";
 import { base64Source, resolveMediaReferences } from "../media-resolve.js";
@@ -120,6 +123,11 @@ export function deriveAnthropicReason(
   const status = error.status;
   const haystack = `${apiType ?? ""} ${error.message ?? ""}`;
 
+  // The managed proxy's daily-limit 402 shares the status with generic credit
+  // exhaustion; match its specific body code first so it isn't swallowed.
+  if (DAILY_LIMIT_PATTERNS.some((re) => re.test(haystack))) {
+    return "daily_limit_reached";
+  }
   if (
     status === 402 ||
     INSUFFICIENT_CREDITS_PATTERNS.some((re) => re.test(haystack)) ||

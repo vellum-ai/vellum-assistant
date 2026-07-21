@@ -45,6 +45,17 @@ describe("CSP_POLICY", () => {
     expect(scriptSrc).toContain("https://*.vellum.ai");
   });
 
+  test("media-src allows the hosted voice-preview sources", () => {
+    const mediaSrc = directiveValue("media-src")!;
+    // ElevenLabs premade previews are path-scoped to their public bucket
+    // so the rest of GCS stays blocked for media.
+    expect(mediaSrc).toContain(
+      "https://storage.googleapis.com/eleven-public-prod/",
+    );
+    expect(mediaSrc).toContain("https://static.deepgram.com/");
+    expect(mediaSrc).not.toContain("https://storage.googleapis.com ");
+  });
+
   test("object-src is 'none'", () => {
     expect(directiveValue("object-src")).toBe("'none'");
   });

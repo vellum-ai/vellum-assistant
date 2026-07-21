@@ -24,6 +24,7 @@ import {
   jpegFilenameFor,
   normalizeImageBase64,
   normalizeImageBytes,
+  sniffImageFileMimeType,
 } from "../util/image-conversion.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
@@ -612,6 +613,13 @@ export function uploadAttachmentFromBytes(
  *
  * The file stays on disk; the attachment row stores an empty dataBase64 and
  * records the on-disk path in the `file_path` column.
+ *
+ * A declared image MIME that disagrees with the file's magic bytes is
+ * corrected before the row is written. Callers here pass a MIME they were
+ * handed (a signal's attachment metadata, a tool's `mimeType` argument), which
+ * is ultimately extension-derived — and the stored value becomes the
+ * `media_type` on every replay of the message, so a wrong one makes the
+ * provider reject the conversation on every later turn.
  */
 export function uploadFileBackedAttachment(
   filename: string,
@@ -620,7 +628,9 @@ export function uploadFileBackedAttachment(
   sizeBytes: number,
 ): StoredAttachment & { filePath: string } {
   const now = Date.now();
-  const kind = classifyKind(mimeType);
+  const sniffed = sniffImageFileMimeType(filePath);
+  const storedMimeType = sniffed && sniffed !== mimeType ? sniffed : mimeType;
+  const kind = classifyKind(storedMimeType);
   const id = uuid();
   const db = getDb();
 
@@ -628,7 +638,7 @@ export function uploadFileBackedAttachment(
     .values({
       id,
       originalFilename: filename,
-      mimeType,
+      mimeType: storedMimeType,
       sizeBytes,
       kind,
       dataBase64: "",
@@ -647,7 +657,7 @@ export function uploadFileBackedAttachment(
   return {
     id,
     originalFilename: filename,
-    mimeType,
+    mimeType: storedMimeType,
     sizeBytes,
     kind,
     thumbnailBase64: null,

@@ -16,13 +16,24 @@
  * POST   /v1/conversations/:id/surface    — promote to / demote from Recents
  * POST   /v1/conversations/:id/cancel     — cancel generation
  * POST   /v1/conversations/:id/undo       — undo last message
+ * POST   /v1/conversations/:id/retry      — retry the last assistant turn
  * POST   /v1/conversations/reorder        — reorder / pin conversations
  */
 
+import { v7 as uuidv7 } from "uuid";
 import { z } from "zod";
 
 import { isUserCancellation } from "../../daemon/conversation-error.js";
-import { formatSummarizeUpToResult } from "../../daemon/conversation-process.js";
+import { touchConversation } from "../../daemon/conversation-evictor.js";
+import {
+  discardLastAssistantDisplayTurn,
+  extractUserPromptText,
+} from "../../daemon/conversation-history.js";
+import {
+  formatSummarizeUpToResult,
+  isBackgroundEventMetadata,
+  isEchoSuppressedUserMessage,
+} from "../../daemon/conversation-process.js";
 import { findConversation } from "../../daemon/conversation-registry.js";
 import {
   destroyActiveConversation,
@@ -58,15 +69,18 @@ import { enqueueMemoryJob } from "../../persistence/jobs-store.js";
 import { linkRequestLogsToMessage } from "../../persistence/llm-request-log-store.js";
 import { deleteSchedule } from "../../schedule/schedule-store.js";
 import { UserError } from "../../util/errors.js";
+import { safeParseRecord } from "../../util/json.js";
 import { getLogger } from "../../util/logger.js";
 import { silentlyWithLog } from "../../util/silently.js";
 import { broadcastMessage } from "../assistant-event-hub.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
+import { resolveActorPrincipalIdForLocalGuardian } from "../local-actor-identity.js";
 import { buildConversationDetailResponse } from "../services/conversation-serializer.js";
 import {
   publishConversationEnabledPluginsChanged,
   publishConversationListAndMetadataChanged,
   publishConversationListChanged,
+  publishConversationMessagesChanged,
   publishConversationTitleChanged,
 } from "../sync/resource-sync-events.js";
 import { persistCannedAssistantCard } from "./canned-message-complete.js";
@@ -77,9 +91,11 @@ import {
   ConflictError,
   InternalError,
   NotFoundError,
+  UnprocessableEntityError,
 } from "./errors.js";
 import { setInferenceProfileSession } from "./inference-profile-session-handler.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
+import { resolveVellumActorTrustContext } from "./vellum-actor-trust.js";
 
 const log = getLogger("conversation-management-routes");
 
@@ -620,6 +636,141 @@ async function handleUndoLastMessage({ pathParams = {} }: RouteHandlerArgs) {
   };
 }
 
+/**
+ * Retry the last assistant turn: permanently discard the latest assistant
+ * display turn, keep its anchoring user message, and re-run generation from
+ * that message. Accepted with 202; the regenerated turn streams over SSE
+ * exactly like a normal send (`assistant_activity_state` thinking →
+ * text/tool deltas → `message_complete`), and the discarded rows reach other
+ * clients through the `conversation:<id>:messages` sync invalidation.
+ */
+async function handleRetryLastAssistantTurn({
+  pathParams = {},
+  headers,
+}: RouteHandlerArgs) {
+  const rawId = pathParams.id!;
+  const conversationId = resolveConversationId(rawId) ?? rawId;
+  // Gate on DB existence first: `getOrCreateConversationInstance` would
+  // otherwise create a fresh conversation and mask the not-found case.
+  if (!getConversation(conversationId)) {
+    throw new NotFoundError(`Conversation ${rawId} not found`);
+  }
+  const conversation = await getOrCreateConversationInstance(conversationId);
+  touchConversation(conversationId);
+
+  // Bind the requesting actor's trust before the turn. A freshly hydrated
+  // conversation has no trust context, and `loadFromDb` under an unset
+  // context filters guardian-provenance history — the re-run would see an
+  // empty transcript.
+  const actorPrincipalId = headers?.["x-vellum-actor-principal-id"];
+  conversation.setTrustContext(
+    await resolveVellumActorTrustContext(actorPrincipalId, {
+      healResetDrift: true,
+    }),
+  );
+  conversation.currentTurnSourceActorPrincipalId =
+    await resolveActorPrincipalIdForLocalGuardian(actorPrincipalId);
+
+  // Synchronous check-then-claim (no await between them) so a concurrent
+  // request cannot slip past the busy gate. Everything through the tail
+  // deletion below is synchronous, so the claim can't be raced.
+  if (conversation.isProcessing()) {
+    throw new ConflictError(
+      "The assistant is currently responding — try again when it finishes",
+    );
+  }
+  conversation.setProcessing(true);
+
+  const requestId = uuidv7();
+  const abortController = new AbortController();
+  let discarded: ReturnType<typeof discardLastAssistantDisplayTurn>;
+  try {
+    conversation.currentRequestId = requestId;
+    // runAgentLoop requires a live controller; it is also what Stop signals.
+    conversation.abortController = abortController;
+    discarded = discardLastAssistantDisplayTurn(conversationId);
+    if (!discarded) {
+      throw new UnprocessableEntityError("No user message to retry from");
+    }
+  } catch (err) {
+    if (conversation.abortController === abortController) {
+      conversation.abortController = null;
+    }
+    conversation.currentRequestId = undefined;
+    conversation.setProcessing(false);
+    throw err;
+  }
+
+  if (discarded.deletedMessageIds.length > 0) {
+    // Published without an origin client id: the initiating client must
+    // reconcile too — it discovers the discarded tail the same way other
+    // clients do.
+    publishConversationMessagesChanged(conversationId);
+  }
+
+  const anchor = discarded.anchor;
+  const anchorMetadata = anchor.metadata
+    ? safeParseRecord(anchor.metadata)
+    : undefined;
+  // A machine-signal anchor (wake trigger, subagent/ACP notification, hidden
+  // send) re-runs as a hidden turn so it stays out of the titler, mirroring
+  // how the original turn ran.
+  const isHiddenPrompt = isEchoSuppressedUserMessage(anchorMetadata);
+  // Reproduce the anchor's original permission mode: a background-event turn
+  // ran non-interactively (trust-rule auto-resolution, not blocking prompts),
+  // so forcing interactive would stall a retried scheduled turn on approvals
+  // the original never asked for.
+  const isInteractive = !isBackgroundEventMetadata(anchorMetadata);
+  const contentText = extractUserPromptText(anchor.content);
+
+  // Fire-and-forget: return 202 immediately, stream the re-run over SSE. The
+  // loop's own teardown clears processing, publishes the metadata sync
+  // invalidation, and drains anything queued during the turn.
+  (async () => {
+    try {
+      conversation.emitActivityState("thinking", "message_dequeued", {
+        requestId,
+      });
+      // Unconditional resync of the in-memory history to the truncated DB
+      // state. `loadFromDb`'s tail-row rehydration leaves the anchor in
+      // exactly the "next turn re-injects fresh" shape the loop expects.
+      await conversation.loadFromDb();
+      await conversation.runAgentLoop(contentText, anchor.id, {
+        onEvent: broadcastMessage,
+        isUserMessage: true,
+        isInteractive,
+        ...(isHiddenPrompt ? { isHiddenPrompt: true } : {}),
+      });
+    } catch (err) {
+      log.error({ err, conversationId }, "Retry turn failed");
+      broadcastMessage({
+        type: "conversation_error",
+        conversationId,
+        code: "UNKNOWN",
+        userMessage: `Retry failed: ${err instanceof Error ? err.message : String(err)}`,
+        retryable: true,
+      });
+      // The loop's finally owns teardown once it starts; this guard covers
+      // a throw before that claim (e.g. loadFromDb). Identity-guarded: a
+      // newer turn may already own the controller field.
+      if (conversation.abortController === abortController) {
+        conversation.abortController = null;
+        conversation.setProcessing(false);
+        conversation.emitActivityState("idle", "error_terminal", {
+          requestId,
+        });
+      }
+    }
+  })();
+
+  return {
+    accepted: true as const,
+    conversationId,
+    userMessageId: anchor.id,
+    discardedCount: discarded.deletedMessageIds.length,
+  };
+}
+
 async function handleResolveMetaSlashCommand({
   pathParams = {},
   body = {},
@@ -1027,6 +1178,41 @@ export const ROUTES: RouteDefinition[] = [
       conversationId: z.string(),
     }),
     handler: handleUndoLastMessage,
+  },
+  {
+    operationId: "retryLastAssistantTurn",
+    endpoint: "conversations/:id/retry",
+    method: "POST",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Retry the last assistant turn",
+    description:
+      "Permanently discard the most recent assistant display turn (the assistant rows and " +
+      "tool-result rows after the last turn-starting user message), keep that user message, " +
+      "and re-run generation from it. Accepted immediately; the regenerated turn streams " +
+      "over SSE like a normal send.",
+    tags: ["conversations"],
+    pathParams: [{ name: "id", type: "uuid" }],
+    responseBody: z.object({
+      accepted: z.literal(true),
+      conversationId: z.string(),
+      userMessageId: z
+        .string()
+        .describe("The user message the turn is re-running from"),
+      discardedCount: z
+        .number()
+        .int()
+        .describe("Number of message rows discarded from the tail"),
+    }),
+    responseStatus: "202",
+    additionalResponses: {
+      "404": { description: "Conversation not found" },
+      "409": { description: "The assistant is currently responding" },
+      "422": { description: "No user message exists to retry from" },
+    },
+    handler: handleRetryLastAssistantTurn,
   },
   {
     operationId: "resolveConversationSlashCommand",

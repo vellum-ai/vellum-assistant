@@ -82,15 +82,27 @@ const log = getLogger("conversation-process");
  * skips their echo, and the persisted `hidden` metadata keeps them out of
  * the fetched transcript.
  */
-function isEchoSuppressedUserMessage(
+export function isEchoSuppressedUserMessage(
   metadata: Record<string, unknown> | undefined,
 ): boolean {
   return (
     isHiddenMessageMetadata(metadata) ||
     metadata?.subagentNotification != null ||
     metadata?.acpNotification != null ||
-    typeof metadata?.backgroundEventSource === "string"
+    isBackgroundEventMetadata(metadata)
   );
+}
+
+/**
+ * True when the row is a persisted `<background_event source="...">` trigger —
+ * every wake, scheduled run, and backgrounded-tool completion stamps one (see
+ * {@link persistWakeTriggerMessage}). Such turns are dispatched
+ * non-interactively (clientless/headless).
+ */
+export function isBackgroundEventMetadata(
+  metadata: Record<string, unknown> | undefined,
+): boolean {
+  return typeof metadata?.backgroundEventSource === "string";
 }
 
 /** Locale-formatted count for the user-facing context stats cards. */

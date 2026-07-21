@@ -31,6 +31,7 @@ export interface LatestTurnRowProps {
   ) => void;
   onForkConversation?: (messageId: string) => void;
   onSummarizeUpToHere?: (messageId: string) => void;
+  onRetryLatestTurn?: () => void;
   onInspectMessage?: (messageId: string) => void;
   renderOnboardingChoice?: () => ReactNode;
   onOpenRuleEditor?: (context: {
@@ -74,6 +75,7 @@ export const LatestTurnRow = memo(function LatestTurnRow({
   onSurfaceAction,
   onForkConversation,
   onSummarizeUpToHere,
+  onRetryLatestTurn,
   onInspectMessage,
   renderOnboardingChoice,
   onOpenRuleEditor,
@@ -112,6 +114,7 @@ export const LatestTurnRow = memo(function LatestTurnRow({
         onSurfaceAction={onSurfaceAction}
         onForkConversation={onForkConversation}
         onSummarizeUpToHere={onSummarizeUpToHere}
+        onRetryLatestTurn={onRetryLatestTurn}
         onInspectMessage={onInspectMessage}
         renderOnboardingChoice={renderOnboardingChoice}
         onOpenRuleEditor={onOpenRuleEditor}
@@ -137,6 +140,7 @@ export const LatestTurnRow = memo(function LatestTurnRow({
             onSurfaceAction={onSurfaceAction}
             onForkConversation={onForkConversation}
             onSummarizeUpToHere={onSummarizeUpToHere}
+            onRetryLatestTurn={onRetryLatestTurn}
             onInspectMessage={onInspectMessage}
             renderOnboardingChoice={renderOnboardingChoice}
             onOpenRuleEditor={onOpenRuleEditor}

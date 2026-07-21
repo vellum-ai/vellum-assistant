@@ -14,9 +14,14 @@ import {
 function makeConfig(
   memoryEnabled: boolean,
   v2Enabled: boolean,
+  v3Live = false,
 ): AssistantConfig {
   return {
-    memory: { enabled: memoryEnabled, v2: { enabled: v2Enabled } },
+    memory: {
+      enabled: memoryEnabled,
+      v2: { enabled: v2Enabled },
+      v3: { live: v3Live },
+    },
   } as AssistantConfig;
 }
 
@@ -40,6 +45,7 @@ describe("config-setting-snapshot", () => {
     expect(recordedPairs().sort()).toEqual([
       ["memory.enabled", "true"],
       ["memory.v2.enabled", "false"],
+      ["memory.v3.live", "false"],
     ]);
   });
 
@@ -48,7 +54,7 @@ describe("config-setting-snapshot", () => {
     recordConfigSettingSnapshot(makeConfig(true, true));
     recordConfigSettingSnapshot(makeConfig(true, true));
 
-    expect(recordedPairs()).toHaveLength(2);
+    expect(recordedPairs()).toHaveLength(3);
   });
 
   test("a changed value records only the changed key", () => {
@@ -58,6 +64,16 @@ describe("config-setting-snapshot", () => {
     recordConfigSettingSnapshot(makeConfig(true, false));
 
     expect(recordedPairs()).toEqual([["memory.v2.enabled", "false"]]);
+  });
+
+  test("memory.v3.live is tracked and its flip is captured", () => {
+    recordConfigSettingSnapshot(makeConfig(true, true, false));
+    expect(recordedPairs()).toContainEqual(["memory.v3.live", "false"]);
+    resetOutboxTable();
+
+    recordConfigSettingSnapshot(makeConfig(true, true, true));
+
+    expect(recordedPairs()).toEqual([["memory.v3.live", "true"]]);
   });
 
   test("unknown consent skips entirely — no rows, no memo", () => {
@@ -75,6 +91,7 @@ describe("config-setting-snapshot", () => {
     expect(recordedPairs().sort()).toEqual([
       ["memory.enabled", "true"],
       ["memory.v2.enabled", "false"],
+      ["memory.v3.live", "false"],
     ]);
   });
 
@@ -88,13 +105,13 @@ describe("config-setting-snapshot", () => {
     // once consent resolves).
     setShareAnalytics(true);
     recordConfigSettingSnapshot(makeConfig(true, true));
-    expect(recordedPairs()).toHaveLength(2);
+    expect(recordedPairs()).toHaveLength(3);
   });
 
   test("re-opt-in after an opt-out re-records the full snapshot", () => {
     // Recorded while opted in.
     recordConfigSettingSnapshot(makeConfig(true, true));
-    expect(recordedPairs()).toHaveLength(2);
+    expect(recordedPairs()).toHaveLength(3);
     resetOutboxTable();
 
     // Opt out: the reporter's opt-out flush discards any pending rows, so the
@@ -110,6 +127,7 @@ describe("config-setting-snapshot", () => {
     expect(recordedPairs().sort()).toEqual([
       ["memory.enabled", "true"],
       ["memory.v2.enabled", "true"],
+      ["memory.v3.live", "false"],
     ]);
   });
 

@@ -1,4 +1,12 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
 import { join } from "path";
 
 const TEST_HOME = "/test/home";
@@ -17,6 +25,13 @@ mock.module("os", () => ({
   ...realOs,
   homedir: () => TEST_HOME,
 }));
+
+// Restore the real `os` module once this file finishes so the `homedir()`
+// override does not leak into other test files in the same `bun test` run.
+afterAll(() => {
+  mock.module("node:os", () => realOs);
+  mock.module("os", () => realOs);
+});
 
 // Imports that depend on the mocked `os` module must come after the
 // mock.module() calls above.

@@ -33,10 +33,10 @@ export function ChatConversationHeader({
   onRename,
 }: ChatConversationHeaderProps) {
   if (!activeConversation) {
-    if (!assistantId) return null;
+    if (!assistantId) {return null;}
     return (
       <span className="text-sm font-medium text-[var(--content-default)]">
-        New conversation
+        New Chat
       </span>
     );
   }

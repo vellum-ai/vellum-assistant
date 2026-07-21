@@ -10,12 +10,17 @@
  * interval prevents that.
  */
 
-import { existsSync, unlinkSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 
 import { getConfig } from "../../../config/loader.js";
 import { rehydratePlatformCredentials } from "../../../config/platform-rehydration.js";
 import { resetDb } from "../../../persistence/db-connection.js";
+import { disableStreamSeqStamping } from "../../../runtime/assistant-stream-state.js";
 import { initializeTools } from "../../../tools/registry.js";
+import {
+  cleanupWorkerPidFile,
+  startWorkerPidFileGuard,
+} from "../../../util/worker-process.js";
 import { registerMemoryPluginJobHandlers } from "./job-handler-registration.js";
 import { startMemoryJobsWorkerLoop } from "./jobs-worker.js";
 import { getLogger } from "./logging.js";
@@ -23,18 +28,9 @@ import { getMemoryWorkerPidPath } from "./paths.js";
 
 const log = getLogger("memory-worker-process");
 
-function cleanupPidFile(): void {
-  const pidPath = getMemoryWorkerPidPath();
-  try {
-    if (existsSync(pidPath)) {
-      unlinkSync(pidPath);
-    }
-  } catch {
-    // best-effort
-  }
-}
-
 async function main(): Promise<void> {
+  // Only the daemon stamps SSE seqs and writes the shared reservation file.
+  disableStreamSeqStamping();
   const config = getConfig();
   const pidPath = getMemoryWorkerPidPath();
 
@@ -79,22 +75,41 @@ async function main(): Promise<void> {
     );
   }
 
-  const worker = startMemoryJobsWorkerLoop();
-
-  // Keep-alive: the worker's setTimeout timers are unref'd, so without
-  // this interval the process would exit immediately.
-  const keepAlive = setInterval(() => {}, 60_000);
-
+  let worker: ReturnType<typeof startMemoryJobsWorkerLoop> | null = null;
+  let keepAlive: ReturnType<typeof setInterval> | null = null;
+  let disposePidGuard: (() => void) | null = null;
   const shutdown = (signal: string) => {
     log.info({ signal }, "Memory worker process shutting down");
-    worker.stop();
-    clearInterval(keepAlive);
-    cleanupPidFile();
+    worker?.stop();
+    if (keepAlive != null) {
+      clearInterval(keepAlive);
+    }
+    disposePidGuard?.();
+    cleanupWorkerPidFile(pidPath);
     process.exit(0);
   };
 
   process.on("SIGTERM", () => shutdown("SIGTERM"));
   process.on("SIGINT", () => shutdown("SIGINT"));
+
+  // Arm the identity guard before the worker loop starts. Its on-arm check
+  // runs synchronously, so a worker superseded during startup runs shutdown()
+  // — which calls process.exit — here, before it dispatches any jobs.
+  disposePidGuard = startWorkerPidFileGuard(pidPath, {
+    onEvicted: (reason) => {
+      log.warn(
+        { reason },
+        "Evicted — the PID file no longer names this worker",
+      );
+      shutdown("pid-file-eviction");
+    },
+  });
+
+  worker = startMemoryJobsWorkerLoop();
+
+  // Keep-alive: the worker's setTimeout timers are unref'd, so without
+  // this interval the process would exit immediately.
+  keepAlive = setInterval(() => {}, 60_000);
 
   process.on("SIGUSR1", () => {
     log.info("Received SIGUSR1 — refreshing database connections");
@@ -108,25 +123,25 @@ async function main(): Promise<void> {
   // captured — but this gives us structured logging and graceful shutdown.
   process.on("uncaughtException", (err) => {
     log.error({ err }, "Uncaught exception in memory worker process");
-    cleanupPidFile();
+    cleanupWorkerPidFile(getMemoryWorkerPidPath());
     process.exit(1);
   });
 
   process.on("unhandledRejection", (reason) => {
     log.error({ reason }, "Unhandled rejection in memory worker process");
-    cleanupPidFile();
+    cleanupWorkerPidFile(getMemoryWorkerPidPath());
     process.exit(1);
   });
 
   // Clean up if the process exits unexpectedly through any other path.
   process.on("exit", () => {
-    worker.stop();
-    cleanupPidFile();
+    worker?.stop();
+    cleanupWorkerPidFile(getMemoryWorkerPidPath());
   });
 }
 
 void main().catch((err) => {
   log.error({ err }, "Memory worker process failed to start");
-  cleanupPidFile();
+  cleanupWorkerPidFile(getMemoryWorkerPidPath());
   process.exit(1);
 });

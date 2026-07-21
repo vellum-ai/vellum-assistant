@@ -30,11 +30,8 @@ import {
   LS_TTS_PROVIDER,
   LS_TTS_VOICE_ID_PREFIX,
 } from "@/domains/settings/ai/local-storage-keys";
-import {
-  DEFAULT_MANAGED_VOICE,
-  MANAGED_VOICE_SOURCE_LABELS,
-  MANAGED_VOICES,
-} from "@/domains/settings/ai/managed-voice-catalog";
+import { MANAGED_VOICE_SOURCE_LABELS } from "@/lib/tts/managed-voice-catalog";
+import { useManagedVoices } from "@/lib/tts/use-managed-voices";
 import { TTS_PROVIDERS } from "@/domains/settings/ai/provider-catalogs";
 
 /**
@@ -117,15 +114,24 @@ export function TextToSpeechCard() {
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  // Managed (Vellum) voice selection. Server value comes from daemon config;
-  // absent means the platform default voice.
+  // Managed (Vellum) voices, fetched live from the platform via the daemon so
+  // the offered list and default track the platform's rate card. Empty until
+  // loaded — the picker renders only from platform data.
+  const {
+    voices: managedVoices,
+    defaultModel: defaultManagedVoice,
+    fetched,
+  } = useManagedVoices(assistantId, { enabled: draftProvider === "vellum" });
+
+  // Managed voice selection. Server value comes from daemon config; absent
+  // means the platform default voice.
   const serverManagedVoice =
-    daemonTts?.providers?.vellum?.model ?? DEFAULT_MANAGED_VOICE;
+    daemonTts?.providers?.vellum?.model ?? defaultManagedVoice ?? "";
   const [draftManagedVoice, setDraftManagedVoice] =
     useDraftOverride(serverManagedVoice);
   const selectedManagedVoice =
-    MANAGED_VOICES.find((v) => v.model === draftManagedVoice) ??
-    MANAGED_VOICES[0]!;
+    managedVoices.find((v) => v.model === draftManagedVoice) ??
+    managedVoices[0];
 
   const selectedProvider = useMemo(() => {
     return providers.find((p) => p.id === draftProvider) ?? providers[0]!;
@@ -289,6 +295,9 @@ export function TextToSpeechCard() {
   // no billing, works before saving.
   const [previewing, setPreviewing] = useState(false);
   const handlePreviewVoice = useCallback(async () => {
+    if (!selectedManagedVoice) {
+      return;
+    }
     setPreviewing(true);
     try {
       const audio = new Audio(selectedManagedVoice.sampleUrl);
@@ -407,7 +416,7 @@ export function TextToSpeechCard() {
           </div>
         )}
 
-        {managedVoiceSupported && (
+        {managedVoiceSupported && selectedManagedVoice && (
           <div className="space-y-1">
             <label className="block text-body-small-default text-[var(--content-tertiary)]">
               Voice
@@ -415,17 +424,34 @@ export function TextToSpeechCard() {
             <Dropdown
               value={draftManagedVoice}
               onChange={setDraftManagedVoice}
-              options={MANAGED_VOICES.map((v) => ({
+              options={managedVoices.map((v) => ({
                 value: v.model,
-                label: `${v.label} — ${v.description}`,
+                label: `${v.label}${
+                  v.model === defaultManagedVoice ? " (default)" : ""
+                } — ${v.description}`,
+                // Voices come from different upstream providers; the badge
+                // makes the source visible while browsing, not only after
+                // selecting.
+                suffix: (
+                  <span className="text-body-small-default text-[var(--content-tertiary)]">
+                    {MANAGED_VOICE_SOURCE_LABELS[v.source] ?? v.source}
+                  </span>
+                ),
               }))}
               aria-label="Managed voice"
             />
             <p className="text-body-small-default text-[var(--content-tertiary)]">
               Voice by{" "}
-              {MANAGED_VOICE_SOURCE_LABELS[selectedManagedVoice.source]}
+              {MANAGED_VOICE_SOURCE_LABELS[selectedManagedVoice.source] ??
+                selectedManagedVoice.source}
             </p>
           </div>
+        )}
+        {/* Gated on `fetched` so the note never flashes while loading. */}
+        {managedVoiceSupported && fetched && !selectedManagedVoice && (
+          <p className="text-body-small-default text-[var(--content-tertiary)]">
+            No managed voices are currently available.
+          </p>
         )}
 
         {selectedProvider.supportsVoiceSelection && !isManaged && (
@@ -451,15 +477,19 @@ export function TextToSpeechCard() {
               {testing ? "Testing…" : "Test"}
             </Button>
           )}
-          {managedVoiceSupported && (
-            <Button
-              variant="outlined"
-              onClick={handlePreviewVoice}
-              disabled={previewing}
-            >
-              {previewing ? "Playing…" : "Preview voice"}
-            </Button>
-          )}
+          {managedVoiceSupported &&
+            selectedManagedVoice &&
+            // An empty sampleUrl means no hosted preview exists for this
+            // voice; a button that can only error is worse than none.
+            selectedManagedVoice.sampleUrl !== "" && (
+              <Button
+                variant="outlined"
+                onClick={handlePreviewVoice}
+                disabled={previewing}
+              >
+                {previewing ? "Playing…" : "Preview voice"}
+              </Button>
+            )}
           <div className="ml-auto flex items-center gap-2">
             <SaveButton onClick={handleSave} disabled={!hasChanges || saving} />
             {providerHasKey && !isManaged && (

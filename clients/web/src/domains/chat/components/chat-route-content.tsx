@@ -57,6 +57,7 @@ import { ComposerNotices } from "@/domains/chat/components/composer-notices";
 import { ComposerSettingsMenu } from "@/domains/chat/components/composer-settings-menu";
 import { ContextWindowIndicator } from "@/domains/chat/components/context-window-indicator";
 import { CreditsExhaustedBanner } from "@/domains/chat/components/credits-exhausted-banner";
+import { DailyLimitBanner } from "@/domains/chat/components/daily-limit-banner";
 import { MicPermissionPrimer } from "@/domains/chat/components/mic-permission-primer";
 import { OnboardingChoiceCard } from "@/domains/chat/components/onboarding-choice-card";
 import { ProviderBillingBanner } from "@/domains/chat/components/provider-billing-banner";
@@ -133,6 +134,8 @@ export interface ChatMainPanelProps {
   handleForkConversation: (throughMessageId: string) => Promise<void>;
   /** Opens the "Summarize up to here" confirm dialog for a message. */
   onSummarizeUpToHere?: (messageId: string) => void;
+  /** Opens the "Retry" confirm dialog for the latest assistant turn. */
+  onRetryLatestTurn?: () => void;
   handleInspectMessage?: (messageId: string) => void;
 
   // History pagination (from useConversationLoader in ActiveChatView)
@@ -214,6 +217,7 @@ export function ChatMainPanel({
   handleEditQueueTail,
   handleForkConversation,
   onSummarizeUpToHere,
+  onRetryLatestTurn,
   handleInspectMessage,
   historyPagination,
   diskPressure,
@@ -367,6 +371,10 @@ export function ChatMainPanel({
 
   const pushToAiSettings = useCallback(() => {
     void navigate(routes.settings.ai);
+  }, [navigate]);
+
+  const pushToBillingSettings = useCallback(() => {
+    void navigate(routes.settings.usageBilling);
   }, [navigate]);
 
   const checkAssistant = useCallback(() => lifecycleService.checkAssistant(), []);
@@ -894,6 +902,9 @@ export function ChatMainPanel({
     onAllowAndCreateRule: handleAllowAndCreateRule,
     onForkConversation: handleForkConversationCallback,
     onSummarizeUpToHere,
+    // Hidden while a turn is in flight: retrying mid-generation would 409,
+    // and the affordance targets the settled latest response.
+    onRetryLatestTurn: isAssistantBusy ? undefined : onRetryLatestTurn,
     onInspectMessage: handleInspectMessage,
     renderAvatar,
     onPullRefresh: handlePullRefresh,
@@ -972,7 +983,9 @@ export function ChatMainPanel({
           onOpenMicSettings={handleOpenMicSettings}
           onOpenTextInsertionSettings={handleOpenTextInsertionSettings}
           billingBannerSlot={
-            billingBannerDecision === "managed_credits" ? (
+            billingBannerDecision === "daily_limit" ? (
+              <DailyLimitBanner onAdjustLimit={pushToBillingSettings} />
+            ) : billingBannerDecision === "managed_credits" ? (
               <CreditsExhaustedBanner
                 onAddFunds={() => setShowAddCreditsModal(true)}
               />

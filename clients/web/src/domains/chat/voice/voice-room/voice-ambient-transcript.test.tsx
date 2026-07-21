@@ -6,7 +6,7 @@
  * selectors: transcript fields via the live-voice store, the two visibility
  * toggles via the voice-prefs store. The load-bearing contract is the
  * pref-gating — both prefs default OFF, so the room stays text-free — plus the
- * user-above / assistant-below ordering.
+ * user-before-assistant DOM ordering.
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
@@ -73,7 +73,7 @@ describe("VoiceAmbientTranscript — pref gating", () => {
     expect(assistantText()).toBeNull();
   });
 
-  test("shows the user text (above) only when showUserTranscript is ON", () => {
+  test("shows the user text only when showUserTranscript is ON", () => {
     seedUser("hello there");
     seedAssistant("hi, how can I help");
     setPrefs({ user: true, assistant: false });
@@ -82,7 +82,7 @@ describe("VoiceAmbientTranscript — pref gating", () => {
     expect(assistantText()).toBeNull();
   });
 
-  test("shows the assistant text (below) only when showAssistantTranscript is ON", () => {
+  test("shows the assistant text only when showAssistantTranscript is ON", () => {
     seedUser("hello there");
     seedAssistant("hi, how can I help");
     setPrefs({ user: false, assistant: true });
@@ -142,7 +142,7 @@ describe("VoiceAmbientTranscript — sourcing and ordering", () => {
     expect(userText()?.textContent).toContain("what I said");
   });
 
-  test("renders user ABOVE assistant (DOM order) when both are ON", () => {
+  test("renders user before assistant in DOM order when both are ON", () => {
     seedUser("my question");
     seedAssistant("my answer");
     setPrefs({ user: true, assistant: true });
@@ -156,6 +156,23 @@ describe("VoiceAmbientTranscript — sourcing and ordering", () => {
       user!.compareDocumentPosition(assistant!) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
+  });
+
+  test("user half renders a bubble tied to the room bubble-bg var", () => {
+    seedUser("hello there");
+    setPrefs({ user: true, assistant: false });
+    render(<VoiceAmbientTranscript />);
+    const bubble = screen.queryByTestId("voice-ambient-user-bubble");
+    expect(bubble).not.toBeNull();
+    expect(bubble!.getAttribute("style")).toContain("--room-bubble-bg");
+  });
+
+  test("assistant half is plain text with no bubble wrapper", () => {
+    seedAssistant("my answer");
+    setPrefs({ user: false, assistant: true });
+    render(<VoiceAmbientTranscript />);
+    expect(screen.queryByTestId("voice-ambient-user-bubble")).toBeNull();
+    expect(assistantText()?.textContent).toContain("my answer");
   });
 
   test("streams assistant deltas without remounting", () => {
