@@ -140,6 +140,11 @@ export function useProProvisioning({
   const [sawOperation, setSawOperation] = useState(false);
   const [actualsSnapshot, setActualsSnapshot] =
     useState<ProvisioningDimensions | null>(null);
+  // The assistant the frozen snapshot describes, so it can be re-captured when
+  // the provisioning target changes rather than mismatched against new actuals.
+  const [snapshotAssistantId, setSnapshotAssistantId] = useState<string | null>(
+    null,
+  );
   // Wall-clock time as React state so elapsed-time transitions (grace/stall)
   // re-derive between poll responses without impure Date.now() calls in render.
   const [now, setNow] = useState(() => Date.now());
@@ -157,6 +162,7 @@ export function useProProvisioning({
     setResumedAt(null);
     setSawOperation(false);
     setActualsSnapshot(null);
+    setSnapshotAssistantId(null);
     setTracking(true);
   }, [open]);
 
@@ -244,13 +250,21 @@ export function useProProvisioning({
       query.state.data?.id != null ? false : pollInterval,
     retry: false,
   });
+  // The post-confirm onboarding fetch has settled — neither the cold load nor
+  // the refetch from the on-open invalidation is in flight.
+  const onboardingSettled =
+    proConfirmed && !onboardingQuery.isPending && !onboardingQuery.isFetching;
+
   // The onboarding payload names the server-side provisioning target; it wins
-  // over the active assistant when the two diverge (multi-assistant orgs).
-  // The fallback waits for the onboarding fetch to settle so a slow payload
-  // can't briefly point the polls (and the actuals snapshot) at the wrong
-  // assistant.
+  // over the active assistant when the two diverge (multi-assistant orgs). On
+  // reopen the on-open invalidation refetches onboarding while react-query keeps
+  // serving the cached payload (isPending false, isFetching true), so a stale
+  // primary_assistant_id from a prior run must not be trusted until onboarding
+  // has freshly settled — until then fall back to the active assistant so a slow
+  // payload can't briefly point the polls (and the actuals snapshot) at the
+  // wrong assistant.
   const assistantId =
-    onboardingQuery.data?.primary_assistant_id ??
+    (onboardingSettled ? onboardingQuery.data?.primary_assistant_id : null) ??
     (onboardingQuery.isPending ? null : (activeAssistantQuery.data?.id ?? null));
 
   // Actuals must track the same assistant the wizard targets — under
@@ -301,10 +315,23 @@ export function useProProvisioning({
     };
   }, [assistant]);
 
+  const snapshotMatchesAssistant = snapshotAssistantId === assistantId;
+
+  // Freeze the first non-null actuals as the before/after "from" side, keyed to
+  // the assistant it describes. When assistantId changes (e.g. a stale primary
+  // corrected to the fresh one) the by-id assistant query re-keys, so re-capture
+  // the snapshot against the new assistant instead of keeping the previous
+  // one's value.
   useEffect(() => {
-    if (!open || !actuals) return;
-    setActualsSnapshot((prev) => prev ?? actuals);
-  }, [open, actuals]);
+    if (!open || !actuals) {
+      return;
+    }
+    if (actualsSnapshot != null && snapshotMatchesAssistant) {
+      return;
+    }
+    setActualsSnapshot(actuals);
+    setSnapshotAssistantId(assistantId);
+  }, [open, actuals, assistantId, actualsSnapshot, snapshotMatchesAssistant]);
 
   const watchStartedAt = resumedAt ?? proConfirmedAt;
   const msSinceWatchStart =
@@ -313,7 +340,9 @@ export function useProProvisioning({
     planId: proConfirmed ? "pro" : observedPlanId,
     targets,
     actuals,
-    initialActuals: actualsSnapshot,
+    // Only the "from" side captured against the current assistant is valid; a
+    // snapshot from a prior target must never drive the before/after verdict.
+    initialActuals: snapshotMatchesAssistant ? actualsSnapshot : null,
     resizeOperationInFlight,
     sawOperation,
     msSinceWatchStart,
@@ -341,8 +370,7 @@ export function useProProvisioning({
     actualsSnapshot,
     assistantId,
     domainSetupAvailable: onboarding?.domain_setup_available,
-    onboardingSettled:
-      proConfirmed && !onboardingQuery.isPending && !onboardingQuery.isFetching,
+    onboardingSettled,
     confirmError: !proConfirmed && subscriptionQuery.isError,
     // The onboarding endpoint is platform-side (not the restarting assistant
     // machine), so its failure is surfaced — but only when there's no cached
