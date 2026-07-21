@@ -127,12 +127,8 @@ export const fileMarkdownComponents: Components = {
       return (
         <code
           {...rest}
-          className={`block overflow-x-auto rounded p-3 font-mono text-body-small-default ${className ?? ""}`}
-          style={{
-            backgroundColor:
-              "color-mix(in oklab, var(--content-default) 8%, transparent)",
-            color: "var(--content-default)",
-          }}
+          className={`block w-max min-w-full font-mono text-body-small-default ${className ?? ""}`}
+          style={{ color: "var(--content-default)" }}
         >
           {children}
         </code>
