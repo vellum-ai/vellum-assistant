@@ -12,7 +12,10 @@ import { useEffect } from "react";
 import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
-import { organizationsBillingSubscriptionRetrieveQueryKey } from "@/generated/api/@tanstack/react-query.gen";
+import {
+  organizationsBillingSubscriptionOnboardingRetrieveQueryKey,
+  organizationsBillingSubscriptionRetrieveQueryKey,
+} from "@/generated/api/@tanstack/react-query.gen";
 import * as sdkGen from "@/generated/api/sdk.gen";
 import type {
   Assistant,
@@ -37,6 +40,19 @@ mock.module("./utils", () => ({
 const realDateNow = Date.now.bind(Date);
 let dateNowOffsetMs = 0;
 Date.now = () => realDateNow() + dateNowOffsetMs;
+
+interface Deferred {
+  promise: Promise<void>;
+  resolve: () => void;
+}
+
+function makeDeferred(): Deferred {
+  let resolve!: () => void;
+  const promise = new Promise<void>((r) => {
+    resolve = r;
+  });
+  return { promise, resolve };
+}
 
 function makeSubscription(
   planId: SubscriptionResponse["plan_id"],
@@ -97,6 +113,8 @@ let assistantsById: Record<string, Assistant> = {};
 let operationalStatusResponse = makeOperationalStatus("active");
 let assistantEndpointsFail = false;
 let onboardingFails = false;
+/** Holds the onboarding fetch in flight so isFetching can be observed. */
+let onboardingGate: Deferred | null = null;
 let assistantCalls = 0;
 let assistantByIdCalls = 0;
 let operationalStatusCalls = 0;
@@ -128,10 +146,15 @@ mock.module("@/generated/api/sdk.gen", () => ({
       response: { ok: true },
     });
   },
-  organizationsBillingSubscriptionOnboardingRetrieve: () =>
-    onboardingFails
-      ? Promise.reject(new Error("500 Internal Server Error"))
-      : Promise.resolve({ data: onboardingResponse, response: { ok: true } }),
+  organizationsBillingSubscriptionOnboardingRetrieve: async () => {
+    if (onboardingFails) {
+      throw new Error("500 Internal Server Error");
+    }
+    if (onboardingGate) {
+      await onboardingGate.promise;
+    }
+    return { data: onboardingResponse, response: { ok: true } };
+  },
   assistantsActiveRetrieve: () => {
     assistantCalls += 1;
     if (assistantEndpointsFail) {
@@ -218,6 +241,7 @@ beforeEach(() => {
   operationalStatusResponse = makeOperationalStatus("active");
   assistantEndpointsFail = false;
   onboardingFails = false;
+  onboardingGate = null;
   assistantCalls = 0;
   assistantByIdCalls = 0;
   operationalStatusCalls = 0;
@@ -545,6 +569,143 @@ describe("useProProvisioning", () => {
     await refetchAll(client);
     await waitFor(() => expect(latest!.state).toBe("DONE"), { timeout: 5000 });
   });
+
+  test(
+    "reopen with a stale cached onboarding primary tracks the fresh assistant, not the stale one",
+    async () => {
+      const client = makeClient();
+      // Hold the on-open onboarding refetch in flight so react-query keeps
+      // serving the stale cached payload (isFetching true, isPending false).
+      const gate = makeDeferred();
+      onboardingGate = gate;
+      // A prior wizard session cached onboarding naming assistant-A, which is
+      // already at the purchased targets — the trap the fence must avoid.
+      client.setQueryData(
+        organizationsBillingSubscriptionOnboardingRetrieveQueryKey(),
+        { ...makeOnboarding(), primary_assistant_id: "assistant-A" },
+        { updatedAt: realDateNow() - 60_000 },
+      );
+      subscriptionPlanId = "pro";
+      // The fresh payload names assistant-B, which is still below the targets.
+      onboardingResponse = {
+        ...makeOnboarding(),
+        primary_assistant_id: "assistant-B",
+      };
+      assistantResponse = {
+        ...makeAssistant("small", 10),
+        id: "assistant-active",
+      };
+      assistantsById["assistant-A"] = {
+        ...makeAssistant("large", 50),
+        id: "assistant-A",
+      };
+      assistantsById["assistant-B"] = {
+        ...makeAssistant("small", 10),
+        id: "assistant-B",
+      };
+      renderProbe(client);
+
+      // While the refetch is in flight the stale primary (assistant-A) must not
+      // drive the polls; the hook falls back to the active assistant and never
+      // latches assistant-A's already-at-target (NOT_APPLICABLE) verdict.
+      await waitFor(
+        () => expect(latest!.assistantId).toBe("assistant-active"),
+        { timeout: 5000 },
+      );
+      expect(latest!.state).toBe("WAITING");
+
+      // Release the refetch: the freshly-settled primary (B, below target) now
+      // drives the polls and freezes the snapshot against B.
+      await act(async () => {
+        gate.resolve();
+        await gate.promise;
+      });
+      await waitFor(() => expect(latest!.assistantId).toBe("assistant-B"), {
+        timeout: 5000,
+      });
+      await waitFor(
+        () =>
+          expect(latest!.actualsSnapshot).toEqual({
+            machineSize: "small",
+            storageGib: 10,
+          }),
+        { timeout: 5000 },
+      );
+      expect(latest!.state).toBe("WAITING");
+
+      // The resize lands on B: because the snapshot tracks B's below-target
+      // "from", the flow converges to DONE rather than NOT_APPLICABLE off A.
+      assistantsById["assistant-B"] = {
+        ...makeAssistant("large", 50),
+        id: "assistant-B",
+      };
+      await refetchAll(client);
+      await waitFor(() => expect(latest!.state).toBe("DONE"), {
+        timeout: 5000,
+      });
+    },
+    20_000,
+  );
+
+  test(
+    "assistantId changing mid-open re-captures the snapshot against the new assistant",
+    async () => {
+      subscriptionPlanId = "pro";
+      onboardingResponse = {
+        ...makeOnboarding(),
+        primary_assistant_id: "assistant-1",
+      };
+      // assistant-1 starts below the large/50 targets; assistant-2 is already
+      // fully provisioned before the wizard ever observes it.
+      assistantsById["assistant-1"] = {
+        ...makeAssistant("small", 10),
+        id: "assistant-1",
+      };
+      assistantsById["assistant-2"] = {
+        ...makeAssistant("large", 50),
+        id: "assistant-2",
+      };
+      const { client } = renderProbe();
+
+      await waitFor(() => expect(latest!.assistantId).toBe("assistant-1"), {
+        timeout: 5000,
+      });
+      await waitFor(
+        () =>
+          expect(latest!.actualsSnapshot).toEqual({
+            machineSize: "small",
+            storageGib: 10,
+          }),
+        { timeout: 5000 },
+      );
+      expect(latest!.state).toBe("WAITING");
+
+      // The fresh onboarding payload re-targets the wizard at assistant-2.
+      onboardingResponse = {
+        ...makeOnboarding(),
+        primary_assistant_id: "assistant-2",
+      };
+      await refetchAll(client);
+      await waitFor(() => expect(latest!.assistantId).toBe("assistant-2"), {
+        timeout: 5000,
+      });
+
+      // The "from" snapshot re-keys to assistant-2's own actuals. A stale
+      // assistant-1 snapshot ({small,10}) would make an already-provisioned
+      // assistant-2 look freshly resized (DONE); tracking the correct "from"
+      // reads it as NOT_APPLICABLE.
+      await waitFor(
+        () =>
+          expect(latest!.actualsSnapshot).toEqual({
+            machineSize: "large",
+            storageGib: 50,
+          }),
+        { timeout: 5000 },
+      );
+      expect(latest!.state).toBe("NOT_APPLICABLE");
+    },
+    20_000,
+  );
 
   test("unknown machine tier from a newer backend yields no machine target", async () => {
     subscriptionPlanId = "pro";
