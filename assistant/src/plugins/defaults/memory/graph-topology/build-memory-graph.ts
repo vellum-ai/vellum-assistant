@@ -29,6 +29,11 @@ import { buildEdgeGraph } from "../v3/edge.js";
 import { computeLearnedEdgeGraph } from "../v3/learned-edges.js";
 import type { Slug } from "../v3/types.js";
 import { isMemoryConceptGraphEnabled } from "./flag.js";
+import {
+  buildPendingGraph,
+  PENDING_NODE_ID_PREFIX,
+  readPendingBufferEntries,
+} from "./pending-buffer.js";
 import type {
   MemoryGraph,
   MemoryGraphEdge,
@@ -293,7 +298,22 @@ export async function getMemoryGraph(
     learnedAdjacency: learnedGraph.adjacency,
   });
 
-  return { backend: BACKEND_MEMORY_V3, supported: true, ...assembled };
+  // Buffer entries awaiting consolidation ride along as `pending` nodes so a
+  // just-remembered fact appears on the map immediately instead of after the
+  // next consolidation pass. Appended after assembly (and its node cap) so
+  // fresh memories are never truncated away.
+  const pending = buildPendingGraph(
+    await readPendingBufferEntries(workspaceDir),
+    new Set(entries.map((e) => e.slug)),
+  );
+
+  return {
+    backend: BACKEND_MEMORY_V3,
+    supported: true,
+    ...assembled,
+    nodes: [...assembled.nodes, ...pending.nodes],
+    edges: [...assembled.edges, ...pending.edges],
+  };
 }
 
 /**
@@ -308,6 +328,21 @@ export async function getMemoryGraphNode(
 ): Promise<MemoryGraphNodeDetail> {
   if (!isMemoryConceptGraphEnabled(config) || !isMemoryV3Live(config) || !id) {
     return { found: false };
+  }
+  // Pending buffer entries: resolve the id back to its buffer fact. `found:
+  // false` when the entry is gone — consolidation filed it since the graph
+  // payload was fetched, and the refreshed graph will show its concept page.
+  if (id.startsWith(PENDING_NODE_ID_PREFIX)) {
+    const entries = await readPendingBufferEntries(getWorkspaceDir());
+    const entry = entries.find((e) => e.id === id);
+    if (!entry) {
+      return { found: false };
+    }
+    return {
+      found: true,
+      title: "Pending memory",
+      content: `${entry.text}\n\n_Saved to your memory buffer — the next consolidation pass files it into your concept pages._`,
+    };
   }
   // Seeded skill/CLI capabilities take precedence over any on-disk page at the
   // same slug: the page index drops a colliding page and lets the synthetic win

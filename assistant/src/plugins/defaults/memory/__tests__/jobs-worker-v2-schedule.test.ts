@@ -19,7 +19,13 @@
  * Tests use a temp workspace pinned via `VELLUM_WORKSPACE_DIR` so the DB
  * lives under `tmpdir()` and `~/.vellum/` is never touched.
  */
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -108,6 +114,12 @@ function writeBuffer(lineCount: number): void {
 
 function removeBuffer(): void {
   rmSync(join(tmpWorkspace, "memory", "buffer.md"), { force: true });
+}
+
+/** Backdate the buffer's mtime so tests can exercise the staleness override. */
+function backdateBuffer(mtimeMs: number): void {
+  const when = new Date(mtimeMs);
+  utimesSync(join(tmpWorkspace, "memory", "buffer.md"), when, when);
 }
 
 function countPendingJobs(type: string): number {
@@ -723,5 +735,63 @@ describe("maybeEnqueueGraphMaintenanceJobs — min buffer lines noop", () => {
     // THEN consolidation is enqueued via the size trigger despite the
     // time-based schedule being nooped (8 < 10 min lines, but 8 >= 5 max)
     expect(countPendingJobs("memory_v2_consolidate")).toBe(1);
+  });
+
+  test("staleness override: a small buffer unwritten for a full interval drains anyway", () => {
+    // GIVEN v2 consolidation is enabled and the interval has elapsed
+    const config = buildConfig({ v2Enabled: true, intervalHours: 1 });
+    const now = Date.now();
+    setMemoryCheckpoint(
+      CONSOLIDATE_CHECKPOINT_KEY,
+      String(now - 2 * 60 * 60 * 1000),
+    );
+    // AND the buffer has fewer than 10 lines but was last written over a
+    // full interval ago (nothing new is arriving)
+    writeBuffer(3);
+    backdateBuffer(now - 2 * 60 * 60 * 1000);
+
+    // WHEN the schedule runs
+    maybeEnqueueGraphMaintenanceJobs(config, now);
+
+    // THEN consolidation is enqueued despite the min-lines threshold —
+    // without the override these 3 facts would re-skip every interval forever
+    expect(countPendingJobs("memory_v2_consolidate")).toBe(1);
+  });
+
+  test("staleness override does not fire while the buffer is still being written", () => {
+    // GIVEN the interval has elapsed and a small buffer written just now
+    const config = buildConfig({ v2Enabled: true, intervalHours: 1 });
+    const now = Date.now();
+    setMemoryCheckpoint(
+      CONSOLIDATE_CHECKPOINT_KEY,
+      String(now - 2 * 60 * 60 * 1000),
+    );
+    writeBuffer(3);
+
+    // WHEN the schedule runs
+    maybeEnqueueGraphMaintenanceJobs(config, now);
+
+    // THEN the min-lines noop still applies (fresh mtime = entries arriving)
+    expect(countPendingJobs("memory_v2_consolidate")).toBe(0);
+    expect(getMemoryCheckpoint(CONSOLIDATE_CHECKPOINT_KEY)).toBe(String(now));
+  });
+
+  test("staleness override never drains an empty buffer", () => {
+    // GIVEN the interval has elapsed and an empty-but-present, stale buffer
+    const config = buildConfig({ v2Enabled: true, intervalHours: 1 });
+    const now = Date.now();
+    setMemoryCheckpoint(
+      CONSOLIDATE_CHECKPOINT_KEY,
+      String(now - 2 * 60 * 60 * 1000),
+    );
+    writeBuffer(0);
+    backdateBuffer(now - 2 * 60 * 60 * 1000);
+
+    // WHEN the schedule runs
+    maybeEnqueueGraphMaintenanceJobs(config, now);
+
+    // THEN nothing is enqueued (no work) and the checkpoint advances
+    expect(countPendingJobs("memory_v2_consolidate")).toBe(0);
+    expect(getMemoryCheckpoint(CONSOLIDATE_CHECKPOINT_KEY)).toBe(String(now));
   });
 });

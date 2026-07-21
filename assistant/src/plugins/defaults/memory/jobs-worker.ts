@@ -1,3 +1,4 @@
+import { statSync } from "node:fs";
 import { join } from "node:path";
 
 import { getConfig } from "../../../config/loader.js";
@@ -90,7 +91,10 @@ const AUTOMATIC_CONSOLIDATION_JOB_PAYLOAD = {
  * than this threshold — the LLM cost of a full consolidation pass outweighs
  * the benefit when the buffer is nearly empty. Mirrors the heartbeat
  * max-consecutive-runs skip pattern. Manual "Run now" and the size-based
- * trigger are not affected.
+ * trigger are not affected, and a non-empty buffer left unwritten for a full
+ * interval drains regardless (see the staleness override in
+ * {@link maybeEnqueueGraphMaintenanceJobs}) so a small buffer can never sit
+ * unconsolidated forever.
  */
 export const MIN_BUFFER_LINES_FOR_CONSOLIDATION = 10;
 
@@ -878,6 +882,22 @@ function memoryBufferLineCount(): number {
   return countBufferLines(join(getWorkspaceDir(), "memory", "buffer.md"));
 }
 
+/**
+ * Milliseconds since `memory/buffer.md` was last written; `0` (fresh) when
+ * the file is missing or unreadable. Drives the min-lines staleness override:
+ * a fresh mtime means entries are still arriving and waiting for more is
+ * reasonable; a stale mtime means the buffer has settled below the minimum
+ * and would otherwise never drain.
+ */
+function memoryBufferIdleMs(nowMs: number): number {
+  try {
+    const stat = statSync(join(getWorkspaceDir(), "memory", "buffer.md"));
+    return Math.max(0, nowMs - stat.mtimeMs);
+  } catch {
+    return 0;
+  }
+}
+
 // Failure backoff for automatic consolidation enqueues. A failed run never
 // trims the buffer, so without backoff the size trigger re-enqueues a
 // fast-failing run on every worker poll (~1.5s), each iteration persisting a
@@ -924,9 +944,11 @@ export function consolidationFailureBackoffMs(
 
 /**
  * Milliseconds until the consolidation failure backoff expires; `0` when no
- * failure state is recorded or the window has already elapsed.
+ * failure state is recorded or the window has already elapsed. Exported so
+ * the create-memory route's consolidation nudge honors the same backoff as
+ * the scheduler.
  */
-function consolidationBackoffRemainingMs(
+export function consolidationBackoffRemainingMs(
   intervalMs: number,
   nowMs: number,
 ): number {
@@ -1029,12 +1051,22 @@ export function maybeEnqueueGraphMaintenanceJobs(
           );
           continue;
         }
-        if (memoryBufferLineCount() < MIN_BUFFER_LINES_FOR_CONSOLIDATION) {
-          log.debug(
-            "Scheduled consolidation skipped: buffer under minimum line threshold",
-          );
-          setMemoryCheckpoint(key, String(nowMs));
-          continue;
+        const bufferLines = memoryBufferLineCount();
+        if (bufferLines < MIN_BUFFER_LINES_FOR_CONSOLIDATION) {
+          // Staleness override: the minimum only defers while entries are
+          // still arriving. Once a non-empty buffer has sat unwritten for a
+          // full interval, drain it anyway — otherwise a buffer that never
+          // reaches the minimum re-skips every interval forever and its
+          // facts never become concept pages.
+          const stale =
+            bufferLines > 0 && memoryBufferIdleMs(nowMs) >= intervalMs;
+          if (!stale) {
+            log.debug(
+              "Scheduled consolidation skipped: buffer under minimum line threshold",
+            );
+            setMemoryCheckpoint(key, String(nowMs));
+            continue;
+          }
         }
       }
       const payload =
