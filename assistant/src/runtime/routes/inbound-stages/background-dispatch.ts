@@ -25,6 +25,7 @@ import { CONVERSATION_BUSY_MESSAGE } from "../../../daemon/conversation-messagin
 import type { ServerMessage } from "../../../daemon/message-protocol.js";
 import type { TrustContext } from "../../../daemon/trust-context-types.js";
 import {
+  getSiblingStreamedReplyTs,
   linkMessage,
   storeReplyMessageId,
   storeStreamedReplyTs,
@@ -248,6 +249,10 @@ export function processChannelMessageInBackground(
         assistantId,
         recipientUserId: slackInbound?.actorExternalUserId,
         recipientTeamId: slackInbound?.actorTeamId,
+        // Durably record the streamed message `ts` the instant the stream
+        // opens, so a crash before `finalizeEventDelivery` leaves a breadcrumb
+        // the redelivery path can reuse to edit the reply in place.
+        onStreamOpen: (streamTs) => storeStreamedReplyTs(eventId, streamTs),
       });
       const observeAgentEvent = (msg: ServerMessage): void => {
         if (
@@ -317,12 +322,10 @@ export function processChannelMessageInBackground(
           { err, conversationId },
           "Background channel message processing failed",
         );
-        if (slackReplySession) {
-          const reconciliation = await slackReplySession.finish();
-          if (reconciliation.mode === "streamed") {
-            storeStreamedReplyTs(eventId, reconciliation.messageTs);
-          }
-        }
+        // Stop any live Slack stream cleanly. Its `ts` is already durably
+        // recorded via `onStreamOpen`, so the retry sweep can reconcile
+        // against that message rather than posting a duplicate.
+        await slackReplySession?.finish();
         recordProcessingFailure(eventId, err);
         return;
       }
@@ -341,13 +344,27 @@ export function processChannelMessageInBackground(
       //   - all siblings `pending` → the first process persisted the turn but
       //     died before recording a delivery outcome. The sweep never selects
       //     `pending`, so this redelivery is the only path that can recover the
-      //     undelivered reply → fall through and deliver.
-      const priorDeduplicatedDeliveryOwned =
-        deduplicatedIngress &&
-        userMessageId !== undefined &&
-        getSiblingEventDeliveryStatuses(userMessageId, eventId).some(
-          (status) => status !== "pending",
+      //     undelivered reply → fall through and deliver. If that first attempt
+      //     had already streamed its reply live into Slack, its message `ts` is
+      //     durably recorded on the sibling row (via `onStreamOpen`); reuse it so
+      //     recovery edits that visible message in place instead of posting the
+      //     persisted reply a second time.
+      let priorDeduplicatedDeliveryOwned = false;
+      let recoveredStreamMessageTs: string | undefined;
+      if (deduplicatedIngress && userMessageId !== undefined) {
+        const siblingStatuses = getSiblingEventDeliveryStatuses(
+          userMessageId,
+          eventId,
         );
+        if (siblingStatuses.some((status) => status !== "pending")) {
+          priorDeduplicatedDeliveryOwned = true;
+        } else {
+          recoveredStreamMessageTs = getSiblingStreamedReplyTs(
+            userMessageId,
+            eventId,
+          );
+        }
+      }
 
       if (priorDeduplicatedDeliveryOwned) {
         log.info(
@@ -365,6 +382,9 @@ export function processChannelMessageInBackground(
             replyMessageId,
             userMessageId,
             slackReplySession,
+            ...(recoveredStreamMessageTs
+              ? { priorStreamMessageTs: recoveredStreamMessageTs }
+              : {}),
           });
         } catch (err) {
           log.error(
