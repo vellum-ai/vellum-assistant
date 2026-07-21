@@ -157,27 +157,31 @@ function resolveSchemaForDocument(schemaSource: unknown): ContentSchema {
 
 /**
  * Directories holding `RouteDefinition` modules: the host `runtime/routes`
- * tree plus each default plugin's internal module directories. A default plugin
- * that owns model-facing HTTP/IPC routes (registered into the shared route
- * table at runtime) keeps those `RouteDefinition` modules in its `src/`
- * directory — its `routes/` directory is reserved for userland-format
- * (`export const GET`/`POST`) handlers served by the `/x/plugins/<name>/`
- * dispatcher, which the OpenAPI spec does not cover. Scanning both keeps the
- * spec complete no matter which package a shared-table route lives in
- * (non-`ROUTES` modules under either dir are simply ignored). Sorted for
- * reproducible output (see {@link collectRoutesFromModules}).
+ * tree plus each default plugin's `src/` directory (where a plugin keeps the
+ * shared-table `RouteDefinition` modules it registers into the runtime route
+ * table — a plugin's `routes/` directory is reserved for userland-format
+ * `export const GET`/`POST` handlers served by the `/x/plugins/<name>/`
+ * dispatcher, which the OpenAPI spec does not cover). Non-`ROUTES` modules
+ * under a scanned dir are simply ignored.
+ *
+ * The generator walks these source files rather than importing the assembled
+ * `runtime/routes/index.ts` barrel because it derives each operation's OpenAPI
+ * tag from the *source filename* (see `deriveTagFromModule`) for the routes
+ * that don't set `tags` explicitly — information the barrel's flat, already-
+ * merged `RouteDefinition[]` no longer carries. Sorted for reproducible output
+ * (see {@link collectRoutesFromModules}).
  */
 async function routeModuleDirs(): Promise<string[]> {
   const dirs = [ROUTES_DIR];
   for (const entry of await readdir(PLUGIN_DEFAULTS_DIR, {
     withFileTypes: true,
   })) {
-    if (!entry.isDirectory()) continue;
-    for (const sub of ["src", "routes"]) {
-      const dir = join(PLUGIN_DEFAULTS_DIR, entry.name, sub);
-      if (existsSync(dir)) {
-        dirs.push(dir);
-      }
+    if (!entry.isDirectory()) {
+      continue;
+    }
+    const srcDir = join(PLUGIN_DEFAULTS_DIR, entry.name, "src");
+    if (existsSync(srcDir)) {
+      dirs.push(srcDir);
     }
   }
   return dirs.sort();
