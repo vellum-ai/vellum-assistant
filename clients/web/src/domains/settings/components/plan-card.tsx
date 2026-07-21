@@ -156,9 +156,9 @@ interface RecommendedUpgradeProps {
     currentKey: string | null;
     /**
      * Delegate for subscribers who are already on Pro — the upgrade endpoint
-     * no-ops for active Pro orgs, so package step-ups go through the manage
-     * flow instead. When absent (base plan), the CTA starts the Stripe
-     * package checkout directly.
+     * no-ops for active Pro orgs, so package step-ups route to the plan-aware
+     * plans takeover instead. When absent (base plan), the CTA starts the
+     * Stripe package checkout directly.
      */
     onUpgrade?: () => void;
 }
@@ -381,10 +381,10 @@ export function PlanCard({ onManage }: PlanCardProps) {
                     <Button
                         variant={display.actionVariant}
                         onClick={
-                            // Base plan with a live catalog opens the full-screen
-                            // plans takeover; Pro "Manage" (and the flag-off empty
-                            // catalog) keep the modal.
-                            currentPlan.id === "base" && packages.length > 0
+                            // A live catalog opens the plan-aware plans takeover
+                            // for both base and Pro users; an empty catalog (flag
+                            // off) falls back to the manage modal.
+                            packages.length > 0
                                 ? () => navigate(routes.plans)
                                 : onManage
                         }
@@ -440,7 +440,9 @@ export function PlanCard({ onManage }: PlanCardProps) {
                         packages={packages}
                         currentKey={currentKey}
                         onUpgrade={
-                            currentPlan.id === "base" ? undefined : onManage
+                            currentPlan.id === "base"
+                                ? undefined
+                                : () => navigate(routes.plans)
                         }
                     />
                 </div>

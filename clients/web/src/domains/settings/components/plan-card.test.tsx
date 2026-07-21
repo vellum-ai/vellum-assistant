@@ -1,20 +1,24 @@
 /**
  * Tests for the PlanCard: verifies the plan name, renewal text, the action
  * button (now in the plan row), and the recommended-upgrade banner render
- * correctly. The card no longer shows a credit bundle label or an invoices
- * button (invoices moved to an inline table on the billing page).
+ * correctly, plus the action button's navigation wiring. The card no longer
+ * shows a credit bundle label or an invoices button (invoices moved to an
+ * inline table on the billing page).
  *
- * Strategy: pre-populate the React Query cache so the card's `useQuery` calls
- * resolve synchronously — `renderToStaticMarkup` is single-pass, so a pending
- * query would otherwise report `isLoading` and render the spinner. The avatar
- * compositor loads lazily via `useEffect`, which doesn't fire under
- * `renderToStaticMarkup`, so avatars render as same-size placeholders here.
+ * Content tests pre-populate the React Query cache so the card's `useQuery`
+ * calls resolve synchronously — `renderToStaticMarkup` is single-pass, so a
+ * pending query would otherwise report `isLoading` and render the spinner.
+ * The action-button tests render interactively (happy-dom) and mock
+ * `useNavigate` so the takeover navigation can be asserted without a Router;
+ * the avatar compositor is mocked to a same-size placeholder.
  */
 
-import { describe, expect, test } from "bun:test";
+import * as reactRouter from "react-router";
+
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { cleanup, fireEvent, render } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
-import { MemoryRouter } from "react-router";
 
 import {
   organizationsBillingPlansRetrieveQueryKey,
@@ -24,8 +28,25 @@ import type {
   PlanListResponse,
   SubscriptionResponse,
 } from "@/generated/api/types.gen";
+import { routes } from "@/utils/routes";
 
-import { PlanCard } from "./plan-card";
+// Capture navigate() targets so the action-button wiring can be asserted
+// without a live Router.
+let navigateArgs: Array<[unknown, unknown]> = [];
+mock.module("react-router", () => ({
+  ...reactRouter,
+  useNavigate: () => (to: unknown, opts: unknown) => {
+    navigateArgs.push([to, opts]);
+  },
+}));
+
+// Render avatar placeholders; skip the lazy compositor bundle in the DOM test.
+mock.module("@/utils/use-bundled-avatar-components", () => ({
+  preloadBundledAvatarComponents: () => {},
+  useBundledAvatarComponents: () => null,
+}));
+
+const { PlanCard } = await import("./plan-card");
 
 function basePlansResponse(): PlanListResponse {
   return {
@@ -126,10 +147,20 @@ function proMightySubscription(): SubscriptionResponse {
   };
 }
 
-function renderCard(
+/** A catalog with the `pro-packages` flag off — the Pro plan has no packages. */
+function emptyCatalogPlans(): PlanListResponse {
+  const plans = basePlansResponse();
+  const pro = plans.plans.find((p) => p.id === "pro");
+  if (pro && "packages" in pro) {
+    pro.packages = [];
+  }
+  return plans;
+}
+
+function makeClient(
   subscription: SubscriptionResponse,
   plans: PlanListResponse,
-): string {
+): QueryClient {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -137,19 +168,46 @@ function renderCard(
     organizationsBillingSubscriptionRetrieveQueryKey(),
     subscription,
   );
-  client.setQueryData(
-    organizationsBillingPlansRetrieveQueryKey(),
-    plans,
-  );
+  client.setQueryData(organizationsBillingPlansRetrieveQueryKey(), plans);
+  return client;
+}
+
+function renderCard(
+  subscription: SubscriptionResponse,
+  plans: PlanListResponse,
+): string {
+  const client = makeClient(subscription, plans);
   return renderToStaticMarkup(
     // MemoryRouter supplies the router context PlanCard's useNavigate needs.
-    <MemoryRouter>
+    <reactRouter.MemoryRouter>
       <QueryClientProvider client={client}>
         <PlanCard onManage={() => {}} />
       </QueryClientProvider>
-    </MemoryRouter>,
+    </reactRouter.MemoryRouter>,
   );
 }
+
+function renderCardInteractive(
+  subscription: SubscriptionResponse,
+  plans: PlanListResponse,
+  onManage: () => void,
+) {
+  const client = makeClient(subscription, plans);
+  // useNavigate is mocked, so no Router wrapper is needed here.
+  return render(
+    <QueryClientProvider client={client}>
+      <PlanCard onManage={onManage} />
+    </QueryClientProvider>,
+  );
+}
+
+beforeEach(() => {
+  navigateArgs = [];
+});
+
+afterEach(() => {
+  cleanup();
+});
 
 describe("PlanCard", () => {
   test("shows the plan name and renewal text for a base plan", () => {
@@ -179,12 +237,7 @@ describe("PlanCard", () => {
   });
 
   test("no upgrade banner when the package catalog is empty (flag off)", () => {
-    const plans = basePlansResponse();
-    const pro = plans.plans.find((p) => p.id === "pro");
-    if (pro && "packages" in pro) {
-      pro.packages = [];
-    }
-    const html = renderCard(baseSubscription(), plans);
+    const html = renderCard(baseSubscription(), emptyCatalogPlans());
     expect(html).not.toContain("recommended-upgrade-button");
     expect(html).not.toContain("Recommended Upgrade");
   });
@@ -238,5 +291,49 @@ describe("PlanCard", () => {
     // A plan whose tiers diverged from the pinned package reads "Mighty
     // (Custom)" so it doesn't masquerade as the stock package.
     expect(html).toContain("Mighty (Custom)");
+  });
+});
+
+describe("PlanCard action button", () => {
+  test("a Pro user's Manage click opens the plan-aware plans takeover", async () => {
+    const onManage = mock(() => {});
+    const { findByTestId } = renderCardInteractive(
+      proMightySubscription(),
+      plansWithSuper(),
+      onManage,
+    );
+
+    fireEvent.click(await findByTestId("plan-card-manage-button"));
+
+    expect(navigateArgs).toEqual([[routes.plans, undefined]]);
+    expect(onManage).not.toHaveBeenCalled();
+  });
+
+  test("a base user's View Plans click opens the plans takeover", async () => {
+    const onManage = mock(() => {});
+    const { findByTestId } = renderCardInteractive(
+      baseSubscription(),
+      basePlansResponse(),
+      onManage,
+    );
+
+    fireEvent.click(await findByTestId("plan-card-upgrade-button"));
+
+    expect(navigateArgs).toEqual([[routes.plans, undefined]]);
+    expect(onManage).not.toHaveBeenCalled();
+  });
+
+  test("an empty catalog falls back to onManage (AdjustPlanModal)", async () => {
+    const onManage = mock(() => {});
+    const { findByTestId } = renderCardInteractive(
+      proMightySubscription(),
+      emptyCatalogPlans(),
+      onManage,
+    );
+
+    fireEvent.click(await findByTestId("plan-card-manage-button"));
+
+    expect(onManage).toHaveBeenCalledTimes(1);
+    expect(navigateArgs).toEqual([]);
   });
 });
