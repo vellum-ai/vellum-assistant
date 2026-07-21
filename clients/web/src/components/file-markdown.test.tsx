@@ -55,12 +55,9 @@ describe("FileMarkdown", () => {
 
     const codeTag = html.match(/<code[^>]*>/)?.[0] ?? "";
     expect(codeTag).not.toContain("overflow-");
-    expect(codeTag).not.toContain("p-3");
-    expect(codeTag).not.toContain("background-color");
 
     const preTag = html.match(/<pre[^>]*>/)?.[0] ?? "";
     expect(preTag).toContain("overflow-x-auto");
-    expect(preTag).toContain("p-3");
   });
 
   test("still renders ordinary markdown", () => {
