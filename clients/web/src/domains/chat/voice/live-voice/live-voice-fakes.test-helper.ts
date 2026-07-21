@@ -30,6 +30,7 @@ import type {
   LiveVoiceAudioCaptureOptions,
   LiveVoiceCaptureResult,
 } from "@/domains/chat/voice/live-voice/pcm-capture";
+import type { LiveVoicePlaybackProgress } from "@/domains/chat/voice/live-voice/tts-playback";
 import {
   useLiveVoiceStore,
   type LiveVoiceSessionControls,
@@ -179,11 +180,20 @@ export class FakePlayer {
   stopCount = 0;
   disposeCount = 0;
   prewarmCount = 0;
+  resetPlaybackProgressCount = 0;
   isPlaying = false;
+  /** Progress the fake reports; tests set it to drive the store's provider. */
+  playbackProgress: LiveVoicePlaybackProgress | null = null;
   private drainResolvers: Array<() => void> = [];
 
   prewarm(): void {
     this.prewarmCount++;
+  }
+  getPlaybackProgress(): LiveVoicePlaybackProgress | null {
+    return this.playbackProgress;
+  }
+  resetPlaybackProgress(): void {
+    this.resetPlaybackProgressCount++;
   }
   enqueue(chunk: unknown): void {
     this.enqueued.push(chunk);

@@ -47,7 +47,7 @@ import {
 // static import graph.
 const { useLiveVoice } =
   await import("@/domains/chat/voice/live-voice/use-live-voice");
-const { useLiveVoiceStore } =
+const { useLiveVoiceStore, getLiveVoicePlaybackProgress } =
   await import("@/domains/chat/voice/live-voice/live-voice-store");
 const { useVoicePrefsStore } = await import("@/stores/voice-prefs-store");
 
@@ -2137,6 +2137,54 @@ describe("session context and controls", () => {
     expect(store.controls).toBeNull();
     expect(store.assistantId).toBeNull();
     expect(store.conversationId).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Playback-progress provider — feeds the transcript's spoken-word cursor
+// ---------------------------------------------------------------------------
+
+describe("playback-progress provider", () => {
+  test("start() registers a provider that reads the active player's progress", async () => {
+    const h = renderController();
+    await act(async () => {
+      await h.view.result.current.start("assistant-1", "conv-1");
+    });
+
+    expect(getLiveVoicePlaybackProgress()).toBeNull();
+
+    h.player.playbackProgress = { playedSeconds: 1.25, totalSeconds: 3.5 };
+    expect(getLiveVoicePlaybackProgress()).toEqual({
+      playedSeconds: 1.25,
+      totalSeconds: 3.5,
+    });
+  });
+
+  test("teardown clears the registered provider", async () => {
+    const h = renderController();
+    await startListening(h);
+    h.player.playbackProgress = { playedSeconds: 1, totalSeconds: 2 };
+    expect(getLiveVoicePlaybackProgress()).not.toBeNull();
+
+    act(() => {
+      h.view.unmount();
+    });
+
+    expect(useLiveVoiceStore.getState().playbackProgressProvider).toBeNull();
+    expect(getLiveVoicePlaybackProgress()).toBeNull();
+  });
+
+  test("a thinking frame resets the player's progress with the transcript clear", async () => {
+    const h = renderController();
+    await startListening(h);
+    expect(h.player.resetPlaybackProgressCount).toBe(0);
+
+    act(() => {
+      h.client.emit("thinking", { type: "thinking", seq: 2, turnId: "t1" });
+    });
+
+    expect(h.player.resetPlaybackProgressCount).toBe(1);
+    expect(useLiveVoiceStore.getState().assistantTranscript).toBe("");
   });
 });
 
