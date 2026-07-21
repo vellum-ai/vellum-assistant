@@ -161,7 +161,15 @@ function makeClient(
   plans: PlanListResponse,
 ): QueryClient {
   const client = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
+    defaultOptions: {
+      queries: {
+        retry: false,
+        staleTime: Infinity,
+        refetchOnMount: false,
+        refetchOnWindowFocus: false,
+        gcTime: Infinity,
+      },
+    },
   });
   client.setQueryData(
     organizationsBillingSubscriptionRetrieveQueryKey(),
