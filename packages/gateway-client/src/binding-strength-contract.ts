@@ -89,15 +89,20 @@ export function bindingStrengthForVerifiedVia(
 
 /**
  * `verified_via` values where the actor demonstrably controls the channel (a
- * code/token/possession proof) or is the guardian. They share the top
- * enforcement rank: none of them may be silently demoted, and a lateral swap
- * between them is not a demotion.
+ * code/token/possession proof) or the binding is a guardian binding (bootstrap
+ * or platform/webhook auto-registration). They share the top enforcement rank:
+ * none may be silently demoted, and a lateral swap between them is not a
+ * demotion. Every real production writer of `verified_via` that outranks
+ * `manual` must appear here, or the demotion guard would treat it as unknown
+ * (incomparable) and let a `manual` re-attest quietly demote it.
  */
 const PROVEN_VERIFIED_VIA: ReadonlySet<string> = new Set([
   VERIFIED_VIA_CHALLENGE, // returned a verification code
   "invite", // redeemed an invite code / token
   "voice", // returned a voice (DTMF) code
   "bootstrap", // guardian binding (also protected by the guardian-downgrade guard)
+  "platform_auto_register", // guardian binding auto-registered by the platform
+  "webhook_registration", // guardian binding registered via a provider webhook
 ]);
 
 /**

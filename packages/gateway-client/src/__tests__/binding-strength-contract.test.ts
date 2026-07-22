@@ -34,6 +34,9 @@ describe("knownStrengthRank", () => {
     expect(knownStrengthRank("invite")).toBe(3);
     expect(knownStrengthRank("voice")).toBe(3);
     expect(knownStrengthRank("bootstrap")).toBe(3);
+    // Guardian auto-registration bindings (createGuardianBinding writers).
+    expect(knownStrengthRank("platform_auto_register")).toBe(3);
+    expect(knownStrengthRank("webhook_registration")).toBe(3);
   });
 
   test("unrecognized non-empty provenance is unknown (null)", () => {
@@ -79,6 +82,14 @@ describe("isBindingDemotion", () => {
     ).toBe(true);
     // A proven value demoted to null/unverified is a demotion too.
     expect(isBindingDemotion(VERIFIED_VIA_CHALLENGE, null)).toBe(true);
+    // Guardian auto-registration bindings are proven — a later manual attest
+    // or channel claim can never demote them.
+    expect(
+      isBindingDemotion("platform_auto_register", VERIFIED_VIA_MANUAL),
+    ).toBe(true);
+    expect(
+      isBindingDemotion("webhook_registration", VERIFIED_VIA_CHANNEL_CLAIM),
+    ).toBe(true);
   });
 
   test("equal-tier writes and lateral proven swaps are not demotions", () => {
