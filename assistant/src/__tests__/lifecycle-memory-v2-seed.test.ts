@@ -61,7 +61,7 @@ const state: TestState = {
 // Mocks — installed before the module under test is loaded.
 // ---------------------------------------------------------------------------
 
-mock.module("../plugins/defaults/memory/v2/skill-store.js", () => ({
+mock.module("../plugins/defaults/memory/v3/substrate/skill-store.js", () => ({
   seedV2SkillEntries: async (opts?: {
     throwOnError?: boolean;
   }): Promise<void> => {
@@ -74,11 +74,14 @@ mock.module("../plugins/defaults/memory/v2/skill-store.js", () => ({
 // Mock the sibling CLI-command seeder so `rebuildBm25CorpusStatsAndReseedSkills`
 // (which runs both reseeds in parallel) does not invoke the real Qdrant-backed
 // implementation and emit warnings that break the no-warnings assertions below.
-mock.module("../plugins/defaults/memory/v2/cli-command-store.js", () => ({
-  seedV2CliCommandEntries: async (): Promise<void> => {},
-}));
+mock.module(
+  "../plugins/defaults/memory/v3/substrate/cli-command-store.js",
+  () => ({
+    seedV2CliCommandEntries: async (): Promise<void> => {},
+  }),
+);
 
-mock.module("../plugins/defaults/memory/v2/qdrant.js", () => ({
+mock.module("../plugins/defaults/memory/v3/substrate/qdrant.js", () => ({
   ensureConceptPageCollection: async (): Promise<{ migrated: boolean }> => {
     state.ensureCollectionCallCount += 1;
     if (state.ensureCollectionThrows) throw state.ensureCollectionThrows;
@@ -93,12 +96,12 @@ mock.module("../plugins/defaults/memory/v2/qdrant.js", () => ({
   dropLegacySkillsCollection: async (): Promise<void> => {},
 }));
 
-mock.module("../plugins/defaults/memory/v2/page-store.js", () => ({
+mock.module("../plugins/defaults/memory/v3/substrate/page-store.js", () => ({
   hasConceptPages: async (): Promise<boolean> =>
     state.listPagesResult.length > 0,
 }));
 
-mock.module("../plugins/defaults/memory/v2/sparse-bm25.js", () => ({
+mock.module("../plugins/defaults/memory/v3/substrate/sparse-bm25.js", () => ({
   rebuildConceptPageCorpusStats: async (): Promise<void> => {
     state.corpusStatsBuildCount += 1;
     if (state.corpusStatsThrows) throw state.corpusStatsThrows;
@@ -142,7 +145,8 @@ const {
   maybeSeedMemoryV2Skills,
   maybeRebuildMemoryV2Concepts,
   rebuildBm25CorpusStatsAndReseedSkills,
-} = await import("../plugins/defaults/memory/v2/memory-v2-startup.js");
+} =
+  await import("../plugins/defaults/memory/v3/substrate/memory-v2-startup.js");
 
 // ---------------------------------------------------------------------------
 // Test fixtures
@@ -158,14 +162,18 @@ function makeConfig(v2Enabled: boolean): AssistantConfig {
 }
 
 /**
- * Drain all microtasks so any `void`-prefixed promise inside
+ * Drain all pending async work so any `void`-prefixed promise inside
  * `maybeSeedMemoryV2Skills` settles before the test asserts. The fire-and-
  * forget chain involves: dynamic-import settle → `.then` callback →
- * inner `seedV2SkillEntries` resolution → `.catch` settle. We yield
- * generously to cover that whole chain regardless of the bundler's task
- * scheduling.
+ * inner `seedV2SkillEntries` resolution → `.catch` settle. Dynamic-import
+ * settlement can take a macrotask (not just microtasks), so yield through
+ * a timer with microtask drains on both sides.
  */
 async function flushMicrotasks(): Promise<void> {
+  for (let i = 0; i < 10; i++) {
+    await Promise.resolve();
+  }
+  await new Promise((resolve) => setTimeout(resolve, 0));
   for (let i = 0; i < 10; i++) {
     await Promise.resolve();
   }

@@ -8,6 +8,7 @@
  */
 
 import { getConfig, getConfigReadOnly } from "../../../config/loader.js";
+import { usesConceptPageMemory } from "../../../config/memory-v3-gate.js";
 import { RiskLevel } from "../../../permissions/types.js";
 import { resolveCapabilities } from "../../../runtime/capabilities.js";
 import type {
@@ -24,7 +25,7 @@ import {
   graphRememberDefinition,
 } from "./graph/tools.js";
 import { getWorkspaceDir } from "./paths.js";
-import { deletePage } from "./v2/page-store.js";
+import { deletePage } from "./v3/substrate/page-store.js";
 
 // ── remember ────────────────────────────────────────────────────────
 
@@ -34,15 +35,15 @@ export const rememberTool = {
   category: "memory",
   executionTarget: "sandbox",
   defaultRiskLevel: RiskLevel.Low,
-  // The [[slug]] page-hint guidance applies only under the wiki memory model
-  // (v1/PKB has no pages for hints to reference). The thunk is re-resolved on
-  // every read of the content description — the registry's finalized tool
-  // shares this schema object by reference — so a runtime edit of
-  // `memory.v2.enabled` reaches the model on the next request, in lockstep
-  // with handleRemember re-reading config per call. Read-only accessor: a
+  // The [[slug]] page-hint guidance applies only under the concept-page
+  // memory model (v1/PKB has no pages for hints to reference). The thunk is
+  // re-resolved on every read of the content description — the registry's
+  // finalized tool shares this schema object by reference — so a runtime
+  // config edit reaches the model on the next request, in lockstep with
+  // handleRemember re-reading config per call. Read-only accessor: a
   // definition read must never create workspace directories.
   input_schema: buildRememberInputSchema({
-    pageHints: () => getConfigReadOnly().memory.v2.enabled,
+    pageHints: () => usesConceptPageMemory(getConfigReadOnly().memory),
   }),
 
   async execute(

@@ -1457,6 +1457,15 @@ describe("GeminiProvider", () => {
     }
   });
 
+  test("maps a daily-limit 402 body code to daily_limit_reached", async () => {
+    expect(
+      await reasonForApiError(
+        402,
+        '{"code":"daily_limit_reached","detail":"Daily credit limit reached"}',
+      ),
+    ).toBe("daily_limit_reached");
+  });
+
   test("maps 404 / NOT_FOUND to model_not_found", async () => {
     expect(
       await reasonForApiError(404, "NOT_FOUND: model does not exist"),

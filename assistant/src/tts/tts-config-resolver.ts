@@ -33,11 +33,19 @@ export interface ResolvedTtsConfig {
  *
  * Reads exclusively from `services.tts.provider` and
  * `services.tts.providers.<id>`. No legacy fallback logic.
+ *
+ * `providerOverride` selects a provider other than the configured one and
+ * returns that provider's config block — used by callers that resolve the
+ * provider themselves (e.g. live voice, which runs on the managed-speech
+ * effective provider).
  */
-export function resolveTtsConfig(config: AssistantConfig): ResolvedTtsConfig {
+export function resolveTtsConfig(
+  config: AssistantConfig,
+  providerOverride?: TtsProviderId,
+): ResolvedTtsConfig {
   const ttsService = config.services.tts;
 
-  const provider = ttsService.provider as TtsProviderId;
+  const provider = providerOverride ?? (ttsService.provider as TtsProviderId);
 
   // Resolve provider-specific config from the canonical providers map.
   const providerConfig = resolveProviderConfig(config, provider);

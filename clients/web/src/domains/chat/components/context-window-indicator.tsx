@@ -182,7 +182,7 @@ function MobileSheetContent({
             )}
           </span>
           <span className="text-body-medium-lighter text-[var(--content-tertiary)]">
-            {assistantDisplayName} automatically compacts its context
+            {assistantDisplayName} automatically compacts context
           </span>
         </div>
       </div>

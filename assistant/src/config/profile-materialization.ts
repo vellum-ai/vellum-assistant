@@ -1,3 +1,4 @@
+import { ROUTING_IDENTITY_PROVIDERS } from "../providers/inference/auth.js";
 import {
   getCatalogProviderForModel,
   isModelInCatalog,
@@ -92,6 +93,16 @@ export function completeCustomProfile(
   // dispatch routes it via `expectedProvider` — but only onto providers it
   // can actually route; a non-managed-routable provider (openrouter, ollama)
   // would hit the mismatch path instead of auto-resolution.
+  // Routing-identity providers resolve their connection per-request from
+  // the provider value; a stamped provider_connection would be dead weight
+  // at best and a misroute at worst.
+  if (
+    completed.provider !== undefined &&
+    ROUTING_IDENTITY_PROVIDERS.has(completed.provider)
+  ) {
+    return structuredClone(completed);
+  }
+
   const vellumRoutable =
     dflt.provider_connection === VELLUM_MANAGED_CONNECTION_NAME &&
     completed.provider !== undefined &&

@@ -52,6 +52,7 @@ import {
   buildModelInfoEvent,
   formatCleanResult,
   formatCompactResult,
+  isBackgroundEventMetadata,
   isModelSlashCommand,
 } from "../../daemon/conversation-process.js";
 import { findConversation } from "../../daemon/conversation-registry.js";
@@ -891,7 +892,7 @@ export function handleListMessages({
         // row so clients hide it from the transcript like a subagent/ACP
         // notification — the user-facing "Conversation Woke" card (or, for a
         // backgrounded bash run, the inline terminal card) carries the status.
-        if (typeof meta.backgroundEventSource === "string") {
+        if (isBackgroundEventMetadata(meta)) {
           backgroundEventNotification = true;
         }
         // `persistWakeTriggerMessage` stamps the structured completion onto the
@@ -2555,6 +2556,7 @@ async function generateLlmSuggestion(
   provider: Provider,
   assistantText: string,
   priorUserText: string | null,
+  conversationId: string,
 ): Promise<string | null> {
   const log = (await import("../../util/logger.js")).getLogger("runtime-http");
   const truncatedAssistant = escapeXmlContent(
@@ -2610,6 +2612,7 @@ async function generateLlmSuggestion(
       systemPrompt,
       config: {
         callSite: "replySuggestion",
+        conversationId,
         max_tokens: 60,
         stop_sequences: ["</reply>"],
         temperature: 0.7,
@@ -2757,7 +2760,12 @@ export async function handleGetSuggestion(
         // Deduplicate concurrent requests
         let promise = suggestionInFlight.get(msg.id);
         if (!promise) {
-          promise = generateLlmSuggestion(provider, text, priorUserText);
+          promise = generateLlmSuggestion(
+            provider,
+            text,
+            priorUserText,
+            resolvedConversationId,
+          );
           suggestionInFlight.set(msg.id, promise);
         }
 

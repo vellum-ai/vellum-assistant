@@ -586,6 +586,7 @@ export class ConversationGraphMemory {
     const result = await loadContextMemory({
       recentSummaries,
       userQuery,
+      conversationId: this.conversationId,
       config,
       signal,
     });
@@ -752,6 +753,7 @@ export class ConversationGraphMemory {
       assistantLastMessage: assistantLast,
       userLastMessage: userLast,
       userLastMessageBlocks: userLastBlocks,
+      conversationId: this.conversationId,
       config,
       tracker: this.tracker,
       signal,

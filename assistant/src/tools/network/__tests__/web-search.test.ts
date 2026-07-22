@@ -9,15 +9,21 @@ let mockPerplexitySecureKey: string | undefined;
 let mockTavilySecureKey: string | undefined;
 let mockFirecrawlSecureKey: string | undefined;
 let mockManagedSearchProxyResult: any;
+let mockManagedSearchAvailable = true;
 let mockManagedSearchProxyCalls: Array<{
   provider: string;
   request: Record<string, unknown>;
   signal?: AbortSignal;
 }> = [];
 
-/** Seed the web-search service mode + provider into the workspace config. */
-function seedWebSearch(mode: string, provider: string): void {
-  setConfig("services", { "web-search": { mode, provider } });
+/**
+ * Seed the web-search service into the workspace config. Pass `undefined`
+ * for mode to write a post-migration-132 config carrying only `provider`.
+ */
+function seedWebSearch(mode: string | undefined, provider: string): void {
+  setConfig("services", {
+    "web-search": mode === undefined ? { provider } : { mode, provider },
+  });
 }
 
 mock.module("../../../security/secure-keys.js", () => ({
@@ -52,6 +58,7 @@ mock.module("../managed-search-proxy.js", () => ({
     mockManagedSearchProxyCalls.push({ provider, request, signal });
     return mockManagedSearchProxyResult;
   },
+  managedSearchAvailable: async () => mockManagedSearchAvailable,
 }));
 
 // Import after the mocks above so the module under test sees them.
@@ -68,6 +75,7 @@ describe("web_search tool", () => {
     mockTavilySecureKey = undefined;
     mockFirecrawlSecureKey = undefined;
     mockManagedSearchProxyCalls = [];
+    mockManagedSearchAvailable = true;
     mockManagedSearchProxyResult = {
       ok: true,
       status: 200,
@@ -106,6 +114,96 @@ describe("web_search tool", () => {
     const result = await execute({ query: "test" });
     expect(result.isError).toBe(true);
     expect(result.content).toContain("No web search API key configured");
+  });
+
+  // ---- Provider vellum (managed, provider is the only axis) ---------------
+
+  test("provider vellum with no mode routes to the platform proxy", async () => {
+    seedWebSearch(undefined, "vellum");
+
+    const result = await execute({ query: "vellum managed query" });
+
+    expect(result.isError).toBe(false);
+    expect(mockManagedSearchProxyCalls).toHaveLength(1);
+    expect(mockManagedSearchProxyCalls[0].provider).toBe("brave");
+  });
+
+  test("provider vellum routes managed even under a stale your-own mode", async () => {
+    // The provider choice wins over a leftover legacy mode key.
+    seedWebSearch("your-own", "vellum");
+
+    const result = await execute({ query: "stale mode query" });
+
+    expect(result.isError).toBe(false);
+    expect(mockManagedSearchProxyCalls).toHaveLength(1);
+  });
+
+  test("provider vellum surfaces a 402 hard error and never falls back to BYOK keys", async () => {
+    // Billing rule: an explicit vellum choice must never silently reroute to
+    // a user's paid third-party key (and vice versa).
+    seedWebSearch(undefined, "vellum");
+    mockPerplexitySecureKey = "pplx-should-not-be-used";
+    mockManagedSearchProxyResult = {
+      ok: false,
+      kind: "platform-error",
+      status: 402,
+      headers: { "content-type": "application/json" },
+      body: { detail: "Insufficient balance" },
+      message: "Managed search proxy returned status 402: Insufficient balance",
+    };
+    let byokFetchCalls = 0;
+    globalThis.fetch = (async () => {
+      byokFetchCalls += 1;
+      return new Response("{}", { status: 200 });
+    }) as any;
+
+    const result = await execute({ query: "billing query" });
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("account balance");
+    expect(result.content).toContain("different web search provider");
+    expect(byokFetchCalls).toBe(0);
+  });
+
+  // ---- Provider Native fallback order (keys first, proxy last) ------------
+
+  test("provider native with a BYOK key uses the key, not the proxy", async () => {
+    seedWebSearch(undefined, "inference-provider-native");
+    mockPerplexitySecureKey = "pplx-test-key";
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          choices: [{ message: { content: "BYOK answer" } }],
+          citations: ["https://example.com"],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      )) as any;
+
+    const result = await execute({ query: "native fallback query" });
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("BYOK answer");
+    expect(mockManagedSearchProxyCalls).toHaveLength(0);
+  });
+
+  test("provider native with no keys falls back to the platform proxy", async () => {
+    seedWebSearch(undefined, "inference-provider-native");
+
+    const result = await execute({ query: "no key native query" });
+
+    expect(result.isError).toBe(false);
+    expect(mockManagedSearchProxyCalls).toHaveLength(1);
+  });
+
+  test("provider native with no keys and no platform reports the no-key error", async () => {
+    seedWebSearch(undefined, "inference-provider-native");
+    mockManagedSearchAvailable = false;
+
+    const result = await execute({ query: "offline native query" });
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("No web search API key configured");
+    expect(mockManagedSearchProxyCalls).toHaveLength(0);
   });
 
   // ---- Perplexity provider ------------------------------------------------
@@ -494,7 +592,7 @@ describe("web_search tool", () => {
     expect(result.isError).toBe(true);
     expect(result.content).toContain("Managed web search");
     expect(result.content).toContain("account balance");
-    expect(result.content).toContain("Your Own mode");
+    expect(result.content).toContain("different web search provider");
   });
 
   test("managed mode maps proxied provider errors to a tool error", async () => {

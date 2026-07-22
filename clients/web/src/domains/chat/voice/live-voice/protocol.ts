@@ -236,7 +236,7 @@ export interface LiveVoiceMetricsServerFrame extends LiveVoiceServerFrameBase {
   readonly totalMs: number | null;
   /**
    * Semantic-endpointing "hold" decisions taken during the turn. Present only
-   * when the voice-front-model endpoint decider was consulted (with the
+   * when the endpoint decider was consulted (with the
    * feature off the field is absent, keeping frames unchanged).
    */
   readonly endpointHoldCount?: number;
@@ -244,6 +244,12 @@ export interface LiveVoiceMetricsServerFrame extends LiveVoiceServerFrameBase {
   readonly endpointDecisionMaxLatencyMs?: number;
   /** Which floor-holding ack actually spoke during the turn, if any. */
   readonly ackSpoken?: "first_delta" | "tool_use";
+  /**
+   * Spoken progress narrations during the turn. Present only when at least
+   * one progress update spoke (otherwise the field is absent, keeping frames
+   * unchanged).
+   */
+  readonly progressUpdatesSpoken?: number;
 }
 
 export interface LiveVoiceArchivedServerFrame extends LiveVoiceServerFrameBase {

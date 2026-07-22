@@ -46,12 +46,15 @@ export interface SearchProviderCatalogEntry {
    * Authentication style for the search provider choice.
    *
    * `managed` means the choice does not require a user-supplied search API key.
-   * For `inference-provider-native`, the daemon uses the inference API's native
+   * `vellum` searches through the Vellum platform search proxy, billed to
+   * Vellum credits; the platform connection is the credential. For
+   * `inference-provider-native`, the daemon uses the inference API's native
    * hosted web-search tool only when the selected inference provider/model
-   * supports it. Managed non-native inference providers keep the app-executed
-   * `web_search` tool, which can route through the platform search proxy.
+   * supports it; otherwise the app-executed `web_search` tool runs, falling
+   * back to the platform search proxy only when no user search key is
+   * configured.
    *
-   * `byok` providers require a user-supplied key in Your Own mode.
+   * `byok` providers require a user-supplied API key.
    */
   readonly kind: SearchProviderKind;
   /** Placeholder shown in the API-key input. BYOK providers only. */
@@ -69,6 +72,13 @@ export interface SearchProviderCatalogEntry {
 }
 
 export const SEARCH_PROVIDER_CATALOG: readonly SearchProviderCatalogEntry[] = [
+  // vellum leads: it is the managed option, selected like any other provider.
+  {
+    id: "vellum",
+    displayName: "Vellum",
+    displayNameLong: "Vellum Managed Search",
+    kind: "managed",
+  },
   {
     id: "inference-provider-native",
     displayName: "Provider Native",

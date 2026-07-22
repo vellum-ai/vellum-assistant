@@ -240,7 +240,11 @@ describe("fetchAssistantDetail / fetchUpgradeInProgress", () => {
       current_release_version: "0.7.0",
       release_channel: "preview",
     });
-    const detail = await fetchAssistantDetail(TOKEN, ASSISTANT_ID, PLATFORM_URL);
+    const detail = await fetchAssistantDetail(
+      TOKEN,
+      ASSISTANT_ID,
+      PLATFORM_URL,
+    );
     expect(detail).toEqual({
       currentReleaseVersion: "0.7.0",
       releaseChannel: "preview",
@@ -251,7 +255,11 @@ describe("fetchAssistantDetail / fetchUpgradeInProgress", () => {
 
   test("fetchAssistantDetail defaults missing fields", async () => {
     mockFetchJson({});
-    const detail = await fetchAssistantDetail(TOKEN, ASSISTANT_ID, PLATFORM_URL);
+    const detail = await fetchAssistantDetail(
+      TOKEN,
+      ASSISTANT_ID,
+      PLATFORM_URL,
+    );
     expect(detail).toEqual({
       currentReleaseVersion: null,
       releaseChannel: "stable",

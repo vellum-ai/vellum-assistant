@@ -23,9 +23,7 @@ let cached: string | undefined;
 function resolveDeviceIdPaths(): { dir: string; file: string } {
   const env = getCurrentEnvironment();
   const dir =
-    env.name === "production"
-      ? join(homedir(), ".vellum")
-      : getConfigDir(env);
+    env.name === "production" ? join(homedir(), ".vellum") : getConfigDir(env);
   return { dir, file: join(dir, "device.json") };
 }
 

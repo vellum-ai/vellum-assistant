@@ -255,6 +255,13 @@ export interface SendMessageConfig {
    */
   selectionSeed?: string;
   /**
+   * Id of the user conversation that causally triggered this call, stamped by
+   * call sites so `UsageTrackingProvider` can attribute the usage-ledger event
+   * to the conversation (and, at flush time, its turn). A resolution/routing-
+   * time concern only; stripped before any provider wire request.
+   */
+  conversationId?: string;
+  /**
    * Per-conversation prompt-cache key for providers with explicit prompt
    * caching (sent as the OpenAI `prompt_cache_key` request param). Set by
    * `RetryProvider` from `selectionSeed` (the durable conversation id) for

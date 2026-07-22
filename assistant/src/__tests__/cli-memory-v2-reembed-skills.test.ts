@@ -41,7 +41,7 @@ mock.module("../ipc/cli-client.js", () => ({
 }));
 
 let seedCallCount = 0;
-mock.module("../plugins/defaults/memory/v2/skill-store.js", () => ({
+mock.module("../plugins/defaults/memory/v3/substrate/skill-store.js", () => ({
   seedV2SkillEntries: async () => {
     seedCallCount += 1;
   },
@@ -56,7 +56,7 @@ const { memoryHelp } = await import("../cli/commands/memory/index.help.js");
 const { registerMemoryV2Command } =
   await import("../cli/commands/memory/memory-v2.js");
 const { ROUTES: memoryV2Routes, MEMORY_V2_DISABLED_CODE } =
-  await import("../plugins/defaults/memory/routes/memory-v2-routes.js");
+  await import("../plugins/defaults/memory/src/memory-v2-routes.js");
 const { RouteError } = await import("../runtime/routes/errors.js");
 
 // ---------------------------------------------------------------------------

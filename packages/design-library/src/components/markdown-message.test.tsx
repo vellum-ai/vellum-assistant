@@ -199,6 +199,34 @@ describe("MarkdownMessage", () => {
     expect(html.match(/<code[\s\S]*?<\/code>/)?.[0]).not.toContain("<br");
   });
 
+  test("fenced code renders a single scroll container — pre scrolls, code does not", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content: "```sql\nSELECT 1;\n```",
+      }),
+    );
+
+    const preTag = html.match(/<pre[^>]*>/)?.[0] ?? "";
+    const codeTag = html.match(/<code[^>]*>/)?.[0] ?? "";
+
+    expect(preTag).toContain("overflow-auto");
+    expect(preTag).toContain("max-height:400px");
+    expect(codeTag).toContain("w-max");
+    expect(codeTag).toContain("min-w-full");
+    expect(codeTag).not.toContain("overflow-");
+  });
+
+  test("inline code renders a chip with no scroll container", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, { content: "an `x` value" }),
+    );
+
+    const codeTag = html.match(/<code[^>]*>/)?.[0] ?? "";
+
+    expect(codeTag).toContain("rounded bg-stone-100 px-1 py-0.5");
+    expect(codeTag).not.toContain("overflow-");
+  });
+
   test("hardLineBreaks does not break table parsing", () => {
     const html = renderToStaticMarkup(
       createElement(MarkdownMessage, {

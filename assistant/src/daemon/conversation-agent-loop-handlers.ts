@@ -2035,7 +2035,9 @@ export async function handleToolResult(
     state.currentToolUseId = undefined;
     deps.onEvent({
       type: "tool_result",
-      toolName: "",
+      // Resolved from the tool_use correlation map; empty only when the tool
+      // was cancelled before its tool_use event was ever observed.
+      toolName: state.toolUseIdToName.get(event.toolUseId) ?? "",
       result: redactedContent,
       isError: event.isError,
       conversationId: deps.ctx.conversationId,
@@ -2188,7 +2190,8 @@ export async function handleToolResult(
   // card never shows a revealed plaintext the persisted row hides.
   deps.onEvent({
     type: "tool_result",
-    toolName: "",
+    // Empty only when no tool_use event was observed for this id.
+    toolName: toolName ?? "",
     result: redactedContent,
     isError: event.isError,
     diff: event.diff,

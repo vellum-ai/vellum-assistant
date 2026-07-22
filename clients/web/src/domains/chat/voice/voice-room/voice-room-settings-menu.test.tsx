@@ -1,32 +1,34 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
-import { makeControlsSpies } from "@/domains/chat/voice/live-voice/live-voice-fakes.test-helper";
-import { useLiveVoiceStore } from "@/domains/chat/voice/live-voice/live-voice-store";
 import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
 
-import { VoiceRoomSettingsMenu } from "./voice-room-settings-menu";
+// The voice picker has its own tests; here it stays collapsed (unavailable) so
+// the menu renders without the daemon query graph / a QueryClient.
+mock.module("@/domains/chat/voice/voice-room/use-managed-voice-selection", () => ({
+  useManagedVoiceSelection: () => ({
+    available: false,
+    voices: [],
+    currentModel: "",
+    selectModel: () => {},
+    selecting: false,
+  }),
+}));
 
-const controls = makeControlsSpies();
+import { VoiceRoomSettingsMenu } from "./voice-room-settings-menu";
 
 beforeEach(() => {
   useVoicePrefsStore.setState({
     showUserTranscript: false,
     showAssistantTranscript: false,
-    pauseBeforeReplyMs: null,
-    interruptSensitivity: null,
   });
-  useLiveVoiceStore.getState().reset();
-  // A live session with registered controls, so the live-apply path is exercised.
-  useLiveVoiceStore.getState().setControls(controls);
-  controls.updateConfig.mockClear();
 });
 
 afterEach(() => cleanup());
 
 /** Render the menu and open the gear popover. */
 function openMenu() {
-  render(<VoiceRoomSettingsMenu triggerClassName="ctrl" />);
+  render(<VoiceRoomSettingsMenu triggerClassName="ctrl" assistantId="asst_test" />);
   fireEvent.click(screen.getByRole("button", { name: "Voice settings" }));
 }
 
@@ -46,14 +48,8 @@ describe("VoiceRoomSettingsMenu", () => {
     expect(useVoicePrefsStore.getState().showAssistantTranscript).toBe(false);
   });
 
-  test("moving the pause slider persists the value and live-applies it to the session", () => {
+  test("no pause-before-reply control (removed with the two-tier model)", () => {
     openMenu();
-    // Default resting value is 1.2s; one step right → 1.3s (1300 ms).
-    fireEvent.keyDown(screen.getByRole("slider"), { key: "ArrowRight" });
-
-    expect(useVoicePrefsStore.getState().pauseBeforeReplyMs).toBe(1300);
-    expect(controls.updateConfig).toHaveBeenCalledWith({
-      silenceThresholdMs: 1300,
-    });
+    expect(screen.queryByLabelText("Pause before reply")).toBeNull();
   });
 });

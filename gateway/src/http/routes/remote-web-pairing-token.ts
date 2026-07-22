@@ -1,3 +1,8 @@
+import type {
+  RemoteWebPairingTokenApprovedResponse,
+  RemoteWebPairingTokenPendingResponse,
+} from "@vellumai/service-contracts/remote-web-pairing";
+
 import {
   ensureVellumGuardianBinding,
   getExternalAssistantId,
@@ -19,7 +24,10 @@ const MAX_TOKEN_BODY_BYTES = 512;
 const REMOTE_WEB_PLATFORM = "web";
 
 function jsonError(code: string, message: string, status: number): Response {
-  return Response.json({ error: { code, message } }, { status });
+  return Response.json(
+    { error: { code, message } },
+    { status, headers: { "Cache-Control": "no-store" } },
+  );
 }
 
 function invalidDeviceCodeResponse(): Response {
@@ -65,14 +73,15 @@ export async function handleRemoteWebPairingToken(
 
   const challenge = claimRemoteWebPairingChallengeExchange(deviceCode);
   if (challenge.status === "pending") {
-    return Response.json(
-      {
-        status: "pending",
-        expiresAt: challenge.expiresAt,
-        intervalSeconds: challenge.intervalSeconds,
-      },
-      { status: 202, headers: { "Cache-Control": "no-store" } },
-    );
+    const pending: RemoteWebPairingTokenPendingResponse = {
+      status: "pending",
+      expiresAt: challenge.expiresAt,
+      intervalSeconds: challenge.intervalSeconds,
+    };
+    return Response.json(pending, {
+      status: 202,
+      headers: { "Cache-Control": "no-store" },
+    });
   }
   if (
     challenge.status === "invalid" ||
@@ -124,15 +133,13 @@ export async function handleRemoteWebPairingToken(
     headers.append("Set-Cookie", cookie);
   }
 
-  return Response.json(
-    {
-      status: "approved",
-      accessToken: pair.accessToken,
-      accessTokenExpiresAt: new Date(pair.accessTokenExpiresAt).toISOString(),
-      refreshAfter: new Date(pair.refreshAfter).toISOString(),
-      guardianId: guardianPrincipalId,
-      assistantId: getExternalAssistantId(),
-    },
-    { headers },
-  );
+  const approved: RemoteWebPairingTokenApprovedResponse = {
+    status: "approved",
+    accessToken: pair.accessToken,
+    accessTokenExpiresAt: new Date(pair.accessTokenExpiresAt).toISOString(),
+    refreshAfter: new Date(pair.refreshAfter).toISOString(),
+    guardianId: guardianPrincipalId,
+    assistantId: getExternalAssistantId(),
+  };
+  return Response.json(approved, { headers });
 }

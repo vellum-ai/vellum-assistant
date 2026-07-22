@@ -52,6 +52,7 @@ type Connection = {
 };
 
 const resolveProviderCalls: Connection[] = [];
+const resolveProviderOpts: { providerOverride?: string }[] = [];
 
 // Each connection name maps to a distinct fake Provider instance. Returning
 // distinguishable instances lets the test assert that two profiles with
@@ -75,8 +76,13 @@ mock.module("../registry.js", () => ({
   initializeProviders: async () => {},
   listProviders: () => Array.from(fakeProviders.values()),
   // The function under test — wraps the dispatcher's connection-aware path.
-  resolveProviderFromConnection: async (connection: Connection) => {
+  resolveProviderFromConnection: async (
+    connection: Connection,
+    _config: unknown,
+    opts?: { providerOverride?: string },
+  ) => {
     resolveProviderCalls.push(connection);
+    resolveProviderOpts.push(opts ?? {});
     return fakeProviders.get(`conn:${connection.name}`) ?? null;
   },
 }));
@@ -85,7 +91,11 @@ mock.module("../registry.js", () => ({
 // Imports (after mocks).
 // ---------------------------------------------------------------------------
 
-import { ConnectionResolutionError } from "../connection-resolution.js";
+import {
+  ConnectionResolutionError,
+  resolveRoutingIdentity,
+  tryResolveProviderForConnectionName,
+} from "../connection-resolution.js";
 import { getConfiguredProvider } from "../provider-send-message.js";
 
 // ---------------------------------------------------------------------------
@@ -269,5 +279,175 @@ describe("dispatch routes through provider_connection (Phase 1: connection-only)
     // however they want (rollup producer skips, others throw a domain-
     // specific error).
     expect(result).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Routing identities ("vellum"/"chatgpt") — resolution-unit coverage plus
+// config-driven dispatch through the real loader.
+// ---------------------------------------------------------------------------
+
+describe("routing identities", () => {
+  beforeEach(() => {
+    resolveProviderCalls.length = 0;
+    resolveProviderOpts.length = 0;
+    fakeConnections.clear();
+    fakeProviders.clear();
+    setConfig("llm", {});
+  });
+
+  test("a stored vellum profile dispatches end-to-end through the real config loader", async () => {
+    registerConnection(
+      { name: "vellum", provider: "vellum", auth: { type: "platform" } },
+      { name: "anthropic", tag: "managed-stub" },
+    );
+    setLlmConfig({
+      profiles: {
+        managed: { provider: "vellum", model: "claude-opus-4-8" },
+      },
+    });
+
+    const result = await getConfiguredProvider("mainAgent", {
+      overrideProfile: "managed",
+    });
+
+    expect(result).not.toBeNull();
+    expect(resolveProviderCalls.length).toBe(1);
+    expect(resolveProviderCalls[0]?.name).toBe("vellum");
+    expect(resolveProviderOpts[0]?.providerOverride).toBe("anthropic");
+  });
+
+  test("a stored chatgpt profile dispatches end-to-end through the real config loader", async () => {
+    registerConnection(
+      {
+        name: "chatgpt-subscription",
+        provider: "openai",
+        auth: {
+          type: "oauth_subscription",
+          credential: "credential/chatgpt/access_token",
+        },
+      },
+      { name: "openai", tag: "subscription-stub" },
+    );
+    setLlmConfig({
+      profiles: {
+        subscription: { provider: "chatgpt", model: "gpt-5.5" },
+      },
+    });
+
+    const result = await getConfiguredProvider("mainAgent", {
+      overrideProfile: "subscription",
+    });
+
+    expect(result).not.toBeNull();
+    expect(resolveProviderCalls.length).toBe(1);
+    expect(resolveProviderCalls[0]?.name).toBe("chatgpt-subscription");
+  });
+
+  test("resolveRoutingIdentity derives the vellum upstream from the model", () => {
+    expect(resolveRoutingIdentity("vellum", "claude-opus-4-8")).toEqual({
+      connectionName: "vellum",
+      expectedProvider: "anthropic",
+    });
+    expect(
+      resolveRoutingIdentity("vellum", "accounts/fireworks/models/glm-5p2"),
+    ).toEqual({ connectionName: "vellum", expectedProvider: "fireworks" });
+  });
+
+  test("resolveRoutingIdentity throws loudly for an unroutable vellum model", () => {
+    expect(() => resolveRoutingIdentity("vellum", "not-a-real-model")).toThrow(
+      ConnectionResolutionError,
+    );
+    try {
+      resolveRoutingIdentity("vellum", "not-a-real-model");
+    } catch (err) {
+      expect((err as ConnectionResolutionError).reason).toBe(
+        "unroutable_managed_model",
+      );
+    }
+  });
+
+  test("resolveRoutingIdentity maps chatgpt to the subscription row with an openai upstream", () => {
+    expect(resolveRoutingIdentity("chatgpt", "gpt-5.5")).toEqual({
+      connectionName: "chatgpt-subscription",
+      expectedProvider: "openai",
+    });
+  });
+
+  test("resolveRoutingIdentity rejects non-Codex models on the chatgpt route", () => {
+    expect(() => resolveRoutingIdentity("chatgpt", "gpt-5")).toThrow(
+      ConnectionResolutionError,
+    );
+    try {
+      resolveRoutingIdentity("chatgpt", "gpt-5");
+    } catch (err) {
+      expect((err as ConnectionResolutionError).reason).toBe(
+        "model_incompatible",
+      );
+    }
+  });
+
+  test("resolveRoutingIdentity passes real providers through untouched", () => {
+    expect(resolveRoutingIdentity("anthropic", "claude-opus-4-8")).toBeNull();
+    expect(resolveRoutingIdentity(undefined, "claude-opus-4-8")).toBeNull();
+  });
+
+  test("vellum identity resolves through the canonical row with the derived upstream override", async () => {
+    fakeConnections.set("vellum", {
+      name: "vellum",
+      provider: "vellum",
+      auth: { type: "platform" },
+    });
+    fakeProviders.set("conn:vellum", { name: "anthropic", tag: "managed" });
+
+    const provider = await tryResolveProviderForConnectionName(
+      "ignored-stale-name",
+      { llm: {} } as never,
+      "vellum",
+      "claude-opus-4-8",
+    );
+
+    expect(provider).toEqual({ name: "anthropic", tag: "managed" } as never);
+    expect(resolveProviderCalls[0]?.name).toBe("vellum");
+    expect(resolveProviderOpts[0]?.providerOverride).toBe("anthropic");
+  });
+
+  test("chatgpt identity resolves the subscription row by name with an openai override", async () => {
+    fakeConnections.set("chatgpt-subscription", {
+      name: "chatgpt-subscription",
+      provider: "openai",
+      auth: {
+        type: "oauth_subscription",
+        credential: "credential/chatgpt/access_token",
+      },
+    });
+    fakeProviders.set("conn:chatgpt-subscription", {
+      name: "openai",
+      tag: "subscription",
+    });
+
+    const provider = await tryResolveProviderForConnectionName(
+      "ignored",
+      { llm: {} } as never,
+      "chatgpt",
+      "gpt-5.5",
+    );
+
+    expect(provider).toEqual({ name: "openai", tag: "subscription" } as never);
+    expect(resolveProviderCalls[0]?.name).toBe("chatgpt-subscription");
+    // No override needed: the subscription row itself carries provider
+    // "openai", so the adapter resolves from the row.
+    expect(resolveProviderCalls[0]?.provider).toBe("openai");
+  });
+
+  test("chatgpt identity with no subscription row throws not_found (never a silent fallback)", async () => {
+    await expect(
+      tryResolveProviderForConnectionName(
+        "ignored",
+        { llm: {} } as never,
+        "chatgpt",
+        "gpt-5.5",
+      ),
+    ).rejects.toMatchObject({ reason: "not_found" });
   });
 });

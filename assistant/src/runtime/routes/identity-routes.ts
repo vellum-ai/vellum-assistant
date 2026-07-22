@@ -51,23 +51,40 @@ function sampleProcessRssBytes(): number | null {
 }
 
 function getMemoryInfo(): MemoryInfo {
-  const bytesToMb = (b: number) => Math.round((b / (1024 * 1024)) * 100) / 100;
-  // In platform-managed mode the daemon shares its Node process with whatever
-  // the container is doing as a whole; `process.memoryUsage().rss` only sees
-  // this process's resident set, which understates the container footprint
-  // operators care about. Read the cgroup usage file directly so /v1/health
-  // matches what the StatefulSet's memory limit is enforced against. When RSS
-  // can't be sampled, fall back to the cgroup usage (if any) before reporting 0
-  // — the metric is best-effort and must never fail the probe.
-  const currentBytes =
-    (getIsPlatform() ? getContainerMemoryUsageBytes() : null) ??
-    sampleProcessRssBytes() ??
-    getContainerMemoryUsageBytes() ??
-    0;
-  return {
-    currentMb: bytesToMb(currentBytes),
-    maxMb: bytesToMb(getContainerMemoryLimitBytes() ?? totalmem()),
-  };
+  // The health payload is best-effort: every resource read below can hit a
+  // flaky syscall, so a failure must degrade to 0 rather than turn the health
+  // endpoint into a 500.
+  try {
+    const bytesToMb = (b: number) =>
+      Math.round((b / (1024 * 1024)) * 100) / 100;
+    // In platform-managed mode the daemon shares its Node process with whatever
+    // the container is doing as a whole; `process.memoryUsage().rss` only sees
+    // this process's resident set, which understates the container footprint
+    // operators care about. Read the cgroup usage file directly so /v1/health
+    // matches what the StatefulSet's memory limit is enforced against. When RSS
+    // can't be sampled, fall back to the cgroup usage (if any) before reporting 0
+    // — the metric is best-effort and must never fail the probe.
+    const currentBytes =
+      (getIsPlatform() ? getContainerMemoryUsageBytes() : null) ??
+      sampleProcessRssBytes() ??
+      getContainerMemoryUsageBytes() ??
+      0;
+    return {
+      currentMb: bytesToMb(currentBytes),
+      maxMb: bytesToMb(getContainerMemoryLimitBytes() ?? sampleTotalMemBytes()),
+    };
+  } catch {
+    return { currentMb: 0, maxMb: 0 };
+  }
+}
+
+/** Total system memory in bytes, or 0 when the syscall fails. */
+function sampleTotalMemBytes(): number {
+  try {
+    return totalmem();
+  } catch {
+    return 0;
+  }
 }
 
 interface CpuInfo {
@@ -156,7 +173,12 @@ function getContainerCpuCores(): number {
     /* not available */
   }
 
-  return cpus().length || availableParallelism();
+  // 4. Fall back to the visible CPU count; 0 when even that syscall fails.
+  try {
+    return cpus().length || availableParallelism();
+  } catch {
+    return 0;
+  }
 }
 
 /**
@@ -196,7 +218,20 @@ function getContainerCpuUsageUs(): number | null {
 // Track CPU usage over a rolling window so /v1/health reports near-real-time
 // utilization instead of a lifetime average (total CPU time / total uptime).
 const CPU_SAMPLE_INTERVAL_MS = 5_000;
-let _lastProcessCpuUsage: NodeJS.CpuUsage = process.cpuUsage();
+
+/**
+ * Sample this process's cumulative CPU time, returning null when the
+ * underlying syscall fails (mirroring {@link sampleProcessRssBytes}).
+ */
+function sampleProcessCpuUsage(): NodeJS.CpuUsage | null {
+  try {
+    return process.cpuUsage();
+  } catch {
+    return null;
+  }
+}
+
+let _lastProcessCpuUsage: NodeJS.CpuUsage | null = sampleProcessCpuUsage();
 let _lastCgroupCpuUs: number | null = getContainerCpuUsageUs();
 let _lastCpuTime: number = Date.now();
 let _cachedCpuPercent = 0;
@@ -208,16 +243,24 @@ setInterval(() => {
   if (elapsedMs <= 0) return;
 
   const numCores = getContainerCpuCores();
+  if (numCores <= 0) {
+    _lastCpuTime = now;
+    return;
+  }
 
   // Always sample process-level CPU so the baseline stays fresh. This
   // prevents a spike if the platform cgroup path later falls back to
   // process.cpuUsage() after cgroup stats were previously available.
-  const newProcessUsage = process.cpuUsage();
+  const newProcessUsage = sampleProcessCpuUsage();
   const processDeltaUs =
-    newProcessUsage.user -
-    _lastProcessCpuUsage.user +
-    (newProcessUsage.system - _lastProcessCpuUsage.system);
-  _lastProcessCpuUsage = newProcessUsage;
+    newProcessUsage !== null && _lastProcessCpuUsage !== null
+      ? newProcessUsage.user -
+        _lastProcessCpuUsage.user +
+        (newProcessUsage.system - _lastProcessCpuUsage.system)
+      : null;
+  if (newProcessUsage !== null) {
+    _lastProcessCpuUsage = newProcessUsage;
+  }
 
   if (getIsPlatform()) {
     // In platform mode, prefer cgroup-level CPU usage so we see the full
@@ -228,14 +271,14 @@ setInterval(() => {
       const deltaCpuMs = deltaCpuUs / 1000;
       _cachedCpuPercent =
         Math.round((deltaCpuMs / (elapsedMs * numCores)) * 10000) / 100;
-    } else {
+    } else if (processDeltaUs !== null) {
       // cgroup CPU stats unavailable (e.g. gVisor) – fall back to process-level.
       const deltaCpuMs = processDeltaUs / 1000;
       _cachedCpuPercent =
         Math.round((deltaCpuMs / (elapsedMs * numCores)) * 10000) / 100;
     }
     _lastCgroupCpuUs = cgroupUs;
-  } else {
+  } else if (processDeltaUs !== null) {
     // Non-platform: use process.cpuUsage() (accurate for single-process mode).
     const deltaCpuMs = processDeltaUs / 1000;
     _cachedCpuPercent =
@@ -246,10 +289,14 @@ setInterval(() => {
 }, CPU_SAMPLE_INTERVAL_MS).unref();
 
 function getCpuInfo(): CpuInfo {
-  return {
-    currentPercent: _cachedCpuPercent,
-    maxCores: Math.ceil(getContainerCpuCores()),
-  };
+  try {
+    return {
+      currentPercent: _cachedCpuPercent,
+      maxCores: Math.ceil(getContainerCpuCores()),
+    };
+  } catch {
+    return { currentPercent: 0, maxCores: 0 };
+  }
 }
 
 /**
@@ -262,6 +309,15 @@ function getCpuInfo(): CpuInfo {
  */
 export function handleHealth(): Response {
   return Response.json({ status: "ok", version: APP_VERSION });
+}
+
+/** Disk usage for the health payload; null when it can't be measured. */
+function sampleDiskUsageInfo(): ReturnType<typeof getDiskUsageInfo> {
+  try {
+    return getDiskUsageInfo();
+  } catch {
+    return null;
+  }
 }
 
 function getDetailedHealth() {
@@ -286,7 +342,7 @@ function getDetailedHealth() {
     status: "healthy",
     timestamp: new Date().toISOString(),
     version: APP_VERSION,
-    disk: getDiskUsageInfo(),
+    disk: sampleDiskUsageInfo(),
     memory: getMemoryInfo(),
     cpu: getCpuInfo(),
     migrations: {
