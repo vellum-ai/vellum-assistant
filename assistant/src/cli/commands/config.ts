@@ -66,6 +66,20 @@ export function registerConfigCommand(program: Command): void {
             // keep as string
           }
 
+          // Web-search has no mode field: the schema strips it, so a write
+          // here would print success while changing nothing. Reject it with
+          // the provider-based replacement instead.
+          if (key === "services.web-search.mode") {
+            const { writeOutput } = await import("../output.js");
+            writeOutput(cmd, {
+              ok: false,
+              error:
+                "services.web-search.mode does not exist; web search is configured by provider alone. For managed search run `config set services.web-search.provider vellum`.",
+            });
+            process.exitCode = 1;
+            return;
+          }
+
           // Managed services authenticate via the platform connection:
           // mode "managed" for mode-based services, provider "vellum" for
           // web search.

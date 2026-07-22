@@ -239,6 +239,28 @@ describe("config set - platform connection guard for service mode paths", () => 
     });
   });
 
+  test("config set services.web-search.mode - rejected with provider guidance, no IPC write emitted", async () => {
+    // The web-search schema has no mode field; a raw write would be stripped
+    // at parse while the CLI reported success.
+    const { exitCode, stdout } = await runCli([
+      "node",
+      "assistant",
+      "--json",
+      "config",
+      "set",
+      "services.web-search.mode",
+      "managed",
+    ]);
+
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("services.web-search.provider vellum");
+    expect(mockIpcCalls.filter((c) => c.method === "config_set")).toHaveLength(
+      0,
+    );
+  });
+
   test("config set services.web-search.provider vellum - fails when not connected, no IPC write emitted", async () => {
     const { exitCode, stdout } = await runCli([
       "node",
