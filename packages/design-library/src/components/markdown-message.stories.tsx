@@ -25,6 +25,22 @@ export const Default: Story = {
   },
 };
 
+/**
+ * Regression guard for LUM-2788: prose mixed with inline code chips inside a
+ * blockquote must keep real leading — a line-height:1 label token on the
+ * quote lets the chips' padded backgrounds paint over adjacent lines.
+ */
+export const QuoteWithInlineCode: Story = {
+  args: {
+    content: [
+      "> Symptom: Settings shows `backup.enabled` as `false` in config, and",
+      "> `handleBackupCreate()` throws a `BadRequestError` saying creation",
+      "> moved to the gateway (`POST /v1/backups/create`). Three `.vbundle`",
+      "> files exist in `~/.vellum/backups/local/` — nothing newer.",
+    ].join("\n"),
+  },
+};
+
 /** A fenced block that overflows both axes. */
 export const LongCodeBlock: Story = {
   args: {
