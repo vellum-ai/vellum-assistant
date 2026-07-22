@@ -40,23 +40,31 @@ const TELEGRAM_IMAGE_MIME_PREFIXES = [
  * Per-send options shared by the Telegram send helpers.
  *
  * `messageThreadId` targets a private-chat topic (the Telegram analog of a
- * Slack thread); omitted, the send lands in the main chat. Carried as a
- * string because it originates as a URL param and multipart sends need the
- * string form; JSON payloads convert once in {@link threadIdPayloadFields}.
+ * Slack thread); omitted, the send lands in the main chat. The value is the
+ * `message_thread_id` carried on the inbound update. Carried as a string
+ * because it originates as a URL param and multipart sends need the string
+ * form; payloads convert once in {@link threadIdPayloadFields}.
  */
 export interface TelegramSendOptions {
   messageThreadId?: string;
 }
 
 /**
- * The `message_thread_id` field for a JSON send payload, or undefined when
- * the send targets the main chat — spread into the payload literal.
+ * Topic-targeting field for a send payload, or undefined when the send
+ * targets the main chat — spread into the payload literal.
+ *
+ * Outbound sends to private-chat topics use `direct_messages_topic_id`
+ * (Bot API 10.0+); sending `message_thread_id` to a private chat is
+ * rejected with "message thread not found". `message_thread_id` remains
+ * the outbound field for forum supergroups only, which this DM-only
+ * adapter never sends to. Inbound updates carry the id as
+ * `message_thread_id` in both chat kinds.
  */
 function threadIdPayloadFields(
   opts?: TelegramSendOptions,
-): { message_thread_id: number } | undefined {
+): { direct_messages_topic_id: number } | undefined {
   const id = opts?.messageThreadId?.trim();
-  return id ? { message_thread_id: Number(id) } : undefined;
+  return id ? { direct_messages_topic_id: Number(id) } : undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -268,7 +276,10 @@ export async function sendTelegramAttachments(
       const form = new FormData();
       form.set("chat_id", chatId);
       if (threadFields) {
-        form.set("message_thread_id", String(threadFields.message_thread_id));
+        form.set(
+          "direct_messages_topic_id",
+          String(threadFields.direct_messages_topic_id),
+        );
       }
 
       const isImage = TELEGRAM_IMAGE_MIME_PREFIXES.some((p) =>

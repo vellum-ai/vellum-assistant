@@ -207,23 +207,23 @@ describe("telegramTransport topic targeting", () => {
     } as ChannelReplyPayload;
   }
 
-  test("plain replies carry message_thread_id from the callback threadId param", async () => {
+  test("plain replies target the topic from the callback threadId param", async () => {
     await telegramTransport.deliver(topicCtx, payload({ useBlocks: false }));
 
     expect(callTelegramBotApiMock).toHaveBeenCalledWith("sendMessage", {
       chat_id: "123",
       text: "hello",
-      message_thread_id: 777,
+      direct_messages_topic_id: 777,
     });
   });
 
-  test("rich replies carry message_thread_id", async () => {
+  test("rich replies target the topic", async () => {
     await telegramTransport.deliver(topicCtx, payload({ useBlocks: true }));
 
     expect(callTelegramBotApiMock).toHaveBeenCalledWith("sendRichMessage", {
       chat_id: "123",
       rich_message: { html: "<p>hello</p>", skip_entity_detection: true },
-      message_thread_id: 777,
+      direct_messages_topic_id: 777,
     });
   });
 
@@ -237,11 +237,11 @@ describe("telegramTransport topic targeting", () => {
     expect(callTelegramBotApiMock).toHaveBeenNthCalledWith(2, "sendMessage", {
       chat_id: "123",
       text: "hello",
-      message_thread_id: 777,
+      direct_messages_topic_id: 777,
     });
   });
 
-  test("typing indicators carry message_thread_id", async () => {
+  test("typing indicators target the topic", async () => {
     await telegramTransport.sendTyping!(
       topicCtx,
       payload({ chatAction: "typing" }),
@@ -250,7 +250,7 @@ describe("telegramTransport topic targeting", () => {
     expect(callTelegramBotApiMock).toHaveBeenCalledWith("sendChatAction", {
       chat_id: "123",
       action: "typing",
-      message_thread_id: 777,
+      direct_messages_topic_id: 777,
     });
   });
 
