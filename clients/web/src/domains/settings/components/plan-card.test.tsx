@@ -539,6 +539,35 @@ describe("PlanCard recommended upgrade — change-package", () => {
     });
   });
 
+  test("a package-less Pro sub's recommended upgrade stays on the manage path", async () => {
+    const onManage = mock(() => {});
+    const onTierUpgraded = mock(() => {});
+    // A legacy/custom Pro sub has no pinned package, so change-package (which
+    // operates only on named packages) can't switch it. The banner CTA must
+    // fall back to the manage path instead of confirming a change to Mighty.
+    const subscription = { ...proMightySubscription(), package: undefined };
+    const { findByTestId } = renderCardInteractive(
+      subscription,
+      plansWithSuper(),
+      onManage,
+      onTierUpgraded,
+    );
+
+    fireEvent.click(await findByTestId("recommended-upgrade-button"));
+
+    await waitFor(() => {
+      expect(onManage).toHaveBeenCalledTimes(1);
+    });
+    // No confirm dialog, no change-package mutation, no navigation.
+    expect(
+      document.querySelector("[data-confirm-dialog-confirm]"),
+    ).toBeNull();
+    expect(changePackageBody).toBeNull();
+    expect(onTierUpgraded).not.toHaveBeenCalled();
+    expect(navigateArgs).toEqual([]);
+    expect(openedUrl).toBeNull();
+  });
+
   test("a base user's recommended upgrade routes to Stripe checkout", async () => {
     const onTierUpgraded = mock(() => {});
     const { findByTestId } = renderCardInteractive(

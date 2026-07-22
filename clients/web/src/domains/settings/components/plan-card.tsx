@@ -175,6 +175,12 @@ interface RecommendedUpgradeProps {
      */
     onUpgrade?: () => void;
     /**
+     * Manage-path delegate (AdjustPlanModal). Used to keep a legacy/custom Pro
+     * sub with no pinned package off the change-package flow, which operates
+     * only on named packages.
+     */
+    onManage: () => void;
+    /**
      * Opens the provisioning takeover (resize modal) after a Pro user's in-place
      * package change succeeds — the same signal the tier-change flow raises.
      */
@@ -186,6 +192,7 @@ function RecommendedUpgrade({
     currentKey,
     isProUser,
     onUpgrade,
+    onManage,
     onTierUpgraded,
 }: RecommendedUpgradeProps) {
     const queryClient = useQueryClient();
@@ -225,6 +232,12 @@ function RecommendedUpgrade({
     };
 
     const handleUpgrade = async () => {
+        // A legacy/custom Pro sub with no package pin can't be package-switched
+        // (change-package operates on named packages); keep it on the manage path.
+        if (isProUser && currentKey === null) {
+            onManage();
+            return;
+        }
         if (isProUser) {
             setConfirmOpen(true);
             return;
@@ -491,6 +504,7 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
                         packages={packages}
                         currentKey={currentKey}
                         isProUser={currentPlan.id !== "base"}
+                        onManage={onManage}
                         onTierUpgraded={onTierUpgraded}
                     />
                 </div>
