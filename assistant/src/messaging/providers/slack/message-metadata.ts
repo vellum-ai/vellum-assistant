@@ -19,6 +19,22 @@ import { z } from "zod";
 
 export type SlackEventKind = "message" | "reaction";
 
+/**
+ * Shape-check for a Slack `ts` value. Slack IDs messages by `<seconds>.<micros>`
+ * strings (e.g. `"1700000000.000100"`). The daemon also stores identifiers in
+ * other formats (gateway dedupe keys, UUIDs), so any path that treats a stored
+ * id as a ts — Slack API history bounds, permalink construction — must
+ * shape-check first; Slack rejects non-ts arguments with `invalid_arguments`.
+ */
+export function isSlackTs(value: string | null | undefined): value is string {
+  return typeof value === "string" && /^\d+\.\d+$/.test(value);
+}
+
+/** Slack DM conversation IDs start with `D` followed by alphanumeric chars. */
+export function isSlackDmConversation(conversationExternalId: string): boolean {
+  return /^D[A-Z0-9]+$/i.test(conversationExternalId);
+}
+
 const slackReactionMetadataSchema = z.object({
   emoji: z.string(),
   actorDisplayName: z.string().optional(),
