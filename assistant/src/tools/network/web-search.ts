@@ -37,7 +37,6 @@ const TAVILY_API_URL = "https://api.tavily.com/search";
 const FIRECRAWL_API_URL = "https://api.firecrawl.dev/v2/search";
 
 type WebSearchProvider = "perplexity" | "brave" | "tavily" | "firecrawl";
-type WebSearchMode = "managed" | "your-own";
 
 /**
  * Arguments passed to every {@link WebSearchAdapter}. The full superset is
@@ -143,20 +142,6 @@ function getWebSearchProvider(): WebSearchProvider {
     return "perplexity";
   }
   return configured as WebSearchProvider;
-}
-
-function getWebSearchMode(): WebSearchMode {
-  const services = getConfig().services["web-search"];
-  // ponytail: `mode` is the pre-migration-132 signal; delete this half once
-  // migration 132 has shipped everywhere. While it exists it preserves
-  // pre-migration routing VERBATIM — including proxy-billed searches for
-  // `mode: "managed"` + Provider Native configs that also hold a BYOK key.
-  // That is deliberate: this PR must not change legacy-config behavior.
-  // Migration 132 drops `mode` and thereby flips those configs to the
-  // keys-first fallback below.
-  return services.provider === "vellum" || services.mode === "managed"
-    ? "managed"
-    : "your-own";
 }
 
 async function getApiKey(
@@ -1190,7 +1175,10 @@ export const webSearchTool = {
     }
 
     const startedAt = Date.now();
-    const mode = getWebSearchMode();
+    // An explicit vellum choice is unconditionally managed: proxy errors
+    // (including 402) surface to the user and never fall back to BYOK keys.
+    const managedSearch =
+      getConfig().services["web-search"].provider === "vellum";
 
     const count =
       typeof input.count === "number"
@@ -1226,7 +1214,7 @@ export const webSearchTool = {
       }
     };
 
-    if (mode === "managed") {
+    if (managedSearch) {
       return executeManagedSearch();
     }
 

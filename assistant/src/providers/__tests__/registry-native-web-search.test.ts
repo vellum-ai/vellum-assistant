@@ -57,7 +57,6 @@ function makeConfig(): ProvidersConfig {
         model: "gemini-3.1-flash-image-preview",
       },
       "web-search": {
-        mode: "managed",
         provider: "inference-provider-native",
       },
     },

@@ -100,9 +100,9 @@ const SCHEMA_MANAGED_DEFAULT_SERVICES = [
   "notion-oauth",
 ] as const;
 
+// web-search is absent from both lists: it carries no mode at all.
 const SCHEMA_YOUR_OWN_DEFAULT_SERVICES = [
   "image-generation",
-  "web-search",
   "outlook-oauth",
   "linear-oauth",
   "github-oauth",

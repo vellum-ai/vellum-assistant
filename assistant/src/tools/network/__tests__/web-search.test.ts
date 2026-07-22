@@ -474,8 +474,8 @@ describe("web_search tool", () => {
 
   // ---- Managed Brave provider -------------------------------------------
 
-  test("managed mode uses Brave proxy without BYOK provider keys", async () => {
-    seedWebSearch("managed", "inference-provider-native");
+  test("provider vellum uses Brave proxy without BYOK provider keys", async () => {
+    seedWebSearch(undefined, "vellum");
     mockManagedSearchProxyResult = {
       ok: true,
       status: 200,
@@ -548,7 +548,7 @@ describe("web_search tool", () => {
 
     const directResult = await execute({ query: "same query" });
 
-    seedWebSearch("managed", "brave");
+    seedWebSearch(undefined, "vellum");
     mockBraveSecureKey = undefined;
     mockManagedSearchProxyResult = {
       ok: true,
@@ -566,8 +566,8 @@ describe("web_search tool", () => {
     );
   });
 
-  test("managed mode passes abort signal to the platform proxy", async () => {
-    seedWebSearch("managed", "perplexity");
+  test("provider vellum passes abort signal to the platform proxy", async () => {
+    seedWebSearch(undefined, "vellum");
     const controller = new AbortController();
 
     await execute({ query: "abortable query" }, { signal: controller.signal });
@@ -576,8 +576,8 @@ describe("web_search tool", () => {
     expect(mockManagedSearchProxyCalls[0].signal).toBe(controller.signal);
   });
 
-  test("managed mode maps insufficient balance to a managed usage error", async () => {
-    seedWebSearch("managed", "perplexity");
+  test("provider vellum maps insufficient balance to a managed usage error", async () => {
+    seedWebSearch(undefined, "vellum");
     mockManagedSearchProxyResult = {
       ok: false,
       kind: "platform-error",
@@ -595,8 +595,8 @@ describe("web_search tool", () => {
     expect(result.content).toContain("different web search provider");
   });
 
-  test("managed mode maps proxied provider errors to a tool error", async () => {
-    seedWebSearch("managed", "perplexity");
+  test("provider vellum maps proxied provider errors to a tool error", async () => {
+    seedWebSearch(undefined, "vellum");
     mockManagedSearchProxyResult = {
       ok: true,
       status: 400,
@@ -612,8 +612,8 @@ describe("web_search tool", () => {
     );
   });
 
-  test("managed mode returns a clear error when platform context is unavailable", async () => {
-    seedWebSearch("managed", "perplexity");
+  test("provider vellum returns a clear error when platform context is unavailable", async () => {
+    seedWebSearch(undefined, "vellum");
     mockManagedSearchProxyResult = {
       ok: false,
       kind: "unavailable",

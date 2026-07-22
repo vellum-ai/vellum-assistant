@@ -72,7 +72,7 @@ describe("AssistantConfigSchema", () => {
     expect(result.services["web-search"].provider).toBe(
       "inference-provider-native",
     );
-    expect(result.services["web-search"].mode).toBe("your-own");
+    expect(result.services["web-search"]).not.toHaveProperty("mode");
     expect(result.llm.profileSession).toEqual({
       defaultTtlSeconds: 1800,
       maxTtlSeconds: 43200,
@@ -106,7 +106,8 @@ describe("AssistantConfigSchema", () => {
     });
 
     expect(result.services["web-search"].provider).toBe("tavily");
-    expect(result.services["web-search"].mode).toBe("your-own");
+    // A mode key sent by an older client is stripped at parse.
+    expect(result.services["web-search"]).not.toHaveProperty("mode");
   });
 
   test("accepts Firecrawl as a web search provider", () => {
@@ -117,7 +118,7 @@ describe("AssistantConfigSchema", () => {
     });
 
     expect(result.services["web-search"].provider).toBe("firecrawl");
-    expect(result.services["web-search"].mode).toBe("your-own");
+    expect(result.services["web-search"]).not.toHaveProperty("mode");
   });
 
   test("defaults the web-fetch provider to the built-in fetcher", () => {

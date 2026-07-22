@@ -692,7 +692,6 @@ const ConfigGetResponseSchema = z
       .object({
         "web-search": z
           .object({
-            mode: ServiceModeSchema.optional(),
             provider: z.string().optional(),
           })
           .passthrough()
@@ -795,7 +794,6 @@ const ConfigPatchRequestSchema = z
       .object({
         "web-search": z
           .object({
-            mode: ServiceModeSchema.optional(),
             provider: z.string().optional(),
           })
           .passthrough()

@@ -80,7 +80,6 @@ export interface ProvidersConfig {
       model: string;
     };
     "web-search": {
-      mode: "managed" | "your-own";
       provider: string;
     };
   };

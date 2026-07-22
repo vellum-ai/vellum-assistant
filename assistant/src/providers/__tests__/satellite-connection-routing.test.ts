@@ -159,7 +159,7 @@ const providersConfigStub = {
       provider: "openai",
       model: "gpt-image-1",
     },
-    "web-search": { mode: "managed" as const, provider: "brave" },
+    "web-search": { provider: "vellum" as const },
   },
 };
 

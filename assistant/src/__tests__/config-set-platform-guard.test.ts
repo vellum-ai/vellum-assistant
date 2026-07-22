@@ -43,17 +43,11 @@ mock.module("../platform/client.js", () => ({
 // ---------------------------------------------------------------------------
 
 mock.module("../ipc/cli-client.js", () => ({
-  cliIpcCall: async (
-    method: string,
-    params?: Record<string, unknown>,
-  ) => {
+  cliIpcCall: async (method: string, params?: Record<string, unknown>) => {
     mockIpcCalls.push({ method, params });
     return mockIpcResult;
   },
-  exitFromIpcResult: (r: {
-    error?: string;
-    statusCode?: number;
-  }) => {
+  exitFromIpcResult: (r: { error?: string; statusCode?: number }) => {
     process.stderr.write((r.error ?? "Unknown error") + "\n");
     if (r.statusCode === undefined) {
       process.exitCode = 10;
@@ -245,15 +239,15 @@ describe("config set - platform connection guard for service mode paths", () => 
     });
   });
 
-  test("config set services.web-search.mode managed - fails when not connected, no IPC write emitted", async () => {
+  test("config set services.web-search.provider vellum - fails when not connected, no IPC write emitted", async () => {
     const { exitCode, stdout } = await runCli([
       "node",
       "assistant",
       "--json",
       "config",
       "set",
-      "services.web-search.mode",
-      "managed",
+      "services.web-search.provider",
+      "vellum",
     ]);
 
     expect(exitCode).toBe(1);
@@ -262,8 +256,8 @@ describe("config set - platform connection guard for service mode paths", () => 
     expect(parsed.error).toContain("vellum platform connect");
     // The guard runs *before* the IPC call - no config_set should have been
     // emitted.
-    expect(
-      mockIpcCalls.filter((c) => c.method === "config_set"),
-    ).toHaveLength(0);
+    expect(mockIpcCalls.filter((c) => c.method === "config_set")).toHaveLength(
+      0,
+    );
   });
 });
