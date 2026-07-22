@@ -2,12 +2,15 @@
  * Ingress secret detection for user messages.
  *
  * Consumes `PREFIX_PATTERNS` from `secret-patterns.ts` — the single source
- * of truth for prefix-based secret detection.  This module intentionally
+ * of truth for prefix-based secret detection — plus plugin-declared patterns
+ * from the runtime registry (`plugin-secret-patterns.ts`), read at call time
+ * so registrations apply without a daemon restart.  This module intentionally
  * does NOT import `scanText()` or any entropy/encoding logic to avoid
  * false positives on legitimate user input.
  */
 
 import { getConfig } from "../config/loader.js";
+import { getPluginSecretPatterns } from "./plugin-secret-patterns.js";
 import { isAllowlisted } from "./secret-allowlist.js";
 import { PREFIX_PATTERNS } from "./secret-patterns.js";
 
@@ -183,7 +186,10 @@ export function checkIngressForSecrets(content: string): IngressCheckResult {
 
   const detectedTypes: string[] = [];
 
-  for (const { label, regex } of PREFIX_PATTERNS) {
+  for (const { label, regex } of [
+    ...PREFIX_PATTERNS,
+    ...getPluginSecretPatterns(),
+  ]) {
     // Use a global version to find all matches
     const globalRegex = new RegExp(regex.source, "g");
     let match: RegExpExecArray | null;

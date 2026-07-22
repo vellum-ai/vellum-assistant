@@ -278,6 +278,26 @@ export function getPluginSecretPatternsVersion(): number {
   return version;
 }
 
+/**
+ * Memoize a consumer's derivation of the plugin-pattern union. `derive` runs
+ * only when the union's identity changes (any register/unregister/reset
+ * produces a new array), so the steady-state cost per call is one reference
+ * compare. Identity-based invalidation stays correct even when the test-only
+ * reset rewinds the version counter.
+ */
+export function memoizePluginPatternDerivation<T>(
+  derive: (patterns: SecretPrefixPattern[]) => T,
+): () => T {
+  let cached: { union: SecretPrefixPattern[]; value: T } | null = null;
+  return () => {
+    const union = getPluginSecretPatterns();
+    if (cached === null || cached.union !== union) {
+      cached = { union, value: derive(union) };
+    }
+    return cached.value;
+  };
+}
+
 /** Drop every registration and reset the version. Exposed for test isolation. */
 export function resetPluginSecretPatternsForTests(): void {
   patternsByPlugin.clear();
