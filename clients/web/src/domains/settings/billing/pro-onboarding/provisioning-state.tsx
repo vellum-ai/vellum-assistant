@@ -1,7 +1,7 @@
 import type { LucideIcon } from "lucide-react";
 import { ArrowRight, Check, Coins, Cpu, HardDrive } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, type CSSProperties, type ReactNode } from "react";
 
 import { ChatAvatar } from "@/components/avatar/chat-avatar";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
@@ -43,6 +43,12 @@ const CHIP_BACKGROUND =
 const MAX_CHIPS_IN_ROW = 2;
 const RESOURCE_ROTATE_MS = 2500;
 
+// The takeover avatar's resting size, and how much bigger it stands once the
+// upgrade lands — the mock's 244px → 346px pair. Growth is a transform, so the
+// SVG scales without re-rendering at a second size.
+const AVATAR_SIZE = 240;
+const AVATAR_GROWTH = 1.414;
+
 const RESOURCE_CHIP_ICON: Record<ResourceChangeKey, LucideIcon> = {
   machine: Cpu,
   storage: HardDrive,
@@ -77,38 +83,52 @@ export interface ProvisioningStateProps {
  * point. Falls back to a neutral bundled creature (and finally the "V") while
  * the avatar resolves or when none is configured. The idle breathe + reduced
  * -motion gating come from `AnimatedAvatar` inside `ChatAvatar`.
+ *
+ * Two stacked copies drive the evolution on resolve: the back one swells to
+ * `AVATAR_GROWTH` while the front one dissolves into it. Both are laid out
+ * against the same bottom baseline, so the creature grows upward off the
+ * shadow instead of drifting. The choreography lives in `.provision-avatar-*`.
  */
 function TakeoverAvatar({
   assistantId,
   resolved,
 }: {
   assistantId?: string | null;
-  /** The work finished — play the one-shot settle. */
+  /** The work finished — play the one-shot evolution. */
   resolved: boolean;
 }) {
   const activeId = useResolvedAssistantsStore.use.activeAssistantId();
   const resolvedId = assistantId ?? activeId;
   const { components, traits, customImageUrl } = useAssistantAvatar(resolvedId);
   const fallbackComponents = useBundledAvatarComponents();
+  const avatar = (
+    <ChatAvatar
+      components={components ?? fallbackComponents}
+      traits={traits}
+      customImageUrl={customImageUrl}
+      size={AVATAR_SIZE}
+    />
+  );
   return (
     <div
       aria-hidden
-      className={`flex flex-col items-center ${resolved ? "provision-avatar-resolved" : ""}`}
+      className={`provision-avatar-evolve flex flex-col items-center${resolved ? " is-evolved" : ""}`}
+      style={
+        {
+          "--provision-avatar-size": `${AVATAR_SIZE}px`,
+          "--provision-avatar-growth": AVATAR_GROWTH,
+        } as CSSProperties
+      }
     >
-      <ChatAvatar
-        components={components ?? fallbackComponents}
-        traits={traits}
-        customImageUrl={customImageUrl}
-        size={240}
-      />
-      <div
-        className="mt-1 h-5 w-64"
-        style={{
-          // Decorative avatar drop-shadow; raw rgba is conventional for a CSS shadow.
-          background:
-            "radial-gradient(ellipse at center, rgba(0, 0, 0, 0.45), transparent 70%)",
-        }}
-      />
+      <div className="provision-avatar-stage">
+        <div className="provision-avatar-layer">
+          <div className="provision-avatar-next">{avatar}</div>
+        </div>
+        <div className="provision-avatar-layer">
+          <div className="provision-avatar-current">{avatar}</div>
+        </div>
+      </div>
+      <div className="provision-avatar-shadow" />
     </div>
   );
 }
@@ -403,11 +423,13 @@ export function ProvisioningState({
       {/* Keyed so each phase replays the entrance instead of swapping its copy
           in place. WAITING and RESIZING render identical copy, so they share a
           key and don't retrigger. The min-height anchors the block: phases
-          carry different chip counts, and without it the whole centred group
-          jumps as they swap. */}
+          carry different chip counts and captions, and without it the whole
+          centred group jumps as they swap — most visibly under the resolve,
+          where the shorter "All done!" copy would tug the evolving avatar up
+          mid-animation. */}
       <div
         key={phaseKey}
-        className="flex min-h-[120px] w-full flex-col items-center gap-8 [animation:onboarding-step-in_420ms_ease-out] motion-reduce:[animation:none]"
+        className="flex min-h-[144px] w-full flex-col items-center gap-8 [animation:onboarding-step-in_420ms_ease-out] motion-reduce:[animation:none]"
       >
         {renderPhase()}
       </div>

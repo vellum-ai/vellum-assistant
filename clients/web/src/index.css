@@ -282,22 +282,101 @@ body {
   to { opacity: 1; transform: translateY(0); }
 }
 
-/* Provisioning takeover — the avatar acknowledges completion with the same
- * overshoot the hatching screen uses on resolve, held a touch longer so it
- * reads as settling rather than bouncing. */
-@keyframes provision-resolve {
-  0% { transform: scale(1); }
-  55% { transform: scale(1.1); }
-  100% { transform: scale(1.06); }
+/* Provisioning takeover — the assistant evolves when the upgrade lands. A
+ * larger copy of the creature swells in behind the current one at low opacity,
+ * then resolves to full colour as the front copy dissolves into it. The two
+ * copies share a bottom baseline so the creature stands taller off its shadow
+ * rather than floating up the screen. `--provision-avatar-size` and
+ * `--provision-avatar-growth` come from the component. */
+.provision-avatar-stage {
+  position: relative;
+  width: 100%;
+  /* Reserving the grown height up front keeps the copy below from reflowing. */
+  height: calc(var(--provision-avatar-size) * var(--provision-avatar-growth));
 }
 
-.provision-avatar-resolved {
-  animation: provision-resolve 0.82s cubic-bezier(0.34, 1.4, 0.64, 1) both;
+.provision-avatar-layer {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  display: flex;
+  justify-content: center;
+}
+
+.provision-avatar-current,
+.provision-avatar-next {
+  transform-origin: bottom center;
+  will-change: transform, opacity;
+}
+
+.provision-avatar-next {
+  opacity: 0;
+}
+
+.provision-avatar-shadow {
+  margin-top: 14px;
+  height: 31px;
+  width: 263px;
+  will-change: transform, opacity;
+  /* Decorative avatar drop-shadow; raw rgba is conventional for a CSS shadow. */
+  background: radial-gradient(
+    ellipse at center,
+    rgba(0, 0, 0, 0.45),
+    transparent 70%
+  );
+}
+
+/* Grows to a slight overshoot while still dim, then lights up as it settles. */
+@keyframes provision-evolve-in {
+  0% { transform: scale(1); opacity: 0; }
+  10% { opacity: 0.34; }
+  55% {
+    transform: scale(calc(var(--provision-avatar-growth) + 0.05));
+    opacity: 0.34;
+  }
+  100% { transform: scale(var(--provision-avatar-growth)); opacity: 1; }
+}
+
+@keyframes provision-evolve-out {
+  0% { transform: scale(1); opacity: 1; }
+  55% { transform: scale(1.06); opacity: 0.7; }
+  100% { transform: scale(1.18); opacity: 0; }
+}
+
+@keyframes provision-evolve-shadow {
+  0% { transform: scaleX(1); opacity: 0.85; }
+  55% { transform: scaleX(1.24); opacity: 0.55; }
+  100% { transform: scaleX(1.16); opacity: 1; }
+}
+
+.provision-avatar-evolve.is-evolved .provision-avatar-next {
+  animation: provision-evolve-in 1.25s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Held until the copy behind has finished swelling, so the two read as one
+ * creature growing rather than two creatures crossfading. */
+.provision-avatar-evolve.is-evolved .provision-avatar-current {
+  animation: provision-evolve-out 0.48s 0.6s ease-out both;
+}
+
+.provision-avatar-evolve.is-evolved .provision-avatar-shadow {
+  animation: provision-evolve-shadow 1.25s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .provision-avatar-resolved {
+  .provision-avatar-evolve.is-evolved .provision-avatar-next,
+  .provision-avatar-evolve.is-evolved .provision-avatar-current,
+  .provision-avatar-evolve.is-evolved .provision-avatar-shadow {
     animation: none;
+  }
+
+  .provision-avatar-evolve.is-evolved .provision-avatar-next {
+    transform: scale(var(--provision-avatar-growth));
+    opacity: 1;
+  }
+
+  .provision-avatar-evolve.is-evolved .provision-avatar-current {
+    opacity: 0;
   }
 }
 
