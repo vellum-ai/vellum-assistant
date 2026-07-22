@@ -1,48 +1,10 @@
-// Memory recall and status types.
+// Memory recall and status events.
+//
+// Server→client events are single-sourced from their canonical `api/events`
+// wire schemas; this file only composes them into the domain union consumed by
+// `message-protocol.ts`. Memory has no client messages.
 
-export interface MemoryRecalledDegradation {
-  semanticUnavailable: boolean;
-  reason: string;
-  fallbackSources: string[];
-}
+import type { MemoryRecalledEvent } from "../../api/events/memory-recalled.js";
+import type { MemoryStatusEvent } from "../../api/events/memory-status.js";
 
-export interface MemoryRecalledCandidateDebug {
-  key: string;
-  type: string;
-  kind: string;
-  finalScore: number;
-  semantic: number;
-  recency: number;
-}
-
-export interface MemoryRecalled {
-  type: "memory_recalled";
-  provider: string;
-  model: string;
-  degradation?: MemoryRecalledDegradation;
-  semanticHits: number;
-  tier1Count: number;
-  tier2Count: number;
-  hybridSearchLatencyMs: number;
-  sparseVectorUsed: boolean;
-  mergedCount: number;
-  selectedCount: number;
-  injectedTokens: number;
-  latencyMs: number;
-  topCandidates: MemoryRecalledCandidateDebug[];
-}
-
-export interface MemoryStatus {
-  type: "memory_status";
-  enabled: boolean;
-  degraded: boolean;
-  degradation?: MemoryRecalledDegradation;
-  reason?: string;
-  provider?: string;
-  model?: string;
-}
-
-// --- Domain-level union aliases (consumed by the barrel file) ---
-// Memory has no client messages.
-
-export type _MemoryServerMessages = MemoryRecalled | MemoryStatus;
+export type _MemoryServerMessages = MemoryRecalledEvent | MemoryStatusEvent;

@@ -86,6 +86,16 @@ const GLOBAL_STREAM_EVENT_TYPE_NAMES = [
   "service_group_update_starting",
   "service_group_update_progress",
   "service_group_update_complete",
+  // Memory recall/status telemetry gauges carry no top-level `conversationId`
+  // (they describe the memory subsystem, not a conversation), so gate them as
+  // global to avoid being dropped as "missing conversationId".
+  "memory_recalled",
+  "memory_status",
+  // Bookmark create/delete broadcasts sync the bookmark list across clients
+  // (handled by useBookmarksSync). They carry no top-level `conversationId`, so
+  // gate them as global.
+  "bookmark.created",
+  "bookmark.deleted",
 ] as const;
 
 const GLOBAL_STREAM_EVENT_TYPES: ReadonlySet<string> = new Set(

@@ -7,6 +7,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   PACKAGE_ORDER,
   type ProPackage,
+  type SwitchRelation,
   tierRelation,
 } from "@/domains/settings/billing/package-types";
 import { FREE_STORAGE_GIB } from "@/domains/settings/billing/plan-tier-meta";
@@ -269,10 +270,16 @@ export function PlansPage() {
 
   let body: ReactNode;
   if (subscription && proPlan && hasPackages) {
+    // A Custom sub (unpinned or customized) has no meaningful catalog rank, so
+    // it has no current tier: every named card is offered as a switch target —
+    // including a customized sub's own pinned key, which is a real
+    // revert-to-stock operation.
     const currentTierKey =
       subscription.plan_id === "base"
         ? "free"
-        : (subscription.package?.key ?? null);
+        : subscription.package && !subscription.package.customized
+          ? subscription.package.key
+          : null;
 
     const selectTier = (tierKey: string) => {
       if (isProUser) {
@@ -293,10 +300,11 @@ export function PlansPage() {
         if (tierRelation(currentTierKey, pkg.key) === "current") {
           return;
         }
-        // Only a clean packaged Pro sub can switch in place. A customized,
-        // cancelling, or non-entitlement-status sub can't — route it to the
-        // billing manage/cancel surface instead of posting a change-package that
-        // can only fail (the same fallback the Pro → Free case uses).
+        // Any active Pro sub — pinned, unpinned, or customized — switches in
+        // place via change-package. Only a cancelling or non-entitlement-status
+        // sub can't; route it to the billing manage/cancel surface instead of
+        // posting a change-package that can only fail (the same fallback the
+        // Pro → Free case uses).
         if (!isPackageSwitchEligible(subscription)) {
           navigate(`${routes.settings.usage}?tab=billing&adjust_plan`);
           return;
@@ -337,6 +345,9 @@ export function PlansPage() {
       // status === "ok": only an upgrade grows the machine, so only it needs
       // the resize/provisioning takeover. A downgrade caps the machine down
       // immediately server-side with no apply/restart step, so just confirm it.
+      // A Custom-sub switch has unknown direction, so it lands here as "upgrade"
+      // and opens the takeover — the provisioning step is grow-only/idempotent
+      // server-side, so it is the safe default when direction is unknown.
       if (relation === "downgrade") {
         toast.success(`Downgraded to ${target.name}.`);
       } else {
@@ -344,8 +355,15 @@ export function PlansPage() {
       }
     };
 
-    const switchRelation = switchTarget
-      ? tierRelation(currentTierKey, switchTarget.key)
+    // A Custom sub (currentTierKey null) can't be ranked against the target, so
+    // the confirm copy stays direction-neutral ("switch"); a clean-pinned sub
+    // gets the directional up/down copy.
+    const switchRelation: SwitchRelation = switchTarget
+      ? currentTierKey === null
+        ? "switch"
+        : tierRelation(currentTierKey, switchTarget.key) === "downgrade"
+          ? "downgrade"
+          : "upgrade"
       : "upgrade";
 
     const startCustomCheckout = (selection: CustomPlanSelection) =>
@@ -405,7 +423,12 @@ export function PlansPage() {
         PACKAGE_ORDER.indexOf(b.key as (typeof PACKAGE_ORDER)[number]),
     );
     const freeCopy = getPlanTierCopy("free");
-    const freeRelation = tierRelation(currentTierKey, "free");
+    // Pro → Free is always a downgrade (cancellation), even for a Custom sub
+    // whose currentTierKey is null; `selectTier("free")` cancel routing is
+    // unchanged.
+    const freeRelation = isProUser
+      ? "downgrade"
+      : tierRelation(currentTierKey, "free");
 
     body = (
       <div className="my-auto flex w-full flex-col items-center">
@@ -501,7 +524,7 @@ export function PlansPage() {
 
         <PackageSwitchConfirmModal
           open={switchTarget !== null}
-          relation={switchRelation === "downgrade" ? "downgrade" : "upgrade"}
+          relation={switchRelation}
           packageName={switchTarget?.name ?? ""}
           pending={changePackagePending}
           onCancel={() => setSwitchTarget(null)}

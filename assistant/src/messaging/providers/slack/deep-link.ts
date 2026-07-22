@@ -36,6 +36,24 @@ function normalizeSlackTeamUrl(teamUrl?: string | null): string | undefined {
   }
 }
 
+function buildArchivesMessageUrl(
+  teamUrl: string,
+  channelId: string,
+  messageTs: string,
+  threadTs?: string,
+): string {
+  const baseUrl = `${teamUrl}/archives/${encodeURIComponent(
+    channelId,
+  )}/p${formatSlackPermalinkTimestamp(messageTs)}`;
+  if (!threadTs) return baseUrl;
+
+  const search = new URLSearchParams({
+    thread_ts: threadTs,
+    cid: channelId,
+  });
+  return `${baseUrl}?${search.toString()}`;
+}
+
 export function buildSlackWebMessageUrl(params: {
   teamUrl?: string | null;
   channelId: string;
@@ -45,16 +63,35 @@ export function buildSlackWebMessageUrl(params: {
   const teamUrl = normalizeSlackTeamUrl(params.teamUrl);
   if (!teamUrl) return undefined;
 
-  const baseUrl = `${teamUrl}/archives/${encodeURIComponent(
+  return buildArchivesMessageUrl(
+    teamUrl,
     params.channelId,
-  )}/p${formatSlackPermalinkTimestamp(params.messageTs)}`;
-  if (!params.threadTs) return baseUrl;
+    params.messageTs,
+    params.threadTs,
+  );
+}
 
-  const search = new URLSearchParams({
-    thread_ts: params.threadTs,
-    cid: params.channelId,
-  });
-  return `${baseUrl}?${search.toString()}`;
+/**
+ * Workspace-agnostic message permalink: `https://slack.com/archives/…`
+ * resolves for any authenticated Slack viewer, so no per-workspace team URL
+ * is needed. When `threadTs` marks an enclosing thread (and the message is
+ * not itself the thread root), `thread_ts`/`cid` params make Slack open the
+ * message inside its thread view instead of failing to locate a threaded
+ * reply at the channel root.
+ */
+export function buildSlackPermalink(params: {
+  channelId: string;
+  messageTs: string;
+  threadTs?: string;
+}): string {
+  const threadTs =
+    params.threadTs !== params.messageTs ? params.threadTs : undefined;
+  return buildArchivesMessageUrl(
+    "https://slack.com",
+    params.channelId,
+    params.messageTs,
+    threadTs,
+  );
 }
 
 export function buildSlackWebChannelUrl(params: {

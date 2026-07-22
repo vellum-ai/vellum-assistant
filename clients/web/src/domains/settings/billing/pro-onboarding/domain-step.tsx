@@ -1,4 +1,3 @@
-import { Info } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -18,6 +17,8 @@ import type { StalledApplyAction } from "./primitives";
 import {
     CreatureCorners,
     StalledApplyControls,
+    SUBTLE_NOTICE_CLASS,
+    SUBTLE_NOTICE_TEXT_CLASS,
     WizardCardHeading,
 } from "./primitives";
 import { useAssistantDomains } from "./use-assistant-domains";
@@ -129,7 +130,11 @@ export function DomainStep({
 
   return (
     <>
-      <Modal.Body className="min-h-[320px] animate-[onboarding-step-in_350ms_ease-out] space-y-6 pb-4 motion-reduce:animate-none">
+      {/* `pb-0` + the footer's `pt-6` give the mock's 24px gap to the actions.
+          The creature layer leads so `space-y-6` can't hang a trailing margin
+          off the last flowing child. */}
+      <Modal.Body className="animate-[onboarding-step-in_350ms_ease-out] space-y-6 pb-0 motion-reduce:animate-none">
+        <CreatureCorners variant="top" />
         <WizardCardHeading
           title="Assistant Email"
           subtitle="Set up an email for your assistant."
@@ -206,25 +211,17 @@ export function DomainStep({
           )
         )}
         {!isLocked && (
-          <div
-            role="status"
-            className="flex w-full items-center gap-1 rounded-lg bg-[var(--surface-active)] px-2 py-[7px]"
-          >
-            <Info
-              className="h-4 w-4 shrink-0 text-[var(--content-secondary)]"
-              aria-hidden="true"
-            />
-            <span className="text-[14px] font-medium text-[var(--content-tertiary)]">
+          <Notice tone="info" className={SUBTLE_NOTICE_CLASS}>
+            <span className={SUBTLE_NOTICE_TEXT_CLASS}>
               You won&apos;t be able to change the handle once set.
             </span>
-          </div>
+          </Notice>
         )}
         {confirmed ? (
           <Notice tone="success">Domain set — redirecting…</Notice>
         ) : null}
-        <CreatureCorners variant="top" />
       </Modal.Body>
-      <Modal.Footer className="items-center">
+      <Modal.Footer className="items-center pt-6">
         {isLocked ? (
           <Button
             variant="primary"

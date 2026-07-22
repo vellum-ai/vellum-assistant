@@ -16,6 +16,7 @@ import { isLocalMode, loadLockfile } from "@/lib/local-mode";
 import { initSentry } from "@/lib/sentry/sentry-init";
 import { installTranslateDomGuard } from "@/lib/translate-dom-guard";
 import { initSessionReplay } from "@/lib/session-replay/session-replay-init";
+import { setupPlatformAssistantsSync } from "@/assistant/platform-assistants-sync";
 import { setupAuthListeners, useAuthStore } from "@/stores/auth-store";
 import { setupOrganizationStore } from "@/stores/organization-store";
 import { router } from "./routes";
@@ -38,6 +39,9 @@ async function boot() {
   installConsentRefreshListeners();
 
   setupOrganizationStore();
+  // Register before initSession so the boot `unknown → present` transition it
+  // drives is caught and the platform assistants list is loaded.
+  setupPlatformAssistantsSync();
   if (isLocalMode()) {
     await loadLockfile();
     await useAuthStore.getState().initSession();

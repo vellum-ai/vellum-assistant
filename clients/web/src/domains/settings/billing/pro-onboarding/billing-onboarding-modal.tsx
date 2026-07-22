@@ -136,6 +136,13 @@ export function BillingOnboardingModal({
   const provisioningContentClass =
     "overflow-hidden inset-0 max-w-none w-screen h-screen max-h-none rounded-none border-0";
 
+  // The backdrop goes from a 50% scrim to solid black as the takeover opens.
+  // Easing that colour keeps the room darkening rather than blinking; padding
+  // isn't animatable and rides along with the geometry.
+  const overlayClass = `transition-[background-color] duration-300 ease-out${
+    isTakeover ? " bg-black p-0" : ""
+  }`;
+
   return (
     <Modal.Root open={open} onOpenChange={(o) => { if (!o) handleClose(); }}>
       <Modal.Content
@@ -145,7 +152,7 @@ export function BillingOnboardingModal({
         onEscapeKeyDown={lockTakeover ? (e) => e.preventDefault() : undefined}
         onInteractOutside={lockTakeover ? (e) => e.preventDefault() : undefined}
         data-theme={isTakeover ? "dark" : undefined}
-        overlayClassName={isTakeover ? "bg-black p-0" : undefined}
+        overlayClassName={overlayClass}
         className={isTakeover ? provisioningContentClass : "overflow-hidden"}
       >
         {/* Keyed on step so the fade replays as we swap takeover ⇄ card. */}

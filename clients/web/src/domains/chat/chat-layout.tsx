@@ -14,6 +14,12 @@ import {
 } from "react-router";
 
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
+import {
+  selectChatFocusActive,
+  selectHeaderCenterHidden,
+  selectHeaderControlsHidden,
+  useInChatOnboardingStore,
+} from "@/stores/in-chat-onboarding-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { MOBILE_MEDIA_QUERY, useIsMobile } from "@/hooks/use-is-mobile";
 import {
@@ -236,6 +242,16 @@ export function ChatLayout({
   const showLlmInspector = useCanUseLlmInspector();
   const isNative = useIsNativePlatform();
   const electron = isElectron();
+  // In-chat onboarding prototype: the tour's opening beats hide the sidebar
+  // and header controls; the tour reveals them itself as it walks.
+  const chatFocusActive = useInChatOnboardingStore(selectChatFocusActive);
+  const headerControlsHidden = useInChatOnboardingStore(
+    selectHeaderControlsHidden,
+  );
+  const headerCenterHidden = useInChatOnboardingStore(
+    selectHeaderCenterHidden,
+  );
+  const navTourActive = useInChatOnboardingStore.use.navTourActive();
 
   // --- Assistant identity from store (written by ChatPage) ---
   const assistantName = useAssistantIdentityStore.use.name();
@@ -724,10 +740,12 @@ export function ChatLayout({
       // The overlay subtree mounts mid edge-swipe while still off-screen;
       // mounting the tip card there stamps an impression for a tip never
       // seen, so the overlay only gets it once the drawer settles open.
+      // Hidden during the avatar tour for the same reason (plus noise) —
+      // the tour owns the sidebar's attention.
       tipCard={
-        args.variant === "overlay" && !drawerOpen ? undefined : (
-          <SidebarTipCard />
-        )
+        (args.variant === "overlay" && !drawerOpen) || navTourActive
+          ? undefined
+          : <SidebarTipCard />
       }
       onClose={args.onClose}
     />
@@ -749,6 +767,12 @@ export function ChatLayout({
           collapsed={collapsed}
           sidebarWidth={sidebarWidth}
           toggleSidebar={toggleSidebar}
+          controlsHidden={headerControlsHidden}
+          centerHidden={headerCenterHidden}
+          // The tour dims the header's clusters for its whole run — no
+          // beat ever focuses them. (Center-hidden is true exactly while
+          // the tour runs, so it doubles as the dim signal.)
+          controlsDimmed={headerCenterHidden}
           topBarCenter={topBarCenter}
           // The voice-session pill is composed here — NOT registered through
           // useChatLayoutSlotsStore — because slot registration is owned by
@@ -855,8 +879,21 @@ export function ChatLayout({
         <div className="flex min-w-0 flex-1 gap-4 p-4 min-h-0 overflow-hidden flex-col md:flex-row">
           <aside
             id="chat-side-menu"
-            className="shrink-0"
+            className="shrink-0 overflow-hidden"
             aria-label="Navigation"
+            // Explicit width (matching the rail's own) so the onboarding
+            // prototype's focused stage can slide the whole rail away; the
+            // negative margin cancels the row gap so the chat goes full-width.
+            // Hiding eases smoothly; revealing uses a back-ease so the rail
+            // lands with a slight bounce (the tour's takeover moment).
+            style={{
+              width: chatFocusActive ? 0 : collapsed ? 48 : sidebarWidth,
+              opacity: chatFocusActive ? 0 : 1,
+              marginRight: chatFocusActive ? -16 : 0,
+              transition: chatFocusActive
+                ? "width 500ms ease-in-out, opacity 300ms ease-in-out, margin-right 500ms ease-in-out"
+                : "width 550ms cubic-bezier(0.34, 1.56, 0.64, 1), opacity 250ms ease-out, margin-right 550ms cubic-bezier(0.34, 1.56, 0.64, 1)",
+            }}
           >
             {renderSideMenu({
               collapsed,

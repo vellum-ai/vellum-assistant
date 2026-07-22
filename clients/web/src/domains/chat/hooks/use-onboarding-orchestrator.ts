@@ -24,7 +24,12 @@ import { type MutableRefObject, useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
 import { useConversationStore } from "@/stores/conversation-store";
+import { useInChatOnboardingStore } from "@/stores/in-chat-onboarding-store";
 import { type PreChatOnboardingContext } from "@/domains/onboarding/prechat";
+import {
+  isInChatTourOn,
+  readInChatTourVariant,
+} from "@/domains/chat/in-chat-onboarding/in-chat-tour-flag";
 import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
 import { routes } from "@/utils/routes";
 
@@ -65,6 +70,13 @@ export function useOnboardingOrchestrator(): UseOnboardingOrchestratorResult {
     onboardingDraftConversationIdRef.current = draftId;
     setOnboardingConversationId(draftId);
     useConversationStore.getState().setActiveConversationId(draftId);
+    // The in-chat-onboarding-tour experiment's `tour` arm: the eyes-led
+    // tour plays over the workspace the user just landed in. Read at
+    // consumption time — flags hydrated long ago during the onboarding
+    // flow itself, and the signal is one-shot.
+    if (isInChatTourOn(readInChatTourVariant())) {
+      useInChatOnboardingStore.getState().startPrototype();
+    }
     void navigate(routes.conversation(draftId), { replace: true });
   }, [searchParams, navigate]);
 
