@@ -199,6 +199,13 @@ export function useChangeTiers(): UseChangeTiersResult {
     const results = await Promise.all(pending);
     invalidateBillingQueries();
 
+    // Storage here is always an upgrade (the modal disables downgrades) and any
+    // machine change resizes the assistant, so a succeeded resource dimension
+    // means the assistant must provision the new ceiling.
+    const needsResize = results.some(
+      (r) => r.ok && (r.dimension === "machine" || r.dimension === "storage"),
+    );
+
     const failures = results.filter((r) => !r.ok);
     if (failures.length > 0) {
       const message = failures
@@ -207,12 +214,14 @@ export function useChangeTiers(): UseChangeTiersResult {
         )
         .join(" ");
       toast.error(message);
-      return null;
+      // A resource dimension can persist server-side even when another one
+      // fails, so still surface the resize takeover to provision it; the caller
+      // closes the modal. Only when nothing landed do we return null to hold the
+      // modal open for a retry.
+      return needsResize ? { needsResize: true } : null;
     }
 
-    // Storage here is always an upgrade (the modal disables downgrades) and any
-    // machine change resizes the assistant, so either one needs provisioning.
-    return { needsResize: machineChanged || storageChanged };
+    return { needsResize };
   };
 
   return { changeTiers, isPending, current, eligible };

@@ -266,6 +266,56 @@ describe("useChangeTiers", () => {
     ]);
   });
 
+  test("opens the resize takeover when a resource dim lands but credit fails", async () => {
+    // Storage upgrade succeeds server-side; the credit change fails. The
+    // entitlement already moved, so the caller must still open resize.
+    creditImpl = async () => {
+      throw { detail: "Payment failed. Your card was declined." };
+    };
+    subscriptionFixture = proSubscription({ selected_credit_tier: null });
+    const { result } = setup();
+
+    const captured: { value: ChangeTiersResult | null } = { value: null };
+    await act(async () => {
+      captured.value = await result.current.changeTiers({
+        machineTier: "medium",
+        storageTier: "s",
+        creditTier: "credits_50",
+      });
+    });
+
+    expect(storageCalls).toEqual([{ body: { storage_tier: "s" } }]);
+    expect(creditCalls).toEqual([{ body: { credit_tier: "credits_50" } }]);
+    expect(toastErrorCalls).toEqual([
+      "Payment failed. Your card was declined.",
+    ]);
+    expect(captured.value).toEqual({ needsResize: true });
+  });
+
+  test("returns null when only a non-resource dim landed and a resource failed", async () => {
+    // Machine (the sole resource change) fails; the credit change succeeds. No
+    // provisioning is owed, so hold the modal open for a retry.
+    machineImpl = async () => {
+      throw { detail: "Machine tier unavailable." };
+    };
+    const { result } = setup();
+
+    const captured: { value: ChangeTiersResult | null } = {
+      value: { needsResize: true },
+    };
+    await act(async () => {
+      captured.value = await result.current.changeTiers({
+        machineTier: "large",
+        storageTier: "xs",
+        creditTier: "credits_50",
+      });
+    });
+
+    expect(creditCalls).toEqual([{ body: { credit_tier: "credits_50" } }]);
+    expect(toastErrorCalls).toEqual(["Machine tier unavailable."]);
+    expect(captured.value).toBeNull();
+  });
+
   test("posting no changes is a successful no-op with no dispatch", async () => {
     const { result, invalidatedKeys } = setup();
 
