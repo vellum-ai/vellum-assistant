@@ -29,7 +29,6 @@
 
 import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 
-import type { DrizzleDb } from "../../../../persistence/db-connection.js";
 import { memoryV3EverInjected } from "../../../../persistence/schema/index.js";
 import { getLogger } from "../logging.js";
 import { memoryDbOrNull } from "../memory-db.js";
@@ -266,7 +265,6 @@ export function residentBytes(conversationId: string): number {
  * copy is best-effort: an unavailable memory database is a no-op.
  */
 export function forkEverInjected(
-  _db: DrizzleDb,
   parentConversationId: string,
   newConversationId: string,
 ): void {
@@ -332,7 +330,6 @@ export function forkEverInjected(
  * is a best-effort no-op.
  */
 export function seedEverInjectedFromSlugs(
-  _db: DrizzleDb,
   parentConversationId: string,
   newConversationId: string,
   slugs: string[],

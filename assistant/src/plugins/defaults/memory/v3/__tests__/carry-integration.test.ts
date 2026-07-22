@@ -868,7 +868,7 @@ beforeAll(async () => {
     `,
     )
     .run(FORK_CONV, CONV);
-  forkEverInjected(testDb, CONV, FORK_CONV);
+  forkEverInjected(CONV, FORK_CONV);
   histories.set(FORK_CONV, rehydrateFromDb(FORK_CONV));
   forkRecord = await runTurn(FORK_CONV, 9, "strawberry guava", [
     "page-g",

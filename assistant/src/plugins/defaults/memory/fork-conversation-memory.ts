@@ -80,7 +80,7 @@ export function forkConversationMemory(
   // entries for turns the child does not actually contain.
   if (isFullHistoryFork) {
     forkActivationState(sourceConversationId, forkId);
-    forkEverInjected(db, sourceConversationId, forkId);
+    forkEverInjected(sourceConversationId, forkId);
     forkGraphMemoryState(sourceConversationId, forkId);
   } else {
     // Truncated fork: the wholesale copy above would over-claim, but
@@ -118,7 +118,6 @@ export function forkConversationMemory(
     }
     seedForkActivationState(forkId, [...inheritedSlugs]);
     seedEverInjectedFromSlugs(
-      db,
       sourceConversationId,
       forkId,
       [...inheritedV3Slugs],

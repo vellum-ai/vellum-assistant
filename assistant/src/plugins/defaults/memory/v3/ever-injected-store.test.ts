@@ -37,14 +37,11 @@ let memoryDbAvailable = true;
 
 // The fork functions still take a (now unused) main-DB handle; keep a drizzle
 // stand-in to pass positionally so the call sites read the same as production.
-let testSqlite: Database;
 let memorySqlite: Database;
-let testDb = makeDb();
+makeDb();
 function makeDb() {
-  testSqlite = new Database(":memory:");
   memorySqlite = new Database(":memory:");
   ensureMemoryV3EverInjectedSchema(memorySqlite);
-  return drizzle(testSqlite, { schema });
 }
 
 mock.module("../../../../persistence/db-connection.js", () => ({
@@ -79,7 +76,7 @@ const {
 beforeEach(() => {
   storeMockActive = true;
   memoryDbAvailable = true;
-  testDb = makeDb();
+  makeDb();
 });
 
 afterAll(() => {
@@ -203,7 +200,7 @@ describe("forkEverInjected", () => {
     );
     markPruned("conv-parent", ["topics/page-b"], 2_000);
 
-    forkEverInjected(testDb, "conv-parent", "conv-child");
+    forkEverInjected("conv-parent", "conv-child");
 
     expect(getInjected("conv-child")).toEqual(
       new Map([
@@ -217,7 +214,7 @@ describe("forkEverInjected", () => {
   });
 
   test("is a no-op when the parent has no rows", () => {
-    forkEverInjected(testDb, "conv-empty", "conv-child");
+    forkEverInjected("conv-empty", "conv-child");
     expect(getInjected("conv-child").size).toBe(0);
   });
 });
@@ -225,7 +222,6 @@ describe("forkEverInjected", () => {
 describe("seedEverInjectedFromSlugs", () => {
   test("seeds dedup-only rows with bytes = 0 stamped at the given time", () => {
     seedEverInjectedFromSlugs(
-      testDb,
       "conv-parent",
       "conv-child",
       ["topics/page-a", "topics/page-b"],
@@ -268,7 +264,6 @@ describe("seedEverInjectedFromSlugs", () => {
     markPruned("conv-parent", ["topics/page-a"], 2_000);
 
     seedEverInjectedFromSlugs(
-      testDb,
       "conv-parent",
       "conv-child",
       ["topics/page-a", "topics/page-b"],
@@ -292,7 +287,7 @@ describe("seedEverInjectedFromSlugs", () => {
   });
 
   test("is a no-op for an empty slug list and never overwrites existing rows", () => {
-    seedEverInjectedFromSlugs(testDb, "conv-parent", "conv-child", [], 5_000);
+    seedEverInjectedFromSlugs("conv-parent", "conv-child", [], 5_000);
     expect(getInjected("conv-child").size).toBe(0);
 
     recordInjected(
@@ -301,7 +296,6 @@ describe("seedEverInjectedFromSlugs", () => {
       1_000,
     );
     seedEverInjectedFromSlugs(
-      testDb,
       "conv-parent",
       "conv-child",
       ["topics/page-a"],
@@ -350,12 +344,9 @@ describe("fail-soft when the underlying statement fails", () => {
     ).not.toThrow();
     expect(() => markPruned("conv-1", ["topics/page-a"], 2_000)).not.toThrow();
     expect(() => clearConversation("conv-1")).not.toThrow();
-    expect(() =>
-      forkEverInjected(testDb, "conv-parent", "conv-child"),
-    ).not.toThrow();
+    expect(() => forkEverInjected("conv-parent", "conv-child")).not.toThrow();
     expect(() =>
       seedEverInjectedFromSlugs(
-        testDb,
         "conv-parent",
         "conv-child",
         ["topics/page-a"],
