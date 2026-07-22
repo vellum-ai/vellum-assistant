@@ -20,7 +20,7 @@ voice_config_update setting="tts_voice_id" value="<voice-id>"
 
 > **The voice lives under the _active_ provider, not always ElevenLabs.** The config key depends on `services.tts.provider`: `elevenlabs` → `services.tts.providers.elevenlabs.voiceId`, `vellum` (managed) → `services.tts.providers.vellum.model`, `deepgram` → `services.tts.providers.deepgram.model`. The `voice_config_update` tool (and the `assistant tts voice <id>` CLI command) handle this routing for you. **Do NOT `assistant config set services.tts.providers.elevenlabs.voiceId ...` blindly** — on a managed (`vellum`) assistant that field is ignored, so the write "succeeds" but the voice never changes. See [Setting the voice](#setting-the-voice) for the CLI fallback.
 >
-> **The tables below work on every provider.** On managed (`vellum`) assistants they are the *only* ElevenLabs voices — the platform bills per rate-carded model and rejects anything else at synthesis (the write succeeds but the voice fails on the next turn), so don't offer library or cloned voices unless the assistant has its own ElevenLabs API key. With a BYO key ([setup below](#elevenlabs-api-key-setup)), any voice id works.
+> **The tables below apply when the active provider is `elevenlabs` (BYO key) or managed `vellum`.** On managed assistants they are the _only_ ElevenLabs voices — the platform bills per rate-carded model and rejects anything else at synthesis (the write succeeds but the voice fails on the next turn), so don't offer library or cloned voices unless the assistant has its own ElevenLabs API key. With a BYO key ([setup below](#elevenlabs-api-key-setup)), any voice id works. Other TTS providers (`deepgram`, `xai`, `fish-audio`, …) use their own voice/model identifiers — never write an ElevenLabs voice id to them; pick from that provider's own catalog instead.
 
 ## Choose a Voice
 
@@ -46,7 +46,7 @@ Pick a voice that matches your identity and the user's preferences. Offer to sho
 | Charlie | Casual, Australian              | `IKne3meq5aSn9XLyUdCD` |
 | Liam    | Young, articulate               | `TX3LPaxmHKxFdv7VOQHJ` |
 
-> These are ElevenLabs' **current premade** voices. Do not use retired legacy ids (Antoni, Josh, Arnold, Rachel, Charlotte, Amelia, …): ElevenLabs silently remaps them to *different* voices — synthesis succeeds but speaks as the wrong voice.
+> These are ElevenLabs' **current premade** voices. Do not use retired legacy ids (Antoni, Josh, Arnold, Rachel, Charlotte, Amelia, …): ElevenLabs silently remaps them to _different_ voices — synthesis succeeds but speaks as the wrong voice.
 
 ### Setting the voice
 
