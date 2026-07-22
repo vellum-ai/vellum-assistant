@@ -21,6 +21,7 @@ type PairingDetails = {
 
 type PairingState =
   | { kind: "starting" }
+  | { kind: "verifying" }
   | { kind: "polling"; expiresAt: string | null }
   | { kind: "approved" }
   | { kind: "expired" }
@@ -33,6 +34,11 @@ function statusCopy(state: PairingState): { title: string; body: string } {
         title: "Starting pairing",
         body: "Creating a code for this browser.",
       };
+    case "verifying":
+      return {
+        title: "Pairing",
+        body: "Connecting this device to your assistant.",
+      };
     case "approved":
       return {
         title: "Connected",
@@ -41,7 +47,7 @@ function statusCopy(state: PairingState): { title: string; body: string } {
     case "expired":
       return {
         title: "Pairing expired",
-        body: "Start a new web pairing from the local assistant.",
+        body: "This pairing code is invalid or expired. Run vellum pair --qr (or vellum pair --web) on the machine running your assistant to get a new one.",
       };
     case "error":
       return {
@@ -60,7 +66,11 @@ function StatusIcon({ state }: { state: PairingState }) {
   if (state.kind === "approved") {
     return <CheckCircle2 className="h-5 w-5 text-green-600" aria-hidden />;
   }
-  if (state.kind === "starting" || state.kind === "polling") {
+  if (
+    state.kind === "starting" ||
+    state.kind === "verifying" ||
+    state.kind === "polling"
+  ) {
     return (
       <LoaderCircle
         className="h-5 w-5 animate-spin text-blue-600"
@@ -69,6 +79,24 @@ function StatusIcon({ state }: { state: PairingState }) {
     );
   }
   return <AlertCircle className="h-5 w-5 text-red-600" aria-hidden />;
+}
+
+/**
+ * Strip the burned `#device_code=` fragment (and any query variants) from the
+ * address bar after a successful exchange, preserving `returnTo`, so the spent
+ * code does not linger in the location bar or get re-submitted on reload.
+ */
+function clearDeviceCodeFromUrl(): void {
+  try {
+    const url = new URL(window.location.href);
+    for (const key of ["deviceCode", "device_code", "userCode", "user_code"]) {
+      url.searchParams.delete(key);
+    }
+    url.hash = "";
+    window.history.replaceState(null, "", `${url.pathname}${url.search}`);
+  } catch {
+    // history.replaceState unavailable — the burned code is inert regardless.
+  }
 }
 
 export function RemoteWebPairingPage() {
@@ -95,7 +123,7 @@ export function RemoteWebPairingPage() {
       : null,
   );
   const [state, setState] = useState<PairingState>(
-    pairing ? { kind: "polling", expiresAt: null } : { kind: "starting" },
+    pairing ? { kind: "verifying" } : { kind: "starting" },
   );
 
   useEffect(() => {
@@ -156,6 +184,9 @@ export function RemoteWebPairingPage() {
         }
 
         activateRemoteGatewaySession(result);
+        // Drop the burned device code from the URL before navigating so it
+        // never lingers in the address bar or re-submits on reload.
+        clearDeviceCodeFromUrl();
         setState({ kind: "approved" });
         timeout = setTimeout(() => navigate(returnTo, { replace: true }), 250);
       } catch (err) {
@@ -207,7 +238,7 @@ export function RemoteWebPairingPage() {
           <h1 className="text-xl font-semibold">{copy.title}</h1>
         </div>
 
-        {pairing?.userCode ? (
+        {state.kind === "polling" && pairing?.userCode ? (
           <div className="mb-5 rounded-md border border-[var(--border-subtle)] bg-[var(--background-muted)] p-4 text-center">
             <div className="text-xs font-medium uppercase text-[var(--content-secondary)]">
               Pairing code
