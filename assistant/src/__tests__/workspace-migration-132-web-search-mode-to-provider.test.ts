@@ -10,9 +10,18 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { AssistantConfigSchema } from "../config/schema.js";
-import { webSearchModeToProviderMigration } from "../workspace/migrations/132-web-search-mode-to-provider.js";
 import { WORKSPACE_MIGRATIONS } from "../workspace/migrations/registry.js";
 import { getLastWorkspaceMigrationId } from "../workspace/migrations/runner.js";
+
+// Migration files expose no API to other code (see migrations AGENTS.md);
+// the registry is the one sanctioned importer, so the test exercises the
+// registered entry rather than importing the module directly.
+const webSearchModeToProviderMigration = WORKSPACE_MIGRATIONS.find(
+  (m) => m.id === "132-web-search-mode-to-provider",
+);
+if (!webSearchModeToProviderMigration) {
+  throw new Error("migration 132 is not registered in WORKSPACE_MIGRATIONS");
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
