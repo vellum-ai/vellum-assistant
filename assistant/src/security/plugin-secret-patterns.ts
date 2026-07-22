@@ -26,10 +26,12 @@
  * short prefix smuggle in an unrelated over-broad branch), no quantified
  * groups or nested quantifiers (quantifiers may apply only to a single
  * char/class/escape atom, which keeps the accepted grammar linear-time under
- * the **native** engine, not just under RE2), and a minimum guaranteed match
- * length (so a pattern cannot match short common substrings and mass-redact
- * every message and log line). An additional mandatory `RE2JS.compile` check
- * backstops the structural scan. Only after a pattern passes is it compiled
+ * the **native** engine, not just under RE2), no hex/unicode/control escapes
+ * (`\xNN`, `\uNNNN`, `\cX`, `\0` — every allowed escape spans exactly one
+ * source atom, which keeps the minimum-match-length arithmetic sound), and a
+ * minimum guaranteed match length (so a pattern cannot match short common
+ * substrings and mass-redact every message and log line). An additional
+ * mandatory `RE2JS.compile` check backstops the structural scan. Only after a pattern passes is it compiled
  * to the native `RegExp` (no flags) that the `SecretPrefixPattern` contract
  * expects — the restricted grammar is what makes the native compile safe.
  */
@@ -136,15 +138,19 @@ function parseBraceQuantifier(
 /**
  * Scan for constructs outside the restricted grammar: capture groups (`(` is
  * allowed only as `(?:`), lookarounds/inline flags (any other `(?`),
- * backreferences (`\1`–`\9`), alternation (an unescaped `|` outside a
- * character class — a branch could bypass the literal-prefix requirement,
- * e.g. `virlo|.*`), quantified groups (`)` followed by `?`/`*`/`+`/`{`), and
- * nested quantifiers (a quantifier directly following another, including lazy
- * `+?` forms). Banning quantifiers on anything but a single char/class/escape
- * atom is what makes the accepted grammar linear-time under the native
- * `RegExp` engine — RE2 accepting a pattern says nothing about how the native
- * matcher backtracks on it. Escapes and character classes are tracked so
- * `\(`, `\|`, and `[()|]` are not misread.
+ * backreferences (`\1`–`\9`), hex/unicode/control escapes (`\xNN`, `\uNNNN`,
+ * `\cX`, `\0` — they span multiple source characters per matched character,
+ * so {@link minGuaranteedMatchLength} would overcount them; the restricted
+ * grammar targets ASCII key prefixes and never needs them), alternation (an
+ * unescaped `|` outside a character class — a branch could bypass the
+ * literal-prefix requirement, e.g. `virlo|.*`), quantified groups (`)`
+ * followed by `?`/`*`/`+`/`{`), and nested quantifiers (a quantifier directly
+ * following another, including lazy `+?` forms). Banning quantifiers on
+ * anything but a single char/class/escape atom is what makes the accepted
+ * grammar linear-time under the native `RegExp` engine — RE2 accepting a
+ * pattern says nothing about how the native matcher backtracks on it. Escapes
+ * and character classes are tracked so `\(`, `\|`, and `[()|]` are not
+ * misread.
  */
 function findStructuralIssue(source: string): string | null {
   let inClass = false;
@@ -155,6 +161,9 @@ function findStructuralIssue(source: string): string | null {
       const next = source[i + 1];
       if (next !== undefined && next >= "1" && next <= "9") {
         return "backreferences are not allowed";
+      }
+      if (next === "x" || next === "u" || next === "c" || next === "0") {
+        return "hex/unicode/control escapes are not allowed — use literal characters";
       }
       i++;
       prevWasQuantifier = false;
@@ -220,7 +229,9 @@ function findStructuralIssue(source: string): string | null {
 /**
  * Conservative lower bound on the number of characters any match of `source`
  * must span. Assumes the source already passed {@link findStructuralIssue},
- * so there is no alternation and every quantifier applies to exactly one
+ * so there is no alternation, every escape is a two-source-character atom
+ * matching exactly one character (multi-character escapes like `\xNN` are
+ * structurally rejected), and every quantifier applies to exactly one
  * single-character atom (literal, `.`, escape, or character class): each atom
  * counts 1, `?`/`*` zero out their atom, `+` keeps it at 1, and `{n,...}`
  * multiplies it by `n`. Groups and zero-width assertions count 0.

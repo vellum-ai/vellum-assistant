@@ -26,6 +26,7 @@ import { maybeDefaultSpeechToManaged } from "../../config/managed-speech-default
 import { getCesClient } from "../../credential-execution/ces-runtime.js";
 import type { CesClient } from "../../credential-execution/client.js";
 import { evictConversationsForReload } from "../../daemon/conversation-store.js";
+import { scrubStoredCredentialFromTranscripts } from "../../daemon/credential-transcript-scrub.js";
 import { syncManualTokenConnection } from "../../oauth/manual-token-connection.js";
 import { clearEmbeddingBackendCache } from "../../persistence/embeddings/embedding-backend.js";
 import { maybeReseedCapabilitiesAfterManagedCredential } from "../../plugins/defaults/memory/v3/substrate/memory-v2-startup.js";
@@ -242,6 +243,27 @@ async function handleAddSecret({ body }: RouteHandlerArgs) {
           `Failed to store API key in secure storage (backend: ${getActiveBackendName()})`,
         );
       }
+
+      // The stored plaintext may already sit in recent transcripts (a pasted
+      // key echoed by a tool result or persisted tool_use input). The scrub
+      // runs immediately after the secure-store write, BEFORE the provider
+      // refresh: that side effect can throw, and a stored-but-unscrubbed key
+      // must not depend on it succeeding. The key IS stored at this point;
+      // the scrub is best-effort hygiene and must stay invisible to the
+      // caller. Counts only — never the value.
+      try {
+        const scrubbed = await scrubStoredCredentialFromTranscripts(value);
+        log.info(
+          { provider: name, ...scrubbed },
+          "API key stored; scrubbed value from recent transcripts",
+        );
+      } catch (err) {
+        log.warn(
+          { err, provider: name },
+          "API key stored, but transcript scrub failed",
+        );
+      }
+
       await refreshProvidersAfterSecretChange();
       log.info({ provider: name }, "API key updated via HTTP");
       return { success: true, type, name };
