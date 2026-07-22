@@ -1,3 +1,5 @@
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { setConfig } from "./helpers/set-config.js";
@@ -237,6 +239,95 @@ describe("checkIngressForSecrets", () => {
     // AKIA followed by 16 repeated X characters
     const result = checkIngressForSecrets("AKIAXXXXXXXXXXXXXXXX");
     expect(result.blocked).toBe(false);
+  });
+
+  // ── Token-shaped whole-message heuristic ───────────────────────────
+
+  // Synthetic token mirroring the incident's shape (never a real credential).
+  const incidentToken = "virlo_tkn_Qm7pW2xLbV9sKjR4tNcY8dZh3Fg";
+
+  test("blocks a whole-message token-shaped value with unknown prefix", () => {
+    const result = checkIngressForSecrets(incidentToken);
+    expect(result.blocked).toBe(true);
+    expect(result.detectedTypes).toContain("Token-shaped value");
+    expect(result.userNotice).toBeDefined();
+  });
+
+  test("blocks a whole-message token-shaped value with surrounding whitespace", () => {
+    const result = checkIngressForSecrets(`  ${incidentToken}\n`);
+    expect(result.blocked).toBe(true);
+    expect(result.detectedTypes).toContain("Token-shaped value");
+  });
+
+  test("does not block the same token embedded in a sentence", () => {
+    const result = checkIngressForSecrets(
+      `Here is the value ${incidentToken} from the docs`,
+    );
+    expect(result.blocked).toBe(false);
+  });
+
+  test("does not block a token-shaped value with a repeated-char tail", () => {
+    const result = checkIngressForSecrets("my_key_xxxxxxxxxxxxxxxx");
+    expect(result.blocked).toBe(false);
+  });
+
+  test("does not block a test_-prefixed token-shaped value", () => {
+    const result = checkIngressForSecrets("test_token_abcdefghijklmnop");
+    expect(result.blocked).toBe(false);
+  });
+
+  test("does not block a whole-message 40-char hex git SHA", () => {
+    const result = checkIngressForSecrets(
+      "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0",
+    );
+    expect(result.blocked).toBe(false);
+  });
+
+  test("does not block a whole-message UUID", () => {
+    const result = checkIngressForSecrets(
+      "550e8400-e29b-41d4-a716-446655440000",
+    );
+    expect(result.blocked).toBe(false);
+  });
+
+  test("does not block a normal long word", () => {
+    const result = checkIngressForSecrets("supercalifragilisticexpialidocious");
+    expect(result.blocked).toBe(false);
+  });
+
+  test("does not block an allowlisted token-shaped value", () => {
+    const dataDir = join(process.env.VELLUM_WORKSPACE_DIR!, "data");
+    mkdirSync(dataDir, { recursive: true });
+    try {
+      writeFileSync(
+        join(dataDir, "secret-allowlist.json"),
+        JSON.stringify({ values: [incidentToken] }),
+      );
+      resetAllowlist();
+      const result = checkIngressForSecrets(incidentToken);
+      expect(result.blocked).toBe(false);
+    } finally {
+      rmSync(join(dataDir, "secret-allowlist.json"), { force: true });
+      resetAllowlist();
+    }
+  });
+
+  test("does not block token-shaped values when blockTokenShapedMessages is false", () => {
+    setConfig("secretDetection", {
+      enabled: true,
+      blockIngress: true,
+      blockTokenShapedMessages: false,
+    });
+    const result = checkIngressForSecrets(incidentToken);
+    expect(result.blocked).toBe(false);
+  });
+
+  test("prefix-pattern detection takes precedence over the token-shape label", () => {
+    const result = checkIngressForSecrets(
+      "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij",
+    );
+    expect(result.blocked).toBe(true);
+    expect(result.detectedTypes).toEqual(["GitHub Token"]);
   });
 
   // ── Multiple secrets ───────────────────────────────────────────────

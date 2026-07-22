@@ -94,6 +94,7 @@ describe("AssistantConfigSchema", () => {
       enabled: true,
       blockIngress: true,
       allowOneTimeSend: false,
+      blockTokenShapedMessages: true,
     });
     expect(result.auditLog).toEqual({ retentionDays: 0 });
   });
