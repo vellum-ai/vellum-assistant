@@ -1,5 +1,5 @@
 import { ArrowLeft, Loader2 } from "lucide-react";
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -150,6 +150,53 @@ export function PlansPage() {
   );
   const packages = proPlan?.packages ?? [];
   const hasPackages = packages.length > 0;
+  const isProUser = subscription?.plan_id === "pro";
+
+  // Seed the custom-plan modal with the Pro sub's current tiers so an unrelated
+  // edit (e.g. only the machine) doesn't force re-picking — and dropping — the
+  // storage or credit the user still holds. Null for base checkout, which
+  // starts every dimension empty.
+  const customInitialSelection = useMemo<CustomPlanSelection | null>(() => {
+    if (
+      !isProUser ||
+      current.machineTier == null ||
+      current.storageTier == null
+    ) {
+      return null;
+    }
+    return {
+      machineTier: current.machineTier,
+      storageTier: current.storageTier,
+      creditTier: current.creditTier,
+    };
+  }, [isProUser, current.machineTier, current.storageTier, current.creditTier]);
+
+  // The in-place custom editor can only faithfully represent a Pro sub whose
+  // current tiers are all live catalog options. A legacy storage tier or a
+  // deprecated credit bundle can't be shown or re-selected here — routing such
+  // a sub through the modal would force it to drop that tier — so those fall
+  // back to the adjust-plan surface (which preserves them) instead.
+  const customReconfigurable = useMemo(() => {
+    if (!isProUser || !proPlan) {
+      return false;
+    }
+    const machineOk = proPlan.machine_tiers.some(
+      (t) => t.tier === current.machineTier,
+    );
+    const storageOk = proPlan.storage_tiers.some(
+      (t) => !t.legacy && t.tier === current.storageTier,
+    );
+    const creditOk =
+      current.creditTier == null ||
+      (proPlan.credit_tiers ?? []).some((t) => t.tier === current.creditTier);
+    return machineOk && storageOk && creditOk;
+  }, [
+    isProUser,
+    proPlan,
+    current.machineTier,
+    current.storageTier,
+    current.creditTier,
+  ]);
 
   // The takeover only makes sense against a platform-hosted assistant with a
   // live package catalog. Anything else — self-hosted or no platform session,
@@ -216,7 +263,6 @@ export function PlansPage() {
 
   let body: ReactNode;
   if (subscription && proPlan && hasPackages) {
-    const isProUser = subscription.plan_id === "pro";
     const currentTierKey =
       subscription.plan_id === "base"
         ? "free"
@@ -325,11 +371,12 @@ export function PlansPage() {
 
     const handleConfigure = () => {
       if (isProUser) {
-        // An eligible Pro sub reconfigures its tiers in the white modal; an
-        // ineligible one (cancelling / non-entitlement status) can't change
-        // tiers in place, so route it to the billing manage/cancel surface —
-        // the same fallback the package CTAs use.
-        if (eligible) {
+        // An eligible Pro sub whose current tiers are all representable here
+        // reconfigures in the white modal. Anything else — cancelling /
+        // non-entitlement status, or a legacy/deprecated tier the modal can't
+        // show — routes to the billing manage/cancel surface, the same fallback
+        // the package CTAs use.
+        if (eligible && customReconfigurable) {
           setCustomPlanOpen(true);
           return;
         }
@@ -424,6 +471,7 @@ export function PlansPage() {
           proPlan={proPlan}
           pending={pending || changeTiersPending}
           currentStorageGib={isProUser ? current.storageGib : null}
+          initialSelection={customInitialSelection}
           onClose={() => setCustomPlanOpen(false)}
           onContinue={(selection) => {
             if (isProUser) {

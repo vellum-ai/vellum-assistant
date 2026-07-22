@@ -54,6 +54,13 @@ export interface CustomPlanModalProps {
    * null/undefined for the base checkout path, where every tier is selectable.
    */
   currentStorageGib?: number | null;
+  /**
+   * The Pro subscriber's current tiers, when reconfiguring an existing Pro
+   * plan. Pre-fills every dimension so the default is a no-op and an unrelated
+   * edit can't force re-picking — and dropping — a tier the user still holds.
+   * Leave null/undefined for the base checkout path, which starts empty.
+   */
+  initialSelection?: CustomPlanSelection | null;
   onClose: () => void;
   onContinue: (selection: CustomPlanSelection) => void;
 }
@@ -70,14 +77,16 @@ function priceSuffix(cents: number) {
  * "Create a custom plan" configurator opened from the Custom Plan row of the
  * View Plans takeover. Always light regardless of the app theme, matching the
  * white dialog over the dark takeover in the pricing mocks. The three pickers
- * render as dropdowns and start unselected; Continue stays disabled until
- * every dimension has an explicit choice ("No extra credits" counts).
+ * render as dropdowns and start unselected for base checkout (or seeded from
+ * the current plan for a Pro reconfigure); Continue stays disabled until every
+ * dimension has an explicit choice ("No extra credits" counts).
  */
 export function CustomPlanModal({
   open,
   proPlan,
   pending,
   currentStorageGib,
+  initialSelection,
   onClose,
   onContinue,
 }: CustomPlanModalProps) {
@@ -90,8 +99,16 @@ export function CustomPlanModal({
       setMachineTier("");
       setStorageTier("");
       setCreditChoice("");
+      return;
     }
-  }, [open]);
+    // Reopening for a Pro reconfigure seeds the current tiers so the default is
+    // a no-op; base checkout passes none and leaves every dimension empty.
+    if (initialSelection) {
+      setMachineTier(initialSelection.machineTier);
+      setStorageTier(initialSelection.storageTier);
+      setCreditChoice(initialSelection.creditTier ?? NO_EXTRA_CREDITS);
+    }
+  }, [open, initialSelection]);
 
   const machineTiers = proPlan.machine_tiers;
   // Legacy tiers stay in the catalog only for existing subscribers; a new

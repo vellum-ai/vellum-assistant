@@ -4,10 +4,12 @@
  * A base subscriber clicking Configure gets the "Create a custom plan" modal;
  * Continue stays disabled until all three dropdowns (machine size, storage,
  * credits) have an explicit choice, then fires the Stripe upgrade with the
- * selected tiers. An eligible Pro subscriber reaches the same modal, but
- * Continue dispatches the change-machine/storage/credit-tier endpoints (not
- * checkout, which no-ops for an active Pro sub) and opens the resize takeover;
- * an ineligible Pro sub (cancelling / bad status) routes to the manage modal.
+ * selected tiers. An eligible Pro subscriber reaches the same modal seeded to
+ * its current tiers, and Continue dispatches the change-machine/storage/
+ * credit-tier endpoints (not checkout, which no-ops for an active Pro sub) and
+ * opens the resize takeover. A Pro sub the modal can't faithfully represent — a
+ * legacy storage tier or a deprecated credit bundle — or an ineligible one
+ * (cancelling / bad status) routes to the manage modal instead.
  *
  * Strategy mirrors plans-page-checkout.test.tsx: mock the generated SDK to
  * capture the request bodies and return fixtures, mock `openUrl` to capture
@@ -494,6 +496,48 @@ describe("CustomPlanModal — eligible Pro subscriber", () => {
     expect(upgradeCall).toBeNull();
   });
 
+  test("opens seeded to the current plan so Continue needs no re-pick", () => {
+    // Current config: medium machine / 10 GB (xs) storage / no credits. The
+    // configurator opens with all three pre-filled, so an unrelated edit can't
+    // strand the user into re-picking — and dropping — a tier they still hold.
+    const { getByRole, getByText } = renderPage(proMightySubscription());
+
+    fireEvent.click(getByRole("button", { name: "Configure" }));
+
+    getByText("Create a custom plan");
+    // Seeded, so Continue is enabled with no interaction.
+    expect(continueButton().disabled).toBe(false);
+
+    // The recap reflects the seeded current tiers.
+    const dialog = document.querySelector('[role="dialog"]');
+    const rows = Array.from(dialog?.querySelectorAll("li") ?? []).map(
+      (li) => li.textContent?.trim() ?? "",
+    );
+    expect(rows).toEqual([
+      "Pro base plan — $20/mo",
+      "Medium machine (2.5 vCPU, 5 GiB)",
+      "10 GB storage",
+      "No extra credits",
+    ]);
+  });
+
+  test("continuing with the seeded config is a no-op with no dispatch", async () => {
+    const { getByRole, queryByText, queryByTestId } = renderPage(
+      proMightySubscription(),
+    );
+
+    fireEvent.click(getByRole("button", { name: "Configure" }));
+    fireEvent.click(continueButton());
+
+    // Nothing diverged from the current plan, so no change-tier request fires
+    // and the resize takeover stays closed.
+    await waitFor(() => expect(queryByText("Create a custom plan")).toBeNull());
+    expect(machineTierCall).toBeNull();
+    expect(storageTierCall).toBeNull();
+    expect(creditTierCall).toBeNull();
+    expect(queryByTestId("resize-takeover")).toBeNull();
+  });
+
   test("Continue dispatches only the changed tiers and opens the resize takeover", async () => {
     // Current config is medium machine / 10 GB (xs) storage / no credits.
     const { getByRole, findByTestId } = renderPage(proMightySubscription());
@@ -569,5 +613,46 @@ describe("CustomPlanModal — ineligible Pro subscriber", () => {
     expect(queryByText("Create a custom plan")).toBeNull();
     expect(machineTierCall).toBeNull();
     expect(upgradeCall).toBeNull();
+  });
+});
+
+describe("CustomPlanModal — non-representable Pro plan", () => {
+  test("a legacy storage tier routes to the manage modal", async () => {
+    // The configurator filters legacy storage tiers, so a sub holding one can't
+    // be shown or re-selected here — route to adjust-plan, which preserves it,
+    // rather than force the user to upgrade off it.
+    const { getByRole, getByTestId, queryByText } = renderPage(
+      proMightySubscription(),
+      onboarding({ selected_storage_tier: "xl", selected_storage_gib: 250 }),
+    );
+
+    fireEvent.click(getByRole("button", { name: "Configure" }));
+
+    await waitFor(() => {
+      expect(getByTestId("loc").textContent).toBe(
+        "/assistant/settings/usage?tab=billing&adjust_plan",
+      );
+    });
+    expect(queryByText("Create a custom plan")).toBeNull();
+    expect(machineTierCall).toBeNull();
+  });
+
+  test("a deprecated credit bundle routes to the manage modal", async () => {
+    // The configurator only offers live credit tiers; the sub's `credits_25`
+    // bundle is absent from the catalog, so routing it here would drop the paid
+    // credits — fall back to adjust-plan instead.
+    const { getByRole, getByTestId, queryByText } = renderPage(
+      proMightySubscription({ selected_credit_tier: "credits_25" }),
+    );
+
+    fireEvent.click(getByRole("button", { name: "Configure" }));
+
+    await waitFor(() => {
+      expect(getByTestId("loc").textContent).toBe(
+        "/assistant/settings/usage?tab=billing&adjust_plan",
+      );
+    });
+    expect(queryByText("Create a custom plan")).toBeNull();
+    expect(machineTierCall).toBeNull();
   });
 });
