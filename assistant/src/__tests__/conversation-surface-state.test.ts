@@ -26,6 +26,34 @@ describe("restoreSurfaceStateEntry", () => {
     });
   });
 
+  test("survives a reload round-trip for a surface whose client reads keys outside the daemon schema", () => {
+    // document_preview's client renderer reads `content` and `mimeType`, which
+    // DocumentPreviewSurfaceDataSchema does not model. A persisted block
+    // carrying them must round-trip through restore (the GET fast path) with
+    // those keys intact — re-parsing through the schema would strip them and
+    // blank the preview on reload.
+    const persistedBlock = {
+      type: "ui_surface",
+      surfaceId: "doc-1",
+      surfaceType: "document_preview",
+      title: "Notes",
+      data: {
+        title: "Notes",
+        surfaceId: "doc-real",
+        content: "# Heading\n\nbody",
+        mimeType: "text/markdown",
+      },
+    };
+
+    const entry = restoreSurfaceStateEntry(persistedBlock);
+
+    expect(entry.surfaceType).toBe("document_preview");
+    expect(entry.data).toEqual(persistedBlock.data);
+    expect((entry.data as Record<string, unknown>).mimeType).toBe(
+      "text/markdown",
+    );
+  });
+
   test("preserves daemon-internal surface types and their opaque data", () => {
     const entry = restoreSurfaceStateEntry({
       surfaceType: "skill_card",
