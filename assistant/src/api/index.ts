@@ -33,6 +33,8 @@ import { HomeFeedUpdatedEventSchema } from "./events/home-feed-updated.js";
 import { HookEventSchema } from "./events/hook-event.js";
 import { IdentityChangedEventSchema } from "./events/identity-changed.js";
 import { InteractionResolvedEventSchema } from "./events/interaction-resolved.js";
+import { MemoryRecalledEventSchema } from "./events/memory-recalled.js";
+import { MemoryStatusEventSchema } from "./events/memory-status.js";
 import { MessageCompleteEventSchema } from "./events/message-complete.js";
 import { MessageDequeuedEventSchema } from "./events/message-dequeued.js";
 import { MessageQueuedEventSchema } from "./events/message-queued.js";
@@ -251,6 +253,18 @@ export {
   type InteractionResolvedEvent,
   InteractionResolvedEventSchema,
 } from "./events/interaction-resolved.js";
+export {
+  type MemoryRecalledCandidateDebug,
+  MemoryRecalledCandidateDebugSchema,
+  type MemoryRecalledDegradation,
+  MemoryRecalledDegradationSchema,
+  type MemoryRecalledEvent,
+  MemoryRecalledEventSchema,
+} from "./events/memory-recalled.js";
+export {
+  type MemoryStatusEvent,
+  MemoryStatusEventSchema,
+} from "./events/memory-status.js";
 export {
   type MessageCompleteEvent,
   MessageCompleteEventSchema,
@@ -663,6 +677,8 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   HookEventSchema,
   IdentityChangedEventSchema,
   InteractionResolvedEventSchema,
+  MemoryRecalledEventSchema,
+  MemoryStatusEventSchema,
   MessageCompleteEventSchema,
   MessageDequeuedEventSchema,
   MessageQueuedEventSchema,
