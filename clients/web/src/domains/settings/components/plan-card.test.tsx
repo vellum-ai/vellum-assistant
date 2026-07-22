@@ -378,6 +378,50 @@ describe("PlanCard", () => {
     expect(html).not.toContain("Pro");
   });
 
+  test("an unpinned Custom sub's banner drops the stock upgrade framing", () => {
+    // A legacy unpinned Pro sub's real tiers can diverge from any stock
+    // package, so the banner offers the named plan neutrally: a "Switch plan"
+    // tag and a "Switch to Mighty" CTA, with no "Recommended Upgrade" claim and
+    // no stock price/resource deltas that could point the wrong way.
+    const subscription: SubscriptionResponse = {
+      ...proMightySubscription(),
+      package: null,
+    };
+    const html = renderCard(subscription, plansWithSuper());
+    expect(html).toContain("recommended-upgrade-button");
+    expect(html).toContain("Switch plan");
+    expect(html).toContain("Switch to Mighty");
+    expect(html).not.toContain("Recommended Upgrade");
+    expect(html).not.toContain("credits/mo");
+    expect(html).not.toContain("Larger machines");
+  });
+
+  test("a customized Pro sub's banner drops the stock upgrade framing", () => {
+    const subscription = proMightySubscription();
+    subscription.package = {
+      key: "mighty",
+      name: "Mighty",
+      version: 1,
+      customized: true,
+    };
+    const html = renderCard(subscription, plansWithSuper());
+    // Recommended package is Super (next after the Mighty pin), offered as a
+    // neutral switch since the customized tiers can differ from stock Super.
+    expect(html).toContain("Switch plan");
+    expect(html).toContain("Switch to Super");
+    expect(html).not.toContain("Recommended Upgrade");
+    expect(html).not.toContain("credits/mo");
+  });
+
+  test("a base user's banner keeps the directional upgrade framing", () => {
+    // Base → Pro is a genuine Stripe-checkout upgrade, so the banner keeps its
+    // "Recommended Upgrade" tag, the "Upgrade for … more" CTA, and stock deltas.
+    const html = renderCard(baseSubscription(), basePlansResponse());
+    expect(html).toContain("Recommended Upgrade");
+    expect(html).toContain("Upgrade for");
+    expect(html).not.toContain("Switch plan");
+  });
+
   test("current-plan row labels a customized package as custom", () => {
     const subscription = proMightySubscription();
     subscription.package = {
@@ -517,8 +561,10 @@ describe("PlanCard recommended upgrade — change-package", () => {
       onTierUpgraded,
     );
 
-    // The banner CTA opens a confirm dialog (no immediate mutation).
+    // The banner CTA opens a confirm dialog (no immediate mutation). A clean pin
+    // keeps the directional upgrade copy.
     fireEvent.click(await findByTestId("recommended-upgrade-button"));
+    await findByText("Upgrade to Super?");
     await findByText("You'll be charged the prorated difference now.");
     expect(changePackageBody).toBeNull();
 
@@ -579,7 +625,12 @@ describe("PlanCard recommended upgrade — change-package", () => {
       release({
         data: {
           status: "ok",
-          package: { key: "super", name: "Super", version: 1, customized: false },
+          package: {
+            key: "super",
+            name: "Super",
+            version: 1,
+            customized: false,
+          },
         } as PackageChangeResponse,
         response: { ok: true },
       });
@@ -624,41 +675,40 @@ describe("PlanCard recommended upgrade — change-package", () => {
     expect(onTierUpgraded).not.toHaveBeenCalled();
   });
 
-  test("a package-less Pro sub's recommended upgrade stays on the manage path", async () => {
+  test("an unpinned Pro sub's recommended upgrade opens the neutral switch confirm", async () => {
     const onManage = mock(() => {});
     const onTierUpgraded = mock(() => {});
-    // A legacy/custom Pro sub has no pinned package, so change-package (which
-    // operates only on named packages) can't switch it. The banner CTA must
-    // fall back to the manage path instead of confirming a change to Mighty.
-    const subscription = { ...proMightySubscription(), package: undefined };
-    const { findByTestId } = renderCardInteractive(
+    // An unpinned (Custom) Pro sub is switch-eligible, so the banner CTA reaches
+    // the change-package confirm rather than the manage fallback. Its catalog
+    // rank is unknown, so the confirm copy stays direction-neutral.
+    const subscription: SubscriptionResponse = {
+      ...proMightySubscription(),
+      package: null,
+    };
+    const { findByTestId, findByText } = renderCardInteractive(
       subscription,
       plansWithSuper(),
       onManage,
       onTierUpgraded,
     );
 
+    // The banner renders and its CTA opens the neutral switch confirm (currentKey
+    // is null, so the recommended package is Mighty).
     fireEvent.click(await findByTestId("recommended-upgrade-button"));
-
-    await waitFor(() => {
-      expect(onManage).toHaveBeenCalledTimes(1);
-    });
-    // No confirm dialog, no change-package mutation, no navigation.
-    expect(
-      document.querySelector("[data-testid='confirm-package-switch-button']"),
-    ).toBeNull();
-    expect(changePackageBody).toBeNull();
-    expect(onTierUpgraded).not.toHaveBeenCalled();
+    await findByText("Switch to Mighty?");
+    await findByText(
+      "Your plan changes now. Any prorated difference is charged now or credited to your next invoice.",
+    );
+    expect(onManage).not.toHaveBeenCalled();
     expect(navigateArgs).toEqual([]);
-    expect(openedUrl).toBeNull();
   });
 
-  test("a customized Pro sub's recommended upgrade stays on the manage path", async () => {
+  test("a customized Pro sub's recommended upgrade opens the neutral switch confirm", async () => {
     const onManage = mock(() => {});
     const onTierUpgraded = mock(() => {});
-    // A customized sub's tiers can diverge from the stock package, so posting the
-    // next stock package key would use wrong deltas / drop custom line items. The
-    // banner CTA must fall back to the manage path instead of confirming a change.
+    // A customized pin is switch-eligible; the change-package endpoint re-pins it
+    // to the named target. Its catalog rank is ambiguous, so the confirm copy
+    // stays direction-neutral instead of claiming an upgrade.
     const subscription = proMightySubscription();
     subscription.package = {
       key: "mighty",
@@ -666,24 +716,21 @@ describe("PlanCard recommended upgrade — change-package", () => {
       version: 1,
       customized: true,
     };
-    const { findByTestId } = renderCardInteractive(
+    const { findByTestId, findByText } = renderCardInteractive(
       subscription,
       plansWithSuper(),
       onManage,
       onTierUpgraded,
     );
 
+    // Recommended package is Super (next after the customized Mighty pin).
     fireEvent.click(await findByTestId("recommended-upgrade-button"));
-
-    await waitFor(() => {
-      expect(onManage).toHaveBeenCalledTimes(1);
-    });
-    // No confirm dialog, no change-package mutation, no navigation.
-    expect(document.querySelector("[data-testid='confirm-package-switch-button']")).toBeNull();
-    expect(changePackageBody).toBeNull();
-    expect(onTierUpgraded).not.toHaveBeenCalled();
+    await findByText("Switch to Super?");
+    await findByText(
+      "Your plan changes now. Any prorated difference is charged now or credited to your next invoice.",
+    );
+    expect(onManage).not.toHaveBeenCalled();
     expect(navigateArgs).toEqual([]);
-    expect(openedUrl).toBeNull();
   });
 
   test("a cancelling Pro sub's recommended upgrade stays on the manage path", async () => {
@@ -708,7 +755,9 @@ describe("PlanCard recommended upgrade — change-package", () => {
       expect(onManage).toHaveBeenCalledTimes(1);
     });
     // No confirm dialog, no change-package mutation, no navigation.
-    expect(document.querySelector("[data-testid='confirm-package-switch-button']")).toBeNull();
+    expect(
+      document.querySelector("[data-testid='confirm-package-switch-button']"),
+    ).toBeNull();
     expect(changePackageBody).toBeNull();
     expect(onTierUpgraded).not.toHaveBeenCalled();
     expect(navigateArgs).toEqual([]);
@@ -739,7 +788,9 @@ describe("PlanCard recommended upgrade — change-package", () => {
       expect(onManage).toHaveBeenCalledTimes(1);
     });
     // No confirm dialog, no change-package mutation, no navigation.
-    expect(document.querySelector("[data-testid='confirm-package-switch-button']")).toBeNull();
+    expect(
+      document.querySelector("[data-testid='confirm-package-switch-button']"),
+    ).toBeNull();
     expect(changePackageBody).toBeNull();
     expect(onTierUpgraded).not.toHaveBeenCalled();
     expect(navigateArgs).toEqual([]);

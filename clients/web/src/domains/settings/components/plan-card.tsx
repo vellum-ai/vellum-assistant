@@ -1,4 +1,11 @@
-import { Coins, Computer, HardDrive, Loader2, Rocket, Sparkles } from "lucide-react";
+import {
+  Coins,
+  Computer,
+  HardDrive,
+  Loader2,
+  Rocket,
+  Sparkles,
+} from "lucide-react";
 
 import { useState } from "react";
 
@@ -7,27 +14,28 @@ import { useNavigate } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
-    nextPackageUp,
-    type ProPackage,
+  nextPackageUp,
+  type ProPackage,
+  type TierRelation,
 } from "@/domains/settings/billing/package-types";
 import { useChangePackage } from "@/domains/settings/billing/use-change-package";
 import { PackageSwitchConfirmModal } from "@/domains/settings/billing/plans/package-switch-confirm-modal";
 import {
-    FREE_STORAGE_GIB,
-    PlanTierAvatar,
-    TIER_ACCENT,
+  FREE_STORAGE_GIB,
+  PlanTierAvatar,
+  TIER_ACCENT,
 } from "@/domains/settings/billing/plan-tier-meta";
 import { useCheckoutDismissRefresh } from "@/domains/settings/billing/use-checkout-dismiss-refresh";
 import {
-    formatGraceDate,
-    getEffectiveCancelDate,
+  formatGraceDate,
+  getEffectiveCancelDate,
 } from "@/domains/settings/hooks/use-billing-portal-session";
 import {
-    organizationsBillingPlansRetrieveOptions,
-    organizationsBillingPlansRetrieveQueryKey,
-    organizationsBillingSubscriptionRetrieveOptions,
-    organizationsBillingSubscriptionRetrieveQueryKey,
-    organizationsBillingSubscriptionUpgradeCreateMutation,
+  organizationsBillingPlansRetrieveOptions,
+  organizationsBillingPlansRetrieveQueryKey,
+  organizationsBillingSubscriptionRetrieveOptions,
+  organizationsBillingSubscriptionRetrieveQueryKey,
+  organizationsBillingSubscriptionUpgradeCreateMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
 import type { MachineSizeEnum, ProPlan } from "@/generated/api/types.gen";
 import { saveCheckoutIntent } from "@/lib/billing/checkout-intent";
@@ -43,55 +51,55 @@ import { Tag } from "@vellumai/design-library/components/tag";
 import { toast } from "@vellumai/design-library/components/toast";
 import { Typography } from "@vellumai/design-library/components/typography";
 import {
-    extractMutationError,
-    isPackageSwitchEligible,
+  extractMutationError,
+  isPackageSwitchEligible,
 } from "./adjust-plan-utils";
 import { formatMonthly } from "./tier-pricing";
 
 interface PlanDisplay {
-    actionLabel: string;
-    actionVariant: ButtonProps["variant"];
-    actionTestId: string;
-    showsRenewal: boolean;
+  actionLabel: string;
+  actionVariant: ButtonProps["variant"];
+  actionTestId: string;
+  showsRenewal: boolean;
 }
 
 const PLAN_DISPLAY: Record<string, PlanDisplay> = {
-    pro: {
-        actionLabel: "Manage",
-        actionVariant: "outlined",
-        actionTestId: "plan-card-manage-button",
-        showsRenewal: true,
-    },
-    base: {
-        actionLabel: "View Plans",
-        actionVariant: "primary",
-        actionTestId: "plan-card-upgrade-button",
-        showsRenewal: true,
-    },
+  pro: {
+    actionLabel: "Manage",
+    actionVariant: "outlined",
+    actionTestId: "plan-card-manage-button",
+    showsRenewal: true,
+  },
+  base: {
+    actionLabel: "View Plans",
+    actionVariant: "primary",
+    actionTestId: "plan-card-upgrade-button",
+    showsRenewal: true,
+  },
 };
 
 const DEFAULT_DISPLAY: PlanDisplay = PLAN_DISPLAY.base;
 
 export interface PlanCardProps {
-    onManage: () => void;
-    /**
-     * Raised after a Pro user's in-place package upgrade succeeds — opens the
-     * provisioning takeover (resize modal), the same signal `AdjustPlanModal`
-     * emits after a tier change.
-     */
-    onTierUpgraded?: () => void;
+  onManage: () => void;
+  /**
+   * Raised after a Pro user's in-place package upgrade succeeds — opens the
+   * provisioning takeover (resize modal), the same signal `AdjustPlanModal`
+   * emits after a tier change.
+   */
+  onTierUpgraded?: () => void;
 }
 
 function PlanHeading() {
-    return (
-        <Typography
-            as="h2"
-            variant="title-medium"
-            className="text-[var(--content-emphasised)]"
-        >
-            Plan
-        </Typography>
-    );
+  return (
+    <Typography
+      as="h2"
+      variant="title-medium"
+      className="text-[var(--content-emphasised)]"
+    >
+      Plan
+    </Typography>
+  );
 }
 
 /**
@@ -102,21 +110,21 @@ const STANDARD_MACHINE_LABEL = "Small";
 
 /** Machine size label for a package (or the standard small machine). */
 function machineLabel(pkg: ProPackage | null): string {
-    if (!pkg?.machine_size) {
-        return STANDARD_MACHINE_LABEL;
-    }
-    const size = pkg.machine_size as MachineSizeEnum;
-    return SIZE_LABEL[size] ?? pkg.machine_size;
+  if (!pkg?.machine_size) {
+    return STANDARD_MACHINE_LABEL;
+  }
+  const size = pkg.machine_size as MachineSizeEnum;
+  return SIZE_LABEL[size] ?? pkg.machine_size;
 }
 
 interface ResourceDelta {
-    icon: typeof Computer;
-    label: string;
+  icon: typeof Computer;
+  label: string;
 }
 
 /** "X → Y" only when the resource actually changes; the bare value otherwise. */
 function arrow(from: string, to: string): string {
-    return from === to ? to : `${from} → ${to}`;
+  return from === to ? to : `${from} → ${to}`;
 }
 
 /**
@@ -129,420 +137,435 @@ function arrow(from: string, to: string): string {
  * (not in the current catalog) simply shows the two anchor chips.
  */
 function buildDeltas(
-    recommended: ProPackage,
-    currentPackage: ProPackage | null,
+  recommended: ProPackage,
+  currentPackage: ProPackage | null,
 ): ResourceDelta[] {
-    const fromCredits = currentPackage?.credits_usd ?? 0;
-    const toCredits = recommended.credits_usd ?? 0;
-    const fromStorage = currentPackage?.storage_gib ?? FREE_STORAGE_GIB;
+  const fromCredits = currentPackage?.credits_usd ?? 0;
+  const toCredits = recommended.credits_usd ?? 0;
+  const fromStorage = currentPackage?.storage_gib ?? FREE_STORAGE_GIB;
 
-    const deltas: ResourceDelta[] = [
-        {
-            icon: Coins,
-            label: `${arrow(`$${fromCredits}`, `$${toCredits}`)} credits/mo`,
-        },
-        {
-            icon: HardDrive,
-            label: `${arrow(String(fromStorage), String(recommended.storage_gib))} GB`,
-        },
-    ];
+  const deltas: ResourceDelta[] = [
+    {
+      icon: Coins,
+      label: `${arrow(`$${fromCredits}`, `$${toCredits}`)} credits/mo`,
+    },
+    {
+      icon: HardDrive,
+      label: `${arrow(String(fromStorage), String(recommended.storage_gib))} GB`,
+    },
+  ];
 
-    const fromMachine = machineLabel(currentPackage);
-    const toMachine = machineLabel(recommended);
-    if (fromMachine !== toMachine) {
-        deltas.push({
-            icon: Computer,
-            label: `${fromMachine} → ${toMachine} Machine`,
-        });
-    } else if (currentPackage === null) {
-        // Free → Pro keeps the small baseline machine, but Pro unlocks the
-        // ability to scale to larger machines — surface that capability rather
-        // than a static "Small Machine" chip that reads as no upgrade.
-        deltas.push({ icon: Rocket, label: "Larger machines" });
-    }
+  const fromMachine = machineLabel(currentPackage);
+  const toMachine = machineLabel(recommended);
+  if (fromMachine !== toMachine) {
+    deltas.push({
+      icon: Computer,
+      label: `${fromMachine} → ${toMachine} Machine`,
+    });
+  } else if (currentPackage === null) {
+    // Free → Pro keeps the small baseline machine, but Pro unlocks the
+    // ability to scale to larger machines — surface that capability rather
+    // than a static "Small Machine" chip that reads as no upgrade.
+    deltas.push({ icon: Rocket, label: "Larger machines" });
+  }
 
-    return deltas;
+  return deltas;
 }
 
 interface RecommendedUpgradeProps {
-    packages: ProPackage[];
-    currentKey: string | null;
-    /**
-     * Whether the org already has a Pro subscription. Pro users change their
-     * package in place (prorated) via the change-package endpoint; base users
-     * go through Stripe checkout.
-     */
-    isProUser: boolean;
-    /**
-     * Whether this Pro sub is eligible for a one-click, in-place package switch:
-     * true only for a clean packaged Pro sub (has a package pin, not customized,
-     * not cancelling). Every other Pro state falls back to the manage path.
-     * Meaningless for base users, whose CTA always routes to Stripe checkout.
-     */
-    canChangePackage: boolean;
-    /**
-     * Manage-path delegate (AdjustPlanModal). Used to keep a legacy/custom Pro
-     * sub with no pinned package off the change-package flow, which operates
-     * only on named packages.
-     */
-    onManage: () => void;
-    /**
-     * Opens the provisioning takeover (resize modal) after a Pro user's in-place
-     * package change succeeds — the same signal the tier-change flow raises.
-     */
-    onTierUpgraded?: () => void;
+  packages: ProPackage[];
+  currentKey: string | null;
+  /**
+   * Whether the org already has a Pro subscription. Pro users change their
+   * package in place (prorated) via the change-package endpoint; base users
+   * go through Stripe checkout.
+   */
+  isProUser: boolean;
+  /**
+   * Whether this Pro sub is eligible for a one-click, in-place package switch:
+   * true for any switch-eligible Pro sub — a clean pin, a customized pin, or an
+   * unpinned (Custom) sub. A cancelling or non-entitlement Pro sub falls back to
+   * the manage path. Meaningless for base users, whose CTA always routes to
+   * Stripe checkout.
+   */
+  canChangePackage: boolean;
+  /**
+   * How the target package relates to the current sub — drives the confirm
+   * copy. A clean pin's next package is an "upgrade"; a customized or unpinned
+   * (Custom) sub gets the direction-neutral "switch".
+   */
+  relation: Exclude<TierRelation, "current"> | "switch";
+  /**
+   * Manage-path delegate (AdjustPlanModal). Handles a cancelling or
+   * non-entitlement Pro sub that the change-package flow cannot switch, and the
+   * empty-catalog fallback.
+   */
+  onManage: () => void;
+  /**
+   * Opens the provisioning takeover (resize modal) after a Pro user's in-place
+   * package change succeeds — the same signal the tier-change flow raises.
+   */
+  onTierUpgraded?: () => void;
 }
 
 function RecommendedUpgrade({
-    packages,
-    currentKey,
-    isProUser,
-    canChangePackage,
-    onManage,
-    onTierUpgraded,
+  packages,
+  currentKey,
+  isProUser,
+  canChangePackage,
+  relation,
+  onManage,
+  onTierUpgraded,
 }: RecommendedUpgradeProps) {
-    const queryClient = useQueryClient();
-    const upgradeMutation = useMutation(
-        organizationsBillingSubscriptionUpgradeCreateMutation(),
-    );
-    const { changePackage, isPending: changePending } = useChangePackage();
-    const [pending, setPending] = useState(false);
-    const [confirmOpen, setConfirmOpen] = useState(false);
-    // Native iOS keeps Checkout inside an in-app sheet; refetch when it closes.
-    useCheckoutDismissRefresh();
+  const queryClient = useQueryClient();
+  const upgradeMutation = useMutation(
+    organizationsBillingSubscriptionUpgradeCreateMutation(),
+  );
+  const { changePackage, isPending: changePending } = useChangePackage();
+  const [pending, setPending] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  // Native iOS keeps Checkout inside an in-app sheet; refetch when it closes.
+  useCheckoutDismissRefresh();
 
-    const recommended = nextPackageUp(packages, currentKey);
-    if (!recommended) return null;
+  const recommended = nextPackageUp(packages, currentKey);
+  if (!recommended) return null;
 
-    const currentPackage = currentKey
-        ? (packages.find((p) => p.key === currentKey) ?? null)
-        : null;
-    const currentPriceCents = currentPackage?.total_price_cents ?? 0;
-    const deltas = buildDeltas(recommended, currentPackage);
-    const priceLabel = `${formatMonthly(recommended.total_price_cents).replace("/mo", "")} / Monthly`;
-    const deltaCents = recommended.total_price_cents - currentPriceCents;
-    const upgradeLabel = `Upgrade for ${formatMonthly(deltaCents)} more`;
-    const accent = TIER_ACCENT[recommended.key] ?? TIER_ACCENT.free;
-    const tint = `color-mix(in srgb, ${accent} 10%, transparent)`;
-    const isPending = pending || upgradeMutation.isPending || changePending;
+  const currentPackage = currentKey
+    ? (packages.find((p) => p.key === currentKey) ?? null)
+    : null;
+  const currentPriceCents = currentPackage?.total_price_cents ?? 0;
+  const deltas = buildDeltas(recommended, currentPackage);
+  const priceLabel = `${formatMonthly(recommended.total_price_cents).replace("/mo", "")} / Monthly`;
+  const deltaCents = recommended.total_price_cents - currentPriceCents;
+  // A Custom (customized or unpinned) sub's real tiers can diverge from any
+  // stock package, so the stock price delta and stock resource deltas would
+  // misstate the direction and size of the change. The neutral "switch"
+  // relation drops the delta framing and offers the named plan by itself.
+  const isNeutralSwitch = relation === "switch";
+  const upgradeLabel = isNeutralSwitch
+    ? `Switch to ${recommended.name}`
+    : `Upgrade for ${formatMonthly(deltaCents)} more`;
+  const accent = TIER_ACCENT[recommended.key] ?? TIER_ACCENT.free;
+  const tint = `color-mix(in srgb, ${accent} 10%, transparent)`;
+  const isPending = pending || upgradeMutation.isPending || changePending;
 
-    // Pro users change their package in place: confirm the prorated charge, then
-    // call change-package and hand off to the resize takeover on success. Base
-    // users go through the Stripe-checkout path instead.
-    const handleConfirmChange = async () => {
-        const result = await changePackage(recommended.key);
-        if (!result) {
-            // The hook already toasted; leave the dialog open so the user can
-            // retry.
-            return;
-        }
-        setConfirmOpen(false);
-        if (result.status === "ok") {
-            onTierUpgraded?.();
-        } else {
-            // no_op: the sub is already on this package, so there's nothing to
-            // provision — just dismiss the confirm.
-            toast.success("You're already on this plan.");
-        }
-    };
+  // Pro users change their package in place: confirm the prorated charge, then
+  // call change-package and hand off to the resize takeover on success. Base
+  // users go through the Stripe-checkout path instead.
+  const handleConfirmChange = async () => {
+    const result = await changePackage(recommended.key);
+    if (!result) {
+      // The hook already toasted; leave the dialog open so the user can
+      // retry.
+      return;
+    }
+    setConfirmOpen(false);
+    if (result.status === "ok") {
+      onTierUpgraded?.();
+    } else {
+      // no_op: the sub is already on this package, so there's nothing to
+      // provision — just dismiss the confirm.
+      toast.success("You're already on this plan.");
+    }
+  };
 
-    const handleUpgrade = async () => {
-        // Only a clean packaged Pro sub (has a package pin, not customized, not
-        // cancelling) can be one-click package-switched; every other Pro state
-        // (package-less/legacy, customized, or cancelling) stays on the manage path.
-        if (isProUser && !canChangePackage) {
-            onManage();
-            return;
-        }
-        if (isProUser) {
-            setConfirmOpen(true);
-            return;
-        }
-        setPending(true);
-        try {
-            // A package checkout resolves its own line items server-side;
-            // explicit tiers / include_platform_fee alongside `package` are
-            // rejected by the upgrade serializer.
-            const result = await upgradeMutation.mutateAsync({
-                body: {
-                    target_plan_id: "pro",
-                    package: recommended.key,
-                    confirm: true,
-                    return_target: checkoutReturnTarget(),
-                },
-            });
-            if (result.status === "redirect" && result.checkout_url) {
-                // Stash the purchased package so the provisioning screen can
-                // show it before the subscribe webhook lands — and so it can't
-                // read a stale intent left by an abandoned earlier checkout.
-                saveCheckoutIntent({
-                    kind: "package",
-                    packageKey: recommended.key,
-                });
-                // Stripe returns with a `session_id`, which opens the
-                // post-checkout Pro onboarding wizard — via the billing page on
-                // web, via the `billing/checkout-complete` deep link on macOS.
-                openUrl(result.checkout_url);
-            } else {
-                await queryClient.invalidateQueries({
-                    queryKey: organizationsBillingSubscriptionRetrieveQueryKey(),
-                });
-                await queryClient.invalidateQueries({
-                    queryKey: organizationsBillingPlansRetrieveQueryKey(),
-                });
-            }
-        } catch (error) {
-            toast.error(
-                extractMutationError(
-                    error,
-                    "Failed to start the upgrade checkout. Please try again.",
-                ),
-            );
-        } finally {
-            setPending(false);
-        }
-    };
+  const handleUpgrade = async () => {
+    // Any switch-eligible Pro sub (a clean pin, a customized pin, or an
+    // unpinned Custom sub) can be one-click package-switched; a cancelling or
+    // non-entitlement Pro sub stays on the manage path.
+    if (isProUser && !canChangePackage) {
+      onManage();
+      return;
+    }
+    if (isProUser) {
+      setConfirmOpen(true);
+      return;
+    }
+    setPending(true);
+    try {
+      // A package checkout resolves its own line items server-side;
+      // explicit tiers / include_platform_fee alongside `package` are
+      // rejected by the upgrade serializer.
+      const result = await upgradeMutation.mutateAsync({
+        body: {
+          target_plan_id: "pro",
+          package: recommended.key,
+          confirm: true,
+          return_target: checkoutReturnTarget(),
+        },
+      });
+      if (result.status === "redirect" && result.checkout_url) {
+        // Stash the purchased package so the provisioning screen can
+        // show it before the subscribe webhook lands — and so it can't
+        // read a stale intent left by an abandoned earlier checkout.
+        saveCheckoutIntent({
+          kind: "package",
+          packageKey: recommended.key,
+        });
+        // Stripe returns with a `session_id`, which opens the
+        // post-checkout Pro onboarding wizard — via the billing page on
+        // web, via the `billing/checkout-complete` deep link on macOS.
+        openUrl(result.checkout_url);
+      } else {
+        await queryClient.invalidateQueries({
+          queryKey: organizationsBillingSubscriptionRetrieveQueryKey(),
+        });
+        await queryClient.invalidateQueries({
+          queryKey: organizationsBillingPlansRetrieveQueryKey(),
+        });
+      }
+    } catch (error) {
+      toast.error(
+        extractMutationError(
+          error,
+          "Failed to start the upgrade checkout. Please try again.",
+        ),
+      );
+    } finally {
+      setPending(false);
+    }
+  };
 
-    return (
-        <div
-            className="flex flex-col gap-6 rounded-lg p-3"
-            style={{ backgroundColor: tint }}
-        >
-            <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                    <PlanTierAvatar tier={recommended.key} />
-                    <div className="flex flex-col gap-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                            <Typography
-                                as="span"
-                                variant="body-large-default"
-                                className="text-[var(--content-default)]"
-                            >
-                                {recommended.name}
-                            </Typography>
-                            <Tag
-                                className="bg-[var(--feed-digest-weak)] text-[var(--credits-accent)]"
-                                leftIcon={
-                                    <Sparkles className="h-3 w-3 text-[var(--credits-accent)]" />
-                                }
-                            >
-                                Recommended Upgrade
-                            </Tag>
-                        </div>
-                        <Typography
-                            as="span"
-                            variant="body-small-default"
-                            className="text-[var(--content-tertiary)]"
-                        >
-                            {priceLabel}
-                        </Typography>
-                    </div>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                    {deltas.map((delta) => {
-                        const Icon = delta.icon;
-                        return (
-                            <div
-                                key={delta.label}
-                                className="flex h-8 items-center gap-1.5 rounded-lg px-2 py-1.5"
-                                style={{ backgroundColor: tint }}
-                            >
-                                <Icon
-                                    className="h-3.5 w-3.5 shrink-0 text-[var(--content-default)]"
-                                    aria-hidden
-                                />
-                                <Typography
-                                    as="span"
-                                    variant="body-medium-default"
-                                    className="whitespace-nowrap text-[var(--content-default)]"
-                                >
-                                    {delta.label}
-                                </Typography>
-                            </div>
-                        );
-                    })}
-                </div>
-            </div>
-            <Button
-                variant="primary"
-                className="self-start"
-                onClick={handleUpgrade}
-                disabled={isPending}
+  return (
+    <div
+      className="flex flex-col gap-6 rounded-lg p-3"
+      style={{ backgroundColor: tint }}
+    >
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <PlanTierAvatar tier={recommended.key} />
+          <div className="flex flex-col gap-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <Typography
+                as="span"
+                variant="body-large-default"
+                className="text-[var(--content-default)]"
+              >
+                {recommended.name}
+              </Typography>
+              <Tag
+                className="bg-[var(--feed-digest-weak)] text-[var(--credits-accent)]"
                 leftIcon={
-                    isPending ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : undefined
+                  <Sparkles className="h-3 w-3 text-[var(--credits-accent)]" />
                 }
-                data-testid="recommended-upgrade-button"
+              >
+                {isNeutralSwitch ? "Switch plan" : "Recommended Upgrade"}
+              </Tag>
+            </div>
+            <Typography
+              as="span"
+              variant="body-small-default"
+              className="text-[var(--content-tertiary)]"
             >
-                {upgradeLabel}
-            </Button>
-            <PackageSwitchConfirmModal
-                open={confirmOpen}
-                relation="upgrade"
-                packageName={recommended.name}
-                pending={isPending}
-                onConfirm={() => void handleConfirmChange()}
-                onCancel={() => setConfirmOpen(false)}
-            />
+              {priceLabel}
+            </Typography>
+          </div>
         </div>
-    );
+        <div className="flex flex-wrap items-center gap-2">
+          {!isNeutralSwitch &&
+            deltas.map((delta) => {
+              const Icon = delta.icon;
+              return (
+                <div
+                  key={delta.label}
+                  className="flex h-8 items-center gap-1.5 rounded-lg px-2 py-1.5"
+                  style={{ backgroundColor: tint }}
+                >
+                  <Icon
+                    className="h-3.5 w-3.5 shrink-0 text-[var(--content-default)]"
+                    aria-hidden
+                  />
+                  <Typography
+                    as="span"
+                    variant="body-medium-default"
+                    className="whitespace-nowrap text-[var(--content-default)]"
+                  >
+                    {delta.label}
+                  </Typography>
+                </div>
+              );
+            })}
+        </div>
+      </div>
+      <Button
+        variant="primary"
+        className="self-start"
+        onClick={handleUpgrade}
+        disabled={isPending}
+        leftIcon={
+          isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : undefined
+        }
+        data-testid="recommended-upgrade-button"
+      >
+        {upgradeLabel}
+      </Button>
+      <PackageSwitchConfirmModal
+        open={confirmOpen}
+        relation={relation}
+        packageName={recommended.name}
+        pending={isPending}
+        onConfirm={() => void handleConfirmChange()}
+        onCancel={() => setConfirmOpen(false)}
+      />
+    </div>
+  );
 }
 
 export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
-    const navigate = useNavigate();
-    const subscriptionQuery = useQuery(
-        organizationsBillingSubscriptionRetrieveOptions(),
-    );
-    const plansQuery = useQuery(organizationsBillingPlansRetrieveOptions());
+  const navigate = useNavigate();
+  const subscriptionQuery = useQuery(
+    organizationsBillingSubscriptionRetrieveOptions(),
+  );
+  const plansQuery = useQuery(organizationsBillingPlansRetrieveOptions());
 
-    if (subscriptionQuery.isLoading || plansQuery.isLoading) {
-        return (
-            <Card padding="md">
-                <PlanHeading />
-                <div className="mt-4 flex items-center gap-2 text-[var(--content-tertiary)]">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    <Typography as="span" variant="body-small-default">
-                        Loading plan...
-                    </Typography>
-                </div>
-            </Card>
-        );
-    }
-
-    const subscription = subscriptionQuery.data;
-    const plans = plansQuery.data?.plans;
-    const currentPlan = plans?.find((p) => p.id === subscription?.plan_id);
-
-    if (
-        subscriptionQuery.isError ||
-        plansQuery.isError ||
-        !subscription ||
-        !plans ||
-        !currentPlan
-    ) {
-        return <Notice tone="error">Failed to load plan.</Notice>;
-    }
-
-    const display = PLAN_DISPLAY[currentPlan.id] ?? DEFAULT_DISPLAY;
-    // A Pro sub shows the stock package name only for a clean (non-customized)
-    // pin (e.g. "Mighty"). Every other Pro state — an unpinned sub
-    // (`package == null`) or a customized pin whose tiers differ from the stock
-    // package — reads just "Custom". Non-Pro plans show their plan name.
-    const planName =
-        currentPlan.id === "pro"
-            ? subscription.package && !subscription.package.customized
-                ? subscription.package.name
-                : "Custom"
-            : (currentPlan.name ?? currentPlan.id);
-
-    const isCancelling =
-        display.showsRenewal &&
-        (subscription.cancel_at_period_end === true ||
-            Boolean(subscription.cancel_at));
-    const isCanceled = subscription.status === "canceled";
-    const cancelDate = getEffectiveCancelDate(subscription);
-    const showRenewal =
-        display.showsRenewal &&
-        !isCancelling &&
-        !isCanceled &&
-        subscription.current_period_end;
-    const showCancellation =
-        display.showsRenewal && isCancelling && !isCanceled && cancelDate;
-
-    const proPlan = plans.find((p): p is ProPlan => p.id === "pro");
-    // Empty while the `pro-packages` flag is off — the upgrade banner no-ops.
-    const packages = proPlan?.packages ?? [];
-    const currentKey = subscription.package?.key ?? null;
-    const currentTier = currentKey ?? "free";
-    // The plans takeover derives the current tier from the pinned package key
-    // alone, so a Pro sub without a package (legacy) or with a customized one
-    // (its tiers differ from the stock package) would be misrepresented there.
-    // Those stay on the manage modal; only base and clean packaged-Pro subs open
-    // the takeover.
-    const canOpenPlansTakeover =
-        packages.length > 0 &&
-        (currentPlan.id === "base" ||
-            (subscription.package != null && !subscription.package.customized));
-    // The banner's one-click switch targets a clean packaged Pro sub. It layers
-    // the pinned-and-not-customized requirement on top of the shared eligibility
-    // gate, so a customized or unpinned Pro sub falls back to the manage path
-    // here even though the plans takeover offers it a direction-neutral switch.
-    const canChangePackage =
-        isPackageSwitchEligible(subscription) &&
-        subscription.package != null &&
-        !subscription.package.customized;
-
+  if (subscriptionQuery.isLoading || plansQuery.isLoading) {
     return (
-        <Card padding="md">
-            <div className="flex flex-col gap-4">
-                <div className="flex items-center justify-between gap-3">
-                    <PlanHeading />
-                    <Button
-                        variant={display.actionVariant}
-                        onClick={
-                            canOpenPlansTakeover
-                                ? () => navigate(routes.plans)
-                                : onManage
-                        }
-                        data-testid={display.actionTestId}
-                        className="shrink-0"
-                    >
-                        {display.actionLabel}
-                    </Button>
-                </div>
-                <div className="flex flex-col gap-2">
-                    <div className="flex items-center gap-3 rounded-lg bg-[var(--surface-base)] py-1.5 pl-3 pr-2">
-                        <div className="flex min-w-0 items-center gap-3">
-                            <PlanTierAvatar tier={currentTier} />
-                            <div className="flex min-w-0 flex-col gap-1">
-                                <Typography
-                                    variant="body-large-default"
-                                    as="div"
-                                    className="text-[var(--content-default)]"
-                                    data-testid="plan-card-name"
-                                >
-                                    {planName}
-                                </Typography>
-                                {showRenewal && (
-                                    <Typography
-                                        variant="body-small-default"
-                                        as="div"
-                                        className="leading-snug text-[var(--content-tertiary)]"
-                                        data-testid="plan-card-renews"
-                                    >
-                                        Monthly Payment &bull; Your subscription
-                                        will auto renew on{" "}
-                                        {formatGraceDate(
-                                            subscription.current_period_end!,
-                                        )}
-                                        .
-                                    </Typography>
-                                )}
-                                {showCancellation && (
-                                    <Typography
-                                        variant="body-small-default"
-                                        as="div"
-                                        className="leading-snug text-[var(--system-mid-strong)]"
-                                        data-testid="plan-card-cancels"
-                                    >
-                                        Your plan ends on{" "}
-                                        {formatGraceDate(cancelDate!)}.
-                                    </Typography>
-                                )}
-                            </div>
-                        </div>
-                    </div>
-                    <RecommendedUpgrade
-                        packages={packages}
-                        currentKey={currentKey}
-                        isProUser={currentPlan.id !== "base"}
-                        canChangePackage={canChangePackage}
-                        onManage={onManage}
-                        onTierUpgraded={onTierUpgraded}
-                    />
-                </div>
-            </div>
-        </Card>
+      <Card padding="md">
+        <PlanHeading />
+        <div className="mt-4 flex items-center gap-2 text-[var(--content-tertiary)]">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          <Typography as="span" variant="body-small-default">
+            Loading plan...
+          </Typography>
+        </div>
+      </Card>
     );
+  }
+
+  const subscription = subscriptionQuery.data;
+  const plans = plansQuery.data?.plans;
+  const currentPlan = plans?.find((p) => p.id === subscription?.plan_id);
+
+  if (
+    subscriptionQuery.isError ||
+    plansQuery.isError ||
+    !subscription ||
+    !plans ||
+    !currentPlan
+  ) {
+    return <Notice tone="error">Failed to load plan.</Notice>;
+  }
+
+  const display = PLAN_DISPLAY[currentPlan.id] ?? DEFAULT_DISPLAY;
+  // A Pro sub shows the stock package name only for a clean (non-customized)
+  // pin (e.g. "Mighty"). Every other Pro state — an unpinned sub
+  // (`package == null`) or a customized pin whose tiers differ from the stock
+  // package — reads just "Custom". Non-Pro plans show their plan name.
+  const planName =
+    currentPlan.id === "pro"
+      ? subscription.package && !subscription.package.customized
+        ? subscription.package.name
+        : "Custom"
+      : (currentPlan.name ?? currentPlan.id);
+
+  const isCancelling =
+    display.showsRenewal &&
+    (subscription.cancel_at_period_end === true ||
+      Boolean(subscription.cancel_at));
+  const isCanceled = subscription.status === "canceled";
+  const cancelDate = getEffectiveCancelDate(subscription);
+  const showRenewal =
+    display.showsRenewal &&
+    !isCancelling &&
+    !isCanceled &&
+    subscription.current_period_end;
+  const showCancellation =
+    display.showsRenewal && isCancelling && !isCanceled && cancelDate;
+
+  const proPlan = plans.find((p): p is ProPlan => p.id === "pro");
+  // Empty while the `pro-packages` flag is off — the upgrade banner no-ops.
+  const packages = proPlan?.packages ?? [];
+  const currentKey = subscription.package?.key ?? null;
+  const currentTier = currentKey ?? "free";
+  // The plans takeover derives the current tier from the pinned package key
+  // alone, so a Pro sub without a package (legacy) or with a customized one
+  // (its tiers differ from the stock package) would be misrepresented there.
+  // Those stay on the manage modal; only base and clean packaged-Pro subs open
+  // the takeover.
+  const canOpenPlansTakeover =
+    packages.length > 0 &&
+    (currentPlan.id === "base" ||
+      (subscription.package != null && !subscription.package.customized));
+  // The banner's one-click switch is offered to any switch-eligible Pro sub —
+  // a clean pin, a customized pin, or an unpinned (Custom) sub — inheriting the
+  // shared eligibility gate. The confirm copy adapts to the sub's state via
+  // `switchRelation`.
+  const canChangePackage = isPackageSwitchEligible(subscription);
+  // A base user (Stripe checkout) and a clean-pinned Pro sub both make a real
+  // upgrade, so the banner keeps its directional copy and stock deltas. Only a
+  // Custom Pro sub — a customized pin or an unpinned legacy sub, whose real
+  // tiers can diverge from any stock package — gets the direction-neutral
+  // switch, since a stock delta could misstate the change.
+  const switchRelation: Exclude<TierRelation, "current"> | "switch" =
+    currentPlan.id === "base" ||
+    (subscription.package && !subscription.package.customized)
+      ? "upgrade"
+      : "switch";
+
+  return (
+    <Card padding="md">
+      <div className="flex flex-col gap-4">
+        <div className="flex items-center justify-between gap-3">
+          <PlanHeading />
+          <Button
+            variant={display.actionVariant}
+            onClick={
+              canOpenPlansTakeover ? () => navigate(routes.plans) : onManage
+            }
+            data-testid={display.actionTestId}
+            className="shrink-0"
+          >
+            {display.actionLabel}
+          </Button>
+        </div>
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center gap-3 rounded-lg bg-[var(--surface-base)] py-1.5 pl-3 pr-2">
+            <div className="flex min-w-0 items-center gap-3">
+              <PlanTierAvatar tier={currentTier} />
+              <div className="flex min-w-0 flex-col gap-1">
+                <Typography
+                  variant="body-large-default"
+                  as="div"
+                  className="text-[var(--content-default)]"
+                  data-testid="plan-card-name"
+                >
+                  {planName}
+                </Typography>
+                {showRenewal && (
+                  <Typography
+                    variant="body-small-default"
+                    as="div"
+                    className="leading-snug text-[var(--content-tertiary)]"
+                    data-testid="plan-card-renews"
+                  >
+                    Monthly Payment &bull; Your subscription will auto renew on{" "}
+                    {formatGraceDate(subscription.current_period_end!)}.
+                  </Typography>
+                )}
+                {showCancellation && (
+                  <Typography
+                    variant="body-small-default"
+                    as="div"
+                    className="leading-snug text-[var(--system-mid-strong)]"
+                    data-testid="plan-card-cancels"
+                  >
+                    Your plan ends on {formatGraceDate(cancelDate!)}.
+                  </Typography>
+                )}
+              </div>
+            </div>
+          </div>
+          <RecommendedUpgrade
+            packages={packages}
+            currentKey={currentKey}
+            isProUser={currentPlan.id !== "base"}
+            canChangePackage={canChangePackage}
+            relation={switchRelation}
+            onManage={onManage}
+            onTierUpgraded={onTierUpgraded}
+          />
+        </div>
+      </div>
+    </Card>
+  );
 }
