@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
     clearCheckoutIntent,
@@ -12,10 +12,28 @@ import { CompleteState } from "./complete-state";
 import { DomainStep } from "./domain-step";
 import { FetchErrorState } from "./error-states";
 import type { ProvisioningDimensions } from "./provisioning-machine";
-import { ProvisioningState } from "./provisioning-state";
+import { ProvisioningState, TAKEOVER_BACKGROUND } from "./provisioning-state";
 import { useProProvisioning } from "./use-pro-provisioning";
 
 type WizardStep = "provisioning" | "domain" | "complete";
+
+/**
+ * Leaving the takeover changes the modal's shape and its theme in one frame,
+ * which neither transitions cheaply. So a sheet in the takeover's own colour
+ * covers it first: fading that in reads as the content dissolving (it matches
+ * what is already on screen), the swap happens out of sight, and the sheet
+ * then clears to reveal the card.
+ */
+type TakeoverExit = "idle" | "covering" | "revealing";
+const TAKEOVER_COVER_MS = 200;
+const TAKEOVER_REVEAL_MS = 380;
+
+function prefersReducedMotion() {
+  return (
+    typeof window !== "undefined" &&
+    window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true
+  );
+}
 
 const EMPTY_DIMENSIONS: ProvisioningDimensions = {
   machineSize: null,
@@ -39,6 +57,8 @@ export function BillingOnboardingModal({
 }: BillingOnboardingModalProps) {
   const [step, setStep] = useState<WizardStep>("provisioning");
   const [finishedInBackground, setFinishedInBackground] = useState(false);
+  const [takeoverExit, setTakeoverExit] = useState<TakeoverExit>("idle");
+  const exitTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const [intent, setIntent] = useState<CheckoutIntent | null>(null);
 
   // The hook owns the on-open subscription/onboarding cache invalidation and
@@ -53,7 +73,15 @@ export function BillingOnboardingModal({
     }
     setStep("provisioning");
     setFinishedInBackground(false);
+    setTakeoverExit("idle");
   }, [open]);
+
+  useEffect(
+    () => () => {
+      exitTimers.current.forEach(clearTimeout);
+    },
+    [],
+  );
 
   useEffect(() => {
     if (step === "complete") clearCheckoutIntent();
@@ -89,7 +117,22 @@ export function BillingOnboardingModal({
   }, [open, onboardingSettled]);
 
   const advanceFromProvisioning = useCallback(() => {
-    setStep(domainSetupAvailable === false ? "complete" : "domain");
+    const next = domainSetupAvailable === false ? "complete" : "domain";
+    if (prefersReducedMotion()) {
+      setStep(next);
+      return;
+    }
+    setTakeoverExit("covering");
+    exitTimers.current.push(
+      setTimeout(() => {
+        // Both the geometry and the theme change here, under the sheet.
+        setStep(next);
+        setTakeoverExit("revealing");
+        exitTimers.current.push(
+          setTimeout(() => setTakeoverExit("idle"), TAKEOVER_REVEAL_MS),
+        );
+      }, TAKEOVER_COVER_MS),
+    );
   }, [domainSetupAvailable]);
 
   const escapeProvisioning = useCallback(() => {
@@ -146,6 +189,12 @@ export function BillingOnboardingModal({
     isTakeover ? " bg-black p-0" : ""
   }`;
 
+  const stepEntrance = isTakeover
+    ? "[animation:fadeIn_0.45s_ease-out_both]"
+    : takeoverExit === "revealing"
+      ? "[animation:fadeInUp_0.42s_ease-out_0.12s_both]"
+      : "[animation:fadeIn_0.25s_ease-out_both]";
+
   return (
     <Modal.Root open={open} onOpenChange={(o) => { if (!o) handleClose(); }}>
       <Modal.Content
@@ -164,14 +213,27 @@ export function BillingOnboardingModal({
             a full-bleed dark canvas doesn't just appear over the billing page. */}
         <div
           key={step}
-          className={`flex min-h-0 flex-1 flex-col motion-reduce:[animation:none] ${
-            isTakeover
-              ? "[animation:fadeIn_0.45s_ease-out_both]"
-              : "[animation:fadeIn_0.25s_ease-out_both]"
-          }`}
+          className={`flex min-h-0 flex-1 flex-col motion-reduce:[animation:none] ${stepEntrance}`}
         >
           {renderStep()}
         </div>
+        {takeoverExit !== "idle" && (
+          <div
+            aria-hidden
+            data-testid="takeover-exit-sheet"
+            className={
+              // `fixed` escapes the card's box once the modal has shrunk back,
+              // so the sheet still covers the viewport while it clears. Reversed
+              // fadeIn is the fade-out; no second keyframe needed.
+              `pointer-events-none fixed inset-0 z-50 ${
+                takeoverExit === "covering"
+                  ? "[animation:fadeIn_200ms_ease-in_both]"
+                  : "[animation:fadeIn_380ms_ease-out_both_reverse]"
+              }`
+            }
+            style={{ backgroundColor: TAKEOVER_BACKGROUND }}
+          />
+        )}
       </Modal.Content>
     </Modal.Root>
   );

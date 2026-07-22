@@ -32,7 +32,7 @@ import {
 
 // The mock's takeover tint, matched to the green Vellum creature. No token
 // holds this, so it follows the plans-page PAGE_BACKGROUND raw-hex precedent.
-const TAKEOVER_BACKGROUND = "#1D271E";
+export const TAKEOVER_BACKGROUND = "#1D271E";
 
 const CHIP_BACKGROUND =
   "color-mix(in srgb, var(--content-emphasised) 10%, transparent)";
