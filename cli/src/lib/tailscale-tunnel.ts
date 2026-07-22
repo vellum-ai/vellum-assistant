@@ -146,6 +146,18 @@ function serveFailureMessage(result: TailscaleCommandResult): string {
   return detail ? `${base}\n\n${detail}` : base;
 }
 
+/**
+ * The ingress URL may only be cleared once the serve mapping is confirmed
+ * stopped. tailscaled maintains the mapping independently of this process, so
+ * a failed or errored stop leaves the URL live — clearing the config then
+ * would strand webhook configuration while the endpoint still answers.
+ */
+export function shouldClearIngressUrl(
+  result: TailscaleCommandResult | null,
+): boolean {
+  return result !== null && result.status === 0;
+}
+
 // ── Tailscale serve lifecycle ───────────────────────────────────────────────
 
 export interface RunTailscaleTunnelOptions {
@@ -282,7 +294,15 @@ export async function runTailscaleTunnel(
           (detail ? `\n${detail}` : ""),
       );
     }
-    clearIngressUrl(workspaceDir);
+    if (shouldClearIngressUrl(result)) {
+      clearIngressUrl(workspaceDir);
+    } else {
+      console.error(
+        "Keeping the saved ingress URL since serve may still be active. " +
+          "After stopping serve manually, clear it with another Ctrl+C run " +
+          "or by re-running the tunnel command.",
+      );
+    }
   };
 
   const shutdown = (): void => {

@@ -12,12 +12,7 @@ describe("parseFeatureFlagArgs", () => {
   });
 
   test("multiple flags produce multiple env vars", () => {
-    const result = parseFeatureFlagArgs([
-      "--flag",
-      "a=1",
-      "--flag",
-      "b=0",
-    ]);
+    const result = parseFeatureFlagArgs(["--flag", "a=1", "--flag", "b=0"]);
     expect(result).toEqual({
       envVars: { VELLUM_FLAG_A: "1", VELLUM_FLAG_B: "0" },
       remaining: [],
