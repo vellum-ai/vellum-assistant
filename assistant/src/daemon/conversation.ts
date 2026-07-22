@@ -88,7 +88,6 @@ import type { InteractiveUiResult } from "../runtime/interactive-ui.js";
 import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
 import { getSubagentManager } from "../subagent/index.js";
 import type { SubagentState } from "../subagent/types.js";
-import {} from "../telemetry/activation-funnel.js";
 import { ToolExecutor } from "../tools/executor.js";
 import { getAllToolDefinitions } from "../tools/registry.js";
 import type { OnboardingContext } from "../types/onboarding-context.js";
