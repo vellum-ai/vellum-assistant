@@ -1,14 +1,44 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 
 import type { RemoteWebPairingTokenResult } from "@/lib/auth/remote-gateway-session";
 
 let remoteGatewayMode = false;
+let nativePlatform = false;
 
 mock.module("@/lib/local-mode", () => ({
   isRemoteGatewayMode: () => remoteGatewayMode,
 }));
+
+mock.module("@/runtime/native-auth", () => ({
+  isNativePlatform: () => nativePlatform,
+}));
+
+mock.module("@capacitor/core", () => ({
+  Capacitor: {
+    isNativePlatform: () => nativePlatform,
+    getPlatform: () => (nativePlatform ? "ios" : "web"),
+  },
+}));
+
+const ORIGINAL_USER_AGENT = navigator.userAgent;
+const IPHONE_USER_AGENT =
+  "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) " +
+  "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1";
+
+function setUserAgent(userAgent: string): void {
+  Object.defineProperty(navigator, "userAgent", {
+    value: userAgent,
+    configurable: true,
+  });
+}
 
 const exchangeRemoteWebPairingTokenMock = mock(
   async (
@@ -69,6 +99,8 @@ const { RemoteWebPairingPage } =
 afterEach(() => {
   cleanup();
   remoteGatewayMode = false;
+  nativePlatform = false;
+  setUserAgent(ORIGINAL_USER_AGENT);
   exchangeRemoteWebPairingTokenMock.mockClear();
   createRemoteWebPairingChallengeMock.mockClear();
   activateRemoteGatewaySessionMock.mockClear();
@@ -273,5 +305,108 @@ describe("RemoteWebPairingPage", () => {
         value: originalReplaceState,
       });
     }
+  });
+
+  test("offers the app handoff for a device code in an iOS browser without burning the code", async () => {
+    remoteGatewayMode = true;
+    setUserAgent(IPHONE_USER_AGENT);
+
+    render(
+      <MemoryRouter
+        initialEntries={["/assistant/pair?deviceCode=device-1&userCode=ABCD"]}
+      >
+        <RemoteWebPairingPage />
+      </MemoryRouter>,
+    );
+
+    const link = await screen.findByRole("link", {
+      name: "Open in the Vellum app",
+    });
+    const href = link.getAttribute("href") ?? "";
+    expect(href.startsWith("vellum-assistant://connect?")).toBe(true);
+    const query = new URLSearchParams(href.slice(href.indexOf("?") + 1));
+    expect(query.get("url")).toBe(window.location.origin);
+    expect(query.get("code")).toBe("device-1");
+
+    // The single-use code stays unspent while the choice is pending.
+    expect(exchangeRemoteWebPairingTokenMock).not.toHaveBeenCalled();
+    expect(createRemoteWebPairingChallengeMock).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole("button", { name: "Continue in this browser" }),
+    ).not.toBeNull();
+  });
+
+  test("exchanges immediately for a device code in a non-iOS browser", async () => {
+    remoteGatewayMode = true;
+    // The default happy-dom user agent is a non-iOS browser.
+
+    render(
+      <MemoryRouter
+        initialEntries={["/assistant/pair?deviceCode=device-1&userCode=ABCD"]}
+      >
+        <RemoteWebPairingPage />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(exchangeRemoteWebPairingTokenMock.mock.calls[0]?.[0]).toBe(
+        "device-1",
+      );
+    });
+    expect(
+      screen.queryByRole("link", { name: "Open in the Vellum app" }),
+    ).toBeNull();
+  });
+
+  test("starts the browser exchange when the user declines the app handoff", async () => {
+    remoteGatewayMode = true;
+    setUserAgent(IPHONE_USER_AGENT);
+
+    render(
+      <MemoryRouter
+        initialEntries={["/assistant/pair?deviceCode=device-1&userCode=ABCD"]}
+      >
+        <RemoteWebPairingPage />
+      </MemoryRouter>,
+    );
+
+    const continueButton = await screen.findByRole("button", {
+      name: "Continue in this browser",
+    });
+    expect(exchangeRemoteWebPairingTokenMock).not.toHaveBeenCalled();
+
+    fireEvent.click(continueButton);
+
+    await waitFor(() => {
+      expect(exchangeRemoteWebPairingTokenMock.mock.calls[0]?.[0]).toBe(
+        "device-1",
+      );
+    });
+    expect(
+      screen.queryByRole("link", { name: "Open in the Vellum app" }),
+    ).toBeNull();
+  });
+
+  test("skips the app handoff inside the native iOS app webview", async () => {
+    remoteGatewayMode = true;
+    setUserAgent(IPHONE_USER_AGENT);
+    nativePlatform = true;
+
+    render(
+      <MemoryRouter
+        initialEntries={["/assistant/pair?deviceCode=device-1&userCode=ABCD"]}
+      >
+        <RemoteWebPairingPage />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(exchangeRemoteWebPairingTokenMock.mock.calls[0]?.[0]).toBe(
+        "device-1",
+      );
+    });
+    expect(
+      screen.queryByRole("link", { name: "Open in the Vellum app" }),
+    ).toBeNull();
   });
 });
