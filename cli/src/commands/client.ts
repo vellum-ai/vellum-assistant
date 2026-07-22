@@ -905,6 +905,9 @@ async function openBrowserWhenReady(url: string, port: number): Promise<void> {
 }
 
 const WEB_BACKGROUND_LOG_FILE = "client-web.log";
+// Generous cap so a cold Vite dev-server boot (dependency optimization) still
+// counts as a successful start.
+const WEB_BACKGROUND_START_TIMEOUT_MS = 30_000;
 
 /**
  * Launch `vellum client --interface web` as a detached background process.
@@ -913,8 +916,9 @@ const WEB_BACKGROUND_LOG_FILE = "client-web.log";
  * first free port at/above 3000) and pinned via `--port` on the child so the
  * URL printed here is the one the child binds. The child's stdout/stderr go to
  * `<xdg-log-dir>/client-web.log` — same detach idiom as the nginx/ngrok
- * spawns. There is a small TOCTOU window between the probe and the child's
- * bind; the child errors into the log file if the port is taken meanwhile.
+ * spawns. Success is only reported once the child is accepting connections on
+ * the port; an early child exit (e.g. missing @vellumai/web assets) or a
+ * startup timeout fails with a pointer at the log file.
  */
 async function spawnBackgroundWebInterface(
   webPort: number | undefined,
@@ -950,10 +954,44 @@ async function spawnBackgroundWebInterface(
   if (typeof fd === "number") closeSync(fd);
   child.unref();
 
+  const logPath = path.join(getLogDir(), WEB_BACKGROUND_LOG_FILE);
+
+  // Don't report success until the child is actually serving: watch for an
+  // early exit (e.g. missing @vellumai/web assets, port lost to the TOCTOU
+  // window) and poll the port until it accepts connections.
+  let exit: { code: number | null } | undefined;
+  child.on("error", () => {
+    exit = { code: null };
+  });
+  child.on("exit", (code) => {
+    exit = { code };
+  });
+
+  const deadline = Date.now() + WEB_BACKGROUND_START_TIMEOUT_MS;
+  let listening = false;
+  while (Date.now() < deadline && !exit) {
+    if (await probePort(port, "127.0.0.1")) {
+      listening = true;
+      break;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+
+  if (exit) {
+    console.error(
+      `Web interface exited during startup${exit.code !== null ? ` (exit code ${exit.code})` : ""}. Logs: ${logPath}`,
+    );
+    process.exit(1);
+  }
+  if (!listening) {
+    console.error(
+      `Web interface (pid ${child.pid}) did not start listening on port ${port} within ${WEB_BACKGROUND_START_TIMEOUT_MS / 1000}s. Logs: ${logPath}`,
+    );
+    process.exit(1);
+  }
+
   console.log(`Vellum web interface: http://localhost:${port}${SPA_BASE}`);
-  console.log(
-    `Running in background (pid ${child.pid}). Logs: ${path.join(getLogDir(), WEB_BACKGROUND_LOG_FILE)}`,
-  );
+  console.log(`Running in background (pid ${child.pid}). Logs: ${logPath}`);
   console.log(`Stop with: kill ${child.pid}`);
 }
 
