@@ -56,11 +56,15 @@ const ImageGenerationServiceSchema = BaseServiceSchema.extend({
   model: z.string().default(DEFAULT_IMAGE_MODEL),
 });
 
-const WebSearchServiceSchema = BaseServiceSchema.extend({
-  // Provider choice for app-executed search in Your Own mode, or the native
-  // hosted-search preference when set to `inference-provider-native`. In
-  // Managed mode, non-native inference providers can still use the platform
-  // managed search proxy through the app-executed `web_search` tool.
+/**
+ * Web-search carries no `mode`: `provider` is the only axis. `"vellum"`
+ * searches through the Vellum platform search proxy, billed to Vellum
+ * credits; `"inference-provider-native"` prefers the inference model's own
+ * hosted search, falling back to the user's keys and then the platform
+ * proxy; any other provider uses the user's own API key. A `mode` key sent
+ * by an older client is stripped at parse.
+ */
+const WebSearchServiceSchema = z.object({
   provider: z
     .enum(VALID_WEB_SEARCH_PROVIDERS)
     .default("inference-provider-native"),

@@ -158,7 +158,6 @@ function makeConfig(overrides?: Record<string, unknown>) {
         model: "gemini-3.1-flash-image-preview",
       },
       "web-search": {
-        mode: "your-own" as const,
         provider: "inference-provider-native",
       },
     },
