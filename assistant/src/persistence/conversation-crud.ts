@@ -3075,10 +3075,10 @@ export async function clearAll(): Promise<{
   // a sqlite3 subprocess.
   rawMemoryRun("conversation:clearAll:memoryJobs", "DELETE FROM memory_jobs");
   // Conversation-keyed tables the memory feature relocated to its own
-  // connection lost their main-DB cascade. Persistence must not name memory's
-  // tables, so the daemon caller (`clearAllConversations`) wipes them via the
-  // memory plugin after this returns — unconditionally, so a disabled plugin
-  // can't leave rows behind on an explicit wipe.
+  // connection lost their main-DB cascade. The memory plugin owns which tables
+  // those are, so signal the wipe through the hook rather than reaching into
+  // the feature from here.
+  await runHook(HOOKS.CONVERSATIONS_CLEARED, {});
   await runOrThrow("DELETE FROM memory_checkpoints");
   rawLogsRun(
     "conversation:clearAll:requestLogs",
