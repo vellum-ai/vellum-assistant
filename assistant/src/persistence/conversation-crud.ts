@@ -3074,11 +3074,6 @@ export async function clearAll(): Promise<{
   // connection; clear them directly on those connections rather than through
   // a sqlite3 subprocess.
   rawMemoryRun("conversation:clearAll:memoryJobs", "DELETE FROM memory_jobs");
-  // Conversation-keyed tables the memory feature relocated to its own
-  // connection lost their main-DB cascade. The memory plugin owns which tables
-  // those are, so signal the wipe through the hook rather than reaching into
-  // the feature from here.
-  await runHook(HOOKS.CONVERSATIONS_CLEARED, {});
   await runOrThrow("DELETE FROM memory_checkpoints");
   rawLogsRun(
     "conversation:clearAll:requestLogs",
@@ -3090,6 +3085,15 @@ export async function clearAll(): Promise<{
   await runOrThrow("DELETE FROM tool_invocations");
   await runOrThrow("DELETE FROM messages");
   await runOrThrow("DELETE FROM conversations");
+
+  // The memory feature's relocated conversation-keyed tables lost their main-DB
+  // cascade. Signal the wipe through the hook rather than reaching into the
+  // plugin from here — fired only after the main-DB deletes above succeed, so a
+  // failed clear-all never leaves memory wiped for conversations that still
+  // exist (and it honors the hook's "after the main tables are cleared"
+  // contract). When the plugin is disabled the hook is a no-op; the startup
+  // orphan sweep reclaims those rows on the next memory boot.
+  await runHook(HOOKS.CONVERSATIONS_CLEARED, {});
 
   // Record audit event into the telemetry_events outbox (consent-bypassing);
   // the trail persists platform-side once flushed. Best-effort: the
