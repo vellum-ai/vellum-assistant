@@ -37,6 +37,13 @@ export interface RecordInboundOptions {
 const SLACK_LEGACY_THREAD_EVIDENCE_BATCH_SIZE = 50;
 const SLACK_LEGACY_THREAD_EVIDENCE_MAX_SCAN = 500;
 
+/**
+ * Channels where an inbound thread id scopes the conversation: a Slack thread
+ * or a Telegram private-chat topic each maps to its own conversation. A
+ * message without a thread id always resolves to the chat-level base key.
+ */
+const THREAD_SCOPED_CHANNELS = new Set(["slack", "telegram"]);
+
 function buildScopedConversationKeyForAssistant(
   assistantId: string,
   sourceChannel: string,
@@ -44,7 +51,7 @@ function buildScopedConversationKeyForAssistant(
   sourceThreadId?: string | null,
 ): string {
   const threadId = sourceThreadId?.trim();
-  if (sourceChannel === "slack" && threadId) {
+  if (THREAD_SCOPED_CHANNELS.has(sourceChannel) && threadId) {
     return `asst:${assistantId}:${sourceChannel}:${externalChatId}:thread:${threadId}`;
   }
   return `asst:${assistantId}:${sourceChannel}:${externalChatId}`;
@@ -137,6 +144,11 @@ function resolveInboundConversation(
   );
 
   const threadId = sourceThreadId?.trim();
+  // Flat→threaded aliasing applies only to Slack: a Slack thread may continue
+  // a conversation that lives on the flat channel key, so the alias path below
+  // checks for that evidence before minting a threaded conversation. Every
+  // other thread-scoped channel (Telegram topics) has no flat-key aliasing —
+  // a thread id always resolves the threaded key directly.
   if (sourceChannel !== "slack" || !threadId) {
     return getOrCreateConversation(threadedKey);
   }
