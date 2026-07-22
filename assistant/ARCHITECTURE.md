@@ -1413,12 +1413,13 @@ Editing any file in the root skill or any included child invalidates the transit
 
 Inline-command skill loads are classified **High** risk — in the gateway skill risk classifier (`gateway/src/risk/skill-risk-classifier.ts`), with a defense-in-depth elevation in `check()` for the gateway-unreachable path. The standard auto-approve threshold then governs them like any other high-risk action: they run without a prompt only at **Full access** (`autoApproveUpTo: "high"`) and prompt at every level below it. There is no separate "always ask" override outside the threshold.
 
-Two independent guarantees sit alongside the threshold:
+These guarantees sit alongside the threshold:
 
 - **Escape hatch.** A user trust rule that covers the load re-classifies its risk inside the gateway (arriving as matchType `user_rule`), so it runs without prompting at any threshold. Approvals are offered in a separate candidate namespace so a pinned rule can auto-approve a known-good version rather than falling through to the permissive default `skill_load:*` allow rule:
   1.  `skill_load_dynamic:<skill-id>@<transitive-hash>` — version-pinned (most specific)
   2.  `skill_load_dynamic:<skill-id>` — any-version
-- **Non-interactive denial.** An uncovered dynamic load in a session with no interactive client is denied outright — regardless of threshold, including Full access — because embedded shell must never run unattended without a covering rule. Enforced in `tools/permission-checker.ts` via `isDynamicSkillLoadInvocation`, independent of the threshold decision.
+- **Guardian-only self-approval (sensitive-tool gate).** An uncovered dynamic load is routed through the sensitive-tool gate (`tools/tool-approval-handler.ts`: `isSensitiveTool` → `resolveSensitiveToolDecision`). A non-guardian actor is escalated to the guardian via the capability floor — which no threshold, including Full access, can lift — while the guardian self-approves (`proceed`) and the threshold then governs (allow at Full access, prompt below). `skill_load` is otherwise not a side-effect tool, so this makes the dynamic case participate in the same capability floor as host/side-effect tools.
+- **Non-interactive denial.** An uncovered dynamic load in a session with no interactive client is denied outright — regardless of threshold, including Full access — because embedded shell must never run unattended without a covering rule. Enforced in `tools/permission-checker.ts` (lane B) via `isDynamicSkillLoadInvocation`, independent of the threshold decision.
 
 ```mermaid
 graph TB
@@ -1435,7 +1436,9 @@ graph TB
     PERM --> RULE{"Covering trust rule?"}
     RULE -->|"Allow"| RENDER["Execute + render"]
     RULE -->|"Deny"| DENY["Blocked"]
-    RULE -->|"None"| INTERACTIVE{"Interactive client?"}
+    RULE -->|"None"| SENS{"Sensitive-tool gate<br/>(lane A): can self-approve?"}
+    SENS -->|"No (non-guardian)"| ESCALATE["Escalate to guardian<br/>(capability floor)"]
+    SENS -->|"Yes (guardian)"| INTERACTIVE{"Interactive client?"}
     INTERACTIVE -->|"No"| DENY
     INTERACTIVE -->|"Yes"| THRESH{"autoApproveUpTo"}
     THRESH -->|"Full access"| RENDER

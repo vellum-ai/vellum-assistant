@@ -229,15 +229,13 @@ export class PermissionChecker {
       }
 
       // Inline-command ("dynamic") skill loads execute embedded shell at load
-      // time via child_process.spawn, outside the tool-approval pipeline. A
-      // non-interactive session has no human to review that, so an uncovered
-      // dynamic load is denied regardless of threshold — Full access relaxes the
-      // guardian's own interactive turns, not unattended sessions running a
-      // third party's embedded shell. A covering trust rule (matchType
-      // "user_rule") lowers the risk upstream and is left to proceed. This is
-      // the single enforcement point for the invariant: an uncovered dynamic
-      // load in a non-interactive session is denied here, before any threshold
-      // is consulted.
+      // time. The sensitive-tool gate (tools/tool-approval-handler.ts, lane A)
+      // already routes an uncovered one through the guardian-mediated capability
+      // floor, so a non-guardian is escalated there and never reaches this lane.
+      // The one thing that floor does not express is the absence of a human: an
+      // uncovered dynamic load in a non-interactive session is denied here,
+      // because embedded shell must never run unattended without a covering rule.
+      // (A covering trust rule, matchType "user_rule", is left to proceed.)
       if (
         context.isInteractive === false &&
         isDynamicSkillLoadInvocation(name, input) &&
