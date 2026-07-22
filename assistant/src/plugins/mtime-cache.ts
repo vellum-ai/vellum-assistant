@@ -384,13 +384,29 @@ function isAllowedPluginDir(
     // directory.
     return true;
   }
-  const normalizedPluginsDir = pluginsDir + "/";
-  const normalizedHooksDir = hooksDir + "/";
+  // Resolve the allowed roots the same way as the candidate, or the check
+  // breaks whenever the workspace path contains a symlinked segment (e.g.
+  // macOS's /var → /private/var): the candidate resolves to the physical
+  // path while the configured root keeps the symlinked spelling, and every
+  // legitimate directory is rejected. An unresolvable root keeps its
+  // configured spelling — nothing under it can exist to import anyway.
+  let resolvedPluginsDir: string;
+  try {
+    resolvedPluginsDir = realpathSync(pluginsDir);
+  } catch {
+    resolvedPluginsDir = pluginsDir;
+  }
+  let resolvedHooksDir: string;
+  try {
+    resolvedHooksDir = realpathSync(hooksDir);
+  } catch {
+    resolvedHooksDir = hooksDir;
+  }
   return (
-    resolved === pluginsDir ||
-    resolved.startsWith(normalizedPluginsDir) ||
-    resolved === hooksDir ||
-    resolved.startsWith(normalizedHooksDir)
+    resolved === resolvedPluginsDir ||
+    resolved.startsWith(resolvedPluginsDir + "/") ||
+    resolved === resolvedHooksDir ||
+    resolved.startsWith(resolvedHooksDir + "/")
   );
 }
 
