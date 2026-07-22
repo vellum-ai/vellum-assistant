@@ -1068,7 +1068,8 @@ describe("code-owned default profiles — wire view and write normalization", ()
     const response = (await getRoute.handler({})) as Record<string, any>;
     const wireBalanced = response.llm.profiles.balanced;
     expect(wireBalanced.model).toBe("accounts/fireworks/models/glm-5p2");
-    expect(wireBalanced.provider_connection).toBe("vellum");
+    expect(wireBalanced.provider).toBe("vellum");
+    expect(wireBalanced.provider_connection).toBeUndefined();
     expect(wireBalanced.status).toBe("disabled");
     expect(wireBalanced.invariant).toBe(true);
     // Absent defaults are materialized too — the catalog owns their content.

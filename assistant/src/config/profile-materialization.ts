@@ -7,7 +7,11 @@ import {
   MANAGED_ROUTABLE_PROVIDERS,
   VELLUM_MANAGED_CONNECTION_NAME,
 } from "../providers/vellum-model-routing.js";
-import type { LLMConfigBase, ProfileEntry } from "./schemas/llm.js";
+import {
+  type LLMConfigBase,
+  type ProfileEntry,
+  routingIdentityModelIssue,
+} from "./schemas/llm.js";
 
 /**
  * Materializes a partial custom profile into a complete, standalone
@@ -76,10 +80,16 @@ export function completeCustomProfile(
     profile.openrouter,
   );
 
+  // A routing-identity fill base serves any model its route can dispatch —
+  // identity + model is the complete shape, so no provider implication.
+  const fillBaseServesModel = (model: string): boolean =>
+    ROUTING_IDENTITY_PROVIDERS.has(dflt.provider)
+      ? routingIdentityModelIssue(dflt.provider, model) === null
+      : isModelInCatalog(dflt.provider, model);
   if (
     profile.model !== undefined &&
     profile.provider === undefined &&
-    !isModelInCatalog(dflt.provider, profile.model)
+    !fillBaseServesModel(profile.model)
   ) {
     const implied = getCatalogProviderForModel(profile.model);
     if (implied !== undefined) {

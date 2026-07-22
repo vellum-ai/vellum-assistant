@@ -90,6 +90,18 @@ describe("doesSupportVision", () => {
     expect(doesSupportVision(profile("model-only"))).toBe(true);
   });
 
+  test("resolves a routing-identity profile through the model's catalog owner", () => {
+    setMockConfig({
+      managed: { provider: "vellum", model: "claude-fable-5" },
+      "managed-text": {
+        provider: "vellum",
+        model: "accounts/fireworks/models/deepseek-v4-flash",
+      },
+    });
+    expect(doesSupportVision(profile("managed"))).toBe(true);
+    expect(doesSupportVision(profile("managed-text"))).toBe(false);
+  });
+
   test("fails safe to false for a profile without a model", () => {
     // A model-less entry is not a usable resolution target, so vision
     // resolution treats it as "can't show images" (caption instead).
