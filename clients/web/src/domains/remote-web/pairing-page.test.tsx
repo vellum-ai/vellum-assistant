@@ -338,6 +338,35 @@ describe("RemoteWebPairingPage", () => {
     ).not.toBeNull();
   });
 
+  test("the app handoff url keeps a served path prefix", async () => {
+    remoteGatewayMode = true;
+    setUserAgent(IPHONE_USER_AGENT);
+    // The real window location carries the served path in production; the
+    // in-memory router below only controls the route, not window.location.
+    window.history.pushState(null, "", "/assistant-123/assistant/pair");
+
+    try {
+      render(
+        <MemoryRouter
+          initialEntries={["/assistant/pair?deviceCode=device-1&userCode=ABCD"]}
+        >
+          <RemoteWebPairingPage />
+        </MemoryRouter>,
+      );
+
+      const link = await screen.findByRole("link", {
+        name: "Open in the Vellum app",
+      });
+      const href = link.getAttribute("href") ?? "";
+      const query = new URLSearchParams(href.slice(href.indexOf("?") + 1));
+      expect(query.get("url")).toBe(
+        `${window.location.origin}/assistant-123`,
+      );
+    } finally {
+      window.history.pushState(null, "", "/");
+    }
+  });
+
   test("exchanges immediately for a device code in a non-iOS browser", async () => {
     remoteGatewayMode = true;
     // The default happy-dom user agent is a non-iOS browser.
