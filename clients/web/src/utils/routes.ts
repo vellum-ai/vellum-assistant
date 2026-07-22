@@ -251,6 +251,10 @@ const ABOUT_ASSISTANT_PATHS: readonly string[] = [
   routes.workspace,
   routes.contacts.root,
   routes.channels,
+  // The prefix match also covers /assistant/library/:appId — the app
+  // viewer renders full-bleed outside IntelligenceLayout, but it is
+  // still Library territory for the sidebar highlight.
+  routes.library.root,
 ];
 
 /** Whether `pathname` falls inside the About Assistant section. */

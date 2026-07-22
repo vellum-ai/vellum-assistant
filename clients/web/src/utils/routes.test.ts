@@ -51,6 +51,11 @@ describe("isAboutAssistantPath", () => {
     expect(isAboutAssistantPath(routes.schedules.detail("sch_123"))).toBe(true);
   });
 
+  test("matches the Library section, including the app viewer sub-path", () => {
+    expect(isAboutAssistantPath(routes.library.root)).toBe(true);
+    expect(isAboutAssistantPath(routes.library.app("app-1"))).toBe(true);
+  });
+
   test("rejects the Activity page and conversations", () => {
     expect(isAboutAssistantPath(routes.home)).toBe(false);
     expect(isAboutAssistantPath(routes.conversation("conv-1"))).toBe(false);

@@ -57,8 +57,9 @@ export function buildIdentitySections({
     });
   }
   sections.push(
-    // Library moved off the nav sidebar and onto the overview strip; it
-    // keeps its own top-level page (no About Assistant chrome).
+    // Library moved off the nav sidebar and onto the overview strip; the
+    // list page wears the shared section chrome like its peers, while the
+    // app viewer (/assistant/library/:appId) stays full-bleed.
     {
       key: "library",
       label: "Library",
