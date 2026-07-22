@@ -79,11 +79,16 @@ const creditCalls: Body[] = [];
 let machineImpl: (opts: Body) => Promise<unknown>;
 let storageImpl: (opts: Body) => Promise<unknown>;
 let creditImpl: (opts: Body) => Promise<unknown>;
+// Counts subscription fetches so the readiness gate can be asserted.
+let subscriptionFetches = 0;
 
 mock.module("@/generated/api/@tanstack/react-query.gen", () => ({
   organizationsBillingSubscriptionRetrieveOptions: () => ({
     queryKey: SUBSCRIPTION_KEY,
-    queryFn: () => subscriptionFixture,
+    queryFn: () => {
+      subscriptionFetches += 1;
+      return subscriptionFixture;
+    },
   }),
   organizationsBillingSubscriptionRetrieveQueryKey: () => SUBSCRIPTION_KEY,
   organizationsBillingSubscriptionOnboardingRetrieveOptions: () => ({
@@ -166,7 +171,15 @@ function onboarding(
  * Render the hook against a fresh QueryClient seeded with the current fixtures,
  * recording every key passed to `invalidateQueries`.
  */
-function setup({ seedOnboarding = true }: { seedOnboarding?: boolean } = {}) {
+function setup({
+  seedOnboarding = true,
+  seedSubscription = true,
+  enabled = true,
+}: {
+  seedOnboarding?: boolean;
+  seedSubscription?: boolean;
+  enabled?: boolean;
+} = {}) {
   const client = new QueryClient({
     defaultOptions: {
       queries: {
@@ -178,7 +191,9 @@ function setup({ seedOnboarding = true }: { seedOnboarding?: boolean } = {}) {
       },
     },
   });
-  client.setQueryData(SUBSCRIPTION_KEY, subscriptionFixture);
+  if (seedSubscription) {
+    client.setQueryData(SUBSCRIPTION_KEY, subscriptionFixture);
+  }
   client.setQueryData(PLANS_KEY, plansFixture);
   if (seedOnboarding) {
     client.setQueryData(ONBOARDING_KEY, onboardingFixture);
@@ -197,7 +212,7 @@ function setup({ seedOnboarding = true }: { seedOnboarding?: boolean } = {}) {
   }) as InvalidateFn;
   const wrapper = ({ children }: { children: ReactNode }) =>
     createElement(QueryClientProvider, { client }, children);
-  const { result } = renderHook(() => useChangeTiers(), { wrapper });
+  const { result } = renderHook(() => useChangeTiers({ enabled }), { wrapper });
   return { result, invalidatedKeys, events };
 }
 
@@ -211,9 +226,21 @@ describe("useChangeTiers", () => {
     storageImpl = async () => ({});
     creditImpl = async () => ({});
     onboardingHangs = false;
+    subscriptionFetches = 0;
     subscriptionFixture = proSubscription();
     onboardingFixture = onboarding();
     plansFixture = proPlans();
+  });
+
+  test("holds the org-scoped subscription read until enabled", async () => {
+    // Disabled (the caller's platform gate is not open yet) and unseeded, so
+    // the org-scoped read must not fire without the org header.
+    const { result } = setup({ enabled: false, seedSubscription: false });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(subscriptionFetches).toBe(0);
+    expect(result.current.eligible).toBe(false);
   });
 
   test("derives current tiers and eligibility for an active Pro sub", () => {

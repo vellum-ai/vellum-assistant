@@ -22,6 +22,7 @@ import type {
   ProPlan,
   StorageTierEnum,
 } from "@/generated/api/types.gen";
+import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 
 /**
  * The Pro subscription's current tier configuration, read the same way
@@ -81,25 +82,36 @@ export interface UseChangeTiersResult {
  * entitlement-bearing status — the change-tier endpoints 4xx otherwise. Unlike
  * `isPackageSwitchEligible`, a customized sub is allowed: a custom tier config
  * is exactly what this flow edits.
+ *
+ * Pass `enabled` (the caller's platform-hosted gate) to hold the org-scoped
+ * reads until the page is ready; they are also gated on org-header readiness.
  */
-export function useChangeTiers(): UseChangeTiersResult {
+export function useChangeTiers({
+  enabled = true,
+}: { enabled?: boolean } = {}): UseChangeTiersResult {
   const queryClient = useQueryClient();
-  const subscriptionQuery = useQuery(
-    organizationsBillingSubscriptionRetrieveOptions(),
-  );
+  // These are org-scoped reads, so hold them until the caller is ready (its own
+  // platform-hosted gate) and the org header source has hydrated — otherwise a
+  // request can fire without `Vellum-Organization-Id` and 4xx.
+  const orgReady = useIsOrgReady();
+  const ready = enabled && orgReady;
+  const subscriptionQuery = useQuery({
+    ...organizationsBillingSubscriptionRetrieveOptions(),
+    enabled: ready,
+  });
   const subscription = subscriptionQuery.data;
   const onPro = subscription != null && subscription.plan_id !== "base";
 
   const onboardingQuery = useQuery({
     ...organizationsBillingSubscriptionOnboardingRetrieveOptions(),
-    enabled: onPro,
+    enabled: ready && onPro,
   });
   // Supplies the machine-tier prices used to tell an upgrade from a downgrade,
   // the same way `adjust-plan-modal` reads them. Already cached by the plans
   // page, so this is a deduped read.
   const plansQuery = useQuery({
     ...organizationsBillingPlansRetrieveOptions(),
-    enabled: onPro,
+    enabled: ready && onPro,
   });
   const machineTiers =
     plansQuery.data?.plans.find((p): p is ProPlan => p.id === "pro")

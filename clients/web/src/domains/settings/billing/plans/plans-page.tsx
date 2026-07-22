@@ -135,7 +135,7 @@ export function PlansPage() {
     current,
     eligible,
     currentReady,
-  } = useChangeTiers();
+  } = useChangeTiers({ enabled: platformReady });
   const [pending, setPending] = useState(false);
   const [customPlanOpen, setCustomPlanOpen] = useState(false);
   // The package a Pro user is switching to, awaiting reconfirm; null when the
