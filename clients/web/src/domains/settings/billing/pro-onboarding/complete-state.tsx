@@ -1,5 +1,6 @@
 import { useNavigate } from "react-router";
 
+import { setSelectedAssistant } from "@/assistant/selection";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
@@ -63,7 +64,16 @@ export function CompleteState({
           <Button
             variant="primary"
             data-testid="onboarding-complete-return"
-            onClick={() => navigate(routes.assistant, { replace: true })}
+            onClick={() => {
+              // Provisioning can target an assistant other than the active
+              // one, and the label names that target — select it first or the
+              // click lands on whichever assistant was already active. The
+              // reactive write is synchronous; only the lockfile mirror awaits.
+              if (assistantId != null) {
+                void setSelectedAssistant(assistantId);
+              }
+              navigate(routes.assistant, { replace: true });
+            }}
           >
             Return to {assistantName}
           </Button>

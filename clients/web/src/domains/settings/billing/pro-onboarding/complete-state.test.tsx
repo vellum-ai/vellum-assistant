@@ -31,6 +31,13 @@ mock.module("./use-preferred-or-active-assistant", () => ({
     assistantName == null ? undefined : { name: assistantName },
 }));
 
+const selectedAssistantIds: Array<string | null> = [];
+mock.module("@/assistant/selection", () => ({
+  setSelectedAssistant: async (id: string | null) => {
+    selectedAssistantIds.push(id);
+  },
+}));
+
 let navigateArgs: Array<[unknown, unknown]> = [];
 mock.module("react-router", () => ({
   ...reactRouter,
@@ -45,6 +52,7 @@ beforeEach(() => {
   avatarComponents = { colors: [] };
   assistantName = "Velly";
   navigateArgs = [];
+  selectedAssistantIds.length = 0;
 });
 
 afterEach(() => {
@@ -75,6 +83,29 @@ describe("CompleteState return button", () => {
     expect(button.textContent).toBe("Return to Velly");
 
     fireEvent.click(button);
+    expect(navigateArgs).toEqual([[routes.assistant, { replace: true }]]);
+  });
+
+  test("selects the provisioned assistant before returning", () => {
+    // Multi-assistant org: provisioning targeted assistant-b while another
+    // assistant is active. The label names assistant-b, so the click must
+    // land there rather than on whatever was active before.
+    const { getByTestId } = render(<CompleteState assistantId="assistant-b" />);
+
+    fireEvent.click(getByTestId("onboarding-complete-return"));
+
+    expect(selectedAssistantIds).toEqual(["assistant-b"]);
+    expect(navigateArgs).toEqual([[routes.assistant, { replace: true }]]);
+  });
+
+  test("leaves the selection alone when no provisioning target is named", () => {
+    // Without a target the label already describes the active assistant, so
+    // writing a selection would be a no-op at best and a switch at worst.
+    const { getByTestId } = render(<CompleteState />);
+
+    fireEvent.click(getByTestId("onboarding-complete-return"));
+
+    expect(selectedAssistantIds).toEqual([]);
     expect(navigateArgs).toEqual([[routes.assistant, { replace: true }]]);
   });
 
