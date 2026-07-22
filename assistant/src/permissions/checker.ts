@@ -865,9 +865,9 @@ export async function check(
   // Inline-command ("dynamic") skill loads execute embedded shell at load time
   // via child_process.spawn, outside the tool-approval pipeline that the
   // auto-approve threshold governs. Treat an uncovered one as High so the
-  // standard threshold decides it like any other high-risk action — it runs at
-  // Full access (autoApproveUpTo "high") and prompts below it — rather than
-  // being special-cased. A covering user trust rule arrives as matchType
+  // standard threshold decides it like any other high-risk action: it runs at
+  // Full access (autoApproveUpTo "high") and prompts below it. A covering user
+  // trust rule arrives as matchType
   // "user_rule" with the risk already lowered (the escape hatch), so leave it
   // untouched. The gateway classifier is authoritative and also returns High;
   // this local elevation is defense-in-depth for the gateway-unreachable or

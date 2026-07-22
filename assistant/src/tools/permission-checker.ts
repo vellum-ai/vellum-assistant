@@ -235,8 +235,9 @@ export class PermissionChecker {
       // guardian's own interactive turns, not unattended sessions running a
       // third party's embedded shell. A covering trust rule (matchType
       // "user_rule") lowers the risk upstream and is left to proceed. This is
-      // the single enforcement point for the invariant; check() no longer routes
-      // dynamic loads through a forced "prompt" to reach it.
+      // the single enforcement point for the invariant: an uncovered dynamic
+      // load in a non-interactive session is denied here, before any threshold
+      // is consulted.
       if (
         context.isInteractive === false &&
         isDynamicSkillLoadInvocation(name, input) &&

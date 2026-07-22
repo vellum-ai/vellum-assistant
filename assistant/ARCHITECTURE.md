@@ -1411,7 +1411,7 @@ Editing any file in the root skill or any included child invalidates the transit
 
 #### Permission Gating (`skill_load_dynamic:*`)
 
-Inline-command skill loads are classified **High** risk — in the gateway skill risk classifier (`gateway/src/risk/skill-risk-classifier.ts`), with a defense-in-depth elevation in `check()` for the gateway-unreachable path. The standard auto-approve threshold then governs them like any other high-risk action: they run without a prompt only at **Full access** (`autoApproveUpTo: "high"`) and prompt at every level below it. There is no separate "always ask" override — the earlier priority-200 `skill_load_dynamic:*` ask rule was retired with trust-rules v3.
+Inline-command skill loads are classified **High** risk — in the gateway skill risk classifier (`gateway/src/risk/skill-risk-classifier.ts`), with a defense-in-depth elevation in `check()` for the gateway-unreachable path. The standard auto-approve threshold then governs them like any other high-risk action: they run without a prompt only at **Full access** (`autoApproveUpTo: "high"`) and prompt at every level below it. There is no separate "always ask" override outside the threshold.
 
 Two independent guarantees sit alongside the threshold:
 
@@ -1435,10 +1435,11 @@ graph TB
     PERM --> RULE{"Covering trust rule?"}
     RULE -->|"Allow"| RENDER["Execute + render"]
     RULE -->|"Deny"| DENY["Blocked"]
-    RULE -->|"None"| THRESH{"autoApproveUpTo"}
+    RULE -->|"None"| INTERACTIVE{"Interactive client?"}
+    INTERACTIVE -->|"No"| DENY
+    INTERACTIVE -->|"Yes"| THRESH{"autoApproveUpTo"}
     THRESH -->|"Full access"| RENDER
-    THRESH -->|"Below full · interactive"| PROMPT["Prompt guardian"]
-    THRESH -->|"Below full · non-interactive"| DENY
+    THRESH -->|"Below full"| PROMPT["Prompt guardian"]
 ```
 
 #### Sandbox-Only Execution
