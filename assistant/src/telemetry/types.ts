@@ -107,8 +107,9 @@ export interface LlmUsageTelemetryEvent extends TelemetryEventBase {
    */
   parent_conversation_id: string | null;
   /**
-   * 1-indexed count of real user turns in the *parent* conversation up to
-   * the child conversation's creation — the parent turn in flight at spawn
+   * 1-indexed parent-conversation user turn this event's conversation
+   * branched from: the turn in flight at child creation for subagent
+   * spawns, the fork boundary message's turn for retrospective forks
    * (same real-user-turn filter as `turn_index`). Null when there is no
    * parent conversation.
    */
