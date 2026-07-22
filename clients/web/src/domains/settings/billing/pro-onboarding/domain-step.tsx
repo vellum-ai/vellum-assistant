@@ -129,7 +129,7 @@ export function DomainStep({
 
   return (
     <>
-      <Modal.Body className="min-h-[320px] animate-[onboarding-step-in_350ms_ease-out] space-y-6 pb-4 motion-reduce:animate-none">
+      <Modal.Body className="min-h-[260px] animate-[onboarding-step-in_350ms_ease-out] space-y-6 pb-4 motion-reduce:animate-none">
         <WizardCardHeading
           title="Assistant Email"
           subtitle="Set up an email for your assistant."

@@ -36,7 +36,7 @@ export function CompleteState({
   const assistantName = assistant?.name || "your assistant";
 
   return (
-    <div className="relative flex min-h-[320px] flex-col items-center overflow-hidden px-8 pb-10 [animation:onboarding-step-in_350ms_ease-out] motion-reduce:[animation:none]">
+    <div className="relative flex min-h-[320px] flex-col items-center overflow-hidden px-8 pb-16 [animation:onboarding-step-in_350ms_ease-out] motion-reduce:[animation:none]">
       <CreatureCorners variant="full" />
 
       {/* `relative` lifts the content above the absolute creature layer. */}
@@ -46,7 +46,7 @@ export function CompleteState({
           subtitle="Enjoy the new found power."
         />
 
-        <div className="mt-8 flex w-full flex-col items-center gap-4">
+        <div className="mt-10 flex w-full flex-col items-center gap-10">
           {stalledAction ? (
             <StalledApplyControls
               action={stalledAction}

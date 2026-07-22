@@ -192,12 +192,12 @@ interface CreaturePlacement {
  * creatures scattered around every edge.
  */
 const CREATURE_PLACEMENTS: CreaturePlacement[] = [
-  { bodyShape: "blob", eyeStyle: "goofy", color: "green", size: 56, position: "-left-4 -top-6", rotate: -12 },
-  { bodyShape: "sprout", eyeStyle: "curious", color: "orange", size: 48, position: "left-1/2 -top-8 -translate-x-1/2", rotate: 6 },
-  { bodyShape: "urchin", eyeStyle: "surprised", color: "teal", size: 56, position: "-right-4 -top-6", rotate: 14 },
-  { bodyShape: "star", eyeStyle: "gentle", color: "purple", size: 44, position: "-left-6 top-1/2 -translate-y-1/2", rotate: -20 },
-  { bodyShape: "ghost", eyeStyle: "bashful", color: "pink", size: 44, position: "-right-6 top-1/2 -translate-y-1/2", rotate: 18 },
-  { bodyShape: "flower", eyeStyle: "quirky", color: "yellow", size: 52, position: "left-1/2 -bottom-8 -translate-x-1/2", rotate: -8 },
+  { bodyShape: "star", eyeStyle: "gentle", color: "yellow", size: 88, position: "-left-6 -top-7", rotate: 180 },
+  { bodyShape: "urchin", eyeStyle: "curious", color: "orange", size: 93, position: "left-[63%] -top-[53px] -translate-x-1/2", rotate: -8 },
+  { bodyShape: "blob", eyeStyle: "gentle", color: "green", size: 65, position: "-right-[21px] top-[51px]", rotate: 1 },
+  { bodyShape: "blob", eyeStyle: "goofy", color: "purple", size: 94, position: "-left-[33px] top-[74%]", rotate: 0 },
+  { bodyShape: "urchin", eyeStyle: "surprised", color: "pink", size: 117, position: "-right-9 -bottom-[34px]", rotate: 180 },
+  { bodyShape: "star", eyeStyle: "quirky", color: "orange", size: 62, position: "left-[37%] -bottom-[19px] -translate-x-1/2", rotate: 0 },
 ];
 
 /**
@@ -207,9 +207,9 @@ const CREATURE_PLACEMENTS: CreaturePlacement[] = [
  * green blob peeking in from the right edge.
  */
 const TOP_CREATURE_PLACEMENTS: CreaturePlacement[] = [
-  { bodyShape: "star", eyeStyle: "gentle", color: "yellow", size: 76, position: "-left-6 -top-7", rotate: 180 },
-  { bodyShape: "urchin", eyeStyle: "curious", color: "orange", size: 72, position: "left-[58%] -top-12 -translate-x-1/2", rotate: -8 },
-  { bodyShape: "blob", eyeStyle: "gentle", color: "green", size: 60, position: "-right-4 top-11", rotate: 1 },
+  { bodyShape: "star", eyeStyle: "gentle", color: "yellow", size: 88, position: "-left-6 -top-7", rotate: 180 },
+  { bodyShape: "urchin", eyeStyle: "curious", color: "orange", size: 93, position: "left-[63%] -top-[53px] -translate-x-1/2", rotate: -8 },
+  { bodyShape: "blob", eyeStyle: "gentle", color: "green", size: 65, position: "-right-[21px] top-[51px]", rotate: 1 },
 ];
 
 /**
