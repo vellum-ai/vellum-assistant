@@ -126,6 +126,7 @@ export function createGuardianChannelHandler() {
         guardianPrincipalId: guardian.principal_id,
         displayName: body.address,
         verifiedVia: "platform_auto_register",
+        reactivateRevoked: true,
       });
     } catch (err) {
       log.error({ err }, "Failed to create guardian channel binding");

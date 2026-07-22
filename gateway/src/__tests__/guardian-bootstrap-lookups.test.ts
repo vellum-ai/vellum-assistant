@@ -408,12 +408,68 @@ describe("resolve-or-mint (resolveOrCreateVellumGuardian)", () => {
     ]);
   });
 
-  test("startup backfill refuses to mint over actor-token evidence (guardian rows lost)", async () => {
+  test("startup backfill recovers the guardian from active actor-token evidence (LUM-2783)", async () => {
+    // The gateway carries actor tokens migrated from the assistant DB (m0002)
+    // but an empty contacts table — the contact reconcile could not run because
+    // assistant migration 305 had already dropped the ACL columns it reads. The
+    // backfill rebuilds the vellum guardian binding from the token's principal
+    // instead of refusing. Recovery is gateway-native, so the throwing
+    // assistant backend stays installed to prove it never reads the mirror.
+    seedActorToken(); // active token, guardianPrincipalId "principal-123"
+
+    const principalId = await ensureVellumGuardianBinding({
+      recoverFromActorTokens: true,
+    });
+
+    expect(principalId).toBe("principal-123");
+    const gwRows = gatewayVellumGuardians();
+    expect(gwRows).toHaveLength(1);
+    expect(gwRows[0]).toMatchObject({
+      principalId: "principal-123",
+      address: "principal-123",
+      status: "active",
+    });
+    // Recovery resolves the lost-guardian state, so neither the
+    // missing-guardian nor the mint-refused report fires.
+    expect(reportCalls).toHaveLength(0);
+  });
+
+  test("recovery is opt-in — runtime callers stay fail-closed over active-token evidence", async () => {
+    // Without the boot-time recovery flag, an active actor token is still just
+    // evidence: the default (runtime token/pairing) path refuses so its
+    // repairable 401/503 flow is preserved.
     seedActorToken();
 
     await expect(ensureVellumGuardianBinding()).rejects.toBeInstanceOf(
       VellumGuardianMintRefusedError,
     );
+    expect(gatewayVellumGuardians()).toHaveLength(0);
+  });
+
+  test("startup backfill refuses when only a revoked actor token survives", async () => {
+    // A revoked token is a properly offboarded guardian — recovery must not
+    // resurrect it, so the backfill falls through to the fail-closed refusal.
+    const now = Date.now();
+    getGatewayDb()
+      .insert(actorTokenRecords)
+      .values({
+        id: "revoked-token",
+        tokenHash: "hash-revoked",
+        guardianPrincipalId: "principal-offboarded",
+        hashedDeviceId: "device-x",
+        platform: "macos",
+        status: "revoked",
+        issuedAt: now,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+
+    // Recovery is enabled but the only token is revoked, so it must not
+    // resurrect the offboarded principal — the backfill falls through to refuse.
+    await expect(
+      ensureVellumGuardianBinding({ recoverFromActorTokens: true }),
+    ).rejects.toBeInstanceOf(VellumGuardianMintRefusedError);
 
     expect(gatewayVellumGuardians()).toHaveLength(0);
     expect(getGatewayDb().select().from(contacts).all()).toHaveLength(0);
@@ -421,6 +477,70 @@ describe("resolve-or-mint (resolveOrCreateVellumGuardian)", () => {
       { has_contacts: false, has_actor_tokens: true },
       { integrity_state: "missing_guardian" },
     ]);
+  });
+
+  test("boot recovery does not reactivate a deliberately-revoked guardian binding", async () => {
+    // A guardian CONTACT still exists but its vellum channel was deliberately
+    // revoked; active tokens survive (a still-live device). Boot recovery must
+    // stay fail-closed rather than upserting the channel back to active and
+    // silently undoing the revoke — recovery is only for a genuinely ABSENT
+    // guardian, not a present-but-revoked one.
+    seedGuardianChannel({
+      type: "vellum",
+      address: "vellum-principal-revoked",
+      status: "revoked",
+      principalId: "principal-revoked",
+    });
+    seedActorToken(); // active token, guardianPrincipalId "principal-123"
+
+    await expect(
+      ensureVellumGuardianBinding({ recoverFromActorTokens: true }),
+    ).rejects.toBeInstanceOf(VellumGuardianMintRefusedError);
+
+    // The revoked channel stays revoked — not reactivated — and no second
+    // guardian binding was minted from the token.
+    const gwRows = gatewayVellumGuardians();
+    expect(gwRows).toHaveLength(1);
+    expect(gwRows[0]).toMatchObject({
+      address: "vellum-principal-revoked",
+      status: "revoked",
+    });
+    // A guardian contact row exists, so integrity is "ok" (not
+    // missing_guardian) — only the mint-refused report fires.
+    expect(reportCalls).toEqual([{ integrity_state: "ok" }]);
+  });
+
+  test("boot recovery heals past a principal-less guardian stub (contact-prompt pre-bootstrap)", async () => {
+    // A gateway-first contact-prompt stub is role='guardian' but carries no
+    // principal and no active binding. It must NOT count as a real guardian and
+    // block recovery — the surviving tokens name the real guardian, so an
+    // upgraded install carrying only a stub still self-heals.
+    seedGuardianChannel({
+      type: "vellum",
+      address: "stub-addr",
+      status: "unverified",
+      principalId: null,
+      contactId: "stub-contact",
+      channelId: "stub-channel",
+    });
+    seedActorToken(); // active token, guardianPrincipalId "principal-123"
+
+    const principalId = await ensureVellumGuardianBinding({
+      recoverFromActorTokens: true,
+    });
+
+    expect(principalId).toBe("principal-123");
+    // A real guardian binding now exists for the token's principal (alongside
+    // the inert stub).
+    const recovered = gatewayVellumGuardians().find(
+      (r) => r.principalId === "principal-123",
+    );
+    expect(recovered).toMatchObject({
+      address: "principal-123",
+      status: "active",
+    });
+    // Recovery succeeded — no missing-guardian / mint-refused report.
+    expect(reportCalls).toHaveLength(0);
   });
 
   test("refuses when a guardian contact exists but the vellum binding is inactive — mint-refused report fires", async () => {
@@ -441,8 +561,11 @@ describe("resolve-or-mint (resolveOrCreateVellumGuardian)", () => {
     expect(reportCalls).toEqual([{ integrity_state: "ok" }]);
   });
 
-  test("startup backfill recovers once the guardian is re-seeded", async () => {
-    seedActorToken();
+  test("startup backfill refusal is not permanent — recovers once the guardian is re-seeded", async () => {
+    // Contact evidence with no actor token: nothing to recover from, so the
+    // backfill refuses (fail-closed) rather than fabricating a guardian. The
+    // refusal must not latch — a later re-seed resolves on the next call.
+    seedContact({ id: "invited-contact" });
     await expect(ensureVellumGuardianBinding()).rejects.toBeInstanceOf(
       VellumGuardianMintRefusedError,
     );
