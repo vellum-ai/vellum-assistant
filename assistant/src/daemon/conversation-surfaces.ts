@@ -3216,14 +3216,20 @@ export async function surfaceProxyResolver(
       }
       // Validate the merged data through the surface type's canonical schema
       // so malformed patches (e.g. metadata as a string) are caught here
-      // instead of crashing the client's safeParse.
-      mergedPair = buildSurfaceShowPair(stored.surfaceType, {
-        ...stored.data,
-        ...patch,
-      });
+      // instead of crashing the client's safeParse. On success, keep the
+      // VERBATIM merge rather than the schema-parsed output: the parse strips
+      // client-owned/unmodeled keys, and — like restore — this data is served
+      // to clients and persisted, so stripping would regress display. The
+      // parse succeeding proves the raw merge is client-safe (the client
+      // applies the same tolerant schema); only a failed parse reverts.
+      const rawMerged = { ...stored.data, ...patch };
+      mergedPair = buildSurfaceShowPair(stored.surfaceType, rawMerged);
       if (mergedPair !== undefined) {
-        mergedData = mergedPair.data;
-        ctx.surfaceState.set(surfaceId, { ...stored, ...mergedPair });
+        mergedData = rawMerged as AnySurfaceData;
+        ctx.surfaceState.set(surfaceId, {
+          ...stored,
+          data: rawMerged,
+        } as SurfaceStateEntry);
       } else {
         log.warn(
           { surfaceId, surfaceType: stored.surfaceType },
@@ -3252,8 +3258,8 @@ export async function surfaceProxyResolver(
     if (idx !== -1 && mergedPair !== undefined) {
       ctx.currentTurnSurfaces[idx] = {
         ...ctx.currentTurnSurfaces[idx],
-        ...mergedPair,
-      };
+        data: mergedData,
+      } as CurrentTurnSurface;
     }
 
     // Persist the merged data back to the assistant message's
@@ -3389,6 +3395,11 @@ export async function surfaceProxyResolver(
       preview: {
         ...defaultPreview,
         ...preview,
+        // `DynamicPagePreviewSchema` fills `title: ""` when the caller omits it
+        // (`z.string().catch("")`); that empty string would clobber the
+        // app-name default from `defaultPreview` in this spread. Reassert the
+        // default when the supplied preview has no non-empty title.
+        ...(preview && !preview.title ? { title: defaultPreview.title } : {}),
         ...(storedPreview ? { previewImage: storedPreview } : {}),
       },
     };

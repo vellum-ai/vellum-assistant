@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   createSurfaceMutex,
   handleSurfaceAction,
+  restoreSurfaceStateEntry,
   type SurfaceConversationContext,
   surfaceProxyResolver,
 } from "../daemon/conversation-surfaces.js";
@@ -238,5 +239,51 @@ describe("cleanup on dismiss", () => {
 
     expect(ctx.accumulatedSurfaceState.has("surface-1")).toBe(false);
     expect(ctx.accumulatedSurfaceState.get("surface-2")).toEqual({ y: 2 });
+  });
+});
+
+describe("ui_update preserves client-owned keys the daemon schema omits", () => {
+  test("a valid patch keeps unmodeled keys on the merged, sent, and stored data", async () => {
+    const sent: ServerMessage[] = [];
+    const ctx = makeContext({ sent });
+    // A document_preview whose stored data carries `content`/`mimeType`
+    // (read by the client renderer, not modeled by the daemon schema).
+    // Built the way history restore produces it (verbatim client-owned keys).
+    ctx.surfaceState.set(
+      "doc-1",
+      restoreSurfaceStateEntry({
+        surfaceType: "document_preview",
+        data: {
+          title: "Notes",
+          surfaceId: "doc-real",
+          content: "# Heading",
+          mimeType: "text/markdown",
+        },
+      }),
+    );
+
+    const result = await surfaceProxyResolver(ctx, "ui_update", {
+      surface_id: "doc-1",
+      data: { title: "Notes (edited)" },
+    });
+    expect(result.isError).toBe(false);
+
+    // Stored state keeps the unmodeled keys and applies the patch.
+    expect(ctx.surfaceState.get("doc-1")?.data).toEqual({
+      title: "Notes (edited)",
+      surfaceId: "doc-real",
+      content: "# Heading",
+      mimeType: "text/markdown",
+    });
+
+    // The update sent to the client also carries them verbatim.
+    const update = sent.find((m) => m.type === "ui_surface_update");
+    expect(update).toBeDefined();
+    expect((update as { data: Record<string, unknown> }).data).toEqual({
+      title: "Notes (edited)",
+      surfaceId: "doc-real",
+      content: "# Heading",
+      mimeType: "text/markdown",
+    });
   });
 });
