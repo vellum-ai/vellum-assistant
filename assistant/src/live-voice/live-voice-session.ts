@@ -456,6 +456,11 @@ interface ActiveAssistantTurn {
   // ack timer arm) so a provider TTFT tail is bounded dead air instead of
   // unbounded structural silence. Null once fired, cleared, or committed.
   verdictDeadlineTimer: ReturnType<typeof setTimeout> | null;
+  // The turn was discarded before its bridge handle resolved (speech can
+  // resume while startVoiceTurn is still persisting). The handle's arrival
+  // must complete the rollback via discard(), not a plain abort — otherwise
+  // the discarded pause's user row leaks into history.
+  discardRequested: boolean;
   // Accumulates leg deltas until the verdict resolves (whitespace-only
   // prefixes carry no verdict).
   speculativeBuffer: string;
@@ -1815,20 +1820,30 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     if (
       turn.speculativeGeneration !== this.vadSpeechGeneration ||
       this.isUtteranceStale(utterance) ||
-      utterance.released ||
       utterance.completed
     ) {
       this.discardSpeculativeTurn(turn, "superseded");
       return false;
     }
+    // `released` alone is NOT superseded: a manual release during the
+    // verdict window (releaseFromClient) means the caller explicitly asked
+    // to answer now — the verdict commits into the already-released
+    // utterance instead of discarding the only in-flight turn. The manual
+    // path already sent utterance_end and released the utterance, so those
+    // are skipped; the thinking frame and timers still apply.
+    const alreadyReleased = utterance.released;
     turn.speculativePending = false;
     if (turn.verdictDeadlineTimer !== null) {
       clearTimeout(turn.verdictDeadlineTimer);
       turn.verdictDeadlineTimer = null;
     }
-    void this.sendFrame({ type: "utterance_end", reason: "silence" });
+    if (!alreadyReleased) {
+      void this.sendFrame({ type: "utterance_end", reason: "silence" });
+    }
     void this.sendFrame({ type: "thinking", turnId: turn.turnId });
-    void this.releaseUtterance();
+    if (!alreadyReleased) {
+      void this.releaseUtterance();
+    }
     if (this.streamTtsAudio) {
       this.armAckTimer(turn);
     }
@@ -1863,12 +1878,20 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     this.discardSpeculativeTurn(turn, "hold_verdict");
     if (
       this.isUtteranceStale(utterance) ||
-      utterance.released ||
       utterance.completed ||
       turn.speculativeGeneration !== this.vadSpeechGeneration
     ) {
       // Speech resumed or the utterance moved on during the verdict: the
       // discard was the whole job; a fresh boundary owns the release.
+      return;
+    }
+    if (utterance.released) {
+      // Manual release during the verdict window: the caller explicitly
+      // said they are done, so the hold is moot — but this leg's only
+      // output was the hold token, so committing it would answer with
+      // nothing. Discard it (done above; assistantTurnStarted is reset)
+      // and start a fresh leg on the released utterance instead.
+      void this.startAssistantTurnIfReady();
       return;
     }
     this.markEndpointDecision(utterance, "hold", decisionLatencyMs);
@@ -1892,6 +1915,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     reason: string,
   ): void {
     turn.speculativePending = false;
+    // Latched before the handle check: when the discard beats the bridge
+    // handle's resolution (startVoiceTurn still persisting), the handle's
+    // arrival in startAssistantLeg completes the rollback via discard().
+    turn.discardRequested = true;
     if (this.activeAssistantTurn?.token === turn.token) {
       this.activeAssistantTurn = null;
     }
@@ -2554,6 +2581,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       speculativeHoldAllowed:
         opts?.speculative === true && utterance.endpointExtensionCount === 0,
       verdictDeadlineTimer: null,
+      discardRequested: false,
       speculativeBuffer: "",
       interruptedRequest: opts?.interruptedRequest ?? null,
       continuationResult: opts?.continuationResult ?? null,
@@ -3020,7 +3048,19 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
 
       const current = this.activeAssistantTurn;
       if (current?.token !== token) {
-        handle.abort();
+        // A discard that beat this handle's resolution still owes the
+        // rollback: a plain abort would leave the discarded pause's user
+        // row in history.
+        if (activeTurn.discardRequested && handle.discard) {
+          void handle.discard().catch((err: unknown) => {
+            log.warn(
+              { err, turnId: activeTurn.turnId },
+              "Late speculative voice turn discard failed",
+            );
+          });
+        } else {
+          handle.abort();
+        }
         return;
       }
       if (current.finalized) {
