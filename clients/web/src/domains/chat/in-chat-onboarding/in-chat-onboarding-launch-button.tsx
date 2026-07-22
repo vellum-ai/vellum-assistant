@@ -2,17 +2,26 @@ import { Sparkles } from "lucide-react";
 
 import { Button } from "@vellumai/design-library";
 
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useInChatOnboardingStore } from "@/stores/in-chat-onboarding-store";
 
 /**
- * Header entry point for the in-chat onboarding UI prototype. Composed at
- * the route level into the top bar's right cluster, left of the
- * notifications bell. Activates the prototype's focused chat-only stage on
- * the current conversation; the floating prototype panel takes over from
- * there (this button hides along with the rest of the header controls).
+ * Header entry point for the in-chat onboarding UI prototype — a stand-in
+ * for the hand-off from research onboarding, kept for easy testing.
+ * Composed at the route level into the top bar's right cluster, left of
+ * the notifications bell. Plays the tour immediately; pressing it again
+ * afterwards replays from the top.
+ *
+ * Gated on the `in-chat-onboarding-tour` client flag (off by default) so
+ * the tour can bake internally before anyone outside Vellum sees it.
  */
 export function InChatOnboardingLaunchButton() {
   const startPrototype = useInChatOnboardingStore.use.startPrototype();
+  const tourEnabled = useClientFeatureFlagStore.use.inChatOnboardingTour();
+
+  if (!tourEnabled) {
+    return null;
+  }
 
   return (
     <Button

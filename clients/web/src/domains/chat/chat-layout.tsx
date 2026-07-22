@@ -14,9 +14,9 @@ import {
 } from "react-router";
 
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
-import { PrototypeChatPane } from "@/domains/chat/in-chat-onboarding/prototype-chat-pane";
 import {
   selectChatFocusActive,
+  selectHeaderCenterHidden,
   selectHeaderControlsHidden,
   useInChatOnboardingStore,
 } from "@/stores/in-chat-onboarding-store";
@@ -242,14 +242,16 @@ export function ChatLayout({
   const showLlmInspector = useCanUseLlmInspector();
   const isNative = useIsNativePlatform();
   const electron = isElectron();
-  // In-chat onboarding prototype: while active, a pretend post-onboarding
-  // conversation covers the route content; its focused stage additionally
-  // hides the sidebar and header controls.
-  const prototypeActive = useInChatOnboardingStore.use.prototypeActive();
+  // In-chat onboarding prototype: the tour's opening beats hide the sidebar
+  // and header controls; the tour reveals them itself as it walks.
   const chatFocusActive = useInChatOnboardingStore(selectChatFocusActive);
   const headerControlsHidden = useInChatOnboardingStore(
     selectHeaderControlsHidden,
   );
+  const headerCenterHidden = useInChatOnboardingStore(
+    selectHeaderCenterHidden,
+  );
+  const navTourActive = useInChatOnboardingStore.use.navTourActive();
 
   // --- Assistant identity from store (written by ChatPage) ---
   const assistantName = useAssistantIdentityStore.use.name();
@@ -738,10 +740,12 @@ export function ChatLayout({
       // The overlay subtree mounts mid edge-swipe while still off-screen;
       // mounting the tip card there stamps an impression for a tip never
       // seen, so the overlay only gets it once the drawer settles open.
+      // Hidden during the avatar tour for the same reason (plus noise) —
+      // the tour owns the sidebar's attention.
       tipCard={
-        args.variant === "overlay" && !drawerOpen ? undefined : (
-          <SidebarTipCard />
-        )
+        (args.variant === "overlay" && !drawerOpen) || navTourActive
+          ? undefined
+          : <SidebarTipCard />
       }
       onClose={args.onClose}
     />
@@ -764,6 +768,11 @@ export function ChatLayout({
           sidebarWidth={sidebarWidth}
           toggleSidebar={toggleSidebar}
           controlsHidden={headerControlsHidden}
+          centerHidden={headerCenterHidden}
+          // The tour dims the header's clusters for its whole run — no
+          // beat ever focuses them. (Center-hidden is true exactly while
+          // the tour runs, so it doubles as the dim signal.)
+          controlsDimmed={headerCenterHidden}
           topBarCenter={topBarCenter}
           // The voice-session pill is composed here — NOT registered through
           // useChatLayoutSlotsStore — because slot registration is owned by
@@ -801,9 +810,6 @@ export function ChatLayout({
           className={`relative flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden ${mainRoomClass}`}
         >
           <Outlet />
-          {prototypeActive && !isPopout ? (
-            <PrototypeChatPane assistantId={assistantId} />
-          ) : null}
           {/* A popout narrowed below the mobile breakpoint lands in this
               branch — still headerless, so it still needs the floating
               session surface (see the desktop popout branch below). */}
@@ -900,9 +906,6 @@ export function ChatLayout({
             className={`relative flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden ${mainRoomClass}`}
           >
             <Outlet />
-            {prototypeActive ? (
-              <PrototypeChatPane assistantId={assistantId} />
-            ) : null}
           </main>
         </div>
       )}

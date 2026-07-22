@@ -32,6 +32,13 @@ export interface ChatLayoutHeaderProps {
    *  prototype's focused stage) while keeping the bar itself for layout
    *  and Electron window dragging. */
   controlsHidden?: boolean;
+  /** Fades out just the center chat title (the in-chat onboarding tour,
+   *  where the surrounding controls are back but a conversation title over
+   *  the narration would compete with it). */
+  centerHidden?: boolean;
+  /** Dims (not hides) the side control clusters — the tour's walk keeps
+   *  them visible for context but pulls them out of the attention field. */
+  controlsDimmed?: boolean;
   topBarCenter?: ReactNode;
   topBarRightSlot?: ReactNode;
   canGoBack?: boolean;
@@ -47,6 +54,8 @@ export function ChatLayoutHeader({
   sidebarWidth,
   toggleSidebar,
   controlsHidden = false,
+  centerHidden = false,
+  controlsDimmed = false,
   topBarCenter,
   topBarRightSlot,
   canGoBack,
@@ -92,7 +101,7 @@ export function ChatLayoutHeader({
       }}
     >
       <div
-        className={`flex items-center gap-2 transition-[min-width,opacity] duration-300 ease-in-out max-md:min-w-0 max-md:flex-1${controlsHidden ? " pointer-events-none opacity-0" : ""}`}
+        className={`flex items-center gap-2 transition-[min-width,opacity] duration-300 ease-in-out max-md:min-w-0 max-md:flex-1${controlsHidden ? " pointer-events-none opacity-0" : controlsDimmed ? " opacity-40" : ""}`}
         style={{
           // `minWidth` reserves the sidebar column on desktop only. The Electron
           // inset clears the inline traffic lights regardless of `isMobile` —
@@ -154,13 +163,13 @@ export function ChatLayoutHeader({
       </div>
 
       <div
-        className={`flex min-w-0 flex-1 items-center justify-center transition-opacity duration-300${controlsHidden ? " pointer-events-none opacity-0" : ""}`}
+        className={`flex min-w-0 flex-1 items-center justify-center transition-opacity duration-300${controlsHidden || centerHidden ? " pointer-events-none opacity-0" : ""}`}
       >
         {topBarCenter}
       </div>
 
       <div
-        className={`flex items-center gap-2 max-md:flex-1 max-md:justify-end transition-opacity duration-300${controlsHidden ? " pointer-events-none opacity-0" : ""}`}
+        className={`flex items-center gap-2 max-md:flex-1 max-md:justify-end transition-opacity duration-300${controlsHidden ? " pointer-events-none opacity-0" : controlsDimmed ? " opacity-40" : ""}`}
       >
         {isMobile ? (
           <Button

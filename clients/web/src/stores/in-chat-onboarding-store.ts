@@ -1,11 +1,11 @@
 /**
- * State for the in-chat onboarding UI prototype, coordinating three surfaces
- * that live in different places in the tree:
+ * State for the in-chat onboarding UI prototype, coordinating surfaces that
+ * live in different places in the tree:
  *
- * - `prototypeActive` + `stage` drive the prototype itself: while the stage
- *   is `chat`, `ChatLayout` hides the sidebar and the header's controls so
- *   the real conversation UI reads as a focused, chat-only takeover. Moving
- *   to `tour` reveals the chrome and runs the avatar tour.
+ * - `prototypeActive` + `stage` drive the prototype itself: activating it
+ *   starts the avatar tour immediately — the flow users will hit right
+ *   after research onboarding, on their first sight of the app. The tour
+ *   hides the chrome through its intro and reveals it beat by beat.
  * - `navTourActive` is raised by the tour for its flight's duration: the
  *   sidebar's assistant cluster reads it and fully suppresses its own avatar
  *   treatment (colored row, resting eyes, the New Chat visit flood) — two
@@ -20,7 +20,7 @@ import { create } from "zustand";
 
 import { createSelectors } from "@/utils/create-selectors";
 
-export type InChatOnboardingStage = "chat" | "tour" | "done";
+export type InChatOnboardingStage = "tour" | "done";
 
 interface InChatOnboardingState {
   prototypeActive: boolean;
@@ -34,10 +34,8 @@ interface InChatOnboardingState {
 }
 
 interface InChatOnboardingActions {
+  /** Starts (or replays) the tour immediately — there is no interim stage. */
   startPrototype: () => void;
-  exitPrototype: () => void;
-  showFocusedChat: () => void;
-  startTourStage: () => void;
   finishTour: () => void;
   setNavTourActive: (active: boolean) => void;
   setTourSidebarRevealed: (revealed: boolean) => void;
@@ -47,20 +45,18 @@ type InChatOnboardingStore = InChatOnboardingState & InChatOnboardingActions;
 
 const useInChatOnboardingStoreBase = create<InChatOnboardingStore>((set) => ({
   prototypeActive: false,
-  stage: "chat",
+  stage: "done",
   tourRun: 0,
   navTourActive: false,
   tourSidebarRevealed: false,
-  startPrototype: () => set({ prototypeActive: true, stage: "chat" }),
-  exitPrototype: () => set({ prototypeActive: false, stage: "chat" }),
-  showFocusedChat: () => set({ stage: "chat", tourSidebarRevealed: false }),
-  startTourStage: () =>
+  startPrototype: () =>
     set((s) => ({
+      prototypeActive: true,
       stage: "tour",
       tourRun: s.tourRun + 1,
       tourSidebarRevealed: false,
     })),
-  finishTour: () => set({ stage: "done" }),
+  finishTour: () => set({ prototypeActive: false, stage: "done" }),
   setNavTourActive: (active) => set({ navTourActive: active }),
   setTourSidebarRevealed: (revealed) =>
     set({ tourSidebarRevealed: revealed }),
@@ -70,26 +66,34 @@ export const useInChatOnboardingStore = createSelectors(
   useInChatOnboardingStoreBase,
 );
 
-/** Whether the sidebar is hidden: the focused chat-only stage, plus the
- *  tour's opening beats until the tour itself reveals it. */
+/** Whether the sidebar is hidden: the tour's opening beats, until the tour
+ *  itself reveals it with a bounce. */
 export function selectChatFocusActive(state: InChatOnboardingStore): boolean {
-  if (!state.prototypeActive) {
-    return false;
-  }
-  if (state.stage === "chat") {
-    return true;
-  }
-  return state.stage === "tour" && !state.tourSidebarRevealed;
+  return (
+    state.prototypeActive &&
+    state.stage === "tour" &&
+    !state.tourSidebarRevealed
+  );
 }
 
-/** Whether the header's controls are hidden — the focused stage AND the
- *  entire tour (the tour reveals the sidebar mid-way but the top nav stays
- *  bare until it finishes). */
+/** Whether the header's center chat title is hidden — the ENTIRE tour: the
+ *  walk's controls return with the sidebar, but a conversation title over
+ *  the tour's narration reads as noise. */
+export function selectHeaderCenterHidden(
+  state: InChatOnboardingStore,
+): boolean {
+  return state.prototypeActive && state.stage === "tour";
+}
+
+/** Whether the header's controls are hidden — the tour's opening beats;
+ *  they return alongside the sidebar reveal, the chrome re-emerging piece
+ *  by piece as the tour introduces it. */
 export function selectHeaderControlsHidden(
   state: InChatOnboardingStore,
 ): boolean {
   return (
     state.prototypeActive &&
-    (state.stage === "chat" || state.stage === "tour")
+    state.stage === "tour" &&
+    !state.tourSidebarRevealed
   );
 }

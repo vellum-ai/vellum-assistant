@@ -29,6 +29,13 @@ interface TourMenuFloodProps {
   phase: TourFloodPhase;
   /** Eye size over a nav row's resting size. Defaults to the menu beat's. */
   eyesGrowth?: number;
+  /** Eye span as a fraction of the panel's width; overrides `eyesGrowth`
+   *  sizing. The eyes stay horizontally centered, so values above 1 clip
+   *  the art equally past both side edges — 1.25 cuts 10% off each side. */
+  eyesWidthFraction?: number;
+  /** Fraction of the eye art's height clipped below the panel's bottom
+   *  edge; overrides the `eyesYFraction` perch when set. */
+  eyesBottomCutFraction?: number;
   /** Eye perch, as a fraction of the panel's height. */
   eyesYFraction?: number;
   /** Rounded panel corners (the side menu); the full-page beat squares off. */
@@ -50,18 +57,32 @@ export function TourMenuFlood({
   eye,
   phase,
   eyesGrowth = DEFAULT_EYES_GROWTH,
+  eyesWidthFraction,
+  eyesBottomCutFraction,
   eyesYFraction = DEFAULT_EYES_Y_FRACTION,
   rounded = true,
   zClassName = "z-[64]",
 }: TourMenuFloodProps) {
   const baseWidth = eye ? eyeStyleBaseWidth(eye.id) : 0;
-  const baseHeight = eye ? baseWidth * (eye.bbox.h / eye.bbox.w) : 0;
-  const eyesWidth = baseWidth * REST_SCALE * eyesGrowth;
-  const eyesHeight = baseHeight * REST_SCALE * eyesGrowth;
+  const aspect = eye ? eye.bbox.h / eye.bbox.w : 0;
+  const eyesWidth =
+    eyesWidthFraction != null
+      ? rect.width * eyesWidthFraction
+      : baseWidth * REST_SCALE * eyesGrowth;
+  const eyesHeight = eyesWidth * aspect;
   const entering = phase === "enter";
 
+  /** Resting top edge of the art when anchored by the bottom cut. */
+  const eyesTop =
+    eyesBottomCutFraction != null
+      ? rect.height - eyesHeight * (1 - eyesBottomCutFraction)
+      : null;
+
   /** Rise-in travel: from just under the panel's bottom edge to the perch. */
-  const enterFromY = rect.height * (1 - eyesYFraction) + eyesHeight;
+  const enterFromY =
+    eyesBottomCutFraction != null
+      ? eyesHeight * (1 - eyesBottomCutFraction)
+      : rect.height * (1 - eyesYFraction) + eyesHeight;
   /** Exit travel: back down past the bottom edge, where the overlay clips
    *  them. */
   const exitToY = enterFromY;
@@ -99,9 +120,9 @@ export function TourMenuFlood({
           className="absolute"
           style={{
             left: "50%",
-            top: `${eyesYFraction * 100}%`,
+            top: eyesTop ?? `${eyesYFraction * 100}%`,
             marginLeft: -eyesWidth / 2,
-            marginTop: -eyesHeight / 2,
+            marginTop: eyesTop != null ? 0 : -eyesHeight / 2,
             width: eyesWidth,
             height: eyesHeight,
             transformOrigin: "50% 50%",

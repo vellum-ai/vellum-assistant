@@ -390,9 +390,21 @@ export function AssistantNavItem({
               so patrols can carry it across (and under) the whole row. */}
           <span
             aria-hidden="true"
-            className="pointer-events-none relative shrink-0"
+            className="pointer-events-none relative flex shrink-0 items-center justify-center"
             style={{ width: CHIP_SIZE, height: rowHeight }}
           >
+            {/* While the tour owns the nav the eyes leave the row — the
+                Brain stands in, matching the no-avatar row's icon. */}
+            {navTourActive && (
+              <Brain
+                className="h-3.5 w-3.5"
+                style={{
+                  color: active
+                    ? "var(--content-default)"
+                    : "var(--content-tertiary)",
+                }}
+              />
+            )}
             {!navTourActive && eye && (
               <motion.span
                 className="absolute"

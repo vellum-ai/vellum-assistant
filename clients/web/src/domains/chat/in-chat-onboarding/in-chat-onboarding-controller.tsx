@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ArrowRight, ChevronLeft, ChevronRight } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
@@ -14,53 +14,22 @@ import {
   type AvatarTourHandle,
   type TourProgress,
 } from "./avatar-tour";
-import { PrototypeStagePanel } from "./prototype-stage-panel";
-import { TourNarration } from "./tour-narration";
+import { TourOverlay } from "./tour-overlay";
 import { type TourStep } from "./tour-steps";
-
-interface MainAreaRect {
-  left: number;
-  top: number;
-  width: number;
-  height: number;
-}
-
-/** Viewport rect of the layout's main content area (the chat surface the
- *  narration takes over), or null before layout. */
-function measureMainArea(): MainAreaRect | null {
-  const el = document.querySelector<HTMLElement>("main");
-  if (!el) {
-    return null;
-  }
-  const rect = el.getBoundingClientRect();
-  if (rect.width === 0 && rect.height === 0) {
-    return null;
-  }
-  return {
-    left: rect.left,
-    top: rect.top,
-    width: rect.width,
-    height: rect.height,
-  };
-}
 
 /**
  * SPIKE — orchestrator for the in-chat onboarding UI prototype, mounted
- * alongside `ChatLayout` so it runs over the REAL conversation UI.
+ * alongside `ChatLayout` so it runs over the REAL app UI.
  *
- * The prototype has two stages, driven by the floating panel (bottom right)
- * so the animation work is testable on demand:
- *
- *   1. **Focused chat** — `ChatLayout` hides the sidebar and the header's
- *      controls (it reads the store's focus flag), leaving the real chat —
- *      transcript, avatar under the latest assistant message, full composer
- *      with attachments — as a chat-only takeover.
- *   2. **Reveal + tour** — {@link AvatarTour} walks the left nav beat by
- *      beat while each stop's line typewrites over the main chat area. The
- *      takeover latches on the first landing so the chat doesn't flash back
- *      between stops, and lifts when the tour finishes. This controller
- *      renders the tour's chrome below the typewriter text: back/next
- *      chevrons, the step-dot counter, and Skip tour.
+ * The prototype IS the tour: activating it (the header's Sparkles button,
+ * standing in for the hand-off from research onboarding — users' first
+ * sight of the app) plays {@link AvatarTour} immediately. The tour walks
+ * the left nav beat by beat while each stop's line typewrites over
+ * {@link TourOverlay}, a full-screen takeover of the app. The takeover
+ * latches on the first landing so the app doesn't flash back between
+ * stops, and lifts when the tour finishes. This controller renders the
+ * tour's chrome below the typewriter text: back/next chevrons and Skip
+ * tour.
  */
 export function InChatOnboardingController() {
   const prototypeActive = useInChatOnboardingStore.use.prototypeActive();
@@ -75,7 +44,6 @@ export function InChatOnboardingController() {
   const [narrationStep, setNarrationStep] = useState<TourStep | null>(null);
   /** Latches on first landing so the chat doesn't flash back between stops. */
   const [takeover, setTakeover] = useState(false);
-  const [mainRect, setMainRect] = useState<MainAreaRect | null>(null);
   const [progress, setProgress] = useState<TourProgress | null>(null);
 
   const accent =
@@ -87,7 +55,6 @@ export function InChatOnboardingController() {
   const handleStepChange = useCallback((step: TourStep | null) => {
     setNarrationStep(step);
     if (step) {
-      setMainRect((prev) => prev ?? measureMainArea());
       setTakeover(true);
     }
   }, []);
@@ -95,7 +62,6 @@ export function InChatOnboardingController() {
   const handleTourDone = useCallback(() => {
     setNarrationStep(null);
     setTakeover(false);
-    setMainRect(null);
     setProgress(null);
     finishTour();
   }, [finishTour]);
@@ -106,33 +72,9 @@ export function InChatOnboardingController() {
     if (stage !== "tour") {
       setNarrationStep(null);
       setTakeover(false);
-      setMainRect(null);
       setProgress(null);
     }
   }, [stage]);
-
-  // Keep the takeover pinned to the main area as it moves — the sidebar
-  // bounces in mid-tour and reflows the main column, not just on window
-  // resizes.
-  useEffect(() => {
-    if (!takeover) {
-      return;
-    }
-    const el = document.querySelector<HTMLElement>("main");
-    const update = () => {
-      setMainRect(measureMainArea());
-    };
-    window.addEventListener("resize", update);
-    let observer: ResizeObserver | null = null;
-    if (el && typeof ResizeObserver !== "undefined") {
-      observer = new ResizeObserver(update);
-      observer.observe(el);
-    }
-    return () => {
-      window.removeEventListener("resize", update);
-      observer?.disconnect();
-    };
-  }, [takeover]);
 
   if (!prototypeActive) {
     return null;
@@ -155,65 +97,46 @@ export function InChatOnboardingController() {
     </button>
   );
 
-  // The intro gets a labeled CTA inverted against the flooded page (no
-  // anonymous chevron, no disabled back button, no dots); the walk's beats
-  // get the symmetric chevrons with the step counter.
+  // The intro gets the theme's primary CTA (no anonymous chevron, no
+  // disabled back button) with its Skip right beneath — one cluster, typed
+  // into place under the headline. The walk's beats get just the symmetric
+  // chevrons; skipping is an intro-only affordance.
   const navigationControls = progress ? (
     onIntroBeat ? (
-      <div className="flex flex-col items-center gap-3">
-        <button
-          type="button"
-          className="text-body-medium-default cursor-pointer rounded-full px-6 py-2.5 shadow-[var(--shadow-lg)] transition-[transform,filter] hover:brightness-95 active:scale-[0.98]"
-          style={{
-            background: introFg,
-            color: accent ?? "var(--content-strong)",
-          }}
+      <div className="flex flex-col items-center gap-6">
+        {/* Mirrors research onboarding's Continue button (introduction
+            screen) so the hand-off reads as one flow. */}
+        <Button
+          variant="primary"
+          size="regular"
+          rightIcon={<ArrowRight size={16} />}
+          className="h-11 w-[234px] text-base"
           onClick={() => tourRef.current?.next()}
         >
-          Show me around →
-        </button>
+          Show me around
+        </Button>
         {skipButton}
       </div>
     ) : (
-      <div className="flex flex-col items-center gap-3">
-        <div className="flex items-center justify-center gap-3">
-          <Button
-            variant="ghost"
-            iconOnly={<ChevronLeft />}
-            aria-label="Previous tour step"
-            className="rounded-full border border-[var(--border-base)] bg-[var(--surface-lift)] shadow-[var(--shadow-lg)]"
-            onClick={() => tourRef.current?.back()}
-          />
-          <Button
-            variant="ghost"
-            iconOnly={<ChevronRight />}
-            aria-label="Next tour step"
-            className="rounded-full border border-[var(--border-base)] bg-[var(--surface-lift)] shadow-[var(--shadow-lg)]"
-            onClick={() => tourRef.current?.next()}
-          />
-        </div>
-        <div className="flex items-center gap-1.5" aria-hidden>
-          {Array.from({ length: progress.count }, (_, i) => (
-            <span
-              key={i}
-              className="size-1.5 rounded-full transition-colors duration-300"
-              style={{
-                background:
-                  i === progress.index
-                    ? (accent ?? "var(--content-strong)")
-                    : "var(--border-base)",
-              }}
-            />
-          ))}
-        </div>
-        {skipButton}
+      <div className="flex items-center justify-center gap-3">
+        <Button
+          variant="ghost"
+          iconOnly={<ChevronLeft />}
+          aria-label="Previous tour step"
+          onClick={() => tourRef.current?.back()}
+        />
+        <Button
+          variant="ghost"
+          iconOnly={<ChevronRight />}
+          aria-label="Next tour step"
+          onClick={() => tourRef.current?.next()}
+        />
       </div>
     )
   ) : null;
 
   return (
     <>
-      <PrototypeStagePanel />
       {/* While the tour runs, a transparent capture layer blocks every
           interaction with the app underneath (sidebar, composer, header).
           The narration takeover renders above it so the tour's own controls
@@ -233,33 +156,14 @@ export function InChatOnboardingController() {
         onProgressChange={setProgress}
         onDone={handleTourDone}
       />
-      {takeover && mainRect
-        ? createPortal(
-            <div
-              className="fixed z-[62] flex"
-              style={{
-                left: mainRect.left,
-                top: mainRect.top,
-                width: mainRect.width,
-                height: mainRect.height,
-                // The intro's full-page flood (portaled underneath) provides
-                // the backdrop; other beats blank the chat area themselves.
-                background: onIntroBeat
-                  ? "transparent"
-                  : "var(--surface-base)",
-                transition: "background-color 300ms ease",
-              }}
-            >
-              <TourNarration
-                assistantId={assistantId}
-                step={narrationStep}
-                variant={onIntroBeat ? "intro" : "top"}
-                controls={navigationControls}
-              />
-            </div>,
-            document.body,
-          )
-        : null}
+      {takeover ? (
+        <TourOverlay
+          assistantId={assistantId}
+          step={narrationStep}
+          onIntroBeat={onIntroBeat}
+          controls={navigationControls}
+        />
+      ) : null}
     </>
   );
 }

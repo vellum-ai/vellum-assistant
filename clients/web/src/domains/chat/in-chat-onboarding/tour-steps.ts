@@ -1,8 +1,20 @@
+import {
+  Brain,
+  CircleUser,
+  MessageCircle,
+  PanelLeft,
+  Plus,
+  type LucideIcon,
+} from "lucide-react";
+
 export interface TourStep {
   /** Matches a `data-tour-id` attribute on the target nav element. */
   id: string;
   title: string;
   body: string;
+  /** Rendered large beside the title in the narration's chip, mirroring
+   *  the target's own icon where it has one. Absent on the intro. */
+  icon?: LucideIcon;
 }
 
 /**
@@ -19,7 +31,7 @@ export const TYPE_CHAR_MS = 14;
 export const TOUR_INTRO: TourStep = {
   id: "intro",
   title: "Welcome",
-  body: "Looks like you know what you're doing here. Let me quickly show you around!",
+  body: "Let me show you around",
 };
 
 /**
@@ -30,23 +42,40 @@ export const TOUR_INTRO: TourStep = {
 export const TOUR_SIDEBAR: TourStep = {
   id: "side-menu",
   title: "Your sidebar",
-  body: "Everything lives here — our chats, my page, and your settings.",
+  body: "Everything lives here — our chats, my page, your settings.",
+  icon: PanelLeft,
+};
+
+/**
+ * The finale: the chat composer gets the same takeover treatment as the
+ * side menu — the flood pours over the input with the eyes surfacing —
+ * ending the tour where the real conversation starts. Targets the
+ * composer's `data-slot` anchor rather than a `data-tour-id`.
+ */
+export const TOUR_COMPOSER: TourStep = {
+  id: "chat-composer",
+  title: "Your chat",
+  body: "Don't get distracted by all the noise, start by talking to me!",
+  icon: MessageCircle,
 };
 
 export const TOUR_STEPS: TourStep[] = [
   {
     id: "assistant-page",
     title: "Your Assistant",
-    body: "My memory, personality, skills, and channels all live here.",
+    body: "My personality, the library of things I've built for you, and more. I keep it all tidy — you never have to.",
+    icon: Brain,
   },
   {
     id: "new-chat",
     title: "New Chat",
-    body: "Start a fresh thread with me any time.",
+    body: "A fresh chat when you want one.",
+    icon: Plus,
   },
   {
     id: "settings",
     title: "Settings",
-    body: "Your preferences, notifications, and account.",
+    body: "Preferences and account stuff. It can wait.",
+    icon: CircleUser,
   },
 ];

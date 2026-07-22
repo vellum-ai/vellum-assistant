@@ -2,6 +2,14 @@
   "version": 1,
   "flags": [
     {
+      "id": "in-chat-onboarding-tour",
+      "scope": "client",
+      "key": "in-chat-onboarding-tour",
+      "label": "In-Chat Onboarding Tour",
+      "description": "Gates the eyes-led in-chat onboarding tour (post-research-onboarding walkthrough of the sidebar and composer) and its header launch button. Off by default while it bakes internally.",
+      "defaultEnabled": false
+    },
+    {
       "id": "user-hosted-enabled",
       "scope": "client",
       "key": "user-hosted-enabled",

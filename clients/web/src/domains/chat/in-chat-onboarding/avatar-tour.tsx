@@ -22,6 +22,7 @@ import {
   type TourTargetRect,
 } from "./tour-nav-flood";
 import {
+  TOUR_COMPOSER,
   TOUR_INTRO,
   TOUR_SIDEBAR,
   TOUR_STEPS,
@@ -35,17 +36,23 @@ const TOUR_LEAD_IN_MS = 350;
 const SIDEBAR_BOUNCE_LEAD_MS = 300;
 /** Settle time for the chrome hiding again when stepping back to the intro. */
 const CHROME_HIDE_SETTLE_MS = 300;
-/** The intro's full-page eyes over a nav row's resting size — the whole
- *  screen is the avatar's panel for this beat. */
-const PAGE_EYES_GROWTH = 8;
-/** Where the intro eyes perch, as a fraction of the viewport's height. */
-const PAGE_EYES_Y_FRACTION = 0.92;
+/** The sidebar beat's eyes span 125% of the panel width — centered, so 10%
+ *  of the art clips off past each side edge. */
+const MENU_EYES_WIDTH_FRACTION = 1.25;
+/** ...and sit low enough that 20% of the art clips below the bottom edge. */
+const MENU_EYES_BOTTOM_CUT_FRACTION = 0.2;
+/** The composer finale's eyes over its wide, short panel — modest span. */
+const COMPOSER_EYES_WIDTH_FRACTION = 0.2;
+/** ...sunk low: nearly half the art clips below the input's bottom edge,
+ *  so they peek over the rim rather than dominating the short panel. */
+const COMPOSER_EYES_BOTTOM_CUT_FRACTION = 0.45;
 
 /** One stop in the tour, in play order. */
 type TourBeat =
   | { kind: "intro" }
   | { kind: "menu"; rect: TourTargetRect }
-  | { kind: "row"; step: TourStep; rect: TourTargetRect; label: string };
+  | { kind: "row"; step: TourStep; rect: TourTargetRect; label: string }
+  | { kind: "composer" };
 
 interface LandedStop {
   step: TourStep;
@@ -112,6 +119,31 @@ function measureMenuRect(): TourTargetRect | null {
   };
 }
 
+/** Viewport rect of the chat composer, or null when none is rendered.
+ *  Prefers the tour overlay's own scenery composer over the app's (hidden
+ *  behind the backdrop). Measured at beat entry, not up front — the main
+ *  column reflows when the sidebar reveals, so an early rect would land
+ *  the flood off-target. */
+function measureComposerRect(): TourTargetRect | null {
+  const el =
+    document.querySelector<HTMLElement>(
+      '[data-tour-composer] [data-slot="chat-composer"]',
+    ) ?? document.querySelector<HTMLElement>('[data-slot="chat-composer"]');
+  if (!el) {
+    return null;
+  }
+  const rect = el.getBoundingClientRect();
+  if (rect.width === 0 || rect.height === 0) {
+    return null;
+  }
+  return {
+    left: rect.left,
+    top: rect.top,
+    width: rect.width,
+    height: rect.height,
+  };
+}
+
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -132,8 +164,9 @@ interface AvatarTourProps {
 /**
  * The reveal stage of in-chat onboarding, told entirely through the
  * assistant's eyes surfacing into the chrome. The intro is a full-page
- * takeover: the whole viewport floods with the avatar's color while giant
- * eyes bounce up through the bottom edge, the opener typed over the color.
+ * takeover: the whole viewport floods with the avatar's color, the opener
+ * typed over it — then small eyes slide beneath the typed words (the
+ * narration's own animation), bumping each word up as they pass.
  * Then the sidebar bounces in and the menu gets the same treatment at
  * panel scale, and the walk continues item by item — flood + eyes per row,
  * duck-under hops between rows — each line typewriting at the top of the
@@ -166,6 +199,10 @@ export function AvatarTour({
   const [floodPhase, setFloodPhase] = useState<TourFloodPhase>("enter");
   const [pageFlood, setPageFlood] = useState<TourTargetRect | null>(null);
   const [pagePhase, setPagePhase] = useState<TourFloodPhase>("enter");
+  const [composerFlood, setComposerFlood] = useState<TourTargetRect | null>(
+    null,
+  );
+  const [composerPhase, setComposerPhase] = useState<TourFloodPhase>("enter");
   const [beatIndex, setBeatIndex] = useState(-1);
   const [beatCount, setBeatCount] = useState(0);
 
@@ -174,7 +211,9 @@ export function AvatarTour({
    *  await and bail when superseded. */
   const epochRef = useRef(0);
   /** Which overlay is currently on screen, for the exit leg of a jump. */
-  const visualRef = useRef<"none" | "page" | "menu" | "row">("none");
+  const visualRef = useRef<"none" | "page" | "menu" | "row" | "composer">(
+    "none",
+  );
   const activeRef = useRef(false);
 
   const accent =
@@ -253,6 +292,13 @@ export function AvatarTour({
           return;
         }
         setLanded(null);
+      } else if (visual === "composer") {
+        setComposerPhase("exit");
+        await sleep(FLOOD_EXIT_MS);
+        if (superseded()) {
+          return;
+        }
+        setComposerFlood(null);
       }
       visualRef.current = "none";
 
@@ -290,6 +336,22 @@ export function AvatarTour({
         setMenuPhase("enter");
         visualRef.current = "menu";
         onStepChange(TOUR_SIDEBAR);
+      } else if (beat.kind === "composer") {
+        setTourSidebarRevealed(true);
+        await sleep(SIDEBAR_BOUNCE_LEAD_MS);
+        if (superseded()) {
+          return;
+        }
+        const rect = measureComposerRect();
+        if (!rect) {
+          // Composer gone (layout changed mid-tour) — end past the finale.
+          onDone();
+          return;
+        }
+        setComposerFlood(rect);
+        setComposerPhase("enter");
+        visualRef.current = "composer";
+        onStepChange(TOUR_COMPOSER);
       } else {
         setTourSidebarRevealed(true);
         setLanded({ step: beat.step, rect: beat.rect, label: beat.label });
@@ -311,6 +373,7 @@ export function AvatarTour({
       setLanded(null);
       setMenuFlood(null);
       setPageFlood(null);
+      setComposerFlood(null);
       setBeatIndex(-1);
       setBeatCount(0);
       visualRef.current = "none";
@@ -330,6 +393,11 @@ export function AvatarTour({
         if (placement) {
           beats.push({ kind: "row", step, ...placement });
         }
+      }
+      // The finale — the composer's rect is measured at entry, since the
+      // sidebar reveal reflows the main column under it.
+      if (measureComposerRect()) {
+        beats.push({ kind: "composer" });
       }
       beatsRef.current = beats;
       setBeatCount(beats.length);
@@ -369,10 +437,10 @@ export function AvatarTour({
         <TourMenuFlood
           rect={pageFlood}
           hex={accent}
-          eye={eye}
+          // The intro's eyes live in the narration's headline (they slide
+          // under the typed words), not in the flood.
+          eye={null}
           phase={pagePhase}
-          eyesGrowth={PAGE_EYES_GROWTH}
-          eyesYFraction={PAGE_EYES_Y_FRACTION}
           rounded={false}
           // Under the narration overlay (z-62) so the intro text and CTA
           // read on top of the flooded color.
@@ -385,6 +453,8 @@ export function AvatarTour({
           hex={accent}
           eye={eye}
           phase={menuPhase}
+          eyesWidthFraction={MENU_EYES_WIDTH_FRACTION}
+          eyesBottomCutFraction={MENU_EYES_BOTTOM_CUT_FRACTION}
         />
       ) : null}
       {landed ? (
@@ -394,6 +464,16 @@ export function AvatarTour({
           hex={accent}
           eye={eye}
           phase={floodPhase}
+        />
+      ) : null}
+      {composerFlood ? (
+        <TourMenuFlood
+          rect={composerFlood}
+          hex={accent}
+          eye={eye}
+          phase={composerPhase}
+          eyesWidthFraction={COMPOSER_EYES_WIDTH_FRACTION}
+          eyesBottomCutFraction={COMPOSER_EYES_BOTTOM_CUT_FRACTION}
         />
       ) : null}
     </>,
