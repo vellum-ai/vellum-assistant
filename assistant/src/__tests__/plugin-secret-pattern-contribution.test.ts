@@ -187,7 +187,11 @@ describe("user plugin credential key pattern lifecycle", () => {
 
       await populateCacheAtBoot();
 
-      expect(g.__initPatternCount).toBe(1);
+      // Read through a fresh cast: the hook mutated the slot via globalThis,
+      // which TS's narrowing (from the reset assignment above) cannot see.
+      const observed = (globalThis as { __initPatternCount?: number })
+        .__initPatternCount;
+      expect(observed).toBe(1);
       expect(
         findRegistered("Virlo API Key", "init-order-plugin"),
       ).toBeDefined();
