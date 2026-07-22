@@ -10,8 +10,7 @@ import { conversations, messages } from "./conversations.js";
 
 /**
  * User-saved bookmarks for individual messages. Surfaced in the macOS app
- * Settings → Bookmarks tab and on the message hover overflow menu, behind the
- * `bookmarks` client feature flag.
+ * Settings → Bookmarks tab and on the message hover overflow menu.
  *
  * Both foreign keys CASCADE so bookmarks disappear automatically when their
  * parent message or conversation is deleted. A unique index on `message_id`
