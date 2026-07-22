@@ -22,7 +22,6 @@ mock.module("@/stores/client-feature-flag-store", () => {
   const store = () => null;
   store.use = {
     platformNotifications: () => clientFlags.platformNotifications ?? false,
-    bookmarks: () => clientFlags.bookmarks ?? false,
     accountMfa: () => clientFlags.accountMfa ?? false,
   };
   return { useClientFeatureFlagStore: store };

@@ -6,8 +6,7 @@
  * (the per-message hover toggle and the Settings → Bookmarks tab). TanStack is
  * the single source of truth — there is no separate store mirroring the list.
  *
- * The query only runs when the `bookmarks` client feature flag is on AND an
- * assistant is resolved, so flag-off installs never hit the endpoint.
+ * The query only runs once an assistant is resolved.
  *
  * Cross-client invalidation (a bookmark made in another tab/window) is handled
  * by `use-bookmarks-sync.ts`, which listens for the daemon's
@@ -27,7 +26,6 @@ import {
 } from "@/generated/daemon/sdk.gen";
 import type { BookmarksGetResponse } from "@/generated/daemon/types.gen";
 import { captureError } from "@/lib/sentry/capture-error";
-import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { toast } from "@vellumai/design-library";
 
@@ -36,15 +34,10 @@ export type Bookmark = NonNullable<BookmarksGetResponse>["bookmarks"][number];
 
 const EMPTY_BOOKMARKS: Bookmark[] = [];
 
-/** Whether the `bookmarks` client feature flag is enabled. */
-export function useBookmarksEnabled(): boolean {
-  return useClientFeatureFlagStore.use.bookmarks();
-}
-
 /** Active assistant id + whether the shared bookmark query should run. */
 function useBookmarkQueryGate(): { assistantId: string | null; enabled: boolean } {
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
-  const enabled = useBookmarksEnabled() && Boolean(assistantId);
+  const enabled = Boolean(assistantId);
   return { assistantId, enabled };
 }
 
