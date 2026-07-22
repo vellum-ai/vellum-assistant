@@ -174,18 +174,22 @@ export function parseActivationMomentTag(
 }
 
 /**
- * Map a persisted `ui_surface` history block to a live `surfaceState`
- * entry. The block's fields are untyped JSON from the messages table; the
- * `surfaceType`/`data` pair parses through the canonical schemas so the
- * live entry is typed. An unrecognized `surfaceType` falls back to
- * `dynamic_page` (the legacy restore default for blocks that predate the
- * field); a card payload that fails its schema (the one non-total schema)
- * restores as an empty card rather than flipping type.
+ * Map a persisted `ui_surface` history block to a live `surfaceState` entry.
+ * The block is untyped JSON from the messages table: `surfaceType` is
+ * validated against the canonical enum (an unrecognized value falls back to
+ * `dynamic_page`, the legacy default for pre-field blocks), while `data` is
+ * preserved VERBATIM.
  *
- * This is for the LIVE, daemon-manipulated map. Read-only persistence
- * views that serve data verbatim to a client must NOT use it — canonical
- * schemas strip keys the daemon does not model; see
- * `findPersistedSurfaceState`.
+ * `data` is deliberately NOT re-parsed through the canonical schema. The
+ * `surfaceState` entry is served to clients (the `GET /v1/surfaces/:id`
+ * in-memory fast path, and the `ui_update` merge base), and the canonical
+ * schemas are not guaranteed supersets of what a client renderer reads
+ * (e.g. `document_preview.content`/`mimeType`, or legacy/pre-schema rows) —
+ * schema-parsing here would strip those keys on reload and regress display.
+ * This single cast is the correct tool at the persistence-INGESTION
+ * boundary (deserializing stored JSON as its recorded type); the
+ * tool-input and component boundaries this module's callers target stay
+ * parse-based.
  */
 export function restoreSurfaceStateEntry(
   b: Record<string, unknown>,
@@ -194,17 +198,13 @@ export function restoreSurfaceStateEntry(
     b.surfaceType ?? "dynamic_page",
   );
   const surfaceType = parsedType.success ? parsedType.data : "dynamic_page";
-  const pair = buildSurfaceShowPair(
-    surfaceType,
-    coerceSurfaceDataRecord(b.data),
-  ) ?? { surfaceType: "card", data: {} };
-
   const activationMoment = parseActivationMomentTag(b.activationMoment);
 
   return {
+    surfaceType,
+    data: coerceSurfaceDataRecord(b.data),
     title: typeof b.title === "string" ? b.title : undefined,
     actions: parseStoredActions(b.actions),
     ...(activationMoment ? { activationMoment } : {}),
-    ...pair,
-  };
+  } as SurfaceStateEntry;
 }

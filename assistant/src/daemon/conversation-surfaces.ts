@@ -8,10 +8,11 @@ import {
   coerceSurfaceDataRecord,
   DynamicPagePreviewSchema,
   DynamicPageSurfaceDataSchema,
+  isDaemonInternalSurfaceType,
+  MODEL_INVOKABLE_SURFACE_TYPES,
   normalizeCopyBlockShowData,
   OAuthConnectSurfaceDataSchema,
   safeParseSurfaceData,
-  SURFACE_TYPES,
   SurfaceTypeSchema,
 } from "../api/surfaces.js";
 import {
@@ -2894,16 +2895,25 @@ export async function surfaceProxyResolver(
     const surfaceId = uuid();
     // Parse, don't cast: an unrecognized surface_type used to be asserted
     // into the union and fall through to an opaque passthrough the client
-    // silently dropped. Reject it with the valid values instead.
+    // silently dropped. Reject it with the valid values instead. Daemon-
+    // internal types (skill_card, call_summary) are members of SurfaceType
+    // for persistence but are not model-invokable — reject them here too so
+    // the model can never report an unrenderable surface as shown. (The
+    // ui_show tool's teaching guard already gates them upstream; this is the
+    // resolver-side backstop.) Both messages enumerate only the model-facing
+    // set, never the internal types.
     const parsedSurfaceType = SurfaceTypeSchema.safeParse(input.surface_type);
-    if (!parsedSurfaceType.success) {
+    if (
+      !parsedSurfaceType.success ||
+      isDaemonInternalSurfaceType(parsedSurfaceType.data)
+    ) {
       const got =
         typeof input.surface_type === "string" &&
         input.surface_type.trim().length > 0
           ? `"${input.surface_type}" is not a valid surface_type`
           : "`surface_type` is missing";
       return {
-        content: `Error: ui_show was not displayed — ${got}. Valid surface_type values: ${SURFACE_TYPES.join(", ")}. Resend ui_show with one of these values.`,
+        content: `Error: ui_show was not displayed — ${got}. Valid surface_type values: ${MODEL_INVOKABLE_SURFACE_TYPES.join(", ")}. Resend ui_show with one of these values.`,
         isError: true,
       };
     }

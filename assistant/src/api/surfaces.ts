@@ -478,6 +478,33 @@ export const SURFACE_TYPES = [
 export const SurfaceTypeSchema = z.enum(SURFACE_TYPES);
 export type SurfaceType = z.infer<typeof SurfaceTypeSchema>;
 
+/**
+ * Surface types the daemon emits and persists directly (the memory
+ * retrospective's `skill_card`, a call's `call_summary`) but that the model
+ * must never invoke via `ui_show`. They are members of `SurfaceType` so the
+ * persistence/restore path can carry them, but they are deliberately absent
+ * from the model-facing `ui_show` surface list (`SURFACE_SHAPE_DOCS`), and
+ * the `ui_show` resolver rejects them.
+ */
+export const DAEMON_INTERNAL_SURFACE_TYPES = [
+  "skill_card",
+  "call_summary",
+] as const;
+
+const DAEMON_INTERNAL_SURFACE_TYPE_SET = new Set<string>(
+  DAEMON_INTERNAL_SURFACE_TYPES,
+);
+
+/** Whether `type` is a daemon-internal surface type the model must not `ui_show`. */
+export function isDaemonInternalSurfaceType(type: string): boolean {
+  return DAEMON_INTERNAL_SURFACE_TYPE_SET.has(type);
+}
+
+/** Surface types the model may request via `ui_show` (internal types excluded). */
+export const MODEL_INVOKABLE_SURFACE_TYPES = SURFACE_TYPES.filter(
+  (type) => !isDaemonInternalSurfaceType(type),
+);
+
 export type SurfaceData =
   | CardSurfaceData
   | ChoiceSurfaceData
