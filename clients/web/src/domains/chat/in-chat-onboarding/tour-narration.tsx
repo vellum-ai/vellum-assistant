@@ -97,14 +97,14 @@ export function TourNarration({
       {step ? (
         <motion.div
           key={step.id}
-          className={isIntro ? "w-full text-center" : "w-full text-left"}
+          className="w-full text-center"
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: -10 }}
           transition={{ duration: 0.25 }}
         >
           {!isIntro ? (
-            <div className="mb-3 flex items-center gap-2.5">
+            <div className="mb-3 flex items-center justify-center gap-2.5">
               {step.icon ? (
                 <step.icon
                   aria-hidden
@@ -199,17 +199,17 @@ export function TourNarration({
           {textBlock}
         </div>
       ) : (
-        // The walk narrates from the transcript's spot: the chat content
-        // column, left-aligned like an assistant message. No top padding —
-        // the overlay pins this column to the side menu's top edge so the
-        // step title aligns with the top of the menu panel.
-        <div className="mx-auto flex w-full max-w-[var(--chat-max-width)] flex-col items-start px-4 sm:px-6">
-          {/* Reserve the text block's height so the controls below don't
-              jump while the narration types or swaps between beats. */}
-          <div className="flex min-h-[9rem] w-full flex-col items-start justify-start">
-            {textBlock}
+        // The walk narrates from a vertically centered cluster in the
+        // takeover — chip, text, and controls stacked on the center axis.
+        <div className="flex h-full w-full flex-col items-center justify-center px-6 pb-24">
+          <div className="mx-auto flex w-full max-w-[var(--chat-max-width)] flex-col items-center">
+            {/* Reserve the text block's height so the controls below don't
+                jump while the narration types or swaps between beats. */}
+            <div className="flex min-h-[9rem] w-full flex-col items-center justify-start">
+              {textBlock}
+            </div>
+            {controls ? <div className="mt-4">{controls}</div> : null}
           </div>
-          {controls ? <div className="mt-4 self-center">{controls}</div> : null}
         </div>
       )}
     </div>

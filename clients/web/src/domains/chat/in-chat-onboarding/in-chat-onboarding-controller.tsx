@@ -1,4 +1,4 @@
-import { ArrowRight, ChevronLeft, ChevronRight } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
@@ -85,22 +85,19 @@ export function InChatOnboardingController() {
   const introFg = accent ? contrastForeground(accent) : "var(--content-strong)";
 
   const skipButton = (
-    <button
-      type="button"
-      className={`text-label-small-default cursor-pointer rounded px-1.5 py-0.5 transition-[background-color,opacity] ${
-        onIntroBeat ? "opacity-75 hover:opacity-100" : "hover:bg-[var(--surface-hover)]"
-      }`}
-      style={{ color: onIntroBeat ? introFg : "var(--content-tertiary)" }}
+    <Button
+      variant="ghost"
       onClick={() => tourRef.current?.skip()}
+      // Contrast-toned over the intro's avatar-colored flood.
+      style={{ color: introFg }}
     >
       Skip tour
-    </button>
+    </Button>
   );
 
-  // The intro gets the theme's primary CTA (no anonymous chevron, no
-  // disabled back button) with its Skip right beneath — one cluster, typed
-  // into place under the headline. The walk's beats get just the symmetric
-  // chevrons; skipping is an intro-only affordance.
+  // The intro gets the theme's primary CTA with its Skip right beneath —
+  // one cluster, typed into place under the headline. The walk's beats get
+  // just an outlined Next; skipping is an intro-only affordance.
   const navigationControls = progress ? (
     onIntroBeat ? (
       <div className="flex flex-col items-center gap-6">
@@ -118,20 +115,13 @@ export function InChatOnboardingController() {
         {skipButton}
       </div>
     ) : (
-      <div className="flex items-center justify-center gap-3">
-        <Button
-          variant="ghost"
-          iconOnly={<ChevronLeft />}
-          aria-label="Previous tour step"
-          onClick={() => tourRef.current?.back()}
-        />
-        <Button
-          variant="ghost"
-          iconOnly={<ChevronRight />}
-          aria-label="Next tour step"
-          onClick={() => tourRef.current?.next()}
-        />
-      </div>
+      <Button
+        variant="outlined"
+        rightIcon={<ArrowRight size={16} />}
+        onClick={() => tourRef.current?.next()}
+      >
+        Next
+      </Button>
     )
   ) : null;
 
