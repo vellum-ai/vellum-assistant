@@ -117,22 +117,40 @@ describe("MarkdownMessage", () => {
   test("inline code in table cells wraps with preserved spacing and breathing room", () => {
     const html = renderToStaticMarkup(
       createElement(MarkdownMessage, {
-        content: "| Function | Usage |\n| --- | --- |\n| `useState` | `const [s, setS] = useState(v)` |",
+        content:
+          "| Function | Usage |\n| --- | --- |\n| `useState` | `const [s, setS] = useState(v)` |",
       }),
     );
 
     // Both <td> and <th> let inline code wrap while preserving its spacing.
-    // leading-relaxed is load-bearing: the body-small token sets line-height:1,
-    // which clips the padded inline-code background once it wraps onto a second
-    // line.
     const tdMatches = html.match(/<td\b[^>]*class="([^"]*)"/g) ?? [];
     const thMatches = html.match(/<th\b[^>]*class="([^"]*)"/g) ?? [];
     for (const match of [...tdMatches, ...thMatches]) {
       expect(match).toContain("whitespace-pre-wrap");
-      expect(match).toContain("leading-relaxed");
     }
-    // Code elements inside cells are still inline code (not block).
-    expect(html).toContain("<code");
+    // Code elements inside cells are still inline code (not block), and carry
+    // their own relaxed leading (see the inline-code override) so the padded
+    // chip background stays inside its line box once it wraps in a cell.
+    const cellCodeTag = html.match(/<code[^>]*>/)?.[0] ?? "";
+    expect(cellCodeTag).toContain("!leading-relaxed");
+  });
+
+  test("inline code and blockquotes carry relaxed leading so chips never overlap prose", () => {
+    // The body-small token bakes line-height:1 into the utility. A quote's
+    // wrapped prose would get 12px line boxes while a padded inline-code chip
+    // paints ~20px tall — chips from one line cover the lines above and below.
+    // Both the quote block and the chip itself must opt into real leading.
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content: "> Set `backup.enabled` to `false` in the config file.",
+      }),
+    );
+
+    const blockquoteTag = html.match(/<blockquote[^>]*>/)?.[0] ?? "";
+    expect(blockquoteTag).toContain("!leading-relaxed");
+
+    const codeTag = html.match(/<code[^>]*>/)?.[0] ?? "";
+    expect(codeTag).toContain("!leading-relaxed");
   });
 
   test("forwards a supplied className onto the wrapper", () => {
@@ -413,8 +431,18 @@ describe("MarkdownMessage", () => {
   });
 
   test("custom linkComponent replaces the default link renderer", () => {
-    function CustomLink({ href, children }: { href?: string; children?: React.ReactNode }) {
-      return <a href={href} data-custom="true">{children}</a>;
+    function CustomLink({
+      href,
+      children,
+    }: {
+      href?: string;
+      children?: React.ReactNode;
+    }) {
+      return (
+        <a href={href} data-custom="true">
+          {children}
+        </a>
+      );
     }
 
     const html = renderToStaticMarkup(

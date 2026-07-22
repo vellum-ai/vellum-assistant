@@ -24,7 +24,12 @@ import { cn } from "../utils/cn";
 const MAX_CODE_BLOCK_HEIGHT = 400;
 
 export const quoteBlockquoteClassName = cn(
-  "mx-0 mt-0 mb-3 flex w-full items-center gap-3 rounded-md bg-[var(--surface-sunken)] px-3 py-2.5 text-body-small-default text-[var(--content-secondary)] last:mb-0",
+  // typography: off-scale — the body-small token bakes line-height:1 into the
+  // utility (a single-line label style), but quoted markdown wraps across
+  // lines and can carry inline code chips taller than a 1:1 line box, so the
+  // quote needs real leading (`!` because the custom utility rule otherwise
+  // wins over a plain leading-* override).
+  "mx-0 mt-0 mb-3 flex w-full items-center gap-3 rounded-md bg-[var(--surface-sunken)] px-3 py-2.5 text-body-small-default !leading-relaxed text-[var(--content-secondary)] last:mb-0",
 );
 export const quoteBlockquoteAccentClassName =
   "h-5 w-0.5 shrink-0 rounded-full bg-[var(--content-tertiary)]";
@@ -363,7 +368,12 @@ function buildMarkdownComponents(
         );
       }
       return (
-        <code className="rounded bg-stone-100 px-1 py-0.5 font-mono text-body-small-default dark:bg-moss-800">
+        // typography: off-scale — !leading-relaxed keeps the chip's padded
+        // background inside its own line box wherever the surrounding block
+        // has tight leading (blockquotes, table cells): the body-small
+        // token's line-height:1 would otherwise let the chip paint over
+        // adjacent lines of prose.
+        <code className="rounded bg-stone-100 px-1 py-0.5 font-mono text-body-small-default !leading-relaxed dark:bg-moss-800">
           {children}
         </code>
       );
@@ -391,14 +401,14 @@ function buildMarkdownComponents(
     th: ({ children }) => (
       <th
         className={
-          "border border-stone-200 px-2 py-1 text-left font-semibold [&_code]:whitespace-pre-wrap [&_code]:break-words [&_code]:box-decoration-clone [&_code]:leading-relaxed dark:border-moss-600" /* typography: off-scale — no canonical variant */
+          "border border-stone-200 px-2 py-1 text-left font-semibold [&_code]:whitespace-pre-wrap [&_code]:break-words [&_code]:box-decoration-clone dark:border-moss-600" /* typography: off-scale — no canonical variant */
         }
       >
         {children}
       </th>
     ),
     td: ({ children }) => (
-      <td className="border border-stone-200 px-2 py-1 [&_code]:whitespace-pre-wrap [&_code]:break-words [&_code]:box-decoration-clone [&_code]:leading-relaxed dark:border-moss-600">
+      <td className="border border-stone-200 px-2 py-1 [&_code]:whitespace-pre-wrap [&_code]:break-words [&_code]:box-decoration-clone dark:border-moss-600">
         {children}
       </td>
     ),
