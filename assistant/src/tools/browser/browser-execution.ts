@@ -2220,13 +2220,13 @@ export async function executeBrowserFillCredential(
         reason.includes("no stored value")
       ) {
         return {
-          content: `No credential stored for ${service}/${field}. Use \`assistant credentials set\` to save it first.`,
+          content: `No credential stored for ${service}/${field}. Collect it via \`assistant credentials prompt --service ${service} --field ${field} --label <label>\` first.`,
           isError: true,
         };
       }
       if (reason.includes("not allowed to use credential")) {
         return {
-          content: `Policy denied: ${reason} Update the credential's allowed_tools via \`assistant credentials set\` if this tool should have access.`,
+          content: `Policy denied: ${reason} If this tool should have access, run \`assistant credentials prompt --service ${service} --field ${field} --label <label> --allowed-tools ${BROWSER_FILL_CAPABILITY}\` (re-collects the value securely and sets allowed_tools).`,
           isError: true,
         };
       }
