@@ -111,6 +111,11 @@ Each completion criterion must bind a **tool call** to the **user-visible artifa
 
 Past 500 lines the model loses things in the middle. Warnings get buried, branching loses visibility, and the file fights the task for the same context budget. If a skill is growing past 500 lines, split reference material into separate files the skill points to.
 
+Companion files ship through `scaffold_managed_skill`'s `files` input and live inside the skill folder:
+
+- **`references/*.md`** for failure modes, gotchas, and cached values the body should point to.
+- **`scripts/*`** for reusable code the procedure runs. Store the exact version that already ran successfully — verbatim, not reconstructed from memory — and have SKILL.md give the literal invocation (`python3 scripts/export-report.py <args>`, `bun run scripts/fetch-stats.ts`). Only target `python3` or `bun`; they are the only runtimes the assistant environment guarantees. Scripts are plain files invoked from the terminal at skill-use time — they are NOT registered skill tools, and companion files can never write `TOOLS.json`.
+
 ## Step 6 - Test the skill before calling it done
 
 After scaffolding, load the skill and confirm it activates on the intended trigger and follows its own steps. If it does not activate or drifts, fix the body and test again.
