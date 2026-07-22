@@ -16,7 +16,7 @@ metadata:
 
 This skill creates a **GitHub App** under a GitHub organization, giving the assistant its own bot identity for git operations. After setup, commits, PRs, and comments will attribute to `<app-name>[bot]` instead of the user's personal account.
 
-**Total manual effort: 4 interactions** — Continue to GitHub → Create App → Install on repo → (optional) upload avatar. Everything else is automated.
+**Total manual effort: 7 interactions** — Continue to GitHub → Create App → 3 secure credential prompts → Install on repo → (optional) upload avatar. Everything else is automated.
 
 > **Note:** This skill currently supports GitHub **organizations** only, not personal accounts.
 
@@ -65,23 +65,38 @@ The callback server catches the redirect and exchanges the code for credentials 
 
 ### Step 2: Store Credentials
 
-Read the credentials JSON from the host and store each field in the assistant's vault. The fields available immediately after Step 1:
+The credentials JSON from Step 1 lives on the user's host. Store the non-secret identifier fields inline, then collect the secret fields from the user via the secure prompt.
+
+**Non-secret fields** — read them from the credentials JSON and store them inline. These values come from the manifest API exchange (never typed or pasted by the user), so pass `--generated`:
 
 ```bash
-assistant credentials set --service github-app --field app_id "APP_ID"
-assistant credentials set --service github-app --field app_slug "APP_SLUG"
-assistant credentials set --service github-app --field client_id "CLIENT_ID"
-assistant credentials set --service github-app --field client_secret "CLIENT_SECRET"
-assistant credentials set --service github-app --field webhook_secret "WEBHOOK_SECRET"
+assistant credentials set --service github-app --field app_id "APP_ID" --generated
+assistant credentials set --service github-app --field app_slug "APP_SLUG" --generated
+assistant credentials set --service github-app --field client_id "CLIENT_ID" --generated
 ```
 
-For the PEM (private key), the `-----BEGIN` prefix gets parsed as CLI flags. Use `--` to signal end of options:
+**Secret fields** (`client_secret`, `webhook_secret`, `pem`) — never read these into the conversation, ask for them in chat, or pass them inline to `assistant credentials set` (the CLI refuses inline user-supplied secrets). Collect each one with `assistant credentials prompt` — a secure input whose value never enters the chat transcript — and have the user copy the values out of the credentials JSON on their host:
 
 ```bash
-assistant credentials set --service github-app --field pem -- "$(cat pem-file.txt)"
+assistant credentials prompt --service github-app --field client_secret \
+  --label "GitHub App Client Secret" \
+  --description "Copy the client_secret value from the credentials JSON (e.g. /tmp/github-app-credentials.json)"
+assistant credentials prompt --service github-app --field webhook_secret \
+  --label "GitHub App Webhook Secret" \
+  --description "Copy the webhook_secret value from the credentials JSON"
 ```
 
-**Transferring the PEM from host to container:** The Vellum security layer redacts secrets in transit between host and container. To work around this, base64-encode the PEM on the host, read the base64 string via `host_file_read` (which won't be redacted), decode it inside the container, and store it with `assistant credentials set`.
+For the PEM (private key), the JSON stores it with `\n` escapes — the user must extract the real multi-line key first, then paste that into the secure prompt. Have them run this on their host to print the decoded key for copying:
+
+```bash
+jq -r .pem /tmp/github-app-credentials.json
+```
+
+```bash
+assistant credentials prompt --service github-app --field pem \
+  --label "GitHub App Private Key (PEM)" \
+  --description "Paste the full RSA private key (-----BEGIN ... END-----) printed by: jq -r .pem /tmp/github-app-credentials.json"
+```
 
 > **Note:** The `installation_id` credential is stored in Step 3 after installing the app.
 
@@ -110,10 +125,10 @@ const installations = await resp.json();
 // installations[0].id is the installation ID
 ```
 
-Then store it:
+Then store it (an API-derived identifier, so `--generated` applies):
 
 ```bash
-assistant credentials set --service github-app --field installation_id "INSTALLATION_ID"
+assistant credentials set --service github-app --field installation_id "INSTALLATION_ID" --generated
 ```
 
 ### Step 4: Configure Git
@@ -225,13 +240,9 @@ Check that all three required credentials are set: `app_id`, `pem`, `installatio
 
 The installation token may have expired (1-hour lifetime). Regenerate with `bun bin/gh-app-token.mjs` (from the workspace root) and update the remote URL.
 
-### PEM won't store via CLI
+### PEM won't store or fails JWT signing
 
-The `-----BEGIN` prefix gets parsed as a CLI flag. Use `--` before the value:
-
-```bash
-assistant credentials set --service github-app --field pem -- "$PEM_VALUE"
-```
+The PEM must be collected via `assistant credentials prompt` — inline `assistant credentials set` with a pasted key is refused from the agent shell. If the stored key fails JWT signing, the paste likely kept the JSON `\n` escapes; have the user re-copy the decoded multi-line key (`jq -r .pem /tmp/github-app-credentials.json`) and run the prompt again.
 
 ### Port 29170 already in use
 
