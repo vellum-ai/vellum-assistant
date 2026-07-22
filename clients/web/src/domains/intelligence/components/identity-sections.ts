@@ -60,9 +60,8 @@ export function buildIdentitySections({
     sections.push(section("memory", "What I remember"));
   }
   sections.push(
-    // Library moved off the nav sidebar and onto the overview strip; the
-    // list page wears the shared section chrome like its peers, while the
-    // app viewer (/assistant/library/:appId) stays full-bleed.
+    // Library's list page wears the shared section chrome like its peers;
+    // the app viewer (/assistant/library/:appId) renders full-bleed.
     section("library", "My apps & docs"),
     section("workspace", "My files"),
     section("contacts", "People I know"),
