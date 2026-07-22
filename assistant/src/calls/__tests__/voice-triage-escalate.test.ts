@@ -7,11 +7,13 @@ import { ESCALATE_MARKER } from "../voice-control-protocol.js";
 import {
   escalatedContinuationRule,
   ESCALATION_CONTINUATION_CONTENT,
+  FALLBACK_ESCALATION_BRIDGE,
   FRONT_DOOR_PROFILE,
   frontDoorCapabilityDigest,
   frontDoorTriageRule,
   isVoiceTriageEscalateEnabled,
   needsFallbackBridge,
+  spokenBridgeText,
   VOICE_TRIAGE_ESCALATE_FLAG,
 } from "../voice-triage-escalate.js";
 
@@ -104,6 +106,47 @@ describe("escalated continuation rule", () => {
   test("forbids the quality model from emitting [ESCALATE] again", () => {
     expect(rule).toContain(ESCALATE_MARKER);
     expect(rule.toLowerCase()).toContain("never emit");
+  });
+
+  test("quotes the actual spoken bridge verbatim when provided", () => {
+    const withBridge = escalatedContinuationRule("Let me check your calendar.");
+    expect(withBridge).toContain('"Let me check your calendar."');
+    expect(withBridge).not.toContain(FALLBACK_ESCALATION_BRIDGE);
+  });
+
+  test("quotes the canned fallback when no bridge (or a blank one) is provided", () => {
+    expect(rule).toContain(`"${FALLBACK_ESCALATION_BRIDGE}"`);
+    expect(escalatedContinuationRule("   ")).toContain(
+      `"${FALLBACK_ESCALATION_BRIDGE}"`,
+    );
+  });
+
+  test("bans re-announcing the holding phrase (bridge-echo regression)", () => {
+    // Regression: after the bridge "Let me check your calendar", the quality
+    // model opened with "Let me check what calendar connections…" — a
+    // re-announcement echo. The rule must ban paraphrase/re-announce openers,
+    // not just literal repetition.
+    expect(rule.toLowerCase()).toContain("re-announce");
+    expect(rule.toLowerCase()).toContain("paraphrase");
+    expect(rule).toContain('"Let me check"');
+  });
+});
+
+describe("spokenBridgeText", () => {
+  test("returns the cleaned pre-marker phrase only", () => {
+    expect(
+      spokenBridgeText(
+        "Let me check your calendar. [ESCALATE] weak answer that kept streaming",
+      ),
+    ).toBe("Let me check your calendar.");
+  });
+
+  test("is empty for a bare marker", () => {
+    expect(spokenBridgeText("[ESCALATE]")).toBe("");
+  });
+
+  test("without a marker, returns the whole cleaned text", () => {
+    expect(spokenBridgeText("  Hello there. ")).toBe("Hello there.");
   });
 });
 

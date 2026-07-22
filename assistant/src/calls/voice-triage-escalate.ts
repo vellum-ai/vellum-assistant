@@ -109,22 +109,29 @@ export const FALLBACK_ESCALATION_BRIDGE =
 export const MIN_SPOKEN_BRIDGE_CHARS = 3;
 
 /**
+ * The holding phrase the caller actually heard from the front-door leg:
+ * everything BEFORE `[ESCALATE]` with internal markers stripped, trimmed.
+ * Post-marker text is suppressed from TTS, so it never counts. Empty when
+ * the leg escalated bare — the canned {@link FALLBACK_ESCALATION_BRIDGE}
+ * is spoken instead in that case.
+ */
+export function spokenBridgeText(frontDoorText: string): string {
+  const markerIdx = frontDoorText.indexOf(ESCALATE_MARKER);
+  return stripInternalSpeechMarkers(
+    markerIdx === -1 ? frontDoorText : frontDoorText.slice(0, markerIdx),
+  ).trim();
+}
+
+/**
  * Whether a canned fallback bridge must be spoken before the escalated leg,
  * given the front-door leg's full response text.
  *
- * Only the text BEFORE `[ESCALATE]` was actually spoken — the controller
- * suppresses everything after the marker from TTS — so the decision is based on
- * that slice, not the full response (which may carry ignored post-marker text
- * the model emitted despite being told to stop). Without this, a bare
- * `[ESCALATE]` followed by ignored weak text would skip the fallback and leave
- * the caller in silence while the quality leg spins up.
+ * Decided on the spoken slice only (see {@link spokenBridgeText}): without
+ * this, a bare `[ESCALATE]` followed by ignored weak text would skip the
+ * fallback and leave the caller in silence while the quality leg spins up.
  */
 export function needsFallbackBridge(frontDoorText: string): boolean {
-  const markerIdx = frontDoorText.indexOf(ESCALATE_MARKER);
-  const spokenBridge = stripInternalSpeechMarkers(
-    markerIdx === -1 ? frontDoorText : frontDoorText.slice(0, markerIdx),
-  ).trim();
-  return spokenBridge.length < MIN_SPOKEN_BRIDGE_CHARS;
+  return spokenBridgeText(frontDoorText).length < MIN_SPOKEN_BRIDGE_CHARS;
 }
 
 /**
@@ -196,13 +203,25 @@ export function frontDoorTriageRule(capabilityDigest = ""): string {
  * Extra CALL PROTOCOL RULE injected into the escalated (quality) leg's control
  * prompt. The holding phrase has already been spoken, so the model must
  * continue straight into the substantive answer.
+ *
+ * `spokenBridge` is the exact phrase the caller just heard (the front-door
+ * leg's own pre-marker text, or the canned fallback). Quoting it verbatim is
+ * what makes the no-echo instruction enforceable: the bridge usually already
+ * names the action ("Let me check your calendar"), so without the quote the
+ * quality model re-announces the same action in its own words and the caller
+ * hears two back-to-back "Let me check…" openers.
  */
-export function escalatedContinuationRule(): string {
+export function escalatedContinuationRule(spokenBridge?: string): string {
+  const bridge =
+    spokenBridge !== undefined && spokenBridge.trim().length > 0
+      ? spokenBridge.trim()
+      : FALLBACK_ESCALATION_BRIDGE;
   return [
-    "You have already spoken a brief holding phrase to the caller (something like",
-    `"${FALLBACK_ESCALATION_BRIDGE}").`,
+    `You have already spoken a brief holding phrase to the caller: "${bridge}".`,
     "Continue directly into your actual answer now.",
-    'Do NOT greet again, do NOT repeat the holding phrase, and do NOT say things like "as I was saying".',
+    'Do NOT greet again, do NOT say things like "as I was saying", and do NOT repeat, paraphrase, or re-announce that holding phrase —',
+    'opening with another "Let me check", "One moment", or any restatement of what you are about to do sounds broken, because the caller just heard that.',
+    "Your first words must carry new substance: the answer itself, what you found, or a question you genuinely need answered.",
     `Never emit ${ESCALATE_MARKER} — you are the model that finishes the answer.`,
   ].join(" ");
 }

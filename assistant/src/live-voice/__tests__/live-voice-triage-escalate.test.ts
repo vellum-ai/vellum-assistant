@@ -4,6 +4,7 @@ import { setOverridesForTesting } from "../../__tests__/feature-flag-test-helper
 import type { VoiceTurnOptions } from "../../calls/voice-session-bridge.js";
 import {
   ESCALATION_CONTINUATION_CONTENT,
+  FALLBACK_ESCALATION_BRIDGE,
   FRONT_DOOR_PROFILE,
   VOICE_TRIAGE_ESCALATE_FLAG,
 } from "../../calls/voice-triage-escalate.js";
@@ -264,6 +265,24 @@ describe("live-voice triage-and-escalate routing", () => {
     expect(spoken).not.toContain("leftover");
   });
 
+  test("the escalated leg receives the front-door leg's actual spoken bridge", async () => {
+    enableBothFlags();
+    const { starter } = scriptedStartVoiceTurn({
+      frontDoor: ["Let me check your calendar. ", "[ESCALATE] ignored tail"],
+      escalated: ["You have three connections."],
+    });
+    const { session } = createHarness(starter);
+
+    await driveTurn(session);
+    await waitFor(() => starter.mock.calls.length >= 2);
+
+    // The exact phrase the caller heard — pre-marker, cleaned, trimmed — so
+    // the continuation rule can quote it and ban a re-announcing echo.
+    expect(starter.mock.calls[1]?.[0]?.spokenEscalationBridge).toBe(
+      "Let me check your calendar.",
+    );
+  });
+
   test("bare [ESCALATE] with no holding phrase still escalates (fallback bridge)", async () => {
     enableBothFlags();
     const { starter } = scriptedStartVoiceTurn({
@@ -279,6 +298,11 @@ describe("live-voice triage-and-escalate routing", () => {
     expect(starter).toHaveBeenCalledTimes(2);
     expect(starter.mock.calls[1]?.[0]?.content).toBe(
       ESCALATION_CONTINUATION_CONTENT,
+    );
+    // The caller heard the canned fallback, so that is the bridge the
+    // escalated leg must be told about.
+    expect(starter.mock.calls[1]?.[0]?.spokenEscalationBridge).toBe(
+      FALLBACK_ESCALATION_BRIDGE,
     );
     // The marker itself is never shown; the fallback bridge is audio-only.
     expect(spokenText(frames)).not.toContain("[ESCALATE]");

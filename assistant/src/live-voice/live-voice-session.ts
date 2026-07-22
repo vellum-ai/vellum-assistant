@@ -29,6 +29,7 @@ import {
   isVoiceTriageEscalateEnabled,
   isVoiceUnifiedFrontDoorEnabled,
   needsFallbackBridge,
+  spokenBridgeText,
   type VoiceRoutingLeg,
 } from "../calls/voice-triage-escalate.js";
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
@@ -2580,8 +2581,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
    * (`frontDoor: true`) may emit [ESCALATE]; the marker and everything after it
    * are held back from the live-voice transcript and TTS here at the source,
    * and `escalateTurn` starts a second "escalated" leg that shares this same
-   * ActiveAssistantTurn. (The shared conversation-hub broadcast and persisted
-   * assistant message still carry the raw marker — see issue #37850.)
+   * ActiveAssistantTurn. The persisted assistant row is cut at the marker by
+   * the bridge's teardown transcript-hygiene pass; the shared conversation-hub
+   * broadcast still streams the raw marker deltas mid-turn until the
+   * turn-end resync (the remaining scope of issue #37850).
    */
   private async startAssistantLeg(
     activeTurn: ActiveAssistantTurn,
@@ -2590,6 +2593,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       overrideProfile?: string;
       routingLeg?: VoiceRoutingLeg;
       frontDoor?: boolean;
+      spokenEscalationBridge?: string;
     },
   ): Promise<void> {
     if (!this.startVoiceTurn) {
@@ -2671,6 +2675,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
           ? { overrideProfile: leg.overrideProfile }
           : {}),
         ...(leg.routingLeg != null ? { routingLeg: leg.routingLeg } : {}),
+        ...(leg.spokenEscalationBridge != null
+          ? { spokenEscalationBridge: leg.spokenEscalationBridge }
+          : {}),
         // A speculative front-door leg carries the hold rule so its first
         // token can be the hold verdict; non-speculative legs must never
         // learn the token, or a spoken answer could start with it.
@@ -2929,7 +2936,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // Speak a bridge so the strong-model call has no dead air. Fall back to a
     // canned phrase only when the front-door leg spoke too little before the
     // marker (measured pre-marker, so suppressed post-marker text can't count).
-    if (needsFallbackBridge(frontDoorText)) {
+    const usesFallbackBridge = needsFallbackBridge(frontDoorText);
+    if (usesFallbackBridge) {
       this.bufferAssistantTextForTts(
         activeTurn.token,
         `${FALLBACK_ESCALATION_BRIDGE} `,
@@ -2942,10 +2950,15 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
 
     // No overrideProfile: the escalated leg runs on the call-site default —
     // the exact profile an un-routed voice turn would use (see
-    // voice-triage-escalate.ts).
+    // voice-triage-escalate.ts). The bridge phrase the caller just heard is
+    // handed along so the escalated continuation rule can quote it and ban
+    // a re-announcing echo ("Let me check…" twice in a row).
     void this.startAssistantLeg(activeTurn, {
       content: ESCALATION_CONTINUATION_CONTENT,
       routingLeg: "escalated",
+      spokenEscalationBridge: usesFallbackBridge
+        ? FALLBACK_ESCALATION_BRIDGE
+        : spokenBridgeText(frontDoorText),
     });
   }
 

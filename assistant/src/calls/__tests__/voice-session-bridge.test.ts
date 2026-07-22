@@ -11,7 +11,14 @@
  * strings, so those are pinned here too. `waitForIdle`'s own semantics are
  * covered by `src/__tests__/conversation-wait-for-idle.test.ts`.
  */
-import { describe, expect, mock, setSystemTime, test } from "bun:test";
+import {
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  setSystemTime,
+  test,
+} from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Mocks — declared before importing voice-session-bridge
@@ -24,10 +31,47 @@ mock.module("../../daemon/conversation-store.js", () => ({
   getOrCreateConversation: async () => fakeConversation,
 }));
 
+// Conversation-CRUD doubles for the teardown transcript-hygiene pass. The
+// real module is spread so every other export keeps its production behavior;
+// only the three functions the hygiene pass (and discard) touch are recorded.
+import * as realConversationCrud from "../../persistence/conversation-crud.js";
+
+let getMessageByIdImpl: (
+  messageId: string,
+  conversationId?: string,
+) => unknown = () => null;
+const crudLog: {
+  reads: string[];
+  updates: Array<{ messageId: string; content: string }>;
+  deletes: string[];
+} = { reads: [], updates: [], deletes: [] };
+function resetCrudLog(): void {
+  crudLog.reads.length = 0;
+  crudLog.updates.length = 0;
+  crudLog.deletes.length = 0;
+  getMessageByIdImpl = () => null;
+}
+
+mock.module("../../persistence/conversation-crud.js", () => ({
+  ...realConversationCrud,
+  getMessageById: (messageId: string, conversationId?: string) => {
+    crudLog.reads.push(messageId);
+    return getMessageByIdImpl(messageId, conversationId);
+  },
+  updateMessageContent: (messageId: string, content: string) => {
+    crudLog.updates.push({ messageId, content });
+  },
+  deleteMessageById: (messageId: string) => {
+    crudLog.deletes.push(messageId);
+    return { segmentIds: [], deletedSummaryIds: [] };
+  },
+}));
+
 import { setConfig } from "../../__tests__/helpers/set-config.js";
 import { ABORT_WATCHDOG_MS } from "../../daemon/abort-watchdog.js";
 import { CALL_OPENING_MARKER } from "../voice-control-protocol.js";
 import {
+  cutFrontDoorContentAtMarker,
   startVoiceTurn,
   TOOL_RESULT_PREVIEW_MAX_CHARS,
 } from "../voice-session-bridge.js";
@@ -73,6 +117,7 @@ interface FakeConversation {
   updateClient: (cb: unknown, reset?: boolean) => void;
   runAgentLoop: (...args: unknown[]) => Promise<void>;
   abort: (reason?: unknown) => void;
+  loadFromDb: () => Promise<void>;
   toolsDisabledDepth: number;
 }
 
@@ -129,6 +174,9 @@ function makeFakeConversation(opts: {
     },
     runAgentLoop: () => (opts.runAgentLoop ?? (async () => {}))(),
     abort: () => {},
+    loadFromDb: async () => {
+      opts.events?.push("loadFromDb");
+    },
     toolsDisabledDepth: 0,
   };
   return {
@@ -1216,5 +1264,172 @@ describe("front-door leg tool suppression", () => {
       expect(depthDuringLoop).toBe(0);
       expect(fake.conversation.toolsDisabledDepth).toBe(0);
     }
+  });
+});
+
+describe("cutFrontDoorContentAtMarker", () => {
+  test("null when no text block carries the marker (committed answer)", () => {
+    expect(
+      cutFrontDoorContentAtMarker([{ type: "text", text: "It is Tuesday." }]),
+    ).toBeNull();
+  });
+
+  test("cuts at the marker, keeping only the spoken bridge", () => {
+    const cut = cutFrontDoorContentAtMarker([
+      {
+        type: "text",
+        text: "Let me check your calendar. [ESCALATE] weak answer",
+      },
+    ]);
+    expect(cut?.blocks).toEqual([
+      { type: "text", text: "Let me check your calendar." },
+    ]);
+    expect(cut?.spokenText).toBe("Let me check your calendar.");
+  });
+
+  test("drops blocks after the marker block and keeps earlier ones", () => {
+    const cut = cutFrontDoorContentAtMarker([
+      { type: "text", text: "One moment. " },
+      { type: "text", text: "[ESCALATE]" },
+      { type: "text", text: "trailing weak text in its own block" },
+    ]);
+    expect(cut?.blocks).toEqual([{ type: "text", text: "One moment. " }]);
+    expect(cut?.spokenText).toBe("One moment.");
+  });
+
+  test("a bare marker yields empty spoken text (delete-the-row signal)", () => {
+    const cut = cutFrontDoorContentAtMarker([
+      { type: "text", text: "[ESCALATE] discarded" },
+    ]);
+    expect(cut?.blocks).toEqual([]);
+    expect(cut?.spokenText).toBe("");
+  });
+});
+
+describe("front-door transcript hygiene (teardown pass)", () => {
+  beforeEach(resetCrudLog);
+
+  function makeRow(text: string) {
+    return {
+      id: "assistant-row-1",
+      conversationId: "conv-voice-bridge-test",
+      role: "assistant",
+      content: [{ type: "text", text }],
+      createdAt: 0,
+      metadata: null,
+      clientMessageId: null,
+      finalized: 1,
+    };
+  }
+
+  /**
+   * Conversation whose scripted agent loop announces a reserved assistant
+   * row via `assistant_turn_start` — the id the teardown hygiene pass
+   * targets. With `holdLoopOpen` the loop stays in flight until released,
+   * so a discard can land mid-turn.
+   */
+  function makeReservedRowConversation(opts?: { holdLoopOpen?: boolean }) {
+    let release: () => void = () => {};
+    const events: string[] = [];
+    const fake = makeFakeConversation({ processing: false, events });
+    fake.conversation.runAgentLoop = async (...args: unknown[]) => {
+      const { onEvent } = args[2] as { onEvent: (msg: unknown) => void };
+      onEvent({
+        type: "assistant_turn_start",
+        messageId: "assistant-row-1",
+        conversationId: "conv-voice-bridge-test",
+      });
+      if (opts?.holdLoopOpen) {
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+      }
+    };
+    fakeConversation = fake.conversation;
+    return { events, releaseLoop: () => release() };
+  }
+
+  test("an escalated leg's row is cut to the spoken bridge and history reloads", async () => {
+    const { events } = makeReservedRowConversation();
+    getMessageByIdImpl = () =>
+      makeRow("Let me check your calendar. [ESCALATE] weak answer");
+
+    await startVoiceTurn({ ...makeTurnOptions(), routingLeg: "front-door" });
+    await flushMicrotasks();
+
+    expect(crudLog.updates).toEqual([
+      {
+        messageId: "assistant-row-1",
+        content: JSON.stringify([
+          { type: "text", text: "Let me check your calendar." },
+        ]),
+      },
+    ]);
+    expect(crudLog.deletes).toHaveLength(0);
+    // The escalated leg waits on this turn's teardown, so the reload below
+    // is what guarantees the quality model never sees the marker text.
+    expect(events).toContain("loadFromDb");
+  });
+
+  test("a bare-marker row (canned fallback was the audio) is deleted", async () => {
+    const { events } = makeReservedRowConversation();
+    getMessageByIdImpl = () => makeRow("[ESCALATE] discarded weak text");
+
+    await startVoiceTurn({ ...makeTurnOptions(), routingLeg: "front-door" });
+    await flushMicrotasks();
+
+    expect(crudLog.updates).toHaveLength(0);
+    expect(crudLog.deletes).toEqual(["assistant-row-1"]);
+    expect(events).toContain("loadFromDb");
+  });
+
+  test("a committed front-door answer (no marker) is left untouched", async () => {
+    const { events } = makeReservedRowConversation();
+    getMessageByIdImpl = () => makeRow("It is Tuesday.");
+
+    await startVoiceTurn({ ...makeTurnOptions(), routingLeg: "front-door" });
+    await flushMicrotasks();
+
+    expect(crudLog.reads).toEqual(["assistant-row-1"]);
+    expect(crudLog.updates).toHaveLength(0);
+    expect(crudLog.deletes).toHaveLength(0);
+    expect(events).not.toContain("loadFromDb");
+  });
+
+  test("a non-routed leg never runs the hygiene pass", async () => {
+    makeReservedRowConversation();
+    getMessageByIdImpl = () => makeRow("Anything [ESCALATE] at all");
+
+    await startVoiceTurn(makeTurnOptions());
+    await flushMicrotasks();
+
+    expect(crudLog.reads).toHaveLength(0);
+    expect(crudLog.updates).toHaveLength(0);
+    expect(crudLog.deletes).toHaveLength(0);
+  });
+
+  test("a discarded speculative leg deletes its reserved assistant row at teardown", async () => {
+    const { releaseLoop } = makeReservedRowConversation({
+      holdLoopOpen: true,
+    });
+
+    const handle = await startVoiceTurn({
+      ...makeTurnOptions(),
+      routingLeg: "front-door",
+      unifiedVerdict: true,
+    });
+    await flushMicrotasks();
+    await handle.discard?.();
+
+    // The discard rolls back the user row at once; the reserved assistant
+    // row is only safe to remove after the loop settles (the stranded fold
+    // would otherwise re-finalize it), so it goes at teardown.
+    expect(crudLog.deletes).toContain("msg-1");
+    expect(crudLog.deletes).not.toContain("assistant-row-1");
+
+    releaseLoop();
+    await flushMicrotasks();
+
+    expect(crudLog.deletes).toContain("assistant-row-1");
   });
 });
