@@ -2,8 +2,9 @@ import { Sparkles } from "lucide-react";
 
 import { Button } from "@vellumai/design-library";
 
-import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useInChatOnboardingStore } from "@/stores/in-chat-onboarding-store";
+
+import { isInChatTourOn, useInChatTourVariant } from "./in-chat-tour-flag";
 
 /**
  * Header entry point for the in-chat onboarding UI prototype — a stand-in
@@ -12,14 +13,14 @@ import { useInChatOnboardingStore } from "@/stores/in-chat-onboarding-store";
  * the notifications bell. Plays the tour immediately; pressing it again
  * afterwards replays from the top.
  *
- * Gated on the `in-chat-onboarding-tour` client flag (off by default) so
- * the tour can bake internally before anyone outside Vellum sees it.
+ * Gated on the `in-chat-onboarding-tour` experiment's `tour` arm
+ * (default `control`), same seam as the post-onboarding auto-play.
  */
 export function InChatOnboardingLaunchButton() {
   const startPrototype = useInChatOnboardingStore.use.startPrototype();
-  const tourEnabled = useClientFeatureFlagStore.use.inChatOnboardingTour();
+  const variant = useInChatTourVariant();
 
-  if (!tourEnabled) {
+  if (!isInChatTourOn(variant)) {
     return null;
   }
 

@@ -6,8 +6,9 @@
       "scope": "client",
       "key": "in-chat-onboarding-tour",
       "label": "In-Chat Onboarding Tour",
-      "description": "Gates the eyes-led in-chat onboarding tour (post-research-onboarding walkthrough of the sidebar and composer) and its header launch button. Off by default while it bakes internally.",
-      "defaultEnabled": false
+      "description": "Multivariate experiment for the eyes-led in-chat onboarding tour. control = straight to chat after research onboarding (current behavior); tour = the extended tour auto-plays on first workspace entry, and the header replay button shows. Targeted via LaunchDarkly (planned 70% tour / 30% control).",
+      "defaultEnabled": "control",
+      "values": ["control", "tour"]
     },
     {
       "id": "user-hosted-enabled",
