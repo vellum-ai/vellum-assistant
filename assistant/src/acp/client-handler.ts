@@ -31,8 +31,8 @@ import type {
   WriteTextFileResponse,
 } from "@agentclientprotocol/sdk";
 
+import type { AcpSessionUpdateEvent } from "../api/events/acp-session-update.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
-import type { AcpSessionUpdate } from "../daemon/message-types/acp.js";
 import { redactJsonStringLeaves } from "../security/redact-json.js";
 import { redactSensitiveFields } from "../security/redaction.js";
 import { redactSecrets } from "../security/secret-scanner.js";
@@ -43,7 +43,9 @@ const log = getLogger("acp:client-handler");
 // Field-name redaction across object/array shapes (covers top-level arrays;
 // redactSensitiveFields handles the nested recursion within objects).
 function redactSensitivePayload(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(redactSensitivePayload);
+  if (Array.isArray(value)) {
+    return value.map(redactSensitivePayload);
+  }
   if (value !== null && typeof value === "object") {
     return redactSensitiveFields(value as Record<string, unknown>);
   }
@@ -53,7 +55,9 @@ function redactSensitivePayload(value: unknown): unknown {
 // The execute kind's title is the command line, which can carry a literal
 // credential — scrub shaped secrets before forwarding/persisting it.
 function redactTitle(title: string | null | undefined): string | undefined {
-  if (title == null) return undefined;
+  if (title == null) {
+    return undefined;
+  }
   return redactSecrets(title);
 }
 
@@ -103,7 +107,7 @@ export class VellumAcpClientHandler implements Client {
 
   /** Forwards an update to Vellum, stamping a contiguous per-session `seq`. */
   private forwardUpdate(
-    update: Omit<AcpSessionUpdate, "type" | "acpSessionId" | "seq">,
+    update: Omit<AcpSessionUpdateEvent, "type" | "acpSessionId" | "seq">,
   ): void {
     this.sendToVellum({
       type: "acp_session_update",
@@ -120,14 +124,18 @@ export class VellumAcpClientHandler implements Client {
    */
   private capRawPayload(value: unknown): unknown {
     const CAP_BYTES = 16 * 1024;
-    if (value === undefined) return undefined;
+    if (value === undefined) {
+      return undefined;
+    }
     let serialized: string;
     try {
       serialized = JSON.stringify(value) ?? "";
     } catch {
       return "[raw payload omitted: not serializable]";
     }
-    if (serialized.length <= CAP_BYTES) return value;
+    if (serialized.length <= CAP_BYTES) {
+      return value;
+    }
     return `[raw payload omitted: ${serialized.length} bytes exceeds ${CAP_BYTES}-byte cap]`;
   }
 
@@ -141,7 +149,9 @@ export class VellumAcpClientHandler implements Client {
    * straight through.
    */
   private prepareRawPayload(value: unknown): unknown {
-    if (value === undefined) return undefined;
+    if (value === undefined) {
+      return undefined;
+    }
     const redacted = redactJsonStringLeaves(
       redactSensitivePayload(value),
     ).value;
@@ -476,8 +486,12 @@ export class VellumAcpClientHandler implements Client {
 function mapLocations(
   locations: ToolCallLocation[] | null | undefined,
 ): Array<{ path: string; line?: number }> | undefined {
-  if (locations === undefined) return undefined;
-  if (locations === null) return [];
+  if (locations === undefined) {
+    return undefined;
+  }
+  if (locations === null) {
+    return [];
+  }
   return locations.map((l) => ({ path: l.path, line: l.line ?? undefined }));
 }
 
