@@ -250,6 +250,24 @@ describe("composition", () => {
     expect(resolved.provider_connection).toBeUndefined();
   });
 
+  test("a provider-pinning tweak over the vellum default keeps the managed routing", () => {
+    const llm = LLMSchema.parse({
+      callSites: {
+        conversationSummarization: {
+          provider: "anthropic",
+          model: "claude-opus-4-6",
+        },
+      },
+      defaultProvider: { provider: "vellum" },
+    });
+    const resolved = resolveCallSiteConfig("conversationSummarization", llm);
+    // The tweak wins the fields it sets; the identity winner contributes its
+    // routing through the provider-agnostic managed connection.
+    expect(resolved.provider).toBe("anthropic");
+    expect(resolved.model).toBe("claude-opus-4-6");
+    expect(resolved.provider_connection).toBe("vellum");
+  });
+
   test("a model-only tweak on the vellum default keeps the identity provider", () => {
     const llm = LLMSchema.parse({
       callSites: {

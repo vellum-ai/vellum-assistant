@@ -410,9 +410,28 @@ function resolveOverrideOrDefault(
     }
   }
 
-  return finalize(
-    deepMerge(CODE_DEFAULT_BASE as unknown as Mergeable, winnerFragment, tweak),
+  const merged = deepMerge(
+    CODE_DEFAULT_BASE as unknown as Mergeable,
+    winnerFragment,
+    tweak,
   );
+  // A vellum winner's managed routing survives a concrete-provider tweak:
+  // call-site fragments carry no connection, so a tweak pinning e.g.
+  // anthropic over a managed default would otherwise resolve to a
+  // connection-less concrete provider — stranded on platform installs with
+  // no BYOK row. The tweak keeps every field it sets; the winner contributes
+  // its routing via the provider-agnostic managed connection, which serves
+  // any managed-routable upstream.
+  if (
+    winnerFragment.provider === "vellum" &&
+    typeof merged.provider === "string" &&
+    merged.provider !== "vellum" &&
+    merged.provider_connection == null &&
+    MANAGED_ROUTABLE_PROVIDERS.has(merged.provider)
+  ) {
+    merged.provider_connection = VELLUM_MANAGED_CONNECTION_NAME;
+  }
+  return finalize(merged);
 }
 
 /** The winner's config fields: metadata stripped, sampling and logitBias
