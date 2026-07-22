@@ -235,20 +235,20 @@ describe("PlansPage checkout — base subscriber", () => {
 });
 
 describe("PlansPage checkout — Pro subscriber", () => {
-  // Below Mighty, Free reads "Downgrade to Free". For a Pro subscriber the
-  // tier CTA routes to the manage-plan flow via `?adjust_plan` and fires no
-  // checkout.
-  test("routes a downgrade CTA to the manage modal instead of a checkout", async () => {
+  // Below Mighty, Free reads "Downgrade to Free". Downgrading a Pro org to the
+  // Free plan is a subscription cancellation, not a package switch — the
+  // change-package endpoint can't express it — so the plans page leaves it a
+  // no-op (cancellation is reached from billing "manage plan"). It must not
+  // navigate to `?adjust_plan` or fire a Stripe checkout. Pro package↔package
+  // switches go through change-package, covered in `plans-page.test.tsx`.
+  test("a Free downgrade CTA is a no-op (no checkout, no navigation)", async () => {
     const { getByRole, getByTestId } = renderPage(proMightySubscription());
 
     fireEvent.click(getByRole("button", { name: "Downgrade to Free" }));
 
-    await waitFor(() => {
-      expect(getByTestId("loc").textContent).toBe(
-        "/assistant/settings/usage?tab=billing&adjust_plan",
-      );
-    });
-    // The upgrade endpoint no-ops for an active Pro org, so no checkout fires.
+    // Give any async effect a chance to run, then assert nothing happened.
+    await Promise.resolve();
+    expect(getByTestId("loc").textContent).toBe("/assistant/plans");
     expect(upgradeCall).toBeNull();
     expect(openedUrl).toBeNull();
     expect(readCheckoutIntent()).toBeNull();
