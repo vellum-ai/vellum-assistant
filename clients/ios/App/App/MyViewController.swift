@@ -60,6 +60,13 @@ class MyViewController: CAPBridgeViewController {
     /// alive for the view controller's lifetime.
     private var navigationDelegateProxy: NavigationDelegateProxy?
 
+    /// The full server URL the web view was last loaded against — the effective
+    /// self-hosted override or the baked default. Foreground change detection
+    /// compares the current preference against this to decide whether to reload,
+    /// so a change that keeps the same host but a different path (e.g.
+    /// `https://host/a` → `https://host/b`) is still caught.
+    private var appliedServerURL: URL?
+
     /// Point the shell at the user's self-hosted assistant when
     /// `self_hosted_server_url` is set, otherwise keep the baked Vellum Cloud
     /// URL untouched. The configured host is added to the navigation allowlist —
@@ -70,7 +77,9 @@ class MyViewController: CAPBridgeViewController {
         let descriptor = super.instanceDescriptor()
         bakedServerURL = descriptor.serverURL.flatMap { URL(string: $0) }
 
-        guard let configured = SelfHostedServer.configuredURL() else {
+        let configured = SelfHostedServer.configuredURL()
+        appliedServerURL = configured ?? bakedServerURL
+        guard let configured else {
             return descriptor
         }
         descriptor.serverURL = configured.absoluteString
@@ -159,31 +168,19 @@ class MyViewController: CAPBridgeViewController {
         webView?.navigationDelegate = proxy
     }
 
-    /// On return to the foreground, reload the web view if the effective origin
-    /// (self-hosted override or baked default) no longer matches what's loaded.
-    /// A full reload is sufficient — the assistant has no useful offline state.
+    /// On return to the foreground, reload the web view if the effective server
+    /// URL (self-hosted override or baked default) no longer matches what was
+    /// last applied. Comparing the full URL — not just the origin — catches a
+    /// same-host path change. A full reload is sufficient; the assistant has no
+    /// useful offline state.
     @objc private func reloadIfConfiguredOriginChanged() {
         let destination = SelfHostedServer.configuredURL() ?? bakedServerURL
         guard let destination else { return }
-        guard Self.originKey(webView?.url) != Self.originKey(destination) else {
+        guard destination.absoluteString != appliedServerURL?.absoluteString else {
             return
         }
+        appliedServerURL = destination
         webView?.load(URLRequest(url: destination))
-    }
-
-    /// A scheme+host+port identity for an origin, used to tell whether the web
-    /// view already shows the desired origin (ignoring path/query/fragment).
-    private static func originKey(_ url: URL?) -> String? {
-        guard let url,
-              let scheme = url.scheme?.lowercased(),
-              let host = url.host?.lowercased()
-        else {
-            return nil
-        }
-        if let port = url.port {
-            return "\(scheme)://\(host):\(port)"
-        }
-        return "\(scheme)://\(host)"
     }
 
     // MARK: - Quote-and-reply edit menu
@@ -384,11 +381,13 @@ extension MyViewController: WebViewNavigationFailureObserver {
                 preferredStyle: .alert
             )
             alert.addAction(UIAlertAction(title: "Retry", style: .default) { [weak self] _ in
+                self?.appliedServerURL = origin
                 self?.webView?.load(URLRequest(url: origin))
             })
             alert.addAction(UIAlertAction(title: "Use Vellum Cloud", style: .default) { [weak self] _ in
                 SelfHostedServer.clear()
                 if let baked = self?.bakedServerURL {
+                    self?.appliedServerURL = baked
                     self?.webView?.load(URLRequest(url: baked))
                 }
             })
