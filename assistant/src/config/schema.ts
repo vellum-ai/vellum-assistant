@@ -15,6 +15,7 @@ export type { SkillEntryConfig } from "./schemas/skills.js";
 
 // Imports for AssistantConfigSchema composition
 import { AcpConfigSchema } from "./acp-schema.js";
+import { ApiRateLimitConfigSchema } from "./schemas/api-rate-limit.js";
 import { BackupConfigSchema } from "./schemas/backup.js";
 import { CallsConfigSchema } from "./schemas/calls.js";
 import {
@@ -71,6 +72,9 @@ export const AssistantConfigSchema = z.object({
     .describe("Directory for storing assistant data (database, logs, etc.)"),
   timeouts: TimeoutConfigSchema.default(TimeoutConfigSchema.parse({})),
   rateLimit: RateLimitConfigSchema.default(RateLimitConfigSchema.parse({})),
+  apiRateLimit: ApiRateLimitConfigSchema.default(
+    ApiRateLimitConfigSchema.parse({}),
+  ),
   secretDetection: SecretDetectionConfigSchema.default(
     SecretDetectionConfigSchema.parse({}),
   ),

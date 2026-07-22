@@ -22,6 +22,7 @@ import { resetCleanupScheduleThrottle } from "../persistence/cleanup-schedule-st
 import { clearEmbeddingBackendCache } from "../persistence/embeddings/embedding-backend.js";
 import { syncIdentityNameToPlatform } from "../platform/sync-identity.js";
 import { initializeProviders } from "../providers/registry.js";
+import { refreshAuthenticatedApiRateLimit } from "../runtime/middleware/rate-limiter.js";
 import {
   publishAvatarChanged,
   publishConfigChanged,
@@ -216,6 +217,7 @@ export class ConfigWatcher {
           const changed = await this.refreshConfigFromSources();
           if (changed) {
             evictConversationsForReload();
+            refreshAuthenticatedApiRateLimit();
             publishConfigChanged();
             const newConfig = this.lastConfig ?? getConfig();
             const newMcpFingerprint = JSON.stringify(newConfig.mcp ?? {});
