@@ -279,7 +279,9 @@ async function findConfirmDialogButton(): Promise<HTMLButtonElement> {
     const btn = document.querySelector<HTMLButtonElement>(
       "[data-testid='confirm-package-switch-button']",
     );
-    if (!btn) throw new Error("confirm dialog not open");
+    if (!btn) {
+      throw new Error("confirm dialog not open");
+    }
     return btn;
   });
 }
@@ -485,7 +487,9 @@ describe("PlanCard recommended upgrade — change-package", () => {
     fireEvent.click(await findConfirmDialogButton());
 
     await waitFor(() => {
-      if (!changePackageBody) throw new Error("change-package not called");
+      if (!changePackageBody) {
+        throw new Error("change-package not called");
+      }
     });
     expect(changePackageBody).toEqual({ package: "super" });
 
@@ -522,7 +526,9 @@ describe("PlanCard recommended upgrade — change-package", () => {
       const confirm = document.querySelector<HTMLButtonElement>(
         "[data-testid='confirm-package-switch-button']",
       );
-      if (!confirm?.disabled) throw new Error("confirm not disabled yet");
+      if (!confirm?.disabled) {
+        throw new Error("confirm not disabled yet");
+      }
     });
     const banner = (await findByTestId(
       "recommended-upgrade-button",
@@ -565,7 +571,9 @@ describe("PlanCard recommended upgrade — change-package", () => {
     fireEvent.click(await findConfirmDialogButton());
 
     await waitFor(() => {
-      if (!changePackageBody) throw new Error("change-package not called");
+      if (!changePackageBody) {
+        throw new Error("change-package not called");
+      }
     });
     // no_op: the sub is already on this package, so the confirm dismisses and
     // the provisioning takeover is never raised.
@@ -712,7 +720,9 @@ describe("PlanCard recommended upgrade — change-package", () => {
     fireEvent.click(await findByTestId("recommended-upgrade-button"));
 
     await waitFor(() => {
-      if (!openedUrl) throw new Error("checkout not opened");
+      if (!openedUrl) {
+        throw new Error("checkout not opened");
+      }
     });
     expect(openedUrl).toBe("https://checkout.example.com/session");
     expect(upgradeCall?.body).toMatchObject({

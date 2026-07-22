@@ -22,9 +22,9 @@ export const TIER_CHANGE_ELIGIBLE_STATUSES: ReadonlySet<SubscriptionStatusEnum> 
 /**
  * Whether a subscription is eligible for a one-click, in-place package switch
  * via the change-package endpoint. True only for a clean packaged Pro sub: it
- * has a package pin, is not customized (customized tiers no longer match the
- * stock package, so posting the next stock key would use wrong deltas / drop
- * custom line items), is not cancelling (a cancelling sub 409s on
+ * has a package pin, is not customized (a customized sub's tiers can diverge
+ * from the stock package, so posting the next stock key would use wrong deltas
+ * / drop custom line items), is not cancelling (a cancelling sub 409s on
  * change-package), and sits in an entitlement-bearing status. Every other Pro
  * state — and every base sub — falls back to the manage path.
  *
