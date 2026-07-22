@@ -63,9 +63,10 @@ describe("133-collapse-provider-connections migration", () => {
     );
   });
 
-  test("rewrites the legacy managed triple to identity shape", () => {
-    // The pre-flip managed shape: concrete upstream + vellum connection on
-    // the profile, defaultProvider pinning the vellum connection by name.
+  test("rewrites the managed triple to identity shape", () => {
+    // The managed shape this migration rewrites: concrete upstream + vellum
+    // connection on the profile, defaultProvider pinning the vellum
+    // connection by name.
     writeConfig({
       llm: {
         default: { provider: "anthropic", model: "claude-opus-4-8" },
@@ -354,10 +355,10 @@ describe("133-collapse-provider-connections migration", () => {
   });
 
   test("a schema-dead vellum connection on a call site is dropped, never a rewrite signal", () => {
-    // Migration 125 rewrote call-site connections to "vellum", but the
-    // parsed call-site schema has no provider_connection field — the value
-    // is invisible to the resolver. Flipping the provider from it would
-    // move a BYOK call site onto the managed route.
+    // The parsed call-site schema has no provider_connection field — a raw
+    // value is invisible to the resolver. Flipping the provider from it
+    // would move a BYOK call site onto the managed route, so it is removed
+    // verbatim.
     writeConfig({
       llm: {
         callSites: {
