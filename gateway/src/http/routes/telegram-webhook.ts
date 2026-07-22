@@ -368,7 +368,7 @@ export function createTelegramWebhookHandler(
           normalized.message.conversationExternalId,
           START_COMMAND_ACK_TEXT,
           undefined,
-          { credentials: caches?.credentials, ...threadOpts },
+          replyOpts,
         ).catch((err) => {
           tlog.error(
             { err, chatId: normalized.message.conversationExternalId },
@@ -488,7 +488,7 @@ export function createTelegramWebhookHandler(
           normalized.message.conversationExternalId,
           "Welcome! I'm having a brief setup hiccup. Please try again in a moment.",
           undefined,
-          { credentials: caches?.credentials, ...threadOpts },
+          replyOpts,
         ).catch((replyErr) => {
           tlog.error({ err: replyErr }, "Failed to send /start error fallback");
         });
