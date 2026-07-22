@@ -235,6 +235,19 @@ export interface CreateGuardianBindingParams {
   displayName?: string;
   /** How this binding was verified. Defaults to "challenge". */
   verifiedVia?: string;
+  /**
+   * Whether this write is backed by a fresh verification/authentication act and
+   * may therefore bring a deliberately-REVOKED binding at the same
+   * (type, address) back to active. Default false (fail-closed): a derived
+   * rebind with no fresh proof — e.g. boot-time token recovery — must never
+   * silently undo a revoke. `blocked` bindings stay terminal regardless.
+   *
+   * Every caller that reaches here from a real verification act (code/voice
+   * challenge, verification-session consume, platform channel-create,
+   * provider-validated email, guardian bootstrap) sets this true; new callers
+   * inherit the safe default until they prove they have one.
+   */
+  reactivateRevoked?: boolean;
 }
 
 export interface CreateGuardianBindingResult {
@@ -384,9 +397,17 @@ export function applyGuardianBindingGatewayWrites(
     .get();
 
   if (existingGw) {
-    // Never reactivate a blocked gateway row by code-match — leave it
-    // intact (mirrors text-verification / contact-helpers guards).
-    if (existingGw.status !== "blocked") {
+    // A governance-terminal binding must not be silently resurrected by a
+    // (type, address) code-match. `blocked` is always terminal; `revoked` is a
+    // deliberate downgrade that only a caller with a fresh verification act may
+    // reverse (`reactivateRevoked`). Without that proof — e.g. a derived rebind
+    // from token recovery — the revoke stays intact, fail-closed. This is the
+    // single enforcement point, so no caller (present or future) can turn a
+    // revoke back on without asserting a verification act.
+    const isProtectedFromReactivation =
+      existingGw.status === "blocked" ||
+      (existingGw.status === "revoked" && !params.reactivateRevoked);
+    if (!isProtectedFromReactivation) {
       gwDb
         .update(gwContactChannels)
         .set(channelSet)
@@ -812,6 +833,55 @@ async function fetchPlatformOwnerDisplayName(): Promise<string | null> {
 }
 
 /**
+ * Boot-time self-heal: rebuild an ABSENT vellum guardian binding from the
+ * gateway's own active actor tokens, returning the recovered principal (or
+ * null when nothing is recoverable). Single home for the recovery decision so
+ * its safety is co-located rather than re-derived at the call site.
+ *
+ * Safety contract — recovery is sound because, together:
+ *  - Actor tokens are minted EXCLUSIVELY for the guardian principal (every mint
+ *    site funnels through a guardianPrincipalId), so the token names the real
+ *    guardian, never some other actor.
+ *  - It fires only when NO `role='guardian'` contact row exists
+ *    (`!hasGuardianContactRow()`) — genuine data loss, never a guardian that
+ *    still exists but whose binding was deliberately revoked/blocked. That
+ *    "no guardian + surviving tokens" state is unreachable by intent (the
+ *    contact-delete route 403s a guardian), so it only arises from data loss.
+ *  - It rebinds the token's EXISTING principal — no divergent mint — and passes
+ *    `reactivateRevoked: false`, so the write path itself refuses to resurrect a
+ *    revoked binding: a second, enforced layer beneath the absent-guardian gate.
+ *  - Only ACTIVE tokens are recovered, so a properly offboarded (revoked)
+ *    guardian is never brought back.
+ */
+async function recoverAbsentVellumGuardianFromActorTokens(): Promise<
+  string | null
+> {
+  if (hasGuardianContactRow()) {
+    return null;
+  }
+  const recoveredPrincipalId = recoverGuardianPrincipalFromActorTokens();
+  if (!recoveredPrincipalId) {
+    return null;
+  }
+  await createGuardianBinding({
+    channel: "vellum",
+    externalUserId: recoveredPrincipalId,
+    deliveryChatId: "local",
+    guardianPrincipalId: recoveredPrincipalId,
+    verifiedVia: "bootstrap",
+    // Derived rebind with no fresh verification act: must not resurrect a
+    // revoked binding. The absent-guardian gate above already means there is
+    // none to resurrect; passing false keeps that true even if the gate moves.
+    reactivateRevoked: false,
+  });
+  log.info(
+    { guardianPrincipalId: recoveredPrincipalId },
+    "Recovered the vellum guardian binding from gateway actor tokens (empty contacts table on an upgraded install)",
+  );
+  return recoveredPrincipalId;
+}
+
+/**
  * Resolve the vellum guardian principal: (a) gateway fast path, then
  * (b) mint a fresh principal when the gateway has no guardian.
  *
@@ -853,48 +923,25 @@ async function resolveOrCreateVellumGuardian(options: {
     };
   }
 
-  const priorEvidence = hasEvidenceOfPriorGuardian();
-  if (priorEvidence && !options.allowMintWithEvidence) {
-    // Boot-time backfill only: before refusing, recover the guardian from the
-    // gateway's own active actor tokens. An install upgraded past the
-    // contact-ACL drop (assistant migration 305) reaches here with an empty
-    // contacts table but the actor tokens migrated into the gateway DB (m0002);
-    // those name the exact principal the client's JWTs still carry. Rebuilding
-    // the vellum binding for THAT principal restores identity from
-    // gateway-native data without minting a divergent one — so it is not the
-    // fail-open re-mint the refusal below guards against. Runtime token/pairing
-    // callers do NOT opt in: they stay fail-closed (repairable 401/503) and let
-    // the boot backfill be the single self-heal seam.
-    //
-    // Gate on a genuinely ABSENT guardian (`!hasGuardianContactRow()`): a
-    // guardian that still exists but whose vellum channel was deliberately
-    // revoked/blocked must stay fail-closed — recovering there would upsert the
-    // channel back to active (createGuardianBinding only protects `blocked`
-    // rows) and silently undo the revoke. Only when no active token survives do
-    // we refuse.
-    const recoveredPrincipalId =
-      options.recoverFromActorTokens && !hasGuardianContactRow()
-        ? recoverGuardianPrincipalFromActorTokens()
-        : null;
-    if (recoveredPrincipalId) {
-      await createGuardianBinding({
-        channel: "vellum",
-        externalUserId: recoveredPrincipalId,
-        deliveryChatId: "local",
-        guardianPrincipalId: recoveredPrincipalId,
-        verifiedVia: "bootstrap",
-      });
-      log.info(
-        { guardianPrincipalId: recoveredPrincipalId },
-        "Recovered the vellum guardian binding from gateway actor tokens (empty contacts table on an upgraded install)",
-      );
+  // Boot-time self-heal: recover an absent guardian from the gateway's own
+  // active actor tokens before the evidence-based refusal below. The full
+  // safety contract lives on recoverAbsentVellumGuardianFromActorTokens.
+  // Runtime token/pairing callers leave recoverFromActorTokens off and stay
+  // fail-closed (repairable 401/503), so the boot backfill is the single
+  // self-heal seam.
+  if (options.recoverFromActorTokens) {
+    const recovered = await recoverAbsentVellumGuardianFromActorTokens();
+    if (recovered) {
       return {
-        guardianPrincipalId: recoveredPrincipalId,
+        guardianPrincipalId: recovered,
         isNew: false,
         mintedOverPriorEvidence: false,
       };
     }
+  }
 
+  const priorEvidence = hasEvidenceOfPriorGuardian();
+  if (priorEvidence && !options.allowMintWithEvidence) {
     // Fires the missing-guardian reporter (error log + telemetry,
     // rate-limited there) when the DB is truly guardian-less. The state is
     // `ok` when a guardian contact row survives with a lost/inactive vellum
@@ -929,6 +976,10 @@ async function resolveOrCreateVellumGuardian(options: {
     deliveryChatId: "local",
     guardianPrincipalId,
     verifiedVia: "bootstrap",
+    // Guardian bootstrap is a verified act (bootstrap secret / platform auth);
+    // the principal is fresh so there is nothing to reactivate, but keep the
+    // classification honest.
+    reactivateRevoked: true,
     ...(displayName ? { displayName } : {}),
   });
   return {
