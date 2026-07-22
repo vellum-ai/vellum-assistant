@@ -1349,7 +1349,7 @@ describe("Memory Item Routes", () => {
     });
 
     test("reports graph_supported true when memory v3 is live", async () => {
-      setConfig("memory", { v3: { live: true } });
+      setConfig("memory", { enabled: true, v3: { live: true } });
       const res = await callHandler(route);
       expect(res.status).toBe(200);
       const body = (await res.json()) as {
@@ -1357,6 +1357,19 @@ describe("Memory Item Routes", () => {
         graph_supported: boolean;
       };
       expect(body.graph_supported).toBe(true);
+    });
+
+    test("reports graph_supported false when memory is disabled, even if v3 is live", async () => {
+      // The user-facing Memory opt-out writes memory.enabled=false; the graph
+      // must not be advertised even when memory.v3.live is still set.
+      setConfig("memory", { enabled: false, v3: { live: true } });
+      const res = await callHandler(route);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        concepts: number;
+        graph_supported: boolean;
+      };
+      expect(body.graph_supported).toBe(false);
     });
   });
 });

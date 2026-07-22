@@ -33,7 +33,7 @@ import { z } from "zod";
 
 import { getConfig } from "../../../../config/loader.js";
 import {
-  isMemoryV3Live,
+  isMemoryGraphSupported,
   usesConceptPageMemory,
 } from "../../../../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../../../../config/types.js";
@@ -492,17 +492,17 @@ function handleGetMemoryItem(id: string) {
  * concept graph is deliberately kept off identity-page load.
  *
  * `graph_supported` reports whether the memory-concept graph is available for
- * this assistant — the same condition under which `GET /memory-graph` returns
- * `supported: true` (memory v3 live). It is a cheap config read (no page I/O),
- * so glanceable surfaces can gate the graph entry point on real availability
- * without triggering the graph build.
+ * this assistant — the same `isMemoryGraphSupported` condition under which
+ * `GET /memory-graph` returns `supported: true` (memory enabled + v3 live). It
+ * is a cheap config read (no page I/O), so glanceable surfaces can gate the
+ * graph entry point on real availability without triggering the graph build.
  */
 async function handleGetMemoryStats(
   config: AssistantConfig,
 ): Promise<{ concepts: number; graph_supported: boolean }> {
   const pageIndex = await getPageIndex(getWorkspaceDir());
   const concepts = pageIndex.entries.filter((e) => e.modifiedAt > 0).length;
-  return { concepts, graph_supported: isMemoryV3Live(config) };
+  return { concepts, graph_supported: isMemoryGraphSupported(config) };
 }
 
 async function handleCreateMemoryItem(body: Record<string, unknown>) {
@@ -824,15 +824,15 @@ export const ROUTES: RouteDefinition[] = [
       "index, for glanceable surfaces like the identity Memory card. Counts " +
       "concept pages only and never builds the memory-concept graph. Also " +
       "reports graph_supported: whether the memory-concept graph is available " +
-      "for this assistant (memory v3 live), so callers can gate the graph " +
-      "entry point without building the graph.",
+      "for this assistant (memory enabled and v3 live), so callers can gate " +
+      "the graph entry point without building the graph.",
     tags: ["memory"],
     responseBody: z.object({
       concepts: z.number().describe("Number of concept pages in memory"),
       graph_supported: z
         .boolean()
         .describe(
-          "Whether the memory-concept graph is available (memory v3 live)",
+          "Whether the memory-concept graph is available (memory enabled and v3 live)",
         ),
     }),
     handler: () => handleGetMemoryStats(getConfig()),

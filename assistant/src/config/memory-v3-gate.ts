@@ -11,6 +11,21 @@ export function isMemoryV3Live(config: AssistantConfig): boolean {
 }
 
 /**
+ * Whether the memory concept graph is available for this assistant — the single
+ * source of truth for both `GET /memory-graph` (`supported`) and the cheap
+ * `graph_supported` bit on `GET /memory/stats`, so the advertised capability
+ * and the actual build can never drift.
+ *
+ * The graph builds off the v3 concept-page substrate, so it requires v3 live.
+ * It also honors the user-facing Memory opt-out: `memory.enabled === false`
+ * turns memory off wholesale, so the graph must not be offered even when
+ * `memory.v3.live` is still set.
+ */
+export function isMemoryGraphSupported(config: AssistantConfig): boolean {
+  return config.memory?.enabled !== false && isMemoryV3Live(config);
+}
+
+/**
  * Whether procedural-memory-as-skills is ACTIVE: it is active whenever
  * memory-v3 is the live injected source. The feature is scoped to v3-live
  * assistants because skill retrieval rides the v3 lanes and the usage-prune
