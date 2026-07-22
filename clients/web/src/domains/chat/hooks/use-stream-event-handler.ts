@@ -480,6 +480,15 @@ export function useStreamEventHandler(
         case "memory_recalled":
         case "memory_status":
           break;
+        // Notification-created broadcasts and recording lifecycle
+        // instructions. The web chat handler is a no-op for these — they target
+        // the CLI/desktop clients or are handled elsewhere.
+        case "notification_conversation_created":
+        case "recording_start":
+        case "recording_stop":
+        case "recording_pause":
+        case "recording_resume":
+          break;
         case "unknown":
           break;
         default: {
