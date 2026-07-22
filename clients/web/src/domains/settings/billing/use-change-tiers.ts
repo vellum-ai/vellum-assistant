@@ -58,6 +58,13 @@ export interface UseChangeTiersResult {
   isPending: boolean;
   current: CurrentTiers;
   eligible: boolean;
+  /**
+   * False while the onboarding query behind `current` is still loading its
+   * first result for a Pro sub. `current.machineTier`/`storageTier` are null in
+   * that window, so callers must wait for this before treating a config as
+   * "not representable" — a false negative would misroute an eligible sub.
+   */
+  currentReady: boolean;
 }
 
 /**
@@ -113,6 +120,12 @@ export function useChangeTiers(): UseChangeTiersResult {
     TIER_CHANGE_ELIGIBLE_STATUSES.has(subscription.status) &&
     subscription.cancel_at_period_end !== true &&
     !subscription.cancel_at;
+
+  // For a Pro sub the current tiers come from the onboarding query, which
+  // resolves after the page has already rendered. Treat them as known only once
+  // that first load settles (success or error) — an error leaves the tiers null,
+  // which the caller safely reads as "not representable" and routes to manage.
+  const currentReady = !onPro || !onboardingQuery.isPending;
 
   const isPending =
     changeMachineTierMutation.isPending ||
@@ -224,5 +237,5 @@ export function useChangeTiers(): UseChangeTiersResult {
     return { needsResize };
   };
 
-  return { changeTiers, isPending, current, eligible };
+  return { changeTiers, isPending, current, eligible, currentReady };
 }

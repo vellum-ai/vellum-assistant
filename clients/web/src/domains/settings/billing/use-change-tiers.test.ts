@@ -27,6 +27,8 @@ const PLANS_KEY = ["plans"];
 // The fixtures the mocked retrieve options resolve; each test seeds them.
 let subscriptionFixture: SubscriptionResponse | null = null;
 let onboardingFixture: OnboardingStateResponse | null = null;
+// When true, the onboarding query stays pending (its first load never lands).
+let onboardingHangs = false;
 
 // Per-dimension captured bodies + resolution controls.
 type Body = { body: Record<string, unknown> };
@@ -45,7 +47,10 @@ mock.module("@/generated/api/@tanstack/react-query.gen", () => ({
   organizationsBillingSubscriptionRetrieveQueryKey: () => SUBSCRIPTION_KEY,
   organizationsBillingSubscriptionOnboardingRetrieveOptions: () => ({
     queryKey: ONBOARDING_KEY,
-    queryFn: () => onboardingFixture,
+    // When `onboardingHangs`, never resolves — models the first onboarding load
+    // still in flight so `currentReady` can be exercised.
+    queryFn: () =>
+      onboardingHangs ? new Promise(() => {}) : onboardingFixture,
   }),
   organizationsBillingSubscriptionOnboardingRetrieveQueryKey: () =>
     ONBOARDING_KEY,
@@ -116,7 +121,7 @@ function onboarding(
  * Render the hook against a fresh QueryClient seeded with the current fixtures,
  * recording every key passed to `invalidateQueries`.
  */
-function setup() {
+function setup({ seedOnboarding = true }: { seedOnboarding?: boolean } = {}) {
   const client = new QueryClient({
     defaultOptions: {
       queries: {
@@ -129,7 +134,9 @@ function setup() {
     },
   });
   client.setQueryData(SUBSCRIPTION_KEY, subscriptionFixture);
-  client.setQueryData(ONBOARDING_KEY, onboardingFixture);
+  if (seedOnboarding) {
+    client.setQueryData(ONBOARDING_KEY, onboardingFixture);
+  }
   const invalidatedKeys: unknown[] = [];
   type InvalidateFn = QueryClient["invalidateQueries"];
   const originalInvalidate = client.invalidateQueries.bind(client);
@@ -152,6 +159,7 @@ describe("useChangeTiers", () => {
     machineImpl = async () => ({});
     storageImpl = async () => ({});
     creditImpl = async () => ({});
+    onboardingHangs = false;
     subscriptionFixture = proSubscription();
     onboardingFixture = onboarding();
   });
@@ -183,6 +191,28 @@ describe("useChangeTiers", () => {
     subscriptionFixture = proSubscription({ plan_id: "base" });
     const { result } = setup();
     expect(result.current.eligible).toBe(false);
+  });
+
+  test("currentReady is false while the onboarding query is still loading", () => {
+    // No seeded onboarding data + a hanging fetch keeps the query pending.
+    onboardingHangs = true;
+    const { result } = setup({ seedOnboarding: false });
+    expect(result.current.currentReady).toBe(false);
+    // The current tiers aren't known yet, so they read as null.
+    expect(result.current.current.machineTier).toBeNull();
+    expect(result.current.current.storageTier).toBeNull();
+  });
+
+  test("currentReady is true once the onboarding data is present", () => {
+    const { result } = setup();
+    expect(result.current.currentReady).toBe(true);
+  });
+
+  test("currentReady is true for a base sub (no onboarding to await)", () => {
+    subscriptionFixture = proSubscription({ plan_id: "base" });
+    onboardingHangs = true;
+    const { result } = setup({ seedOnboarding: false });
+    expect(result.current.currentReady).toBe(true);
   });
 
   test("fires only the changed dimensions and invalidates on success", async () => {

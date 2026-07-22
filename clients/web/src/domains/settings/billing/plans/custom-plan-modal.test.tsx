@@ -54,6 +54,9 @@ let machineTierError: unknown = null;
 let subscriptionFixture: SubscriptionResponse | null = null;
 let plansFixture: PlanListResponse | null = null;
 let onboardingFixture: OnboardingStateResponse | null = null;
+// When true, the onboarding fetch never resolves — models the first load still
+// in flight so the Configure CTA's loading gate can be exercised.
+let onboardingHangs = false;
 
 mock.module("@/generated/api/sdk.gen", () => ({
   ...sdkGen,
@@ -84,7 +87,9 @@ mock.module("@/generated/api/sdk.gen", () => ({
   organizationsBillingPlansRetrieve: () =>
     Promise.resolve({ data: plansFixture, response: { ok: true } }),
   organizationsBillingSubscriptionOnboardingRetrieve: () =>
-    Promise.resolve({ data: onboardingFixture, response: { ok: true } }),
+    onboardingHangs
+      ? new Promise(() => {})
+      : Promise.resolve({ data: onboardingFixture, response: { ok: true } }),
 }));
 
 mock.module("@/runtime/browser", () => ({
@@ -268,6 +273,7 @@ function LocationProbe() {
 function renderPage(
   subscription: SubscriptionResponse,
   onboardingData: OnboardingStateResponse = onboarding(),
+  { seedOnboarding = true }: { seedOnboarding?: boolean } = {},
 ) {
   subscriptionFixture = subscription;
   plansFixture = fullCatalog();
@@ -291,10 +297,12 @@ function renderPage(
     organizationsBillingPlansRetrieveQueryKey(),
     fullCatalog(),
   );
-  client.setQueryData(
-    organizationsBillingSubscriptionOnboardingRetrieveQueryKey(),
-    onboardingData,
-  );
+  if (seedOnboarding) {
+    client.setQueryData(
+      organizationsBillingSubscriptionOnboardingRetrieveQueryKey(),
+      onboardingData,
+    );
+  }
   return render(
     <MemoryRouter initialEntries={["/assistant/plans"]}>
       <QueryClientProvider client={client}>
@@ -359,6 +367,7 @@ beforeEach(() => {
   creditTierCall = null;
   openedUrl = null;
   machineTierError = null;
+  onboardingHangs = false;
   subscriptionFixture = null;
   plansFixture = null;
   onboardingFixture = null;
@@ -494,6 +503,26 @@ describe("CustomPlanModal — eligible Pro subscriber", () => {
     // The manage/cancel fallback route was not taken.
     expect(getByTestId("loc").textContent).toBe("/assistant/plans");
     expect(upgradeCall).toBeNull();
+  });
+
+  test("holds Configure disabled while the current tiers load, without misrouting", () => {
+    // The onboarding query (which supplies the current tiers) is still in
+    // flight. Representability is unknown, so the CTA is disabled rather than
+    // falling through to the manage surface and stranding an eligible sub.
+    onboardingHangs = true;
+    const { getByRole, getByTestId, queryByText } = renderPage(
+      proMightySubscription(),
+      onboarding(),
+      { seedOnboarding: false },
+    );
+
+    const configure = getByRole("button", { name: "Configure" });
+    expect((configure as HTMLButtonElement).disabled).toBe(true);
+
+    fireEvent.click(configure);
+    expect(queryByText("Create a custom plan")).toBeNull();
+    // The manage/cancel fallback route was not taken.
+    expect(getByTestId("loc").textContent).toBe("/assistant/plans");
   });
 
   test("opens seeded to the current plan so Continue needs no re-pick", () => {

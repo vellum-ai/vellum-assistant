@@ -133,6 +133,7 @@ export function PlansPage() {
     isPending: changeTiersPending,
     current,
     eligible,
+    currentReady,
   } = useChangeTiers();
   const [pending, setPending] = useState(false);
   const [customPlanOpen, setCustomPlanOpen] = useState(false);
@@ -371,6 +372,13 @@ export function PlansPage() {
 
     const handleConfigure = () => {
       if (isProUser) {
+        // The current tiers that decide representability load after the page
+        // renders. While that first load is in flight, don't fall through to
+        // the manage surface — the Configure CTA is held disabled until they
+        // land (see `configureDisabled`), so this is a defensive guard.
+        if (eligible && !currentReady) {
+          return;
+        }
         // An eligible Pro sub whose current tiers are all representable here
         // reconfigures in the white modal. Anything else — cancelling /
         // non-entitlement status, or a legacy/deprecated tier the modal can't
@@ -464,7 +472,11 @@ export function PlansPage() {
           })}
         </div>
 
-        <CustomPlanRow className="mt-10" onConfigure={handleConfigure} />
+        <CustomPlanRow
+          className="mt-10"
+          onConfigure={handleConfigure}
+          configureDisabled={isProUser && eligible && !currentReady}
+        />
 
         <CustomPlanModal
           open={customPlanOpen}

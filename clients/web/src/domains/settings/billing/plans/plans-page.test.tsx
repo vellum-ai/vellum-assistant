@@ -395,7 +395,10 @@ describe("PlansPage — current-plan state", () => {
     // Super and Ultra sit above Mighty, so they keep their upgrade CTAs.
     expect(html).toContain("Go Super");
     expect(html).toContain("Unleash Ultra");
-    expect(count(html, /disabled=""/g)).toBe(1);
+    // Two disabled buttons: the current-plan (Mighty) CTA, and Configure —
+    // held disabled until the onboarding query supplies the current tiers,
+    // which a static first-paint render (no effects) never loads.
+    expect(count(html, /disabled=""/g)).toBe(2);
   });
 });
 
