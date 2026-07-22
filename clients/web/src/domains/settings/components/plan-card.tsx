@@ -40,7 +40,10 @@ import { Notice } from "@vellumai/design-library/components/notice";
 import { Tag } from "@vellumai/design-library/components/tag";
 import { toast } from "@vellumai/design-library/components/toast";
 import { Typography } from "@vellumai/design-library/components/typography";
-import { extractMutationError } from "./adjust-plan-utils";
+import {
+    extractMutationError,
+    TIER_CHANGE_ELIGIBLE_STATUSES,
+} from "./adjust-plan-utils";
 import { formatMonthly } from "./tier-pricing";
 
 interface PlanDisplay {
@@ -452,6 +455,9 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
     // sub. A customized sub's tiers no longer match the stock package (posting
     // the next stock key would use wrong deltas / drop custom line items), and a
     // cancelling sub 409s on change-package — both fall back to the manage path.
+    // A sub in a non-entitlement status (`canceled`, `unpaid`, `incomplete`,
+    // `paused`, etc.) can't change package either — gate on the same status set
+    // the tier-change flow uses so the CTA never confirms a mutation that 4xxs.
     const isCancellingSub =
         subscription.cancel_at_period_end === true ||
         Boolean(subscription.cancel_at);
@@ -459,7 +465,9 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
         currentPlan.id !== "base" &&
         subscription.package != null &&
         !subscription.package.customized &&
-        !isCancellingSub;
+        !isCancellingSub &&
+        subscription.status != null &&
+        TIER_CHANGE_ELIGIBLE_STATUSES.has(subscription.status);
 
     return (
         <Card padding="md">

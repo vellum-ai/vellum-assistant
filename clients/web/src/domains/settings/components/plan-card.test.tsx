@@ -630,6 +630,37 @@ describe("PlanCard recommended upgrade — change-package", () => {
     expect(openedUrl).toBeNull();
   });
 
+  test("a non-entitlement-status Pro sub's recommended upgrade stays on the manage path", async () => {
+    const onManage = mock(() => {});
+    const onTierUpgraded = mock(() => {});
+    // A packaged, non-customized, non-cancelling Pro sub in a non-entitlement
+    // status (`unpaid`) can't change package — the endpoint 4xxs. The banner CTA
+    // must gate on TIER_CHANGE_ELIGIBLE_STATUSES and fall back to the manage path
+    // instead of confirming a mutation that can only fail.
+    const subscription: SubscriptionResponse = {
+      ...proMightySubscription(),
+      status: "unpaid",
+    };
+    const { findByTestId } = renderCardInteractive(
+      subscription,
+      plansWithSuper(),
+      onManage,
+      onTierUpgraded,
+    );
+
+    fireEvent.click(await findByTestId("recommended-upgrade-button"));
+
+    await waitFor(() => {
+      expect(onManage).toHaveBeenCalledTimes(1);
+    });
+    // No confirm dialog, no change-package mutation, no navigation.
+    expect(document.querySelector("[data-confirm-dialog-confirm]")).toBeNull();
+    expect(changePackageBody).toBeNull();
+    expect(onTierUpgraded).not.toHaveBeenCalled();
+    expect(navigateArgs).toEqual([]);
+    expect(openedUrl).toBeNull();
+  });
+
   test("a base user's recommended upgrade routes to Stripe checkout", async () => {
     const onTierUpgraded = mock(() => {});
     const { findByTestId } = renderCardInteractive(
