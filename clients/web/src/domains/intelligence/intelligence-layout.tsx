@@ -30,6 +30,10 @@ const CHROME_SECTIONS: readonly IntelligenceSection[] = [
   { label: "Workspace", to: routes.workspace },
   { label: "Contacts", to: routes.contacts.root },
   { label: "Channels", to: routes.channels },
+  // Only the list page — /assistant/library/:appId (the full-bleed app
+  // viewer) is routed outside this layout, so the prefix match never
+  // reaches it.
+  { label: "Library", to: routes.library.root },
 ];
 
 function sectionForPath(pathname: string): IntelligenceSection | null {
@@ -44,8 +48,8 @@ function sectionForPath(pathname: string): IntelligenceSection | null {
  * Shared layout for the "About Assistant" pages. The overview
  * (`/assistant/identity`) and the personality page render full-bleed —
  * they own their avatar-tinted stage chrome — while every other section
- * (Schedules, My Superpowers, Memory, Workspace, Contacts, Channels)
- * renders inside the standard page shell with a back button to the
+ * (Schedules, My Superpowers, Memory, Workspace, Contacts, Channels,
+ * Library) renders inside the standard page shell with a back button to the
  * overview where the old tab bar used to be.
  *
  * Mounted as a pathless layout route in `routes.tsx` so the child routes
