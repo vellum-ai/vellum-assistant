@@ -424,7 +424,8 @@ describe("BillingOnboardingModal", () => {
       // post-confirm onboarding refetch is held open, so routing never settles
       // and the in-content escape button (gated on routing) never appears.
       // Once the watch runs past the escape grace, the fallback background
-      // dismiss must unlock — otherwise the removed X strands the user.
+      // dismiss must unlock — the takeover has no persistent close control, so
+      // this fallback is what keeps the user from being stranded.
       onboardingHold = new Promise(() => {});
       subscriptionPlanId = "pro";
       const { getByText, onClose } = renderModal();

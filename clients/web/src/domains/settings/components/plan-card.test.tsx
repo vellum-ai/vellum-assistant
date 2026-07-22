@@ -295,9 +295,10 @@ describe("PlanCard", () => {
       customized: true,
     };
     const html = renderCard(subscription, plansWithSuper());
-    // A plan whose tiers diverged from the pinned package reads "Mighty
-    // (Custom)" so it doesn't masquerade as the stock package.
-    expect(html).toContain("Mighty (Custom)");
+    // A customized plan reads just "Custom" — no stock-package prefix — so it
+    // doesn't masquerade as a stock package.
+    expect(html).toContain("Custom");
+    expect(html).not.toContain("Mighty (Custom)");
   });
 });
 

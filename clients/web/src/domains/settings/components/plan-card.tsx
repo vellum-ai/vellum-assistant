@@ -346,11 +346,13 @@ export function PlanCard({ onManage }: PlanCardProps) {
     }
 
     const display = PLAN_DISPLAY[currentPlan.id] ?? DEFAULT_DISPLAY;
-    // Prefer the pinned package name (e.g. "Mighty") over the generic plan name
-    // ("Pro"). A plan whose tiers have diverged from the pinned package is
-    // flagged custom so it doesn't masquerade as the stock package.
+    // Show the pinned package name (e.g. "Mighty"), or just "Custom" when the
+    // subscription is customized: its tiers differ from that stock package, so
+    // it isn't labeled as one.
     const planName = subscription.package
-        ? `${subscription.package.name}${subscription.package.customized ? " (Custom)" : ""}`
+        ? subscription.package.customized
+            ? "Custom"
+            : subscription.package.name
         : (currentPlan.name ?? currentPlan.id);
 
     const isCancelling =
