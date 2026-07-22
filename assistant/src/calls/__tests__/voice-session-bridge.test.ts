@@ -71,14 +71,14 @@ import { setConfig } from "../../__tests__/helpers/set-config.js";
 import { ABORT_WATCHDOG_MS } from "../../daemon/abort-watchdog.js";
 import { CALL_OPENING_MARKER } from "../voice-control-protocol.js";
 import {
-  cutFrontDoorContentAtMarker,
+  cutFrontDoorContentAtVerdict,
   startVoiceTurn,
   TOOL_RESULT_PREVIEW_MAX_CHARS,
 } from "../voice-session-bridge.js";
 import {
   escalatedContinuationRule,
   ESCALATION_CONTINUATION_CONTENT,
-  frontDoorTriageRule,
+  frontDoorDecisionRule,
 } from "../voice-triage-escalate.js";
 
 // `resolveProcessingWaitMs` reads `workspaceGit.turnCommitMaxWaitMs`; seed it
@@ -350,8 +350,8 @@ describe("startVoiceTurn escalation-continuation persistence", () => {
 describe("startVoiceTurn triage-and-escalate control prompt", () => {
   // Live-voice supplies its own voiceControlPrompt, bypassing
   // buildVoiceCallControlPrompt where the routing-leg rule is normally injected.
-  // The rule must still be appended, or the front-door model is never told to
-  // emit [ESCALATE] and can't hand off.
+  // The rule must still be appended, or the front-door model never learns the
+  // verdict protocol and can't hold or hand off.
   const LIVE_VOICE_PROMPT = "You are speaking in a local live voice session.";
 
   // The turn installs its resolved control prompt, then cleanup resets it to
@@ -366,7 +366,7 @@ describe("startVoiceTurn triage-and-escalate control prompt", () => {
     return () => applied.find((p): p is string => typeof p === "string");
   }
 
-  test("appends the front-door triage rule to a caller-supplied prompt", async () => {
+  test("appends the front-door decision rule to a caller-supplied prompt", async () => {
     const installed = captureInstalledPrompt();
     await startVoiceTurn({
       ...makeTurnOptions(),
@@ -374,7 +374,18 @@ describe("startVoiceTurn triage-and-escalate control prompt", () => {
       routingLeg: "front-door",
     });
     expect(installed()).toContain(LIVE_VOICE_PROMPT);
-    expect(installed()).toContain(frontDoorTriageRule());
+    expect(installed()).toContain(frontDoorDecisionRule());
+  });
+
+  test("a speculative front-door leg's rule includes the hold branch", async () => {
+    const installed = captureInstalledPrompt();
+    await startVoiceTurn({
+      ...makeTurnOptions(),
+      voiceControlPrompt: LIVE_VOICE_PROMPT,
+      routingLeg: "front-door",
+      unifiedVerdict: true,
+    });
+    expect(installed()).toContain(frontDoorDecisionRule({ includeHold: true }));
   });
 
   test("appends the escalated continuation rule to a caller-supplied prompt", async () => {
@@ -1267,18 +1278,18 @@ describe("front-door leg tool suppression", () => {
   });
 });
 
-describe("cutFrontDoorContentAtMarker", () => {
-  test("null when no text block carries the marker (committed answer)", () => {
+describe("cutFrontDoorContentAtVerdict", () => {
+  test("null when the content carries no verdict token (committed answer)", () => {
     expect(
-      cutFrontDoorContentAtMarker([{ type: "text", text: "It is Tuesday." }]),
+      cutFrontDoorContentAtVerdict([{ type: "text", text: "It is Tuesday." }]),
     ).toBeNull();
   });
 
-  test("cuts at the marker, keeping only the spoken bridge", () => {
-    const cut = cutFrontDoorContentAtMarker([
+  test("an escalated leg reduces to its capped spoken bridge", () => {
+    const cut = cutFrontDoorContentAtVerdict([
       {
         type: "text",
-        text: "Let me check your calendar. [ESCALATE] weak answer",
+        text: "[1] Let me check your calendar. weak answer past the cap",
       },
     ]);
     expect(cut?.blocks).toEqual([
@@ -1287,22 +1298,30 @@ describe("cutFrontDoorContentAtMarker", () => {
     expect(cut?.spokenText).toBe("Let me check your calendar.");
   });
 
-  test("drops blocks after the marker block and keeps earlier ones", () => {
-    const cut = cutFrontDoorContentAtMarker([
-      { type: "text", text: "One moment. " },
-      { type: "text", text: "[ESCALATE]" },
+  test("a verdict split across blocks is still recognized from the joined text", () => {
+    const cut = cutFrontDoorContentAtVerdict([
+      { type: "text", text: "[1" },
+      { type: "text", text: "] One moment. " },
       { type: "text", text: "trailing weak text in its own block" },
     ]);
-    expect(cut?.blocks).toEqual([{ type: "text", text: "One moment. " }]);
+    expect(cut?.blocks).toEqual([{ type: "text", text: "One moment." }]);
     expect(cut?.spokenText).toBe("One moment.");
   });
 
-  test("a bare marker yields empty spoken text (delete-the-row signal)", () => {
-    const cut = cutFrontDoorContentAtMarker([
-      { type: "text", text: "[ESCALATE] discarded" },
-    ]);
+  test("a bare escalate verdict yields empty spoken text (delete-the-row signal)", () => {
+    const cut = cutFrontDoorContentAtVerdict([{ type: "text", text: "[1]" }]);
     expect(cut?.blocks).toEqual([]);
     expect(cut?.spokenText).toBe("");
+  });
+
+  test("stray verdict tokens inside an answer are stripped, not treated as escalation", () => {
+    const cut = cutFrontDoorContentAtVerdict([
+      { type: "text", text: "It is Tuesday [0] indeed." },
+    ]);
+    expect(cut?.blocks).toEqual([
+      { type: "text", text: "It is Tuesday  indeed." },
+    ]);
+    expect(cut?.spokenText).toBe("It is Tuesday  indeed.");
   });
 });
 
@@ -1352,7 +1371,7 @@ describe("front-door transcript hygiene (teardown pass)", () => {
   test("an escalated leg's row is cut to the spoken bridge and history reloads", async () => {
     const { events } = makeReservedRowConversation();
     getMessageByIdImpl = () =>
-      makeRow("Let me check your calendar. [ESCALATE] weak answer");
+      makeRow("[1] Let me check your calendar. weak answer past the cap");
 
     await startVoiceTurn({ ...makeTurnOptions(), routingLeg: "front-door" });
     await flushMicrotasks();
@@ -1371,9 +1390,9 @@ describe("front-door transcript hygiene (teardown pass)", () => {
     expect(events).toContain("loadFromDb");
   });
 
-  test("a bare-marker row (canned fallback was the audio) is deleted", async () => {
+  test("a bare-verdict row (canned fallback was the audio) is deleted", async () => {
     const { events } = makeReservedRowConversation();
-    getMessageByIdImpl = () => makeRow("[ESCALATE] discarded weak text");
+    getMessageByIdImpl = () => makeRow("[1]");
 
     await startVoiceTurn({ ...makeTurnOptions(), routingLeg: "front-door" });
     await flushMicrotasks();
@@ -1383,7 +1402,7 @@ describe("front-door transcript hygiene (teardown pass)", () => {
     expect(events).toContain("loadFromDb");
   });
 
-  test("a committed front-door answer (no marker) is left untouched", async () => {
+  test("a committed front-door answer (no verdict token) is left untouched", async () => {
     const { events } = makeReservedRowConversation();
     getMessageByIdImpl = () => makeRow("It is Tuesday.");
 
@@ -1398,7 +1417,7 @@ describe("front-door transcript hygiene (teardown pass)", () => {
 
   test("a non-routed leg never runs the hygiene pass", async () => {
     makeReservedRowConversation();
-    getMessageByIdImpl = () => makeRow("Anything [ESCALATE] at all");
+    getMessageByIdImpl = () => makeRow("[1] Anything at all");
 
     await startVoiceTurn(makeTurnOptions());
     await flushMicrotasks();

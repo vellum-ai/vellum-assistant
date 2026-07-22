@@ -201,10 +201,10 @@ describe("live-voice triage-and-escalate routing", () => {
     expect(spokenText(frames)).toBe("Sure, it's Tuesday.");
   });
 
-  test("both flags on, tricky turn: [ESCALATE] hands off to a second quality leg", async () => {
+  test("both flags on, tricky turn: the escalate verdict hands off to a second quality leg", async () => {
     enableBothFlags();
     const { starter } = scriptedStartVoiceTurn({
-      frontDoor: ["Let me think about that. ", "[ESCALATE]"],
+      frontDoor: ["[1] ", "Let me think about that."],
       escalated: ["The detailed answer is 42."],
     });
     const { frames, session } = createHarness(starter);
@@ -224,12 +224,12 @@ describe("live-voice triage-and-escalate routing", () => {
     expect(escalated?.content).toBe(ESCALATION_CONTINUATION_CONTENT);
   });
 
-  test("the [ESCALATE] marker and any text after it never reach the transcript", async () => {
+  test("the verdict token and any text past the bridge cap never reach the transcript", async () => {
     enableBothFlags();
     const { starter } = scriptedStartVoiceTurn({
       frontDoor: [
-        "Let me think about that. ",
-        "[ESCALATE] this weak answer kept streaming",
+        "[1] Let me think about that.",
+        " this weak answer kept streaming",
       ],
       escalated: ["The careful answer."],
     });
@@ -241,15 +241,15 @@ describe("live-voice triage-and-escalate routing", () => {
 
     const spoken = spokenText(frames);
     expect(spoken).toContain("Let me think about that.");
-    expect(spoken).not.toContain("[ESCALATE]");
+    expect(spoken).not.toContain("[1]");
     expect(spoken).not.toContain("weak answer");
     expect(spoken).toContain("The careful answer.");
   });
 
-  test("a [ESCALATE] marker split across deltas is still detected and suppressed", async () => {
+  test("a verdict token split across deltas is still detected and suppressed", async () => {
     enableBothFlags();
     const { starter } = scriptedStartVoiceTurn({
-      frontDoor: ["One moment. ", "[ESC", "ALATE]", " leftover"],
+      frontDoor: ["[", "1]", " One moment.", " leftover past the cap"],
       escalated: ["Answer."],
     });
     const { frames, session } = createHarness(starter);
@@ -260,15 +260,33 @@ describe("live-voice triage-and-escalate routing", () => {
 
     const spoken = spokenText(frames);
     expect(spoken).toContain("One moment.");
-    expect(spoken).not.toContain("[ESC");
-    expect(spoken).not.toContain("ALATE");
+    expect(spoken).not.toContain("[1");
+    expect(spoken).not.toContain("1]");
     expect(spoken).not.toContain("leftover");
+  });
+
+  test("a bridge with no sentence terminator hands off at the leg's completion", async () => {
+    enableBothFlags();
+    const { starter } = scriptedStartVoiceTurn({
+      frontDoor: ["[1] Give me a moment"],
+      escalated: ["Answer."],
+    });
+    const { frames, session } = createHarness(starter);
+
+    await driveTurn(session);
+    await waitFor(() => starter.mock.calls.length >= 2);
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    expect(starter.mock.calls[1]?.[0]?.spokenEscalationBridge).toBe(
+      "Give me a moment",
+    );
+    expect(spokenText(frames)).toContain("Give me a moment");
   });
 
   test("the escalated leg receives the front-door leg's actual spoken bridge", async () => {
     enableBothFlags();
     const { starter } = scriptedStartVoiceTurn({
-      frontDoor: ["Let me check your calendar. ", "[ESCALATE] ignored tail"],
+      frontDoor: ["[1] Let me check your calendar.", " ignored tail"],
       escalated: ["You have three connections."],
     });
     const { session } = createHarness(starter);
@@ -283,10 +301,10 @@ describe("live-voice triage-and-escalate routing", () => {
     );
   });
 
-  test("bare [ESCALATE] with no holding phrase still escalates (fallback bridge)", async () => {
+  test("a bare escalate verdict with no holding phrase still escalates (fallback bridge)", async () => {
     enableBothFlags();
     const { starter } = scriptedStartVoiceTurn({
-      frontDoor: ["[ESCALATE]"],
+      frontDoor: ["[1]"],
       escalated: ["The thorough answer."],
     });
     const { frames, session } = createHarness(starter);
@@ -304,14 +322,15 @@ describe("live-voice triage-and-escalate routing", () => {
     expect(starter.mock.calls[1]?.[0]?.spokenEscalationBridge).toBe(
       FALLBACK_ESCALATION_BRIDGE,
     );
-    // The marker itself is never shown; the fallback bridge is audio-only.
-    expect(spokenText(frames)).not.toContain("[ESCALATE]");
+    // The verdict itself is never shown; the fallback bridge is audio-only.
+    expect(spokenText(frames)).not.toContain("[1]");
+    expect(spokenText(frames)).not.toContain(FALLBACK_ESCALATION_BRIDGE);
   });
 
   test("gating requires BOTH flags: voice-triage-escalate alone does not escalate", async () => {
     setOverridesForTesting({ [VOICE_TRIAGE_ESCALATE_FLAG]: true });
     const { starter } = scriptedStartVoiceTurn({
-      frontDoor: ["Let me think. ", "[ESCALATE]"],
+      frontDoor: ["Let me think."],
     });
     const { frames, session } = createHarness(starter);
 
@@ -327,7 +346,7 @@ describe("live-voice triage-and-escalate routing", () => {
   test("gating requires BOTH flags: voice-mode alone does not escalate", async () => {
     setOverridesForTesting({ [VOICE_MODE_FLAG]: true });
     const { starter } = scriptedStartVoiceTurn({
-      frontDoor: ["Let me think. ", "[ESCALATE]"],
+      frontDoor: ["Let me think."],
     });
     const { frames, session } = createHarness(starter);
 
@@ -342,7 +361,7 @@ describe("live-voice triage-and-escalate routing", () => {
   test("barge-in during the escalated leg aborts it", async () => {
     enableBothFlags();
     const { starter, escalatedAbort } = scriptedStartVoiceTurn({
-      frontDoor: ["Let me think about that. ", "[ESCALATE]"],
+      frontDoor: ["[1] ", "Let me think about that."],
       holdEscalated: true,
     });
     const { session } = createHarness(starter);

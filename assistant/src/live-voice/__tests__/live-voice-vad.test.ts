@@ -3185,7 +3185,7 @@ describe("LiveVoiceSession unified front-door endpointing", () => {
 
   test("a hold verdict discards the leg silently and the extension replays the boundary", async () => {
     enableUnifiedFlags();
-    const starter = makeVerdictTurnStarter([["0"], ["Sure thing."]]);
+    const starter = makeVerdictTurnStarter([["[0]"], ["Sure thing."]]);
     const { frames, session, transcribers } = createHarness({
       finals: ["hello world"],
       startVoiceTurn: starter.startVoiceTurn,
@@ -3209,7 +3209,7 @@ describe("LiveVoiceSession unified front-door endpointing", () => {
     expect(countType(frames, "thinking")).toBe(1);
     expect(spokenDeltaText(frames)).toContain("Sure thing.");
     // The spoken stream never contains the verdict token.
-    expect(spokenDeltaText(frames)).not.toContain("0");
+    expect(spokenDeltaText(frames)).not.toContain("[0]");
   });
 
   test("speech resuming mid-verdict discards the leg and the utterance keeps accumulating", async () => {

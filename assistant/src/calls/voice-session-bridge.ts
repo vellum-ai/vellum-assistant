@@ -41,34 +41,40 @@ import { truncate } from "../util/truncate.js";
 import {
   CALL_OPENING_MARKER,
   CALL_VERIFICATION_COMPLETE_MARKER,
-  ESCALATE_MARKER,
+  ESCALATE_VERDICT_TOKEN,
+  HOLD_VERDICT_TOKEN,
   stripInternalSpeechMarkers,
 } from "./voice-control-protocol.js";
 import {
   escalatedContinuationRule,
   ESCALATION_CONTINUATION_CONTENT,
   frontDoorCapabilityDigest,
-  frontDoorHoldRule,
-  frontDoorTriageRule,
+  frontDoorDecisionRule,
+  spokenBridgeText,
   type VoiceRoutingLeg,
 } from "./voice-triage-escalate.js";
 
 const log = getLogger("voice-session-bridge");
 
 /**
- * Front-door triage rule with the registry-derived capability digest. The
+ * Front-door decision rule with the registry-derived capability digest. The
  * front-door leg runs toolless (see the `toolsDisabledDepth` bracket in
  * `startVoiceTurn`), so the digest is its only knowledge of what the
  * escalated leg can do. Registry unavailability degrades to the bare rule.
+ * `includeHold` adds the mid-thought verdict branch (unified front-door
+ * speculative legs only).
  */
-function frontDoorRuleWithDigest(): string {
+function frontDoorRuleWithDigest(includeHold: boolean): string {
   let toolNames: string[] = [];
   try {
     toolNames = getAllTools().map((tool) => tool.name);
   } catch {
     // Tool registry not initialized (e.g. unit tests): digest-less rule.
   }
-  return frontDoorTriageRule(frontDoorCapabilityDigest(toolNames));
+  return frontDoorDecisionRule({
+    includeHold,
+    capabilityDigest: frontDoorCapabilityDigest(toolNames),
+  });
 }
 
 /**
@@ -306,10 +312,10 @@ export interface VoiceTurnOptions {
   spokenEscalationBridge?: string;
   /**
    * Unified front-door: this leg was dispatched speculatively at a silence
-   * boundary, so its control prompt carries the hold-verdict rule (first
-   * token `0` = the caller is mid-thought). Only ever set on front-door
-   * legs — a leg that doesn't know the token can't accidentally speak it,
-   * and a leg that does must be one whose first token is interpreted.
+   * boundary, so its decision rule includes the hold branch (leading token
+   * `[0]` = the caller is mid-thought). Only ever set on front-door legs —
+   * a leg that doesn't know the hold token can't accidentally emit it, and
+   * a leg that does must be one whose leading tokens are interpreted.
    */
   unifiedVerdict?: boolean;
   /**
@@ -368,6 +374,7 @@ function buildVoiceCallControlPrompt(opts: {
   skipDisclosure?: boolean;
   routingLeg?: VoiceRoutingLeg;
   spokenEscalationBridge?: string;
+  unifiedVerdict?: boolean;
 }): string {
   const config = getConfig();
   const disclosureEnabled =
@@ -456,10 +463,10 @@ function buildVoiceCallControlPrompt(opts: {
   );
 
   // Triage-and-escalate routing rules (voice-triage-escalate flag). The
-  // front-door leg triages and may hand off; the escalated leg continues the
+  // front-door leg decides and may hand off; the escalated leg continues the
   // answer after a holding phrase was already spoken.
   if (opts.routingLeg === "front-door") {
-    lines.push(`13. ${frontDoorRuleWithDigest()}`);
+    lines.push(`13. ${frontDoorRuleWithDigest(opts.unifiedVerdict === true)}`);
   } else if (opts.routingLeg === "escalated") {
     lines.push(`13. ${escalatedContinuationRule(opts.spokenEscalationBridge)}`);
   }
@@ -474,45 +481,47 @@ function buildVoiceCallControlPrompt(opts: {
 // ---------------------------------------------------------------------------
 
 /**
- * Cut a front-door leg's persisted content at the `[ESCALATE]` marker.
+ * Reduce a front-door leg's persisted content to what was actually spoken
+ * under the verdict-first protocol.
  *
- * Returns null when no text block carries the marker (a committed front-door
- * answer — nothing to do). Otherwise returns the blocks that were actually
- * spoken — text before the marker with internal markers stripped, the marker
- * and every later block dropped — plus the remaining spoken text so the
- * caller can decide between rewriting the row and deleting it outright.
- * Empty spoken text means the caller heard only the canned fallback bridge,
- * which is audio-only and never a transcript row.
+ * Returns null when the content carries no verdict token (a committed
+ * front-door answer — nothing to do). A leg that led with
+ * `ESCALATE_VERDICT_TOKEN` reduces to a single text block holding the
+ * capped bridge; empty spoken text means the caller heard only the canned
+ * fallback bridge, which is audio-only and never a transcript row, so the
+ * caller should delete the row. Stray verdict tokens elsewhere in an
+ * answer were never spoken (the live gate strips them) and are stripped
+ * from the persisted text to match.
  */
-export function cutFrontDoorContentAtMarker(
+export function cutFrontDoorContentAtVerdict(
   blocks: ContentBlock[],
 ): { blocks: ContentBlock[]; spokenText: string } | null {
-  const markerBlockIdx = blocks.findIndex(
-    (block) => block.type === "text" && block.text.includes(ESCALATE_MARKER),
-  );
-  if (markerBlockIdx === -1) {
+  const joinedText = blocks
+    .map((block) => (block.type === "text" ? block.text : ""))
+    .join("");
+  if (joinedText.trimStart().startsWith(ESCALATE_VERDICT_TOKEN)) {
+    const spokenText = spokenBridgeText(joinedText);
+    return {
+      blocks: spokenText.length > 0 ? [{ type: "text", text: spokenText }] : [],
+      spokenText,
+    };
+  }
+  if (
+    !joinedText.includes(ESCALATE_VERDICT_TOKEN) &&
+    !joinedText.includes(HOLD_VERDICT_TOKEN)
+  ) {
     return null;
   }
   const kept: ContentBlock[] = [];
-  for (const block of blocks.slice(0, markerBlockIdx)) {
-    if (block.type === "text") {
-      const cleaned = stripInternalSpeechMarkers(block.text);
-      if (cleaned.trim().length > 0) {
-        kept.push({ ...block, text: cleaned });
-      }
-    } else {
+  for (const block of blocks) {
+    if (block.type !== "text") {
       kept.push(block);
+      continue;
     }
-  }
-  const markerBlock = blocks[markerBlockIdx] as Extract<
-    ContentBlock,
-    { type: "text" }
-  >;
-  const preMarker = stripInternalSpeechMarkers(
-    markerBlock.text.slice(0, markerBlock.text.indexOf(ESCALATE_MARKER)),
-  );
-  if (preMarker.trim().length > 0) {
-    kept.push({ ...markerBlock, text: preMarker.trimEnd() });
+    const cleaned = stripInternalSpeechMarkers(block.text);
+    if (cleaned.trim().length > 0) {
+      kept.push({ ...block, text: cleaned });
+    }
   }
   const spokenText = kept
     .map((block) => (block.type === "text" ? block.text : ""))
@@ -645,20 +654,18 @@ export async function startVoiceTurn(
       skipDisclosure: opts.skipDisclosure,
       routingLeg: opts.routingLeg,
       spokenEscalationBridge: opts.spokenEscalationBridge,
+      unifiedVerdict: opts.unifiedVerdict,
     });
   } else {
     // A caller-supplied prompt (e.g. live-voice) bypasses
     // buildVoiceCallControlPrompt, which is where the triage-and-escalate rule
     // is normally injected from `routingLeg`. Append it here too — without it
-    // the front-door leg would run on the fast profile but never be told to
-    // emit [ESCALATE], so it could not hand off to the escalated leg.
+    // the front-door leg would run on the fast profile but never learn the
+    // verdict protocol, so it could not hold or hand off to the escalated leg.
     voiceCallControlPrompt = opts.voiceControlPrompt;
     const routingLegRule =
       opts.routingLeg === "front-door"
-        ? [
-            ...(opts.unifiedVerdict === true ? [frontDoorHoldRule()] : []),
-            frontDoorRuleWithDigest(),
-          ].join(" ")
+        ? frontDoorRuleWithDigest(opts.unifiedVerdict === true)
         : opts.routingLeg === "escalated"
           ? escalatedContinuationRule(opts.spokenEscalationBridge)
           : null;
@@ -1163,10 +1170,10 @@ export async function startVoiceTurn(
    *   reserved assistant row: `discard` already rolled back the user row,
    *   and without this the fold leaves a stray row holding the leg's
    *   unspoken partial output (typically the bare hold token).
-   * - A front-door leg that escalated is cut at `[ESCALATE]` so only the
-   *   spoken bridge persists — never the marker or the discarded weak
-   *   answer streamed after it (issue #37850). A row with no spoken bridge
-   *   (canned-fallback case — that bridge is audio-only) is deleted.
+   * - A front-door leg that escalated reduces to its capped spoken bridge —
+   *   never the verdict token or the text streamed past the cap (issue
+   *   #37850). A row with no spoken bridge (canned-fallback case — that
+   *   bridge is audio-only) is deleted.
    *
    * After a rewrite, in-memory history is reloaded from the clean DB before
    * the escalated leg — blocked on this turn's teardown — snapshots it, so
@@ -1187,7 +1194,7 @@ export async function startVoiceTurn(
         changed = true;
       } else {
         const row = getMessageById(reservedAssistantRowId, opts.conversationId);
-        const cut = row ? cutFrontDoorContentAtMarker(row.content) : null;
+        const cut = row ? cutFrontDoorContentAtVerdict(row.content) : null;
         if (cut) {
           if (cut.spokenText.length > 0) {
             updateMessageContent(
