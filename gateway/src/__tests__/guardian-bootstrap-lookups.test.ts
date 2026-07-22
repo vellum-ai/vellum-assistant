@@ -510,6 +510,39 @@ describe("resolve-or-mint (resolveOrCreateVellumGuardian)", () => {
     expect(reportCalls).toEqual([{ integrity_state: "ok" }]);
   });
 
+  test("boot recovery heals past a principal-less guardian stub (contact-prompt pre-bootstrap)", async () => {
+    // A gateway-first contact-prompt stub is role='guardian' but carries no
+    // principal and no active binding. It must NOT count as a real guardian and
+    // block recovery — the surviving tokens name the real guardian, so an
+    // upgraded install carrying only a stub still self-heals.
+    seedGuardianChannel({
+      type: "vellum",
+      address: "stub-addr",
+      status: "unverified",
+      principalId: null,
+      contactId: "stub-contact",
+      channelId: "stub-channel",
+    });
+    seedActorToken(); // active token, guardianPrincipalId "principal-123"
+
+    const principalId = await ensureVellumGuardianBinding({
+      recoverFromActorTokens: true,
+    });
+
+    expect(principalId).toBe("principal-123");
+    // A real guardian binding now exists for the token's principal (alongside
+    // the inert stub).
+    const recovered = gatewayVellumGuardians().find(
+      (r) => r.principalId === "principal-123",
+    );
+    expect(recovered).toMatchObject({
+      address: "principal-123",
+      status: "active",
+    });
+    // Recovery succeeded — no missing-guardian / mint-refused report.
+    expect(reportCalls).toHaveLength(0);
+  });
+
   test("refuses when a guardian contact exists but the vellum binding is inactive — mint-refused report fires", async () => {
     seedGuardianChannel({
       type: "vellum",

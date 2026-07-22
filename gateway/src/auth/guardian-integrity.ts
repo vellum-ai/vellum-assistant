@@ -23,7 +23,7 @@
  * check as "no stamp" and serve the plain verdict (degraded, loud).
  */
 
-import { eq } from "drizzle-orm";
+import { and, eq, isNotNull } from "drizzle-orm";
 
 import { getGatewayDb } from "../db/connection.js";
 import {
@@ -84,6 +84,30 @@ export function hasGuardianContactRow(): boolean {
       .select({ id: contacts.id })
       .from(contacts)
       .where(eq(contacts.role, "guardian"))
+      .limit(1)
+      .get() !== undefined
+  );
+}
+
+/**
+ * Whether a *bootstrapped* guardian exists: a `role='guardian'` contact row
+ * with a non-null `principal_id`.
+ *
+ * Distinct from {@link hasGuardianContactRow}, which also counts the
+ * principal-less guardian STUBS the gateway-first contact-prompt path creates
+ * before bootstrap. Recovery keys on this so a stub can't masquerade as a real
+ * guardian and suppress the self-heal, while a genuine guardian — which always
+ * carries a principal, even when its binding is revoked — still blocks it.
+ * Mirrors the `isNotNull(principalId)` guard `findGuardian` already applies.
+ */
+export function hasGuardianContactWithPrincipal(): boolean {
+  return (
+    getGatewayDb()
+      .select({ id: contacts.id })
+      .from(contacts)
+      .where(
+        and(eq(contacts.role, "guardian"), isNotNull(contacts.principalId)),
+      )
       .limit(1)
       .get() !== undefined
   );

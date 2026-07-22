@@ -29,7 +29,7 @@ import {
   bustGuardianIntegrityCache,
   guardianIntegrityState,
   hasEvidenceOfPriorGuardian,
-  hasGuardianContactRow,
+  hasGuardianContactWithPrincipal,
 } from "./guardian-integrity.js";
 import { CURRENT_POLICY_EPOCH } from "./policy.js";
 import { mintToken } from "./token-service.js";
@@ -842,11 +842,12 @@ async function fetchPlatformOwnerDisplayName(): Promise<string | null> {
  *  - Actor tokens are minted EXCLUSIVELY for the guardian principal (every mint
  *    site funnels through a guardianPrincipalId), so the token names the real
  *    guardian, never some other actor.
- *  - It fires only when NO `role='guardian'` contact row exists
- *    (`!hasGuardianContactRow()`) — genuine data loss, never a guardian that
- *    still exists but whose binding was deliberately revoked/blocked. That
- *    "no guardian + surviving tokens" state is unreachable by intent (the
- *    contact-delete route 403s a guardian), so it only arises from data loss.
+ *  - It fires only when NO *bootstrapped* guardian exists
+ *    (`!hasGuardianContactWithPrincipal()`) — genuine data loss, never a
+ *    guardian with a real identity whose binding was deliberately
+ *    revoked/blocked (that keeps its principal, so it stays fail-closed). A
+ *    principal-less contact-prompt stub is NOT a guardian, so an install
+ *    carrying only a stub plus surviving tokens is still self-healed.
  *  - It rebinds the token's EXISTING principal — no divergent mint — and passes
  *    `reactivateRevoked: false`, so the write path itself refuses to resurrect a
  *    revoked binding: a second, enforced layer beneath the absent-guardian gate.
@@ -856,7 +857,7 @@ async function fetchPlatformOwnerDisplayName(): Promise<string | null> {
 async function recoverAbsentVellumGuardianFromActorTokens(): Promise<
   string | null
 > {
-  if (hasGuardianContactRow()) {
+  if (hasGuardianContactWithPrincipal()) {
     return null;
   }
   const recoveredPrincipalId = recoverGuardianPrincipalFromActorTokens();
