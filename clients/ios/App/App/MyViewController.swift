@@ -354,17 +354,42 @@ extension MyViewController: WKScriptMessageHandler {
 // MARK: - Unreachable self-hosted origin alert
 
 extension MyViewController: WebViewNavigationFailureObserver {
-    /// Present a single native alert when the self-hosted origin's main document
-    /// fails to load. A no-op when no override is active (the baked Vellum Cloud
-    /// URL keeps its existing behavior) or when the failure is a programmatic
-    /// cancellation, e.g. a superseding navigation.
+    /// Present a single native alert when the configured self-hosted server's
+    /// main document fails to load. A no-op when no override is active (the baked
+    /// Vellum Cloud URL keeps its existing behavior), when the failure is a
+    /// programmatic cancellation (e.g. a superseding navigation), or when the
+    /// failed navigation targeted some other host.
+    ///
+    /// The host check matters because the shell loads other URLs into the same
+    /// web view — most notably Universal Links via `AppDelegate.navigateWebView`.
+    /// Without it, an unrelated failure would offer to clear a valid preference.
+    /// The configured server's own failures (boot load, foreground reload, the
+    /// deferred connect pair-page load — all to the configured host) still alert.
     func webViewNavigationDidFail(_ error: Error) {
         guard let configured = SelfHostedServer.configuredURL() else { return }
         let nsError = error as NSError
         if nsError.domain == NSURLErrorDomain, nsError.code == NSURLErrorCancelled {
             return
         }
+        guard let failedHost = Self.failingURL(for: nsError)?.host?.lowercased(),
+              failedHost == configured.host?.lowercased()
+        else {
+            return
+        }
         presentUnreachableAlert(for: configured)
+    }
+
+    /// The URL whose load failed, read from the navigation error. Populated on
+    /// the `NSURLErrorDomain` failures the unreachable alert cares about
+    /// (unreachable host, TLS, timeout).
+    private static func failingURL(for error: NSError) -> URL? {
+        if let url = error.userInfo[NSURLErrorFailingURLErrorKey] as? URL {
+            return url
+        }
+        if let string = error.userInfo[NSURLErrorFailingURLStringErrorKey] as? String {
+            return URL(string: string)
+        }
+        return nil
     }
 
     private func presentUnreachableAlert(for origin: URL) {
