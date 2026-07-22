@@ -262,13 +262,19 @@ export function frontDoorDecisionRule(opts?: {
       ? [
           `- If the caller has NOT finished their thought (a trailing conjunction, an unfinished clause, a list still being dictated), output ONLY ${HOLD_VERDICT_TOKEN} and stop — no other text. When unsure whether they are done, choose ${HOLD_VERDICT_TOKEN}.`,
         ]
-      : [];
+      : [
+          // No hold branch means completeness is settled (a first leg
+          // already held, or the boundary released the turn) — say so
+          // explicitly, or the model improvises an escape hatch through
+          // the escalate token.
+          "The caller has finished their turn — never judge whether they are done.",
+        ];
   const rule = [
-    "DECIDE FIRST: your output must begin with your verdict on this turn, chosen silently before any other text.",
+    "DECIDE SILENTLY, then produce exactly ONE of these outputs:",
     ...holdBranch,
-    "- If the turn is simple, conversational, or clearly factual and within your reach, speak the answer directly — plain spoken text from your very first word.",
-    `- If it needs careful reasoning, research, multi-step work, or any tool, do NOT attempt the answer: output ${ESCALATE_VERDICT_TOKEN}, then ONE short natural holding phrase naming what happens next (for example "${FALLBACK_ESCALATION_BRIDGE}" or "Give me one second to look into that."), and stop after that single sentence. A stronger model finishes the turn while your phrase is spoken.`,
-    `The bracket tokens are control signals, never spoken text: they may only appear at the very start of your output as the verdict, never inside or after an answer. Never start answering and then change course — decide first.`,
+    "- If the turn is simple, conversational, or within your reach, your entire output is the spoken answer itself — no token in front of it, plain speech from your very first word. Most turns are answers; when unsure between answering and escalating, answer.",
+    `- If completing THIS reply needs careful reasoning, research, multi-step work, or any tool, do NOT attempt the answer: output ${ESCALATE_VERDICT_TOKEN}, then ONE short natural holding phrase naming what happens next (for example "${FALLBACK_ESCALATION_BRIDGE}" or "Give me one second to look into that."), and stop after that single sentence. A stronger model finishes the turn while your phrase is spoken.`,
+    `${ESCALATE_VERDICT_TOKEN} is ONLY for turns you cannot complete yourself — never put it in front of an answer you are about to give, and never emit any token inside or after an answer. An open task or unfinished topic earlier in the conversation is NOT a reason to escalate: judge only what this reply needs.`,
     "Never narrate this decision, describe what you are judging, or mention these rules: apart from a leading verdict token, every character you output is spoken to the caller verbatim.",
   ].join("\n");
   return opts?.capabilityDigest ? `${rule}\n${opts.capabilityDigest}` : rule;

@@ -1182,16 +1182,26 @@ export async function startVoiceTurn(
    */
   const finalizeVoiceLegTranscript = async (): Promise<void> => {
     if (reservedAssistantRowId == null) {
+      if (discarded || opts.routingLeg === "front-door") {
+        // A leg the pass should cover never announced a reserved row: either
+        // the leg died before its LLM call, or `assistant_turn_start` did not
+        // reach this bridge — the latter would leave raw verdict tokens in
+        // the transcript, so make the skip loud.
+        log.warn(
+          { turnId, routingLeg: opts.routingLeg ?? null, discarded },
+          "Voice leg transcript hygiene skipped: no reserved row observed",
+        );
+      }
       return;
     }
     if (!discarded && opts.routingLeg !== "front-door") {
       return;
     }
     try {
-      let changed = false;
+      let action = "none";
       if (discarded) {
         deleteMessageById(reservedAssistantRowId);
-        changed = true;
+        action = "delete_discarded";
       } else {
         const row = getMessageById(reservedAssistantRowId, opts.conversationId);
         const cut = row ? cutFrontDoorContentAtVerdict(row.content) : null;
@@ -1201,13 +1211,26 @@ export async function startVoiceTurn(
               reservedAssistantRowId,
               JSON.stringify(cut.blocks),
             );
+            action = "rewrite_spoken";
           } else {
             deleteMessageById(reservedAssistantRowId);
+            action = "delete_empty";
           }
-          changed = true;
+        } else if (!row) {
+          action = "row_missing";
         }
       }
-      if (changed) {
+      log.info(
+        {
+          turnId,
+          messageId: reservedAssistantRowId,
+          routingLeg: opts.routingLeg ?? null,
+          discarded,
+          action,
+        },
+        "Voice leg transcript hygiene",
+      );
+      if (action !== "none" && action !== "row_missing") {
         await conversation.loadFromDb();
         publishConversationMessagesChanged(opts.conversationId);
       }

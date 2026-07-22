@@ -75,11 +75,36 @@ describe("front-door decision rule", () => {
   const rule = frontDoorDecisionRule();
 
   test("demands a leading verdict and teaches the escalate token", () => {
-    expect(rule).toContain("DECIDE FIRST");
+    expect(rule).toContain("DECIDE SILENTLY");
     expect(rule).toContain(ESCALATE_VERDICT_TOKEN);
-    // The verdict must lead — never answer, then bail (spoken audio is final).
-    expect(rule.toLowerCase()).toContain("must begin with your verdict");
-    expect(rule.toLowerCase()).toContain("never start answering");
+    // The escalate token is never a prefix on an answer the model gives
+    // itself — regression: Haiku emitted "[1]" and then just answered,
+    // turning a chatty turn into a pointless escalation.
+    expect(rule.toLowerCase()).toContain("never put it in front of an answer");
+    expect(rule.toLowerCase()).toContain("no token in front of it");
+  });
+
+  test("biases toward answering when unsure (over-escalation regression)", () => {
+    expect(rule.toLowerCase()).toContain(
+      "when unsure between answering and escalating, answer",
+    );
+  });
+
+  test("an open task in history is not an escalation trigger", () => {
+    // Regression: with an unresolved task in conversation history, the
+    // front-door escalated pure small talk ("It's going fine.") with a
+    // bridge naming the stale task.
+    expect(rule.toLowerCase()).toContain("not a reason to escalate");
+    expect(rule.toLowerCase()).toContain("judge only what this reply needs");
+  });
+
+  test("without the hold branch, completeness is declared settled", () => {
+    // Regression: replay legs (no hold branch) improvised an escape hatch
+    // through the escalate token when a turn looked incomplete.
+    expect(rule.toLowerCase()).toContain("has finished their turn");
+    expect(
+      frontDoorDecisionRule({ includeHold: true }).toLowerCase(),
+    ).not.toContain("has finished their turn");
   });
 
   test("lists tool needs as an escalate trigger (no fabrication)", () => {
@@ -89,14 +114,14 @@ describe("front-door decision rule", () => {
   test("demands a silent decision — no narrated reasoning in spoken output", () => {
     // Regression: a weak front-door model narrated its triage deliberation
     // aloud ("Context is complete — Alex paused...") before the bridge.
-    expect(rule.toLowerCase()).toContain("chosen silently");
+    expect(rule.toLowerCase()).toContain("decide silently");
     expect(rule.toLowerCase()).toContain("never narrate");
   });
 
   test("bans verdict tokens anywhere but the leading position", () => {
     // Regression: a weak front-door model bled the bare hold digit into a
     // real answer ("hey 0"). Tokens are leading-verdict-only.
-    expect(rule.toLowerCase()).toContain("never inside or after an answer");
+    expect(rule.toLowerCase()).toContain("inside or after an answer");
   });
 
   test("includes the hold branch only when asked for", () => {
