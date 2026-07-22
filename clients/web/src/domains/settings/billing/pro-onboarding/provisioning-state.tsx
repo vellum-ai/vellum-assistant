@@ -85,7 +85,7 @@ function TakeoverAvatar({ assistantId }: { assistantId?: string | null }) {
         size={240}
       />
       <div
-        className="mt-1 h-4 w-40"
+        className="mt-1 h-5 w-64"
         style={{
           // Decorative avatar drop-shadow; raw rgba is conventional for a CSS shadow.
           background:
@@ -371,11 +371,11 @@ export function ProvisioningState({
   return (
     <div
       data-theme="dark"
-      className="relative flex h-full min-h-[420px] w-full flex-col items-center justify-center gap-6 px-6 py-10 text-center"
+      className="relative flex h-full min-h-[420px] w-full flex-col items-center justify-center gap-10 px-6 py-10 text-center"
       style={{ backgroundColor: TAKEOVER_BACKGROUND }}
     >
       <TakeoverAvatar assistantId={assistantId} />
-      <div className="flex flex-col items-center gap-2 [animation:onboarding-step-in_350ms_ease-out] motion-reduce:[animation:none]">
+      <div className="flex flex-col items-center gap-8 [animation:onboarding-step-in_350ms_ease-out] motion-reduce:[animation:none]">
         {renderPhase()}
       </div>
     </div>
