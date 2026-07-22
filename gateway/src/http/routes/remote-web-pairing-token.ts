@@ -19,7 +19,10 @@ const MAX_TOKEN_BODY_BYTES = 512;
 const REMOTE_WEB_PLATFORM = "web";
 
 function jsonError(code: string, message: string, status: number): Response {
-  return Response.json({ error: { code, message } }, { status });
+  return Response.json(
+    { error: { code, message } },
+    { status, headers: { "Cache-Control": "no-store" } },
+  );
 }
 
 function invalidDeviceCodeResponse(): Response {
