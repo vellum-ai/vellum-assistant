@@ -38,7 +38,7 @@ export {
   type ListItem,
   ListSurfaceDataSchema,
   OAuthConnectSurfaceDataSchema,
-  SURFACE_DATA_SCHEMAS,
+  safeParseSurfaceData,
   SURFACE_TYPES,
   SurfaceTypeSchema,
   type TableCellValue,

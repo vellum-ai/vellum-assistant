@@ -13,8 +13,8 @@
  *
  * Every surface type has a canonical schema here; the daemon's
  * `daemon/message-types/surfaces.ts` re-exports the inferred types under
- * their canonical names, and `SURFACE_DATA_SCHEMAS` maps each
- * `surface_type` to its schema so entry points (`surfaceProxyResolver`)
+ * their canonical names, and `safeParseSurfaceData` dispatches a payload
+ * to its `surface_type`'s schema so entry points (`surfaceProxyResolver`)
  * can parse instead of casting.
  */
 
@@ -131,6 +131,25 @@ export const CopyBlockSurfaceDataSchema = z.object({
   language: tolerantString(),
 });
 export type CopyBlockSurfaceData = z.infer<typeof CopyBlockSurfaceDataSchema>;
+
+/**
+ * Normalize a copy_block `ui_show` payload: recover fields the model placed
+ * at the top level of the tool input instead of nesting inside `data`, then
+ * parse through the canonical schema. Shared by the tool's teaching guard and
+ * the daemon resolver so both layers accept exactly the same payloads.
+ */
+export function normalizeCopyBlockShowData(
+  input: Record<string, unknown>,
+  data: Record<string, unknown>,
+): CopyBlockSurfaceData {
+  const normalized: Record<string, unknown> = { ...data };
+  for (const key of ["text", "label", "language"] as const) {
+    if (typeof normalized[key] !== "string" && typeof input[key] === "string") {
+      normalized[key] = input[key];
+    }
+  }
+  return CopyBlockSurfaceDataSchema.parse(normalized);
+}
 
 export const ChoiceOptionSchema = z.object({
   id: z.string(),
@@ -472,23 +491,60 @@ export type SurfaceData =
   | WorkResultSurfaceData;
 
 /**
- * Canonical `data` schema per surface type. `channel_setup` (a side-effect
- * command whose payload is forwarded opaquely to the setup panel) and
- * `task_preferences` (a fixed grid that reads no data) stay opaque records.
+ * Parse a surface `data` payload through its type's canonical schema,
+ * returning `undefined` when the payload does not parse.
+ *
+ * The dispatch is an exhaustive switch rather than a schema registry so the
+ * compiler verifies that every surface type's schema output is a member of
+ * the `SurfaceData` union — a registry keyed by `SurfaceType` erases the
+ * per-type output types and forces casts at every call site.
+ *
+ * Only `card` can actually fail on an object input (its fields validate
+ * without `catch` fallbacks); every other schema is total over plain
+ * objects, and a non-object payload fails them all.
  */
-export const SURFACE_DATA_SCHEMAS: Record<SurfaceType, z.ZodType> = {
-  card: CardSurfaceDataSchema,
-  channel_setup: z.record(z.string(), z.unknown()),
-  choice: ChoiceSurfaceDataSchema,
-  copy_block: CopyBlockSurfaceDataSchema,
-  oauth_connect: OAuthConnectSurfaceDataSchema,
-  form: FormSurfaceDataSchema,
-  list: ListSurfaceDataSchema,
-  table: TableSurfaceDataSchema,
-  confirmation: ConfirmationSurfaceDataSchema,
-  dynamic_page: DynamicPageSurfaceDataSchema,
-  file_upload: FileUploadSurfaceDataSchema,
-  document_preview: DocumentPreviewSurfaceDataSchema,
-  task_preferences: z.record(z.string(), z.unknown()),
-  work_result: WorkResultSurfaceDataSchema,
-};
+export function safeParseSurfaceData(
+  surfaceType: SurfaceType,
+  data: unknown,
+): SurfaceData | undefined {
+  const parse = <T>(schema: z.ZodType<T>): T | undefined => {
+    const result = schema.safeParse(data);
+    return result.success ? result.data : undefined;
+  };
+  switch (surfaceType) {
+    case "card":
+      return parse(CardSurfaceDataSchema);
+    case "choice":
+      return parse(ChoiceSurfaceDataSchema);
+    case "copy_block":
+      return parse(CopyBlockSurfaceDataSchema);
+    case "oauth_connect":
+      return parse(OAuthConnectSurfaceDataSchema);
+    case "form":
+      return parse(FormSurfaceDataSchema);
+    case "list":
+      return parse(ListSurfaceDataSchema);
+    case "table":
+      return parse(TableSurfaceDataSchema);
+    case "confirmation":
+      return parse(ConfirmationSurfaceDataSchema);
+    case "dynamic_page":
+      return parse(DynamicPageSurfaceDataSchema);
+    case "file_upload":
+      return parse(FileUploadSurfaceDataSchema);
+    case "document_preview":
+      return parse(DocumentPreviewSurfaceDataSchema);
+    case "work_result":
+      return parse(WorkResultSurfaceDataSchema);
+    case "channel_setup":
+    case "task_preferences":
+      // Opaque payloads: channel_setup is a side-effect command whose data
+      // is forwarded verbatim to the setup panel, and task_preferences
+      // renders a fixed grid that reads no data. There is no canonical
+      // shape to parse into, so this is the one deliberate cast in the
+      // surface-data parse path.
+      return coerceSurfaceDataRecord(data) as SurfaceData;
+    default:
+      return surfaceType satisfies never;
+  }
+}

@@ -4,7 +4,14 @@ import { z } from "zod";
 import { SurfaceActionSchema } from "../api/events/ui-surface-show.js";
 import {
   CardSurfaceDataSchema,
-  FileUploadSurfaceDataSchema,
+  ChoiceSurfaceDataSchema,
+  coerceSurfaceDataRecord,
+  DynamicPageSurfaceDataSchema,
+  normalizeCopyBlockShowData,
+  OAuthConnectSurfaceDataSchema,
+  safeParseSurfaceData,
+  SURFACE_TYPES,
+  SurfaceTypeSchema,
 } from "../api/surfaces.js";
 import {
   addAppConversationId,
@@ -55,12 +62,9 @@ import type {
   CardSurfaceData,
   ChoiceSurfaceData,
   ConfirmationSurfaceData,
-  CopyBlockSurfaceData,
   DynamicPageSurfaceData,
-  FileUploadSurfaceData,
   FormSurfaceData,
   ListSurfaceData,
-  OAuthConnectSurfaceData,
   ServerMessage,
   SurfaceData,
   SurfaceType,
@@ -475,7 +479,7 @@ function normalizeDynamicPageShowData(
     normalized.preview = input.preview;
   }
 
-  return normalized as unknown as DynamicPageSurfaceData;
+  return DynamicPageSurfaceDataSchema.parse(normalized);
 }
 
 /** First entry that is a non-empty (trimmed) string, else undefined. */
@@ -714,105 +718,6 @@ function normalizeTaskProgressCardPatch(
   return normalizedPatch;
 }
 
-function normalizeChoiceShowData(
-  rawData: Record<string, unknown>,
-): ChoiceSurfaceData {
-  const options = Array.isArray(rawData.options)
-    ? rawData.options
-        .filter((option): option is Record<string, unknown> =>
-          isPlainObject(option),
-        )
-        .map((option) => {
-          const id = typeof option.id === "string" ? option.id.trim() : "";
-          const title =
-            typeof option.title === "string"
-              ? option.title.trim()
-              : typeof option.label === "string"
-                ? option.label.trim()
-                : "";
-          if (!id || !title) {
-            return null;
-          }
-          return {
-            id,
-            title,
-            ...(typeof option.description === "string"
-              ? { description: option.description }
-              : {}),
-            ...(option.recommended === true ? { recommended: true } : {}),
-            ...(isPlainObject(option.data)
-              ? { data: option.data as Record<string, unknown> }
-              : {}),
-          };
-        })
-        .filter(
-          (option): option is NonNullable<typeof option> => option !== null,
-        )
-    : [];
-
-  return {
-    ...(typeof rawData.description === "string"
-      ? { description: rawData.description }
-      : {}),
-    options,
-    selectionMode: rawData.selectionMode === "multiple" ? "multiple" : "single",
-    ...(typeof rawData.submitLabel === "string"
-      ? { submitLabel: rawData.submitLabel }
-      : {}),
-    ...(typeof rawData.commitOnSelect === "boolean"
-      ? { commitOnSelect: rawData.commitOnSelect }
-      : {}),
-  };
-}
-
-function normalizeCopyBlockShowData(
-  rawData: Record<string, unknown>,
-): CopyBlockSurfaceData {
-  return {
-    text: typeof rawData.text === "string" ? rawData.text : "",
-    ...(typeof rawData.label === "string" ? { label: rawData.label } : {}),
-    ...(typeof rawData.language === "string"
-      ? { language: rawData.language }
-      : {}),
-  };
-}
-
-function normalizeOAuthConnectShowData(
-  rawData: Record<string, unknown>,
-): OAuthConnectSurfaceData {
-  return {
-    providerKey:
-      typeof rawData.providerKey === "string" ? rawData.providerKey.trim() : "",
-    ...(typeof rawData.displayName === "string"
-      ? { displayName: rawData.displayName }
-      : {}),
-    ...(typeof rawData.description === "string"
-      ? { description: rawData.description }
-      : {}),
-    ...(typeof rawData.logoUrl === "string" || rawData.logoUrl === null
-      ? { logoUrl: rawData.logoUrl }
-      : {}),
-  };
-}
-
-function normalizeFileUploadShowData(
-  rawData: Record<string, unknown>,
-): FileUploadSurfaceData {
-  // Parse against the canonical schema so the surface carries the shape the
-  // renderer expects. The schema is tolerant (every field optional and coerced)
-  // and recovers the common malformed `acceptedTypes` shapes — a comma-joined or
-  // bare string — into the `string[]` the renderer requires.
-  const parsed = FileUploadSurfaceDataSchema.safeParse(rawData);
-  if (parsed.success) {
-    return parsed.data;
-  }
-  log.warn(
-    { issues: parsed.error.issues },
-    "ui_show file_upload data failed FileUploadSurfaceDataSchema; rendering an empty file_upload surface",
-  );
-  return {};
-}
-
 function buildChoiceActions(data: ChoiceSurfaceData): Array<{
   id: string;
   label: string;
@@ -848,12 +753,13 @@ function isSlackTaskProgressUiException(
     return false;
   }
   if (toolName === "ui_show") {
-    const surfaceType = input.surface_type as SurfaceType;
-    if (surfaceType !== "card") {
+    if (input.surface_type !== "card") {
       return false;
     }
-    const rawData = isPlainObject(input.data) ? input.data : {};
-    const data = normalizeCardShowData(input, rawData);
+    const data = normalizeCardShowData(
+      input,
+      coerceSurfaceDataRecord(input.data),
+    );
     return isTaskProgressCardData(data);
   }
   if (toolName === "ui_update") {
@@ -868,13 +774,12 @@ function isSlackTaskProgressUiException(
     if (!isTaskProgressCardData(stored.data)) {
       return false;
     }
-    const rawPatch = isPlainObject(input.data) ? input.data : {};
+    const rawPatch = coerceSurfaceDataRecord(input.data);
     const patch = normalizeTaskProgressCardPatch(
       stored.data as CardSurfaceData,
       rawPatch,
     );
-    const mergedData = { ...stored.data, ...patch } as SurfaceData;
-    return isTaskProgressCardData(mergedData);
+    return isTaskProgressCardData({ ...stored.data, ...patch });
   }
   return false;
 }
@@ -1123,7 +1028,7 @@ export function showStandaloneSurface(
   const timeoutMs = request.timeoutMs ?? DEFAULT_STANDALONE_TIMEOUT_MS;
 
   // Build surface data from the request payload.
-  const surfaceType = request.surfaceType as SurfaceType;
+  const surfaceType: SurfaceType = request.surfaceType;
   const data = buildStandaloneSurfaceData(request);
   const actions = request.actions?.map((a) => ({
     id: a.id,
@@ -1249,8 +1154,8 @@ function buildStandaloneSurfaceData(
     } as FormSurfaceData;
   }
 
-  // Fallback: pass through opaque data
-  return request.data as unknown as SurfaceData;
+  // Any other surface type: parse through its canonical schema.
+  return safeParseSurfaceData(request.surfaceType, request.data) ?? {};
 }
 
 /**
@@ -1394,7 +1299,7 @@ export function openChannelSetupPanel(
     // conversationId. Cleared by cleanupStandaloneSurface on all outcomes.
     ctx.surfaceState.set(surfaceId, {
       surfaceType: "channel_setup",
-      data: data as SurfaceData,
+      data: safeParseSurfaceData("channel_setup", data) ?? {},
     });
 
     ctx.sendToClient({
@@ -3028,9 +2933,24 @@ export async function surfaceProxyResolver(
 
   if (toolName === "ui_show") {
     const surfaceId = uuid();
-    const surfaceType = input.surface_type as SurfaceType;
+    // Parse, don't cast: an unrecognized surface_type used to be asserted
+    // into the union and fall through to an opaque passthrough the client
+    // silently dropped. Reject it with the valid values instead.
+    const parsedSurfaceType = SurfaceTypeSchema.safeParse(input.surface_type);
+    if (!parsedSurfaceType.success) {
+      const got =
+        typeof input.surface_type === "string" &&
+        input.surface_type.trim().length > 0
+          ? `"${input.surface_type}" is not a valid surface_type`
+          : "`surface_type` is missing";
+      return {
+        content: `Error: ui_show was not displayed — ${got}. Valid surface_type values: ${SURFACE_TYPES.join(", ")}. Resend ui_show with one of these values.`,
+        isError: true,
+      };
+    }
+    const surfaceType = parsedSurfaceType.data;
     const title = typeof input.title === "string" ? input.title : undefined;
-    const rawData = isPlainObject(input.data) ? input.data : {};
+    const rawData = coerceSurfaceDataRecord(input.data);
 
     // channel_setup is a side-effect-only command: it opens the channel setup
     // drawer on the client. Emitted as `open_panel` (not `ui_surface_show`)
@@ -3081,28 +3001,33 @@ export async function surfaceProxyResolver(
       };
     }
 
-    // Each surface type that has a canonical Zod schema gets parsed through it;
-    // the rest pass through raw until migrated (LUM-2134 scope). The per-type
-    // normalizers validate+recover; the union cast at the end is only for the
-    // unmigrated branches that still return hand-written interfaces.
+    // Every surface type parses through its canonical schema. Card,
+    // copy_block, and dynamic_page first run bespoke normalizers that
+    // recover fields the model placed at the top level of the tool input;
+    // the rest go straight through `safeParseSurfaceData`. Choice and
+    // oauth_connect parse into named bindings so their content guards below
+    // read typed data instead of re-narrowing the union.
     const cardData =
       surfaceType === "card"
         ? normalizeCardShowData(input, rawData)
         : undefined;
+    const choiceData =
+      surfaceType === "choice"
+        ? ChoiceSurfaceDataSchema.parse(rawData)
+        : undefined;
+    const oauthData =
+      surfaceType === "oauth_connect"
+        ? OAuthConnectSurfaceDataSchema.parse(rawData)
+        : undefined;
     const data: SurfaceData =
-      cardData !== undefined
-        ? cardData
-        : surfaceType === "choice"
-          ? normalizeChoiceShowData(rawData)
-          : surfaceType === "copy_block"
-            ? normalizeCopyBlockShowData(rawData)
-            : surfaceType === "oauth_connect"
-              ? normalizeOAuthConnectShowData(rawData)
-              : surfaceType === "dynamic_page"
-                ? normalizeDynamicPageShowData(input, rawData)
-                : surfaceType === "file_upload"
-                  ? normalizeFileUploadShowData(rawData)
-                  : (rawData as SurfaceData);
+      cardData ??
+      choiceData ??
+      oauthData ??
+      (surfaceType === "copy_block"
+        ? normalizeCopyBlockShowData(input, rawData)
+        : surfaceType === "dynamic_page"
+          ? normalizeDynamicPageShowData(input, rawData)
+          : (safeParseSurfaceData(surfaceType, rawData) ?? {}));
     // Parse actions through the schema instead of typecasting raw model output.
     // The model may place actions inside `data` instead of the top-level
     // `actions` param — recover them so they aren't silently dropped.
@@ -3123,9 +3048,7 @@ export async function surfaceProxyResolver(
       inputActions = valid.length > 0 ? valid : undefined;
     }
     const actions =
-      surfaceType === "choice"
-        ? buildChoiceActions(data as ChoiceSurfaceData)
-        : inputActions;
+      choiceData !== undefined ? buildChoiceActions(choiceData) : inputActions;
     const hasActions = Array.isArray(actions) && actions.length > 0;
     if (surfaceType === "choice" && !hasActions) {
       return {
@@ -3162,15 +3085,7 @@ export async function surfaceProxyResolver(
         };
       }
     }
-    const oauthProviderKey =
-      surfaceType === "oauth_connect"
-        ? (data as unknown as Record<string, unknown>).providerKey
-        : undefined;
-    if (
-      surfaceType === "oauth_connect" &&
-      (typeof oauthProviderKey !== "string" ||
-        oauthProviderKey.trim().length === 0)
-    ) {
+    if (oauthData !== undefined && oauthData.providerKey.length === 0) {
       return {
         content: "oauth_connect surfaces require data.providerKey.",
         isError: true,
@@ -3309,10 +3224,7 @@ export async function surfaceProxyResolver(
 
   if (toolName === "ui_update") {
     const surfaceId = input.surface_id as string;
-    let patch = (isPlainObject(input.data) ? input.data : {}) as Record<
-      string,
-      unknown
-    >;
+    let patch = coerceSurfaceDataRecord(input.data);
 
     // Merge the partial patch into the stored full surface data
     const stored = ctx.surfaceState.get(surfaceId);
@@ -3330,28 +3242,26 @@ export async function surfaceProxyResolver(
         pushUndoState(ctx.surfaceUndoStacks, surfaceId, currentHtml);
       }
       const rawMerged = { ...stored.data, ...patch };
-      if (stored.surfaceType === "card") {
-        // Validate the merged card data through the canonical schema so
-        // malformed patches (e.g. metadata as a string) are caught here
-        // instead of crashing the client's safeParse.
-        const parsed = CardSurfaceDataSchema.safeParse(rawMerged);
-        mergedData = parsed.success
-          ? parsed.data
-          : (CardSurfaceDataSchema.safeParse(stored.data).data ?? {});
-        if (!parsed.success) {
-          log.warn(
-            { surfaceId, issues: parsed.error.issues },
-            "ui_update card patch produced invalid merged data; reverting to stored data",
-          );
-        }
+      // Validate the merged data through the surface type's canonical schema
+      // so malformed patches (e.g. metadata as a string) are caught here
+      // instead of crashing the client's safeParse.
+      const parsed = safeParseSurfaceData(stored.surfaceType, rawMerged);
+      if (parsed !== undefined) {
+        mergedData = parsed;
       } else {
-        // Other surface types lack canonical Zod schemas (LUM-2134 scope).
-        // The raw merge is the best we can do until they're migrated.
-        mergedData = rawMerged as SurfaceData;
+        log.warn(
+          { surfaceId, surfaceType: stored.surfaceType },
+          "ui_update patch produced invalid merged data; reverting to stored data",
+        );
+        mergedData =
+          safeParseSurfaceData(stored.surfaceType, stored.data) ?? stored.data;
       }
       stored.data = mergedData;
     } else {
-      mergedData = patch as unknown as SurfaceData;
+      // No stored state for this surfaceId, so its surface type — and
+      // therefore its canonical schema — is unknown; forward the patch
+      // opaquely rather than dropping the update.
+      mergedData = patch as SurfaceData;
     }
 
     ctx.sendToClient({
