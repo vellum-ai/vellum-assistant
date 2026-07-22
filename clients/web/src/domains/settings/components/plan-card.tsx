@@ -169,6 +169,13 @@ interface RecommendedUpgradeProps {
      */
     isProUser: boolean;
     /**
+     * Whether this Pro sub is eligible for a one-click, in-place package switch:
+     * true only for a clean packaged Pro sub (has a package pin, not customized,
+     * not cancelling). Every other Pro state falls back to the manage path.
+     * Meaningless for base users, whose CTA always routes to Stripe checkout.
+     */
+    canChangePackage: boolean;
+    /**
      * Base-user delegate. When absent (the base-plan default), the CTA starts
      * the Stripe package checkout directly. Ignored for Pro users, who confirm
      * and call change-package in place.
@@ -191,6 +198,7 @@ function RecommendedUpgrade({
     packages,
     currentKey,
     isProUser,
+    canChangePackage,
     onUpgrade,
     onManage,
     onTierUpgraded,
@@ -232,9 +240,10 @@ function RecommendedUpgrade({
     };
 
     const handleUpgrade = async () => {
-        // A legacy/custom Pro sub with no package pin can't be package-switched
-        // (change-package operates on named packages); keep it on the manage path.
-        if (isProUser && currentKey === null) {
+        // Only a clean packaged Pro sub (has a package pin, not customized, not
+        // cancelling) can be one-click package-switched; every other Pro state
+        // (package-less/legacy, customized, or cancelling) stays on the manage path.
+        if (isProUser && !canChangePackage) {
             onManage();
             return;
         }
@@ -439,6 +448,18 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
     const canOpenPlansTakeover =
         packages.length > 0 &&
         (currentPlan.id === "base" || subscription.package != null);
+    // A one-click, in-place package switch is safe only for a clean packaged Pro
+    // sub. A customized sub's tiers no longer match the stock package (posting
+    // the next stock key would use wrong deltas / drop custom line items), and a
+    // cancelling sub 409s on change-package — both fall back to the manage path.
+    const isCancellingSub =
+        subscription.cancel_at_period_end === true ||
+        Boolean(subscription.cancel_at);
+    const canChangePackage =
+        currentPlan.id !== "base" &&
+        subscription.package != null &&
+        !subscription.package.customized &&
+        !isCancellingSub;
 
     return (
         <Card padding="md">
@@ -504,6 +525,7 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
                         packages={packages}
                         currentKey={currentKey}
                         isProUser={currentPlan.id !== "base"}
+                        canChangePackage={canChangePackage}
                         onManage={onManage}
                         onTierUpgraded={onTierUpgraded}
                     />

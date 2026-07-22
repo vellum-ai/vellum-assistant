@@ -568,6 +568,68 @@ describe("PlanCard recommended upgrade — change-package", () => {
     expect(openedUrl).toBeNull();
   });
 
+  test("a customized Pro sub's recommended upgrade stays on the manage path", async () => {
+    const onManage = mock(() => {});
+    const onTierUpgraded = mock(() => {});
+    // A customized sub's tiers no longer match the stock package, so posting the
+    // next stock package key would use wrong deltas / drop custom line items. The
+    // banner CTA must fall back to the manage path instead of confirming a change.
+    const subscription = proMightySubscription();
+    subscription.package = {
+      key: "mighty",
+      name: "Mighty",
+      version: 1,
+      customized: true,
+    };
+    const { findByTestId } = renderCardInteractive(
+      subscription,
+      plansWithSuper(),
+      onManage,
+      onTierUpgraded,
+    );
+
+    fireEvent.click(await findByTestId("recommended-upgrade-button"));
+
+    await waitFor(() => {
+      expect(onManage).toHaveBeenCalledTimes(1);
+    });
+    // No confirm dialog, no change-package mutation, no navigation.
+    expect(document.querySelector("[data-confirm-dialog-confirm]")).toBeNull();
+    expect(changePackageBody).toBeNull();
+    expect(onTierUpgraded).not.toHaveBeenCalled();
+    expect(navigateArgs).toEqual([]);
+    expect(openedUrl).toBeNull();
+  });
+
+  test("a cancelling Pro sub's recommended upgrade stays on the manage path", async () => {
+    const onManage = mock(() => {});
+    const onTierUpgraded = mock(() => {});
+    // A sub pending cancellation 409s on change-package, so the confirm can only
+    // fail. The banner CTA must fall back to the manage path.
+    const subscription = {
+      ...proMightySubscription(),
+      cancel_at_period_end: true,
+    };
+    const { findByTestId } = renderCardInteractive(
+      subscription,
+      plansWithSuper(),
+      onManage,
+      onTierUpgraded,
+    );
+
+    fireEvent.click(await findByTestId("recommended-upgrade-button"));
+
+    await waitFor(() => {
+      expect(onManage).toHaveBeenCalledTimes(1);
+    });
+    // No confirm dialog, no change-package mutation, no navigation.
+    expect(document.querySelector("[data-confirm-dialog-confirm]")).toBeNull();
+    expect(changePackageBody).toBeNull();
+    expect(onTierUpgraded).not.toHaveBeenCalled();
+    expect(navigateArgs).toEqual([]);
+    expect(openedUrl).toBeNull();
+  });
+
   test("a base user's recommended upgrade routes to Stripe checkout", async () => {
     const onTierUpgraded = mock(() => {});
     const { findByTestId } = renderCardInteractive(
