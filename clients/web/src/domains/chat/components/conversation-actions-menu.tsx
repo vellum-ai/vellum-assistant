@@ -18,7 +18,7 @@ import {
 import { useState, type ReactNode } from "react";
 
 import { useIsMobile } from "@/hooks/use-is-mobile";
-import { openUrlInNewTab } from "@/runtime/browser";
+import { openExternalUrl } from "@/runtime/browser";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import {
   BottomSheet,
@@ -222,7 +222,7 @@ export function renderConversationMenuItems({
   const channelSourceLinkItem = channelSourceLink ? (
     <Primitive.Item
       leftIcon={<ExternalLink size={14} />}
-      onSelect={() => void openUrlInNewTab(channelSourceLink.href)}
+      onSelect={() => void openExternalUrl(channelSourceLink.href)}
     >
       {channelSourceLink.label}
     </Primitive.Item>
@@ -472,7 +472,7 @@ export function renderConversationMenuItemsAsPanelItems({
         key: "channel-source-link",
         icon: ExternalLink,
         label: channelSourceLink.label,
-        run: () => void openUrlInNewTab(channelSourceLink.href),
+        run: () => void openExternalUrl(channelSourceLink.href),
         onClose,
       })
     : null;

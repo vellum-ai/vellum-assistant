@@ -18,6 +18,7 @@ mock.module("@/runtime/native-auth", () => ({
 mock.module("@/runtime/browser", () => ({
   openUrl: openUrlMock,
   openUrlInNewTab: openUrlMock,
+  openExternalUrl: openUrlMock,
 }));
 
 const { ChannelSourceLinkPill } = await import("./channel-source-link-pill");
