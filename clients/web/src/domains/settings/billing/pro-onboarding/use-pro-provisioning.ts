@@ -612,9 +612,14 @@ export function useProProvisioning({
     onboardingSettled,
     confirmError: !proConfirmed && subscriptionQuery.isError,
     // The onboarding endpoint is platform-side (not the restarting assistant
-    // machine), so its failure is surfaced — but only when there's no cached
-    // data to keep driving the flow.
-    targetsError: proConfirmed && onboardingQuery.isError && !onboarding,
+    // machine), so its failure is surfaced — but only when there's no data this
+    // open can drive on. A pre-open cached payload doesn't count: routing waits
+    // on `onboardingFresh`, so a failed on-open refetch that leaves only stale
+    // data would otherwise stall the takeover with nothing shown.
+    targetsError:
+      proConfirmed &&
+      onboardingQuery.isError &&
+      (!onboarding || !onboardingFresh),
     escapeEligible:
       msSinceWatchStart != null && msSinceWatchStart >= PROVISION_ESCAPE_MS,
     retryConfirm,
