@@ -135,7 +135,10 @@ export function WebSearchCard() {
       // writes only the legacy managed mode and lets the deep-merge keep the
       // stored provider — the read bridge renders that pair as Vellum again.
       await whenAssistantVersionKnown();
-      const webSearchService: { provider?: string; mode: string } =
+      const webSearchService: {
+        provider?: string;
+        mode: "managed" | "your-own";
+      } =
         webSearchProvider === "vellum"
           ? supportsWebSearchVellumProvider()
             ? { provider: "vellum", mode: "managed" }
