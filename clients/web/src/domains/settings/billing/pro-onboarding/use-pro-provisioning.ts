@@ -440,29 +440,36 @@ export function useProProvisioning({
       query.state.data?.id != null ? false : pollInterval,
     retry: false,
   });
-  // The post-confirm onboarding fetch has settled — neither the cold load nor
-  // the refetch from the on-open invalidation is in flight. Routing consumes
-  // this ("is domain_setup_available safe to route on yet?"), where "not
-  // currently fetching" is the right question.
-  const onboardingSettled =
-    proConfirmed && !onboardingQuery.isPending && !onboardingQuery.isFetching;
-
-  // The onboarding payload names the server-side provisioning target; it wins
-  // over the active assistant when the two diverge (multi-assistant orgs). Trust
-  // primary_assistant_id only once onboarding has produced a result after this
-  // open (dataUpdatedAt >= openedAt, mirroring subscriptionFresh) — not merely
-  // "not currently fetching". dataUpdatedAt only moves forward, so the primary
-  // survives later background refetches (window-focus, reconnect, invalidation)
-  // instead of transiently dropping to the active assistant and pointing the
-  // polls (and the actuals snapshot) at the wrong one, while a stale pre-open
-  // cached payload is still ignored. Fall back to active until it lands fresh.
-  const primaryAssistantFresh =
+  // Onboarding data is fresh once it has been fetched during this open
+  // (dataUpdatedAt at or after openedAt, mirroring subscriptionFresh), not
+  // merely served from a pre-open cache. A failed on-open refetch can leave
+  // stale cached data with isPending/isFetching both false, so freshness — not
+  // just "not currently fetching" — is what routing and the primary-assistant
+  // target both require. dataUpdatedAt only moves forward, so this stays true
+  // across later background refetches (window-focus, reconnect, invalidation).
+  const onboardingFresh =
     proConfirmed &&
     openedAt != null &&
     onboardingQuery.dataUpdatedAt >= openedAt;
 
+  // The post-confirm onboarding fetch has settled: fresh for this open, and
+  // neither the cold load nor the on-open-invalidation refetch is in flight.
+  // Routing consumes this ("is domain_setup_available safe to route on yet?"),
+  // so it must not settle on a stale pre-checkout payload.
+  const onboardingSettled =
+    onboardingFresh &&
+    !onboardingQuery.isPending &&
+    !onboardingQuery.isFetching;
+
+  // The onboarding payload names the server-side provisioning target; it wins
+  // over the active assistant when the two diverge (multi-assistant orgs). Trust
+  // primary_assistant_id only once onboarding is fresh — otherwise the primary
+  // would transiently drop to the active assistant and point the polls (and the
+  // actuals snapshot) at the wrong one, and a stale pre-open cached payload is
+  // ignored. Fall back to active until it lands fresh.
+
   const assistantId =
-    (primaryAssistantFresh
+    (onboardingFresh
       ? onboardingQuery.data?.primary_assistant_id
       : null) ??
     (onboardingQuery.isPending ? null : (activeAssistantQuery.data?.id ?? null));
@@ -605,9 +612,14 @@ export function useProProvisioning({
     onboardingSettled,
     confirmError: !proConfirmed && subscriptionQuery.isError,
     // The onboarding endpoint is platform-side (not the restarting assistant
-    // machine), so its failure is surfaced — but only when there's no cached
-    // data to keep driving the flow.
-    targetsError: proConfirmed && onboardingQuery.isError && !onboarding,
+    // machine), so its failure is surfaced — but only when there's no data this
+    // open can drive on. A pre-open cached payload doesn't count: routing waits
+    // on `onboardingFresh`, so a failed on-open refetch that leaves only stale
+    // data would otherwise stall the takeover with nothing shown.
+    targetsError:
+      proConfirmed &&
+      onboardingQuery.isError &&
+      (!onboarding || !onboardingFresh),
     escapeEligible:
       msSinceWatchStart != null && msSinceWatchStart >= PROVISION_ESCAPE_MS,
     retryConfirm,

@@ -25,6 +25,7 @@ import {
     organizationsBillingSubscriptionRetrieveOptions,
     organizationsBillingSummaryRetrieveOptions,
 } from "@/generated/api/@tanstack/react-query.gen";
+import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import {
     useActiveAssistantIsPlatformHosted,
     useActiveAssistantLifecycleIsLoading,
@@ -76,13 +77,18 @@ function BillingStatusHandler() {
  * with domain setup offered but no assistant email domain registered yet.
  */
 function FinishProSetupNotice({ onFinishSetup }: { onFinishSetup: () => void }) {
-    const { data: subscription } = useQuery(
-        organizationsBillingSubscriptionRetrieveOptions(),
-    );
+    // Gate the query chain on org readiness (and subscribe to it, so the notice
+    // re-evaluates when the org hydrates): a request fired before the org store
+    // settles omits `Vellum-Organization-Id` and the platform rejects it.
+    const orgReady = useIsOrgReady();
+    const { data: subscription } = useQuery({
+        ...organizationsBillingSubscriptionRetrieveOptions(),
+        enabled: orgReady,
+    });
     const isPro = subscription?.plan_id === "pro";
     const { data: onboarding } = useQuery({
         ...organizationsBillingSubscriptionOnboardingRetrieveOptions(),
-        enabled: isPro,
+        enabled: isPro && orgReady,
     });
     // `domain_setup_available` only says the platform offers domain setup — it
     // stays true after a domain is registered, so the real "still unconfigured"

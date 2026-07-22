@@ -24,6 +24,7 @@ import {
 } from "@/domains/settings/billing/plans/plans-copy";
 import { useChangePackage } from "@/domains/settings/billing/use-change-package";
 import { useChangeTiers } from "@/domains/settings/billing/use-change-tiers";
+import { useCheckoutDismissRefresh } from "@/domains/settings/billing/use-checkout-dismiss-refresh";
 import {
   extractMutationError,
   isPackageSwitchEligible,
@@ -136,6 +137,9 @@ export function PlansPage() {
     eligible,
     currentReady,
   } = useChangeTiers({ enabled: platformReady });
+  // Native iOS keeps Checkout inside an in-app sheet, so the page holds
+  // pre-checkout data until the sheet closes.
+  useCheckoutDismissRefresh();
   const [pending, setPending] = useState(false);
   const [customPlanOpen, setCustomPlanOpen] = useState(false);
   // The package a Pro user is switching to, awaiting reconfirm; null when the

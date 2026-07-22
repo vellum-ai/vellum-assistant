@@ -17,6 +17,7 @@ import {
     PlanTierAvatar,
     TIER_ACCENT,
 } from "@/domains/settings/billing/plan-tier-meta";
+import { useCheckoutDismissRefresh } from "@/domains/settings/billing/use-checkout-dismiss-refresh";
 import {
     formatGraceDate,
     getEffectiveCancelDate,
@@ -207,6 +208,8 @@ function RecommendedUpgrade({
     const { changePackage, isPending: changePending } = useChangePackage();
     const [pending, setPending] = useState(false);
     const [confirmOpen, setConfirmOpen] = useState(false);
+    // Native iOS keeps Checkout inside an in-app sheet; refetch when it closes.
+    useCheckoutDismissRefresh();
 
     const recommended = nextPackageUp(packages, currentKey);
     if (!recommended) return null;

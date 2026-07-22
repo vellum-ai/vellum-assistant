@@ -1065,6 +1065,27 @@ describe("useProProvisioning", () => {
     expect(latest!.targets).toEqual({ machineSize: "large", storageGib: 50 });
     expect(latest!.state).toBe("RESIZING");
   });
+
+  test("a failed on-open refetch with only stale cached targets sets targetsError", async () => {
+    const client = makeClient();
+    // Onboarding cached from an earlier wizard session — never fetched during
+    // this open, so routing (which gates on freshness) can't trust it.
+    client.setQueryData(
+      organizationsBillingSubscriptionOnboardingRetrieveQueryKey(),
+      makeOnboarding(),
+      { updatedAt: realDateNow() - 60_000 },
+    );
+    subscriptionPlanId = "pro";
+    onboardingFails = true;
+    renderProbe(client);
+
+    // Routing can never settle on the stale payload, so the failure has to
+    // surface — otherwise the takeover stalls showing nothing.
+    await waitFor(() => expect(latest!.targetsError).toBe(true), {
+      timeout: 5000,
+    });
+    expect(latest!.onboardingSettled).toBe(false);
+  });
 });
 
 describe("useProProvisioning — ensure-provisioned reconcile", () => {
