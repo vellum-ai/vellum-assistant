@@ -214,10 +214,16 @@ export function PlansPage() {
 
     const selectTier = (tierKey: string) => {
       if (isProUser) {
+        if (tierKey === "free") {
+          // Pro → Free is a subscription cancellation, not a package switch;
+          // route to the billing manage/cancel surface rather than the
+          // (package-only) change-package endpoint, which 400s on non-package
+          // keys.
+          navigate(`${routes.settings.usage}?tab=billing&adjust_plan`);
+          return;
+        }
         // Active Pro orgs switch packages in place via the change-package
-        // endpoint (up or down). Only the named Pro packages route here; the
-        // Free column is a subscription cancellation, not a package switch, so
-        // it stays a no-op (reachable from billing "manage plan").
+        // endpoint (up or down). Only the named Pro packages route here.
         const pkg = packages.find((p) => p.key === tierKey);
         if (!pkg) {
           return;

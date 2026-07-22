@@ -461,6 +461,25 @@ describe("PlansPage — Pro package switch (change-package)", () => {
     expect(getByTestId("loc").textContent).toBe("/assistant/plans");
   });
 
+  test("Pro → Free downgrade routes to the manage/cancel flow, not change-package", async () => {
+    const { findByRole, findByTestId } = renderInteractive(
+      proSuperSubscription(),
+    );
+
+    // Below Super, Free reads "Downgrade to Free". Cancellation can't go through
+    // the package-only change-package endpoint, so it routes to `?adjust_plan`.
+    fireEvent.click(await findByRole("button", { name: "Downgrade to Free" }));
+
+    const loc = await findByTestId("loc");
+    await waitFor(() =>
+      expect(loc.textContent).toBe(
+        "/assistant/settings/usage?tab=billing&adjust_plan",
+      ),
+    );
+    expect(changePackageCall).toBeNull();
+    expect(upgradeCall).toBeNull();
+  });
+
   test("base user CTA starts Stripe checkout, not change-package", async () => {
     const { findByRole } = renderInteractive(freeSubscription());
 
