@@ -1,6 +1,7 @@
 /**
  * Plugin secret-pattern registry: restricted-grammar validation, per-plugin
- * replace/unregister semantics, version counter, and union memoization.
+ * replace/unregister semantics, and union memoization (identity-based —
+ * consumers invalidate via `memoizePluginPatternDerivation`).
  *
  * Also guards the module's import-light invariant — hot-path consumers
  * (`util/log-redact.ts`, used inside log serializers) import the registry, so
@@ -12,7 +13,6 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import {
   getPluginSecretPatterns,
-  getPluginSecretPatternsVersion,
   registerPluginSecretPatterns,
   resetPluginSecretPatternsForTests,
   unregisterPluginSecretPatterns,
@@ -45,6 +45,17 @@ describe("plugin secret-pattern registry", () => {
     expect(union[0]!.regex.test("unrelated text")).toBe(false);
   });
 
+  test("a pattern guaranteeing exactly the minimum match length (4 literal + {12}) is accepted", () => {
+    const result = registerPluginSecretPatterns("acme", [
+      { label: "Acme Key", pattern: "abcd[0-9]{12}" },
+    ]);
+    expect(result.accepted).toBe(1);
+    expect(result.rejected).toEqual([]);
+    expect(getPluginSecretPatterns()[0]!.regex.test("abcd012345678901")).toBe(
+      true,
+    );
+  });
+
   describe("restricted grammar rejections", () => {
     const cases: Array<{ name: string; pattern: string }> = [
       { name: "over-broad .*", pattern: ".*" },
@@ -59,6 +70,19 @@ describe("plugin secret-pattern registry", () => {
         pattern: "virlo_tkn_([A-Za-z0-9_-]{20,})",
       },
       { name: "lookahead", pattern: "virlo_tkn_(?=[A-Za-z0-9]{20,})" },
+      // A literal prefix followed by an alternation branch that matches
+      // everything — the branch bypasses the prefix requirement.
+      { name: "alternation bypass virlo|.*", pattern: "virlo|.*" },
+      // Compiles under RE2 but backtracks catastrophically under the native
+      // engine the stored matcher runs on.
+      { name: "quantified group (?:a+)+", pattern: "virlo_(?:a+)+b" },
+      {
+        name: "nested (lazy) quantifier {4,}?",
+        pattern: "virlo_tkn_[A-Za-z0-9]{4,}?",
+      },
+      // Guaranteed match is only 4 chars — would flag every occurrence of
+      // "http" in ordinary text.
+      { name: "too-short guaranteed match", pattern: "http" },
     ];
 
     for (const { name, pattern } of cases) {
@@ -133,33 +157,7 @@ describe("plugin secret-pattern registry", () => {
       ]);
     });
 
-    test("version bumps on every mutation and not on reads", () => {
-      const v0 = getPluginSecretPatternsVersion();
-      registerPluginSecretPatterns("virlo", [
-        { label: "Virlo API Key", pattern: VALID_PATTERN },
-      ]);
-      const v1 = getPluginSecretPatternsVersion();
-      expect(v1).toBeGreaterThan(v0);
-
-      getPluginSecretPatterns();
-      expect(getPluginSecretPatternsVersion()).toBe(v1);
-
-      registerPluginSecretPatterns("virlo", [
-        { label: "Virlo API Key", pattern: VALID_PATTERN },
-      ]);
-      const v2 = getPluginSecretPatternsVersion();
-      expect(v2).toBeGreaterThan(v1);
-
-      unregisterPluginSecretPatterns("virlo");
-      const v3 = getPluginSecretPatternsVersion();
-      expect(v3).toBeGreaterThan(v2);
-
-      // Unregistering a plugin that never registered is not a mutation.
-      unregisterPluginSecretPatterns("never-registered");
-      expect(getPluginSecretPatternsVersion()).toBe(v3);
-    });
-
-    test("the union is referentially stable between mutations", () => {
+    test("the union is referentially stable between mutations and changes identity on each one", () => {
       registerPluginSecretPatterns("virlo", [
         { label: "Virlo API Key", pattern: VALID_PATTERN },
       ]);
@@ -172,6 +170,15 @@ describe("plugin secret-pattern registry", () => {
       const second = getPluginSecretPatterns();
       expect(second).not.toBe(first);
       expect(getPluginSecretPatterns()).toBe(second);
+
+      unregisterPluginSecretPatterns("other");
+      const third = getPluginSecretPatterns();
+      expect(third).not.toBe(second);
+
+      // Unregistering a plugin that never registered is not a mutation —
+      // downstream memoized derivations must not be invalidated.
+      unregisterPluginSecretPatterns("never-registered");
+      expect(getPluginSecretPatterns()).toBe(third);
     });
   });
 

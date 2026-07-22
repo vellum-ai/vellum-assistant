@@ -49,6 +49,7 @@ import semver from "semver";
 import { z } from "zod";
 
 import assistantPkg from "../../package.json" with { type: "json" };
+import { PLUGIN_SECRET_PATTERN_LIMITS } from "../security/plugin-secret-patterns.js";
 import { finalizeTool } from "../tools/tool-defaults.js";
 import type { Tool, ToolDefinition } from "../tools/types.js";
 import { getLogger } from "../util/logger.js";
@@ -101,16 +102,22 @@ type PluginPackageJson = z.infer<typeof PluginPackageJsonSchema>;
  * security grammar for what makes a *safe* pattern (anchored prefix, ReDoS
  * bounds) is owned by the secret-pattern registry that consumes the parsed
  * field — this schema only bounds sizes so a manifest cannot smuggle in
- * unbounded data.
+ * unbounded data. The bounds themselves come from
+ * {@link PLUGIN_SECRET_PATTERN_LIMITS} so the two layers cannot drift. A
+ * pattern can never be shorter than its required literal prefix, so
+ * `minLiteralPrefix` doubles as the shape-level length floor.
  */
 const CredentialKeyPatternsSchema = z
   .array(
     z.object({
-      label: z.string().min(1).max(40),
-      pattern: z.string().min(4).max(200),
+      label: z.string().min(1).max(PLUGIN_SECRET_PATTERN_LIMITS.maxLabelLength),
+      pattern: z
+        .string()
+        .min(PLUGIN_SECRET_PATTERN_LIMITS.minLiteralPrefix)
+        .max(PLUGIN_SECRET_PATTERN_LIMITS.maxSourceLength),
     }),
   )
-  .max(5);
+  .max(PLUGIN_SECRET_PATTERN_LIMITS.maxPatternsPerPlugin);
 
 /**
  * Shape-validate a raw `credentialKeyPatterns` value from a plugin
