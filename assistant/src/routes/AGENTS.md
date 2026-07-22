@@ -24,17 +24,11 @@ backgroundable — which a thread sharing the daemon's isolate never could.
   timeout **hard-kills** the host + respawns on the next call.
 - **`route-host-protocol.ts`** — the `invoke` wire contract. Bodies ride in the
   framing's binary follow-frame, not the JSON envelope.
-- **`proc-paths.ts`** — the `procs/<name>/` convention (below).
 
-## `$VELLUM_WORKSPACE_DIR/procs/<name>/` convention
-
-Every daemon-managed subprocess keeps its runtime bookkeeping — IPC socket, PID
-file, per-process scratch — under one directory named for it. This replaces the
-ad-hoc sprinkling of `.pid` / `.sock` files across the workspace: `ls
-$VELLUM_WORKSPACE_DIR/procs` is a census of managed subprocesses, and cleanup is
-one `rm -rf`. New subprocesses MUST follow this layout via `proc-paths.ts`
-rather than inventing their own path. Keep socket basenames short — Unix
-`sun_path` is ~104–108 bytes.
+The socket and PID file live under `$VELLUM_WORKSPACE_DIR/procs/<name>/` — the
+per-subprocess path convention (`getProcDir` / `getProcSocketPath` /
+`getProcPidPath`) is in `util/platform.ts` alongside the other managed-process
+path helpers. New subprocesses reuse those rather than inventing their own paths.
 
 ## No handler context (yet)
 

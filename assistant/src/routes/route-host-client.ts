@@ -23,8 +23,8 @@ import { connect, type Socket } from "node:net";
 import type { IpcEnvelope } from "../ipc/ipc-framing.js";
 import { IpcFrameReader, writeMessage } from "../ipc/ipc-framing.js";
 import { getLogger } from "../util/logger.js";
+import { getProcPidPath, getProcSocketPath } from "../util/platform.js";
 import { spawnWorkerProcess } from "../util/worker-process.js";
-import { getProcPidPath, getProcSocketPath } from "./proc-paths.js";
 import {
   ROUTE_HOST_PROC_NAME,
   ROUTE_INVOKE_METHOD,

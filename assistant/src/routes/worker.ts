@@ -25,14 +25,14 @@ import type { IpcEnvelope } from "../ipc/ipc-framing.js";
 import { IpcFrameReader, writeMessage } from "../ipc/ipc-framing.js";
 import { getLogger } from "../util/logger.js";
 import {
-  cleanupWorkerPidFile,
-  startWorkerPidFileGuard,
-} from "../util/worker-process.js";
-import {
   ensureProcDir,
   getProcPidPath,
   getProcSocketPath,
-} from "./proc-paths.js";
+} from "../util/platform.js";
+import {
+  cleanupWorkerPidFile,
+  startWorkerPidFileGuard,
+} from "../util/worker-process.js";
 import {
   ROUTE_HOST_PROC_NAME,
   ROUTE_INVOKE_METHOD,
