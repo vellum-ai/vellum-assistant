@@ -295,6 +295,32 @@ export {
 export type { SynthesizeTextOptions } from "../tts/synthesize-text.js";
 export { synthesizeText, TtsSynthesisError } from "../tts/synthesize-text.js";
 export type { TtsSynthesisResult } from "../tts/types.js";
+// Streaming speech-to-text — open a live transcription session against the
+// assistant's globally configured STT provider stack. The plugin feeds PCM
+// audio chunks via `sendAudio` and receives partial/final transcript events
+// through the `start(onEvent)` callback, closing with `stop`. Resolved from
+// process-local state only (workspace config + credential store), with no
+// in-daemon singletons, so a plugin can open a session from a spawned child
+// process (e.g. a meeting bot piping call audio), not just in-daemon.
+// `SttStreamServerEvent` and its variants type the events handed to `onEvent`;
+// `SttErrorCategory` classifies `error` events; `SttProviderId` names the
+// providers `listStreamingTranscriptionProviderIds` returns.
+export type {
+  StreamingTranscriber,
+  SttErrorCategory,
+  SttProviderId,
+  SttStreamServerClosedEvent,
+  SttStreamServerErrorEvent,
+  SttStreamServerEvent,
+  SttStreamServerFinalEvent,
+  SttStreamServerFinalizedEvent,
+  SttStreamServerPartialEvent,
+} from "../stt/types.js";
+export type { OpenTranscriptionSessionOptions } from "./transcription-session.js";
+export {
+  listStreamingTranscriptionProviderIds,
+  openTranscriptionSession,
+} from "./transcription-session.js";
 // Conversation agent-loop turn — run a full conversation turn (persist user
 // message, execute the agent loop with history/tools/compaction/injections,
 // return the assistant's full content-block response). Accepts ContentBlock[]
