@@ -21,6 +21,7 @@ import {
 } from "../notifications/guardian-delivery-recorder.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
 import { getLogger } from "../util/logger.js";
+import { resolveApprovalSourceReference } from "./approval-source-link.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "./assistant-scope.js";
 import { resolveCapabilities } from "./capabilities.js";
 import { getGuardianBinding } from "./channel-verification-service.js";
@@ -185,6 +186,14 @@ export async function bridgeConfirmationRequestToGuardian(
       questionText,
       riskLevel: guardianRequest.riskLevel ?? undefined,
       commandPreview: guardianRequest.commandPreview ?? undefined,
+      // Reference to the channel message that triggered the confirmation, so
+      // approval cards can link the guardian back to the source conversation.
+      // The hint's field names match TrustContext, so it passes straight through.
+      ...resolveApprovalSourceReference(
+        sourceChannel,
+        conversationId,
+        trustContext,
+      ),
     },
     dedupeKey: `tc-confirmation-request:${guardianRequest.id}`,
     // The broadcaster awaits the returned promise, so the delivery row is

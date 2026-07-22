@@ -12,6 +12,8 @@
 
 import { z } from "zod";
 
+import { externalSourceLinkSchema } from "../messaging/channel-binding-schema.js";
+import { isSlackDmConversation } from "../messaging/providers/slack/message-metadata.js";
 import { nonEmpty } from "./notification-utils.js";
 
 // ── Schema primitives ──────────────────────────────────────────────────
@@ -78,6 +80,19 @@ export const PendingQuestionPayloadSchema =
     toolName: z.string().optional(),
   });
 
+/**
+ * Channel-neutral reference to the message that triggered the approval,
+ * resolved per-channel by `runtime/approval-source-link.ts` (currently only
+ * Slack registers a resolver). Card renderers consume it via
+ * {@link buildToolApprovalSourceView} without channel-format knowledge.
+ */
+const sourceReferenceFields = {
+  /** Channel-native chat/conversation id the request originated from. */
+  sourceChatId: z.string().optional(),
+  /** Deep link to the originating message/thread, when derivable. */
+  sourceLink: externalSourceLinkSchema.optional(),
+};
+
 export const ToolApprovalPayloadSchema =
   GuardianQuestionPayloadBaseSchema.extend({
     requestKind: z.literal("tool_approval"),
@@ -86,6 +101,7 @@ export const ToolApprovalPayloadSchema =
     riskLevel: z.string().optional(),
     /** Secret-redacted summary of the tool invocation arguments. */
     commandPreview: z.string().optional(),
+    ...sourceReferenceFields,
   });
 
 export const ToolGrantPayloadSchema = GuardianQuestionPayloadBaseSchema.extend({
@@ -95,6 +111,7 @@ export const ToolGrantPayloadSchema = GuardianQuestionPayloadBaseSchema.extend({
   riskLevel: z.string().optional(),
   /** Secret-redacted summary of the tool invocation arguments. */
   commandPreview: z.string().optional(),
+  ...sourceReferenceFields,
 });
 
 export const AccessRequestGuardianPayloadSchema =
@@ -134,11 +151,75 @@ export const LenientToolApprovalPayloadSchema = z.object({
   requesterChatId: z.string().nullable().optional(),
   riskLevel: z.string().nullable().optional(),
   commandPreview: z.string().nullable().optional(),
+  sourceChatId: z.string().nullable().optional(),
+  sourceLink: sourceReferenceFields.sourceLink.nullable(),
 });
 
 export type LenientToolApprovalPayload = z.infer<
   typeof LenientToolApprovalPayloadSchema
 >;
+
+// ── Source reference projection ─────────────────────────────────────────
+
+/**
+ * Display-ready source reference for a tool-approval card, shared by every
+ * renderer (the Vellum Surface card and the channel adapters) so the
+ * chat-id/permalink derivation lives in exactly one place. Declared as a
+ * Zod schema because the broadcaster carries the projected view on
+ * `ChannelDeliveryPayload` (computed once per broadcast, never re-derived
+ * per channel).
+ *
+ * Core fields (`channel`, `chatId`, `permalink`) are channel-neutral.
+ * Channel-scoped display facts are named for their channel (`isSlackDm`)
+ * and gated on `channel` — renderers branch on them for richer labels but
+ * must degrade to the neutral fields for every other channel, so a new
+ * channel renders correctly with no projection changes.
+ */
+export const ToolApprovalSourceViewSchema = z.object({
+  /** Channel the request originated from (e.g. `"slack"`). */
+  channel: z.string(),
+  /** Channel-native chat id, when the payload carries one. */
+  chatId: z.string().optional(),
+  /** Whether the source chat is a Slack direct message (`false` for other channels). */
+  isSlackDm: z.boolean(),
+  /** Link to the originating message/thread, when derivable. */
+  permalink: z.string().optional(),
+});
+
+export type ToolApprovalSourceView = z.infer<
+  typeof ToolApprovalSourceViewSchema
+>;
+
+/**
+ * Project a tool-approval payload's source reference into display-ready
+ * facts. Returns `undefined` when the payload names no chat and carries no
+ * link — renderers then fall back to the plain channel label.
+ */
+export function buildToolApprovalSourceView(
+  p: Pick<
+    LenientToolApprovalPayload,
+    "sourceChannel" | "sourceChatId" | "sourceLink" | "requesterChatId"
+  >,
+): ToolApprovalSourceView | undefined {
+  const channel = nonEmpty(p.sourceChannel);
+  if (!channel) {
+    return undefined;
+  }
+  const chatId = nonEmpty(p.sourceChatId) ?? nonEmpty(p.requesterChatId);
+  const permalink =
+    nonEmpty(p.sourceLink?.webUrl) ?? nonEmpty(p.sourceLink?.appUrl);
+  if (!chatId && !permalink) {
+    return undefined;
+  }
+
+  return {
+    channel,
+    chatId,
+    isSlackDm:
+      channel === "slack" && chatId != null && isSlackDmConversation(chatId),
+    permalink,
+  };
+}
 
 interface GuardianRequestModeInput {
   kind: unknown;

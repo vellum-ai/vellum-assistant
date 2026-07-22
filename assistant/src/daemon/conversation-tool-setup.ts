@@ -357,6 +357,8 @@ export function createToolExecutor(
       batchAuthorizedByTask: false,
       requesterExternalUserId: turnTrust.requesterExternalUserId,
       requesterChatId: turnTrust.requesterChatId,
+      sourceMessageId: turnTrust.sourceMessageId,
+      sourceThreadId: turnTrust.sourceThreadId,
       requesterIdentifier: turnTrust.requesterIdentifier,
       requesterDisplayName: turnTrust.requesterDisplayName,
       channelConversationType: turnTrust.conversationType,
