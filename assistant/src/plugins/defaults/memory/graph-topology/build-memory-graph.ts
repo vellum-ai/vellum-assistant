@@ -30,7 +30,6 @@ import {
 import { readPage, renderPageContent } from "../v3/substrate/page-store.js";
 import { isSkillSlug } from "../v3/substrate/skill-store.js";
 import type { Slug } from "../v3/types.js";
-import { isMemoryConceptGraphEnabled } from "./flag.js";
 import {
   buildPendingGraph,
   PENDING_NODE_ID_PREFIX,
@@ -236,7 +235,7 @@ export function assembleMemoryGraph(input: AssembleMemoryGraphInput): {
 export async function getMemoryGraph(
   config: AssistantConfig,
 ): Promise<MemoryGraph> {
-  if (!isMemoryConceptGraphEnabled(config) || !isMemoryV3Live(config)) {
+  if (!isMemoryV3Live(config)) {
     return { backend: null, supported: false, nodes: [], edges: [] };
   }
 
@@ -300,7 +299,7 @@ export async function getMemoryGraphNode(
   config: AssistantConfig,
   id: string,
 ): Promise<MemoryGraphNodeDetail> {
-  if (!isMemoryConceptGraphEnabled(config) || !isMemoryV3Live(config) || !id) {
+  if (!isMemoryV3Live(config) || !id) {
     return { found: false };
   }
   // Pending buffer entries: resolve the id back to its buffer fact. `found:

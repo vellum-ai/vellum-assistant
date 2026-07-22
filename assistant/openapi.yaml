@@ -17516,8 +17516,10 @@ paths:
       operationId: memory_stats_get
       summary: Get lightweight memory stats
       description:
-        Return a cheap count of concept pages from the cached memory page index, for glanceable surfaces like the
-        identity Memory card. Counts concept pages only and never builds the memory-concept graph.
+        "Return a cheap count of concept pages from the cached memory page index, for glanceable surfaces like the
+        identity Memory card. Counts concept pages only and never builds the memory-concept graph. Also reports
+        graph_supported: whether the memory-concept graph is available for this assistant (memory v3 live), so callers
+        can gate the graph entry point without building the graph."
       tags:
         - memory
       responses:
@@ -17531,8 +17533,12 @@ paths:
                   concepts:
                     type: number
                     description: Number of concept pages in memory
+                  graph_supported:
+                    type: boolean
+                    description: Whether the memory-concept graph is available (memory v3 live)
                 required:
                   - concepts
+                  - graph_supported
                 additionalProperties: false
   /v1/memory/v2/backfill:
     post:

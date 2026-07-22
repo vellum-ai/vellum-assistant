@@ -8,7 +8,6 @@ import { CreateMemoryModal } from "@/domains/intelligence/components/concept-gra
 import { memoryGraphOptions } from "@/domains/intelligence/memory-graph/get-memory-graph";
 import { memoryStatsOptions } from "@/domains/intelligence/memory-graph/get-memory-stats";
 import { emitMemoryEvent } from "@/domains/intelligence/memory-telemetry";
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { Button } from "@vellumai/design-library";
 
 interface MemoryPageProps {
@@ -17,49 +16,31 @@ interface MemoryPageProps {
 
 /**
  * The Memory tab (`/assistant/memory`): a full-bleed home for the assistant's
- * memory concept graph. Gated into the nav by the `memory-concept-graph` flag
- * (see `intelligence-layout.tsx`); the graph view handles its own
- * loading / empty / unsupported states, so on a flag-on backend that doesn't
- * expose a graph it shows the graph's "not available" copy rather than a blank
- * tab. The skills constellation stays on the Identity tab.
+ * memory concept graph. A native surface — no feature flag — whose entry point
+ * on the identity overview is gated on graph availability (memory v3 live), so
+ * it is only offered where the graph can build. The graph view handles its own
+ * loading / empty / unsupported states, so a direct visit against a backend
+ * that doesn't expose a graph shows the graph's "not available" copy rather
+ * than a blank tab. The skills constellation stays on the Identity tab.
  */
 export function MemoryPage({ onOpenThread }: MemoryPageProps) {
   const assistantId = useActiveAssistantId();
   const [createOpen, setCreateOpen] = useState(false);
 
-  // The button lets a user seed a memory by hand. Gate it on the same
-  // `memory-concept-graph` flag as the tab, and wait for `hasHydrated` before
-  // trusting a `false`: the store starts on registry defaults until the first
-  // `/feature-flags` response, so gating on the raw flag would flash the button
-  // then hide it (or vice-versa) on load. See the store's `hasHydrated` docs.
-  const flagsHydrated = useAssistantFeatureFlagStore.use.hasHydrated();
-  const memoryFlag = useAssistantFeatureFlagStore.use.memoryConceptGraph();
-  const flagGate = flagsHydrated && memoryFlag;
-
-  // Two backend conditions must hold before revealing the CTA, beyond the flag:
-  //  1. The graph backend is actually supported. The `memory-concept-graph`
-  //     flag can be on against a backend that doesn't expose the graph (e.g.
-  //     `memory.v3.live` is false), where `ConceptGraphView` renders its
-  //     "not available" copy. `GET /memory/stats` still reads `ready` there —
-  //     it only counts page-index entries and doesn't check graph support — so
-  //     it can't stand in for graph readiness. Gate on the graph query's own
-  //     `ready` state (React Query dedupes it with the view's query) so the CTA
-  //     never sits over an unsupported page promising a map that can't update.
-  //  2. The write route exists. The flag also predates `POST /memory/remember`;
-  //     that route and `GET /memory/stats` shipped together, so stats-route
-  //     availability is a reliable capability proxy for the write route on
-  //     daemons that support the graph but predate the create route.
-  // Both gated on `flagGate` so no request fires while the flag/tab is off.
-  const memoryGraph = useQuery({
-    ...memoryGraphOptions(assistantId),
-    enabled: flagGate,
-  });
-  const memoryStats = useQuery({
-    ...memoryStatsOptions(assistantId),
-    enabled: flagGate,
-  });
+  // Two backend conditions must hold before revealing the hand-authoring CTA:
+  //  1. The graph backend is actually supported. `GET /memory/stats` reads
+  //     `ready` even off a graph-supporting backend (it only counts page-index
+  //     entries), so it can't stand in for graph readiness. Gate on the graph
+  //     query's own `ready` state (React Query dedupes it with the view's
+  //     query) so the CTA never sits over an unsupported page promising a map
+  //     that can't update.
+  //  2. The write route exists. `POST /memory/remember` and `GET /memory/stats`
+  //     shipped together, so stats-route availability is a reliable capability
+  //     proxy for the write route on daemons that support the graph but predate
+  //     the create route.
+  const memoryGraph = useQuery(memoryGraphOptions(assistantId));
+  const memoryStats = useQuery(memoryStatsOptions(assistantId));
   const showCreate =
-    flagGate &&
     memoryGraph.data?.kind === "ready" &&
     memoryStats.data?.kind === "ready";
 

@@ -1,7 +1,7 @@
 /**
  * The drill-down sections reachable from the assistant overview page —
  * the replacement for the old About Assistant tab bar. Pure so the
- * capability gating (channels feature flag, memory flag) is
+ * capability gating (channels feature flag, memory-graph availability) is
  * unit-testable without rendering the overview.
  */
 
@@ -18,7 +18,12 @@ export interface IdentitySection {
 export interface IdentitySectionGates {
   /** The `channel-trust-floors` flag exposes the Channels surface. */
   showChannels: boolean;
-  /** The `memory-concept-graph` flag exposes the Memory surface. */
+  /**
+   * Whether the memory-concept graph is available for this assistant (memory
+   * v3 live, reported by `GET /memory/stats` as `graph_supported`). The Memory
+   * surface is native — no feature flag — but only offered where the graph can
+   * actually build, so it never dead-ends on a "not available" graph.
+   */
   showMemory: boolean;
 }
 

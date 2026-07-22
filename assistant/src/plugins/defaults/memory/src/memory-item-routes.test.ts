@@ -1336,5 +1336,27 @@ describe("Memory Item Routes", () => {
       // Two real concept pages; the two synthetic skill rows are excluded.
       expect(body.concepts).toBe(2);
     });
+
+    test("reports graph_supported false when memory v3 is not live", async () => {
+      setConfig("memory", { v3: { live: false } });
+      const res = await callHandler(route);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        concepts: number;
+        graph_supported: boolean;
+      };
+      expect(body.graph_supported).toBe(false);
+    });
+
+    test("reports graph_supported true when memory v3 is live", async () => {
+      setConfig("memory", { v3: { live: true } });
+      const res = await callHandler(route);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        concepts: number;
+        graph_supported: boolean;
+      };
+      expect(body.graph_supported).toBe(true);
+    });
   });
 });
