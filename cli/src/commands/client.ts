@@ -162,12 +162,13 @@ export function parseArgs(): ParsedArgs {
       openBrowserPref = false;
     } else if (arg === "--background") {
       background = true;
-    } else if (arg === "--port" && args[i + 1]) {
+    } else if (arg === "--port") {
       const value = args[++i];
-      const parsed = Number.parseInt(value, 10);
+      const parsed =
+        value === undefined ? Number.NaN : Number.parseInt(value, 10);
       if (String(parsed) !== value || parsed < 1 || parsed > 65535) {
         console.error(
-          `Invalid --port '${value}'. Expected an integer between 1 and 65535.`,
+          `Invalid --port '${value ?? ""}'. Expected an integer between 1 and 65535.`,
         );
         process.exit(1);
       }
@@ -870,7 +871,9 @@ async function isDualLoopbackPortFree(port: number): Promise<boolean> {
  */
 async function findFreeDualLoopbackPort(preferred: number): Promise<number> {
   for (let port = preferred; port < preferred + WEB_PORT_SCAN_LIMIT; port++) {
-    if (await isDualLoopbackPortFree(port)) return port;
+    if (await isDualLoopbackPortFree(port)) {
+      return port;
+    }
   }
   return preferred;
 }
@@ -881,7 +884,9 @@ async function findFreeDualLoopbackPort(preferred: number): Promise<number> {
  * the first free port at/above 3000.
  */
 async function resolveWebPort(webPort: number | undefined): Promise<number> {
-  if (webPort === undefined) return findFreeDualLoopbackPort(3000);
+  if (webPort === undefined) {
+    return findFreeDualLoopbackPort(3000);
+  }
   if (!(await isDualLoopbackPortFree(webPort))) {
     console.error(`Port ${webPort} is already in use`);
     process.exit(1);
@@ -930,8 +935,11 @@ async function spawnBackgroundWebInterface(
   const rawArgs = process.argv.slice(3);
   for (let i = 0; i < rawArgs.length; i++) {
     const arg = rawArgs[i];
-    if (arg === "--background") continue;
-    if (arg === "--port" && rawArgs[i + 1]) {
+    if (arg === "--background") {
+      continue;
+    }
+    // A dangling --port can't reach here — parseArgs already rejected it.
+    if (arg === "--port") {
       i++;
       continue;
     }
@@ -951,7 +959,9 @@ async function spawnBackgroundWebInterface(
     detached: true,
     stdio: ["ignore", fd, fd],
   });
-  if (typeof fd === "number") closeSync(fd);
+  if (typeof fd === "number") {
+    closeSync(fd);
+  }
   child.unref();
 
   const logPath = path.join(getLogDir(), WEB_BACKGROUND_LOG_FILE);
