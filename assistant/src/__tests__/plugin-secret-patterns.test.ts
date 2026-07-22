@@ -83,6 +83,20 @@ describe("plugin secret-pattern registry", () => {
       // Guaranteed match is only 4 chars — would flag every occurrence of
       // "http" in ordinary text.
       { name: "too-short guaranteed match", pattern: "http" },
+      // Multi-character escapes span several source characters per matched
+      // character, so the min-match-length arithmetic would overcount them
+      // (`abcd\x41\x41\x41\x41` scores 16 but guarantees only 8).
+      { name: "hex escape \\xNN", pattern: "abcd\\x41\\x41\\x41\\x41" },
+      {
+        name: "unicode escape \\uNNNN",
+        pattern: "abcd\\u0041\\u0041\\u0041\\u0041",
+      },
+      { name: "control escape \\cX", pattern: "abcd\\cA[A-Za-z0-9]{20,}" },
+      { name: "NUL escape \\0", pattern: "abcd\\0[A-Za-z0-9]{20,}" },
+      {
+        name: "hex escape inside a character class",
+        pattern: "abcd[\\x41-\\x5A]{20,}",
+      },
     ];
 
     for (const { name, pattern } of cases) {
@@ -97,6 +111,30 @@ describe("plugin secret-pattern registry", () => {
         expect(getPluginSecretPatterns()).toEqual([]);
       });
     }
+
+    test("rejects a multi-char escape with the escape reason, not the length reason", () => {
+      // The pattern's naive atom count (16) satisfies the length floor, so a
+      // length-based rejection would prove the overcount is still reachable.
+      const result = registerPluginSecretPatterns("virlo", [
+        { label: "Hex Key", pattern: "abcd\\x41\\x41\\x41\\x41" },
+      ]);
+      expect(result.accepted).toBe(0);
+      expect(result.rejected[0]!.reason).toContain(
+        "hex/unicode/control escapes are not allowed",
+      );
+      expect(result.rejected[0]!.reason).not.toContain("16 characters");
+    });
+
+    test("an escaped dot stays legal (virlo\\.tkn_[a-z]{10})", () => {
+      const result = registerPluginSecretPatterns("virlo", [
+        { label: "Dotted Key", pattern: "virlo\\.tkn_[a-z]{10}" },
+      ]);
+      expect(result.accepted).toBe(1);
+      expect(result.rejected).toEqual([]);
+      const union = getPluginSecretPatterns();
+      expect(union[0]!.regex.test("virlo.tkn_abcdefghij")).toBe(true);
+      expect(union[0]!.regex.test("virloxtkn_abcdefghij")).toBe(false);
+    });
 
     test("rejects a label longer than 40 chars", () => {
       const result = registerPluginSecretPatterns("virlo", [
