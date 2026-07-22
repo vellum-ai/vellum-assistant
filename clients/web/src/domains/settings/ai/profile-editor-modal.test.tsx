@@ -479,6 +479,70 @@ describe("ProfileEditorModal create mode — provider-first", () => {
     expect(saveCalls[0].entry.provider_connection).toBe("vellum-managed");
   });
 
+  test("a new-enough assistant gets the identity payload: provider vellum, no binding", async () => {
+    const { useAssistantIdentityStore } = await import(
+      "@/stores/assistant-identity-store"
+    );
+    useAssistantIdentityStore.getState().setIdentity("test-asst", "0.10.12");
+    try {
+      const saveCalls: { name: string; entry: Record<string, unknown> }[] = [];
+      const onSave = (name: string, entry: unknown) => {
+        saveCalls.push({ name, entry: entry as Record<string, unknown> });
+        return Promise.resolve();
+      };
+      renderCreate([makeConnection("vellum-managed", "vellum")], onSave);
+
+      selectProvider("Vellum");
+      selectModel("Claude Opus 4.8");
+
+      await waitFor(() => {
+        expect(getSaveBtn().disabled).toBe(false);
+      });
+      fireEvent.click(getSaveBtn());
+
+      await waitFor(() => {
+        expect(saveCalls.length).toBe(1);
+      });
+      expect(saveCalls[0].entry.provider).toBe("vellum");
+      expect(saveCalls[0].entry.model).toBe("claude-opus-4-8");
+      expect(saveCalls[0].entry.provider_connection).toBeUndefined();
+    } finally {
+      useAssistantIdentityStore.getState().clearIdentity();
+    }
+  });
+
+  test("an older assistant keeps the legacy payload byte-identical", async () => {
+    const { useAssistantIdentityStore } = await import(
+      "@/stores/assistant-identity-store"
+    );
+    useAssistantIdentityStore.getState().setIdentity("test-asst", "0.10.11");
+    try {
+      const saveCalls: { name: string; entry: Record<string, unknown> }[] = [];
+      const onSave = (name: string, entry: unknown) => {
+        saveCalls.push({ name, entry: entry as Record<string, unknown> });
+        return Promise.resolve();
+      };
+      renderCreate([makeConnection("vellum-managed", "vellum")], onSave);
+
+      selectProvider("Vellum");
+      selectModel("Claude Opus 4.8");
+
+      await waitFor(() => {
+        expect(getSaveBtn().disabled).toBe(false);
+      });
+      fireEvent.click(getSaveBtn());
+
+      await waitFor(() => {
+        expect(saveCalls.length).toBe(1);
+      });
+      expect(saveCalls[0].entry.provider).toBe("anthropic");
+      expect(saveCalls[0].entry.model).toBe("claude-opus-4-8");
+      expect(saveCalls[0].entry.provider_connection).toBe("vellum-managed");
+    } finally {
+      useAssistantIdentityStore.getState().clearIdentity();
+    }
+  });
+
   test("a legacy-shape managed profile presents as Vellum in edit mode", async () => {
     // Managed profiles store their real upstream (anthropic) bound to the
     // vellum connection; the editor must present them as "Vellum".

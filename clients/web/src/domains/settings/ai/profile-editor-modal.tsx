@@ -45,6 +45,7 @@ import {
   getManagedUpstreamForModel,
   parseVellumRoutedModel,
 } from "@/assistant/llm-model-catalog";
+import { assistantSupportsVellumProviderProfiles } from "@/lib/backwards-compat/vellum-profile-provider";
 import { providersServedByConnections } from "@/domains/settings/ai/provider-availability";
 import type {
   ConnectionProvider,
@@ -621,23 +622,35 @@ function ProfileEditorModalInner({
           ? availableConnectionsForProvider[0].name
           : providerConnection;
       const effectiveBinding = connectionNotFound ? "" : resolvedBinding;
-      // The Vellum picker entry writes the legacy wire shape: the model's
-      // managed upstream as `provider`, bound to the vellum connection. Old
-      // daemons accept this today; the payload flips to provider "vellum"
-      // in a later milestone with no UI change.
-      // Derivation can miss for a bound model this build doesn't list (a
-      // newer managed model); the editor preserves such models, so preserve
-      // the stored upstream too instead of clearing it.
-      // A routed `<provider>/<model>` string names its upstream directly and
-      // must be stripped to the upstream's native id in the legacy wire shape.
+      // The Vellum picker entry's wire shape is version-gated. Daemons at
+      // the gate's MIN_VERSION store the routing identity directly:
+      // `provider: "vellum"` + the native model, no connection binding
+      // (dispatch derives the upstream from the model). Older daemons
+      // reject that value at the write route, so they get the legacy
+      // shape: the model's managed upstream as `provider`, bound to the
+      // provider-agnostic vellum connection.
+      // Legacy-shape notes:
+      // - Derivation can miss for a bound model this build doesn't list (a
+      //   newer managed model); the editor preserves such models, so
+      //   preserve the stored upstream too instead of clearing it.
+      // - A routed `<provider>/<model>` string names its upstream directly
+      //   and must be stripped to the upstream's native id.
+      const writesIdentityPayload =
+        provider === VELLUM_CONNECTION_PROVIDER &&
+        assistantSupportsVellumProviderProfiles();
       const wireProvider =
         provider === VELLUM_CONNECTION_PROVIDER
-          ? (routedModel?.provider ??
-            getManagedUpstreamForModel(model) ??
-            initialValues?.provider ??
-            "")
+          ? writesIdentityPayload
+            ? VELLUM_CONNECTION_PROVIDER
+            : (routedModel?.provider ??
+              getManagedUpstreamForModel(model) ??
+              initialValues?.provider ??
+              "")
           : provider;
       const wireModel = nativeModel;
+      // Identity payloads carry no binding; sending null on edit clears a
+      // legacy-shape binding left on the stored profile.
+      const wireBinding = writesIdentityPayload ? "" : effectiveBinding;
       if (effectiveMode === "edit") {
         // In edit mode send null for cleared fields so the server deep-merges
         // them as cleared rather than silently preserving the old value.
@@ -645,14 +658,14 @@ function ProfileEditorModalInner({
         entry.description = description.trim() || null;
         entry.provider = wireProvider || null;
         entry.model = wireModel || null;
-        entry.provider_connection = effectiveBinding || null;
+        entry.provider_connection = wireBinding || null;
       } else {
         // In create mode omit optional fields that are still empty.
         if (label.trim()) entry.label = label.trim();
         if (description.trim()) entry.description = description.trim();
         if (wireProvider) entry.provider = wireProvider;
         if (wireModel) entry.model = wireModel;
-        if (effectiveBinding) entry.provider_connection = effectiveBinding;
+        if (wireBinding) entry.provider_connection = wireBinding;
       }
       // Advanced params
       if (visibility.maxTokens && maxTokens !== null) {
