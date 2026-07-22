@@ -14,6 +14,7 @@ export type {
   AgentLoopExitReason,
   BaseHookContext,
   ConversationDeletedContext,
+  ConversationsClearedContext,
   HookBroadcast,
   PluginLogger,
   PostCompactContext,
@@ -58,6 +59,7 @@ export type {
  *   - `stop` — {@link StopContext}
  *   - `post-model-call` — {@link PostModelCallContext}
  *   - `conversation-deleted` — {@link ConversationDeletedContext}
+ *   - `conversations-cleared` — {@link ConversationsClearedContext}
  */
 export type HookFunction<TCtx = unknown> = (
   ctx: TCtx,

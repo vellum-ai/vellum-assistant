@@ -96,7 +96,6 @@ const BASELINE: Record<string, readonly string[]> = {
     "src/daemon/conversation-turn-finalize.ts",
     "src/daemon/conversation.ts",
     "src/daemon/embedding-reconcile.ts",
-    "src/daemon/handlers/conversations.ts",
     "src/daemon/handlers/skills.ts",
     "src/daemon/skill-memory-refresh.ts",
     "src/daemon/tool-side-effects.ts",
