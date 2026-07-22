@@ -18,6 +18,7 @@
 
 import { getEffectiveProfile } from "../config/default-profile-catalog.js";
 import { getConfig } from "../config/loader.js";
+import { ROUTING_IDENTITY_PROVIDERS } from "../providers/inference/auth.js";
 import {
   getCatalogProviderForModel,
   PROVIDER_CATALOG,
@@ -102,7 +103,12 @@ function resolveEntryVision(entry: {
   provider?: string;
   model?: string;
 }): boolean | undefined {
-  const provider = entry.provider;
+  // Routing identities ("vellum"/"chatgpt") are not catalog providers; the
+  // model's catalog owner is the capability source for them.
+  const provider =
+    entry.provider != null && ROUTING_IDENTITY_PROVIDERS.has(entry.provider)
+      ? undefined
+      : entry.provider;
   const model = entry.model;
 
   // Infer provider from model when missing (mirrors the resolver's catalog
