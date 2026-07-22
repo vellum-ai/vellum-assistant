@@ -181,6 +181,10 @@ const { getSqliteFrom } =
   await import("../../../../../persistence/db-connection.js");
 const { migrateActivationState } =
   await import("../../../../../persistence/migrations/232-activation-state.js");
+const { ensureActivationStateSchema } =
+  await import("../../../../../persistence/migrations/343-move-activation-state-to-memory-db.js");
+const { ensureConversationGraphMemoryStateSchema } =
+  await import("../../../../../persistence/migrations/344-move-conversation-graph-memory-state-to-memory-db.js");
 const { ensureMemoryV3EverInjectedSchema } =
   await import("../../../../../persistence/migrations/345-move-memory-v3-ever-injected-to-memory-db.js");
 const { getActiveSlugs: getV3ActiveSlugs, recordInjected: recordV3Injected } =
@@ -230,9 +234,12 @@ function createTestDb(): DrizzleDb {
     )
   `);
   migrateActivationState(db);
-  // `onCompacted` also clears memory-v3's everInjected record, which lives on
-  // the memory connection.
+  // The relocated per-conversation tables prepareMemory touches — activation
+  // state, graph-memory state, and v3 ever-injected — all live on the dedicated
+  // memory connection now, so the mocked handle carries each one's schema.
   memorySqliteHandle = new Database(":memory:");
+  ensureActivationStateSchema(memorySqliteHandle);
+  ensureConversationGraphMemoryStateSchema(memorySqliteHandle);
   ensureMemoryV3EverInjectedSchema(memorySqliteHandle);
   return db;
 }
