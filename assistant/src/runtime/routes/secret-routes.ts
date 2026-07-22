@@ -326,6 +326,32 @@ async function handleAddSecret({ body }: RouteHandlerArgs) {
             `Failed to store credential in secure storage (backend: ${getActiveBackendName()})`,
           );
         }
+        // The platform identity ids and base URL are not secrets — they are
+        // UUIDs/URLs that legitimately appear in conversation text, so
+        // scrubbing them would redact benign transcript content.
+        const isNonSecretPlatformField =
+          service === "vellum" &&
+          (TRIMMED_IDENTITY_FIELDS.has(field) || field === "platform_base_url");
+        if (!isNonSecretPlatformField) {
+          // Same seam as the api_key branch: the scrub runs immediately after
+          // the secure-store write, before side effects that can throw. The
+          // value IS stored at this point; the scrub is best-effort hygiene
+          // and must stay invisible to the caller. Counts only — never the
+          // value.
+          try {
+            const scrubbed =
+              await scrubStoredCredentialFromTranscripts(effectiveValue);
+            log.info(
+              { service, field, ...scrubbed },
+              "Credential stored; scrubbed value from recent transcripts",
+            );
+          } catch (err) {
+            log.warn(
+              { err, service, field },
+              "Credential stored, but transcript scrub failed",
+            );
+          }
+        }
         upsertCredentialMetadata(service, field, {});
         await syncManualTokenConnection(service);
         if (service === "vellum" && field === "platform_base_url") {
