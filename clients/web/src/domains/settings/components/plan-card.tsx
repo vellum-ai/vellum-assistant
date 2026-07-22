@@ -462,10 +462,14 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
         packages.length > 0 &&
         (currentPlan.id === "base" ||
             (subscription.package != null && !subscription.package.customized));
-    // A one-click, in-place package switch is safe only for a clean packaged Pro
-    // sub; every other Pro state (customized, cancelling, or a non-entitlement
-    // status) and every base sub falls back to the manage path.
-    const canChangePackage = isPackageSwitchEligible(subscription);
+    // The banner's one-click switch targets a clean packaged Pro sub. It layers
+    // the pinned-and-not-customized requirement on top of the shared eligibility
+    // gate, so a customized or unpinned Pro sub falls back to the manage path
+    // here even though the plans takeover offers it a direction-neutral switch.
+    const canChangePackage =
+        isPackageSwitchEligible(subscription) &&
+        subscription.package != null &&
+        !subscription.package.customized;
 
     return (
         <Card padding="md">

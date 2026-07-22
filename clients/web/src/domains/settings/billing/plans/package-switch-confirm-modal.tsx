@@ -8,8 +8,12 @@ import { Typography } from "@vellumai/design-library/components/typography";
 
 export interface PackageSwitchConfirmModalProps {
   open: boolean;
-  /** How the target relates to the current tier — drives copy and chrome. */
-  relation: Exclude<TierRelation, "current">;
+  /**
+   * How the target relates to the current tier — drives copy and chrome.
+   * "switch" is the direction-neutral variant for a Custom sub, whose catalog
+   * rank is unknown, so up-vs-down cannot be labelled.
+   */
+  relation: Exclude<TierRelation, "current"> | "switch";
   /** Target package display name, e.g. "Mighty". */
   packageName: string;
   /** A change-package call is in flight — disable the actions. */
@@ -25,11 +29,16 @@ export interface PackageSwitchConfirmModalProps {
 const DOWNGRADE_NOTE =
   "Your machine downsizes now and your storage stays. No refund — a prorated credit applies to your next invoice.";
 const UPGRADE_NOTE = "You'll be charged the prorated difference now.";
+// A Custom sub's direction is unknown, so the copy stays neutral: the change is
+// immediate and the prorated difference settles either way.
+const SWITCH_NOTE =
+  "Your plan changes now. Any prorated difference is charged now or credited to your next invoice.";
 
 /**
  * Reconfirm dialog for a one-click Pro package switch from the plans takeover.
- * A downgrade gets the AlertTriangle + danger confirm; an upgrade gets a
- * lighter primary confirm. Layout-only — the parent owns the mutation.
+ * A downgrade gets the AlertTriangle + danger confirm; an upgrade and a
+ * direction-neutral switch get a lighter primary confirm. Layout-only — the
+ * parent owns the mutation.
  */
 export function PackageSwitchConfirmModal({
   open,
@@ -40,6 +49,17 @@ export function PackageSwitchConfirmModal({
   onConfirm,
 }: PackageSwitchConfirmModalProps) {
   const isDowngrade = relation === "downgrade";
+  const isSwitch = relation === "switch";
+  const title = isDowngrade
+    ? `Downgrade to ${packageName}?`
+    : isSwitch
+      ? `Switch to ${packageName}?`
+      : `Upgrade to ${packageName}?`;
+  const note = isDowngrade
+    ? DOWNGRADE_NOTE
+    : isSwitch
+      ? SWITCH_NOTE
+      : UPGRADE_NOTE;
   return (
     <Modal.Root
       open={open}
@@ -52,9 +72,7 @@ export function PackageSwitchConfirmModal({
       <Modal.Content size="md" hideCloseButton>
         <Modal.Header>
           <Modal.Title icon={isDowngrade ? AlertTriangle : undefined}>
-            {isDowngrade
-              ? `Downgrade to ${packageName}?`
-              : `Upgrade to ${packageName}?`}
+            {title}
           </Modal.Title>
         </Modal.Header>
         <Modal.Body>
@@ -63,7 +81,7 @@ export function PackageSwitchConfirmModal({
             variant="body-medium-default"
             className="text-(--content-secondary)"
           >
-            {isDowngrade ? DOWNGRADE_NOTE : UPGRADE_NOTE}
+            {note}
           </Typography>
         </Modal.Body>
         <Modal.Footer>
