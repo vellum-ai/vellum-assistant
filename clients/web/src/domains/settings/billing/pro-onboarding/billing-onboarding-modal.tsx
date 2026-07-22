@@ -27,12 +27,15 @@ export interface BillingOnboardingModalProps {
   onClose: () => void;
   /** Test hook — forwarded to the provisioning screen's celebration dwell. */
   dwellMs?: number;
+  /** Test hook — forwarded to the provisioning screen's per-phase minimum. */
+  phaseMinMs?: number;
 }
 
 export function BillingOnboardingModal({
   open,
   onClose,
   dwellMs,
+  phaseMinMs,
 }: BillingOnboardingModalProps) {
   const [step, setStep] = useState<WizardStep>("provisioning");
   const [finishedInBackground, setFinishedInBackground] = useState(false);
@@ -155,10 +158,17 @@ export function BillingOnboardingModal({
         overlayClassName={overlayClass}
         className={isTakeover ? provisioningContentClass : "overflow-hidden"}
       >
-        {/* Keyed on step so the fade replays as we swap takeover ⇄ card. */}
+        {/* Keyed on step so the fade replays as we swap takeover ⇄ card. The
+            takeover is the modal's opening step, so it mounts at full size
+            rather than growing into it — it gets a longer, softer entrance so
+            a full-bleed dark canvas doesn't just appear over the billing page. */}
         <div
           key={step}
-          className="flex min-h-0 flex-1 flex-col [animation:fadeIn_0.25s_ease-out_both] motion-reduce:[animation:none]"
+          className={`flex min-h-0 flex-1 flex-col motion-reduce:[animation:none] ${
+            isTakeover
+              ? "[animation:fadeIn_0.45s_ease-out_both]"
+              : "[animation:fadeIn_0.25s_ease-out_both]"
+          }`}
         >
           {renderStep()}
         </div>
@@ -191,6 +201,7 @@ export function BillingOnboardingModal({
             onGoToBilling: onClose,
           }}
           dwellMs={dwellMs}
+          phaseMinMs={phaseMinMs}
         />
       );
     }
