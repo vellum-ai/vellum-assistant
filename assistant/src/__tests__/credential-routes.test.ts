@@ -10,6 +10,7 @@ import type { CredentialMetadata } from "../tools/credentials/metadata-store.js"
 let secureStore: Map<string, string>;
 let metadataStore: Map<string, CredentialMetadata>;
 let syncedServices: string[];
+let syncRejects: boolean;
 let disconnectedProviders: string[];
 let credentialIdCounter: number;
 let scrubbedValues: string[];
@@ -102,6 +103,9 @@ mock.module("../tools/credentials/metadata-store.js", () => ({
 
 mock.module("../oauth/manual-token-connection.js", () => ({
   syncManualTokenConnection: mock(async (service: string) => {
+    if (syncRejects) {
+      throw new Error("simulated oauth-store failure");
+    }
     syncedServices.push(service);
   }),
 }));
@@ -178,6 +182,7 @@ describe("credentials routes", () => {
     secureStore = new Map();
     metadataStore = new Map();
     syncedServices = [];
+    syncRejects = false;
     disconnectedProviders = [];
     credentialIdCounter = 0;
     scrubbedValues = [];
@@ -548,6 +553,29 @@ describe("credentials routes", () => {
 
       // THEN the scrub never runs
       expect(scrubbedValues).toEqual([]);
+    });
+
+    test("the scrub still runs when the post-store connection sync throws", async () => {
+      /**
+       * `syncManualTokenConnection` performs oauth-store work that can
+       * throw. The secret is already in secure storage at that point, so
+       * the transcript scrub must have run BEFORE the failing side effect
+       * — a stored secret whose plaintext lingers in transcripts is the
+       * leak this seam exists to close.
+       */
+      // GIVEN a connection sync that throws after the store
+      syncRejects = true;
+
+      // WHEN the set is attempted
+      await expect(
+        setRoute!.handler({
+          body: { service: "vercel", field: "api_token", value: SECRET_VALUE },
+        }),
+      ).rejects.toThrow("simulated oauth-store failure");
+
+      // THEN the secret was stored and the scrub ran despite the failure
+      expect(secureStore.get("vercel:api_token")).toBe(SECRET_VALUE);
+      expect(scrubbedValues).toEqual([SECRET_VALUE]);
     });
 
     test("the set still succeeds when the transcript scrub rejects", async () => {

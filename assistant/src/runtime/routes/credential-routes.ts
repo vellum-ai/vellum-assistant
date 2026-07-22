@@ -487,22 +487,16 @@ async function handleCredentialsSet({ body }: RouteHandlerArgs) {
     );
   }
 
-  const metadata = upsertCredentialMetadata(service, field, {
-    alias: label,
-    usageDescription: description,
-    allowedTools,
-    allowedDomains,
-    injectionTemplates,
-  });
-  await syncManualTokenConnection(service);
-
   // The stored plaintext may already sit in recent transcripts: the user
   // message that pasted it, the persisted tool_use input, the tool result
   // echoing the command. This route is the scrub seam — not
   // setSecureKeyAsync, which also fires on OAuth refresh rotations and MCP
-  // header writes whose values never transited a transcript. The credential
-  // IS stored at this point; the scrub is best-effort hygiene and must stay
-  // invisible to the caller.
+  // header writes whose values never transited a transcript. The scrub runs
+  // immediately after the secure-store write, BEFORE the metadata upsert and
+  // connection sync: those side effects can throw (oauth-store work), and a
+  // stored-but-unscrubbed secret must not depend on them succeeding. The
+  // credential IS stored at this point; the scrub is best-effort hygiene and
+  // must stay invisible to the caller.
   try {
     const scrubbed =
       await scrubStoredCredentialFromTranscripts(normalizedValue);
@@ -516,6 +510,15 @@ async function handleCredentialsSet({ body }: RouteHandlerArgs) {
       "Credential stored, but transcript scrub failed",
     );
   }
+
+  const metadata = upsertCredentialMetadata(service, field, {
+    alias: label,
+    usageDescription: description,
+    allowedTools,
+    allowedDomains,
+    injectionTemplates,
+  });
+  await syncManualTokenConnection(service);
 
   return {
     credentialId: metadata.credentialId,

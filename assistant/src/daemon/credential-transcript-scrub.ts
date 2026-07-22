@@ -15,19 +15,37 @@
  * Best-effort by contract: the function never throws, logs only
  * lengths/counts (never secret material), and returns whatever it managed
  * to scrub.
+ *
+ * Accepted residual — crash during an in-flight turn: a streaming turn's
+ * unfinalized row is backed by an on-disk delta file that this sweep does
+ * not rewrite (the live turn is covered by the in-memory sweep, and the
+ * finalize seam re-runs persist-time redaction). If the daemon crashes
+ * after a scrub but before that turn finalizes, boot recovery
+ * (`monitoring/recovery/inflight-content.ts`) folds the delta file — which
+ * may still hold the plaintext — into a finalized row no future sweep
+ * revisits. The window is narrow (crash inside one turn, between a
+ * credential store and finalize) and the fold happens without an LLM in
+ * the loop; hardening the recovery fold to re-scrub is future work.
  */
 
-import { SENTINEL_REDACTION_VERSION } from "@vellumai/service-contracts/redacted-credential";
+import {
+  neutralizeRedactedSentinels,
+  SENTINEL_REDACTION_VERSION,
+} from "@vellumai/service-contracts/redacted-credential";
 import { and, eq, gte, or, sql } from "drizzle-orm";
 
 import { updateMessageContent } from "../persistence/conversation-crud.js";
 import { rebuildConversationDiskViewFromDbState } from "../persistence/conversation-disk-view.js";
 import { getDb } from "../persistence/db-connection.js";
 import { enqueueLexicalIndexForMessage } from "../persistence/job-handlers/message-lexical.js";
-import { resolveMessageContentBlocks } from "../persistence/message-content-file.js";
+import { resolveInlineBlockArray } from "../persistence/message-content-file.js";
 import { messages } from "../persistence/schema/conversations.js";
 import type { ContentBlock } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
+import {
+  credentialValueEncodings,
+  LEGACY_CREDENTIAL_REDACTION_MARKER,
+} from "./chat-credential-redaction.js";
 import {
   allConversations,
   allSubagentConversations,
@@ -37,16 +55,13 @@ import { getDbMigrationReadiness } from "./daemon-readiness.js";
 const log = getLogger("credential-transcript-scrub");
 
 /**
- * Same generic marker `protectCandidateValuesLegacy` persists
- * (chat-credential-redaction.ts) — byte-identical so downstream scanners and
- * renderers treat retroactively scrubbed spans like persist-time ones.
- */
-const REDACTION_MARKER = '<redacted type="Credential" />';
-
-/**
  * Floor below which a value is never scrubbed — short strings are too likely
- * to collide with innocent transcript text (mirrors the
- * `MIN_CANDIDATE_VALUE_LENGTH` rationale in chat-credential-redaction.ts).
+ * to collide with innocent transcript text. Deliberately stricter than the
+ * persist-time `MIN_CANDIDATE_VALUE_LENGTH` (6) in
+ * chat-credential-redaction.ts: this sweep rewrites finalized history
+ * across whole conversations, so a false-positive match destroys stored
+ * text rather than merely redacting a live stream — the higher bar buys
+ * collision safety at the cost of skipping very short secrets.
  */
 const MIN_SCRUB_VALUE_LENGTH = 8;
 
@@ -102,14 +117,13 @@ export async function scrubStoredCredentialFromTranscripts(
 }
 
 /**
- * The raw value plus its JSON-escaped form (`JSON.stringify` minus the outer
- * quotes). They differ when the value contains `"` or `\` — tool_use inputs
- * are stored as JSON, and string leaves can themselves embed JSON-encoded
- * text. Longest first so an escaped form is never half-eaten by its raw twin.
+ * Every transcript encoding of the value ({@link credentialValueEncodings}:
+ * raw plus JSON-escaped — tool_use inputs are stored as JSON, and string
+ * leaves can themselves embed JSON-encoded text). Longest first so an
+ * escaped form is never half-eaten by its raw twin.
  */
 function buildSearchTargets(value: string): string[] {
-  const targets = new Set<string>([value, JSON.stringify(value).slice(1, -1)]);
-  return [...targets].sort((a, b) => b.length - a.length);
+  return credentialValueEncodings(value).sort((a, b) => b.length - a.length);
 }
 
 function replaceTargets(
@@ -119,7 +133,7 @@ function replaceTargets(
   let out = text;
   for (const target of targets) {
     if (out.includes(target)) {
-      out = out.split(target).join(REDACTION_MARKER);
+      out = out.split(target).join(LEGACY_CREDENTIAL_REDACTION_MARKER);
     }
   }
   return { text: out, changed: out !== text };
@@ -200,8 +214,10 @@ function sweepDbMessages(targets: readonly string[]): number {
       );
     }
   }
+  // Debug level: the credentials_set route owns the single info-level
+  // summary of a scrub run.
   if (scrubbed > 0 || failures > 0) {
-    log.info(
+    log.debug(
       {
         matchedRows: rows.length,
         scrubbed,
@@ -215,12 +231,18 @@ function sweepDbMessages(targets: readonly string[]): number {
 }
 
 /**
- * Scrub a stored `messages.content` column value. Inline block arrays are
- * resolved through `resolveMessageContentBlocks` (which also repairs legacy
- * block shapes) and re-serialized; anything else — legacy plain-string rows,
- * JSON-string rows — gets a plain textual replace that preserves the stored
- * shape. `{ref}` rows never LIKE-match (the column holds only the pointer),
- * and the plain replace is a no-op for them.
+ * Scrub a stored `messages.content` column value, preserving each row's
+ * stored shape:
+ *   - Inline block arrays are repaired via `resolveInlineBlockArray`,
+ *     scrubbed per block, and re-serialized.
+ *   - JSON-string rows (the `typeof parsed === "string"` shape
+ *     `resolveMessageContentBlocks` unwraps) are scrubbed in the PARSED
+ *     value and re-encoded with `JSON.stringify` — a byte replace on the
+ *     serialized form would splice the marker's unescaped quotes into the
+ *     JSON and corrupt the row.
+ *   - Anything else — legacy plain-string rows, non-array JSON — gets a
+ *     plain textual replace. `{ref}` rows never LIKE-match (the column
+ *     holds only the pointer), and the plain replace is a no-op for them.
  */
 function scrubStoredContent(
   raw: string,
@@ -233,7 +255,7 @@ function scrubStoredContent(
     parsed = undefined;
   }
   if (Array.isArray(parsed)) {
-    const blocks = resolveMessageContentBlocks(raw);
+    const blocks = resolveInlineBlockArray(parsed);
     let changed = false;
     const scrubbedBlocks = blocks.map((block) => {
       const next = scrubBlock(block, targets);
@@ -244,6 +266,12 @@ function scrubStoredContent(
     });
     return changed
       ? { content: JSON.stringify(scrubbedBlocks), changed: true }
+      : { content: raw, changed: false };
+  }
+  if (typeof parsed === "string") {
+    const { text, changed } = replaceTargets(parsed, targets);
+    return changed
+      ? { content: JSON.stringify(text), changed: true }
       : { content: raw, changed: false };
   }
   const { text, changed } = replaceTargets(raw, targets);
@@ -262,12 +290,22 @@ function scrubBlock(
       if (!changed) {
         return { block, changed: false };
       }
-      // The rider marks the block as redaction-aware so
-      // `renderHistoryContent`'s neutralization boundary trusts its markers.
+      // The rider marks the block as redaction-aware, so
+      // `renderHistoryContent`'s neutralization boundary trusts the block's
+      // sentinels verbatim. Stamping therefore requires the same invariant
+      // the persist path establishes (conversation-agent-loop-handlers.ts):
+      // every surviving sentinel is redactor-authored. A block without a
+      // valid rider predates that guarantee — neutralize any sentinel-shaped
+      // strings it carries before stamping, or the stamp would promote a
+      // forged `〔redacted:…〕` into a trusted, chip-renderable one.
+      const rider = (block as { _redactionVersion?: unknown })
+        ._redactionVersion;
+      const alreadyNeutralized =
+        typeof rider === "number" && rider >= SENTINEL_REDACTION_VERSION;
       return {
         block: {
           ...block,
-          text,
+          text: alreadyNeutralized ? text : neutralizeRedactedSentinels(text),
           _redactionVersion: SENTINEL_REDACTION_VERSION,
         } as ContentBlock,
         changed: true,
