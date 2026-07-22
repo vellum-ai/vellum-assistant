@@ -414,11 +414,13 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
     }
 
     const display = PLAN_DISPLAY[currentPlan.id] ?? DEFAULT_DISPLAY;
-    // Prefer the pinned package name (e.g. "Mighty") over the generic plan name
-    // ("Pro"). A plan whose tiers have diverged from the pinned package is
-    // flagged custom so it doesn't masquerade as the stock package.
+    // Show the pinned package name (e.g. "Mighty"), or just "Custom" when the
+    // subscription is customized: its tiers differ from that stock package, so
+    // it isn't labeled as one.
     const planName = subscription.package
-        ? `${subscription.package.name}${subscription.package.customized ? " (Custom)" : ""}`
+        ? subscription.package.customized
+            ? "Custom"
+            : subscription.package.name
         : (currentPlan.name ?? currentPlan.id);
 
     const isCancelling =
@@ -440,12 +442,15 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
     const packages = proPlan?.packages ?? [];
     const currentKey = subscription.package?.key ?? null;
     const currentTier = currentKey ?? "free";
-    // The plans takeover reads the current tier from the pinned package, so a
-    // Pro sub with no package (legacy/custom) would render there as free. Those
-    // stay on the manage modal; only base and packaged-Pro subs open the takeover.
+    // The plans takeover derives the current tier from the pinned package key
+    // alone, so a Pro sub without a package (legacy) or with a customized one
+    // (its tiers differ from the stock package) would be misrepresented there.
+    // Those stay on the manage modal; only base and clean packaged-Pro subs open
+    // the takeover.
     const canOpenPlansTakeover =
         packages.length > 0 &&
-        (currentPlan.id === "base" || subscription.package != null);
+        (currentPlan.id === "base" ||
+            (subscription.package != null && !subscription.package.customized));
     // A one-click, in-place package switch is safe only for a clean packaged Pro
     // sub; every other Pro state (customized, cancelling, or a non-entitlement
     // status) and every base sub falls back to the manage path.

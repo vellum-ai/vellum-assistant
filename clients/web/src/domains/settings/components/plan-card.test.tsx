@@ -387,9 +387,10 @@ describe("PlanCard", () => {
       customized: true,
     };
     const html = renderCard(subscription, plansWithSuper());
-    // A plan whose tiers diverged from the pinned package reads "Mighty
-    // (Custom)" so it doesn't masquerade as the stock package.
-    expect(html).toContain("Mighty (Custom)");
+    // A customized plan reads just "Custom" — no stock-package prefix — so it
+    // doesn't masquerade as a stock package.
+    expect(html).toContain("Custom");
+    expect(html).not.toContain("Mighty (Custom)");
   });
 });
 
@@ -442,6 +443,31 @@ describe("PlanCard action button", () => {
 
     // The empty catalog wires the button to onManage; await it so the assertion
     // never races the handler's commit in the CI runner.
+    await waitFor(() => {
+      expect(onManage).toHaveBeenCalledTimes(1);
+    });
+    expect(navigateArgs).toEqual([]);
+  });
+
+  test("a customized Pro sub's Manage stays on onManage", async () => {
+    const onManage = mock(() => {});
+    // A customized package's tiers differ from the stock package, so the
+    // takeover would misrepresent it — keep it on the manage modal.
+    const subscription = proMightySubscription();
+    subscription.package = {
+      key: "mighty",
+      name: "Mighty",
+      version: 1,
+      customized: true,
+    };
+    const { findByTestId } = renderCardInteractive(
+      subscription,
+      plansWithSuper(),
+      onManage,
+    );
+
+    fireEvent.click(await findByTestId("plan-card-manage-button"));
+
     await waitFor(() => {
       expect(onManage).toHaveBeenCalledTimes(1);
     });
