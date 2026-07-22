@@ -5,6 +5,7 @@ import {
   getConversation,
 } from "../../persistence/conversation-crud.js";
 import { resolveConversationId } from "../../persistence/conversation-key-store.js";
+import { clearAllConversationMemoryTables } from "../../plugins/defaults/memory/conversation-memory-purge.js";
 import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
 import { resolveCapabilities } from "../../runtime/capabilities.js";
 import * as pendingInteractions from "../../runtime/pending-interactions.js";
@@ -63,6 +64,12 @@ export async function clearAllConversations(): Promise<number> {
   // Without this DB clear, that auto-created row survives, contradicting
   // the "clear all conversations" intent.
   await clearAll();
+  // Wipe the memory feature's relocated per-conversation tables too. clearAll
+  // (persistence) can't name them without importing the plugin, so the wipe
+  // lives here in the daemon, which already depends on memory. Unconditional —
+  // an explicit "delete everything" must not leave rows behind just because the
+  // memory plugin is disabled (its conversation-deleted hook wouldn't fire).
+  clearAllConversationMemoryTables();
   return cleared;
 }
 

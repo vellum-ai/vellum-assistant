@@ -1,15 +1,14 @@
 /**
- * Purge coverage for the memory `conversation-deleted` and
- * `conversations-cleared` hooks: deleting a conversation removes its rows — and
- * only its rows — from the relocated per-conversation memory tables, the
- * clear-all reset wipes those tables wholesale, and both degrade to a no-op
- * when the memory connection is unavailable.
+ * Purge coverage for the relocated per-conversation memory tables: the
+ * `conversation-deleted` hook removes a deleted conversation's rows (and only
+ * its rows), `clearAllConversationMemoryTables` wipes them wholesale for the
+ * clear-all reset, and both degrade to a no-op when the memory connection is
+ * unavailable.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import type {
   ConversationDeletedContext,
-  ConversationsClearedContext,
   HookFunction,
 } from "@vellumai/plugin-api";
 
@@ -26,7 +25,6 @@ import {
   purgeConversationMemoryTables,
 } from "../conversation-memory-purge.js";
 import conversationDeleted from "../hooks/conversation-deleted.js";
-import conversationsCleared from "../hooks/conversations-cleared.js";
 import {
   relocatedMemoryRowCount as rowCount,
   seedRelocatedMemoryRow as seedRow,
@@ -37,12 +35,6 @@ await initializeDb();
 async function runHook(conversationId: string): Promise<void> {
   const hook = conversationDeleted as HookFunction<ConversationDeletedContext>;
   await hook({ conversationId } as ConversationDeletedContext);
-}
-
-async function runClearedHook(): Promise<void> {
-  const hook =
-    conversationsCleared as HookFunction<ConversationsClearedContext>;
-  await hook({} as ConversationsClearedContext);
 }
 
 describe("conversation memory purge", () => {
@@ -91,15 +83,15 @@ describe("conversation memory purge", () => {
     }
   });
 
-  test("the clear-all hook wipes every relocated table for every conversation", async () => {
+  test("clearAllConversationMemoryTables wipes every relocated table for every conversation", () => {
     // A table added to the shared array is wiped here without touching this
-    // test — clearAll drops all conversations, so no id survives.
+    // test — clear-all drops all conversations, so no id survives.
     for (const table of CONVERSATION_KEYED_MEMORY_TABLES) {
       seedRow(table, "conv-a");
       seedRow(table, "conv-b");
     }
 
-    await runClearedHook();
+    clearAllConversationMemoryTables();
 
     for (const table of CONVERSATION_KEYED_MEMORY_TABLES) {
       expect(rowCount(table, "conv-a")).toBe(0);

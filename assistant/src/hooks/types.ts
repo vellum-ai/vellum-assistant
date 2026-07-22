@@ -640,15 +640,3 @@ export interface ConversationDeletedInputContext {
  */
 export interface ConversationDeletedContext
   extends ConversationDeletedInputContext, BaseHookContext {}
-
-// ─── Conversations-cleared hook context ──────────────────────────────────────
-
-/**
- * The full `conversations-cleared` context a hook receives. Fires once when the
- * clear-all reset wipes every conversation, so unlike `conversation-deleted` it
- * carries no `conversationId` — a hook keyed on it wipes its own
- * per-conversation state wholesale. Only the pipeline-stamped
- * {@link BaseHookContext} capabilities are present, so the context is exactly
- * {@link BaseHookContext}.
- */
-export type ConversationsClearedContext = BaseHookContext;
