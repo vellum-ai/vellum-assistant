@@ -1,25 +1,40 @@
 /**
- * Tests for the PlansPage takeover: verifies the full catalog render (headline,
- * four tier columns, catalog-derived prices/features, CTA labels, custom-plan
- * row, docs footer), the current-plan disabling, and the empty-catalog
- * (`pro-packages` flag off) fallback.
+ * Tests for the PlansPage takeover.
  *
- * Strategy mirrors `plan-card.test.tsx`: seed the React Query cache so the
- * page's `useQuery` calls resolve synchronously — `renderToStaticMarkup` is
- * single-pass, so a pending query would report `isLoading` and render the
- * spinner instead. The page uses no Zustand store (React Query + react-router
- * + local `useState` only), so static markup is a faithful first paint. The
- * avatar compositor loads lazily via `useEffect`, which doesn't fire under
- * `renderToStaticMarkup`, so avatars render as same-size placeholders. The
- * empty-catalog redirect also lives in a `useEffect`, so the pre-redirect
- * markup asserted here is the loading spinner, never the pricing grid.
+ * Two harnesses share this file:
+ *
+ * 1. Static render (`renderStatic`) mirrors `plan-card.test.tsx`: it seeds the
+ *    React Query cache so the page's `useQuery` calls resolve synchronously —
+ *    `renderToStaticMarkup` is single-pass, so a pending query would report
+ *    `isLoading` and render the spinner. Used for the catalog/label/price/
+ *    current-plan/empty-catalog assertions. Avatars and the redirect both live
+ *    in effects (not run by `renderToStaticMarkup`), so the pre-redirect markup
+ *    is faithful.
+ *
+ * 2. Interaction (`renderInteractive`) mirrors `plans-page-checkout.test.tsx`:
+ *    the generated SDK, browser runtime, platform gate, avatar compositor, and
+ *    the provisioning-takeover modal are `mock.module()`'d, and `PlansPage` is
+ *    dynamically imported after the mocks register. Used for the Pro
+ *    change-package switch flow (confirm dialog → change-package → takeover)
+ *    and the base-user Stripe checkout path.
  */
 
-import { describe, expect, test } from "bun:test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
+import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, useLocation } from "react-router";
 
+import * as sdkGen from "@/generated/api/sdk.gen";
+import * as browserRuntime from "@/runtime/browser";
+import * as platformGateMod from "@/hooks/use-platform-gate";
 import {
   organizationsBillingPlansRetrieveQueryKey,
   organizationsBillingSubscriptionRetrieveQueryKey,
@@ -30,8 +45,80 @@ import type {
   SubscriptionResponse,
 } from "@/generated/api/types.gen";
 
-import { getPlanTierCopy } from "./plans-copy";
-import { PlansPage } from "./plans-page";
+const CHECKOUT_URL = "https://stripe.test/checkout/session";
+
+type Captured = { body?: unknown };
+let changePackageCall: Captured | null = null;
+let upgradeCall: Captured | null = null;
+let openedUrl: string | null = null;
+// When false, the change-package promise never settles — used to observe the
+// in-flight (pending) disabled state.
+let changePackageAutoResolve = true;
+// Fixtures returned by the mocked read SDK so post-mutation invalidation
+// refetches resolve deterministically instead of hitting the network.
+let subscriptionFixture: SubscriptionResponse | null = null;
+let plansFixture: PlanListResponse | null = null;
+
+mock.module("@/generated/api/sdk.gen", () => ({
+  ...sdkGen,
+  organizationsBillingSubscriptionChangePackageCreate: (opts: Captured) => {
+    changePackageCall = opts;
+    if (!changePackageAutoResolve) {
+      return new Promise(() => {});
+    }
+    return Promise.resolve({
+      data: {
+        status: "ok",
+        package: { key: "mighty", name: "Mighty", version: 1, customized: false },
+      },
+      response: { ok: true },
+    });
+  },
+  organizationsBillingSubscriptionUpgradeCreate: (opts: Captured) => {
+    upgradeCall = opts;
+    return Promise.resolve({
+      data: { status: "redirect", checkout_url: CHECKOUT_URL },
+      response: { ok: true },
+    });
+  },
+  organizationsBillingSubscriptionRetrieve: () =>
+    Promise.resolve({ data: subscriptionFixture, response: { ok: true } }),
+  organizationsBillingPlansRetrieve: () =>
+    Promise.resolve({ data: plansFixture, response: { ok: true } }),
+}));
+
+mock.module("@/runtime/browser", () => ({
+  ...browserRuntime,
+  openUrl: (url: string) => {
+    openedUrl = url;
+    return Promise.resolve();
+  },
+}));
+
+// Force the platform-hosted gate open so the page mounts its pricing body
+// instead of firing the self-hosted / not-ready redirect effect.
+mock.module("@/hooks/use-platform-gate", () => ({
+  ...platformGateMod,
+  usePlatformGate: () => "full",
+  useActiveAssistantIsPlatformHosted: () => true,
+  useActiveAssistantLifecycleIsLoading: () => false,
+}));
+
+// Render avatar placeholders; skip the lazy compositor bundle in the DOM test.
+mock.module("@/utils/use-bundled-avatar-components", () => ({
+  preloadBundledAvatarComponents: () => {},
+  useBundledAvatarComponents: () => null,
+}));
+
+// Stand in for the provisioning takeover so the test can assert it was revealed
+// without driving its own resize queries.
+mock.module("@/domains/settings/components/tier-upgrade-resize-modal", () => ({
+  TierUpgradeResizeModal: ({ open }: { open: boolean }) =>
+    open ? <div data-testid="resize-takeover" /> : null,
+}));
+
+const { PlansPage } = await import("./plans-page");
+const { getPlanTierCopy } = await import("./plans-copy");
 
 /** A fully-typed Pro package with Mighty defaults; override per tier. */
 function makePackage(overrides: Partial<ProPackage>): ProPackage {
@@ -128,7 +215,24 @@ function proMightySubscription(): SubscriptionResponse {
   };
 }
 
-function renderPage(
+function proSuperSubscription(): SubscriptionResponse {
+  return {
+    plan_id: "pro",
+    status: "active",
+    renewal_date: null,
+    current_period_end: "2026-07-10T00:00:00Z",
+    cancel_at_period_end: false,
+    cancel_at: null,
+    package: { key: "super", name: "Super", version: 1, customized: false },
+    entitlements: { managed_email: false, phone_number: false },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Static-render harness
+// ---------------------------------------------------------------------------
+
+function renderStatic(
   subscription: SubscriptionResponse,
   plans: PlanListResponse,
 ): string {
@@ -156,7 +260,7 @@ function count(html: string, needle: RegExp): number {
 
 describe("PlansPage — full catalog render", () => {
   test("renders the headline and all four tier names", () => {
-    const html = renderPage(freeSubscription(), fullCatalog());
+    const html = renderStatic(freeSubscription(), fullCatalog());
     expect(html).toContain("Plans designed to empower you");
     expect(html).toContain("Free");
     expect(html).toContain("Mighty");
@@ -165,7 +269,7 @@ describe("PlansPage — full catalog render", () => {
   });
 
   test("formats prices from the catalog totals (and $0 for free)", () => {
-    const html = renderPage(freeSubscription(), fullCatalog());
+    const html = renderStatic(freeSubscription(), fullCatalog());
     expect(html).toContain("$0/month");
     expect(html).toContain("$30/month");
     expect(html).toContain("$100/month");
@@ -173,14 +277,14 @@ describe("PlansPage — full catalog render", () => {
   });
 
   test("shows the Most Popular badge exactly once", () => {
-    const html = renderPage(freeSubscription(), fullCatalog());
+    const html = renderStatic(freeSubscription(), fullCatalog());
     // The badge text is "Most Popular"; the all-caps look is CSS `uppercase`,
     // which renderToStaticMarkup does not apply.
     expect(count(html, /Most Popular/g)).toBe(1);
   });
 
   test("derives feature rows from the fixture (storage, credits, machine)", () => {
-    const html = renderPage(freeSubscription(), fullCatalog());
+    const html = renderStatic(freeSubscription(), fullCatalog());
     // Storage rows.
     expect(html).toContain("10 GiB Storage");
     expect(html).toContain("25 GiB Storage");
@@ -198,20 +302,20 @@ describe("PlansPage — full catalog render", () => {
   });
 
   test("uses the correct 'Includes:' label (not the Figma typo)", () => {
-    const html = renderPage(freeSubscription(), fullCatalog());
+    const html = renderStatic(freeSubscription(), fullCatalog());
     expect(html).toContain("Includes:");
     expect(html).not.toContain("Inlcudes:");
   });
 
   test("renders the per-tier CTA labels", () => {
-    const html = renderPage(freeSubscription(), fullCatalog());
+    const html = renderStatic(freeSubscription(), fullCatalog());
     expect(html).toContain("Power Up");
     expect(html).toContain("Go Super");
     expect(html).toContain("Unleash Ultra");
   });
 
   test("renders the custom-plan row and docs footer", () => {
-    const html = renderPage(freeSubscription(), fullCatalog());
+    const html = renderStatic(freeSubscription(), fullCatalog());
     expect(html).toContain("Custom Plan");
     expect(html).toContain("Configure");
     expect(html).toContain("Billed monthly");
@@ -221,7 +325,7 @@ describe("PlansPage — full catalog render", () => {
 
 describe("PlansPage — current-plan state", () => {
   test("free subscriber: Free is the current (disabled) plan, no Start Free", () => {
-    const html = renderPage(freeSubscription(), fullCatalog());
+    const html = renderStatic(freeSubscription(), fullCatalog());
     expect(html).toContain("Current Plan");
     // The Free card swaps its "Start Free" CTA for the current-plan label.
     expect(html).not.toContain("Start Free");
@@ -231,7 +335,7 @@ describe("PlansPage — current-plan state", () => {
   });
 
   test("pro subscriber on Mighty: Mighty is current, lower tiers downgrade, higher tiers upgrade", () => {
-    const html = renderPage(proMightySubscription(), fullCatalog());
+    const html = renderStatic(proMightySubscription(), fullCatalog());
     // Only the Mighty column is the current plan.
     expect(count(html, /Current Plan/g)).toBe(1);
     // Free sits below Mighty, so its CTA becomes a downgrade.
@@ -248,7 +352,7 @@ describe("PlansPage — empty catalog (pro-packages flag off)", () => {
   test("renders the loading fallback, not the pricing grid", () => {
     // The redirect fires in a useEffect (not run by renderToStaticMarkup), so
     // the pre-redirect markup is the loading spinner.
-    const html = renderPage(freeSubscription(), plansWith([]));
+    const html = renderStatic(freeSubscription(), plansWith([]));
     expect(html).toContain("Loading plans");
     expect(html).not.toContain("Plans designed to empower you");
     expect(html).not.toContain("Mighty");
@@ -266,5 +370,142 @@ describe("getPlanTierCopy", () => {
 
   test("returns undefined for an unknown tier key", () => {
     expect(getPlanTierCopy("nonexistent")).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Interaction harness — Pro change-package switch + base-user checkout
+// ---------------------------------------------------------------------------
+
+function LocationProbe() {
+  const location = useLocation();
+  return <div data-testid="loc">{location.pathname + location.search}</div>;
+}
+
+function renderInteractive(subscription: SubscriptionResponse) {
+  subscriptionFixture = subscription;
+  plansFixture = fullCatalog();
+  const client = new QueryClient({
+    defaultOptions: {
+      queries: {
+        staleTime: Infinity,
+        retry: false,
+        refetchOnMount: false,
+        refetchOnWindowFocus: false,
+        gcTime: Infinity,
+      },
+    },
+  });
+  client.setQueryData(
+    organizationsBillingSubscriptionRetrieveQueryKey(),
+    subscription,
+  );
+  client.setQueryData(organizationsBillingPlansRetrieveQueryKey(), fullCatalog());
+  return render(
+    <MemoryRouter initialEntries={["/assistant/plans"]}>
+      <QueryClientProvider client={client}>
+        <PlansPage />
+      </QueryClientProvider>
+      <LocationProbe />
+    </MemoryRouter>,
+  );
+}
+
+beforeEach(() => {
+  changePackageCall = null;
+  upgradeCall = null;
+  openedUrl = null;
+  changePackageAutoResolve = true;
+  subscriptionFixture = null;
+  plansFixture = null;
+});
+
+afterEach(() => {
+  cleanup();
+});
+
+describe("PlansPage — Pro package switch (change-package)", () => {
+  test("Super → Mighty downgrade confirms, then calls change-package and reveals the takeover", async () => {
+    const { findByRole, findByTestId, getByTestId } = renderInteractive(
+      proSuperSubscription(),
+    );
+
+    // Click the Mighty column's downgrade CTA (below Super).
+    fireEvent.click(await findByRole("button", { name: "Downgrade to Mighty" }));
+
+    // The reconfirm dialog appears; confirm it.
+    fireEvent.click(await findByTestId("confirm-package-switch-button"));
+
+    await waitFor(() => expect(changePackageCall).not.toBeNull());
+    expect(changePackageCall!.body).toEqual({ package: "mighty" });
+
+    // The provisioning takeover is revealed in-tab; no `?adjust_plan` navigation.
+    await findByTestId("resize-takeover");
+    expect(getByTestId("loc").textContent).toBe("/assistant/plans");
+    expect(upgradeCall).toBeNull();
+  });
+
+  test("Super → Ultra upgrade confirms, then calls change-package with the ultra key", async () => {
+    const { findByRole, findByTestId, getByTestId } = renderInteractive(
+      proSuperSubscription(),
+    );
+
+    // The Ultra column keeps its upgrade CTA copy ("Unleash Ultra").
+    fireEvent.click(await findByRole("button", { name: "Unleash Ultra" }));
+    fireEvent.click(await findByTestId("confirm-package-switch-button"));
+
+    await waitFor(() => expect(changePackageCall).not.toBeNull());
+    expect(changePackageCall!.body).toEqual({ package: "ultra" });
+
+    await findByTestId("resize-takeover");
+    expect(getByTestId("loc").textContent).toBe("/assistant/plans");
+  });
+
+  test("Pro → Free downgrade routes to the manage/cancel flow, not change-package", async () => {
+    const { findByRole, findByTestId } = renderInteractive(
+      proSuperSubscription(),
+    );
+
+    // Below Super, Free reads "Downgrade to Free". Cancellation can't go through
+    // the package-only change-package endpoint, so it routes to `?adjust_plan`.
+    fireEvent.click(await findByRole("button", { name: "Downgrade to Free" }));
+
+    const loc = await findByTestId("loc");
+    await waitFor(() =>
+      expect(loc.textContent).toBe(
+        "/assistant/settings/usage?tab=billing&adjust_plan",
+      ),
+    );
+    expect(changePackageCall).toBeNull();
+    expect(upgradeCall).toBeNull();
+  });
+
+  test("base user CTA starts Stripe checkout, not change-package", async () => {
+    const { findByRole } = renderInteractive(freeSubscription());
+
+    fireEvent.click(await findByRole("button", { name: "Go Super" }));
+
+    await waitFor(() => expect(upgradeCall).not.toBeNull());
+    expect(upgradeCall!.body).toMatchObject({
+      target_plan_id: "pro",
+      package: "super",
+      confirm: true,
+    });
+    await waitFor(() => expect(openedUrl).toBe(CHECKOUT_URL));
+    expect(changePackageCall).toBeNull();
+  });
+
+  test("the confirm CTA is disabled while a switch is pending", async () => {
+    changePackageAutoResolve = false;
+    const { findByRole, findByTestId } = renderInteractive(proSuperSubscription());
+
+    fireEvent.click(await findByRole("button", { name: "Downgrade to Mighty" }));
+    const confirm = (await findByTestId(
+      "confirm-package-switch-button",
+    )) as HTMLButtonElement;
+    fireEvent.click(confirm);
+
+    await waitFor(() => expect(confirm.disabled).toBe(true));
+    expect(changePackageCall).not.toBeNull();
   });
 });

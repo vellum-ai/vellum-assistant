@@ -15,12 +15,15 @@ import {
   type CustomPlanSelection,
 } from "@/domains/settings/billing/plans/custom-plan-modal";
 import { CustomPlanRow } from "@/domains/settings/billing/plans/custom-plan-row";
+import { PackageSwitchConfirmModal } from "@/domains/settings/billing/plans/package-switch-confirm-modal";
 import { PlanColumnCard } from "@/domains/settings/billing/plans/plan-column-card";
 import {
   downgradeLabel,
   getPlanTierCopy,
 } from "@/domains/settings/billing/plans/plans-copy";
+import { useChangePackage } from "@/domains/settings/billing/use-change-package";
 import { extractMutationError } from "@/domains/settings/components/adjust-plan-utils";
+import { TierUpgradeResizeModal } from "@/domains/settings/components/tier-upgrade-resize-modal";
 import { formatDollars } from "@/domains/settings/components/tier-pricing";
 import {
   organizationsBillingPlansRetrieveOptions,
@@ -120,8 +123,16 @@ export function PlansPage() {
   const upgradeMutation = useMutation(
     organizationsBillingSubscriptionUpgradeCreateMutation(),
   );
+  const { changePackage, isPending: changePackagePending } = useChangePackage();
   const [pending, setPending] = useState(false);
   const [customPlanOpen, setCustomPlanOpen] = useState(false);
+  // The package a Pro user is switching to, awaiting reconfirm; null when the
+  // dialog is closed.
+  const [switchTarget, setSwitchTarget] = useState<ProPackage | null>(null);
+  // Reveals the in-tab provisioning takeover after a successful switch — the
+  // same `TierUpgradeResizeModal` surface the tier-change flow opens via
+  // `onTierUpgraded` (see billing-page.tsx), reused here rather than reinvented.
+  const [resizeTakeoverOpen, setResizeTakeoverOpen] = useState(false);
 
   const subscription = subscriptionQuery.data;
   const proPlan = plansQuery.data?.plans.find(
@@ -203,10 +214,24 @@ export function PlansPage() {
 
     const selectTier = (tierKey: string) => {
       if (isProUser) {
-        // The upgrade endpoint no-ops for an active Pro org, so plan changes
-        // for existing subscribers go through the billing "manage plan" modal,
-        // which auto-opens on the `adjust_plan` param.
-        navigate(`${routes.settings.usage}?tab=billing&adjust_plan`);
+        if (tierKey === "free") {
+          // Pro → Free is a subscription cancellation, not a package switch;
+          // route to the billing manage/cancel surface rather than the
+          // (package-only) change-package endpoint, which 400s on non-package
+          // keys.
+          navigate(`${routes.settings.usage}?tab=billing&adjust_plan`);
+          return;
+        }
+        // Active Pro orgs switch packages in place via the change-package
+        // endpoint (up or down). Only the named Pro packages route here.
+        const pkg = packages.find((p) => p.key === tierKey);
+        if (!pkg) {
+          return;
+        }
+        if (tierRelation(currentTierKey, pkg.key) === "current") {
+          return;
+        }
+        setSwitchTarget(pkg);
         return;
       }
       if (tierKey === "free") {
@@ -220,6 +245,24 @@ export function PlansPage() {
         confirm: true,
       });
     };
+
+    const confirmSwitch = async () => {
+      if (!switchTarget) {
+        return;
+      }
+      const result = await changePackage(switchTarget.key);
+      setSwitchTarget(null);
+      // A non-null result means the switch applied; reveal the provisioning
+      // takeover so the user can resize into the new tier. On null the hook
+      // already toasted the error, so do nothing.
+      if (result) {
+        setResizeTakeoverOpen(true);
+      }
+    };
+
+    const switchRelation = switchTarget
+      ? tierRelation(currentTierKey, switchTarget.key)
+      : "upgrade";
 
     const startCustomCheckout = (selection: CustomPlanSelection) =>
       startCheckout({
@@ -287,7 +330,7 @@ export function PlansPage() {
             tone="dark"
             isCurrent={currentTierKey === "free"}
             intent={freeRelation}
-            pending={pending}
+            pending={pending || changePackagePending}
             onCta={() => selectTier("free")}
           />
           {orderedPackages.map((pkg) => {
@@ -311,7 +354,7 @@ export function PlansPage() {
                 tone={copy?.mostPopular ? "light" : "dark"}
                 isCurrent={currentTierKey === pkg.key}
                 intent={relation}
-                pending={pending}
+                pending={pending || changePackagePending}
                 onCta={() => selectTier(pkg.key)}
               />
             );
@@ -326,6 +369,20 @@ export function PlansPage() {
           pending={pending}
           onClose={() => setCustomPlanOpen(false)}
           onContinue={(selection) => void startCustomCheckout(selection)}
+        />
+
+        <PackageSwitchConfirmModal
+          open={switchTarget !== null}
+          relation={switchRelation === "downgrade" ? "downgrade" : "upgrade"}
+          packageName={switchTarget?.name ?? ""}
+          pending={changePackagePending}
+          onCancel={() => setSwitchTarget(null)}
+          onConfirm={() => void confirmSwitch()}
+        />
+
+        <TierUpgradeResizeModal
+          open={resizeTakeoverOpen}
+          onClose={() => setResizeTakeoverOpen(false)}
         />
 
         <p className="mt-10 text-center text-[12px] font-medium text-[var(--content-tertiary)]">
