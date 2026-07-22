@@ -18,6 +18,7 @@ import {
     CreatureCorners,
     StalledApplyControls,
     SUBTLE_NOTICE_CLASS,
+    SUBTLE_NOTICE_TEXT_CLASS,
     WizardCardHeading,
 } from "./primitives";
 import { useAssistantDomains } from "./use-assistant-domains";
@@ -211,7 +212,7 @@ export function DomainStep({
         )}
         {!isLocked && (
           <Notice tone="info" className={SUBTLE_NOTICE_CLASS}>
-            <span className="font-medium">
+            <span className={SUBTLE_NOTICE_TEXT_CLASS}>
               You won&apos;t be able to change the handle once set.
             </span>
           </Notice>

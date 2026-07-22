@@ -182,6 +182,13 @@ export function WizardCardHeading({
 export const SUBTLE_NOTICE_CLASS =
   "border-transparent bg-[var(--surface-active)]";
 
+/**
+ * Goes on a span wrapping the notice copy — `Notice` pipes children through its
+ * own `Typography`, so the mock's weight and tone have to be set on a child.
+ */
+export const SUBTLE_NOTICE_TEXT_CLASS =
+  "font-medium text-[var(--content-tertiary)]";
+
 /** A single decorative creature: fixed traits + placement, no randomness. */
 interface CreaturePlacement {
   bodyShape: string;
