@@ -57,6 +57,60 @@ export const LongCodeBlock: Story = {
 };
 
 /**
+ * Every markdown feature the component styles, in one story — the visual-QA
+ * sweep target. Each block exercises a dedicated component override (heading
+ * levels, lists with pinned ordinals, quote with inline code, table with
+ * wrapping code, fenced code, hr, emphasis with emoji, image fallback), so a
+ * regression in any of them is visible here without hunting per-feature
+ * stories.
+ */
+export const KitchenSink: Story = {
+  args: {
+    content: [
+      "# Heading one",
+      "## Heading two",
+      "### Heading three",
+      "#### Heading four",
+      "##### Heading five",
+      "###### Heading six",
+      "",
+      "Prose with **bold**, _italic *🎉* emoji_, ~~strikethrough~~, a [link](https://example.com), and inline `code.chips` mixed into the sentence flow across `multiple` tokens.",
+      "",
+      "- bullet one",
+      "- bullet two",
+      "  - nested bullet",
+      "",
+      "1. first",
+      "2. second",
+      "4. fourth — typed ordinal is preserved",
+      "",
+      "- [ ] open task",
+      "- [x] done task",
+      "",
+      "> Quote mixing prose with `inline.code` chips across lines —",
+      "> `handleBackupCreate()` throws a `BadRequestError` here, and the",
+      "> accent bar spans the quote's full height.",
+      "",
+      "| Function | Usage |",
+      "| --- | --- |",
+      "| `useState` | `const [s, setS] = useState(initialValue)` |",
+      "| plain cell | prose that wraps onto a second line inside the cell |",
+      "",
+      "```ts",
+      "const answer: number = 42;",
+      "export function greet(name: string): string {",
+      '  return `hello ${name}`;',
+      "}",
+      "```",
+      "",
+      "---",
+      "",
+      "![missing image](https://example.com/blocked.png)",
+    ].join("\n"),
+  },
+};
+
+/**
  * Regression guard for JARVIS-1006: monetary values must render as plain text
  * rather than being greedily paired into italic LaTeX math by remark-math.
  */
