@@ -243,6 +243,77 @@ describe("scrubStoredCredentialFromTranscripts", () => {
     expect(blocks[0].content).toBe(`out: ${MARKER}`);
   });
 
+  test("re-serializes JSON-string content rows so they stay valid JSON", async () => {
+    // `messages.content` can be a JSON-encoded bare string (the shape
+    // `resolveMessageContentBlocks` unwraps to one text block). The marker
+    // contains quotes, so a byte replace on the serialized form would
+    // corrupt the row — the scrub must replace within the parsed value and
+    // re-encode.
+    dbRows.push({
+      id: "msg-json-string",
+      conversationId: "conv-js",
+      content: JSON.stringify(`pasted: ${VALUE}`),
+    });
+
+    const result = await scrubStoredCredentialFromTranscripts(VALUE);
+
+    expect(result.dbMessagesScrubbed).toBe(1);
+    const updated = updatedContentFor("msg-json-string");
+    const parsed: unknown = JSON.parse(updated);
+    expect(parsed).toBe(`pasted: ${MARKER}`);
+  });
+
+  test("neutralizes forged sentinels when stamping an unmarked text block", async () => {
+    // A pre-feature block never had sentinel-shaped strings neutralized at
+    // write, and `renderHistoryContent` trusts `_redactionVersion`-stamped
+    // blocks verbatim — so stamping without neutralizing would promote a
+    // forged sentinel into a trusted, chip-renderable one.
+    const forged = "〔redacted:Credential:vercel:api_token〕";
+    dbRows.push(
+      textRow("msg-forged", "conv-forged", `${forged} and key ${VALUE}`),
+    );
+
+    const result = await scrubStoredCredentialFromTranscripts(VALUE);
+
+    expect(result.dbMessagesScrubbed).toBe(1);
+    const blocks = JSON.parse(updatedContentFor("msg-forged")) as Array<
+      Record<string, unknown>
+    >;
+    // Word joiner (U+2060) after the opening bracket defuses the forged
+    // sentinel; the credential is scrubbed and the stamp applied.
+    expect(blocks[0].text).toBe(
+      `\u3014\u2060redacted:Credential:vercel:api_token\u3015 and key ${MARKER}`,
+    );
+    expect(blocks[0]._redactionVersion).toBe(2);
+  });
+
+  test("preserves redactor-authored sentinels in an already-stamped block", async () => {
+    // A block the persist path stamped already had forgeries neutralized at
+    // write — its surviving sentinels are redactor-authored and must not be
+    // defused when the scrub touches the block.
+    const genuine = "〔redacted:Credential:vercel:api_token〕";
+    dbRows.push({
+      id: "msg-stamped",
+      conversationId: "conv-stamped",
+      content: JSON.stringify([
+        {
+          type: "text",
+          text: `${genuine} then ${VALUE}`,
+          _redactionVersion: 2,
+        },
+      ]),
+    });
+
+    const result = await scrubStoredCredentialFromTranscripts(VALUE);
+
+    expect(result.dbMessagesScrubbed).toBe(1);
+    const blocks = JSON.parse(updatedContentFor("msg-stamped")) as Array<
+      Record<string, unknown>
+    >;
+    expect(blocks[0].text).toBe(`${genuine} then ${MARKER}`);
+    expect(blocks[0]._redactionVersion).toBe(2);
+  });
+
   test("scrubs legacy plain-string content rows with a plain replace", async () => {
     dbRows.push({
       id: "msg-legacy",

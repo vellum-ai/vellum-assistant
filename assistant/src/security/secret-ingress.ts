@@ -10,9 +10,12 @@
  */
 
 import { getConfig } from "../config/loader.js";
-import { getPluginSecretPatterns } from "./plugin-secret-patterns.js";
+import { memoizePluginPatternDerivation } from "./plugin-secret-patterns.js";
 import { isAllowlisted } from "./secret-allowlist.js";
-import { PREFIX_PATTERNS } from "./secret-patterns.js";
+import {
+  PREFIX_PATTERNS,
+  type SecretPrefixPattern,
+} from "./secret-patterns.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -23,6 +26,31 @@ export interface IngressCheckResult {
   detectedTypes: string[];
   userNotice?: string;
 }
+
+// ---------------------------------------------------------------------------
+// Compiled patterns — global variants of the shared prefix patterns
+// ---------------------------------------------------------------------------
+
+interface GlobalPattern {
+  label: string;
+  regex: RegExp;
+}
+
+function toGlobalPattern(p: SecretPrefixPattern): GlobalPattern {
+  return { label: p.label, regex: new RegExp(p.regex.source, "g") };
+}
+
+const STATIC_GLOBAL_PATTERNS: GlobalPattern[] =
+  PREFIX_PATTERNS.map(toGlobalPattern);
+
+// Full pattern list, rebuilt only when the plugin-pattern registry changes so
+// registrations apply to the next message without a daemon restart.
+const getGlobalPatterns = memoizePluginPatternDerivation(
+  (pluginPatterns): GlobalPattern[] => [
+    ...STATIC_GLOBAL_PATTERNS,
+    ...pluginPatterns.map(toGlobalPattern),
+  ],
+);
 
 // ---------------------------------------------------------------------------
 // Placeholder detection (inline — not imported from secret-scanner.ts)
@@ -186,15 +214,12 @@ export function checkIngressForSecrets(content: string): IngressCheckResult {
 
   const detectedTypes: string[] = [];
 
-  for (const { label, regex } of [
-    ...PREFIX_PATTERNS,
-    ...getPluginSecretPatterns(),
-  ]) {
-    // Use a global version to find all matches
-    const globalRegex = new RegExp(regex.source, "g");
+  for (const { label, regex } of getGlobalPatterns()) {
+    // Reset lastIndex — the compiled global regexes are shared across calls
+    regex.lastIndex = 0;
     let match: RegExpExecArray | null;
 
-    while ((match = globalRegex.exec(content)) !== null) {
+    while ((match = regex.exec(content)) !== null) {
       const value = match[0];
 
       // Skip placeholders and test values (check both the match and
