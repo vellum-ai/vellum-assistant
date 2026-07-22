@@ -11,6 +11,9 @@
  */
 
 import { nanoid } from "nanoid";
+// Call `qrcodeTerminal.generate` as a method — the library reads its default
+// error-correction level off `this`, so a destructured import renders nothing.
+import qrcodeTerminal from "qrcode-terminal";
 
 import { extractFlag } from "../lib/arg-utils.js";
 import { parseAssistantTargetArg } from "../lib/assistant-target-args.js";
@@ -58,7 +61,13 @@ OPTIONS:
     --web            Create a browser pairing URL for remote web access
     --web-approve <code>
                     Approve a browser pairing code shown by /assistant/pair
-    --json           Output the raw bundle as JSON
+    --qr             Render a QR code that pairs a device in one scan. Mints a
+                    remote-web pairing challenge and approves it locally, so the
+                    scan alone completes pairing. Needs a public https URL
+                    (--url, else the assistant's public ingress URL); refuses
+                    loopback or non-https URLs.
+    --json           Output the result as JSON. With --qr: {url, deviceCode,
+                    expiresAt, expiresInSeconds}
 
 EXAMPLES:
     vellum pair
@@ -66,7 +75,8 @@ EXAMPLES:
     vellum pair --url https://abc123.ngrok.app
     vellum pair --web --url https://abc123.ngrok.app
     vellum pair --web-approve ABCD-EFGH
-    vellum pair --json
+    vellum pair --qr --url https://your-assistant.ts.net
+    vellum pair --qr --json
 `);
 }
 
@@ -119,6 +129,100 @@ function buildRemoteWebPairingUrl(
   return url.toString();
 }
 
+/**
+ * Normalize the advertised URL to the public https origin a scanning phone can
+ * open, or return null when it isn't internet-reachable. Stricter than the
+ * copy-paste bundle path's loopback guard: a QR that encodes a loopback or
+ * plain-http link is unusable from another device, so both are refused.
+ */
+function resolveQrPublicBaseUrl(advertisedUrl: string): string | null {
+  let normalized: string;
+  try {
+    normalized = normalizePublicBaseUrl(advertisedUrl);
+  } catch {
+    return null;
+  }
+  if (isLoopbackHost(normalized)) {
+    return null;
+  }
+  if (new URL(normalized).protocol !== "https:") {
+    return null;
+  }
+  return normalized;
+}
+
+/**
+ * POST a JSON body to a loopback gateway route, exiting with a clear message
+ * when the gateway is unreachable or answers non-2xx. Every pairing subcommand
+ * talks to the gateway this way, so the reachability + HTTP-error handling has
+ * a single home.
+ */
+async function gatewayPostOrExit(
+  gatewayUrl: string,
+  path: string,
+  body: unknown,
+  headers?: Record<string, string>,
+): Promise<Response> {
+  let response: Response;
+  try {
+    response = await loopbackSafeFetch(`${gatewayUrl}${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...headers },
+      body: JSON.stringify(body),
+    });
+  } catch (err) {
+    console.error(
+      `Error: could not reach the gateway at ${gatewayUrl} ` +
+        `(${err instanceof Error ? err.message : String(err)}).`,
+    );
+    console.error("Is the assistant running? Try `vellum wake`.");
+    process.exit(1);
+  }
+
+  if (!response.ok) {
+    const errorBody = await response.text().catch(() => "");
+    console.error(
+      `Error: HTTP ${response.status}: ${errorBody || response.statusText}`,
+    );
+    process.exit(1);
+  }
+
+  return response;
+}
+
+/**
+ * Create a remote-web pairing challenge (RFC 8628 device-code flow). Shared by
+ * `--web` and `--qr`, which differ only in how they present the same result.
+ */
+async function createRemoteWebPairingChallenge(
+  gatewayUrl: string,
+  publicBaseUrl: string,
+): Promise<RemoteWebPairingChallengeResponse> {
+  const response = await gatewayPostOrExit(
+    gatewayUrl,
+    "/v1/remote-web/pairing-challenge",
+    { publicBaseUrl },
+  );
+  return (await response.json()) as RemoteWebPairingChallengeResponse;
+}
+
+/**
+ * Approve a pending pairing challenge by its user code — the local-presence
+ * proof for the device-code flow. Shared by `--web-approve` and `--qr` (which
+ * approves the challenge it just minted so one scan completes pairing).
+ */
+async function approveRemoteWebPairing(
+  gatewayUrl: string,
+  userCode: string,
+): Promise<RemoteWebPairingApprovalResponse> {
+  const response = await gatewayPostOrExit(
+    gatewayUrl,
+    "/v1/remote-web/pairing-verification",
+    { userCode },
+  );
+  return (await response.json()) as RemoteWebPairingApprovalResponse;
+}
+
 async function assertWebRemoteIngressEnabled(
   assistantId: string,
   runtimeUrl: string,
@@ -158,7 +262,10 @@ export async function pair(): Promise<void> {
   const jsonOutput = rawArgs.includes("--json");
   const webPairing = rawArgs.includes("--web");
   const webApproval = rawArgs.includes("--web-approve");
-  let args = rawArgs.filter((a) => a !== "--json" && a !== "--web");
+  const qrPairing = rawArgs.includes("--qr");
+  let args = rawArgs.filter(
+    (a) => a !== "--json" && a !== "--web" && a !== "--qr",
+  );
 
   const [label, afterLabel] = extractFlag(args, "--label");
   const [webApproveCode, afterWebApprove] = extractFlag(
@@ -174,6 +281,10 @@ export async function pair(): Promise<void> {
   }
   if (webApproval && !webApproveCode) {
     console.error("Error: --web-approve requires a pairing code.");
+    process.exit(1);
+  }
+  if (qrPairing && (webPairing || webApproveCode)) {
+    console.error("Error: --qr can't be combined with --web or --web-approve.");
     process.exit(1);
   }
 
@@ -216,7 +327,12 @@ export async function pair(): Promise<void> {
   // so without an explicit --url the bundle would point the other machine at
   // its own localhost. Refuse to advertise a loopback URL unless the user
   // explicitly passed one. (An explicit --url is trusted as-is.)
-  if (!urlOverride && !webApproveCode && isLoopbackHost(advertisedUrl)) {
+  if (
+    !urlOverride &&
+    !webApproveCode &&
+    !qrPairing &&
+    isLoopbackHost(advertisedUrl)
+  ) {
     const lan = getLocalLanIPv4();
     // Use THIS assistant's gateway port (not the global default) — second
     // local instances listen on a different port.
@@ -242,34 +358,7 @@ export async function pair(): Promise<void> {
   if (webApproveCode) {
     await assertWebRemoteIngressEnabled(entry.assistantId, mintUrl);
 
-    let response: Response;
-    try {
-      response = await loopbackSafeFetch(
-        `${mintUrl}/v1/remote-web/pairing-verification`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ userCode: webApproveCode }),
-        },
-      );
-    } catch (err) {
-      console.error(
-        `Error: could not reach the gateway at ${mintUrl} ` +
-          `(${err instanceof Error ? err.message : String(err)}).`,
-      );
-      console.error("Is the assistant running? Try `vellum wake`.");
-      process.exit(1);
-    }
-
-    if (!response.ok) {
-      const body = await response.text().catch(() => "");
-      console.error(
-        `Error: HTTP ${response.status}: ${body || response.statusText}`,
-      );
-      process.exit(1);
-    }
-
-    const result = (await response.json()) as RemoteWebPairingApprovalResponse;
+    const result = await approveRemoteWebPairing(mintUrl, webApproveCode);
     if (jsonOutput) {
       console.log(JSON.stringify(result, null, 2));
       return;
@@ -290,35 +379,10 @@ export async function pair(): Promise<void> {
       process.exit(1);
     }
 
-    let response: Response;
-    try {
-      response = await loopbackSafeFetch(
-        `${mintUrl}/v1/remote-web/pairing-challenge`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ publicBaseUrl }),
-        },
-      );
-    } catch (err) {
-      console.error(
-        `Error: could not reach the gateway at ${mintUrl} ` +
-          `(${err instanceof Error ? err.message : String(err)}).`,
-      );
-      console.error("Is the assistant running? Try `vellum wake`.");
-      process.exit(1);
-    }
-
-    if (!response.ok) {
-      const body = await response.text().catch(() => "");
-      console.error(
-        `Error: HTTP ${response.status}: ${body || response.statusText}`,
-      );
-      process.exit(1);
-    }
-
-    const challenge =
-      (await response.json()) as RemoteWebPairingChallengeResponse;
+    const challenge = await createRemoteWebPairingChallenge(
+      mintUrl,
+      publicBaseUrl,
+    );
     const pairUrl = buildRemoteWebPairingUrl(challenge);
 
     if (jsonOutput) {
@@ -359,36 +423,74 @@ export async function pair(): Promise<void> {
     return;
   }
 
+  if (qrPairing) {
+    // Validate the public URL before any network call — a QR that encodes a
+    // loopback or plain-http link is unscannable from another device.
+    const qrBaseUrl = resolveQrPublicBaseUrl(advertisedUrl);
+    if (!qrBaseUrl) {
+      console.error(
+        "Error: --qr needs a public https URL the phone can open — " +
+          `${advertisedUrl} is ${
+            isLoopbackHost(advertisedUrl) ? "a loopback address" : "not https"
+          }.`,
+      );
+      console.error(
+        "Re-run with your assistant's public URL, e.g.:\n" +
+          "  vellum pair --qr --url https://your-assistant.ts.net",
+      );
+      process.exit(1);
+    }
+
+    await assertWebRemoteIngressEnabled(entry.assistantId, mintUrl);
+
+    // Mint a challenge and immediately approve it: running this CLI on the host
+    // IS the local-presence proof, so the scanning device completes pairing in
+    // one step. Reuses the `--web` + `--web-approve` code paths.
+    const challenge = await createRemoteWebPairingChallenge(mintUrl, qrBaseUrl);
+    await approveRemoteWebPairing(mintUrl, challenge.userCode);
+    const pairUrl = buildRemoteWebPairingUrl(challenge);
+
+    if (jsonOutput) {
+      console.log(
+        JSON.stringify(
+          {
+            url: pairUrl,
+            deviceCode: challenge.deviceCode,
+            expiresAt: challenge.expiresAt,
+            expiresInSeconds: challenge.expiresInSeconds,
+          },
+          null,
+          2,
+        ),
+      );
+      return;
+    }
+
+    const displayName = entry.name || entry.assistantName || entry.assistantId;
+    console.log(`Scan to pair a device with ${displayName}:`);
+    console.log("");
+    qrcodeTerminal.generate(pairUrl, { small: true }, (qr) => {
+      console.log(qr);
+    });
+    console.log("");
+    console.log("Or open this URL on the device:");
+    console.log("");
+    console.log(`  ${pairUrl}`);
+    console.log("");
+    console.log(`Expires: ${challenge.expiresAt}`);
+    return;
+  }
+
   // Fresh per-pairing device identity — each `vellum pair` is independently
   // revocable.
   const deviceId = nanoid();
 
-  let response: Response;
-  try {
-    response = await loopbackSafeFetch(`${mintUrl}/v1/pair`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...getClientRegistrationHeaders(CLI_INTERFACE_ID),
-      },
-      body: JSON.stringify({ deviceId, platform: "cli" }),
-    });
-  } catch (err) {
-    console.error(
-      `Error: could not reach the gateway at ${mintUrl} ` +
-        `(${err instanceof Error ? err.message : String(err)}).`,
-    );
-    console.error("Is the assistant running? Try `vellum wake`.");
-    process.exit(1);
-  }
-
-  if (!response.ok) {
-    const body = await response.text().catch(() => "");
-    console.error(
-      `Error: HTTP ${response.status}: ${body || response.statusText}`,
-    );
-    process.exit(1);
-  }
+  const response = await gatewayPostOrExit(
+    mintUrl,
+    "/v1/pair",
+    { deviceId, platform: "cli" },
+    getClientRegistrationHeaders(CLI_INTERFACE_ID),
+  );
 
   const result = (await response.json()) as PairResponse;
 
