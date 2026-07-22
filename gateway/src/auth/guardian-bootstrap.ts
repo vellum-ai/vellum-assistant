@@ -175,6 +175,48 @@ export async function findGuardianForChannelActor(
   return row?.principalId ? { principalId: row.principalId } : null;
 }
 
+/**
+ * Recover the guardian principal id from the gateway's own actor-token records.
+ *
+ * Actor tokens are minted exclusively for the guardian principal (device
+ * pairing), so an active row names the exact principal the client's JWTs still
+ * carry. This recovers a lost vellum guardian binding on an install whose
+ * contact reconcile could not run: the assistant DB's contact ACL columns were
+ * already dropped (assistant migration 305) by the time the gateway's data
+ * migrations read them, so `contacts` stays empty while the actor tokens
+ * migrated into the gateway DB (m0002) survive.
+ *
+ * Reads only the gateway DB. Prefers the most recently issued ACTIVE token so a
+ * properly offboarded (revoked) guardian is never resurrected, and falls back
+ * to an active refresh token when no access token survives. Returns null when
+ * no active token names a principal.
+ */
+export function recoverGuardianPrincipalFromActorTokens(): string | null {
+  const db = getGatewayDb();
+
+  const activeAccess = db
+    .select({ guardianPrincipalId: actorTokenRecords.guardianPrincipalId })
+    .from(actorTokenRecords)
+    .where(eq(actorTokenRecords.status, "active"))
+    .orderBy(desc(actorTokenRecords.issuedAt))
+    .limit(1)
+    .get();
+  if (activeAccess?.guardianPrincipalId) {
+    return activeAccess.guardianPrincipalId;
+  }
+
+  const activeRefresh = db
+    .select({
+      guardianPrincipalId: actorRefreshTokenRecords.guardianPrincipalId,
+    })
+    .from(actorRefreshTokenRecords)
+    .where(eq(actorRefreshTokenRecords.status, "active"))
+    .orderBy(desc(actorRefreshTokenRecords.issuedAt))
+    .limit(1)
+    .get();
+  return activeRefresh?.guardianPrincipalId ?? null;
+}
+
 // ---------------------------------------------------------------------------
 // Guardian binding creation — writes to both assistant + gateway DBs
 // ---------------------------------------------------------------------------
@@ -784,6 +826,14 @@ async function fetchPlatformOwnerDisplayName(): Promise<string | null> {
  */
 async function resolveOrCreateVellumGuardian(options: {
   allowMintWithEvidence: boolean;
+  /**
+   * Boot-time backfill only: when the gateway has no vellum guardian binding
+   * but active actor tokens survive (an upgraded install whose contact
+   * reconcile could not run), rebuild the binding from the token's principal
+   * instead of refusing. Runtime callers leave this off so their fail-closed
+   * repair path is unchanged.
+   */
+  recoverFromActorTokens?: boolean;
 }): Promise<{
   guardianPrincipalId: string;
   isNew: boolean;
@@ -804,6 +854,39 @@ async function resolveOrCreateVellumGuardian(options: {
 
   const priorEvidence = hasEvidenceOfPriorGuardian();
   if (priorEvidence && !options.allowMintWithEvidence) {
+    // Boot-time backfill only: before refusing, recover the guardian from the
+    // gateway's own active actor tokens. An install upgraded past the
+    // contact-ACL drop (assistant migration 305) reaches here with an empty
+    // contacts table but the actor tokens migrated into the gateway DB (m0002);
+    // those name the exact principal the client's JWTs still carry. Rebuilding
+    // the vellum binding for THAT principal restores identity from
+    // gateway-native data without minting a divergent one — so it is not the
+    // fail-open re-mint the refusal below guards against. Runtime token/pairing
+    // callers do NOT opt in: they stay fail-closed (repairable 401/503) and let
+    // the boot backfill be the single self-heal seam. Only when no active token
+    // survives do we refuse.
+    const recoveredPrincipalId = options.recoverFromActorTokens
+      ? recoverGuardianPrincipalFromActorTokens()
+      : null;
+    if (recoveredPrincipalId) {
+      await createGuardianBinding({
+        channel: "vellum",
+        externalUserId: recoveredPrincipalId,
+        deliveryChatId: "local",
+        guardianPrincipalId: recoveredPrincipalId,
+        verifiedVia: "bootstrap",
+      });
+      log.info(
+        { guardianPrincipalId: recoveredPrincipalId },
+        "Recovered the vellum guardian binding from gateway actor tokens (empty contacts table on an upgraded install)",
+      );
+      return {
+        guardianPrincipalId: recoveredPrincipalId,
+        isNew: false,
+        mintedOverPriorEvidence: false,
+      };
+    }
+
     // Fires the missing-guardian reporter (error log + telemetry,
     // rate-limited there) when the DB is truly guardian-less. The state is
     // `ok` when a guardian contact row survives with a lost/inactive vellum
@@ -858,10 +941,19 @@ async function resolveOrCreateVellumGuardian(options: {
  * (its 401 is claimed by invalid device codes).
  *
  * Called during gateway startup to backfill existing installations.
+ *
+ * `recoverFromActorTokens` is the boot-time self-heal seam: the
+ * post-assistant-ready backfill sets it so an install whose contact reconcile
+ * could not run (empty contacts, surviving actor tokens) rebinds the guardian
+ * from its own tokens instead of refusing. Runtime callers leave it off and
+ * keep their fail-closed repair path.
  */
-export async function ensureVellumGuardianBinding(): Promise<string> {
+export async function ensureVellumGuardianBinding(
+  opts: { recoverFromActorTokens?: boolean } = {},
+): Promise<string> {
   const { guardianPrincipalId } = await resolveOrCreateVellumGuardian({
     allowMintWithEvidence: false,
+    recoverFromActorTokens: opts.recoverFromActorTokens ?? false,
   });
   return guardianPrincipalId;
 }

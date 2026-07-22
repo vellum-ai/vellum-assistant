@@ -43,19 +43,19 @@ const {
   runDeferredTasksWhenAssistantReady,
   waitForAssistant,
 } = await import("../post-assistant-ready.js");
-const { initGatewayDb, getGatewayDb, resetGatewayDb } = await import(
-  "../db/connection.js"
-);
-const { contacts, contactChannels } = await import("../db/schema.js");
+const { initGatewayDb, getGatewayDb, resetGatewayDb } =
+  await import("../db/connection.js");
+const { contacts, contactChannels, actorTokenRecords } =
+  await import("../db/schema.js");
 const { MIGRATIONS } = await import("../db/data-migrations/index.js");
-const { bustGuardianIntegrityCache } = await import(
-  "../auth/guardian-integrity.js"
-);
+const { bustGuardianIntegrityCache } =
+  await import("../auth/guardian-integrity.js");
 const {
   resetGuardianIntegrityReporterForTesting,
   setGuardianIntegrityReporterOverridesForTesting,
 } = await import("../guardian-integrity-reporter.js");
-const { seedContact } = await import("./helpers/contact-fixtures.js");
+const { seedContact, seedActorToken } =
+  await import("./helpers/contact-fixtures.js");
 
 const MIGRATING_HEALTH = {
   status: "MIGRATING",
@@ -147,10 +147,60 @@ describe("runDeferredTasksWhenAssistantReady", () => {
       await runDeferredTasksWhenAssistantReady(5);
 
       // Refused, not minted: no vellum guardian binding appeared.
-      expect(
-        getGatewayDb().select().from(contactChannels).all(),
-      ).toHaveLength(0);
+      expect(getGatewayDb().select().from(contactChannels).all()).toHaveLength(
+        0,
+      );
       expect(getGatewayDb().select().from(contacts).all()).toHaveLength(1);
+    } finally {
+      resetGuardianIntegrityReporterForTesting();
+      resetGatewayDb();
+    }
+  });
+
+  test("real deferred run recovers the guardian from surviving actor tokens (LUM-2783)", async () => {
+    await initGatewayDb();
+    try {
+      // This file's tests share one gateway DB in-process; clear the ACL/token
+      // tables so a prior test's seed can't skew the row-count assertions.
+      getGatewayDb().delete(contactChannels).run();
+      getGatewayDb().delete(contacts).run();
+      getGatewayDb().delete(actorTokenRecords).run();
+      // No-op the migration step so the guardian backfill is the code under
+      // test — the upgrade already left the gateway with an empty contacts
+      // table but a surviving actor token (m0002 ran; the contact reconcile
+      // could not, because assistant migration 305 had dropped the ACL columns).
+      for (const { key } of MIGRATIONS) {
+        getGatewayDb().run(
+          sql`INSERT OR IGNORE INTO one_time_migrations (key, ran_at) VALUES (${key}, ${Date.now()})`,
+        );
+      }
+      seedActorToken(); // active token, guardianPrincipalId "principal-123"
+      bustGuardianIntegrityCache();
+      setGuardianIntegrityReporterOverridesForTesting({
+        fetchImpl: async () => new Response("{}"),
+        mintToken: () => "svc-token",
+        baseUrl: "http://127.0.0.1:7821",
+        log: { error: () => {}, warn: () => {} },
+      });
+      resetPostAssistantReadyForTest(); // restore the REAL executor
+
+      await runDeferredTasksWhenAssistantReady(5);
+
+      // The boot backfill rebuilt the vellum guardian binding from the token's
+      // principal, so trust resolution can classify the owner again.
+      const channels = getGatewayDb().select().from(contactChannels).all();
+      expect(channels).toHaveLength(1);
+      expect(channels[0]).toMatchObject({
+        type: "vellum",
+        address: "principal-123",
+        status: "active",
+      });
+      const contactRows = getGatewayDb().select().from(contacts).all();
+      expect(contactRows).toHaveLength(1);
+      expect(contactRows[0]).toMatchObject({
+        role: "guardian",
+        principalId: "principal-123",
+      });
     } finally {
       resetGuardianIntegrityReporterForTesting();
       resetGatewayDb();
