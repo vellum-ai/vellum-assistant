@@ -2,13 +2,15 @@
 // Tracks request counts per key and returns 429 when the limit is exceeded.
 // Follows the same sliding-window pattern as gateway/src/auth-rate-limiter.ts.
 
+import { getConfigReadOnly } from "../../config/loader.js";
+import { DEFAULT_AUTHENTICATED_API_MAX_REQUESTS_PER_MINUTE } from "../../config/schemas/api-rate-limit.js";
 import { getLogger } from "../../util/logger.js";
 import type { HttpErrorResponse } from "../http-errors.js";
 import { isLoopbackAddress, isPrivateAddress } from "./auth.js";
 
 const log = getLogger("rate-limiter");
 
-const DEFAULT_MAX_REQUESTS = 300;
+const DEFAULT_MAX_REQUESTS = DEFAULT_AUTHENTICATED_API_MAX_REQUESTS_PER_MINUTE;
 const DEFAULT_WINDOW_MS = 60_000; // 60 seconds
 const MAX_TRACKED_TOKENS = 10_000;
 
@@ -32,16 +34,22 @@ interface RequestEntry {
 
 class TokenRateLimiter {
   private requests = new Map<string, RequestEntry[]>();
-  private readonly maxRequests: number;
+  private readonly resolveMaxRequests: () => number;
   private readonly windowMs: number;
   private readonly maxTrackedKeys: number;
 
+  /**
+   * `maxRequests` may be a fixed number or a resolver called on every check,
+   * so the budget can track workspace configuration (and config reloads)
+   * without recreating the limiter and losing its in-window history.
+   */
   constructor(
-    maxRequests = DEFAULT_MAX_REQUESTS,
+    maxRequests: number | (() => number) = DEFAULT_MAX_REQUESTS,
     windowMs = DEFAULT_WINDOW_MS,
     maxTrackedKeys = MAX_TRACKED_TOKENS,
   ) {
-    this.maxRequests = maxRequests;
+    this.resolveMaxRequests =
+      typeof maxRequests === "function" ? maxRequests : () => maxRequests;
     this.windowMs = windowMs;
     this.maxTrackedKeys = maxTrackedKeys;
   }
@@ -52,6 +60,7 @@ class TokenRateLimiter {
    */
   check(key: string, path?: string): RateLimitResult {
     const now = Date.now();
+    const maxRequests = this.resolveMaxRequests();
     let entries = this.requests.get(key);
 
     if (!entries) {
@@ -73,16 +82,16 @@ class TokenRateLimiter {
       entries.shift();
     }
 
-    const remaining = Math.max(0, this.maxRequests - entries.length);
+    const remaining = Math.max(0, maxRequests - entries.length);
     const resetAt =
       entries.length > 0
         ? Math.ceil((entries[0].timestamp + this.windowMs) / 1000)
         : Math.ceil((now + this.windowMs) / 1000);
 
-    if (entries.length >= this.maxRequests) {
+    if (entries.length >= maxRequests) {
       return {
         allowed: false,
-        limit: this.maxRequests,
+        limit: maxRequests,
         remaining: 0,
         resetAt,
       };
@@ -92,7 +101,7 @@ class TokenRateLimiter {
 
     return {
       allowed: true,
-      limit: this.maxRequests,
+      limit: maxRequests,
       remaining: remaining - 1,
       resetAt,
     };
@@ -191,8 +200,28 @@ export function rateLimitResponse(
   });
 }
 
-/** Singleton rate limiter for authenticated /v1/* requests (per-client-IP). */
-export const apiRateLimiter = new TokenRateLimiter();
+/**
+ * Resolve the per-minute budget for authenticated remote (non-loopback)
+ * clients from workspace configuration, falling back to the built-in default
+ * if the config is unavailable (e.g. read before the workspace is ready).
+ * Uses the read-only accessor so a rate-limit check never writes to disk.
+ */
+function resolveAuthenticatedApiMaxRequests(): number {
+  try {
+    return getConfigReadOnly().apiRateLimit.authenticatedMaxRequestsPerMinute;
+  } catch {
+    return DEFAULT_MAX_REQUESTS;
+  }
+}
+
+/**
+ * Singleton rate limiter for authenticated /v1/* requests (per-client-IP).
+ * Its budget is read from `apiRateLimit.authenticatedMaxRequestsPerMinute` on
+ * every check, so a config edit takes effect without a restart.
+ */
+export const apiRateLimiter = new TokenRateLimiter(
+  resolveAuthenticatedApiMaxRequests,
+);
 
 /**
  * Singleton rate limiter for authenticated requests from loopback clients.

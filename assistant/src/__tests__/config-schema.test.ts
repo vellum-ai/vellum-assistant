@@ -607,6 +607,38 @@ describe("AssistantConfigSchema", () => {
     expect(result.success).toBe(false);
   });
 
+  // ── apiRateLimit config (authenticated /v1/* API limiter) ────────────
+
+  test("applies apiRateLimit default of 300 when unset", () => {
+    const result = AssistantConfigSchema.parse({});
+    expect(result.apiRateLimit).toEqual({
+      authenticatedMaxRequestsPerMinute: 300,
+    });
+  });
+
+  test("accepts a custom apiRateLimit.authenticatedMaxRequestsPerMinute override", () => {
+    const result = AssistantConfigSchema.parse({
+      apiRateLimit: { authenticatedMaxRequestsPerMinute: 600 },
+    });
+    expect(result.apiRateLimit.authenticatedMaxRequestsPerMinute).toBe(600);
+  });
+
+  test("rejects zero, negative, and non-integer apiRateLimit budgets", () => {
+    for (const bad of [0, -1, 12.5, "300"]) {
+      const result = AssistantConfigSchema.safeParse({
+        apiRateLimit: { authenticatedMaxRequestsPerMinute: bad },
+      });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(
+          result.error.issues.some((i) =>
+            i.path.join(".").includes("authenticatedMaxRequestsPerMinute"),
+          ),
+        ).toBe(true);
+      }
+    }
+  });
+
   test("rejects negative auditLog.retentionDays", () => {
     const result = AssistantConfigSchema.safeParse({
       auditLog: { retentionDays: -7 },

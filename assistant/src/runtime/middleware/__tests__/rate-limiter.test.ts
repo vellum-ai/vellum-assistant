@@ -1,8 +1,12 @@
-import { describe, expect, test } from "bun:test";
+import { existsSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { afterEach, describe, expect, test } from "bun:test";
 
+import { invalidateConfigCache } from "../../../config/loader.js";
 import { isLoopbackAddress } from "../auth.js";
 import {
   apiRateLimiter,
+  ipRateLimiter,
   isRateLimitExemptEndpoint,
   loopbackApiRateLimiter,
   selectAuthenticatedRateLimiter,
@@ -81,5 +85,49 @@ describe("isRateLimitExemptEndpoint", () => {
     // Match is exact on the normalized endpoint segment, not a prefix.
     expect(isRateLimitExemptEndpoint("events/replay")).toBe(false);
     expect(isRateLimitExemptEndpoint("")).toBe(false);
+  });
+});
+
+describe("authenticated API rate limit is configurable", () => {
+  const configPath = join(process.env.VELLUM_WORKSPACE_DIR!, "config.json");
+
+  function setConfig(obj: unknown): void {
+    writeFileSync(configPath, JSON.stringify(obj));
+    invalidateConfigCache();
+  }
+
+  function clearConfig(): void {
+    if (existsSync(configPath)) {
+      rmSync(configPath);
+    }
+    invalidateConfigCache();
+  }
+
+  afterEach(() => {
+    clearConfig();
+  });
+
+  test("defaults the authenticated remote budget to 300 when unset", () => {
+    clearConfig();
+    const result = apiRateLimiter.check("cfg-default-key", "/v1/test");
+    expect(result.limit).toBe(300);
+  });
+
+  test("reads the budget from apiRateLimit config on each check (no restart)", () => {
+    clearConfig();
+    expect(apiRateLimiter.check("cfg-dynamic-1", "/v1/test").limit).toBe(300);
+
+    setConfig({ apiRateLimit: { authenticatedMaxRequestsPerMinute: 500 } });
+    expect(apiRateLimiter.check("cfg-dynamic-2", "/v1/test").limit).toBe(500);
+  });
+
+  test("override leaves the loopback and unauthenticated budgets unchanged", () => {
+    setConfig({ apiRateLimit: { authenticatedMaxRequestsPerMinute: 750 } });
+    expect(apiRateLimiter.check("cfg-auth-key", "/v1/test").limit).toBe(750);
+    // Loopback (1200) and unauthenticated (20) budgets are fixed.
+    expect(
+      loopbackApiRateLimiter.check("cfg-loopback-key", "/v1/test").limit,
+    ).toBe(1200);
+    expect(ipRateLimiter.check("cfg-ip-key", "/v1/test").limit).toBe(20);
   });
 });
