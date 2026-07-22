@@ -211,17 +211,20 @@ export interface UnreportedUsageEvent extends UsageEvent {
   /**
    * Id of the conversation that spawned this LLM call's conversation:
    * `parent_conversation_id` (subagent spawns), falling back to
-   * `fork_parent_conversation_id` (retrospective forks). Null when the
-   * conversation was not spawned by another conversation, or when the
-   * LLM call has no `conversationId` at all.
+   * `fork_parent_conversation_id` for background forks (retrospectives).
+   * User-initiated forks are excluded — they are standard conversations
+   * whose usage belongs to themselves. Null when the conversation was
+   * not spawned by another conversation, or when the LLM call has no
+   * `conversationId` at all.
    */
   parentConversationId: string | null;
   /**
-   * 1-indexed position of the user turn that was in flight in the parent
-   * conversation when this LLM call's conversation was created — i.e. the
-   * parent turn that spawned it. Computed as the count of real user turns
-   * in the parent conversation with `created_at <=` the child
-   * conversation's `created_at` (same eligibility filter as `turnIndex`).
+   * 1-indexed position of the parent-conversation user turn this LLM
+   * call's conversation branched from. Computed as the count of real user
+   * turns in the parent conversation (same eligibility filter as
+   * `turnIndex`) up to the child conversation's creation for subagent
+   * spawns, or up to the fork boundary message for retrospective forks
+   * (which can fork from a turn much earlier than their creation time).
    * Null when there's no parent conversation.
    */
   parentTurnIndex: number | null;
@@ -235,12 +238,31 @@ export function queryUnreportedUsageEvents(
   const db = getTelemetryMainDb();
   // Spawn linkage: `parent_conversation_id` (subagent spawns) with a
   // fallback to `fork_parent_conversation_id` (retrospective forks — one
-  // hop up the fork chain is the intended attribution). Null when the
-  // LEFT JOIN below misses or the conversation has no parent.
+  // hop up the fork chain is the intended attribution). The fallback is
+  // gated to background conversations: user-initiated forks also stamp
+  // `fork_parent_conversation_id` but are first-class standard
+  // conversations whose usage belongs to themselves, not the source turn.
+  // Null when the LEFT JOIN below misses or the conversation has no
+  // parent.
   const parentIdSql = sql<string | null>`COALESCE(
     ${conversations.parentConversationId},
-    ${conversations.forkParentConversationId}
+    CASE WHEN ${conversations.conversationType} = 'background'
+      THEN ${conversations.forkParentConversationId}
+    END
   )`;
+  // Cutoff for the parent-turn count. Subagent spawns attribute to the
+  // parent turn in flight at child creation. Retrospective forks can
+  // branch from a turn far earlier than the fork's creation time, so
+  // they anchor on the fork boundary message instead; child creation is
+  // the fallback when the boundary message is absent.
+  const parentTurnCutoffSql = sql<number>`CASE
+    WHEN ${conversations.parentConversationId} IS NOT NULL THEN ${conversations.createdAt}
+    ELSE COALESCE(
+      (SELECT mb.created_at FROM messages AS mb
+        WHERE mb.id = ${conversations.forkParentMessageId}),
+      ${conversations.createdAt}
+    )
+  END`;
   // JOIN to `conversations` to attach `conversationType`. LEFT JOIN
   // because `llm_usage_events.conversationId` is nullable — calls that
   // aren't tied to a conversation (memory consolidation, etc.) still
@@ -293,10 +315,11 @@ export function queryUnreportedUsageEvents(
         END
       )`.as("turn_index"),
       parentConversationId: parentIdSql.as("parent_conversation_id"),
-      // The parent turn in flight when the child conversation was created:
-      // count of the PARENT conversation's real user turns with
-      // `created_at <=` the CHILD conversation's `created_at`. Same
-      // eligibility filter as `turnIndex` above.
+      // The parent turn this child conversation branched from: count of
+      // the PARENT conversation's real user turns with `created_at <=`
+      // the cutoff (child creation for subagent spawns, fork boundary
+      // message for retrospective forks). Same eligibility filter as
+      // `turnIndex` above.
       parentTurnIndex: sql<number | null>`(
         CASE WHEN ${parentIdSql} IS NULL THEN NULL
         ELSE (
@@ -304,7 +327,7 @@ export function queryUnreportedUsageEvents(
           WHERE m3.conversation_id = ${parentIdSql}
             AND m3.role = 'user'
             AND ${realUserTurnContentFilter("m3")}
-            AND m3.created_at <= ${conversations.createdAt}
+            AND m3.created_at <= ${parentTurnCutoffSql}
         )
         END
       )`.as("parent_turn_index"),

@@ -1897,6 +1897,53 @@ describe("queryUnreportedUsageEvents", () => {
     expect(events[0].parentTurnIndex).toBe(1);
   });
 
+  test("fork parentTurnIndex anchors on the fork boundary message, not fork creation time", () => {
+    const db = getDb();
+    // Source conversation with turns at t=1000 and t=3000. The fork
+    // branches from the FIRST turn (boundary message s1) but is created
+    // at t=5000, after turn 2 exists — attribution must report turn 1.
+    db.run(
+      `INSERT INTO conversations (id, conversation_type, created_at, updated_at) VALUES ('source-2', 'standard', 500, 500)`,
+    );
+    db.run(
+      `INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES ('s2a', 'source-2', 'user', 'first', 1000)`,
+    );
+    db.run(
+      `INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES ('s2b', 'source-2', 'user', 'second', 3000)`,
+    );
+    db.run(
+      `INSERT INTO conversations (id, conversation_type, created_at, updated_at, fork_parent_conversation_id, fork_parent_message_id) VALUES ('retro-2', 'background', 5000, 5000, 'source-2', 's2a')`,
+    );
+    insertEventAt(6000, { conversationId: "retro-2" });
+
+    const events = queryUnreportedUsageEvents(0, undefined, 100);
+    expect(events).toHaveLength(1);
+    expect(events[0].parentConversationId).toBe("source-2");
+    expect(events[0].parentTurnIndex).toBe(1);
+  });
+
+  test("user-initiated forks (standard type) do not inherit fork parent attribution", () => {
+    const db = getDb();
+    // A user forks a conversation: the fork stamps
+    // fork_parent_conversation_id but is a first-class standard
+    // conversation — its usage must not fold into the source turn.
+    db.run(
+      `INSERT INTO conversations (id, conversation_type, created_at, updated_at) VALUES ('source-3', 'standard', 500, 500)`,
+    );
+    db.run(
+      `INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES ('s3', 'source-3', 'user', 'hello', 1000)`,
+    );
+    db.run(
+      `INSERT INTO conversations (id, conversation_type, created_at, updated_at, fork_parent_conversation_id, fork_parent_message_id) VALUES ('user-fork-1', 'standard', 2000, 2000, 'source-3', 's3')`,
+    );
+    insertEventAt(3000, { conversationId: "user-fork-1" });
+
+    const events = queryUnreportedUsageEvents(0, undefined, 100);
+    expect(events).toHaveLength(1);
+    expect(events[0].parentConversationId).toBeNull();
+    expect(events[0].parentTurnIndex).toBeNull();
+  });
+
   test("parent fields are null for parentless conversations and no-conversation events", () => {
     const db = getDb();
     const now = Date.now();
