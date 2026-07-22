@@ -34,15 +34,10 @@ import {
   WEB_REMOTE_INGRESS_FLAG,
 } from "../lib/feature-flags.js";
 import { getLocalLanIPv4 } from "../lib/local.js";
-import { loopbackSafeFetch } from "../lib/loopback-fetch.js";
+import { isLoopbackUrl, loopbackSafeFetch } from "../lib/loopback-fetch.js";
 
-function isLoopbackHost(url: string): boolean {
-  try {
-    const host = new URL(url).hostname.toLowerCase();
-    return host === "localhost" || host === "::1" || host.startsWith("127.");
-  } catch {
-    return false;
-  }
+function assistantDisplayName(entry: AssistantEntry): string {
+  return entry.name || entry.assistantName || entry.assistantId;
 }
 
 function printUsage(): void {
@@ -64,9 +59,9 @@ OPTIONS:
     --qr             Render a QR code that pairs a device in one scan. Mints a
                     remote-web pairing challenge and approves it locally, so the
                     scan alone completes pairing. Needs a public https URL
-                    (--url, else the assistant's public ingress URL); refuses
+                    (--url, else the assistant's runtime URL); refuses
                     loopback or non-https URLs.
-    --json           Output the result as JSON. With --qr: {url, deviceCode,
+    --json           Output the result as JSON. With --qr: {pairUrl, deviceCode,
                     expiresAt, expiresInSeconds}
 
 EXAMPLES:
@@ -129,26 +124,33 @@ function buildRemoteWebPairingUrl(
   return url.toString();
 }
 
+type QrPublicBaseUrlFailureReason = "unparseable" | "loopback" | "non-https";
+
+type QrPublicBaseUrlResult =
+  | { ok: true; url: string }
+  | { ok: false; reason: QrPublicBaseUrlFailureReason };
+
 /**
  * Normalize the advertised URL to the public https origin a scanning phone can
- * open, or return null when it isn't internet-reachable. Stricter than the
- * copy-paste bundle path's loopback guard: a QR that encodes a loopback or
- * plain-http link is unusable from another device, so both are refused.
+ * open, or report why it isn't internet-reachable. Stricter than the copy-paste
+ * bundle path's loopback guard: a QR that encodes a loopback or plain-http link
+ * is unusable from another device, so both are refused. The failure reason is
+ * returned so the caller can emit an accurate message per case.
  */
-function resolveQrPublicBaseUrl(advertisedUrl: string): string | null {
+function resolveQrPublicBaseUrl(advertisedUrl: string): QrPublicBaseUrlResult {
   let normalized: string;
   try {
     normalized = normalizePublicBaseUrl(advertisedUrl);
   } catch {
-    return null;
+    return { ok: false, reason: "unparseable" };
   }
-  if (isLoopbackHost(normalized)) {
-    return null;
+  if (isLoopbackUrl(normalized)) {
+    return { ok: false, reason: "loopback" };
   }
   if (new URL(normalized).protocol !== "https:") {
-    return null;
+    return { ok: false, reason: "non-https" };
   }
-  return normalized;
+  return { ok: true, url: normalized };
 }
 
 /**
@@ -331,7 +333,7 @@ export async function pair(): Promise<void> {
     !urlOverride &&
     !webApproveCode &&
     !qrPairing &&
-    isLoopbackHost(advertisedUrl)
+    isLoopbackUrl(advertisedUrl)
   ) {
     const lan = getLocalLanIPv4();
     // Use THIS assistant's gateway port (not the global default) — second
@@ -402,7 +404,7 @@ export async function pair(): Promise<void> {
       return;
     }
 
-    const displayName = entry.name || entry.assistantName || entry.assistantId;
+    const displayName = assistantDisplayName(entry);
     console.log(`Created remote web pairing for ${displayName}.`);
     console.log("");
     console.log("Open this URL in the browser:");
@@ -426,13 +428,16 @@ export async function pair(): Promise<void> {
   if (qrPairing) {
     // Validate the public URL before any network call — a QR that encodes a
     // loopback or plain-http link is unscannable from another device.
-    const qrBaseUrl = resolveQrPublicBaseUrl(advertisedUrl);
-    if (!qrBaseUrl) {
+    const qrResult = resolveQrPublicBaseUrl(advertisedUrl);
+    if (!qrResult.ok) {
+      const detailByReason: Record<QrPublicBaseUrlFailureReason, string> = {
+        unparseable: `${advertisedUrl} isn't a valid URL`,
+        loopback: `${advertisedUrl} is a loopback address`,
+        "non-https": `${advertisedUrl} is not https`,
+      };
       console.error(
         "Error: --qr needs a public https URL the phone can open — " +
-          `${advertisedUrl} is ${
-            isLoopbackHost(advertisedUrl) ? "a loopback address" : "not https"
-          }.`,
+          `${detailByReason[qrResult.reason]}.`,
       );
       console.error(
         "Re-run with your assistant's public URL, e.g.:\n" +
@@ -440,6 +445,7 @@ export async function pair(): Promise<void> {
       );
       process.exit(1);
     }
+    const qrBaseUrl = qrResult.url;
 
     await assertWebRemoteIngressEnabled(entry.assistantId, mintUrl);
 
@@ -454,7 +460,7 @@ export async function pair(): Promise<void> {
       console.log(
         JSON.stringify(
           {
-            url: pairUrl,
+            pairUrl,
             deviceCode: challenge.deviceCode,
             expiresAt: challenge.expiresAt,
             expiresInSeconds: challenge.expiresInSeconds,
@@ -466,7 +472,7 @@ export async function pair(): Promise<void> {
       return;
     }
 
-    const displayName = entry.name || entry.assistantName || entry.assistantId;
+    const displayName = assistantDisplayName(entry);
     console.log(`Scan to pair a device with ${displayName}:`);
     console.log("");
     qrcodeTerminal.generate(pairUrl, { small: true }, (qr) => {
@@ -521,7 +527,7 @@ export async function pair(): Promise<void> {
     return;
   }
 
-  const displayName = entry.name || entry.assistantName || entry.assistantId;
+  const displayName = assistantDisplayName(entry);
   console.log(`Paired ${label ? `"${label}" ` : ""}with ${displayName}.`);
   console.log("");
   console.log(`  Gateway:   ${advertisedUrl}`);

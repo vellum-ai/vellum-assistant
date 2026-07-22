@@ -546,13 +546,14 @@ describe("pair command", () => {
 
     const out = JSON.parse(logs.join("\n"));
     expect(out).toEqual({
-      url: "https://pair.example.ts.net/assistant/pair#device_code=device-code",
+      pairUrl:
+        "https://pair.example.ts.net/assistant/pair#device_code=device-code",
       deviceCode: "device-code",
       expiresAt: "2026-06-04T00:10:00.000Z",
       expiresInSeconds: 600,
     });
     // The device code rides the fragment only — never the path or query.
-    const parsed = new URL(out.url);
+    const parsed = new URL(out.pairUrl);
     expect(parsed.search).toBe("");
     expect(parsed.hash).toBe("#device_code=device-code");
   });
@@ -703,6 +704,47 @@ describe("pair command", () => {
 
     expect(exited).toBe(true);
     expect(errors.join("\n")).toContain("loopback");
+    expect(fetchCalled).toBe(false);
+  });
+
+  test("--qr refuses an unparseable --url with an accurate error, not a non-https mislabel", async () => {
+    let fetchCalled = false;
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = (async () => {
+      fetchCalled = true;
+      return new Response("{}", { status: 200 });
+    }) as unknown as typeof fetch;
+    const errors: string[] = [];
+    const errSpy = spyOn(console, "error").mockImplementation(
+      (...a: unknown[]) => {
+        errors.push(a.join(" "));
+      },
+    );
+    const exitSpy = spyOn(process, "exit").mockImplementation(((
+      code?: number,
+    ) => {
+      throw new Error(`exit:${code}`);
+    }) as never);
+
+    process.argv = ["bun", "vellum", "pair", "--qr", "--url", "not-a-url"];
+    let exited = false;
+    try {
+      await pair();
+    } catch (e) {
+      exited = (e as Error).message === "exit:1";
+    } finally {
+      errSpy.mockRestore();
+      exitSpy.mockRestore();
+      globalThis.fetch = origFetch;
+    }
+
+    // Unparseable input reports its own reason — not the loopback/non-https
+    // messages the reason-blind version reconstructed.
+    expect(exited).toBe(true);
+    const joined = errors.join("\n");
+    expect(joined).toContain("isn't a valid URL");
+    expect(joined).not.toContain("is not https");
+    expect(joined).not.toContain("loopback");
     expect(fetchCalled).toBe(false);
   });
 
