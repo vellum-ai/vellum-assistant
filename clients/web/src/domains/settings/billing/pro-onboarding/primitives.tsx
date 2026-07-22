@@ -192,24 +192,24 @@ interface CreaturePlacement {
  * creatures scattered around every edge.
  */
 const CREATURE_PLACEMENTS: CreaturePlacement[] = [
-  { bodyShape: "star", eyeStyle: "gentle", color: "yellow", size: 88, position: "-left-6 -top-7", rotate: 180 },
-  { bodyShape: "urchin", eyeStyle: "curious", color: "orange", size: 93, position: "left-[63%] -top-[53px] -translate-x-1/2", rotate: -8 },
-  { bodyShape: "blob", eyeStyle: "gentle", color: "green", size: 65, position: "-right-[21px] top-[51px]", rotate: 1 },
-  { bodyShape: "blob", eyeStyle: "goofy", color: "purple", size: 94, position: "-left-[33px] top-[74%]", rotate: 0 },
-  { bodyShape: "urchin", eyeStyle: "surprised", color: "pink", size: 117, position: "-right-9 -bottom-[34px]", rotate: 180 },
-  { bodyShape: "star", eyeStyle: "quirky", color: "orange", size: 62, position: "left-[37%] -bottom-[19px] -translate-x-1/2", rotate: 0 },
+  { bodyShape: "star", eyeStyle: "curious", color: "yellow", size: 88, position: "-left-6 -top-7", rotate: 180 },
+  { bodyShape: "star", eyeStyle: "curious", color: "orange", size: 93, position: "left-[63%] -top-[53px] -translate-x-1/2", rotate: -8 },
+  { bodyShape: "blob", eyeStyle: "grumpy", color: "green", size: 65, position: "-right-[21px] top-[51px]", rotate: 1 },
+  { bodyShape: "sprout", eyeStyle: "curious", color: "purple", size: 94, position: "-left-[33px] top-[74%]", rotate: 0 },
+  { bodyShape: "urchin", eyeStyle: "curious", color: "pink", size: 117, position: "-right-9 -bottom-[34px]", rotate: 180 },
+  { bodyShape: "star", eyeStyle: "curious", color: "orange", size: 62, position: "left-[37%] -bottom-[19px] -translate-x-1/2", rotate: 0 },
 ];
 
 /**
  * Deterministic creature scatter for the email card (`variant="top"`): three
  * creatures tuned to the email-step mock — a rotated yellow star hanging off
- * the top-left corner, an orange spiky creature upper-center-right, and a
+ * the top-left corner, an orange star upper-center-right, and a heavy-lidded
  * green blob peeking in from the right edge.
  */
 const TOP_CREATURE_PLACEMENTS: CreaturePlacement[] = [
-  { bodyShape: "star", eyeStyle: "gentle", color: "yellow", size: 88, position: "-left-6 -top-7", rotate: 180 },
-  { bodyShape: "urchin", eyeStyle: "curious", color: "orange", size: 93, position: "left-[63%] -top-[53px] -translate-x-1/2", rotate: -8 },
-  { bodyShape: "blob", eyeStyle: "gentle", color: "green", size: 65, position: "-right-[21px] top-[51px]", rotate: 1 },
+  { bodyShape: "star", eyeStyle: "curious", color: "yellow", size: 88, position: "-left-6 -top-7", rotate: 180 },
+  { bodyShape: "star", eyeStyle: "curious", color: "orange", size: 93, position: "left-[63%] -top-[53px] -translate-x-1/2", rotate: -8 },
+  { bodyShape: "blob", eyeStyle: "grumpy", color: "green", size: 65, position: "-right-[21px] top-[51px]", rotate: 1 },
 ];
 
 /**
