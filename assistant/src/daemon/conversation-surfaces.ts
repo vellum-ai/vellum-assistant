@@ -57,6 +57,13 @@ import { buildConversationErrorMessage } from "./conversation-error.js";
 import { launchConversation } from "./conversation-launch.js";
 import type { EnqueueMessageOptions } from "./conversation-messaging.js";
 import type { ProcessMessageOptions } from "./conversation-process.js";
+import {
+  buildSurfaceShowPair,
+  type CurrentTurnSurface,
+  parseShowPairOrThrow,
+  type SurfaceShowPair,
+  type SurfaceStateEntry,
+} from "./conversation-surface-state.js";
 import type { HostAppControlProxy } from "./host-app-control-proxy.js";
 import type { HostCuProxy } from "./host-cu-proxy.js";
 import type {
@@ -69,13 +76,21 @@ import type {
   ServerMessage,
   SurfaceAction,
   SurfaceData,
-  SurfaceDataByType,
   SurfaceType,
   TableColumn,
   TableRow,
   UiSurfaceShow,
 } from "./message-protocol.js";
 import { INTERACTIVE_SURFACE_TYPES } from "./message-protocol.js";
+export {
+  buildSurfaceShowPair,
+  type CurrentTurnSurface,
+  parseSurfaceShowPair,
+  restoreSurfaceStateEntry,
+  type StoredSurfaceAction,
+  type SurfaceShowPair,
+  type SurfaceStateEntry,
+} from "./conversation-surface-state.js";
 import type { HostAppControlInput } from "./message-types/host-app-control.js";
 import type { UserMessageAttachment } from "./message-types/shared.js";
 import type { TrustContext } from "./trust-context-types.js";
@@ -783,177 +798,6 @@ function isSlackTaskProgressUiException(
  * The Conversation class implements this interface so its instances can be
  * passed directly to the extracted functions.
  */
-
-/** Action snapshot stored with a surface (style stays a loose string). */
-export interface StoredSurfaceAction {
-  id: string;
-  label: string;
-  style?: string;
-  data?: Record<string, unknown>;
-}
-
-/**
- * A correlated `surfaceType`/`data` pair per surface type. Generic code
- * indexes the map (`SurfaceShowPairMap[K]`) so the compiler keeps the
- * pairing; checking `pair.surfaceType` narrows `pair.data`.
- */
-type SurfaceShowPairMap = {
-  [K in SurfaceType]: { surfaceType: K; data: SurfaceDataByType[K] };
-};
-
-/** Union of all correlated `surfaceType`/`data` pairs. */
-export type SurfaceShowPair = SurfaceShowPairMap[SurfaceType];
-
-/**
- * One live surface's stored state; `surfaceType` narrows `data`, so readers
- * guard on the discriminant instead of casting.
- */
-export type SurfaceStateEntry = {
-  [K in SurfaceType]: {
-    surfaceType: K;
-    data: SurfaceDataByType[K];
-    title?: string;
-    actions?: StoredSurfaceAction[];
-    /**
-     * Activation-rail telemetry tag (daemon-only). When the model tags a
-     * `ui_show` surface as an activation funnel moment, the token is captured
-     * here so the milestone can be recorded deterministically when the user
-     * commits the surface (`handleSurfaceAction`). Never forwarded to the
-     * client.
-     */
-    activationMoment?: ActivationMomentParam;
-  };
-}[SurfaceType];
-
-/** A surface shown during the current turn, tracked for message persistence. */
-export type CurrentTurnSurface = {
-  [K in SurfaceType]: {
-    surfaceId: string;
-    surfaceType: K;
-    title?: string;
-    data: SurfaceDataByType[K];
-    actions?: StoredSurfaceAction[];
-    display?: string;
-    persistent?: boolean;
-    toolCallId?: string;
-    /**
-     * Commit-timing activation-rail tag (daemon-only). Carried through to the
-     * persisted `ui_surface` history block so it survives a reload — never sent
-     * to the client.
-     */
-    activationMoment?: ActivationMomentParam;
-  };
-}[SurfaceType];
-
-/**
- * Recover a correlated show pair from an untyped (`surfaceType`, `data`)
- * pairing — a persisted history block, or a loosely-typed tool message.
- * Returns `undefined` when `surfaceType` isn't a known surface type; the
- * data parses tolerantly through the type's canonical schema.
- */
-export function parseSurfaceShowPair(
-  surfaceType: unknown,
-  data: unknown,
-): SurfaceShowPair | undefined {
-  const parsedType = SurfaceTypeSchema.safeParse(surfaceType);
-  if (!parsedType.success) {
-    return undefined;
-  }
-  return buildSurfaceShowPair(parsedType.data, data);
-}
-
-/** Correlated-pair constructor for a known surface type. */
-function buildSurfaceShowPair<K extends SurfaceType>(
-  surfaceType: K,
-  data: unknown,
-): SurfaceShowPairMap[K] | undefined {
-  const parsed = safeParseSurfaceData(surfaceType, data);
-  if (parsed === undefined) {
-    return undefined;
-  }
-  // `parsed` came from `surfaceType`'s own schema, so the pair is correlated
-  // by construction; TypeScript cannot verify an object literal against a
-  // generic indexed type (microsoft/TypeScript#30581), so this single
-  // assertion is the one place untyped pairs become typed ones.
-  return { surfaceType, data: parsed } as SurfaceShowPairMap[K];
-}
-
-/**
- * Correlated-pair constructor for surface types whose schemas are total
- * over object inputs (every type except `card`). The throw is unreachable
- * for record payloads; it exists so a schema regression fails loudly
- * instead of rendering the wrong surface.
- */
-function parseShowPairOrThrow<K extends SurfaceType>(
-  surfaceType: K,
-  data: Record<string, unknown>,
-): SurfaceShowPairMap[K] {
-  const pair = buildSurfaceShowPair(surfaceType, data);
-  if (pair === undefined) {
-    throw new Error(
-      `ui_show data for "${surfaceType}" failed its canonical schema`,
-    );
-  }
-  return pair;
-}
-
-/**
- * Map a persisted `ui_surface` history block to a `surfaceState` entry.
- * The block's fields are untyped JSON from the messages table; the
- * `surfaceType`/`data` pair parses through the canonical schemas. An
- * unrecognized `surfaceType` falls back to `dynamic_page` (the legacy
- * restore default for blocks that predate the field); a card payload that
- * fails its schema (the one non-total schema) restores as an empty card
- * rather than flipping type.
- */
-export function restoreSurfaceStateEntry(
-  b: Record<string, unknown>,
-): SurfaceStateEntry {
-  const parsedType = SurfaceTypeSchema.safeParse(
-    b.surfaceType ?? "dynamic_page",
-  );
-  const surfaceType = parsedType.success ? parsedType.data : "dynamic_page";
-  const pair = buildSurfaceShowPair(
-    surfaceType,
-    coerceSurfaceDataRecord(b.data),
-  ) ?? { surfaceType: "card", data: {} };
-
-  // Rehydrate the daemon-only commit-timing activation tag so a commit
-  // after reload still records its funnel milestone. Validated and
-  // dropped if malformed; this field never reaches the client.
-  const activationMoment =
-    typeof b.activationMoment === "string" &&
-    isActivationMomentParam(b.activationMoment)
-      ? b.activationMoment
-      : undefined;
-
-  const actions = Array.isArray(b.actions)
-    ? b.actions.flatMap((action): StoredSurfaceAction[] => {
-        if (!isPlainObject(action)) {
-          return [];
-        }
-        const { id, label, style, data } = action;
-        if (typeof id !== "string" || typeof label !== "string") {
-          return [];
-        }
-        return [
-          {
-            id,
-            label,
-            ...(typeof style === "string" ? { style } : {}),
-            ...(isPlainObject(data) ? { data } : {}),
-          },
-        ];
-      })
-    : undefined;
-
-  return {
-    title: typeof b.title === "string" ? b.title : undefined,
-    actions,
-    ...(activationMoment ? { activationMoment } : {}),
-    ...pair,
-  };
-}
 
 export interface SurfaceConversationContext {
   readonly conversationId: string;

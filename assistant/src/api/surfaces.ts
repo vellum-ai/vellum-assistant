@@ -471,6 +471,8 @@ export const SURFACE_TYPES = [
   "document_preview",
   "task_preferences",
   "work_result",
+  "skill_card",
+  "call_summary",
 ] as const;
 
 export const SurfaceTypeSchema = z.enum(SURFACE_TYPES);
@@ -497,11 +499,13 @@ export type SurfaceData =
  * tracks which data shape belongs to which type instead of collapsing to
  * the undiscriminated `SurfaceData` union.
  *
- * `channel_setup` (a side-effect command whose payload is forwarded
- * verbatim to the setup panel) and `task_preferences` (a fixed grid that
- * reads no data) are opaque records — they carry data but have no
- * renderable canonical shape, which is why they are absent from
- * `SurfaceData`.
+ * Several types are opaque records — they carry data the daemon persists
+ * and serves verbatim but whose shape it does not model, which is why they
+ * are absent from the renderable `SurfaceData` union: `channel_setup` (a
+ * side-effect command forwarded to the setup panel), `task_preferences` (a
+ * fixed grid that reads no data), and `skill_card` / `call_summary` (cards
+ * the daemon appends to history directly — the memory retrospective and a
+ * call summary — and whose data shape is owned by their client renderers).
  */
 export interface SurfaceDataByType {
   card: CardSurfaceData;
@@ -518,6 +522,8 @@ export interface SurfaceDataByType {
   document_preview: DocumentPreviewSurfaceData;
   task_preferences: Record<string, unknown>;
   work_result: WorkResultSurfaceData;
+  skill_card: Record<string, unknown>;
+  call_summary: Record<string, unknown>;
 }
 
 /** Any surface `data` payload, including the opaque (non-renderable) types. */
@@ -548,6 +554,8 @@ export const SURFACE_DATA_SCHEMAS: {
   document_preview: DocumentPreviewSurfaceDataSchema,
   task_preferences: z.record(z.string(), z.unknown()),
   work_result: WorkResultSurfaceDataSchema,
+  skill_card: z.record(z.string(), z.unknown()),
+  call_summary: z.record(z.string(), z.unknown()),
 };
 
 /**
