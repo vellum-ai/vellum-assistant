@@ -42,32 +42,50 @@ export function renderSlackTextForModel(
   text: string,
   options: RenderSlackTextOptions = {},
 ): string {
-  const rendered = text.replace(/<([^<>\s][^<>]*)>/g, (token, content: string) => {
-    if (content.startsWith("@")) {
-      return renderUserMention(content, options);
-    }
+  // Decode entities per Slack-sourced segment, never on the combined output:
+  // caller-resolved labels (display names, channel names) must pass through
+  // verbatim, so a label containing literal entity text is preserved and an
+  // encoded bracket in a display name cannot decode into `<`/`>` after
+  // sanitizeLabel() has already stripped raw brackets.
+  let result = "";
+  let cursor = 0;
+  for (const match of text.matchAll(/<([^<>\s][^<>]*)>/g)) {
+    result += decodeSlackHtmlEntities(text.slice(cursor, match.index));
+    result += renderSlackToken(match[0], match[1] as string, options);
+    cursor = match.index + match[0].length;
+  }
+  result += decodeSlackHtmlEntities(text.slice(cursor));
+  return result;
+}
 
-    if (content.startsWith("#")) {
-      return renderChannelReference(content, options);
-    }
+function renderSlackToken(
+  token: string,
+  content: string,
+  options: RenderSlackTextOptions,
+): string {
+  if (content.startsWith("@")) {
+    return renderUserMention(content, options);
+  }
 
-    if (content.startsWith("!")) {
-      return renderSpecialReference(content);
-    }
+  if (content.startsWith("#")) {
+    return renderChannelReference(content, options);
+  }
 
-    if (looksLikeUrl(content)) {
-      return renderLink(content);
-    }
+  if (content.startsWith("!")) {
+    return renderSpecialReference(content);
+  }
 
-    return token;
-  });
-  return decodeSlackHtmlEntities(rendered);
+  if (looksLikeUrl(content)) {
+    return renderLink(content);
+  }
+
+  return token;
 }
 
 /**
  * Slack entity-encodes every literal `&`, `<`, and `>` in message text so its
- * own `<...>` control tokens stay unambiguous. Decode them back once the
- * tokens have been rendered — leaving them encoded breaks downstream markdown
+ * own `<...>` control tokens stay unambiguous. Decode them back on the
+ * Slack-sourced segments — leaving them encoded breaks downstream markdown
  * (`&gt; quote` at line start never forms a blockquote, since entities resolve
  * only after block parsing) and shows raw entities to the model. `&lt;`/`&gt;`
  * are decoded before `&amp;` so a user-typed literal `&gt;` (double-encoded by
@@ -180,7 +198,11 @@ function renderChannelReference(
     options.channelFallbackLabel,
     "unknown-channel",
   );
-  const embeddedLabel = sanitizeOptionalLabel(label);
+  // The embedded label is Slack-sourced (part of the token), so entities
+  // decode before sanitization; the caller-resolved label below is not.
+  const embeddedLabel = sanitizeOptionalLabel(
+    label === undefined ? undefined : decodeSlackHtmlEntities(label),
+  );
   if (embeddedLabel && embeddedLabel !== channelId) {
     return `#${embeddedLabel}`;
   }
@@ -206,19 +228,27 @@ function renderSpecialReference(content: string): string {
 
   const subteam = /^!subteam\^[^|>]+(?:\|(.+))?$/.exec(content);
   if (subteam) {
-    return `@${sanitizeLabel(subteam[1], "usergroup")}`;
+    const embedded = subteam[1];
+    return `@${sanitizeLabel(
+      embedded === undefined ? undefined : decodeSlackHtmlEntities(embedded),
+      "usergroup",
+    )}`;
   }
 
   return `<${content}>`;
 }
 
 function renderLink(content: string): string {
-  const [url, label] = splitSlackLabel(content);
-  if (!label) {
+  // Both halves of a link token are Slack-sourced, so entities decode here
+  // (e.g. `&amp;` in URL query strings); sanitizeLabel runs after the decode
+  // so it strips any bracket the decode reintroduced.
+  const [rawUrl, rawLabel] = splitSlackLabel(content);
+  const url = decodeSlackHtmlEntities(rawUrl);
+  if (!rawLabel) {
     return url;
   }
 
-  return `${sanitizeLabel(label, url)} (${url})`;
+  return `${sanitizeLabel(decodeSlackHtmlEntities(rawLabel), url)} (${url})`;
 }
 
 function splitSlackLabel(content: string): [string, string | undefined] {
