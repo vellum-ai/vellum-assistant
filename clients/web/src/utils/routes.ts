@@ -199,6 +199,16 @@ export const routes = {
     // Deep-link straight to the Billing sub-tab (only shown when signed in to
     // the Vellum platform).
     usageBilling: `${SETTINGS_USAGE_PATH}?tab=billing`,
+    // Post-Stripe-Checkout return. The Billing tab opens the Pro onboarding
+    // wizard while `session_id` is in the URL — the same param the platform's
+    // web `success_url` lands on `/assistant/settings/billing` with.
+    usageBillingCheckout: (sessionId: string) => {
+      const params = new URLSearchParams({
+        tab: "billing",
+        session_id: sessionId,
+      });
+      return `${SETTINGS_USAGE_PATH}?${params.toString()}`;
+    },
     usageForSchedule: (scheduleId: string) => {
       // Billing is the default tab when available, so force the Usage tab.
       const params = new URLSearchParams({

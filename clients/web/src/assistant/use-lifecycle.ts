@@ -24,7 +24,10 @@ import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { isAuthenticated, type SessionStatus } from "@/stores/session-status";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
-import { useOrganizationStore } from "@/stores/organization-store";
+import {
+  getActiveOrganizationIdForRequests,
+  useOrganizationStore,
+} from "@/stores/organization-store";
 
 interface UseAssistantLifecycleOptions {
   sessionStatus: SessionStatus;
@@ -65,9 +68,15 @@ export function useAssistantLifecycle({
   // Subscribe so the hook re-renders (and the lockfile-local check below
   // re-evaluates) when the resolved list / lockfile change.
   useResolvedAssistantsStore.use.assistants();
+  // Resolve the org id from the same source as the `shouldQueryServer` gate
+  // (hydrated store, then sessionStorage fallback): when the gate opens via
+  // the fallback while the store fetch failed, resolving from the store alone
+  // would drop the user's selection and project the default assistant.
+  const activeOrganizationId =
+    currentOrganizationId ?? getActiveOrganizationIdForRequests();
   const resolvedSelectionId =
-    multiAssistantEnabled && !isGatewayAuthMode() && currentOrganizationId
-      ? resolveSelectedAssistantId(currentOrganizationId)
+    multiAssistantEnabled && !isGatewayAuthMode() && activeOrganizationId
+      ? resolveSelectedAssistantId(activeOrganizationId)
       : null;
   // Keep only lockfile-only LOCAL assistants off the platform retrieve path:
   // they're gateway-based, never registered on the platform, so getAssistant(id)

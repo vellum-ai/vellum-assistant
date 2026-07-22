@@ -91,6 +91,84 @@ describe("publishCapacitorDeepLinksSource", () => {
     }
   });
 
+  test("publishes deeplink.billingCheckoutComplete for a successful checkout return", async () => {
+    const received: unknown[] = [];
+    const unsubscribeBus = subscribe(
+      "deeplink.billingCheckoutComplete",
+      (payload) => {
+        received.push(payload);
+      },
+    );
+
+    try {
+      publishCapacitorDeepLinksSource();
+      await flushMicrotasks();
+
+      urlOpenHandler!({
+        url: "vellum-assistant://billing/checkout-complete?status=success&session_id=cs_test_a1B2",
+      });
+
+      expect(received).toEqual([
+        { status: "success", sessionId: "cs_test_a1B2" },
+      ]);
+    } finally {
+      unsubscribeBus();
+    }
+  });
+
+  test("publishes a cancel checkout return with no session id", async () => {
+    const received: unknown[] = [];
+    const unsubscribeBus = subscribe(
+      "deeplink.billingCheckoutComplete",
+      (payload) => {
+        received.push(payload);
+      },
+    );
+
+    try {
+      publishCapacitorDeepLinksSource();
+      await flushMicrotasks();
+
+      urlOpenHandler!({
+        url: "vellum-assistant://billing/checkout-complete?status=cancel",
+      });
+
+      expect(received).toEqual([{ status: "cancel", sessionId: null }]);
+    } finally {
+      unsubscribeBus();
+    }
+  });
+
+  test("a malformed session id falls through to unknown rather than reaching billing", async () => {
+    const checkouts: unknown[] = [];
+    const unknowns: { url: string }[] = [];
+    const unsubCheckout = subscribe("deeplink.billingCheckoutComplete", (p) => {
+      checkouts.push(p);
+    });
+    const unsubUnknown = subscribe("deeplink.unknown", (p) => {
+      unknowns.push(p);
+    });
+
+    try {
+      publishCapacitorDeepLinksSource();
+      await flushMicrotasks();
+
+      urlOpenHandler!({
+        url: "vellum-assistant://billing/checkout-complete?status=success&session_id=not-a-session",
+      });
+
+      expect(checkouts).toEqual([]);
+      // The query is stripped on the fallback, so the bad id can't reach
+      // telemetry.
+      expect(unknowns).toEqual([
+        { url: "vellum-assistant://billing/checkout-complete" },
+      ]);
+    } finally {
+      unsubCheckout();
+      unsubUnknown();
+    }
+  });
+
   test("publishes deeplink.unknown on the bus for a non-OAuth URL", async () => {
     const received: { url: string }[] = [];
     const unsubscribeBus = subscribe("deeplink.unknown", (payload) => {

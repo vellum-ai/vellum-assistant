@@ -1,8 +1,9 @@
-import { ArrowRight, Cpu, HardDrive, Loader2, Server } from "lucide-react";
+import { Cpu, HardDrive, Loader2, Server } from "lucide-react";
 import { useState } from "react";
 
 import { useQuery } from "@tanstack/react-query";
 
+import { ResourceCard } from "@/domains/settings/billing/pro-onboarding/primitives";
 import { extractResizeError } from "@/domains/settings/components/resize-errors";
 import {
     assistantsActiveRetrieveOptions,
@@ -23,45 +24,6 @@ import { toast } from "@vellumai/design-library/components/toast";
 export interface TierUpgradeResizeModalProps {
   open: boolean;
   onClose: () => void;
-}
-
-function ResourceCard({
-  icon: Icon,
-  label,
-  from,
-  to,
-}: {
-  icon: typeof Server;
-  label: string;
-  from: string;
-  to: string;
-}) {
-  return (
-    <div className="flex items-center gap-3 rounded-lg bg-[var(--surface-base)] p-3">
-      <span
-        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg"
-        style={{
-          backgroundColor: "color-mix(in oklab, var(--system-positive-strong) 10%, transparent)",
-        }}
-      >
-        <Icon className="h-4 w-4 text-[var(--system-positive-strong)]" />
-      </span>
-      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className="text-label-small-default text-[var(--content-tertiary)]">
-          {label}
-        </span>
-        <div className="flex items-center gap-2">
-          <span className="text-label-medium-default text-[var(--content-tertiary)] line-through">
-            {from}
-          </span>
-          <ArrowRight className="h-3 w-3 shrink-0 text-[var(--content-tertiary)]" />
-          <span className="text-label-medium-default text-[var(--content-default)]">
-            {to}
-          </span>
-        </div>
-      </div>
-    </div>
-  );
 }
 
 export function TierUpgradeResizeModal({
@@ -176,8 +138,8 @@ export function TierUpgradeResizeModal({
                 <ResourceCard
                   icon={HardDrive}
                   label="Storage"
-                  from={currentGib != null ? `${currentGib} GiB` : "—"}
-                  to={`${availableGib} GiB`}
+                  from={currentGib != null ? `${currentGib} GB` : "—"}
+                  to={`${availableGib} GB`}
                 />
               )}
             </div>

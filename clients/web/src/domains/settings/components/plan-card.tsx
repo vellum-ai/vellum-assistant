@@ -10,11 +10,14 @@ import {
     nextPackageUp,
     type ProPackage,
 } from "@/domains/settings/billing/package-types";
+import { useChangePackage } from "@/domains/settings/billing/use-change-package";
+import { PackageSwitchConfirmModal } from "@/domains/settings/billing/plans/package-switch-confirm-modal";
 import {
     FREE_STORAGE_GIB,
     PlanTierAvatar,
     TIER_ACCENT,
 } from "@/domains/settings/billing/plan-tier-meta";
+import { useCheckoutDismissRefresh } from "@/domains/settings/billing/use-checkout-dismiss-refresh";
 import {
     formatGraceDate,
     getEffectiveCancelDate,
@@ -27,6 +30,8 @@ import {
     organizationsBillingSubscriptionUpgradeCreateMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
 import type { MachineSizeEnum, ProPlan } from "@/generated/api/types.gen";
+import { saveCheckoutIntent } from "@/lib/billing/checkout-intent";
+import { checkoutReturnTarget } from "@/lib/billing/checkout-return-target";
 import { SIZE_LABEL } from "@/lib/billing/machine-sizes";
 import { openUrl } from "@/runtime/browser";
 import { routes } from "@/utils/routes";
@@ -37,7 +42,10 @@ import { Notice } from "@vellumai/design-library/components/notice";
 import { Tag } from "@vellumai/design-library/components/tag";
 import { toast } from "@vellumai/design-library/components/toast";
 import { Typography } from "@vellumai/design-library/components/typography";
-import { extractMutationError } from "./adjust-plan-utils";
+import {
+    extractMutationError,
+    isPackageSwitchEligible,
+} from "./adjust-plan-utils";
 import { formatMonthly } from "./tier-pricing";
 
 interface PlanDisplay {
@@ -66,6 +74,12 @@ const DEFAULT_DISPLAY: PlanDisplay = PLAN_DISPLAY.base;
 
 export interface PlanCardProps {
     onManage: () => void;
+    /**
+     * Raised after a Pro user's in-place package upgrade succeeds — opens the
+     * provisioning takeover (resize modal), the same signal `AdjustPlanModal`
+     * emits after a tier change.
+     */
+    onTierUpgraded?: () => void;
 }
 
 function PlanHeading() {
@@ -154,24 +168,48 @@ interface RecommendedUpgradeProps {
     packages: ProPackage[];
     currentKey: string | null;
     /**
-     * Delegate for subscribers who are already on Pro — the upgrade endpoint
-     * no-ops for active Pro orgs, so package step-ups go through the manage
-     * flow instead. When absent (base plan), the CTA starts the Stripe
-     * package checkout directly.
+     * Whether the org already has a Pro subscription. Pro users change their
+     * package in place (prorated) via the change-package endpoint; base users
+     * go through Stripe checkout.
      */
-    onUpgrade?: () => void;
+    isProUser: boolean;
+    /**
+     * Whether this Pro sub is eligible for a one-click, in-place package switch:
+     * true only for a clean packaged Pro sub (has a package pin, not customized,
+     * not cancelling). Every other Pro state falls back to the manage path.
+     * Meaningless for base users, whose CTA always routes to Stripe checkout.
+     */
+    canChangePackage: boolean;
+    /**
+     * Manage-path delegate (AdjustPlanModal). Used to keep a legacy/custom Pro
+     * sub with no pinned package off the change-package flow, which operates
+     * only on named packages.
+     */
+    onManage: () => void;
+    /**
+     * Opens the provisioning takeover (resize modal) after a Pro user's in-place
+     * package change succeeds — the same signal the tier-change flow raises.
+     */
+    onTierUpgraded?: () => void;
 }
 
 function RecommendedUpgrade({
     packages,
     currentKey,
-    onUpgrade,
+    isProUser,
+    canChangePackage,
+    onManage,
+    onTierUpgraded,
 }: RecommendedUpgradeProps) {
     const queryClient = useQueryClient();
     const upgradeMutation = useMutation(
         organizationsBillingSubscriptionUpgradeCreateMutation(),
     );
+    const { changePackage, isPending: changePending } = useChangePackage();
     const [pending, setPending] = useState(false);
+    const [confirmOpen, setConfirmOpen] = useState(false);
+    // Native iOS keeps Checkout inside an in-app sheet; refetch when it closes.
+    useCheckoutDismissRefresh();
 
     const recommended = nextPackageUp(packages, currentKey);
     if (!recommended) return null;
@@ -186,11 +224,38 @@ function RecommendedUpgrade({
     const upgradeLabel = `Upgrade for ${formatMonthly(deltaCents)} more`;
     const accent = TIER_ACCENT[recommended.key] ?? TIER_ACCENT.free;
     const tint = `color-mix(in srgb, ${accent} 10%, transparent)`;
-    const isPending = pending || upgradeMutation.isPending;
+    const isPending = pending || upgradeMutation.isPending || changePending;
+
+    // Pro users change their package in place: confirm the prorated charge, then
+    // call change-package and hand off to the resize takeover on success. Base
+    // users go through the Stripe-checkout path instead.
+    const handleConfirmChange = async () => {
+        const result = await changePackage(recommended.key);
+        if (!result) {
+            // The hook already toasted; leave the dialog open so the user can
+            // retry.
+            return;
+        }
+        setConfirmOpen(false);
+        if (result.status === "ok") {
+            onTierUpgraded?.();
+        } else {
+            // no_op: the sub is already on this package, so there's nothing to
+            // provision — just dismiss the confirm.
+            toast.success("You're already on this plan.");
+        }
+    };
 
     const handleUpgrade = async () => {
-        if (onUpgrade) {
-            onUpgrade();
+        // Only a clean packaged Pro sub (has a package pin, not customized, not
+        // cancelling) can be one-click package-switched; every other Pro state
+        // (package-less/legacy, customized, or cancelling) stays on the manage path.
+        if (isProUser && !canChangePackage) {
+            onManage();
+            return;
+        }
+        if (isProUser) {
+            setConfirmOpen(true);
             return;
         }
         setPending(true);
@@ -203,12 +268,20 @@ function RecommendedUpgrade({
                     target_plan_id: "pro",
                     package: recommended.key,
                     confirm: true,
+                    return_target: checkoutReturnTarget(),
                 },
             });
             if (result.status === "redirect" && result.checkout_url) {
-                // Stripe redirects back to the billing page with a
-                // `session_id`, which opens the post-checkout Pro onboarding
-                // wizard.
+                // Stash the purchased package so the provisioning screen can
+                // show it before the subscribe webhook lands — and so it can't
+                // read a stale intent left by an abandoned earlier checkout.
+                saveCheckoutIntent({
+                    kind: "package",
+                    packageKey: recommended.key,
+                });
+                // Stripe returns with a `session_id`, which opens the
+                // post-checkout Pro onboarding wizard — via the billing page on
+                // web, via the `billing/checkout-complete` deep link on macOS.
                 openUrl(result.checkout_url);
             } else {
                 await queryClient.invalidateQueries({
@@ -304,11 +377,19 @@ function RecommendedUpgrade({
             >
                 {upgradeLabel}
             </Button>
+            <PackageSwitchConfirmModal
+                open={confirmOpen}
+                relation="upgrade"
+                packageName={recommended.name}
+                pending={isPending}
+                onConfirm={() => void handleConfirmChange()}
+                onCancel={() => setConfirmOpen(false)}
+            />
         </div>
     );
 }
 
-export function PlanCard({ onManage }: PlanCardProps) {
+export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
     const navigate = useNavigate();
     const subscriptionQuery = useQuery(
         organizationsBillingSubscriptionRetrieveOptions(),
@@ -344,11 +425,13 @@ export function PlanCard({ onManage }: PlanCardProps) {
     }
 
     const display = PLAN_DISPLAY[currentPlan.id] ?? DEFAULT_DISPLAY;
-    // Prefer the pinned package name (e.g. "Mighty") over the generic plan name
-    // ("Pro"). A plan whose tiers have diverged from the pinned package is
-    // flagged custom so it doesn't masquerade as the stock package.
+    // Show the pinned package name (e.g. "Mighty"), or just "Custom" when the
+    // subscription is customized: its tiers differ from that stock package, so
+    // it isn't labeled as one.
     const planName = subscription.package
-        ? `${subscription.package.name}${subscription.package.customized ? " (Custom)" : ""}`
+        ? subscription.package.customized
+            ? "Custom"
+            : subscription.package.name
         : (currentPlan.name ?? currentPlan.id);
 
     const isCancelling =
@@ -370,6 +453,19 @@ export function PlanCard({ onManage }: PlanCardProps) {
     const packages = proPlan?.packages ?? [];
     const currentKey = subscription.package?.key ?? null;
     const currentTier = currentKey ?? "free";
+    // The plans takeover derives the current tier from the pinned package key
+    // alone, so a Pro sub without a package (legacy) or with a customized one
+    // (its tiers differ from the stock package) would be misrepresented there.
+    // Those stay on the manage modal; only base and clean packaged-Pro subs open
+    // the takeover.
+    const canOpenPlansTakeover =
+        packages.length > 0 &&
+        (currentPlan.id === "base" ||
+            (subscription.package != null && !subscription.package.customized));
+    // A one-click, in-place package switch is safe only for a clean packaged Pro
+    // sub; every other Pro state (customized, cancelling, or a non-entitlement
+    // status) and every base sub falls back to the manage path.
+    const canChangePackage = isPackageSwitchEligible(subscription);
 
     return (
         <Card padding="md">
@@ -379,10 +475,7 @@ export function PlanCard({ onManage }: PlanCardProps) {
                     <Button
                         variant={display.actionVariant}
                         onClick={
-                            // Base plan with a live catalog opens the full-screen
-                            // plans takeover; Pro "Manage" (and the flag-off empty
-                            // catalog) keep the modal.
-                            currentPlan.id === "base" && packages.length > 0
+                            canOpenPlansTakeover
                                 ? () => navigate(routes.plans)
                                 : onManage
                         }
@@ -437,9 +530,10 @@ export function PlanCard({ onManage }: PlanCardProps) {
                     <RecommendedUpgrade
                         packages={packages}
                         currentKey={currentKey}
-                        onUpgrade={
-                            currentPlan.id === "base" ? undefined : onManage
-                        }
+                        isProUser={currentPlan.id !== "base"}
+                        canChangePackage={canChangePackage}
+                        onManage={onManage}
+                        onTierUpgraded={onTierUpgraded}
                     />
                 </div>
             </div>
