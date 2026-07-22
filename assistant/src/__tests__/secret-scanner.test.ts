@@ -464,6 +464,25 @@ describe("plugin-declared patterns", () => {
     expectNoMatch(`The setup doc pastes ${pluginKey} inline`);
   });
 
+  test("a token ending in '-' is matched in full, including the trailing hyphen", () => {
+    registerVirlo();
+    // \b-based wrapping would backtrack past (or miss) the non-word tail.
+    const hyphenTailKey = "virlo_tkn_Qm7pW2xLbV9sKjR4tNc--";
+    const input = `key: ${hyphenTailKey} (from setup)`;
+    const match = expectMatch(input, "Virlo API Key (plugin:virlo)");
+    expect(input.slice(match.startIndex, match.endIndex)).toBe(hyphenTailKey);
+    expect(redactSecrets(input)).toBe(
+      'key: <redacted type="Virlo API Key (plugin:virlo)" /> (from setup)',
+    );
+  });
+
+  test("a key embedded in a longer token-alphabet run is not matched", () => {
+    registerVirlo();
+    // Lookarounds treat [A-Za-z0-9_-] as the token alphabet: a key glued to
+    // surrounding token characters is part of a larger token, not a secret.
+    expectNoMatch(`prefix${pluginKey}`);
+  });
+
   test("redactSecrets redacts a registered plugin key", () => {
     registerVirlo();
     const result = redactSecrets(`run with ${pluginKey} exported`);

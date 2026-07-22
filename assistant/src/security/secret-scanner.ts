@@ -56,6 +56,21 @@ function deriveScannerPattern(p: SecretPrefixPattern): SecretPattern {
   };
 }
 
+// Plugin-declared patterns commonly use URL-safe tails like [A-Za-z0-9_-]{20,},
+// where the token can begin or end on a non-word character — \b fails there
+// (the same reason the Telegram entry needs a custom boundary). Lookarounds on
+// the token alphabet match the full token regardless of its edge characters
+// while still rejecting matches embedded in a longer token-like run.
+function derivePluginScannerPattern(p: SecretPrefixPattern): SecretPattern {
+  return {
+    type: p.label,
+    regex: new RegExp(
+      `(?<![A-Za-z0-9_-])(${p.regex.source})(?![A-Za-z0-9_-])`,
+      "g",
+    ),
+  };
+}
+
 // Static patterns derived from the shared source of truth.
 const PREFIX_DERIVED: SecretPattern[] =
   PREFIX_PATTERNS.map(deriveScannerPattern);
@@ -114,7 +129,7 @@ const SCANNER_ONLY_PATTERNS: SecretPattern[] = [
 const getPatterns = memoizePluginPatternDerivation(
   (pluginPatterns): SecretPattern[] => [
     ...PREFIX_DERIVED,
-    ...pluginPatterns.map(deriveScannerPattern),
+    ...pluginPatterns.map(derivePluginScannerPattern),
     ...SCANNER_ONLY_PATTERNS,
   ],
 );
