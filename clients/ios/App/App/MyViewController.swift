@@ -183,6 +183,21 @@ class MyViewController: CAPBridgeViewController {
         webView?.load(URLRequest(url: destination))
     }
 
+    /// Apply any connect deep link that arrived before the web view was ready.
+    /// A cold launch stashes the pair-page navigation in `AppDelegate` and it is
+    /// delivered here, once the bridge web view is live and on screen.
+    override open func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        (UIApplication.shared.delegate as? AppDelegate)?.deliverPendingConnectNavigation()
+    }
+
+    /// Bind foreground change detection to the currently-configured self-hosted
+    /// origin so a connect deep link that switched the server out-of-band isn't
+    /// re-detected as a change on the next foreground.
+    func bindServerTrackingToConfiguredOrigin() {
+        appliedServerURL = SelfHostedServer.configuredURL() ?? bakedServerURL
+    }
+
     // MARK: - Quote-and-reply edit menu
 
     /// Advertise to the web layer that this shell hosts the quote-and-reply
