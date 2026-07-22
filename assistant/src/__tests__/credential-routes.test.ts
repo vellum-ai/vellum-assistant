@@ -12,6 +12,8 @@ let metadataStore: Map<string, CredentialMetadata>;
 let syncedServices: string[];
 let disconnectedProviders: string[];
 let credentialIdCounter: number;
+let scrubbedValues: string[];
+let scrubRejects: boolean;
 
 function metaKey(service: string, field: string): string {
   return `${service}:${field}`;
@@ -117,6 +119,16 @@ mock.module("../credential-execution/managed-catalog.js", () => ({
   fetchManagedCatalog: mock(async () => ({ ok: true, descriptors: [] })),
 }));
 
+mock.module("../daemon/credential-transcript-scrub.js", () => ({
+  scrubStoredCredentialFromTranscripts: mock(async (value: string) => {
+    scrubbedValues.push(value);
+    if (scrubRejects) {
+      throw new Error("transcript sweep failed");
+    }
+    return { dbMessagesScrubbed: 0, residentMessagesScrubbed: 0 };
+  }),
+}));
+
 // Stub the prompted-credential persist path's Slack + broker collaborators so
 // importing it exercises the ACP guard without loading their real dep chains.
 mock.module("../daemon/handlers/config-slack-channel.js", () => ({
@@ -168,6 +180,8 @@ describe("credentials routes", () => {
     syncedServices = [];
     disconnectedProviders = [];
     credentialIdCounter = 0;
+    scrubbedValues = [];
+    scrubRejects = false;
     _resetRevealSuccessRegistryForTest();
     resetForChatMintRegistryForTest();
     chatCredentialRevealFlag = false;
@@ -486,6 +500,74 @@ describe("credentials routes", () => {
       expect(secureStore.get("acp:claude_oauth_token")).toBe(
         "sk-ant-oat01-a-real-oauth-token",
       );
+    });
+
+    test("a successful set scrubs the normalized value from transcripts exactly once", async () => {
+      /**
+       * The pasted plaintext may already sit in recent transcripts, so a
+       * successful store triggers one retroactive scrub — with the
+       * normalized (edge-trimmed) value that was actually persisted, not
+       * the raw paste.
+       */
+      // WHEN a credential is stored with paste-artifact edge whitespace
+      await setRoute!.handler({
+        body: {
+          service: "vercel",
+          field: "api_token",
+          value: `  ${SECRET_VALUE}\n`,
+        },
+      });
+
+      // THEN the transcript scrub runs exactly once with the stored value
+      expect(scrubbedValues).toEqual([SECRET_VALUE]);
+    });
+
+    test("a validation-rejected set never triggers a transcript scrub", async () => {
+      /**
+       * Nothing was stored, so there is nothing to scrub — neither the
+       * whitespace-only value guard nor the ACP token-format guard may
+       * reach the scrub.
+       */
+      // WHEN a whitespace-only value is rejected by normalization
+      await expect(
+        setRoute!.handler({
+          body: { service: "vercel", field: "api_token", value: "   " },
+        }),
+      ).rejects.toBeInstanceOf(BadRequestError);
+
+      // AND an Anthropic API key is rejected by the ACP format guard
+      await expect(
+        setRoute!.handler({
+          body: {
+            service: "acp",
+            field: "claude_oauth_token",
+            value: "sk-ant-api03-not-an-oauth-token",
+          },
+        }),
+      ).rejects.toBeInstanceOf(BadRequestError);
+
+      // THEN the scrub never runs
+      expect(scrubbedValues).toEqual([]);
+    });
+
+    test("the set still succeeds when the transcript scrub rejects", async () => {
+      /**
+       * The scrub is post-store hygiene: the credential IS stored, so a
+       * scrub failure is logged and must stay invisible to the caller.
+       */
+      // GIVEN a scrub that rejects
+      scrubRejects = true;
+
+      // WHEN a credential is stored
+      const result = (await setRoute!.handler({
+        body: { service: "vercel", field: "api_token", value: SECRET_VALUE },
+      })) as SetResponse;
+
+      // THEN the route still returns success and the secret is persisted
+      expect(result.service).toBe("vercel");
+      expect(result.credentialId).toBe("cred-1");
+      expect(secureStore.get("vercel:api_token")).toBe(SECRET_VALUE);
+      expect(scrubbedValues).toEqual([SECRET_VALUE]);
     });
 
     test("leaves a non-ACP service unaffected by the OAuth-field guard", async () => {
