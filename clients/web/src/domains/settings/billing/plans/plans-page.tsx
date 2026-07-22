@@ -22,7 +22,10 @@ import {
   getPlanTierCopy,
 } from "@/domains/settings/billing/plans/plans-copy";
 import { useChangePackage } from "@/domains/settings/billing/use-change-package";
-import { extractMutationError } from "@/domains/settings/components/adjust-plan-utils";
+import {
+  extractMutationError,
+  isPackageSwitchEligible,
+} from "@/domains/settings/components/adjust-plan-utils";
 import { TierUpgradeResizeModal } from "@/domains/settings/components/tier-upgrade-resize-modal";
 import { formatDollars } from "@/domains/settings/components/tier-pricing";
 import {
@@ -231,6 +234,14 @@ export function PlansPage() {
         if (tierRelation(currentTierKey, pkg.key) === "current") {
           return;
         }
+        // Only a clean packaged Pro sub can switch in place. A customized,
+        // cancelling, or non-entitlement-status sub can't — route it to the
+        // billing manage/cancel surface instead of posting a change-package that
+        // can only fail (the same fallback the Pro → Free case uses).
+        if (!isPackageSwitchEligible(subscription)) {
+          navigate(`${routes.settings.usage}?tab=billing&adjust_plan`);
+          return;
+        }
         setSwitchTarget(pkg);
         return;
       }
@@ -251,12 +262,19 @@ export function PlansPage() {
         return;
       }
       const result = await changePackage(switchTarget.key);
+      if (!result) {
+        // The hook already toasted; keep the confirm dialog open so the user
+        // can retry.
+        return;
+      }
       setSwitchTarget(null);
-      // A non-null result means the switch applied; reveal the provisioning
-      // takeover so the user can resize into the new tier. On null the hook
-      // already toasted the error, so do nothing.
-      if (result) {
+      if (result.status === "ok") {
+        // The switch applied; reveal the provisioning takeover so the user can
+        // resize into the new tier.
         setResizeTakeoverOpen(true);
+      } else {
+        // no_op: already on this package — nothing to provision.
+        toast.success("You're already on this plan.");
       }
     };
 

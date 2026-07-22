@@ -27,7 +27,7 @@ import {
   mock,
   test,
 } from "bun:test";
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter, useLocation } from "react-router";
@@ -40,6 +40,7 @@ import {
   organizationsBillingSubscriptionRetrieveQueryKey,
 } from "@/generated/api/@tanstack/react-query.gen";
 import type {
+  PackageChangeResponse,
   PlanListResponse,
   ProPackage,
   SubscriptionResponse,
@@ -54,6 +55,15 @@ let openedUrl: string | null = null;
 // When false, the change-package promise never settles — used to observe the
 // in-flight (pending) disabled state.
 let changePackageAutoResolve = true;
+// The data the mocked change-package resolves with; a test flips `status` to
+// `no_op` to exercise the already-on-this-plan branch. Default is a clean switch.
+let changePackageData: PackageChangeResponse = {
+  status: "ok",
+  package: { key: "mighty", name: "Mighty", version: 1, customized: false },
+};
+// When non-null the change-package call rejects with this — drives the error
+// path (the hook toasts and resolves null, so the confirm dialog stays open).
+let changePackageError: unknown = null;
 // Fixtures returned by the mocked read SDK so post-mutation invalidation
 // refetches resolve deterministically instead of hitting the network.
 let subscriptionFixture: SubscriptionResponse | null = null;
@@ -66,11 +76,11 @@ mock.module("@/generated/api/sdk.gen", () => ({
     if (!changePackageAutoResolve) {
       return new Promise(() => {});
     }
+    if (changePackageError !== null) {
+      return Promise.reject(changePackageError);
+    }
     return Promise.resolve({
-      data: {
-        status: "ok",
-        package: { key: "mighty", name: "Mighty", version: 1, customized: false },
-      },
+      data: changePackageData,
       response: { ok: true },
     });
   },
@@ -416,6 +426,11 @@ beforeEach(() => {
   upgradeCall = null;
   openedUrl = null;
   changePackageAutoResolve = true;
+  changePackageData = {
+    status: "ok",
+    package: { key: "mighty", name: "Mighty", version: 1, customized: false },
+  };
+  changePackageError = null;
   subscriptionFixture = null;
   plansFixture = null;
 });
@@ -508,4 +523,81 @@ describe("PlansPage — Pro package switch (change-package)", () => {
     await waitFor(() => expect(confirm.disabled).toBe(true));
     expect(changePackageCall).not.toBeNull();
   });
+
+  test("a no_op result closes the dialog without opening the takeover", async () => {
+    changePackageData = {
+      status: "no_op",
+      package: { key: "ultra", name: "Ultra", version: 1, customized: false },
+    };
+    const { findByRole, findByTestId, queryByTestId } = renderInteractive(
+      proSuperSubscription(),
+    );
+
+    fireEvent.click(await findByRole("button", { name: "Unleash Ultra" }));
+    fireEvent.click(await findByTestId("confirm-package-switch-button"));
+
+    await waitFor(() => expect(changePackageCall).not.toBeNull());
+    // no_op means the org is already on that package: the confirm dialog closes
+    // but the provisioning takeover never opens.
+    await waitFor(() =>
+      expect(queryByTestId("confirm-package-switch-button")).toBeNull(),
+    );
+    expect(queryByTestId("resize-takeover")).toBeNull();
+  });
+
+  test("a failed switch keeps the confirm dialog open for retry", async () => {
+    changePackageError = { detail: "Payment failed. Your card was declined." };
+    const { findByRole, findByTestId, queryByTestId } = renderInteractive(
+      proSuperSubscription(),
+    );
+
+    fireEvent.click(await findByRole("button", { name: "Downgrade to Mighty" }));
+    fireEvent.click(await findByTestId("confirm-package-switch-button"));
+
+    await waitFor(() => expect(changePackageCall).not.toBeNull());
+    // Flush the rejected mutation so any erroneous close would have committed.
+    await act(async () => {
+      await Promise.resolve();
+    });
+    // The dialog stays open (the hook already toasted); the takeover never opens.
+    expect(queryByTestId("confirm-package-switch-button")).not.toBeNull();
+    expect(queryByTestId("resize-takeover")).toBeNull();
+  });
+});
+
+// A Pro sub that isn't cleanly packaged (customized, cancelling, or in a
+// non-entitlement status) can't switch in place — the change-package endpoint
+// would 4xx. Clicking a package CTA must route it to the billing manage/cancel
+// surface (`?adjust_plan`) instead of posting change-package, matching the
+// plan-card banner's fallback.
+describe("PlansPage — ineligible Pro subs route to manage", () => {
+  const ineligible: Array<[string, SubscriptionResponse]> = [
+    [
+      "customized",
+      {
+        ...proMightySubscription(),
+        package: { key: "mighty", name: "Mighty", version: 1, customized: true },
+      },
+    ],
+    ["cancelling", { ...proMightySubscription(), cancel_at_period_end: true }],
+    ["non-entitlement status", { ...proMightySubscription(), status: "unpaid" }],
+  ];
+
+  for (const [label, subscription] of ineligible) {
+    test(`a ${label} Pro sub's package CTA routes to manage, not change-package`, async () => {
+      const { findByRole, findByTestId } = renderInteractive(subscription);
+
+      // From Mighty, "Go Super" is the Super column's upgrade CTA.
+      fireEvent.click(await findByRole("button", { name: "Go Super" }));
+
+      const loc = await findByTestId("loc");
+      await waitFor(() =>
+        expect(loc.textContent).toBe(
+          "/assistant/settings/usage?tab=billing&adjust_plan",
+        ),
+      );
+      expect(changePackageCall).toBeNull();
+      expect(upgradeCall).toBeNull();
+    });
+  }
 });
