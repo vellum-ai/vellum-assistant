@@ -175,6 +175,20 @@ export function WizardCardHeading({
   );
 }
 
+/**
+ * Drops `Notice`'s outline for the tinted fill the onboarding mocks draw. Pair
+ * it with `tone="info"`, which supplies the leading icon.
+ */
+export const SUBTLE_NOTICE_CLASS =
+  "border-transparent bg-[var(--surface-active)]";
+
+/**
+ * Goes on a span wrapping the notice copy — `Notice` pipes children through its
+ * own `Typography`, so the mock's weight and tone have to be set on a child.
+ */
+export const SUBTLE_NOTICE_TEXT_CLASS =
+  "font-medium text-[var(--content-tertiary)]";
+
 /** A single decorative creature: fixed traits + placement, no randomness. */
 interface CreaturePlacement {
   bodyShape: string;
@@ -189,27 +203,29 @@ interface CreaturePlacement {
 
 /**
  * Deterministic creature scatter for the all-set card (`variant="full"`): six
- * creatures scattered around every edge.
+ * creatures scattered around every edge. Sizes and edge overhangs are the
+ * mock's values scaled by 1.167, since the card renders 560px wide against
+ * the 480px mock frame; horizontal centers stay proportional.
  */
 const CREATURE_PLACEMENTS: CreaturePlacement[] = [
-  { bodyShape: "blob", eyeStyle: "goofy", color: "green", size: 56, position: "-left-4 -top-6", rotate: -12 },
-  { bodyShape: "sprout", eyeStyle: "curious", color: "orange", size: 48, position: "left-1/2 -top-8 -translate-x-1/2", rotate: 6 },
-  { bodyShape: "urchin", eyeStyle: "surprised", color: "teal", size: 56, position: "-right-4 -top-6", rotate: 14 },
-  { bodyShape: "star", eyeStyle: "gentle", color: "purple", size: 44, position: "-left-6 top-1/2 -translate-y-1/2", rotate: -20 },
-  { bodyShape: "ghost", eyeStyle: "bashful", color: "pink", size: 44, position: "-right-6 top-1/2 -translate-y-1/2", rotate: 18 },
-  { bodyShape: "flower", eyeStyle: "quirky", color: "yellow", size: 52, position: "left-1/2 -bottom-8 -translate-x-1/2", rotate: -8 },
+  { bodyShape: "star", eyeStyle: "curious", color: "yellow", size: 103, position: "-left-[28px] -top-[33px]", rotate: 180 },
+  { bodyShape: "star", eyeStyle: "curious", color: "orange", size: 109, position: "left-[63%] -top-[62px] -translate-x-1/2", rotate: -8 },
+  { bodyShape: "blob", eyeStyle: "grumpy", color: "green", size: 76, position: "-right-[25px] top-[60px]", rotate: 1 },
+  { bodyShape: "stack", eyeStyle: "gentle", color: "purple", size: 110, position: "-left-[39px] top-[74%]", rotate: 0 },
+  { bodyShape: "urchin", eyeStyle: "goofy", color: "pink", size: 137, position: "-right-[42px] -bottom-[40px]", rotate: 180 },
+  { bodyShape: "sprout", eyeStyle: "curious", color: "orange", size: 72, position: "left-[37%] -bottom-[22px] -translate-x-1/2", rotate: 0 },
 ];
 
 /**
  * Deterministic creature scatter for the email card (`variant="top"`): three
  * creatures tuned to the email-step mock — a rotated yellow star hanging off
- * the top-left corner, an orange spiky creature upper-center-right, and a
+ * the top-left corner, an orange star upper-center-right, and a heavy-lidded
  * green blob peeking in from the right edge.
  */
 const TOP_CREATURE_PLACEMENTS: CreaturePlacement[] = [
-  { bodyShape: "star", eyeStyle: "gentle", color: "yellow", size: 76, position: "-left-6 -top-7", rotate: 180 },
-  { bodyShape: "urchin", eyeStyle: "curious", color: "orange", size: 72, position: "left-[58%] -top-12 -translate-x-1/2", rotate: -8 },
-  { bodyShape: "blob", eyeStyle: "gentle", color: "green", size: 60, position: "-right-4 top-11", rotate: 1 },
+  { bodyShape: "star", eyeStyle: "curious", color: "yellow", size: 103, position: "-left-[28px] -top-[33px]", rotate: 180 },
+  { bodyShape: "star", eyeStyle: "curious", color: "orange", size: 109, position: "left-[63%] -top-[62px] -translate-x-1/2", rotate: -8 },
+  { bodyShape: "blob", eyeStyle: "grumpy", color: "green", size: 76, position: "-right-[25px] top-[60px]", rotate: 1 },
 ];
 
 /**
