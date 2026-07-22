@@ -932,7 +932,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-15T21:08:24.000Z"
+      "updatedAt": "2026-07-22T16:04:16.000Z"
     },
     {
       "id": "twilio-setup",
@@ -950,7 +950,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-14T20:56:46.000Z"
+      "updatedAt": "2026-07-22T16:04:16.000Z"
     },
     {
       "id": "typescript-eval",
@@ -1106,7 +1106,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-15T21:08:24.000Z"
+      "updatedAt": "2026-07-22T16:04:16.000Z"
     },
     {
       "id": "vellum-self-knowledge",

@@ -77,7 +77,7 @@ assistant credentials inspect --service telegram --field webhook_secret
 If not, generate and set one:
 
 ```bash
-assistant credentials set --service telegram --field webhook_secret "$(uuidgen)"
+assistant credentials set --service telegram --field webhook_secret "$(uuidgen)" --generated
 ```
 
 ### Register Webhook with Telegram
