@@ -24,12 +24,10 @@ import { cn } from "../utils/cn";
 const MAX_CODE_BLOCK_HEIGHT = 400;
 
 export const quoteBlockquoteClassName = cn(
-  // typography: off-scale — the body-small token bakes line-height:1 into the
-  // utility (a single-line label style), but quoted markdown wraps across
-  // lines and can carry inline code chips taller than a 1:1 line box, so the
-  // quote needs real leading (`!` because the custom utility rule otherwise
-  // wins over a plain leading-* override).
-  "mx-0 mt-0 mb-3 flex w-full items-center gap-3 rounded-md bg-[var(--surface-sunken)] px-3 py-2.5 text-body-small-default !leading-relaxed text-[var(--content-secondary)] last:mb-0",
+  // Small *prose* token, not the label token: quoted markdown wraps across
+  // lines, so it needs real leading (the label token's line-height:1 would
+  // let inline code chips paint over adjacent lines).
+  "mx-0 mt-0 mb-3 flex w-full items-center gap-3 rounded-md bg-[var(--surface-sunken)] px-3 py-2.5 text-body-small-lighter text-[var(--content-secondary)] last:mb-0",
 );
 export const quoteBlockquoteAccentClassName =
   "h-5 w-0.5 shrink-0 rounded-full bg-[var(--content-tertiary)]";
@@ -329,14 +327,14 @@ function buildMarkdownComponents(
     h5: ({ children }) => (
       // typography: off-scale — bold weight override on canonical size
 
-      <h5 className="mb-1 mt-2 text-body-small-default !font-bold first:mt-0">
+      <h5 className="mb-1 mt-2 text-body-small-lighter !font-bold first:mt-0">
         {children}
       </h5>
     ),
     h6: ({ children }) => (
       // typography: off-scale — bold weight override on canonical size
 
-      <h6 className="mb-1 mt-2 text-body-small-default !font-bold text-[var(--content-secondary)] first:mt-0">
+      <h6 className="mb-1 mt-2 text-body-small-lighter !font-bold text-[var(--content-secondary)] first:mt-0">
         {children}
       </h6>
     ),
@@ -358,7 +356,7 @@ function buildMarkdownComponents(
           <code
             className={cn(
               // w-max min-w-full keeps the <pre>'s right padding visible when scrolled horizontally.
-              "block w-max min-w-full font-mono text-body-small-default",
+              "block w-max min-w-full font-mono text-body-small-lighter",
               className,
             )}
             {...props}
@@ -368,12 +366,10 @@ function buildMarkdownComponents(
         );
       }
       return (
-        // typography: off-scale — !leading-relaxed keeps the chip's padded
-        // background inside its own line box wherever the surrounding block
-        // has tight leading (blockquotes, table cells): the body-small
-        // token's line-height:1 would otherwise let the chip paint over
-        // adjacent lines of prose.
-        <code className="rounded bg-stone-100 px-1 py-0.5 font-mono text-body-small-default !leading-relaxed dark:bg-moss-800">
+        // Small prose token: its 18px leading keeps the chip's padded
+        // background inside its own line box in tight-leading contexts
+        // (blockquotes, table cells).
+        <code className="rounded bg-stone-100 px-1 py-0.5 font-mono text-body-small-lighter dark:bg-moss-800">
           {children}
         </code>
       );
@@ -390,7 +386,7 @@ function buildMarkdownComponents(
     ),
     table: ({ children }) => (
       <div className="mb-2 overflow-x-auto last:mb-0">
-        <table className="min-w-full border-collapse text-body-small-default">
+        <table className="min-w-full border-collapse text-body-small-lighter">
           {children}
         </table>
       </div>
