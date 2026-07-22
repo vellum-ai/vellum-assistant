@@ -144,9 +144,29 @@ export class McpOAuthProvider implements OAuthClientProvider {
   }
 
   async saveTokens(tokens: OAuthTokens): Promise<void> {
+    // RFC 6749 §6 lets a token endpoint rotate the refresh_token, omit
+    // it, or leave it unchanged. Many MCP servers issue a fresh
+    // access_token without a new refresh_token on every refresh grant;
+    // overwriting storage verbatim would then drop the refresh_token
+    // we still need to send on the next silent refresh. Carry forward
+    // the previous refresh_token when the incoming response omits one.
+    let toPersist: OAuthTokens = tokens;
+    if (!tokens.refresh_token) {
+      const previous = await getSecureKeyAsync(tokensKey(this.serverId));
+      if (previous) {
+        try {
+          const parsed = JSON.parse(previous) as OAuthTokens;
+          if (parsed.refresh_token) {
+            toPersist = { ...tokens, refresh_token: parsed.refresh_token };
+          }
+        } catch {
+          // Existing payload is malformed; fall through and save as-is.
+        }
+      }
+    }
     const ok = await setSecureKeyAsync(
       tokensKey(this.serverId),
-      JSON.stringify(tokens),
+      JSON.stringify(toPersist),
     );
     if (!ok) {
       log.warn(
@@ -156,6 +176,38 @@ export class McpOAuthProvider implements OAuthClientProvider {
       return;
     }
     log.info({ serverId: this.serverId }, "OAuth tokens saved");
+  }
+
+  // --- Refresh-Token Grant ---
+
+  /**
+   * Build the URL-encoded body for a refresh-token grant request.
+   *
+   * The MCP SDK calls this method when it needs to obtain a fresh
+   * access token without an authorization code (typically after a 401
+   * on an existing MCP request). We return a `refresh_token` grant if
+   * the stored tokens include one; otherwise we return `undefined` so
+   * the SDK falls back to the full authorization-code flow.
+   *
+   * Per RFC 6749 §6, omitting `scope` on refresh means the server
+   * reuses the originally authorized scope — the default most MCP
+   * servers (including Nirvana) expect.
+   */
+  async prepareTokenRequest(
+    scope?: string,
+  ): Promise<URLSearchParams | undefined> {
+    const tokens = await this.tokens();
+    if (!tokens?.refresh_token) {
+      return undefined;
+    }
+    const params = new URLSearchParams({
+      grant_type: "refresh_token",
+      refresh_token: tokens.refresh_token,
+    });
+    if (scope) {
+      params.set("scope", scope);
+    }
+    return params;
   }
 
   // --- Client Information ---
