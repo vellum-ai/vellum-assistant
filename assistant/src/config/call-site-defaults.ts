@@ -133,6 +133,19 @@ export const CALL_SITE_DEFAULTS: Record<LLMCallSite, CallSiteDefaultConfig> = {
     effort: "low",
     thinking: { enabled: false },
   },
+  voiceFrontDoor: {
+    profile: "cost-optimized",
+    // The front-door leg fronts EVERY unified live-voice turn and its
+    // leading tokens ARE the endpointing/triage verdict, so both TTFT
+    // variance and judgment quality gate the whole call. Pin the same
+    // latency-class model the endpoint decider uses: live drives showed the
+    // cost-optimized upstream with multi-second cross-session TTFT tails
+    // and over-escalation of small talk under open-task context pressure.
+    // Same model-pin caveat as voiceFrontDecision above.
+    model: "claude-haiku-4-5-20251001",
+    effort: "low",
+    thinking: { enabled: false },
+  },
   inviteInstructionGenerator: {
     profile: "cost-optimized",
     effort: "low",

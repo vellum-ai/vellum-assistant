@@ -22,27 +22,60 @@ import { resolveChannelCapabilities } from "../daemon/conversation-runtime-assem
 import { getOrCreateConversation } from "../daemon/conversation-store.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
-import { recordConversationPersistedSeq } from "../persistence/conversation-crud.js";
+import {
+  deleteMessageById,
+  getMessageById,
+  recordConversationPersistedSeq,
+  updateMessageContent,
+} from "../persistence/conversation-crud.js";
+import type { ContentBlock } from "../providers/types.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
+import { getAllTools } from "../tools/registry.js";
 import { createAbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
 import { truncate } from "../util/truncate.js";
 import {
   CALL_OPENING_MARKER,
   CALL_VERIFICATION_COMPLETE_MARKER,
+  ESCALATE_VERDICT_TOKEN,
+  HOLD_VERDICT_TOKEN,
+  stripInternalSpeechMarkers,
 } from "./voice-control-protocol.js";
 import {
   escalatedContinuationRule,
   ESCALATION_CONTINUATION_CONTENT,
-  frontDoorTriageRule,
+  frontDoorCapabilityDigest,
+  frontDoorDecisionRule,
+  spokenBridgeText,
   type VoiceRoutingLeg,
 } from "./voice-triage-escalate.js";
 
 const log = getLogger("voice-session-bridge");
+
+/**
+ * Front-door decision rule with the registry-derived capability digest. The
+ * front-door leg runs toolless (see the `toolsDisabledDepth` bracket in
+ * `startVoiceTurn`), so the digest is its only knowledge of what the
+ * escalated leg can do. Registry unavailability degrades to the bare rule.
+ * `includeHold` adds the mid-thought verdict branch (unified front-door
+ * speculative legs only).
+ */
+function frontDoorRuleWithDigest(includeHold: boolean): string {
+  let toolNames: string[] = [];
+  try {
+    toolNames = getAllTools().map((tool) => tool.name);
+  } catch {
+    // Tool registry not initialized (e.g. unit tests): digest-less rule.
+  }
+  return frontDoorDecisionRule({
+    includeHold,
+    capabilityDigest: frontDoorCapabilityDigest(toolNames),
+  });
+}
 
 /**
  * Exact message thrown when `opts.signal` aborts while the turn is waiting
@@ -269,6 +302,28 @@ export interface VoiceTurnOptions {
    * supplies its own `voiceControlPrompt`.
    */
   routingLeg?: VoiceRoutingLeg;
+  /**
+   * The holding phrase the caller actually heard before this leg started
+   * (the front-door leg's own pre-marker text, or the canned fallback).
+   * Quoted verbatim in the escalated continuation rule so the quality model
+   * knows the exact words already spoken and does not re-announce them.
+   * Only meaningful with `routingLeg: "escalated"`.
+   */
+  spokenEscalationBridge?: string;
+  /**
+   * Unified front-door: this leg was dispatched speculatively at a silence
+   * boundary, so its decision rule includes the hold branch (leading token
+   * `[0]` = the caller is mid-thought). Only ever set on front-door legs —
+   * a leg that doesn't know the hold token can't accidentally emit it, and
+   * a leg that does must be one whose leading tokens are interpreted.
+   */
+  unifiedVerdict?: boolean;
+  /**
+   * Session-side dispatch timestamp (`Date.now()` at turn launch). When set,
+   * the bridge's dispatch-timing log reports latency relative to it, so the
+   * pre-bridge half (thinking frame, trust resolution) is attributable too.
+   */
+  launchedAtMs?: number;
 }
 
 export interface VoiceTurnHandle {
@@ -276,6 +331,18 @@ export interface VoiceTurnHandle {
   turnId: string;
   /** Abort the in-flight turn (e.g. for barge-in). */
   abort: () => void;
+  /**
+   * Abort the turn AND roll back its persisted user message, restoring the
+   * conversation to its pre-turn state (delete row + reload in-memory
+   * history, then notify sync consumers). The leg's reserved assistant row
+   * is removed too, by the teardown transcript-hygiene pass once the agent
+   * loop settles. Used by the unified front-door hold verdict: a
+   * mid-thought pause must leave no trace of the fragment
+   * in history. Idempotent; safe to call after abort. Optional so that
+   * test doubles and future non-bridge starters aren't forced to model
+   * rollback — a missing discard degrades to abort-without-rollback.
+   */
+  discard?: () => Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -306,6 +373,8 @@ function buildVoiceCallControlPrompt(opts: {
   isCallerGuardian?: boolean;
   skipDisclosure?: boolean;
   routingLeg?: VoiceRoutingLeg;
+  spokenEscalationBridge?: string;
+  unifiedVerdict?: boolean;
 }): string {
   const config = getConfig();
   const disclosureEnabled =
@@ -394,17 +463,71 @@ function buildVoiceCallControlPrompt(opts: {
   );
 
   // Triage-and-escalate routing rules (voice-triage-escalate flag). The
-  // front-door leg triages and may hand off; the escalated leg continues the
+  // front-door leg decides and may hand off; the escalated leg continues the
   // answer after a holding phrase was already spoken.
   if (opts.routingLeg === "front-door") {
-    lines.push(`13. ${frontDoorTriageRule()}`);
+    lines.push(`13. ${frontDoorRuleWithDigest(opts.unifiedVerdict === true)}`);
   } else if (opts.routingLeg === "escalated") {
-    lines.push(`13. ${escalatedContinuationRule()}`);
+    lines.push(`13. ${escalatedContinuationRule(opts.spokenEscalationBridge)}`);
   }
 
   lines.push("</voice_call_control>");
 
   return lines.join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// Front-door transcript hygiene
+// ---------------------------------------------------------------------------
+
+/**
+ * Reduce a front-door leg's persisted content to what was actually spoken
+ * under the verdict-first protocol.
+ *
+ * Returns null when the content carries no verdict token (a committed
+ * front-door answer — nothing to do). A leg that led with
+ * `ESCALATE_VERDICT_TOKEN` reduces to a single text block holding the
+ * capped bridge; empty spoken text means the caller heard only the canned
+ * fallback bridge, which is audio-only and never a transcript row, so the
+ * caller should delete the row. Stray verdict tokens elsewhere in an
+ * answer were never spoken (the live gate strips them) and are stripped
+ * from the persisted text to match.
+ */
+export function cutFrontDoorContentAtVerdict(
+  blocks: ContentBlock[],
+): { blocks: ContentBlock[]; spokenText: string } | null {
+  const joinedText = blocks
+    .map((block) => (block.type === "text" ? block.text : ""))
+    .join("");
+  if (joinedText.trimStart().startsWith(ESCALATE_VERDICT_TOKEN)) {
+    const spokenText = spokenBridgeText(joinedText);
+    return {
+      blocks: spokenText.length > 0 ? [{ type: "text", text: spokenText }] : [],
+      spokenText,
+    };
+  }
+  if (
+    !joinedText.includes(ESCALATE_VERDICT_TOKEN) &&
+    !joinedText.includes(HOLD_VERDICT_TOKEN)
+  ) {
+    return null;
+  }
+  const kept: ContentBlock[] = [];
+  for (const block of blocks) {
+    if (block.type !== "text") {
+      kept.push(block);
+      continue;
+    }
+    const cleaned = stripInternalSpeechMarkers(block.text);
+    if (cleaned.trim().length > 0) {
+      kept.push({ ...block, text: cleaned });
+    }
+  }
+  const spokenText = kept
+    .map((block) => (block.type === "text" ? block.text : ""))
+    .join("")
+    .trim();
+  return { blocks: kept, spokenText };
 }
 
 // ---------------------------------------------------------------------------
@@ -425,6 +548,15 @@ function buildVoiceCallControlPrompt(opts: {
 export async function startVoiceTurn(
   opts: VoiceTurnOptions,
 ): Promise<VoiceTurnHandle> {
+  // Dispatch-latency stamps for the pre-loop half of a voice turn, logged
+  // once at agent-loop entry so live sessions expose where pre-model time
+  // goes (conversation resolve vs admission waits vs persist).
+  const dispatch = {
+    enteredAt: Date.now(),
+    conversationReadyAt: 0,
+    admissionClearAt: 0,
+    persistDoneAt: 0,
+  };
   const eventSink: VoiceRunEventSink = {
     onTextDelta: (msg) => {
       opts.onTextDelta?.(msg.text);
@@ -521,19 +653,21 @@ export async function startVoiceTurn(
       isCallerGuardian,
       skipDisclosure: opts.skipDisclosure,
       routingLeg: opts.routingLeg,
+      spokenEscalationBridge: opts.spokenEscalationBridge,
+      unifiedVerdict: opts.unifiedVerdict,
     });
   } else {
     // A caller-supplied prompt (e.g. live-voice) bypasses
     // buildVoiceCallControlPrompt, which is where the triage-and-escalate rule
     // is normally injected from `routingLeg`. Append it here too — without it
-    // the front-door leg would run on the fast profile but never be told to
-    // emit [ESCALATE], so it could not hand off to the escalated leg.
+    // the front-door leg would run on the fast profile but never learn the
+    // verdict protocol, so it could not hold or hand off to the escalated leg.
     voiceCallControlPrompt = opts.voiceControlPrompt;
     const routingLegRule =
       opts.routingLeg === "front-door"
-        ? frontDoorTriageRule()
+        ? frontDoorRuleWithDigest(opts.unifiedVerdict === true)
         : opts.routingLeg === "escalated"
-          ? escalatedContinuationRule()
+          ? escalatedContinuationRule(opts.spokenEscalationBridge)
           : null;
     if (voiceCallControlPrompt != null && routingLegRule) {
       voiceCallControlPrompt = `${voiceCallControlPrompt}\n\n${routingLegRule}`;
@@ -542,6 +676,7 @@ export async function startVoiceTurn(
 
   // Get or create the conversation
   const conversation = await getOrCreateConversation(opts.conversationId);
+  dispatch.conversationReadyAt = Date.now();
 
   const config = getConfig();
   const maxWaitMs = resolveProcessingWaitMs(
@@ -629,6 +764,7 @@ export async function startVoiceTurn(
     }
     break;
   }
+  dispatch.admissionClearAt = Date.now();
 
   // Releases the per-turn state of a voice turn that OWNED the conversation,
   // so `trustContext`, `callSessionId`, etc. don't leak into subsequent
@@ -851,6 +987,7 @@ export async function startVoiceTurn(
       throw retryErr;
     }
   }
+  dispatch.persistDoneAt = Date.now();
   try {
     opts.callbacks?.persisted_user_message_id?.(messageId);
   } catch (err) {
@@ -1011,8 +1148,119 @@ export async function startVoiceTurn(
     resolveTeardown();
   };
 
+  // Pairs the front-door leg's toolsDisabledDepth increment with its
+  // decrement in the IIFE's finally, even when runAgentLoop throws.
+  let frontDoorToolsSuppressed = false;
+
+  // The reserved assistant row of the leg's LLM call, captured from
+  // `assistant_turn_start`. Voice legs are single-call in practice (the
+  // front-door leg is toolless), so the last id observed is the leg's
+  // transcript row — the target of the teardown transcript-hygiene pass.
+  let reservedAssistantRowId: string | null = null;
+  // Set by the handle's discard(): the whole leg must leave no trace.
+  let discarded = false;
+
+  /**
+   * Teardown transcript hygiene. Runs after the agent loop has fully
+   * settled — including the stranded-content fold that finalizes an aborted
+   * leg's row with its raw partial output — and before `settleTurnTeardown`
+   * releases the next leg:
+   *
+   * - A discarded leg (unified front-door hold verdict) deletes its
+   *   reserved assistant row: `discard` already rolled back the user row,
+   *   and without this the fold leaves a stray row holding the leg's
+   *   unspoken partial output (typically the bare hold token).
+   * - A front-door leg that escalated reduces to its capped spoken bridge —
+   *   never the verdict token or the text streamed past the cap (issue
+   *   #37850). A row with no spoken bridge (canned-fallback case — that
+   *   bridge is audio-only) is deleted.
+   *
+   * After a rewrite, in-memory history is reloaded from the clean DB before
+   * the escalated leg — blocked on this turn's teardown — snapshots it, so
+   * the quality model never sees the marker text either. Best-effort: a
+   * hiccup here must not escalate into a turn-level failure.
+   */
+  const finalizeVoiceLegTranscript = async (): Promise<void> => {
+    if (reservedAssistantRowId == null) {
+      if (discarded || opts.routingLeg === "front-door") {
+        // A leg the pass should cover never announced a reserved row: either
+        // the leg died before its LLM call, or `assistant_turn_start` did not
+        // reach this bridge — the latter would leave raw verdict tokens in
+        // the transcript, so make the skip loud.
+        log.warn(
+          { turnId, routingLeg: opts.routingLeg ?? null, discarded },
+          "Voice leg transcript hygiene skipped: no reserved row observed",
+        );
+      }
+      return;
+    }
+    if (!discarded && opts.routingLeg !== "front-door") {
+      return;
+    }
+    try {
+      let action = "none";
+      if (discarded) {
+        deleteMessageById(reservedAssistantRowId);
+        action = "delete_discarded";
+      } else {
+        const row = getMessageById(reservedAssistantRowId, opts.conversationId);
+        const cut = row ? cutFrontDoorContentAtVerdict(row.content) : null;
+        if (cut) {
+          if (cut.spokenText.length > 0) {
+            updateMessageContent(
+              reservedAssistantRowId,
+              JSON.stringify(cut.blocks),
+            );
+            action = "rewrite_spoken";
+          } else {
+            deleteMessageById(reservedAssistantRowId);
+            action = "delete_empty";
+          }
+        } else if (!row) {
+          action = "row_missing";
+        }
+      }
+      log.info(
+        {
+          turnId,
+          messageId: reservedAssistantRowId,
+          routingLeg: opts.routingLeg ?? null,
+          discarded,
+          action,
+        },
+        "Voice leg transcript hygiene",
+      );
+      if (action !== "none" && action !== "row_missing") {
+        await conversation.loadFromDb();
+        publishConversationMessagesChanged(opts.conversationId);
+      }
+    } catch (err) {
+      log.warn(
+        { err, turnId, messageId: reservedAssistantRowId },
+        "Voice leg transcript hygiene failed",
+      );
+    }
+  };
+
   // Fire-and-forget the agent loop
   void (async () => {
+    const loopEnterAt = Date.now();
+    log.info(
+      {
+        turnId,
+        conversationId: opts.conversationId,
+        routingLeg: opts.routingLeg ?? null,
+        sinceLaunchMs:
+          opts.launchedAtMs != null ? loopEnterAt - opts.launchedAtMs : null,
+        bridgeMs: loopEnterAt - dispatch.enteredAt,
+        conversationMs: dispatch.conversationReadyAt - dispatch.enteredAt,
+        admissionWaitMs:
+          dispatch.admissionClearAt - dispatch.conversationReadyAt,
+        persistMs: dispatch.persistDoneAt - dispatch.admissionClearAt,
+        preLoopMs: loopEnterAt - dispatch.persistDoneAt,
+      },
+      "Voice turn dispatch timing",
+    );
     try {
       // Non-guardian voice callers force side-effect tools to prompt so the
       // auto-deny handler above reliably sees a confirmation_request. Without
@@ -1022,9 +1270,19 @@ export async function startVoiceTurn(
       // try/finally so a failed setup before this point cannot leak the
       // flag into subsequent non-voice turns on the same conversation.
       conversation.forcePromptSideEffects = !isGuardian;
+      // The front-door leg runs toolless: no schemas on the wire and the
+      // executor gate closed (same depth-counter bracket the pointer-turn
+      // runner uses). Anything needing a tool must escalate — the capability
+      // digest in its control prompt tells it what the escalated leg can do.
+      if (opts.routingLeg === "front-door") {
+        conversation.toolsDisabledDepth++;
+        frontDoorToolsSuppressed = true;
+      }
       await conversation.runAgentLoop(persistedContent, messageId, {
         onEvent: (msg: ServerMessage) => {
-          if (msg.type === "error") {
+          if (msg.type === "assistant_turn_start") {
+            reservedAssistantRowId = msg.messageId;
+          } else if (msg.type === "error") {
             lastError = msg.message;
           } else if (msg.type === "conversation_error") {
             lastError = msg.userMessage;
@@ -1060,7 +1318,12 @@ export async function startVoiceTurn(
           // Note: tool_use_preview_start is intentionally not handled here.
           // Voice only reacts to the definitive tool_use_start event.
         },
-        callSite: "callAgent",
+        // Front-door legs resolve through their own call site, whose shipped
+        // default pins the latency-class verdict model (see
+        // call-site-defaults.ts `voiceFrontDoor`); every other leg keeps the
+        // ordinary call-agent resolution.
+        callSite:
+          opts.routingLeg === "front-door" ? "voiceFrontDoor" : "callAgent",
         // The escalation-continuation prompt is a transcript-suppressed machine
         // signal (persisted `hidden`), so flag the turn to match — keeps
         // prompt-as-user-speech consumers (e.g. title generation) from treating
@@ -1088,7 +1351,11 @@ export async function startVoiceTurn(
       log.error({ err, turnId }, "Voice turn failed");
       eventSink.onError(message);
     } finally {
+      if (frontDoorToolsSuppressed) {
+        conversation.toolsDisabledDepth--;
+      }
       cleanup();
+      await finalizeVoiceLegTranscript();
       settleTurnTeardown();
     }
   })();
@@ -1115,8 +1382,30 @@ export async function startVoiceTurn(
     }
   }
 
+  const discardFn = async () => {
+    if (discarded) {
+      return;
+    }
+    discarded = true;
+    abortFn();
+    try {
+      // Same rollback pattern as the pointer-turn runner: delete the row,
+      // then rebuild in-memory history from the clean DB (a plain pop is
+      // fragile against concurrent compaction reassigning the array).
+      deleteMessageById(messageId);
+      await conversation.loadFromDb();
+      publishConversationMessagesChanged(opts.conversationId);
+    } catch (err) {
+      log.warn(
+        { err, turnId, messageId },
+        "Voice turn discard could not roll back the persisted user message",
+      );
+    }
+  };
+
   return {
     turnId,
     abort: abortFn,
+    discard: discardFn,
   };
 }
