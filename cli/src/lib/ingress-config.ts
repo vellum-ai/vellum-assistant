@@ -51,6 +51,20 @@ export function saveIngressUrl(workspaceDir: string, publicUrl: string): void {
   saveRawConfig(workspaceDir, config);
 }
 
+/**
+ * Read the saved public ingress URL, or null when ingress is unset or
+ * explicitly disabled.
+ */
+export function loadIngressUrl(workspaceDir: string): string | null {
+  const config = loadRawConfig(workspaceDir);
+  const ingress = config.ingress as Record<string, unknown> | undefined;
+  if (!ingress || ingress.enabled === false) {
+    return null;
+  }
+  const url = ingress.publicBaseUrl;
+  return typeof url === "string" && url.trim() ? url.trim() : null;
+}
+
 /** Clear the ingress public base URL from the workspace config. */
 export function clearIngressUrl(workspaceDir: string): void {
   const config = loadRawConfig(workspaceDir);

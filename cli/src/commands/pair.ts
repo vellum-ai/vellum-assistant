@@ -10,6 +10,8 @@
  * independent, separately-revocable device (see `vellum unpair`, forthcoming).
  */
 
+import { join } from "node:path";
+
 import { nanoid } from "nanoid";
 // Call `qrcodeTerminal.generate` as a method — the library reads its default
 // error-correction level off `this`, so a destructured import renders nothing.
@@ -33,11 +35,54 @@ import {
   isAssistantFeatureFlagEnabled,
   WEB_REMOTE_INGRESS_FLAG,
 } from "../lib/feature-flags.js";
+import {
+  getDefaultWorkspaceDir,
+  loadIngressUrl,
+} from "../lib/ingress-config.js";
 import { getLocalLanIPv4 } from "../lib/local.js";
 import { isLoopbackUrl, loopbackSafeFetch } from "../lib/loopback-fetch.js";
 
 function assistantDisplayName(entry: AssistantEntry): string {
   return entry.name || entry.assistantName || entry.assistantId;
+}
+
+/**
+ * The tunnel-saved ingress URL, when usable as a remote-web advertised
+ * default: https and non-loopback (the bar `--qr`/`--web` URLs must clear).
+ * Checks the workspaces a tunnel provider may have written: the instance's
+ * own workspace (managed/XDG layouts), then the default workspace (legacy
+ * `~/.vellum/workspace` layouts, where the gateway reads its config).
+ */
+function loadUsableIngressUrl(entry: AssistantEntry): string | null {
+  const candidates = entry.resources
+    ? [
+        join(entry.resources.instanceDir, ".vellum", "workspace"),
+        getDefaultWorkspaceDir(),
+      ]
+    : [getDefaultWorkspaceDir()];
+  for (const workspaceDir of candidates) {
+    let saved: string | null = null;
+    try {
+      saved = loadIngressUrl(workspaceDir);
+    } catch {
+      continue;
+    }
+    if (!saved) {
+      continue;
+    }
+    try {
+      if (new URL(saved).protocol !== "https:") {
+        continue;
+      }
+    } catch {
+      continue;
+    }
+    if (isLoopbackUrl(saved)) {
+      continue;
+    }
+    return saved;
+  }
+  return null;
 }
 
 function printUsage(): void {
@@ -348,17 +393,30 @@ export async function pair(): Promise<void> {
 
   // Mint over loopback (localUrl avoids mDNS for same-machine calls), but
   // advertise a REACHABLE url in the bundle — the loopback url would point the
-  // other machine at its own localhost. Prefer an explicit --url, then the
+  // other machine at its own localhost. Prefer an explicit --url, then (for
+  // the remote-web flows) the ingress URL a tunnel provider saved, then the
   // runtime (LAN/tunnel) url.
   const mintUrl = (
     entry.localUrl ||
     entry.runtimeUrl ||
     `http://127.0.0.1:${GATEWAY_PORT}`
   ).replace(/\/+$/, "");
-  const advertisedUrl = (urlOverride || entry.runtimeUrl || mintUrl).replace(
-    /\/+$/,
-    "",
-  );
+  const savedIngressUrl =
+    !urlOverride && (qrPairing || webPairing)
+      ? loadUsableIngressUrl(entry)
+      : null;
+  const advertisedUrl = (
+    urlOverride ||
+    savedIngressUrl ||
+    entry.runtimeUrl ||
+    mintUrl
+  ).replace(/\/+$/, "");
+  if (savedIngressUrl && !jsonOutput) {
+    console.log(
+      `Using saved ingress URL ${savedIngressUrl} ` +
+        "(from vellum tunnel; override with --url).",
+    );
+  }
 
   // A local hatch's runtimeUrl is itself loopback (http://localhost:<port>),
   // so without an explicit --url the bundle would point the other machine at

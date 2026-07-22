@@ -931,4 +931,307 @@ describe("pair command", () => {
     expect(errors.join("\n")).toContain("--qr");
     expect(fetchCalled).toBe(false);
   });
+
+  test("--qr with no --url uses the tunnel-saved ingress URL", async () => {
+    const workspaceDir = mkdtempSync(join(tmpdir(), "vellum-pair-ingress-"));
+    // Point the synthesized instance dir at an empty temp XDG root so the
+    // resolution deterministically falls through to VELLUM_WORKSPACE_DIR.
+    const xdgDir = mkdtempSync(join(tmpdir(), "vellum-pair-xdg-"));
+    process.env.XDG_DATA_HOME = xdgDir;
+    writeFileSync(
+      join(workspaceDir, "config.json"),
+      JSON.stringify({
+        ingress: {
+          publicBaseUrl: "https://saved.example.ts.net",
+          enabled: true,
+        },
+      }),
+    );
+    process.env.VELLUM_WORKSPACE_DIR = workspaceDir;
+
+    const calls: string[] = [];
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+      calls.push(url);
+      if (url === `${LOCAL_URL}/v1/assistants/pair-test/feature-flags`) {
+        return new Response(
+          JSON.stringify({
+            flags: [{ key: "web-remote-ingress", enabled: true }],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url === `${LOCAL_URL}/v1/remote-web/pairing-challenge`) {
+        // The minted challenge must advertise the SAVED ingress URL.
+        expect(JSON.parse(init?.body as string)).toEqual({
+          publicBaseUrl: "https://saved.example.ts.net",
+        });
+        return new Response(
+          JSON.stringify({
+            deviceCode: "device-code",
+            userCode: "ABCD-EFGH",
+            verificationUri: "https://saved.example.ts.net/assistant/pair",
+            expiresAt: "2026-06-04T00:10:00.000Z",
+            expiresInSeconds: 600,
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url === `${LOCAL_URL}/v1/remote-web/pairing-verification`) {
+        return new Response(
+          JSON.stringify({
+            status: "approved",
+            verificationUri: "https://saved.example.ts.net/assistant/pair",
+            expiresAt: "2026-06-04T00:10:00.000Z",
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      return new Response("not found", { status: 404 });
+    }) as unknown as typeof fetch;
+
+    const logs: string[] = [];
+    const logSpy = spyOn(console, "log").mockImplementation(
+      (...a: unknown[]) => {
+        logs.push(a.join(" "));
+      },
+    );
+
+    process.argv = ["bun", "vellum", "pair", "--qr"];
+    try {
+      await pair();
+    } finally {
+      logSpy.mockRestore();
+      globalThis.fetch = origFetch;
+      delete process.env.VELLUM_WORKSPACE_DIR;
+      delete process.env.XDG_DATA_HOME;
+      rmSync(workspaceDir, { recursive: true, force: true });
+      rmSync(xdgDir, { recursive: true, force: true });
+    }
+
+    expect(calls).toContain(`${LOCAL_URL}/v1/remote-web/pairing-challenge`);
+    const output = logs.join("\n");
+    expect(output).toContain(
+      "Using saved ingress URL https://saved.example.ts.net",
+    );
+    expect(output).toContain(
+      "https://saved.example.ts.net/assistant/pair#device_code=device-code",
+    );
+  });
+
+  test("--url beats the saved ingress URL", async () => {
+    const workspaceDir = mkdtempSync(join(tmpdir(), "vellum-pair-ingress-"));
+    // Point the synthesized instance dir at an empty temp XDG root so the
+    // resolution deterministically falls through to VELLUM_WORKSPACE_DIR.
+    const xdgDir = mkdtempSync(join(tmpdir(), "vellum-pair-xdg-"));
+    process.env.XDG_DATA_HOME = xdgDir;
+    writeFileSync(
+      join(workspaceDir, "config.json"),
+      JSON.stringify({
+        ingress: {
+          publicBaseUrl: "https://saved.example.ts.net",
+          enabled: true,
+        },
+      }),
+    );
+    process.env.VELLUM_WORKSPACE_DIR = workspaceDir;
+
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+      if (url === `${LOCAL_URL}/v1/assistants/pair-test/feature-flags`) {
+        return new Response(
+          JSON.stringify({
+            flags: [{ key: "web-remote-ingress", enabled: true }],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url === `${LOCAL_URL}/v1/remote-web/pairing-challenge`) {
+        expect(JSON.parse(init?.body as string)).toEqual({
+          publicBaseUrl: "https://explicit.example.ts.net",
+        });
+        return new Response(
+          JSON.stringify({
+            deviceCode: "device-code",
+            userCode: "ABCD-EFGH",
+            verificationUri: "https://explicit.example.ts.net/assistant/pair",
+            expiresAt: "2026-06-04T00:10:00.000Z",
+            expiresInSeconds: 600,
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url === `${LOCAL_URL}/v1/remote-web/pairing-verification`) {
+        return new Response(
+          JSON.stringify({
+            status: "approved",
+            verificationUri: "https://explicit.example.ts.net/assistant/pair",
+            expiresAt: "2026-06-04T00:10:00.000Z",
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      return new Response("not found", { status: 404 });
+    }) as unknown as typeof fetch;
+
+    const logs: string[] = [];
+    const logSpy = spyOn(console, "log").mockImplementation(
+      (...a: unknown[]) => {
+        logs.push(a.join(" "));
+      },
+    );
+
+    process.argv = [
+      "bun",
+      "vellum",
+      "pair",
+      "--qr",
+      "--url",
+      "https://explicit.example.ts.net",
+    ];
+    try {
+      await pair();
+    } finally {
+      logSpy.mockRestore();
+      globalThis.fetch = origFetch;
+      delete process.env.VELLUM_WORKSPACE_DIR;
+      delete process.env.XDG_DATA_HOME;
+      rmSync(workspaceDir, { recursive: true, force: true });
+      rmSync(xdgDir, { recursive: true, force: true });
+    }
+
+    expect(logs.join("\n")).not.toContain("Using saved ingress URL");
+  });
+
+  test("a non-https saved ingress URL is ignored", async () => {
+    const workspaceDir = mkdtempSync(join(tmpdir(), "vellum-pair-ingress-"));
+    // Point the synthesized instance dir at an empty temp XDG root so the
+    // resolution deterministically falls through to VELLUM_WORKSPACE_DIR.
+    const xdgDir = mkdtempSync(join(tmpdir(), "vellum-pair-xdg-"));
+    process.env.XDG_DATA_HOME = xdgDir;
+    writeFileSync(
+      join(workspaceDir, "config.json"),
+      JSON.stringify({
+        ingress: {
+          publicBaseUrl: "http://insecure.example.com",
+          enabled: true,
+        },
+      }),
+    );
+    process.env.VELLUM_WORKSPACE_DIR = workspaceDir;
+
+    const origFetch = globalThis.fetch;
+    let minted = false;
+    globalThis.fetch = (async (url: string) => {
+      if (url === `${LOCAL_URL}/v1/assistants/pair-test/feature-flags`) {
+        return new Response(
+          JSON.stringify({
+            flags: [{ key: "web-remote-ingress", enabled: true }],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      minted = true;
+      return new Response("{}", { status: 200 });
+    }) as unknown as typeof fetch;
+
+    const errors: string[] = [];
+    const errSpy = spyOn(console, "error").mockImplementation(
+      (...a: unknown[]) => {
+        errors.push(a.join(" "));
+      },
+    );
+    const exitSpy = spyOn(process, "exit").mockImplementation(((
+      code?: number,
+    ) => {
+      throw new Error(`exit:${code}`);
+    }) as never);
+
+    process.argv = ["bun", "vellum", "pair", "--qr"];
+    let exited = false;
+    try {
+      await pair();
+    } catch (e) {
+      exited = (e as Error).message === "exit:1";
+    } finally {
+      errSpy.mockRestore();
+      exitSpy.mockRestore();
+      globalThis.fetch = origFetch;
+      delete process.env.VELLUM_WORKSPACE_DIR;
+      delete process.env.XDG_DATA_HOME;
+      rmSync(workspaceDir, { recursive: true, force: true });
+      rmSync(xdgDir, { recursive: true, force: true });
+    }
+
+    // The saved http URL is skipped, so --qr falls through to the (non-https)
+    // runtime URL and refuses — proving the saved value was not advertised.
+    expect(exited).toBe(true);
+    expect(errors.join("\n")).toContain(RUNTIME_URL);
+    expect(minted).toBe(false);
+  });
+
+  test("a saved ingress URL with ingress disabled is ignored", async () => {
+    const workspaceDir = mkdtempSync(join(tmpdir(), "vellum-pair-ingress-"));
+    // Point the synthesized instance dir at an empty temp XDG root so the
+    // resolution deterministically falls through to VELLUM_WORKSPACE_DIR.
+    const xdgDir = mkdtempSync(join(tmpdir(), "vellum-pair-xdg-"));
+    process.env.XDG_DATA_HOME = xdgDir;
+    writeFileSync(
+      join(workspaceDir, "config.json"),
+      JSON.stringify({
+        ingress: {
+          publicBaseUrl: "https://saved.example.ts.net",
+          enabled: false,
+        },
+      }),
+    );
+    process.env.VELLUM_WORKSPACE_DIR = workspaceDir;
+
+    const origFetch = globalThis.fetch;
+    let minted = false;
+    globalThis.fetch = (async (url: string) => {
+      if (url === `${LOCAL_URL}/v1/assistants/pair-test/feature-flags`) {
+        return new Response(
+          JSON.stringify({
+            flags: [{ key: "web-remote-ingress", enabled: true }],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      minted = true;
+      return new Response("{}", { status: 200 });
+    }) as unknown as typeof fetch;
+
+    const errors: string[] = [];
+    const errSpy = spyOn(console, "error").mockImplementation(
+      (...a: unknown[]) => {
+        errors.push(a.join(" "));
+      },
+    );
+    const exitSpy = spyOn(process, "exit").mockImplementation(((
+      code?: number,
+    ) => {
+      throw new Error(`exit:${code}`);
+    }) as never);
+
+    process.argv = ["bun", "vellum", "pair", "--qr"];
+    let exited = false;
+    try {
+      await pair();
+    } catch (e) {
+      exited = (e as Error).message === "exit:1";
+    } finally {
+      errSpy.mockRestore();
+      exitSpy.mockRestore();
+      globalThis.fetch = origFetch;
+      delete process.env.VELLUM_WORKSPACE_DIR;
+      delete process.env.XDG_DATA_HOME;
+      rmSync(workspaceDir, { recursive: true, force: true });
+      rmSync(xdgDir, { recursive: true, force: true });
+    }
+
+    expect(exited).toBe(true);
+    expect(errors.join("\n")).toContain(RUNTIME_URL);
+    expect(minted).toBe(false);
+  });
 });
