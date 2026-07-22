@@ -147,6 +147,44 @@ export const Conversation: Story = {
   render: (args) => <TranscriptAtLatest {...args} />,
 };
 
+// Messages exercising the block-level markdown the transcript renders beyond
+// plain prose — blockquote with inline code chips, a table with wrapping code
+// cells, and a fenced block — so message-level rendering regressions in those
+// shapes are visible in a transcript context, not just in the design library's
+// isolated MarkdownMessage stories.
+const RICH_CONTENT: TranscriptItem[] = [
+  user("ru1", "What did the failing config look like?"),
+  assistant(
+    "ra1",
+    [
+      "The report quoted it directly:",
+      "",
+      "> Settings shows `backup.enabled` as `false` in config, and",
+      "> `handleBackupCreate()` throws a `BadRequestError` saying creation",
+      "> moved to the gateway (`POST /v1/backups/create`).",
+      "",
+      "The relevant keys:",
+      "",
+      "| Key | Value |",
+      "| --- | --- |",
+      "| `backup.enabled` | `false` |",
+      "| `backup.localDirectory` | `null` — falls back to the workspace-adjacent default |",
+      "",
+      "And the fix:",
+      "",
+      "```ts",
+      "await updateConfig({ backup: { enabled: true } });",
+      "```",
+    ].join("\n"),
+  ),
+];
+
+/** Quote + inline code, a table, and fenced code inside real transcript rows. */
+export const RichContent: Story = {
+  args: { items: RICH_CONTENT },
+  render: (args) => <TranscriptAtLatest {...args} />,
+};
+
 /** No messages yet — a fresh conversation renders an empty transcript. */
 export const Empty: Story = {
   args: { items: [] },

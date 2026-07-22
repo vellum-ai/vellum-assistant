@@ -62,9 +62,18 @@ function useWordStream(
   useEffect(() => {
     onResetRef.current();
     let i = 0;
-    const id = setInterval(() => {
+    const step = () => {
       i += 1;
       onWordRef.current(words.slice(0, i).join(" "));
+    };
+    // Land the first word synchronously so the scene never renders an empty
+    // frame — screenshots and visual sweeps otherwise capture a blank panel
+    // during the first interval tick.
+    if (words.length > 0) {
+      step();
+    }
+    const id = setInterval(() => {
+      step();
       if (i >= words.length) {
         clearInterval(id);
       }
