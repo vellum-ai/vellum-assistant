@@ -9,6 +9,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
     nextPackageUp,
     type ProPackage,
+    type TierRelation,
 } from "@/domains/settings/billing/package-types";
 import { useChangePackage } from "@/domains/settings/billing/use-change-package";
 import { PackageSwitchConfirmModal } from "@/domains/settings/billing/plans/package-switch-confirm-modal";
@@ -175,15 +176,22 @@ interface RecommendedUpgradeProps {
     isProUser: boolean;
     /**
      * Whether this Pro sub is eligible for a one-click, in-place package switch:
-     * true only for a clean packaged Pro sub (has a package pin, not customized,
-     * not cancelling). Every other Pro state falls back to the manage path.
-     * Meaningless for base users, whose CTA always routes to Stripe checkout.
+     * true for any switch-eligible Pro sub — a clean pin, a customized pin, or an
+     * unpinned (Custom) sub. A cancelling or non-entitlement Pro sub falls back to
+     * the manage path. Meaningless for base users, whose CTA always routes to
+     * Stripe checkout.
      */
     canChangePackage: boolean;
     /**
-     * Manage-path delegate (AdjustPlanModal). Used to keep a legacy/custom Pro
-     * sub with no pinned package off the change-package flow, which operates
-     * only on named packages.
+     * How the target package relates to the current sub — drives the confirm
+     * copy. A clean pin's next package is an "upgrade"; a customized or unpinned
+     * (Custom) sub gets the direction-neutral "switch".
+     */
+    relation: Exclude<TierRelation, "current"> | "switch";
+    /**
+     * Manage-path delegate (AdjustPlanModal). Handles a cancelling or
+     * non-entitlement Pro sub that the change-package flow cannot switch, and the
+     * empty-catalog fallback.
      */
     onManage: () => void;
     /**
@@ -198,6 +206,7 @@ function RecommendedUpgrade({
     currentKey,
     isProUser,
     canChangePackage,
+    relation,
     onManage,
     onTierUpgraded,
 }: RecommendedUpgradeProps) {
@@ -247,9 +256,9 @@ function RecommendedUpgrade({
     };
 
     const handleUpgrade = async () => {
-        // Only a clean packaged Pro sub (has a package pin, not customized, not
-        // cancelling) can be one-click package-switched; every other Pro state
-        // (package-less/legacy, customized, or cancelling) stays on the manage path.
+        // Any switch-eligible Pro sub (a clean pin, a customized pin, or an
+        // unpinned Custom sub) can be one-click package-switched; a cancelling or
+        // non-entitlement Pro sub stays on the manage path.
         if (isProUser && !canChangePackage) {
             onManage();
             return;
@@ -379,7 +388,7 @@ function RecommendedUpgrade({
             </Button>
             <PackageSwitchConfirmModal
                 open={confirmOpen}
-                relation="upgrade"
+                relation={relation}
                 packageName={recommended.name}
                 pending={isPending}
                 onConfirm={() => void handleConfirmChange()}
@@ -464,14 +473,17 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
         packages.length > 0 &&
         (currentPlan.id === "base" ||
             (subscription.package != null && !subscription.package.customized));
-    // The banner's one-click switch targets a clean packaged Pro sub. It layers
-    // the pinned-and-not-customized requirement on top of the shared eligibility
-    // gate, so a customized or unpinned Pro sub falls back to the manage path
-    // here even though the plans takeover offers it a direction-neutral switch.
-    const canChangePackage =
-        isPackageSwitchEligible(subscription) &&
-        subscription.package != null &&
-        !subscription.package.customized;
+    // The banner's one-click switch is offered to any switch-eligible Pro sub —
+    // a clean pin, a customized pin, or an unpinned (Custom) sub — inheriting the
+    // shared eligibility gate. The confirm copy adapts to the sub's state via
+    // `switchRelation`.
+    const canChangePackage = isPackageSwitchEligible(subscription);
+    // A clean pin's `nextPackageUp` really is an upgrade; a customized or
+    // unpinned (Custom) sub gets the direction-neutral confirm.
+    const switchRelation: Exclude<TierRelation, "current"> | "switch" =
+        subscription.package && !subscription.package.customized
+            ? "upgrade"
+            : "switch";
 
     return (
         <Card padding="md">
@@ -538,6 +550,7 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
                         currentKey={currentKey}
                         isProUser={currentPlan.id !== "base"}
                         canChangePackage={canChangePackage}
+                        relation={switchRelation}
                         onManage={onManage}
                         onTierUpgraded={onTierUpgraded}
                     />
