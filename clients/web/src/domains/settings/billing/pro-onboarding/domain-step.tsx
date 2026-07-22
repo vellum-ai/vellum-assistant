@@ -1,4 +1,3 @@
-import { Info } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -19,6 +18,7 @@ import {
     CreatureCorners,
     StalledApplyControls,
     WizardCardHeading,
+    WizardNotice,
 } from "./primitives";
 import { useAssistantDomains } from "./use-assistant-domains";
 import { DOMAIN_EXIT_DELAY_MS, extractOnboardingErrorMessage } from "./utils";
@@ -206,18 +206,9 @@ export function DomainStep({
           )
         )}
         {!isLocked && (
-          <div
-            role="status"
-            className="flex w-full items-center gap-1 rounded-lg bg-[var(--surface-active)] px-2 py-[7px]"
-          >
-            <Info
-              className="h-4 w-4 shrink-0 text-[var(--content-secondary)]"
-              aria-hidden="true"
-            />
-            <span className="text-[14px] font-medium text-[var(--content-tertiary)]">
-              You won&apos;t be able to change the handle once set.
-            </span>
-          </div>
+          <WizardNotice>
+            You won&apos;t be able to change the handle once set.
+          </WizardNotice>
         )}
         {confirmed ? (
           <Notice tone="success">Domain set — redirecting…</Notice>

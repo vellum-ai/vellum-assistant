@@ -1,6 +1,6 @@
-import type { CSSProperties } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, Info } from "lucide-react";
 
 import { Button } from "@vellumai/design-library/components/button";
 import { Notice } from "@vellumai/design-library/components/notice";
@@ -172,6 +172,28 @@ export function WizardCardHeading({
         </p>
       )}
     </header>
+  );
+}
+
+/**
+ * Wizard-card info strip: a borderless tinted bar with a leading info icon, as
+ * drawn in the onboarding mocks. The design-library `Notice` reads as a
+ * different component here — it draws a border and its neutral tone has no icon.
+ */
+export function WizardNotice({ children }: { children: ReactNode }) {
+  return (
+    <div
+      role="status"
+      className="flex w-full items-center gap-1 rounded-lg bg-[var(--surface-active)] px-2 py-[7px]"
+    >
+      <Info
+        className="h-4 w-4 shrink-0 text-[var(--content-secondary)]"
+        aria-hidden="true"
+      />
+      <span className="text-left text-[14px] font-medium text-[var(--content-tertiary)]">
+        {children}
+      </span>
+    </div>
   );
 }
 

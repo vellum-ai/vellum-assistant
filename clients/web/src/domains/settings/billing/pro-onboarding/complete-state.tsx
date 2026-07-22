@@ -4,13 +4,13 @@ import { setSelectedAssistant } from "@/assistant/selection";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
-import { Notice } from "@vellumai/design-library/components/notice";
 
 import type { StalledApplyAction } from "./primitives";
 import {
   CreatureCorners,
   StalledApplyControls,
   WizardCardHeading,
+  WizardNotice,
 } from "./primitives";
 import { usePreferredOrActiveAssistant } from "./use-preferred-or-active-assistant";
 
@@ -74,9 +74,7 @@ export function CompleteState({
             />
           ) : (
             finishedInBackground && (
-              <Notice tone="neutral" className="w-full text-left">
-                {OFFLINE_WHILE_RESIZING}
-              </Notice>
+              <WizardNotice>{OFFLINE_WHILE_RESIZING}</WizardNotice>
             )
           )}
         </div>
