@@ -35,8 +35,10 @@ export function CompleteState({
   const assistant = usePreferredOrActiveAssistant(assistantId, isOrgReady);
   const assistantName = assistant?.name || "your assistant";
 
+  // `justify-center` only bites when the notice is absent — with it the content
+  // exceeds the min-height and sits at the mock's top offset.
   return (
-    <div className="relative flex min-h-[320px] flex-col items-center overflow-hidden px-8 pb-16 [animation:onboarding-step-in_350ms_ease-out] motion-reduce:[animation:none]">
+    <div className="relative flex min-h-[320px] flex-col items-center justify-center overflow-hidden px-8 pb-16 [animation:onboarding-step-in_350ms_ease-out] motion-reduce:[animation:none]">
       <CreatureCorners variant="full" />
 
       {/* `relative` lifts the content above the absolute creature layer. */}
@@ -47,20 +49,6 @@ export function CompleteState({
         />
 
         <div className="mt-10 flex w-full flex-col items-center gap-10">
-          {stalledAction ? (
-            <StalledApplyControls
-              action={stalledAction}
-              buttonTestId="complete-stalled-apply"
-              className="w-full"
-            />
-          ) : (
-            finishedInBackground && (
-              <Notice tone="neutral" className="w-full text-left">
-                {OFFLINE_WHILE_RESIZING}
-              </Notice>
-            )
-          )}
-
           <Button
             variant="primary"
             data-testid="onboarding-complete-return"
@@ -77,6 +65,20 @@ export function CompleteState({
           >
             Return to {assistantName}
           </Button>
+
+          {stalledAction ? (
+            <StalledApplyControls
+              action={stalledAction}
+              buttonTestId="complete-stalled-apply"
+              className="w-full"
+            />
+          ) : (
+            finishedInBackground && (
+              <Notice tone="neutral" className="w-full text-left">
+                {OFFLINE_WHILE_RESIZING}
+              </Notice>
+            )
+          )}
         </div>
       </div>
     </div>
