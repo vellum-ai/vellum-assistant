@@ -327,10 +327,10 @@ function TargetChips({
           label="Storage"
           from={
             !done && fromSnapshot.storageGib != null
-              ? `${fromSnapshot.storageGib} GiB`
+              ? `${fromSnapshot.storageGib} GB`
               : undefined
           }
-          to={`${targets.storageGib} GiB`}
+          to={`${targets.storageGib} GB`}
           done={done}
         />
       )}

@@ -457,12 +457,12 @@ export function ResizeCard({
               {canGrowStorage ? (
                 <Notice tone="info">
                   {currentGib != null
-                    ? `Storage will be expanded from ${currentGib} GiB to ${availableGib} GiB.`
-                    : `Storage will be expanded to ${availableGib} GiB.`}
+                    ? `Storage will be expanded from ${currentGib} GB to ${availableGib} GB.`
+                    : `Storage will be expanded to ${availableGib} GB.`}
                 </Notice>
               ) : currentGib != null ? (
                 <Notice tone="neutral">
-                  Storage is already at its provisioned size ({currentGib} GiB)
+                  Storage is already at its provisioned size ({currentGib} GB)
                   and will not change.
                 </Notice>
               ) : (

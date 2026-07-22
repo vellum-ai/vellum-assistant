@@ -24,8 +24,8 @@ describe("buildResourceChanges", () => {
     expect(changes[1]).toEqual({
       key: "storage",
       label: "Storage",
-      from: "10 GiB",
-      to: "50 GiB",
+      from: "10 GB",
+      to: "50 GB",
     });
     expect(changes[2]).toEqual({
       key: "credits",
@@ -95,6 +95,6 @@ describe("buildResourceChanges", () => {
     });
 
     expect(changes[0].from).toBe("Small");
-    expect(changes[1].from).toBe("10 GiB");
+    expect(changes[1].from).toBe("10 GB");
   });
 });

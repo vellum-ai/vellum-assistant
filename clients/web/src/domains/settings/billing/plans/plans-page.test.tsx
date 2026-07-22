@@ -182,11 +182,11 @@ describe("PlansPage — full catalog render", () => {
   test("derives feature rows from the fixture (storage, credits, machine)", () => {
     const html = renderPage(freeSubscription(), fullCatalog());
     // Storage rows.
-    expect(html).toContain("10 GiB Storage");
-    expect(html).toContain("25 GiB Storage");
-    expect(html).toContain("50 GiB Storage");
+    expect(html).toContain("10 GB Storage");
+    expect(html).toContain("25 GB Storage");
+    expect(html).toContain("50 GB Storage");
     // Free plan's baseline storage (FREE_STORAGE_GIB).
-    expect(html).toContain("4 GiB Storage");
+    expect(html).toContain("4 GB Storage");
     // Credits row, formatted from credits_usd.
     expect(html).toContain("$25 in credits per month");
     // Machine "Computer" labels; a null machine_size renders "Small".

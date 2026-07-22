@@ -149,7 +149,7 @@ export function CustomPlanModal({
   const selectionRows = [
     `Pro base plan — ${formatMonthly(proPlan.base_price_cents)}`,
     selectedMachine?.description,
-    selectedStorage ? `${selectedStorage.storage_gib} GiB storage` : null,
+    selectedStorage ? `${selectedStorage.storage_gib} GB storage` : null,
     creditChoice === NO_EXTRA_CREDITS
       ? "No extra credits"
       : selectedCredit

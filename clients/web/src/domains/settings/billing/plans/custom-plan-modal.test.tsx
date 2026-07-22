@@ -133,7 +133,7 @@ function fullCatalog(): PlanListResponse {
         storage_tiers: [
           {
             tier: "xs",
-            label: "10 GiB",
+            label: "10 GB",
             storage_gib: 10,
             price_cents: 500,
             lookup_key: "storage_10",
@@ -141,7 +141,7 @@ function fullCatalog(): PlanListResponse {
           },
           {
             tier: "s",
-            label: "30 GiB",
+            label: "30 GB",
             storage_gib: 30,
             price_cents: 1000,
             lookup_key: "storage_30",
@@ -149,7 +149,7 @@ function fullCatalog(): PlanListResponse {
           },
           {
             tier: "xl",
-            label: "250 GiB",
+            label: "250 GB",
             storage_gib: 250,
             price_cents: 6000,
             lookup_key: "storage_250",
@@ -291,7 +291,7 @@ describe("CustomPlanModal — base subscriber", () => {
     selectOption("Machine size", "Large machine (4 vCPU, 8 GiB)");
     expect(continueButton().disabled).toBe(true);
 
-    selectOption("Storage", "30 GiB");
+    selectOption("Storage", "30 GB");
     expect(continueButton().disabled).toBe(true);
 
     selectOption("Credit bundle", "No extra credits");
@@ -305,8 +305,8 @@ describe("CustomPlanModal — base subscriber", () => {
     openDropdown("Storage");
 
     const labels = optionLabels();
-    expect(labels.some((l) => l.startsWith("30 GiB"))).toBe(true);
-    expect(labels.some((l) => l.startsWith("250 GiB"))).toBe(false);
+    expect(labels.some((l) => l.startsWith("30 GB"))).toBe(true);
+    expect(labels.some((l) => l.startsWith("250 GB"))).toBe(false);
   });
 
   test("recap opens with just the labeled base fee", () => {
@@ -326,7 +326,7 @@ describe("CustomPlanModal — base subscriber", () => {
     fireEvent.click(getByRole("button", { name: "Configure" }));
 
     selectOption("Machine size", "Large machine (4 vCPU, 8 GiB)");
-    selectOption("Storage", "30 GiB");
+    selectOption("Storage", "30 GB");
     selectOption("Credit bundle", "50 credits");
 
     // $20 base + $60 machine + $10 storage + $50 credits.
@@ -342,7 +342,7 @@ describe("CustomPlanModal — base subscriber", () => {
     expect(rows).toEqual([
       "Pro base plan — $20/mo",
       "Large machine (4 vCPU, 8 GiB)",
-      "30 GiB storage",
+      "30 GB storage",
       "$50 of bundled credits",
     ]);
   });
@@ -353,7 +353,7 @@ describe("CustomPlanModal — base subscriber", () => {
     fireEvent.click(getByRole("button", { name: "Configure" }));
 
     selectOption("Machine size", "Large machine (4 vCPU, 8 GiB)");
-    selectOption("Storage", "30 GiB");
+    selectOption("Storage", "30 GB");
     selectOption("Credit bundle", "No extra credits");
     fireEvent.click(continueButton());
 

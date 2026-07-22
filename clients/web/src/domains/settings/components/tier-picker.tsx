@@ -76,7 +76,7 @@ export function TierPicker({
             : `+${formatMonthly(t.price_cents)}`;
         return {
           value: t.tier as StorageTierEnum,
-          label: `${t.storage_gib} GiB ${priceLabel}`,
+          label: `${t.storage_gib} GB ${priceLabel}`,
           disabled: isTierDisabled(t),
         };
       }),

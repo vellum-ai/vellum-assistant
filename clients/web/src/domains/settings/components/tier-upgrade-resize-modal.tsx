@@ -138,8 +138,8 @@ export function TierUpgradeResizeModal({
                 <ResourceCard
                   icon={HardDrive}
                   label="Storage"
-                  from={currentGib != null ? `${currentGib} GiB` : "—"}
-                  to={`${availableGib} GiB`}
+                  from={currentGib != null ? `${currentGib} GB` : "—"}
+                  to={`${availableGib} GB`}
                 />
               )}
             </div>

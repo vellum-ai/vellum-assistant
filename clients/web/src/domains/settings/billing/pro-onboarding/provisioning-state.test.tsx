@@ -209,8 +209,8 @@ describe("waiting / resizing", () => {
     expect(getByText("Small")).toBeTruthy();
     expect(getByText("Large")).toBeTruthy();
     expect(getByText("Storage")).toBeTruthy();
-    expect(getByText("30 GiB")).toBeTruthy();
-    expect(getByText("100 GiB")).toBeTruthy();
+    expect(getByText("30 GB")).toBeTruthy();
+    expect(getByText("100 GB")).toBeTruthy();
     // Two changed dimensions (≤ MAX_CHIPS_IN_ROW) show together, each with a
     // current→new arrow.
     expect(container.querySelector(".lucide-arrow-right")).toBeTruthy();
@@ -294,7 +294,7 @@ describe("waiting / resizing", () => {
     expect(getByText("Machine")).toBeTruthy();
     expect(getByText("Large")).toBeTruthy();
     expect(getByText("Storage")).toBeTruthy();
-    expect(getByText("100 GiB")).toBeTruthy();
+    expect(getByText("100 GB")).toBeTruthy();
     expect(getByText("Credits")).toBeTruthy();
     expect(getByText("$50 credits/mo")).toBeTruthy();
   });
@@ -329,7 +329,7 @@ describe("done / not_applicable", () => {
 
     expect(getByText("All done!")).toBeTruthy();
     expect(getByText("Large")).toBeTruthy();
-    expect(getByText("100 GiB")).toBeTruthy();
+    expect(getByText("100 GB")).toBeTruthy();
     // The "from" side is dropped once done — only the achieved target shows.
     await waitFor(() => expect(onCelebrationEnd).toHaveBeenCalledTimes(1));
   });
