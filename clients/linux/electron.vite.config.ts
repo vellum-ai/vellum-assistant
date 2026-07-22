@@ -7,22 +7,15 @@ import { defineConfig, externalizeDepsPlugin } from "electron-vite";
 // Reference: https://electron-vite.org/config/
 //
 // No renderer config: the renderer is the clients/web/ Vite project, served in
-// dev via http://localhost:5173 and in prod via a custom `app://` protocol.
+// dev via http://localhost:5173 and in prod via a custom `app://` protocol —
+// exactly as the macOS shell does (see clients/macos/electron.vite.config.ts).
 //
-// Dependencies that must be bundled inline rather than externalized as
-// runtime `require(...)` calls.
-//
-// `electron-store` (and its `conf` parent) are ESM-only. electron-vite's
-// default externalize plugin would emit `require("electron-store")` in the
-// CJS main bundle, which returns the module namespace rather than the
-// default export and breaks `new Store(...)`. Bundling their ESM source
-// inline lets Rollup handle the CJS interop correctly at bundle time.
-//
-// `@vellumai/local-mode` (and its `@vellumai/environments` dep) are local
-// `file:` packages whose `exports` point at TypeScript source with no build
-// step. Externalizing them would emit `require("@vellumai/local-mode")`
-// resolving to a `.ts` file the Electron main process can't load at runtime;
-// inlining lets Rollup compile the source into the bundle.
+// `@vellumai/local-mode` (and its `@vellumai/environments` dep) plus
+// `@vellumai/ipc-contract` are local `file:` workspace packages whose
+// `exports` point at TypeScript source with no build step. Externalizing them
+// would emit `require("@vellumai/local-mode")` resolving to a `.ts` file the
+// Electron main process can't load at runtime; inlining lets Rollup compile
+// the source into the bundle.
 const DEPS_TO_INLINE = [
   "electron-log",
   "electron-store",
@@ -35,9 +28,9 @@ const DEPS_TO_INLINE = [
 ];
 
 // Resolved at config-evaluation time and inlined into the main bundle via
-// Vite's `define`. Prefer the CI-provided GITHUB_SHA (7-char prefix);
-// fall back to `git rev-parse --short HEAD` on a developer checkout; emit
-// "unknown" when neither is available (e.g. building from a tarball).
+// Vite's `define`. Prefer the CI-provided GITHUB_SHA (7-char prefix); fall
+// back to `git rev-parse --short HEAD` on a developer checkout; emit "unknown"
+// when neither is available.
 const resolveBuildSha = (): string => {
   if (process.env.GITHUB_SHA) return process.env.GITHUB_SHA.slice(0, 7);
   try {
@@ -47,10 +40,7 @@ const resolveBuildSha = (): string => {
   }
 };
 
-// Bun version bundled with the app, read from the repo-root `.tool-versions`
-// (the same source fetch-bun.sh downloads from). Baked into the main bundle so
-// the CLI installer can stamp `packageManager: bun@<version>` on the install it
-// writes, marking that install bun-only.
+// Bun version bundled with the app, read from the repo-root `.tool-versions`.
 const resolveBunVersion = (): string => {
   try {
     const toolVersions = readFileSync(
@@ -64,8 +54,7 @@ const resolveBunVersion = (): string => {
 };
 
 // Local builds drive the repo CLI source directly instead of installing the
-// published package; release builds bake an empty path and keep the pinned
-// npm install (see getLocalCliEntry in src/main/cli-installer.ts).
+// published package; release builds bake an empty path.
 const LOCAL_CLI_ENTRY =
   (process.env.VELLUM_ENVIRONMENT || "local") === "local"
     ? path.resolve(__dirname, "../../cli/src/index.ts")
@@ -82,7 +71,7 @@ const BUILD_DEFINES = {
     process.env.VELLUM_ENABLE_CHROME_DEVTOOLS === "true" ||
       process.env.VELLUM_ENABLE_CHROME_DEVTOOLS === "1",
   ),
-  __SENTRY_DSN_MACOS__: JSON.stringify(process.env.SENTRY_DSN_MACOS || ""),
+  __SENTRY_DSN_LINUX__: JSON.stringify(process.env.SENTRY_DSN_LINUX || ""),
   // Root hostname (leading dot) shared with the web bundle's
   // VITE_ROOT_HOSTNAME; baked into the CSP source lists (see src/main/csp.ts).
   __VELLUM_ROOT_HOSTNAME__: JSON.stringify(
@@ -121,6 +110,12 @@ export default defineConfig({
       },
       rollupOptions: {
         external: ["electron"],
+        output: {
+          // CommonJS preload (`index.js`) so the main process can reference it
+          // at `../preload/index.js` regardless of the package `type`.
+          format: "cjs",
+          entryFileNames: "index.js",
+        },
       },
     },
   },

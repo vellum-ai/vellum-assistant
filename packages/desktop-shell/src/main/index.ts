@@ -109,6 +109,15 @@ if (!app.isPackaged) {
 }
 const isDev = !app.isPackaged;
 
+// Platform seam. The main process is shared across desktop targets (macOS,
+// Linux, future Windows); integrations that only exist on macOS — the Dock,
+// the menu-bar tray, AppleScript text insertion, the native dictation/hotkey
+// helpers, TCC permission prompts, login-item registration, and the DMG
+// relocation flow — are gated behind `isMac`. Everything else (the `app://`
+// renderer, auth/OAuth, local-mode, connectivity, notifications, windows, …)
+// is cross-platform and runs on every target.
+const isMac = process.platform === "darwin";
+
 // Dev-only: skip the real macOS Keychain for Chromium's `os_crypt` /
 // Electron `safeStorage`. Without this, the first `safeStorage` call —
 // e.g. persisting the session token after sign-in via
@@ -370,7 +379,7 @@ app
     // there and relaunches — the "double-click to install" half of the DMG flow.
     // Skip it when a file or deep link triggered the launch: those events are
     // buffered in-process and would be lost during the relaunch.
-    if (!hasPendingFiles() && !hasPendingDeepLinks()) {
+    if (isMac && !hasPendingFiles() && !hasPendingDeepLinks()) {
       if (await relocateToApplicationsFolder()) return;
     }
 
@@ -390,7 +399,7 @@ app
     installLocalMode();
     // Refresh the PATH-wrapper locator every launch so app moves and
     // version bumps self-heal even if no CLI invocation happens this session.
-    if (app.isPackaged) {
+    if (isMac && app.isPackaged) {
       writeCliLocator();
       // Wrapper users also get the pinned CLI provisioned eagerly so a
       // version bump rewrites the locator now (and prunes old versions)
@@ -401,10 +410,12 @@ app
           log.error("[app] startup CLI provisioning failed:", err);
         });
     }
-    installLoginItem();
-    installLoginItemIpc();
-    installHotkeyHelper();
-    installPermissionsService();
+    if (isMac) {
+      installLoginItem();
+      installLoginItemIpc();
+      installHotkeyHelper();
+      installPermissionsService();
+    }
     // Register the identity (assistant name) channel before About, the Tray,
     // and the main window install so their initial render reflects any name
     // the renderer publishes during bootstrap.
@@ -412,25 +423,35 @@ app
     installAbout();
     installAutoUpdate();
     installFeedbackIpc();
-    installTextInsertionIpc();
+    if (isMac) {
+      installTextInsertionIpc();
+    }
     installCommandPaletteWindow();
     installApplicationMenu();
     installQuickInput();
-    installDictationOverlay({ onRecordingLifecycle: setDictationRecording });
+    if (isMac) {
+      installDictationOverlay({ onRecordingLifecycle: setDictationRecording });
+    }
     installPopoutWindows();
-    installGlobalShortcuts();
+    if (isMac) {
+      installGlobalShortcuts();
+    }
     // Register the avatar channel before the Dock and Tray install so their
     // initial render reflects any avatar the renderer publishes during
     // bootstrap rather than briefly showing the bundled fallback mark.
     installAvatarIpc();
-    installDock();
+    if (isMac) {
+      installDock();
+    }
     installPowerEvents();
     installNotifications();
     // Register the status channel before the tray installs so the tray's
     // initial render reflects any status the renderer publishes during
     // bootstrap rather than briefly showing the default idle dot.
     installStatusIpc();
-    installEscapeMonitor();
+    if (isMac) {
+      installEscapeMonitor();
+    }
     const lockfilePaths = resolveLockfilePaths(process.env);
     const runProbe = installConnectivityProbe(lockfilePaths);
     installConnectivityIpc(runProbe);
@@ -440,11 +461,13 @@ app
     app.on("before-quit", teardownLockfileWatcher);
     const teardownHostProxy = installHostProxyBridge(resolveCliInvocation);
     app.on("before-quit", teardownHostProxy);
-    installTray({
-      toggleMainWindow: toggleMainWindowVisibility,
-      ensureMainWindow: ensureMainWindowVisible,
-      openAbout: openAboutWindow,
-    });
+    if (isMac) {
+      installTray({
+        toggleMainWindow: toggleMainWindowVisibility,
+        ensureMainWindow: ensureMainWindowVisible,
+        openAbout: openAboutWindow,
+      });
+    }
     installNativeAuth();
     installMainWindow();
 

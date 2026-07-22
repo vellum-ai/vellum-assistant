@@ -210,6 +210,18 @@ const reset = (): void => {
   constructed = [];
 };
 
+// Traffic-light positioning is a macOS-only BrowserWindow API, so the window
+// chrome these tests assert is inherently macOS behaviour. Pin the platform to
+// `darwin` by default and let individual tests flip it to verify the non-macOS
+// guard (a no-op on Linux/Windows). Restored to the real host in `afterEach`.
+const REAL_PLATFORM = process.platform;
+const setPlatform = (platform: NodeJS.Platform): void => {
+  Object.defineProperty(process, "platform", {
+    value: platform,
+    configurable: true,
+  });
+};
+
 beforeEach(() => {
   reset();
   __resetForTesting();
@@ -218,10 +230,12 @@ beforeEach(() => {
   onboardingActive = false;
   writeOnboardingActiveMock.mockClear();
   restoredBounds = { width: 1280, height: 800 };
+  setPlatform("darwin");
 });
 
 afterEach(() => {
   reset();
+  setPlatform(REAL_PLATFORM);
 });
 
 describe("ensureVisible", () => {
@@ -630,6 +644,30 @@ describe("onboarding window sizing", () => {
     win.stub.setWindowButtonPosition.mockClear();
 
     setOnboarding(false);
+
+    expect(win.stub.setWindowButtonPosition).not.toHaveBeenCalled();
+  });
+
+  test("never touches window buttons off macOS on window creation", () => {
+    setPlatform("linux");
+    onboardingActive = false;
+    ensureVisible();
+    const win = constructed[0];
+    if (!win) throw new Error("expected a window");
+
+    // Linux/Windows have no traffic-light cluster to position.
+    expect(win.stub.setWindowButtonPosition).not.toHaveBeenCalled();
+  });
+
+  test("setOnboarding never touches window buttons off macOS", () => {
+    setPlatform("linux");
+    onboardingActive = false;
+    ensureVisible();
+    const win = constructed[0];
+    if (!win) throw new Error("expected a window");
+    win.stub.setWindowButtonPosition.mockClear();
+
+    setOnboarding(true);
 
     expect(win.stub.setWindowButtonPosition).not.toHaveBeenCalled();
   });
