@@ -18,6 +18,7 @@ import {
 import { useState, type ReactNode } from "react";
 
 import { useIsMobile } from "@/hooks/use-is-mobile";
+import { openUrlInNewTab } from "@/runtime/browser";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import {
   BottomSheet,
@@ -121,6 +122,14 @@ export interface ConversationMenuItemsProps {
   onCopyConversation?: () => void;
   /** Re-fetch the chat context and reload the current conversation. */
   onRefresh?: () => void;
+  /**
+   * Deep link back to the conversation's source thread/message in the
+   * originating external channel (e.g. the Slack thread). When provided,
+   * an "Open in <channel>" item appears alongside the other open actions —
+   * the same destination as the top-bar source pill, kept in the menu so
+   * the link stays discoverable from the conversation heading.
+   */
+  channelSourceLink?: { href: string; label: string } | null;
   /** Controls item order and labels. "header" uses macOS-parity order; "sidebar" preserves the original order. */
   variant?: "header" | "sidebar";
 }
@@ -149,6 +158,7 @@ export function renderConversationMenuItems({
   onInspect,
   onCopyConversation,
   onRefresh,
+  channelSourceLink,
   variant = "sidebar",
 }: ConversationMenuItemsProps & {
   Primitive: ConversationMenuPrimitive;
@@ -209,6 +219,15 @@ export function renderConversationMenuItems({
     </Primitive.Item>
   ) : null;
 
+  const channelSourceLinkItem = channelSourceLink ? (
+    <Primitive.Item
+      leftIcon={<ExternalLink size={14} />}
+      onSelect={() => void openUrlInNewTab(channelSourceLink.href)}
+    >
+      {channelSourceLink.label}
+    </Primitive.Item>
+  ) : null;
+
   const inspectItem = onInspect ? (
     <Primitive.Item leftIcon={<Microscope size={14} />} onSelect={onInspect}>
       Inspect
@@ -236,6 +255,7 @@ export function renderConversationMenuItems({
           </Primitive.Item>
         ) : null}
 
+        {channelSourceLinkItem}
         {openInNewWindowItem}
 
         {onRefresh ? (
@@ -262,6 +282,7 @@ export function renderConversationMenuItems({
       {archiveItem}
 
       {markReadUnreadItem}
+      {channelSourceLinkItem}
       {openInNewWindowItem}
 
       {onShareFeedback ? (
@@ -367,6 +388,7 @@ export function renderConversationMenuItemsAsPanelItems({
   onInspect,
   onCopyConversation,
   onRefresh,
+  channelSourceLink,
   variant = "sidebar",
   onClose,
   isNativePlatform = false,
@@ -445,6 +467,16 @@ export function renderConversationMenuItemsAsPanelItems({
         })
       : null;
 
+  const channelSourceLinkItem = channelSourceLink
+    ? buildPanelItem({
+        key: "channel-source-link",
+        icon: ExternalLink,
+        label: channelSourceLink.label,
+        run: () => void openUrlInNewTab(channelSourceLink.href),
+        onClose,
+      })
+    : null;
+
   const inspectItem = onInspect
     ? buildPanelItem({
         key: "inspect",
@@ -478,6 +510,7 @@ export function renderConversationMenuItemsAsPanelItems({
             })
           : null}
 
+        {channelSourceLinkItem}
         {openInNewWindowItem}
 
         {onRefresh
@@ -504,6 +537,7 @@ export function renderConversationMenuItemsAsPanelItems({
       {renameItem}
       {archiveItem}
       {markReadUnreadItem}
+      {channelSourceLinkItem}
       {openInNewWindowItem}
 
       {onShareFeedback ? (

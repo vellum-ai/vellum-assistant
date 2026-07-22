@@ -59,6 +59,17 @@ export function getChannelLabel(channelId: string | null | undefined): string {
 }
 
 /**
+ * Label for the "open this conversation in its source channel" affordance
+ * (top-bar source pill, conversation-header menu item). One derivation so
+ * the two surfaces can't drift.
+ */
+export function getOpenInChannelLabel(
+  channelId: string | null | undefined,
+): string {
+  return `Open in ${getChannelLabel(channelId)}`;
+}
+
+/**
  * Lucide icon component for a channel id, for use as a small inline glyph
  * (header tag, footer secondary label). Slack is intentionally absent — it
  * has a brand SVG that callers render directly — so this returns a neutral
