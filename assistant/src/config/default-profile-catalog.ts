@@ -1,7 +1,8 @@
+import { ROUTING_IDENTITY_PROVIDERS } from "../providers/inference/auth.js";
 import { isModelInCatalog } from "../providers/model-catalog.js";
 import { resolveModelIntent } from "../providers/model-intents.js";
 import type { ModelIntent } from "../providers/types.js";
-import { VELLUM_MANAGED_CONNECTION_NAME } from "../providers/vellum-model-routing.js";
+import { getManagedUpstream } from "../providers/vellum-model-routing.js";
 import {
   DEFAULT_PROFILE_KEYS,
   DEFAULT_PROFILE_PROVIDERS,
@@ -49,20 +50,21 @@ export type DefaultProfileTemplate = Omit<
   intent?: ModelIntent;
   model?: string;
   provider: NonNullable<ProfileEntry["provider"]>;
-  connectionName: string;
 };
 
 /**
- * The `vellum` column: platform-managed implementations. Overwritten in
- * workspace config on every daemon boot so Vellum can push model/config
- * updates to customers in new releases.
+ * The `vellum` column: platform-managed implementations, stamped
+ * `provider: "vellum"` — dispatch derives the upstream from the model.
+ * Models are pinned (never intents): the intent tables are keyed by
+ * concrete dispatch providers, and the model is what selects the upstream.
+ * Overwritten in workspace config on every daemon boot so Vellum can push
+ * model/config updates to customers in new releases.
  */
 const VELLUM_PROFILE_IMPLS: Record<DefaultProfileKey, DefaultProfileTemplate> =
   {
     balanced: {
       model: "accounts/fireworks/models/glm-5p2",
-      provider: "fireworks",
-      connectionName: VELLUM_MANAGED_CONNECTION_NAME,
+      provider: "vellum",
       source: "managed",
       label: "Balanced",
       description: "Good balance of quality, cost, and speed",
@@ -74,9 +76,8 @@ const VELLUM_PROFILE_IMPLS: Record<DefaultProfileKey, DefaultProfileTemplate> =
       },
     },
     "quality-optimized": {
-      intent: "quality-optimized",
-      provider: "anthropic",
-      connectionName: VELLUM_MANAGED_CONNECTION_NAME,
+      model: "claude-fable-5",
+      provider: "vellum",
       source: "managed",
       label: "Quality",
       description: "High-quality results with the most capable model",
@@ -89,8 +90,7 @@ const VELLUM_PROFILE_IMPLS: Record<DefaultProfileKey, DefaultProfileTemplate> =
     },
     "cost-optimized": {
       model: "accounts/fireworks/models/deepseek-v4-flash",
-      provider: "fireworks",
-      connectionName: VELLUM_MANAGED_CONNECTION_NAME,
+      provider: "vellum",
       source: "managed",
       label: "Speed",
       description: "Fastest responses at lower cost (DeepSeek V4 Flash)",
@@ -111,12 +111,12 @@ const VELLUM_PROFILE_IMPLS: Record<DefaultProfileKey, DefaultProfileTemplate> =
  * The BYOK implementation of each default profile intent, shared by every
  * non-vellum provider column. The concrete model resolves per provider from
  * the `intent` via `resolveModelIntent` at materialization time. `provider`
- * and `connectionName` are stamped per column (and overridden at hatch time
- * with the user's chosen provider and personal connection).
+ * is stamped per column (and overridden at hatch time with the user's
+ * chosen provider).
  */
 const BYOK_PROFILE_IMPLS: Record<
   DefaultProfileKey,
-  Omit<DefaultProfileTemplate, "provider" | "connectionName">
+  Omit<DefaultProfileTemplate, "provider">
 > = {
   balanced: {
     intent: "balanced",
@@ -165,7 +165,7 @@ export const PROFILE_IMPLS: Record<
         provider,
         provider === "vellum"
           ? VELLUM_PROFILE_IMPLS[key]
-          : { ...BYOK_PROFILE_IMPLS[key], provider, connectionName: "" },
+          : { ...BYOK_PROFILE_IMPLS[key], provider },
       ]),
     ) as Record<DefaultProfileProvider, DefaultProfileTemplate>,
   ]),
@@ -186,9 +186,9 @@ export const MANAGED_PROFILE_TEMPLATES: Record<string, DefaultProfileTemplate> =
 
 /**
  * User profile templates, materialized as `custom-*` at hatch time for
- * off-platform installations. The `provider` and `connectionName` fields are
- * placeholders — they are overridden at hatch time with the user's chosen
- * provider and personal connection name.
+ * off-platform installations. The `provider` field is a placeholder — it is
+ * overridden at hatch time with the user's chosen provider and personal
+ * connection name.
  */
 export const USER_PROFILE_TEMPLATES: Record<string, DefaultProfileTemplate> =
   Object.fromEntries(
@@ -205,9 +205,8 @@ export const USER_PROFILE_TEMPLATES: Record<string, DefaultProfileTemplate> =
  * Balanced defaults, with lower reasoning effort while the profile is in beta.
  */
 export const OS_BETA_PROFILE_TEMPLATE: DefaultProfileTemplate = {
-  intent: "balanced",
-  provider: "together",
-  connectionName: VELLUM_MANAGED_CONNECTION_NAME,
+  model: "MiniMaxAI/MiniMax-M3",
+  provider: "vellum",
   source: "managed",
   label: "OS Beta",
   description: "Good balance of quality, cost, and speed, in beta",
@@ -243,22 +242,26 @@ export const MANAGED_PROFILE_NAMES = new Set<string>([
 /**
  * Materialize a template into a concrete `ProfileEntry`: resolve `intent` to
  * a model id for the given provider and stamp the provider connection.
+ * Routing-identity providers ("vellum") never receive a connection stamp —
+ * dispatch resolves their row per-request from the provider value.
  */
 export function materializeProfile(
   template: DefaultProfileTemplate,
   provider: NonNullable<ProfileEntry["provider"]>,
-  connectionName: string,
+  connectionName?: string,
 ): ProfileEntry {
-  const { intent, model, provider: _p, connectionName: _c, ...rest } = template;
+  const { intent, model, provider: _p, ...rest } = template;
   const resolvedModel =
     model ?? (intent ? resolveModelIntent(provider, intent) : undefined);
   if (!resolvedModel) {
     throw new Error("DefaultProfileTemplate requires `intent` or `model`");
   }
+  const stampConnection =
+    connectionName && !ROUTING_IDENTITY_PROVIDERS.has(provider);
   return {
     ...rest,
     provider,
-    provider_connection: connectionName,
+    ...(stampConnection ? { provider_connection: connectionName } : {}),
     model: resolvedModel,
   };
 }
@@ -276,12 +279,24 @@ for (const key of DEFAULT_PROFILE_KEYS) {
         `PROFILE_IMPLS[${key}][${provider}] must set exactly one of \`intent\` or \`model\`.`,
       );
     }
-    if (impl.model != null && !isModelInCatalog(impl.provider, impl.model)) {
+    if (impl.provider === "vellum" && impl.model == null) {
       throw new Error(
-        `PROFILE_IMPLS[${key}][${provider}] references model "${impl.model}" ` +
-          `which is not in PROVIDER_CATALOG for provider "${impl.provider}". ` +
-          `Update model-catalog.ts or default-profile-catalog.ts.`,
+        `PROFILE_IMPLS[${key}][${provider}] must pin a \`model\`: the vellum ` +
+          `column has no intent table, and the model selects the upstream.`,
       );
+    }
+    if (impl.model != null) {
+      const routable =
+        impl.provider === "vellum"
+          ? getManagedUpstream(impl.model) !== null
+          : isModelInCatalog(impl.provider, impl.model);
+      if (!routable) {
+        throw new Error(
+          `PROFILE_IMPLS[${key}][${provider}] references model "${impl.model}" ` +
+            `which is not ${impl.provider === "vellum" ? "served by any managed upstream" : `in PROVIDER_CATALOG for provider "${impl.provider}"`}. ` +
+            `Update model-catalog.ts or default-profile-catalog.ts.`,
+        );
+      }
     }
   }
 }
@@ -290,12 +305,11 @@ function buildDefaultProfileEntries(): Record<string, ProfileEntry> {
   const entries: Record<string, ProfileEntry> = {};
   for (const key of DEFAULT_PROFILE_KEYS) {
     const impl = PROFILE_IMPLS[key].vellum;
-    entries[key] = materializeProfile(impl, impl.provider, impl.connectionName);
+    entries[key] = materializeProfile(impl, impl.provider);
   }
   entries[OS_BETA_PROFILE_KEY] = materializeProfile(
     OS_BETA_PROFILE_TEMPLATE,
     OS_BETA_PROFILE_TEMPLATE.provider,
-    OS_BETA_PROFILE_TEMPLATE.connectionName,
   );
   return entries;
 }
@@ -386,9 +400,8 @@ function resolveAgainstBody(
  *
  * Non-obvious rules:
  *
- * - For the `vellum` column the stamped provider stays the column's
- *   underlying provider (e.g. `fireworks` for `balanced`) — `vellum` is a
- *   routing identity, not a dispatch provider.
+ * - The `vellum` column stamps `provider: "vellum"` with no connection —
+ *   dispatch derives the upstream from the model per-request.
  * - The resolved body carries `source: "managed"` regardless of column:
  *   default profile content is code-owned whichever provider implements it.
  *   The BYOK templates' `source: "user"` is hatch-time state for

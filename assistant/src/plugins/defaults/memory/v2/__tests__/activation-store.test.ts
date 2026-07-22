@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite";
-import { beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
@@ -7,16 +7,24 @@ import {
   type DrizzleDb,
   getSqliteFrom,
 } from "../../../../../persistence/db-connection.js";
+import {
+  clearStoredDb,
+  setStoredDb,
+} from "../../../../../persistence/db-singleton.js";
 import { migrateActivationState } from "../../../../../persistence/migrations/232-activation-state.js";
 import * as schema from "../../../../../persistence/schema/index.js";
+import type { ActivationState } from "../../v3/substrate/types.js";
 import {
   clearEverInjected,
   forkActivationState,
   hydrate,
   save,
+  seedForkActivationState,
 } from "../activation-store.js";
-import type { ActivationState } from "../types.js";
 
+// The store resolves `activation_state` through the dedicated memory
+// connection (the `memory` singleton slot). Each test installs a fresh
+// in-memory DB carrying the relocated table's schema into that slot.
 function createTestDb(): DrizzleDb {
   const sqlite = new Database(":memory:");
   sqlite.exec("PRAGMA journal_mode=WAL");
@@ -52,19 +60,23 @@ function buildState(overrides: Partial<ActivationState> = {}): ActivationState {
 let db: DrizzleDb;
 beforeEach(() => {
   db = createTestDb();
+  setStoredDb("memory", db, () => {});
+});
+afterEach(() => {
+  clearStoredDb("memory");
 });
 
 describe("activation-store", () => {
   describe("hydrate", () => {
     test("returns null when no row exists", async () => {
-      expect(await hydrate(db, "conv-missing")).toBeNull();
+      expect(await hydrate("conv-missing")).toBeNull();
     });
 
     test("round-trips state through save + hydrate", async () => {
       const state = buildState();
-      await save(db, "conv-1", state);
+      await save("conv-1", state);
 
-      const loaded = await hydrate(db, "conv-1");
+      const loaded = await hydrate("conv-1");
       expect(loaded).toEqual(state);
     });
 
@@ -78,15 +90,14 @@ describe("activation-store", () => {
         )
         .run("conv-bad", "msg-x", '{"slug-a": "not-a-number"}', "[]", 0, 1);
 
-      await expect(hydrate(db, "conv-bad")).rejects.toThrow();
+      await expect(hydrate("conv-bad")).rejects.toThrow();
     });
   });
 
   describe("save", () => {
     test("upserts on conflict (second save replaces first)", async () => {
-      await save(db, "conv-1", buildState({ currentTurn: 1 }));
+      await save("conv-1", buildState({ currentTurn: 1 }));
       await save(
-        db,
         "conv-1",
         buildState({
           messageId: "msg-2",
@@ -97,7 +108,7 @@ describe("activation-store", () => {
         }),
       );
 
-      const loaded = await hydrate(db, "conv-1");
+      const loaded = await hydrate("conv-1");
       expect(loaded).toEqual({
         messageId: "msg-2",
         state: { "carla-likes-vim": 0.9 },
@@ -109,9 +120,9 @@ describe("activation-store", () => {
 
     test("persists empty state map and ever-injected list", async () => {
       const state = buildState({ state: {}, everInjected: [] });
-      await save(db, "conv-empty", state);
+      await save("conv-empty", state);
 
-      const loaded = await hydrate(db, "conv-empty");
+      const loaded = await hydrate("conv-empty");
       expect(loaded).toEqual(state);
     });
   });
@@ -119,33 +130,69 @@ describe("activation-store", () => {
   describe("forkActivationState", () => {
     test("copies parent state to a new conversation id", async () => {
       const parentState = buildState();
-      await save(db, "conv-parent", parentState);
+      await save("conv-parent", parentState);
 
-      forkActivationState(db, "conv-parent", "conv-child");
+      forkActivationState("conv-parent", "conv-child");
 
-      const child = await hydrate(db, "conv-child");
+      const child = await hydrate("conv-child");
       expect(child).toEqual(parentState);
 
       // Parent is untouched.
-      const parentAfter = await hydrate(db, "conv-parent");
+      const parentAfter = await hydrate("conv-parent");
       expect(parentAfter).toEqual(parentState);
     });
 
     test("is a no-op when the parent has no state", async () => {
-      forkActivationState(db, "conv-parent-missing", "conv-child");
+      forkActivationState("conv-parent-missing", "conv-child");
 
-      expect(await hydrate(db, "conv-child")).toBeNull();
+      expect(await hydrate("conv-child")).toBeNull();
     });
 
     test("forking onto an existing child overwrites it", async () => {
       const parentState = buildState({ currentTurn: 7 });
-      await save(db, "conv-parent", parentState);
-      await save(db, "conv-child", buildState({ currentTurn: 99 }));
+      await save("conv-parent", parentState);
+      await save("conv-child", buildState({ currentTurn: 99 }));
 
-      forkActivationState(db, "conv-parent", "conv-child");
+      forkActivationState("conv-parent", "conv-child");
 
-      const child = await hydrate(db, "conv-child");
+      const child = await hydrate("conv-child");
       expect(child?.currentTurn).toBe(7);
+    });
+  });
+
+  describe("seedForkActivationState", () => {
+    test("seeds ever-injected from inherited slugs with fresh counters", async () => {
+      seedForkActivationState("conv-child", ["alice-prefers-vscode", "bob"]);
+
+      const child = await hydrate("conv-child");
+      expect(child?.state).toEqual({});
+      expect(child?.currentTurn).toBe(0);
+      expect(child?.everInjected).toEqual([
+        { slug: "alice-prefers-vscode", turn: 0 },
+        { slug: "bob", turn: 0 },
+      ]);
+    });
+
+    test("is a no-op when no slugs were inherited", async () => {
+      seedForkActivationState("conv-child", []);
+
+      expect(await hydrate("conv-child")).toBeNull();
+    });
+
+    test("re-seeding the same fork id does not throw (retry safety)", async () => {
+      seedForkActivationState("conv-child", ["alice-prefers-vscode"]);
+
+      // The memory-DB write is outside the main-DB fork transaction, so a
+      // rolled-back-and-retried fork re-runs this seed with the same id. The
+      // second insert must ignore the conflict rather than fail.
+      expect(() =>
+        seedForkActivationState("conv-child", ["alice-prefers-vscode"]),
+      ).not.toThrow();
+
+      const child = await hydrate("conv-child");
+      expect(child?.everInjected).toEqual([
+        { slug: "alice-prefers-vscode", turn: 0 },
+      ]);
     });
   });
 
@@ -203,5 +250,26 @@ describe("activation-store", () => {
       expect(result.currentTurn).toBe(state.currentTurn);
       expect(result.updatedAt).toBe(state.updatedAt);
     });
+  });
+});
+
+describe("activation-store — degraded memory database", () => {
+  // Install a connection with no underlying sqlite client so the store's
+  // memory-DB accessor resolves to null: reads report no state and writes
+  // no-op rather than throwing into the turn.
+  beforeEach(() => {
+    setStoredDb("memory", { $client: null } as unknown as DrizzleDb, () => {});
+  });
+  afterEach(() => {
+    clearStoredDb("memory");
+  });
+
+  test("hydrate reports no state and save/fork no-op without throwing", async () => {
+    expect(await hydrate("conv-1")).toBeNull();
+    expect(() =>
+      forkActivationState("conv-parent", "conv-child"),
+    ).not.toThrow();
+    await expect(save("conv-1", buildState())).resolves.toBeUndefined();
+    expect(await hydrate("conv-1")).toBeNull();
   });
 });

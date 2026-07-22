@@ -31,13 +31,13 @@ import {
   hasActiveJobOfType,
 } from "../persistence/jobs-store.js";
 import {
-  ensureConceptPageCollection,
-  recreateConceptPageCollection,
-} from "../plugins/defaults/memory/v2/qdrant.js";
-import {
   ensureSectionCollection,
   recreateSectionCollection,
 } from "../plugins/defaults/memory/v3/section-dense-store.js";
+import {
+  ensureConceptPageCollection,
+  recreateConceptPageCollection,
+} from "../plugins/defaults/memory/v3/substrate/qdrant.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("embedding-reconcile");

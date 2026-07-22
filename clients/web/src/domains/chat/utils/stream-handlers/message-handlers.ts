@@ -17,6 +17,8 @@ import type {
 } from "@vellumai/assistant-api";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
+import { useInteractionStore } from "@/domains/chat/interaction-store";
+import { hasAnyInteractiveSurface } from "@/domains/chat/utils/chat";
 
 /**
  * Resolve the conversation id for SSE handlers — events that carry it on
@@ -147,6 +149,42 @@ export function handleAssistantThinkingDelta(
   }
 }
 
+/**
+ * Recover a phase stranded at `awaiting_user_input` from a live server
+ * activity signal.
+ *
+ * When the activity event belongs to the active conversation and no prompt
+ * (secret / confirmation / question / contact) or interactive transcript
+ * surface is actually pending, the phase that a resolved prompt left stuck at
+ * `awaiting_user_input` rejoins the live turn — restoring the Stop control and
+ * busy indicators (LUM-2786). A still-pending interaction is left untouched:
+ * the prompt is the UI, and the turn is genuinely waiting on the user.
+ */
+function maybeRecoverStrandedPhase(
+  convId: string | undefined,
+  ctx: StreamHandlerContext,
+): void {
+  const activeConversationId =
+    useConversationStore.getState().activeConversationId;
+  if (convId == null || convId !== activeConversationId) {
+    return;
+  }
+  const interaction = useInteractionStore.getState();
+  if (
+    interaction.pendingSecret != null ||
+    interaction.pendingConfirmation != null ||
+    interaction.pendingQuestion != null ||
+    interaction.pendingContactRequest != null
+  ) {
+    return;
+  }
+  const snapshot = useChatSessionStore.getState().snapshot;
+  if (hasAnyInteractiveSurface(snapshot?.messages ?? [])) {
+    return;
+  }
+  ctx.turnActions.recoverFromAwaitingUserInput();
+}
+
 export function handleAssistantActivityState(
   event: AssistantActivityStateEvent,
   ctx: StreamHandlerContext,
@@ -168,6 +206,10 @@ export function handleAssistantActivityState(
   }
 
   if (event.phase === "thinking") {
+    // A prompt may have resolved without a turn-state transition, stranding
+    // the phase at `awaiting_user_input`; recover it before routing the
+    // thinking signal (which otherwise no-ops on that phase).
+    maybeRecoverStrandedPhase(convId, ctx);
     // Daemon-initiated work (e.g. summarize-up-to-here) reports thinking
     // without a client-initiated turn. Allow the signal to start activity
     // from an idle turn store only when the event belongs to the active
@@ -187,6 +229,13 @@ export function handleAssistantActivityState(
   }
 
   if (event.phase !== "idle") {
+    // Live streaming/tool activity for the active conversation proves the
+    // turn is running, so recover a phase stranded at `awaiting_user_input`.
+    // `awaiting_confirmation` is excluded — the turn is genuinely paused on a
+    // confirmation prompt.
+    if (event.phase === "streaming" || event.phase === "tool_running") {
+      maybeRecoverStrandedPhase(convId, ctx);
+    }
     recordDiagnostic("sse_activity_state_non_idle", {
       convId,
       phase: event.phase,

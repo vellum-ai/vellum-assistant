@@ -1068,6 +1068,43 @@ async function flushAccumulatedContent(
   }
 }
 
+/**
+ * Settle the debounced partial flush at the turn-tail seam, BEFORE the
+ * stranded-content fold. A cancelled/aborted turn exits with the debounce
+ * timer still pending; left alone it fires up to a second later — after the
+ * fold has finalized the row (and cleared the in-flight writer, so the late
+ * flush lands as a direct row write), and after the voice bridge's
+ * transcript-hygiene pass has already read and settled the row. The
+ * accumulated tail is flushed NOW, in order, so nothing is lost (barge-in
+ * partials keep their final second of text) and nothing writes after the
+ * row is settled. No-op for completed turns — `handleMessageComplete`
+ * already cleared the timer and awaited the in-flight flush.
+ */
+export async function settlePendingPartialFlush(
+  state: EventHandlerState,
+  deps: EventHandlerDeps,
+): Promise<void> {
+  if (state.pendingPartialFlushTimer !== undefined) {
+    clearTimeout(state.pendingPartialFlushTimer);
+    state.pendingPartialFlushTimer = undefined;
+    try {
+      await flushAccumulatedContent(state, deps);
+    } catch (err) {
+      // Same tolerance as the debounced path: a failed partial flush must
+      // not escalate a finished turn into a turn-level throw.
+      deps.rlog.warn({ err }, "Turn-tail partial flush failed (non-fatal)");
+    }
+  }
+  if (state.pendingPartialFlushPromise !== undefined) {
+    try {
+      await state.pendingPartialFlushPromise;
+    } catch {
+      // The flush swallows its own errors; defensive against future changes.
+    }
+    state.pendingPartialFlushPromise = undefined;
+  }
+}
+
 /** Schedule a debounced partial flush. First-scheduled wins; no-op when timer pending. */
 function schedulePartialFlush(
   state: EventHandlerState,
@@ -2035,7 +2072,9 @@ export async function handleToolResult(
     state.currentToolUseId = undefined;
     deps.onEvent({
       type: "tool_result",
-      toolName: "",
+      // Resolved from the tool_use correlation map; empty only when the tool
+      // was cancelled before its tool_use event was ever observed.
+      toolName: state.toolUseIdToName.get(event.toolUseId) ?? "",
       result: redactedContent,
       isError: event.isError,
       conversationId: deps.ctx.conversationId,
@@ -2188,7 +2227,8 @@ export async function handleToolResult(
   // card never shows a revealed plaintext the persisted row hides.
   deps.onEvent({
     type: "tool_result",
-    toolName: "",
+    // Empty only when no tool_use event was observed for this id.
+    toolName: toolName ?? "",
     result: redactedContent,
     isError: event.isError,
     diff: event.diff,

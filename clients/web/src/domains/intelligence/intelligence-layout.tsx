@@ -8,45 +8,17 @@ import { useChatLayoutSlotsStore } from "@/components/layout/chat-layout-slots-s
 import { PageShell } from "@/components/page-shell";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
-import { routes } from "@/utils/routes";
-
-interface IntelligenceSection {
-  readonly label: string;
-  readonly to: string;
-}
-
-/**
- * The drill-down section pages that get the shared back-button chrome.
- * Sub-paths (e.g. `/assistant/skills/:skillId`) count as inside a section.
- * The legacy skills/plugins paths still carry the per-item detail routes,
- * so they wear the My Superpowers chrome.
- */
-const CHROME_SECTIONS: readonly IntelligenceSection[] = [
-  { label: "Schedules", to: routes.schedules.root },
-  { label: "My Superpowers", to: routes.superpowers },
-  { label: "My Superpowers", to: routes.plugins },
-  { label: "My Superpowers", to: routes.skills.root },
-  { label: "Memory", to: routes.memory },
-  { label: "Workspace", to: routes.workspace },
-  { label: "Contacts", to: routes.contacts.root },
-  { label: "Channels", to: routes.channels },
-];
-
-function sectionForPath(pathname: string): IntelligenceSection | null {
-  return (
-    CHROME_SECTIONS.find(
-      ({ to }) => pathname === to || pathname.startsWith(to + "/"),
-    ) ?? null
-  );
-}
+import { aboutAssistantSectionForPath, routes } from "@/utils/routes";
 
 /**
  * Shared layout for the "About Assistant" pages. The overview
  * (`/assistant/identity`) and the personality page render full-bleed —
  * they own their avatar-tinted stage chrome — while every other section
- * (Schedules, My Superpowers, Memory, Workspace, Contacts, Channels)
- * renders inside the standard page shell with a back button to the
- * overview where the old tab bar used to be.
+ * (Schedules, My Superpowers, Memory, Workspace, Contacts, Channels,
+ * Library) renders inside the standard page shell with a back button to the
+ * overview where the old tab bar used to be. The section registry lives in
+ * `utils/routes.ts` (`ABOUT_ASSISTANT_SECTIONS`) — shared with the
+ * sidebar's active-section highlight and the overview strip.
  *
  * Mounted as a pathless layout route in `routes.tsx` so the child routes
  * keep their existing URL paths (`/assistant/identity`, etc.) while
@@ -60,7 +32,7 @@ export function IntelligenceLayout() {
   const isMobile = useIsMobile();
   const setTopBarCenter = useChatLayoutSlotsStore.use.setTopBarCenter();
 
-  const section = sectionForPath(pathname);
+  const section = aboutAssistantSectionForPath(pathname);
   const mobileTitle = section?.label ?? null;
 
   // On mobile the section title moves out of the page body and into the

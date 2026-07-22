@@ -87,6 +87,14 @@ export const llmUsageTelemetryEventSchema = z.object({
   conversation_type: z.string().trim().min(1).max(32).nullable().optional(),
   turn_index: z.number().int().min(0).nullable().optional(),
   llm_call_count: z.number().int().min(1).nullable().optional(),
+  parent_conversation_id: z
+    .string()
+    .trim()
+    .min(1)
+    .max(64)
+    .nullable()
+    .optional(),
+  parent_turn_index: z.number().int().min(0).nullable().optional(),
 });
 export type LlmUsageTelemetryEvent = z.infer<
   typeof llmUsageTelemetryEventSchema
@@ -406,7 +414,10 @@ export type TelemetryEvent = z.infer<typeof telemetryEventSchema>;
 
 // Event types recorded SERVER-SIDE by the platform. A daemon-sent
 // event of one of these types is rejected (dropped) by ingest.
-export const PLATFORM_MANAGED_EVENT_TYPES = ["plugin_installed"] as const;
+export const PLATFORM_MANAGED_EVENT_TYPES = [
+  "credit_balance_depleted",
+  "plugin_installed",
+] as const;
 
 export const MAX_EVENTS_PER_BATCH = 10000;
 

@@ -66,12 +66,33 @@ export function registerConfigCommand(program: Command): void {
             // keep as string
           }
 
-          // Require platform connection when setting a service mode to "managed"
-          if (SERVICE_MODE_PATH_RE.test(key) && parsed === "managed") {
+          // Web-search has no mode field: the schema strips it, so a write
+          // here would print success while changing nothing. Reject it with
+          // the provider-based replacement instead.
+          if (key === "services.web-search.mode") {
+            const { writeOutput } = await import("../output.js");
+            writeOutput(cmd, {
+              ok: false,
+              error:
+                "services.web-search.mode does not exist; web search is configured by provider alone. For managed search run `config set services.web-search.provider vellum`.",
+            });
+            process.exitCode = 1;
+            return;
+          }
+
+          // Managed services authenticate via the platform connection:
+          // mode "managed" for mode-based services, provider "vellum" for
+          // web search.
+          const requiresPlatform =
+            (SERVICE_MODE_PATH_RE.test(key) && parsed === "managed") ||
+            (key === "services.web-search.provider" && parsed === "vellum");
+          if (requiresPlatform) {
             const { requirePlatformConnection } =
               await import("./oauth/shared.js");
             const connected = await requirePlatformConnection(cmd);
-            if (!connected) return;
+            if (!connected) {
+              return;
+            }
           }
 
           // Direct-replacement set semantics (preserves null, replaces objects).

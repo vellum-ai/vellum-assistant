@@ -14,7 +14,10 @@ mock.module("../memory-retrospective-enqueue.js", () => ({
 
 import type { AssistantConfig } from "../../../../config/types.js";
 import { createConversation } from "../../../../persistence/conversation-crud.js";
-import { getDb } from "../../../../persistence/db-connection.js";
+import {
+  getDb,
+  getMemorySqlite,
+} from "../../../../persistence/db-connection.js";
 import { initializeDb } from "../../../../persistence/db-init.js";
 import { messages } from "../../../../persistence/schema/index.js";
 import { SKILL_CARD_MESSAGE_KIND } from "../memory-retrospective-constants.js";
@@ -156,7 +159,8 @@ describe("shouldEnqueueRetrospective", () => {
 function resetTables(): void {
   const db = getDb();
   db.run(`DELETE FROM messages`);
-  db.run(`DELETE FROM memory_retrospective_state`);
+  // `memory_retrospective_state` lives on the memory connection now.
+  getMemorySqlite()!.exec(`DELETE FROM memory_retrospective_state`);
   db.run(`DELETE FROM conversations`);
 }
 

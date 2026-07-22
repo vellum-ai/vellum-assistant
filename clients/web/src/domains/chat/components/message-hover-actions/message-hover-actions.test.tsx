@@ -1,15 +1,5 @@
-import { describe, expect, mock, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-
-// Drive flag values via a module stub (never setState — SSR renders read
-// the store through `use.*` selector hooks).
-mock.module("@/stores/client-feature-flag-store", () => {
-  const store = () => null;
-  store.use = {
-    bookmarks: () => false,
-  };
-  return { useClientFeatureFlagStore: store };
-});
 
 import { MessageHoverActions } from "@/domains/chat/components/message-hover-actions/message-hover-actions";
 import type { DisplayMessage } from "@/domains/chat/types/types";

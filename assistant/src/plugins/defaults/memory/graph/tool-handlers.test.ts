@@ -65,6 +65,12 @@ const configV2Off = {
   memory: { v2: { enabled: false } },
 } as unknown as AssistantConfig;
 
+// v3-live with the v2 flag off — the concept-page substrate is active, so the
+// handlers must work exactly as they do under v2.
+const configV3Only = {
+  memory: { v2: { enabled: false }, v3: { live: true } },
+} as unknown as AssistantConfig;
+
 function node(
   id: string,
   content: string,
@@ -94,10 +100,20 @@ describe("handleDeleteMemory", () => {
     expect(result.message).toMatch(/required/);
   });
 
-  test("returns error when memory v2 is disabled", () => {
+  test("returns error when concept-page memory is inactive", () => {
     const result = handleDeleteMemory({ content: "foo" }, configV2Off);
     expect(result.success).toBe(false);
-    expect(result.message).toMatch(/memory v2/);
+    expect(result.message).toMatch(/concept-page memory/);
+  });
+
+  test("passes the gate when v3 is live with the v2 flag off", () => {
+    mockNodes = [node("1", "User prefers TypeScript")];
+    const result = handleDeleteMemory(
+      { content: "User prefers TypeScript" },
+      configV3Only,
+    );
+    expect(result.success).toBe(true);
+    expect(mockDeleteNode).toHaveBeenCalledWith("1");
   });
 
   test("returns error when no node matches", () => {
@@ -161,14 +177,14 @@ describe("handleUpdateMemory", () => {
     expect(result.message).toMatch(/required/);
   });
 
-  test("returns error when memory v2 is disabled", () => {
+  test("returns error when concept-page memory is inactive", () => {
     const result = handleUpdateMemory(
       { old_content: "old", new_content: "new" },
       "cli",
       configV2Off,
     );
     expect(result.success).toBe(false);
-    expect(result.message).toMatch(/memory v2/);
+    expect(result.message).toMatch(/concept-page memory/);
   });
 
   test("returns error when no node matches old_content", () => {
@@ -241,11 +257,18 @@ describe("handleListMemory", () => {
     mockNodes = [];
   });
 
-  test("returns empty when memory v2 is disabled", () => {
+  test("returns empty when concept-page memory is inactive", () => {
     const result = handleListMemory({}, configV2Off);
     expect(result.success).toBe(false);
     expect(result.nodes).toHaveLength(0);
     expect(result.total).toBe(0);
+  });
+
+  test("passes the gate when v3 is live with the v2 flag off", () => {
+    mockNodes = [node("1", "User prefers TypeScript")];
+    const result = handleListMemory({}, configV3Only);
+    expect(result.success).toBe(true);
+    expect(result.nodes).toHaveLength(1);
   });
 
   test("returns all active nodes", () => {

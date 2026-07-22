@@ -250,6 +250,7 @@ export async function bootstrapFromJournal(): Promise<{
         await runGraphExtraction(`journal:${slug}:${file}`, config, {
           transcript,
           conversationTimestamp: journalTimestamp,
+          syntheticConversationId: true,
         });
         extracted++;
       } catch (err) {

@@ -66,6 +66,13 @@ import { useActiveConnectSurface } from "./use-active-connect-surface";
 
 import { resolveWaveAccentHex } from "./wave-accent";
 
+import {
+  SAFE_AREA_BOTTOM,
+  SAFE_AREA_LEFT,
+  SAFE_AREA_RIGHT,
+  SAFE_AREA_TOP,
+} from "./voice-room-layout";
+
 import { toVoiceAvatarVisual } from "./voice-avatar-state";
 import { VoiceAmbientTranscript } from "./voice-ambient-transcript";
 import { VoiceRoomSettingsMenu } from "./voice-room-settings-menu";
@@ -82,29 +89,6 @@ import {
 import { useIsVoiceRoomVisible } from "./use-is-voice-room-visible";
 
 const AVATAR_SIZE = 220;
-/**
- * State caption anchor for the void look — just below the centered avatar's
- * bottom edge (half its size from center, plus a gap), the void-look counterpart
- * to the color look's caption below the eyes. Sits above the assistant
- * transcript's `50% + 15vmin + 2.5rem` clearance on any typical viewport, and it
- * only shows when that transcript is off (see below), so the two never collide.
- */
-const VOID_CAPTION_TOP = `calc(50% + ${AVATAR_SIZE / 2}px + 1.75rem)`;
-
-/**
- * Safe-area insets (see `docs/CAPACITOR.md`): the `var()` is set by
- * `capacitor-plugin-safe-area` on Capacitor iOS, `env()` covers standard
- * browsers with `viewport-fit=cover`, and `0px` covers desktop / non-notch
- * devices — so these are inert everywhere except a notched iOS shell.
- */
-const SAFE_AREA_TOP =
-  "var(--safe-area-inset-top, env(safe-area-inset-top, 0px))";
-const SAFE_AREA_BOTTOM =
-  "var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px))";
-const SAFE_AREA_LEFT =
-  "var(--safe-area-inset-left, env(safe-area-inset-left, 0px))";
-const SAFE_AREA_RIGHT =
-  "var(--safe-area-inset-right, env(safe-area-inset-right, 0px))";
 
 /**
  * Shared treatment for the room's top icon controls, toned to the active look
@@ -112,7 +96,7 @@ const SAFE_AREA_RIGHT =
  * tone-derived over an avatar color).
  */
 const ROOM_CONTROL_CLASS =
-  "flex size-10 items-center justify-center rounded-full text-[var(--room-fg-muted)] transition hover:bg-[var(--room-wash)] hover:text-[var(--room-fg)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--room-fg-muted)]";
+  "flex size-12 items-center justify-center rounded-full text-[var(--room-fg-muted)] transition hover:bg-[var(--room-wash)] hover:text-[var(--room-fg)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--room-fg-muted)]";
 
 /** Bottom-row circular session controls (mute / ■ stop), same toning. */
 const SESSION_CONTROL_CLASS =
@@ -191,6 +175,8 @@ function VoiceRoomOverlay() {
     "--room-fg-muted": tone?.fgMuted ?? "rgba(255,255,255,0.7)",
     "--room-wash": tone?.wash ?? "rgba(255,255,255,0.1)",
     "--room-border": tone?.wash ?? "rgba(255,255,255,0.15)",
+    "--room-bubble-bg": tone?.bubbleBg ?? "rgba(255,255,255,0.16)",
+    "--room-bubble-fg": tone?.bubbleFg ?? "#FFFFFF",
   } as CSSProperties;
 
   // Global Escape, live only while the room is mounted: ends the session,
@@ -250,10 +236,10 @@ function VoiceRoomOverlay() {
           visual={visual}
           getAmplitude={getLiveVoiceInputAmplitude}
           getResponseAmplitude={getLiveVoiceOutputAmplitude}
-          // Only the *assistant* transcript occupies the space below the eyes
-          // (the user transcript floats above), so the state caption stands down
-          // for that pref alone — enabling only user captions must not blank the
-          // lower zone the caption fills.
+          // While assistant captions are on, the transcript's lower zone already
+          // narrates the turn from the caption's own baseline, so the caption
+          // stands down rather than doubling it. The user-only caption pref
+          // leaves it up (a user pill alone doesn't name the assistant's state).
           showStateCaption={!showAssistantTranscript}
           entryOrigin={entryOrigin}
         />
@@ -277,19 +263,18 @@ function VoiceRoomOverlay() {
           {visual === "responding" ? (
             <VoiceRespondingRings getAmplitude={getLiveVoiceOutputAmplitude} />
           ) : null}
-          {/* Same state caption + gating as the color look (stands down only for
-              the assistant-transcript pref), anchored below the centered avatar
-              instead of the eyes. */}
-          {!showAssistantTranscript ? (
-            <VoiceStateCaption visual={visual} top={VOID_CAPTION_TOP} />
-          ) : null}
+          {/* Same state caption + gating as the color look (stands down while
+              the assistant transcript is on), in the same shared lower zone —
+              both looks name the beat from one baseline. */}
+          {!showAssistantTranscript ? <VoiceStateCaption visual={visual} /> : null}
         </>
       )}
 
-      {/* Optional muted echo of the live transcript, floating above (user) and
-          below (assistant) the centered avatar. Pref-gated (the captions
-          control above) and absolutely positioned, so it never shifts the
-          avatar and stays absent by default. */}
+      {/* Optional live transcript, rendered into the room's two text zones —
+          the user's speech above the eyes, the assistant's below. Pref-gated
+          (the captions control above) and absolutely positioned in the margins
+          the centerpiece leaves free, so it never shifts the centered avatar
+          and stays absent by default. */}
       <VoiceAmbientTranscript />
 
       {/* Backwards-compat fallback card for assistants that can still raise
@@ -332,7 +317,10 @@ function VoiceRoomOverlay() {
         }}
         className="absolute z-10 flex items-center gap-1"
       >
-        <VoiceRoomSettingsMenu triggerClassName={ROOM_CONTROL_CLASS} />
+        <VoiceRoomSettingsMenu
+          triggerClassName={ROOM_CONTROL_CLASS}
+          assistantId={assistantId}
+        />
         <Tooltip content="End voice session (Esc)">
           <button
             type="button"

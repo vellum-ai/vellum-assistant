@@ -188,14 +188,7 @@ describe("vellum flags --assistant routing", () => {
       ],
       "alice-1",
     );
-    process.argv = [
-      "bun",
-      "vellum",
-      "flags",
-      "set",
-      "voice-mode",
-      "true",
-    ];
+    process.argv = ["bun", "vellum", "flags", "set", "voice-mode", "true"];
 
     await flags();
 

@@ -129,6 +129,8 @@ import { repairStaleOpenrouterGrokModelIdsMigration } from "./128-repair-stale-o
 import { removeAnalyzeConversationConfigMigration } from "./129-remove-analyze-conversation-config.js";
 import { speechModeToProviderMigration } from "./130-speech-mode-to-provider.js";
 import { dropWebFetchModeMigration } from "./131-drop-web-fetch-mode.js";
+import { webSearchModeToProviderMigration } from "./132-web-search-mode-to-provider.js";
+import { collapseProviderConnectionsMigration } from "./133-collapse-provider-connections.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -273,4 +275,6 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   // keys, so relative execution order is irrelevant.
   speechModeToProviderMigration,
   dropWebFetchModeMigration,
+  webSearchModeToProviderMigration,
+  collapseProviderConnectionsMigration,
 ];

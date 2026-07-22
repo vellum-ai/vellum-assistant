@@ -712,20 +712,31 @@ export interface ActivePluginTools {
 }
 
 /**
- * Sync the plugin caches with the source-versions sentinel, then return the
- * tool contributions of every *active* (discovered, enabled, activated)
- * user plugin, keyed by plugin name in install-date order.
+ * Return the tool contributions of every *active* (discovered, enabled,
+ * activated) user plugin, keyed by plugin name in install-date order.
+ *
+ * This is a pure read of the already-reconciled caches — it never scans disk,
+ * activates a plugin, or runs an `init` hook. Reconciliation (which activates
+ * plugins and is the only thing that runs `init`) is owned exclusively by the
+ * three paths that legitimately change the plugin set: the boot scan
+ * ({@link populateCacheAtBoot}), the source-versions gate on the hook-dispatch
+ * path ({@link getUserHookEntriesFor} → {@link maybeReconcileFromSentinel}), and
+ * the imperative install/uninstall poke ({@link reconcilePluginSourcesNow}).
+ * Pulling tools must not be a fourth: the tool registry is populated from
+ * processes that never run plugin lifecycle (sidecar workers call
+ * `initializeTools()` for their own tool surface), so folding activation into
+ * this read would run `init` in a worker against daemon-owned plugin storage.
  *
  * This is the pull half of the tool-registry relationship: the registry's
  * `loadPluginTools()` reconcile calls this and diffs the result into its own
- * maps — this module never writes to the registry. Mirrors how hook reads
- * pull through {@link getUserHookEntriesFor}.
+ * maps — this module never writes to the registry. Because a runtime plugin
+ * change lands in the cache via the hook-dispatch reconcile that runs each turn
+ * (or the explicit install poke), the very next `loadPluginTools()` reads the
+ * updated set, so live install/remove/edit is still picked up without recreating
+ * the conversation. Mirrors how hook reads pull through
+ * {@link getUserHookEntriesFor}.
  */
-export async function getActiveUserPluginTools(): Promise<
-  Map<string, ActivePluginTools>
-> {
-  await maybeReconcileFromSentinel();
-
+export function getActiveUserPluginTools(): Map<string, ActivePluginTools> {
   const byPlugin = new Map<string, CachedTool[]>();
   for (const cached of toolCache.values()) {
     if (!activatedNames.has(cached.pluginName)) {

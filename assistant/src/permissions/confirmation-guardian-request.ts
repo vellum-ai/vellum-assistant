@@ -32,6 +32,20 @@ const log = getLogger("confirmation-guardian-request");
 export async function createGuardianRequestForConfirmation(
   msg: ServerMessage & { type: "confirmation_request" },
   conversationId: string,
+  opts?: {
+    /**
+     * Bind the request to the conversation's per-turn trust snapshot rather
+     * than the live context. Turn-emitted confirmations (PermissionPrompter)
+     * set this: the promotion runs fire-and-forget, and the live trustContext
+     * can mutate mid-promotion (e.g. a concurrent owner meta command), so the
+     * snapshot pins the actor and source-message provenance to the turn that
+     * emitted the confirmation — the executor's own snapshot semantics.
+     * Route-generated confirmations (ACP spawn/steer) leave this unset: their
+     * provenance is the conversation's live binding, not whatever unrelated
+     * turn happens to be in flight.
+     */
+    preferTurnSnapshot?: boolean;
+  },
 ): Promise<void> {
   try {
     const [
@@ -51,7 +65,9 @@ export async function createGuardianRequestForConfirmation(
     ]);
 
     const conversation = findConversation(conversationId);
-    const trustContext = conversation?.trustContext;
+    const trustContext = opts?.preferTurnSnapshot
+      ? (conversation?.currentTurnTrustContext ?? conversation?.trustContext)
+      : conversation?.trustContext;
     const sourceChannel = trustContext?.sourceChannel ?? "vellum";
     const inputRecord = msg.input as Record<string, unknown>;
     const activityRaw =

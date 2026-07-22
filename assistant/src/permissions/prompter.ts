@@ -180,10 +180,13 @@ export class PermissionPrompter {
 
       // Promote the confirmation to a guardian request so channel
       // guardian decisions (reactions, buttons, text) can resolve it.
+      // The prompter runs inside the emitting turn, so the request binds
+      // to that turn's trust snapshot.
       if (conversationId) {
         void createGuardianRequestForConfirmation(
           confirmationMsg,
           conversationId,
+          { preferTurnSnapshot: true },
         );
       }
 

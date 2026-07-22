@@ -257,6 +257,51 @@ describe("MessagesLexicalIndex", () => {
     expect(ids).toEqual([messagePointId("m1"), messagePointId("m2")]);
   });
 
+  test("upsertMessagesBatch splits a batch that would exceed Qdrant's request-size limit", async () => {
+    const index = makeIndex();
+
+    // A point's estimated serialized size is dominated by its sparse arrays.
+    // Size each point at ~10 MiB so two fit under the ~24 MiB cap but a third
+    // forces a new sub-batch — exercising both the split and multi-point
+    // sub-batches.
+    const termCount = 375_000;
+    const bigSparse: SparseEmbedding = {
+      indices: Array.from({ length: termCount }, (_, i) => i),
+      values: Array.from({ length: termCount }, () => 0.123456789),
+    };
+
+    await index.upsertMessagesBatch([
+      {
+        messageId: "m1",
+        sparse: bigSparse,
+        conversationId: "c1",
+        createdAt: 1,
+      },
+      {
+        messageId: "m2",
+        sparse: bigSparse,
+        conversationId: "c2",
+        createdAt: 2,
+      },
+      {
+        messageId: "m3",
+        sparse: bigSparse,
+        conversationId: "c3",
+        createdAt: 3,
+      },
+    ]);
+
+    // Three ~10 MiB points split into two upserts: [m1, m2] then [m3]. Every
+    // point is preserved across the sub-batches — none is dropped.
+    expect(upsertCalls.length).toBe(2);
+    expect(
+      upsertCalls[0].opts.points.map((p) => (p as { id: string }).id),
+    ).toEqual([messagePointId("m1"), messagePointId("m2")]);
+    expect(
+      upsertCalls[1].opts.points.map((p) => (p as { id: string }).id),
+    ).toEqual([messagePointId("m3")]);
+  });
+
   test("searchLexical queries the sparse named vector and returns {messageId, score}", async () => {
     mockQueryPoints = [
       { id: "pt-1", score: 0.91, payload: { message_id: "msg-A" } },

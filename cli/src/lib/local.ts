@@ -42,8 +42,8 @@ const _require = createRequire(import.meta.url);
 const DARWIN_UNIX_SOCKET_MAX_PATH_BYTES = 103;
 
 // The longest socket filename we place in the workspace directory.
-// assistant-skill.sock = 20 chars, plus 1 for the "/" separator = 21 overhead.
-const LONGEST_SOCKET_FILENAME = "assistant-skill.sock";
+// assistant.sock = 14 chars, plus 1 for the "/" separator = 15 overhead.
+const LONGEST_SOCKET_FILENAME = "assistant.sock";
 const LOCAL_RUNTIME_PACKAGE = "vellum";
 
 export interface LocalRuntimeInstall {
@@ -105,7 +105,7 @@ function hasLocalRuntimeComponents(installDir: string): boolean {
  * (`assistant`, `credential-executor`) collide with app-bundle binary names
  * and point at whatever version happens to be installed globally.
  */
-function isCompiledCli(): boolean {
+export function isCompiledCli(): boolean {
   const execBase = basename(process.execPath);
   return (
     execBase !== "bun" && execBase !== "bunx" && !execBase.startsWith("bun-")
@@ -300,7 +300,7 @@ function warnIfLegacyWorkspaceFallbackDetected(
 }
 
 /**
- * On macOS, if `{workspaceDir}/assistant-skill.sock` would exceed the
+ * On macOS, if `{workspaceDir}/assistant.sock` would exceed the
  * 103-byte AF_UNIX path limit, compute a short tmpdir-based IPC socket
  * directory and return it.  Returns `undefined` when no override is needed
  * (the workspace path is short enough, or we're not on macOS).
@@ -340,7 +340,6 @@ function applyIpcSocketDirOverride(
   mkdirSync(override, { recursive: true });
   env.GATEWAY_IPC_SOCKET_DIR = override;
   env.ASSISTANT_IPC_SOCKET_DIR = override;
-  env.ASSISTANT_SKILL_IPC_SOCKET_DIR = override;
 }
 
 function isAssistantSourceDir(dir: string): boolean {

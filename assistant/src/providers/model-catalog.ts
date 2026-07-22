@@ -562,6 +562,21 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     },
     models: [
       {
+        id: "gemini-3.6-flash",
+        displayName: "Gemini 3.6 Flash",
+        contextWindowTokens: 1048576,
+        maxOutputTokens: 65536,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 1.5,
+          outputPer1mTokens: 7.5,
+          cacheReadPer1mTokens: 0.15,
+        },
+      },
+      {
         id: "gemini-3.5-flash",
         displayName: "Gemini 3.5 Flash",
         contextWindowTokens: 1048576,
@@ -574,6 +589,21 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
           inputPer1mTokens: 1.5,
           outputPer1mTokens: 9.0,
           cacheReadPer1mTokens: 0.15,
+        },
+      },
+      {
+        id: "gemini-3.5-flash-lite",
+        displayName: "Gemini 3.5 Flash-Lite",
+        contextWindowTokens: 1048576,
+        maxOutputTokens: 65536,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 0.3,
+          outputPer1mTokens: 2.5,
+          cacheReadPer1mTokens: 0.03,
         },
       },
       {
@@ -1880,6 +1910,25 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     apiKeyUrl:
       "https://vercel.com/d?to=%2F%5Bteam%5D%2F%7E%2Fai-gateway%2Fapi-keys&title=AI+Gateway+API+Keys",
     apiKeyPlaceholder: "vck_...",
+  },
+  {
+    id: "litellm",
+    displayName: "LiteLLM",
+    subtitle:
+      "AI gateway proxy for 100+ LLM providers (OpenAI, Anthropic, Azure, Bedrock, Vertex, etc.).",
+    setupMode: "api-key",
+    setupHint:
+      "Enter your LiteLLM proxy base URL and API key. Models are auto-discovered from the proxy.",
+    envVar: "LITELLM_API_KEY",
+    credentialsGuide: {
+      description:
+        "Set up a LiteLLM proxy, then use the master key or a virtual key.",
+      url: "https://docs.litellm.ai/docs/proxy/quick_start",
+      linkLabel: "LiteLLM Proxy Quick Start",
+    },
+    apiKeyPlaceholder: "sk-...",
+    models: [],
+    defaultModel: "",
   },
   {
     id: "openai-compatible",

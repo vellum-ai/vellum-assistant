@@ -1,24 +1,17 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { MemoryRouter } from "react-router";
 
 import { ProvenancePill } from "./provenance-pill";
 
 /**
  * Cascade provenance pill for a contact channel's effective access — names
  * the layer the admission floor comes from. The channel-default state links
- * "Channels → Slack" to that channel's sub-tab on the Channels page, so the
- * stories mount inside a router.
+ * "Channels → Slack" to that channel's sub-tab on the Channels page; the
+ * router it needs comes from the global preview decorator, which wraps every
+ * story in a MemoryRouter (a story-level router would nest and crash).
  */
 const meta: Meta<typeof ProvenancePill> = {
   title: "Contacts/ProvenancePill",
   component: ProvenancePill,
-  decorators: [
-    (Story) => (
-      <MemoryRouter>
-        <Story />
-      </MemoryRouter>
-    ),
-  ],
 };
 
 export default meta;

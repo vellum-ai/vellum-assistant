@@ -16,7 +16,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import type { ToolContext } from "../../../../tools/types.js";
 import { deleteMemoryPageTool } from "../tools.js";
-import { pageExists, writePage } from "../v2/page-store.js";
+import { pageExists, writePage } from "../v3/substrate/page-store.js";
 
 let workspace: string;
 let prevWorkspaceEnv: string | undefined;

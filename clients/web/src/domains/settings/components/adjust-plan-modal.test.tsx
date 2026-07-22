@@ -24,6 +24,7 @@ import type {
   PlanListResponse,
   SubscriptionResponse,
 } from "@/generated/api/types.gen";
+import * as runtimeBrowser from "@/runtime/browser";
 
 // ---------------------------------------------------------------------------
 // Module mocks
@@ -31,6 +32,7 @@ import type {
 
 type Captured = { body?: unknown };
 let upgradeCall: Captured | null = null;
+let upgradeResponse: Record<string, unknown> = { status: "ok" };
 let changeCreditTierCall: Captured | null = null;
 let changeMachineTierCall: Captured | null = null;
 let changeStorageTierCall: Captured | null = null;
@@ -39,7 +41,7 @@ mock.module("@/generated/api/sdk.gen", () => ({
   ...sdkGen,
   organizationsBillingSubscriptionUpgradeCreate: (opts: Captured) => {
     upgradeCall = opts;
-    return Promise.resolve({ data: { status: "ok" }, response: { ok: true } });
+    return Promise.resolve({ data: upgradeResponse, response: { ok: true } });
   },
   organizationsBillingSubscriptionChangeCreditTierCreate: (opts: Captured) => {
     changeCreditTierCall = opts;
@@ -72,6 +74,18 @@ mock.module("@/domains/settings/hooks/use-billing-portal-session", () => ({
   useBillingPortalSession: () => ({ isPending: false, mutate: () => {} }),
 }));
 
+// Capture the Stripe checkout redirect instead of opening a browser.
+let openedUrl: string | null = null;
+mock.module("@/runtime/browser", () => ({
+  ...runtimeBrowser,
+  openUrl: (url: string) => {
+    openedUrl = url;
+    return Promise.resolve();
+  },
+  openUrlFinishedListener: () => () => {},
+}));
+
+import { readCheckoutIntent } from "@/lib/billing/checkout-intent";
 import { AdjustPlanModal } from "./adjust-plan-modal";
 
 const CREDIT_TIERS: CreditTier[] = [
@@ -238,9 +252,12 @@ function clickOption(label: string): void {
 
 beforeEach(() => {
   upgradeCall = null;
+  upgradeResponse = { status: "ok" };
   changeCreditTierCall = null;
   changeMachineTierCall = null;
   changeStorageTierCall = null;
+  openedUrl = null;
+  sessionStorage.clear();
 });
 
 afterEach(() => {
@@ -281,6 +298,50 @@ describe("AdjustPlanModal credit bundle — upgrade", () => {
     expect(
       (upgradeCall!.body as Record<string, unknown>).credit_tier,
     ).toBeNull();
+  });
+});
+
+describe("AdjustPlanModal upgrade — checkout intent stash", () => {
+  test("stashes the selected tiers before redirecting to Stripe checkout", async () => {
+    upgradeResponse = { checkout_url: "https://checkout.example.com/session" };
+    const { getByTestId } = renderModal(
+      subscription("base", null),
+      proPlansResponse(CREDIT_TIERS),
+    );
+
+    fireEvent.click(getByTestId("modal-upgrade-to-pro-button"));
+
+    await waitFor(() => {
+      if (!openedUrl) {
+        throw new Error("checkout not opened");
+      }
+    });
+    expect(openedUrl).toBe("https://checkout.example.com/session");
+    // The stash captures the seeded defaults (cheapest machine/storage, no
+    // bundle) so the post-checkout provisioning screen can render them.
+    expect(readCheckoutIntent()).toMatchObject({
+      kind: "custom",
+      machineTier: "machine_small",
+      storageTier: "storage_10",
+      creditTier: null,
+    });
+  });
+
+  test("does not stash when the upgrade response has no checkout URL", async () => {
+    const { getByTestId } = renderModal(
+      subscription("base", null),
+      proPlansResponse(CREDIT_TIERS),
+    );
+
+    fireEvent.click(getByTestId("modal-upgrade-to-pro-button"));
+
+    await waitFor(() => {
+      if (!upgradeCall) {
+        throw new Error("upgrade not called");
+      }
+    });
+    expect(readCheckoutIntent()).toBeNull();
+    expect(openedUrl).toBeNull();
   });
 });
 
@@ -736,7 +797,7 @@ describe("AdjustPlanModal — multi-dimension tier coordination", () => {
 
     // Upgrade storage: 10 GiB → 20 GiB
     openStorageDropdown();
-    clickOptionStartingWith("20 GiB");
+    clickOptionStartingWith("20 GB");
 
     // Machine downgrade opens the reconfirm modal first.
     fireEvent.click(getByTestId("modal-change-tier-button"));

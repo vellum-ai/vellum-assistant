@@ -329,14 +329,25 @@ describe("TextToSpeechCard — Vellum provider", () => {
         '[role="option"]:not([aria-label])',
       ),
     ).map((o) => o.textContent?.trim());
-    // Each option carries its upstream source as a suffix badge so users
-    // can tell providers apart while browsing, not only after selecting.
+    // A voice reads as its character traits in sentence case, with its
+    // upstream source as a suffix badge so users can tell providers apart
+    // while browsing, not only after selecting. The proper name is dropped
+    // (the assistant has its own) and the accent heads the group instead of
+    // repeating on every row.
     expect(options).toContain(
-      "Sarah (default) — American · professional, reassuring, confidentElevenLabs",
+      "Professional, reassuring, confident (default)ElevenLabs",
     );
-    expect(options).toContain(
-      "Zeus — American · deep, trustworthy, smoothDeepgram",
-    );
+    expect(options).toContain("Deep, trustworthy, smoothDeepgram");
+    expect(options?.join(" ")).not.toContain("Sarah");
+    expect(options?.join(" ")).not.toContain("Zeus");
+    // Accents head their group rather than labelling each row.
+    expect(options).toContain("American");
+    // Voices sort by traits within a group: "deep…" before "professional…".
+    expect(options).toEqual([
+      "American",
+      "Deep, trustworthy, smoothDeepgram",
+      "Professional, reassuring, confident (default)ElevenLabs",
+    ]);
     // Static-catalog-only voices must not appear once the fetch supplies data.
     expect(options?.join(" ")).not.toContain("Thalia");
     // The selected default has a hosted preview, so the button renders.

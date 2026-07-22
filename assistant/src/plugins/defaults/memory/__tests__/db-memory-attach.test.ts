@@ -10,9 +10,10 @@
  *      `memory` schema on its `database_list`.
  *   3. The relocated memory tables (`memory_jobs`, `memory_v2_injection_events`,
  *      `memory_v2_activation_logs`, `memory_recall_logs`,
- *      `memory_v3_selections`, `activation_sessions`) live in the dedicated
- *      memory connection, not in the main connection — proving the physical
- *      split.
+ *      `memory_v3_selections`, `activation_sessions`, `activation_state`,
+ *      `conversation_graph_memory_state`, `memory_v3_ever_injected`,
+ *      `memory_retrospective_state`) live in the dedicated memory connection,
+ *      not in the main connection — proving the physical split.
  *   4. `runAsyncSqlite({ dbPath })` targets the given file via the sqlite3
  *      CLI backend, leaving the main DB untouched.
  */
@@ -61,6 +62,10 @@ describe("memory database connection", () => {
     "memory_recall_logs",
     "memory_v3_selections",
     "activation_sessions",
+    "activation_state",
+    "conversation_graph_memory_state",
+    "memory_v3_ever_injected",
+    "memory_retrospective_state",
   ])("%s lives in the memory connection, not main", (table) => {
     const inMemory = getMemorySqlite()!
       .query<

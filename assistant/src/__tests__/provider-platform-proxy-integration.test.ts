@@ -102,7 +102,6 @@ let mockPlatformAssistantId = "";
 let mockAssistantApiKey: string | null = null;
 let mockProviderKeys: Record<string, string> = {};
 const defaultWebSearchService: Services["web-search"] = {
-  mode: "your-own",
   provider: "inference-provider-native",
 };
 
@@ -177,7 +176,6 @@ const MANAGED_API_KEY = "ast-managed-key-123";
 const PLATFORM_ASSISTANT_ID = "assistant-abc123";
 
 const MANAGED_NATIVE_WEB_SEARCH: Services["web-search"] = {
-  mode: "managed",
   provider: "inference-provider-native",
 };
 

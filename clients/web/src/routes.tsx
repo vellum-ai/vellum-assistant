@@ -11,6 +11,8 @@ import { ChatLayout } from "@/domains/chat/chat-layout";
 import { ChatPage } from "@/domains/chat/chat-page";
 import { ConversationRedirect } from "@/domains/chat/conversation-redirect";
 import { NotificationsBell } from "@/domains/home/components/notifications-bell";
+import { InChatOnboardingController } from "@/domains/chat/in-chat-onboarding/in-chat-onboarding-controller";
+import { InChatOnboardingLaunchButton } from "@/domains/chat/in-chat-onboarding/in-chat-onboarding-launch-button";
 import { NotFound } from "@/components/not-found";
 import { RouteErrorBoundary } from "@/components/route-error-boundary";
 import { RootHydrateFallback } from "@/components/root-hydrate-fallback";
@@ -60,7 +62,22 @@ function AdvancedSettingsRedirect() {
  * other (see STYLE_GUIDE.md — Shared UI components).
  */
 function ChatLayoutRoute() {
-  return <ChatLayout topBarAccessory={<NotificationsBell />} />;
+  return (
+    <>
+      <ChatLayout
+        topBarAccessory={
+          <>
+            <InChatOnboardingLaunchButton />
+            <NotificationsBell />
+          </>
+        }
+      />
+      {/* SPIKE — in-chat onboarding prototype orchestrator. Renders only
+          portals (stage panel, avatar tour, narration takeover) over the
+          real chat; inert until the header's sparkles button activates it. */}
+      <InChatOnboardingController />
+    </>
+  );
 }
 
 export function getRouterBasename(): string | undefined {
@@ -387,9 +404,11 @@ export const routeTree = [
                     { path: "workspace", lazy: { Component: () => import("@/domains/workspace/workspace-page").then((m) => m.WorkspacePage) } },
                     { path: "contacts", lazy: { Component: () => import("@/contacts-page-route").then((m) => m.ContactsPageRoute) } },
                     { path: "channels", lazy: { Component: () => import("@/channels-page-route").then((m) => m.ChannelsPageRoute) } },
+                    { path: "library", lazy: { Component: () => import("@/domains/library/library-page").then((m) => m.LibraryPage) } },
                   ],
                 },
-                { path: "library", lazy: { Component: () => import("@/domains/library/library-page").then((m) => m.LibraryPage) } },
+                // The app viewer stays outside IntelligenceLayout: it renders
+                // full-bleed and must not inherit the section chrome.
                 { path: "library/:appId", lazy: { Component: () => import("@/domains/library/library-detail-page").then((m) => m.LibraryDetailPage) } },
                 { path: "connect", lazy: { Component: () => import("@/domains/contacts/connect-page").then((m) => m.ConnectPage) } },
                 {

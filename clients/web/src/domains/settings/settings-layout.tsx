@@ -23,7 +23,6 @@ export function SettingsLayout() {
   const settingsDeveloperNav = useAssistantFeatureFlagStore.use.settingsDeveloperNav();
   const credentialsSettingsEnabled = useAssistantFeatureFlagStore.use.credentialsSettings();
   const platformNotifications = useClientFeatureFlagStore.use.platformNotifications();
-  const bookmarksEnabled = useClientFeatureFlagStore.use.bookmarks();
   const platformGate = usePlatformGate({ platformHostedOnly: true });
   // The Usage item is never hidden: the Usage tab reads from the local daemon
   // and works for every assistant. Its label only gains "Billing &" when the
@@ -47,9 +46,6 @@ export function SettingsLayout() {
         ) {
           return false;
         }
-        if (item.id === "bookmarks" && !bookmarksEnabled) {
-          return false;
-        }
         if (item.id === "credentials" && !credentialsSettingsEnabled) {
           return false;
         }
@@ -63,7 +59,6 @@ export function SettingsLayout() {
     [
       platformNotifications,
       platformGate,
-      bookmarksEnabled,
       credentialsSettingsEnabled,
       billingLabel,
     ],

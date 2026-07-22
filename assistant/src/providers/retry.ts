@@ -30,6 +30,7 @@ import {
   type ProviderResponse,
   type SendMessageOptions,
 } from "./types.js";
+import { UNPARSEABLE_TOOL_ARGS_SDK_MESSAGE } from "./unparseable-tool-args.js";
 
 const log = getLogger("retry");
 
@@ -125,11 +126,62 @@ const RETRYABLE_STREAM_PATTERNS = [
   "request ended without sending any chunks",
   "stream has ended, this shouldn't happen",
   // The SDK's stream accumulator throws this when the model emits tool-call
-  // arguments that don't parse as JSON (e.g. a raw control character inside a
-  // string). It's a stochastic model degeneration, not a request problem — a
-  // resend almost always succeeds.
-  "Unable to parse tool parameter JSON",
+  // arguments that don't parse as JSON (e.g. an unquoted string value). The
+  // Anthropic client salvages most of these into a `_raw`-wrapped tool call
+  // before they surface (see anthropic/stream-content-shadow.ts); ones that
+  // still reach here retry with a corrective note
+  // (`withUnparseableToolArgsHint`) because the malformation can be
+  // conditioned on the request context — a byte-identical resend can
+  // reproduce it indefinitely.
+  UNPARSEABLE_TOOL_ARGS_SDK_MESSAGE,
 ];
+
+/**
+ * One-shot note appended to the retried request after a tool-argument JSON
+ * parse failure. Appended as a trailing text block on the latest user
+ * message: the request tail sits after every prompt-cache anchor, so the
+ * hint costs no cache reuse (a system-prompt edit would invalidate the whole
+ * cached prefix).
+ */
+const UNPARSEABLE_TOOL_ARGS_RETRY_HINT =
+  "[assistant runtime] The previous attempt at this response was discarded: " +
+  "a tool call's arguments were not valid JSON (typically an unquoted string " +
+  "value). Respond again, emitting tool-call arguments as strict JSON — " +
+  "every string value double-quoted, including values that begin with '[' " +
+  "or '{'.";
+
+function isUnparseableToolArgsError(error: unknown): boolean {
+  if (!(error instanceof ProviderError)) {
+    return false;
+  }
+  if (error.statusCode !== undefined) {
+    return false;
+  }
+  return error.message.includes(UNPARSEABLE_TOOL_ARGS_SDK_MESSAGE);
+}
+
+/**
+ * Copy of `messages` with the corrective note appended to the latest user
+ * message. When the request doesn't end on a user message (assistant
+ * prefill), returns `messages` unchanged — appending anything there would
+ * change prefill semantics.
+ */
+function withUnparseableToolArgsHint(messages: Message[]): Message[] {
+  const last = messages[messages.length - 1];
+  if (last === undefined || last.role !== "user") {
+    return messages;
+  }
+  return [
+    ...messages.slice(0, -1),
+    {
+      ...last,
+      content: [
+        ...last.content,
+        { type: "text", text: UNPARSEABLE_TOOL_ARGS_RETRY_HINT },
+      ],
+    },
+  ];
+}
 
 /**
  * Patterns that indicate a transient provider error even when no HTTP status
@@ -302,15 +354,17 @@ function normalizeSendMessageOptions(
     nextConfig.promptCacheKey = config.selectionSeed;
   }
 
-  // `overrideProfile`, `forceOverrideProfile`, and `selectionSeed` are
-  // routing/resolution-time concerns (consumed by the resolver below and
-  // `CallSiteRoutingProvider`'s provider selection); none is a wire-format
+  // `overrideProfile`, `forceOverrideProfile`, `selectionSeed`, and
+  // `conversationId` are routing/resolution-time concerns (consumed by the
+  // resolver below, `CallSiteRoutingProvider`'s provider selection, and
+  // `UsageTrackingProvider`'s ledger attribution); none is a wire-format
   // field. Strip unconditionally (after the `openai` promptCacheKey copy
   // above) so they never leak into provider request bodies even when callers
   // set them without a `callSite`.
   delete nextConfig.overrideProfile;
   delete nextConfig.forceOverrideProfile;
   delete nextConfig.selectionSeed;
+  delete nextConfig.conversationId;
 
   if (config.callSite !== undefined) {
     const resolved = resolveCallSiteConfig(config.callSite, getConfig().llm, {
@@ -753,6 +807,7 @@ export class RetryProvider implements Provider {
   ): Promise<ProviderResponse> {
     let lastError: unknown;
     let didRetry = false;
+    let messagesForAttempt = messages;
 
     const normalizedOptions = normalizeSendMessageOptions(this.name, options, {
       forwardUsageAttributionHeaders:
@@ -762,7 +817,7 @@ export class RetryProvider implements Provider {
     for (let attempt = 0; attempt <= DEFAULT_MAX_RETRIES; attempt++) {
       try {
         const result = await this.inner.sendMessage(
-          messages,
+          messagesForAttempt,
           normalizedOptions,
         );
         return result;
@@ -770,6 +825,13 @@ export class RetryProvider implements Provider {
         lastError = error;
 
         if (attempt < DEFAULT_MAX_RETRIES && isRetryableError(error)) {
+          // Malformed tool-argument JSON is conditioned on the request, so
+          // resend with the corrective note. Built from the original
+          // `messages` each time — the note appears exactly once no matter
+          // how many attempts fail this way.
+          if (isUnparseableToolArgsError(error)) {
+            messagesForAttempt = withUnparseableToolArgsHint(messages);
+          }
           // Prefer server-provided Retry-After; fall back to exponential backoff.
           const retryAfter =
             error instanceof ProviderError ? error.retryAfterMs : undefined;
@@ -799,6 +861,7 @@ export class RetryProvider implements Provider {
               delay,
               retryAfterHeader: retryAfter !== undefined,
               errorType,
+              correctiveHint: messagesForAttempt !== messages,
               provider: this.name,
               message: error instanceof Error ? error.message : String(error),
             },

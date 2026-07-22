@@ -33,7 +33,12 @@ describe("buildExecErrorMessage", () => {
   });
 
   it("appends both streams joined by newline when both present", () => {
-    const msg = buildExecErrorMessage("docker", 1, "stderr-line", "stdout-line");
+    const msg = buildExecErrorMessage(
+      "docker",
+      1,
+      "stderr-line",
+      "stdout-line",
+    );
     expect(msg).toBe("docker exited with code 1\nstderr-line\nstdout-line");
   });
 

@@ -29,6 +29,7 @@ const NODE_KIND_ORDER: ConceptNodeKind[] = [
   "concept",
   "skill",
   "capability",
+  "pending",
   "other",
 ];
 
@@ -57,6 +58,14 @@ const PULSE_WINDOW_MS = 2 * DAY_MS; // newer than this → pulses (unless reduce
 const FOG_FULL_BELOW = 80;
 const FOG_FLOOR_ABOVE = 340;
 const FOG_FLOOR = 0.12;
+
+// Focus ego-dim: while a concept is open in the detail drawer, its immediate
+// neighborhood (the node + direct neighbors) stays lit and everything else
+// fades to near-zero — a stronger dim than hover — so the focused node reads
+// clearly (e.g. beside the panel). Non-neighbor edges dim to the same near-zero
+// as an already-ghosted edge.
+const SELECTION_DIM_NODE = 0.05;
+const SELECTION_DIM_EDGE = 0.03;
 
 // Below this node count the graph is small enough to scan by eye — no search box.
 const SEARCH_MIN_NODES = 12;
@@ -116,6 +125,19 @@ function isStale(
     return false;
   }
   return updatedAtMs == null || now - updatedAtMs > windowMs;
+}
+
+// Predicate for the selected concept's ego-network — the node itself plus its
+// direct neighbors. The neighbor set is resolved once so per-node checks stay
+// O(1). Shared by the render loop and the hit-test so click targets always
+// match what's drawn lit (like isStale for the recency lens).
+function makeEgoTest(
+  adjacency: Map<string, Set<string>>,
+  selectedId: string | null,
+): (id: string) => boolean {
+  const neighbors = selectedId ? adjacency.get(selectedId) : undefined;
+  return (id) =>
+    selectedId != null && (id === selectedId || (neighbors?.has(id) ?? false));
 }
 
 export interface ConceptGraphViewProps {
@@ -181,28 +203,45 @@ export function ConceptGraphView({
   // force-labels these ids so a theme always reads with at least one word.
   // Disconnected nodes (degree 0) each form their own singleton cluster; they're
   // not themes, so skipping them keeps orphans from turning into label soup.
-  const clusterHubs = useMemo(() => {
-    const bestByCluster = new Map<number, GraphLayoutNode>();
+  const themes = useMemo(() => {
+    const byCluster = new Map<number, GraphLayoutNode[]>();
     for (const node of layout.nodes) {
       const cluster = clusters.get(node.id);
       if (cluster == null || node.degree === 0) {
         continue;
       }
-      const current = bestByCluster.get(cluster);
-      if (
-        !current ||
-        node.degree > current.degree ||
-        (node.degree === current.degree && node.id < current.id)
-      ) {
-        bestByCluster.set(cluster, node);
+      const arr = byCluster.get(cluster);
+      if (arr) {
+        arr.push(node);
+      } else {
+        byCluster.set(cluster, [node]);
       }
     }
-    const hubIds = new Set<string>();
-    for (const node of bestByCluster.values()) {
-      hubIds.add(node.id);
-    }
-    return hubIds;
+    // Each theme takes its hub concept (highest degree) as the compact legend
+    // name, and carries its top few concepts along for the hover tooltip.
+    // Colored to match the cluster palette; largest themes first; ties break to
+    // lowest id.
+    return [...byCluster.entries()]
+      .map(([cluster, nodes]) => {
+        const top = [...nodes]
+          .sort((a, b) => b.degree - a.degree || (a.id < b.id ? -1 : 1))
+          .slice(0, 3);
+        return {
+          hubId: top[0].id,
+          color: CLUSTER_PALETTE[cluster % CLUSTER_PALETTE.length],
+          name: top[0].label,
+          concepts: top.map((n) => n.label),
+          size: nodes.length,
+        };
+      })
+      .sort((a, b) => b.size - a.size);
   }, [clusters, layout.nodes]);
+
+  // Hub node ids the render loop force-labels (one per theme).
+  const clusterHubs = useMemo(
+    () => new Set(themes.map((t) => t.hubId)),
+    [themes],
+  );
 
   // Neighbor adjacency for hover highlighting.
   const adjacency = useMemo(() => {
@@ -262,6 +301,9 @@ export function ConceptGraphView({
   // Set by search jump-to. While non-null the render loop eases the camera each
   // frame to center this concept, then clears it once the view has settled.
   const focusTargetRef = useRef<string | null>(null);
+  // Set on dismiss so the 60fps loop eases the camera back out to the overview
+  // framing (zoom + pitch), then clears itself once settled.
+  const resetViewRef = useRef(false);
 
   // Bumped only when the focused node changes, so the DOM tooltip re-renders.
   // The canvas itself never needs React state.
@@ -269,15 +311,29 @@ export function ConceptGraphView({
   // Set while the pointer is over an EDGE (and no node) — the tooltip then
   // explains why two concepts connect. Node hover always wins (onPointerMove).
   const [edgeLabel, setEdgeLabel] = useState<string | null>(null);
-  // The concept opened into the detail drawer (null = graph only).
-  const [openNode, setOpenNode] = useState<ConceptDetailNode | null>(null);
+  // Navigable trail of opened concepts: each open pushes onto the stack, and the
+  // top (`trail.at(-1)`) is the concept the detail drawer shows. Crumbs pop back
+  // to a level; dismiss empties the trail, returning to the overview (drawer
+  // closed).
+  const [trail, setTrail] = useState<ConceptDetailNode[]>([]);
+  const openNode = trail.at(-1) ?? null;
   // Opening a concept into the detail drawer (canvas click or search result)
   // is a tracked memory interaction. Route every open through here so
   // "node_opened" is emitted exactly once per open, from one place.
   const openNodeDetail = useCallback((node: ConceptDetailNode) => {
     emitMemoryEvent("node_opened");
-    setOpenNode(node);
+    setTrail((t) => [...t, node]);
   }, []);
+  // The trail's current concept, mirrored into a ref the 60fps render loop and
+  // hit-test read (matches filterRef / recencyRef / edgeFilterRef) so opening,
+  // travelling, or closing a concept re-runs the ego-dim without re-running the
+  // render effect. `dirty` is bumped so the reduced-motion path redraws on a
+  // selection change; emptying the trail (id → null) restores normal rendering.
+  const selectedIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    selectedIdRef.current = openNode?.id ?? null;
+    view.current.dirty = true;
+  }, [openNode?.id]);
 
   // First-run explainer: shown over the graph (empty or populated) until the
   // user dismisses it; the dismissal sticks per-assistant.
@@ -369,24 +425,15 @@ export function ConceptGraphView({
   }, [edgeFilter]);
   // Reset every lens when the active assistant changes: this component is reused
   // across assistants (IdentityTab doesn't key it), so a stale search, recency
-  // window, or hidden edge kind would otherwise ghost/blank the new assistant's
-  // freshly-loaded graph.
+  // window, hidden edge kind, or open selection would otherwise ghost/blank the
+  // new assistant's freshly-loaded graph.
   useEffect(() => {
     setSearch("");
     setRecency("all");
     setEdgeFilter({ link: true, learned: true });
+    setTrail([]);
     searchEmittedRef.current = false;
   }, [assistantId]);
-
-  const labelFor = useCallback(
-    (id: string | null): string | null => {
-      if (!id) {return null;}
-      const node = layout.nodes.find((n) => n.id === id);
-      if (!node) {return null;}
-      return node.summary ? `${node.label} — ${node.summary}` : node.label;
-    },
-    [layout.nodes],
-  );
 
   const resetView = useCallback(() => {
     const v = view.current;
@@ -413,6 +460,100 @@ export function ConceptGraphView({
     view.current.dirty = true;
   }, []);
 
+  // Travel to a concept: open it into the detail drawer (pushing it onto the
+  // trail, emitting "node_opened" once) and fly the camera to center it, reusing
+  // the search jump-to ease.
+  const travelTo = useCallback(
+    (node: ConceptDetailNode) => {
+      openNodeDetail(node);
+      focusOn(node.id);
+    },
+    [openNodeDetail, focusOn],
+  );
+
+  // Fully dismiss the detail drawer back to the overview: empty the trail
+  // (closing the drawer), clear any active search (the box hides behind the
+  // drawer, so a stale search would ghost the map after close), and drop the
+  // focus label. Wired to the panel's X / Escape / backdrop so any of those
+  // closes the whole drawer from any trail depth — not just one level.
+  const dismiss = useCallback(() => {
+    setTrail([]);
+    setSearch("");
+    setFocusLabel(null);
+    // Zoom back out to the overview after closing the drawer: clear any focus
+    // target (so it doesn't fight the ease) and let the loop ease zoom/pitch home.
+    focusTargetRef.current = null;
+    resetViewRef.current = true;
+  }, []);
+
+  // Jump to a breadcrumb (the ‹ back control and crumb clicks): truncate the
+  // trail to `index` (keep 0..index) and re-center on that concept. A real crumb
+  // index is always >= 0, so the panel stays open — crumb clicks rewind the
+  // multi-level trail without closing the drawer. Clears any active search first:
+  // the box is hidden behind the open drawer, so a stale search would leave a
+  // traveled-to non-match node centered but ghosted with no way to clear it.
+  const goToCrumb = useCallback(
+    (index: number) => {
+      setSearch("");
+      const next = trail.slice(0, index + 1);
+      setTrail(next);
+      const top = next.at(-1);
+      if (top) {
+        focusOn(top.id);
+      } else {
+        setFocusLabel(null);
+      }
+    },
+    [trail, focusOn],
+  );
+
+  // WIRED-TO travel from the panel clears any active search first: the search
+  // box is hidden behind the open drawer, so a stale search would leave a
+  // traveled-to non-match node centered but ghosted with no way to clear it.
+  // Canvas + search-result travel keep the box visible, so they intentionally
+  // don't clear it (that's plain travelTo). Breadcrumb navigation clears the
+  // search too, but does so inside goToCrumb itself.
+  const travelFromPanel = useCallback(
+    (node: ConceptDetailNode) => {
+      setSearch("");
+      travelTo(node);
+    },
+    [travelTo],
+  );
+
+  // Direct neighbors of the open concept, resolved to { id, label, kind } for the
+  // detail panel's WIRED-TO list. Neighbor ids come from the adjacency map;
+  // labels from layout.nodes; the connecting edge's kind (link vs learned) tags
+  // each neighbor without grouping them. Sorted by label so the list is scannable.
+  const neighbors = useMemo(() => {
+    const currentId = openNode?.id;
+    if (!currentId) {
+      return [];
+    }
+    const ids = adjacency.get(currentId);
+    if (!ids || ids.size === 0) {
+      return [];
+    }
+    const labelById = new Map(layout.nodes.map((n) => [n.id, n.label]));
+    const kindById = new Map<string, string>();
+    for (const e of layout.edges) {
+      if (e.fromId === currentId) {
+        kindById.set(e.toId, e.kind);
+      } else if (e.toId === currentId) {
+        kindById.set(e.fromId, e.kind);
+      }
+    }
+    const out: { id: string; label: string; kind?: string }[] = [];
+    for (const id of ids) {
+      const label = labelById.get(id);
+      if (label != null) {
+        out.push({ id, label, kind: kindById.get(id) });
+      }
+    }
+    out.sort((a, b) => a.label.localeCompare(b.label));
+    return out;
+  }, [openNode?.id, adjacency, layout.nodes, layout.edges]);
+
   useEffect(() => {
     if (!ready) {return;}
     const canvas = canvasRef.current;
@@ -428,6 +569,10 @@ export function ConceptGraphView({
     const nodeClusters = clusters;
     const hubIds = clusterHubs;
     const adj = adjacency;
+    // Ids present in the current graph — used to ignore a stale selection (e.g.
+    // a same-assistant refetch that drops the open node) so focus-dim never
+    // blanks the whole map against a node that no longer exists.
+    const presentNodeIds = new Set(nodes.map((n) => n.id));
     const R = massRadius;
 
     const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -505,6 +650,19 @@ export function ConceptGraphView({
         }
       }
 
+      // After the drawer is dismissed, ease the camera back out to the overview
+      // framing (default zoom + pitch); yaw keeps its idle drift. Skipped while
+      // dragging so a manual orbit isn't fought; clears itself once settled.
+      if (resetViewRef.current && !v.dragging) {
+        const k = reduceMotion ? 1 : 0.15;
+        v.pitch += (0.32 - v.pitch) * k;
+        v.zoom += (1 - v.zoom) * k;
+        v.dirty = true;
+        if (Math.abs(0.32 - v.pitch) < 0.01 && Math.abs(1 - v.zoom) < 0.02) {
+          resetViewRef.current = false;
+        }
+      }
+
       // With reduced motion there is no auto-rotation, so the scene is static
       // between inputs — don't re-project and redraw identical frames.
       if (reduceMotion && !v.dirty) {
@@ -545,6 +703,14 @@ export function ConceptGraphView({
 
       // Edge-kind toggle: a hidden kind is skipped entirely below.
       const edgeKinds = edgeFilterRef.current;
+
+      // Focus ego-dim: while a concept is open, spotlight its neighborhood (the
+      // node + direct neighbors) and fade everything else to near-zero. The
+      // selected ego-network overrides the recency window and edge-kind filter
+      // so it always reads and stays interactive; search still narrows normally.
+      const selectedId = selectedIdRef.current;
+      const selectionActive = selectedId != null && presentNodeIds.has(selectedId);
+      const inSelectedEgo = makeEgoTest(adj, selectionActive ? selectedId : null);
 
       // Density fog: fade the resting learned-edge web as the corpus grows.
       const learnedFog =
@@ -598,20 +764,28 @@ export function ConceptGraphView({
         const b = posById.get(e.toId);
         if (!a || !b) {continue;}
         const learned = e.kind === "learned";
+        // Spine of the focused ego-network: an edge touching the selected node
+        // (selected ↔ neighbor). It overrides the edge-kind filter and the
+        // recency window so the neighborhood stays wired and interactive.
+        const egoEdge =
+          selectedId != null &&
+          (e.fromId === selectedId || e.toId === selectedId);
         // A hidden kind is neither drawn nor collected for edge-hover, so the
-        // hit-test stays consistent with what's on screen.
-        if (learned ? !edgeKinds.learned : !edgeKinds.link) {
+        // hit-test stays consistent with what's on screen — unless it's an ego
+        // edge, which selection keeps visible even when its kind is filtered.
+        if (!egoEdge && (learned ? !edgeKinds.learned : !edgeKinds.link)) {
           continue;
         }
-        // An edge ghosts if either endpoint is ghosted by search or recency.
+        // An edge ghosts if either endpoint is ghosted by search or recency;
+        // selection overrides the recency window for the ego edges.
         const ghost =
           (searchActive && (!isMatch(e.fromId) || !isMatch(e.toId))) ||
-          isRecencyGhost(a.node) ||
-          isRecencyGhost(b.node);
+          (!egoEdge && (isRecencyGhost(a.node) || isRecencyGhost(b.node)));
         const incident = activeId != null && (e.fromId === activeId || e.toId === activeId);
         const depth = (a.depth + b.depth) / 2;
-        // Only offer hover on edges that read as present — skip faded ones.
-        if (!ghost) {
+        // Only offer hover on edges that read as present — skip faded ones. With
+        // a selection, only the lit ego edges are hit-testable (the rest dim).
+        if (!ghost && (!selectionActive || egoEdge)) {
           projEdges.push({
             ax: a.sx,
             ay: a.sy,
@@ -630,6 +804,10 @@ export function ConceptGraphView({
         let alpha: number;
         if (ghost) {
           alpha = 0.03;
+        } else if (selectionActive) {
+          // Ego-dim: only edges touching the selected node stay bright; every
+          // other edge fades to near-zero so the neighborhood reads.
+          alpha = egoEdge ? 0.9 : SELECTION_DIM_EDGE;
         } else if (activeId != null) {
           alpha = incident ? 0.9 : isLit(e.fromId) && isLit(e.toId) ? litAlpha : 0.05;
         } else {
@@ -637,7 +815,9 @@ export function ConceptGraphView({
         }
         ctx.globalAlpha = alpha;
         ctx.strokeStyle = learned ? EDGE_LEARNED_COLOR : colors.tertiary;
-        ctx.lineWidth = (incident ? 2 : 1) * (0.6 + 0.6 * depth);
+        ctx.lineWidth =
+          (incident || (selectionActive && egoEdge) ? 2 : 1) *
+          (0.6 + 0.6 * depth);
         ctx.setLineDash(learned ? [4, 4] : []);
         ctx.beginPath();
         ctx.moveTo(a.sx, a.sy);
@@ -657,11 +837,25 @@ export function ConceptGraphView({
             ? CLUSTER_PALETTE[(nodeClusters.get(node.id) ?? 0) % CLUSTER_PALETTE.length]
             : NODE_KIND_COLORS[node.kind];
         const searchGhost = searchActive && !isMatch(node.id);
-        const ghost = searchGhost || isRecencyGhost(node);
-        const lit = !ghost && isLit(node.id);
+        // Selection overrides the recency window for the focused ego-network so
+        // it stays lit; search still narrows normally.
+        const inEgo = inSelectedEgo(node.id);
+        const ghost = searchGhost || (isRecencyGhost(node) && !inEgo);
+        // With a selection, only its neighborhood is lit; otherwise fall back to
+        // the hover neighborhood.
+        const lit = selectionActive
+          ? inEgo && !ghost
+          : !ghost && isLit(node.id);
         const isActive = node.id === activeId;
         const depthA = DEPTH_ALPHA_MIN + (1 - DEPTH_ALPHA_MIN) * p.depth;
-        const alpha = ghost ? depthA * 0.08 : lit ? depthA : depthA * 0.18;
+        const alpha =
+          selectionActive && !inEgo
+            ? depthA * SELECTION_DIM_NODE
+            : ghost
+              ? depthA * 0.08
+              : lit
+                ? depthA
+                : depthA * 0.18;
 
         let glow = (isActive ? 16 : node.degree >= HUB_LABEL_DEGREE ? 8 : 4) * p.depth;
         // Recency: fresh concepts glow brighter; the very newest pulse. Static
@@ -681,7 +875,12 @@ export function ConceptGraphView({
         ctx.shadowColor = color;
         ctx.shadowBlur = lit ? glow : 0;
 
-        ctx.globalAlpha = alpha * 0.55;
+        // Pending buffer entries render as a lighter fill with a dashed ring —
+        // "saved but not yet filed" — so they read apart from settled concepts
+        // even where the amber overlaps a cluster hue.
+        const isPending = node.kind === "pending";
+
+        ctx.globalAlpha = alpha * (isPending ? 0.3 : 0.55);
         ctx.fillStyle = color;
         ctx.beginPath();
         ctx.arc(p.sx, p.sy, p.sr, 0, Math.PI * 2);
@@ -691,7 +890,9 @@ export function ConceptGraphView({
         ctx.globalAlpha = alpha;
         ctx.lineWidth = isActive ? 2.5 : 1.4;
         ctx.strokeStyle = color;
+        ctx.setLineDash(isPending ? [3, 3] : []);
         ctx.stroke();
+        ctx.setLineDash([]);
       }
       ctx.shadowBlur = 0;
 
@@ -706,16 +907,28 @@ export function ConceptGraphView({
         // the dense middle of the mass doesn't turn into unreadable label soup —
         // but always label each cluster's hub so every theme reads with a name.
         // While searching, label the matches instead (that's what you're after).
-        // Ghosted nodes (search or recency) never get labels.
-        if ((searchActive && !isMatch(node.id)) || isRecencyGhost(node)) {continue;}
-        const showLabel = searchActive
-          ? p.depth > 0.3
-          : activeId != null
-            ? isLit(node.id)
-            : hubIds.has(node.id) ||
-              (node.degree >= HUB_LABEL_DEGREE && p.depth > 0.55);
+        // With a selection, name the whole focused neighborhood. Ghosted nodes
+        // (search or recency) never get labels — but the selected ego-network
+        // overrides the recency window.
+        const inEgo = inSelectedEgo(node.id);
+        if (
+          (searchActive && !isMatch(node.id)) ||
+          (isRecencyGhost(node) && !inEgo)
+        ) {
+          continue;
+        }
+        const showLabel = selectionActive
+          ? inEgo
+          : searchActive
+            ? p.depth > 0.3
+            : activeId != null
+              ? isLit(node.id)
+              : hubIds.has(node.id) ||
+                (node.degree >= HUB_LABEL_DEGREE && p.depth > 0.55);
         if (!showLabel) {continue;}
-        ctx.globalAlpha = (node.id === activeId ? 1 : 0.85) * (0.4 + 0.6 * p.depth);
+        ctx.globalAlpha =
+          (node.id === activeId || node.id === selectedId ? 1 : 0.85) *
+          (0.4 + 0.6 * p.depth);
         ctx.fillStyle = colors.content;
         const label = node.label.length > 22 ? `${node.label.slice(0, 21)}…` : node.label;
         ctx.fillText(label, p.sx, p.sy + p.sr + 3);
@@ -745,16 +958,24 @@ export function ConceptGraphView({
   // Nearest node under a screen point; nearest-in-front wins. Ghosted nodes are
   // skipped so hover/click land on a live node, not a faded background one: both
   // search non-matches and, when a recency window is set, concepts older than it
-  // (a missing timestamp counts as stale). Mirrors the render-loop ghosting.
+  // (a missing timestamp counts as stale). A selected concept's ego-network is
+  // exempt from the recency skip so the focused neighborhood stays clickable.
+  // Mirrors the render-loop ghosting.
   const hitTest = useCallback((x: number, y: number): string | null => {
     const filter = filterRef.current;
     const recencyWindowMs = recencyRef.current;
+    // The focused ego-network stays clickable even when a recency window would
+    // otherwise skip it (selection overrides the filter); search still narrows.
+    const inSelectedEgo = makeEgoTest(adjacency, selectedIdRef.current);
     const now = Date.now();
     let best: string | null = null;
     let bestDepth = -1;
     for (const p of projectedRef.current) {
       if (filter.active && !(filter.matches?.has(p.id) ?? false)) {continue;}
-      if (isStale(p.updatedAtMs, recencyWindowMs, now)) {
+      if (
+        !inSelectedEgo(p.id) &&
+        isStale(p.updatedAtMs, recencyWindowMs, now)
+      ) {
         continue;
       }
       const dx = x - p.sx;
@@ -765,7 +986,7 @@ export function ConceptGraphView({
       }
     }
     return best;
-  }, []);
+  }, [adjacency]);
 
   // Nearest EDGE segment under a screen point, within ~5px (point-to-segment
   // distance); on ties the one nearer the front (higher depth) wins. Only the
@@ -843,7 +1064,6 @@ export function ConceptGraphView({
       if (hit !== v.hoveredId) {
         v.hoveredId = hit;
         v.dirty = true;
-        setFocusLabel(labelFor(hit));
       }
       // Node hover wins: only probe edges when no node is under the cursor.
       if (hit) {
@@ -853,7 +1073,7 @@ export function ConceptGraphView({
         setEdgeLabel(edge ? labelForEdge(edge) : null);
       }
     },
-    [hitTest, labelFor, edgeHitTest],
+    [hitTest, edgeHitTest],
   );
 
   const onPointerUp = useCallback(
@@ -873,10 +1093,10 @@ export function ConceptGraphView({
         const { x, y } = localPoint(e);
         const hit = hitTest(x, y);
         if (hit) {
-          // Click a node → open its concept page in the detail drawer.
+          // Click a node → travel to it: center the camera and open its page.
           const n = layout.nodes.find((nn) => nn.id === hit);
           if (n) {
-            openNodeDetail({
+            travelTo({
               id: n.id,
               label: n.label,
               updatedAtMs: n.updatedAtMs,
@@ -887,7 +1107,7 @@ export function ConceptGraphView({
         }
       }
     },
-    [hitTest, layout.nodes, openNodeDetail],
+    [hitTest, layout.nodes, travelTo],
   );
 
   // Hover is only ever rewritten by moves inside the container, so without
@@ -974,9 +1194,35 @@ export function ConceptGraphView({
       />
     );
   } else {
+    // Brain-vocabulary stat header: neurons (nodes), synapses (edges), and
+    // lobes (distinct detected clusters). Only reached inside the ready body
+    // (nodes.length > 0), so it always has live counts to show.
+    const neurons = layout.nodes.length;
+    const synapses = layout.edges.length;
+    const lobes = new Set(clusters.values()).size;
+    const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
     body = (
       <>
         <canvas ref={canvasRef} className="absolute inset-0 h-full w-full" />
+
+        {/* Brain-vocabulary stat header. Tagged data-graph-control so a
+            pointer-down on it bails the orbit-drag. Yields the top-center slot
+            to the intro banner and to a hover tooltip so the pills never stack. */}
+        {!showIntro && focusLabel == null && edgeLabel == null ? (
+          <div
+            data-graph-control
+            className="absolute left-1/2 top-4 -translate-x-1/2 rounded-full px-3 py-1 text-[11px] tabular-nums"
+            style={{
+              backgroundColor: "color-mix(in srgb, var(--surface-base) 82%, transparent)",
+              border: "1px solid var(--border-base)",
+              color: "var(--content-tertiary)",
+            }}
+          >
+            {plural(neurons, "neuron")} · {plural(synapses, "synapse")} ·{" "}
+            {plural(lobes, "lobe")}
+          </div>
+        ) : null}
 
         {/* Keep the box visible whenever a search is active, even if the graph
             shrank below the threshold (e.g. a refetch) — otherwise an active
@@ -1059,14 +1305,13 @@ export function ConceptGraphView({
                   <li key={node.id}>
                     <button
                       type="button"
-                      onClick={() => {
-                        focusOn(node.id);
-                        openNodeDetail({
+                      onClick={() =>
+                        travelTo({
                           id: node.id,
                           label: node.label,
                           updatedAtMs: node.updatedAtMs,
-                        });
-                      }}
+                        })
+                      }
                       className="block w-full truncate px-3 py-1 text-left text-[12px] hover:bg-[color-mix(in_srgb,var(--content-tertiary)_14%,transparent)]"
                       style={{ color: "var(--content-default)" }}
                     >
@@ -1096,6 +1341,7 @@ export function ConceptGraphView({
         <ConceptGraphLegend
           nodeKinds={presentKinds.filter((k) => k !== "concept")}
           coloredByTheme={presentKinds.includes("concept")}
+          themes={themes}
           hasLinks={hasLinks}
           hasLearned={hasLearned}
           {...(hasLinks && hasLearned
@@ -1210,7 +1456,11 @@ export function ConceptGraphView({
         <ConceptDetailPanel
           assistantId={assistantId}
           node={openNode}
-          onClose={() => setOpenNode(null)}
+          trail={trail}
+          neighbors={neighbors}
+          onTravel={travelFromPanel}
+          onCrumb={goToCrumb}
+          onClose={dismiss}
           onOpenThread={onOpenThread}
         />
       ) : null}

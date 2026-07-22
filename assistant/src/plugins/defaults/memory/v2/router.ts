@@ -47,16 +47,16 @@ import {
   type ToolDefinition,
 } from "../llm-helpers.js";
 import { getLogger } from "../logging.js";
-import { computeInjectionScores } from "./injection-events.js";
-import type { PageIndex } from "./page-index.js";
+import type { PageIndex } from "../v3/substrate/page-index.js";
 import {
   getPageIndex,
   partitionPageIndex,
   splitTier1,
   splitTier2,
-} from "./page-index.js";
+} from "../v3/substrate/page-index.js";
+import type { EverInjectedEntry } from "../v3/substrate/types.js";
+import { computeInjectionScores } from "./injection-events.js";
 import { resolveRouterPrompt } from "./prompts/router.js";
-import type { EverInjectedEntry } from "./types.js";
 
 const log = getLogger("memory-v2-router");
 
@@ -171,6 +171,11 @@ export interface RouterTurnPair {
 
 interface RunRouterParams {
   workspaceDir: string;
+  /**
+   * Conversation the routed turn belongs to, stamped on the provider config
+   * for usage-ledger attribution. Simulator callers leave it unset.
+   */
+  conversationId?: string;
   /**
    * Recent assistant/user turn pairs, oldest first. Must contain at
    * least one entry. The last entry's `userMessage` is the just-arrived
@@ -446,6 +451,7 @@ async function runRouterBatch(
       systemPrompt,
       config: {
         callSite: "memoryRouter" as const,
+        conversationId: params.conversationId,
         tool_choice: { type: "tool" as const, name: ROUTER_TOOL_NAME },
         disableTurnStartCache: true,
       },

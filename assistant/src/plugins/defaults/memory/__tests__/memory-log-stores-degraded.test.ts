@@ -8,18 +8,13 @@
  * resolves to null without mocking any module (module mocks would leak into
  * other test files in the same run).
  */
-import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-
-import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import type { DrizzleDb } from "../../../../persistence/db-connection.js";
 import {
   clearStoredDb,
   setStoredDb,
 } from "../../../../persistence/db-singleton.js";
-import { migrateAddMemoryV3EverInjected } from "../../../../persistence/migrations/277-add-memory-v3-ever-injected.js";
-import * as schema from "../../../../persistence/schema/index.js";
 import {
   backfillMemoryRecallLogMessageId,
   getMemoryRecallLogByMessageIds,
@@ -104,45 +99,30 @@ describe("memory log stores without a memory database", () => {
 });
 
 describe("memory-v3 prune valve without a memory database", () => {
-  // The valve's candidate accounting (`memory_v3_ever_injected`) lives in the
-  // MAIN database, which stays available — install a schema-bearing in-memory
-  // main DB into the `main` singleton slot so only the memory connection
-  // (degraded by the outer beforeEach) is down.
-  let mainSqlite: Database;
-
-  beforeEach(() => {
-    mainSqlite = new Database(":memory:");
-    const mainDb = drizzle(mainSqlite, { schema });
-    migrateAddMemoryV3EverInjected(mainDb);
-    setStoredDb("main", mainDb, () => mainSqlite.close());
-  });
-
-  afterEach(() => {
-    clearStoredDb("main");
-  });
-
-  test("planPrune falls back to injected_at recency without throwing", () => {
-    // With the memory DB unavailable the selection-recency read degrades to
-    // no rows, so every candidate ranks by its injected_at fallback.
+  // The valve's candidate accounting (`memory_v3_ever_injected`) now lives on
+  // the memory connection too, degraded by the outer beforeEach. With no
+  // resident candidates the valve cannot plan a prune, so it no-ops rather than
+  // throwing.
+  test("planPrune no-ops (returns null) when candidate accounting is unavailable", () => {
+    // The record write is a no-op (memory DB down), so the valve reads no
+    // resident entries.
     recordInjected(
       "conv-degraded-prune",
       [{ slug: "domain-a/page-old", bytes: 600 }],
       1_000,
     );
-    recordInjected(
-      "conv-degraded-prune",
-      [{ slug: "domain-a/page-new", bytes: 500 }],
-      2_000,
-    );
 
-    const plan = planPrune(
-      {
-        maxResidentBytes: 1_000,
-        targetResidentBytes: 500,
-        exemptSlugs: new Set(),
-      },
-      "conv-degraded-prune",
-    );
-    expect(plan).toEqual({ slugs: ["domain-a/page-old"], bytesFreed: 600 });
+    let plan: ReturnType<typeof planPrune> | undefined;
+    expect(() => {
+      plan = planPrune(
+        {
+          maxResidentBytes: 1_000,
+          targetResidentBytes: 500,
+          exemptSlugs: new Set(),
+        },
+        "conv-degraded-prune",
+      );
+    }).not.toThrow();
+    expect(plan).toBeNull();
   });
 });

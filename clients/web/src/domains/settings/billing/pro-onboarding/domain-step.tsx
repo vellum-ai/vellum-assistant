@@ -1,37 +1,54 @@
-import { ArrowLeft, Mail } from "lucide-react";
 import { useEffect, useState } from "react";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import {
-    assistantsActiveRetrieveOptions,
-    assistantsDomainsListOptions,
+    assistantsDomainsListQueryKey,
     assistantsListQueryKey,
     organizationsBillingSubscriptionOnboardingDomainCreateMutation,
+    organizationsBillingSubscriptionOnboardingRetrieveQueryKey,
 } from "@/generated/api/@tanstack/react-query.gen";
 import { useEnvironmentStore } from "@/stores/environment-store";
 import { Button } from "@vellumai/design-library/components/button";
 import { Modal } from "@vellumai/design-library/components/modal";
 import { Notice } from "@vellumai/design-library/components/notice";
-import { Typography } from "@vellumai/design-library/components/typography";
 
-import { DomainField } from "@/domains/settings/components/domain-field";
-import { IconBadge, StepDots } from "./primitives";
+import type { StalledApplyAction } from "./primitives";
+import {
+    CreatureCorners,
+    StalledApplyControls,
+    SUBTLE_NOTICE_CLASS,
+    SUBTLE_NOTICE_TEXT_CLASS,
+    WizardCardHeading,
+} from "./primitives";
+import { useAssistantDomains } from "./use-assistant-domains";
 import { DOMAIN_EXIT_DELAY_MS, extractOnboardingErrorMessage } from "./utils";
 
-export function DomainStep({ onBack, onExit }: { onBack: () => void; onExit: () => void }) {
+const FIELD_CLASSES =
+  "h-8 rounded-lg border border-[var(--border-element)] bg-[var(--field-bg)] px-2.5 text-[14px] text-[var(--content-default)] placeholder:text-[var(--content-tertiary)] outline-none transition-[border-color] duration-150 focus:border-[var(--border-active)] disabled:cursor-not-allowed disabled:opacity-60";
+const LABEL_CLASSES = "text-[11px] font-medium text-[var(--content-secondary)]";
+
+export function DomainStep({
+  onExit,
+  machineBusy = false,
+  stalledAction,
+  assistantId: preferredAssistantId,
+}: {
+  onExit: () => void;
+  /** The assistant machine is restarting (webhook-driven resize in flight). */
+  machineBusy?: boolean;
+  /** Set only while the resize is stalled — offers the manual apply here. */
+  stalledAction?: StalledApplyAction;
+  /** The provisioning target assistant (onboarding primary, else active). */
+  assistantId?: string | null;
+}) {
   const queryClient = useQueryClient();
   const emailRootDomain = useEnvironmentStore.use.emailRootDomain();
-  const { data: activeAssistant } = useQuery(assistantsActiveRetrieveOptions());
-  const assistantId = activeAssistant?.id;
-
-  const { data: domainsData } = useQuery({
-    ...assistantsDomainsListOptions({
-      path: { assistant_id: assistantId ?? "" },
-    }),
-    enabled: !!assistantId,
-  });
-  const existingDomain = domainsData?.results?.[0];
+  const { assistant, assistantId, domains } = useAssistantDomains(
+    true,
+    preferredAssistantId,
+  );
+  const existingDomain = domains?.results[0];
 
   const [subdomain, setSubdomain] = useState("");
   const [emailUsername, setEmailUsername] = useState("hi");
@@ -44,10 +61,12 @@ export function DomainStep({ onBack, onExit }: { onBack: () => void; onExit: () 
       setPrefilled(true);
       return;
     }
-    if (!activeAssistant?.handle || subdomain) return;
-    setSubdomain(activeAssistant.handle);
+    if (!assistant?.handle || subdomain) {
+      return;
+    }
+    setSubdomain(assistant.handle);
     setPrefilled(true);
-  }, [activeAssistant?.handle, existingDomain, prefilled, subdomain]);
+  }, [assistant?.handle, existingDomain, prefilled, subdomain]);
 
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [confirmed, setConfirmed] = useState(false);
@@ -65,7 +84,9 @@ export function DomainStep({ onBack, onExit }: { onBack: () => void; onExit: () 
   }, [confirmed, onExit]);
 
   const handleSet = () => {
-    if (busy || !subdomain) return;
+    // Registering the email writes to the machine's gateway over the guardian
+    // channel, so it must wait until the machine is back online.
+    if (busy || machineBusy || !subdomain) return;
     domainMutation.mutate(
       {
         body: {
@@ -78,6 +99,14 @@ export function DomainStep({ onBack, onExit }: { onBack: () => void; onExit: () 
           setErrorMsg(null);
           setConfirmed(true);
           void queryClient.invalidateQueries({ queryKey: assistantsListQueryKey() });
+          void queryClient.invalidateQueries({
+            queryKey: assistantsDomainsListQueryKey({
+              path: { assistant_id: assistantId ?? "" },
+            }),
+          });
+          void queryClient.invalidateQueries({
+            queryKey: organizationsBillingSubscriptionOnboardingRetrieveQueryKey(),
+          });
         },
         onError: (err) => {
           setErrorMsg(
@@ -101,118 +130,126 @@ export function DomainStep({ onBack, onExit }: { onBack: () => void; onExit: () 
 
   return (
     <>
-      <Modal.Body
-        className="min-h-[320px] space-y-5 pt-10 pb-4"
-        style={{ animation: "onboarding-step-in 350ms ease-out" }}
-      >
-        <div className="flex flex-col items-center gap-3 pb-2 text-center">
-          <IconBadge icon={Mail} />
-          <div className="space-y-2">
-            <Typography variant="title-small" as="h1">
-              Assistant email
-            </Typography>
-            <Typography
-              variant="body-medium-lighter"
-              as="p"
-              className="text-[var(--content-secondary)]"
-            >
-              Set up an email address for your assistant.
-            </Typography>
-          </div>
-        </div>
+      {/* `pb-0` + the footer's `pt-6` give the mock's 24px gap to the actions.
+          The creature layer leads so `space-y-6` can't hang a trailing margin
+          off the last flowing child. */}
+      <Modal.Body className="animate-[onboarding-step-in_350ms_ease-out] space-y-6 pb-0 motion-reduce:animate-none">
+        <CreatureCorners variant="top" />
+        <WizardCardHeading
+          title="Assistant Email"
+          subtitle="Set up an email for your assistant."
+        />
 
         <div className="space-y-1.5">
-          <Typography
-            variant="body-small-default"
-            as="label"
-            className="text-[var(--content-secondary)]"
-          >
-            Email address
-          </Typography>
-          <DomainField
-            subdomain={subdomain}
-            autoFocus
-            onSubdomainChange={(v) => {
-              setSubdomain(v);
-              if (errorMsg) setErrorMsg(null);
-            }}
-            domainSuffix={emailRootDomain}
-            disabled={busy}
-            error={errorMsg}
-            locked={isLocked}
-            lockedMessage="This domain has been set and cannot be changed."
-            prefix={
-              <>
-                <input
-                  value={emailUsername}
-                  onChange={(e) => setEmailUsername(e.target.value.toLowerCase().trim())}
-                  disabled={busy || isLocked}
-                  readOnly={isLocked}
-                  placeholder="hi"
-                  aria-label="Email username"
-                  size={Math.max(emailUsername.length, 2)}
-                  className="h-full w-0 min-w-[2ch] flex-none bg-transparent pl-3 pr-1.5 text-[var(--content-default)] placeholder:text-[var(--content-tertiary)] outline-none disabled:cursor-not-allowed disabled:opacity-60"
-                  style={{ width: `${Math.max(emailUsername.length, 2) + 1.5}ch` }}
-                />
-                <span className="shrink-0 font-mono text-[var(--content-secondary)]">@</span>
-              </>
-            }
-          />
+          <div className="flex items-end gap-2">
+            <div className="flex flex-col gap-1">
+              <label htmlFor="onboarding-email-prefix" className={LABEL_CLASSES}>
+                Prefix
+              </label>
+              <input
+                id="onboarding-email-prefix"
+                value={emailUsername}
+                onChange={(e) =>
+                  setEmailUsername(e.target.value.toLowerCase().trim())
+                }
+                disabled={busy || isLocked}
+                readOnly={isLocked}
+                placeholder="hi"
+                className={`${FIELD_CLASSES} w-24`}
+              />
+            </div>
+            <span className="flex h-8 items-center text-[var(--content-secondary)]">
+              @
+            </span>
+            <div className="flex min-w-0 flex-1 flex-col gap-1">
+              <label htmlFor="onboarding-email-handle" className={LABEL_CLASSES}>
+                Handle (public)
+              </label>
+              <input
+                id="onboarding-email-handle"
+                value={subdomain}
+                onChange={(e) => {
+                  setSubdomain(e.target.value.toLowerCase().trim());
+                  if (errorMsg) setErrorMsg(null);
+                }}
+                disabled={busy || isLocked}
+                readOnly={isLocked}
+                autoFocus
+                placeholder="my-assistant"
+                aria-invalid={!!errorMsg}
+                className={`${FIELD_CLASSES} w-full min-w-0`}
+              />
+            </div>
+            <span className="flex h-8 shrink-0 items-center text-[14px] text-[var(--content-tertiary)]">
+              .{emailRootDomain}
+            </span>
+          </div>
+          {errorMsg && (
+            <p className="text-body-small-default text-[var(--system-negative-strong)]">
+              {errorMsg}
+            </p>
+          )}
+          {isLocked && (
+            <p className="text-body-small-default text-[var(--content-tertiary)]">
+              This domain has been set and cannot be changed.
+            </p>
+          )}
         </div>
 
+        {stalledAction && !isLocked ? (
+          <StalledApplyControls
+            action={stalledAction}
+            buttonTestId="domain-stalled-apply"
+          />
+        ) : (
+          machineBusy &&
+          !isLocked && (
+            <Notice tone="neutral">
+              Your assistant is restarting — you can set the domain in a
+              moment.
+            </Notice>
+          )
+        )}
         {!isLocked && (
-          <Notice tone="info">
-            <span className="font-mono">{subdomain || "<subdomain>"}</span> will also become your assistant&apos;s public handle.
-            You won&apos;t be able to change it once set.
+          <Notice tone="info" className={SUBTLE_NOTICE_CLASS}>
+            <span className={SUBTLE_NOTICE_TEXT_CLASS}>
+              You won&apos;t be able to change the handle once set.
+            </span>
           </Notice>
         )}
         {confirmed ? (
           <Notice tone="success">Domain set — redirecting…</Notice>
         ) : null}
       </Modal.Body>
-      <Modal.Footer className="relative items-center justify-between">
-        <Button
-          variant="ghost"
-          data-testid="onboarding-domain-back"
-          disabled={busy}
-          onClick={onBack}
-          leftIcon={<ArrowLeft className="h-4 w-4" />}
-        >
-          Back
-        </Button>
-        <div className="pointer-events-none absolute inset-x-0 flex justify-center">
-          <StepDots current={0} />
-        </div>
-        <div className="flex items-center gap-2">
-          {isLocked ? (
+      <Modal.Footer className="items-center pt-6">
+        {isLocked ? (
+          <Button
+            variant="primary"
+            data-testid="onboarding-domain-continue"
+            onClick={onExit}
+          >
+            Continue
+          </Button>
+        ) : (
+          <>
+            <Button
+              variant="outlined"
+              data-testid="onboarding-domain-skip"
+              disabled={busy}
+              onClick={handleSkip}
+            >
+              Skip
+            </Button>
             <Button
               variant="primary"
-              data-testid="onboarding-domain-continue"
-              onClick={onExit}
+              data-testid="onboarding-domain-set"
+              disabled={!subdomain || busy || machineBusy}
+              onClick={handleSet}
             >
-              Continue
+              Next
             </Button>
-          ) : (
-            <>
-              <Button
-                variant="ghost"
-                data-testid="onboarding-domain-skip"
-                disabled={busy}
-                onClick={handleSkip}
-              >
-                Do later
-              </Button>
-              <Button
-                variant="primary"
-                data-testid="onboarding-domain-set"
-                disabled={!subdomain || busy}
-                onClick={handleSet}
-              >
-                Set domain
-              </Button>
-            </>
-          )}
-        </div>
+          </>
+        )}
       </Modal.Footer>
     </>
   );

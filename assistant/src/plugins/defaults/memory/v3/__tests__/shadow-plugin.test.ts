@@ -10,7 +10,7 @@
  *   - lazy-init runs the lane builders only once across multiple turns, and
  *     `invalidateLanes` forces exactly one rebuild;
  *   - `initLanes` feeds synthetic capability pages (skills / CLI commands) into
- *     the section index via `renderCapabilityContent`, so the needle lane ranks
+ *     the section index via `renderCapabilityBody`, so the needle lane ranks
  *     them like any other page (they are no longer always-added to the pool).
  *
  * All heavy dependencies (config, flag resolver, conversation reads, v2 page
@@ -28,8 +28,8 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import { setConfig } from "../../../../../__tests__/helpers/set-config.js";
 import { MemoryV3GateSchema } from "../../../../../config/schemas/memory-v3.js";
-import { migrateAddMemoryV3EverInjected } from "../../../../../persistence/migrations/277-add-memory-v3-ever-injected.js";
 import { ensureMemoryV3SelectionsSchema } from "../../../../../persistence/migrations/338-move-memory-v3-selections-to-memory-db.js";
+import { ensureMemoryV3EverInjectedSchema } from "../../../../../persistence/migrations/345-move-memory-v3-ever-injected-to-memory-db.js";
 import * as schema from "../../../../../persistence/schema/index.js";
 import type { HotSetEntry, HotSetOptions } from "../hot-set.js";
 import type { OrchestrateResult } from "../orchestrate.js";
@@ -62,16 +62,16 @@ const realOrchestrate = { ...(await import("../orchestrate.js")) };
 const realLearnedEdges = { ...(await import("../learned-edges.js")) };
 const realPlatform = { ...(await import("../../../../../util/platform.js")) };
 const realPageStore = {
-  ...(await import("../../v2/page-store.js")),
+  ...(await import("../substrate/page-store.js")),
 };
 const realConversationCrud = {
   ...(await import("../../../../../persistence/conversation-crud.js")),
 };
 const realSkillStore = {
-  ...(await import("../../v2/skill-store.js")),
+  ...(await import("../substrate/skill-store.js")),
 };
 const realCliCommandStore = {
-  ...(await import("../../v2/cli-command-store.js")),
+  ...(await import("../substrate/cli-command-store.js")),
 };
 const realCoreSet = { ...(await import("../core-set.js")) };
 const realHotSet = { ...(await import("../hot-set.js")) };
@@ -169,9 +169,9 @@ let hotSetOpts: HotSetOptions | null = null;
 // page body.
 let capturedPageBody: ((slug: string) => Promise<string>) | null = null;
 
-// Shared in-memory DBs so writes are observable from the test. Selection rows
-// live on the dedicated memory connection (`memorySqlite`, resolved through
-// the stubbed `getMemorySqlite`); the everInjected store stays in main.
+// Shared in-memory DBs so writes are observable from the test. The selection
+// and everInjected rows live on the dedicated memory connection (`memorySqlite`,
+// resolved through the stubbed `getMemorySqlite`).
 let testSqlite: Database;
 let memorySqlite: Database;
 // When false, the stubbed `getMemorySqlite` resolves to null — the contract
@@ -182,10 +182,10 @@ function makeDb() {
   testSqlite = new Database(":memory:");
   testSqlite.exec("PRAGMA journal_mode=WAL");
   const db = drizzle(testSqlite, { schema });
-  // The live injector's net-new dedup reads/writes the everInjected store.
-  migrateAddMemoryV3EverInjected(db);
   memorySqlite = new Database(":memory:");
   ensureMemoryV3SelectionsSchema(memorySqlite);
+  // The live injector's net-new dedup reads/writes the everInjected store.
+  ensureMemoryV3EverInjectedSchema(memorySqlite);
   return db;
 }
 
@@ -279,9 +279,11 @@ mock.module("../../../../../persistence/db-connection.js", () => ({
   getDb: () => testDb,
   getSqliteFrom: () => testSqlite,
   getMemorySqlite: () => (memoryDbAvailable ? memorySqlite : null),
+  getMemoryDb: () =>
+    memoryDbAvailable ? drizzle(memorySqlite, { schema }) : null,
 }));
 
-mock.module("../../v2/page-index.js", () => ({
+mock.module("../substrate/page-index.js", () => ({
   getPageIndex: async () => ({
     entries: [
       {
@@ -327,7 +329,7 @@ mock.module("../../v2/page-index.js", () => ({
 }));
 
 // `pageContent` (live mode) reads the full page via `readPage`/`renderPageContent`.
-mock.module("../../v2/page-store.js", () => ({
+mock.module("../substrate/page-store.js", () => ({
   ...realPageStore,
   readPage: async (workspaceDir: string, slug: string) =>
     shadowMockActive
@@ -355,11 +357,12 @@ mock.module("../../../../../util/platform.js", () => ({
     join(realPlatform.getWorkspaceDir(), "config.json"),
 }));
 
-// Capability stores: `renderCapabilityContent` (reached from `initLanes`' pageBody
-// and from the live injector) resolves synthetic slugs through these. Spread the
-// real module so the prefix predicates (`isSkillSlug`/`isCliCommandSlug`) stay
-// intact; override only the content lookup so the capability slug resolves.
-mock.module("../../v2/skill-store.js", () => ({
+// Capability stores: `renderCapabilityBody` (reached from `initLanes`' pageBody)
+// and `renderCapabilityContent` (the live injector's short form) resolve
+// synthetic slugs through these. Spread the real module so the prefix
+// predicates (`isSkillSlug`/`isCliCommandSlug`) stay intact; override only the
+// content lookup so the capability slug resolves.
+mock.module("../substrate/skill-store.js", () => ({
   ...realSkillStore,
   getSkillCapability: (idOrSlug: string) =>
     shadowMockActive
@@ -369,7 +372,7 @@ mock.module("../../v2/skill-store.js", () => ({
       : realSkillStore.getSkillCapability(idOrSlug),
 }));
 
-mock.module("../../v2/cli-command-store.js", () => ({
+mock.module("../substrate/cli-command-store.js", () => ({
   ...realCliCommandStore,
   getCliCommandCapability: (idOrSlug: string) =>
     shadowMockActive

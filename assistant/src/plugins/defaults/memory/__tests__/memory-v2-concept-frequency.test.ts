@@ -5,7 +5,7 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 
 let listPagesImpl: (workspaceDir: string) => Promise<string[]> = async () => [];
 
-mock.module("../v2/page-store.js", () => ({
+mock.module("../v3/substrate/page-store.js", () => ({
   listPages: (workspaceDir: string) => listPagesImpl(workspaceDir),
 }));
 

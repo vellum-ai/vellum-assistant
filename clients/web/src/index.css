@@ -276,28 +276,29 @@ body {
   opacity: 1;
 }
 
-/* Billing onboarding modal — pulsing glow behind the loading spinner */
-@keyframes onboarding-glow {
-  0%, 100% { opacity: 0.12; transform: scale(1); }
-  50% { opacity: 0.24; transform: scale(1.15); }
-}
-
-/* Billing onboarding modal — welcome screen staggered reveal */
-@keyframes welcome-reveal {
-  from { opacity: 0; transform: translateY(12px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-/* Billing onboarding modal — crown glow pulse */
-@keyframes welcome-crown-glow {
-  0%, 100% { opacity: 0.18; transform: scale(1); }
-  50% { opacity: 0.32; transform: scale(1.08); }
-}
-
 /* Billing onboarding modal — step content entrance */
 @keyframes onboarding-step-in {
   from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: translateY(0); }
+}
+
+/* Provisioning takeover — the avatar acknowledges completion with the same
+ * overshoot the hatching screen uses on resolve, held a touch longer so it
+ * reads as settling rather than bouncing. */
+@keyframes provision-resolve {
+  0% { transform: scale(1); }
+  55% { transform: scale(1.1); }
+  100% { transform: scale(1.06); }
+}
+
+.provision-avatar-resolved {
+  animation: provision-resolve 0.82s cubic-bezier(0.34, 1.4, 0.64, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .provision-avatar-resolved {
+    animation: none;
+  }
 }
 
 /* App shell sizing guards: keep routed pages from collapsing inside flex
@@ -874,15 +875,10 @@ body {
   --card-surface: #000000;
 }
 
-/* About Assistant hero avatar: clicking it opens the avatar/name modal,
-   so the pointer itself becomes a pencil while over it. White-filled,
-   dark-stroked so it reads on any avatar color; hotspot at the tip.
+/* About Assistant hero avatar: clicking it opens the avatar/name modal.
    `!important` + the descendant selector out-rank ChatAvatar's inline
    `cursor: pointer` on its interactive inner elements. */
 .avatar-edit-cursor,
 .avatar-edit-cursor * {
-  cursor:
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='white' stroke='%2324292E' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z'/%3E%3C/svg%3E")
-      2 22,
-    pointer !important;
+  cursor: pointer !important;
 }

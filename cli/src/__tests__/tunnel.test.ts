@@ -145,6 +145,7 @@ describe("tunnel nginx ingress feature flag", () => {
     expect(init?.method).toBe("GET");
     expect(runNgrokTunnelMock).toHaveBeenCalledWith({
       port: 7830,
+      assistantId: "assistant-1",
       workspaceDir: join(entry.resources!.instanceDir, ".vellum", "workspace"),
       preferNginxIngress: true,
     });

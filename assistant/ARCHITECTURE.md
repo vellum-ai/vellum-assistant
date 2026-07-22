@@ -1411,12 +1411,15 @@ Editing any file in the root skill or any included child invalidates the transit
 
 #### Permission Gating (`skill_load_dynamic:*`)
 
-Skills containing inline command expansions use a separate permission candidate namespace (`skill_load_dynamic:*`) instead of the normal `skill_load:*` namespace. This prevents them from falling through to the permissive default `skill_load:*` allow rule. The permission checker emits candidates in specificity order:
+Inline-command skill loads are classified **High** risk — in the gateway skill risk classifier (`gateway/src/risk/skill-risk-classifier.ts`), with a defense-in-depth elevation in `check()` for the gateway-unreachable path. The standard auto-approve threshold then governs them like any other high-risk action: they run without a prompt only at **Full access** (`autoApproveUpTo: "high"`) and prompt at every level below it. There is no separate "always ask" override outside the threshold.
 
-1. `skill_load_dynamic:<skill-id>@<transitive-hash>` — version-pinned approval (most specific)
-2. `skill_load_dynamic:<skill-id>` — any-version approval
+These guarantees sit alongside the threshold:
 
-A default ask rule at priority 200 (`default:ask-skill_load_dynamic-global`) catches these candidates, ensuring the guardian is always prompted before inline commands execute. The user can create a pinned trust rule for a specific transitive hash to auto-approve known-good versions. Non-interactive sessions (no human present) deny dynamic skill loads rather than silently auto-approving.
+- **Escape hatch (guardian).** A user trust rule that covers the load re-classifies its risk inside the gateway (arriving as matchType `user_rule`), so a guardian's own load runs without prompting at any threshold. (A trust rule does not lift the sensitive-tool capability floor, so a non-guardian actor's covered dynamic load is still escalated to the guardian — like any other sensitive tool.) Approvals are offered in a separate candidate namespace so a pinned rule can auto-approve a known-good version rather than falling through to the permissive default `skill_load:*` allow rule:
+  1.  `skill_load_dynamic:<skill-id>@<transitive-hash>` — version-pinned (most specific)
+  2.  `skill_load_dynamic:<skill-id>` — any-version
+- **Guardian-only self-approval (sensitive-tool gate).** An uncovered dynamic load is routed through the sensitive-tool gate (`tools/tool-approval-handler.ts`: `isSensitiveTool` → `resolveSensitiveToolDecision`). A non-guardian actor is escalated to the guardian via the capability floor — which no threshold, including Full access, can lift — while the guardian self-approves (`proceed`) and the threshold then governs (allow at Full access, prompt below). `skill_load` is otherwise not a side-effect tool, so this makes the dynamic case participate in the same capability floor as host/side-effect tools.
+- **Non-interactive denial.** An uncovered dynamic load in a session with no interactive client is denied outright — regardless of threshold, including Full access — because embedded shell must never run unattended without a covering rule. Enforced in `tools/permission-checker.ts` (lane B) via `isDynamicSkillLoadInvocation`, independent of the threshold decision.
 
 ```mermaid
 graph TB
@@ -1429,11 +1432,17 @@ graph TB
     SOURCE -->|"No (extra)"| FAIL_SOURCE["Fail closed:<br/>source not eligible"]
     SOURCE -->|"Yes"| HASH["Compute transitive hash"]
     HASH --> DYN["skill_load_dynamic:id@hash<br/>candidate emitted"]
-    DYN --> PERM["PermissionChecker"]
-    PERM --> RULE{"Trust rule?"}
-    RULE -->|"Pinned allow"| RENDER["Execute + render"]
-    RULE -->|"No rule"| PROMPT["Prompt guardian"]
+    DYN --> PERM["PermissionChecker<br/>(classified High risk)"]
+    PERM --> RULE{"Covering trust rule?"}
+    RULE -->|"Allow"| RENDER["Execute + render"]
     RULE -->|"Deny"| DENY["Blocked"]
+    RULE -->|"None"| SENS{"Sensitive-tool gate<br/>(lane A): can self-approve?"}
+    SENS -->|"No (non-guardian)"| ESCALATE["Escalate to guardian<br/>(capability floor)"]
+    SENS -->|"Yes (guardian)"| INTERACTIVE{"Interactive client?"}
+    INTERACTIVE -->|"No"| DENY
+    INTERACTIVE -->|"Yes"| THRESH{"autoApproveUpTo"}
+    THRESH -->|"Full access"| RENDER
+    THRESH -->|"Below full"| PROMPT["Prompt guardian"]
 ```
 
 #### Sandbox-Only Execution
@@ -1484,16 +1493,16 @@ Every layer in the pipeline defaults to rejection rather than silent degradation
 
 #### Key Source Files
 
-| File                                                | Role                                                                             |
-| --------------------------------------------------- | -------------------------------------------------------------------------------- |
-| `assistant/src/skills/inline-command-expansions.ts` | `parseInlineCommandExpansions()` — parser for `!`command`` tokens                |
-| `assistant/src/skills/inline-command-runner.ts`     | `runInlineCommand()` — sandbox-only command executor                             |
-| `assistant/src/skills/inline-command-render.ts`     | `renderInlineCommands()` — token replacement and XML wrapping                    |
-| `assistant/src/skills/transitive-version-hash.ts`   | `computeTransitiveSkillVersionHash()` — hash covering root + included children   |
-| `assistant/src/tools/skills/load.ts`                | `skill_load` execute path — feature flag check, source check, render integration |
-| `assistant/src/permissions/checker.ts`              | `skill_load_dynamic:*` candidate emission and allowlist options                  |
-| `assistant/src/permissions/defaults.ts`             | `default:ask-skill_load_dynamic-global` rule (priority 200)                      |
-| `meta/feature-flags/feature-flag-registry.json`     | `inline-skill-commands` flag definition                                          |
+| File                                                | Role                                                                               |
+| --------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `assistant/src/skills/inline-command-expansions.ts` | `parseInlineCommandExpansions()` — parser for `!`command`` tokens                  |
+| `assistant/src/skills/inline-command-runner.ts`     | `runInlineCommand()` — sandbox-only command executor                               |
+| `assistant/src/skills/inline-command-render.ts`     | `renderInlineCommands()` — token replacement and XML wrapping                      |
+| `assistant/src/skills/transitive-version-hash.ts`   | `computeTransitiveSkillVersionHash()` — hash covering root + included children     |
+| `assistant/src/tools/skills/load.ts`                | `skill_load` execute path — feature flag check, source check, render integration   |
+| `assistant/src/permissions/checker.ts`              | `skill_load_dynamic:*` candidate emission, allowlist options, High-risk elevation  |
+| `assistant/src/tools/permission-checker.ts`         | Non-interactive denial of uncovered dynamic loads (`isDynamicSkillLoadInvocation`) |
+| `meta/feature-flags/feature-flag-registry.json`     | `inline-skill-commands` flag definition                                            |
 
 ### Key Source Files
 
@@ -2051,10 +2060,10 @@ A parallel **client artifact** (`meta/tts-provider-catalog.json`) captures the s
 
 **Config schema (`services.tts`):** The canonical config block lives at `services.tts` in the assistant config. The set of valid provider IDs and provider-specific config objects is catalog-driven — the Zod schema reads from the catalog rather than maintaining a separate hardcoded enum. It contains:
 
-| Field                         | Type   | Default        | Description                                               |
-| ----------------------------- | ------ | -------------- | --------------------------------------------------------- |
+| Field                         | Type   | Default        | Description                                                                              |
+| ----------------------------- | ------ | -------------- | ---------------------------------------------------------------------------------------- |
 | `services.tts.provider`       | enum   | `"elevenlabs"` | Active TTS provider (must be a catalog-known provider ID); `"vellum"` = platform-managed |
-| `services.tts.providers.<id>` | object | _(defaults)_   | Provider-specific settings, one block per catalog entry   |
+| `services.tts.providers.<id>` | object | _(defaults)_   | Provider-specific settings, one block per catalog entry                                  |
 
 Provider-specific config is nested under `services.tts.providers.<id>`. All legacy top-level keys (`elevenlabs.*`, `fishAudio.*`) were removed by workspace migration 032 — only canonical `services.tts` paths are supported at runtime.
 

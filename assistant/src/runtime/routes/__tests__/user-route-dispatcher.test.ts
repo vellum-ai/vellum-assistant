@@ -21,7 +21,6 @@ import { UserRouteDispatcher } from "../user-route-dispatcher.js";
 function makeContext(overrides?: Partial<UserRouteContext>): UserRouteContext {
   return {
     assistantEventHub: new AssistantEventHub(),
-    assistantId: "test-assistant",
     conversations: {
       postMessage: async () => ({ messageId: "test-msg" }),
     },
@@ -429,18 +428,17 @@ describe("context injection", () => {
       `export function GET(request, context) {
         return Response.json({
           hasHub: typeof context.assistantEventHub?.publish === "function",
-          assistantId: context.assistantId,
+          hasConversations: typeof context.conversations?.postMessage === "function",
         });
       }`,
     );
 
-    const ctx = makeContext({ assistantId: "custom-id" });
-    const dispatcher = makeDispatcher({ context: ctx });
+    const dispatcher = makeDispatcher();
     const res = await dispatcher.dispatch("ctx-echo", makeRequest("GET"));
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.hasHub).toBe(true);
-    expect(body.assistantId).toBe("custom-id");
+    expect(body.hasConversations).toBe(true);
   });
 
   test("handler can publish events through injected hub", async () => {
@@ -450,7 +448,7 @@ describe("context injection", () => {
         const body = await request.json();
         await context.assistantEventHub.publish({
           id: "test-event-1",
-          assistantId: context.assistantId,
+          assistantId: "self",
           conversationId: body.conversationId,
           emittedAt: new Date().toISOString(),
           message: { type: "open_conversation", conversationId: body.conversationId },
@@ -506,22 +504,25 @@ describe("context injection", () => {
       `export function GET(request, context) {
         let threw = false;
         try {
-          context.assistantId = "hacked";
+          context.assistantEventHub = "hacked";
         } catch {
           threw = true;
         }
-        return Response.json({ threw, assistantId: context.assistantId });
+        // Reassignment must not take — the hub reference stays intact.
+        return Response.json({
+          threw,
+          hubIntact: typeof context.assistantEventHub?.publish === "function",
+        });
       }`,
     );
 
-    const ctx = makeContext({ assistantId: "original" });
-    const dispatcher = makeDispatcher({ context: ctx });
+    const dispatcher = makeDispatcher();
     const res = await dispatcher.dispatch("ctx-mutate", makeRequest("GET"));
     expect(res.status).toBe(200);
     const body = await res.json();
     // Object.freeze makes property assignment throw in strict mode (ESM)
     // and silently fail in sloppy mode — either way the value is unchanged.
-    expect(body.assistantId).toBe("original");
+    expect(body.hubIntact).toBe(true);
   });
 });
 
@@ -535,7 +536,10 @@ describe("plugin routes", () => {
       "my-plugin",
       "status.ts",
       `export function GET(request, context) {
-        return Response.json({ plugin: true, assistantId: context.assistantId });
+        return Response.json({
+          plugin: true,
+          hasHub: typeof context.assistantEventHub?.publish === "function",
+        });
       }`,
     );
 
@@ -548,7 +552,7 @@ describe("plugin routes", () => {
     const body = await res.json();
     expect(body.plugin).toBe(true);
     // Plugin handlers receive the same runtime context as workspace routes.
-    expect(body.assistantId).toBe("test-assistant");
+    expect(body.hasHub).toBe(true);
   });
 
   test("resolves nested paths and the index (namespace root)", async () => {

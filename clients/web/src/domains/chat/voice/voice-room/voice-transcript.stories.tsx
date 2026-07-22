@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import type { ReactNode } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 // The transcript reveal leans on the app's global CSS (content tokens, the
@@ -15,15 +16,19 @@ import { VoiceAmbientTranscript } from "./voice-ambient-transcript";
 import { VoiceTranscriptText } from "./voice-transcript-text";
 
 /**
- * Iteration harness for the voice room's live captions — the ambient,
- * word-by-word transcript that floats above (user) and below (assistant) the
- * centered avatar without ever becoming a chat bubble.
+ * Iteration harness for the voice room's live captions — the room's two text
+ * zones streaming the current turn word-by-word: the user's speech as a small
+ * pill above the eyes, the assistant's as large untreated text below them.
  *
  * The scenes simulate a live session by streaming a canned utterance into the
  * real live-voice store one word at a time (no mic / STT / TTS), so the reveal,
  * leading-edge tone, and partial→final hand-off all behave exactly as in the
  * app. Scrub `wordMs` for the pace of speech and bump `replay` to run the
  * utterance again.
+ *
+ * The scene frame stands in for the room box: the zones anchor off *it*, not
+ * the window, so keep `minHeight` in the range of a real viewport or the two
+ * zones will crowd the centerpiece.
  */
 
 // A sample avatar color so the room tone (and the `--room-*` caption vars)
@@ -61,9 +66,18 @@ function useWordStream(
   useEffect(() => {
     onResetRef.current();
     let i = 0;
-    const id = setInterval(() => {
+    const step = () => {
       i += 1;
       onWordRef.current(words.slice(0, i).join(" "));
+    };
+    // Land the first word synchronously so the scene never renders an empty
+    // frame — screenshots and visual sweeps otherwise capture a blank panel
+    // during the first interval tick.
+    if (words.length > 0) {
+      step();
+    }
+    const id = setInterval(() => {
+      step();
       if (i >= words.length) {
         clearInterval(id);
       }
@@ -84,12 +98,14 @@ function AmbientTranscriptScene({
   role,
   wordMs,
   replay,
-  minHeight = 520,
+  minHeight = 600,
 }: SceneProps) {
   const tone = toneForBg(SAMPLE_HEX);
   const toneVars = {
     "--room-fg": tone.fg,
     "--room-fg-muted": tone.fgMuted,
+    "--room-bubble-bg": tone.bubbleBg,
+    "--room-bubble-fg": tone.bubbleFg,
   } as Record<string, string>;
 
   // Prefs gate each half; turn on whichever role this scene streams.
@@ -138,7 +154,8 @@ function AmbientTranscriptScene({
       className="relative flex items-center justify-center overflow-hidden rounded-lg"
       style={{ minHeight, backgroundColor: SAMPLE_HEX, ...toneVars }}
     >
-      {/* Stand-in for the centered avatar so the above/below anchoring reads. */}
+      {/* Stand-in for the centered eyes, so both zones read against the
+          centerpiece they're framing. */}
       <div
         className="size-40 rounded-full"
         style={{ backgroundColor: "var(--room-fg)", opacity: 0.12 }}
@@ -164,7 +181,8 @@ const meta: Meta<typeof AmbientTranscriptScene> = {
     role: {
       options: ["user", "assistant", "both"] satisfies Role[],
       control: { type: "inline-radio" },
-      description: "Which half streams — user (above), assistant (below), or both.",
+      description:
+        "Which half streams — user (pill, upper zone), assistant (large text, lower zone), or both.",
     },
     wordMs: {
       control: { type: "range", min: 80, max: 600, step: 20 },
@@ -182,8 +200,10 @@ type Story = StoryObj<typeof AmbientTranscriptScene>;
 
 /**
  * The ambient captions over a live-streamed turn: each word fades + rises +
- * de-blurs in, the newest word carries the brighter leading-edge tone, and the
- * text stays anchored clear of the avatar. Scrub `role` and `wordMs`.
+ * de-blurs in and the newest word carries the brighter leading-edge tone. The
+ * two zones frame the centerpiece — your speech in a small pill above it, the
+ * assistant's at full size below — sharing one centered measure so neither
+ * pulls the room off its spine. Scrub `role` and `wordMs`.
  */
 export const Playground: Story = {};
 
@@ -204,6 +224,40 @@ export const Reveal: Story = {
   render: (args) => <RevealScene wordMs={args.wordMs} replay={args.replay} />,
 };
 
+/**
+ * The spoken-word cursor look: the full sentence has already
+ * streamed in, but a static mid-sentence `highlightIndex` keeps the bright
+ * leading-edge tone on the word currently being spoken — the text ahead of the
+ * cursor stays muted instead of the highlight parking on the final word.
+ */
+export const SpokenWordHighlight: Story = {
+  argTypes: {
+    role: { table: { disable: true } },
+    wordMs: { table: { disable: true } },
+    replay: { table: { disable: true } },
+  },
+  render: () => (
+    <CaptionSurface>
+      <VoiceTranscriptText text={ASSISTANT_LINE} highlightIndex={9} />
+    </CaptionSurface>
+  ),
+};
+
+/** Neutral dark surface for the isolated caption scenes (no room plumbing). */
+function CaptionSurface({ children }: { children: ReactNode }) {
+  return (
+    <div
+      data-theme="dark"
+      className="flex min-h-[240px] items-center justify-center rounded-lg p-10"
+      style={{ backgroundColor: "#17191C" }}
+    >
+      <p className="max-w-[36rem] text-center text-[15px] leading-relaxed text-balance">
+        {children}
+      </p>
+    </div>
+  );
+}
+
 function RevealScene({ wordMs, replay }: { wordMs: number; replay: number }) {
   const [text, setText] = useState("");
   const words = ASSISTANT_LINE.split(" ");
@@ -215,14 +269,8 @@ function RevealScene({ wordMs, replay }: { wordMs: number; replay: number }) {
     useCallback(() => setText(""), []),
   );
   return (
-    <div
-      data-theme="dark"
-      className="flex min-h-[240px] items-center justify-center rounded-lg p-10"
-      style={{ backgroundColor: "#17191C" }}
-    >
-      <p className="max-w-[36rem] text-center text-[15px] leading-relaxed text-balance">
-        <VoiceTranscriptText text={text} />
-      </p>
-    </div>
+    <CaptionSurface>
+      <VoiceTranscriptText text={text} />
+    </CaptionSurface>
   );
 }

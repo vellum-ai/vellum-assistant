@@ -1,6 +1,7 @@
 import { and, asc, eq, gt, or, sql } from "drizzle-orm";
 
 import { getDb } from "../persistence/db-connection.js";
+import { realUserTurnContentFilter } from "../persistence/real-user-turn-filter.js";
 import { conversations, messages } from "../persistence/schema/index.js";
 
 export interface TurnEvent {
@@ -89,24 +90,6 @@ export interface TurnEvent {
 }
 
 /**
- * SQL fragment that excludes tool-result rows persisted with role="user".
- * Kept as a single source of truth so the eligibility predicate and the
- * correlated `turn_index` count stay in lockstep — otherwise the index
- * can drift from the visible turn stream and break "first turn" /
- * "turns per conversation" math.
- *
- * `<alias>` is interpolated as the SQL identifier for the table whose
- * `content` column should be filtered (e.g. `messages` for the outer
- * query, `m2` for the correlated subquery).
- */
-function realUserTurnContentFilter(alias: string): ReturnType<typeof sql> {
-  return sql.raw(
-    `${alias}.content NOT LIKE '%"type":"tool\\_result"%' ESCAPE '\\' ` +
-      `AND ${alias}.content NOT LIKE '%"type":"web\\_search\\_tool\\_result"%' ESCAPE '\\'`,
-  );
-}
-
-/**
  * Query user messages (turns) that haven't been reported to telemetry yet.
  * Uses a compound cursor (createdAt + id) for reliable watermarking.
  *
@@ -185,12 +168,7 @@ export function queryUnreportedTurnEvents(
     .where(
       and(
         eq(messages.role, "user"),
-        // Exclude tool-result rows persisted with role "user" — these are
-        // system-generated and should not count as user turns.
-        // Use ESCAPE '\\' so underscores are matched literally, not as
-        // single-character wildcards.
-        sql`${messages.content} NOT LIKE '%"type":"tool\\_result"%' ESCAPE '\\'`,
-        sql`${messages.content} NOT LIKE '%"type":"web\\_search\\_tool\\_result"%' ESCAPE '\\'`,
+        realUserTurnContentFilter("messages"),
         afterId
           ? or(
               gt(messages.createdAt, afterCreatedAt),

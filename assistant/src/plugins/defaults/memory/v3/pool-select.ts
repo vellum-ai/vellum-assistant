@@ -363,15 +363,26 @@ export function selectAllPoolCandidates(pool: SelectorPool): SelectedPage[] {
   return dedupeBySlug(ordered.map((slug) => ({ slug, pinned: false })));
 }
 
+/** A selection plus whether it came from the recall-safe keep-all fallback. */
+export interface PoolSelection {
+  pages: SelectedPage[];
+  /** True only when the model OMITTED `ids` and every candidate was kept as the
+   *  recall-safe fallback — NOT when it explicitly selected a large set. The two
+   *  produce the same pages but mean different things (the model gave up judging
+   *  vs it judged everything relevant), and only telemetry can tell them apart. */
+  keptAll: boolean;
+}
+
 /**
  * Run the single forced-tool selector over the unified candidate pool. Returns
  * the pages to inject, deduped by slug (a page that appeared as both a card
- * and a finder line yields one entry, pinned flags ORed).
+ * and a finder line yields one entry, pinned flags ORed), plus a `keptAll` flag
+ * marking the recall-safe fallback.
  *
  * An omitted `ids` keeps ALL candidates (the recall-safe "all of these are
- * relevant" signal); an explicit `[]` keeps none; an infrastructure failure
- * (after a short re-prompt retry) keeps none, degrading to the deterministic
- * recall lanes the orchestrator unions in.
+ * relevant" signal, `keptAll: true`); an explicit `[]` keeps none; an
+ * infrastructure failure (after a short re-prompt retry) keeps none, degrading
+ * to the deterministic recall lanes the orchestrator unions in.
  *
  * `systemPrompt` is the selector's instruction scaffold; it defaults to the
  * bundled {@link SYSTEM_PROMPT} and is overridable via `memory.v3.selectorPromptPath`
@@ -381,14 +392,14 @@ export async function selectPool(
   pool: SelectorPool,
   turn: MemoryRoutingTurn,
   systemPrompt: string = SYSTEM_PROMPT,
-): Promise<SelectedPage[]> {
+): Promise<PoolSelection> {
   // The concatenated numbering: ids 1…m are the stable-prefix cards, ids
   // m+1… are the finder lines.
   const ordered: Slug[] = [
     ...pool.stable.map((c) => c.slug),
     ...pool.finder.map((c) => c.slug),
   ];
-  if (ordered.length === 0) return [];
+  if (ordered.length === 0) return { pages: [], keptAll: false };
 
   const keepAll = (): SelectedPage[] => selectAllPoolCandidates(pool);
 
@@ -471,6 +482,7 @@ export async function selectPool(
         systemPrompt,
         config: {
           callSite: MEMORY_V3_SELECT_CALL_SITE,
+          conversationId: turn.conversationId,
           tool_choice: { type: "tool" as const, name: SELECT_PAGES_TOOL_NAME },
           // The last block of this one-shot message varies every turn; the
           // provider's auto-applied turn-start breakpoint would land on it and
@@ -570,7 +582,7 @@ export async function selectPool(
   }
 
   // Omitted `ids` is the recall-safe "keep all candidates" signal.
-  if (parsed.ids === undefined) return keepAll();
+  if (parsed.ids === undefined) return { pages: keepAll(), keptAll: true };
 
   const pinned = new Set(parsed.pinned_ids ?? []);
 
@@ -581,5 +593,5 @@ export async function selectPool(
     if (id < 1 || id > ordered.length) continue;
     selected.push({ slug: ordered[id - 1]!, pinned: pinned.has(id) });
   }
-  return dedupeBySlug(selected);
+  return { pages: dedupeBySlug(selected), keptAll: false };
 }

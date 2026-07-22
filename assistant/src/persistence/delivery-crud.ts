@@ -5,11 +5,13 @@
  * finding messages by source identifiers, and managing raw payload storage.
  */
 
-import { and, eq, isNotNull, or } from "drizzle-orm";
+import { and, desc, eq, isNotNull, ne, or, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { readSlackMetadataFromMessageMetadata } from "../messaging/providers/slack/message-metadata.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
+import { parseJsonSafe } from "../util/json.js";
+import { isPlainObject } from "../util/object.js";
 import { selectSlackMetaCandidateMetadata } from "./conversation-crud.js";
 import {
   getConversationByKey,
@@ -35,6 +37,13 @@ export interface RecordInboundOptions {
 const SLACK_LEGACY_THREAD_EVIDENCE_BATCH_SIZE = 50;
 const SLACK_LEGACY_THREAD_EVIDENCE_MAX_SCAN = 500;
 
+/**
+ * Channels where an inbound thread id scopes the conversation: a Slack thread
+ * or a Telegram private-chat topic each maps to its own conversation. A
+ * message without a thread id always resolves to the chat-level base key.
+ */
+const THREAD_SCOPED_CHANNELS = new Set(["slack", "telegram"]);
+
 function buildScopedConversationKeyForAssistant(
   assistantId: string,
   sourceChannel: string,
@@ -42,7 +51,7 @@ function buildScopedConversationKeyForAssistant(
   sourceThreadId?: string | null,
 ): string {
   const threadId = sourceThreadId?.trim();
-  if (sourceChannel === "slack" && threadId) {
+  if (THREAD_SCOPED_CHANNELS.has(sourceChannel) && threadId) {
     return `asst:${assistantId}:${sourceChannel}:${externalChatId}:thread:${threadId}`;
   }
   return `asst:${assistantId}:${sourceChannel}:${externalChatId}`;
@@ -135,6 +144,11 @@ function resolveInboundConversation(
   );
 
   const threadId = sourceThreadId?.trim();
+  // Flat→threaded aliasing applies only to Slack: a Slack thread may continue
+  // a conversation that lives on the flat channel key, so the alias path below
+  // checks for that evidence before minting a threaded conversation. Every
+  // other thread-scoped channel (Telegram topics) has no flat-key aliasing —
+  // a thread id always resolves the threaded key directly.
   if (sourceChannel !== "slack" || !threadId) {
     return getOrCreateConversation(threadedKey);
   }
@@ -299,6 +313,53 @@ export function findMessageBySourceId(
 }
 
 /**
+ * Reference to the most recent inbound channel event for a conversation:
+ * the external chat plus the channel-native message identifiers needed to
+ * point back at the triggering message (for Slack, `sourceMessageId` is the
+ * message `ts` and `externalMessageId` is the dedupe id, which may also be
+ * a `ts`).
+ */
+export interface LatestInboundEventReference {
+  externalChatId: string;
+  externalMessageId: string;
+  sourceMessageId: string | null;
+}
+
+/**
+ * Find the most recent inbound event for a conversation on a channel.
+ * Used to anchor guardian-facing approval cards to the channel message
+ * that triggered the request.
+ *
+ * Orders by `rowid` rather than `created_at`: rows are insert-only so the
+ * two orderings agree, and the conversation-id index stores equal keys in
+ * rowid order — a backward index scan finds the newest row without sorting
+ * the conversation's full event history.
+ */
+export function getLatestInboundEventReference(
+  conversationId: string,
+  sourceChannel: string,
+): LatestInboundEventReference | null {
+  const db = getDb();
+  const row = db
+    .select({
+      externalChatId: channelInboundEvents.externalChatId,
+      externalMessageId: channelInboundEvents.externalMessageId,
+      sourceMessageId: channelInboundEvents.sourceMessageId,
+    })
+    .from(channelInboundEvents)
+    .where(
+      and(
+        eq(channelInboundEvents.conversationId, conversationId),
+        eq(channelInboundEvents.sourceChannel, sourceChannel),
+      ),
+    )
+    .orderBy(desc(sql`rowid`))
+    .limit(1)
+    .get();
+  return row ?? null;
+}
+
+/**
  * Store the raw request payload on an inbound event so it can be
  * replayed later if processing fails.
  */
@@ -311,6 +372,20 @@ export function storePayload(
     .set({ rawPayload: JSON.stringify(payload), updatedAt: Date.now() })
     .where(eq(channelInboundEvents.id, eventId))
     .run();
+}
+
+/**
+ * Parse a stored `rawPayload` string into a plain object, or `undefined` when
+ * it is absent, malformed, or not a JSON object.
+ */
+function parseRawPayloadObject(
+  rawPayload: string | null | undefined,
+): Record<string, unknown> | undefined {
+  if (!rawPayload) {
+    return undefined;
+  }
+  const parsed = parseJsonSafe(rawPayload);
+  return isPlainObject(parsed) ? parsed : undefined;
 }
 
 /**
@@ -328,20 +403,8 @@ function mergeRawPayload(
     .from(channelInboundEvents)
     .where(eq(channelInboundEvents.id, eventId))
     .get();
-  if (!row?.rawPayload) return;
-
-  let payload: Record<string, unknown>;
-  try {
-    const parsed = JSON.parse(row.rawPayload) as unknown;
-    if (
-      parsed === null ||
-      typeof parsed !== "object" ||
-      Array.isArray(parsed)
-    ) {
-      return;
-    }
-    payload = parsed as Record<string, unknown>;
-  } catch {
+  const payload = parseRawPayloadObject(row?.rawPayload);
+  if (!payload) {
     return;
   }
 
@@ -373,6 +436,41 @@ export function storeReplyMessageId(
  */
 export function storeStreamedReplyTs(eventId: string, streamTs: string): void {
   mergeRawPayload(eventId, { slackStreamMessageTs: streamTs });
+}
+
+/**
+ * Return the `slackStreamMessageTs` durably recorded by any sibling inbound
+ * event linked to the given user message (excluding `excludeEventId`).
+ *
+ * A deduplicated redelivery is `linkMessage`d to the original turn's
+ * `messageId`, so the two events share it. When the original attempt streamed
+ * its reply live into Slack but crashed before finalizing delivery, its `ts`
+ * survives on the sibling row — the redelivery reads it here to edit that
+ * message in place instead of posting the persisted reply a second time.
+ */
+export function getSiblingStreamedReplyTs(
+  messageId: string,
+  excludeEventId: string,
+): string | undefined {
+  const db = getDb();
+  const rows = db
+    .select({ rawPayload: channelInboundEvents.rawPayload })
+    .from(channelInboundEvents)
+    .where(
+      and(
+        eq(channelInboundEvents.messageId, messageId),
+        ne(channelInboundEvents.id, excludeEventId),
+      ),
+    )
+    .all();
+
+  for (const row of rows) {
+    const ts = parseRawPayloadObject(row.rawPayload)?.slackStreamMessageTs;
+    if (typeof ts === "string" && ts.length > 0) {
+      return ts;
+    }
+  }
+  return undefined;
 }
 
 /**
