@@ -994,8 +994,18 @@ async function spawnBackgroundWebInterface(
     process.exit(1);
   }
   if (!listening) {
+    // Kill the detached child (its whole process group — the Vite path spawns
+    // grandchildren) so a slow startup can't bind the port and linger after
+    // we've reported failure.
+    if (child.pid !== undefined) {
+      try {
+        process.kill(-child.pid, "SIGTERM");
+      } catch {
+        child.kill("SIGTERM");
+      }
+    }
     console.error(
-      `Web interface (pid ${child.pid}) did not start listening on port ${port} within ${WEB_BACKGROUND_START_TIMEOUT_MS / 1000}s. Logs: ${logPath}`,
+      `Web interface did not start listening on port ${port} within ${WEB_BACKGROUND_START_TIMEOUT_MS / 1000}s; terminated it. Logs: ${logPath}`,
     );
     process.exit(1);
   }
