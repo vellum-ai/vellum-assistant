@@ -860,7 +860,24 @@ export async function check(
     signal,
   );
 
-  const { level: risk, reason: riskReason } = classification;
+  const { level: classifiedRisk, reason: riskReason } = classification;
+
+  // Inline-command ("dynamic") skill loads execute embedded shell at load time
+  // via child_process.spawn, outside the tool-approval pipeline that the
+  // auto-approve threshold governs. Treat an uncovered one as High so the
+  // standard threshold decides it like any other high-risk action — it runs at
+  // Full access (autoApproveUpTo "high") and prompts below it — rather than
+  // being special-cased. A covering user trust rule arrives as matchType
+  // "user_rule" with the risk already lowered (the escape hatch), so leave it
+  // untouched. The gateway classifier is authoritative and also returns High;
+  // this local elevation is defense-in-depth for the gateway-unreachable or
+  // under-classified path. The separate non-interactive denial (no human to
+  // approve embedded shell) lives in tools/permission-checker.ts.
+  const risk =
+    isDynamicSkillLoadInvocation(toolName, input) &&
+    getCachedAssessment(toolName, input)?.matchType !== "user_rule"
+      ? RiskLevel.High
+      : classifiedRisk;
 
   // Use gateway-provided sandboxAutoApprove instead of evaluating locally.
   const hasSandboxAutoApprove = classification.sandboxAutoApprove ?? false;
@@ -910,26 +927,6 @@ export async function check(
         autoApproveUpTo: freshThreshold,
       });
     }
-  }
-
-  // Inline-command ("dynamic") skill loads execute embedded shell commands
-  // at load time, so a threshold-based allow is not enough: they run
-  // without asking only when the user's own trust rule covers them (the
-  // rule re-classifies the risk inside the gateway, arriving here as
-  // matchType "user_rule"). Everything else prompts — at every threshold
-  // and in every execution context. The non-interactive guardian gate in
-  // tools/permission-checker.ts then converts the prompt into a denial
-  // when no human is present to answer it.
-  if (
-    approvalDecision.decision === "allow" &&
-    isDynamicSkillLoadInvocation(toolName, input) &&
-    getCachedAssessment(toolName, input)?.matchType !== "user_rule"
-  ) {
-    approvalDecision = {
-      decision: "prompt",
-      reason:
-        "Inline-command skill load: executes embedded commands, requires explicit approval",
-    };
   }
 
   // Enrich the reason with the classifier's explanation when available.

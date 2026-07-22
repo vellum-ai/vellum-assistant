@@ -25,17 +25,26 @@ const fakeToolResult: ToolExecutionResult = { content: "ok", isError: false };
 /** Controls what isDynamicSkillLoadInvocation reports for the invocation. */
 let dynamicSkillLoad = false;
 
+/**
+ * Controls the decision check() returns. The non-interactive dynamic-load guard
+ * is orthogonal to the threshold, so it must deny whether check() resolved to a
+ * "prompt" (background threshold below High) or an "allow" (background threshold
+ * at Full access).
+ */
+let checkDecision = "prompt";
+
 mock.module("../permissions/channel-permission-query.js", () => ({
   buildChannelPermissionCellQuery: () => undefined,
 }));
 
-// check() always prompts: the scenario under test is "no trust rule covers
-// this load" (a covering rule lowers the classified risk upstream, so the
-// covered case resolves to "allow" before the background gate is reached).
+// The scenario under test is "no trust rule covers this load" (a covering rule
+// lowers the classified risk upstream and arrives as matchType "user_rule",
+// which the guard exempts). check()'s decision is variable so both the
+// below-Full (prompt) and Full-access (allow) background cases are exercised.
 mock.module("../permissions/checker.js", () => ({
   isDynamicSkillLoadInvocation: () => dynamicSkillLoad,
   classifyRisk: async () => ({ level: "medium" }),
-  check: async () => ({ decision: "prompt", reason: "medium risk" }),
+  check: async () => ({ decision: checkDecision, reason: "medium risk" }),
   generateAllowlistOptions: () => [],
   generateScopeOptions: () => [],
   getCachedAssessment: () => undefined,
@@ -117,6 +126,7 @@ async function checkSkillLoad(skill: string) {
 
 beforeEach(() => {
   dynamicSkillLoad = false;
+  checkDecision = "prompt";
 });
 
 afterAll(() => {
@@ -132,6 +142,14 @@ describe("non-interactive guardian background auto-approve", () => {
 
   test("a prompted dynamic skill load is denied, never silently auto-approved", async () => {
     dynamicSkillLoad = true;
+    const decision = await checkSkillLoad("inline-command-skill");
+    expect(decision.allowed).toBe(false);
+    expect(decision.decision).toBe("denied");
+  });
+
+  test("a dynamic skill load is denied even when check() allows it (Full-access background)", async () => {
+    dynamicSkillLoad = true;
+    checkDecision = "allow";
     const decision = await checkSkillLoad("inline-command-skill");
     expect(decision.allowed).toBe(false);
     expect(decision.decision).toBe("denied");
