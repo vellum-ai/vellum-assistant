@@ -479,6 +479,37 @@ describe("resolve-or-mint (resolveOrCreateVellumGuardian)", () => {
     ]);
   });
 
+  test("boot recovery does not reactivate a deliberately-revoked guardian binding", async () => {
+    // A guardian CONTACT still exists but its vellum channel was deliberately
+    // revoked; active tokens survive (a still-live device). Boot recovery must
+    // stay fail-closed rather than upserting the channel back to active and
+    // silently undoing the revoke — recovery is only for a genuinely ABSENT
+    // guardian, not a present-but-revoked one.
+    seedGuardianChannel({
+      type: "vellum",
+      address: "vellum-principal-revoked",
+      status: "revoked",
+      principalId: "principal-revoked",
+    });
+    seedActorToken(); // active token, guardianPrincipalId "principal-123"
+
+    await expect(
+      ensureVellumGuardianBinding({ recoverFromActorTokens: true }),
+    ).rejects.toBeInstanceOf(VellumGuardianMintRefusedError);
+
+    // The revoked channel stays revoked — not reactivated — and no second
+    // guardian binding was minted from the token.
+    const gwRows = gatewayVellumGuardians();
+    expect(gwRows).toHaveLength(1);
+    expect(gwRows[0]).toMatchObject({
+      address: "vellum-principal-revoked",
+      status: "revoked",
+    });
+    // A guardian contact row exists, so integrity is "ok" (not
+    // missing_guardian) — only the mint-refused report fires.
+    expect(reportCalls).toEqual([{ integrity_state: "ok" }]);
+  });
+
   test("refuses when a guardian contact exists but the vellum binding is inactive — mint-refused report fires", async () => {
     seedGuardianChannel({
       type: "vellum",

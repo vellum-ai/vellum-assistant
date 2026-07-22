@@ -70,6 +70,26 @@ export function hasEvidenceOfPriorGuardian(): boolean {
 }
 
 /**
+ * Whether any `role='guardian'` contact row exists in the gateway DB.
+ *
+ * Side-effect-free (unlike {@link guardianIntegrityState}, it never fires the
+ * missing-guardian reporter) and distinct from `findVellumGuardian`, which
+ * additionally requires an ACTIVE vellum channel. Callers use this to tell a
+ * genuinely absent guardian (true data loss) from one that still exists but
+ * whose binding was deliberately revoked/blocked.
+ */
+export function hasGuardianContactRow(): boolean {
+  return (
+    getGatewayDb()
+      .select({ id: contacts.id })
+      .from(contacts)
+      .where(eq(contacts.role, "guardian"))
+      .limit(1)
+      .get() !== undefined
+  );
+}
+
+/**
  * `missing_guardian` when zero `role='guardian'` contact rows exist AND the
  * DB carries evidence of prior onboarding; `ok` otherwise (healthy install or
  * genuinely fresh install). Cached with a short TTL; a `missing_guardian`
@@ -86,13 +106,7 @@ export function guardianIntegrityState(): GuardianIntegrityState {
 }
 
 function computeState(): GuardianIntegrityState {
-  const guardianRow = getGatewayDb()
-    .select({ id: contacts.id })
-    .from(contacts)
-    .where(eq(contacts.role, "guardian"))
-    .limit(1)
-    .get();
-  if (guardianRow) {
+  if (hasGuardianContactRow()) {
     return "ok";
   }
 

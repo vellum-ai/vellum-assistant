@@ -29,6 +29,7 @@ import {
   bustGuardianIntegrityCache,
   guardianIntegrityState,
   hasEvidenceOfPriorGuardian,
+  hasGuardianContactRow,
 } from "./guardian-integrity.js";
 import { CURRENT_POLICY_EPOCH } from "./policy.js";
 import { mintToken } from "./token-service.js";
@@ -863,11 +864,18 @@ async function resolveOrCreateVellumGuardian(options: {
     // gateway-native data without minting a divergent one — so it is not the
     // fail-open re-mint the refusal below guards against. Runtime token/pairing
     // callers do NOT opt in: they stay fail-closed (repairable 401/503) and let
-    // the boot backfill be the single self-heal seam. Only when no active token
-    // survives do we refuse.
-    const recoveredPrincipalId = options.recoverFromActorTokens
-      ? recoverGuardianPrincipalFromActorTokens()
-      : null;
+    // the boot backfill be the single self-heal seam.
+    //
+    // Gate on a genuinely ABSENT guardian (`!hasGuardianContactRow()`): a
+    // guardian that still exists but whose vellum channel was deliberately
+    // revoked/blocked must stay fail-closed — recovering there would upsert the
+    // channel back to active (createGuardianBinding only protects `blocked`
+    // rows) and silently undo the revoke. Only when no active token survives do
+    // we refuse.
+    const recoveredPrincipalId =
+      options.recoverFromActorTokens && !hasGuardianContactRow()
+        ? recoverGuardianPrincipalFromActorTokens()
+        : null;
     if (recoveredPrincipalId) {
       await createGuardianBinding({
         channel: "vellum",
