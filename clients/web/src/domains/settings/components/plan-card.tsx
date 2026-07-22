@@ -374,12 +374,15 @@ export function PlanCard({ onManage }: PlanCardProps) {
     const packages = proPlan?.packages ?? [];
     const currentKey = subscription.package?.key ?? null;
     const currentTier = currentKey ?? "free";
-    // The plans takeover reads the current tier from the pinned package, so a
-    // Pro sub with no package (legacy/custom) would render there as free. Those
-    // stay on the manage modal; only base and packaged-Pro subs open the takeover.
+    // The plans takeover derives the current tier from the pinned package key
+    // alone, so a Pro sub without a package (legacy) or with a customized one
+    // (its tiers differ from the stock package) would be misrepresented there.
+    // Those stay on the manage modal; only base and clean packaged-Pro subs open
+    // the takeover.
     const canOpenPlansTakeover =
         packages.length > 0 &&
-        (currentPlan.id === "base" || subscription.package != null);
+        (currentPlan.id === "base" ||
+            (subscription.package != null && !subscription.package.customized));
 
     return (
         <Card padding="md">

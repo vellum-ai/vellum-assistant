@@ -357,6 +357,31 @@ describe("PlanCard action button", () => {
     expect(navigateArgs).toEqual([]);
   });
 
+  test("a customized Pro sub's Manage stays on onManage", async () => {
+    const onManage = mock(() => {});
+    // A customized package's tiers differ from the stock package, so the
+    // takeover would misrepresent it — keep it on the manage modal.
+    const subscription = proMightySubscription();
+    subscription.package = {
+      key: "mighty",
+      name: "Mighty",
+      version: 1,
+      customized: true,
+    };
+    const { findByTestId } = renderCardInteractive(
+      subscription,
+      plansWithSuper(),
+      onManage,
+    );
+
+    fireEvent.click(await findByTestId("plan-card-manage-button"));
+
+    await waitFor(() => {
+      expect(onManage).toHaveBeenCalledTimes(1);
+    });
+    expect(navigateArgs).toEqual([]);
+  });
+
   test("a Pro sub without a pinned package stays on onManage", async () => {
     const onManage = mock(() => {});
     // A legacy/custom Pro sub (no package) would render as free in the takeover,
