@@ -30,7 +30,7 @@
 import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 
 import type { DrizzleDb } from "../../../../persistence/db-connection.js";
-import { memoryV3EverInjected } from "../../../../persistence/schema/memory-injection.js";
+import { memoryV3EverInjected } from "../../../../persistence/schema/index.js";
 import { getLogger } from "../logging.js";
 import { memoryDbOrNull } from "../memory-db.js";
 

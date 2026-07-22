@@ -39,30 +39,28 @@ let memoryDbAvailable = true;
 // stand-in to pass positionally so the call sites read the same as production.
 let testSqlite: Database;
 let memorySqlite: Database;
-let memoryDb: ReturnType<typeof drizzle<typeof schema>>;
 let testDb = makeDb();
 function makeDb() {
   testSqlite = new Database(":memory:");
   memorySqlite = new Database(":memory:");
   ensureMemoryV3EverInjectedSchema(memorySqlite);
-  memoryDb = drizzle(memorySqlite, { schema });
   return drizzle(testSqlite, { schema });
 }
 
 mock.module("../../../../persistence/db-connection.js", () => ({
   ...realDb,
-  getMemoryDb: () =>
-    storeMockActive
-      ? memoryDbAvailable
-        ? memoryDb
-        : null
-      : realDb.getMemoryDb(),
   getMemorySqlite: () =>
     storeMockActive
       ? memoryDbAvailable
         ? memorySqlite
         : null
       : realDb.getMemorySqlite(),
+  getMemoryDb: () =>
+    storeMockActive
+      ? memoryDbAvailable
+        ? drizzle(memorySqlite, { schema })
+        : null
+      : realDb.getMemoryDb(),
 }));
 
 const {

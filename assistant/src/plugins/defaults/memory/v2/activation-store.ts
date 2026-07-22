@@ -9,7 +9,7 @@
 
 import { eq } from "drizzle-orm";
 
-import { activationState } from "../../../../persistence/schema/memory-graph.js";
+import { activationState } from "../../../../persistence/schema/index.js";
 import { memoryDbOrNull } from "../memory-db.js";
 import {
   type ActivationState,

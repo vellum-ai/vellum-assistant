@@ -206,7 +206,6 @@ let testDbHandle: DrizzleDb | null = null;
 // memory-v3's everInjected record lives on the dedicated memory connection now;
 // each test db carries a matching in-memory memory connection.
 let memorySqliteHandle: Database | null = null;
-let memoryDbHandle: DrizzleDb | null = null;
 const realDbModule =
   await import("../../../../../persistence/db-connection.js");
 mock.module("../../../../../persistence/db-connection.js", () => ({
@@ -215,8 +214,9 @@ mock.module("../../../../../persistence/db-connection.js", () => ({
     if (!testDbHandle) throw new Error("test db not initialized");
     return testDbHandle;
   },
-  getMemoryDb: () => memoryDbHandle,
   getMemorySqlite: () => memorySqliteHandle,
+  getMemoryDb: () =>
+    memorySqliteHandle ? drizzle(memorySqliteHandle, { schema }) : null,
 }));
 
 // ---------------------------------------------------------------------------
@@ -243,7 +243,6 @@ function createTestDb(): DrizzleDb {
   ensureActivationStateSchema(memorySqliteHandle);
   ensureConversationGraphMemoryStateSchema(memorySqliteHandle);
   ensureMemoryV3EverInjectedSchema(memorySqliteHandle);
-  memoryDbHandle = drizzle(memorySqliteHandle, { schema });
   return db;
 }
 

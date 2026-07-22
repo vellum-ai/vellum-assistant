@@ -164,6 +164,10 @@ mock.module("../../../../../persistence/db-connection.js", () => ({
         ),
   getMemorySqlite: () =>
     carryMockActive ? memorySqlite : realDbConnection.getMemorySqlite(),
+  getMemoryDb: () =>
+    carryMockActive
+      ? drizzle(memorySqlite, { schema })
+      : realDbConnection.getMemoryDb(),
 }));
 
 /** Mutable prune config: `null` until the script opens the valve window. */

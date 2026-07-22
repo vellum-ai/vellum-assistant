@@ -83,6 +83,8 @@ mock.module("../../../../persistence/db-connection.js", () => ({
       : realDb.getSqliteFrom(db as Parameters<typeof realDb.getSqliteFrom>[0]),
   getMemorySqlite: () =>
     pruneMockActive ? memorySqlite : realDb.getMemorySqlite(),
+  getMemoryDb: () =>
+    pruneMockActive ? drizzle(memorySqlite, { schema }) : realDb.getMemoryDb(),
 }));
 
 // Memory code resolves its config through the plugin's own accessor

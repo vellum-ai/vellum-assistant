@@ -29,7 +29,7 @@
 import { desc, eq } from "drizzle-orm";
 
 import type { DrizzleDb } from "../../../persistence/db-connection.js";
-import { memoryRetrospectiveState } from "../../../persistence/schema/memory-core.js";
+import { memoryRetrospectiveState } from "../../../persistence/schema/index.js";
 import { withSqliteRetry } from "./host-utils.js";
 import { getLogger } from "./logging.js";
 import { memoryDbOrNull } from "./memory-db.js";

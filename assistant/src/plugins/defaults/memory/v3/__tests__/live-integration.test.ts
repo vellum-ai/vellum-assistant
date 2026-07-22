@@ -110,6 +110,10 @@ mock.module("../../../../../persistence/db-connection.js", () => ({
         ),
   getMemorySqlite: () =>
     denseMockActive ? memorySqlite : realDbConnection.getMemorySqlite(),
+  getMemoryDb: () =>
+    denseMockActive
+      ? drizzle(memorySqlite, { schema })
+      : realDbConnection.getMemoryDb(),
 }));
 
 const { orchestrate } = await import("../orchestrate.js");
