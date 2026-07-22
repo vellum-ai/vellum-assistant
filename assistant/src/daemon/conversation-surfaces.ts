@@ -2898,10 +2898,8 @@ export async function surfaceProxyResolver(
     // silently dropped. Reject it with the valid values instead. Daemon-
     // internal types (skill_card, call_summary) are members of SurfaceType
     // for persistence but are not model-invokable — reject them here too so
-    // the model can never report an unrenderable surface as shown. (The
-    // ui_show tool's teaching guard already gates them upstream; this is the
-    // resolver-side backstop.) Both messages enumerate only the model-facing
-    // set, never the internal types.
+    // the model can never report an unrenderable surface as shown. Both
+    // messages enumerate only the model-facing set, never the internal types.
     const parsedSurfaceType = SurfaceTypeSchema.safeParse(input.surface_type);
     if (
       !parsedSurfaceType.success ||

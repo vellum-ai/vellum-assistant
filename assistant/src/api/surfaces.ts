@@ -372,6 +372,10 @@ export const DocumentPreviewSurfaceDataSchema = z.object({
   /** The document's real surfaceId, for focusing the panel. */
   surfaceId: z.string().catch(""),
   subtitle: tolerantString(),
+  /** Document body the client renderer displays inline. */
+  content: tolerantString(),
+  /** MIME type the client renderer uses to choose how to render `content`. */
+  mimeType: tolerantString(),
 });
 export type DocumentPreviewSurfaceData = z.infer<
   typeof DocumentPreviewSurfaceDataSchema
@@ -479,12 +483,12 @@ export const SurfaceTypeSchema = z.enum(SURFACE_TYPES);
 export type SurfaceType = z.infer<typeof SurfaceTypeSchema>;
 
 /**
- * Surface types the daemon emits and persists directly (the memory
- * retrospective's `skill_card`, a call's `call_summary`) but that the model
- * must never invoke via `ui_show`. They are members of `SurfaceType` so the
- * persistence/restore path can carry them, but they are deliberately absent
- * from the model-facing `ui_show` surface list (`SURFACE_SHAPE_DOCS`), and
- * the `ui_show` resolver rejects them.
+ * Surface types the daemon emits and persists directly — the memory
+ * retrospective's `skill_card` and a call's `call_summary` — but that the
+ * model must never invoke via `ui_show`. They are members of `SurfaceType`
+ * so the persistence/restore path can represent them, but they are
+ * deliberately absent from the model-facing `ui_show` surface list
+ * (`SURFACE_SHAPE_DOCS`), and the `ui_show` resolver rejects them.
  */
 export const DAEMON_INTERNAL_SURFACE_TYPES = [
   "skill_card",

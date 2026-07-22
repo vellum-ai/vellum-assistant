@@ -28,6 +28,16 @@ mock.module("../tools/registry.js", () => ({
   getAllTools: () => [fakeTool],
 }));
 
+// Mock the dynamic-skill predicate so isSensitiveTool's skill_load branch is
+// exercised without a real skill catalog: "dynamic-skill" is an inline-command
+// load, anything else is plain.
+mock.module("../permissions/checker.js", () => ({
+  isDynamicSkillLoadInvocation: (
+    _name: string,
+    input: Record<string, unknown>,
+  ) => input?.skill === "dynamic-skill",
+}));
+
 // Capture tool-audit terminal calls so tests can assert on denied/error outcomes
 // the way they previously asserted on emitted lifecycle events.
 const auditCalls = {
@@ -519,7 +529,7 @@ describe("ToolApprovalHandler / pre-exec gate grant check", () => {
 });
 
 describe("isSensitiveTool", () => {
-  test("sensitivity is a property of the tool and execution target only", () => {
+  test("sensitivity is a property of the tool and execution target", () => {
     // Side-effect tools are sensitive wherever they run.
     expect(isSensitiveTool("bash", "sandbox")).toBe(true);
     expect(isSensitiveTool("file_write", "sandbox")).toBe(true);
@@ -530,6 +540,20 @@ describe("isSensitiveTool", () => {
     expect(isSensitiveTool("ui_show", "host")).toBe(false);
     expect(isSensitiveTool("ui_update", "host")).toBe(false);
     expect(isSensitiveTool("ui_dismiss", "host")).toBe(false);
+  });
+
+  test("an inline-command (dynamic) skill_load is sensitive; a plain one is not", () => {
+    // skill_load is not a side-effect tool, but a load that executes embedded
+    // shell at load time must pass through the capability floor — so a
+    // non-guardian's dynamic load escalates to the guardian, Full-access-proof.
+    expect(
+      isSensitiveTool("skill_load", "sandbox", { skill: "dynamic-skill" }),
+    ).toBe(true);
+    expect(
+      isSensitiveTool("skill_load", "sandbox", { skill: "plain-skill" }),
+    ).toBe(false);
+    // Without input, skill_load falls back to the name/target rule.
+    expect(isSensitiveTool("skill_load", "sandbox")).toBe(false);
   });
 });
 
