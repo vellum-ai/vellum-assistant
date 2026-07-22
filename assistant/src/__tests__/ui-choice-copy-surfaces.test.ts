@@ -303,6 +303,59 @@ describe("choice and copy_block surface proxying", () => {
     expect(sent).toHaveLength(0);
   });
 
+  test("ui_show teaching guard accepts copy_block text at the top level of the input", () => {
+    const teachingError = uiShowTeachingError({
+      surface_type: "copy_block",
+      text: "bunx vellum doctor",
+      data: {},
+    });
+    expect(teachingError).toBeNull();
+  });
+
+  test("uiShowTool.execute renders a copy_block whose text is at the top level", async () => {
+    const sent: ServerMessage[] = [];
+    const ctx = makeContext(sent);
+    const result = await uiShowTool.execute(
+      { surface_type: "copy_block", text: "bunx vellum doctor", data: {} },
+      {
+        proxyToolResolver: (toolName: string, input: Record<string, unknown>) =>
+          surfaceProxyResolver(ctx, toolName, input),
+      } as unknown as Parameters<typeof uiShowTool.execute>[1],
+    );
+
+    expect(result.isError).toBe(false);
+    const showMessage = sent.find(
+      (msg): msg is UiSurfaceShow => msg.type === "ui_surface_show",
+    );
+    expect(showMessage).toBeDefined();
+    if (!showMessage || showMessage.surfaceType !== "copy_block") {
+      return;
+    }
+    expect(showMessage.data).toEqual({ text: "bunx vellum doctor" });
+  });
+
+  test("uiShowTool.execute renders a dynamic_page whose html is at the top level", async () => {
+    const sent: ServerMessage[] = [];
+    const ctx = makeContext(sent);
+    const result = await uiShowTool.execute(
+      { surface_type: "dynamic_page", html: "<p>hello</p>", data: {} },
+      {
+        proxyToolResolver: (toolName: string, input: Record<string, unknown>) =>
+          surfaceProxyResolver(ctx, toolName, input),
+      } as unknown as Parameters<typeof uiShowTool.execute>[1],
+    );
+
+    expect(result.isError).toBe(false);
+    const showMessage = sent.find(
+      (msg): msg is UiSurfaceShow => msg.type === "ui_surface_show",
+    );
+    expect(showMessage).toBeDefined();
+    if (!showMessage || showMessage.surfaceType !== "dynamic_page") {
+      return;
+    }
+    expect(showMessage.data.html).toBe("<p>hello</p>");
+  });
+
   test("ui_show teaching guard accepts JSON-string copy_block data with text", () => {
     const teachingError = uiShowTeachingError({
       surface_type: "copy_block",

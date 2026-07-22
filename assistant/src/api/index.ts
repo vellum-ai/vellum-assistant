@@ -565,6 +565,7 @@ export {
   ListItemSchema,
   type ListSurfaceData,
   ListSurfaceDataSchema,
+  normalizeCopyBlockShowData,
   type OAuthConnectSurfaceData,
   OAuthConnectSurfaceDataSchema,
   safeParseSurfaceData,

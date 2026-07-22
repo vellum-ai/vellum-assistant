@@ -6,8 +6,8 @@ import {
   CardSurfaceDataSchema,
   ChoiceSurfaceDataSchema,
   coerceSurfaceDataRecord,
-  CopyBlockSurfaceDataSchema,
   DynamicPageSurfaceDataSchema,
+  normalizeCopyBlockShowData,
   OAuthConnectSurfaceDataSchema,
   safeParseSurfaceData,
   SURFACE_TYPES,
@@ -62,7 +62,6 @@ import type {
   CardSurfaceData,
   ChoiceSurfaceData,
   ConfirmationSurfaceData,
-  CopyBlockSurfaceData,
   DynamicPageSurfaceData,
   FormSurfaceData,
   ListSurfaceData,
@@ -717,22 +716,6 @@ function normalizeTaskProgressCardPatch(
   }
 
   return normalizedPatch;
-}
-
-function normalizeCopyBlockShowData(
-  input: Record<string, unknown>,
-  rawData: Record<string, unknown>,
-): CopyBlockSurfaceData {
-  const normalized: Record<string, unknown> = { ...rawData };
-  // The model sometimes places copy_block fields at the top level of the tool
-  // input instead of nesting them inside `data`; recover them so a populated
-  // payload isn't rejected as textless.
-  for (const key of ["text", "label", "language"] as const) {
-    if (typeof normalized[key] !== "string" && typeof input[key] === "string") {
-      normalized[key] = input[key];
-    }
-  }
-  return CopyBlockSurfaceDataSchema.parse(normalized);
 }
 
 function buildChoiceActions(data: ChoiceSurfaceData): Array<{

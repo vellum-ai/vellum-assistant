@@ -132,6 +132,25 @@ export const CopyBlockSurfaceDataSchema = z.object({
 });
 export type CopyBlockSurfaceData = z.infer<typeof CopyBlockSurfaceDataSchema>;
 
+/**
+ * Normalize a copy_block `ui_show` payload: recover fields the model placed
+ * at the top level of the tool input instead of nesting inside `data`, then
+ * parse through the canonical schema. Shared by the tool's teaching guard and
+ * the daemon resolver so both layers accept exactly the same payloads.
+ */
+export function normalizeCopyBlockShowData(
+  input: Record<string, unknown>,
+  data: Record<string, unknown>,
+): CopyBlockSurfaceData {
+  const normalized: Record<string, unknown> = { ...data };
+  for (const key of ["text", "label", "language"] as const) {
+    if (typeof normalized[key] !== "string" && typeof input[key] === "string") {
+      normalized[key] = input[key];
+    }
+  }
+  return CopyBlockSurfaceDataSchema.parse(normalized);
+}
+
 export const ChoiceOptionSchema = z.object({
   id: z.string(),
   title: z.string(),

@@ -147,11 +147,21 @@ function isEmptyUpdate(input: Record<string, unknown>): boolean {
   return !hasContent(coerceSurfaceDataRecord(input.data));
 }
 
+/**
+ * The dynamic_page markup, honoring the same top-level recovery as the
+ * daemon's `normalizeDynamicPageShowData`: `data.html` wins, a top-level
+ * `html` fills in when the model put it outside `data`.
+ */
+function dynamicPageHtml(input: Record<string, unknown>): unknown {
+  const html = coerceSurfaceDataRecord(input.data).html;
+  return typeof html === "string" ? html : input.html;
+}
+
 function isEmptyDynamicPage(input: Record<string, unknown>): boolean {
   if (input.surface_type !== "dynamic_page") {
     return false;
   }
-  const html = coerceSurfaceDataRecord(input.data).html;
+  const html = dynamicPageHtml(input);
   return typeof html !== "string" || html.trim().length === 0;
 }
 
@@ -180,7 +190,7 @@ const INTERACTIVE_HTML_RE =
   /<script\b|on[a-z]+\s*=|addEventListener|new Chart\b|window\.vellum\b/i;
 
 function isSubstantialInteractiveHtml(input: Record<string, unknown>): boolean {
-  const html = coerceSurfaceDataRecord(input.data).html;
+  const html = dynamicPageHtml(input);
   if (typeof html !== "string") {
     return false;
   }
