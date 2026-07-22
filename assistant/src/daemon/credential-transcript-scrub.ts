@@ -119,11 +119,24 @@ export async function scrubStoredCredentialFromTranscripts(
 /**
  * Every transcript encoding of the value ({@link credentialValueEncodings}:
  * raw plus JSON-escaped — tool_use inputs are stored as JSON, and string
- * leaves can themselves embed JSON-encoded text). Longest first so an
- * escaped form is never half-eaten by its raw twin.
+ * leaves can themselves embed JSON-encoded text), plus one further
+ * JSON-escape level: when a block string embeds JSON containing the value
+ * (e.g. a `tool_use.input.command` carrying inline JSON), the stored
+ * column bytes hold the twice-escaped form, and the LIKE prefilter must
+ * select that row so the block-level replace (which sees the once-escaped
+ * form) can run. Values without JSON metacharacters collapse to a single
+ * target, so the common case is unchanged. Deeper nesting is out of
+ * scope. Longest first so an escaped form is never half-eaten by its
+ * raw twin.
+ *
+ * Exported for tests.
  */
-function buildSearchTargets(value: string): string[] {
-  return credentialValueEncodings(value).sort((a, b) => b.length - a.length);
+export function buildSearchTargets(value: string): string[] {
+  const seen = new Set(credentialValueEncodings(value));
+  for (const encoding of [...seen]) {
+    seen.add(JSON.stringify(encoding).slice(1, -1));
+  }
+  return [...seen].sort((a, b) => b.length - a.length);
 }
 
 function replaceTargets(

@@ -138,7 +138,10 @@ mock.module("../daemon/daemon-readiness.js", () => ({
 
 // ── Imports (after mocks) ──────────────────────────────────────────────────
 
-import { scrubStoredCredentialFromTranscripts } from "../daemon/credential-transcript-scrub.js";
+import {
+  buildSearchTargets,
+  scrubStoredCredentialFromTranscripts,
+} from "../daemon/credential-transcript-scrub.js";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -162,6 +165,26 @@ function updatedContentFor(messageId: string): string {
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────────
+
+describe("buildSearchTargets", () => {
+  test("a metachar-free value yields exactly one target", () => {
+    expect(buildSearchTargets("plain-value-1234567890")).toEqual([
+      "plain-value-1234567890",
+    ]);
+  });
+
+  test("a value with JSON metacharacters includes the twice-escaped column form", () => {
+    const value = 'pa"ss\\word_1234';
+    const esc1 = JSON.stringify(value).slice(1, -1);
+    const esc2 = JSON.stringify(esc1).slice(1, -1);
+
+    // The LIKE prefilter must select rows whose stored column bytes hold the
+    // twice-escaped form (a block string embedding JSON that contains the
+    // value); longest-first ordering keeps escaped forms from being
+    // half-eaten by their shorter twins during replacement.
+    expect(buildSearchTargets(value)).toEqual([esc2, esc1, value]);
+  });
+});
 
 beforeAll(() => {
   scrubMocksActive = true;
