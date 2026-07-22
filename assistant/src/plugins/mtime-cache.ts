@@ -1007,10 +1007,15 @@ async function activatePlugin(
   // plugin's cached tools are visible to the registry's pull reconcile.
   activatedNames.add(pluginName);
 
+  // Register declared credential key patterns BEFORE the `init` hook runs so
+  // init-time logging (including caught-error paths that echo a configured
+  // key) is already covered by log redaction — mirroring the default-plugin
+  // bootstrap. Activation never aborts (init failures are swallowed below and
+  // the plugin still counts as activated), so every teardown path unregisters.
+  registerDeclaredCredentialKeyPatterns(pluginName, credentialKeyPatterns, log);
+
   // Run the `init` hook if present.
   await runInitHook(pluginName, pluginDir);
-
-  registerDeclaredCredentialKeyPatterns(pluginName, credentialKeyPatterns, log);
 
   activatedPlugins.push({ kind: "plugin", name: pluginName });
 }

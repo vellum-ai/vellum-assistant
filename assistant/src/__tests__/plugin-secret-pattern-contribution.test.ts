@@ -165,6 +165,38 @@ describe("user plugin credential key pattern lifecycle", () => {
     expect(registered?.regex.source).toBe(VIRLO_PATTERN.pattern);
   });
 
+  test("patterns are registered before the init hook runs", async () => {
+    // The init hook records the registry size it observes via a probe the
+    // test parks on globalThis (hooks run in-process, and the synthetic
+    // plugin file cannot import daemon modules directly). Init-time logging
+    // must already be covered by redaction, mirroring the default-plugin
+    // bootstrap ordering.
+    const g = globalThis as {
+      __patternProbe?: () => number;
+      __initPatternCount?: number;
+    };
+    g.__patternProbe = () => getPluginSecretPatterns().length;
+    g.__initPatternCount = undefined;
+    try {
+      const dir = writePluginDir("init-order-plugin", [VIRLO_PATTERN]);
+      writeHook(
+        dir,
+        "init",
+        `export default () => { const g = globalThis; g.__initPatternCount = g.__patternProbe ? g.__patternProbe() : -1; };`,
+      );
+
+      await populateCacheAtBoot();
+
+      expect(g.__initPatternCount).toBe(1);
+      expect(
+        findRegistered("Virlo API Key", "init-order-plugin"),
+      ).toBeDefined();
+    } finally {
+      delete g.__patternProbe;
+      delete g.__initPatternCount;
+    }
+  });
+
   test("a runtime install makes patterns live without a restart", async () => {
     await populateCacheAtBoot();
     expect(getPluginSecretPatterns()).toHaveLength(0);
