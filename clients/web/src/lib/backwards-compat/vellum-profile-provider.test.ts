@@ -21,12 +21,12 @@ afterEach(() => {
 describe("assistantSupportsVellumProviderProfiles", () => {
   test("returns false when the version stays unknown past the wait", async () => {
     setVersion(null);
-    expect(await assistantSupportsVellumProviderProfiles(1)).toBe(false);
+    expect(await assistantSupportsVellumProviderProfiles(null, 1)).toBe(false);
   });
 
   test("waits for hydration before deciding", async () => {
     setVersion(null);
-    const decision = assistantSupportsVellumProviderProfiles(1_000);
+    const decision = assistantSupportsVellumProviderProfiles(null, 1_000);
     setVersion("0.10.12");
     expect(await decision).toBe(true);
   });
@@ -45,5 +45,15 @@ describe("assistantSupportsVellumProviderProfiles", () => {
     expect(await assistantSupportsVellumProviderProfiles()).toBe(true);
     setVersion("0.11.0");
     expect(await assistantSupportsVellumProviderProfiles()).toBe(true);
+  });
+
+  test("a hydrated identity for a different assistant gates to legacy", async () => {
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity("other-asst", "0.11.0", "asst-B");
+    expect(await assistantSupportsVellumProviderProfiles("asst-A")).toBe(false);
+    expect(await assistantSupportsVellumProviderProfiles("asst-B")).toBe(true);
+    // A surface opened before first hydration has no owner to hold against.
+    expect(await assistantSupportsVellumProviderProfiles(null)).toBe(true);
   });
 });

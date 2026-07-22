@@ -46,6 +46,7 @@ import {
   parseVellumRoutedModel,
 } from "@/assistant/llm-model-catalog";
 import { assistantSupportsVellumProviderProfiles } from "@/lib/backwards-compat/vellum-profile-provider";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { providersServedByConnections } from "@/domains/settings/ai/provider-availability";
 import type {
   ConnectionProvider,
@@ -222,6 +223,12 @@ function ProfileEditorModalInner({
     initialValues?.description ?? "",
   );
   const [key, setKey] = useState(mode === "create" ? "" : (profileName ?? ""));
+  // The assistant this editor writes to, captured at mount: the save
+  // payload's version gate must never be judged against a different
+  // assistant hydrated after a mid-save switch.
+  const [ownerAssistantId] = useState<string | null>(
+    () => useAssistantIdentityStore.getState().assistantId,
+  );
   // "vellum" is a picker-level value: profiles bound to the Vellum-managed
   // connection present (and edit) as provider "Vellum"; the wire-shape
   // upstream is derived from the model at save time. The form opens on the
@@ -637,7 +644,7 @@ function ProfileEditorModalInner({
       //   and must be stripped to the upstream's native id.
       const writesIdentityPayload =
         provider === VELLUM_CONNECTION_PROVIDER &&
-        (await assistantSupportsVellumProviderProfiles());
+        (await assistantSupportsVellumProviderProfiles(ownerAssistantId));
       const wireProvider =
         provider === VELLUM_CONNECTION_PROVIDER
           ? writesIdentityPayload

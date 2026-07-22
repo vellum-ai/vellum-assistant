@@ -13,16 +13,35 @@
  * shape newer daemons merely tolerate — so the check awaits
  * `whenAssistantVersionKnown()` rather than snapshotting the
  * conservative false-on-unknown default (see the write-path note on
- * that helper). After the bounded wait, a still-unknown version gates
- * to the legacy payload, which every daemon accepts.
+ * that helper).
+ *
+ * Owner-scoped: the wait can resolve after an assistant switch, in
+ * which case the store holds a different assistant's version than the
+ * one the save targets. When `ownerAssistantId` is known, a post-wait
+ * identity that belongs to any other assistant gates to the legacy
+ * payload — the only shape that is safe on every daemon. A null owner
+ * (surface opened before first hydration) accepts the first hydrated
+ * identity.
  */
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
+
 import { assistantSupports, whenAssistantVersionKnown } from "./utils";
 
 const MIN_VERSION = "0.10.12";
 
 export async function assistantSupportsVellumProviderProfiles(
+  ownerAssistantId?: string | null,
   versionWaitTimeoutMs?: number,
 ): Promise<boolean> {
   await whenAssistantVersionKnown(versionWaitTimeoutMs);
+  const hydratedAssistantId =
+    useAssistantIdentityStore.getState().assistantId;
+  if (
+    ownerAssistantId != null &&
+    hydratedAssistantId != null &&
+    hydratedAssistantId !== ownerAssistantId
+  ) {
+    return false;
+  }
   return assistantSupports(MIN_VERSION);
 }
