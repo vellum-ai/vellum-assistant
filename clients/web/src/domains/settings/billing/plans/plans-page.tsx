@@ -134,7 +134,7 @@ export function PlansPage() {
   const [switchTarget, setSwitchTarget] = useState<ProPackage | null>(null);
   // Reveals the in-tab provisioning takeover after a successful switch — the
   // same `TierUpgradeResizeModal` surface the tier-change flow opens via
-  // `onTierUpgraded` (see billing-page.tsx), reused here rather than reinvented.
+  // `onTierUpgraded` (see billing-page.tsx), reused here.
   const [resizeTakeoverOpen, setResizeTakeoverOpen] = useState(false);
 
   const subscription = subscriptionQuery.data;

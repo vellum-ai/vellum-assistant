@@ -617,7 +617,7 @@ describe("PlanCard recommended upgrade — change-package", () => {
   test("a customized Pro sub's recommended upgrade stays on the manage path", async () => {
     const onManage = mock(() => {});
     const onTierUpgraded = mock(() => {});
-    // A customized sub's tiers no longer match the stock package, so posting the
+    // A customized sub's tiers can diverge from the stock package, so posting the
     // next stock package key would use wrong deltas / drop custom line items. The
     // banner CTA must fall back to the manage path instead of confirming a change.
     const subscription = proMightySubscription();
