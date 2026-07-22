@@ -40,10 +40,23 @@ const TELEGRAM_IMAGE_MIME_PREFIXES = [
  * Per-send options shared by the Telegram send helpers.
  *
  * `messageThreadId` targets a private-chat topic (the Telegram analog of a
- * Slack thread); omitted, the send lands in the main chat.
+ * Slack thread); omitted, the send lands in the main chat. Carried as a
+ * string because it originates as a URL param and multipart sends need the
+ * string form; JSON payloads convert once in {@link threadIdPayloadFields}.
  */
 export interface TelegramSendOptions {
   messageThreadId?: string;
+}
+
+/**
+ * The `message_thread_id` field for a JSON send payload, or undefined when
+ * the send targets the main chat — spread into the payload literal.
+ */
+function threadIdPayloadFields(
+  opts?: TelegramSendOptions,
+): { message_thread_id: number } | undefined {
+  const id = opts?.messageThreadId?.trim();
+  return id ? { message_thread_id: Number(id) } : undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -111,17 +124,13 @@ export async function sendTelegramReply(
   opts?: TelegramSendOptions,
 ): Promise<void> {
   const chunks = splitText(text, TELEGRAM_MAX_MESSAGE_LEN);
-  const messageThreadId = opts?.messageThreadId?.trim();
 
   for (let i = 0; i < chunks.length; i++) {
     const payload: Record<string, unknown> = {
       chat_id: chatId,
       text: chunks[i],
+      ...threadIdPayloadFields(opts),
     };
-
-    if (messageThreadId) {
-      payload.message_thread_id = Number(messageThreadId);
-    }
 
     // Attach inline keyboard only to the last chunk so buttons appear after
     // the full message text.
@@ -178,11 +187,8 @@ export async function sendTelegramRichReply(
   const payload: Record<string, unknown> = {
     chat_id: chatId,
     rich_message: { html, skip_entity_detection: true },
+    ...threadIdPayloadFields(opts),
   };
-  const messageThreadId = opts?.messageThreadId?.trim();
-  if (messageThreadId) {
-    payload.message_thread_id = Number(messageThreadId);
-  }
   if (approval) {
     payload.reply_markup = buildInlineKeyboard(approval);
   }
@@ -219,7 +225,7 @@ export async function sendTelegramAttachments(
   opts?: TelegramSendOptions,
 ): Promise<TelegramAttachmentResult> {
   const failures: string[] = [];
-  const messageThreadId = opts?.messageThreadId?.trim();
+  const threadFields = threadIdPayloadFields(opts);
 
   for (const meta of attachments) {
     // Skip oversized attachments when size is known upfront
@@ -261,8 +267,8 @@ export async function sendTelegramAttachments(
       const blob = new Blob([new Uint8Array(content)], { type: mimeType });
       const form = new FormData();
       form.set("chat_id", chatId);
-      if (messageThreadId) {
-        form.set("message_thread_id", messageThreadId);
+      if (threadFields) {
+        form.set("message_thread_id", String(threadFields.message_thread_id));
       }
 
       const isImage = TELEGRAM_IMAGE_MIME_PREFIXES.some((p) =>
@@ -315,15 +321,11 @@ export async function sendTelegramTypingIndicator(
   opts?: TelegramSendOptions,
 ): Promise<boolean> {
   try {
-    const payload: Record<string, unknown> = {
+    await callTelegramBotApi("sendChatAction", {
       chat_id: chatId,
       action: "typing",
-    };
-    const messageThreadId = opts?.messageThreadId?.trim();
-    if (messageThreadId) {
-      payload.message_thread_id = Number(messageThreadId);
-    }
-    await callTelegramBotApi("sendChatAction", payload);
+      ...threadIdPayloadFields(opts),
+    });
     return true;
   } catch (err) {
     log.debug({ err, chatId }, "Failed to send typing indicator");

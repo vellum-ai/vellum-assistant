@@ -304,9 +304,16 @@ export function createTelegramWebhookHandler(
     // sends, and the gateway's own direct replies target the same topic.
     // Messages outside a topic keep the bare URL and thread-less sends.
     const topicThreadId = normalized.source.threadId;
-    const threadOpt = topicThreadId
+    const threadOpts = topicThreadId
       ? { messageThreadId: topicThreadId }
       : undefined;
+    // Every gateway direct reply in this handler targets the same topic (or
+    // main chat) as the inbound message — one decision, made once.
+    const replyOpts = {
+      credentials: caches?.credentials,
+      configFile: caches?.configFile,
+      ...threadOpts,
+    };
     const replyCallbackUrl = topicThreadId
       ? `${config.gatewayInternalBaseUrl}/deliver/telegram?${new URLSearchParams({ threadId: topicThreadId })}`
       : `${config.gatewayInternalBaseUrl}/deliver/telegram`;
@@ -336,11 +343,7 @@ export function createTelegramWebhookHandler(
             normalized.message.conversationExternalId,
             "\u26a0\ufe0f This bot is not fully set up yet. Please check the gateway configuration.",
             undefined,
-            {
-              credentials: caches?.credentials,
-              configFile: caches?.configFile,
-              ...threadOpt,
-            },
+            replyOpts,
           ).catch((err) => {
             tlog.error(
               { err, chatId: normalized.message.conversationExternalId },
@@ -365,7 +368,7 @@ export function createTelegramWebhookHandler(
           normalized.message.conversationExternalId,
           START_COMMAND_ACK_TEXT,
           undefined,
-          { credentials: caches?.credentials, ...threadOpt },
+          { credentials: caches?.credentials, ...threadOpts },
         ).catch((err) => {
           tlog.error(
             { err, chatId: normalized.message.conversationExternalId },
@@ -406,11 +409,7 @@ export function createTelegramWebhookHandler(
               normalized.message.conversationExternalId,
               "\u26a0\ufe0f This bot is not fully set up yet. Please check the gateway configuration.",
               undefined,
-              {
-                credentials: caches?.credentials,
-                configFile: caches?.configFile,
-                ...threadOpt,
-              },
+              replyOpts,
             ).catch((err) => {
               tlog.error(
                 { err, chatId: normalized.message.conversationExternalId },
@@ -430,11 +429,7 @@ export function createTelegramWebhookHandler(
             normalized.message.conversationExternalId,
             "Welcome! I'm having a brief setup hiccup. Please try again in a moment.",
             undefined,
-            {
-              credentials: caches?.credentials,
-              configFile: caches?.configFile,
-              ...threadOpt,
-            },
+            replyOpts,
           ).catch((err) => {
             tlog.error({ err }, "Failed to send /start fallback reply");
           });
@@ -496,7 +491,7 @@ export function createTelegramWebhookHandler(
           normalized.message.conversationExternalId,
           "Welcome! I'm having a brief setup hiccup. Please try again in a moment.",
           undefined,
-          { credentials: caches?.credentials, ...threadOpt },
+          { credentials: caches?.credentials, ...threadOpts },
         ).catch((replyErr) => {
           tlog.error({ err: replyErr }, "Failed to send /start error fallback");
         });
@@ -533,11 +528,7 @@ export function createTelegramWebhookHandler(
             normalized.message.conversationExternalId,
             `\u26a0\ufe0f ${ROUTING_REJECTION_NOTICE}`,
             undefined,
-            {
-              credentials: caches?.credentials,
-              configFile: caches?.configFile,
-              ...threadOpt,
-            },
+            replyOpts,
           ).catch((err) => {
             tlog.error(
               { err, chatId: normalized.message.conversationExternalId },
@@ -556,11 +547,7 @@ export function createTelegramWebhookHandler(
               normalized.message.conversationExternalId,
               text,
               undefined,
-              {
-                credentials: caches?.credentials,
-                configFile: caches?.configFile,
-                ...threadOpt,
-              },
+              replyOpts,
             );
           },
           tlog,
@@ -724,11 +711,7 @@ export function createTelegramWebhookHandler(
             chatId,
             `\u26a0\ufe0f ${ROUTING_REJECTION_NOTICE}`,
             undefined,
-            {
-              credentials: caches?.credentials,
-              configFile: caches?.configFile,
-              ...threadOpt,
-            },
+            replyOpts,
           ).catch((err) => {
             tlog.error(
               { err, chatId },
@@ -771,11 +754,13 @@ export function createTelegramWebhookHandler(
       if (runtimeResp?.denied && runtimeResp.replyText) {
         const msgSender = normalized.actor.actorExternalId ?? chatId;
         if (recordDenialReplyIfAllowed("telegram", msgSender)) {
-          sendTelegramReply(config, chatId, runtimeResp.replyText, undefined, {
-            credentials: caches?.credentials,
-            configFile: caches?.configFile,
-            ...threadOpt,
-          }).catch((err) => {
+          sendTelegramReply(
+            config,
+            chatId,
+            runtimeResp.replyText,
+            undefined,
+            replyOpts,
+          ).catch((err) => {
             tlog.error(
               { err, chatId },
               "Failed to send ACL denial fallback reply",

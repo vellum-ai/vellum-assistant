@@ -16,11 +16,10 @@ import {
 const log = getLogger("telegram-transport");
 
 /**
- * Topic targeting from the gateway callback URL: `/deliver/telegram?threadId=…`
- * carries the private-chat topic the inbound message arrived in (the Telegram
- * analog of Slack's `threadTs` param). Absent → main chat.
+ * Topic targeting from the deliver callback URL's `threadId` param.
+ * Absent → main chat.
  */
-function sendOptions(ctx: CallbackContext): TelegramSendOptions | undefined {
+function threadOptions(ctx: CallbackContext): TelegramSendOptions | undefined {
   const threadId = ctx.params.threadId?.trim();
   return threadId ? { messageThreadId: threadId } : undefined;
 }
@@ -30,7 +29,7 @@ export const telegramTransport: ChannelTransport = {
 
   async deliver(ctx, payload) {
     const { chatId, text, attachments, approval } = payload;
-    const opts = sendOptions(ctx);
+    const opts = threadOptions(ctx);
 
     if (text) {
       // `useBlocks` is the channel-neutral "render richly" intent set by the
@@ -69,7 +68,7 @@ export const telegramTransport: ChannelTransport = {
   },
 
   async sendTyping(ctx, payload) {
-    await sendTelegramTypingIndicator(payload.chatId, sendOptions(ctx));
+    await sendTelegramTypingIndicator(payload.chatId, threadOptions(ctx));
     log.debug(
       { chatId: payload.chatId },
       "Telegram typing indicator delivered (direct)",
