@@ -578,6 +578,32 @@ describe("credentials routes", () => {
       expect(scrubbedValues).toEqual([SECRET_VALUE]);
     });
 
+    test("non-secret vellum platform fields are stored but never scrubbed", async () => {
+      /**
+       * Platform identity ids and the base URL are benign UUIDs/URLs that
+       * legitimately appear in transcripts; scrubbing them would redact
+       * ordinary conversation content. Shares the exemption with the
+       * /v1/secrets credential branch via isNonSecretPlatformField.
+       */
+      for (const field of [
+        "platform_assistant_id",
+        "platform_organization_id",
+        "platform_user_id",
+        "platform_base_url",
+      ]) {
+        const result = (await setRoute!.handler({
+          body: {
+            service: "vellum",
+            field,
+            value: "0198f4c2-1111-2222-3333-444455556666",
+          },
+        })) as SetResponse;
+        expect(result.service).toBe("vellum");
+      }
+
+      expect(scrubbedValues).toEqual([]);
+    });
+
     test("the set still succeeds when the transcript scrub rejects", async () => {
       /**
        * The scrub is post-store hygiene: the credential IS stored, so a

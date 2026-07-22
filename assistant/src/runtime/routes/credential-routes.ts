@@ -28,7 +28,10 @@ import {
   type ManagedCredentialDescriptor,
 } from "../../credential-execution/managed-catalog.js";
 import { buildForChatSentinel } from "../../daemon/chat-credential-redaction.js";
-import { scrubStoredCredentialFromTranscripts } from "../../daemon/credential-transcript-scrub.js";
+import {
+  isNonSecretPlatformField,
+  scrubStoredCredentialFromTranscripts,
+} from "../../daemon/credential-transcript-scrub.js";
 import { syncManualTokenConnection } from "../../oauth/manual-token-connection.js";
 import {
   disconnectOAuthProvider,
@@ -497,18 +500,20 @@ async function handleCredentialsSet({ body }: RouteHandlerArgs) {
   // stored-but-unscrubbed secret must not depend on them succeeding. The
   // credential IS stored at this point; the scrub is best-effort hygiene and
   // must stay invisible to the caller.
-  try {
-    const scrubbed =
-      await scrubStoredCredentialFromTranscripts(normalizedValue);
-    log.info(
-      { service, field, ...scrubbed },
-      "Credential stored; scrubbed value from recent transcripts",
-    );
-  } catch (err) {
-    log.warn(
-      { err, service, field },
-      "Credential stored, but transcript scrub failed",
-    );
+  if (!isNonSecretPlatformField(service, field)) {
+    try {
+      const scrubbed =
+        await scrubStoredCredentialFromTranscripts(normalizedValue);
+      log.info(
+        { service, field, ...scrubbed },
+        "Credential stored; scrubbed value from recent transcripts",
+      );
+    } catch (err) {
+      log.warn(
+        { err, service, field },
+        "Credential stored, but transcript scrub failed",
+      );
+    }
   }
 
   const metadata = upsertCredentialMetadata(service, field, {

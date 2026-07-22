@@ -26,7 +26,10 @@ import { maybeDefaultSpeechToManaged } from "../../config/managed-speech-default
 import { getCesClient } from "../../credential-execution/ces-runtime.js";
 import type { CesClient } from "../../credential-execution/client.js";
 import { evictConversationsForReload } from "../../daemon/conversation-store.js";
-import { scrubStoredCredentialFromTranscripts } from "../../daemon/credential-transcript-scrub.js";
+import {
+  isNonSecretPlatformField,
+  scrubStoredCredentialFromTranscripts,
+} from "../../daemon/credential-transcript-scrub.js";
 import { syncManualTokenConnection } from "../../oauth/manual-token-connection.js";
 import { clearEmbeddingBackendCache } from "../../persistence/embeddings/embedding-backend.js";
 import { maybeReseedCapabilitiesAfterManagedCredential } from "../../plugins/defaults/memory/v3/substrate/memory-v2-startup.js";
@@ -326,13 +329,7 @@ async function handleAddSecret({ body }: RouteHandlerArgs) {
             `Failed to store credential in secure storage (backend: ${getActiveBackendName()})`,
           );
         }
-        // The platform identity ids and base URL are not secrets — they are
-        // UUIDs/URLs that legitimately appear in conversation text, so
-        // scrubbing them would redact benign transcript content.
-        const isNonSecretPlatformField =
-          service === "vellum" &&
-          (TRIMMED_IDENTITY_FIELDS.has(field) || field === "platform_base_url");
-        if (!isNonSecretPlatformField) {
+        if (!isNonSecretPlatformField(service, field)) {
           // Same seam as the api_key branch: the scrub runs immediately after
           // the secure-store write, before side effects that can throw. The
           // value IS stored at this point; the scrub is best-effort hygiene
