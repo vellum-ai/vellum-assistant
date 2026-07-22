@@ -16,7 +16,10 @@
  * stay accepted, so card has no guard here.
  */
 
-import { FileUploadSurfaceDataSchema } from "../../api/surfaces.js";
+import {
+  coerceSurfaceDataRecord,
+  FileUploadSurfaceDataSchema,
+} from "../../api/surfaces.js";
 
 export function asRecord(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === "object"
@@ -258,7 +261,9 @@ export function uiShowTeachingError(
   if (!doc.missingContent) {
     return null;
   }
-  const missing = doc.missingContent(asRecord(input.data) ?? {});
+  // Coerce rather than asRecord: a JSON-string-encoded `data` payload carries
+  // real content, and rejecting it here reports a populated surface as empty.
+  const missing = doc.missingContent(coerceSurfaceDataRecord(input.data));
   if (missing === null) {
     return null;
   }

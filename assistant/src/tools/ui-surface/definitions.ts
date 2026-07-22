@@ -7,6 +7,7 @@
  * handled locally by the daemon.
  */
 
+import { coerceSurfaceDataRecord } from "../../api/surfaces.js";
 import { RiskLevel } from "../../permissions/types.js";
 import { isWeakOpenModel } from "../../providers/weak-open-model.js";
 import type {
@@ -130,8 +131,7 @@ function isTaskProgressCardShow(input: Record<string, unknown>): boolean {
   if (input.template === "task_progress") {
     return true;
   }
-  const data = asRecord(input.data);
-  return data?.template === "task_progress";
+  return coerceSurfaceDataRecord(input.data).template === "task_progress";
 }
 
 /**
@@ -144,16 +144,14 @@ function isTaskProgressCardShow(input: Record<string, unknown>): boolean {
  * as content.
  */
 function isEmptyUpdate(input: Record<string, unknown>): boolean {
-  const data = asRecord(input.data);
-  return data === null || !hasContent(data);
+  return !hasContent(coerceSurfaceDataRecord(input.data));
 }
 
 function isEmptyDynamicPage(input: Record<string, unknown>): boolean {
   if (input.surface_type !== "dynamic_page") {
     return false;
   }
-  const data = asRecord(input.data);
-  const html = data?.html;
+  const html = coerceSurfaceDataRecord(input.data).html;
   return typeof html !== "string" || html.trim().length === 0;
 }
 
@@ -182,8 +180,7 @@ const INTERACTIVE_HTML_RE =
   /<script\b|on[a-z]+\s*=|addEventListener|new Chart\b|window\.vellum\b/i;
 
 function isSubstantialInteractiveHtml(input: Record<string, unknown>): boolean {
-  const data = asRecord(input.data);
-  const html = data?.html;
+  const html = coerceSurfaceDataRecord(input.data).html;
   if (typeof html !== "string") {
     return false;
   }
@@ -195,14 +192,11 @@ function collectRoutingText(input: Record<string, unknown>): string[] {
   addString(values, input.title);
   addString(values, input.activity);
 
-  const data = asRecord(input.data);
-  if (data) {
-    const preview = asRecord(data.preview);
-    if (preview) {
-      addString(values, preview.title);
-      addString(values, preview.subtitle);
-      addString(values, preview.description);
-    }
+  const preview = asRecord(coerceSurfaceDataRecord(input.data).preview);
+  if (preview) {
+    addString(values, preview.title);
+    addString(values, preview.subtitle);
+    addString(values, preview.description);
   }
 
   return values;
