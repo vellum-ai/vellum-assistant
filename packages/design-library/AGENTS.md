@@ -51,6 +51,63 @@ Applies to all code under `packages/design-library/`. Subordinate to root [`AGEN
    (`asChild`). Domain convenience wrappers are the app layer's
    responsibility — not the design library's.
 
+## Storybook stories
+
+Every component should have a colocated `<name>.stories.tsx`. Follow
+[Storybook's own guidance](https://storybook.js.org/docs/writing-stories):
+**args-first**, so the Controls panel, autodocs, and future visual/interaction
+tests all work off the same source of truth. Concretely:
+
+1. **Drive props through `args`, not hardcoded JSX.** Storybook: _"We recommend
+   [args] as much as possible when writing your own stories."_ Put shared
+   defaults in `meta.args`; override per story with the story's `args`. The
+   primary story (`Default`) should be fully arg-driven — ideally
+   `export const Default: Story = {}` so it renders `<Component {...args} />`
+   with the meta defaults.
+
+2. **When you must use `render`, spread `args`.** A render function that drops
+   `args` silently breaks Controls. Always `render: (args) => <Component {...args} … />`.
+
+3. **Controlled components use `useArgs`.** For a component that owns state via
+   `value`/`checked` + `onChange`, drive the value from the arg and write it
+   back so the canvas and the Controls panel stay in sync:
+
+   ```tsx
+   import { useArgs } from "storybook/preview-api";
+
+   render: function Render(args) {
+     const [{ checked }, updateArgs] = useArgs();
+     return (
+       <Checkbox
+         {...args}
+         checked={checked}
+         onCheckedChange={(v) => updateArgs({ checked: v })}
+       />
+     );
+   }
+   ```
+
+4. **`argTypes` for union props.** Give enum/union props (`tone`, `variant`,
+   `side`, `orientation`) a `control: "select" | "inline-radio"` with explicit
+   `options`, and set `control: false` for slot/handler props that aren't
+   editable (icons, refs).
+
+5. **Gallery / composed stories are the exception, not the rule.** A story that
+   deliberately renders many variants at once (an "all tones" row, an
+   "all states" column) or composes fixed children (a Radio group, a Tabs set)
+   may use a plain `render` — set `parameters: { controls: { disable: true } }`
+   so it doesn't advertise dead controls. Keep at least one arg-driven story
+   per component.
+
+6. **Never hack a state into view.** Show what the component actually renders in
+   use. To make a hover/open-only surface (tooltip, popover) visible in a static
+   story, use the component's real open API (`defaultOpen`), not CSS overrides
+   or forced internal state.
+
+Verify a new story with `bun run build-storybook` and open it — a story that
+renders blank or throws a Storybook error boundary is worse than no story,
+because a visual sweep reads it as "covered."
+
 ## Review checklist
 
 When reviewing PRs that add or modify design library components, verify:
@@ -62,6 +119,7 @@ When reviewing PRs that add or modify design library components, verify:
 - [ ] CVA-based components export their variants function
 - [ ] No string interpolation for Tailwind classes
 - [ ] No `.js` extensions on relative imports (Bundler resolution)
+- [ ] Stories are args-first (see [Storybook stories](#storybook-stories)) — `Default` arg-driven, `render` spreads `args`, controlled components use `useArgs`
 
 ## Commands
 
