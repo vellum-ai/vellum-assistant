@@ -13,15 +13,13 @@
 
 import { z } from "zod";
 
-export const ServiceGroupUpdateStartingEventSchema = z
-  .object({
-    type: z.literal("service_group_update_starting"),
-    /** The version being upgraded to. */
-    targetVersion: z.string(),
-    /** Estimated seconds of downtime. */
-    expectedDowntimeSeconds: z.number(),
-  })
-  .strict();
+export const ServiceGroupUpdateStartingEventSchema = z.object({
+  type: z.literal("service_group_update_starting"),
+  /** The version being upgraded to. */
+  targetVersion: z.string(),
+  /** Estimated seconds of downtime. */
+  expectedDowntimeSeconds: z.number(),
+});
 
 export type ServiceGroupUpdateStartingEvent = z.infer<
   typeof ServiceGroupUpdateStartingEventSchema

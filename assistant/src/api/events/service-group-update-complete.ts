@@ -14,17 +14,15 @@
 
 import { z } from "zod";
 
-export const ServiceGroupUpdateCompleteEventSchema = z
-  .object({
-    type: z.literal("service_group_update_complete"),
-    /** The version that was installed (may differ from target if rolled back). */
-    installedVersion: z.string(),
-    /** Whether the update succeeded or rolled back. */
-    success: z.boolean(),
-    /** If rolled back, the version reverted to. */
-    rolledBackToVersion: z.string().optional(),
-  })
-  .strict();
+export const ServiceGroupUpdateCompleteEventSchema = z.object({
+  type: z.literal("service_group_update_complete"),
+  /** The version that was installed (may differ from target if rolled back). */
+  installedVersion: z.string(),
+  /** Whether the update succeeded or rolled back. */
+  success: z.boolean(),
+  /** If rolled back, the version reverted to. */
+  rolledBackToVersion: z.string().optional(),
+});
 
 export type ServiceGroupUpdateCompleteEvent = z.infer<
   typeof ServiceGroupUpdateCompleteEventSchema

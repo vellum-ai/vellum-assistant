@@ -12,13 +12,11 @@
 
 import { z } from "zod";
 
-export const ServiceGroupUpdateProgressEventSchema = z
-  .object({
-    type: z.literal("service_group_update_progress"),
-    /** A short, user-friendly status message describing what's happening right now. */
-    statusMessage: z.string(),
-  })
-  .strict();
+export const ServiceGroupUpdateProgressEventSchema = z.object({
+  type: z.literal("service_group_update_progress"),
+  /** A short, user-friendly status message describing what's happening right now. */
+  statusMessage: z.string(),
+});
 
 export type ServiceGroupUpdateProgressEvent = z.infer<
   typeof ServiceGroupUpdateProgressEventSchema
