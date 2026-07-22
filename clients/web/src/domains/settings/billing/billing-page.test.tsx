@@ -39,6 +39,10 @@ let domainsResponse: PaginatedAssistantDomainList;
 let onboardingCalls = 0;
 let domainsCalls = 0;
 let domainsListPaths: string[] = [];
+// Drives the org-readiness gate on the finish-setup query chain. Defaults ready
+// so the existing cases behave as before; one case flips it to model a fresh
+// login where the org store hasn't hydrated yet.
+let orgReady = true;
 
 const ACTIVE_ASSISTANT = { id: "assistant-1" } as unknown as Assistant;
 
@@ -81,6 +85,10 @@ mock.module("@/hooks/use-platform-gate", () => ({
 mock.module("@/stores/auth-store", () => ({
     ...authStore,
     useIsPlatformSessionSettled: () => true,
+}));
+
+mock.module("@/hooks/use-is-org-ready", () => ({
+    useIsOrgReady: () => orgReady,
 }));
 
 mock.module(
@@ -200,6 +208,7 @@ beforeEach(() => {
     onboardingCalls = 0;
     domainsCalls = 0;
     domainsListPaths = [];
+    orgReady = true;
 });
 
 afterEach(() => {
@@ -222,6 +231,20 @@ describe("BillingTab ?pro_onboarding param", () => {
 });
 
 describe("Finish Pro setup nudge", () => {
+    test("stays hidden and skips the query chain until the org is ready", async () => {
+        // Fresh login: the org store hasn't hydrated, so the header source has
+        // no id yet. The nudge must not fire its subscription/onboarding chain
+        // (which would 4xx without `Vellum-Organization-Id`) or flash in.
+        orgReady = false;
+        const { queryByTestId } = renderPage();
+
+        await waitFor(() =>
+            expect(queryByTestId("onboarding-modal")).toBeTruthy(),
+        );
+        expect(queryByTestId("finish-pro-setup-notice")).toBeNull();
+        expect(onboardingCalls).toBe(0);
+    });
+
     test("renders for Pro with no domain registered and reopens the wizard", async () => {
         const { getByTestId } = renderPage();
 
