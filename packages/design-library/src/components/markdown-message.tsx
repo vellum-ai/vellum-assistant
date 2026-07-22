@@ -30,7 +30,9 @@ export const quoteBlockquoteClassName = cn(
   "mx-0 mt-0 mb-3 flex w-full items-center gap-3 rounded-md bg-[var(--surface-sunken)] px-3 py-2.5 text-body-small-lighter text-[var(--content-secondary)] last:mb-0",
 );
 export const quoteBlockquoteAccentClassName =
-  "h-5 w-0.5 shrink-0 rounded-full bg-[var(--content-tertiary)]";
+  // self-stretch: the bar spans the full quote height (multi-line quotes get
+  // a full-height rule, single-line quotes a text-height one).
+  "w-0.5 shrink-0 self-stretch rounded-full bg-[var(--content-tertiary)]";
 export const quoteBlockquoteContentClassName = "min-w-0 flex-1 [&_p]:mb-0";
 
 function CopyButton({

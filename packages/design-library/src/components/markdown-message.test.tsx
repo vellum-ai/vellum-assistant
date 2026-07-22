@@ -47,7 +47,10 @@ describe("MarkdownMessage", () => {
     expect(html).toContain("mx-0");
     expect(html).toContain("flex");
     expect(html).toContain("gap-3");
-    expect(html).toContain("h-5");
+    // The accent bar stretches with the quote so multi-line quotes get a
+    // full-height rule, not a fixed-height pill floating mid-quote.
+    expect(html).toContain("self-stretch");
+    expect(html).not.toContain("h-5");
     expect(html).toContain("w-0.5");
     expect(html).toContain("rounded-full");
     expect(html).toContain("min-w-0");
