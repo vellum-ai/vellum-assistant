@@ -9,14 +9,20 @@
  * upstream as `provider`, bound to the provider-agnostic `vellum`
  * connection. The UI is identical either way; only the payload differs.
  *
- * NOTE: snapshot-based (`assistantSupports`) — the editor's save handler
- * runs outside render. Unknown/unparseable versions gate to the legacy
- * payload, which every daemon accepts.
+ * Async: this gates a WRITE path, and the legacy fallback persists a
+ * shape newer daemons merely tolerate — so the check awaits
+ * `whenAssistantVersionKnown()` rather than snapshotting the
+ * conservative false-on-unknown default (see the write-path note on
+ * that helper). After the bounded wait, a still-unknown version gates
+ * to the legacy payload, which every daemon accepts.
  */
-import { assistantSupports } from "./utils";
+import { assistantSupports, whenAssistantVersionKnown } from "./utils";
 
 const MIN_VERSION = "0.10.12";
 
-export function assistantSupportsVellumProviderProfiles(): boolean {
+export async function assistantSupportsVellumProviderProfiles(
+  versionWaitTimeoutMs?: number,
+): Promise<boolean> {
+  await whenAssistantVersionKnown(versionWaitTimeoutMs);
   return assistantSupports(MIN_VERSION);
 }

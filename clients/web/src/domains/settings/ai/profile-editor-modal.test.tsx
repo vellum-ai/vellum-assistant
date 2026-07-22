@@ -318,14 +318,25 @@ function fillCreateForm(): void {
   });
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   createdConnection = makeConnection("anthropic-personal");
   toastSuccessCalls = [];
   useAssistantLifecycleStore.setState(initialLifecycleState, true);
+  // Seed a hydrated pre-gate version: the save path awaits
+  // whenAssistantVersionKnown(), and an unhydrated store would stall each
+  // save until that helper's timeout. Gate-on tests override per-test.
+  const { useAssistantIdentityStore } = await import(
+    "@/stores/assistant-identity-store"
+  );
+  useAssistantIdentityStore.getState().setIdentity("test-asst", "0.10.11");
 });
 
-afterEach(() => {
+afterEach(async () => {
   cleanup();
+  const { useAssistantIdentityStore } = await import(
+    "@/stores/assistant-identity-store"
+  );
+  useAssistantIdentityStore.getState().clearIdentity();
 });
 
 // ---------------------------------------------------------------------------

@@ -637,7 +637,7 @@ function ProfileEditorModalInner({
       //   and must be stripped to the upstream's native id.
       const writesIdentityPayload =
         provider === VELLUM_CONNECTION_PROVIDER &&
-        assistantSupportsVellumProviderProfiles();
+        (await assistantSupportsVellumProviderProfiles());
       const wireProvider =
         provider === VELLUM_CONNECTION_PROVIDER
           ? writesIdentityPayload
