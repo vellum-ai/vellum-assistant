@@ -1,28 +1,14 @@
 // Background bash/host_bash command lifecycle types.
+//
+// Server→client events are single-sourced from their canonical `api/events`
+// wire schemas; this file only composes them into the domain union consumed by
+// `message-protocol.ts`.
 
-// === Server → Client (streamed via SSE) ===
-
-export interface BackgroundToolStarted {
-  type: "background_tool_started";
-  id: string;
-  toolName: string;
-  conversationId: string;
-  command: string;
-  startedAt: number;
-}
-
-export interface BackgroundToolCompleted {
-  type: "background_tool_completed";
-  id: string;
-  conversationId: string;
-  status: "completed" | "failed" | "cancelled";
-  exitCode?: number | null;
-  output?: string;
-  completedAt: number;
-}
+import type { BackgroundToolCompletedEvent } from "../../api/events/background-tool-completed.js";
+import type { BackgroundToolStartedEvent } from "../../api/events/background-tool-started.js";
 
 // --- Domain-level union alias (consumed by message-protocol.ts) ---
 
 export type _BackgroundToolsServerMessages =
-  | BackgroundToolStarted
-  | BackgroundToolCompleted;
+  | BackgroundToolStartedEvent
+  | BackgroundToolCompletedEvent;
