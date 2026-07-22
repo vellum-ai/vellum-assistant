@@ -56,6 +56,7 @@ import { registerPlugin } from "./registry.js";
 import type {
   HookFunction,
   Plugin,
+  PluginCredentialKeyPattern,
   PluginHooks,
   PluginManifest,
 } from "./types.js";
@@ -76,6 +77,10 @@ const DEFAULT_IMPORT_TIMEOUT_MS = 10_000;
  *   against the running assistant version and rejects the plugin on
  *   mismatch. If absent, the plugin loads without a host-compat claim
  *   (with a warning).
+ * - `credentialKeyPatterns` is typed `unknown` here and shape-validated
+ *   separately ({@link parseCredentialKeyPatterns}) so a malformed
+ *   declaration degrades to `undefined` instead of failing the whole
+ *   `safeParse` and blocking plugin load.
  * - Unknown fields pass through (`passthrough`) so the loader does not
  *   destructively reshape the file when the rest of the npm ecosystem
  *   writes to it.
@@ -85,10 +90,51 @@ const PluginPackageJsonSchema = z
     name: z.string().min(1, "package.json `name` must be a non-empty string"),
     version: z.string().optional(),
     peerDependencies: z.record(z.string(), z.string()).optional(),
+    credentialKeyPatterns: z.unknown().optional(),
   })
   .passthrough();
 
 type PluginPackageJson = z.infer<typeof PluginPackageJsonSchema>;
+
+/**
+ * Shape-level caps for the `credentialKeyPatterns` manifest field. The
+ * security grammar for what makes a *safe* pattern (anchored prefix, ReDoS
+ * bounds) is owned by the secret-pattern registry that consumes the parsed
+ * field — this schema only bounds sizes so a manifest cannot smuggle in
+ * unbounded data.
+ */
+const CredentialKeyPatternsSchema = z
+  .array(
+    z.object({
+      label: z.string().min(1).max(40),
+      pattern: z.string().min(4).max(200),
+    }),
+  )
+  .max(5);
+
+/**
+ * Shape-validate a raw `credentialKeyPatterns` value from a plugin
+ * `package.json`. A malformed value degrades to `undefined` with a logged
+ * warning — it must never fail plugin load (daemon startup philosophy:
+ * subsystem failures never block).
+ */
+function parseCredentialKeyPatterns(
+  raw: unknown,
+  pluginDir: string,
+): PluginCredentialKeyPattern[] | undefined {
+  if (raw === undefined) {
+    return undefined;
+  }
+  const parsed = CredentialKeyPatternsSchema.safeParse(raw);
+  if (!parsed.success) {
+    log.warn(
+      { pluginDir, err: parsed.error },
+      `package.json at ${pluginDir} has a malformed credentialKeyPatterns field — ignoring it`,
+    );
+    return undefined;
+  }
+  return parsed.data;
+}
 
 export interface LoadExternalPluginOptions {
   /**
@@ -274,6 +320,13 @@ async function buildPluginFromDir(pluginDir: string): Promise<Plugin> {
   }
 
   const manifest: PluginManifest = { name, version };
+  const credentialKeyPatterns = parseCredentialKeyPatterns(
+    pkg.credentialKeyPatterns,
+    pluginDir,
+  );
+  if (credentialKeyPatterns !== undefined) {
+    manifest.credentialKeyPatterns = credentialKeyPatterns;
+  }
   const plugin: Plugin = { manifest };
 
   const hooks = await loadHooks(pluginDir, name);
@@ -380,8 +433,9 @@ export async function loadExternalPlugin(
 
 /**
  * Parse a plugin's `package.json` manifest from disk. Returns the plugin
- * identity (its install directory name) and version, or `undefined` when the
- * `package.json` is missing, unparseable, or fails schema validation.
+ * identity (its install directory name), version, and any declared
+ * `credentialKeyPatterns`, or `undefined` when the `package.json` is
+ * missing, unparseable, or fails schema validation.
  *
  * Exported so the mtime cache can discover plugin identity without going
  * through the full `buildExternalPlugin` path. The identity mirrors
@@ -389,7 +443,9 @@ export async function loadExternalPlugin(
  */
 export async function parsePluginManifest(
   pluginDir: string,
-): Promise<{ name: string; version: string } | undefined> {
+): Promise<
+  Pick<PluginManifest, "name" | "version" | "credentialKeyPatterns"> | undefined
+> {
   const pkgPath = join(pluginDir, "package.json");
   let rawPkg: unknown;
   try {
@@ -413,5 +469,12 @@ export async function parsePluginManifest(
   const pkg: PluginPackageJson = parsed.data;
   const name = basename(pluginDir);
   const version = pkg.version && pkg.version.length > 0 ? pkg.version : "0.0.0";
+  const credentialKeyPatterns = parseCredentialKeyPatterns(
+    pkg.credentialKeyPatterns,
+    pluginDir,
+  );
+  if (credentialKeyPatterns !== undefined) {
+    return { name, version, credentialKeyPatterns };
+  }
   return { name, version };
 }
