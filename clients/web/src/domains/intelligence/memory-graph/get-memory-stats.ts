@@ -68,10 +68,14 @@ export function memoryStatsOptions(assistantId: string) {
       return {
         kind: "ready",
         concepts: data?.concepts ?? 0,
-        // `graph_supported` is absent on daemons predating the field; treat a
-        // missing value as "graph not available" so the entry point stays
-        // hidden rather than dead-ending on a "not available" graph.
-        graphSupported: data?.graph_supported ?? false,
+        // `graph_supported` is absent on daemons predating the field. This
+        // replaced the `memory-concept-graph` flag, which was live (on) across
+        // all envs — so an older daemon is already showing the graph. During
+        // the web-ahead-of-daemon rollout window, default a missing value to
+        // `true` (the flag-on behavior) so a live graph is never yanked from a
+        // v3 assistant whose daemon hasn't shipped the field yet. Once every
+        // daemon reports it, this default never applies and gating is exact.
+        graphSupported: data?.graph_supported ?? true,
       };
     },
   });
