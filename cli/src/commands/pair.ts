@@ -61,8 +61,16 @@ OPTIONS:
                     scan alone completes pairing. Needs a public https URL
                     (--url, else the assistant's runtime URL); refuses
                     loopback or non-https URLs.
+    --app            With --qr: encode the QR as a vellum-assistant://connect
+                    link that opens the Vellum iOS app directly (the plain
+                    https pairing URL is printed as a fallback). Requires an
+                    app build with the connect handler installed on the phone.
+    --app-scheme <scheme>
+                    URL scheme for --app links (default: vellum-assistant;
+                    dev/staging app builds use vellum-assistant-dev /
+                    vellum-assistant-staging).
     --json           Output the result as JSON. With --qr: {pairUrl, deviceCode,
-                    expiresAt, expiresInSeconds}
+                    expiresAt, expiresInSeconds} (+ appUrl with --app)
 
 EXAMPLES:
     vellum pair
@@ -71,6 +79,7 @@ EXAMPLES:
     vellum pair --web --url https://abc123.ngrok.app
     vellum pair --web-approve ABCD-EFGH
     vellum pair --qr --url https://your-assistant.ts.net
+    vellum pair --qr --app --url https://your-assistant.ts.net
     vellum pair --qr --json
 `);
 }
@@ -122,6 +131,23 @@ function buildRemoteWebPairingUrl(
     device_code: challenge.deviceCode,
   }).toString();
   return url.toString();
+}
+
+/** Default URL scheme registered by production builds of the iOS app. */
+const DEFAULT_APP_CONNECT_SCHEME = "vellum-assistant";
+
+/**
+ * Compose the custom-scheme link the iOS app's connect handler accepts:
+ * `<scheme>://connect?url=<base>&code=<device code>`. The app persists the
+ * base as its self-hosted server and opens the pair page with the code.
+ */
+export function buildAppConnectUrl(
+  scheme: string,
+  baseUrl: string,
+  deviceCode: string,
+): string {
+  const params = new URLSearchParams({ url: baseUrl, code: deviceCode });
+  return `${scheme}://connect?${params.toString()}`;
 }
 
 type QrPublicBaseUrlFailureReason = "unparseable" | "loopback" | "non-https";
@@ -265,8 +291,9 @@ export async function pair(): Promise<void> {
   const webPairing = rawArgs.includes("--web");
   const webApproval = rawArgs.includes("--web-approve");
   const qrPairing = rawArgs.includes("--qr");
+  const appVariant = rawArgs.includes("--app");
   let args = rawArgs.filter(
-    (a) => a !== "--json" && a !== "--web" && a !== "--qr",
+    (a) => a !== "--json" && a !== "--web" && a !== "--qr" && a !== "--app",
   );
 
   const [label, afterLabel] = extractFlag(args, "--label");
@@ -275,7 +302,11 @@ export async function pair(): Promise<void> {
     "--web-approve",
   );
   const [urlOverride, afterUrl] = extractFlag(afterWebApprove, "--url");
-  args = afterUrl;
+  const [appSchemeOverride, afterAppScheme] = extractFlag(
+    afterUrl,
+    "--app-scheme",
+  );
+  args = afterAppScheme;
 
   if (webPairing && webApproveCode) {
     console.error("Error: use either --web or --web-approve, not both.");
@@ -287,6 +318,10 @@ export async function pair(): Promise<void> {
   }
   if (qrPairing && (webPairing || webApproveCode)) {
     console.error("Error: --qr can't be combined with --web or --web-approve.");
+    process.exit(1);
+  }
+  if ((appVariant || appSchemeOverride) && !qrPairing) {
+    console.error("Error: --app and --app-scheme only apply to --qr pairing.");
     process.exit(1);
   }
 
@@ -455,12 +490,20 @@ export async function pair(): Promise<void> {
     const challenge = await createRemoteWebPairingChallenge(mintUrl, qrBaseUrl);
     await approveRemoteWebPairing(mintUrl, challenge.userCode);
     const pairUrl = buildRemoteWebPairingUrl(challenge);
+    const appUrl = appVariant
+      ? buildAppConnectUrl(
+          appSchemeOverride ?? DEFAULT_APP_CONNECT_SCHEME,
+          qrBaseUrl,
+          challenge.deviceCode,
+        )
+      : null;
 
     if (jsonOutput) {
       console.log(
         JSON.stringify(
           {
             pairUrl,
+            ...(appUrl ? { appUrl } : {}),
             deviceCode: challenge.deviceCode,
             expiresAt: challenge.expiresAt,
             expiresInSeconds: challenge.expiresInSeconds,
@@ -475,11 +518,21 @@ export async function pair(): Promise<void> {
     const displayName = assistantDisplayName(entry);
     console.log(`Scan to pair a device with ${displayName}:`);
     console.log("");
-    qrcodeTerminal.generate(pairUrl, { small: true }, (qr) => {
+    qrcodeTerminal.generate(appUrl ?? pairUrl, { small: true }, (qr) => {
       console.log(qr);
     });
     console.log("");
-    console.log("Or open this URL on the device:");
+    if (appUrl) {
+      console.log("The QR opens the Vellum app. App link:");
+      console.log("");
+      console.log(`  ${appUrl}`);
+      console.log("");
+      console.log(
+        "No app on the device? Open this URL in its browser instead:",
+      );
+    } else {
+      console.log("Or open this URL on the device:");
+    }
     console.log("");
     console.log(`  ${pairUrl}`);
     console.log("");
