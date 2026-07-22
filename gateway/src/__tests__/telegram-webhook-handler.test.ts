@@ -260,6 +260,32 @@ describe("telegram webhook handler: gatewayInternalBaseUrl", () => {
       "http://127.0.0.1:7830/deliver/telegram",
     );
   });
+
+  test("topic messages append threadId to the replyCallbackUrl", async () => {
+    const config = makeConfig({
+      gatewayInternalBaseUrl: "http://gateway.internal:9000",
+      routingEntries: [
+        { type: "conversation_id", key: "12345", assistantId: "assistant-a" },
+      ],
+    });
+    installFetchMock();
+    const { handler } = createTelegramWebhookHandler(config, makeCaches());
+
+    const base = makeTelegramPayload("hello topic", 2002);
+    const payload = {
+      ...base,
+      message: { ...base.message, message_thread_id: 777 },
+    };
+    const res = await handler(makeWebhookRequest(payload));
+
+    expect(res.status).toBe(200);
+
+    const runtimeCall = fetchCalls.find((c) => c.url.includes("/inbound"));
+    expect(runtimeCall).toBeDefined();
+    expect((runtimeCall!.body as any).replyCallbackUrl).toBe(
+      "http://gateway.internal:9000/deliver/telegram?threadId=777",
+    );
+  });
 });
 
 describe("telegram webhook handler: /new rejection", () => {

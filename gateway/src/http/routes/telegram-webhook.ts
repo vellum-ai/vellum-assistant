@@ -293,9 +293,23 @@ export function createTelegramWebhookHandler(
         chatId: normalized.message.conversationExternalId,
         messageId: normalized.message.externalMessageId,
         updateId,
+        threadId: normalized.source.threadId,
       },
       "Webhook received",
     );
+
+    // Private-chat topic scoping: when the inbound message belongs to a topic,
+    // the reply callback URL carries the thread id (the Telegram analog of
+    // Slack's `?threadTs=`) so the runtime's transport echoes it on outbound
+    // sends, and the gateway's own direct replies target the same topic.
+    // Messages outside a topic keep the bare URL and thread-less sends.
+    const topicThreadId = normalized.source.threadId;
+    const threadOpt = topicThreadId
+      ? { messageThreadId: topicThreadId }
+      : undefined;
+    const replyCallbackUrl = topicThreadId
+      ? `${config.gatewayInternalBaseUrl}/deliver/telegram?${new URLSearchParams({ threadId: topicThreadId })}`
+      : `${config.gatewayInternalBaseUrl}/deliver/telegram`;
 
     // Handle /start command — forward to runtime as a channel command intent
     const startCmd = parseTelegramStartCommand(normalized.message.content);
@@ -325,6 +339,7 @@ export function createTelegramWebhookHandler(
             {
               credentials: caches?.credentials,
               configFile: caches?.configFile,
+              ...threadOpt,
             },
           ).catch((err) => {
             tlog.error(
@@ -350,7 +365,7 @@ export function createTelegramWebhookHandler(
           normalized.message.conversationExternalId,
           START_COMMAND_ACK_TEXT,
           undefined,
-          { credentials: caches?.credentials },
+          { credentials: caches?.credentials, ...threadOpt },
         ).catch((err) => {
           tlog.error(
             { err, chatId: normalized.message.conversationExternalId },
@@ -362,7 +377,7 @@ export function createTelegramWebhookHandler(
       try {
         const result = await handleInbound(config, normalized, {
           transportMetadata: buildTelegramTransportMetadata(),
-          replyCallbackUrl: `${config.gatewayInternalBaseUrl}/deliver/telegram`,
+          replyCallbackUrl,
           traceId,
           sourceMetadata: {
             commandIntent: {
@@ -394,6 +409,7 @@ export function createTelegramWebhookHandler(
               {
                 credentials: caches?.credentials,
                 configFile: caches?.configFile,
+                ...threadOpt,
               },
             ).catch((err) => {
               tlog.error(
@@ -417,6 +433,7 @@ export function createTelegramWebhookHandler(
             {
               credentials: caches?.credentials,
               configFile: caches?.configFile,
+              ...threadOpt,
             },
           ).catch((err) => {
             tlog.error({ err }, "Failed to send /start fallback reply");
@@ -479,7 +496,7 @@ export function createTelegramWebhookHandler(
           normalized.message.conversationExternalId,
           "Welcome! I'm having a brief setup hiccup. Please try again in a moment.",
           undefined,
-          { credentials: caches?.credentials },
+          { credentials: caches?.credentials, ...threadOpt },
         ).catch((replyErr) => {
           tlog.error({ err: replyErr }, "Failed to send /start error fallback");
         });
@@ -519,6 +536,7 @@ export function createTelegramWebhookHandler(
             {
               credentials: caches?.credentials,
               configFile: caches?.configFile,
+              ...threadOpt,
             },
           ).catch((err) => {
             tlog.error(
@@ -541,10 +559,12 @@ export function createTelegramWebhookHandler(
               {
                 credentials: caches?.credentials,
                 configFile: caches?.configFile,
+                ...threadOpt,
               },
             );
           },
           tlog,
+          topicThreadId,
         );
       }
 
@@ -689,7 +709,7 @@ export function createTelegramWebhookHandler(
       const result = await handleInbound(config, normalized, {
         attachmentIds,
         transportMetadata: buildTelegramTransportMetadata(),
-        replyCallbackUrl: `${config.gatewayInternalBaseUrl}/deliver/telegram`,
+        replyCallbackUrl,
         traceId,
       });
 
@@ -707,6 +727,7 @@ export function createTelegramWebhookHandler(
             {
               credentials: caches?.credentials,
               configFile: caches?.configFile,
+              ...threadOpt,
             },
           ).catch((err) => {
             tlog.error(
@@ -753,6 +774,7 @@ export function createTelegramWebhookHandler(
           sendTelegramReply(config, chatId, runtimeResp.replyText, undefined, {
             credentials: caches?.credentials,
             configFile: caches?.configFile,
+            ...threadOpt,
           }).catch((err) => {
             tlog.error(
               { err, chatId },

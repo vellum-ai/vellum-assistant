@@ -50,15 +50,25 @@ export async function sendTelegramReply(
   chatId: string,
   text: string,
   approval?: ApprovalUIMetadata,
-  opts?: { credentials?: CredentialCache; configFile?: ConfigFileCache },
+  opts?: {
+    credentials?: CredentialCache;
+    configFile?: ConfigFileCache;
+    /** Private-chat topic to send into; omitted → main chat. */
+    messageThreadId?: string;
+  },
 ): Promise<void> {
   const chunks = splitText(text, TELEGRAM_MAX_MESSAGE_LEN);
+  const messageThreadId = opts?.messageThreadId?.trim();
 
   for (let i = 0; i < chunks.length; i++) {
     const payload: Record<string, unknown> = {
       chat_id: chatId,
       text: chunks[i],
     };
+
+    if (messageThreadId) {
+      payload.message_thread_id = Number(messageThreadId);
+    }
 
     // Attach inline keyboard only to the last chunk so buttons appear after
     // the full message text.

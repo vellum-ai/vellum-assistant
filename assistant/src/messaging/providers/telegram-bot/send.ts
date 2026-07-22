@@ -36,6 +36,16 @@ const TELEGRAM_IMAGE_MIME_PREFIXES = [
   "image/webp",
 ];
 
+/**
+ * Per-send options shared by the Telegram send helpers.
+ *
+ * `messageThreadId` targets a private-chat topic (the Telegram analog of a
+ * Slack thread); omitted, the send lands in the main chat.
+ */
+export interface TelegramSendOptions {
+  messageThreadId?: string;
+}
+
 // ---------------------------------------------------------------------------
 // Text splitting
 // ---------------------------------------------------------------------------
@@ -98,14 +108,20 @@ export async function sendTelegramReply(
   chatId: string,
   text: string,
   approval?: ApprovalUIMetadata,
+  opts?: TelegramSendOptions,
 ): Promise<void> {
   const chunks = splitText(text, TELEGRAM_MAX_MESSAGE_LEN);
+  const messageThreadId = opts?.messageThreadId?.trim();
 
   for (let i = 0; i < chunks.length; i++) {
     const payload: Record<string, unknown> = {
       chat_id: chatId,
       text: chunks[i],
     };
+
+    if (messageThreadId) {
+      payload.message_thread_id = Number(messageThreadId);
+    }
 
     // Attach inline keyboard only to the last chunk so buttons appear after
     // the full message text.
@@ -150,11 +166,12 @@ export async function sendTelegramRichReply(
   chatId: string,
   markdown: string,
   approval?: ApprovalUIMetadata,
+  opts?: TelegramSendOptions,
 ): Promise<void> {
   const html = renderTelegramHtml(markdown);
   if (html === undefined) {
     // No renderable rich content — send as plain text.
-    await sendTelegramReply(chatId, markdown, approval);
+    await sendTelegramReply(chatId, markdown, approval, opts);
     return;
   }
 
@@ -162,6 +179,10 @@ export async function sendTelegramRichReply(
     chat_id: chatId,
     rich_message: { html, skip_entity_detection: true },
   };
+  const messageThreadId = opts?.messageThreadId?.trim();
+  if (messageThreadId) {
+    payload.message_thread_id = Number(messageThreadId);
+  }
   if (approval) {
     payload.reply_markup = buildInlineKeyboard(approval);
   }
@@ -175,7 +196,7 @@ export async function sendTelegramRichReply(
         { chatId, description: err.description },
         "Telegram rejected rich message; falling back to plain text",
       );
-      await sendTelegramReply(chatId, markdown, approval);
+      await sendTelegramReply(chatId, markdown, approval, opts);
       return;
     }
     throw err;
@@ -195,8 +216,10 @@ export type TelegramAttachmentResult = {
 export async function sendTelegramAttachments(
   chatId: string,
   attachments: RuntimeAttachmentMetadata[],
+  opts?: TelegramSendOptions,
 ): Promise<TelegramAttachmentResult> {
   const failures: string[] = [];
+  const messageThreadId = opts?.messageThreadId?.trim();
 
   for (const meta of attachments) {
     // Skip oversized attachments when size is known upfront
@@ -238,6 +261,9 @@ export async function sendTelegramAttachments(
       const blob = new Blob([new Uint8Array(content)], { type: mimeType });
       const form = new FormData();
       form.set("chat_id", chatId);
+      if (messageThreadId) {
+        form.set("message_thread_id", messageThreadId);
+      }
 
       const isImage = TELEGRAM_IMAGE_MIME_PREFIXES.some((p) =>
         mimeType.startsWith(p),
@@ -267,7 +293,7 @@ export async function sendTelegramAttachments(
   if (failures.length > 0) {
     const notice = `\u26a0\ufe0f ${failures.length} attachment(s) could not be delivered: ${failures.join(", ")}`;
     try {
-      await sendTelegramReply(chatId, notice);
+      await sendTelegramReply(chatId, notice, undefined, opts);
     } catch (err) {
       log.error({ err, chatId }, "Failed to send attachment failure notice");
     }
@@ -286,12 +312,18 @@ export async function sendTelegramAttachments(
  */
 export async function sendTelegramTypingIndicator(
   chatId: string,
+  opts?: TelegramSendOptions,
 ): Promise<boolean> {
   try {
-    await callTelegramBotApi("sendChatAction", {
+    const payload: Record<string, unknown> = {
       chat_id: chatId,
       action: "typing",
-    });
+    };
+    const messageThreadId = opts?.messageThreadId?.trim();
+    if (messageThreadId) {
+      payload.message_thread_id = Number(messageThreadId);
+    }
+    await callTelegramBotApi("sendChatAction", payload);
     return true;
   } catch (err) {
     log.debug({ err, chatId }, "Failed to send typing indicator");

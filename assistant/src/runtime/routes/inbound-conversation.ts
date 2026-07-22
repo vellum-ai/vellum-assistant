@@ -7,7 +7,7 @@ import {
 } from "../../persistence/conversation-key-store.js";
 import { buildScopedConversationKey } from "../../persistence/delivery-crud.js";
 import {
-  deleteBindingByChannelChat,
+  deleteBindingByChannelChatNullThread,
   deleteBindingByChannelChatThread,
 } from "../../persistence/external-conversation-store.js";
 import { BadRequestError } from "./errors.js";
@@ -38,7 +38,10 @@ export function handleDeleteConversation({ body = {} }: RouteHandlerArgs) {
   const legacyKey = `${sourceChannel}:${conversationExternalId}`;
   if (!normalizedThreadId) {
     deleteConversationKey(legacyKey);
-    deleteBindingByChannelChat(sourceChannel, conversationExternalId);
+    // A thread-less reset targets the chat's main conversation only. Bindings
+    // carrying an externalThreadId belong to sibling thread/topic
+    // conversations in the same chat and must survive the reset.
+    deleteBindingByChannelChatNullThread(sourceChannel, conversationExternalId);
   } else {
     if (sourceChannel === "slack") {
       getOrCreateConversation(scopedKey);
