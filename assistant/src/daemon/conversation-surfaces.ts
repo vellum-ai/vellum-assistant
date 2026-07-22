@@ -4,10 +4,12 @@ import { z } from "zod";
 import { SurfaceActionSchema } from "../api/events/ui-surface-show.js";
 import {
   CardSurfaceDataSchema,
+  ChoiceSurfaceDataSchema,
   coerceSurfaceDataRecord,
   CopyBlockSurfaceDataSchema,
   DynamicPageSurfaceDataSchema,
-  SURFACE_DATA_SCHEMAS,
+  OAuthConnectSurfaceDataSchema,
+  safeParseSurfaceData,
   SURFACE_TYPES,
   SurfaceTypeSchema,
 } from "../api/surfaces.js";
@@ -733,27 +735,6 @@ function normalizeCopyBlockShowData(
   return CopyBlockSurfaceDataSchema.parse(normalized);
 }
 
-/**
- * Parse a `ui_show` payload through its surface type's canonical schema.
- * The schemas are tolerant (malformed fields are dropped or defaulted, never
- * rejected), so a record input parses; if one somehow does not, log loudly
- * and pass the raw payload through rather than silently dropping the surface.
- */
-function parseSurfaceShowData(
-  surfaceType: SurfaceType,
-  rawData: Record<string, unknown>,
-): SurfaceData {
-  const parsed = SURFACE_DATA_SCHEMAS[surfaceType].safeParse(rawData);
-  if (parsed.success) {
-    return parsed.data as SurfaceData;
-  }
-  log.warn(
-    { surfaceType, issues: parsed.error.issues },
-    "ui_show data failed its canonical surface schema; passing raw data through",
-  );
-  return rawData as SurfaceData;
-}
-
 function buildChoiceActions(data: ChoiceSurfaceData): Array<{
   id: string;
   label: string;
@@ -810,13 +791,12 @@ function isSlackTaskProgressUiException(
     if (!isTaskProgressCardData(stored.data)) {
       return false;
     }
-    const rawPatch = isPlainObject(input.data) ? input.data : {};
+    const rawPatch = coerceSurfaceDataRecord(input.data);
     const patch = normalizeTaskProgressCardPatch(
       stored.data as CardSurfaceData,
       rawPatch,
     );
-    const mergedData = { ...stored.data, ...patch } as SurfaceData;
-    return isTaskProgressCardData(mergedData);
+    return isTaskProgressCardData({ ...stored.data, ...patch });
   }
   return false;
 }
@@ -1191,15 +1171,8 @@ function buildStandaloneSurfaceData(
     } as FormSurfaceData;
   }
 
-  // Any other surface type: parse through its canonical schema when the type
-  // is known; otherwise pass the payload through opaquely.
-  const parsedType = SurfaceTypeSchema.safeParse(request.surfaceType);
-  const parsed = parsedType.success
-    ? SURFACE_DATA_SCHEMAS[parsedType.data].safeParse(request.data)
-    : undefined;
-  return parsed?.success
-    ? (parsed.data as SurfaceData)
-    : (request.data as unknown as SurfaceData);
+  // Any other surface type: parse through its canonical schema.
+  return safeParseSurfaceData(request.surfaceType, request.data) ?? {};
 }
 
 /**
@@ -1343,7 +1316,7 @@ export function openChannelSetupPanel(
     // conversationId. Cleared by cleanupStandaloneSurface on all outcomes.
     ctx.surfaceState.set(surfaceId, {
       surfaceType: "channel_setup",
-      data: data as SurfaceData,
+      data: safeParseSurfaceData("channel_setup", data) ?? {},
     });
 
     ctx.sendToClient({
@@ -3048,19 +3021,30 @@ export async function surfaceProxyResolver(
     // Every surface type parses through its canonical schema. Card,
     // copy_block, and dynamic_page first run bespoke normalizers that
     // recover fields the model placed at the top level of the tool input;
-    // the rest go straight through `parseSurfaceShowData`.
+    // the rest go straight through `safeParseSurfaceData`. Choice and
+    // oauth_connect parse into named bindings so their content guards below
+    // read typed data instead of re-narrowing the union.
     const cardData =
       surfaceType === "card"
         ? normalizeCardShowData(input, rawData)
         : undefined;
+    const choiceData =
+      surfaceType === "choice"
+        ? ChoiceSurfaceDataSchema.parse(rawData)
+        : undefined;
+    const oauthData =
+      surfaceType === "oauth_connect"
+        ? OAuthConnectSurfaceDataSchema.parse(rawData)
+        : undefined;
     const data: SurfaceData =
-      cardData !== undefined
-        ? cardData
-        : surfaceType === "copy_block"
-          ? normalizeCopyBlockShowData(input, rawData)
-          : surfaceType === "dynamic_page"
-            ? normalizeDynamicPageShowData(input, rawData)
-            : parseSurfaceShowData(surfaceType, rawData);
+      cardData ??
+      choiceData ??
+      oauthData ??
+      (surfaceType === "copy_block"
+        ? normalizeCopyBlockShowData(input, rawData)
+        : surfaceType === "dynamic_page"
+          ? normalizeDynamicPageShowData(input, rawData)
+          : (safeParseSurfaceData(surfaceType, rawData) ?? {}));
     // Parse actions through the schema instead of typecasting raw model output.
     // The model may place actions inside `data` instead of the top-level
     // `actions` param — recover them so they aren't silently dropped.
@@ -3081,9 +3065,7 @@ export async function surfaceProxyResolver(
       inputActions = valid.length > 0 ? valid : undefined;
     }
     const actions =
-      surfaceType === "choice"
-        ? buildChoiceActions(data as ChoiceSurfaceData)
-        : inputActions;
+      choiceData !== undefined ? buildChoiceActions(choiceData) : inputActions;
     const hasActions = Array.isArray(actions) && actions.length > 0;
     if (surfaceType === "choice" && !hasActions) {
       return {
@@ -3120,15 +3102,7 @@ export async function surfaceProxyResolver(
         };
       }
     }
-    const oauthProviderKey =
-      surfaceType === "oauth_connect"
-        ? (data as unknown as Record<string, unknown>).providerKey
-        : undefined;
-    if (
-      surfaceType === "oauth_connect" &&
-      (typeof oauthProviderKey !== "string" ||
-        oauthProviderKey.trim().length === 0)
-    ) {
+    if (oauthData !== undefined && oauthData.providerKey.length === 0) {
       return {
         content: "oauth_connect surfaces require data.providerKey.",
         isError: true,
@@ -3288,26 +3262,23 @@ export async function surfaceProxyResolver(
       // Validate the merged data through the surface type's canonical schema
       // so malformed patches (e.g. metadata as a string) are caught here
       // instead of crashing the client's safeParse.
-      const schema = SURFACE_DATA_SCHEMAS[stored.surfaceType];
-      const parsed = schema.safeParse(rawMerged);
-      if (parsed.success) {
-        mergedData = parsed.data as SurfaceData;
+      const parsed = safeParseSurfaceData(stored.surfaceType, rawMerged);
+      if (parsed !== undefined) {
+        mergedData = parsed;
       } else {
         log.warn(
-          {
-            surfaceId,
-            surfaceType: stored.surfaceType,
-            issues: parsed.error.issues,
-          },
+          { surfaceId, surfaceType: stored.surfaceType },
           "ui_update patch produced invalid merged data; reverting to stored data",
         );
         mergedData =
-          (schema.safeParse(stored.data).data as SurfaceData | undefined) ??
-          stored.data;
+          safeParseSurfaceData(stored.surfaceType, stored.data) ?? stored.data;
       }
       stored.data = mergedData;
     } else {
-      mergedData = patch as unknown as SurfaceData;
+      // No stored state for this surfaceId, so its surface type — and
+      // therefore its canonical schema — is unknown; forward the patch
+      // opaquely rather than dropping the update.
+      mergedData = patch as SurfaceData;
     }
 
     ctx.sendToClient({

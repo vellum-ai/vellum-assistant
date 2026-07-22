@@ -567,7 +567,7 @@ export {
   ListSurfaceDataSchema,
   type OAuthConnectSurfaceData,
   OAuthConnectSurfaceDataSchema,
-  SURFACE_DATA_SCHEMAS,
+  safeParseSurfaceData,
   SURFACE_TYPES,
   type SurfaceData,
   type SurfaceType,
