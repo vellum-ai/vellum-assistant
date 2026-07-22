@@ -372,6 +372,10 @@ export const DocumentPreviewSurfaceDataSchema = z.object({
   /** The document's real surfaceId, for focusing the panel. */
   surfaceId: z.string().catch(""),
   subtitle: tolerantString(),
+  /** Document body the client renderer displays inline. */
+  content: tolerantString(),
+  /** MIME type the client renderer uses to choose how to render `content`. */
+  mimeType: tolerantString(),
 });
 export type DocumentPreviewSurfaceData = z.infer<
   typeof DocumentPreviewSurfaceDataSchema
@@ -471,10 +475,39 @@ export const SURFACE_TYPES = [
   "document_preview",
   "task_preferences",
   "work_result",
+  "skill_card",
+  "call_summary",
 ] as const;
 
 export const SurfaceTypeSchema = z.enum(SURFACE_TYPES);
 export type SurfaceType = z.infer<typeof SurfaceTypeSchema>;
+
+/**
+ * Surface types the daemon emits and persists directly — the memory
+ * retrospective's `skill_card` and a call's `call_summary` — but that the
+ * model must never invoke via `ui_show`. They are members of `SurfaceType`
+ * so the persistence/restore path can represent them, but they are
+ * deliberately absent from the model-facing `ui_show` surface list
+ * (`SURFACE_SHAPE_DOCS`), and the `ui_show` resolver rejects them.
+ */
+export const DAEMON_INTERNAL_SURFACE_TYPES = [
+  "skill_card",
+  "call_summary",
+] as const;
+
+const DAEMON_INTERNAL_SURFACE_TYPE_SET = new Set<string>(
+  DAEMON_INTERNAL_SURFACE_TYPES,
+);
+
+/** Whether `type` is a daemon-internal surface type the model must not `ui_show`. */
+export function isDaemonInternalSurfaceType(type: string): boolean {
+  return DAEMON_INTERNAL_SURFACE_TYPE_SET.has(type);
+}
+
+/** Surface types the model may request via `ui_show` (internal types excluded). */
+export const MODEL_INVOKABLE_SURFACE_TYPES = SURFACE_TYPES.filter(
+  (type) => !isDaemonInternalSurfaceType(type),
+);
 
 export type SurfaceData =
   | CardSurfaceData
@@ -538,11 +571,15 @@ export function safeParseSurfaceData(
       return parse(WorkResultSurfaceDataSchema);
     case "channel_setup":
     case "task_preferences":
-      // Opaque payloads: channel_setup is a side-effect command whose data
-      // is forwarded verbatim to the setup panel, and task_preferences
-      // renders a fixed grid that reads no data. There is no canonical
-      // shape to parse into, so this is the one deliberate cast in the
-      // surface-data parse path.
+    case "skill_card":
+    case "call_summary":
+      // Opaque payloads the daemon forwards/persists verbatim: channel_setup
+      // is a side-effect command whose data goes to the setup panel,
+      // task_preferences renders a fixed grid that reads no data, and
+      // skill_card / call_summary are daemon-appended cards whose data shape
+      // is owned by their client renderers. There is no canonical shape to
+      // parse into, so this is the one deliberate cast in the surface-data
+      // parse path.
       return coerceSurfaceDataRecord(data) as SurfaceData;
     default:
       return surfaceType satisfies never;
