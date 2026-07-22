@@ -17,11 +17,11 @@
  *
  * Owner-scoped: the wait can resolve after an assistant switch, in
  * which case the store holds a different assistant's version than the
- * one the save targets. When `ownerAssistantId` is known, a post-wait
- * identity that belongs to any other assistant gates to the legacy
- * payload — the only shape that is safe on every daemon. A null owner
- * (surface opened before first hydration) accepts the first hydrated
- * identity.
+ * one the save targets. When `ownerAssistantId` is supplied, the
+ * hydrated identity must belong to exactly that assistant — an
+ * un-owned identity (a writer that omitted the owner tag) gates to the
+ * legacy payload, the only shape that is safe on every daemon. A null
+ * owner (caller has no write-target id) accepts any hydrated identity.
  */
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
@@ -36,11 +36,7 @@ export async function assistantSupportsVellumProviderProfiles(
   await whenAssistantVersionKnown(versionWaitTimeoutMs);
   const hydratedAssistantId =
     useAssistantIdentityStore.getState().assistantId;
-  if (
-    ownerAssistantId != null &&
-    hydratedAssistantId != null &&
-    hydratedAssistantId !== ownerAssistantId
-  ) {
+  if (ownerAssistantId != null && hydratedAssistantId !== ownerAssistantId) {
     return false;
   }
   return assistantSupports(MIN_VERSION);

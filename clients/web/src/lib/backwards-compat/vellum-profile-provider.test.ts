@@ -53,7 +53,12 @@ describe("assistantSupportsVellumProviderProfiles", () => {
       .setIdentity("other-asst", "0.11.0", "asst-B");
     expect(await assistantSupportsVellumProviderProfiles("asst-A")).toBe(false);
     expect(await assistantSupportsVellumProviderProfiles("asst-B")).toBe(true);
-    // A surface opened before first hydration has no owner to hold against.
+    // A caller with no write-target id accepts any hydrated identity.
     expect(await assistantSupportsVellumProviderProfiles(null)).toBe(true);
+  });
+
+  test("an un-owned hydrated identity gates to legacy when an owner is required", async () => {
+    useAssistantIdentityStore.getState().setIdentity("some-asst", "0.11.0");
+    expect(await assistantSupportsVellumProviderProfiles("asst-A")).toBe(false);
   });
 });

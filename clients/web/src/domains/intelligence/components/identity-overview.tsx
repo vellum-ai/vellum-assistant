@@ -212,9 +212,11 @@ export function IdentityOverview({ assistantId }: IdentityOverviewProps) {
           void queryClient.invalidateQueries({
             queryKey: assistantIdentityDetailsQueryKey(assistantId),
           });
-          const { version, setIdentity } =
+          const { version, assistantId: hydratedAssistantId, setIdentity } =
             useAssistantIdentityStore.getState();
-          setIdentity(newName, version);
+          // Preserve the owner tag: a rename changes the name, not which
+          // assistant the hydrated identity belongs to.
+          setIdentity(newName, version, hydratedAssistantId);
           toast.success(`Say hi to ${newName}!`);
         } else {
           toast.error("The rename didn't go through. Please try again.");
