@@ -311,6 +311,11 @@ interface UtteranceCycle {
   // Consecutive semantic-endpointing "hold" extensions this utterance has
   // consumed, bounded by `endpointMaxExtensions`.
   endpointExtensionCount: number;
+  // The transcript the most recent hold verdict judged (unified front-door).
+  // A final segment arriving during the extension window that extends this
+  // text replays the boundary immediately — the hold was judged on stale
+  // text, so waiting out the extension only adds silence.
+  heldSpeculativeContent: string | null;
   turnId: string | null;
   userMessageId: string | null;
   userAudioChunks: Buffer[];
@@ -442,6 +447,16 @@ interface ActiveAssistantTurn {
   // startAssistantTurnIfReady). Null once checked or for normal turns.
   speculativeContent: string | null;
   speculativeDispatchedAtMs: number;
+  // Whether this speculative leg may hold: true only on an utterance's FIRST
+  // dispatch. An extension replay already held once — a second silence means
+  // the caller is done, so the replay leg is not taught the hold token and
+  // its leading tokens can only escalate or answer.
+  speculativeHoldAllowed: boolean;
+  // Verdict-deadline fail-open: if a speculative leg produces no verdict
+  // within the endpoint budget, the turn commits anyway (thinking frame +
+  // ack timer arm) so a provider TTFT tail is bounded dead air instead of
+  // unbounded structural silence. Null once fired, cleared, or committed.
+  verdictDeadlineTimer: ReturnType<typeof setTimeout> | null;
   // Accumulates leg deltas until the verdict resolves (whitespace-only
   // prefixes carry no verdict).
   speculativeBuffer: string;
@@ -906,6 +921,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       finalTranscriptSegments: [],
       latestPartialText: null,
       endpointExtensionCount: 0,
+      heldSpeculativeContent: null,
       turnId: null,
       userMessageId: null,
       userAudioChunks: [],
@@ -1807,6 +1823,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       return false;
     }
     turn.speculativePending = false;
+    if (turn.verdictDeadlineTimer !== null) {
+      clearTimeout(turn.verdictDeadlineTimer);
+      turn.verdictDeadlineTimer = null;
+    }
     void this.sendFrame({ type: "utterance_end", reason: "silence" });
     void this.sendFrame({ type: "thinking", turnId: turn.turnId });
     void this.releaseUtterance();
@@ -1854,6 +1874,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     }
     this.markEndpointDecision(utterance, "hold", decisionLatencyMs);
     utterance.endpointExtensionCount += 1;
+    // Remember what the hold judged: a final segment arriving during the
+    // extension that extends this text replays the boundary immediately
+    // (see recordFinalTranscript) instead of waiting out the extension.
+    utterance.heldSpeculativeContent = turn.speculativeContent;
     this.armEndpointExtensionTimer(utterance);
   }
 
@@ -2299,6 +2323,36 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     utterance.latestPartialText = null;
     this.markFinalTranscript(utterance);
     await this.sendFrame({ type: "stt_final", text });
+    // Fresh-final fast replay (unified front-door): a hold judged on the
+    // pre-finalize partial is stale the moment the finalized transcript
+    // extends it — the caller already finished, so waiting out the extension
+    // window only adds silence. Replay the silence boundary now. Guards
+    // mirror the extension timer's own: still the current utterance, still
+    // unreleased, and the detector quiet (speech resuming owns the boundary).
+    if (
+      this.endpointExtensionTimer !== null &&
+      utterance.heldSpeculativeContent !== null &&
+      this.currentUtterance === utterance &&
+      !utterance.released &&
+      !utterance.completed &&
+      !this.turnDetector?.isActive
+    ) {
+      const contentNow = [
+        utterance.finalTranscriptSegments.join(" ").trim(),
+        utterance.latestPartialText ?? "",
+      ]
+        .join(" ")
+        .trim();
+      if (
+        contentNow.length > 0 &&
+        contentNow !== utterance.heldSpeculativeContent
+      ) {
+        this.clearEndpointExtensionTimer();
+        utterance.heldSpeculativeContent = null;
+        this.handleVadUtteranceEnd("silence");
+        return;
+      }
+    }
     await this.startAssistantTurnIfReady();
   }
 
@@ -2472,6 +2526,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     const token = Symbol("live-voice-assistant-turn");
     const turnId = this.ensureTurnId(utterance);
     this.startMetricsTurnIfNeeded(utterance, turnId);
+    this.markAssistantDispatch(utterance, turnId);
     const abortController = new AbortController();
     const activeTurn: ActiveAssistantTurn = {
       token,
@@ -2497,6 +2552,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       speculativeGeneration: this.vadSpeechGeneration,
       speculativeContent: opts?.speculative === true ? content : null,
       speculativeDispatchedAtMs: Date.now(),
+      speculativeHoldAllowed:
+        opts?.speculative === true && utterance.endpointExtensionCount === 0,
+      verdictDeadlineTimer: null,
       speculativeBuffer: "",
       interruptedRequest: opts?.interruptedRequest ?? null,
       continuationResult: opts?.continuationResult ?? null,
@@ -2525,6 +2583,32 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       if (!this.isActiveAssistantTurn(token)) {
         return;
       }
+    } else {
+      // Verdict-deadline fail-open: the deferred-everything window is only
+      // safe while the verdict is fast. If the leg produces no verdict
+      // within the endpoint budget (provider TTFT tail), commit anyway so
+      // the thinking frame shows and the ack timer arms — bounded dead air
+      // instead of unbounded structural silence. A verdict that arrives
+      // after the commit still works: escalate hands off normally, and a
+      // late hold token is stripped like any stray token (the utterance is
+      // already released, so holding is no longer possible).
+      activeTurn.verdictDeadlineTimer = setTimeout(() => {
+        activeTurn.verdictDeadlineTimer = null;
+        if (
+          this.activeAssistantTurn?.token !== token ||
+          !activeTurn.speculativePending
+        ) {
+          return;
+        }
+        log.info(
+          {
+            turnId,
+            budgetMs: this.frontModelConfig.endpointDecisionTimeoutMs,
+          },
+          "Speculative verdict deadline elapsed; committing turn (fail-open)",
+        );
+        this.commitSpeculativeTurn(activeTurn);
+      }, this.frontModelConfig.endpointDecisionTimeoutMs);
     }
 
     const cfg = getConfig();
@@ -2689,10 +2773,14 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
           ? { spokenEscalationBridge: leg.spokenEscalationBridge }
           : {}),
         // A speculative front-door leg's decision rule includes the hold
-        // branch so its leading tokens can be the hold verdict;
-        // non-speculative legs must never learn the token, or a spoken
-        // answer could start with it.
-        ...(activeTurn.speculativePending && leg.frontDoor
+        // branch so its leading tokens can be the hold verdict — but only
+        // on the utterance's FIRST dispatch. Extension replays (the
+        // utterance already held once) and non-speculative legs must never
+        // learn the token, or a spoken answer could start with it / a
+        // second hold could stack another silent extension.
+        ...(activeTurn.speculativePending &&
+        activeTurn.speculativeHoldAllowed &&
+        leg.frontDoor
           ? { unifiedVerdict: true }
           : {}),
         callbacks: {
@@ -2720,7 +2808,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
               if (frontDoorStage === "deciding") {
                 const verdict = classifyFrontDoorLeading(
                   rawText.trimStart(),
-                  activeTurn.speculativePending,
+                  activeTurn.speculativePending &&
+                    activeTurn.speculativeHoldAllowed,
                 );
                 if (verdict === "pending") {
                   return;
@@ -3022,6 +3111,21 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       routingLeg: "escalated",
       spokenEscalationBridge: spokenBridge,
     });
+
+    // Escalated legs run the slowest work in the system (strong-model
+    // thinking + tool loops), and the bridge only covers the first couple of
+    // seconds of it — exactly the dead air progress narration exists for.
+    // Re-arm the idle narration timer (cleared above with the ack): its
+    // audible-silence gating means nothing speaks until the bridge audio has
+    // fully drained plus a whole idle interval. Acks stay suppressed
+    // post-handoff — the bridge already served that role.
+    if (
+      this.frontModelConfig.progress.enabled &&
+      this.streamTtsAudio &&
+      this.frontDecider
+    ) {
+      this.armProgressIdleTimer(activeTurn);
+    }
   }
 
   private async cancelAssistantTurn(reason: string): Promise<void> {
@@ -3195,14 +3299,19 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     }
   }
 
-  // Clears both filler timers (slow-first-delta ack + dead-air narration) for
-  // events that end the turn's filler lifecycle outright: escalation
-  // hand-off, barge-in, cancellation, tts-completion, finalize. Real output
-  // moots only the ack (markFirstDeltaForAck) — the narration timer keeps
-  // watching for mid-turn dead air.
+  // Clears the turn's filler timers (slow-first-delta ack, dead-air
+  // narration, verdict deadline) for events that end the current filler
+  // lifecycle: escalation hand-off (which then re-arms narration for the
+  // escalated leg), barge-in, cancellation, tts-completion, finalize. Real
+  // output moots only the ack (markFirstDeltaForAck) — the narration timer
+  // keeps watching for mid-turn dead air.
   private clearFillerTimers(turn: ActiveAssistantTurn): void {
     this.clearAckTimer(turn);
     this.clearProgressIdleTimer(turn);
+    if (turn.verdictDeadlineTimer !== null) {
+      clearTimeout(turn.verdictDeadlineTimer);
+      turn.verdictDeadlineTimer = null;
+    }
   }
 
   // A spoken ack may only speak into a live turn's pre-first-delta dead air.
@@ -3225,11 +3334,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // the dead air it exists to fill is almost always mid-turn, after the
   // model's opening words. It may speak whenever the live turn is audibly
   // silent right now — nothing streaming, queued, or still playing — and has
-  // not escalated (the bridge phrase holds the floor) or completed.
+  // not completed. Escalated turns qualify too: the bridge phrase holds the
+  // floor only while its audio plays (covered by the audible-idle check),
+  // and the strong leg's tool loops are the longest dead air in the system.
   private turnCanNarrateProgress(turn: ActiveAssistantTurn): boolean {
     return (
       this.isActiveAssistantTurn(turn.token) &&
-      !turn.escalationHandedOff &&
       !turn.assistantCompleted &&
       this.turnAudioIdle(turn)
     );
@@ -3852,6 +3962,19 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       return;
     }
     this.metrics.markFirstAssistantDelta(turnId);
+  }
+
+  // First-wins across an utterance's hold replays: the anchor stays at the
+  // FIRST dispatch, so the dispatch-anchored durations include the hold
+  // pipeline the caller actually sat through.
+  private markAssistantDispatch(
+    utterance: UtteranceCycle,
+    turnId: string,
+  ): void {
+    if (!this.startMetricsTurnIfNeeded(utterance, turnId)) {
+      return;
+    }
+    this.metrics.markAssistantDispatch(turnId);
   }
 
   private markEndpointDecision(

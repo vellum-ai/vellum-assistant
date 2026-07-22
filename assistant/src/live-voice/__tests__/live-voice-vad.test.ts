@@ -3210,6 +3210,60 @@ describe("LiveVoiceSession unified front-door endpointing", () => {
     expect(spokenDeltaText(frames)).toContain("Sure thing.");
     // The spoken stream never contains the verdict token.
     expect(spokenDeltaText(frames)).not.toContain("[0]");
+    // One hold per utterance: the replay leg is not offered the hold verdict
+    // again — a second silence means the caller is done.
+    expect(starter.calls[0]?.unifiedVerdict).toBe(true);
+    expect(starter.calls[1]?.unifiedVerdict).toBeUndefined();
+  });
+
+  test("a verdict that misses the deadline commits the turn (fail-open)", async () => {
+    enableUnifiedFlags();
+    // The leg never produces a verdict — a provider TTFT tail. The deadline
+    // must commit the turn so the caller gets the thinking frame (and the
+    // ack timer arms) instead of unbounded structural silence.
+    const starter = makeVerdictTurnStarter([[]]);
+    const { frames, session, transcribers } = createHarness({
+      finals: ["hello world"],
+      startVoiceTurn: starter.startVoiceTurn,
+      frontModelConfig: {
+        endpointDecisionTimeoutMs: 40,
+        endpointExtensionMs: 60_000,
+      },
+    });
+
+    await startWithPartial(session, transcribers);
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => starter.calls.length === 1);
+
+    await waitFor(() => countType(frames, "thinking") === 1);
+    expect(countType(frames, "utterance_end")).toBe(1);
+    // Fail-open commits; nothing was discarded or rolled back.
+    expect(starter.discard).not.toHaveBeenCalled();
+  });
+
+  test("a final that extends the held transcript replays the boundary immediately", async () => {
+    enableUnifiedFlags();
+    const starter = makeVerdictTurnStarter([["[0]"], ["Got it."]]);
+    const { frames, session, transcribers } = createHarness({
+      finals: ["hello world how are you"],
+      startVoiceTurn: starter.startVoiceTurn,
+      // Extension far beyond the test window: only the fresh-final path can
+      // re-dispatch in time.
+      frontModelConfig: { endpointExtensionMs: 60_000 },
+    });
+
+    await startWithPartial(session, transcribers);
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => starter.discard.mock.calls.length === 1);
+
+    // The finalized transcript lands mid-extension and extends the partial
+    // the hold judged ("hello wor"): the hold was judged on stale text, so
+    // the boundary replays now instead of after the extension window.
+    transcribers[0]?.emit({ type: "final", text: "hello world how are you" });
+    await waitFor(() => starter.calls.length === 2);
+    expect(starter.calls[1]?.content).toBe("hello world how are you");
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+    expect(spokenDeltaText(frames)).toContain("Got it.");
   });
 
   test("speech resuming mid-verdict discards the leg and the utterance keeps accumulating", async () => {
