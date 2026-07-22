@@ -1,5 +1,5 @@
 import { ArrowLeft, Loader2 } from "lucide-react";
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -12,6 +12,7 @@ import {
 import { FREE_STORAGE_GIB } from "@/domains/settings/billing/plan-tier-meta";
 import {
   CustomPlanModal,
+  type CustomPlanSeed,
   type CustomPlanSelection,
 } from "@/domains/settings/billing/plans/custom-plan-modal";
 import { CustomPlanRow } from "@/domains/settings/billing/plans/custom-plan-row";
@@ -22,6 +23,7 @@ import {
   getPlanTierCopy,
 } from "@/domains/settings/billing/plans/plans-copy";
 import { useChangePackage } from "@/domains/settings/billing/use-change-package";
+import { useChangeTiers } from "@/domains/settings/billing/use-change-tiers";
 import {
   extractMutationError,
   isPackageSwitchEligible,
@@ -127,6 +129,13 @@ export function PlansPage() {
     organizationsBillingSubscriptionUpgradeCreateMutation(),
   );
   const { changePackage, isPending: changePackagePending } = useChangePackage();
+  const {
+    changeTiers,
+    isPending: changeTiersPending,
+    current,
+    eligible,
+    currentReady,
+  } = useChangeTiers({ enabled: platformReady });
   const [pending, setPending] = useState(false);
   const [customPlanOpen, setCustomPlanOpen] = useState(false);
   // The package a Pro user is switching to, awaiting reconfirm; null when the
@@ -143,6 +152,53 @@ export function PlansPage() {
   );
   const packages = proPlan?.packages ?? [];
   const hasPackages = packages.length > 0;
+  const isProUser = subscription?.plan_id === "pro";
+
+  // Seed the custom-plan modal with the Pro sub's current tiers so an unrelated
+  // edit (e.g. only the machine) doesn't force re-picking — and dropping — the
+  // storage or credit the user still holds. Null for base checkout, which
+  // starts every dimension empty.
+  const customInitialSelection = useMemo<CustomPlanSeed | null>(() => {
+    if (!isProUser || current.storageTier == null) {
+      return null;
+    }
+    // `machineTier` may be null for a baseline (Small) package — the modal
+    // seeds storage/credit and leaves the machine picker empty in that case.
+    return {
+      machineTier: current.machineTier,
+      storageTier: current.storageTier,
+      creditTier: current.creditTier,
+    };
+  }, [isProUser, current.machineTier, current.storageTier, current.creditTier]);
+
+  // The in-place custom editor can only faithfully represent a Pro sub whose
+  // current tiers are all live catalog options. A legacy storage tier or a
+  // deprecated credit bundle can't be shown or re-selected here — routing such
+  // a sub through the modal would force it to drop that tier — so those fall
+  // back to the adjust-plan surface (which preserves them) instead.
+  const customReconfigurable = useMemo(() => {
+    if (!isProUser || !proPlan) {
+      return false;
+    }
+    // A null baseline machine (a package with no paid machine tier) is a valid
+    // current state — represent it rather than excluding the sub from the modal.
+    const machineOk =
+      current.machineTier == null ||
+      proPlan.machine_tiers.some((t) => t.tier === current.machineTier);
+    const storageOk = proPlan.storage_tiers.some(
+      (t) => !t.legacy && t.tier === current.storageTier,
+    );
+    const creditOk =
+      current.creditTier == null ||
+      (proPlan.credit_tiers ?? []).some((t) => t.tier === current.creditTier);
+    return machineOk && storageOk && creditOk;
+  }, [
+    isProUser,
+    proPlan,
+    current.machineTier,
+    current.storageTier,
+    current.creditTier,
+  ]);
 
   // The takeover only makes sense against a platform-hosted assistant with a
   // live package catalog. Anything else — self-hosted or no platform session,
@@ -209,7 +265,6 @@ export function PlansPage() {
 
   let body: ReactNode;
   if (subscription && proPlan && hasPackages) {
-    const isProUser = subscription.plan_id === "pro";
     const currentTierKey =
       subscription.plan_id === "base"
         ? "free"
@@ -298,10 +353,42 @@ export function PlansPage() {
         credit_tier: selection.creditTier,
       });
 
+    // Active Pro orgs edit their tiers in place via the change-tier endpoints;
+    // the upgrade/checkout endpoint no-ops for an active Pro sub.
+    const applyCustomTierChange = async (selection: CustomPlanSelection) => {
+      const result = await changeTiers(selection);
+      if (!result) {
+        // The hook toasted; keep the modal open so the user can retry.
+        return;
+      }
+      setCustomPlanOpen(false);
+      if (result.needsResize) {
+        // A machine/storage change needs the assistant to provision the new
+        // ceiling — open the same in-tab resize takeover the tier-change flow uses.
+        setResizeTakeoverOpen(true);
+      } else {
+        toast.success("Plan updated.");
+      }
+    };
+
     const handleConfigure = () => {
       if (isProUser) {
-        // Same rule as the plan-card CTAs: the upgrade endpoint no-ops for an
-        // active Pro org, so plan changes go through the manage-plan modal.
+        // The current tiers that decide representability load after the page
+        // renders. While that first load is in flight, don't fall through to
+        // the manage surface — the Configure CTA is held disabled until they
+        // land (see `configureDisabled`), so this is a defensive guard.
+        if (eligible && !currentReady) {
+          return;
+        }
+        // An eligible Pro sub whose current tiers are all representable here
+        // reconfigures in the white modal. Anything else — cancelling /
+        // non-entitlement status, or a legacy/deprecated tier the modal can't
+        // show — routes to the billing manage/cancel surface, the same fallback
+        // the package CTAs use.
+        if (eligible && customReconfigurable) {
+          setCustomPlanOpen(true);
+          return;
+        }
         navigate(`${routes.settings.usage}?tab=billing&adjust_plan`);
         return;
       }
@@ -386,14 +473,26 @@ export function PlansPage() {
           })}
         </div>
 
-        <CustomPlanRow className="mt-10" onConfigure={handleConfigure} />
+        <CustomPlanRow
+          className="mt-10"
+          onConfigure={handleConfigure}
+          configureDisabled={isProUser && eligible && !currentReady}
+        />
 
         <CustomPlanModal
           open={customPlanOpen}
           proPlan={proPlan}
-          pending={pending}
+          pending={pending || changeTiersPending}
+          currentStorageGib={isProUser ? current.storageGib : null}
+          initialSelection={customInitialSelection}
           onClose={() => setCustomPlanOpen(false)}
-          onContinue={(selection) => void startCustomCheckout(selection)}
+          onContinue={(selection) => {
+            if (isProUser) {
+              void applyCustomTierChange(selection);
+            } else {
+              void startCustomCheckout(selection);
+            }
+          }}
         />
 
         <PackageSwitchConfirmModal

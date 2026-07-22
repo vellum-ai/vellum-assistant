@@ -4,11 +4,15 @@
  * A base subscriber clicking Configure gets the "Create a custom plan" modal;
  * Continue stays disabled until all three dropdowns (machine size, storage,
  * credits) have an explicit choice, then fires the Stripe upgrade with the
- * selected tiers. A Pro subscriber's Configure routes to the billing manage
- * modal instead, mirroring the plan-card CTAs.
+ * selected tiers. An eligible Pro subscriber reaches the same modal seeded to
+ * its current tiers, and Continue dispatches the change-machine/storage/
+ * credit-tier endpoints (not checkout, which no-ops for an active Pro sub) and
+ * opens the resize takeover. A Pro sub the modal can't faithfully represent — a
+ * legacy storage tier or a deprecated credit bundle — or an ineligible one
+ * (cancelling / bad status) routes to the manage modal instead.
  *
  * Strategy mirrors plans-page-checkout.test.tsx: mock the generated SDK to
- * capture the upgrade body and return a redirect, mock `openUrl` to capture
+ * capture the request bodies and return fixtures, mock `openUrl` to capture
  * the redirect target, and force the platform-hosted gate open. The
  * design-library Dropdown is a custom combobox — driven by clicking the
  * trigger, then the option whose visible label matches.
@@ -24,9 +28,11 @@ import * as browserRuntime from "@/runtime/browser";
 import * as platformGate from "@/hooks/use-platform-gate";
 import {
   organizationsBillingPlansRetrieveQueryKey,
+  organizationsBillingSubscriptionOnboardingRetrieveQueryKey,
   organizationsBillingSubscriptionRetrieveQueryKey,
 } from "@/generated/api/@tanstack/react-query.gen";
 import type {
+  OnboardingStateResponse,
   PlanListResponse,
   ProPackage,
   SubscriptionResponse,
@@ -36,7 +42,21 @@ const CHECKOUT_URL = "https://stripe.test/checkout/session";
 
 type Captured = { body?: unknown };
 let upgradeCall: Captured | null = null;
+let machineTierCall: Captured | null = null;
+let storageTierCall: Captured | null = null;
+let creditTierCall: Captured | null = null;
 let openedUrl: string | null = null;
+// When non-null, the change-machine-tier call rejects with this — drives the
+// error path (the hook toasts and the caller keeps the modal open).
+let machineTierError: unknown = null;
+// Read fixtures returned by the mocked SDK so post-mutation invalidation
+// refetches resolve deterministically instead of hitting the network.
+let subscriptionFixture: SubscriptionResponse | null = null;
+let plansFixture: PlanListResponse | null = null;
+let onboardingFixture: OnboardingStateResponse | null = null;
+// When true, the onboarding fetch never resolves — models the first load still
+// in flight so the Configure CTA's loading gate can be exercised.
+let onboardingHangs = false;
 
 mock.module("@/generated/api/sdk.gen", () => ({
   ...sdkGen,
@@ -47,6 +67,29 @@ mock.module("@/generated/api/sdk.gen", () => ({
       response: { ok: true },
     });
   },
+  organizationsBillingSubscriptionChangeMachineTierCreate: (opts: Captured) => {
+    machineTierCall = opts;
+    if (machineTierError !== null) {
+      return Promise.reject(machineTierError);
+    }
+    return Promise.resolve({ data: {}, response: { ok: true } });
+  },
+  organizationsBillingSubscriptionChangeStorageTierCreate: (opts: Captured) => {
+    storageTierCall = opts;
+    return Promise.resolve({ data: {}, response: { ok: true } });
+  },
+  organizationsBillingSubscriptionChangeCreditTierCreate: (opts: Captured) => {
+    creditTierCall = opts;
+    return Promise.resolve({ data: {}, response: { ok: true } });
+  },
+  organizationsBillingSubscriptionRetrieve: () =>
+    Promise.resolve({ data: subscriptionFixture, response: { ok: true } }),
+  organizationsBillingPlansRetrieve: () =>
+    Promise.resolve({ data: plansFixture, response: { ok: true } }),
+  organizationsBillingSubscriptionOnboardingRetrieve: () =>
+    onboardingHangs
+      ? new Promise(() => {})
+      : Promise.resolve({ data: onboardingFixture, response: { ok: true } }),
 }));
 
 mock.module("@/runtime/browser", () => ({
@@ -70,6 +113,13 @@ mock.module("@/hooks/use-platform-gate", () => ({
 mock.module("@/utils/use-bundled-avatar-components", () => ({
   preloadBundledAvatarComponents: () => {},
   useBundledAvatarComponents: () => null,
+}));
+
+// Stand in for the provisioning takeover so a Pro tier change can assert it was
+// revealed without driving its own resize queries.
+mock.module("@/domains/settings/components/tier-upgrade-resize-modal", () => ({
+  TierUpgradeResizeModal: ({ open }: { open: boolean }) =>
+    open ? <div data-testid="resize-takeover" /> : null,
 }));
 
 const { PlansPage } = await import("./plans-page");
@@ -183,7 +233,9 @@ function freeSubscription(): SubscriptionResponse {
   };
 }
 
-function proMightySubscription(): SubscriptionResponse {
+function proMightySubscription(
+  overrides: Partial<SubscriptionResponse> = {},
+): SubscriptionResponse {
   return {
     plan_id: "pro",
     status: "active",
@@ -191,8 +243,25 @@ function proMightySubscription(): SubscriptionResponse {
     current_period_end: "2026-07-10T00:00:00Z",
     cancel_at_period_end: false,
     cancel_at: null,
+    selected_credit_tier: null,
     package: { key: "mighty", name: "Mighty", version: 1, customized: false },
     entitlements: { managed_email: false, phone_number: false },
+    ...overrides,
+  };
+}
+
+/** Onboarding state carrying the Pro sub's current machine/storage tiers. */
+function onboarding(
+  overrides: Partial<OnboardingStateResponse> = {},
+): OnboardingStateResponse {
+  return {
+    max_machine_tier: "medium",
+    selected_storage_tier: "xs",
+    selected_storage_gib: 10,
+    pvc_ready: true,
+    domain_setup_available: false,
+    primary_assistant_id: null,
+    ...overrides,
   };
 }
 
@@ -201,9 +270,24 @@ function LocationProbe() {
   return <div data-testid="loc">{location.pathname + location.search}</div>;
 }
 
-function renderPage(subscription: SubscriptionResponse) {
+function renderPage(
+  subscription: SubscriptionResponse,
+  onboardingData: OnboardingStateResponse = onboarding(),
+  { seedOnboarding = true }: { seedOnboarding?: boolean } = {},
+) {
+  subscriptionFixture = subscription;
+  plansFixture = fullCatalog();
+  onboardingFixture = onboardingData;
   const client = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
+    defaultOptions: {
+      queries: {
+        retry: false,
+        staleTime: Infinity,
+        refetchOnMount: false,
+        refetchOnWindowFocus: false,
+        gcTime: Infinity,
+      },
+    },
   });
   client.setQueryData(
     organizationsBillingSubscriptionRetrieveQueryKey(),
@@ -213,6 +297,12 @@ function renderPage(subscription: SubscriptionResponse) {
     organizationsBillingPlansRetrieveQueryKey(),
     fullCatalog(),
   );
+  if (seedOnboarding) {
+    client.setQueryData(
+      organizationsBillingSubscriptionOnboardingRetrieveQueryKey(),
+      onboardingData,
+    );
+  }
   return render(
     <MemoryRouter initialEntries={["/assistant/plans"]}>
       <QueryClientProvider client={client}>
@@ -272,12 +362,31 @@ function continueButton(): HTMLButtonElement {
 
 beforeEach(() => {
   upgradeCall = null;
+  machineTierCall = null;
+  storageTierCall = null;
+  creditTierCall = null;
   openedUrl = null;
+  machineTierError = null;
+  onboardingHangs = false;
+  subscriptionFixture = null;
+  plansFixture = null;
+  onboardingFixture = null;
 });
 
 afterEach(() => {
   cleanup();
 });
+
+/** Finds an open-menu option element whose text starts with `label`. */
+function findOption(label: string): HTMLElement {
+  const option = Array.from(
+    document.querySelectorAll<HTMLElement>('[role="option"]'),
+  ).find((o) => (o.textContent?.trim() ?? "").startsWith(label));
+  if (!option) {
+    throw new Error(`expected option "${label}"`);
+  }
+  return option;
+}
 
 describe("CustomPlanModal — base subscriber", () => {
   test("Continue stays disabled until every dropdown has a choice", () => {
@@ -382,10 +491,205 @@ describe("CustomPlanModal — base subscriber", () => {
   });
 });
 
-describe("CustomPlanModal — Pro subscriber", () => {
-  test("Configure routes to the manage modal instead of the configurator", async () => {
+describe("CustomPlanModal — eligible Pro subscriber", () => {
+  test("Configure opens the white configurator, not the manage modal", () => {
+    const { getByRole, getByTestId, getByText } = renderPage(
+      proMightySubscription(),
+    );
+
+    fireEvent.click(getByRole("button", { name: "Configure" }));
+
+    getByText("Create a custom plan");
+    // The manage/cancel fallback route was not taken.
+    expect(getByTestId("loc").textContent).toBe("/assistant/plans");
+    expect(upgradeCall).toBeNull();
+  });
+
+  test("holds Configure disabled while the current tiers load, without misrouting", () => {
+    // The onboarding query (which supplies the current tiers) is still in
+    // flight. Representability is unknown, so the CTA is disabled rather than
+    // falling through to the manage surface and stranding an eligible sub.
+    onboardingHangs = true;
     const { getByRole, getByTestId, queryByText } = renderPage(
       proMightySubscription(),
+      onboarding(),
+      { seedOnboarding: false },
+    );
+
+    const configure = getByRole("button", { name: "Configure" });
+    expect((configure as HTMLButtonElement).disabled).toBe(true);
+
+    fireEvent.click(configure);
+    expect(queryByText("Create a custom plan")).toBeNull();
+    // The manage/cancel fallback route was not taken.
+    expect(getByTestId("loc").textContent).toBe("/assistant/plans");
+  });
+
+  test("opens seeded to the current plan so Continue needs no re-pick", () => {
+    // Current config: medium machine / 10 GB (xs) storage / no credits. The
+    // configurator opens with all three pre-filled, so an unrelated edit can't
+    // strand the user into re-picking — and dropping — a tier they still hold.
+    const { getByRole, getByText } = renderPage(proMightySubscription());
+
+    fireEvent.click(getByRole("button", { name: "Configure" }));
+
+    getByText("Create a custom plan");
+    // Seeded, so Continue is enabled with no interaction.
+    expect(continueButton().disabled).toBe(false);
+
+    // The recap reflects the seeded current tiers.
+    const dialog = document.querySelector('[role="dialog"]');
+    const rows = Array.from(dialog?.querySelectorAll("li") ?? []).map(
+      (li) => li.textContent?.trim() ?? "",
+    );
+    expect(rows).toEqual([
+      "Pro base plan — $20/mo",
+      "Medium machine (2.5 vCPU, 5 GiB)",
+      "10 GB storage",
+      "No extra credits",
+    ]);
+  });
+
+  test("continuing with the seeded config is a no-op with no dispatch", async () => {
+    const { getByRole, queryByText, queryByTestId } = renderPage(
+      proMightySubscription(),
+    );
+
+    fireEvent.click(getByRole("button", { name: "Configure" }));
+    fireEvent.click(continueButton());
+
+    // Nothing diverged from the current plan, so no change-tier request fires
+    // and the resize takeover stays closed.
+    await waitFor(() => expect(queryByText("Create a custom plan")).toBeNull());
+    expect(machineTierCall).toBeNull();
+    expect(storageTierCall).toBeNull();
+    expect(creditTierCall).toBeNull();
+    expect(queryByTestId("resize-takeover")).toBeNull();
+  });
+
+  test("a baseline (null machine) Pro sub can still open and reconfigure", () => {
+    // A package with no paid machine tier reports max_machine_tier: null. That
+    // sub must still reach the modal (not route to manage); storage/credit seed
+    // and the machine picker starts empty, so Continue waits for a machine pick.
+    const { getByRole, getByText } = renderPage(
+      proMightySubscription(),
+      onboarding({ max_machine_tier: null }),
+    );
+
+    fireEvent.click(getByRole("button", { name: "Configure" }));
+    getByText("Create a custom plan");
+    expect(continueButton().disabled).toBe(true);
+
+    const dialog = document.querySelector('[role="dialog"]');
+    const rows = Array.from(dialog?.querySelectorAll("li") ?? []).map(
+      (li) => li.textContent?.trim() ?? "",
+    );
+    // Storage and credit are seeded even though the machine is unset.
+    expect(rows).toContain("10 GB storage");
+    expect(rows).toContain("No extra credits");
+  });
+
+  test("a baseline Pro sub picking a machine dispatches the upgrade", async () => {
+    const { getByRole, findByTestId } = renderPage(
+      proMightySubscription(),
+      onboarding({ max_machine_tier: null }),
+    );
+
+    fireEvent.click(getByRole("button", { name: "Configure" }));
+    selectOption("Machine size", "Medium machine (2.5 vCPU, 5 GiB)");
+    fireEvent.click(continueButton());
+
+    await waitFor(() => expect(machineTierCall).not.toBeNull());
+    expect(machineTierCall!.body).toEqual({ machine_tier: "medium" });
+    // Storage and credit stayed at their seeded values, so neither dispatches.
+    expect(storageTierCall).toBeNull();
+    expect(creditTierCall).toBeNull();
+    // Baseline → medium is an upgrade, so the resize takeover opens.
+    await findByTestId("resize-takeover");
+  });
+
+  test("Continue dispatches only the changed tiers and opens the resize takeover", async () => {
+    // Current config is medium machine / 10 GB (xs) storage / no credits.
+    const { getByRole, findByTestId } = renderPage(proMightySubscription());
+
+    fireEvent.click(getByRole("button", { name: "Configure" }));
+
+    // Raise the machine, keep storage at its current size, add a credit bundle.
+    selectOption("Machine size", "Large machine (4 vCPU, 8 GiB)");
+    selectOption("Storage", "10 GB");
+    selectOption("Credit bundle", "50 credits");
+    fireEvent.click(continueButton());
+
+    await waitFor(() => expect(machineTierCall).not.toBeNull());
+    expect(machineTierCall!.body).toEqual({ machine_tier: "large" });
+    expect(creditTierCall!.body).toEqual({ credit_tier: "credits_50" });
+    // Storage is unchanged, so no storage-tier request fires.
+    expect(storageTierCall).toBeNull();
+
+    // A machine change resizes the assistant, so the takeover opens.
+    await findByTestId("resize-takeover");
+    // The change-tier path never touches the checkout endpoint.
+    expect(upgradeCall).toBeNull();
+    expect(openedUrl).toBeNull();
+  });
+
+  test("a machine downgrade dispatches but skips the resize takeover", async () => {
+    // Current machine is large; lowering to medium is a downgrade, capped
+    // server-side, so it must not open the Apply & Restart takeover.
+    const { getByRole, queryByText, queryByTestId } = renderPage(
+      proMightySubscription(),
+      onboarding({ max_machine_tier: "large" }),
+    );
+
+    fireEvent.click(getByRole("button", { name: "Configure" }));
+    selectOption("Machine size", "Medium machine (2.5 vCPU, 5 GiB)");
+    fireEvent.click(continueButton());
+
+    await waitFor(() => expect(machineTierCall).not.toBeNull());
+    expect(machineTierCall!.body).toEqual({ machine_tier: "medium" });
+    // The modal closes and the takeover never opens for a downgrade.
+    await waitFor(() => expect(queryByText("Create a custom plan")).toBeNull());
+    expect(queryByTestId("resize-takeover")).toBeNull();
+  });
+
+  test("storage tiers below the current size are disabled", () => {
+    // Current storage is 30 GB (s), so the 10 GB tier can't be selected.
+    const { getByRole } = renderPage(
+      proMightySubscription(),
+      onboarding({ selected_storage_tier: "s", selected_storage_gib: 30 }),
+    );
+
+    fireEvent.click(getByRole("button", { name: "Configure" }));
+    openDropdown("Storage");
+
+    expect(findOption("10 GB").getAttribute("aria-disabled")).toBe("true");
+    expect(findOption("30 GB").getAttribute("aria-disabled")).toBe("false");
+  });
+
+  test("a failed dispatch keeps the modal open and skips the takeover", async () => {
+    machineTierError = { detail: "Payment failed. Your card was declined." };
+    const { getByRole, getByText, queryByTestId } = renderPage(
+      proMightySubscription(),
+    );
+
+    fireEvent.click(getByRole("button", { name: "Configure" }));
+
+    selectOption("Machine size", "Large machine (4 vCPU, 8 GiB)");
+    selectOption("Storage", "10 GB");
+    selectOption("Credit bundle", "No extra credits");
+    fireEvent.click(continueButton());
+
+    await waitFor(() => expect(machineTierCall).not.toBeNull());
+    // The hook toasted; the configurator stays open and the takeover is absent.
+    getByText("Create a custom plan");
+    expect(queryByTestId("resize-takeover")).toBeNull();
+  });
+});
+
+describe("CustomPlanModal — ineligible Pro subscriber", () => {
+  test("a cancelling Pro sub's Configure routes to the manage modal", async () => {
+    const { getByRole, getByTestId, queryByText } = renderPage(
+      proMightySubscription({ cancel_at_period_end: true }),
     );
 
     fireEvent.click(getByRole("button", { name: "Configure" }));
@@ -396,6 +700,48 @@ describe("CustomPlanModal — Pro subscriber", () => {
       );
     });
     expect(queryByText("Create a custom plan")).toBeNull();
+    expect(machineTierCall).toBeNull();
     expect(upgradeCall).toBeNull();
+  });
+});
+
+describe("CustomPlanModal — non-representable Pro plan", () => {
+  test("a legacy storage tier routes to the manage modal", async () => {
+    // The configurator filters legacy storage tiers, so a sub holding one can't
+    // be shown or re-selected here — route to adjust-plan, which preserves it,
+    // rather than force the user to upgrade off it.
+    const { getByRole, getByTestId, queryByText } = renderPage(
+      proMightySubscription(),
+      onboarding({ selected_storage_tier: "xl", selected_storage_gib: 250 }),
+    );
+
+    fireEvent.click(getByRole("button", { name: "Configure" }));
+
+    await waitFor(() => {
+      expect(getByTestId("loc").textContent).toBe(
+        "/assistant/settings/usage?tab=billing&adjust_plan",
+      );
+    });
+    expect(queryByText("Create a custom plan")).toBeNull();
+    expect(machineTierCall).toBeNull();
+  });
+
+  test("a deprecated credit bundle routes to the manage modal", async () => {
+    // The configurator only offers live credit tiers; the sub's `credits_25`
+    // bundle is absent from the catalog, so routing it here would drop the paid
+    // credits — fall back to adjust-plan instead.
+    const { getByRole, getByTestId, queryByText } = renderPage(
+      proMightySubscription({ selected_credit_tier: "credits_25" }),
+    );
+
+    fireEvent.click(getByRole("button", { name: "Configure" }));
+
+    await waitFor(() => {
+      expect(getByTestId("loc").textContent).toBe(
+        "/assistant/settings/usage?tab=billing&adjust_plan",
+      );
+    });
+    expect(queryByText("Create a custom plan")).toBeNull();
+    expect(machineTierCall).toBeNull();
   });
 });
