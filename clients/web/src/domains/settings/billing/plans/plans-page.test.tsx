@@ -35,6 +35,7 @@ import { MemoryRouter, useLocation } from "react-router";
 import * as sdkGen from "@/generated/api/sdk.gen";
 import * as browserRuntime from "@/runtime/browser";
 import * as platformGateMod from "@/hooks/use-platform-gate";
+import * as toastMod from "@vellumai/design-library/components/toast";
 import {
   organizationsBillingPlansRetrieveQueryKey,
   organizationsBillingSubscriptionRetrieveQueryKey,
@@ -52,6 +53,9 @@ type Captured = { body?: unknown };
 let changePackageCall: Captured | null = null;
 let upgradeCall: Captured | null = null;
 let openedUrl: string | null = null;
+// Success-toast messages captured from the mocked toast module — lets the
+// downgrade path assert its confirmation toast without rendering the Toaster.
+const toastSuccessCalls: string[] = [];
 // When false, the change-package promise never settles — used to observe the
 // in-flight (pending) disabled state.
 let changePackageAutoResolve = true;
@@ -125,6 +129,18 @@ mock.module("@/utils/use-bundled-avatar-components", () => ({
 mock.module("@/domains/settings/components/tier-upgrade-resize-modal", () => ({
   TierUpgradeResizeModal: ({ open }: { open: boolean }) =>
     open ? <div data-testid="resize-takeover" /> : null,
+}));
+
+// Capture success toasts so the downgrade path can assert its confirmation
+// message; keep the real module's other methods (error, etc.) intact.
+mock.module("@vellumai/design-library/components/toast", () => ({
+  ...toastMod,
+  toast: {
+    ...toastMod.toast,
+    success: (message: string) => {
+      toastSuccessCalls.push(message);
+    },
+  },
 }));
 
 const { PlansPage } = await import("./plans-page");
@@ -433,6 +449,7 @@ beforeEach(() => {
   changePackageError = null;
   subscriptionFixture = null;
   plansFixture = null;
+  toastSuccessCalls.length = 0;
 });
 
 afterEach(() => {
@@ -440,10 +457,9 @@ afterEach(() => {
 });
 
 describe("PlansPage — Pro package switch (change-package)", () => {
-  test("Super → Mighty downgrade confirms, then calls change-package and reveals the takeover", async () => {
-    const { findByRole, findByTestId, getByTestId } = renderInteractive(
-      proSuperSubscription(),
-    );
+  test("Super → Mighty downgrade confirms, then calls change-package without opening the takeover", async () => {
+    const { findByRole, findByTestId, getByTestId, queryByTestId } =
+      renderInteractive(proSuperSubscription());
 
     // Click the Mighty column's downgrade CTA (below Super).
     fireEvent.click(await findByRole("button", { name: "Downgrade to Mighty" }));
@@ -454,8 +470,13 @@ describe("PlansPage — Pro package switch (change-package)", () => {
     await waitFor(() => expect(changePackageCall).not.toBeNull());
     expect(changePackageCall!.body).toEqual({ package: "mighty" });
 
-    // The provisioning takeover is revealed in-tab; no `?adjust_plan` navigation.
-    await findByTestId("resize-takeover");
+    // A downgrade caps the machine down immediately, so the dialog closes on a
+    // success toast and the provisioning takeover never opens.
+    await waitFor(() =>
+      expect(queryByTestId("confirm-package-switch-button")).toBeNull(),
+    );
+    expect(toastSuccessCalls).toEqual(["Downgraded to Mighty."]);
+    expect(queryByTestId("resize-takeover")).toBeNull();
     expect(getByTestId("loc").textContent).toBe("/assistant/plans");
     expect(upgradeCall).toBeNull();
   });

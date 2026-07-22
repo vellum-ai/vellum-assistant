@@ -261,20 +261,27 @@ export function PlansPage() {
       if (!switchTarget) {
         return;
       }
-      const result = await changePackage(switchTarget.key);
+      const target = switchTarget;
+      const relation = tierRelation(currentTierKey, target.key);
+      const result = await changePackage(target.key);
       if (!result) {
         // The hook already toasted; keep the confirm dialog open so the user
         // can retry.
         return;
       }
       setSwitchTarget(null);
-      if (result.status === "ok") {
-        // The switch applied; reveal the provisioning takeover so the user can
-        // resize into the new tier.
-        setResizeTakeoverOpen(true);
-      } else {
-        // no_op: already on this package — nothing to provision.
+      if (result.status === "no_op") {
+        // Already on this package — nothing to provision.
         toast.success("You're already on this plan.");
+        return;
+      }
+      // status === "ok": only an upgrade grows the machine, so only it needs
+      // the resize/provisioning takeover. A downgrade caps the machine down
+      // immediately server-side with no apply/restart step, so just confirm it.
+      if (relation === "downgrade") {
+        toast.success(`Downgraded to ${target.name}.`);
+      } else {
+        setResizeTakeoverOpen(true);
       }
     };
 
