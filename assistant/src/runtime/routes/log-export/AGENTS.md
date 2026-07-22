@@ -102,3 +102,24 @@ most-relevant records first.
     `<ISO-with-dashes>_<conversationId>` format are silently skipped
     (Rule 3 — default deny). Legacy `<id>_<ISO>` directories are
     intentionally excluded until they migrate to the canonical format.
+
+## Derived metadata (not file contents)
+
+The rules above govern shipping workspace **file contents**. A handful of
+export entries instead ship a **derived metadata summary** the handler
+assembles directly (`log-export-routes.ts`), never a file body — the same
+category as `config-snapshot.json` (a redacted `config.json` derivative)
+and `clients-list.json` (runtime state). These are outside the allowlist
+regime because they emit no workspace bytes.
+
+- **`installed-inventory.json`** (`installed-inventory.ts`): one row per
+  installed skill and plugin with its **name, `lastUpdated` date, and
+  content fingerprint** (skills `v1:<sha256>`, plugins `v2:<sha256>`), plus
+  source / state / version / disabled flags. Answers "what was installed,
+  at what version" from a bundle alone — otherwise unrecoverable. It reads
+  the workspace `skills/` and `plugins/` trees to hash them but copies none
+  of their files; the fingerprints reuse the system's canonical content
+  hashes (`computeSkillVersionHash`, `computeContentHash`), both of which
+  exclude runtime-owned / provenance files. Emits no time/conversation
+  filter (the inventory is a point-in-time snapshot, not per-turn data) and
+  fails soft to `installed-inventory-error.json`.
