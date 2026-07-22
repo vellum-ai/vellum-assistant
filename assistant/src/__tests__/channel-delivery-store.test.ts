@@ -203,6 +203,46 @@ describe("channel-delivery-store", () => {
     ).toBe(topic.conversationId);
   });
 
+  test("thread-less Slack reset clears only the channel-level binding, keeping thread bindings", async () => {
+    // Pins the channel-agnostic reset contract for Slack: a channel-root
+    // /new must not unbind the channel's thread conversations.
+    const db = getDb();
+    const now = Date.now();
+    for (const id of ["conv-slack-root", "conv-slack-thread"]) {
+      db.insert(conversations)
+        .values({ id, title: "test", createdAt: now, updatedAt: now })
+        .run();
+    }
+    upsertBinding({
+      conversationId: "conv-slack-root",
+      sourceChannel: "slack",
+      externalChatId: "C0123ABCDEF",
+    });
+    upsertBinding({
+      conversationId: "conv-slack-thread",
+      sourceChannel: "slack",
+      externalChatId: "C0123ABCDEF",
+      externalThreadId: "1710000000.000100",
+    });
+
+    const req = new Request("http://localhost/channels/conversation", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sourceChannel: "slack",
+        conversationExternalId: "C0123ABCDEF",
+      }),
+    });
+    const res = await handleDeleteConversation(req);
+    expect(res.status).toBe(200);
+
+    expect(getBindingByChannelChat("slack", "C0123ABCDEF")).toBeNull();
+    expect(
+      getBindingByChannelChatThread("slack", "C0123ABCDEF", "1710000000.000100")
+        ?.conversationId,
+    ).toBe("conv-slack-thread");
+  });
+
   test("thread-less Telegram reset clears only the main-chat binding, keeping topic bindings", async () => {
     const db = getDb();
     const now = Date.now();

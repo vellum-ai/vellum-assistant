@@ -1,5 +1,17 @@
 /**
- * Channel conversation deletion handler.
+ * Channel conversation reset handler.
+ *
+ * Channel-agnostic contract — two reset shapes, keyed on `sourceThreadId`:
+ *
+ * - **Thread-less reset** (no `sourceThreadId`): resets the chat's MAIN
+ *   conversation only — deletes the base + legacy keys and the thread-less
+ *   binding. Thread/topic conversations in the same chat (Slack threads,
+ *   Telegram topics) are independent conversations and are never touched.
+ * - **Threaded reset** (`sourceThreadId` set): resets exactly that
+ *   thread/topic's conversation — deletes its scoped key and its binding.
+ *
+ * Adapter-specific behavior stays inside the explicitly channel-gated
+ * branches below and must not leak into the shared contract.
  */
 import {
   deleteConversationKey,
@@ -38,11 +50,12 @@ export function handleDeleteConversation({ body = {} }: RouteHandlerArgs) {
   const legacyKey = `${sourceChannel}:${conversationExternalId}`;
   if (!normalizedThreadId) {
     deleteConversationKey(legacyKey);
-    // A thread-less reset targets the chat's main conversation only. Bindings
-    // carrying an externalThreadId belong to sibling thread/topic
-    // conversations in the same chat and must survive the reset.
     deleteBindingByChannelChatNullThread(sourceChannel, conversationExternalId);
   } else {
+    // Slack adapter: eagerly re-mint a fresh conversation for the threaded
+    // key so mid-thread turns racing the reset land in the new conversation.
+    // Telegram deliberately skips this — a reset topic simply creates its
+    // fresh conversation on the next inbound message.
     if (sourceChannel === "slack") {
       getOrCreateConversation(scopedKey);
     }
