@@ -71,13 +71,23 @@ export interface ProvisioningStateProps {
  * the avatar resolves or when none is configured. The idle breathe + reduced
  * -motion gating come from `AnimatedAvatar` inside `ChatAvatar`.
  */
-function TakeoverAvatar({ assistantId }: { assistantId?: string | null }) {
+function TakeoverAvatar({
+  assistantId,
+  resolved,
+}: {
+  assistantId?: string | null;
+  /** The work finished — play the one-shot settle. */
+  resolved: boolean;
+}) {
   const activeId = useResolvedAssistantsStore.use.activeAssistantId();
   const resolvedId = assistantId ?? activeId;
   const { components, traits, customImageUrl } = useAssistantAvatar(resolvedId);
   const fallbackComponents = useBundledAvatarComponents();
   return (
-    <div aria-hidden className="flex flex-col items-center">
+    <div
+      aria-hidden
+      className={`flex flex-col items-center ${resolved ? "provision-avatar-resolved" : ""}`}
+    >
       <ChatAvatar
         components={components ?? fallbackComponents}
         traits={traits}
@@ -358,8 +368,10 @@ export function ProvisioningState({
     onCelebrationEndRef.current = onCelebrationEnd;
   }, [onCelebrationEnd]);
 
-  const dwelling =
-    celebrating && (state === "DONE" || state === "NOT_APPLICABLE");
+  const resolved = state === "DONE" || state === "NOT_APPLICABLE";
+  const phaseKey = state === "RESIZING" ? "WAITING" : state;
+
+  const dwelling = celebrating && resolved;
   useEffect(() => {
     if (!dwelling) {
       return;
@@ -374,8 +386,16 @@ export function ProvisioningState({
       className="relative flex h-full min-h-[420px] w-full flex-col items-center justify-center gap-10 px-6 py-10 text-center"
       style={{ backgroundColor: TAKEOVER_BACKGROUND }}
     >
-      <TakeoverAvatar assistantId={assistantId} />
-      <div className="flex flex-col items-center gap-8 [animation:onboarding-step-in_350ms_ease-out] motion-reduce:[animation:none]">
+      <TakeoverAvatar assistantId={assistantId} resolved={resolved} />
+      {/* Keyed so each phase replays the entrance instead of swapping its copy
+          in place. WAITING and RESIZING render identical copy, so they share a
+          key and don't retrigger. The min-height anchors the block: phases
+          carry different chip counts, and without it the whole centred group
+          jumps as they swap. */}
+      <div
+        key={phaseKey}
+        className="flex min-h-[120px] w-full flex-col items-center gap-8 [animation:onboarding-step-in_420ms_ease-out] motion-reduce:[animation:none]"
+      >
         {renderPhase()}
       </div>
     </div>

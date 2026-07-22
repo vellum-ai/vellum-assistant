@@ -282,6 +282,25 @@ body {
   to { opacity: 1; transform: translateY(0); }
 }
 
+/* Provisioning takeover — the avatar acknowledges completion with the same
+ * overshoot the hatching screen uses on resolve, held a touch longer so it
+ * reads as settling rather than bouncing. */
+@keyframes provision-resolve {
+  0% { transform: scale(1); }
+  55% { transform: scale(1.1); }
+  100% { transform: scale(1.06); }
+}
+
+.provision-avatar-resolved {
+  animation: provision-resolve 0.82s cubic-bezier(0.34, 1.4, 0.64, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .provision-avatar-resolved {
+    animation: none;
+  }
+}
+
 /* App shell sizing guards: keep routed pages from collapsing inside flex
  * main containers. */
 .app-shell {
