@@ -91,6 +91,14 @@ describe("IntelligenceLayout — section pages", () => {
     );
   });
 
+  test("the library page renders as a section with the back chevron", () => {
+    const { container } = renderLayoutAt("/assistant/library");
+    expect(container.querySelector("h1")?.textContent).toBe("Library");
+    expect(container.querySelector("a")?.getAttribute("href")).toBe(
+      "/assistant/identity",
+    );
+  });
+
   test("the memory page renders as a section with the back chevron", () => {
     const { container } = renderLayoutAt("/assistant/memory");
     expect(container.querySelector("h1")?.textContent).toBe("Memory");

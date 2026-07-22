@@ -387,9 +387,11 @@ export const routeTree = [
                     { path: "workspace", lazy: { Component: () => import("@/domains/workspace/workspace-page").then((m) => m.WorkspacePage) } },
                     { path: "contacts", lazy: { Component: () => import("@/contacts-page-route").then((m) => m.ContactsPageRoute) } },
                     { path: "channels", lazy: { Component: () => import("@/channels-page-route").then((m) => m.ChannelsPageRoute) } },
+                    { path: "library", lazy: { Component: () => import("@/domains/library/library-page").then((m) => m.LibraryPage) } },
                   ],
                 },
-                { path: "library", lazy: { Component: () => import("@/domains/library/library-page").then((m) => m.LibraryPage) } },
+                // The app viewer stays outside IntelligenceLayout: it renders
+                // full-bleed and must not inherit the section chrome.
                 { path: "library/:appId", lazy: { Component: () => import("@/domains/library/library-detail-page").then((m) => m.LibraryDetailPage) } },
                 { path: "connect", lazy: { Component: () => import("@/domains/contacts/connect-page").then((m) => m.ConnectPage) } },
                 {
