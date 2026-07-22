@@ -645,20 +645,12 @@ describe("PlansPage — Pro package switch (change-package)", () => {
   });
 });
 
-// A Pro sub that isn't cleanly packaged (customized, cancelling, or in a
-// non-entitlement status) can't switch in place — the change-package endpoint
-// would 4xx. Clicking a package CTA must route it to the billing manage/cancel
-// surface (`?adjust_plan`) instead of posting change-package, matching the
-// plan-card banner's fallback.
+// A cancelling or non-entitlement-status Pro sub can't switch in place — the
+// change-package endpoint would 4xx. Clicking a package CTA must route it to the
+// billing manage/cancel surface (`?adjust_plan`) instead of posting
+// change-package, matching the plan-card banner's fallback.
 describe("PlansPage — ineligible Pro subs route to manage", () => {
   const ineligible: Array<[string, SubscriptionResponse]> = [
-    [
-      "customized",
-      {
-        ...proMightySubscription(),
-        package: { key: "mighty", name: "Mighty", version: 1, customized: true },
-      },
-    ],
     ["cancelling", { ...proMightySubscription(), cancel_at_period_end: true }],
     ["non-entitlement status", { ...proMightySubscription(), status: "unpaid" }],
   ];
@@ -680,6 +672,84 @@ describe("PlansPage — ineligible Pro subs route to manage", () => {
       expect(upgradeCall).toBeNull();
     });
   }
+});
+
+// A Custom sub — one with no package pin, or a customized (diverged) pin — has
+// no catalog rank. Every named card is a switch target: the confirm dialog uses
+// direction-neutral copy, and a successful switch opens the provisioning
+// takeover. A customized sub can even re-pin its own key (revert to stock).
+describe("PlansPage — Custom Pro subs switch via neutral confirm", () => {
+  function proUnpinnedSubscription(): SubscriptionResponse {
+    return {
+      plan_id: "pro",
+      status: "active",
+      renewal_date: null,
+      current_period_end: "2026-07-10T00:00:00Z",
+      cancel_at_period_end: false,
+      cancel_at: null,
+      package: null,
+      entitlements: { managed_email: false, phone_number: false },
+    };
+  }
+
+  function proCustomizedMightySubscription(): SubscriptionResponse {
+    return {
+      ...proMightySubscription(),
+      package: { key: "mighty", name: "Mighty", version: 1, customized: true },
+    };
+  }
+
+  test("an unpinned Pro sub's card opens the neutral 'Switch to' confirm and posts change-package", async () => {
+    const { findByRole, findByText, findByTestId } = renderInteractive(
+      proUnpinnedSubscription(),
+    );
+
+    // With no pin the card carries its plain upgrade CTA ("Power Up" for Mighty).
+    fireEvent.click(await findByRole("button", { name: "Power Up" }));
+
+    // The direction-neutral switch confirm appears (not upgrade/downgrade copy).
+    await findByText("Switch to Mighty?");
+    await findByText(
+      "Your plan changes now. Any prorated difference is charged now or credited to your next invoice.",
+    );
+
+    fireEvent.click(await findByTestId("confirm-package-switch-button"));
+
+    await waitFor(() => expect(changePackageCall).not.toBeNull());
+    expect(changePackageCall!.body).toEqual({ package: "mighty" });
+    await findByTestId("resize-takeover");
+    expect(upgradeCall).toBeNull();
+  });
+
+  test("a customized-pinned sub can re-select its own package (revert to stock), no 'current' short-circuit", async () => {
+    const { findByRole, findByText, findByTestId } = renderInteractive(
+      proCustomizedMightySubscription(),
+    );
+
+    // The customized sub's own Mighty card is not "current" — its CTA is live.
+    fireEvent.click(await findByRole("button", { name: "Power Up" }));
+
+    await findByText("Switch to Mighty?");
+    fireEvent.click(await findByTestId("confirm-package-switch-button"));
+
+    await waitFor(() => expect(changePackageCall).not.toBeNull());
+    expect(changePackageCall!.body).toEqual({ package: "mighty" });
+  });
+
+  test("a Custom sub's Free card is a downgrade and no named card renders as current", () => {
+    const html = renderStatic(
+      {
+        ...proMightySubscription(),
+        package: { key: "mighty", name: "Mighty", version: 1, customized: true },
+      },
+      fullCatalog(),
+    );
+    // Pro → Free is always a downgrade.
+    expect(html).toContain("Downgrade to Free");
+    expect(html).not.toContain("Start Free");
+    // A Custom sub has no catalog rank, so no card is the current plan.
+    expect(count(html, /Current Plan/g)).toBe(0);
+  });
 });
 
 // ---------------------------------------------------------------------------
