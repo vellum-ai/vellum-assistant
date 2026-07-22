@@ -49,7 +49,7 @@ App discovery mirrors the plugin loader's own scan, so an app is visible on exac
 
 ## The frontend contract
 
-This reference covers how an app is packaged, compiled, and served as a plugin surface. The _authoring_ contract for the app itself — the design system and `--v-*` tokens, the widget library, responsive rules, the `window.vellum` bridge (`fetch`, `asset`, `subscribe`, `sendAction`), and how an app reaches backend data through routes — is owned by the **app-builder** skill, with design quality delegated to **frontend-design**. Build the app's UI by those skills, then drop the resulting `src/` under your plugin's `apps/`. A plugin that also ships `routes/` can back its app's data with its own namespaced HTTP routes (see [routes.md](routes.md)).
+This reference covers how an app is packaged, compiled, and served as a plugin surface. The _authoring_ contract for the app itself — the design system and `--v-*` tokens, the widget library, responsive rules, the `window.vellum` bridge (`fetch`, `asset`, `subscribe`, `sendAction`), and how an app reaches backend data through routes — is owned by the **app-builder** skill, with design quality delegated to **frontend-design**. Build the app's UI by those skills, then drop the resulting `src/` under your plugin's `apps/`. A plugin that also ships `routes/` can back its app's data with its own namespaced HTTP routes (see [routes.md](routes.md)) — the app reaches them through `window.vellum.fetch` at `/v1/x/plugins/<name>/…`, **never the global `fetch`**, which fails from the app's sandboxed origin.
 
 ## Anatomy of an app
 
