@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import { resolveRoutingIdentity } from "../../providers/connection-resolution.js";
 import { resolveModelIntent } from "../../providers/model-intents.js";
 import { CALL_SITE_DEFAULTS } from "../call-site-defaults.js";
 import {
@@ -37,9 +38,18 @@ describe("getEffectiveProfiles", () => {
       const body = CODE_DEFAULT_PROFILE_ENTRIES[key];
       expect(body).toBeDefined();
       expect(typeof body.model).toBe("string");
-      expect(body.provider).toBeDefined();
-      expect(body.provider_connection).toBe("vellum");
+      expect(body.provider).toBe("vellum");
+      expect(body.provider_connection).toBeUndefined();
       expect(body.source).toBe("managed");
+    }
+  });
+
+  test("every vellum-column body translates to a managed dispatch target", () => {
+    for (const key of [...DEFAULT_PROFILE_KEYS, OS_BETA_PROFILE_KEY]) {
+      const body = CODE_DEFAULT_PROFILE_ENTRIES[key];
+      const identity = resolveRoutingIdentity(body.provider, body.model);
+      expect(identity?.connectionName).toBe("vellum");
+      expect(typeof identity?.expectedProvider).toBe("string");
     }
   });
 
@@ -137,10 +147,8 @@ describe("resolver integration", () => {
     expect(resolved.model).toBe(
       CODE_DEFAULT_PROFILE_ENTRIES.balanced.model as string,
     );
-    expect(String(resolved.provider)).toBe(
-      String(CODE_DEFAULT_PROFILE_ENTRIES.balanced.provider),
-    );
-    expect(resolved.provider_connection).toBe("vellum");
+    expect(String(resolved.provider)).toBe("vellum");
+    expect(resolved.provider_connection).toBeUndefined();
   });
 
   test("an empty workspace resolves every call-site default from the catalog", () => {
@@ -246,7 +254,12 @@ describe("resolveDefaultProfileForProvider", () => {
         expect(entry).toBeDefined();
         expect(typeof entry?.model).toBe("string");
         expect(entry?.provider).toBeDefined();
-        expect(entry?.provider_connection).toBeDefined();
+        // Identity columns stamp no connection; BYOK columns always do.
+        if (entry?.provider === "vellum") {
+          expect(entry?.provider_connection).toBeUndefined();
+        } else {
+          expect(entry?.provider_connection).toBeDefined();
+        }
         expect(entry?.source).toBe("managed");
       }
     }

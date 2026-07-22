@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { ROUTING_IDENTITY_PROVIDERS } from "../providers/inference/auth.js";
 import {
   getCatalogProviderForModel,
   isModelInCatalog,
@@ -19,6 +20,7 @@ import {
   LLMConfigBase,
   type LLMSchema,
   type ProfileEntry,
+  routingIdentityModelIssue,
 } from "./schemas/llm.js";
 
 /**
@@ -378,10 +380,16 @@ function resolveOverrideOrDefault(
   const applicableProvider =
     (winnerFragment.provider as string | undefined) ??
     CODE_DEFAULT_BASE.provider;
+  // A routing-identity winner serves any model its route can dispatch —
+  // identity + model is the complete shape, so no provider implication.
+  const winnerServesModel = (model: string): boolean =>
+    ROUTING_IDENTITY_PROVIDERS.has(applicableProvider)
+      ? routingIdentityModelIssue(applicableProvider, model) === null
+      : isModelInCatalog(applicableProvider, model);
   if (
     typeof tweak.model === "string" &&
     tweak.provider === undefined &&
-    !isModelInCatalog(applicableProvider, tweak.model)
+    !winnerServesModel(tweak.model)
   ) {
     const implied = getCatalogProviderForModel(tweak.model);
     if (implied !== undefined) {
