@@ -16,6 +16,7 @@ import {
 import { CustomPlanRow } from "@/domains/settings/billing/plans/custom-plan-row";
 import { PlanColumnCard } from "@/domains/settings/billing/plans/plan-column-card";
 import { getPlanTierCopy } from "@/domains/settings/billing/plans/plans-copy";
+import { useCheckoutDismissRefresh } from "@/domains/settings/billing/use-checkout-dismiss-refresh";
 import { extractMutationError } from "@/domains/settings/components/adjust-plan-utils";
 import { formatDollars } from "@/domains/settings/components/tier-pricing";
 import {
@@ -116,6 +117,9 @@ export function PlansPage() {
   const upgradeMutation = useMutation(
     organizationsBillingSubscriptionUpgradeCreateMutation(),
   );
+  // Native iOS keeps Checkout inside an in-app sheet, so the page holds
+  // pre-checkout data until the sheet closes.
+  useCheckoutDismissRefresh();
   const [pending, setPending] = useState(false);
   const [customPlanOpen, setCustomPlanOpen] = useState(false);
 
