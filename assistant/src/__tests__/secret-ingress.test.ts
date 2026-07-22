@@ -23,6 +23,11 @@ mock.module("../util/logger.js", () => ({
   }),
 }));
 
+import {
+  registerPluginSecretPatterns,
+  resetPluginSecretPatternsForTests,
+  unregisterPluginSecretPatterns,
+} from "../security/plugin-secret-patterns.js";
 import { resetAllowlist } from "../security/secret-allowlist.js";
 import { checkIngressForSecrets } from "../security/secret-ingress.js";
 
@@ -328,6 +333,47 @@ describe("checkIngressForSecrets", () => {
     );
     expect(result.blocked).toBe(true);
     expect(result.detectedTypes).toEqual(["GitHub Token"]);
+  });
+
+  // ── Plugin-declared patterns ───────────────────────────────────────
+
+  describe("plugin-declared patterns", () => {
+    beforeEach(() => {
+      resetPluginSecretPatternsForTests();
+    });
+
+    afterEach(() => {
+      resetPluginSecretPatternsForTests();
+    });
+
+    const registerVirlo = () =>
+      registerPluginSecretPatterns("virlo", [
+        { label: "Virlo API Key", pattern: "virlo_tkn_[A-Za-z0-9_-]{20,}" },
+      ]);
+
+    test("blocks a registered plugin key under its namespaced label", () => {
+      registerVirlo();
+      const result = checkIngressForSecrets(incidentToken);
+      expect(result.blocked).toBe(true);
+      expect(result.detectedTypes).toEqual(["Virlo API Key (plugin:virlo)"]);
+    });
+
+    test("blocks a registered plugin key embedded in a sentence", () => {
+      registerVirlo();
+      const result = checkIngressForSecrets(
+        `Here is the value ${incidentToken} from the docs`,
+      );
+      expect(result.blocked).toBe(true);
+      expect(result.detectedTypes).toEqual(["Virlo API Key (plugin:virlo)"]);
+    });
+
+    test("falls back to the token-shape heuristic after unregister", () => {
+      registerVirlo();
+      unregisterPluginSecretPatterns("virlo");
+      const result = checkIngressForSecrets(incidentToken);
+      expect(result.blocked).toBe(true);
+      expect(result.detectedTypes).toEqual(["Token-shaped value"]);
+    });
   });
 
   // ── Multiple secrets ───────────────────────────────────────────────

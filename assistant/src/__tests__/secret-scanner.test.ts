@@ -1,5 +1,10 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
+import {
+  registerPluginSecretPatterns,
+  resetPluginSecretPatternsForTests,
+  unregisterPluginSecretPatterns,
+} from "../security/plugin-secret-patterns.js";
 import {
   _isPlaceholder,
   redactSecrets,
@@ -425,6 +430,66 @@ describe("redaction", () => {
     const result = redactSecrets(input);
     expect(result).toContain('<redacted type="AWS Access Key" />');
     expect(result).toContain('<redacted type="GitHub Token" />');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Plugin-declared patterns (runtime registry)
+// ---------------------------------------------------------------------------
+describe("plugin-declared patterns", () => {
+  // Synthetic token mirroring the incident's shape (never a real credential).
+  const pluginKey = "virlo_tkn_Qm7pW2xLbV9sKjR4tNcY8dZh3Fg";
+
+  const registerVirlo = () =>
+    registerPluginSecretPatterns("virlo", [
+      { label: "Virlo API Key", pattern: "virlo_tkn_[A-Za-z0-9_-]{20,}" },
+    ]);
+
+  beforeEach(() => {
+    resetPluginSecretPatternsForTests();
+  });
+
+  afterEach(() => {
+    resetPluginSecretPatternsForTests();
+  });
+
+  test("scanText detects a registered plugin key inside larger text", () => {
+    registerVirlo();
+    const input = `The setup doc pastes ${pluginKey} inline`;
+    const match = expectMatch(input, "Virlo API Key (plugin:virlo)");
+    expect(input.slice(match.startIndex, match.endIndex)).toBe(pluginKey);
+  });
+
+  test("scanText does not flag the key when the plugin is not registered", () => {
+    expectNoMatch(`The setup doc pastes ${pluginKey} inline`);
+  });
+
+  test("redactSecrets redacts a registered plugin key", () => {
+    registerVirlo();
+    const result = redactSecrets(`run with ${pluginKey} exported`);
+    expect(result).toBe(
+      'run with <redacted type="Virlo API Key (plugin:virlo)" /> exported',
+    );
+  });
+
+  test("a second registration mid-test is picked up without restart", () => {
+    registerVirlo();
+    expectMatch(`a ${pluginKey} b`, "Virlo API Key (plugin:virlo)");
+
+    const acmeKey = `acme_sec_${"Zx9".repeat(8)}`;
+    registerPluginSecretPatterns("acme", [
+      { label: "Acme Token", pattern: "acme_sec_[A-Za-z0-9]{16,}" },
+    ]);
+    expectMatch(`a ${acmeKey} b`, "Acme Token (plugin:acme)");
+    // The first plugin's pattern survives the rebuild
+    expectMatch(`a ${pluginKey} b`, "Virlo API Key (plugin:virlo)");
+  });
+
+  test("unregistering stops detection", () => {
+    registerVirlo();
+    expectMatch(`a ${pluginKey} b`, "Virlo API Key (plugin:virlo)");
+    unregisterPluginSecretPatterns("virlo");
+    expectNoMatch(`a ${pluginKey} b`);
   });
 });
 

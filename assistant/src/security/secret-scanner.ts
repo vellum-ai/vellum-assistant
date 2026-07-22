@@ -9,8 +9,12 @@
  * own prefix-only path in `util/log-redact.ts`.
  */
 
+import { memoizePluginPatternDerivation } from "./plugin-secret-patterns.js";
 import { isAllowlisted } from "./secret-allowlist.js";
-import { PREFIX_PATTERNS } from "./secret-patterns.js";
+import {
+  PREFIX_PATTERNS,
+  type SecretPrefixPattern,
+} from "./secret-patterns.js";
 
 export interface SecretMatch {
   /** Human-readable type label, e.g. "AWS Access Key" */
@@ -40,9 +44,9 @@ const CUSTOM_BOUNDARY: Record<string, (src: string) => string> = {
   "Private Key": (src) => `(${src})`,
 };
 
-// Derive prefix-based patterns from the shared source of truth, adding
-// capture groups and the global flag that scanText() expects.
-const PREFIX_DERIVED: SecretPattern[] = PREFIX_PATTERNS.map((p) => {
+// Derive a scanner pattern from a shared prefix pattern, adding the capture
+// group and the global flag that scanText() expects.
+function deriveScannerPattern(p: SecretPrefixPattern): SecretPattern {
   const src = p.regex.source;
   const custom = CUSTOM_BOUNDARY[p.label];
   const pattern = custom ? custom(src) : `\\b(${src})\\b`;
@@ -50,7 +54,11 @@ const PREFIX_DERIVED: SecretPattern[] = PREFIX_PATTERNS.map((p) => {
     type: p.label,
     regex: new RegExp(pattern, "g"),
   };
-});
+}
+
+// Static patterns derived from the shared source of truth.
+const PREFIX_DERIVED: SecretPattern[] =
+  PREFIX_PATTERNS.map(deriveScannerPattern);
 
 // Scanner-only patterns that require surrounding context or are not
 // simple prefix matches — these stay defined here.
@@ -101,7 +109,15 @@ const SCANNER_ONLY_PATTERNS: SecretPattern[] = [
   },
 ];
 
-const PATTERNS: SecretPattern[] = [...PREFIX_DERIVED, ...SCANNER_ONLY_PATTERNS];
+// Full pattern list, rebuilt only when the plugin-pattern registry changes so
+// registrations apply to the next scan without a daemon restart.
+const getPatterns = memoizePluginPatternDerivation(
+  (pluginPatterns): SecretPattern[] => [
+    ...PREFIX_DERIVED,
+    ...pluginPatterns.map(deriveScannerPattern),
+    ...SCANNER_ONLY_PATTERNS,
+  ],
+);
 
 // ---------------------------------------------------------------------------
 // Known placeholder values that should NOT be flagged
@@ -227,7 +243,7 @@ export function scanText(text: string): SecretMatch[] {
   // De-duplicate overlapping ranges (a match can fire on multiple patterns)
   const seen = new Set<string>();
 
-  for (const pattern of PATTERNS) {
+  for (const pattern of getPatterns()) {
     // Reset lastIndex for global regexes
     pattern.regex.lastIndex = 0;
     let m: RegExpExecArray | null;
