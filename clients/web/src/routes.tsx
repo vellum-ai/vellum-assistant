@@ -68,6 +68,19 @@ export function getRouterBasename(): string | undefined {
   return remoteGatewayPublicPathPrefix() || undefined;
 }
 
+/**
+ * Permanent redirect: legacy /assistant/logs/usage → /assistant/settings/billing?tab=usage,
+ * preserving all query parameters so schedule deep links continue to work.
+ */
+function LogsUsageRedirect() {
+  const [searchParams] = useSearchParams();
+  const params = new URLSearchParams(searchParams);
+  params.set("tab", "usage");
+  return (
+    <Navigate replace to={`${routes.settings.billing}?${params.toString()}`} />
+  );
+}
+
 // Route tree — no basename in normal app modes; remote-gateway mode adds the
 // public path prefix as the router basename so Velay-style URLs such as
 // `/assistant-123/assistant/pair` match the same `/assistant/*` route tree.
@@ -317,8 +330,12 @@ export const routeTree = [
               ],
             },
 
-            // Logs routes — removed. System Events and Emails now live as
-            // in-page tabs under Settings → Debug (Advanced).
+            // Legacy Logs routes — redirect to the Debug in-page tabs that
+            // replaced the standalone Logs overlay.
+            { path: "logs", Component: () => <Navigate to="/assistant/settings/debug" replace /> },
+            { path: "logs/system-events", Component: () => <Navigate to="/assistant/settings/debug?tab=system-events" replace /> },
+            { path: "logs/emails", Component: () => <Navigate to="/assistant/settings/debug?tab=emails" replace /> },
+            { path: "logs/usage", Component: LogsUsageRedirect },
           ],
         },
 

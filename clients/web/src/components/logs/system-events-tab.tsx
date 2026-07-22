@@ -17,6 +17,7 @@ import type {
     EventStatusEnum,
     SystemEventTypeEnum,
 } from "@/generated/api/types.gen";
+import type { PlatformGateState } from "@/hooks/use-platform-gate";
 
 type TagTone = "positive" | "negative" | "warning" | "neutral";
 
@@ -215,18 +216,33 @@ function EventRow({ event }: { event: AssistantSystemEvent }) {
 }
 
 interface SystemEventsTabProps {
-  assistantId: string;
+    assistantId: string;
+    platformGate?: PlatformGateState;
 }
 
-export function SystemEventsTab({ assistantId }: SystemEventsTabProps) {
-  const {
-    data,
-    isLoading,
-    isError,
-    isFetchingNextPage,
-    hasNextPage,
-    fetchNextPage,
-  } = useInfiniteQuery({
+export function SystemEventsTab({ assistantId, platformGate }: SystemEventsTabProps) {
+    if (platformGate === "disabled") {
+      return (
+        <div
+          className="flex items-center justify-center rounded-xl border px-4 py-12 text-body-medium-lighter"
+          style={{
+            borderColor: "var(--border-base)",
+            color: "var(--content-tertiary)",
+          }}
+        >
+          System events require an active assistant.
+        </div>
+      );
+    }
+
+    const {
+      data,
+      isLoading,
+      isError,
+      isFetchingNextPage,
+      hasNextPage,
+      fetchNextPage,
+    } = useInfiniteQuery({
     ...assistantsSystemEventsListInfiniteOptions({
       path: { assistant_id: assistantId },
     }),

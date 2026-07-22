@@ -127,7 +127,7 @@ export function DebugPage() {
         )}
         {tabs.some((tab) => tab.id === "system-events") && (
           <Tabs.Panel value="system-events" className="pt-4">
-            <SystemEventsTab assistantId={assistantId} />
+            <SystemEventsTab assistantId={assistantId} platformGate={standardPlatformGate} />
           </Tabs.Panel>
         )}
         {tabs.some((tab) => tab.id === "emails") && (

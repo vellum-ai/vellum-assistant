@@ -83,7 +83,7 @@ export const routes = {
    */
   inspect: (conversationId: string) =>
     `${dyn(r("/assistant/conversations"), conversationId)}/inspect`,
-  // logs: removed — System Events and Emails now live as in-page tabs
+  // System Events and Emails live as in-page tabs under Settings → Debug (Advanced)
   // under Settings → Debug (Advanced).
   account: {
     root: r("/account"),
