@@ -463,10 +463,18 @@ describe("POST /v1/btw", () => {
     await readStream(result as ReadableStream<Uint8Array>);
 
     expect(mockGetConversationByKey).toHaveBeenCalledWith("greeting-abc123");
-    expect(mockGetOrCreateConversation).toHaveBeenCalledWith("greeting-abc123");
+    // An unmapped key has no real conversation, so the side-chain runs against
+    // an ephemeral in-memory conversation with no persisted (sidebar-visible)
+    // row.
+    expect(mockGetOrCreateConversation).toHaveBeenCalledWith(
+      "greeting-abc123",
+      {
+        ephemeral: true,
+      },
+    );
   });
 
-  test("known conversationKey resolves to existing conversation ID", async () => {
+  test("known conversationKey resolves to existing conversation ID without the ephemeral flag", async () => {
     mockGetConversationByKey.mockReturnValueOnce({
       conversationId: "existing-conv-id",
     });
@@ -479,8 +487,11 @@ describe("POST /v1/btw", () => {
     });
     await readStream(result as ReadableStream<Uint8Array>);
 
+    // A mapped key targets a real conversation, so its persisted row is reused
+    // — no ephemeral options.
     expect(mockGetOrCreateConversation).toHaveBeenCalledWith(
       "existing-conv-id",
+      undefined,
     );
   });
 });

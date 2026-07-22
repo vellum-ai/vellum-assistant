@@ -454,6 +454,7 @@ import { migrateMoveActivationStateToMemoryDb } from "./migrations/343-move-acti
 import { migrateMoveConversationGraphMemoryStateToMemoryDb } from "./migrations/344-move-conversation-graph-memory-state-to-memory-db.js";
 import { migrateMoveMemoryV3EverInjectedToMemoryDb } from "./migrations/345-move-memory-v3-ever-injected-to-memory-db.js";
 import { migrateMoveMemoryRetrospectiveStateToMemoryDb } from "./migrations/346-move-memory-retrospective-state-to-memory-db.js";
+import { migrateDeleteStrayGreetingConversation } from "./migrations/347-delete-stray-greeting-conversation.js";
 import type { MigrationStep } from "./migrations/run-migrations.js";
 
 export const migrationSteps: MigrationStep[] = [
@@ -1439,4 +1440,5 @@ export const migrationSteps: MigrationStep[] = [
       "migrateMemoryRetrospectiveRememberedLog",
     ],
   },
+  migrateDeleteStrayGreetingConversation,
 ];
