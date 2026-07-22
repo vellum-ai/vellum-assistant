@@ -494,7 +494,9 @@ describe("ProfileEditorModal create mode — provider-first", () => {
     const { useAssistantIdentityStore } = await import(
       "@/stores/assistant-identity-store"
     );
-    useAssistantIdentityStore.getState().setIdentity("test-asst", "0.10.12");
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity("test-asst", "0.10.12", ASSISTANT_ID);
     try {
       const saveCalls: { name: string; entry: Record<string, unknown> }[] = [];
       const onSave = (name: string, entry: unknown) => {
