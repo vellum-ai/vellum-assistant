@@ -216,15 +216,15 @@ The default permission set covers the full range of actions the assistant may ne
 
 All credentials are stored under `service: github-app`:
 
-| Field             | Description                                     | When Set |
-| ----------------- | ----------------------------------------------- | -------- |
-| `app_id`          | Numeric GitHub App ID                           | Step 2   |
-| `app_slug`        | URL-friendly app name (e.g. `credence-the-bot`) | Step 2   |
-| `client_id`       | OAuth client ID                                 | Step 2   |
-| `client_secret`   | OAuth client secret                             | Step 2   |
-| `pem_b64`         | Base64-encoded (single-line) RSA private key for JWT signing — decode at use time with `assistant credentials reveal --service github-app --field pem_b64 \| base64 -d` | Step 2   |
-| `webhook_secret`  | Webhook verification secret                     | Step 2   |
-| `installation_id` | Numeric installation ID for the org             | Step 3   |
+| Field             | Description                                                               | When Set |
+| ----------------- | ------------------------------------------------------------------------- | -------- |
+| `app_id`          | Numeric GitHub App ID                                                     | Step 2   |
+| `app_slug`        | URL-friendly app name (e.g. `credence-the-bot`)                           | Step 2   |
+| `client_id`       | OAuth client ID                                                           | Step 2   |
+| `client_secret`   | OAuth client secret                                                       | Step 2   |
+| `pem_b64`         | Base64-encoded (single-line) RSA private key; decoded at JWT-signing time | Step 2   |
+| `webhook_secret`  | Webhook verification secret                                               | Step 2   |
+| `installation_id` | Numeric installation ID for the org                                       | Step 3   |
 
 ## Troubleshooting
 

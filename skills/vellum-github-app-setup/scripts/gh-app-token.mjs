@@ -20,12 +20,7 @@
 import crypto from "crypto";
 import { execSync } from "child_process";
 
-const ALLOWED_FIELDS = new Set([
-  "app_id",
-  "pem_b64",
-  "pem",
-  "installation_id",
-]);
+const ALLOWED_FIELDS = new Set(["app_id", "pem_b64", "pem", "installation_id"]);
 
 function getCredential(field, { optional = false } = {}) {
   if (!ALLOWED_FIELDS.has(field)) {
