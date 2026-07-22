@@ -1,59 +1,12 @@
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { dirname, join } from "node:path";
 
 import { GATEWAY_PORT } from "./constants.js";
+import {
+  clearIngressUrl,
+  getDefaultWorkspaceDir,
+  saveIngressUrl,
+} from "./ingress-config.js";
 import { resolveTunnelTargetPort } from "./nginx-ingress.js";
-
-// ── Workspace config helpers (mirrors the pattern in ngrok.ts) ───────────────
-
-function getDefaultWorkspaceDir(): string {
-  return (
-    process.env.VELLUM_WORKSPACE_DIR?.trim() ||
-    join(homedir(), ".vellum", "workspace")
-  );
-}
-
-function getConfigPath(workspaceDir: string): string {
-  return join(workspaceDir, "config.json");
-}
-
-function loadRawConfig(workspaceDir: string): Record<string, unknown> {
-  const configPath = getConfigPath(workspaceDir);
-  if (!existsSync(configPath)) return {};
-  return JSON.parse(readFileSync(configPath, "utf-8")) as Record<
-    string,
-    unknown
-  >;
-}
-
-function saveRawConfig(
-  workspaceDir: string,
-  config: Record<string, unknown>,
-): void {
-  const configPath = getConfigPath(workspaceDir);
-  const dir = dirname(configPath);
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-  writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
-}
-
-function saveIngressUrl(workspaceDir: string, publicUrl: string): void {
-  const config = loadRawConfig(workspaceDir);
-  const ingress = (config.ingress ?? {}) as Record<string, unknown>;
-  ingress.publicBaseUrl = publicUrl;
-  ingress.enabled = true;
-  config.ingress = ingress;
-  saveRawConfig(workspaceDir, config);
-}
-
-function clearIngressUrl(workspaceDir: string): void {
-  const config = loadRawConfig(workspaceDir);
-  const ingress = (config.ingress ?? {}) as Record<string, unknown>;
-  delete ingress.publicBaseUrl;
-  config.ingress = ingress;
-  saveRawConfig(workspaceDir, config);
-}
 
 // ── Cloudflare Tunnel ─────────────────────────────────────────────────────────
 
