@@ -243,11 +243,19 @@ export function frontDoorCapabilityDigest(toolNames: string[]): string {
 export function frontDoorDecisionRule(opts?: {
   includeHold?: boolean;
   capabilityDigest?: string;
+  callerUtterance?: string;
 }): string {
   const holdBranch =
     opts?.includeHold === true
       ? [
-          `- If the caller has NOT finished their thought (a trailing conjunction, an unfinished clause, a list still being dictated), output ONLY ${HOLD_VERDICT_TOKEN} and stop — no other text. When unsure whether they are done, choose ${HOLD_VERDICT_TOKEN}.`,
+          // Hold requires POSITIVE evidence of an unfinished sentence. The
+          // earlier "when unsure, hold" tie-break made every ambiguous turn a
+          // hold, and a false hold is the expensive mistake here: the verdict,
+          // the extension window, and the replay dispatch are all structurally
+          // silent (thinking frame and ack are deferred until commit), so it
+          // roughly triples felt latency. A false release only answers a beat
+          // early, which barge-in already handles.
+          `- If the caller's words are visibly unfinished — a trailing conjunction, a dangling clause, a list still being dictated — output ONLY ${HOLD_VERDICT_TOKEN} and stop, no other text. Judge the words themselves: a complete question or statement means they are done, even when it is short or leans on earlier context ("What do you think?", "Why?", "And then?"). Never hold merely because more could follow.`,
         ]
       : [
           // No hold branch means completeness is settled (a first leg
@@ -256,7 +264,21 @@ export function frontDoorDecisionRule(opts?: {
           // the escalate token.
           "The caller has finished their turn — never judge whether they are done.",
         ];
+  // Name the words being judged. The caller's utterance is the only untagged
+  // text in the assembled message — it sits between tagged injections
+  // (<memory_spotlight>, <channel_capabilities>, <turn_context>) and this
+  // rule, so an undelimited five-word question can read as a fragment of the
+  // block above it. Quoting it verbatim is the same move
+  // escalatedContinuationRule makes with the spoken bridge, for the same
+  // reason: an instruction that points at text is only enforceable when the
+  // text is unambiguous.
+  const utterance = opts?.callerUtterance?.trim();
+  const anchor =
+    utterance !== undefined && utterance.length > 0
+      ? [`The caller just said: "${utterance}" — judge only those words.`]
+      : [];
   const rule = [
+    ...anchor,
     "DECIDE SILENTLY, then produce exactly ONE of these outputs:",
     ...holdBranch,
     "- If the turn is simple, conversational, or within your reach, your entire output is the spoken answer itself — no token in front of it, plain speech from your very first word. Most turns are answers; when unsure between answering and escalating, answer.",
