@@ -46,6 +46,9 @@ import { OpenUrlEventSchema } from "./events/open-url.js";
 import { QuestionRequestEventSchema } from "./events/question-request.js";
 import { RelationshipStateUpdatedEventSchema } from "./events/relationship-state-updated.js";
 import { SecretRequestEventSchema } from "./events/secret-request.js";
+import { ServiceGroupUpdateCompleteEventSchema } from "./events/service-group-update-complete.js";
+import { ServiceGroupUpdateProgressEventSchema } from "./events/service-group-update-progress.js";
+import { ServiceGroupUpdateStartingEventSchema } from "./events/service-group-update-starting.js";
 import { SubagentEventEventSchema } from "./events/subagent-event.js";
 import { SubagentSpawnedEventSchema } from "./events/subagent-spawned.js";
 import { SubagentStatusChangedEventSchema } from "./events/subagent-status-changed.js";
@@ -301,6 +304,18 @@ export {
   type SecretRequestEvent,
   SecretRequestEventSchema,
 } from "./events/secret-request.js";
+export {
+  type ServiceGroupUpdateCompleteEvent,
+  ServiceGroupUpdateCompleteEventSchema,
+} from "./events/service-group-update-complete.js";
+export {
+  type ServiceGroupUpdateProgressEvent,
+  ServiceGroupUpdateProgressEventSchema,
+} from "./events/service-group-update-progress.js";
+export {
+  type ServiceGroupUpdateStartingEvent,
+  ServiceGroupUpdateStartingEventSchema,
+} from "./events/service-group-update-starting.js";
 export {
   type SubagentEventEvent,
   SubagentEventEventSchema,
@@ -602,6 +617,9 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   QuestionRequestEventSchema,
   RelationshipStateUpdatedEventSchema,
   SecretRequestEventSchema,
+  ServiceGroupUpdateCompleteEventSchema,
+  ServiceGroupUpdateProgressEventSchema,
+  ServiceGroupUpdateStartingEventSchema,
   SubagentEventEventSchema,
   SubagentSpawnedEventSchema,
   SubagentStatusChangedEventSchema,
