@@ -28,12 +28,12 @@ import {
   FALLBACK_ESCALATION_BRIDGE,
   isEscalationBridgeComplete,
   isVoiceTriageEscalateEnabled,
-  isVoiceUnifiedFrontDoorEnabled,
   MIN_SPOKEN_BRIDGE_CHARS,
   type VoiceRoutingLeg,
 } from "../calls/voice-triage-escalate.js";
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
+import type { AssistantConfig } from "../config/schema.js";
 import {
   type LiveVoiceFrontModelConfig,
   LiveVoiceFrontModelConfigSchema,
@@ -1628,7 +1628,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       // event ordering — an extra await here would shift utterance release
       // across the persistent-transcriber flush attribution.
       if (reason === "silence" && !manualRelease) {
-        if (this.unifiedFrontDoorActive()) {
+        if (this.frontDoorRoutingActive()) {
           // Unified front-door: the leg itself is the endpoint decision.
           // When it launches, the boundary is deferred to the verdict —
           // commit releases the utterance, hold replays the boundary via
@@ -1759,16 +1759,17 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   }
 
   /**
-   * Whether unified front-door endpointing is active: the voice-mode
-   * surface, triage-escalate routing, and the unified flag all on. The
-   * decider-based hold path is skipped entirely when this holds.
+   * Whether front-door routing is active: the voice-mode surface flag and
+   * the triage-escalate routing flag both on. Governs both halves of the
+   * unified front door — the speculative leg that decides the endpoint, and
+   * the escalation hand-off — so the two can never disagree. The
+   * decider-based hold path runs only when this is false.
    */
-  private unifiedFrontDoorActive(): boolean {
-    const cfg = getConfig();
+  private frontDoorRoutingActive(config?: AssistantConfig): boolean {
+    const cfg = config ?? getConfig();
     return (
       isAssistantFeatureFlagEnabled("voice-mode", cfg) &&
-      isVoiceTriageEscalateEnabled(cfg) &&
-      isVoiceUnifiedFrontDoorEnabled(cfg)
+      isVoiceTriageEscalateEnabled(cfg)
     );
   }
 
@@ -2664,9 +2665,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // surface flag and the voice-triage-escalate routing flag are on. A
     // live-voice session already implies voice-mode client-side; the explicit
     // check keeps the "gated behind both flags" contract true server-side.
-    const escalateEnabled =
-      isAssistantFeatureFlagEnabled("voice-mode", cfg) &&
-      isVoiceTriageEscalateEnabled(cfg);
+    const escalateEnabled = this.frontDoorRoutingActive(cfg);
 
     // Front-door leg: with routing on, a fast model fronts the turn (the
     // `voiceFrontDoor` call site pins it) and may hand off on the escalate

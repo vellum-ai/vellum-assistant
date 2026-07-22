@@ -37,29 +37,16 @@ import {
 
 export { ESCALATE_VERDICT_TOKEN, HOLD_VERDICT_TOKEN };
 
-/** Feature-flag key gating the whole behavior. Off by default. */
+/**
+ * Feature-flag key gating the whole behavior: a fast model fronts each
+ * live-voice turn, and endpointing rides that same leg. At each pause the
+ * leg is dispatched speculatively and its leading tokens carry the full
+ * verdict — {@link HOLD_VERDICT_TOKEN} (mid-thought, keep listening),
+ * {@link ESCALATE_VERDICT_TOKEN} plus a spoken bridge, or the answer
+ * itself. Off by default; when off, live voice runs the single-leg path
+ * with the separate endpoint decider.
+ */
 export const VOICE_TRIAGE_ESCALATE_FLAG = "voice-triage-escalate";
-
-/**
- * Feature-flag key for the unified front-door (requires the triage flag
- * too): live-voice endpointing merges into the front-door leg. At each
- * pause the leg is dispatched speculatively and its leading tokens carry
- * the full verdict — {@link HOLD_VERDICT_TOKEN} (mid-thought, keep
- * listening), {@link ESCALATE_VERDICT_TOKEN} plus a spoken bridge, or the
- * answer itself. Replaces the separate endpoint-decider call on that path.
- * Off by default.
- */
-export const VOICE_UNIFIED_FRONT_DOOR_FLAG = "voice-unified-front-door";
-
-/**
- * Whether the unified front-door (endpointing merged into the front-door
- * leg) is active. Only meaningful where triage-escalate is also on.
- */
-export function isVoiceUnifiedFrontDoorEnabled(
-  config: AssistantConfig = getConfig(),
-): boolean {
-  return isAssistantFeatureFlagEnabled(VOICE_UNIFIED_FRONT_DOOR_FLAG, config);
-}
 
 // The fast model fronting every turn is pinned by the `voiceFrontDoor` call
 // site (see config/call-site-defaults.ts) — no per-turn profile override.
