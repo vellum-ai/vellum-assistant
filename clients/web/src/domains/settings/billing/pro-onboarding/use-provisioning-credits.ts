@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import { organizationsBillingPlansRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen";
 import type { ProPlan } from "@/generated/api/types.gen";
+import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import type { CheckoutIntent } from "@/lib/billing/checkout-intent";
 
 /**
@@ -15,7 +16,14 @@ import type { CheckoutIntent } from "@/lib/billing/checkout-intent";
 export function useProvisioningCredits(
   intent: CheckoutIntent | null,
 ): string | null {
-  const { data } = useQuery(organizationsBillingPlansRetrieveOptions());
+  const orgReady = useIsOrgReady();
+  // Without a ready org the request carries no `Vellum-Organization-Id` and
+  // fails, caching a rejection that would leave the chip unresolved once the
+  // org does hydrate. The sibling provisioning queries gate the same way.
+  const { data } = useQuery({
+    ...organizationsBillingPlansRetrieveOptions(),
+    enabled: orgReady && intent != null,
+  });
 
   if (intent == null) {
     return null;

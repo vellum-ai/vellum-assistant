@@ -3,7 +3,7 @@
  * the React Query cache so `useQuery` resolves synchronously without a fetch —
  * mirrors the `plan-card.test.tsx` `setQueryData` pattern.
  */
-import { describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderHook } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
@@ -12,7 +12,14 @@ import { organizationsBillingPlansRetrieveQueryKey } from "@/generated/api/@tans
 import type { PlanListResponse } from "@/generated/api/types.gen";
 import type { CheckoutIntent } from "@/lib/billing/checkout-intent";
 
-import { useProvisioningCredits } from "./use-provisioning-credits";
+// Drives the org-readiness gate — the plans lookup must stay idle until the
+// organization store hydrates, or it fires without a `Vellum-Organization-Id`.
+let orgReady = true;
+mock.module("@/hooks/use-is-org-ready", () => ({
+  useIsOrgReady: () => orgReady,
+}));
+
+const { useProvisioningCredits } = await import("./use-provisioning-credits");
 
 /** A pro-plan catalog with a `credits_50` tier and a Mighty package on it. */
 function plansResponse(): PlanListResponse {
@@ -79,10 +86,10 @@ function plansResponse(): PlanListResponse {
   };
 }
 
-function renderCredits(
+function renderWithClient(
   intent: CheckoutIntent | null,
   plans?: PlanListResponse,
-): string | null {
+): { value: string | null; client: QueryClient } {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -91,11 +98,47 @@ function renderCredits(
   }
   const wrapper = ({ children }: { children: ReactNode }) =>
     createElement(QueryClientProvider, { client }, children);
-  return renderHook(() => useProvisioningCredits(intent), { wrapper }).result
-    .current;
+  const value = renderHook(() => useProvisioningCredits(intent), { wrapper })
+    .result.current;
+  return { value, client };
+}
+
+function renderCredits(
+  intent: CheckoutIntent | null,
+  plans?: PlanListResponse,
+): string | null {
+  return renderWithClient(intent, plans).value;
 }
 
 describe("useProvisioningCredits", () => {
+  beforeEach(() => {
+    orgReady = true;
+  });
+
+  test("holds the plans lookup until the org is ready", () => {
+    orgReady = false;
+    const { value, client } = renderWithClient({
+      kind: "package",
+      packageKey: "mighty",
+      savedAt: 0,
+    });
+
+    expect(value).toBeNull();
+    expect(
+      client.getQueryState(organizationsBillingPlansRetrieveQueryKey())
+        ?.fetchStatus ?? "idle",
+    ).toBe("idle");
+  });
+
+  test("holds the plans lookup when there is no intent", () => {
+    const { client } = renderWithClient(null);
+
+    expect(
+      client.getQueryState(organizationsBillingPlansRetrieveQueryKey())
+        ?.fetchStatus ?? "idle",
+    ).toBe("idle");
+  });
+
   test("returns null for a null intent", () => {
     expect(renderCredits(null, plansResponse())).toBeNull();
   });
