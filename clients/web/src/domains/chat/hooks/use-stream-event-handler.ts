@@ -473,6 +473,11 @@ export function useStreamEventHandler(
         case "service_group_update_progress":
         case "service_group_update_complete":
           break;
+        // Memory recall/status telemetry gauges. The chat handler is a no-op;
+        // no web UI renders them yet.
+        case "memory_recalled":
+        case "memory_status":
+          break;
         case "unknown":
           break;
         default: {

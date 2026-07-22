@@ -33,6 +33,7 @@ import type {
 } from "@vellumai/plugin-api";
 import { updateMessageMetadata } from "@vellumai/plugin-api";
 
+import type { MemoryRecalledEvent } from "../../../../api/events/memory-recalled.js";
 import { getConfig } from "../../../../config/loader.js";
 import { isMemoryV3Live } from "../../../../config/memory-v3-gate.js";
 import { findConversationOrSubagent } from "../../../../daemon/conversation-registry.js";
@@ -42,7 +43,6 @@ import {
   resolveTurnModelProfileLabel,
   type RuntimeInjectionResult,
 } from "../../../../daemon/conversation-runtime-assembly.js";
-import type { MemoryRecalled } from "../../../../daemon/message-types/memory.js";
 import { resolveTrustClass } from "../../../../daemon/trust-context.js";
 import { timeLatencySubSpan } from "../../../../daemon/turn-latency-sub-spans.js";
 import { broadcastMessage } from "../../../../runtime/assistant-event-hub.js";
@@ -134,7 +134,7 @@ async function recordRecallSideEffects(
   }
 
   if (m) {
-    const memoryRecalledEvent: MemoryRecalled = {
+    const memoryRecalledEvent: MemoryRecalledEvent = {
       type: "memory_recalled",
       provider: m.embeddingProvider ?? "unknown",
       model: m.embeddingModel ?? "unknown",
