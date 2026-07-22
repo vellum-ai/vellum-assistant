@@ -206,25 +206,41 @@ describe("133-collapse-provider-connections migration", () => {
     });
   });
 
-  test("dangling connection names are dropped", () => {
+  test("non-conventional references are explicit selections and stay", () => {
     writeConfig({
       llm: {
+        defaultProvider: {
+          provider: "openai",
+          connectionName: "work-openai",
+        },
         profiles: {
-          orphan: {
+          endpoint: {
             source: "user",
             provider: "openai-compatible",
-            provider_connection: "deleted-endpoint",
+            provider_connection: "lm-studio",
             model: "local-model",
+          },
+          "second-key": {
+            source: "user",
+            provider: "anthropic",
+            provider_connection: "anthropic-work",
+            model: "claude-opus-4-8",
           },
         },
       },
     });
     run();
-    expect(readLlm().profiles.orphan).toEqual({
-      source: "user",
-      provider: "openai-compatible",
-      model: "local-model",
+    const llm = readLlm();
+    // Multiple rows can share a provider (several endpoints, several keys);
+    // the auto-resolve scan cannot reproduce an explicit selection.
+    expect(llm.defaultProvider).toEqual({
+      provider: "openai",
+      connectionName: "work-openai",
     });
+    expect(llm.profiles.endpoint.provider_connection).toBe("lm-studio");
+    expect(llm.profiles["second-key"].provider_connection).toBe(
+      "anthropic-work",
+    );
   });
 
   test("identity entries lose a stale connection stamp and decode routed models", () => {

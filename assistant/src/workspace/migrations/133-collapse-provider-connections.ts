@@ -14,11 +14,13 @@ const log = getLogger("migrations/133-collapse-provider-connections");
 //   managed upstream from the model.
 // - `provider_connection: "chatgpt-subscription"` entries become
 //   `provider: "chatgpt"` when their model is a Codex subscription model.
-// - Every other `provider_connection` value is dropped: `provider` is
-//   stamped on every materialized entry, and dispatch auto-resolves the
-//   active connection for a provider.
-// - `llm.defaultProvider.connectionName` is dropped — convention resolution
-//   owns the name.
+// - The conventional `<provider>-personal` reference is dropped: the
+//   provider field plus dispatch's auto-resolution picks the same row. Any
+//   other reference (renamed rows, one of several rows for a provider,
+//   openai-compatible endpoints) is an explicit selection with no lossless
+//   replacement and stays.
+// - `llm.defaultProvider.connectionName` is dropped when conventional —
+//   convention resolution recovers exactly it from the provider value.
 // - The legacy raw `llm.default` blob is deleted.
 //
 // A rewritten identity entry must hold a model the identity can route (the
@@ -99,7 +101,7 @@ const ROUTING_IDENTITIES = new Set(["vellum", "chatgpt"]);
 export const collapseProviderConnectionsMigration: WorkspaceMigration = {
   id: "133-collapse-provider-connections",
   description:
-    "Rewrite provider_connection references onto provider values; drop defaultProvider.connectionName and the legacy llm.default blob",
+    "Rewrite managed/subscription provider_connection references onto provider values; drop conventional connection names and the legacy llm.default blob",
   run(workspaceDir: string): void {
     const configPath = join(workspaceDir, "config.json");
     if (!existsSync(configPath)) return;
@@ -126,6 +128,9 @@ export const collapseProviderConnectionsMigration: WorkspaceMigration = {
       log.info("Deleted legacy llm.default blob");
     }
 
+    // Only conventional names are dropped — convention resolution recovers
+    // exactly them from the provider value. A non-conventional pin is an
+    // explicit selection with no lossless replacement, so it stays.
     const defaultProvider = readObject(llm.defaultProvider);
     if (
       defaultProvider !== null &&
@@ -136,14 +141,15 @@ export const collapseProviderConnectionsMigration: WorkspaceMigration = {
       const conventional =
         name === VELLUM_CONNECTION ||
         (typeof provider === "string" && name === `${provider}-personal`);
-      if (!conventional) {
-        log.warn(
+      if (conventional) {
+        delete defaultProvider.connectionName;
+        changed = true;
+      } else {
+        log.info(
           { connectionName: name, provider },
-          "Dropped a non-conventional defaultProvider.connectionName; convention resolution now picks the row",
+          "Kept a non-conventional defaultProvider.connectionName pin",
         );
       }
-      delete defaultProvider.connectionName;
-      changed = true;
     }
 
     for (const section of ["profiles", "callSites"] as const) {
@@ -248,11 +254,20 @@ function rewriteEntry(entry: Record<string, unknown>, label: string): boolean {
     return true;
   }
 
-  // Personal / openai-compatible / dangling names: the provider field plus
-  // dispatch's active-connection auto-resolution replace the reference.
-  delete entry.provider_connection;
-  log.info({ label, connection }, "Dropped provider_connection reference");
-  return true;
+  // Only the conventional seeded name has a lossless replacement: the
+  // provider field plus dispatch's auto-resolution picks the same row. Any
+  // other reference (renamed rows, one of several rows for a provider,
+  // openai-compatible endpoints) is an explicit selection the scan cannot
+  // reproduce deterministically, so it stays.
+  if (connection === `${provider}-personal`) {
+    delete entry.provider_connection;
+    log.info(
+      { label, connection },
+      "Dropped conventional provider_connection reference",
+    );
+    return true;
+  }
+  return false;
 }
 
 /**
