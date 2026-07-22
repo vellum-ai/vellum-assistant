@@ -45,7 +45,10 @@ import { getLogger } from "../util/logger.js";
 import { getLogsDbPath } from "../util/logs-db-path.js";
 import { getConversationsDir } from "../util/platform.js";
 import { createRowMapper, parseJsonNullable } from "../util/row-mapper.js";
-import { withSqliteRetry } from "../util/sqlite-retry.js";
+import {
+  isRetryableSqliteError,
+  withSqliteRetry,
+} from "../util/sqlite-retry.js";
 import {
   deleteOrphanAttachments,
   linkAttachmentToMessage,
@@ -2744,18 +2747,43 @@ export function getConversationPersistedSeq(id: string): number | null {
  * Monotonic: the `WHERE seq IS NULL OR seq < ?` guard makes the update raise
  * the high-water mark only, so out-of-order async commits never regress it.
  * Non-positive or non-finite `seq` values are ignored.
+ *
+ * Transient SQLite write contention (`SQLITE_BUSY`/`SQLITE_IOERR`) is swallowed
+ * rather than thrown. This is a single, idempotent, monotonic UPDATE of a
+ * snapshot↔stream anchor that every subsequent flush re-records with an
+ * equal-or-higher seq, so a dropped write self-heals on the next flush — the
+ * same self-healing property that lets the paired content write
+ * (`persistLoopMessageContent`) swallow its final failure. `busy_timeout`
+ * already made the statement wait for the lock before surfacing `SQLITE_BUSY`,
+ * so this synchronous path cannot usefully back off and retry; it just must not
+ * throw. Several callers are fire-and-forget bookkeeping in the agent loop
+ * (`flushAccumulatedContent`, `handleMessageComplete`, tool events) where a
+ * raw throw is fatal: the debounced partial flush becomes an unhandled
+ * rejection, and `message_complete` is on `dispatchAgentEvent`'s re-throw
+ * allowlist — either one takes down the daemon on lock contention. A
+ * non-contention error (a genuine bug: bad SQL, missing column) still throws.
  */
 export function recordConversationPersistedSeq(id: string, seq: number): void {
   if (!Number.isFinite(seq) || seq <= 0) {
     return;
   }
-  rawRun(
-    "conversation:recordPersistedSeq",
-    "UPDATE conversations SET seq = ? WHERE id = ? AND (seq IS NULL OR seq < ?)",
-    seq,
-    id,
-    seq,
-  );
+  try {
+    rawRun(
+      "conversation:recordPersistedSeq",
+      "UPDATE conversations SET seq = ? WHERE id = ? AND (seq IS NULL OR seq < ?)",
+      seq,
+      id,
+      seq,
+    );
+  } catch (err) {
+    if (!isRetryableSqliteError(err)) {
+      throw err;
+    }
+    log.warn(
+      { err, conversationId: id, seq },
+      "recordConversationPersistedSeq: transient SQLite contention; dropping this anchor advance (self-heals on the next flush)",
+    );
+  }
 }
 
 /**
