@@ -15,18 +15,27 @@
 import * as reactRouter from "react-router";
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  waitFor,
+} from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
 
+import * as sdkGen from "@/generated/api/sdk.gen";
 import {
   organizationsBillingPlansRetrieveQueryKey,
   organizationsBillingSubscriptionRetrieveQueryKey,
 } from "@/generated/api/@tanstack/react-query.gen";
 import type {
+  PackageChangeResponse,
   PlanListResponse,
   SubscriptionResponse,
 } from "@/generated/api/types.gen";
+import * as runtimeBrowser from "@/runtime/browser";
 import { routes } from "@/utils/routes";
 
 // Capture navigate() targets so the action-button wiring can be asserted
@@ -43,6 +52,55 @@ mock.module("react-router", () => ({
 mock.module("@/utils/use-bundled-avatar-components", () => ({
   preloadBundledAvatarComponents: () => {},
   useBundledAvatarComponents: () => null,
+}));
+
+// Drive the billing mutations from the SDK boundary (mirrors adjust-plan-modal's
+// harness): capture the request bodies and control each resolution. The retrieve
+// functions back the post-change invalidation refetch so the run stays hermetic.
+type Captured = { body?: unknown };
+let upgradeCall: Captured | null = null;
+let upgradeResponse: Record<string, unknown> = {
+  status: "redirect",
+  checkout_url: "https://checkout.example.com/session",
+};
+let changePackageBody: { package: string } | null = null;
+let changePackageImpl: () => Promise<{
+  data: PackageChangeResponse;
+  response: { ok: boolean };
+}> = async () => ({
+  data: { status: "ok" } as PackageChangeResponse,
+  response: { ok: true },
+});
+let currentSub: SubscriptionResponse = baseSubscription();
+let currentPlans: PlanListResponse = basePlansResponse();
+
+mock.module("@/generated/api/sdk.gen", () => ({
+  ...sdkGen,
+  organizationsBillingSubscriptionUpgradeCreate: (opts: Captured) => {
+    upgradeCall = opts;
+    return Promise.resolve({ data: upgradeResponse, response: { ok: true } });
+  },
+  organizationsBillingSubscriptionChangePackageCreate: (opts: Captured) => {
+    changePackageBody = opts.body as { package: string };
+    return changePackageImpl();
+  },
+  organizationsBillingSubscriptionRetrieve: () =>
+    Promise.resolve({ data: currentSub, response: { ok: true } }),
+  organizationsBillingPlansRetrieve: () =>
+    Promise.resolve({ data: currentPlans, response: { ok: true } }),
+  organizationsBillingSubscriptionOnboardingRetrieve: () =>
+    Promise.resolve({ data: {}, response: { ok: true } }),
+}));
+
+// Capture the Stripe checkout redirect instead of opening a browser.
+let openedUrl: string | null = null;
+mock.module("@/runtime/browser", () => ({
+  ...runtimeBrowser,
+  openUrl: (url: string) => {
+    openedUrl = url;
+    return Promise.resolve();
+  },
+  openUrlFinishedListener: () => () => {},
 }));
 
 const { PlanCard } = await import("./plan-card");
@@ -198,18 +256,44 @@ function renderCardInteractive(
   subscription: SubscriptionResponse,
   plans: PlanListResponse,
   onManage: () => void,
+  onTierUpgraded?: () => void,
 ) {
+  // Back the post-change invalidation refetch with the same fixtures.
+  currentSub = subscription;
+  currentPlans = plans;
   const client = makeClient(subscription, plans);
   // useNavigate is mocked, so no Router wrapper is needed here.
   return render(
     <QueryClientProvider client={client}>
-      <PlanCard onManage={onManage} />
+      <PlanCard onManage={onManage} onTierUpgraded={onTierUpgraded} />
     </QueryClientProvider>,
   );
 }
 
+/** Waits for the ConfirmDialog (portaled to document.body) to open. */
+async function findConfirmDialogButton(): Promise<HTMLButtonElement> {
+  return await waitFor(() => {
+    const btn = document.querySelector<HTMLButtonElement>(
+      "[data-confirm-dialog-confirm]",
+    );
+    if (!btn) throw new Error("confirm dialog not open");
+    return btn;
+  });
+}
+
 beforeEach(() => {
   navigateArgs = [];
+  upgradeCall = null;
+  upgradeResponse = {
+    status: "redirect",
+    checkout_url: "https://checkout.example.com/session",
+  };
+  changePackageBody = null;
+  changePackageImpl = async () => ({
+    data: { status: "ok" } as PackageChangeResponse,
+    response: { ok: true },
+  });
+  openedUrl = null;
 });
 
 afterEach(() => {
@@ -372,6 +456,113 @@ describe("PlanCard action button", () => {
     await waitFor(() => {
       expect(onManage).toHaveBeenCalledTimes(1);
     });
+    expect(navigateArgs).toEqual([]);
+  });
+});
+
+describe("PlanCard recommended upgrade — change-package", () => {
+  test("a Pro user confirms then upgrades in place via change-package", async () => {
+    const onTierUpgraded = mock(() => {});
+    const { findByTestId, findByText } = renderCardInteractive(
+      proMightySubscription(),
+      plansWithSuper(),
+      () => {},
+      onTierUpgraded,
+    );
+
+    // The banner CTA opens a confirm dialog (no immediate mutation).
+    fireEvent.click(await findByTestId("recommended-upgrade-button"));
+    await findByText("You'll be charged the prorated difference now.");
+    expect(changePackageBody).toBeNull();
+
+    // Confirming posts the recommended package key to change-package.
+    fireEvent.click(await findConfirmDialogButton());
+
+    await waitFor(() => {
+      if (!changePackageBody) throw new Error("change-package not called");
+    });
+    expect(changePackageBody).toEqual({ package: "super" });
+
+    // On success the provisioning takeover is triggered — never the plans page.
+    await waitFor(() => {
+      expect(onTierUpgraded).toHaveBeenCalledTimes(1);
+    });
+    expect(navigateArgs).toEqual([]);
+    expect(openedUrl).toBeNull();
+  });
+
+  test("the CTA and confirm button are disabled while change-package is pending", async () => {
+    let release!: (value: {
+      data: PackageChangeResponse;
+      response: { ok: boolean };
+    }) => void;
+    changePackageImpl = () =>
+      new Promise((resolve) => {
+        release = resolve;
+      });
+    const onTierUpgraded = mock(() => {});
+    const { findByTestId } = renderCardInteractive(
+      proMightySubscription(),
+      plansWithSuper(),
+      () => {},
+      onTierUpgraded,
+    );
+
+    fireEvent.click(await findByTestId("recommended-upgrade-button"));
+    fireEvent.click(await findConfirmDialogButton());
+
+    // In-flight: the confirm button and the banner CTA both disable.
+    await waitFor(() => {
+      const confirm = document.querySelector<HTMLButtonElement>(
+        "[data-confirm-dialog-confirm]",
+      );
+      if (!confirm?.disabled) throw new Error("confirm not disabled yet");
+    });
+    const banner = (await findByTestId(
+      "recommended-upgrade-button",
+    )) as HTMLButtonElement;
+    expect(banner.disabled).toBe(true);
+
+    // Resolving completes the flow and raises the takeover.
+    await act(async () => {
+      release({
+        data: {
+          status: "ok",
+          package: { key: "super", name: "Super", version: 1, customized: false },
+        } as PackageChangeResponse,
+        response: { ok: true },
+      });
+      await Promise.resolve();
+    });
+    await waitFor(() => {
+      expect(onTierUpgraded).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  test("a base user's recommended upgrade routes to Stripe checkout", async () => {
+    const onTierUpgraded = mock(() => {});
+    const { findByTestId } = renderCardInteractive(
+      baseSubscription(),
+      basePlansResponse(),
+      () => {},
+      onTierUpgraded,
+    );
+
+    // No confirm dialog for base users — the CTA starts checkout directly.
+    fireEvent.click(await findByTestId("recommended-upgrade-button"));
+
+    await waitFor(() => {
+      if (!openedUrl) throw new Error("checkout not opened");
+    });
+    expect(openedUrl).toBe("https://checkout.example.com/session");
+    expect(upgradeCall?.body).toMatchObject({
+      target_plan_id: "pro",
+      package: "mighty",
+      confirm: true,
+    });
+    // Base users never call change-package or the takeover.
+    expect(changePackageBody).toBeNull();
+    expect(onTierUpgraded).not.toHaveBeenCalled();
     expect(navigateArgs).toEqual([]);
   });
 });

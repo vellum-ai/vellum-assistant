@@ -10,6 +10,7 @@ import {
     nextPackageUp,
     type ProPackage,
 } from "@/domains/settings/billing/package-types";
+import { useChangePackage } from "@/domains/settings/billing/use-change-package";
 import {
     FREE_STORAGE_GIB,
     PlanTierAvatar,
@@ -34,6 +35,7 @@ import { routes } from "@/utils/routes";
 import type { ButtonProps } from "@vellumai/design-library/components/button";
 import { Button } from "@vellumai/design-library/components/button";
 import { Card } from "@vellumai/design-library/components/card";
+import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 import { Notice } from "@vellumai/design-library/components/notice";
 import { Tag } from "@vellumai/design-library/components/tag";
 import { toast } from "@vellumai/design-library/components/toast";
@@ -67,6 +69,12 @@ const DEFAULT_DISPLAY: PlanDisplay = PLAN_DISPLAY.base;
 
 export interface PlanCardProps {
     onManage: () => void;
+    /**
+     * Raised after a Pro user's in-place package upgrade succeeds — opens the
+     * provisioning takeover (resize modal), the same signal `AdjustPlanModal`
+     * emits after a tier change.
+     */
+    onTierUpgraded?: () => void;
 }
 
 function PlanHeading() {
@@ -155,24 +163,38 @@ interface RecommendedUpgradeProps {
     packages: ProPackage[];
     currentKey: string | null;
     /**
-     * Delegate for subscribers who are already on Pro — the upgrade endpoint
-     * no-ops for active Pro orgs, so package step-ups route to the plan-aware
-     * plans takeover instead. When absent (base plan), the CTA starts the
-     * Stripe package checkout directly.
+     * Whether the org already has a Pro subscription. Pro users change their
+     * package in place (prorated) via the change-package endpoint; base users
+     * go through Stripe checkout.
+     */
+    isProUser: boolean;
+    /**
+     * Base-user delegate. When absent (the base-plan default), the CTA starts
+     * the Stripe package checkout directly. Ignored for Pro users, who confirm
+     * and call change-package in place.
      */
     onUpgrade?: () => void;
+    /**
+     * Opens the provisioning takeover (resize modal) after a Pro user's in-place
+     * package change succeeds — the same signal the tier-change flow raises.
+     */
+    onTierUpgraded?: () => void;
 }
 
 function RecommendedUpgrade({
     packages,
     currentKey,
+    isProUser,
     onUpgrade,
+    onTierUpgraded,
 }: RecommendedUpgradeProps) {
     const queryClient = useQueryClient();
     const upgradeMutation = useMutation(
         organizationsBillingSubscriptionUpgradeCreateMutation(),
     );
+    const { changePackage, isPending: changePending } = useChangePackage();
     const [pending, setPending] = useState(false);
+    const [confirmOpen, setConfirmOpen] = useState(false);
 
     const recommended = nextPackageUp(packages, currentKey);
     if (!recommended) return null;
@@ -187,9 +209,26 @@ function RecommendedUpgrade({
     const upgradeLabel = `Upgrade for ${formatMonthly(deltaCents)} more`;
     const accent = TIER_ACCENT[recommended.key] ?? TIER_ACCENT.free;
     const tint = `color-mix(in srgb, ${accent} 10%, transparent)`;
-    const isPending = pending || upgradeMutation.isPending;
+    const isPending = pending || upgradeMutation.isPending || changePending;
+
+    // Pro users change their package in place: confirm the prorated charge, then
+    // call change-package and hand off to the resize takeover on success. Base
+    // users keep the delegate / Stripe-checkout path.
+    const handleConfirmChange = async () => {
+        const result = await changePackage(recommended.key);
+        if (result) {
+            setConfirmOpen(false);
+            onTierUpgraded?.();
+        }
+        // On a null result the hook already toasted; leave the dialog open so
+        // the user can retry.
+    };
 
     const handleUpgrade = async () => {
+        if (isProUser) {
+            setConfirmOpen(true);
+            return;
+        }
         if (onUpgrade) {
             onUpgrade();
             return;
@@ -306,11 +345,20 @@ function RecommendedUpgrade({
             >
                 {upgradeLabel}
             </Button>
+            <ConfirmDialog
+                open={confirmOpen}
+                title={`Upgrade to ${recommended.name}?`}
+                message="You'll be charged the prorated difference now."
+                confirmLabel="Upgrade"
+                isPending={isPending}
+                onConfirm={handleConfirmChange}
+                onCancel={() => setConfirmOpen(false)}
+            />
         </div>
     );
 }
 
-export function PlanCard({ onManage }: PlanCardProps) {
+export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
     const navigate = useNavigate();
     const subscriptionQuery = useQuery(
         organizationsBillingSubscriptionRetrieveOptions(),
@@ -442,13 +490,8 @@ export function PlanCard({ onManage }: PlanCardProps) {
                     <RecommendedUpgrade
                         packages={packages}
                         currentKey={currentKey}
-                        onUpgrade={
-                            currentPlan.id === "base"
-                                ? undefined
-                                : canOpenPlansTakeover
-                                  ? () => navigate(routes.plans)
-                                  : onManage
-                        }
+                        isProUser={currentPlan.id !== "base"}
+                        onTierUpgraded={onTierUpgraded}
                     />
                 </div>
             </div>

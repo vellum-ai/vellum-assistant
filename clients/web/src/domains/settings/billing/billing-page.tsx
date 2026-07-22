@@ -223,7 +223,9 @@ function BillingTab() {
             {showPlanManagement && (
                 <FinishProSetupNotice onFinishSetup={openProOnboarding} />
             )}
-            {showPlanManagement && <PlanCard onManage={openPlanModal} />}
+            {showPlanManagement && (
+                <PlanCard onManage={openPlanModal} onTierUpgraded={onTierUpgraded} />
+            )}
             {showPlanManagement && (
                 <AdjustPlanModal open={planModalOpen} onClose={closePlanModal} onTierUpgraded={onTierUpgraded} />
             )}
