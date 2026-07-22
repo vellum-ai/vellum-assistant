@@ -42,7 +42,7 @@ export function renderSlackTextForModel(
   text: string,
   options: RenderSlackTextOptions = {},
 ): string {
-  return text.replace(/<([^<>\s][^<>]*)>/g, (token, content: string) => {
+  const rendered = text.replace(/<([^<>\s][^<>]*)>/g, (token, content: string) => {
     if (content.startsWith("@")) {
       return renderUserMention(content, options);
     }
@@ -61,6 +61,23 @@ export function renderSlackTextForModel(
 
     return token;
   });
+  return decodeSlackHtmlEntities(rendered);
+}
+
+/**
+ * Slack entity-encodes every literal `&`, `<`, and `>` in message text so its
+ * own `<...>` control tokens stay unambiguous. Decode them back once the
+ * tokens have been rendered — leaving them encoded breaks downstream markdown
+ * (`&gt; quote` at line start never forms a blockquote, since entities resolve
+ * only after block parsing) and shows raw entities to the model. `&lt;`/`&gt;`
+ * are decoded before `&amp;` so a user-typed literal `&gt;` (double-encoded by
+ * Slack as `&amp;gt;`) round-trips to `&gt;`, not `>`.
+ */
+function decodeSlackHtmlEntities(text: string): string {
+  return text
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&");
 }
 
 export async function buildSlackUserLabelMap(

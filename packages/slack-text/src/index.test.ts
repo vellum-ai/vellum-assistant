@@ -134,6 +134,43 @@ describe("renderSlackTextForModel", () => {
       }),
     ).toBe("@missing user #missing channel");
   });
+
+  test("decodes Slack HTML entities so quote markers survive to markdown", () => {
+    // Slack entity-encodes every literal &, <, > in message text. `&gt; ` at
+    // line start must decode back to `> ` — markdown resolves entities only
+    // after block parsing, so an encoded marker never forms a blockquote.
+    expect(renderSlackTextForModel("&gt; quoted line\nreply")).toBe(
+      "> quoted line\nreply",
+    );
+    expect(renderSlackTextForModel("1 &lt; 2 &amp;&amp; 3 &gt; 2")).toBe(
+      "1 < 2 && 3 > 2",
+    );
+  });
+
+  test("decodes entities inside link URLs after token rendering", () => {
+    expect(
+      renderSlackTextForModel("<https://example.com?a=1&amp;b=2|docs>"),
+    ).toBe("docs (https://example.com?a=1&b=2)");
+  });
+
+  test("a user-typed literal entity round-trips instead of over-decoding", () => {
+    // Someone typing the four characters `&gt;` in Slack arrives
+    // double-encoded as `&amp;gt;` — one decode pass must yield `&gt;`,
+    // not collapse it all the way to `>`.
+    expect(renderSlackTextForModel("escape it as &amp;gt; in HTML")).toBe(
+      "escape it as &gt; in HTML",
+    );
+  });
+
+  test("decoded angle brackets do not re-enter token parsing", () => {
+    // `&lt;@U123&gt;` is literal text about a mention, not a mention — after
+    // decoding it must render as the characters `<@U123>` untouched.
+    expect(
+      renderSlackTextForModel("say &lt;@U123&gt; to mention", {
+        userLabels: { U123: "Alice" },
+      }),
+    ).toBe("say <@U123> to mention");
+  });
 });
 
 describe("buildSlackUserLabelMap", () => {
