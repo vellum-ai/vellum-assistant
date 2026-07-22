@@ -105,7 +105,7 @@ function hasLocalRuntimeComponents(installDir: string): boolean {
  * (`assistant`, `credential-executor`) collide with app-bundle binary names
  * and point at whatever version happens to be installed globally.
  */
-function isCompiledCli(): boolean {
+export function isCompiledCli(): boolean {
   const execBase = basename(process.execPath);
   return (
     execBase !== "bun" && execBase !== "bunx" && !execBase.startsWith("bun-")
