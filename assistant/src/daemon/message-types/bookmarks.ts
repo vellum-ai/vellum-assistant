@@ -1,18 +1,13 @@
 // Bookmark events. Surfaced over SSE so a `BookmarkStore` instance in any
 // connected client can stay in sync when another window mutates the list.
+//
+// Server→client events are single-sourced from their canonical `api/events`
+// wire schemas; this file only composes them into the domain union consumed by
+// `message-protocol.ts`.
 
-import type { BookmarkSummary } from "../../persistence/bookmark-crud.js";
+import type { BookmarkCreatedEvent } from "../../api/events/bookmark-created.js";
+import type { BookmarkDeletedEvent } from "../../api/events/bookmark-deleted.js";
 
-export interface BookmarkCreated {
-  type: "bookmark.created";
-  bookmark: BookmarkSummary;
-}
-
-export interface BookmarkDeleted {
-  type: "bookmark.deleted";
-  messageId: string;
-}
-
-// --- Domain-level union aliases (consumed by the barrel file) ---
-
-export type _BookmarksServerMessages = BookmarkCreated | BookmarkDeleted;
+export type _BookmarksServerMessages =
+  | BookmarkCreatedEvent
+  | BookmarkDeletedEvent;

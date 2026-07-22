@@ -12,6 +12,8 @@ import { AssistantTurnStartEventSchema } from "./events/assistant-turn-start.js"
 import { AvatarUpdatedEventSchema } from "./events/avatar-updated.js";
 import { BackgroundToolCompletedEventSchema } from "./events/background-tool-completed.js";
 import { BackgroundToolStartedEventSchema } from "./events/background-tool-started.js";
+import { BookmarkCreatedEventSchema } from "./events/bookmark-created.js";
+import { BookmarkDeletedEventSchema } from "./events/bookmark-deleted.js";
 import { CompactionCircuitClosedEventSchema } from "./events/compaction-circuit-closed.js";
 import { CompactionCircuitOpenEventSchema } from "./events/compaction-circuit-open.js";
 import { ConfirmationRequestEventSchema } from "./events/confirmation-request.js";
@@ -143,6 +145,16 @@ export {
   type BackgroundToolStartedEvent,
   BackgroundToolStartedEventSchema,
 } from "./events/background-tool-started.js";
+export {
+  type BookmarkCreatedEvent,
+  BookmarkCreatedEventSchema,
+  type BookmarkSummary,
+  BookmarkSummarySchema,
+} from "./events/bookmark-created.js";
+export {
+  type BookmarkDeletedEvent,
+  BookmarkDeletedEventSchema,
+} from "./events/bookmark-deleted.js";
 export {
   type CompactionCircuitClosedEvent,
   CompactionCircuitClosedEventSchema,
@@ -656,6 +668,8 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   AvatarUpdatedEventSchema,
   BackgroundToolCompletedEventSchema,
   BackgroundToolStartedEventSchema,
+  BookmarkCreatedEventSchema,
+  BookmarkDeletedEventSchema,
   CompactionCircuitClosedEventSchema,
   CompactionCircuitOpenEventSchema,
   ConfirmationRequestEventSchema,
