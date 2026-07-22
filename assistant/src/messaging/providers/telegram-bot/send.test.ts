@@ -213,7 +213,7 @@ describe("telegramTransport topic targeting", () => {
     expect(callTelegramBotApiMock).toHaveBeenCalledWith("sendMessage", {
       chat_id: "123",
       text: "hello",
-      direct_messages_topic_id: 777,
+      message_thread_id: 777,
     });
   });
 
@@ -223,7 +223,7 @@ describe("telegramTransport topic targeting", () => {
     expect(callTelegramBotApiMock).toHaveBeenCalledWith("sendRichMessage", {
       chat_id: "123",
       rich_message: { html: "<p>hello</p>", skip_entity_detection: true },
-      direct_messages_topic_id: 777,
+      message_thread_id: 777,
     });
   });
 
@@ -237,7 +237,7 @@ describe("telegramTransport topic targeting", () => {
     expect(callTelegramBotApiMock).toHaveBeenNthCalledWith(2, "sendMessage", {
       chat_id: "123",
       text: "hello",
-      direct_messages_topic_id: 777,
+      message_thread_id: 777,
     });
   });
 
@@ -250,7 +250,7 @@ describe("telegramTransport topic targeting", () => {
     expect(callTelegramBotApiMock).toHaveBeenCalledWith("sendChatAction", {
       chat_id: "123",
       action: "typing",
-      direct_messages_topic_id: 777,
+      message_thread_id: 777,
     });
   });
 

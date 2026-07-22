@@ -66,11 +66,11 @@ export async function sendTelegramReply(
       text: chunks[i],
     };
 
-    // Private-chat topics take direct_messages_topic_id on outbound sends
-    // (Bot API 10.0+); message_thread_id is the forum-supergroup field and
-    // is rejected in DMs. This gateway only serves private chats.
+    // message_thread_id is the Bot API topic field for both forum supergroups
+    // and private chats of bots with topic ("threaded") mode enabled.
+    // (direct_messages_topic_id is a different surface — channel monoforums.)
     if (messageThreadId) {
-      payload.direct_messages_topic_id = Number(messageThreadId);
+      payload.message_thread_id = Number(messageThreadId);
     }
 
     // Attach inline keyboard only to the last chunk so buttons appear after

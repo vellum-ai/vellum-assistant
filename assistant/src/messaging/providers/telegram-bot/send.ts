@@ -53,18 +53,16 @@ export interface TelegramSendOptions {
  * Topic-targeting field for a send payload, or undefined when the send
  * targets the main chat — spread into the payload literal.
  *
- * Outbound sends to private-chat topics use `direct_messages_topic_id`
- * (Bot API 10.0+); sending `message_thread_id` to a private chat is
- * rejected with "message thread not found". `message_thread_id` remains
- * the outbound field for forum supergroups only, which this DM-only
- * adapter never sends to. Inbound updates carry the id as
- * `message_thread_id` in both chat kinds.
+ * `message_thread_id` is the Bot API topic field for both forum supergroups
+ * and private chats of bots with topic ("threaded") mode enabled — the same
+ * field inbound updates carry. (`direct_messages_topic_id` is a different
+ * surface — channel direct-messages/monoforum chats — and is not used here.)
  */
 function threadIdPayloadFields(
   opts?: TelegramSendOptions,
-): { direct_messages_topic_id: number } | undefined {
+): { message_thread_id: number } | undefined {
   const id = opts?.messageThreadId?.trim();
-  return id ? { direct_messages_topic_id: Number(id) } : undefined;
+  return id ? { message_thread_id: Number(id) } : undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -276,10 +274,7 @@ export async function sendTelegramAttachments(
       const form = new FormData();
       form.set("chat_id", chatId);
       if (threadFields) {
-        form.set(
-          "direct_messages_topic_id",
-          String(threadFields.direct_messages_topic_id),
-        );
+        form.set("message_thread_id", String(threadFields.message_thread_id));
       }
 
       const isImage = TELEGRAM_IMAGE_MIME_PREFIXES.some((p) =>
