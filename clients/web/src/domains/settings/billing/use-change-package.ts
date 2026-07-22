@@ -9,7 +9,7 @@ import {
 } from "@/generated/api/@tanstack/react-query.gen";
 import type { PackageChangeResponse } from "@/generated/api/types.gen";
 
-import { extractMutationError } from "../components/adjust-plan-utils";
+import { extractMutationError } from "@/domains/settings/components/adjust-plan-utils";
 
 /**
  * Shared wiring for the change-package CTAs (plan-card banner, plans page).

@@ -11,6 +11,7 @@ import {
     type ProPackage,
 } from "@/domains/settings/billing/package-types";
 import { useChangePackage } from "@/domains/settings/billing/use-change-package";
+import { PackageSwitchConfirmModal } from "@/domains/settings/billing/plans/package-switch-confirm-modal";
 import {
     FREE_STORAGE_GIB,
     PlanTierAvatar,
@@ -35,14 +36,13 @@ import { routes } from "@/utils/routes";
 import type { ButtonProps } from "@vellumai/design-library/components/button";
 import { Button } from "@vellumai/design-library/components/button";
 import { Card } from "@vellumai/design-library/components/card";
-import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 import { Notice } from "@vellumai/design-library/components/notice";
 import { Tag } from "@vellumai/design-library/components/tag";
 import { toast } from "@vellumai/design-library/components/toast";
 import { Typography } from "@vellumai/design-library/components/typography";
 import {
     extractMutationError,
-    TIER_CHANGE_ELIGIBLE_STATUSES,
+    isPackageSwitchEligible,
 } from "./adjust-plan-utils";
 import { formatMonthly } from "./tier-pricing";
 
@@ -179,12 +179,6 @@ interface RecommendedUpgradeProps {
      */
     canChangePackage: boolean;
     /**
-     * Base-user delegate. When absent (the base-plan default), the CTA starts
-     * the Stripe package checkout directly. Ignored for Pro users, who confirm
-     * and call change-package in place.
-     */
-    onUpgrade?: () => void;
-    /**
      * Manage-path delegate (AdjustPlanModal). Used to keep a legacy/custom Pro
      * sub with no pinned package off the change-package flow, which operates
      * only on named packages.
@@ -202,7 +196,6 @@ function RecommendedUpgrade({
     currentKey,
     isProUser,
     canChangePackage,
-    onUpgrade,
     onManage,
     onTierUpgraded,
 }: RecommendedUpgradeProps) {
@@ -231,15 +224,22 @@ function RecommendedUpgrade({
 
     // Pro users change their package in place: confirm the prorated charge, then
     // call change-package and hand off to the resize takeover on success. Base
-    // users keep the delegate / Stripe-checkout path.
+    // users go through the Stripe-checkout path instead.
     const handleConfirmChange = async () => {
         const result = await changePackage(recommended.key);
-        if (result) {
-            setConfirmOpen(false);
-            onTierUpgraded?.();
+        if (!result) {
+            // The hook already toasted; leave the dialog open so the user can
+            // retry.
+            return;
         }
-        // On a null result the hook already toasted; leave the dialog open so
-        // the user can retry.
+        setConfirmOpen(false);
+        if (result.status === "ok") {
+            onTierUpgraded?.();
+        } else {
+            // no_op: the sub is already on this package, so there's nothing to
+            // provision — just dismiss the confirm.
+            toast.success("You're already on this plan.");
+        }
     };
 
     const handleUpgrade = async () => {
@@ -252,10 +252,6 @@ function RecommendedUpgrade({
         }
         if (isProUser) {
             setConfirmOpen(true);
-            return;
-        }
-        if (onUpgrade) {
-            onUpgrade();
             return;
         }
         setPending(true);
@@ -370,13 +366,12 @@ function RecommendedUpgrade({
             >
                 {upgradeLabel}
             </Button>
-            <ConfirmDialog
+            <PackageSwitchConfirmModal
                 open={confirmOpen}
-                title={`Upgrade to ${recommended.name}?`}
-                message="You'll be charged the prorated difference now."
-                confirmLabel="Upgrade"
-                isPending={isPending}
-                onConfirm={handleConfirmChange}
+                relation="upgrade"
+                packageName={recommended.name}
+                pending={isPending}
+                onConfirm={() => void handleConfirmChange()}
                 onCancel={() => setConfirmOpen(false)}
             />
         </div>
@@ -452,22 +447,9 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
         packages.length > 0 &&
         (currentPlan.id === "base" || subscription.package != null);
     // A one-click, in-place package switch is safe only for a clean packaged Pro
-    // sub. A customized sub's tiers no longer match the stock package (posting
-    // the next stock key would use wrong deltas / drop custom line items), and a
-    // cancelling sub 409s on change-package — both fall back to the manage path.
-    // A sub in a non-entitlement status (`canceled`, `unpaid`, `incomplete`,
-    // `paused`, etc.) can't change package either — gate on the same status set
-    // the tier-change flow uses so the CTA never confirms a mutation that 4xxs.
-    const isCancellingSub =
-        subscription.cancel_at_period_end === true ||
-        Boolean(subscription.cancel_at);
-    const canChangePackage =
-        currentPlan.id !== "base" &&
-        subscription.package != null &&
-        !subscription.package.customized &&
-        !isCancellingSub &&
-        subscription.status != null &&
-        TIER_CHANGE_ELIGIBLE_STATUSES.has(subscription.status);
+    // sub; every other Pro state (customized, cancelling, or a non-entitlement
+    // status) and every base sub falls back to the manage path.
+    const canChangePackage = isPackageSwitchEligible(subscription);
 
     return (
         <Card padding="md">

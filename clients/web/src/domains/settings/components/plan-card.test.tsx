@@ -68,7 +68,10 @@ let changePackageImpl: () => Promise<{
   data: PackageChangeResponse;
   response: { ok: boolean };
 }> = async () => ({
-  data: { status: "ok" } as PackageChangeResponse,
+  data: {
+    status: "ok",
+    package: { key: "super", name: "Super", version: 1, customized: false },
+  },
   response: { ok: true },
 });
 let currentSub: SubscriptionResponse = baseSubscription();
@@ -270,13 +273,15 @@ function renderCardInteractive(
   );
 }
 
-/** Waits for the ConfirmDialog (portaled to document.body) to open. */
+/** Waits for the PackageSwitchConfirmModal (portaled) to open. */
 async function findConfirmDialogButton(): Promise<HTMLButtonElement> {
   return await waitFor(() => {
     const btn = document.querySelector<HTMLButtonElement>(
-      "[data-confirm-dialog-confirm]",
+      "[data-testid='confirm-package-switch-button']",
     );
-    if (!btn) throw new Error("confirm dialog not open");
+    if (!btn) {
+      throw new Error("confirm dialog not open");
+    }
     return btn;
   });
 }
@@ -290,7 +295,10 @@ beforeEach(() => {
   };
   changePackageBody = null;
   changePackageImpl = async () => ({
-    data: { status: "ok" } as PackageChangeResponse,
+    data: {
+      status: "ok",
+      package: { key: "super", name: "Super", version: 1, customized: false },
+    },
     response: { ok: true },
   });
   openedUrl = null;
@@ -479,7 +487,9 @@ describe("PlanCard recommended upgrade — change-package", () => {
     fireEvent.click(await findConfirmDialogButton());
 
     await waitFor(() => {
-      if (!changePackageBody) throw new Error("change-package not called");
+      if (!changePackageBody) {
+        throw new Error("change-package not called");
+      }
     });
     expect(changePackageBody).toEqual({ package: "super" });
 
@@ -514,9 +524,11 @@ describe("PlanCard recommended upgrade — change-package", () => {
     // In-flight: the confirm button and the banner CTA both disable.
     await waitFor(() => {
       const confirm = document.querySelector<HTMLButtonElement>(
-        "[data-confirm-dialog-confirm]",
+        "[data-testid='confirm-package-switch-button']",
       );
-      if (!confirm?.disabled) throw new Error("confirm not disabled yet");
+      if (!confirm?.disabled) {
+        throw new Error("confirm not disabled yet");
+      }
     });
     const banner = (await findByTestId(
       "recommended-upgrade-button",
@@ -537,6 +549,40 @@ describe("PlanCard recommended upgrade — change-package", () => {
     await waitFor(() => {
       expect(onTierUpgraded).toHaveBeenCalledTimes(1);
     });
+  });
+
+  test("a no_op change-package result dismisses the confirm without the takeover", async () => {
+    changePackageImpl = async () => ({
+      data: {
+        status: "no_op",
+        package: { key: "super", name: "Super", version: 1, customized: false },
+      },
+      response: { ok: true },
+    });
+    const onTierUpgraded = mock(() => {});
+    const { findByTestId } = renderCardInteractive(
+      proMightySubscription(),
+      plansWithSuper(),
+      () => {},
+      onTierUpgraded,
+    );
+
+    fireEvent.click(await findByTestId("recommended-upgrade-button"));
+    fireEvent.click(await findConfirmDialogButton());
+
+    await waitFor(() => {
+      if (!changePackageBody) {
+        throw new Error("change-package not called");
+      }
+    });
+    // no_op: the sub is already on this package, so the confirm dismisses and
+    // the provisioning takeover is never raised.
+    await waitFor(() => {
+      expect(
+        document.querySelector("[data-testid='confirm-package-switch-button']"),
+      ).toBeNull();
+    });
+    expect(onTierUpgraded).not.toHaveBeenCalled();
   });
 
   test("a package-less Pro sub's recommended upgrade stays on the manage path", async () => {
@@ -560,7 +606,7 @@ describe("PlanCard recommended upgrade — change-package", () => {
     });
     // No confirm dialog, no change-package mutation, no navigation.
     expect(
-      document.querySelector("[data-confirm-dialog-confirm]"),
+      document.querySelector("[data-testid='confirm-package-switch-button']"),
     ).toBeNull();
     expect(changePackageBody).toBeNull();
     expect(onTierUpgraded).not.toHaveBeenCalled();
@@ -594,7 +640,7 @@ describe("PlanCard recommended upgrade — change-package", () => {
       expect(onManage).toHaveBeenCalledTimes(1);
     });
     // No confirm dialog, no change-package mutation, no navigation.
-    expect(document.querySelector("[data-confirm-dialog-confirm]")).toBeNull();
+    expect(document.querySelector("[data-testid='confirm-package-switch-button']")).toBeNull();
     expect(changePackageBody).toBeNull();
     expect(onTierUpgraded).not.toHaveBeenCalled();
     expect(navigateArgs).toEqual([]);
@@ -623,7 +669,7 @@ describe("PlanCard recommended upgrade — change-package", () => {
       expect(onManage).toHaveBeenCalledTimes(1);
     });
     // No confirm dialog, no change-package mutation, no navigation.
-    expect(document.querySelector("[data-confirm-dialog-confirm]")).toBeNull();
+    expect(document.querySelector("[data-testid='confirm-package-switch-button']")).toBeNull();
     expect(changePackageBody).toBeNull();
     expect(onTierUpgraded).not.toHaveBeenCalled();
     expect(navigateArgs).toEqual([]);
@@ -654,7 +700,7 @@ describe("PlanCard recommended upgrade — change-package", () => {
       expect(onManage).toHaveBeenCalledTimes(1);
     });
     // No confirm dialog, no change-package mutation, no navigation.
-    expect(document.querySelector("[data-confirm-dialog-confirm]")).toBeNull();
+    expect(document.querySelector("[data-testid='confirm-package-switch-button']")).toBeNull();
     expect(changePackageBody).toBeNull();
     expect(onTierUpgraded).not.toHaveBeenCalled();
     expect(navigateArgs).toEqual([]);
@@ -674,7 +720,9 @@ describe("PlanCard recommended upgrade — change-package", () => {
     fireEvent.click(await findByTestId("recommended-upgrade-button"));
 
     await waitFor(() => {
-      if (!openedUrl) throw new Error("checkout not opened");
+      if (!openedUrl) {
+        throw new Error("checkout not opened");
+      }
     });
     expect(openedUrl).toBe("https://checkout.example.com/session");
     expect(upgradeCall?.body).toMatchObject({
