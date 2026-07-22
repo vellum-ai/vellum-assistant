@@ -467,4 +467,337 @@ describe("pair command", () => {
       expiresAt: "2026-06-04T00:10:00.000Z",
     });
   });
+
+  test("--qr mints a challenge, auto-approves it, and emits a device-code link", async () => {
+    const calls: Array<[string, RequestInit | undefined]> = [];
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+      calls.push([url, init]);
+      if (url === `${LOCAL_URL}/v1/assistants/pair-test/feature-flags`) {
+        return new Response(
+          JSON.stringify({
+            flags: [{ key: "web-remote-ingress", enabled: true }],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url === `${LOCAL_URL}/v1/remote-web/pairing-challenge`) {
+        return new Response(
+          JSON.stringify({
+            deviceCode: "device-code",
+            userCode: "ABCD-EFGH",
+            verificationUri: "https://pair.example.ts.net/assistant/pair",
+            expiresAt: "2026-06-04T00:10:00.000Z",
+            expiresInSeconds: 600,
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url === `${LOCAL_URL}/v1/remote-web/pairing-verification`) {
+        return new Response(
+          JSON.stringify({
+            status: "approved",
+            verificationUri: "https://pair.example.ts.net/assistant/pair",
+            expiresAt: "2026-06-04T00:10:00.000Z",
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      return new Response("not found", { status: 404 });
+    }) as unknown as typeof fetch;
+
+    const logs: string[] = [];
+    const logSpy = spyOn(console, "log").mockImplementation(
+      (...a: unknown[]) => {
+        logs.push(a.join(" "));
+      },
+    );
+
+    process.argv = [
+      "bun",
+      "vellum",
+      "pair",
+      "--qr",
+      "--url",
+      "https://pair.example.ts.net",
+      "--json",
+    ];
+    try {
+      await pair();
+    } finally {
+      logSpy.mockRestore();
+      globalThis.fetch = origFetch;
+    }
+
+    // Flag check → create challenge → approve it, all over loopback. The
+    // approval is the whole point: running the CLI on the host IS the approval,
+    // so the scan alone completes pairing.
+    expect(calls.map((c) => c[0])).toEqual([
+      `${LOCAL_URL}/v1/assistants/pair-test/feature-flags`,
+      `${LOCAL_URL}/v1/remote-web/pairing-challenge`,
+      `${LOCAL_URL}/v1/remote-web/pairing-verification`,
+    ]);
+    expect(JSON.parse(calls[1][1]?.body as string)).toEqual({
+      publicBaseUrl: "https://pair.example.ts.net",
+    });
+    expect(JSON.parse(calls[2][1]?.body as string)).toEqual({
+      userCode: "ABCD-EFGH",
+    });
+
+    const out = JSON.parse(logs.join("\n"));
+    expect(out).toEqual({
+      pairUrl:
+        "https://pair.example.ts.net/assistant/pair#device_code=device-code",
+      deviceCode: "device-code",
+      expiresAt: "2026-06-04T00:10:00.000Z",
+      expiresInSeconds: 600,
+    });
+    // The device code rides the fragment only — never the path or query.
+    const parsed = new URL(out.pairUrl);
+    expect(parsed.search).toBe("");
+    expect(parsed.hash).toBe("#device_code=device-code");
+  });
+
+  test("--qr renders a QR and prints the fallback URL and expiry", async () => {
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: string) => {
+      if (url === `${LOCAL_URL}/v1/assistants/pair-test/feature-flags`) {
+        return new Response(
+          JSON.stringify({
+            flags: [{ key: "web-remote-ingress", enabled: true }],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url === `${LOCAL_URL}/v1/remote-web/pairing-challenge`) {
+        return new Response(
+          JSON.stringify({
+            deviceCode: "device-code",
+            userCode: "ABCD-EFGH",
+            verificationUri: "https://pair.example.ts.net/assistant/pair",
+            expiresAt: "2026-06-04T00:10:00.000Z",
+            expiresInSeconds: 600,
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      return new Response(
+        JSON.stringify({
+          status: "approved",
+          verificationUri: "https://pair.example.ts.net/assistant/pair",
+          expiresAt: "2026-06-04T00:10:00.000Z",
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as unknown as typeof fetch;
+
+    const logs: string[] = [];
+    const logSpy = spyOn(console, "log").mockImplementation(
+      (...a: unknown[]) => {
+        logs.push(a.join(" "));
+      },
+    );
+
+    process.argv = [
+      "bun",
+      "vellum",
+      "pair",
+      "--qr",
+      "--url",
+      "https://pair.example.ts.net",
+    ];
+    try {
+      await pair();
+    } finally {
+      logSpy.mockRestore();
+      globalThis.fetch = origFetch;
+    }
+
+    const output = logs.join("\n");
+    expect(output).toContain(
+      "https://pair.example.ts.net/assistant/pair#device_code=device-code",
+    );
+    expect(output).toContain("Expires: 2026-06-04T00:10:00.000Z");
+  });
+
+  test("--qr refuses a non-https --url without minting", async () => {
+    let fetchCalled = false;
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = (async () => {
+      fetchCalled = true;
+      return new Response("{}", { status: 200 });
+    }) as unknown as typeof fetch;
+    const errors: string[] = [];
+    const errSpy = spyOn(console, "error").mockImplementation(
+      (...a: unknown[]) => {
+        errors.push(a.join(" "));
+      },
+    );
+    const exitSpy = spyOn(process, "exit").mockImplementation(((
+      code?: number,
+    ) => {
+      throw new Error(`exit:${code}`);
+    }) as never);
+
+    process.argv = [
+      "bun",
+      "vellum",
+      "pair",
+      "--qr",
+      "--url",
+      "http://pair.example.com",
+    ];
+    let exited = false;
+    try {
+      await pair();
+    } catch (e) {
+      exited = (e as Error).message === "exit:1";
+    } finally {
+      errSpy.mockRestore();
+      exitSpy.mockRestore();
+      globalThis.fetch = origFetch;
+    }
+
+    // Validation is local and fails fast — no challenge minted for a dead link.
+    expect(exited).toBe(true);
+    expect(errors.join("\n")).toContain("https");
+    expect(fetchCalled).toBe(false);
+  });
+
+  test("--qr refuses a loopback --url without minting", async () => {
+    let fetchCalled = false;
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = (async () => {
+      fetchCalled = true;
+      return new Response("{}", { status: 200 });
+    }) as unknown as typeof fetch;
+    const errors: string[] = [];
+    const errSpy = spyOn(console, "error").mockImplementation(
+      (...a: unknown[]) => {
+        errors.push(a.join(" "));
+      },
+    );
+    const exitSpy = spyOn(process, "exit").mockImplementation(((
+      code?: number,
+    ) => {
+      throw new Error(`exit:${code}`);
+    }) as never);
+
+    process.argv = [
+      "bun",
+      "vellum",
+      "pair",
+      "--qr",
+      "--url",
+      "http://127.0.0.1:7830",
+    ];
+    let exited = false;
+    try {
+      await pair();
+    } catch (e) {
+      exited = (e as Error).message === "exit:1";
+    } finally {
+      errSpy.mockRestore();
+      exitSpy.mockRestore();
+      globalThis.fetch = origFetch;
+    }
+
+    expect(exited).toBe(true);
+    expect(errors.join("\n")).toContain("loopback");
+    expect(fetchCalled).toBe(false);
+  });
+
+  test("--qr refuses an unparseable --url with an accurate error, not a non-https mislabel", async () => {
+    let fetchCalled = false;
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = (async () => {
+      fetchCalled = true;
+      return new Response("{}", { status: 200 });
+    }) as unknown as typeof fetch;
+    const errors: string[] = [];
+    const errSpy = spyOn(console, "error").mockImplementation(
+      (...a: unknown[]) => {
+        errors.push(a.join(" "));
+      },
+    );
+    const exitSpy = spyOn(process, "exit").mockImplementation(((
+      code?: number,
+    ) => {
+      throw new Error(`exit:${code}`);
+    }) as never);
+
+    process.argv = ["bun", "vellum", "pair", "--qr", "--url", "not-a-url"];
+    let exited = false;
+    try {
+      await pair();
+    } catch (e) {
+      exited = (e as Error).message === "exit:1";
+    } finally {
+      errSpy.mockRestore();
+      exitSpy.mockRestore();
+      globalThis.fetch = origFetch;
+    }
+
+    // Unparseable input reports its own reason — not the loopback/non-https
+    // messages the reason-blind version reconstructed.
+    expect(exited).toBe(true);
+    const joined = errors.join("\n");
+    expect(joined).toContain("isn't a valid URL");
+    expect(joined).not.toContain("is not https");
+    expect(joined).not.toContain("loopback");
+    expect(fetchCalled).toBe(false);
+  });
+
+  test("--qr refuses when the web remote ingress feature flag is off", async () => {
+    const calls: Array<[string, RequestInit | undefined]> = [];
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+      calls.push([url, init]);
+      return new Response(
+        JSON.stringify({
+          flags: [{ key: "web-remote-ingress", enabled: false }],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as unknown as typeof fetch;
+
+    const errors: string[] = [];
+    const errSpy = spyOn(console, "error").mockImplementation(
+      (...a: unknown[]) => {
+        errors.push(a.join(" "));
+      },
+    );
+    const exitSpy = spyOn(process, "exit").mockImplementation(((
+      code?: number,
+    ) => {
+      throw new Error(`exit:${code}`);
+    }) as never);
+
+    process.argv = [
+      "bun",
+      "vellum",
+      "pair",
+      "--qr",
+      "--url",
+      "https://pair.example.ts.net",
+    ];
+    let exited = false;
+    try {
+      await pair();
+    } catch (e) {
+      exited = (e as Error).message === "exit:1";
+    } finally {
+      errSpy.mockRestore();
+      exitSpy.mockRestore();
+      globalThis.fetch = origFetch;
+    }
+
+    // Only the flag check runs; no challenge is minted when the flag is off.
+    expect(exited).toBe(true);
+    expect(errors.join("\n")).toContain("web-remote-ingress");
+    expect(calls).toHaveLength(1);
+    expect(calls[0][0]).toBe(
+      `${LOCAL_URL}/v1/assistants/pair-test/feature-flags`,
+    );
+  });
 });
