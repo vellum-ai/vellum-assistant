@@ -8,6 +8,9 @@
   "src/domains/chat/hooks/use-onboarding-orchestrator.ts": [
     "onboarding"
   ],
+  "src/domains/chat/in-chat-onboarding/tour-telemetry.ts": [
+    "onboarding"
+  ],
   "src/domains/chat/hooks/use-send-message.ts": [
     "onboarding"
   ],

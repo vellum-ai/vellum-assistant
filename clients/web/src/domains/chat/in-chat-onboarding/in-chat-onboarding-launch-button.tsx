@@ -5,6 +5,7 @@ import { Button } from "@vellumai/design-library";
 import { useInChatOnboardingStore } from "@/stores/in-chat-onboarding-store";
 
 import { isInChatTourOn, useInChatTourVariant } from "./in-chat-tour-flag";
+import { emitInChatTourStarted } from "./tour-telemetry";
 
 /**
  * Header entry point for the in-chat onboarding UI prototype — a stand-in
@@ -30,7 +31,10 @@ export function InChatOnboardingLaunchButton() {
       iconOnly={<Sparkles />}
       aria-label="In-chat onboarding (prototype)"
       tooltip="In-chat onboarding (prototype)"
-      onClick={startPrototype}
+      onClick={() => {
+        startPrototype();
+        emitInChatTourStarted("replay");
+      }}
     />
   );
 }
