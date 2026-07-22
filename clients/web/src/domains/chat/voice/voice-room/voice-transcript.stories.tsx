@@ -16,15 +16,19 @@ import { VoiceAmbientTranscript } from "./voice-ambient-transcript";
 import { VoiceTranscriptText } from "./voice-transcript-text";
 
 /**
- * Iteration harness for the voice room's live captions — a right-side chat rail
- * that streams the current turn word-by-word: user speech as a right-aligned
- * bubble, assistant speech as left-aligned muted plain text.
+ * Iteration harness for the voice room's live captions — the room's two text
+ * zones streaming the current turn word-by-word: the user's speech as a small
+ * pill above the eyes, the assistant's as large untreated text below them.
  *
  * The scenes simulate a live session by streaming a canned utterance into the
  * real live-voice store one word at a time (no mic / STT / TTS), so the reveal,
  * leading-edge tone, and partial→final hand-off all behave exactly as in the
  * app. Scrub `wordMs` for the pace of speech and bump `replay` to run the
  * utterance again.
+ *
+ * The scene frame stands in for the room box: the zones anchor off *it*, not
+ * the window, so keep `minHeight` in the range of a real viewport or the two
+ * zones will crowd the centerpiece.
  */
 
 // A sample avatar color so the room tone (and the `--room-*` caption vars)
@@ -150,7 +154,8 @@ function AmbientTranscriptScene({
       className="relative flex items-center justify-center overflow-hidden rounded-lg"
       style={{ minHeight, backgroundColor: SAMPLE_HEX, ...toneVars }}
     >
-      {/* Stand-in for the centered avatar so the rail reads against the right edge. */}
+      {/* Stand-in for the centered eyes, so both zones read against the
+          centerpiece they're framing. */}
       <div
         className="size-40 rounded-full"
         style={{ backgroundColor: "var(--room-fg)", opacity: 0.12 }}
@@ -177,7 +182,7 @@ const meta: Meta<typeof AmbientTranscriptScene> = {
       options: ["user", "assistant", "both"] satisfies Role[],
       control: { type: "inline-radio" },
       description:
-        "Which half streams — user (right bubble), assistant (left plain text), or both.",
+        "Which half streams — user (pill, upper zone), assistant (large text, lower zone), or both.",
     },
     wordMs: {
       control: { type: "range", min: 80, max: 600, step: 20 },
@@ -196,8 +201,9 @@ type Story = StoryObj<typeof AmbientTranscriptScene>;
 /**
  * The ambient captions over a live-streamed turn: each word fades + rises +
  * de-blurs in and the newest word carries the brighter leading-edge tone. The
- * rail sits against the room's right edge — the user's speech as a right-aligned
- * bubble, the assistant's as left-aligned muted text. Scrub `role` and `wordMs`.
+ * two zones frame the centerpiece — your speech in a small pill above it, the
+ * assistant's at full size below — sharing one centered measure so neither
+ * pulls the room off its spine. Scrub `role` and `wordMs`.
  */
 export const Playground: Story = {};
 
