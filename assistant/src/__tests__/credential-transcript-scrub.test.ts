@@ -337,6 +337,45 @@ describe("scrubStoredCredentialFromTranscripts", () => {
     expect(blocks[0]._redactionVersion).toBe(2);
   });
 
+  test("scrubs unsigned thinking blocks", async () => {
+    dbRows.push({
+      id: "msg-think",
+      conversationId: "conv-1",
+      content: JSON.stringify([
+        { type: "thinking", thinking: `planning with ${VALUE}`, signature: "" },
+      ]),
+    });
+
+    const result = await scrubStoredCredentialFromTranscripts(VALUE);
+
+    expect(result.dbMessagesScrubbed).toBe(1);
+    const blocks = JSON.parse(updatedContentFor("msg-think")) as Array<
+      Record<string, unknown>
+    >;
+    expect(blocks[0].thinking).toBe(`planning with ${MARKER}`);
+  });
+
+  test("leaves provider-signed thinking blocks untouched", async () => {
+    // The signature covers the text; a rewritten signed block would be
+    // rejected on history replay.
+    dbRows.push({
+      id: "msg-signed",
+      conversationId: "conv-1",
+      content: JSON.stringify([
+        {
+          type: "thinking",
+          thinking: `planning with ${VALUE}`,
+          signature: "provider-sig",
+        },
+      ]),
+    });
+
+    const result = await scrubStoredCredentialFromTranscripts(VALUE);
+
+    expect(result.dbMessagesScrubbed).toBe(0);
+    expect(updateCalls).toHaveLength(0);
+  });
+
   test("scrubs legacy plain-string content rows with a plain replace", async () => {
     dbRows.push({
       id: "msg-legacy",

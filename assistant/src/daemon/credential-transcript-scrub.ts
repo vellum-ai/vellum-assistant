@@ -392,6 +392,20 @@ function scrubBlock(
           }
         : { block, changed: false };
     }
+    case "thinking": {
+      // Provider-signed thinking blocks must stay byte-identical: the
+      // signature covers the text, and a rewritten block would be rejected
+      // on history replay. Unsigned blocks (this codebase persists
+      // signature: "" on the streaming path) carry no such constraint and
+      // get the same target replacement as every other string surface.
+      if (block.signature !== "" && block.signature !== undefined) {
+        return { block, changed: false };
+      }
+      const { text, changed } = replaceTargets(block.thinking, targets);
+      return changed
+        ? { block: { ...block, thinking: text }, changed: true }
+        : { block, changed: false };
+    }
     default:
       return { block, changed: false };
   }

@@ -680,6 +680,37 @@ describe("credentials routes", () => {
         "sk-ant-oat01-a-real-oauth-token",
       );
     });
+
+    test("a stored prompted credential scrubs recent transcripts", async () => {
+      /**
+       * The prompt flow is routinely used to RE-collect a secret the user
+       * already pasted into chat; the 06 rail promises the pasted message
+       * is scrubbed after storage, so the store path must run the scrub.
+       */
+      const result = await persistPromptedCredential({
+        service: "vercel",
+        field: "api_token",
+        value: SECRET_VALUE,
+        delivery: "store",
+        policy: {},
+      });
+
+      expect(result.outcome).toBe("stored");
+      expect(scrubbedValues).toEqual([SECRET_VALUE]);
+    });
+
+    test("a rejected prompted credential never scrubs", async () => {
+      const result = await persistPromptedCredential({
+        service: "acp",
+        field: "claude_oauth_token",
+        value: "sk-ant-api03-not-an-oauth-token",
+        delivery: "store",
+        policy: {},
+      });
+
+      expect(result.outcome).toBe("error");
+      expect(scrubbedValues).toEqual([]);
+    });
   });
 
   describe("credentials_list", () => {
