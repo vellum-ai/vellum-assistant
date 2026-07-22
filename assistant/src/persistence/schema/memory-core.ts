@@ -95,6 +95,9 @@ export const memoryCheckpoints = sqliteTable("memory_checkpoints", {
   updatedAt: integer("updated_at").notNull(),
 });
 
+// Per-conversation retrospective job pointers and cumulative remembered log.
+// Lives in the dedicated memory database (`assistant-memory.db`), not main —
+// access it via the memory connection (`getMemoryDb()` / `getMemorySqlite()`).
 export const memoryRetrospectiveState = sqliteTable(
   "memory_retrospective_state",
   {

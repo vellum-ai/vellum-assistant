@@ -58,6 +58,7 @@ import {
   SLOW_LLM_JOB_TYPES,
 } from "../../../persistence/jobs-store.js";
 import type { JobHandler } from "../../types.js";
+import { sweepOrphanConversationMemoryTables } from "./conversation-memory-orphan-sweep.js";
 import { getLogger } from "./logging.js";
 import { sweepOrphanMemoryRetrospectiveConversations } from "./memory-retrospective-startup-cleanup.js";
 import { getWorkspaceDir } from "./paths.js";
@@ -251,6 +252,18 @@ export function startMemoryJobsWorkerLoop(): MemoryJobsWorker {
     log.warn(
       { err },
       "Memory-retrospective startup cleanup failed; continuing worker startup",
+    );
+  });
+
+  // Also catch up on relocated conversation-keyed tables orphaned while the
+  // plugin was disabled: with memory off, the conversation-deleted hook never
+  // fired, so deletes during that window left rows behind (the pre-Wave-2 main
+  // DB cascade caught these regardless of plugin state). Detached and
+  // best-effort, same as the sweep above.
+  void sweepOrphanConversationMemoryTables().catch((err: unknown) => {
+    log.warn(
+      { err },
+      "Relocated-memory-table orphan sweep failed; continuing worker startup",
     );
   });
 

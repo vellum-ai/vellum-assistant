@@ -32,6 +32,8 @@ export const HOOKS = {
   POST_COMPACT: "post-compact",
   /** Fires once per deleted conversation, after its rows are removed. Fire-and-forget cleanup signal — hooks run async with no ordering guarantee relative to the caller. */
   CONVERSATION_DELETED: "conversation-deleted",
+  /** Fires once when every conversation is wiped at once (the clear-all reset), after the main tables are cleared. Carries no `conversationId`; cleanup hooks wipe their own per-conversation state wholesale. */
+  CONVERSATIONS_CLEARED: "conversations-cleared",
 } as const;
 
 /** Union of every hook name declared in {@link HOOKS}. */
