@@ -101,6 +101,9 @@ export function ChatLayoutHeader({
       }}
     >
       <div
+        // `inert` (not just opacity/pointer-events) so the faded-out
+        // controls also leave the tab order and accessibility tree.
+        inert={controlsHidden || undefined}
         className={`flex items-center gap-2 transition-[min-width,opacity] duration-300 ease-in-out max-md:min-w-0 max-md:flex-1${controlsHidden ? " pointer-events-none opacity-0" : controlsDimmed ? " opacity-40" : ""}`}
         style={{
           // `minWidth` reserves the sidebar column on desktop only. The Electron
@@ -163,12 +166,14 @@ export function ChatLayoutHeader({
       </div>
 
       <div
+        inert={controlsHidden || centerHidden || undefined}
         className={`flex min-w-0 flex-1 items-center justify-center transition-opacity duration-300${controlsHidden || centerHidden ? " pointer-events-none opacity-0" : ""}`}
       >
         {topBarCenter}
       </div>
 
       <div
+        inert={controlsHidden || undefined}
         className={`flex items-center gap-2 max-md:flex-1 max-md:justify-end transition-opacity duration-300${controlsHidden ? " pointer-events-none opacity-0" : controlsDimmed ? " opacity-40" : ""}`}
       >
         {isMobile ? (
