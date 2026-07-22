@@ -27,8 +27,8 @@ export const Default: Story = {
 
 /**
  * Regression guard for LUM-2788: prose mixed with inline code chips inside a
- * blockquote must keep real leading — with the single-line label token's
- * line-height:1 the padded chips paint over the lines above and below.
+ * blockquote must keep real leading — a line-height:1 label token on the
+ * quote lets the chips' padded backgrounds paint over adjacent lines.
  */
 export const QuoteWithInlineCode: Story = {
   args: {
