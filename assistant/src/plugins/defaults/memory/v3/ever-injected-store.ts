@@ -3,7 +3,7 @@
  *
  * Backed by `memory_v3_ever_injected`, which lives on the dedicated memory
  * connection (`assistant-memory.db`) — every read/write resolves it via
- * `memorySqliteOrNull` and degrades to a no-op when that connection is
+ * `memoryDbOrNull` and degrades to a no-op when that connection is
  * unavailable. One row per (conversation, page-slug) the v3 injector ever
  * attached as a card. The
  * active (non-pruned) slug set is the injection dedup record — a slug present
@@ -27,9 +27,12 @@
  *     not contain, suppressing their re-injection forever.
  */
 
+import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
+
 import type { DrizzleDb } from "../../../../persistence/db-connection.js";
+import { memoryV3EverInjected } from "../../../../persistence/schema/memory-injection.js";
 import { getLogger } from "../logging.js";
-import { memorySqliteOrNull } from "../memory-db.js";
+import { memoryDbOrNull } from "../memory-db.js";
 
 const log = getLogger("memory-v3-ever-injected-store");
 
@@ -56,20 +59,17 @@ export interface EverInjectedEntry {
 export function getInjected(
   conversationId: string,
 ): Map<string, EverInjectedEntry> {
-  const raw = memorySqliteOrNull("getInjected");
-  if (!raw) return new Map();
-  const rows = raw
-    .query(
-      /*sql*/ `
-      SELECT slug, bytes, pruned_at AS prunedAt FROM memory_v3_ever_injected
-      WHERE conversation_id = ?
-    `,
-    )
-    .all(conversationId) as Array<{
-    slug: string;
-    bytes: number;
-    prunedAt: number | null;
-  }>;
+  const mdb = memoryDbOrNull("getInjected");
+  if (!mdb) return new Map();
+  const rows = mdb
+    .select({
+      slug: memoryV3EverInjected.slug,
+      bytes: memoryV3EverInjected.bytes,
+      prunedAt: memoryV3EverInjected.prunedAt,
+    })
+    .from(memoryV3EverInjected)
+    .where(eq(memoryV3EverInjected.conversationId, conversationId))
+    .all();
 
   return new Map(
     rows.map((row) => [row.slug, { bytes: row.bytes, prunedAt: row.prunedAt }]),
@@ -78,16 +78,18 @@ export function getInjected(
 
 /** The injection dedup set: slugs whose cards are currently resident. */
 export function getActiveSlugs(conversationId: string): Set<string> {
-  const raw = memorySqliteOrNull("getActiveSlugs");
-  if (!raw) return new Set();
-  const rows = raw
-    .query(
-      /*sql*/ `
-      SELECT slug FROM memory_v3_ever_injected
-      WHERE conversation_id = ? AND pruned_at IS NULL
-    `,
+  const mdb = memoryDbOrNull("getActiveSlugs");
+  if (!mdb) return new Set();
+  const rows = mdb
+    .select({ slug: memoryV3EverInjected.slug })
+    .from(memoryV3EverInjected)
+    .where(
+      and(
+        eq(memoryV3EverInjected.conversationId, conversationId),
+        isNull(memoryV3EverInjected.prunedAt),
+      ),
     )
-    .all(conversationId) as Array<{ slug: string }>;
+    .all();
   return new Set(rows.map((row) => row.slug));
 }
 
@@ -107,16 +109,22 @@ export interface ActiveInjectedEntry {
 export function getActiveEntries(
   conversationId: string,
 ): ActiveInjectedEntry[] {
-  const raw = memorySqliteOrNull("getActiveEntries");
-  if (!raw) return [];
-  return raw
-    .query(
-      /*sql*/ `
-      SELECT slug, bytes, injected_at AS injectedAt FROM memory_v3_ever_injected
-      WHERE conversation_id = ? AND pruned_at IS NULL
-    `,
+  const mdb = memoryDbOrNull("getActiveEntries");
+  if (!mdb) return [];
+  return mdb
+    .select({
+      slug: memoryV3EverInjected.slug,
+      bytes: memoryV3EverInjected.bytes,
+      injectedAt: memoryV3EverInjected.injectedAt,
+    })
+    .from(memoryV3EverInjected)
+    .where(
+      and(
+        eq(memoryV3EverInjected.conversationId, conversationId),
+        isNull(memoryV3EverInjected.prunedAt),
+      ),
     )
-    .all(conversationId) as ActiveInjectedEntry[];
+    .all();
 }
 
 /**
@@ -125,16 +133,18 @@ export function getActiveEntries(
  * `prune.ts` / `daemon/conversation.ts`).
  */
 export function getPrunedSlugs(conversationId: string): Set<string> {
-  const raw = memorySqliteOrNull("getPrunedSlugs");
-  if (!raw) return new Set();
-  const rows = raw
-    .query(
-      /*sql*/ `
-      SELECT slug FROM memory_v3_ever_injected
-      WHERE conversation_id = ? AND pruned_at IS NOT NULL
-    `,
+  const mdb = memoryDbOrNull("getPrunedSlugs");
+  if (!mdb) return new Set();
+  const rows = mdb
+    .select({ slug: memoryV3EverInjected.slug })
+    .from(memoryV3EverInjected)
+    .where(
+      and(
+        eq(memoryV3EverInjected.conversationId, conversationId),
+        isNotNull(memoryV3EverInjected.prunedAt),
+      ),
     )
-    .all(conversationId) as Array<{ slug: string }>;
+    .all();
   return new Set(rows.map((row) => row.slug));
 }
 
@@ -153,18 +163,26 @@ export function recordInjected(
   // agent turn, so a degraded memory connection or a failed statement only
   // logs a warning.
   try {
-    const raw = memorySqliteOrNull("recordInjected");
-    if (!raw) return;
-    const stmt = raw.query(/*sql*/ `
-      INSERT INTO memory_v3_ever_injected (conversation_id, slug, injected_at, bytes, pruned_at)
-      VALUES (?, ?, ?, ?, NULL)
-      ON CONFLICT (conversation_id, slug) DO UPDATE SET
-        injected_at = excluded.injected_at,
-        bytes = excluded.bytes,
-        pruned_at = NULL
-    `);
+    const mdb = memoryDbOrNull("recordInjected");
+    if (!mdb) return;
     for (const entry of entries) {
-      stmt.run(conversationId, entry.slug, at, entry.bytes);
+      mdb
+        .insert(memoryV3EverInjected)
+        .values({
+          conversationId,
+          slug: entry.slug,
+          injectedAt: at,
+          bytes: entry.bytes,
+          prunedAt: null,
+        })
+        .onConflictDoUpdate({
+          target: [
+            memoryV3EverInjected.conversationId,
+            memoryV3EverInjected.slug,
+          ],
+          set: { injectedAt: at, bytes: entry.bytes, prunedAt: null },
+        })
+        .run();
     }
   } catch (err) {
     log.warn({ err }, "failed to record ever-injected cards; continuing");
@@ -182,17 +200,18 @@ export function markPruned(
 ): void {
   if (slugs.length === 0) return;
   try {
-    const raw = memorySqliteOrNull("markPruned");
-    if (!raw) return;
-    const placeholders = slugs.map(() => "?").join(", ");
-    raw
-      .query(
-        /*sql*/ `
-      UPDATE memory_v3_ever_injected SET pruned_at = ?
-      WHERE conversation_id = ? AND slug IN (${placeholders})
-    `,
+    const mdb = memoryDbOrNull("markPruned");
+    if (!mdb) return;
+    mdb
+      .update(memoryV3EverInjected)
+      .set({ prunedAt: at })
+      .where(
+        and(
+          eq(memoryV3EverInjected.conversationId, conversationId),
+          inArray(memoryV3EverInjected.slug, slugs),
+        ),
       )
-      .run(at, conversationId, ...slugs);
+      .run();
   } catch (err) {
     log.warn({ err }, "failed to mark ever-injected cards pruned; continuing");
   }
@@ -204,15 +223,12 @@ export function markPruned(
  */
 export function clearConversation(conversationId: string): void {
   try {
-    const raw = memorySqliteOrNull("clearConversation");
-    if (!raw) return;
-    raw
-      .query(
-        /*sql*/ `
-      DELETE FROM memory_v3_ever_injected WHERE conversation_id = ?
-    `,
-      )
-      .run(conversationId);
+    const mdb = memoryDbOrNull("clearConversation");
+    if (!mdb) return;
+    mdb
+      .delete(memoryV3EverInjected)
+      .where(eq(memoryV3EverInjected.conversationId, conversationId))
+      .run();
   } catch (err) {
     log.warn(
       { err },
@@ -223,17 +239,21 @@ export function clearConversation(conversationId: string): void {
 
 /** Total bytes of resident (non-pruned) cards — the prune-valve input. */
 export function residentBytes(conversationId: string): number {
-  const raw = memorySqliteOrNull("residentBytes");
-  if (!raw) return 0;
-  const row = raw
-    .query(
-      /*sql*/ `
-      SELECT COALESCE(SUM(bytes), 0) AS total FROM memory_v3_ever_injected
-      WHERE conversation_id = ? AND pruned_at IS NULL
-    `,
+  const mdb = memoryDbOrNull("residentBytes");
+  if (!mdb) return 0;
+  const row = mdb
+    .select({
+      total: sql<number>`COALESCE(SUM(${memoryV3EverInjected.bytes}), 0)`,
+    })
+    .from(memoryV3EverInjected)
+    .where(
+      and(
+        eq(memoryV3EverInjected.conversationId, conversationId),
+        isNull(memoryV3EverInjected.prunedAt),
+      ),
     )
-    .get(conversationId) as { total: number };
-  return row.total;
+    .get();
+  return row?.total ?? 0;
 }
 
 /**
@@ -251,21 +271,35 @@ export function forkEverInjected(
   newConversationId: string,
 ): void {
   try {
-    const raw = memorySqliteOrNull("forkEverInjected");
-    if (!raw) return;
-    raw
-      .query(
-        /*sql*/ `
-      INSERT INTO memory_v3_ever_injected (conversation_id, slug, injected_at, bytes, pruned_at)
-      SELECT ?, slug, injected_at, bytes, pruned_at FROM memory_v3_ever_injected
-      WHERE conversation_id = ?
-      ON CONFLICT (conversation_id, slug) DO UPDATE SET
-        injected_at = excluded.injected_at,
-        bytes = excluded.bytes,
-        pruned_at = excluded.pruned_at
-    `,
-      )
-      .run(newConversationId, parentConversationId);
+    const mdb = memoryDbOrNull("forkEverInjected");
+    if (!mdb) return;
+    const parentRows = mdb
+      .select({
+        slug: memoryV3EverInjected.slug,
+        injectedAt: memoryV3EverInjected.injectedAt,
+        bytes: memoryV3EverInjected.bytes,
+        prunedAt: memoryV3EverInjected.prunedAt,
+      })
+      .from(memoryV3EverInjected)
+      .where(eq(memoryV3EverInjected.conversationId, parentConversationId))
+      .all();
+    for (const row of parentRows) {
+      mdb
+        .insert(memoryV3EverInjected)
+        .values({ conversationId: newConversationId, ...row })
+        .onConflictDoUpdate({
+          target: [
+            memoryV3EverInjected.conversationId,
+            memoryV3EverInjected.slug,
+          ],
+          set: {
+            injectedAt: row.injectedAt,
+            bytes: row.bytes,
+            prunedAt: row.prunedAt,
+          },
+        })
+        .run();
+    }
   } catch (err) {
     log.warn({ err }, "failed to fork ever-injected record; continuing");
   }
@@ -306,24 +340,39 @@ export function seedEverInjectedFromSlugs(
 ): void {
   if (slugs.length === 0) return;
   try {
-    const raw = memorySqliteOrNull("seedEverInjectedFromSlugs");
-    if (!raw) return;
-    const prunedRows = raw
-      .query(
-        /*sql*/ `
-      SELECT slug, pruned_at AS prunedAt FROM memory_v3_ever_injected
-      WHERE conversation_id = ? AND pruned_at IS NOT NULL
-    `,
+    const mdb = memoryDbOrNull("seedEverInjectedFromSlugs");
+    if (!mdb) return;
+    const prunedRows = mdb
+      .select({
+        slug: memoryV3EverInjected.slug,
+        prunedAt: memoryV3EverInjected.prunedAt,
+      })
+      .from(memoryV3EverInjected)
+      .where(
+        and(
+          eq(memoryV3EverInjected.conversationId, parentConversationId),
+          isNotNull(memoryV3EverInjected.prunedAt),
+        ),
       )
-      .all(parentConversationId) as Array<{ slug: string; prunedAt: number }>;
+      .all();
     const parentPrunedAt = new Map(prunedRows.map((r) => [r.slug, r.prunedAt]));
-    const stmt = raw.query(/*sql*/ `
-    INSERT INTO memory_v3_ever_injected (conversation_id, slug, injected_at, bytes, pruned_at)
-    VALUES (?, ?, ?, 0, ?)
-    ON CONFLICT (conversation_id, slug) DO NOTHING
-  `);
     for (const slug of slugs) {
-      stmt.run(newConversationId, slug, at, parentPrunedAt.get(slug) ?? null);
+      mdb
+        .insert(memoryV3EverInjected)
+        .values({
+          conversationId: newConversationId,
+          slug,
+          injectedAt: at,
+          bytes: 0,
+          prunedAt: parentPrunedAt.get(slug) ?? null,
+        })
+        .onConflictDoNothing({
+          target: [
+            memoryV3EverInjected.conversationId,
+            memoryV3EverInjected.slug,
+          ],
+        })
+        .run();
     }
   } catch (err) {
     log.warn({ err }, "failed to seed forked ever-injected record; continuing");

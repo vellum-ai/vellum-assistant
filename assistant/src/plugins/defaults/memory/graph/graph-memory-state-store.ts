@@ -1,4 +1,7 @@
-import { memorySqliteOrNull } from "../memory-db.js";
+import { eq } from "drizzle-orm";
+
+import { conversationGraphMemoryState } from "../../../../persistence/schema/conversations.js";
+import { memoryDbOrNull } from "../memory-db.js";
 
 /**
  * Persist graph memory state for a conversation (upsert). Writes the dedicated
@@ -8,19 +11,17 @@ export function saveGraphMemoryState(
   conversationId: string,
   stateJson: string,
 ): void {
-  const raw = memorySqliteOrNull("saveGraphMemoryState");
-  if (!raw) return;
+  const mdb = memoryDbOrNull("saveGraphMemoryState");
+  if (!mdb) return;
   const now = Date.now();
-  raw
-    .query(
-      /*sql*/ `INSERT INTO conversation_graph_memory_state
-         (conversation_id, state_json, created_at, updated_at)
-       VALUES (?, ?, ?, ?)
-       ON CONFLICT(conversation_id) DO UPDATE SET
-         state_json = excluded.state_json,
-         updated_at = excluded.updated_at`,
-    )
-    .run(conversationId, stateJson, now, now);
+  mdb
+    .insert(conversationGraphMemoryState)
+    .values({ conversationId, stateJson, createdAt: now, updatedAt: now })
+    .onConflictDoUpdate({
+      target: conversationGraphMemoryState.conversationId,
+      set: { stateJson, updatedAt: now },
+    })
+    .run();
 }
 
 /**
@@ -28,15 +29,14 @@ export function saveGraphMemoryState(
  * dedicated memory connection; an unavailable memory database reports none.
  */
 export function loadGraphMemoryState(conversationId: string): string | null {
-  const raw = memorySqliteOrNull("loadGraphMemoryState");
-  if (!raw) return null;
-  const row = raw
-    .query(
-      /*sql*/ `SELECT state_json FROM conversation_graph_memory_state
-         WHERE conversation_id = ?`,
-    )
-    .get(conversationId) as { state_json: string } | null;
-  return row?.state_json ?? null;
+  const mdb = memoryDbOrNull("loadGraphMemoryState");
+  if (!mdb) return null;
+  const row = mdb
+    .select({ stateJson: conversationGraphMemoryState.stateJson })
+    .from(conversationGraphMemoryState)
+    .where(eq(conversationGraphMemoryState.conversationId, conversationId))
+    .get();
+  return row?.stateJson ?? null;
 }
 
 /**
