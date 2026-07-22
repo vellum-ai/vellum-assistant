@@ -86,7 +86,7 @@ assistant credentials prompt --service github-app --field webhook_secret \
   --description "Copy the webhook_secret value from the credentials JSON"
 ```
 
-For the PEM (private key), the secure prompt input is single-line — pasting a multi-line key strips its newlines and the mangled key fails JWT signing. Have the user base64-encode the key to a single line on their host and paste **that** into the secure prompt. It is stored as field `pem_b64`; everything that signs JWTs decodes it at use time (`assistant credentials reveal --service github-app --field pem_b64 | base64 -d`). Print the single-line value for copying:
+For the PEM (private key), the secure prompt input is single-line — pasting a multi-line key strips its newlines and the mangled key fails JWT signing. Have the user base64-encode the key to a single line on their host and paste **that** into the secure prompt. It is stored as field `pem_b64`; `scripts/gh-app-token.mjs` (copied into the workspace in Step 4) is the sole decode site — it reveals and base64-decodes the key internally at JWT-signing time, so the plaintext PEM never appears anywhere. If a step genuinely needs the decoded key in a shell, capture it in a variable — `PEM="$(assistant credentials reveal --service github-app --field pem_b64 | base64 -d)"` — and **never run the reveal|decode pipeline bare: it prints the private key into the transcript**, evading every redaction layer. Print the single-line value for copying:
 
 ```bash
 jq -r .pem /tmp/github-app-credentials.json | base64 | tr -d '\n'
@@ -242,7 +242,7 @@ The installation token may have expired (1-hour lifetime). Regenerate with `bun 
 
 ### PEM won't store or fails JWT signing
 
-The secure prompt input is single-line, so a raw multi-line PEM cannot be pasted into it — newlines are stripped and the mangled key fails JWT signing. Store the key base64-encoded as `pem_b64` instead: have the user re-run `jq -r .pem /tmp/github-app-credentials.json | base64 | tr -d '\n'` on their host, paste the single-line output into `assistant credentials prompt --service github-app --field pem_b64`, and decode at use time (`assistant credentials reveal --service github-app --field pem_b64 | base64 -d`). Never paste the PEM into chat, write it to a host file the agent reads, or pass it inline to `assistant credentials set` — those paths leak the key into the transcript.
+The secure prompt input is single-line, so a raw multi-line PEM cannot be pasted into it — newlines are stripped and the mangled key fails JWT signing. Re-store the key base64-encoded as `pem_b64` using the procedure in Step 2. Never paste the PEM into chat, write it to a host file the agent reads, pass it inline to `assistant credentials set`, or run the reveal|decode pipeline bare — those paths leak the key into the transcript.
 
 ### Port 29170 already in use
 

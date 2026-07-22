@@ -2220,13 +2220,13 @@ export async function executeBrowserFillCredential(
         reason.includes("no stored value")
       ) {
         return {
-          content: `No credential stored for ${service}/${field}. Collect it via \`assistant credentials prompt --service ${service} --field ${field} --label <label>\` first.`,
+          content: `No credential stored for ${service}/${field}. Collect it via \`assistant credentials prompt --service ${service} --field ${field} --label <label> --allowed-tools ${BROWSER_FILL_CAPABILITY}\` first (\`--allowed-tools\` sets the credential's full allowed-tools list).`,
           isError: true,
         };
       }
       if (reason.includes("not allowed to use credential")) {
         return {
-          content: `Policy denied: ${reason} If this tool should have access, run \`assistant credentials prompt --service ${service} --field ${field} --label <label> --allowed-tools ${BROWSER_FILL_CAPABILITY}\` (re-collects the value securely and sets allowed_tools).`,
+          content: `Policy denied: ${reason} If this tool should have access, run \`assistant credentials prompt --service ${service} --field ${field} --label <label> --allowed-tools <tools>\` (re-collects the value securely). Note: \`--allowed-tools\` REPLACES the credential's stored list, so pass every tool that should keep access — all currently allowed tools plus ${BROWSER_FILL_CAPABILITY}. See the current list with \`assistant credentials list --search ${service}\`.`,
           isError: true,
         };
       }
