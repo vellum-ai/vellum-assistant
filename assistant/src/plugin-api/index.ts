@@ -141,6 +141,12 @@ export type {
 // or mutate hub state are withheld — both would let a plugin drive privileged
 // host execution without the host proxies' approval gate.
 export type { PluginEventHub } from "./event-hub-facade.js";
+/**
+ * @deprecated Direct hub access is being replaced by narrower, purpose-built
+ * importable helpers (e.g. a plugin-driven publish wrapper) so plugins don't
+ * hold the general publish/subscribe surface. Avoid new usage; prefer the
+ * scoped helpers as they land.
+ */
 export { pluginAssistantEventHub as assistantEventHub } from "./event-hub-facade.js";
 export { getModelProfiles } from "./model-profiles.js";
 // Check whether a model or profile can process image input. Accepts a concrete
@@ -301,3 +307,18 @@ export type {
   RunConversationTurnResult,
 } from "./conversation-turn.js";
 export { runConversationTurn } from "./conversation-turn.js";
+// Live voice — drive a single client's real-time voice session (STT → agent
+// turn → TTS, with server-VAD turn-taking, pauses, and barge-in) over a
+// transport the plugin owns. The plugin brings only a `send` callback (e.g.
+// its own WebSocket route under `/x/plugins/<name>/`); `createLiveVoiceConnection`
+// resolves the daemon-wide session manager internally, so a plugin session
+// shares the same single-active-session lock as the built-in HTTP transport.
+// Feed inbound frames to `handleMessage` and call `release` when the transport
+// closes. `LiveVoiceServerFrame` types the frames handed to `send`.
+export type {
+  LiveVoiceConnection,
+  LiveVoiceFrameSender,
+} from "../live-voice/live-voice-connection.js";
+export { createLiveVoiceConnection } from "../live-voice/live-voice-connection.js";
+export type { LiveVoiceSessionCloseReason } from "../live-voice/live-voice-session-manager.js";
+export type { LiveVoiceServerFrame } from "../live-voice/protocol.js";

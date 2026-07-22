@@ -25,7 +25,7 @@ mock.module("../persistence/embeddings/embedding-backend.js", () => ({
   generateSparseEmbedding: () => ({ indices: [1], values: [1] }),
 }));
 
-mock.module("../plugins/defaults/memory/v2/qdrant.js", () => ({
+mock.module("../plugins/defaults/memory/v3/substrate/qdrant.js", () => ({
   upsertConceptPageEmbedding: async (params: { slug: string }) => {
     seedUpsertSlugs.push(params.slug);
   },
@@ -41,7 +41,7 @@ import {
   _resetSkillStoreForTests,
   getSkillCapability,
   seedV2SkillEntries,
-} from "../plugins/defaults/memory/v2/skill-store.js";
+} from "../plugins/defaults/memory/v3/substrate/skill-store.js";
 import { executeDeleteManagedSkill } from "../tools/skills/delete-managed.js";
 import { skillLoadTool } from "../tools/skills/load.js";
 import { executeScaffoldManagedSkill } from "../tools/skills/scaffold-managed.js";

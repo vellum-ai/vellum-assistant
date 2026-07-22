@@ -46,9 +46,9 @@ export function buildResourceChanges(input: {
       from:
         fromSnapshot.storageGib != null &&
         fromSnapshot.storageGib !== targets.storageGib
-          ? `${fromSnapshot.storageGib} GiB`
+          ? `${fromSnapshot.storageGib} GB`
           : undefined,
-      to: `${targets.storageGib} GiB`,
+      to: `${targets.storageGib} GB`,
     });
   }
 

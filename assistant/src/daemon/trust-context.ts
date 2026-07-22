@@ -7,7 +7,7 @@
 import type { ChannelConversationType } from "@vellumai/gateway-client";
 
 import { isHttpAuthDisabled } from "../config/env.js";
-import { shouldExposePersonalMemory } from "../plugins/defaults/memory/v2/static-context.js";
+import { shouldExposePersonalMemory } from "../plugins/defaults/memory/v3/substrate/static-context.js";
 import type { TrustClass } from "../runtime/trust-class.js";
 import type { TrustContext } from "./trust-context-types.js";
 

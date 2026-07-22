@@ -308,15 +308,17 @@ export function DoctorPanel() {
       const store = useDoctorPanelStore.getState();
       store.appendEntry({ kind: "user", content });
       store.setInputValue("");
+      // Show the thinking indicator while the request is in flight — the
+      // platform may retry against a briefly unavailable Doctor for several
+      // seconds before the request is accepted.
+      store.setThinking(true);
       if (APPROVAL_RESPONSES.has(content.toLowerCase())) {
         store.setPendingApproval(false);
       }
     },
-    onSuccess() {
-      useDoctorPanelStore.getState().setThinking(true);
-    },
     onError(error) {
       captureError(error, { context: "send_doctor_message" });
+      useDoctorPanelStore.getState().setThinking(false);
       useDoctorPanelStore.getState().appendEntry({
         kind: "error",
         content: extractErrorMessage(error, undefined, "Failed to send message"),

@@ -47,6 +47,72 @@ export const LiveVoiceVadConfigSchema = z
     "Voice-activity-detection tuning for live voice sessions (open-mic turn segmentation)",
   );
 
+export const LiveVoiceProgressConfigSchema = z
+  .object({
+    enabled: z
+      .boolean({
+        error: "liveVoice.frontModel.progress.enabled must be a boolean",
+      })
+      .default(true)
+      .describe(
+        "Speak short progress updates during long-running tool-heavy turns; the opt-out for progress narration",
+      ),
+    opsThreshold: z
+      .number({
+        error: "liveVoice.frontModel.progress.opsThreshold must be a number",
+      })
+      .int("liveVoice.frontModel.progress.opsThreshold must be an integer")
+      .positive(
+        "liveVoice.frontModel.progress.opsThreshold must be a positive integer",
+      )
+      .default(3)
+      .describe(
+        "Narrate after this many tool operations since the last narration",
+      ),
+    idleIntervalMs: z
+      .number({
+        error: "liveVoice.frontModel.progress.idleIntervalMs must be a number",
+      })
+      .int("liveVoice.frontModel.progress.idleIntervalMs must be an integer")
+      .positive(
+        "liveVoice.frontModel.progress.idleIntervalMs must be a positive integer",
+      )
+      .default(5_000)
+      .describe(
+        "Narrate after this much silence (ms) with the turn still running",
+      ),
+    minGapMs: z
+      .number({
+        error: "liveVoice.frontModel.progress.minGapMs must be a number",
+      })
+      .int("liveVoice.frontModel.progress.minGapMs must be an integer")
+      .positive(
+        "liveVoice.frontModel.progress.minGapMs must be a positive integer",
+      )
+      .default(6_000)
+      .describe(
+        "Minimum spacing (ms) from any spoken floor-holder — ack or narration",
+      ),
+    generationTimeoutMs: z
+      .number({
+        error:
+          "liveVoice.frontModel.progress.generationTimeoutMs must be a number",
+      })
+      .int(
+        "liveVoice.frontModel.progress.generationTimeoutMs must be an integer",
+      )
+      .positive(
+        "liveVoice.frontModel.progress.generationTimeoutMs must be a positive integer",
+      )
+      .default(1_500)
+      .describe(
+        "Budget (ms) for LLM-generated progress text — not latency-critical: it speaks into dead air",
+      ),
+  })
+  .describe(
+    "Progress-narration tuning for live voice sessions (spoken updates during long-running turns)",
+  );
+
 export const LiveVoiceFrontModelConfigSchema = z
   .object({
     endpointDecisionTimeoutMs: z
@@ -112,9 +178,12 @@ export const LiveVoiceFrontModelConfigSchema = z
       .describe(
         "Use the front model to phrase spoken acks; static phrases otherwise",
       ),
+    progress: LiveVoiceProgressConfigSchema.default(
+      LiveVoiceProgressConfigSchema.parse({}),
+    ),
   })
   .describe(
-    "Front-model presence layer tuning for live voice sessions (semantic endpointing + spoken acks)",
+    "Front-model presence layer tuning for live voice sessions (semantic endpointing + spoken acks + progress narration)",
   );
 
 export const LiveVoiceConfigSchema = z
@@ -156,4 +225,7 @@ export type LiveVoiceConfig = z.infer<typeof LiveVoiceConfigSchema>;
 export type LiveVoiceVadConfig = z.infer<typeof LiveVoiceVadConfigSchema>;
 export type LiveVoiceFrontModelConfig = z.infer<
   typeof LiveVoiceFrontModelConfigSchema
+>;
+export type LiveVoiceProgressConfig = z.infer<
+  typeof LiveVoiceProgressConfigSchema
 >;

@@ -300,6 +300,14 @@ describe("TextToSpeechCard — Vellum provider", () => {
     managedVoicesData = {
       voices: [
         {
+          model: "EXAVITQu4vr4xnSDxMaL",
+          label: "Sarah",
+          description: "American · professional, reassuring, confident",
+          sampleUrl:
+            "https://storage.googleapis.com/eleven-public-prod/premade/voices/EXAVITQu4vr4xnSDxMaL/sample.mp3",
+          source: "elevenlabs",
+        },
+        {
           model: "aura-2-zeus-en",
           label: "Zeus",
           description: "American · deep, trustworthy, smooth",
@@ -307,7 +315,7 @@ describe("TextToSpeechCard — Vellum provider", () => {
           source: "deepgram",
         },
       ],
-      defaultModel: "aura-2-zeus-en",
+      defaultModel: "EXAVITQu4vr4xnSDxMaL",
     };
     renderCard();
 
@@ -321,11 +329,63 @@ describe("TextToSpeechCard — Vellum provider", () => {
         '[role="option"]:not([aria-label])',
       ),
     ).map((o) => o.textContent?.trim());
+    // A voice reads as its character traits in sentence case, with its
+    // upstream source as a suffix badge so users can tell providers apart
+    // while browsing, not only after selecting. The proper name is dropped
+    // (the assistant has its own) and the accent heads the group instead of
+    // repeating on every row.
     expect(options).toContain(
-      "Zeus (default) — American · deep, trustworthy, smooth",
+      "Professional, reassuring, confident (default)ElevenLabs",
     );
+    expect(options).toContain("Deep, trustworthy, smoothDeepgram");
+    expect(options?.join(" ")).not.toContain("Sarah");
+    expect(options?.join(" ")).not.toContain("Zeus");
+    // Accents head their group rather than labelling each row.
+    expect(options).toContain("American");
+    // Voices sort by traits within a group: "deep…" before "professional…".
+    expect(options).toEqual([
+      "American",
+      "Deep, trustworthy, smoothDeepgram",
+      "Professional, reassuring, confident (default)ElevenLabs",
+    ]);
     // Static-catalog-only voices must not appear once the fetch supplies data.
     expect(options?.join(" ")).not.toContain("Thalia");
+    // The selected default has a hosted preview, so the button renders.
+    expect(
+      screen.queryByRole("button", { name: "Preview voice" }),
+    ).not.toBeNull();
+  });
+
+  test("the preview button is hidden for voices without a hosted sample", () => {
+    orgReady = true;
+    daemonConfigData = { services: { tts: { provider: "vellum" } } };
+    ttsCatalogData = {
+      providers: [
+        {
+          id: "vellum",
+          displayName: "Vellum",
+          subtitle: "Managed TTS.",
+          supportsVoiceSelection: true,
+          apiKeyPlaceholder: "",
+          credentialsGuide: { description: "", url: "", linkLabel: "" },
+        },
+      ],
+    };
+    managedVoicesData = {
+      voices: [
+        {
+          model: "voice-without-preview",
+          label: "Nova",
+          description: "A voice the platform serves without a hosted sample",
+          sampleUrl: "",
+          source: "elevenlabs",
+        },
+      ],
+      defaultModel: "voice-without-preview",
+    };
+    renderCard();
+
+    expect(screen.queryByRole("button", { name: "Preview voice" })).toBeNull();
   });
 
   test("a successful empty catalog hides the voice picker instead of falling back", () => {

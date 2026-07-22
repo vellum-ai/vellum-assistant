@@ -10,6 +10,7 @@ import type {
 import { APP_VERSION } from "../version.js";
 import { getDb } from "./db-connection.js";
 import { rawAll } from "./raw-query.js";
+import { realUserTurnContentFilter } from "./real-user-turn-filter.js";
 import {
   buildScheduleAttributionSubquery,
   buildScheduleRunWindowExists,
@@ -207,6 +208,23 @@ export interface UnreportedUsageEvent extends UsageEvent {
    * agent starts).
    */
   turnIndex: number | null;
+  /**
+   * Id of the conversation that spawned this LLM call's conversation:
+   * `parent_conversation_id` (subagent spawns), falling back to
+   * `fork_parent_conversation_id` (retrospective forks). Null when the
+   * conversation was not spawned by another conversation, or when the
+   * LLM call has no `conversationId` at all.
+   */
+  parentConversationId: string | null;
+  /**
+   * 1-indexed position of the user turn that was in flight in the parent
+   * conversation when this LLM call's conversation was created — i.e. the
+   * parent turn that spawned it. Computed as the count of real user turns
+   * in the parent conversation with `created_at <=` the child
+   * conversation's `created_at` (same eligibility filter as `turnIndex`).
+   * Null when there's no parent conversation.
+   */
+  parentTurnIndex: number | null;
 }
 
 export function queryUnreportedUsageEvents(
@@ -215,6 +233,14 @@ export function queryUnreportedUsageEvents(
   limit: number,
 ): UnreportedUsageEvent[] {
   const db = getTelemetryMainDb();
+  // Spawn linkage: `parent_conversation_id` (subagent spawns) with a
+  // fallback to `fork_parent_conversation_id` (retrospective forks — one
+  // hop up the fork chain is the intended attribution). Null when the
+  // LEFT JOIN below misses or the conversation has no parent.
+  const parentIdSql = sql<string | null>`COALESCE(
+    ${conversations.parentConversationId},
+    ${conversations.forkParentConversationId}
+  )`;
   // JOIN to `conversations` to attach `conversationType`. LEFT JOIN
   // because `llm_usage_events.conversationId` is nullable — calls that
   // aren't tied to a conversation (memory consolidation, etc.) still
@@ -261,12 +287,27 @@ export function queryUnreportedUsageEvents(
           SELECT COUNT(*) FROM messages AS m2
           WHERE m2.conversation_id = ${llmUsageEvents.conversationId}
             AND m2.role = 'user'
-            AND m2.content NOT LIKE '%"type":"tool\\_result"%' ESCAPE '\\'
-            AND m2.content NOT LIKE '%"type":"web\\_search\\_tool\\_result"%' ESCAPE '\\'
+            AND ${realUserTurnContentFilter("m2")}
             AND m2.created_at <= ${llmUsageEvents.createdAt}
         )
         END
       )`.as("turn_index"),
+      parentConversationId: parentIdSql.as("parent_conversation_id"),
+      // The parent turn in flight when the child conversation was created:
+      // count of the PARENT conversation's real user turns with
+      // `created_at <=` the CHILD conversation's `created_at`. Same
+      // eligibility filter as `turnIndex` above.
+      parentTurnIndex: sql<number | null>`(
+        CASE WHEN ${parentIdSql} IS NULL THEN NULL
+        ELSE (
+          SELECT COUNT(*) FROM messages AS m3
+          WHERE m3.conversation_id = ${parentIdSql}
+            AND m3.role = 'user'
+            AND ${realUserTurnContentFilter("m3")}
+            AND m3.created_at <= ${conversations.createdAt}
+        )
+        END
+      )`.as("parent_turn_index"),
     })
     .from(llmUsageEvents)
     .leftJoin(
@@ -295,6 +336,9 @@ export function queryUnreportedUsageEvents(
     // Convert the integer column to `number | null` for the typed
     // return value.
     turnIndex: row.turnIndex === null ? null : Number(row.turnIndex),
+    parentConversationId: row.parentConversationId,
+    parentTurnIndex:
+      row.parentTurnIndex === null ? null : Number(row.parentTurnIndex),
   }));
 }
 

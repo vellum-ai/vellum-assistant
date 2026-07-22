@@ -54,6 +54,8 @@ let runLoopInvoked = false;
 let lastPersistedUserMessage: string | undefined;
 /** Records `setSubagentDenySideEffects` on the most recent FakeConversation. */
 let lastDenySideEffects: boolean | undefined;
+/** Options the most recent `bootstrapConversation` call received. */
+let lastBootstrapOptions: Record<string, unknown> | undefined;
 
 class FakeConversation {
   messages: Message[];
@@ -143,7 +145,10 @@ mock.module("../daemon/conversation.js", () => ({
 }));
 
 mock.module("../persistence/conversation-bootstrap.js", () => ({
-  bootstrapConversation: () => ({ id: `conv-${Math.random()}` }),
+  bootstrapConversation: (opts: Record<string, unknown>) => {
+    lastBootstrapOptions = opts;
+    return { id: `conv-${Math.random()}` };
+  },
 }));
 
 mock.module("../prompts/system-prompt.js", () => ({
@@ -244,6 +249,18 @@ describe("SubagentManager.spawnAndAwait", () => {
     await manager.spawnAndAwait(makeConfig(), () => {});
 
     expect(lastDenySideEffects).toBeUndefined();
+  });
+
+  test("stamps the parent conversation id on the subagent's conversation", async () => {
+    nextConversationConfig = {};
+
+    const manager = new SubagentManager();
+    const config = makeConfig();
+    await manager.spawnAndAwait(config, () => {});
+
+    expect(lastBootstrapOptions?.parentConversationId).toBe(
+      config.parentConversationId,
+    );
   });
 
   test("resolves to the child's final assistant text", async () => {

@@ -69,7 +69,7 @@ preloadBundledAvatarComponents();
 
 const FREE_FEATURES: readonly string[] = [
   "Small Computer",
-  `${FREE_STORAGE_GIB} GiB Storage`,
+  `${FREE_STORAGE_GIB} GB Storage`,
   "Pay-as-you-go credits",
 ];
 
@@ -90,7 +90,7 @@ function packageFeatures(pkg: ProPackage, extra: readonly string[]): string[] {
   const credits = pkg.credits_usd ?? 0;
   return [
     machineComputerLabel(pkg),
-    `${pkg.storage_gib} GiB Storage`,
+    `${pkg.storage_gib} GB Storage`,
     `${formatDollars(credits * 100)} in credits per month`,
     ...extra,
   ];

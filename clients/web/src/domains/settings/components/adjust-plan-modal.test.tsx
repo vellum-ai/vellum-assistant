@@ -797,7 +797,7 @@ describe("AdjustPlanModal — multi-dimension tier coordination", () => {
 
     // Upgrade storage: 10 GiB → 20 GiB
     openStorageDropdown();
-    clickOptionStartingWith("20 GiB");
+    clickOptionStartingWith("20 GB");
 
     // Machine downgrade opens the reconfirm modal first.
     fireEvent.click(getByTestId("modal-change-tier-button"));

@@ -124,14 +124,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "voice-front-model",
-      "scope": "assistant",
-      "key": "voice-front-model",
-      "label": "Voice Front Model",
-      "description": "Front-model presence layer for live voice (semantic endpointing + spoken acks). Temporary rollout flag: delete once default-on; permanent tunables live in liveVoice.frontModel config.",
-      "defaultEnabled": false
-    },
-    {
       "id": "fast-mode",
       "scope": "assistant",
       "key": "fast-mode",

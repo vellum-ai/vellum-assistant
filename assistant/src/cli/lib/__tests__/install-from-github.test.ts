@@ -33,6 +33,7 @@ import {
   PluginSourceUnavailableError,
   type PostinstallRunner,
   readInstallMeta,
+  resolveTreeRefPath,
   sanitizePluginName,
 } from "../install-from-github.js";
 
@@ -1402,4 +1403,97 @@ describe("sanitizePluginName", () => {
       );
     },
   );
+});
+
+describe("resolveTreeRefPath", () => {
+  /**
+   * Fake runner that answers `git ls-remote --heads --tags` with the given
+   * branch/tag short-names in GitHub's `<sha>\t<refname>` wire format, and
+   * throws for any other git invocation (these tests only exercise ls-remote).
+   */
+  function lsRemoteRunner(refNames: string[]): GitRunner {
+    return async (args) => {
+      if (args[0] !== "ls-remote") {
+        throw new Error(`unexpected git call: ${args.join(" ")}`);
+      }
+      const stdout = refNames
+        .map(
+          (name, i) =>
+            `${String(i + 1).padStart(40, "0")}\trefs/${
+              name.startsWith("v") ? "tags" : "heads"
+            }/${name}`,
+        )
+        .join("\n");
+      return { stdout };
+    };
+  }
+
+  test("picks the longest leading prefix that names a real branch", async () => {
+    const result = await resolveTreeRefPath(
+      "ZeebBoyBlue",
+      "virlo-integrations",
+      ["feat", "results-viewer", "integrations", "vellum"],
+      lsRemoteRunner(["main", "feat/results-viewer"]),
+    );
+    expect(result).toEqual({
+      ref: "feat/results-viewer",
+      path: "integrations/vellum",
+    });
+  });
+
+  test("prefers the longer of two matching branch prefixes", async () => {
+    const result = await resolveTreeRefPath(
+      "owner",
+      "repo",
+      ["feat", "x", "pkg"],
+      // Both `feat` and `feat/x` exist; the longer wins, mirroring github.com.
+      lsRemoteRunner(["feat", "feat/x"]),
+    );
+    expect(result).toEqual({ ref: "feat/x", path: "pkg" });
+  });
+
+  test("resolves a single-segment ref with the rest as the sub-path", async () => {
+    const result = await resolveTreeRefPath(
+      "owner",
+      "repo",
+      ["main", "packages", "cool"],
+      lsRemoteRunner(["main"]),
+    );
+    expect(result).toEqual({ ref: "main", path: "packages/cool" });
+  });
+
+  test("treats a full commit SHA as the ref without listing refs", async () => {
+    const sha = "d0403988fdf1d3c220c25f7aaf7632359eec4d91";
+    const result = await resolveTreeRefPath(
+      "owner",
+      "repo",
+      [sha, "sub", "dir"],
+      async () => {
+        throw new Error("ls-remote must not run for a full SHA");
+      },
+    );
+    expect(result).toEqual({ ref: sha, path: "sub/dir" });
+  });
+
+  test("falls back to the first-segment guess when no prefix matches a ref", async () => {
+    const result = await resolveTreeRefPath(
+      "owner",
+      "repo",
+      ["mystery", "sub"],
+      lsRemoteRunner(["main", "develop"]),
+    );
+    expect(result).toEqual({ ref: "mystery", path: "sub" });
+  });
+
+  test("falls back to the guess when the remote can't be listed", async () => {
+    const result = await resolveTreeRefPath(
+      "owner",
+      "repo",
+      ["feat", "x", "sub"],
+      async () => {
+        throw new Error("network down");
+      },
+    );
+    expect(result).toEqual({ ref: "feat", path: "x/sub" });
+  });
 });

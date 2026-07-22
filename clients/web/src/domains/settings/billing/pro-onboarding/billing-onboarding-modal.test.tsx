@@ -278,7 +278,7 @@ describe("BillingOnboardingModal", () => {
     // Wait for the pre-resize actuals to land (the "from" card) before
     // mutating: an invalidate that races the initial actuals fetch is
     // swallowed, leaving the update to the next 2s poll.
-    await waitFor(() => expect(getByText("10 GiB")).toBeTruthy(), {
+    await waitFor(() => expect(getByText("10 GB")).toBeTruthy(), {
       timeout: 5000,
     });
 
@@ -309,7 +309,7 @@ describe("BillingOnboardingModal", () => {
     // Wait for the pre-resize actuals to land (the "from" card) before
     // mutating: an invalidate that races the initial actuals fetch is
     // swallowed, leaving the update to the next 2s poll.
-    await waitFor(() => expect(getByText("10 GiB")).toBeTruthy(), {
+    await waitFor(() => expect(getByText("10 GB")).toBeTruthy(), {
       timeout: 5000,
     });
 
