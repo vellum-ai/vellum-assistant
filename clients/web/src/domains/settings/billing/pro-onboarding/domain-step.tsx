@@ -17,8 +17,8 @@ import type { StalledApplyAction } from "./primitives";
 import {
     CreatureCorners,
     StalledApplyControls,
+    SUBTLE_NOTICE_CLASS,
     WizardCardHeading,
-    WizardNotice,
 } from "./primitives";
 import { useAssistantDomains } from "./use-assistant-domains";
 import { DOMAIN_EXIT_DELAY_MS, extractOnboardingErrorMessage } from "./utils";
@@ -129,7 +129,11 @@ export function DomainStep({
 
   return (
     <>
-      <Modal.Body className="min-h-[260px] animate-[onboarding-step-in_350ms_ease-out] space-y-6 pb-4 motion-reduce:animate-none">
+      {/* `pb-0` + the footer's `pt-6` give the mock's 24px gap to the actions.
+          The creature layer leads so `space-y-6` can't hang a trailing margin
+          off the last flowing child. */}
+      <Modal.Body className="animate-[onboarding-step-in_350ms_ease-out] space-y-6 pb-0 motion-reduce:animate-none">
+        <CreatureCorners variant="top" />
         <WizardCardHeading
           title="Assistant Email"
           subtitle="Set up an email for your assistant."
@@ -206,16 +210,17 @@ export function DomainStep({
           )
         )}
         {!isLocked && (
-          <WizardNotice>
-            You won&apos;t be able to change the handle once set.
-          </WizardNotice>
+          <Notice tone="info" className={SUBTLE_NOTICE_CLASS}>
+            <span className="font-medium">
+              You won&apos;t be able to change the handle once set.
+            </span>
+          </Notice>
         )}
         {confirmed ? (
           <Notice tone="success">Domain set — redirecting…</Notice>
         ) : null}
-        <CreatureCorners variant="top" />
       </Modal.Body>
-      <Modal.Footer className="items-center">
+      <Modal.Footer className="items-center pt-6">
         {isLocked ? (
           <Button
             variant="primary"
