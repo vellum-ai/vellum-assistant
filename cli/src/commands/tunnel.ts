@@ -8,6 +8,7 @@ import {
   WEB_REMOTE_INGRESS_FLAG,
 } from "../lib/feature-flags.js";
 import { runNgrokTunnel } from "../lib/ngrok";
+import { runTailscaleTunnel } from "../lib/tailscale-tunnel.js";
 
 const VALID_PROVIDERS = ["vellum", "ngrok", "cloudflare", "tailscale"] as const;
 type TunnelProvider = (typeof VALID_PROVIDERS)[number];
@@ -62,12 +63,18 @@ function parseArgs(): TunnelArgs {
       console.log(
         "               No Cloudflare account required for quick tunnels.",
       );
+      console.log(
+        "  tailscale    Tailscale serve — install: brew install tailscale, then `tailscale up`",
+      );
+      console.log(
+        "               Reachable only from your own tailnet (private; LetsEncrypt cert).",
+      );
       console.log("");
       console.log("Examples:");
       console.log("  $ vellum tunnel");
       console.log("  $ vellum tunnel --provider ngrok");
       console.log("  $ vellum tunnel --provider cloudflare");
-      console.log("  $ vellum tunnel my-assistant --provider cloudflare");
+      console.log("  $ vellum tunnel my-assistant --provider tailscale");
       process.exit(0);
     } else if (arg === "--provider") {
       const next = args[i + 1];
@@ -171,6 +178,17 @@ export async function tunnel(): Promise<void> {
 
   if (provider === "cloudflare") {
     await runCloudflareTunnel({
+      ...baseTunnelOpts,
+      preferNginxIngress: await shouldPreferNginxIngress(
+        entry.assistantId,
+        gatewayPort,
+      ),
+    });
+    return;
+  }
+
+  if (provider === "tailscale") {
+    await runTailscaleTunnel({
       ...baseTunnelOpts,
       preferNginxIngress: await shouldPreferNginxIngress(
         entry.assistantId,
