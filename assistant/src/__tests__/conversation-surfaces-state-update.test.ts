@@ -6,11 +6,7 @@ import {
   type SurfaceConversationContext,
   surfaceProxyResolver,
 } from "../daemon/conversation-surfaces.js";
-import type {
-  ServerMessage,
-  SurfaceData,
-  SurfaceType,
-} from "../daemon/message-protocol.js";
+import type { ServerMessage, SurfaceType } from "../daemon/message-protocol.js";
 
 /**
  * Build a minimal SurfaceConversationContext for testing.
@@ -35,10 +31,7 @@ function makeContext(opts?: {
       string,
       { actionId: string; data?: Record<string, unknown> }
     >(),
-    surfaceState: new Map<
-      string,
-      { surfaceType: SurfaceType; data: SurfaceData; title?: string }
-    >(),
+    surfaceState: new Map(),
     surfaceUndoStacks: new Map<string, string[]>(),
     accumulatedSurfaceState: new Map<string, Record<string, unknown>>(),
     surfaceActionRequestIds: new Set<string>(),
@@ -71,7 +64,7 @@ function registerDynamicPage(
   ctx.pendingSurfaceActions.set(surfaceId, { surfaceType: "dynamic_page" });
   ctx.surfaceState.set(surfaceId, {
     surfaceType: "dynamic_page",
-    data: { html: "<div>test</div>" } as SurfaceData,
+    data: { html: "<div>test</div>" },
   });
 }
 
@@ -110,7 +103,7 @@ describe("state_update silent accumulation", () => {
       data: {
         columns: [],
         rows: [],
-      } as unknown as SurfaceData,
+      },
     });
 
     handleSurfaceAction(ctx, "surface-table", "state_update", { page: 1 });

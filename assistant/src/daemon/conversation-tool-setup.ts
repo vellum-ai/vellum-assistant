@@ -64,12 +64,15 @@ import {
 import { getLogger } from "../util/logger.js";
 import type { Conversation } from "./conversation.js";
 import { projectSkillTools } from "./conversation-skill-tools.js";
-import { surfaceProxyResolver } from "./conversation-surfaces.js";
+import {
+  restoreSurfaceStateEntry,
+  surfaceProxyResolver,
+} from "./conversation-surfaces.js";
 import {
   isDoordashCommand,
   markDoordashStepInProgress,
 } from "./doordash-steps.js";
-import type { ServerMessage, UiSurfaceShow } from "./message-protocol.js";
+import type { ServerMessage } from "./message-protocol.js";
 import { runPostExecutionSideEffects } from "./tool-side-effects.js";
 import { FALLBACK_TURN_TRUST, resolveTrustClass } from "./trust-context.js";
 
@@ -388,16 +391,23 @@ export function createToolExecutor(
         // signature, but at runtime these are always ServerMessage instances.
         ctx.sendToClient(msg as ServerMessage);
         if (msg.type === "ui_surface_show") {
-          const s = msg as unknown as UiSurfaceShow;
-          const surfaceToolCallId = s.toolCallId ?? toolUseId;
+          // The tool-context sendToClient signature is loose, so the show
+          // message's fields are untyped here; map them through the same
+          // schema-validating helper history restore uses so the tracked
+          // surface carries a correlated surfaceType/data pair.
+          const s = msg as Record<string, unknown>;
+          if (typeof s.surfaceId !== "string") {
+            return;
+          }
+          const entry = restoreSurfaceStateEntry(s);
+          const surfaceToolCallId =
+            (typeof s.toolCallId === "string" ? s.toolCallId : undefined) ??
+            toolUseId;
           ctx.currentTurnSurfaces.push({
             surfaceId: s.surfaceId,
-            surfaceType: s.surfaceType,
-            title: s.title,
-            data: s.data,
-            actions: s.actions,
-            display: s.display,
-            ...(s.persistent ? { persistent: true } : {}),
+            ...entry,
+            display: typeof s.display === "string" ? s.display : undefined,
+            ...(s.persistent === true ? { persistent: true } : {}),
             ...(surfaceToolCallId ? { toolCallId: surfaceToolCallId } : {}),
           });
         }

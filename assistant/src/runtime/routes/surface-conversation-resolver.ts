@@ -20,16 +20,14 @@ import {
   findConversationBySurfaceId,
 } from "../../daemon/conversation-registry.js";
 import { getOrCreateConversation } from "../../daemon/conversation-store.js";
-import { isRowVisibleToUntrustedActor } from "../../daemon/message-provenance.js";
-import type {
-  SurfaceData,
-  SurfaceType,
-} from "../../daemon/message-types/surfaces.js";
-import { rawAll, rawGet } from "../../persistence/raw-query.js";
 import {
-  type ActivationMomentParam,
-  isActivationMomentParam,
-} from "../../telemetry/activation-funnel.js";
+  restoreSurfaceStateEntry,
+  type SurfaceStateEntry,
+} from "../../daemon/conversation-surfaces.js";
+import { isRowVisibleToUntrustedActor } from "../../daemon/message-provenance.js";
+import type {} from "../../daemon/message-types/surfaces.js";
+import { rawAll, rawGet } from "../../persistence/raw-query.js";
+import {} from "../../telemetry/activation-funnel.js";
 
 /**
  * Resolve the {@link Conversation} that owns the given surface.
@@ -84,18 +82,7 @@ export async function resolveSurfaceConversation(
  * A `ui_surface` block extracted from persisted history, in the shape of a
  * `Conversation.surfaceState` entry.
  */
-export interface PersistedSurfaceState {
-  surfaceType: SurfaceType;
-  data: SurfaceData;
-  title?: string;
-  actions?: Array<{
-    id: string;
-    label: string;
-    style?: string;
-    data?: Record<string, unknown>;
-  }>;
-  activationMoment?: ActivationMomentParam;
-}
+export type PersistedSurfaceState = SurfaceStateEntry;
 
 /**
  * Find the `ui_surface` block for `surfaceId` in the conversation's
@@ -191,20 +178,7 @@ export function findPersistedSurfaceState(
       // Same field mapping and validation as
       // `restoreSurfaceStateFromHistory` — a malformed daemon-only
       // `activationMoment` is dropped, never served or memoized.
-      const activationMoment =
-        typeof b.activationMoment === "string" &&
-        isActivationMomentParam(b.activationMoment)
-          ? b.activationMoment
-          : undefined;
-      return {
-        surfaceType: (b.surfaceType ?? "dynamic_page") as SurfaceType,
-        data: (b.data ?? {}) as SurfaceData,
-        title: b.title as string | undefined,
-        actions: Array.isArray(b.actions)
-          ? (b.actions as PersistedSurfaceState["actions"])
-          : undefined,
-        ...(activationMoment ? { activationMoment } : {}),
-      };
+      return restoreSurfaceStateEntry(b);
     }
   }
   return undefined;

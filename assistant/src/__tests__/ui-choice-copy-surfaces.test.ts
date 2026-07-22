@@ -11,7 +11,6 @@ import type {
   CopyBlockSurfaceData,
   OAuthConnectSurfaceData,
   ServerMessage,
-  SurfaceData,
   SurfaceType,
   UiSurfaceShow,
 } from "../daemon/message-protocol.js";
@@ -28,20 +27,7 @@ function makeContext(sent: ServerMessage[] = []): SurfaceConversationContext {
       string,
       { actionId: string; data?: Record<string, unknown> }
     >(),
-    surfaceState: new Map<
-      string,
-      {
-        surfaceType: SurfaceType;
-        data: SurfaceData;
-        title?: string;
-        actions?: Array<{
-          id: string;
-          label: string;
-          style?: string;
-          data?: Record<string, unknown>;
-        }>;
-      }
-    >(),
+    surfaceState: new Map(),
     surfaceUndoStacks: new Map<string, string[]>(),
     accumulatedSurfaceState: new Map<string, Record<string, unknown>>(),
     surfaceActionRequestIds: new Set<string>(),

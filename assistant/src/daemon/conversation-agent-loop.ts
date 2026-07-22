@@ -62,7 +62,6 @@ import type { ContentBlock, Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
 import { resolveCapabilities } from "../runtime/capabilities.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
-import type { ActivationMomentParam } from "../telemetry/activation-funnel.js";
 import { stampTurnOutcome } from "../telemetry/turn-outcome.js";
 import {
   emitToolProfilingSummary,
@@ -106,18 +105,14 @@ import {
   resolveTurnInboundActorContext,
   type SlackChronologicalContext,
 } from "./conversation-runtime-assembly.js";
+import type { CurrentTurnSurface } from "./conversation-surfaces.js";
 import { markSurfaceCompleted } from "./conversation-surfaces.js";
 import { runDeferredTurnTail } from "./conversation-turn-finalize.js";
 import { recordUsage } from "./conversation-usage.js";
 import { resolveTurnTimezoneContext } from "./date-context.js";
 import { getDiskPressureStatus } from "./disk-pressure-guard.js";
 import { classifyDiskPressureTurnPolicy } from "./disk-pressure-policy.js";
-import type {
-  ServerMessage,
-  SurfaceData,
-  SurfaceType,
-  UsageStats,
-} from "./message-protocol.js";
+import type { ServerMessage, UsageStats } from "./message-protocol.js";
 import type { TrustContext } from "./trust-context-types.js";
 import { resolveTurnCallSite } from "./turn-call-site.js";
 import { runWithLatencySubSpans } from "./turn-latency-sub-spans.js";
@@ -164,34 +159,12 @@ const FALLBACK_TURN_TRUST: TrustContext = {
 };
 
 /**
- * Per-surface entry tracked on the current turn. Inline shape kept stable so
- * routes and persistence helpers can consume it via a named import instead of
- * `infer`-extracting from {@link Conversation}.
+ * Per-surface entry tracked on the current turn. Named alias over the
+ * discriminated {@link CurrentTurnSurface} so routes and persistence helpers
+ * consume it via a named import instead of `infer`-extracting from
+ * {@link Conversation}.
  */
-export interface AssistantSurface {
-  surfaceId: string;
-  surfaceType: SurfaceType;
-  title?: string;
-  data: SurfaceData;
-  actions?: Array<{
-    id: string;
-    label: string;
-    style?: string;
-    data?: Record<string, unknown>;
-  }>;
-  display?: string;
-  persistent?: boolean;
-  /** Id of the tool call that produced this surface (the `ui_show` proxy tool). Persisted so app previews can gate on the tool result's arrival rather than whole-turn streaming state. */
-  toolCallId?: string;
-  /**
-   * Commit-timing activation-rail tag (daemon-only). Persisted into the
-   * server-side `ui_surface` history block — NOT the client `ui_surface_show`
-   * message — so `restoreSurfaceStateFromHistory` can rehydrate the tag and a
-   * post-reload commit still records its funnel milestone. Show-timing moments
-   * record at render and are never stored here.
-   */
-  activationMoment?: ActivationMomentParam;
-}
+export type AssistantSurface = CurrentTurnSurface;
 
 // ── abort watchdog ───────────────────────────────────────────────────
 

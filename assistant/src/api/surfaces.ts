@@ -491,60 +491,77 @@ export type SurfaceData =
   | WorkResultSurfaceData;
 
 /**
+ * Per-type `data` payload shapes, keyed by surface type. This is the
+ * correlation source for everything that pairs a `surfaceType` with its
+ * `data`: generic code indexes it (`SurfaceDataByType[K]`) so the compiler
+ * tracks which data shape belongs to which type instead of collapsing to
+ * the undiscriminated `SurfaceData` union.
+ *
+ * `channel_setup` (a side-effect command whose payload is forwarded
+ * verbatim to the setup panel) and `task_preferences` (a fixed grid that
+ * reads no data) are opaque records — they carry data but have no
+ * renderable canonical shape, which is why they are absent from
+ * `SurfaceData`.
+ */
+export interface SurfaceDataByType {
+  card: CardSurfaceData;
+  channel_setup: Record<string, unknown>;
+  choice: ChoiceSurfaceData;
+  copy_block: CopyBlockSurfaceData;
+  oauth_connect: OAuthConnectSurfaceData;
+  form: FormSurfaceData;
+  list: ListSurfaceData;
+  table: TableSurfaceData;
+  confirmation: ConfirmationSurfaceData;
+  dynamic_page: DynamicPageSurfaceData;
+  file_upload: FileUploadSurfaceData;
+  document_preview: DocumentPreviewSurfaceData;
+  task_preferences: Record<string, unknown>;
+  work_result: WorkResultSurfaceData;
+}
+
+/** Any surface `data` payload, including the opaque (non-renderable) types. */
+export type AnySurfaceData = SurfaceDataByType[SurfaceType];
+
+/**
+ * Canonical schema per surface type. The mapped type is what makes generic
+ * indexing sound: `SURFACE_DATA_SCHEMAS[t]` for `t: K` has type
+ * `z.ZodType<SurfaceDataByType[K]>`, so parse results stay correlated with
+ * the surface type instead of widening to an untyped union — the compiler
+ * also verifies here, entry by entry, that each schema's output matches its
+ * declared payload shape.
+ */
+export const SURFACE_DATA_SCHEMAS: {
+  [K in SurfaceType]: z.ZodType<SurfaceDataByType[K]>;
+} = {
+  card: CardSurfaceDataSchema,
+  channel_setup: z.record(z.string(), z.unknown()),
+  choice: ChoiceSurfaceDataSchema,
+  copy_block: CopyBlockSurfaceDataSchema,
+  oauth_connect: OAuthConnectSurfaceDataSchema,
+  form: FormSurfaceDataSchema,
+  list: ListSurfaceDataSchema,
+  table: TableSurfaceDataSchema,
+  confirmation: ConfirmationSurfaceDataSchema,
+  dynamic_page: DynamicPageSurfaceDataSchema,
+  file_upload: FileUploadSurfaceDataSchema,
+  document_preview: DocumentPreviewSurfaceDataSchema,
+  task_preferences: z.record(z.string(), z.unknown()),
+  work_result: WorkResultSurfaceDataSchema,
+};
+
+/**
  * Parse a surface `data` payload through its type's canonical schema,
  * returning `undefined` when the payload does not parse.
- *
- * The dispatch is an exhaustive switch rather than a schema registry so the
- * compiler verifies that every surface type's schema output is a member of
- * the `SurfaceData` union — a registry keyed by `SurfaceType` erases the
- * per-type output types and forces casts at every call site.
  *
  * Only `card` can actually fail on an object input (its fields validate
  * without `catch` fallbacks); every other schema is total over plain
  * objects, and a non-object payload fails them all.
  */
-export function safeParseSurfaceData(
-  surfaceType: SurfaceType,
+export function safeParseSurfaceData<K extends SurfaceType>(
+  surfaceType: K,
   data: unknown,
-): SurfaceData | undefined {
-  const parse = <T>(schema: z.ZodType<T>): T | undefined => {
-    const result = schema.safeParse(data);
-    return result.success ? result.data : undefined;
-  };
-  switch (surfaceType) {
-    case "card":
-      return parse(CardSurfaceDataSchema);
-    case "choice":
-      return parse(ChoiceSurfaceDataSchema);
-    case "copy_block":
-      return parse(CopyBlockSurfaceDataSchema);
-    case "oauth_connect":
-      return parse(OAuthConnectSurfaceDataSchema);
-    case "form":
-      return parse(FormSurfaceDataSchema);
-    case "list":
-      return parse(ListSurfaceDataSchema);
-    case "table":
-      return parse(TableSurfaceDataSchema);
-    case "confirmation":
-      return parse(ConfirmationSurfaceDataSchema);
-    case "dynamic_page":
-      return parse(DynamicPageSurfaceDataSchema);
-    case "file_upload":
-      return parse(FileUploadSurfaceDataSchema);
-    case "document_preview":
-      return parse(DocumentPreviewSurfaceDataSchema);
-    case "work_result":
-      return parse(WorkResultSurfaceDataSchema);
-    case "channel_setup":
-    case "task_preferences":
-      // Opaque payloads: channel_setup is a side-effect command whose data
-      // is forwarded verbatim to the setup panel, and task_preferences
-      // renders a fixed grid that reads no data. There is no canonical
-      // shape to parse into, so this is the one deliberate cast in the
-      // surface-data parse path.
-      return coerceSurfaceDataRecord(data) as SurfaceData;
-    default:
-      return surfaceType satisfies never;
-  }
+): SurfaceDataByType[K] | undefined {
+  const result = SURFACE_DATA_SCHEMAS[surfaceType].safeParse(data);
+  return result.success ? result.data : undefined;
 }
