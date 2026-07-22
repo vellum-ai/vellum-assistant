@@ -51,7 +51,13 @@ export async function createGuardianRequestForConfirmation(
     ]);
 
     const conversation = findConversation(conversationId);
-    const trustContext = conversation?.trustContext;
+    // Prefer the per-turn trust snapshot over the live context: this promotion
+    // runs fire-and-forget, and a message arriving mid-promotion mutates the
+    // live trustContext — the snapshot pins the actor and source-message
+    // provenance to the turn that actually emitted the confirmation, matching
+    // the executor's own snapshot semantics.
+    const trustContext =
+      conversation?.currentTurnTrustContext ?? conversation?.trustContext;
     const sourceChannel = trustContext?.sourceChannel ?? "vellum";
     const inputRecord = msg.input as Record<string, unknown>;
     const activityRaw =
