@@ -672,6 +672,8 @@ export class ToolApprovalHandler {
           conversationId: context.conversationId,
           requesterExternalUserId: context.requesterExternalUserId,
           requesterChatId: context.requesterChatId,
+          sourceMessageId: context.sourceMessageId,
+          sourceThreadId: context.sourceThreadId,
           toolName: name,
           inputDigest,
           questionText: buildToolGrantQuestionText(name, input, context),

@@ -751,6 +751,10 @@ export async function handleChannelInbound({
         },
     slackActorTimezone,
   );
+  // Exact provenance for this turn's triggering message, read back by
+  // guardian-approval producers to link approval cards to their source.
+  trustCtx.sourceMessageId = sourceMessageId;
+  trustCtx.sourceThreadId = slackThreadTs;
 
   // ── Admission policy floor ──
   // Sits between trust resolution and the agent loop. The gateway attaches

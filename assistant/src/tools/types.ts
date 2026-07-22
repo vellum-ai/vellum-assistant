@@ -328,6 +328,14 @@ export interface ToolContext {
    */
   requesterChatId?: string;
   /**
+   * Channel-native id (`ts` for Slack) of the inbound message that started
+   * the current turn. Lets tool-grant escalations link approval cards to
+   * the exact triggering message.
+   */
+  sourceMessageId?: string;
+  /** Channel-native thread id of that message, when it arrived in a thread. */
+  sourceThreadId?: string;
+  /**
    * Human-readable identifier for the requester (e.g., @username).
    * @legacy
    */

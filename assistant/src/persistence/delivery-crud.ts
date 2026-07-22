@@ -5,7 +5,7 @@
  * finding messages by source identifiers, and managing raw payload storage.
  */
 
-import { and, eq, isNotNull, ne, or } from "drizzle-orm";
+import { and, desc, eq, isNotNull, ne, or, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { readSlackMetadataFromMessageMetadata } from "../messaging/providers/slack/message-metadata.js";
@@ -298,6 +298,53 @@ export function findMessageBySourceId(
 
   if (!row || !row.messageId) return null;
   return { messageId: row.messageId, conversationId: row.conversationId };
+}
+
+/**
+ * Reference to the most recent inbound channel event for a conversation:
+ * the external chat plus the channel-native message identifiers needed to
+ * point back at the triggering message (for Slack, `sourceMessageId` is the
+ * message `ts` and `externalMessageId` is the dedupe id, which may also be
+ * a `ts`).
+ */
+export interface LatestInboundEventReference {
+  externalChatId: string;
+  externalMessageId: string;
+  sourceMessageId: string | null;
+}
+
+/**
+ * Find the most recent inbound event for a conversation on a channel.
+ * Used to anchor guardian-facing approval cards to the channel message
+ * that triggered the request.
+ *
+ * Orders by `rowid` rather than `created_at`: rows are insert-only so the
+ * two orderings agree, and the conversation-id index stores equal keys in
+ * rowid order — a backward index scan finds the newest row without sorting
+ * the conversation's full event history.
+ */
+export function getLatestInboundEventReference(
+  conversationId: string,
+  sourceChannel: string,
+): LatestInboundEventReference | null {
+  const db = getDb();
+  const row = db
+    .select({
+      externalChatId: channelInboundEvents.externalChatId,
+      externalMessageId: channelInboundEvents.externalMessageId,
+      sourceMessageId: channelInboundEvents.sourceMessageId,
+    })
+    .from(channelInboundEvents)
+    .where(
+      and(
+        eq(channelInboundEvents.conversationId, conversationId),
+        eq(channelInboundEvents.sourceChannel, sourceChannel),
+      ),
+    )
+    .orderBy(desc(sql`rowid`))
+    .limit(1)
+    .get();
+  return row ?? null;
 }
 
 /**

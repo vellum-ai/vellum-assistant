@@ -39,6 +39,14 @@ export interface TrustContext {
   /** Chat/conversation ID the requester is interacting through. */
   requesterChatId?: string;
   /**
+   * Channel-native id (`ts` for Slack) of the inbound message that started
+   * the current turn. Stamped at ingress so guardian-approval producers can
+   * link approval cards to the exact triggering message.
+   */
+  sourceMessageId?: string;
+  /** Channel-native thread id of that message, when it arrived in a thread. */
+  sourceThreadId?: string;
+  /**
    * Conversation type of the inbound chat mapped onto the permission-matrix
    * axis (`dm | private | public`). Undefined when the channel's chat type is
    * unknown or ambiguous — the matrix's channel-type tier then cannot match
