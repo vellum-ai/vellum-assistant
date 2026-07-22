@@ -122,7 +122,9 @@ function parseCredentialKeyPatterns(
   raw: unknown,
   pluginDir: string,
 ): PluginCredentialKeyPattern[] | undefined {
-  if (raw === undefined) return undefined;
+  if (raw === undefined) {
+    return undefined;
+  }
   const parsed = CredentialKeyPatternsSchema.safeParse(raw);
   if (!parsed.success) {
     log.warn(
