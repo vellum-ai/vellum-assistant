@@ -21,6 +21,9 @@ const log = getLogger("migrations/133-collapse-provider-connections");
 //   replacement and stays.
 // - `llm.defaultProvider.connectionName` is dropped when conventional —
 //   convention resolution recovers exactly it from the provider value.
+// - Call-site fragments drop any `provider_connection` verbatim: the parsed
+//   call-site schema has no such field, so raw values are dead weight the
+//   resolver has never honored — and never a rewrite signal.
 // - The legacy raw `llm.default` blob is deleted.
 //
 // A rewritten identity entry must hold a model the identity can route (the
@@ -152,13 +155,31 @@ export const collapseProviderConnectionsMigration: WorkspaceMigration = {
       }
     }
 
-    for (const section of ["profiles", "callSites"] as const) {
-      const entries = readObject(llm[section]);
-      if (entries === null) continue;
-      for (const key of Object.keys(entries)) {
-        const entry = readObject(entries[key]);
+    const profiles = readObject(llm.profiles);
+    if (profiles !== null) {
+      for (const key of Object.keys(profiles)) {
+        const entry = readObject(profiles[key]);
         if (entry === null) continue;
-        if (rewriteEntry(entry, `llm.${section}.${key}`)) changed = true;
+        if (rewriteEntry(entry, `llm.profiles.${key}`)) changed = true;
+      }
+    }
+
+    // Call-site fragments never carry a connection on the parsed schema —
+    // the field is stripped on read, so any raw value is dead weight the
+    // resolver has never honored. It is deleted verbatim, never used as a
+    // rewrite signal: flipping a call site's provider from a schema-dead
+    // "vellum" string would move a BYOK call site onto the managed route.
+    const callSites = readObject(llm.callSites);
+    if (callSites !== null) {
+      for (const key of Object.keys(callSites)) {
+        const entry = readObject(callSites[key]);
+        if (entry === null || entry.provider_connection === undefined) continue;
+        delete entry.provider_connection;
+        changed = true;
+        log.info(
+          { label: `llm.callSites.${key}` },
+          "Dropped schema-dead call-site provider_connection",
+        );
       }
     }
 

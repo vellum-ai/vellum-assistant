@@ -353,6 +353,39 @@ describe("133-collapse-provider-connections migration", () => {
     expect(postResolved.model).toBe(preResolved.model);
   });
 
+  test("a schema-dead vellum connection on a call site is dropped, never a rewrite signal", () => {
+    // Migration 125 rewrote call-site connections to "vellum", but the
+    // parsed call-site schema has no provider_connection field — the value
+    // is invisible to the resolver. Flipping the provider from it would
+    // move a BYOK call site onto the managed route.
+    writeConfig({
+      llm: {
+        callSites: {
+          commitMessage: {
+            provider: "anthropic",
+            provider_connection: "vellum",
+            model: "claude-haiku-4-5-20251001",
+          },
+          mainAgent: {
+            provider: "openai",
+            provider_connection: "my-work-openai",
+            model: "gpt-5.4",
+          },
+        },
+      },
+    });
+    run();
+    const llm = readLlm();
+    expect(llm.callSites.commitMessage).toEqual({
+      provider: "anthropic",
+      model: "claude-haiku-4-5-20251001",
+    });
+    expect(llm.callSites.mainAgent).toEqual({
+      provider: "openai",
+      model: "gpt-5.4",
+    });
+  });
+
   test("idempotent on an already-migrated config", () => {
     const migrated = {
       llm: {
