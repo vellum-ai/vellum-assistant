@@ -55,6 +55,7 @@ import { downloadSlackFile } from "../../messaging/providers/slack/download.js";
 import {
   buildSlackTimezoneMetadata,
   formatSlackTimezoneLabel,
+  isSlackTs,
   mergeSlackMetadata,
   readSlackMetadataFromMessageMetadata,
   type SlackFileMetadata,
@@ -1458,19 +1459,6 @@ export async function handleChannelInbound({
  * message history yet.
  */
 const SLACK_DM_BACKFILL_WARM_THRESHOLD = 3;
-
-/**
- * Shape-check for a Slack `ts` value. Slack IDs messages by `<seconds>.<micros>`
- * strings (e.g. `"1700000000.000100"`). The daemon also stores an
- * `externalMessageId` derived from the gateway's dedupe key which follows a
- * different format, so any path that feeds a ts to Slack's API
- * (`conversations.history`'s `latest`, etc.) must shape-check first — Slack
- * rejects non-ts arguments with `invalid_arguments`, and passing a malformed
- * bound silently disables the intended history window.
- */
-function isSlackTs(value: string | null | undefined): value is string {
-  return typeof value === "string" && /^\d+\.\d+$/.test(value);
-}
 
 /**
  * Batch size used when pulling candidate rows from SQL. A bare

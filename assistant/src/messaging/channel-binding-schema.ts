@@ -1,11 +1,15 @@
 import { z } from "zod";
 
 /** Channel-neutral deep-link pair into an external client: a native app URL
- *  (e.g. `slack://…`) and/or a browser URL. */
-const externalSourceLinkSchema = z.object({
+ *  (e.g. `slack://…`) and/or a browser URL. Exported as the single source of
+ *  truth for this shape — consumers (binding metadata, approval source
+ *  references) reuse it rather than re-declaring the pair. */
+export const externalSourceLinkSchema = z.object({
   appUrl: z.string().optional(),
   webUrl: z.string().optional(),
 });
+
+export type ExternalSourceLink = z.infer<typeof externalSourceLinkSchema>;
 
 const slackThreadSchema = z.object({
   channelId: z.string(),
