@@ -317,19 +317,8 @@ export const routeTree = [
               ],
             },
 
-            // Logs routes — full-screen overlay panel (like SettingsLayout).
-            // LogsLayout reuses SidebarShell for visual consistency.
-            // Lazy-loaded: analytics-only.
-            {
-              path: "logs",
-              lazy: { Component: () => import("@/domains/logs/logs-layout").then((m) => m.LogsLayout) },
-              children: [
-                { index: true, lazy: { Component: () => import("@/domains/logs/pages/usage-redirect-page").then((m) => m.UsageRedirectPage) } },
-                { path: "usage", lazy: { Component: () => import("@/domains/logs/pages/usage-redirect-page").then((m) => m.UsageRedirectPage) } },
-                { path: "system-events", lazy: { Component: () => import("@/domains/logs/pages/system-events-page").then((m) => m.SystemEventsPage) } },
-                { path: "emails", lazy: { Component: () => import("@/domains/logs/pages/emails-page").then((m) => m.EmailsPage) } },
-              ],
-            },
+            // Logs routes — removed. System Events and Emails now live as
+            // in-page tabs under Settings → Debug (Advanced).
           ],
         },
 

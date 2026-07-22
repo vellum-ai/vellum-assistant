@@ -8,6 +8,8 @@ import { AssistantTerminalPanel } from "@/domains/settings/components/panels/ass
 import { DebugControlsPanel } from "@/domains/settings/components/panels/debug-controls-panel";
 import { DoctorPanel } from "@/domains/settings/components/panels/doctor-panel";
 import { resolveDebugTabParam } from "@/domains/settings/pages/debug-page.helpers";
+import { EmailsTab } from "@/components/logs/emails-tab";
+import { SystemEventsTab } from "@/components/logs/system-events-tab";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { routes } from "@/utils/routes";
 import { Tabs } from "@vellumai/design-library/components/tabs";
@@ -16,6 +18,8 @@ const ALL_TABS = [
   { id: "general", label: "General" },
   { id: "terminal", label: "Terminal" },
   { id: "doctor", label: "Doctor" },
+  { id: "system-events", label: "System Events" },
+  { id: "emails", label: "Emails" },
   { id: "conversations", label: "Conversations" },
 ] as const;
 
@@ -40,6 +44,7 @@ export function DebugPage() {
   // pointed at a self-hosted assistant, leaving the tabs visible and letting the
   // user land on a doomed terminal/doctor connection.
   const platformGate = usePlatformGate({ platformHostedOnly: true });
+  const standardPlatformGate = usePlatformGate();
 
   const tabs = useMemo(
     () =>
@@ -50,9 +55,15 @@ export function DebugPage() {
         if (tab.id === "doctor" && platformGate === "gated") {
           return false;
         }
+        if (tab.id === "system-events" && platformGate === "gated") {
+          return false;
+        }
+        if (tab.id === "emails" && standardPlatformGate === "gated") {
+          return false;
+        }
         return true;
       }),
-    [platformGate],
+    [platformGate, standardPlatformGate],
   );
 
   // A gated deep-link (e.g. ?tab=doctor on a self-hosted assistant) has no
@@ -112,6 +123,19 @@ export function DebugPage() {
             className="flex min-h-0 flex-1 flex-col pt-4"
           >
             <DoctorPanel />
+          </Tabs.Panel>
+        )}
+        {tabs.some((tab) => tab.id === "system-events") && (
+          <Tabs.Panel value="system-events" className="pt-4">
+            <SystemEventsTab assistantId={assistantId} />
+          </Tabs.Panel>
+        )}
+        {tabs.some((tab) => tab.id === "emails") && (
+          <Tabs.Panel value="emails" className="pt-4">
+            <EmailsTab
+              assistantId={assistantId}
+              platformGate={standardPlatformGate}
+            />
           </Tabs.Panel>
         )}
         <Tabs.Panel
