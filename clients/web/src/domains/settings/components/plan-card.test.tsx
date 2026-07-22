@@ -355,4 +355,23 @@ describe("PlanCard action button", () => {
     });
     expect(navigateArgs).toEqual([]);
   });
+
+  test("a Pro sub without a pinned package stays on onManage", async () => {
+    const onManage = mock(() => {});
+    // A legacy/custom Pro sub (no package) would render as free in the takeover,
+    // so it stays on the manage modal even with a live catalog.
+    const subscription = { ...proMightySubscription(), package: undefined };
+    const { findByTestId } = renderCardInteractive(
+      subscription,
+      plansWithSuper(),
+      onManage,
+    );
+
+    fireEvent.click(await findByTestId("plan-card-manage-button"));
+
+    await waitFor(() => {
+      expect(onManage).toHaveBeenCalledTimes(1);
+    });
+    expect(navigateArgs).toEqual([]);
+  });
 });

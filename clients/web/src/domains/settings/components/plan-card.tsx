@@ -372,6 +372,12 @@ export function PlanCard({ onManage }: PlanCardProps) {
     const packages = proPlan?.packages ?? [];
     const currentKey = subscription.package?.key ?? null;
     const currentTier = currentKey ?? "free";
+    // The plans takeover reads the current tier from the pinned package, so a
+    // Pro sub with no package (legacy/custom) would render there as free. Those
+    // stay on the manage modal; only base and packaged-Pro subs open the takeover.
+    const canOpenPlansTakeover =
+        packages.length > 0 &&
+        (currentPlan.id === "base" || subscription.package != null);
 
     return (
         <Card padding="md">
@@ -381,10 +387,7 @@ export function PlanCard({ onManage }: PlanCardProps) {
                     <Button
                         variant={display.actionVariant}
                         onClick={
-                            // A live catalog opens the plan-aware plans takeover
-                            // for both base and Pro users; an empty catalog (flag
-                            // off) falls back to the manage modal.
-                            packages.length > 0
+                            canOpenPlansTakeover
                                 ? () => navigate(routes.plans)
                                 : onManage
                         }
@@ -442,7 +445,9 @@ export function PlanCard({ onManage }: PlanCardProps) {
                         onUpgrade={
                             currentPlan.id === "base"
                                 ? undefined
-                                : () => navigate(routes.plans)
+                                : canOpenPlansTakeover
+                                  ? () => navigate(routes.plans)
+                                  : onManage
                         }
                     />
                 </div>
