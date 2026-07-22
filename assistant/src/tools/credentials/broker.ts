@@ -33,6 +33,22 @@ const TOKEN_TTL_MS = 5 * 60 * 1000;
 const NO_TOOLS_ALLOWED_REMEDIATION =
   "No tools are currently allowed - grant access via `assistant credentials prompt --service <service> --field <field> --label <label> --allowed-tools <tools>` (re-collects the value securely and sets allowed_tools).";
 
+/** Denial reason for a tool that is not in a credential's allowed_tools list. */
+function toolNotAllowedReason(
+  toolName: string,
+  service: string,
+  field: string,
+  allowedTools: string[] | undefined,
+): string {
+  const tools = allowedTools ?? [];
+  return (
+    `Tool "${toolName}" is not allowed to use credential ${service}/${field}. ` +
+    (tools.length === 0
+      ? NO_TOOLS_ALLOWED_REMEDIATION
+      : `Allowed tools: ${tools.join(", ")}.`)
+  );
+}
+
 /**
  * Credential broker that issues single-use tokens for policy-checked credential access.
  *
@@ -78,14 +94,14 @@ export class CredentialBroker {
 
     // Tool policy enforcement - deny if tool is not in the credential's allowed list
     if (!isToolAllowed(request.toolName, metadata.allowedTools)) {
-      const tools = metadata.allowedTools ?? [];
       return {
         authorized: false,
-        reason:
-          `Tool "${request.toolName}" is not allowed to use credential ${request.service}/${request.field}. ` +
-          (tools.length === 0
-            ? NO_TOOLS_ALLOWED_REMEDIATION
-            : `Allowed tools: ${tools.join(", ")}.`),
+        reason: toolNotAllowedReason(
+          request.toolName,
+          request.service,
+          request.field,
+          metadata.allowedTools,
+        ),
       };
     }
 
@@ -188,14 +204,14 @@ export class CredentialBroker {
 
     // Tool policy enforcement - deny if tool is not in the credential's allowed list
     if (!isToolAllowed(request.toolName, metadata.allowedTools)) {
-      const tools = metadata.allowedTools ?? [];
       return {
         success: false,
-        reason:
-          `Tool "${request.toolName}" is not allowed to use credential ${request.service}/${request.field}. ` +
-          (tools.length === 0
-            ? NO_TOOLS_ALLOWED_REMEDIATION
-            : `Allowed tools: ${tools.join(", ")}.`),
+        reason: toolNotAllowedReason(
+          request.toolName,
+          request.service,
+          request.field,
+          metadata.allowedTools,
+        ),
       };
     }
 
@@ -284,14 +300,14 @@ export class CredentialBroker {
     }
 
     if (!isToolAllowed(request.toolName, metadata.allowedTools)) {
-      const tools = metadata.allowedTools ?? [];
       return {
         success: false,
-        reason:
-          `Tool "${request.toolName}" is not allowed to use credential ${request.service}/${request.field}. ` +
-          (tools.length === 0
-            ? NO_TOOLS_ALLOWED_REMEDIATION
-            : `Allowed tools: ${tools.join(", ")}.`),
+        reason: toolNotAllowedReason(
+          request.toolName,
+          request.service,
+          request.field,
+          metadata.allowedTools,
+        ),
       };
     }
 
@@ -367,14 +383,14 @@ export class CredentialBroker {
 
     // Tool policy enforcement
     if (!isToolAllowed(request.requestingTool, metadata.allowedTools)) {
-      const tools = metadata.allowedTools ?? [];
       return {
         success: false,
-        reason:
-          `Tool "${request.requestingTool}" is not allowed to use credential ${metadata.service}/${metadata.field}. ` +
-          (tools.length === 0
-            ? NO_TOOLS_ALLOWED_REMEDIATION
-            : `Allowed tools: ${tools.join(", ")}.`),
+        reason: toolNotAllowedReason(
+          request.requestingTool,
+          metadata.service,
+          metadata.field,
+          metadata.allowedTools,
+        ),
       };
     }
 
