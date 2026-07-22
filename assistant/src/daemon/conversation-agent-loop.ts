@@ -83,6 +83,7 @@ import {
   type EventHandlerDeps,
   finalizePendingToolResultRow,
   markHistoryStrippedBestEffort,
+  settlePendingPartialFlush,
 } from "./conversation-agent-loop-handlers.js";
 import {
   approveHostAttachmentRead,
@@ -1541,8 +1542,13 @@ export async function runAgentLoopImpl(
 
     // The terminal SSE for this turn has now been emitted (message_complete,
     // generation_handoff, or generation_cancelled), so the composer is already
-    // re-enabling. Drain the deferred bookkeeping now — after the SSE, before
-    // the `finally` commits and drains the queue for the next turn.
+    // re-enabling. Settle any pending debounced partial flush FIRST — a
+    // cancelled turn exits with the timer still pending, and a flush firing
+    // after the tail's stranded fold (or the voice bridge's transcript
+    // hygiene) would write raw content into an already-settled row. Then
+    // drain the deferred bookkeeping — after the SSE, before the `finally`
+    // commits and drains the queue for the next turn.
+    await settlePendingPartialFlush(state, deps);
     await runDeferredTurnTail({ ctx, state, rlog, generationCompletedAt });
   } catch (err) {
     clearConversationNotices(ctx.conversationId);
