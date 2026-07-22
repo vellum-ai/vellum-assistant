@@ -133,11 +133,13 @@ function DimensionChip({
       className="flex flex-1 items-center gap-2 rounded-lg px-2 py-1.5"
       style={{ backgroundColor: CHIP_BACKGROUND }}
     >
-      <Icon
-        className="h-6 w-6 shrink-0 text-[var(--content-secondary)]"
-        aria-hidden="true"
-      />
-      <div className="flex flex-col text-left">
+      <span className="flex h-6 w-6 shrink-0 items-center justify-center">
+        <Icon
+          className="h-3.5 w-3.5 text-[var(--content-tertiary)]"
+          aria-hidden="true"
+        />
+      </span>
+      <div className="flex flex-col gap-1 text-left">
         <span className="text-[12px] font-medium leading-tight text-[var(--content-tertiary)]">
           {label}
         </span>
