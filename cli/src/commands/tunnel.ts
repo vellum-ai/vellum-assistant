@@ -160,6 +160,7 @@ export async function tunnel(): Promise<void> {
   const gatewayPort = resolveEntryGatewayPort(entry);
   const baseTunnelOpts = {
     port: gatewayPort,
+    assistantId: entry.assistantId,
     ...(resources
       ? { workspaceDir: join(resources.instanceDir, ".vellum", "workspace") }
       : {}),

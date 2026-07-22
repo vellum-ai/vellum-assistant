@@ -10,8 +10,6 @@
  * independent, separately-revocable device (see `vellum unpair`, forthcoming).
  */
 
-import { join } from "node:path";
-
 import { nanoid } from "nanoid";
 // Call `qrcodeTerminal.generate` as a method — the library reads its default
 // error-correction level off `this`, so a destructured import renders nothing.
@@ -35,10 +33,6 @@ import {
   isAssistantFeatureFlagEnabled,
   WEB_REMOTE_INGRESS_FLAG,
 } from "../lib/feature-flags.js";
-import {
-  getDefaultWorkspaceDir,
-  loadIngressUrl,
-} from "../lib/ingress-config.js";
 import { getLocalLanIPv4 } from "../lib/local.js";
 import { isLoopbackUrl, loopbackSafeFetch } from "../lib/loopback-fetch.js";
 
@@ -47,42 +41,27 @@ function assistantDisplayName(entry: AssistantEntry): string {
 }
 
 /**
- * The tunnel-saved ingress URL, when usable as a remote-web advertised
- * default: https and non-loopback (the bar `--qr`/`--web` URLs must clear).
- * Checks the workspaces a tunnel provider may have written: the instance's
- * own workspace (managed/XDG layouts), then the default workspace (legacy
- * `~/.vellum/workspace` layouts, where the gateway reads its config).
+ * The tunnel-recorded ingress URL from this entry's own lockfile record, when
+ * usable as a remote-web advertised default: https and non-loopback (the bar
+ * `--qr`/`--web` URLs must clear). The lockfile is the CLI-owned contract —
+ * `vellum tunnel` providers mirror the URL onto the entry when they save it.
  */
-function loadUsableIngressUrl(entry: AssistantEntry): string | null {
-  const candidates = entry.resources
-    ? [
-        join(entry.resources.instanceDir, ".vellum", "workspace"),
-        getDefaultWorkspaceDir(),
-      ]
-    : [getDefaultWorkspaceDir()];
-  for (const workspaceDir of candidates) {
-    let saved: string | null = null;
-    try {
-      saved = loadIngressUrl(workspaceDir);
-    } catch {
-      continue;
-    }
-    if (!saved) {
-      continue;
-    }
-    try {
-      if (new URL(saved).protocol !== "https:") {
-        continue;
-      }
-    } catch {
-      continue;
-    }
-    if (isLoopbackUrl(saved)) {
-      continue;
-    }
-    return saved;
+function usableEntryIngressUrl(entry: AssistantEntry): string | null {
+  const saved = entry.ingressUrl?.trim();
+  if (!saved) {
+    return null;
   }
-  return null;
+  try {
+    if (new URL(saved).protocol !== "https:") {
+      return null;
+    }
+  } catch {
+    return null;
+  }
+  if (isLoopbackUrl(saved)) {
+    return null;
+  }
+  return saved;
 }
 
 function printUsage(): void {
@@ -403,7 +382,7 @@ export async function pair(): Promise<void> {
   ).replace(/\/+$/, "");
   const savedIngressUrl =
     !urlOverride && (qrPairing || webPairing)
-      ? loadUsableIngressUrl(entry)
+      ? usableEntryIngressUrl(entry)
       : null;
   const advertisedUrl = (
     urlOverride ||

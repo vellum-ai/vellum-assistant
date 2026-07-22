@@ -167,6 +167,8 @@ export interface RunTailscaleTunnelOptions {
   workspaceDir?: string;
   /** Prefer nginx ingress over the gateway port when it is running. */
   preferNginxIngress?: boolean;
+  /** Lockfile entry to mirror the ingress URL onto (`ingressUrl`). */
+  assistantId?: string;
 }
 
 export interface TailscaleServeInfo {
@@ -220,7 +222,7 @@ export async function startTailscaleServe(
     throw new Error(serveFailureMessage(serveResult));
   }
 
-  saveIngressUrl(workspaceDir, publicUrl);
+  saveIngressUrl(workspaceDir, publicUrl, opts.assistantId);
 
   return { publicUrl, port, viaIngress, binary, workspaceDir };
 }
@@ -295,7 +297,7 @@ export async function runTailscaleTunnel(
       );
     }
     if (shouldClearIngressUrl(result)) {
-      clearIngressUrl(workspaceDir);
+      clearIngressUrl(workspaceDir, opts.assistantId);
     } else {
       console.error(
         "Keeping the saved ingress URL since serve may still be active. " +
