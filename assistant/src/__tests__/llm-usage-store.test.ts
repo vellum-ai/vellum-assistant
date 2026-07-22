@@ -1845,6 +1845,75 @@ describe("queryUnreportedUsageEvents", () => {
     expect(events[0].turnIndex).toBe(0);
   });
 
+  // -------------------------------------------------------------------------
+  // Parent linkage (parentConversationId + parentTurnIndex): subagent spawns
+  // stamp `parent_conversation_id` on their background conversation; the
+  // query resolves it (with a fork-parent fallback) so the reporter can
+  // attribute the child's usage to the parent turn in flight at spawn.
+  // -------------------------------------------------------------------------
+
+  test("parentConversationId links a subagent conversation and parentTurnIndex counts the parent turn in flight at spawn", () => {
+    const db = getDb();
+    // Parent user turns at t=1000 and t=3000; the child conversation is
+    // created at t=2000, i.e. while the parent's turn 1 is in flight.
+    db.run(
+      `INSERT INTO conversations (id, conversation_type, created_at, updated_at) VALUES ('parent-1', 'standard', 500, 500)`,
+    );
+    db.run(
+      `INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES ('p1', 'parent-1', 'user', 'first', 1000)`,
+    );
+    db.run(
+      `INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES ('p2', 'parent-1', 'user', 'second', 3000)`,
+    );
+    db.run(
+      `INSERT INTO conversations (id, conversation_type, created_at, updated_at, parent_conversation_id) VALUES ('child-1', 'background', 2000, 2000, 'parent-1')`,
+    );
+    // The usage event fires after the parent's turn 2, but attribution is
+    // anchored to the child's creation time, not the event time.
+    insertEventAt(5000, { conversationId: "child-1" });
+
+    const events = queryUnreportedUsageEvents(0, undefined, 100);
+    expect(events).toHaveLength(1);
+    expect(events[0].parentConversationId).toBe("parent-1");
+    expect(events[0].parentTurnIndex).toBe(1);
+  });
+
+  test("parent linkage falls back to fork_parent_conversation_id (retrospective forks)", () => {
+    const db = getDb();
+    db.run(
+      `INSERT INTO conversations (id, conversation_type, created_at, updated_at) VALUES ('source-1', 'standard', 500, 500)`,
+    );
+    db.run(
+      `INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES ('s1', 'source-1', 'user', 'hello', 1000)`,
+    );
+    db.run(
+      `INSERT INTO conversations (id, conversation_type, created_at, updated_at, fork_parent_conversation_id) VALUES ('retro-1', 'background', 2000, 2000, 'source-1')`,
+    );
+    insertEventAt(3000, { conversationId: "retro-1" });
+
+    const events = queryUnreportedUsageEvents(0, undefined, 100);
+    expect(events).toHaveLength(1);
+    expect(events[0].parentConversationId).toBe("source-1");
+    expect(events[0].parentTurnIndex).toBe(1);
+  });
+
+  test("parent fields are null for parentless conversations and no-conversation events", () => {
+    const db = getDb();
+    const now = Date.now();
+    db.run(
+      `INSERT INTO conversations (id, conversation_type, created_at, updated_at) VALUES ('conv-solo', 'background', ${now}, ${now})`,
+    );
+    insertEventAt(1000, { conversationId: "conv-solo" });
+    insertEventAt(2000, { conversationId: null });
+
+    const events = queryUnreportedUsageEvents(0, undefined, 100);
+    expect(events).toHaveLength(2);
+    expect(events[0].parentConversationId).toBeNull();
+    expect(events[0].parentTurnIndex).toBeNull();
+    expect(events[1].parentConversationId).toBeNull();
+    expect(events[1].parentTurnIndex).toBeNull();
+  });
+
   test("surfaces llmCallCount on unreported events", () => {
     insertEventAt(1000, { llmCallCount: 4 });
     insertEventAt(2000, {});

@@ -16,6 +16,7 @@
 
 import { join } from "node:path";
 
+import { usesConceptPageMemory } from "../../../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../../../config/schema.js";
 import { reconcileEmbeddingIdentity } from "../../../daemon/embedding-reconcile.js";
 import { refreshSkillCapabilityMemories } from "../../../daemon/skill-memory-refresh.js";
@@ -37,11 +38,11 @@ import { resolveQdrantUrl } from "./embeddings.js";
 import { startMemoryJobsWorker } from "./jobs-worker.js";
 import { getLogger } from "./logging.js";
 import { getWorkspaceDir } from "./paths.js";
-import { sweepConceptPageFrontmatter } from "./v2/frontmatter-sweep.js";
+import { sweepConceptPageFrontmatter } from "./v3/substrate/frontmatter-sweep.js";
 import {
   maybeRebuildMemoryV2Concepts,
   rebuildBm25CorpusStatsAndReseedSkills,
-} from "./v2/memory-v2-startup.js";
+} from "./v3/substrate/memory-v2-startup.js";
 
 const log = getLogger("memory-startup");
 
@@ -79,12 +80,12 @@ export async function runMemoryStartup(config: AssistantConfig): Promise<void> {
   }
 
   if (qdrantStarted) {
-    // Skip the v1 Qdrant collection lifecycle when memory v2 is active —
-    // the v1 collection has no writers (handleRemember returns early) or
-    // readers (graph search is bypassed) under v2, so ensuring/migrating
-    // it just maintains a dead-on-arrival collection. Existing on-disk
-    // collections are left intact so flipping v2 off restores v1 cleanly.
-    if (!config.memory.v2.enabled) {
+    // Skip the v1 Qdrant collection lifecycle when concept-page memory is
+    // active — the v1 collection has no writers or readers (graph search is
+    // bypassed) in that state, so ensuring/migrating it just maintains a
+    // dead-on-arrival collection. Existing on-disk collections are left
+    // intact so disabling concept-page memory restores v1 cleanly.
+    if (!usesConceptPageMemory(config.memory)) {
       try {
         const embeddingSelection = await selectEmbeddingBackend(config);
         // Sentinel only encodes the dense provider+model identity; sparse
@@ -175,12 +176,13 @@ export async function runMemoryStartup(config: AssistantConfig): Promise<void> {
       );
     }
 
-    // Reconcile the PKB Qdrant index against the on-disk tree. Gated on
-    // !v2 because PKB is the v1 storage layer; under v2 the v1 collection
-    // is not initialized, so calling `getQdrantClient()` here would throw.
-    // Fire-and-forget so enqueued re-index jobs drain in the background
-    // and first-turn latency stays unaffected.
-    if (!config.memory.v2.enabled) {
+    // Reconcile the PKB Qdrant index against the on-disk tree. Gated off
+    // while concept-page memory is active because PKB is the v1 storage
+    // layer; in that state the v1 collection is not initialized, so calling
+    // `getQdrantClient()` here would throw. Fire-and-forget so enqueued
+    // re-index jobs drain in the background and first-turn latency stays
+    // unaffected.
+    if (!usesConceptPageMemory(config.memory)) {
       void (async () => {
         try {
           const { reconcilePkbIndex } = await import("./pkb/pkb-reconcile.js");

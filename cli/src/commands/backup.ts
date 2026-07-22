@@ -134,15 +134,18 @@ export async function backup(): Promise<void> {
   // Call the export endpoint
   let response: Response;
   try {
-    response = await loopbackSafeFetch(`${entry.runtimeUrl}/v1/migrations/export`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json",
+    response = await loopbackSafeFetch(
+      `${entry.runtimeUrl}/v1/migrations/export`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ description: "CLI backup" }),
+        signal: AbortSignal.timeout(exportTimeoutMs),
       },
-      body: JSON.stringify({ description: "CLI backup" }),
-      signal: AbortSignal.timeout(exportTimeoutMs),
-    });
+    );
 
     // Retry once with a fresh token on 401 — the cached token may be stale
     // after a container restart that generated a new gateway signing key.
@@ -160,15 +163,18 @@ export async function backup(): Promise<void> {
       }
       if (refreshedToken) {
         accessToken = refreshedToken;
-        response = await loopbackSafeFetch(`${entry.runtimeUrl}/v1/migrations/export`, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            "Content-Type": "application/json",
+        response = await loopbackSafeFetch(
+          `${entry.runtimeUrl}/v1/migrations/export`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ description: "CLI backup" }),
+            signal: AbortSignal.timeout(exportTimeoutMs),
           },
-          body: JSON.stringify({ description: "CLI backup" }),
-          signal: AbortSignal.timeout(exportTimeoutMs),
-        });
+        );
       }
     }
   } catch (err) {

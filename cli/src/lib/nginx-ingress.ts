@@ -17,6 +17,7 @@ import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 
 import { GATEWAY_PORT } from "./constants.js";
+import { loadRawConfig, saveRawConfig } from "./ingress-config.js";
 
 /**
  * CLI-managed nginx reverse proxy that fronts the gateway for remote web
@@ -56,28 +57,6 @@ export function getIngressPaths(workspaceDir: string): IngressPaths {
     pidPath: join(dir, "nginx.pid"),
     logPath: join(workspaceDir, "data", "logs", "nginx-ingress.log"),
   };
-}
-
-function getConfigPath(workspaceDir: string): string {
-  return join(workspaceDir, "config.json");
-}
-
-function loadRawConfig(workspaceDir: string): Record<string, unknown> {
-  const configPath = getConfigPath(workspaceDir);
-  if (!existsSync(configPath)) return {};
-  return JSON.parse(readFileSync(configPath, "utf-8")) as Record<
-    string,
-    unknown
-  >;
-}
-
-function saveRawConfig(
-  workspaceDir: string,
-  config: Record<string, unknown>,
-): void {
-  const configPath = getConfigPath(workspaceDir);
-  mkdirSync(dirname(configPath), { recursive: true });
-  writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
 }
 
 /**
@@ -229,6 +208,13 @@ http {
   server {
     listen 127.0.0.1:${opts.listenPort};
     client_max_body_size 512m;
+
+    # This edge sits behind a TLS-terminating front (tunnel or tailscale serve),
+    # so redirects must be relative: emit "Location: /assistant/" and let the
+    # client resolve it against the origin it used, rather than an absolute URL
+    # built from nginx's own loopback scheme and port.
+    absolute_redirect off;
+    port_in_redirect off;
 
 ${serverLocations}
   }

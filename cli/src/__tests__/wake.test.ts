@@ -27,9 +27,8 @@ const realLocal = { ...local };
 const realNgrok = { ...ngrok };
 const realProcessLib = { ...processLib };
 
-const resolveTargetAssistantMock = mock<
-  typeof assistantConfig.resolveTargetAssistant
->();
+const resolveTargetAssistantMock =
+  mock<typeof assistantConfig.resolveTargetAssistant>();
 const saveAssistantEntryMock = mock<typeof assistantConfig.saveAssistantEntry>(
   () => {},
 );
@@ -61,9 +60,10 @@ const seedGuardianTokenFromSiblingEnvMock = mock<
 // Default: a token exists, so the re-provision recovery path is skipped. Tests
 // that exercise recovery override loadGuardianToken to return null.
 const loadGuardianTokenMock = mock<typeof guardianToken.loadGuardianToken>(
-  () => ({ accessToken: "existing" }) as ReturnType<
-    typeof guardianToken.loadGuardianToken
-  >,
+  () =>
+    ({ accessToken: "existing" }) as ReturnType<
+      typeof guardianToken.loadGuardianToken
+    >,
 );
 const resetGuardianBootstrapMock = mock<
   typeof guardianToken.resetGuardianBootstrap
@@ -111,7 +111,9 @@ const isAssistantWatchModeAvailableMock = mock<
 const isGatewayWatchModeAvailableMock = mock<
   typeof local.isGatewayWatchModeAvailable
 >(() => false);
-const startLocalDaemonMock = mock<typeof local.startLocalDaemon>(async () => {});
+const startLocalDaemonMock = mock<typeof local.startLocalDaemon>(
+  async () => {},
+);
 const startGatewayMock = mock<typeof local.startGateway>(
   async () => "http://127.0.0.1:7830",
 );
@@ -175,10 +177,12 @@ beforeEach(() => {
     join(resources!.instanceDir, ".vellum", "daemon.pid"),
   );
   resolveProcessStateMock.mockReset();
-  resolveProcessStateMock.mockImplementation(async (_pidFile, _port, label) => ({
-    status: "healthy",
-    pid: label === "Gateway" ? 456 : 123,
-  }));
+  resolveProcessStateMock.mockImplementation(
+    async (_pidFile, _port, label) => ({
+      status: "healthy",
+      pid: label === "Gateway" ? 456 : 123,
+    }),
+  );
   stopProcessByPidFileMock.mockReset();
   stopProcessByPidFileMock.mockResolvedValue(true);
   generateLocalSigningKeyMock.mockReset();
@@ -198,9 +202,9 @@ beforeEach(() => {
   seedGuardianTokenFromSiblingEnvMock.mockReset();
   seedGuardianTokenFromSiblingEnvMock.mockReturnValue(false);
   loadGuardianTokenMock.mockReset();
-  loadGuardianTokenMock.mockReturnValue({ accessToken: "existing" } as ReturnType<
-    typeof guardianToken.loadGuardianToken
-  >);
+  loadGuardianTokenMock.mockReturnValue({
+    accessToken: "existing",
+  } as ReturnType<typeof guardianToken.loadGuardianToken>);
   resetGuardianBootstrapMock.mockReset();
   resetGuardianBootstrapMock.mockResolvedValue(undefined);
   leaseGuardianTokenMock.mockReset();
@@ -252,7 +256,13 @@ describe("vellum wake", () => {
   });
 
   test("re-provisions the guardian token when missing and --repair-guardian is passed", async () => {
-    process.argv = ["bun", "vellum", "wake", "--repair-guardian", "local-assistant"];
+    process.argv = [
+      "bun",
+      "vellum",
+      "wake",
+      "--repair-guardian",
+      "local-assistant",
+    ];
     loadGuardianTokenMock.mockReturnValue(null);
 
     await wake();
@@ -288,7 +298,13 @@ describe("vellum wake", () => {
     // (revoked, mis-seeded, wrong principal). The user explicitly confirmed
     // the destructive repair, so the flag forces a re-lease instead of
     // guessing from local token state and recreating the no-op loop.
-    process.argv = ["bun", "vellum", "wake", "--repair-guardian", "local-assistant"];
+    process.argv = [
+      "bun",
+      "vellum",
+      "wake",
+      "--repair-guardian",
+      "local-assistant",
+    ];
     // loadGuardianToken returns a healthy-looking token by default.
     await wake();
 

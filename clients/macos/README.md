@@ -90,9 +90,12 @@ proxy) with a 1.5s timeout and picks one of two paths:
      local Vite (8.x) and plugin tree, not whatever older Vite happens
      to live in `clients/macos/node_modules`. Pinning the port via the
      Vite CLI overrides `clients/web/.env` if `PORT` is set there.
-   - `dev:electron` → [`wait-on`](https://github.com/jeffbski/wait-on)
-     polls `:5173` (30s timeout), then runs `electron-vite dev` against
-     it. The wait avoids Electron racing the renderer.
+   - `dev:electron` → `scripts/wait-for-web.ts` polls `:5173` (180s
+     timeout), then runs `electron-vite dev` against it. The wait avoids
+     Electron racing the renderer. On timeout the script captures stack
+     samples of the Vite processes plus the port state to `/tmp` before
+     exiting — a hung Vite gets un-wedged by the ensuing teardown, so
+     that capture is the only record of where it was stuck.
 
    `concurrently --kill-others` tears both down on Ctrl+C or on either
    child exiting. Logs are prefixed and color-coded (`[web]` blue,
@@ -149,7 +152,7 @@ bun run dev:standalone     # explicit: spawn our Vite (:5173) + electron-vite de
 bun run dev:electron-only  # explicit: electron-vite dev only, honors $VELLUM_DEV_URL (default :5173)
 bun run install:all        # bun install in clients/macos and clients/web (called automatically by dev)
 bun run dev:web            # clients/web Vite (port 5173, strict) — invoked by dev:standalone
-bun run dev:electron       # wait-on :5173 then electron-vite dev — invoked by dev:standalone
+bun run dev:electron       # wait for :5173 (hang capture on timeout) then electron-vite dev — invoked by dev:standalone
 bun run build              # electron-vite build — bundles main + preload to out/
 bun run typecheck          # tsc --noEmit
 bun run test               # bun test — single Bun process (fastest for local iteration)

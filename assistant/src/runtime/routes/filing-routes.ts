@@ -2,7 +2,7 @@
  * Route handlers for filing management.
  *
  * `available` reflects whether PKB filing is the active background memory job
- * for this instance. When `config.memory.v2.enabled` is true, filing yields to
+ * for this instance. When concept-page memory is active, filing yields to
  * the consolidation job (see consolidation-routes.ts); when `memory.enabled`
  * is false, the memory jobs worker never runs filing jobs. Both cases return
  * `available: false` so the UI can hide the row.
@@ -16,6 +16,7 @@
 import { z } from "zod";
 
 import { getConfig } from "../../config/loader.js";
+import { usesConceptPageMemory } from "../../config/memory-v3-gate.js";
 import { getMemoryCheckpoint } from "../../persistence/checkpoints.js";
 import {
   enqueueMemoryJob,
@@ -31,7 +32,9 @@ function isFilingAvailable(): boolean {
   // Filing runs through the memory jobs worker, whose slow lane is parked
   // while memory is disabled — an enqueued job would sit pending forever, so
   // report unavailable (and reject run-now) rather than queue dead work.
-  return config.memory.enabled !== false && !config.memory.v2.enabled;
+  return (
+    config.memory.enabled !== false && !usesConceptPageMemory(config.memory)
+  );
 }
 
 // ---------------------------------------------------------------------------

@@ -48,6 +48,61 @@ export interface MessageLexicalSearchResult {
   score: number;
 }
 
+/**
+ * Qdrant rejects any HTTP request body larger than 32 MiB with a 400. A batch
+ * selected purely by row count can exceed that when messages carry large sparse
+ * vectors, so upserts are split into sub-batches whose estimated serialized size
+ * stays under this cap. Deliberately well below 32 MiB to leave headroom for the
+ * request envelope and for estimate error.
+ */
+const MAX_UPSERT_BYTES = 24 * 1024 * 1024;
+
+/**
+ * Conservative estimate of a point's JSON-serialized size, dominated by the
+ * sparse vector's parallel `indices`/`values` arrays (`indices.length ===
+ * values.length`). Overestimating is the safe direction: it yields smaller
+ * sub-batches, never a request larger than intended.
+ */
+function estimateUpsertPointBytes(sparseTermCount: number): number {
+  // One index integer (~8 bytes with delimiter) plus one float value (~20
+  // bytes with delimiter) per term.
+  const PER_TERM_BYTES = 28;
+  // Point id (uuid), payload keys/values, and structural punctuation.
+  const FIXED_OVERHEAD_BYTES = 350;
+  return sparseTermCount * PER_TERM_BYTES + FIXED_OVERHEAD_BYTES;
+}
+
+/**
+ * Split sparse points into sub-batches whose combined estimated size stays
+ * under {@link MAX_UPSERT_BYTES}. A single point larger than the cap is emitted
+ * alone (it cannot be split) so no data is silently dropped.
+ */
+function* chunkPointsBySparseSize<
+  T extends { vector: { sparse: { indices: number[] } } },
+>(points: T[]): Generator<T[]> {
+  let current: T[] = [];
+  let currentBytes = 0;
+  for (const point of points) {
+    const size = estimateUpsertPointBytes(point.vector.sparse.indices.length);
+    if (current.length > 0 && currentBytes + size > MAX_UPSERT_BYTES) {
+      yield current;
+      current = [];
+      currentBytes = 0;
+    }
+    if (current.length === 0 && size > MAX_UPSERT_BYTES) {
+      log.warn(
+        { estimatedBytes: size, maxBytes: MAX_UPSERT_BYTES },
+        "Single lexical point exceeds the Qdrant upsert size cap — sending it alone",
+      );
+    }
+    current.push(point);
+    currentBytes += size;
+  }
+  if (current.length > 0) {
+    yield current;
+  }
+}
+
 let _instance: MessagesLexicalIndex | null = null;
 
 export function getMessagesLexicalIndex(): MessagesLexicalIndex {
@@ -192,6 +247,24 @@ export class MessagesLexicalIndex {
       },
     }));
 
+    // Split into size-bounded sub-batches so no single upsert exceeds Qdrant's
+    // 32 MiB request-body limit — a row-count batch of large messages can.
+    for (const chunk of chunkPointsBySparseSize(qdrantPoints)) {
+      await this.upsertPointsChunk(chunk);
+    }
+  }
+
+  private async upsertPointsChunk(
+    qdrantPoints: Array<{
+      id: string;
+      vector: { sparse: { indices: number[]; values: number[] } };
+      payload: {
+        message_id: string;
+        conversation_id: string;
+        created_at: number;
+      };
+    }>,
+  ): Promise<void> {
     const doUpsert = () =>
       this.client.upsert(this.collection, {
         wait: true,

@@ -30,19 +30,19 @@ import type { MemoryJob } from "../../../../persistence/jobs-store.js";
 import { enqueueEmbedConceptPageJob } from "../jobs/embed-concept-page.js";
 import { getLogger } from "../logging.js";
 import { getWorkspaceDir } from "../paths.js";
+import { getEdgeIndex } from "../v3/substrate/edge-index.js";
+import { listPages } from "../v3/substrate/page-store.js";
 import {
   computeOwnActivation,
   selectCandidates,
   spreadActivation,
 } from "./activation.js";
 import { hydrate, save } from "./activation-store.js";
-import { getEdgeIndex } from "./edge-index.js";
 import {
   MigrationAlreadyAppliedError,
   runMemoryV2Migration,
 } from "./migration.js";
 import { loadNowText } from "./now-text.js";
-import { listPages } from "./page-store.js";
 
 const log = getLogger("memory-v2-backfill");
 

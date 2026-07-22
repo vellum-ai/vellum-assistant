@@ -6,15 +6,27 @@
  * handler files through this module, so what the CLI lists can never drift
  * from what the dispatcher actually serves.
  *
- * Two locations back the surface:
+ * Three locations back the surface:
  * - `<workspaceDir>/routes/<path>` — workspace routes, served at `/x/<path>`.
- * - `<workspaceDir>/plugins/<name>/routes/<path>` — a plugin's routes, served
- *   in that plugin's reserved namespace at `/x/plugins/<name>/<path>`.
+ * - `<workspaceDir>/plugins/<name>/routes/<path>` — an installed plugin's
+ *   routes, served in that plugin's reserved namespace at
+ *   `/x/plugins/<name>/<path>`.
+ * - `plugins/defaults/<name>/routes/<path>` (the app source tree) — a
+ *   first-party default plugin's routes, served in the same
+ *   `/x/plugins/<name>/<path>` namespace. Default plugins live in the binary's
+ *   source, not the workspace, so their routes resolve from the source tree.
+ *   An installed plugin of the same name takes precedence (it can override a
+ *   default).
  */
 
 import { existsSync, readdirSync, statSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join, relative, resolve, sep } from "node:path";
 
+import {
+  getDefaultPluginManifestName,
+  getDefaultPluginRouteRoots,
+  getDefaultPluginRoutesDir,
+} from "../../plugins/defaults/main.js";
 import { isPluginDisabled } from "../../plugins/disabled-state.js";
 import {
   getWorkspacePluginsDir,
@@ -23,6 +35,25 @@ import {
 
 /** Supported file extensions for handler modules (`.js` preferred over `.ts`). */
 export const HANDLER_EXTENSIONS = [".ts", ".js"] as const;
+
+/** Directory basename reserved for co-located tests — never a route segment. */
+const TEST_DIR_NAME = "__tests__";
+
+/**
+ * True when a path under a routes directory is test machinery rather than a
+ * servable handler: any `__tests__` segment, or a `*.test.ts` / `*.test.js`
+ * filename. Discovery and dispatch both exclude these so a co-located test
+ * file is never dynamically imported into the daemon — a test file's
+ * top-level `mock.module(...)` calls are process-global and would replace
+ * production modules (DB, platform paths) in the live process.
+ */
+export function isRouteTestPath(relPath: string): boolean {
+  const segments = relPath.split(sep);
+  return (
+    segments.includes(TEST_DIR_NAME) ||
+    /\.test\.(ts|js)$/.test(segments.at(-1) ?? "")
+  );
+}
 
 /** Path segment reserved for plugin-namespaced routes under `/x/`. */
 export const PLUGIN_ROUTE_SEGMENT = "plugins";
@@ -38,10 +69,13 @@ export interface RouteLocation {
  * Resolve an `/x/` route path to the base directory + sub-path the handler file
  * is looked up under.
  *
- * `plugins/<name>/<rest>` resolves against that plugin's own
- * `<workspaceDir>/plugins/<name>/routes/` directory (`<rest>` may be empty,
- * mapping to the namespace's `index` handler). Everything else resolves against
- * the workspace `routes/` directory. Returns `null` (caller 404s) when:
+ * `plugins/<name>/<rest>` resolves against that plugin's own `routes/`
+ * directory (`<rest>` may be empty, mapping to the namespace's `index`
+ * handler): an installed plugin's `<workspaceDir>/plugins/<name>/routes/` when
+ * it ships one, otherwise a first-party default plugin's
+ * `plugins/defaults/<name>/routes/` in the source tree. Everything else
+ * resolves against the workspace `routes/` directory. Returns `null` (caller
+ * 404s) when:
  *
  * - the path is a malformed plugin path (`plugins` with no name segment), so it
  *   never falls back to a workspace route — the `plugins/` prefix is reserved
@@ -53,15 +87,71 @@ export function resolveRouteLocation(routePath: string): RouteLocation | null {
   const segments = routePath.split("/");
   if (segments[0] === PLUGIN_ROUTE_SEGMENT) {
     const pluginName = segments[1];
-    if (!pluginName || isPluginDisabled(pluginName)) {
+    if (!pluginName) {
+      return null;
+    }
+    const { routesDir, isDefault } = resolvePluginRoutesDir(pluginName);
+    if (isPluginRouteDirDisabled(pluginName, isDefault)) {
       return null;
     }
     return {
-      routesDir: join(getWorkspacePluginsDir(), pluginName, "routes"),
+      routesDir,
       subPath: segments.slice(2).join("/"),
     };
   }
   return { routesDir: getWorkspaceRoutesDir(), subPath: routePath };
+}
+
+/**
+ * Whether the `.disabled` sentinel disables the resolved route directory.
+ *
+ * The sentinel is keyed by the plugin's directory name for installed plugins
+ * but by the `default-…` manifest name for default plugins (the CLI/bootstrap
+ * write it as `<workspace>/plugins/<manifest-name>/.disabled`). The manifest
+ * check therefore applies *only* when the resolved directory is a default
+ * plugin's source routes — so disabling a bundled default never takes down an
+ * installed workspace plugin that shadows the same namespace, and vice versa.
+ */
+function isPluginRouteDirDisabled(
+  pluginName: string,
+  isDefault: boolean,
+): boolean {
+  if (isPluginDisabled(pluginName)) {
+    return true;
+  }
+  if (!isDefault) {
+    return false;
+  }
+  const manifestName = getDefaultPluginManifestName(pluginName);
+  return manifestName !== null && isPluginDisabled(manifestName);
+}
+
+/**
+ * Resolve the `routes/` directory that backs a plugin's `/x/plugins/<name>/`
+ * namespace, and whether that directory is a first-party default's source
+ * tree. An installed plugin that ships a `routes/` directory takes precedence
+ * (so it can override a same-named default); otherwise a default plugin's
+ * source `routes/` directory is used. Falls back to the (missing) workspace
+ * path when the name matches neither, so {@link resolveHandlerFile} reports a
+ * 404.
+ */
+function resolvePluginRoutesDir(pluginName: string): {
+  routesDir: string;
+  isDefault: boolean;
+} {
+  const workspaceRoutesDir = join(
+    getWorkspacePluginsDir(),
+    pluginName,
+    "routes",
+  );
+  if (existsSync(workspaceRoutesDir)) {
+    return { routesDir: workspaceRoutesDir, isDefault: false };
+  }
+  const defaultRoutesDir = getDefaultPluginRoutesDir(pluginName);
+  if (defaultRoutesDir && existsSync(defaultRoutesDir)) {
+    return { routesDir: defaultRoutesDir, isDefault: true };
+  }
+  return { routesDir: workspaceRoutesDir, isDefault: false };
 }
 
 /**
@@ -70,28 +160,30 @@ export function resolveRouteLocation(routePath: string): RouteLocation | null {
  * Checks for direct file matches first (`<path>.ts`, `<path>.js`), then falls
  * back to index files (`<path>/index.ts`, `<path>/index.js`). Returns the
  * absolute path to the handler file, or `null` if not found. Rejects any path
- * that escapes `routesDir` (traversal backstop).
+ * that escapes `routesDir` (traversal backstop) and any test path
+ * ({@link isRouteTestPath}), so test files are never served or imported.
  */
 export function resolveHandlerFile(
   routesDir: string,
   subPath: string,
 ): string | null {
+  const base = resolve(routesDir);
   const resolved = resolve(join(routesDir, subPath));
 
-  if (!resolved.startsWith(resolve(routesDir))) {
+  if (!resolved.startsWith(base)) {
     return null;
   }
 
   for (const ext of HANDLER_EXTENSIONS) {
     const candidate = `${resolved}${ext}`;
-    if (existsSync(candidate)) {
+    if (existsSync(candidate) && !isRouteTestPath(relative(base, candidate))) {
       return candidate;
     }
   }
 
   for (const ext of HANDLER_EXTENSIONS) {
     const candidate = join(resolved, `index${ext}`);
-    if (existsSync(candidate)) {
+    if (existsSync(candidate) && !isRouteTestPath(relative(base, candidate))) {
       return candidate;
     }
   }
@@ -114,28 +206,41 @@ export function isReservedWorkspaceRoutePath(routePath: string): boolean {
 }
 
 /**
- * Enumerate enabled workspace plugins that ship a `routes/` directory, for
- * route discovery. Mirrors {@link resolveRouteLocation}'s plugin resolution —
- * same base directory, same disabled-sentinel gate — so discovery and dispatch
- * agree on which plugin routes exist.
+ * Enumerate enabled plugins that ship a `routes/` directory, for route
+ * discovery. Mirrors {@link resolveRouteLocation}'s plugin resolution — same
+ * directories, same disabled-sentinel gate, same installed-over-default
+ * precedence — so discovery and dispatch agree on which plugin routes exist.
+ *
+ * Default plugins are seeded first (lower precedence); an installed plugin of
+ * the same name that ships routes overrides its entry.
  */
 export function listPluginRouteRoots(): {
   pluginName: string;
   routesDir: string;
 }[] {
+  const byName = new Map<string, string>();
+
+  for (const { pluginName, routesDir } of getDefaultPluginRouteRoots()) {
+    if (!isPluginRouteDirDisabled(pluginName, true)) {
+      byName.set(pluginName, routesDir);
+    }
+  }
+
   const pluginsDir = getWorkspacePluginsDir();
-  if (!existsSync(pluginsDir)) {
-    return [];
-  }
-  const roots: { pluginName: string; routesDir: string }[] = [];
-  for (const entry of readdirSync(pluginsDir, { withFileTypes: true })) {
-    if (!entry.isDirectory() || isPluginDisabled(entry.name)) {
-      continue;
-    }
-    const routesDir = join(pluginsDir, entry.name, "routes");
-    if (existsSync(routesDir) && statSync(routesDir).isDirectory()) {
-      roots.push({ pluginName: entry.name, routesDir });
+  if (existsSync(pluginsDir)) {
+    for (const entry of readdirSync(pluginsDir, { withFileTypes: true })) {
+      if (!entry.isDirectory() || isPluginRouteDirDisabled(entry.name, false)) {
+        continue;
+      }
+      const routesDir = join(pluginsDir, entry.name, "routes");
+      if (existsSync(routesDir) && statSync(routesDir).isDirectory()) {
+        byName.set(entry.name, routesDir);
+      }
     }
   }
-  return roots;
+
+  return [...byName].map(([pluginName, routesDir]) => ({
+    pluginName,
+    routesDir,
+  }));
 }

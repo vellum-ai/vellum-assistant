@@ -1,6 +1,8 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 
+import { Button } from "@vellumai/design-library/components/button";
 import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { Input } from "@vellumai/design-library/components/input";
 import { Typography } from "@vellumai/design-library/components/typography";
 
 import {
@@ -40,6 +42,38 @@ function connectionModelsToCatalog(
 }
 
 /**
+ * Whether the current connection restricts a catalog-backed provider to the
+ * Codex-compatible subscription model set. A ChatGPT `oauth_subscription`
+ * connection only accepts `CODEX_SUBSCRIPTION_MODEL_IDS`, so both the model
+ * list and the free-text escape hatch must respect that limit — a typed id
+ * the endpoint rejects would otherwise be saveable.
+ */
+function restrictsToSubscriptionModels(
+  provider: ConnectionProvider | "",
+  providerConnection: string,
+  availableConnectionsForProvider: ProviderConnection[],
+): boolean {
+  if (!provider || getModelsForProvider(provider).length === 0) {
+    return false;
+  }
+  const selectedConn = providerConnection
+    ? availableConnectionsForProvider.find(
+        (c) => c.name === providerConnection,
+      )
+    : undefined;
+  if (selectedConn?.auth.type === "oauth_subscription") {
+    return true;
+  }
+  return (
+    !providerConnection &&
+    availableConnectionsForProvider.length > 0 &&
+    availableConnectionsForProvider.every(
+      (c) => c.auth.type === "oauth_subscription",
+    )
+  );
+}
+
+/**
  * Copy for the Model field's empty states, keyed by the `modelEmptyState`
  * discriminator. The "no-provider" hint is `null` because the hint only
  * renders once a provider is selected.
@@ -55,9 +89,15 @@ const MODEL_EMPTY_STATE_COPY = {
   },
   "unknown-to-catalog": {
     placeholder: "No models available",
-    hint: "No models are available for this provider in this app version. Update the app, or use an OpenAI-compatible connection to enter a custom model.",
+    hint: "No models are available for this provider in this app version. Update the app, or enter a custom model ID.",
   },
 } as const;
+
+/**
+ * Sentinel value for the Model dropdown option that switches the field into
+ * free-text entry. Namespaced so it can never collide with a real model id.
+ */
+const CUSTOM_MODEL_OPTION_VALUE = "__custom-model-id__";
 
 // ---------------------------------------------------------------------------
 // Props
@@ -113,6 +153,38 @@ export function ProfileEditorProviderSection({
 }: ProfileEditorProviderSectionProps) {
   const providerWithoutModel = provider.length > 0 && model.length === 0;
 
+  // Free-text model entry. Catalog and connection lists can't cover every id a
+  // pass-through provider (e.g. OpenRouter) accepts, so the Model field offers
+  // an explicit escape hatch: picking the sentinel option swaps the dropdown
+  // for a text input whose value is sent to the connection verbatim. It's
+  // withheld from subscription-restricted connections, which only accept a
+  // fixed model set.
+  const [isEnteringCustomModel, setIsEnteringCustomModel] = useState(false);
+
+  const subscriptionRestricted = restrictsToSubscriptionModels(
+    provider,
+    providerConnection,
+    availableConnectionsForProvider,
+  );
+  const allowsCustomModel = provider !== "" && !subscriptionRestricted;
+
+  // Switching providers reopens the field on the new provider's model list;
+  // a connection that bars custom ids also closes the free-text input.
+  useEffect(() => {
+    if (!allowsCustomModel) {
+      setIsEnteringCustomModel(false);
+    }
+  }, [provider, allowsCustomModel]);
+
+  function handleModelSelection(value: string) {
+    if (value === CUSTOM_MODEL_OPTION_VALUE) {
+      setIsEnteringCustomModel(true);
+      onModelChange("");
+      return;
+    }
+    onModelChange(value);
+  }
+
   const allProvidersForPicker = useSelectableCatalogProviders();
   const activeAssistantIsSelfHosted = useActiveAssistantIsSelfHosted();
 
@@ -154,24 +226,16 @@ export function ProfileEditorProviderSection({
   // selected, merge models from all available openai-compatible connections.
   const availableModels: readonly { id: string; displayName: string }[] =
     useMemo(() => {
-      if (!provider) return [];
+      if (!provider) {
+        return [];
+      }
       const catalogModels = getModelsForProvider(provider);
       if (catalogModels.length > 0) {
-        const selectedConn = providerConnection
-          ? availableConnectionsForProvider.find(
-              (c) => c.name === providerConnection,
-            )
-          : undefined;
-        if (selectedConn?.auth.type === "oauth_subscription") {
-          return catalogModels.filter((m) =>
-            CODEX_SUBSCRIPTION_MODEL_IDS.has(m.id),
-          );
-        }
         if (
-          !providerConnection &&
-          availableConnectionsForProvider.length > 0 &&
-          availableConnectionsForProvider.every(
-            (c) => c.auth.type === "oauth_subscription",
+          restrictsToSubscriptionModels(
+            provider,
+            providerConnection,
+            availableConnectionsForProvider,
           )
         ) {
           return catalogModels.filter((m) =>
@@ -248,7 +312,14 @@ export function ProfileEditorProviderSection({
   // handleProviderChange resets the model on provider switch, so this never
   // strands a cross-provider binding.
   useEffect(() => {
-    if (!provider) return;
+    if (!provider) {
+      return;
+    }
+    // While the user is typing a custom id it won't match the catalog or
+    // connection lists — leave it untouched instead of clearing every keystroke.
+    if (isEnteringCustomModel) {
+      return;
+    }
     const catalogModels = getModelsForProvider(provider);
     if (
       catalogModels.length > 0 &&
@@ -263,7 +334,7 @@ export function ProfileEditorProviderSection({
     ) {
       onModelChange("");
     }
-  }, [model, availableModels, onModelChange, provider]);
+  }, [model, availableModels, onModelChange, provider, isEnteringCustomModel]);
 
   return (
     <>
@@ -354,27 +425,68 @@ export function ProfileEditorProviderSection({
         </div>
       )}
 
-      {/* Model — required once a provider is selected. */}
+      {/* Model — required once a provider is selected. The dropdown offers the
+          provider's known models plus a free-text escape hatch for ids this
+          build doesn't list (e.g. a new OpenRouter model). */}
       <div className="space-y-1">
         <label className="block text-body-small-default text-[var(--content-tertiary)]">
           Model
         </label>
-        <Dropdown
-          value={model}
-          onChange={onModelChange}
-          disabled={isReadOnly || !provider}
-          options={[
-            {
-              value: "",
-              label: modelEmptyStateCopy?.placeholder ?? "Select a model",
-            },
-            ...modelOptions.map((m) => ({
-              value: m.id,
-              label: m.displayName,
-            })),
-          ]}
-        />
-        {providerWithoutModel && !isReadOnly ? (
+        {isEnteringCustomModel ? (
+          <>
+            <Input
+              value={model}
+              onChange={(e) => onModelChange(e.target.value)}
+              disabled={isReadOnly}
+              placeholder="provider/model-id"
+              aria-label="Custom model ID"
+              fullWidth
+              autoFocus
+            />
+            <Button
+              variant="link"
+              size="compact"
+              disabled={isReadOnly}
+              onClick={() => setIsEnteringCustomModel(false)}
+            >
+              Choose from list
+            </Button>
+          </>
+        ) : (
+          <Dropdown
+            value={model}
+            onChange={handleModelSelection}
+            disabled={isReadOnly || !provider}
+            options={[
+              {
+                value: "",
+                label: modelEmptyStateCopy?.placeholder ?? "Select a model",
+              },
+              ...modelOptions.map((m) => ({
+                value: m.id,
+                label: m.displayName,
+              })),
+              ...(allowsCustomModel
+                ? [
+                    {
+                      value: CUSTOM_MODEL_OPTION_VALUE,
+                      label: "Enter a custom model ID…",
+                    },
+                  ]
+                : []),
+            ]}
+          />
+        )}
+        {isEnteringCustomModel ? (
+          <Typography
+            variant="body-small-default"
+            as="p"
+            className="text-[var(--content-tertiary)]"
+          >
+            Enter the exact model identifier your provider expects. It's sent to
+            the connection as-is.
+          </Typography>
+        ) : providerWithoutModel && !isReadOnly ? (
           <Typography
             variant="body-small-default"
             as="p"

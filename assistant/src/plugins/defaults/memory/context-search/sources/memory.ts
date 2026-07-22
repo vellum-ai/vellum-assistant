@@ -1,3 +1,4 @@
+import { usesConceptPageMemory } from "../../../../../config/memory-v3-gate.js";
 import { embedWithRetry } from "../../../../../persistence/embeddings/embed.js";
 import { generateSparseEmbedding } from "../../../../../persistence/embeddings/embedding-backend.js";
 import { searchGraphNodes } from "../../graph/graph-search.js";
@@ -23,7 +24,7 @@ export async function searchMemorySource(
     return { evidence: [] };
   }
 
-  if (context.config.memory.v2.enabled) {
+  if (usesConceptPageMemory(context.config.memory)) {
     return searchMemoryV2Source(query, context, normalizedLimit);
   }
 

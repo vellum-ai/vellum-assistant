@@ -29,6 +29,8 @@ mock.module("../daemon/conversation-process.js", () => ({
   ) =>
     metadata?.hidden === true ||
     typeof metadata?.backgroundEventSource === "string",
+  isBackgroundEventMetadata: (metadata: Record<string, unknown> | undefined) =>
+    typeof metadata?.backgroundEventSource === "string",
 }));
 
 mock.module("../daemon/handlers/conversations.js", () => ({
@@ -314,7 +316,7 @@ describe("POST /v1/conversations/:id/retry", () => {
     expect(typeof (options as { onEvent?: unknown }).onEvent).toBe("function");
   });
 
-  test("hidden machine-signal anchor re-runs as a hidden prompt", async () => {
+  test("background-event anchor re-runs hidden AND non-interactive", async () => {
     discardResult = {
       anchor: anchorRow({
         metadata: JSON.stringify({ backgroundEventSource: "schedule" }),
@@ -333,8 +335,40 @@ describe("POST /v1/conversations/:id/retry", () => {
     expect(res.status).toBe(202);
     await settle();
 
+    // A scheduled/wake anchor was dispatched non-interactively, so the retry
+    // reproduces that background permission mode instead of a foreground chat.
     const [, , options] = ctx.runAgentLoop.mock.calls[0];
-    expect(options).toMatchObject({ isHiddenPrompt: true });
+    expect(options).toMatchObject({
+      isHiddenPrompt: true,
+      isInteractive: false,
+    });
+  });
+
+  test("hidden non-background anchor re-runs hidden but stays interactive", async () => {
+    // A hidden `POST /messages` send (e.g. a proactive greeting from the web
+    // client) is echo-suppressed but was dispatched interactively — only the
+    // background-event marker flips a retry to non-interactive.
+    discardResult = {
+      anchor: anchorRow({ metadata: JSON.stringify({ hidden: true }) }),
+      deletedMessageIds: ["assistant-msg-1"],
+    };
+    const ctx = makeConversation();
+    activeConversation = ctx.conversation;
+
+    const res = await callHandler(
+      retryHandler,
+      makeRequest(),
+      { id: "conv-retry-test" },
+      202,
+    );
+    expect(res.status).toBe(202);
+    await settle();
+
+    const [, , options] = ctx.runAgentLoop.mock.calls[0];
+    expect(options).toMatchObject({
+      isHiddenPrompt: true,
+      isInteractive: true,
+    });
   });
 
   test("busy conversation → 409 without claiming processing", async () => {

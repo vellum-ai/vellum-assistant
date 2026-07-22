@@ -6,14 +6,14 @@ import {
   seedForkActivationState,
 } from "./v2/activation-store.js";
 import {
-  extractInjectedConceptSlugs,
-  readInjectedBlock,
-} from "./v2/injected-block-slugs.js";
-import {
   forkEverInjected,
   MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
   seedEverInjectedFromSlugs,
 } from "./v3/ever-injected-store.js";
+import {
+  extractInjectedConceptSlugs,
+  readInjectedBlock,
+} from "./v3/substrate/injected-block-slugs.js";
 
 /** Inputs to {@link forkConversationMemory}. */
 export interface ForkConversationMemoryInput {

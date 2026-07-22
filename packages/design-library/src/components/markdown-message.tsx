@@ -144,8 +144,8 @@ function CodeBlockWrapper({ children }: { children: ReactNode }) {
       )}
       <pre
         ref={preRef}
-        className="overflow-x-auto p-3"
-        style={{ maxHeight: MAX_CODE_BLOCK_HEIGHT, overflowY: "auto" }}
+        className="overflow-auto p-3"
+        style={{ maxHeight: MAX_CODE_BLOCK_HEIGHT }}
       >
         {children}
       </pre>
@@ -352,7 +352,8 @@ function buildMarkdownComponents(
         return (
           <code
             className={cn(
-              "block overflow-x-auto font-mono text-body-small-default",
+              // w-max min-w-full keeps the <pre>'s right padding visible when scrolled horizontally.
+              "block w-max min-w-full font-mono text-body-small-default",
               className,
             )}
             {...props}

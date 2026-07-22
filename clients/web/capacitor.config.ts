@@ -10,12 +10,43 @@ import type { CapacitorConfig } from "@capacitor/cli";
 // and bounces non-prod shells off their own host.
 const env = process.env.VELLUM_ENVIRONMENT ?? "dev";
 
-const SERVER_URL =
+const ENV_SERVER_URL =
   env === "production"
     ? "https://www.vellum.ai/assistant"
     : env === "staging"
       ? "https://staging-assistant.vellum.ai/assistant"
       : "https://dev-assistant.vellum.ai/assistant";
+
+// `VELLUM_SERVER_URL` points the shell at a self-hosted assistant's own HTTPS
+// origin, taking precedence over the environment-derived Vellum Cloud URL. It
+// must parse as an `https:` URL — iOS App Transport Security requires valid TLS
+// and `server.cleartext` stays false — so an invalid value fails `cap sync`
+// loudly instead of baking a broken URL into the archived build.
+function resolveServerUrl(): string {
+  const override = process.env.VELLUM_SERVER_URL?.trim();
+  if (!override) {
+    return ENV_SERVER_URL;
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(override);
+  } catch {
+    throw new Error(
+      `VELLUM_SERVER_URL is not a valid URL: ${JSON.stringify(override)}`,
+    );
+  }
+
+  if (parsed.protocol !== "https:") {
+    throw new Error(
+      `VELLUM_SERVER_URL must use https: (got ${JSON.stringify(override)}); iOS App Transport Security requires valid TLS.`,
+    );
+  }
+
+  return override;
+}
+
+const SERVER_URL = resolveServerUrl();
 
 const SCHEME_NAMES: Record<string, string> = {
   production: "App",

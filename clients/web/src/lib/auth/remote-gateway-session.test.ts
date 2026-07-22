@@ -205,7 +205,6 @@ describe("remote gateway token exchange", () => {
     setLocation("/assistant-123/assistant/pair");
 
     activateRemoteGatewaySession({
-      status: "approved",
       accessToken: "access-token",
       accessTokenExpiresAt: "2999-01-01T00:00:00.000Z",
       refreshAfter: "2999-01-01T00:00:00.000Z",
@@ -227,7 +226,6 @@ describe("remote gateway token exchange", () => {
     ) as unknown as typeof fetch;
 
     activateRemoteGatewaySession({
-      status: "approved",
       accessToken: "access-token",
       accessTokenExpiresAt: "2999-01-01T00:00:00.000Z",
       refreshAfter: "2999-01-01T00:00:00.000Z",

@@ -16,10 +16,13 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
+  closeSync,
   existsSync,
   mkdirSync,
+  openSync,
   readdirSync,
   readFileSync,
+  readSync,
   statSync,
   unlinkSync,
   writeFileSync,
@@ -271,6 +274,30 @@ export function sniffImageMimeType(bytes: Uint8Array): string | null {
 export function sniffBase64ImageMimeType(dataBase64: string): string | null {
   // 16 base64 chars decode to the 12 bytes the longest signature needs.
   return sniffImageMimeType(Buffer.from(dataBase64.slice(0, 16), "base64"));
+}
+
+/**
+ * On-disk variant of {@link sniffImageMimeType}, for file-backed attachments
+ * that are never read into memory (recordings can exceed the upload limit).
+ * Reads only the 12-byte head. Returns null when the file is unreadable or the
+ * format is unrecognized, so callers keep the declared MIME.
+ */
+export function sniffImageFileMimeType(filePath: string): string | null {
+  let fd: number;
+  try {
+    fd = openSync(filePath, "r");
+  } catch {
+    return null;
+  }
+  try {
+    const head = Buffer.alloc(12);
+    const bytesRead = readSync(fd, head, 0, 12, 0);
+    return sniffImageMimeType(head.subarray(0, bytesRead));
+  } catch {
+    return null;
+  } finally {
+    closeSync(fd);
+  }
 }
 
 const HEIF_FILENAME_RE = /\.(heic|heif)$/i;

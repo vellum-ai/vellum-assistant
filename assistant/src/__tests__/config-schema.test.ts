@@ -392,6 +392,68 @@ describe("AssistantConfigSchema", () => {
     expect(result.success).toBe(false);
   });
 
+  test("accepts the vellum and chatgpt routing identities with a routable model", () => {
+    const inProfile = AssistantConfigSchema.safeParse({
+      llm: {
+        profiles: {
+          custom: { provider: "vellum", model: "claude-opus-4-8" },
+        },
+      },
+    });
+    expect(inProfile.success).toBe(true);
+    const inCallSite = AssistantConfigSchema.safeParse({
+      llm: {
+        callSites: { mainAgent: { provider: "chatgpt", model: "gpt-5.5" } },
+      },
+    });
+    expect(inCallSite.success).toBe(true);
+  });
+
+  test("rejects routing identities with a missing or unroutable model", () => {
+    // A call-site fragment naming an identity without a model would inherit
+    // the winning profile's model, which the identity may not serve.
+    expect(
+      AssistantConfigSchema.safeParse({
+        llm: { callSites: { mainAgent: { provider: "chatgpt" } } },
+      }).success,
+    ).toBe(false);
+    expect(
+      AssistantConfigSchema.safeParse({
+        llm: { profiles: { custom: { provider: "vellum" } } },
+      }).success,
+    ).toBe(false);
+    expect(
+      AssistantConfigSchema.safeParse({
+        llm: {
+          profiles: {
+            custom: { provider: "vellum", model: "not-a-real-model" },
+          },
+        },
+      }).success,
+    ).toBe(false);
+    expect(
+      AssistantConfigSchema.safeParse({
+        llm: {
+          profiles: { custom: { provider: "chatgpt", model: "gpt-4o" } },
+        },
+      }).success,
+    ).toBe(false);
+    // Encoded routing strings are a telemetry/display codec, not a stored
+    // model id — dispatch would pass one to the upstream adapter verbatim.
+    expect(
+      AssistantConfigSchema.safeParse({
+        llm: {
+          profiles: {
+            custom: {
+              provider: "vellum",
+              model: "fireworks/accounts/fireworks/models/glm-5p2",
+            },
+          },
+        },
+      }).success,
+    ).toBe(false);
+  });
+
   test("rejects negative llm.callSites maxTokens", () => {
     const result = AssistantConfigSchema.safeParse({
       llm: { callSites: { mainAgent: { maxTokens: -100 } } },
@@ -833,6 +895,13 @@ describe("AssistantConfigSchema", () => {
         ackFirstDeltaTimeoutMs: 2500,
         ackGenerationTimeoutMs: 600,
         llmAckText: false,
+        progress: {
+          enabled: true,
+          opsThreshold: 3,
+          idleIntervalMs: 5000,
+          minGapMs: 6000,
+          generationTimeoutMs: 1500,
+        },
       },
       maxSessionDurationSeconds: 1800,
       archiveAudio: false,
