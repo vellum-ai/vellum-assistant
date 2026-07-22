@@ -75,8 +75,8 @@ function readConfig(): Record<string, unknown> {
 // When IS_PLATFORM=true, every managed-capable service defaults to "managed".
 // Without IS_PLATFORM, services split by Zod schema default: google/notion-oauth
 // resolve to "managed" (per JARVIS-966), the rest resolve to "your-own".
-// web-search is deliberately absent: provider is its only axis (migration
-// 132), so the platform context no longer injects a legacy managed mode.
+// web-search is deliberately absent: `provider` is its only axis, so the
+// platform context injects no mode for it.
 const MANAGED_SERVICES = [
   "image-generation",
   "google-oauth",
@@ -429,8 +429,7 @@ describe("GET /v1/config handler — context-default fill on raw response", () =
     >;
     const services = result["services"] as Record<string, { mode: string }>;
     expect(services["image-generation"]!.mode).toBe("your-own");
-    // web-search is no longer context-filled: migration 132 made provider
-    // its only axis, and a re-injected mode would override migrated BYOK
+    // web-search is not context-filled: a filled `mode` would override BYOK
     // configs on every load.
     expect(services["web-search"]).toBeUndefined();
     // inference.mode is a legacy backwards-compat wire field — synthesized

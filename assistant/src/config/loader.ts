@@ -139,12 +139,11 @@ export function getDeploymentContextDefaults(): Record<string, unknown> {
   if (process.env.IS_PLATFORM !== "true" && process.env.IS_PLATFORM !== "1") {
     return {};
   }
-  // Web-search carries no deployment default: migration 132 made `provider`
-  // the only axis, the schema default (`inference-provider-native`) prefers
-  // native hosted search, and the runtime falls back to the platform proxy
-  // when the model has no native search and no BYOK key is configured —
-  // which reproduces the old `mode: "managed"` platform behavior. Re-filling
-  // a legacy `mode` here would override migrated BYOK configs on every load.
+  // Web-search carries no deployment default: `provider` is its only axis,
+  // the schema default (`inference-provider-native`) prefers native hosted
+  // search, and app-executed search falls back to the platform proxy when no
+  // BYOK key is configured. Filling a `mode` here would override BYOK
+  // configs on every load.
   const managed = { mode: "managed" as const };
   return {
     // Express platform intent that hosted assistants embed via the managed
