@@ -49,6 +49,7 @@ import { installGlobalShortcuts } from "./global-shortcuts";
 import { installHotkeyHelper } from "./hotkey-helper";
 import { installHotkeysIpc } from "./hotkeys";
 import { installImageContextMenu } from "./image-context-menu";
+import { installTextContextMenu } from "./text-context-menu";
 import { installPopoutWindows } from "./popout-window";
 import { installQuickInput } from "./quick-input-window";
 import { installLocalMode, resolveCliInvocation } from "./local-mode";
@@ -491,6 +492,7 @@ app.on("web-contents-created", (_event, contents) => {
   // Right-click on an image → native "Copy Image" menu. Wired here so every
   // surface (main window, popouts, command palette, child popups) gets it.
   installImageContextMenu(contents);
+  installTextContextMenu(contents);
 
   // Mirror renderer console output (info and up) into the main log file.
   // The packaged app has no devtools, so without this the renderer's
