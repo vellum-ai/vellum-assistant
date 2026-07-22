@@ -197,7 +197,7 @@ const CREATURE_PLACEMENTS: CreaturePlacement[] = [
   { bodyShape: "star", eyeStyle: "curious", color: "yellow", size: 103, position: "-left-[28px] -top-[33px]", rotate: 180 },
   { bodyShape: "star", eyeStyle: "curious", color: "orange", size: 109, position: "left-[63%] -top-[62px] -translate-x-1/2", rotate: -8 },
   { bodyShape: "blob", eyeStyle: "grumpy", color: "green", size: 76, position: "-right-[25px] top-[60px]", rotate: 1 },
-  { bodyShape: "sprout", eyeStyle: "curious", color: "purple", size: 110, position: "-left-[39px] top-[74%]", rotate: 0 },
+  { bodyShape: "stack", eyeStyle: "gentle", color: "purple", size: 110, position: "-left-[39px] top-[74%]", rotate: 0 },
   { bodyShape: "urchin", eyeStyle: "goofy", color: "pink", size: 137, position: "-right-[42px] -bottom-[40px]", rotate: 180 },
   { bodyShape: "sprout", eyeStyle: "curious", color: "orange", size: 72, position: "left-[37%] -bottom-[22px] -translate-x-1/2", rotate: 0 },
 ];
