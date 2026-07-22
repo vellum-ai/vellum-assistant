@@ -45,8 +45,15 @@ export interface CustomPlanModalProps {
   open: boolean;
   /** Pro catalog supplying the machine/storage/credit tiers and base price. */
   proPlan: ProPlan;
-  /** A checkout is in flight — hold Continue disabled until it resolves. */
+  /** A checkout or tier change is in flight — hold Continue disabled. */
   pending: boolean;
+  /**
+   * The Pro subscriber's current storage size, when reconfiguring an existing
+   * Pro plan. Storage is upgrade-only for Pro (the change-storage-tier endpoint
+   * rejects downgrades), so tiers below this size render disabled. Leave
+   * null/undefined for the base checkout path, where every tier is selectable.
+   */
+  currentStorageGib?: number | null;
   onClose: () => void;
   onContinue: (selection: CustomPlanSelection) => void;
 }
@@ -70,6 +77,7 @@ export function CustomPlanModal({
   open,
   proPlan,
   pending,
+  currentStorageGib,
   onClose,
   onContinue,
 }: CustomPlanModalProps) {
@@ -109,7 +117,9 @@ export function CustomPlanModal({
       label: t.label,
       icon: <HardDrive className="h-4 w-4" aria-hidden />,
       suffix: priceSuffix(t.price_cents),
-      disabled: isTierDisabled(t),
+      disabled:
+        isTierDisabled(t) ||
+        (currentStorageGib != null && t.storage_gib < currentStorageGib),
     }),
   );
   const creditOptions: DropdownOption<CreditChoice>[] = [

@@ -52,6 +52,17 @@ mock.module("@/generated/api/sdk.gen", () => ({
       response: { ok: true },
     });
   },
+  // PlansPage mounts `useChangeTiers`, which reads onboarding for a Pro sub;
+  // resolve it from a fixture so the checkout tests stay hermetic.
+  organizationsBillingSubscriptionOnboardingRetrieve: () =>
+    Promise.resolve({
+      data: {
+        max_machine_tier: "medium",
+        selected_storage_tier: "xs",
+        selected_storage_gib: 10,
+      },
+      response: { ok: true },
+    }),
 }));
 
 mock.module("@/runtime/browser", () => ({

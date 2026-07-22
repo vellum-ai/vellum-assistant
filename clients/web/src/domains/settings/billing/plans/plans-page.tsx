@@ -22,6 +22,7 @@ import {
   getPlanTierCopy,
 } from "@/domains/settings/billing/plans/plans-copy";
 import { useChangePackage } from "@/domains/settings/billing/use-change-package";
+import { useChangeTiers } from "@/domains/settings/billing/use-change-tiers";
 import {
   extractMutationError,
   isPackageSwitchEligible,
@@ -127,6 +128,12 @@ export function PlansPage() {
     organizationsBillingSubscriptionUpgradeCreateMutation(),
   );
   const { changePackage, isPending: changePackagePending } = useChangePackage();
+  const {
+    changeTiers,
+    isPending: changeTiersPending,
+    current,
+    eligible,
+  } = useChangeTiers();
   const [pending, setPending] = useState(false);
   const [customPlanOpen, setCustomPlanOpen] = useState(false);
   // The package a Pro user is switching to, awaiting reconfirm; null when the
@@ -298,10 +305,34 @@ export function PlansPage() {
         credit_tier: selection.creditTier,
       });
 
+    // Active Pro orgs edit their tiers in place via the change-tier endpoints;
+    // the upgrade/checkout endpoint no-ops for an active Pro sub.
+    const applyCustomTierChange = async (selection: CustomPlanSelection) => {
+      const result = await changeTiers(selection);
+      if (!result) {
+        // The hook toasted; keep the modal open so the user can retry.
+        return;
+      }
+      setCustomPlanOpen(false);
+      if (result.needsResize) {
+        // A machine/storage change needs the assistant to provision the new
+        // ceiling — open the same in-tab resize takeover the tier-change flow uses.
+        setResizeTakeoverOpen(true);
+      } else {
+        toast.success("Plan updated.");
+      }
+    };
+
     const handleConfigure = () => {
       if (isProUser) {
-        // Same rule as the plan-card CTAs: the upgrade endpoint no-ops for an
-        // active Pro org, so plan changes go through the manage-plan modal.
+        // An eligible Pro sub reconfigures its tiers in the white modal; an
+        // ineligible one (cancelling / non-entitlement status) can't change
+        // tiers in place, so route it to the billing manage/cancel surface —
+        // the same fallback the package CTAs use.
+        if (eligible) {
+          setCustomPlanOpen(true);
+          return;
+        }
         navigate(`${routes.settings.usage}?tab=billing&adjust_plan`);
         return;
       }
@@ -391,9 +422,16 @@ export function PlansPage() {
         <CustomPlanModal
           open={customPlanOpen}
           proPlan={proPlan}
-          pending={pending}
+          pending={pending || changeTiersPending}
+          currentStorageGib={isProUser ? current.storageGib : null}
           onClose={() => setCustomPlanOpen(false)}
-          onContinue={(selection) => void startCustomCheckout(selection)}
+          onContinue={(selection) => {
+            if (isProUser) {
+              void applyCustomTierChange(selection);
+            } else {
+              void startCustomCheckout(selection);
+            }
+          }}
         />
 
         <PackageSwitchConfirmModal

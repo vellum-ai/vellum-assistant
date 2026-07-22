@@ -38,9 +38,11 @@ import * as platformGateMod from "@/hooks/use-platform-gate";
 import * as toastMod from "@vellumai/design-library/components/toast";
 import {
   organizationsBillingPlansRetrieveQueryKey,
+  organizationsBillingSubscriptionOnboardingRetrieveQueryKey,
   organizationsBillingSubscriptionRetrieveQueryKey,
 } from "@/generated/api/@tanstack/react-query.gen";
 import type {
+  OnboardingStateResponse,
   PackageChangeResponse,
   PlanListResponse,
   ProPackage,
@@ -52,7 +54,12 @@ const CHECKOUT_URL = "https://stripe.test/checkout/session";
 type Captured = { body?: unknown };
 let changePackageCall: Captured | null = null;
 let upgradeCall: Captured | null = null;
+let machineTierCall: Captured | null = null;
+let storageTierCall: Captured | null = null;
+let creditTierCall: Captured | null = null;
 let openedUrl: string | null = null;
+// When non-null, the change-machine-tier call rejects — drives the failure path.
+let machineTierError: unknown = null;
 // Success-toast messages captured from the mocked toast module — lets the
 // downgrade path assert its confirmation toast without rendering the Toaster.
 const toastSuccessCalls: string[] = [];
@@ -72,6 +79,7 @@ let changePackageError: unknown = null;
 // refetches resolve deterministically instead of hitting the network.
 let subscriptionFixture: SubscriptionResponse | null = null;
 let plansFixture: PlanListResponse | null = null;
+let onboardingFixture: OnboardingStateResponse | null = null;
 
 mock.module("@/generated/api/sdk.gen", () => ({
   ...sdkGen,
@@ -95,10 +103,27 @@ mock.module("@/generated/api/sdk.gen", () => ({
       response: { ok: true },
     });
   },
+  organizationsBillingSubscriptionChangeMachineTierCreate: (opts: Captured) => {
+    machineTierCall = opts;
+    if (machineTierError !== null) {
+      return Promise.reject(machineTierError);
+    }
+    return Promise.resolve({ data: {}, response: { ok: true } });
+  },
+  organizationsBillingSubscriptionChangeStorageTierCreate: (opts: Captured) => {
+    storageTierCall = opts;
+    return Promise.resolve({ data: {}, response: { ok: true } });
+  },
+  organizationsBillingSubscriptionChangeCreditTierCreate: (opts: Captured) => {
+    creditTierCall = opts;
+    return Promise.resolve({ data: {}, response: { ok: true } });
+  },
   organizationsBillingSubscriptionRetrieve: () =>
     Promise.resolve({ data: subscriptionFixture, response: { ok: true } }),
   organizationsBillingPlansRetrieve: () =>
     Promise.resolve({ data: plansFixture, response: { ok: true } }),
+  organizationsBillingSubscriptionOnboardingRetrieve: () =>
+    Promise.resolve({ data: onboardingFixture, response: { ok: true } }),
 }));
 
 mock.module("@/runtime/browser", () => ({
@@ -408,9 +433,31 @@ function LocationProbe() {
   return <div data-testid="loc">{location.pathname + location.search}</div>;
 }
 
-function renderInteractive(subscription: SubscriptionResponse) {
+/** Onboarding state carrying a Pro sub's current machine/storage tiers. */
+function onboarding(
+  overrides: Partial<OnboardingStateResponse> = {},
+): OnboardingStateResponse {
+  return {
+    max_machine_tier: "medium",
+    selected_storage_tier: "xs",
+    selected_storage_gib: 10,
+    pvc_ready: true,
+    domain_setup_available: false,
+    primary_assistant_id: null,
+    ...overrides,
+  };
+}
+
+function renderInteractive(
+  subscription: SubscriptionResponse,
+  {
+    plans = fullCatalog(),
+    onboardingData = onboarding(),
+  }: { plans?: PlanListResponse; onboardingData?: OnboardingStateResponse } = {},
+) {
   subscriptionFixture = subscription;
-  plansFixture = fullCatalog();
+  plansFixture = plans;
+  onboardingFixture = onboardingData;
   const client = new QueryClient({
     defaultOptions: {
       queries: {
@@ -426,7 +473,11 @@ function renderInteractive(subscription: SubscriptionResponse) {
     organizationsBillingSubscriptionRetrieveQueryKey(),
     subscription,
   );
-  client.setQueryData(organizationsBillingPlansRetrieveQueryKey(), fullCatalog());
+  client.setQueryData(organizationsBillingPlansRetrieveQueryKey(), plans);
+  client.setQueryData(
+    organizationsBillingSubscriptionOnboardingRetrieveQueryKey(),
+    onboardingData,
+  );
   return render(
     <MemoryRouter initialEntries={["/assistant/plans"]}>
       <QueryClientProvider client={client}>
@@ -440,7 +491,11 @@ function renderInteractive(subscription: SubscriptionResponse) {
 beforeEach(() => {
   changePackageCall = null;
   upgradeCall = null;
+  machineTierCall = null;
+  storageTierCall = null;
+  creditTierCall = null;
   openedUrl = null;
+  machineTierError = null;
   changePackageAutoResolve = true;
   changePackageData = {
     status: "ok",
@@ -449,6 +504,7 @@ beforeEach(() => {
   changePackageError = null;
   subscriptionFixture = null;
   plansFixture = null;
+  onboardingFixture = null;
   toastSuccessCalls.length = 0;
 });
 
@@ -621,4 +677,170 @@ describe("PlansPage — ineligible Pro subs route to manage", () => {
       expect(upgradeCall).toBeNull();
     });
   }
+});
+
+// ---------------------------------------------------------------------------
+// Pro custom plan — change-tier dispatch via the Configure modal
+// ---------------------------------------------------------------------------
+
+/** A full catalog whose Pro plan carries the tier lists the custom modal needs. */
+function customCatalog(): PlanListResponse {
+  return {
+    plans: [
+      {
+        id: "base",
+        name: "Free",
+        price_cents: 0,
+        billing_interval: "month",
+        included_features: [],
+      },
+      {
+        id: "pro",
+        name: "Pro",
+        base_lookup_key: "pro_base",
+        base_price_cents: 2000,
+        billing_interval: "month",
+        included_features: [],
+        machine_tiers: [
+          {
+            tier: "medium",
+            label: "medium",
+            price_cents: 3500,
+            lookup_key: "machine_m",
+            cpu_limit: "2.5",
+            memory_gib: 5,
+            description: "Medium machine (2.5 vCPU, 5 GiB)",
+          },
+          {
+            tier: "large",
+            label: "large",
+            price_cents: 6000,
+            lookup_key: "machine_l",
+            cpu_limit: "4",
+            memory_gib: 8,
+            description: "Large machine (4 vCPU, 8 GiB)",
+          },
+        ],
+        storage_tiers: [
+          {
+            tier: "xs",
+            label: "10 GB",
+            storage_gib: 10,
+            price_cents: 500,
+            lookup_key: "storage_10",
+            legacy: false,
+          },
+          {
+            tier: "s",
+            label: "30 GB",
+            storage_gib: 30,
+            price_cents: 1000,
+            lookup_key: "storage_30",
+            legacy: false,
+          },
+        ],
+        credit_tiers: [
+          {
+            tier: "credits_50",
+            label: "50 credits",
+            credits_usd: 50,
+            price_cents: 5000,
+            lookup_key: "credits_50",
+          },
+        ],
+        packages: [MIGHTY, SUPER, ULTRA],
+      },
+    ],
+  };
+}
+
+function openDropdown(ariaLabel: string): void {
+  const trigger = document.querySelector<HTMLButtonElement>(
+    `button[role="combobox"][aria-label="${ariaLabel}"]`,
+  );
+  if (!trigger) {
+    throw new Error(`expected a "${ariaLabel}" dropdown trigger`);
+  }
+  fireEvent.click(trigger);
+}
+
+/** Clicks the open-menu option whose text starts with `label`. */
+function selectOption(dropdownLabel: string, optionLabel: string): void {
+  openDropdown(dropdownLabel);
+  const option = Array.from(
+    document.querySelectorAll<HTMLElement>('[role="option"]'),
+  ).find((o) => (o.textContent?.trim() ?? "").startsWith(optionLabel));
+  if (!option) {
+    throw new Error(`expected option "${optionLabel}"`);
+  }
+  fireEvent.click(option);
+}
+
+function continueButton(): HTMLButtonElement {
+  const button = Array.from(
+    document.querySelectorAll<HTMLButtonElement>("button"),
+  ).find((b) => b.textContent?.trim() === "Continue");
+  if (!button) {
+    throw new Error("expected a Continue button");
+  }
+  return button;
+}
+
+describe("PlansPage — Pro custom plan (change-tier)", () => {
+  test("an eligible Pro sub's Configure opens the white modal, not adjust_plan", async () => {
+    const { findByRole, getByTestId, getByText } = renderInteractive(
+      proMightySubscription(),
+      { plans: customCatalog() },
+    );
+
+    fireEvent.click(await findByRole("button", { name: "Configure" }));
+
+    getByText("Create a custom plan");
+    expect(getByTestId("loc").textContent).toBe("/assistant/plans");
+    expect(upgradeCall).toBeNull();
+  });
+
+  test("Continue dispatches change-tier for the changed dims and opens the resize takeover", async () => {
+    // Current config is medium machine / 10 GB (xs) storage / no credits.
+    const { findByRole, findByTestId } = renderInteractive(
+      proMightySubscription(),
+      { plans: customCatalog() },
+    );
+
+    fireEvent.click(await findByRole("button", { name: "Configure" }));
+
+    selectOption("Machine size", "Large machine (4 vCPU, 8 GiB)");
+    selectOption("Storage", "10 GB");
+    selectOption("Credit bundle", "50 credits");
+    fireEvent.click(continueButton());
+
+    await waitFor(() => expect(machineTierCall).not.toBeNull());
+    expect(machineTierCall!.body).toEqual({ machine_tier: "large" });
+    expect(creditTierCall!.body).toEqual({ credit_tier: "credits_50" });
+    // Storage is unchanged, so no storage-tier request fires.
+    expect(storageTierCall).toBeNull();
+
+    // A machine change resizes the assistant, so the takeover opens; checkout
+    // (which no-ops for active Pro) is never touched.
+    await findByTestId("resize-takeover");
+    expect(upgradeCall).toBeNull();
+  });
+
+  test("an ineligible (cancelling) Pro sub's Configure routes to manage", async () => {
+    const { findByRole, getByTestId, queryByText } = renderInteractive(
+      { ...proMightySubscription(), cancel_at_period_end: true },
+      { plans: customCatalog() },
+    );
+
+    fireEvent.click(await findByRole("button", { name: "Configure" }));
+
+    await waitFor(() =>
+      expect(getByTestId("loc").textContent).toBe(
+        "/assistant/settings/usage?tab=billing&adjust_plan",
+      ),
+    );
+    expect(queryByText("Create a custom plan")).toBeNull();
+    expect(machineTierCall).toBeNull();
+    expect(upgradeCall).toBeNull();
+  });
 });
