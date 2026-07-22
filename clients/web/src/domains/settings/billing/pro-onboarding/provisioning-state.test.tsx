@@ -468,3 +468,63 @@ describe("takeover avatar", () => {
     expect(avatarQueryId).toBe("active-assistant");
   });
 });
+
+describe("ProvisioningState phase hold", () => {
+  test("keeps a phase on screen for its minimum before the next one shows", async () => {
+    const { rerender, getByText, queryByText } = renderState({
+      state: "CONFIRMING",
+      phaseMinMs: 150,
+    });
+    expect(getByText("Confirming your upgrade…")).toBeTruthy();
+
+    rerender(
+      <QueryClientProvider client={new QueryClient()}>
+        <ProvisioningState {...baseProps({ state: "DONE", phaseMinMs: 150 })} />
+      </QueryClientProvider>,
+    );
+    // Still inside CONFIRMING's window, so DONE hasn't been allowed through.
+    expect(queryByText("All done!")).toBeNull();
+
+    await waitFor(() => expect(getByText("All done!")).toBeTruthy(), {
+      timeout: 1000,
+    });
+  });
+
+  test("skips a phase that would resolve before it could be read", async () => {
+    const { rerender, getByText, queryByText } = renderState({
+      state: "CONFIRMING",
+      phaseMinMs: 150,
+    });
+
+    const advance = (state: ProvisioningStateProps["state"]) =>
+      rerender(
+        <QueryClientProvider client={new QueryClient()}>
+          <ProvisioningState {...baseProps({ state, phaseMinMs: 150 })} />
+        </QueryClientProvider>,
+      );
+
+    // WAITING and DONE both land inside CONFIRMING's window; WAITING is never
+    // readable, so it must never reach the screen.
+    advance("WAITING");
+    advance("DONE");
+    expect(queryByText("Upgrading your assistant…")).toBeNull();
+
+    await waitFor(() => expect(getByText("All done!")).toBeTruthy(), {
+      timeout: 1000,
+    });
+    expect(queryByText("Upgrading your assistant…")).toBeNull();
+  });
+
+  test("passes phases straight through when the hold is disabled", () => {
+    const { rerender, getByText } = renderState({
+      state: "CONFIRMING",
+      phaseMinMs: 0,
+    });
+    rerender(
+      <QueryClientProvider client={new QueryClient()}>
+        <ProvisioningState {...baseProps({ state: "DONE", phaseMinMs: 0 })} />
+      </QueryClientProvider>,
+    );
+    expect(getByText("All done!")).toBeTruthy();
+  });
+});

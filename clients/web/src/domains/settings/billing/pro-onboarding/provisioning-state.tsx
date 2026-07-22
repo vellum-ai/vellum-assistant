@@ -430,7 +430,7 @@ export function ProvisioningState({
   }
 
   function renderPhase() {
-    if (state === "CONFIRMING") {
+    if (heldState === "CONFIRMING") {
       return (
         <>
           <Copy
@@ -443,7 +443,7 @@ export function ProvisioningState({
       );
     }
 
-    if (state === "WAITING" || state === "RESIZING") {
+    if (heldState === "WAITING" || heldState === "RESIZING") {
       return (
         <>
           <Copy
@@ -464,7 +464,7 @@ export function ProvisioningState({
       );
     }
 
-    if (state === "DONE") {
+    if (heldState === "DONE") {
       return (
         <>
           <Copy status="All done!" />
@@ -473,11 +473,11 @@ export function ProvisioningState({
       );
     }
 
-    if (state === "NOT_APPLICABLE") {
+    if (heldState === "NOT_APPLICABLE") {
       return <Copy status="Your plan is ready" />;
     }
 
-    if (state === "STALLED") {
+    if (heldState === "STALLED") {
       return (
         <>
           <Copy
@@ -501,7 +501,7 @@ export function ProvisioningState({
       );
     }
 
-    if (state === "CONFIRM_TIMEOUT") {
+    if (heldState === "CONFIRM_TIMEOUT") {
       return (
         <>
           <Copy
