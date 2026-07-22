@@ -4,7 +4,7 @@ import { ChevronDown } from "lucide-react";
 import type { ChatHeaderSupplements } from "@/components/layout/chat-layout-slots-store";
 import { ConversationActionsMenu } from "@/domains/chat/components/conversation-actions-menu";
 import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
-import { ChannelIcon } from "@/utils/channel-presentation";
+import { ChannelIcon, getOpenInChannelLabel } from "@/utils/channel-presentation";
 import type { Conversation } from "@/types/conversation-types";
 
 interface ChatConversationHeaderProps {
@@ -50,10 +50,18 @@ export function ChatConversationHeader({
   // channels use a neutral Lucide icon from the presentation registry.
   const channelHeaderLabel = headerSupplements?.channelHeaderLabel ?? null;
   const channelHeaderChannelId = headerSupplements?.channelHeaderChannelId ?? null;
+  const channelSourceLinkHref = headerSupplements?.channelSourceLinkHref ?? null;
+  const channelSourceLink = channelSourceLinkHref
+    ? {
+        href: channelSourceLinkHref,
+        label: getOpenInChannelLabel(channelHeaderChannelId),
+      }
+    : null;
 
   return (
     <ConversationActionsMenu
       variant="header"
+      channelSourceLink={channelSourceLink}
       isPinned={isPinned}
       isArchived={isArchived}
       isReadonly={isReadonly}
