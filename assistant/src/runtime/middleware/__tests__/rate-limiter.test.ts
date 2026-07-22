@@ -9,6 +9,7 @@ import {
   ipRateLimiter,
   isRateLimitExemptEndpoint,
   loopbackApiRateLimiter,
+  refreshAuthenticatedApiRateLimit,
   selectAuthenticatedRateLimiter,
 } from "../rate-limiter.js";
 
@@ -91,9 +92,12 @@ describe("isRateLimitExemptEndpoint", () => {
 describe("authenticated API rate limit is configurable", () => {
   const configPath = join(process.env.VELLUM_WORKSPACE_DIR!, "config.json");
 
-  function setConfig(obj: unknown): void {
+  // Apply a config on disk and push it to the live limiter the same way the
+  // config watcher does on a config.json change.
+  function applyConfig(obj: unknown): void {
     writeFileSync(configPath, JSON.stringify(obj));
     invalidateConfigCache();
+    refreshAuthenticatedApiRateLimit();
   }
 
   function clearConfig(): void {
@@ -101,6 +105,7 @@ describe("authenticated API rate limit is configurable", () => {
       rmSync(configPath);
     }
     invalidateConfigCache();
+    refreshAuthenticatedApiRateLimit();
   }
 
   afterEach(() => {
@@ -109,20 +114,19 @@ describe("authenticated API rate limit is configurable", () => {
 
   test("defaults the authenticated remote budget to 300 when unset", () => {
     clearConfig();
-    const result = apiRateLimiter.check("cfg-default-key", "/v1/test");
-    expect(result.limit).toBe(300);
+    expect(apiRateLimiter.check("cfg-default-key", "/v1/test").limit).toBe(300);
   });
 
-  test("reads the budget from apiRateLimit config on each check (no restart)", () => {
+  test("applies the apiRateLimit override on config reload (no restart)", () => {
     clearConfig();
-    expect(apiRateLimiter.check("cfg-dynamic-1", "/v1/test").limit).toBe(300);
+    expect(apiRateLimiter.check("cfg-reload-1", "/v1/test").limit).toBe(300);
 
-    setConfig({ apiRateLimit: { authenticatedMaxRequestsPerMinute: 500 } });
-    expect(apiRateLimiter.check("cfg-dynamic-2", "/v1/test").limit).toBe(500);
+    applyConfig({ apiRateLimit: { authenticatedMaxRequestsPerMinute: 500 } });
+    expect(apiRateLimiter.check("cfg-reload-2", "/v1/test").limit).toBe(500);
   });
 
   test("override leaves the loopback and unauthenticated budgets unchanged", () => {
-    setConfig({ apiRateLimit: { authenticatedMaxRequestsPerMinute: 750 } });
+    applyConfig({ apiRateLimit: { authenticatedMaxRequestsPerMinute: 750 } });
     expect(apiRateLimiter.check("cfg-auth-key", "/v1/test").limit).toBe(750);
     // Loopback (1200) and unauthenticated (20) budgets are fixed.
     expect(

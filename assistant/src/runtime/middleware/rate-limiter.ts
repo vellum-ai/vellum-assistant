@@ -34,24 +34,30 @@ interface RequestEntry {
 
 class TokenRateLimiter {
   private requests = new Map<string, RequestEntry[]>();
-  private readonly resolveMaxRequests: () => number;
+  private maxRequests: number;
   private readonly windowMs: number;
   private readonly maxTrackedKeys: number;
 
   /**
-   * `maxRequests` may be a fixed number or a resolver called on every check,
-   * so the budget can track workspace configuration (and config reloads)
-   * without recreating the limiter and losing its in-window history.
+   * The budget is resolved once and stored, not read per check — a config
+   * edit is pushed in via `setMaxRequests()` (see the config watcher) rather
+   * than doing config-loader work on the per-request hot path. When
+   * `maxRequests` is omitted, the authenticated-remote budget is read from
+   * workspace configuration.
    */
   constructor(
-    maxRequests: number | (() => number) = DEFAULT_MAX_REQUESTS,
+    maxRequests?: number,
     windowMs = DEFAULT_WINDOW_MS,
     maxTrackedKeys = MAX_TRACKED_TOKENS,
   ) {
-    this.resolveMaxRequests =
-      typeof maxRequests === "function" ? maxRequests : () => maxRequests;
+    this.maxRequests = maxRequests ?? resolveAuthenticatedApiMaxRequests();
     this.windowMs = windowMs;
     this.maxTrackedKeys = maxTrackedKeys;
+  }
+
+  /** Update the per-minute budget in place (e.g. after a config reload). */
+  setMaxRequests(maxRequests: number): void {
+    this.maxRequests = maxRequests;
   }
 
   /**
@@ -60,7 +66,7 @@ class TokenRateLimiter {
    */
   check(key: string, path?: string): RateLimitResult {
     const now = Date.now();
-    const maxRequests = this.resolveMaxRequests();
+    const maxRequests = this.maxRequests;
     let entries = this.requests.get(key);
 
     if (!entries) {
@@ -204,7 +210,7 @@ export function rateLimitResponse(
  * Resolve the per-minute budget for authenticated remote (non-loopback)
  * clients from workspace configuration, falling back to the built-in default
  * if the config is unavailable (e.g. read before the workspace is ready).
- * Uses the read-only accessor so a rate-limit check never writes to disk.
+ * Uses the read-only accessor so no config read ever writes to disk.
  */
 function resolveAuthenticatedApiMaxRequests(): number {
   try {
@@ -216,12 +222,21 @@ function resolveAuthenticatedApiMaxRequests(): number {
 
 /**
  * Singleton rate limiter for authenticated /v1/* requests (per-client-IP).
- * Its budget is read from `apiRateLimit.authenticatedMaxRequestsPerMinute` on
- * every check, so a config edit takes effect without a restart.
+ * Its budget is seeded from `apiRateLimit.authenticatedMaxRequestsPerMinute`
+ * at construction and updated in place on config reload via
+ * `refreshAuthenticatedApiRateLimit()`, keeping config-loader work off the
+ * per-request path.
  */
-export const apiRateLimiter = new TokenRateLimiter(
-  resolveAuthenticatedApiMaxRequests,
-);
+export const apiRateLimiter = new TokenRateLimiter();
+
+/**
+ * Re-read the authenticated remote budget from workspace configuration and
+ * apply it to the live limiter. Invoked by the config watcher after a
+ * `config.json` change so the new budget takes effect without a restart.
+ */
+export function refreshAuthenticatedApiRateLimit(): void {
+  apiRateLimiter.setMaxRequests(resolveAuthenticatedApiMaxRequests());
+}
 
 /**
  * Singleton rate limiter for authenticated requests from loopback clients.
