@@ -1,3 +1,11 @@
+import type {
+  RemoteWebPairingChallengeRequest,
+  RemoteWebPairingChallengeResponse,
+  RemoteWebPairingTokenApprovedResponse,
+  RemoteWebPairingTokenPendingResponse,
+  RemoteWebPairingTokenRequest,
+} from "@vellumai/service-contracts/remote-web-pairing";
+
 import {
   getGatewayToken,
   setRemoteGatewayToken,
@@ -32,33 +40,21 @@ export interface RemoteWebPairingParams {
   userCode: string | null;
 }
 
-export interface RemoteWebPairingChallenge {
-  deviceCode: string;
-  userCode: string;
-  verificationUri: string;
-  expiresAt: string;
-  expiresInSeconds: number;
-  intervalSeconds: number;
-}
-
-export interface RemoteWebPairingPending {
-  status: "pending";
-  expiresAt: string;
-  intervalSeconds: number;
-}
-
-export interface RemoteWebPairingApproved {
-  status: "approved";
+/**
+ * Credential fields {@link activateRemoteGatewaySession} consumes. Broader than
+ * the pairing-token approved response because the same activation path also
+ * handles the `/v1/guardian/refresh` rotation body, which serializes the two
+ * instants as epoch-millisecond numbers — hence both accept `string | number`.
+ */
+interface RemoteGatewaySessionCredentials {
   accessToken: string;
   accessTokenExpiresAt: string | number;
   refreshAfter: string | number;
-  guardianId?: string;
-  assistantId?: string;
 }
 
 export type RemoteWebPairingTokenResult =
-  | RemoteWebPairingPending
-  | RemoteWebPairingApproved;
+  | RemoteWebPairingTokenPendingResponse
+  | RemoteWebPairingTokenApprovedResponse;
 
 export class RemoteWebPairingError extends Error {
   readonly status: number;
@@ -146,8 +142,10 @@ function shouldRefreshRemoteGatewaySession(): boolean {
   return Date.now() >= remoteGatewayRefreshAfterMs - REFRESH_EARLY_MS;
 }
 
-function isApprovedPayload(value: unknown): value is RemoteWebPairingApproved {
-  const payload = value as Partial<RemoteWebPairingApproved>;
+function isApprovedPayload(
+  value: unknown,
+): value is RemoteWebPairingTokenApprovedResponse {
+  const payload = value as Partial<RemoteWebPairingTokenApprovedResponse>;
   return (
     payload?.status === "approved" &&
     typeof payload.accessToken === "string" &&
@@ -160,8 +158,8 @@ function isApprovedPayload(value: unknown): value is RemoteWebPairingApproved {
 
 function isChallengePayload(
   value: unknown,
-): value is RemoteWebPairingChallenge {
-  const payload = value as Partial<RemoteWebPairingChallenge>;
+): value is RemoteWebPairingChallengeResponse {
+  const payload = value as Partial<RemoteWebPairingChallengeResponse>;
   return (
     typeof payload?.deviceCode === "string" &&
     typeof payload.userCode === "string" &&
@@ -247,7 +245,7 @@ async function withRefreshLock<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 export function activateRemoteGatewaySession(
-  session: RemoteWebPairingApproved,
+  session: RemoteGatewaySessionCredentials,
 ): void {
   remoteGatewayRefreshAfterMs = toEpochMilliseconds(session.refreshAfter);
   setRemoteGatewayToken({
@@ -268,7 +266,7 @@ export async function exchangeRemoteWebPairingToken(
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ deviceCode }),
+    body: JSON.stringify({ deviceCode } satisfies RemoteWebPairingTokenRequest),
     signal,
   });
   // A non-JSON body (e.g. an HTML error page) resolves to null and falls
@@ -276,7 +274,8 @@ export async function exchangeRemoteWebPairingToken(
   const body = (await response.json().catch(() => null)) as unknown;
 
   if (response.status === 202) {
-    const pending = (body ?? {}) as Partial<RemoteWebPairingPending>;
+    const pending = (body ??
+      {}) as Partial<RemoteWebPairingTokenPendingResponse>;
     return {
       status: "pending",
       expiresAt: typeof pending.expiresAt === "string" ? pending.expiresAt : "",
@@ -308,12 +307,14 @@ export async function exchangeRemoteWebPairingToken(
 
 export async function createRemoteWebPairingChallenge(
   signal?: AbortSignal,
-): Promise<RemoteWebPairingChallenge> {
+): Promise<RemoteWebPairingChallengeResponse> {
   const response = await fetch(remoteGatewayApiPath(PAIRING_CHALLENGE_PATH), {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ publicBaseUrl: remoteGatewayPublicBaseUrl() }),
+    body: JSON.stringify({
+      publicBaseUrl: remoteGatewayPublicBaseUrl(),
+    } satisfies RemoteWebPairingChallengeRequest),
     signal,
   });
   const body = (await response.json().catch(() => null)) as unknown;
@@ -351,9 +352,9 @@ async function refreshRemoteGatewaySessionOnce(): Promise<boolean> {
     return false;
   }
   activateRemoteGatewaySession({
-    ...(body as Omit<RemoteWebPairingApproved, "status">),
+    ...(body as Omit<RemoteWebPairingTokenApprovedResponse, "status">),
     status: "approved",
-  });
+  } as RemoteGatewaySessionCredentials);
   return true;
 }
 

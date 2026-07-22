@@ -17,6 +17,13 @@ import { nanoid } from "nanoid";
 // error-correction level off `this`, so a destructured import renders nothing.
 import qrcodeTerminal from "qrcode-terminal";
 
+import type {
+  RemoteWebPairingChallengeRequest,
+  RemoteWebPairingChallengeResponse,
+  RemoteWebPairingVerificationRequest,
+  RemoteWebPairingVerificationResponse,
+} from "@vellumai/service-contracts/remote-web-pairing";
+
 import { extractFlag } from "../lib/arg-utils.js";
 import { parseAssistantTargetArg } from "../lib/assistant-target-args.js";
 import {
@@ -141,20 +148,6 @@ interface PairResponse {
   refreshAfter?: string;
 }
 
-interface RemoteWebPairingChallengeResponse {
-  deviceCode: string;
-  userCode: string;
-  verificationUri: string;
-  expiresAt: string;
-  expiresInSeconds: number;
-}
-
-interface RemoteWebPairingApprovalResponse {
-  status: "approved";
-  verificationUri: string;
-  expiresAt: string;
-}
-
 function normalizePublicBaseUrl(value: string): string {
   const url = new URL(value);
   url.search = "";
@@ -274,7 +267,7 @@ async function createRemoteWebPairingChallenge(
   const response = await gatewayPostOrExit(
     gatewayUrl,
     "/v1/remote-web/pairing-challenge",
-    { publicBaseUrl },
+    { publicBaseUrl } satisfies RemoteWebPairingChallengeRequest,
   );
   return (await response.json()) as RemoteWebPairingChallengeResponse;
 }
@@ -287,13 +280,13 @@ async function createRemoteWebPairingChallenge(
 async function approveRemoteWebPairing(
   gatewayUrl: string,
   userCode: string,
-): Promise<RemoteWebPairingApprovalResponse> {
+): Promise<RemoteWebPairingVerificationResponse> {
   const response = await gatewayPostOrExit(
     gatewayUrl,
     "/v1/remote-web/pairing-verification",
-    { userCode },
+    { userCode } satisfies RemoteWebPairingVerificationRequest,
   );
-  return (await response.json()) as RemoteWebPairingApprovalResponse;
+  return (await response.json()) as RemoteWebPairingVerificationResponse;
 }
 
 async function assertWebRemoteIngressEnabled(

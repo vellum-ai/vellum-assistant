@@ -67,6 +67,8 @@ const APPROVED_RESULT: RemoteWebPairingTokenResult = {
   accessToken: "access-token",
   accessTokenExpiresAt: "2999-01-01T00:00:00.000Z",
   refreshAfter: "2999-01-01T00:00:00.000Z",
+  guardianId: "guardian-1",
+  assistantId: "assistant-1",
 };
 
 class MockRemoteWebPairingError extends Error {
