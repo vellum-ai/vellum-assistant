@@ -261,9 +261,11 @@ export function isSensitiveTool(
 
   // An inline-command ("dynamic") skill_load executes embedded shell at load
   // time. skill_load is not a side-effect tool, so without this it would skip
-  // the capability floor entirely — routing it through the gate makes a
+  // the capability floor entirely. Routing it through the gate makes a
   // non-guardian's dynamic load escalate to the guardian like any other code
-  // execution, and no threshold (including Full access) can lift that floor.
+  // execution — the floor is deterministic, so neither Full access nor a
+  // covering trust rule lifts it. (The guardian self-approves; the trust-rule
+  // escape hatch still applies to the guardian's own load in the risk lane.)
   if (
     toolName === "skill_load" &&
     input &&
