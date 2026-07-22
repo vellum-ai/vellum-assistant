@@ -278,7 +278,7 @@ describe("BillingOnboardingModal", () => {
     // Wait for the pre-resize actuals to land (the "from" card) before
     // mutating: an invalidate that races the initial actuals fetch is
     // swallowed, leaving the update to the next 2s poll.
-    await waitFor(() => expect(getByText("10 GiB")).toBeTruthy(), {
+    await waitFor(() => expect(getByText("10 GB")).toBeTruthy(), {
       timeout: 5000,
     });
 
@@ -309,7 +309,7 @@ describe("BillingOnboardingModal", () => {
     // Wait for the pre-resize actuals to land (the "from" card) before
     // mutating: an invalidate that races the initial actuals fetch is
     // swallowed, leaving the update to the next 2s poll.
-    await waitFor(() => expect(getByText("10 GiB")).toBeTruthy(), {
+    await waitFor(() => expect(getByText("10 GB")).toBeTruthy(), {
       timeout: 5000,
     });
 
@@ -365,6 +365,8 @@ describe("BillingOnboardingModal", () => {
     const takeover = document.body.querySelector('[data-slot="modal-content"]');
     expect(takeover?.getAttribute("data-theme")).toBe("dark");
     expect(takeover?.className).toContain("w-screen");
+    // The takeover renders no persistent close button — exits live in the step.
+    expect(document.body.querySelector('[aria-label="Close"]')).toBeNull();
 
     // Domain step: standard card — no dark theme, no full-bleed sizing.
     await waitFor(() => expect(getByText("Assistant Email")).toBeTruthy(), {
@@ -374,6 +376,91 @@ describe("BillingOnboardingModal", () => {
     expect(card?.getAttribute("data-theme")).toBeNull();
     expect(card?.className).not.toContain("w-screen");
   });
+
+  test(
+    "a terminal takeover stays dismissable via the backdrop when routing is still resolving",
+    async () => {
+      // DONE lands from the reconcile verdict while the onboarding refetch is
+      // held open: routing never settles, so the celebration auto-advance can't
+      // fire. The backdrop must still dismiss — otherwise the user is stranded.
+      onboardingHold = new Promise(() => {});
+      subscriptionPlanId = "pro";
+      ensureResponse = makeEnsureResponse("already_done");
+      const { getByText, onClose } = renderModal();
+
+      await waitFor(() => expect(getByText("All done!")).toBeTruthy(), {
+        timeout: 5000,
+      });
+      // The X stays hidden throughout — the exit is the backdrop, not a button.
+      expect(document.body.querySelector('[aria-label="Close"]')).toBeNull();
+
+      const overlay = document.body.querySelector('[data-slot="modal-overlay"]');
+      expect(overlay).not.toBeNull();
+      fireEvent.click(overlay as Element);
+      expect(onClose).toHaveBeenCalled();
+    },
+    20_000,
+  );
+
+  test("an active provisioning takeover stays locked against backdrop dismissal", async () => {
+    subscriptionPlanId = "pro";
+    const { getByText, onClose } = renderModal();
+
+    await waitFor(
+      () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
+      { timeout: 5000 },
+    );
+
+    const overlay = document.body.querySelector('[data-slot="modal-overlay"]');
+    expect(overlay).not.toBeNull();
+    fireEvent.click(overlay as Element);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  test(
+    "a busy takeover past the escape grace with routing hung is dismissable via the backdrop",
+    async () => {
+      // The purest dead-end: an active WAITING/RESIZING takeover whose
+      // post-confirm onboarding refetch is held open, so routing never settles
+      // and the in-content escape button (gated on routing) never appears.
+      // Once the watch runs past the escape grace, the fallback background
+      // dismiss must unlock — the takeover has no persistent close control, so
+      // this fallback is what keeps the user from being stranded.
+      onboardingHold = new Promise(() => {});
+      subscriptionPlanId = "pro";
+      const { getByText, onClose } = renderModal();
+
+      await waitFor(
+        () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
+        { timeout: 5000 },
+      );
+
+      // Past the escape grace (60s) but before the stall threshold (90s):
+      // escapeEligible latches while the state stays busy, not STALLED.
+      dateNowOffsetMs = 70_000;
+
+      // The X stays hidden throughout — the fallback exit is the backdrop.
+      expect(document.body.querySelector('[aria-label="Close"]')).toBeNull();
+
+      // The 1s clock tick re-derives escapeEligible; once it lands the backdrop
+      // unlocks, so re-click until the dismiss flows through to onClose.
+      await waitFor(
+        () => {
+          const overlay = document.body.querySelector(
+            '[data-slot="modal-overlay"]',
+          );
+          expect(overlay).not.toBeNull();
+          fireEvent.click(overlay as Element);
+          expect(onClose).toHaveBeenCalled();
+        },
+        { timeout: 5000 },
+      );
+
+      // Still the busy takeover, not the stalled path (which has its own Apply).
+      expect(getByText("Upgrading your assistant…")).toBeTruthy();
+    },
+    20_000,
+  );
 
   test("stall surfaces Apply & Restart; a successful apply resumes resizing through DONE", async () => {
     subscriptionPlanId = "pro";

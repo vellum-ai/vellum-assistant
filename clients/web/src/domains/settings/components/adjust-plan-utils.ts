@@ -3,6 +3,7 @@ import type {
     CreditTierEnum,
     MachineTier,
     StorageTier,
+    SubscriptionResponse,
     SubscriptionStatusEnum,
 } from "@/generated/api/types.gen";
 import { isTierDisabled } from "./tier-picker";
@@ -19,6 +20,32 @@ export const TIER_CHANGE_ELIGIBLE_STATUSES: ReadonlySet<SubscriptionStatusEnum> 
   new Set<SubscriptionStatusEnum>(["active", "trialing", "past_due"]);
 
 /**
+ * Whether a subscription is eligible for a one-click, in-place package switch
+ * via the change-package endpoint. True only for a clean packaged Pro sub: it
+ * has a package pin, is not customized (a customized sub's tiers can diverge
+ * from the stock package, so posting the next stock key would use wrong deltas
+ * / drop custom line items), is not cancelling (a cancelling sub 409s on
+ * change-package), and sits in an entitlement-bearing status. Every other Pro
+ * state — and every base sub — falls back to the manage path.
+ *
+ * Shared by both change-package surfaces (plan-card banner, plans takeover) so
+ * the eligibility gate stays symmetric across them.
+ */
+export function isPackageSwitchEligible(
+  subscription: SubscriptionResponse,
+): boolean {
+  return (
+    subscription.plan_id !== "base" &&
+    subscription.package != null &&
+    !subscription.package.customized &&
+    subscription.cancel_at_period_end !== true &&
+    !subscription.cancel_at &&
+    subscription.status != null &&
+    TIER_CHANGE_ELIGIBLE_STATUSES.has(subscription.status)
+  );
+}
+
+/**
  * Extract a user-facing message from a subscription mutation error.
  *
  * DRF field errors arrive as `{ field_name: [message, ...] }`; we probe the
@@ -30,6 +57,7 @@ const DRF_FIELD_KEYS = [
   "machine_tier",
   "storage_tier",
   "credit_tier",
+  "package",
   "non_field_errors",
 ] as const;
 

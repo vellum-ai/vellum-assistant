@@ -129,7 +129,7 @@ export function DomainStep({
 
   return (
     <>
-      <Modal.Body className="min-h-[320px] animate-[onboarding-step-in_350ms_ease-out] space-y-5 pb-4 motion-reduce:animate-none">
+      <Modal.Body className="min-h-[320px] animate-[onboarding-step-in_350ms_ease-out] space-y-6 pb-4 motion-reduce:animate-none">
         <WizardCardHeading
           title="Assistant Email"
           subtitle="Set up an email for your assistant."
@@ -137,7 +137,7 @@ export function DomainStep({
 
         <div className="space-y-1.5">
           <div className="flex items-end gap-2">
-            <div className="flex flex-col gap-1.5">
+            <div className="flex flex-col gap-1">
               <label htmlFor="onboarding-email-prefix" className={LABEL_CLASSES}>
                 Prefix
               </label>
@@ -156,7 +156,7 @@ export function DomainStep({
             <span className="flex h-8 items-center text-[var(--content-secondary)]">
               @
             </span>
-            <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+            <div className="flex min-w-0 flex-1 flex-col gap-1">
               <label htmlFor="onboarding-email-handle" className={LABEL_CLASSES}>
                 Handle (public)
               </label>
@@ -206,12 +206,18 @@ export function DomainStep({
           )
         )}
         {!isLocked && (
-          <Notice
-            tone="neutral"
-            icon={<Info className="h-4 w-4" aria-hidden="true" />}
+          <div
+            role="status"
+            className="flex w-full items-center gap-1 rounded-lg bg-[var(--surface-active)] px-2 py-[7px]"
           >
-            You won&apos;t be able to change the handle once set.
-          </Notice>
+            <Info
+              className="h-4 w-4 shrink-0 text-[var(--content-secondary)]"
+              aria-hidden="true"
+            />
+            <span className="text-[14px] font-medium text-[var(--content-tertiary)]">
+              You won&apos;t be able to change the handle once set.
+            </span>
+          </div>
         )}
         {confirmed ? (
           <Notice tone="success">Domain set — redirecting…</Notice>

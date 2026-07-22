@@ -5,8 +5,6 @@ import {
     readCheckoutIntent,
     type CheckoutIntent,
 } from "@/lib/billing/checkout-intent";
-import { isElectron } from "@/runtime/is-electron";
-import { cn } from "@/utils/misc";
 import { Modal } from "@vellumai/design-library/components/modal";
 import { toast } from "@vellumai/design-library/components/toast";
 
@@ -120,26 +118,32 @@ export function BillingOnboardingModal({
 
   // The live provisioning takeover is the user's first real touchpoint with the
   // flow; we lock it so an accidental backdrop click or Esc can't bail them out
-  // mid-provisioning. The explicit X (shown only here) is the deliberate exit.
+  // mid-provisioning. Sanctioned exits (escape hatch, stalled apply, timeout
+  // actions) live inside the step content.
   const isTakeover = step === "provisioning" && !provisioningError;
 
-  // data-theme="dark" also themes Modal.Content's close button so it reads on
-  // the dark backdrop. In Electron the X clears the title-bar drag strip (a
-  // fixed z-100 band over the top 28px) so it stays clickable.
-  const provisioningContentClass = cn(
-    "overflow-hidden inset-0 max-w-none w-screen h-screen max-h-none rounded-none border-0",
-    "[&_[aria-label=Close]]:[-webkit-app-region:no-drag]",
-    isElectron() && "[&_[aria-label=Close]]:top-12",
-  );
+  // Lock Esc/backdrop while provisioning is active. The takeover exposes no
+  // persistent close control, so two escape valves guarantee a hung routing
+  // refetch can't strand the user: terminal ready states unlock, and a busy
+  // state stuck past the escape grace with routing still hung unlocks to a plain
+  // background-dismiss (the in-content escape hatch needs routing to have settled).
+  const stuckAwaitingRouting =
+    machineBusy && provisioning.escapeEligible && !routingSettled;
+  const lockTakeover =
+    isTakeover && !provisioningSettled && !stuckAwaitingRouting;
+
+  // Full-bleed dark content that fills the viewport for the takeover.
+  const provisioningContentClass =
+    "overflow-hidden inset-0 max-w-none w-screen h-screen max-h-none rounded-none border-0";
 
   return (
     <Modal.Root open={open} onOpenChange={(o) => { if (!o) handleClose(); }}>
       <Modal.Content
         size="md"
-        hideCloseButton={!isTakeover}
-        dismissOnOverlayClick={!isTakeover}
-        onEscapeKeyDown={isTakeover ? (e) => e.preventDefault() : undefined}
-        onInteractOutside={isTakeover ? (e) => e.preventDefault() : undefined}
+        hideCloseButton
+        dismissOnOverlayClick={!lockTakeover}
+        onEscapeKeyDown={lockTakeover ? (e) => e.preventDefault() : undefined}
+        onInteractOutside={lockTakeover ? (e) => e.preventDefault() : undefined}
         data-theme={isTakeover ? "dark" : undefined}
         overlayClassName={isTakeover ? "bg-black p-0" : undefined}
         className={isTakeover ? provisioningContentClass : "overflow-hidden"}

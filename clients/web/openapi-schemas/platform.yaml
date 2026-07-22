@@ -4651,6 +4651,56 @@ paths:
           description: ''
       x-vellum-api-clients:
       - platform
+  /v1/organizations/billing/subscription/change-package/:
+    post:
+      operationId: organizations_billing_subscription_change_package_create
+      description: 'Switch the org''s active Pro subscription to a named package (e.g.
+        mighty/super/ultra). Diffs the package''s machine, storage, credit, and base-platform-fee
+        line items against the current subscription and applies them as one or two
+        atomic Stripe updates: the machine/storage/fee items (adding, swapping, or
+        removing — including the ``vellum_pro_base`` fee) settle in a first ``Subscription.modify``
+        that bills immediately, while any included-credit bundle change settles in
+        a separate ``proration_behavior=none`` modify at the next cycle. A net price
+        increase on the primary items invoices immediately and gates on payment success
+        (HTTP 402 on a declined card, leaving the plan unchanged); a net decrease
+        nets onto the next invoice. Machines above the new package''s ceiling are
+        capped via vembda and lower ceilings grow asynchronously; PVCs are never shrunk.
+        Rejected with HTTP 409 while a cancellation is pending, and gated on the ``pro-packages``
+        flag (an unknown or gated package returns the same HTTP 400).'
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      tags:
+      - organizations
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PackageChangeRequestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PackageChangeRequestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PackageChangeRequestRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PackageChangeResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
   /v1/organizations/billing/subscription/change-storage-tier/:
     post:
       operationId: organizations_billing_subscription_change_storage_tier_create
@@ -8244,6 +8294,25 @@ components:
       - share_diagnostics_accepted_at
       - share_diagnostics_accepted_version
       - share_diagnostics_chosen
+    PackageChangeRequestRequest:
+      type: object
+      properties:
+        package:
+          type: string
+          minLength: 1
+          pattern: ^[-a-zA-Z0-9_]+$
+      required:
+      - package
+    PackageChangeResponse:
+      type: object
+      properties:
+        status:
+          $ref: '#/components/schemas/TierChangeStatusEnum'
+        package:
+          $ref: '#/components/schemas/SubscriptionPackage'
+      required:
+      - package
+      - status
     PaginatedAssistantDomainList:
       type: object
       required:

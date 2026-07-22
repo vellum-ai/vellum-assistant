@@ -9,7 +9,10 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import * as motionReact from "motion/react";
 
+import { organizationsBillingPlansRetrieveQueryKey } from "@/generated/api/@tanstack/react-query.gen";
+import type { PlanListResponse } from "@/generated/api/types.gen";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
 import type { ProvisioningStateProps } from "./provisioning-state";
@@ -30,10 +33,20 @@ mock.module("@/hooks/use-assistant-avatar", () => ({
   },
 }));
 
+// `useReducedMotion` reads a cached media-query singleton, so a per-test
+// `matchMedia` stub can't flip it. Override just that export (real `motion` /
+// `AnimatePresence` are preserved) and drive it through this toggle instead.
+let reducedMotion = false;
+mock.module("motion/react", () => ({
+  ...motionReact,
+  useReducedMotion: () => reducedMotion,
+}));
+
 const { ProvisioningState } = await import("./provisioning-state");
 
 beforeEach(() => {
   avatarQueryId = undefined;
+  reducedMotion = false;
   useResolvedAssistantsStore.setState({ activeAssistantId: null });
 });
 
@@ -60,10 +73,68 @@ function baseProps(
   };
 }
 
-function renderState(overrides: Partial<ProvisioningStateProps> = {}) {
+/** A pro catalog with a `credits_50` tier and a Mighty package that maps to it. */
+function plansResponse(): PlanListResponse {
+  return {
+    plans: [
+      {
+        id: "pro",
+        name: "Pro",
+        base_lookup_key: "pro_base",
+        base_price_cents: 2000,
+        billing_interval: "month",
+        included_features: [],
+        machine_tiers: [],
+        storage_tiers: [],
+        credit_tiers: [
+          {
+            tier: "credits_50",
+            label: "$50 credits/mo",
+            credits_usd: 50,
+            price_cents: 5000,
+            lookup_key: "credits_50_key",
+          },
+        ],
+        packages: [
+          {
+            key: "mighty",
+            name: "Mighty",
+            description: "",
+            version: 1,
+            machine_tier: null,
+            storage_tier: "xs",
+            credit_tier: "credits_50",
+            machine_size: null,
+            storage_gib: 10,
+            credits_usd: 50,
+            include_platform_fee: false,
+            base_price_cents: 4000,
+            machine_price_cents: 0,
+            storage_price_cents: 0,
+            credit_price_cents: 0,
+            total_price_cents: 4000,
+          },
+        ],
+      },
+    ],
+  };
+}
+
+/**
+ * Renders the takeover with the plan catalog seeded into the query cache so the
+ * credits hook resolves without a fetch. Pass `plans: null` to leave it
+ * unresolved (credits omitted).
+ */
+function renderState(
+  overrides: Partial<ProvisioningStateProps> = {},
+  plans: PlanListResponse | null = plansResponse(),
+) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
+  if (plans) {
+    client.setQueryData(organizationsBillingPlansRetrieveQueryKey(), plans);
+  }
   return render(
     <QueryClientProvider client={client}>
       <ProvisioningState {...baseProps(overrides)} />
@@ -88,8 +159,8 @@ describe("confirming", () => {
     expect(getByText("Mighty package")).toBeTruthy();
   });
 
-  test("renders custom-intent machine/storage chips, omitting credits when null", () => {
-    const { getByText, queryByText } = renderState({
+  test("renders custom-intent machine/storage chips, target-only with no from-arrow, omitting credits when null", () => {
+    const { getByText, queryByText, container } = renderState({
       state: "CONFIRMING",
       intent: {
         kind: "custom",
@@ -105,6 +176,8 @@ describe("confirming", () => {
     expect(getByText("Storage")).toBeTruthy();
     expect(getByText("XL")).toBeTruthy();
     expect(queryByText(/credits/)).toBeNull();
+    // CONFIRMING is target-only: no current→new arrow while actuals are unknown.
+    expect(container.querySelector(".lucide-arrow-right")).toBeNull();
   });
 
   test("renders a credits chip when the custom intent bundles credits", () => {
@@ -125,7 +198,7 @@ describe("confirming", () => {
 
 describe("waiting / resizing", () => {
   test("renders the upgrading status with machine and storage from→to chips", () => {
-    const { getByText } = renderState({
+    const { getByText, container } = renderState({
       state: "WAITING",
       targets: { machineSize: "large", storageGib: 100 },
       fromSnapshot: { machineSize: "small", storageGib: 30 },
@@ -136,8 +209,11 @@ describe("waiting / resizing", () => {
     expect(getByText("Small")).toBeTruthy();
     expect(getByText("Large")).toBeTruthy();
     expect(getByText("Storage")).toBeTruthy();
-    expect(getByText("30 GiB")).toBeTruthy();
-    expect(getByText("100 GiB")).toBeTruthy();
+    expect(getByText("30 GB")).toBeTruthy();
+    expect(getByText("100 GB")).toBeTruthy();
+    // Two changed dimensions (≤ MAX_CHIPS_IN_ROW) show together, each with a
+    // current→new arrow.
+    expect(container.querySelector(".lucide-arrow-right")).toBeTruthy();
   });
 
   test("storage-only targets render a single storage chip and no machine chip", () => {
@@ -178,6 +254,65 @@ describe("waiting / resizing", () => {
       getByText("Still working — this can take a minute or two."),
     ).toBeTruthy();
   });
+
+  test("renders a 0 → label credits chip when the catalog resolves a label", () => {
+    const { getByText } = renderState({
+      state: "WAITING",
+      intent: { kind: "package", packageKey: "mighty", savedAt: Date.now() },
+      targets: { machineSize: null, storageGib: null },
+      fromSnapshot: { machineSize: null, storageGib: null },
+    });
+
+    expect(getByText("Credits")).toBeTruthy();
+    expect(getByText("0")).toBeTruthy();
+    expect(getByText("$50 credits/mo")).toBeTruthy();
+  });
+
+  test("omits the credits chip when the catalog can't resolve a label", () => {
+    const { queryByText } = renderState(
+      {
+        state: "WAITING",
+        intent: { kind: "package", packageKey: "mighty", savedAt: Date.now() },
+        targets: { machineSize: null, storageGib: null },
+        fromSnapshot: { machineSize: null, storageGib: null },
+      },
+      null,
+    );
+
+    expect(queryByText("Credits")).toBeNull();
+  });
+
+  test("under reduced motion, machine + storage + credits all render together", () => {
+    reducedMotion = true;
+    const { getByText } = renderState({
+      state: "WAITING",
+      intent: { kind: "package", packageKey: "mighty", savedAt: Date.now() },
+      targets: { machineSize: "large", storageGib: 100 },
+      fromSnapshot: { machineSize: "small", storageGib: 30 },
+    });
+
+    expect(getByText("Machine")).toBeTruthy();
+    expect(getByText("Large")).toBeTruthy();
+    expect(getByText("Storage")).toBeTruthy();
+    expect(getByText("100 GB")).toBeTruthy();
+    expect(getByText("Credits")).toBeTruthy();
+    expect(getByText("$50 credits/mo")).toBeTruthy();
+  });
+
+  test("under full motion, three changes rotate — only the first chip renders", () => {
+    reducedMotion = false;
+    const { getByText, queryByText } = renderState({
+      state: "WAITING",
+      intent: { kind: "package", packageKey: "mighty", savedAt: Date.now() },
+      targets: { machineSize: "large", storageGib: 100 },
+      fromSnapshot: { machineSize: "small", storageGib: 30 },
+    });
+
+    // Rotation starts at the machine change; storage/credits are off-screen.
+    expect(getByText("Machine")).toBeTruthy();
+    expect(queryByText("Storage")).toBeNull();
+    expect(queryByText("Credits")).toBeNull();
+  });
 });
 
 describe("done / not_applicable", () => {
@@ -194,7 +329,7 @@ describe("done / not_applicable", () => {
 
     expect(getByText("All done!")).toBeTruthy();
     expect(getByText("Large")).toBeTruthy();
-    expect(getByText("100 GiB")).toBeTruthy();
+    expect(getByText("100 GB")).toBeTruthy();
     // The "from" side is dropped once done — only the achieved target shows.
     await waitFor(() => expect(onCelebrationEnd).toHaveBeenCalledTimes(1));
   });

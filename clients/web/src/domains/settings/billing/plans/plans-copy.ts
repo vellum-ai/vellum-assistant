@@ -54,3 +54,8 @@ export const PLAN_TIER_COPY: Record<PlanTierKey, PlanTierCopy> = {
 export function getPlanTierCopy(key: string): PlanTierCopy | undefined {
   return PLAN_TIER_COPY[key as PlanTierKey];
 }
+
+/** CTA label for a tier that sits below the user's current tier. */
+export function downgradeLabel(name: string): string {
+  return `Downgrade to ${name}`;
+}

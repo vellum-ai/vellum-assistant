@@ -1,5 +1,6 @@
 import type { LucideIcon } from "lucide-react";
-import { ArrowRight, Check, Cpu, HardDrive } from "lucide-react";
+import { ArrowRight, Check, Coins, Cpu, HardDrive } from "lucide-react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useEffect, useRef, type ReactNode } from "react";
 
 import { ChatAvatar } from "@/components/avatar/chat-avatar";
@@ -16,6 +17,12 @@ import type {
     ProvisioningStateKind,
 } from "./provisioning-machine";
 import { SERIF_HEADING_STYLE, type StalledApplyAction } from "./primitives";
+import {
+  buildResourceChanges,
+  type ResourceChangeKey,
+} from "./resource-changes";
+import { useProvisioningCredits } from "./use-provisioning-credits";
+import { useRotatingIndex } from "./use-rotating-index";
 import { extractOnboardingErrorMessage, PROVISION_MIN_DWELL_MS } from "./utils";
 
 // The mock's takeover tint, matched to the green Vellum creature. No token
@@ -24,6 +31,18 @@ const TAKEOVER_BACKGROUND = "#1D271E";
 
 const CHIP_BACKGROUND =
   "color-mix(in srgb, var(--content-emphasised) 10%, transparent)";
+
+// Above this many applicable resource changes the row rotates one chip at a
+// time instead of showing them all together. Two fit the mock's `flex-1` row
+// cleanly; a third (machine + storage + credits) is what triggers rotation.
+const MAX_CHIPS_IN_ROW = 2;
+const RESOURCE_ROTATE_MS = 2500;
+
+const RESOURCE_CHIP_ICON: Record<ResourceChangeKey, LucideIcon> = {
+  machine: Cpu,
+  storage: HardDrive,
+  credits: Coins,
+};
 
 export interface ProvisioningStateProps {
   state: ProvisioningStateKind;
@@ -66,7 +85,7 @@ function TakeoverAvatar({ assistantId }: { assistantId?: string | null }) {
         size={240}
       />
       <div
-        className="mt-1 h-4 w-40"
+        className="mt-1 h-5 w-64"
         style={{
           // Decorative avatar drop-shadow; raw rgba is conventional for a CSS shadow.
           background:
@@ -111,18 +130,20 @@ function DimensionChip({
 }) {
   return (
     <div
-      className="flex items-center gap-2.5 rounded-lg px-3 py-2"
+      className="flex flex-1 items-center gap-2 rounded-lg px-2 py-1.5"
       style={{ backgroundColor: CHIP_BACKGROUND }}
     >
-      <Icon
-        className="h-6 w-6 shrink-0 text-[var(--content-secondary)]"
-        aria-hidden="true"
-      />
-      <div className="flex flex-col text-left">
-        <span className="text-[12px] leading-tight text-[var(--content-tertiary)]">
+      <span className="flex h-6 w-6 shrink-0 items-center justify-center">
+        <Icon
+          className="h-3.5 w-3.5 text-[var(--content-tertiary)]"
+          aria-hidden="true"
+        />
+      </span>
+      <div className="flex flex-col gap-1 text-left">
+        <span className="text-[12px] font-medium leading-tight text-[var(--content-tertiary)]">
           {label}
         </span>
-        <span className="flex items-center gap-1.5 text-[14px] leading-tight text-[var(--content-emphasised)]">
+        <span className="flex items-center gap-1.5 text-[14px] font-medium leading-[18px] text-[var(--content-emphasised)]">
           {from && (
             <>
               <span>{from}</span>
@@ -158,9 +179,84 @@ function TextChip({ label }: { label: string }) {
 
 function ChipRow({ children }: { children: ReactNode }) {
   return (
-    <div className="flex flex-wrap items-center justify-center gap-2">
+    <div className="flex w-full max-w-sm flex-wrap items-stretch justify-center gap-2">
       {children}
     </div>
+  );
+}
+
+/**
+ * WAITING/RESIZING resource chips: each changed dimension as a `{current} →
+ * {new}` chip (machine/storage from `targets` + `fromSnapshot`, credits from the
+ * catalog with a fixed `0` current for the base→pro upgrade). All apply-able
+ * chips show together per the mock; once more than `MAX_CHIPS_IN_ROW` apply and
+ * motion is allowed, they rotate one at a time on a timed opacity crossfade.
+ */
+function ResourceChangeChips({
+  intent,
+  targets,
+  fromSnapshot,
+}: {
+  intent: CheckoutIntent | null;
+  targets: ProvisioningDimensions;
+  fromSnapshot: ProvisioningDimensions;
+}) {
+  const creditsLabel = useProvisioningCredits(intent);
+  const reduce = useReducedMotion();
+  const changes = buildResourceChanges({
+    targets,
+    fromSnapshot,
+    credits: creditsLabel ? { from: "0", to: creditsLabel } : null,
+  });
+  const rotating = changes.length > MAX_CHIPS_IN_ROW && !reduce;
+  const index = useRotatingIndex(changes.length, {
+    intervalMs: RESOURCE_ROTATE_MS,
+    enabled: rotating,
+  });
+
+  if (changes.length === 0) {
+    return null;
+  }
+
+  if (rotating) {
+    const change = changes[index];
+    return (
+      <ChipRow>
+        <AnimatePresence mode="popLayout" initial={false}>
+          <motion.div
+            key={change.key}
+            className="flex flex-1"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.25 }}
+          >
+            <DimensionChip
+              icon={RESOURCE_CHIP_ICON[change.key]}
+              label={change.label}
+              from={change.from}
+              to={change.to}
+              done={false}
+            />
+          </motion.div>
+        </AnimatePresence>
+      </ChipRow>
+    );
+  }
+
+  return (
+    <ChipRow>
+      {changes.map((change) => (
+        <DimensionChip
+          key={change.key}
+          icon={RESOURCE_CHIP_ICON[change.key]}
+          label={change.label}
+          from={change.from}
+          to={change.to}
+          done={false}
+        />
+      ))}
+    </ChipRow>
   );
 }
 
@@ -231,10 +327,10 @@ function TargetChips({
           label="Storage"
           from={
             !done && fromSnapshot.storageGib != null
-              ? `${fromSnapshot.storageGib} GiB`
+              ? `${fromSnapshot.storageGib} GB`
               : undefined
           }
-          to={`${targets.storageGib} GiB`}
+          to={`${targets.storageGib} GB`}
           done={done}
         />
       )}
@@ -275,11 +371,11 @@ export function ProvisioningState({
   return (
     <div
       data-theme="dark"
-      className="relative flex h-full min-h-[420px] w-full flex-col items-center justify-center gap-6 px-6 py-10 text-center"
+      className="relative flex h-full min-h-[420px] w-full flex-col items-center justify-center gap-10 px-6 py-10 text-center"
       style={{ backgroundColor: TAKEOVER_BACKGROUND }}
     >
       <TakeoverAvatar assistantId={assistantId} />
-      <div className="flex flex-col items-center gap-2 [animation:onboarding-step-in_350ms_ease-out] motion-reduce:[animation:none]">
+      <div className="flex flex-col items-center gap-8 [animation:onboarding-step-in_350ms_ease-out] motion-reduce:[animation:none]">
         {renderPhase()}
       </div>
     </div>
@@ -325,7 +421,11 @@ export function ProvisioningState({
                 : "This might take a couple seconds."
             }
           />
-          <TargetChips targets={targets} fromSnapshot={fromSnapshot} />
+          <ResourceChangeChips
+            intent={intent}
+            targets={targets}
+            fromSnapshot={fromSnapshot}
+          />
           {escapeButton()}
         </>
       );
