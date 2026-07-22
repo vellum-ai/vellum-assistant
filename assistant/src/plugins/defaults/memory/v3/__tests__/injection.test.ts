@@ -126,6 +126,10 @@ mock.module("../../../../../persistence/db-connection.js", () => ({
         ),
   getMemorySqlite: () =>
     injectionMockActive ? memorySqlite : realDbConnection.getMemorySqlite(),
+  getMemoryDb: () =>
+    injectionMockActive
+      ? drizzle(memorySqlite, { schema })
+      : realDbConnection.getMemoryDb(),
 }));
 
 // The injector reads `memory.enabled` / `memory.v3.live` / `memory.v3.spotlight`

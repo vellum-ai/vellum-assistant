@@ -55,6 +55,12 @@ mock.module("../../../../persistence/db-connection.js", () => ({
         ? memorySqlite
         : null
       : realDb.getMemorySqlite(),
+  getMemoryDb: () =>
+    storeMockActive
+      ? memoryDbAvailable
+        ? drizzle(memorySqlite, { schema })
+        : null
+      : realDb.getMemoryDb(),
 }));
 
 const {

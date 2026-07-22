@@ -215,6 +215,8 @@ mock.module("../../../../../persistence/db-connection.js", () => ({
     return testDbHandle;
   },
   getMemorySqlite: () => memorySqliteHandle,
+  getMemoryDb: () =>
+    memorySqliteHandle ? drizzle(memorySqliteHandle, { schema }) : null,
 }));
 
 // ---------------------------------------------------------------------------

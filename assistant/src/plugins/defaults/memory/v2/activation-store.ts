@@ -7,31 +7,15 @@
 // conversation copies the parent row so the child starts with the same
 // activation/everInjected snapshot.
 
-import { memorySqliteOrNull } from "../memory-db.js";
+import { eq } from "drizzle-orm";
+
+import { activationState } from "../../../../persistence/schema/index.js";
+import { memoryDbOrNull } from "../memory-db.js";
 import {
   type ActivationState,
   ActivationStateSchema,
   type EverInjectedEntry,
 } from "../v3/substrate/types.js";
-
-const UPSERT_SQL = /*sql*/ `
-  INSERT INTO activation_state
-    (conversation_id, message_id, state_json, ever_injected_json, current_turn, updated_at)
-  VALUES (?, ?, ?, ?, ?, ?)
-  ON CONFLICT(conversation_id) DO UPDATE SET
-    message_id = excluded.message_id,
-    state_json = excluded.state_json,
-    ever_injected_json = excluded.ever_injected_json,
-    current_turn = excluded.current_turn,
-    updated_at = excluded.updated_at`;
-
-interface ActivationStateRow {
-  message_id: string;
-  state_json: string;
-  ever_injected_json: string;
-  current_turn: number;
-  updated_at: number;
-}
 
 /**
  * Load the activation state for a conversation, or `null` if no row exists.
@@ -41,22 +25,27 @@ interface ActivationStateRow {
 export async function hydrate(
   conversationId: string,
 ): Promise<ActivationState | null> {
-  const raw = memorySqliteOrNull("hydrateActivationState");
-  if (!raw) return null;
-  const row = raw
-    .query(
-      /*sql*/ `SELECT message_id, state_json, ever_injected_json, current_turn, updated_at
-         FROM activation_state WHERE conversation_id = ?`,
-    )
-    .get(conversationId) as ActivationStateRow | null;
+  const mdb = memoryDbOrNull("hydrateActivationState");
+  if (!mdb) return null;
+  const row = mdb
+    .select({
+      messageId: activationState.messageId,
+      stateJson: activationState.stateJson,
+      everInjectedJson: activationState.everInjectedJson,
+      currentTurn: activationState.currentTurn,
+      updatedAt: activationState.updatedAt,
+    })
+    .from(activationState)
+    .where(eq(activationState.conversationId, conversationId))
+    .get();
   if (!row) return null;
 
   return ActivationStateSchema.parse({
-    messageId: row.message_id,
-    state: JSON.parse(row.state_json),
-    everInjected: JSON.parse(row.ever_injected_json),
-    currentTurn: row.current_turn,
-    updatedAt: row.updated_at,
+    messageId: row.messageId,
+    state: JSON.parse(row.stateJson),
+    everInjected: JSON.parse(row.everInjectedJson),
+    currentTurn: row.currentTurn,
+    updatedAt: row.updatedAt,
   });
 }
 
@@ -69,18 +58,31 @@ export async function save(
   conversationId: string,
   state: ActivationState,
 ): Promise<void> {
-  const raw = memorySqliteOrNull("saveActivationState");
-  if (!raw) return;
-  raw
-    .query(UPSERT_SQL)
-    .run(
+  const mdb = memoryDbOrNull("saveActivationState");
+  if (!mdb) return;
+  const stateJson = JSON.stringify(state.state);
+  const everInjectedJson = JSON.stringify(state.everInjected);
+  mdb
+    .insert(activationState)
+    .values({
       conversationId,
-      state.messageId,
-      JSON.stringify(state.state),
-      JSON.stringify(state.everInjected),
-      state.currentTurn,
-      state.updatedAt,
-    );
+      messageId: state.messageId,
+      stateJson,
+      everInjectedJson,
+      currentTurn: state.currentTurn,
+      updatedAt: state.updatedAt,
+    })
+    .onConflictDoUpdate({
+      target: activationState.conversationId,
+      set: {
+        messageId: state.messageId,
+        stateJson,
+        everInjectedJson,
+        currentTurn: state.currentTurn,
+        updatedAt: state.updatedAt,
+      },
+    })
+    .run();
 }
 
 /**
@@ -100,26 +102,35 @@ export function forkActivationState(
   parentConversationId: string,
   newConversationId: string,
 ): void {
-  const raw = memorySqliteOrNull("forkActivationState");
-  if (!raw) return;
-  const row = raw
-    .query(
-      /*sql*/ `SELECT message_id, state_json, ever_injected_json, current_turn, updated_at
-         FROM activation_state WHERE conversation_id = ?`,
-    )
-    .get(parentConversationId) as ActivationStateRow | null;
+  const mdb = memoryDbOrNull("forkActivationState");
+  if (!mdb) return;
+  const row = mdb
+    .select({
+      messageId: activationState.messageId,
+      stateJson: activationState.stateJson,
+      everInjectedJson: activationState.everInjectedJson,
+      currentTurn: activationState.currentTurn,
+      updatedAt: activationState.updatedAt,
+    })
+    .from(activationState)
+    .where(eq(activationState.conversationId, parentConversationId))
+    .get();
   if (!row) return;
 
-  raw
-    .query(UPSERT_SQL)
-    .run(
-      newConversationId,
-      row.message_id,
-      row.state_json,
-      row.ever_injected_json,
-      row.current_turn,
-      row.updated_at,
-    );
+  mdb
+    .insert(activationState)
+    .values({ conversationId: newConversationId, ...row })
+    .onConflictDoUpdate({
+      target: activationState.conversationId,
+      set: {
+        messageId: row.messageId,
+        stateJson: row.stateJson,
+        everInjectedJson: row.everInjectedJson,
+        currentTurn: row.currentTurn,
+        updatedAt: row.updatedAt,
+      },
+    })
+    .run();
 }
 
 /**
@@ -156,26 +167,25 @@ export function seedForkActivationState(
   inheritedSlugs: string[],
 ): void {
   if (inheritedSlugs.length === 0) return;
-  const raw = memorySqliteOrNull("seedForkActivationState");
-  if (!raw) return;
+  const mdb = memoryDbOrNull("seedForkActivationState");
+  if (!mdb) return;
 
   const everInjected: EverInjectedEntry[] = inheritedSlugs.map((slug) => ({
     slug,
     turn: 0,
   }));
-  raw
-    .query(
-      /*sql*/ `INSERT INTO activation_state
-         (conversation_id, message_id, state_json, ever_injected_json, current_turn, updated_at)
-       VALUES (?, ?, '{}', ?, 0, ?)
-       ON CONFLICT(conversation_id) DO NOTHING`,
-    )
-    .run(
-      newConversationId,
-      `${newConversationId}:turn:0`,
-      JSON.stringify(everInjected),
-      Date.now(),
-    );
+  mdb
+    .insert(activationState)
+    .values({
+      conversationId: newConversationId,
+      messageId: `${newConversationId}:turn:0`,
+      stateJson: "{}",
+      everInjectedJson: JSON.stringify(everInjected),
+      currentTurn: 0,
+      updatedAt: Date.now(),
+    })
+    .onConflictDoNothing({ target: activationState.conversationId })
+    .run();
 }
 
 /**

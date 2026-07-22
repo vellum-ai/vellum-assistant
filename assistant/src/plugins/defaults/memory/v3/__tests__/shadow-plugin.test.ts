@@ -279,6 +279,8 @@ mock.module("../../../../../persistence/db-connection.js", () => ({
   getDb: () => testDb,
   getSqliteFrom: () => testSqlite,
   getMemorySqlite: () => (memoryDbAvailable ? memorySqlite : null),
+  getMemoryDb: () =>
+    memoryDbAvailable ? drizzle(memorySqlite, { schema }) : null,
 }));
 
 mock.module("../substrate/page-index.js", () => ({
