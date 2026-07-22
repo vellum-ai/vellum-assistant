@@ -19,15 +19,14 @@
  *    and the base-user Stripe checkout path.
  */
 
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
-import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  waitFor,
+} from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter, useLocation } from "react-router";
@@ -456,7 +455,10 @@ function renderInteractive(
   {
     plans = fullCatalog(),
     onboardingData = onboarding(),
-  }: { plans?: PlanListResponse; onboardingData?: OnboardingStateResponse } = {},
+  }: {
+    plans?: PlanListResponse;
+    onboardingData?: OnboardingStateResponse;
+  } = {},
 ) {
   subscriptionFixture = subscription;
   plansFixture = plans;
@@ -521,7 +523,9 @@ describe("PlansPage — Pro package switch (change-package)", () => {
       renderInteractive(proSuperSubscription());
 
     // Click the Mighty column's downgrade CTA (below Super).
-    fireEvent.click(await findByRole("button", { name: "Downgrade to Mighty" }));
+    fireEvent.click(
+      await findByRole("button", { name: "Downgrade to Mighty" }),
+    );
 
     // The reconfirm dialog appears; confirm it.
     fireEvent.click(await findByTestId("confirm-package-switch-button"));
@@ -592,9 +596,13 @@ describe("PlansPage — Pro package switch (change-package)", () => {
 
   test("the confirm CTA is disabled while a switch is pending", async () => {
     changePackageAutoResolve = false;
-    const { findByRole, findByTestId } = renderInteractive(proSuperSubscription());
+    const { findByRole, findByTestId } = renderInteractive(
+      proSuperSubscription(),
+    );
 
-    fireEvent.click(await findByRole("button", { name: "Downgrade to Mighty" }));
+    fireEvent.click(
+      await findByRole("button", { name: "Downgrade to Mighty" }),
+    );
     const confirm = (await findByTestId(
       "confirm-package-switch-button",
     )) as HTMLButtonElement;
@@ -631,7 +639,9 @@ describe("PlansPage — Pro package switch (change-package)", () => {
       proSuperSubscription(),
     );
 
-    fireEvent.click(await findByRole("button", { name: "Downgrade to Mighty" }));
+    fireEvent.click(
+      await findByRole("button", { name: "Downgrade to Mighty" }),
+    );
     fireEvent.click(await findByTestId("confirm-package-switch-button"));
 
     await waitFor(() => expect(changePackageCall).not.toBeNull());
@@ -652,7 +662,10 @@ describe("PlansPage — Pro package switch (change-package)", () => {
 describe("PlansPage — ineligible Pro subs route to manage", () => {
   const ineligible: Array<[string, SubscriptionResponse]> = [
     ["cancelling", { ...proMightySubscription(), cancel_at_period_end: true }],
-    ["non-entitlement status", { ...proMightySubscription(), status: "unpaid" }],
+    [
+      "non-entitlement status",
+      { ...proMightySubscription(), status: "unpaid" },
+    ],
   ];
 
   for (const [label, subscription] of ineligible) {
@@ -737,13 +750,7 @@ describe("PlansPage — Custom Pro subs switch via neutral confirm", () => {
   });
 
   test("a Custom sub's Free card is a downgrade and no named card renders as current", () => {
-    const html = renderStatic(
-      {
-        ...proMightySubscription(),
-        package: { key: "mighty", name: "Mighty", version: 1, customized: true },
-      },
-      fullCatalog(),
-    );
+    const html = renderStatic(proCustomizedMightySubscription(), fullCatalog());
     // Pro → Free is always a downgrade.
     expect(html).toContain("Downgrade to Free");
     expect(html).not.toContain("Start Free");

@@ -16,7 +16,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   nextPackageUp,
   type ProPackage,
-  type TierRelation,
+  type SwitchRelation,
 } from "@/domains/settings/billing/package-types";
 import { useChangePackage } from "@/domains/settings/billing/use-change-package";
 import { PackageSwitchConfirmModal } from "@/domains/settings/billing/plans/package-switch-confirm-modal";
@@ -194,7 +194,7 @@ interface RecommendedUpgradeProps {
    * copy. A clean pin's next package is an "upgrade"; a customized or unpinned
    * (Custom) sub gets the direction-neutral "switch".
    */
-  relation: Exclude<TierRelation, "current"> | "switch";
+  relation: SwitchRelation;
   /**
    * Manage-path delegate (AdjustPlanModal). Handles a cancelling or
    * non-entitlement Pro sub that the change-package flow cannot switch, and the
@@ -496,7 +496,7 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
   // Custom Pro sub — a customized pin or an unpinned legacy sub, whose real
   // tiers can diverge from any stock package — gets the direction-neutral
   // switch, since a stock delta could misstate the change.
-  const switchRelation: Exclude<TierRelation, "current"> | "switch" =
+  const switchRelation: SwitchRelation =
     currentPlan.id === "base" ||
     (subscription.package && !subscription.package.customized)
       ? "upgrade"

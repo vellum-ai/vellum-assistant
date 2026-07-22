@@ -30,6 +30,14 @@ export function packageRank(key: string): number {
 export type TierRelation = "current" | "downgrade" | "upgrade";
 
 /**
+ * The relation a package-switch confirm expresses: any `TierRelation` except
+ * "current" (you never confirm a switch to your own tier), plus "switch" — the
+ * direction-neutral variant for a Custom sub whose real tiers can diverge from
+ * any stock package, so the change has no knowable up/down direction.
+ */
+export type SwitchRelation = Exclude<TierRelation, "current"> | "switch";
+
+/**
  * Classify a target tier relative to the user's current tier. When the current
  * tier is unknown (null, or an unrecognized key), or the target tier is
  * unrecognized, the result defaults to "upgrade", preserving base-user

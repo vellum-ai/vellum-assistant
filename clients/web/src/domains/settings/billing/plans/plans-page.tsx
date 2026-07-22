@@ -7,7 +7,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   PACKAGE_ORDER,
   type ProPackage,
-  type TierRelation,
+  type SwitchRelation,
   tierRelation,
 } from "@/domains/settings/billing/package-types";
 import { FREE_STORAGE_GIB } from "@/domains/settings/billing/plan-tier-meta";
@@ -358,14 +358,13 @@ export function PlansPage() {
     // A Custom sub (currentTierKey null) can't be ranked against the target, so
     // the confirm copy stays direction-neutral ("switch"); a clean-pinned sub
     // gets the directional up/down copy.
-    const switchRelation: Exclude<TierRelation, "current"> | "switch" =
-      switchTarget
-        ? currentTierKey === null
-          ? "switch"
-          : tierRelation(currentTierKey, switchTarget.key) === "downgrade"
-            ? "downgrade"
-            : "upgrade"
-        : "upgrade";
+    const switchRelation: SwitchRelation = switchTarget
+      ? currentTierKey === null
+        ? "switch"
+        : tierRelation(currentTierKey, switchTarget.key) === "downgrade"
+          ? "downgrade"
+          : "upgrade"
+      : "upgrade";
 
     const startCustomCheckout = (selection: CustomPlanSelection) =>
       startCheckout({

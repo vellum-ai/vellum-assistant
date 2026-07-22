@@ -79,9 +79,11 @@ export interface UseChangeTiersResult {
  * any error as a toast.
  *
  * `eligible` is true only for an active, non-cancelling Pro sub in an
- * entitlement-bearing status — the change-tier endpoints 4xx otherwise. Unlike
- * `isPackageSwitchEligible`, a customized sub is allowed: a custom tier config
- * is exactly what this flow edits.
+ * entitlement-bearing status — the change-tier endpoints 4xx otherwise. A
+ * customized sub qualifies: editing a custom tier config is exactly what this
+ * flow does. This mirrors `isPackageSwitchEligible`, which also admits
+ * customized (and unpinned) Pro subs; the difference is that this flow edits
+ * individual tiers in place, while the package switch re-pins to a named plan.
  *
  * Pass `enabled` (the caller's platform-hosted gate) to hold the org-scoped
  * reads until the page is ready; they are also gated on org-header readiness.
@@ -131,7 +133,8 @@ export function useChangeTiers({
 
   const current: CurrentTiers = {
     machineTier:
-      (onboardingQuery.data?.max_machine_tier as MachineTierEnum | null) ?? null,
+      (onboardingQuery.data?.max_machine_tier as MachineTierEnum | null) ??
+      null,
     storageTier:
       (onboardingQuery.data?.selected_storage_tier as StorageTierEnum | null) ??
       null,
@@ -272,7 +275,10 @@ export function useChangeTiers({
     if (failures.length > 0) {
       const message = failures
         .map((f) =>
-          extractMutationError(f.error, `Failed to update ${f.dimension} tier.`),
+          extractMutationError(
+            f.error,
+            `Failed to update ${f.dimension} tier.`,
+          ),
         )
         .join(" ");
       toast.error(message);

@@ -1,6 +1,6 @@
 import { AlertTriangle } from "lucide-react";
 
-import type { TierRelation } from "@/domains/settings/billing/package-types";
+import type { SwitchRelation } from "@/domains/settings/billing/package-types";
 import { downgradeLabel } from "@/domains/settings/billing/plans/plans-copy";
 import { Button } from "@vellumai/design-library/components/button";
 import { Modal } from "@vellumai/design-library/components/modal";
@@ -13,7 +13,7 @@ export interface PackageSwitchConfirmModalProps {
    * "switch" is the direction-neutral variant for a Custom sub, whose catalog
    * rank is unknown, so up-vs-down cannot be labelled.
    */
-  relation: Exclude<TierRelation, "current"> | "switch";
+  relation: SwitchRelation;
   /** Target package display name, e.g. "Mighty". */
   packageName: string;
   /** A change-package call is in flight — disable the actions. */
@@ -94,7 +94,9 @@ export function PackageSwitchConfirmModal({
             disabled={pending}
             data-testid="confirm-package-switch-button"
           >
-            {isDowngrade ? downgradeLabel(packageName) : `Switch to ${packageName}`}
+            {isDowngrade
+              ? downgradeLabel(packageName)
+              : `Switch to ${packageName}`}
           </Button>
         </Modal.Footer>
       </Modal.Content>
