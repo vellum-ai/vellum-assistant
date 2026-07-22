@@ -257,6 +257,8 @@ export interface RunNgrokTunnelOptions {
   workspaceDir?: string;
   /** Prefer nginx ingress over the gateway port when it is running. */
   preferNginxIngress?: boolean;
+  /** Lockfile entry to mirror the ingress URL onto (`ingressUrl`). */
+  assistantId?: string;
 }
 
 /**
@@ -300,7 +302,7 @@ export async function runNgrokTunnel(
   const existingUrl = await findExistingTunnel(port);
   if (existingUrl) {
     console.log(`Found existing ngrok tunnel: ${existingUrl}`);
-    saveIngressUrl(workspaceDir, existingUrl);
+    saveIngressUrl(workspaceDir, existingUrl, opts.assistantId);
     console.log("Ingress URL saved to config.");
     console.log("");
     console.log(
@@ -327,7 +329,7 @@ export async function runNgrokTunnel(
     }
     if (publicUrl) {
       console.log("\nClearing ingress URL from config...");
-      clearIngressUrl(workspaceDir);
+      clearIngressUrl(workspaceDir, opts.assistantId);
     }
   };
 
@@ -376,7 +378,7 @@ export async function runNgrokTunnel(
   console.log(`Tunnel established: ${publicUrl}`);
   console.log(`Forwarding to:     localhost:${port}`);
 
-  saveIngressUrl(workspaceDir, publicUrl);
+  saveIngressUrl(workspaceDir, publicUrl, opts.assistantId);
   console.log("Ingress URL saved to config.");
   console.log("");
   console.log("Press Ctrl+C to stop the tunnel and clear the ingress URL.");

@@ -131,6 +131,8 @@ export interface RunCloudflareTunnelOptions {
   workspaceDir?: string;
   /** Prefer nginx ingress over the gateway port when it is running. */
   preferNginxIngress?: boolean;
+  /** Lockfile entry to mirror the ingress URL onto (`ingressUrl`). */
+  assistantId?: string;
 }
 
 export async function runCloudflareTunnel(
@@ -177,7 +179,7 @@ export async function runCloudflareTunnel(
     if (!child.killed) child.kill("SIGTERM");
     if (publicUrl) {
       console.log("\nClearing ingress URL from config...");
-      clearIngressUrl(workspaceDir);
+      clearIngressUrl(workspaceDir, opts.assistantId);
     }
   };
 
@@ -199,7 +201,7 @@ export async function runCloudflareTunnel(
     // Always clear the saved ingress URL when the tunnel process ends so
     // webhook integrations don't keep hitting a dead endpoint.
     if (publicUrl !== undefined) {
-      clearIngressUrl(workspaceDir);
+      clearIngressUrl(workspaceDir, opts.assistantId);
     }
     if (code !== null && code !== 0) {
       console.error(`\ncloudflared exited with code ${code}.`);
@@ -230,7 +232,7 @@ export async function runCloudflareTunnel(
   console.log(`Forwarding to:     localhost:${port}`);
   console.log("");
 
-  saveIngressUrl(workspaceDir, publicUrl);
+  saveIngressUrl(workspaceDir, publicUrl, opts.assistantId);
   console.log("Ingress URL saved to config.");
   console.log("");
   console.log("Press Ctrl+C to stop the tunnel and clear the ingress URL.");

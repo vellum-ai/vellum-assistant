@@ -932,22 +932,26 @@ describe("pair command", () => {
     expect(fetchCalled).toBe(false);
   });
 
-  test("--qr with no --url uses the tunnel-saved ingress URL", async () => {
-    const workspaceDir = mkdtempSync(join(tmpdir(), "vellum-pair-ingress-"));
-    // Point the synthesized instance dir at an empty temp XDG root so the
-    // resolution deterministically falls through to VELLUM_WORKSPACE_DIR.
-    const xdgDir = mkdtempSync(join(tmpdir(), "vellum-pair-xdg-"));
-    process.env.XDG_DATA_HOME = xdgDir;
+  function writeLockfileWithIngress(ingressUrl: string): void {
     writeFileSync(
-      join(workspaceDir, "config.json"),
+      join(testDir, ".vellum.lock.json"),
       JSON.stringify({
-        ingress: {
-          publicBaseUrl: "https://saved.example.ts.net",
-          enabled: true,
-        },
+        assistants: [
+          {
+            assistantId: "pair-test",
+            runtimeUrl: RUNTIME_URL,
+            localUrl: LOCAL_URL,
+            cloud: "local",
+            ingressUrl,
+          },
+        ],
+        activeAssistant: "pair-test",
       }),
     );
-    process.env.VELLUM_WORKSPACE_DIR = workspaceDir;
+  }
+
+  test("--qr with no --url uses the entry's tunnel-recorded ingress URL", async () => {
+    writeLockfileWithIngress("https://saved.example.ts.net");
 
     const calls: string[] = [];
     const origFetch = globalThis.fetch;
@@ -962,7 +966,7 @@ describe("pair command", () => {
         );
       }
       if (url === `${LOCAL_URL}/v1/remote-web/pairing-challenge`) {
-        // The minted challenge must advertise the SAVED ingress URL.
+        // The minted challenge must advertise the entry's recorded URL.
         expect(JSON.parse(init?.body as string)).toEqual({
           publicBaseUrl: "https://saved.example.ts.net",
         });
@@ -1003,10 +1007,6 @@ describe("pair command", () => {
     } finally {
       logSpy.mockRestore();
       globalThis.fetch = origFetch;
-      delete process.env.VELLUM_WORKSPACE_DIR;
-      delete process.env.XDG_DATA_HOME;
-      rmSync(workspaceDir, { recursive: true, force: true });
-      rmSync(xdgDir, { recursive: true, force: true });
     }
 
     expect(calls).toContain(`${LOCAL_URL}/v1/remote-web/pairing-challenge`);
@@ -1019,22 +1019,8 @@ describe("pair command", () => {
     );
   });
 
-  test("--url beats the saved ingress URL", async () => {
-    const workspaceDir = mkdtempSync(join(tmpdir(), "vellum-pair-ingress-"));
-    // Point the synthesized instance dir at an empty temp XDG root so the
-    // resolution deterministically falls through to VELLUM_WORKSPACE_DIR.
-    const xdgDir = mkdtempSync(join(tmpdir(), "vellum-pair-xdg-"));
-    process.env.XDG_DATA_HOME = xdgDir;
-    writeFileSync(
-      join(workspaceDir, "config.json"),
-      JSON.stringify({
-        ingress: {
-          publicBaseUrl: "https://saved.example.ts.net",
-          enabled: true,
-        },
-      }),
-    );
-    process.env.VELLUM_WORKSPACE_DIR = workspaceDir;
+  test("--url beats the entry's recorded ingress URL", async () => {
+    writeLockfileWithIngress("https://saved.example.ts.net");
 
     const origFetch = globalThis.fetch;
     globalThis.fetch = (async (url: string, init?: RequestInit) => {
@@ -1094,31 +1080,13 @@ describe("pair command", () => {
     } finally {
       logSpy.mockRestore();
       globalThis.fetch = origFetch;
-      delete process.env.VELLUM_WORKSPACE_DIR;
-      delete process.env.XDG_DATA_HOME;
-      rmSync(workspaceDir, { recursive: true, force: true });
-      rmSync(xdgDir, { recursive: true, force: true });
     }
 
     expect(logs.join("\n")).not.toContain("Using saved ingress URL");
   });
 
-  test("a non-https saved ingress URL is ignored", async () => {
-    const workspaceDir = mkdtempSync(join(tmpdir(), "vellum-pair-ingress-"));
-    // Point the synthesized instance dir at an empty temp XDG root so the
-    // resolution deterministically falls through to VELLUM_WORKSPACE_DIR.
-    const xdgDir = mkdtempSync(join(tmpdir(), "vellum-pair-xdg-"));
-    process.env.XDG_DATA_HOME = xdgDir;
-    writeFileSync(
-      join(workspaceDir, "config.json"),
-      JSON.stringify({
-        ingress: {
-          publicBaseUrl: "http://insecure.example.com",
-          enabled: true,
-        },
-      }),
-    );
-    process.env.VELLUM_WORKSPACE_DIR = workspaceDir;
+  test("a non-https recorded ingress URL is ignored", async () => {
+    writeLockfileWithIngress("http://insecure.example.com");
 
     const origFetch = globalThis.fetch;
     let minted = false;
@@ -1157,35 +1125,17 @@ describe("pair command", () => {
       errSpy.mockRestore();
       exitSpy.mockRestore();
       globalThis.fetch = origFetch;
-      delete process.env.VELLUM_WORKSPACE_DIR;
-      delete process.env.XDG_DATA_HOME;
-      rmSync(workspaceDir, { recursive: true, force: true });
-      rmSync(xdgDir, { recursive: true, force: true });
     }
 
-    // The saved http URL is skipped, so --qr falls through to the (non-https)
-    // runtime URL and refuses — proving the saved value was not advertised.
+    // The recorded http URL is skipped, so --qr falls through to the
+    // (non-https) runtime URL and refuses — proving it was not advertised.
     expect(exited).toBe(true);
     expect(errors.join("\n")).toContain(RUNTIME_URL);
     expect(minted).toBe(false);
   });
 
-  test("a saved ingress URL with ingress disabled is ignored", async () => {
-    const workspaceDir = mkdtempSync(join(tmpdir(), "vellum-pair-ingress-"));
-    // Point the synthesized instance dir at an empty temp XDG root so the
-    // resolution deterministically falls through to VELLUM_WORKSPACE_DIR.
-    const xdgDir = mkdtempSync(join(tmpdir(), "vellum-pair-xdg-"));
-    process.env.XDG_DATA_HOME = xdgDir;
-    writeFileSync(
-      join(workspaceDir, "config.json"),
-      JSON.stringify({
-        ingress: {
-          publicBaseUrl: "https://saved.example.ts.net",
-          enabled: false,
-        },
-      }),
-    );
-    process.env.VELLUM_WORKSPACE_DIR = workspaceDir;
+  test("a loopback recorded ingress URL is ignored", async () => {
+    writeLockfileWithIngress("https://127.0.0.1:7840");
 
     const origFetch = globalThis.fetch;
     let minted = false;
@@ -1224,10 +1174,6 @@ describe("pair command", () => {
       errSpy.mockRestore();
       exitSpy.mockRestore();
       globalThis.fetch = origFetch;
-      delete process.env.VELLUM_WORKSPACE_DIR;
-      delete process.env.XDG_DATA_HOME;
-      rmSync(workspaceDir, { recursive: true, force: true });
-      rmSync(xdgDir, { recursive: true, force: true });
     }
 
     expect(exited).toBe(true);
