@@ -41,6 +41,18 @@ export interface CustomPlanSelection {
   creditTier: CreditTierEnum | null;
 }
 
+/**
+ * The current Pro tiers used to pre-fill the modal. Unlike a submitted
+ * selection, `machineTier` may be `null` — a package with no paid machine tier
+ * (baseline "Small" computer) has no `MachineTierEnum` to seed, so its machine
+ * dropdown starts empty and the user picks a paid tier to continue.
+ */
+export interface CustomPlanSeed {
+  machineTier: MachineTierEnum | null;
+  storageTier: StorageTierEnum;
+  creditTier: CreditTierEnum | null;
+}
+
 export interface CustomPlanModalProps {
   open: boolean;
   /** Pro catalog supplying the machine/storage/credit tiers and base price. */
@@ -58,9 +70,11 @@ export interface CustomPlanModalProps {
    * The Pro subscriber's current tiers, when reconfiguring an existing Pro
    * plan. Pre-fills every dimension so the default is a no-op and an unrelated
    * edit can't force re-picking — and dropping — a tier the user still holds.
-   * Leave null/undefined for the base checkout path, which starts empty.
+   * A null `machineTier` (baseline "Small") seeds storage/credit and leaves the
+   * machine picker empty. Leave null/undefined for base checkout, which starts
+   * every dimension empty.
    */
-  initialSelection?: CustomPlanSelection | null;
+  initialSelection?: CustomPlanSeed | null;
   onClose: () => void;
   onContinue: (selection: CustomPlanSelection) => void;
 }
@@ -102,9 +116,10 @@ export function CustomPlanModal({
       return;
     }
     // Reopening for a Pro reconfigure seeds the current tiers so the default is
-    // a no-op; base checkout passes none and leaves every dimension empty.
+    // a no-op; base checkout passes none and leaves every dimension empty. A
+    // baseline machine (null) has no tier to seed, so its picker starts empty.
     if (initialSelection) {
-      setMachineTier(initialSelection.machineTier);
+      setMachineTier(initialSelection.machineTier ?? "");
       setStorageTier(initialSelection.storageTier);
       setCreditChoice(initialSelection.creditTier ?? NO_EXTRA_CREDITS);
     }

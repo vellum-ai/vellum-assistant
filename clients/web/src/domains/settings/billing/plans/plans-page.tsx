@@ -12,6 +12,7 @@ import {
 import { FREE_STORAGE_GIB } from "@/domains/settings/billing/plan-tier-meta";
 import {
   CustomPlanModal,
+  type CustomPlanSeed,
   type CustomPlanSelection,
 } from "@/domains/settings/billing/plans/custom-plan-modal";
 import { CustomPlanRow } from "@/domains/settings/billing/plans/custom-plan-row";
@@ -157,14 +158,12 @@ export function PlansPage() {
   // edit (e.g. only the machine) doesn't force re-picking — and dropping — the
   // storage or credit the user still holds. Null for base checkout, which
   // starts every dimension empty.
-  const customInitialSelection = useMemo<CustomPlanSelection | null>(() => {
-    if (
-      !isProUser ||
-      current.machineTier == null ||
-      current.storageTier == null
-    ) {
+  const customInitialSelection = useMemo<CustomPlanSeed | null>(() => {
+    if (!isProUser || current.storageTier == null) {
       return null;
     }
+    // `machineTier` may be null for a baseline (Small) package — the modal
+    // seeds storage/credit and leaves the machine picker empty in that case.
     return {
       machineTier: current.machineTier,
       storageTier: current.storageTier,
@@ -181,9 +180,11 @@ export function PlansPage() {
     if (!isProUser || !proPlan) {
       return false;
     }
-    const machineOk = proPlan.machine_tiers.some(
-      (t) => t.tier === current.machineTier,
-    );
+    // A null baseline machine (a package with no paid machine tier) is a valid
+    // current state — represent it rather than excluding the sub from the modal.
+    const machineOk =
+      current.machineTier == null ||
+      proPlan.machine_tiers.some((t) => t.tier === current.machineTier);
     const storageOk = proPlan.storage_tiers.some(
       (t) => !t.legacy && t.tier === current.storageTier,
     );

@@ -567,6 +567,47 @@ describe("CustomPlanModal — eligible Pro subscriber", () => {
     expect(queryByTestId("resize-takeover")).toBeNull();
   });
 
+  test("a baseline (null machine) Pro sub can still open and reconfigure", () => {
+    // A package with no paid machine tier reports max_machine_tier: null. That
+    // sub must still reach the modal (not route to manage); storage/credit seed
+    // and the machine picker starts empty, so Continue waits for a machine pick.
+    const { getByRole, getByText } = renderPage(
+      proMightySubscription(),
+      onboarding({ max_machine_tier: null }),
+    );
+
+    fireEvent.click(getByRole("button", { name: "Configure" }));
+    getByText("Create a custom plan");
+    expect(continueButton().disabled).toBe(true);
+
+    const dialog = document.querySelector('[role="dialog"]');
+    const rows = Array.from(dialog?.querySelectorAll("li") ?? []).map(
+      (li) => li.textContent?.trim() ?? "",
+    );
+    // Storage and credit are seeded even though the machine is unset.
+    expect(rows).toContain("10 GB storage");
+    expect(rows).toContain("No extra credits");
+  });
+
+  test("a baseline Pro sub picking a machine dispatches the upgrade", async () => {
+    const { getByRole, findByTestId } = renderPage(
+      proMightySubscription(),
+      onboarding({ max_machine_tier: null }),
+    );
+
+    fireEvent.click(getByRole("button", { name: "Configure" }));
+    selectOption("Machine size", "Medium machine (2.5 vCPU, 5 GiB)");
+    fireEvent.click(continueButton());
+
+    await waitFor(() => expect(machineTierCall).not.toBeNull());
+    expect(machineTierCall!.body).toEqual({ machine_tier: "medium" });
+    // Storage and credit stayed at their seeded values, so neither dispatches.
+    expect(storageTierCall).toBeNull();
+    expect(creditTierCall).toBeNull();
+    // Baseline → medium is an upgrade, so the resize takeover opens.
+    await findByTestId("resize-takeover");
+  });
+
   test("Continue dispatches only the changed tiers and opens the resize takeover", async () => {
     // Current config is medium machine / 10 GB (xs) storage / no credits.
     const { getByRole, findByTestId } = renderPage(proMightySubscription());
