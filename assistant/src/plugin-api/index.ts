@@ -141,6 +141,12 @@ export type {
 // or mutate hub state are withheld — both would let a plugin drive privileged
 // host execution without the host proxies' approval gate.
 export type { PluginEventHub } from "./event-hub-facade.js";
+/**
+ * @deprecated Direct hub access is being replaced by narrower, purpose-built
+ * importable helpers (e.g. a plugin-driven publish wrapper) so plugins don't
+ * hold the general publish/subscribe surface. Avoid new usage; prefer the
+ * scoped helpers as they land.
+ */
 export { pluginAssistantEventHub as assistantEventHub } from "./event-hub-facade.js";
 export { getModelProfiles } from "./model-profiles.js";
 // Check whether a model or profile can process image input. Accepts a concrete

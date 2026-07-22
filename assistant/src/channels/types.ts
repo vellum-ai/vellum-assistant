@@ -234,13 +234,16 @@ export function isInteractiveInterface(id: InterfaceId): boolean {
  * supports all of them; the chrome-extension interface only supports
  * host_browser (via the Chrome DevTools Protocol proxy).
  */
-export type HostProxyCapability =
-  | "host_bash"
-  | "host_file"
-  | "host_cu"
-  | "host_browser"
-  | "host_app_control"
-  | "host_ui_snapshot";
+export const HOST_PROXY_CAPABILITIES = [
+  "host_bash",
+  "host_file",
+  "host_cu",
+  "host_browser",
+  "host_app_control",
+  "host_ui_snapshot",
+] as const;
+
+export type HostProxyCapability = (typeof HOST_PROXY_CAPABILITIES)[number];
 
 /**
  * Interfaces that support the full desktop host-proxy set (every
