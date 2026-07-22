@@ -254,6 +254,19 @@
       "icon": "📈"
     },
     {
+      "name": "markitdown-vellum",
+      "source": {
+        "source": "github",
+        "repo": "simensgreen/markitdown-vellum",
+        "ref": "5e5a4ecfd6c60d613778106442003a1ed302fc3c"
+      },
+      "description": "Convert workspace documents (PDF, DOCX, PPTX, XLSX, images, MSG, …) to markdown via @cognipeer/to-markdown, with Vellum vision OCR or Tesseract.",
+      "category": "productivity",
+      "homepage": "https://github.com/simensgreen/markitdown-vellum",
+      "license": "MIT",
+      "icon": "📄"
+    },
+    {
       "name": "model-router",
       "source": {
         "source": "github",
