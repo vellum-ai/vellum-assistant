@@ -102,18 +102,8 @@ REGISTERED_URL=$(echo "$WEBHOOK_INFO" | jq -r '.result.url')
 
 Compare `REGISTERED_URL` to `CALLBACK_URL`. If they don't match, the webhook was not set correctly. Retry the `setWebhook` call. **Do not report success until `getWebhookInfo` confirms the correct URL and shows no `last_error_message`.**
 
-## Step 4: Register Bot Commands
 
-```bash
-BOT_TOKEN=$(assistant credentials reveal --service telegram --field bot_token)
-curl -sf -X POST "https://api.telegram.org/bot${BOT_TOKEN}/setMyCommands" \
-  -H "Content-Type: application/json" \
-  -d '{"commands":[{"command":"new","description":"Start a new conversation"},{"command":"help","description":"Show available commands"}]}'
-```
-
-Non-critical - warn on failure but don't block setup.
-
-## Step 5: Test Your Connection
+## Step 4: Test Your Connection
 
 Now let's test the connection by verifying the user can receive your messages. This confirms everything works and links the user's Telegram identity for future message delivery.
 
@@ -123,14 +113,26 @@ Load the **guardian-verify-setup** skill:
 
 If the user explicitly wants to skip this step, proceed to Step 6, but let them know they can always verify later by saying "verify me on Telegram".
 
-## Step 6: Report Success
+## Step 5: Report Success
 
 Summarize:
 
 - Bot verified and credentials stored
 - Webhook registered and verified with Telegram (show the confirmed URL)
-- Bot commands registered: /new, /help
+- Bot commands registered: /new, /stop, /fork, /rename, /archive, /profile, /access, /help
 - Guardian identity: {verified | skipped}
+
+## Optional: Private Chat Topics (Threaded Mode)
+
+In @BotFather, enable **Topics** / Threaded Mode for the bot if the user wants separate conversations per Telegram topic in DMs.
+
+- Without Topics: behavior is unchanged (one conversation per private chat).
+- With Topics: each topic is its own Vellum conversation. Replies stay in the topic.
+- `/fork`, `/rename`, and `/archive` only work inside a topic. `/rename` is guardian-only.
+- `/archive` archives the topic's conversation in Vellum and closes (deletes) the Telegram topic. Archiving a conversation from any Vellum client also closes its Telegram topic.
+- `/profile` sets the inference profile for the current chat or topic.
+- `/access` (guardian) sets the assistant access mode (Strict, Conservative, Relaxed, Full access) for the current chat/topic.
+- Renaming a conversation in the Vellum app updates the Telegram topic name when bound.
 
 # Clearing Credentials
 

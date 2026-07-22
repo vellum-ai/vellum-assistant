@@ -151,6 +151,81 @@ describe("channel-delivery-store", () => {
     expect(r1.conversationId).not.toBe(r2.conversationId);
   });
 
+  test("same Telegram topic reuses the same conversation", () => {
+    const r1 = recordInbound("telegram", "chat-topics", "msg-1", {
+      sourceThreadId: "261685",
+    });
+    const r2 = recordInbound("telegram", "chat-topics", "msg-2", {
+      sourceThreadId: "261685",
+    });
+
+    expect(r1.conversationId).toBe(r2.conversationId);
+    expect(
+      getConversationByKey("asst:self:telegram:chat-topics:thread:261685")
+        ?.conversationId,
+    ).toBe(r1.conversationId);
+  });
+
+  test("different Telegram topics in one chat get different conversations", () => {
+    const r1 = recordInbound("telegram", "chat-topics", "msg-1", {
+      sourceThreadId: "261685",
+    });
+    const r2 = recordInbound("telegram", "chat-topics", "msg-2", {
+      sourceThreadId: "261690",
+    });
+
+    expect(r1.conversationId).not.toBe(r2.conversationId);
+    expect(
+      getConversationByKey("asst:self:telegram:chat-topics:thread:261690")
+        ?.conversationId,
+    ).toBe(r2.conversationId);
+  });
+
+  test("Telegram inbound reuses a pre-registered thread key (fork continues, no new conversation)", () => {
+    // /fork mints the conversation out-of-band and registers its thread key,
+    // mirroring handleForkTopic. The first message in the new topic must
+    // resolve to that conversation instead of spinning up a fresh one.
+    const seed = recordInbound("telegram", "chat-fork", "seed-msg");
+    const forkedConversationId = seed.conversationId;
+    setConversationKey(
+      "asst:self:telegram:chat-fork:thread:777",
+      forkedConversationId,
+    );
+
+    const inFork = recordInbound("telegram", "chat-fork", "fork-reply", {
+      sourceThreadId: "777",
+    });
+
+    expect(inFork.conversationId).toBe(forkedConversationId);
+  });
+
+  test("Telegram message without a topic uses the base (thread-less) key", () => {
+    const result = recordInbound("telegram", "chat-plain", "msg-1");
+
+    expect(
+      getConversationByKey("asst:self:telegram:chat-plain")?.conversationId,
+    ).toBe(result.conversationId);
+    expect(
+      getConversationByKey("asst:self:telegram:chat-plain:thread:261685"),
+    ).toBeNull();
+  });
+
+  test("Telegram thread scoping does not alias a pre-existing base-key conversation (no Slack-style legacy merge)", () => {
+    const base = recordInbound("telegram", "chat-topics", "base-msg");
+    const threaded = recordInbound("telegram", "chat-topics", "topic-msg", {
+      sourceThreadId: "261685",
+    });
+
+    expect(threaded.conversationId).not.toBe(base.conversationId);
+    expect(
+      getConversationByKey("asst:self:telegram:chat-topics")?.conversationId,
+    ).toBe(base.conversationId);
+    expect(
+      getConversationByKey("asst:self:telegram:chat-topics:thread:261685")
+        ?.conversationId,
+    ).toBe(threaded.conversationId);
+  });
+
   test("legacy Slack channel key with matching inbound root ts gets aliased to the threaded key", () => {
     const channelId = "C0123ABCDEF";
     const threadTs = "1710000000.000100";
@@ -1077,5 +1152,57 @@ describe("channel-delivery-store", () => {
       .where(eq(externalConversationBindings.conversationId, convId))
       .get();
     expect(remainingBinding).toBeUndefined();
+  });
+
+  test("main-chat /new (no thread) resets only the null-thread binding, keeping topic bindings", async () => {
+    const now = Date.now();
+    const db = getDb();
+    const mainConvId = "conv-main-dm";
+    const topicConvId = "conv-topic-1";
+    const chatId = "chat-topics-del";
+    const mainScopedKey = `asst:self:telegram:${chatId}`;
+    const legacyKey = `telegram:${chatId}`;
+    const topicKey = `asst:self:telegram:${chatId}:thread:555`;
+
+    for (const id of [mainConvId, topicConvId]) {
+      db.insert(conversations)
+        .values({ id, title: "test", createdAt: now, updatedAt: now })
+        .run();
+    }
+    setConversationKey(mainScopedKey, mainConvId);
+    setConversationKey(legacyKey, mainConvId);
+    setConversationKey(topicKey, topicConvId);
+    upsertBinding({
+      conversationId: mainConvId,
+      sourceChannel: "telegram",
+      externalChatId: chatId,
+    });
+    upsertBinding({
+      conversationId: topicConvId,
+      sourceChannel: "telegram",
+      externalChatId: chatId,
+      externalThreadId: "555",
+    });
+
+    const req = new Request("http://localhost/channels/conversation", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sourceChannel: "telegram",
+        conversationExternalId: chatId,
+      }),
+    });
+    const res = await handleDeleteConversation(req);
+    expect(res.status).toBe(200);
+
+    // Main-chat keys and binding are cleared...
+    expect(getConversationByKey(mainScopedKey)).toBeNull();
+    expect(getConversationByKey(legacyKey)).toBeNull();
+    expect(getBindingByChannelChat("telegram", chatId)).toBeNull();
+    // ...but the open topic's key and binding survive.
+    expect(getConversationByKey(topicKey)?.conversationId).toBe(topicConvId);
+    expect(
+      getBindingByChannelChatThread("telegram", chatId, "555")?.conversationId,
+    ).toBe(topicConvId);
   });
 });

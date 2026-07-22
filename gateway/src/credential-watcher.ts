@@ -29,8 +29,12 @@ import { getGatewaySecurityDir } from "./paths.js";
 const log = getLogger("credential-watcher");
 
 const DEBOUNCE_MS = 500;
-const MANAGED_BOOTSTRAP_POLL_MS = 1_000;
-const MANAGED_BOOTSTRAP_STEADY_POLL_MS = 30_000;
+// Adaptive poll fallback for environments where fs.watch() does not fire
+// reliably (macOS FSEvents on atomically-renamed credential files, cross-
+// container writes in managed mode). Poll fast until every configured channel
+// service is ready, then drop to a cheap steady-state cadence.
+const CREDENTIAL_POLL_MS = 1_000;
+const CREDENTIAL_STEADY_POLL_MS = 30_000;
 
 export type CredentialChangeEvent = {
   /** Map from service name to resolved credentials (null if unavailable) */
@@ -44,9 +48,9 @@ export type CredentialChangeCallback = (event: CredentialChangeEvent) => void;
 export class CredentialWatcher {
   private watchers: FSWatcher[] = [];
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
-  private managedBootstrapTimer: ReturnType<typeof setInterval> | null = null;
-  private managedBootstrapPollInFlight = false;
-  private managedBootstrapInSteadyState = false;
+  private pollTimer: ReturnType<typeof setInterval> | null = null;
+  private pollInFlight = false;
+  private pollInSteadyState = false;
   private lastConfiguredServices = new Set<string>();
   private lastReadyServices = new Set<string>();
   private lastSerialized: Map<string, string> = new Map();
@@ -85,7 +89,7 @@ export class CredentialWatcher {
     // channel listeners restart even when the plaintext values match.
     this.startWatcher(protectedDir, "keys.enc", { forceChanged: true });
 
-    this.startManagedBootstrapRetry();
+    this.startPollFallback();
   }
 
   private startWatcher(
@@ -127,12 +131,12 @@ export class CredentialWatcher {
       clearTimeout(this.debounceTimer);
       this.debounceTimer = null;
     }
-    if (this.managedBootstrapTimer) {
-      clearInterval(this.managedBootstrapTimer);
-      this.managedBootstrapTimer = null;
+    if (this.pollTimer) {
+      clearInterval(this.pollTimer);
+      this.pollTimer = null;
     }
-    this.managedBootstrapPollInFlight = false;
-    this.managedBootstrapInSteadyState = false;
+    this.pollInFlight = false;
+    this.pollInSteadyState = false;
     this.pendingPoll = false;
     for (const watcher of this.watchers) {
       watcher.close();
@@ -140,36 +144,51 @@ export class CredentialWatcher {
     this.watchers = [];
   }
 
-  private startManagedBootstrapRetry(): void {
+  /**
+   * Adaptive poll fallback backing up the fs.watch subscriptions. Runs in
+   * every mode: local (file store or CES socket) relies on it because macOS
+   * FSEvents miss atomic-rename credential writes, and managed mode relies on
+   * it because container writes don't propagate across the fs.watch boundary.
+   */
+  private startPollFallback(): void {
     const baseUrl = process.env.CES_CREDENTIAL_URL?.trim();
     const serviceToken = process.env.CES_SERVICE_TOKEN?.trim();
-    if (!baseUrl || !serviceToken) return;
+    // In managed mode, gate the poll on CES HTTP reachability so we don't read
+    // a not-yet-bootstrapped store; local mode reads directly.
+    const cesGate = baseUrl && serviceToken ? { baseUrl, serviceToken } : null;
 
-    const poll = (): void => {
-      void this.pollManagedBootstrap(baseUrl, serviceToken);
-    };
-
-    this.managedBootstrapTimer = setInterval(poll, MANAGED_BOOTSTRAP_POLL_MS);
-    this.managedBootstrapTimer.unref?.();
-    poll();
+    this.pollTimer = setInterval(() => {
+      void this.pollFallback(cesGate);
+    }, CREDENTIAL_POLL_MS);
+    this.pollTimer.unref?.();
+    void this.pollFallback(cesGate);
   }
 
-  private async pollManagedBootstrap(
-    baseUrl: string,
-    serviceToken: string,
-  ): Promise<void> {
-    if (this.managedBootstrapPollInFlight) return;
-    this.managedBootstrapPollInFlight = true;
-    try {
-      const client = createCesHttpCredentialClient(
-        { baseUrl, serviceToken },
-        log,
-      );
-      const listResult = await client.list();
+  private restartPollTimer(
+    intervalMs: number,
+    cesGate: { baseUrl: string; serviceToken: string } | null,
+  ): void {
+    if (!this.pollTimer) return;
+    clearInterval(this.pollTimer);
+    this.pollTimer = setInterval(() => {
+      void this.pollFallback(cesGate);
+    }, intervalMs);
+    this.pollTimer.unref?.();
+  }
 
-      if (listResult.unreachable) {
-        // CES isn't reachable yet. Keep retrying.
-        return;
+  private async pollFallback(
+    cesGate: { baseUrl: string; serviceToken: string } | null,
+  ): Promise<void> {
+    if (this.pollInFlight) return;
+    this.pollInFlight = true;
+    try {
+      if (cesGate) {
+        const client = createCesHttpCredentialClient(cesGate, log);
+        const listResult = await client.list();
+        if (listResult.unreachable) {
+          // CES isn't reachable yet. Keep fast-retrying.
+          return;
+        }
       }
 
       await this.pollOnce();
@@ -178,34 +197,21 @@ export class CredentialWatcher {
         this.lastConfiguredServices.size > 0 &&
         this.allConfiguredServicesReady();
 
-      if (ready && !this.managedBootstrapInSteadyState) {
-        // All configured channel services have their credentials loaded.
-        // Switch to a slower steady-state poll as a resilient fallback for
-        // environments where fs.watch() doesn't propagate across containers.
-        if (this.managedBootstrapTimer) {
-          clearInterval(this.managedBootstrapTimer);
-          this.managedBootstrapTimer = setInterval(() => {
-            void this.pollManagedBootstrap(baseUrl, serviceToken);
-          }, MANAGED_BOOTSTRAP_STEADY_POLL_MS);
-          this.managedBootstrapTimer.unref?.();
-        }
-        this.managedBootstrapInSteadyState = true;
-      } else if (!ready && this.managedBootstrapInSteadyState) {
+      if (ready && !this.pollInSteadyState) {
+        // Every configured channel service is loaded — drop to the cheap
+        // steady-state cadence.
+        this.restartPollTimer(CREDENTIAL_STEADY_POLL_MS, cesGate);
+        this.pollInSteadyState = true;
+      } else if (!ready && this.pollInSteadyState) {
         // A configured service lost its credentials — revert to fast polling
-        // so we pick up restored credentials quickly.
-        if (this.managedBootstrapTimer) {
-          clearInterval(this.managedBootstrapTimer);
-          this.managedBootstrapTimer = setInterval(() => {
-            void this.pollManagedBootstrap(baseUrl, serviceToken);
-          }, MANAGED_BOOTSTRAP_POLL_MS);
-          this.managedBootstrapTimer.unref?.();
-        }
-        this.managedBootstrapInSteadyState = false;
+        // so restored credentials are picked up quickly.
+        this.restartPollTimer(CREDENTIAL_POLL_MS, cesGate);
+        this.pollInSteadyState = false;
       }
     } catch {
-      // CES isn't reachable yet. Keep retrying until the sidecar is ready.
+      // Transient read/reachability failure — keep retrying.
     } finally {
-      this.managedBootstrapPollInFlight = false;
+      this.pollInFlight = false;
     }
   }
 

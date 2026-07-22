@@ -15,6 +15,11 @@ const handleInboundMock = mock(
     Promise.resolve({ forwarded: true, rejected: false }),
 );
 const resetConversationMock = mock(() => Promise.resolve());
+const createTelegramVerificationThreadMock = mock(
+  (_config: GatewayConfig, _chatId: string): Promise<string | undefined> =>
+    Promise.resolve(undefined),
+);
+const resolveGuardianDeliveryMock = mock((_input: unknown): unknown[] => []);
 
 mock.module("../../telegram/api.js", () => ({
   callTelegramApi: callTelegramApiMock,
@@ -34,10 +39,24 @@ mock.module("../../runtime/client.js", () => ({
   uploadAttachment: mock(() => Promise.resolve({ id: "att-1" })),
   AttachmentValidationError: class extends Error {},
   CircuitBreakerOpenError: class extends Error {},
+  createTelegramVerificationThread: createTelegramVerificationThreadMock,
+  applyTelegramTopicTitleFromTelegram: mock(() => Promise.resolve()),
+  archiveTelegramTopic: mock(() => Promise.resolve({ title: null })),
+  forkTelegramTopic: mock(() => Promise.resolve()),
+  getTelegramTopicAccessMode: mock(() => Promise.resolve({})),
+  listTelegramTopicProfiles: mock(() => Promise.resolve([])),
+  renameTelegramTopic: mock(() => Promise.resolve()),
+  setTelegramTopicAccessMode: mock(() => Promise.resolve({})),
+  setTelegramTopicProfile: mock(() => Promise.resolve({})),
+  stopTelegramTopic: mock(() => Promise.resolve({ cancelled: false })),
 }));
 
 mock.module("../../telegram/verify.js", () => ({
   verifyWebhookSecret: () => true,
+}));
+
+mock.module("../../risk/guardian-delivery-resolver.js", () => ({
+  resolveGuardianDelivery: resolveGuardianDeliveryMock,
 }));
 
 mock.module("../../telegram/download.js", () => ({
@@ -130,6 +149,12 @@ describe("telegram-webhook callback query acknowledgment", () => {
     sendTelegramReplyMock.mockClear();
     handleInboundMock.mockClear();
     resetConversationMock.mockClear();
+    createTelegramVerificationThreadMock.mockClear();
+    createTelegramVerificationThreadMock.mockImplementation(() =>
+      Promise.resolve(undefined),
+    );
+    resolveGuardianDeliveryMock.mockClear();
+    resolveGuardianDeliveryMock.mockImplementation(() => []);
     // Default: forwarding succeeds
     handleInboundMock.mockImplementation(() =>
       Promise.resolve({ forwarded: true, rejected: false }),
@@ -289,6 +314,154 @@ describe("telegram-webhook callback query acknowledgment", () => {
       (c) => c[0] === "answerCallbackQuery",
     );
     expect(answerCalls.length).toBe(0);
+  });
+
+  it("sends verification success reply directly when intercepted in normal mode", async () => {
+    handleInboundMock.mockImplementation(() =>
+      Promise.resolve({
+        forwarded: false,
+        rejected: false,
+        verificationIntercepted: true,
+        verificationOutcome: "verified",
+        verificationTrustClass: "guardian",
+        verificationReplyText:
+          "Verification successful. You are now set as the guardian for this channel.",
+      }),
+    );
+    const { handler } = createTelegramWebhookHandler(baseConfig, makeCaches());
+    const body = JSON.stringify({
+      update_id: 350,
+      message: {
+        message_id: 12,
+        text: "269374",
+        chat: { id: 42, type: "private" },
+        from: { id: 42, first_name: "Alice" },
+      },
+    });
+    const res = await handler(postRequest(body));
+
+    expect(res.status).toBe(200);
+    // The gateway owns Telegram outbound — the success reply is sent directly,
+    // not proxied to a non-existent /deliver/telegram endpoint.
+    expect(sendTelegramReplyMock).toHaveBeenCalledTimes(1);
+    const replyArgs = sendTelegramReplyMock.mock.calls[0] as unknown[];
+    expect(replyArgs[2]).toBe(
+      "Verification successful. You are now set as the guardian for this channel.",
+    );
+    const opts = handleInboundMock.mock.calls[0][2] as {
+      deliverInterceptRepliesViaCaller?: boolean;
+    };
+    expect(opts.deliverInterceptRepliesViaCaller).toBe(true);
+  });
+
+  const bareStartRequest = (updateId: number) =>
+    postRequest(
+      JSON.stringify({
+        update_id: updateId,
+        message: {
+          message_id: 20,
+          text: "/start",
+          chat: { id: 42, type: "private" },
+          from: { id: 42, first_name: "Alice", language_code: "en" },
+        },
+      }),
+    );
+
+  const verifiedCodeRequest = (updateId: number, threadId?: number) =>
+    postRequest(
+      JSON.stringify({
+        update_id: updateId,
+        message: {
+          message_id: updateId,
+          ...(threadId ? { message_thread_id: threadId } : {}),
+          text: "269374",
+          chat: { id: 42, type: "private" },
+          from: { id: 42, first_name: "Alice" },
+        },
+      }),
+    );
+
+  const mockVerifiedIntercept = () => {
+    handleInboundMock.mockImplementation(() =>
+      Promise.resolve({
+        forwarded: false,
+        rejected: false,
+        verificationIntercepted: true,
+        verificationOutcome: "verified",
+        verificationTrustClass: "guardian",
+        verificationReplyText: "You are verified.",
+      }),
+    );
+  };
+
+  it("deletes the verification topic when a code is confirmed in the gateway-created topic", async () => {
+    createTelegramVerificationThreadMock.mockImplementation(() =>
+      Promise.resolve("555"),
+    );
+    const { handler } = createTelegramWebhookHandler(baseConfig, makeCaches());
+
+    // Bare /start creates + registers the dedicated Verification topic (555).
+    const startRes = await handler(bareStartRequest(360));
+    expect(startRes.status).toBe(200);
+    expect(createTelegramVerificationThreadMock).toHaveBeenCalledTimes(1);
+
+    // The code arrives in that same topic and verifies → topic torn down.
+    mockVerifiedIntercept();
+    const res = await handler(verifiedCodeRequest(361, 555));
+    expect(res.status).toBe(200);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const deleteCalls = callTelegramApiMock.mock.calls.filter(
+      (c) => c[0] === "deleteForumTopic",
+    );
+    expect(deleteCalls.length).toBe(1);
+    expect(deleteCalls[0][1]).toEqual({
+      chat_id: "42",
+      message_thread_id: 555,
+    });
+  });
+
+  it("does not delete an ordinary topic when a verified code is entered there", async () => {
+    createTelegramVerificationThreadMock.mockImplementation(() =>
+      Promise.resolve("555"),
+    );
+    const { handler } = createTelegramWebhookHandler(baseConfig, makeCaches());
+
+    // Register the Verification topic (555), then paste a still-valid code
+    // into a different topic (999).
+    await handler(bareStartRequest(370));
+    mockVerifiedIntercept();
+    const res = await handler(verifiedCodeRequest(371, 999));
+    expect(res.status).toBe(200);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const deleteCalls = callTelegramApiMock.mock.calls.filter(
+      (c) => c[0] === "deleteForumTopic",
+    );
+    expect(deleteCalls.length).toBe(0);
+
+    // The success reply is sent in place, in the topic where the code landed.
+    const verifiedReplies = sendTelegramReplyMock.mock.calls.filter(
+      (c) => (c as unknown[])[2] === "You are verified.",
+    );
+    expect(verifiedReplies.length).toBe(1);
+    expect((verifiedReplies[0] as unknown[])[4]).toMatchObject({
+      messageThreadId: "999",
+    });
+  });
+
+  it("does not delete a topic when no verification topic was created (non-threaded)", async () => {
+    const { handler } = createTelegramWebhookHandler(baseConfig, makeCaches());
+
+    mockVerifiedIntercept();
+    const res = await handler(verifiedCodeRequest(380, 999));
+    expect(res.status).toBe(200);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const deleteCalls = callTelegramApiMock.mock.calls.filter(
+      (c) => c[0] === "deleteForumTopic",
+    );
+    expect(deleteCalls.length).toBe(0);
   });
 
   it("clears inline approval buttons after a standard approval decision", async () => {

@@ -170,6 +170,10 @@ export function publishConversationTitleChanged(
   conversationId: string,
   title: string,
   originClientId?: string,
+  // A title that originated from a channel-side topic rename must not be pushed
+  // back to that topic — reflecting it would rename the topic to the name the
+  // user just chose, a visible no-op echo.
+  options?: { skipChannelSync?: boolean },
 ): void {
   broadcastMessage(
     {
@@ -189,6 +193,15 @@ export function publishConversationTitleChanged(
     [conversationMetadataSyncTag(conversationId)],
     originClientId,
   );
+
+  if (options?.skipChannelSync) {
+    return;
+  }
+  void import("../../messaging/providers/telegram-bot/topic-title-sync.js")
+    .then(({ syncConversationTitleToTelegramTopic }) =>
+      syncConversationTitleToTelegramTopic(conversationId, title),
+    )
+    .catch(() => {});
 }
 
 export function publishConversationEnabledPluginsChanged(

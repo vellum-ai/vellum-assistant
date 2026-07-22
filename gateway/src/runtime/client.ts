@@ -846,3 +846,167 @@ export async function forwardOAuthCallback(
   else cbOnSuccess();
   return { status: response.status, body };
 }
+
+async function postTelegramTopicJson<T>(
+  config: GatewayConfig,
+  path: string,
+  payload: Record<string, unknown>,
+): Promise<T> {
+  cbBeforeRequest();
+  const url = buildUpstreamUrl(config.assistantRuntimeBaseUrl, path);
+  let response: Response;
+  try {
+    response = await timedFetch(
+      url,
+      {
+        method: "POST",
+        headers: serviceHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify(payload),
+      },
+      config.runtimeTimeoutMs,
+    );
+  } catch (err) {
+    cbOnFailure();
+    throw err;
+  }
+
+  const text = await response.text();
+  if (response.status >= 500) {
+    cbOnFailure();
+  } else {
+    cbOnSuccess();
+  }
+  if (!response.ok) {
+    throw new Error(
+      `Telegram topic request failed (${response.status}): ${text}`,
+    );
+  }
+  return text ? (JSON.parse(text) as T) : ({} as T);
+}
+
+export async function forkTelegramTopic(
+  config: GatewayConfig,
+  chatId: string,
+  threadId: string,
+): Promise<{ conversationId: string; threadId: string; title: string }> {
+  return postTelegramTopicJson(config, "/v1/channels/telegram/fork-topic", {
+    chatId,
+    threadId,
+  });
+}
+
+export async function renameTelegramTopic(
+  config: GatewayConfig,
+  chatId: string,
+  threadId: string,
+  title: string,
+): Promise<void> {
+  await postTelegramTopicJson(config, "/v1/channels/telegram/rename-topic", {
+    chatId,
+    threadId,
+    title,
+  });
+}
+
+export async function archiveTelegramTopic(
+  config: GatewayConfig,
+  chatId: string,
+  threadId: string,
+): Promise<{ conversationId: string; title: string | null }> {
+  return postTelegramTopicJson(config, "/v1/channels/telegram/archive-topic", {
+    chatId,
+    threadId,
+  });
+}
+
+export async function stopTelegramTopic(
+  config: GatewayConfig,
+  chatId: string,
+  threadId?: string,
+): Promise<{ cancelled: boolean }> {
+  return postTelegramTopicJson(config, "/v1/channels/telegram/stop-topic", {
+    chatId,
+    ...(threadId ? { threadId } : {}),
+  });
+}
+
+export async function applyTelegramTopicTitleFromTelegram(
+  config: GatewayConfig,
+  chatId: string,
+  threadId: string,
+  title: string,
+): Promise<{ skipped: boolean }> {
+  return postTelegramTopicJson(config, "/v1/channels/telegram/topic-title", {
+    chatId,
+    threadId,
+    title,
+  });
+}
+
+export async function listTelegramTopicProfiles(
+  config: GatewayConfig,
+  chatId: string,
+  threadId?: string,
+): Promise<{
+  profiles: Array<{ key: string; label: string }>;
+  currentProfile: string | null;
+}> {
+  return postTelegramTopicJson(config, "/v1/channels/telegram/profiles", {
+    chatId,
+    ...(threadId ? { threadId } : {}),
+  });
+}
+
+export async function setTelegramTopicProfile(
+  config: GatewayConfig,
+  chatId: string,
+  profile: string,
+  threadId?: string,
+): Promise<{ profile: string; label: string }> {
+  return postTelegramTopicJson(config, "/v1/channels/telegram/profiles/set", {
+    chatId,
+    profile,
+    ...(threadId ? { threadId } : {}),
+  });
+}
+
+export async function getTelegramTopicAccessMode(
+  config: GatewayConfig,
+  chatId: string,
+  threadId?: string,
+): Promise<{ currentThreshold: string | null }> {
+  return postTelegramTopicJson(config, "/v1/channels/telegram/access-mode", {
+    chatId,
+    ...(threadId ? { threadId } : {}),
+  });
+}
+
+export async function setTelegramTopicAccessMode(
+  config: GatewayConfig,
+  chatId: string,
+  threshold: string,
+  threadId?: string,
+): Promise<void> {
+  await postTelegramTopicJson(config, "/v1/channels/telegram/access-mode/set", {
+    chatId,
+    threshold,
+    ...(threadId ? { threadId } : {}),
+  });
+}
+
+/**
+ * Ask the runtime to create a dedicated verification bot thread for a chat.
+ * Returns the thread id, or `undefined` when the bot is not in threaded mode
+ * (verification runs in the main chat) or thread creation failed.
+ */
+export async function createTelegramVerificationThread(
+  config: GatewayConfig,
+  chatId: string,
+): Promise<string | undefined> {
+  const result = await postTelegramTopicJson<{ threadId: string | null }>(
+    config,
+    "/v1/channels/telegram/verification-thread",
+    { chatId },
+  );
+  return result.threadId ?? undefined;
+}

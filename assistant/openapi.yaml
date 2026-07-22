@@ -4473,6 +4473,96 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/channels/telegram/access-mode:
+    post:
+      operationId: channels_telegram_accessmode_post
+      summary: Get assistant access mode for a Telegram chat/topic binding
+      tags:
+        - channels
+      responses:
+        "200":
+          description: Successful response
+  /v1/channels/telegram/access-mode/set:
+    post:
+      operationId: channels_telegram_accessmode_set_post
+      summary: Set assistant access mode for a Telegram chat/topic binding
+      tags:
+        - channels
+      responses:
+        "200":
+          description: Successful response
+  /v1/channels/telegram/archive-topic:
+    post:
+      operationId: channels_telegram_archivetopic_post
+      summary: Archive a Telegram topic conversation and close its thread
+      tags:
+        - channels
+      responses:
+        "200":
+          description: Successful response
+  /v1/channels/telegram/fork-topic:
+    post:
+      operationId: channels_telegram_forktopic_post
+      summary: Fork a Telegram topic conversation
+      tags:
+        - channels
+      responses:
+        "200":
+          description: Successful response
+  /v1/channels/telegram/profiles:
+    post:
+      operationId: channels_telegram_profiles_post
+      summary: List inference profiles for a Telegram chat/topic binding
+      tags:
+        - channels
+      responses:
+        "200":
+          description: Successful response
+  /v1/channels/telegram/profiles/set:
+    post:
+      operationId: channels_telegram_profiles_set_post
+      summary: Set inference profile for a Telegram chat/topic binding
+      tags:
+        - channels
+      responses:
+        "200":
+          description: Successful response
+  /v1/channels/telegram/rename-topic:
+    post:
+      operationId: channels_telegram_renametopic_post
+      summary: Rename a Telegram topic and its Vellum conversation
+      tags:
+        - channels
+      responses:
+        "200":
+          description: Successful response
+  /v1/channels/telegram/stop-topic:
+    post:
+      operationId: channels_telegram_stoptopic_post
+      summary: Interrupt the running agent for a Telegram chat/topic binding
+      tags:
+        - channels
+      responses:
+        "200":
+          description: Successful response
+  /v1/channels/telegram/topic-title:
+    post:
+      operationId: channels_telegram_topictitle_post
+      summary: Apply a Telegram forum_topic_edited name to Vellum
+      tags:
+        - channels
+      responses:
+        "200":
+          description: Successful response
+  /v1/channels/telegram/verification-thread:
+    post:
+      operationId: channels_telegram_verificationthread_post
+      summary: Create a Telegram verification bot thread (threaded mode)
+      tags:
+        - channels
+      responses:
+        "200":
+          description: Successful response
   /v1/clients:
     get:
       operationId: clients_get

@@ -23,6 +23,7 @@ import {
 } from "../../../channels/gateway-verification-sessions.js";
 import type { ChannelId } from "../../../channels/types.js";
 import { sendTelegramReply } from "../../../messaging/providers/telegram-bot/send.js";
+import { resolveVerificationThreadId } from "../../../messaging/providers/telegram-bot/verification-topic.js";
 import { getLogger } from "../../../util/logger.js";
 import { RESEND_COOLDOWN_MS } from "../../verification-outbound-actions.js";
 import {
@@ -248,9 +249,16 @@ function deliverBootstrapVerificationTelegram(
   text: string,
   assistantId: string,
 ): void {
-  const attemptDelivery = async (): Promise<boolean> => {
+  const attemptDelivery = async (
+    messageThreadId: string | undefined,
+  ): Promise<boolean> => {
     try {
-      await sendTelegramReply(chatId, text);
+      await sendTelegramReply(
+        chatId,
+        text,
+        undefined,
+        messageThreadId ? { messageThreadId } : undefined,
+      );
       return true;
     } catch (err) {
       log.error(
@@ -262,7 +270,10 @@ function deliverBootstrapVerificationTelegram(
   };
 
   (async () => {
-    const delivered = await attemptDelivery();
+    // Resolve the verification thread once so self-retries reuse the same
+    // topic instead of spawning a new one per attempt.
+    const messageThreadId = await resolveVerificationThreadId(chatId);
+    const delivered = await attemptDelivery(messageThreadId);
     if (delivered) {
       log.info(
         { chatId, assistantId },
@@ -276,7 +287,7 @@ function deliverBootstrapVerificationTelegram(
     // user re-clicking the deep link may never arrive. This ensures
     // delivery is re-attempted even without a gateway duplicate.
     setTimeout(async () => {
-      const retried = await attemptDelivery();
+      const retried = await attemptDelivery(messageThreadId);
       if (retried) {
         log.info(
           { chatId, assistantId },

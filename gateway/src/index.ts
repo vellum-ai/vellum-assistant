@@ -183,6 +183,7 @@ import {
 } from "./http/router.js";
 import { SleepWakeDetector } from "./sleep-wake-detector.js";
 import { callTelegramApi } from "./telegram/api.js";
+import { TELEGRAM_BOT_COMMANDS } from "./telegram/commands.js";
 import { fetchImpl } from "./fetch.js";
 import { arePlatformFeaturesEnabled } from "./feature-flag-resolver.js";
 import { isNewCommand, handleNewCommand } from "./webhook-pipeline.js";
@@ -2088,18 +2089,21 @@ async function main() {
   };
 
   function registerTelegramCommands(): void {
-    callTelegramApi(
-      "setMyCommands",
-      {
-        commands: [
-          { command: "new", description: "Start a new conversation" },
-          { command: "help", description: "Show available commands" },
-        ],
-      },
-      { credentials: credentialCache, configFile: configFileCache },
-    ).catch((err) => {
-      log.error({ err }, "Failed to register Telegram bot commands");
-    });
+    const opts = { credentials: credentialCache, configFile: configFileCache };
+    // Clear any previously-registered commands before re-registering so a
+    // renamed or removed command can't linger in the client's command menu.
+    // Delete must complete before the set, otherwise it would wipe the new set.
+    callTelegramApi("deleteMyCommands", {}, opts)
+      .then(() =>
+        callTelegramApi(
+          "setMyCommands",
+          { commands: [...TELEGRAM_BOT_COMMANDS] },
+          opts,
+        ),
+      )
+      .catch((err) => {
+        log.error({ err }, "Failed to register Telegram bot commands");
+      });
   }
 
   // ── Slack Socket Mode lifecycle ──

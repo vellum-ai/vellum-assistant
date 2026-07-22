@@ -140,6 +140,7 @@ import { ROUTES as SUBAGENT_ROUTES } from "./subagents-routes.js";
 import { ROUTES as SUGGEST_TRUST_RULE_ROUTES } from "./suggest-trust-rule-routes.js";
 import { ROUTES as SURFACE_ACTION_ROUTES } from "./surface-action-routes.js";
 import { ROUTES as SURFACE_CONTENT_ROUTES } from "./surface-content-routes.js";
+import { TELEGRAM_TOPIC_ROUTES } from "./telegram-topic-routes.js";
 import { ROUTES as TELEMETRY_ROUTES } from "./telemetry-routes.js";
 import { ROUTES as THEME_ROUTES } from "./theme-routes.js";
 import { ROUTES as TRUST_RULES_ROUTES } from "./trust-rules-routes.js";
@@ -177,6 +178,7 @@ export const ROUTES: RouteDefinition[] = [
   ...CALL_ROUTES,
   ...CHATGPT_SUBSCRIPTION_AUTH_ROUTES,
   ...CHANNEL_ROUTES,
+  ...TELEGRAM_TOPIC_ROUTES,
   ...CHANNEL_VERIFICATION_ROUTES,
   ...CHANNEL_AVAILABILITY_ROUTES,
   ...CHANNEL_READINESS_ROUTES,

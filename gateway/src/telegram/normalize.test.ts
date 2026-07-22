@@ -185,3 +185,69 @@ describe("normalizeTelegramUpdate — audio messages", () => {
     expect(result).toBeNull();
   });
 });
+
+describe("normalizeTelegramUpdate — private chat topics", () => {
+  it("forwards message_thread_id as source.threadId", () => {
+    const result = normalizeTelegramUpdate({
+      update_id: 400,
+      message: {
+        message_id: 40,
+        message_thread_id: 99,
+        text: "hello topic",
+        chat: { id: 42, type: "private" },
+        from: { id: 42, first_name: "Alice" },
+      },
+    });
+    expect(result).not.toBeNull();
+    expect(result!.source.threadId).toBe("99");
+    expect(result!.message.content).toBe("hello topic");
+  });
+
+  it("omits threadId when message_thread_id is absent", () => {
+    const result = normalizeTelegramUpdate({
+      update_id: 401,
+      message: {
+        message_id: 41,
+        text: "plain dm",
+        chat: { id: 42, type: "private" },
+        from: { id: 42, first_name: "Alice" },
+      },
+    });
+    expect(result).not.toBeNull();
+    expect(result!.source.threadId).toBeUndefined();
+  });
+
+  it("accepts forum_topic_edited service messages", () => {
+    const result = normalizeTelegramUpdate({
+      update_id: 402,
+      message: {
+        message_id: 42,
+        message_thread_id: 7,
+        chat: { id: 42, type: "private" },
+        from: { id: 42, first_name: "Alice" },
+        forum_topic_edited: { name: "New Topic Name" },
+      },
+    });
+    expect(result).not.toBeNull();
+    expect(result!.source.threadId).toBe("7");
+    expect(result!.message.content).toBe("New Topic Name");
+  });
+
+  it("forwards message_thread_id on callback_query", () => {
+    const result = normalizeTelegramUpdate({
+      update_id: 403,
+      callback_query: {
+        id: "cbq-topic",
+        from: { id: 42, first_name: "Alice" },
+        message: {
+          message_id: 10,
+          message_thread_id: 55,
+          chat: { id: 42, type: "private" },
+        },
+        data: "prf:balanced",
+      },
+    });
+    expect(result).not.toBeNull();
+    expect(result!.source.threadId).toBe("55");
+  });
+});
