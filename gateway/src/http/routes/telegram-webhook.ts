@@ -449,10 +449,7 @@ export function createTelegramWebhookHandler(
                 normalized.message.conversationExternalId,
                 startRuntimeResp.replyText,
                 undefined,
-                {
-                  credentials: caches?.credentials,
-                  configFile: caches?.configFile,
-                },
+                replyOpts,
               ).catch((err) => {
                 tlog.error(
                   { err, chatId: normalized.message.conversationExternalId },

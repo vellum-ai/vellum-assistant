@@ -144,10 +144,11 @@ function resolveInboundConversation(
   );
 
   const threadId = sourceThreadId?.trim();
-  // The alias path below is a Slack-only legacy migration: it merges old flat
-  // Slack conversations onto their threaded key. Other thread-scoped channels
-  // (Telegram topics) launched with thread scoping, so they have no flat
-  // history to merge and always resolve the threaded key directly.
+  // Flat→threaded aliasing applies only to Slack: a Slack thread may continue
+  // a conversation that lives on the flat channel key, so the alias path below
+  // checks for that evidence before minting a threaded conversation. Every
+  // other thread-scoped channel (Telegram topics) has no flat-key aliasing —
+  // a thread id always resolves the threaded key directly.
   if (sourceChannel !== "slack" || !threadId) {
     return getOrCreateConversation(threadedKey);
   }
