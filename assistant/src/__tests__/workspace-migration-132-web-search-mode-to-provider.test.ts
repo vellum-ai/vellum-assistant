@@ -72,8 +72,8 @@ afterEach(() => {
 
 describe("132-web-search-mode-to-provider", () => {
   // getLastWorkspaceMigrationId() reports the final array entry as the
-  // registry ceiling to the identity and rollback routes, so 132 must be the
-  // highest id AND sit last in the registry.
+  // registry ceiling to the identity and rollback routes, so the
+  // highest-numbered migration must sit last in the registry.
   test("the registry ceiling stays at the highest-numbered migration", () => {
     const numericId = (id: string) => Number.parseInt(id, 10);
     const highest = Math.max(
@@ -84,7 +84,6 @@ describe("132-web-search-mode-to-provider", () => {
     const last = getLastWorkspaceMigrationId(WORKSPACE_MIGRATIONS);
     expect(last).not.toBeNull();
     expect(numericId(last!)).toBe(highest);
-    expect(numericId(last!)).toBe(132);
   });
 
   test("rewrites a managed service to provider vellum", () => {
