@@ -228,6 +228,44 @@ export class PermissionChecker {
         };
       }
 
+      // Inline-command ("dynamic") skill loads execute embedded shell at load
+      // time. The sensitive-tool gate (tools/tool-approval-handler.ts, lane A)
+      // already routes an uncovered one through the guardian-mediated capability
+      // floor, so a non-guardian is escalated there and never reaches this lane.
+      // The one thing that floor does not express is the absence of a human: an
+      // uncovered dynamic load in a non-interactive session is denied here,
+      // because embedded shell must never run unattended without a covering rule.
+      // (A covering trust rule, matchType "user_rule", is left to proceed.)
+      if (
+        context.isInteractive === false &&
+        isDynamicSkillLoadInvocation(name, input) &&
+        getCachedAssessment(name, input)?.matchType !== "user_rule"
+      ) {
+        log.info(
+          { toolName: name, riskLevel },
+          "Denying uncovered inline-command skill load in non-interactive session",
+        );
+        recordToolDenied({
+          conversationId: context.conversationId,
+          toolName: name,
+          input,
+          reason:
+            "Inline-command skill load requires human approval; no interactive client connected",
+          riskLevel,
+          durationMs: Date.now() - startTime,
+          wasPrompted: false,
+        });
+        return {
+          allowed: false,
+          decision: "denied",
+          riskLevel,
+          content: `Permission denied: tool "${name}" would load a skill containing inline command expansions, which execute shell commands at load time and require explicit human approval. No interactive client is connected. To allow this in non-interactive sessions, add a trust rule covering the skill via permission settings.`,
+          riskMeta,
+          ...mapApprovalProvenance("denied", {}),
+          riskThreshold,
+        };
+      }
+
       // Platform-hosted mode: auto-approve sandboxed bash for guardians.
       // The sandbox provides the security boundary — prompting is unnecessary
       // friction. host_bash is excluded because it runs unsandboxed on the
@@ -261,22 +299,17 @@ export class PermissionChecker {
         // is the owner - prompting makes no sense when there is no client.
         // Exception: requireFreshApproval tools cannot be auto-approved -
         // without a human present, bundle installation must be denied.
-        // Exception: inline-command ("dynamic") skill loads must never be
-        // silently auto-approved — they execute embedded commands and
-        // require explicit human review or a pinned trust rule. A covering
-        // trust rule lowers the classified risk upstream (check() then
-        // returns "allow" before this branch), so any dynamic load that
-        // reaches this prompt path is uncovered and must stay prompted.
+        // Inline-command ("dynamic") skill loads are already denied above for
+        // non-interactive sessions (embedded shell with no human to review it),
+        // so they never reach this branch uncovered.
         // Exception: tools above the configured background threshold are
         // denied — unattended sessions must not auto-approve operations that
         // could cause significant damage if triggered by prompt injection
         // from untrusted content.
-        const isDynamicSkillLoad = isDynamicSkillLoadInvocation(name, input);
         if (
           context.isInteractive === false &&
           resolveCapabilities(context.trustClass).canSelfApproveTools &&
-          !context.requireFreshApproval &&
-          !isDynamicSkillLoad
+          !context.requireFreshApproval
         ) {
           // getAutoApproveThreshold returns from cache (populated by check() above).
           // Deferred inside the non-interactive branch so interactive prompts
