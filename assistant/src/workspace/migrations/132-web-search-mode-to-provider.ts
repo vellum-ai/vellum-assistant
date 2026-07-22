@@ -6,13 +6,13 @@ import type { WorkspaceMigration } from "./types.js";
 /**
  * Fold `services["web-search"].mode` into the provider field.
  *
- * Managed web search used to be a second axis: `mode: "managed"` routed to the
- * Vellum platform search proxy while `provider` held the untouched BYOK
- * choice. Provider is now the only axis, with `"vellum"` meaning managed, so a
- * managed service must be rewritten to `provider: "vellum"` before the new
- * schema reads it — otherwise the lingering BYOK provider would be taken at
- * face value and a managed user would silently fall back to a provider they
- * have no key for.
+ * Configs written by older versions carry two axes: `mode: "managed"` routes
+ * search through the Vellum platform proxy while `provider` holds an
+ * untouched BYOK choice. The schema treats `provider` as the only axis, with
+ * `"vellum"` meaning managed, so this migration rewrites a managed service to
+ * `provider: "vellum"` — otherwise the lingering BYOK provider would be taken
+ * at face value and a managed user would silently land on a provider they
+ * hold no key for.
  *
  * `inference-provider-native` is the exception: it is a distinct user-facing
  * option (the inference model runs its own hosted search), so a managed
@@ -90,12 +90,11 @@ export const webSearchModeToProviderMigration: WorkspaceMigration = {
       return;
     }
 
-    // The pre-migration schema accepts provider "vellum" alongside mode
-    // "managed", so the managed pair round-trips exactly. What a managed
-    // service had chosen for BYOK before is not recoverable — it was
-    // overwritten on the way up. Likewise, `inference-provider-native` rolls
-    // back to `your-own` even if it was previously paired with `managed`: the
-    // pairing was erased when `mode` was dropped.
+    // Schemas that predate this migration accept provider "vellum" alongside
+    // mode "managed", so the managed pair round-trips exactly. The BYOK
+    // provider a managed service holds before `run()` is not recoverable —
+    // `run()` overwrites it. Likewise `inference-provider-native` rolls back
+    // to `your-own`: dropping `mode` erases any pairing with `managed`.
     service.mode = service.provider === "vellum" ? "managed" : "your-own";
 
     writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
