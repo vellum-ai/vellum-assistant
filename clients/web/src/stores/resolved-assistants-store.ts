@@ -12,8 +12,9 @@
  * Population:
  *  - Local mode: assistant list auto-syncs with the lockfile store via
  *    subscription, so every hatch / sync / retire is reflected.
- *  - Platform mode: populated from the `listAssistants` API during
- *    `initSession` in the auth store.
+ *  - Platform mode: populated from the `listAssistants` API by
+ *    `reloadPlatformAssistants` (assistant/platform-assistants-sync.ts),
+ *    which runs whenever the platform session becomes present.
  *
  * Do NOT confuse with `lockfile-store.ts`, which is the raw on-disk
  * lockfile cache used internally by `lib/local-mode.ts` for host IPC.
