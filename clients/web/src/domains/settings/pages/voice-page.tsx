@@ -6,20 +6,16 @@ import {
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
 } from "react";
-import { useSearchParams } from "react-router";
 
 import { Button } from "@vellumai/design-library/components/button";
 import { Dropdown } from "@vellumai/design-library/components/dropdown";
-import { Tabs } from "@vellumai/design-library/components/tabs";
 import { SegmentControl } from "@vellumai/design-library/components/segment-control";
 import { Slider } from "@vellumai/design-library/components/slider";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 
-import { SoundsSections } from "@/domains/settings/pages/sounds-sections";
-import { TextToSpeechCard } from "@/domains/settings/ai/text-to-speech-card";
-import { SpeechToTextCard } from "@/domains/settings/ai/speech-to-text-card";
-import { ManagedServicesBanner } from "@/domains/settings/ai/shared-ui";
+import { VoicePickerCard } from "@/domains/settings/pages/voice-picker-card";
 
 import { DetailCard } from "@/components/detail-card";
 import {
@@ -56,8 +52,6 @@ import {
 import { canConfigureFnPushToTalk } from "@/runtime/hotkey";
 import { VOICE_TRANSCRIPT_RECOMMENDATION } from "@/utils/voice-transcript-prefs";
 
-const LS_CONVERSATION_TIMEOUT = "vellum:voice:conversationTimeoutSeconds";
-
 const PTT_PRESETS: ReadonlyArray<{ label: string; activator: PTTActivator }> = [
   {
     label: "Ctrl",
@@ -78,92 +72,40 @@ const FN_PTT_PRESET: { label: string; activator: PTTActivator } = {
   activator: FN_PTT_ACTIVATOR,
 };
 
-const CONVERSATION_TIMEOUT_OPTIONS = [
-  { label: "5 seconds", value: "5" },
-  { label: "10 seconds", value: "10" },
-  { label: "15 seconds", value: "15" },
-  { label: "30 seconds", value: "30" },
-  { label: "60 seconds", value: "60" },
-] as const;
-
-type ConversationTimeoutValue =
-  (typeof CONVERSATION_TIMEOUT_OPTIONS)[number]["value"];
-
-const DEFAULT_CONVERSATION_TIMEOUT: ConversationTimeoutValue = "30";
-
 const labelClasses = "text-body-small-default text-[var(--content-tertiary)]";
 
-const VOICE_TABS = ["voice", "services", "sounds"] as const;
-type VoiceTab = (typeof VOICE_TABS)[number];
-
-function isVoiceTab(value: string | null): value is VoiceTab {
-  return VOICE_TABS.includes(value as VoiceTab);
-}
-
+/**
+ * Settings → Voice. One scrolling page, ordered by what people come here for:
+ * the voice itself first, then the mic, then how you take a turn, then the
+ * fine-tuning, then captions.
+ *
+ * Deliberately NOT here: the BYO text-to-speech / speech-to-text provider forms
+ * (they live with every other provider on Models & Services) and the event
+ * sound effects (their own Sounds page — they're notification feedback, not
+ * voice).
+ */
 export function VoicePage() {
-  const [searchParams, setSearchParams] = useSearchParams();
-  const tabParam = searchParams.get("tab");
-  const activeTab: VoiceTab = isVoiceTab(tabParam) ? tabParam : "voice";
-
-  const handleTabChange = (value: string) => {
-    const next = new URLSearchParams(searchParams);
-    if (value === "voice") {
-      next.delete("tab");
-    } else {
-      next.set("tab", value);
-    }
-    setSearchParams(next, { replace: true });
-  };
-
-  return (
-    <div className="space-y-6">
-      <Tabs.Root value={activeTab} onValueChange={handleTabChange}>
-        <Tabs.List>
-          <Tabs.Trigger value="voice">Voice</Tabs.Trigger>
-          <Tabs.Trigger value="services">Services</Tabs.Trigger>
-          <Tabs.Trigger value="sounds">Sounds</Tabs.Trigger>
-        </Tabs.List>
-        <Tabs.Panel value="voice" className="pt-4">
-          <VoiceSections />
-        </Tabs.Panel>
-        <Tabs.Panel value="services" className="pt-4">
-          <ServicesSections />
-        </Tabs.Panel>
-        <Tabs.Panel value="sounds" className="pt-4">
-          <SoundsSections />
-        </Tabs.Panel>
-      </Tabs.Root>
-    </div>
-  );
-}
-
-function ServicesSections() {
-  return (
-    <div className="flex flex-col gap-5">
-      <ManagedServicesBanner />
-      <TextToSpeechCard />
-      <SpeechToTextCard />
-    </div>
-  );
+  return <VoiceSections />;
 }
 
 export function VoiceSections() {
   return (
     <div className="flex flex-col gap-6">
+      <VoicePickerCard />
       <MicrophoneCard />
       <PushToTalkCard />
-      <ConversationTimeoutCard />
-      <PauseBeforeReplyCard />
-      <InterruptSensitivityCard />
-      <TranscriptionCard />
+      <ConversationTuningCard />
+      <CaptionsCard />
     </div>
   );
 }
 
-function TranscriptionCard() {
+function CaptionsCard() {
   return (
     <DetailCard
-      title="Transcription"
+      title="Captions"
+      // Named to match the voice room's own "Captions" toggle — same two prefs,
+      // so calling it "Transcription" here sent people hunting.
       subtitle="Show live text of what you and the assistant say during a voice conversation."
     >
       <div className="flex flex-col gap-2">
@@ -560,38 +502,6 @@ function ActivationKeyOption({
   );
 }
 
-function ConversationTimeoutCard() {
-  const [timeout, setTimeoutValue] = useState<ConversationTimeoutValue>(() => {
-    const raw = getLocalSetting(
-      LS_CONVERSATION_TIMEOUT,
-      DEFAULT_CONVERSATION_TIMEOUT,
-    );
-    const match = CONVERSATION_TIMEOUT_OPTIONS.find((o) => o.value === raw);
-    return match?.value ?? DEFAULT_CONVERSATION_TIMEOUT;
-  });
-
-  const handleChange = useCallback((next: ConversationTimeoutValue) => {
-    setTimeoutValue(next);
-    setLocalSetting(LS_CONVERSATION_TIMEOUT, next);
-  }, []);
-
-  return (
-    <DetailCard
-      title="Conversation Timeout"
-      subtitle="How long the assistant waits for you to start speaking before ending a voice conversation turn."
-    >
-      <div className="max-w-xs">
-        <Dropdown<ConversationTimeoutValue>
-          options={CONVERSATION_TIMEOUT_OPTIONS}
-          value={timeout}
-          onChange={handleChange}
-          aria-label="Conversation timeout"
-        />
-      </div>
-    </DetailCard>
-  );
-}
-
 const INTERRUPT_SENSITIVITY_ITEMS: {
   value: InterruptSensitivity;
   label: string;
@@ -601,56 +511,112 @@ const INTERRUPT_SENSITIVITY_ITEMS: {
   { value: "high", label: "High" },
 ];
 
-function PauseBeforeReplyCard() {
+/**
+ * The two turn-taking dials, in one card because they're one idea — where the
+ * boundary between your turn and the assistant's sits.
+ *
+ * Both are sent only when the user has set them explicitly; unset hands
+ * endpointing back to the daemon's `liveVoice.vad` config. That distinction was
+ * invisible before (the sliders rendered a client default while sending
+ * nothing, so a self-hosted workspace saw values it wasn't running) — hence the
+ * per-row "Default" state and the Reset affordance.
+ */
+function ConversationTuningCard() {
   const pauseMs = useVoicePrefsStore.use.pauseBeforeReplyMs();
   const setPauseMs = useVoicePrefsStore.use.setPauseBeforeReplyMs();
+  const sensitivity = useVoicePrefsStore.use.interruptSensitivity();
+  const setSensitivity = useVoicePrefsStore.use.setInterruptSensitivity();
+
+  const anySet = pauseMs !== null || sensitivity !== null;
 
   return (
     <DetailCard
-      title="Pause before reply"
-      subtitle="How long the assistant waits after you stop speaking before it replies. A longer pause lets you gather your thoughts mid-sentence without being cut off."
+      title="Turn taking"
+      subtitle="Where your turn ends and the assistant's begins. Applies to hands-free conversations — under push to talk, the key decides."
     >
-      <div className="max-w-xs">
-        <Slider
-          // Unset (null) shows the default as the resting value; moving the
-          // slider records an explicit preference (which is then sent).
-          value={(pauseMs ?? DEFAULT_PAUSE_BEFORE_REPLY_MS) / 1000}
-          onValueChange={(next) => {
-            if (typeof next === "number") setPauseMs(Math.round(next * 1000));
-          }}
-          min={MIN_PAUSE_BEFORE_REPLY_MS / 1000}
-          max={MAX_PAUSE_BEFORE_REPLY_MS / 1000}
-          step={0.1}
-          showValue
-          formatValue={(value) =>
-            `${(typeof value === "number" ? value : value[0]).toFixed(1)}s`
-          }
-          aria-label="Pause before reply"
-        />
+      <div className="flex flex-col gap-5">
+        <TuningRow
+          label="Pause before reply"
+          description="How long the assistant waits after you stop speaking before it replies. A longer pause lets you gather your thoughts mid-sentence without being cut off."
+          isDefault={pauseMs === null}
+        >
+          <div className="max-w-xs">
+            <Slider
+              value={(pauseMs ?? DEFAULT_PAUSE_BEFORE_REPLY_MS) / 1000}
+              onValueChange={(next) => {
+                if (typeof next === "number")
+                  setPauseMs(Math.round(next * 1000));
+              }}
+              min={MIN_PAUSE_BEFORE_REPLY_MS / 1000}
+              max={MAX_PAUSE_BEFORE_REPLY_MS / 1000}
+              step={0.1}
+              showValue
+              formatValue={(value) =>
+                `${(typeof value === "number" ? value : value[0]).toFixed(1)}s`
+              }
+              aria-label="Pause before reply"
+            />
+          </div>
+        </TuningRow>
+
+        <TuningRow
+          label="Interrupt sensitivity"
+          description="How easily talking over the assistant interrupts it. Lower it if the assistant cuts itself off on background noise or filler words; raise it to interrupt more quickly."
+          isDefault={sensitivity === null}
+        >
+          <div className="max-w-xs">
+            <SegmentControl<InterruptSensitivity>
+              items={INTERRUPT_SENSITIVITY_ITEMS}
+              value={sensitivity ?? DEFAULT_INTERRUPT_SENSITIVITY}
+              onChange={setSensitivity}
+              ariaLabel="Interrupt sensitivity"
+            />
+          </div>
+        </TuningRow>
+
+        {anySet && (
+          <div>
+            <Button
+              variant="outlined"
+              onClick={() => {
+                setPauseMs(null);
+                setSensitivity(null);
+              }}
+            >
+              Reset to defaults
+            </Button>
+          </div>
+        )}
       </div>
     </DetailCard>
   );
 }
 
-function InterruptSensitivityCard() {
-  const sensitivity = useVoicePrefsStore.use.interruptSensitivity();
-  const setSensitivity = useVoicePrefsStore.use.setInterruptSensitivity();
-
+function TuningRow({
+  label,
+  description,
+  isDefault,
+  children,
+}: {
+  label: string;
+  description: string;
+  isDefault: boolean;
+  children: ReactNode;
+}) {
   return (
-    <DetailCard
-      title="Interrupt sensitivity"
-      subtitle="How easily talking over the assistant interrupts it. Lower it if the assistant cuts itself off on background noise or filler words; raise it to interrupt more quickly."
-    >
-      <div className="max-w-xs">
-        <SegmentControl<InterruptSensitivity>
-          items={INTERRUPT_SENSITIVITY_ITEMS}
-          // Unset (null) shows the default; picking a level records an explicit
-          // preference (which is then sent).
-          value={sensitivity ?? DEFAULT_INTERRUPT_SENSITIVITY}
-          onChange={setSensitivity}
-          ariaLabel="Interrupt sensitivity"
-        />
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center gap-2">
+        <span className="text-body-medium-lighter text-[var(--content-default)]">
+          {label}
+        </span>
+        {isDefault && (
+          <span className="shrink-0 rounded-full bg-[var(--surface-active)] px-2 py-0.5 text-body-small-default text-[var(--content-tertiary)]">
+            Default
+          </span>
+        )}
       </div>
-    </DetailCard>
+      <p className={labelClasses}>{description}</p>
+      {children}
+    </div>
   );
 }

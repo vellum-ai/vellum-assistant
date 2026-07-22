@@ -12,7 +12,7 @@
 
 import { Modal } from "@vellumai/design-library/components/modal";
 
-import { VoiceList } from "@/domains/chat/voice/voice-room/voice-list";
+import { VoiceList } from "@/components/speech/voice-list";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
 export interface VoicePickerModalProps {

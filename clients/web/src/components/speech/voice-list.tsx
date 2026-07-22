@@ -1,7 +1,12 @@
 /**
- * The selectable list of managed (Vellum) voices, shared by the live-voice
- * first-run card (which renders it as one of its own views) and the voice-room
- * settings popover (via {@link VoicePickerModal}).
+ * The selectable list of managed (Vellum) voices, shared by every surface that
+ * offers a voice: the live-voice first-run card (which renders it as one of its
+ * own views), the voice-room settings popover (via `VoicePickerModal`), and the
+ * Voice settings page (which renders it inline, having the room for it).
+ *
+ * Lives under `components/speech/` — alongside the shared TTS/STT provider
+ * forms — because both the `chat` and `settings` domains render it, and domains
+ * don't import from each other.
  *
  * Each row shows the voice's short character description (e.g.
  * "American · warm, clear") — NOT the catalog's proper name (the assistant has
@@ -21,7 +26,7 @@ import { cn } from "@vellumai/design-library";
 import { Button } from "@vellumai/design-library/components/button";
 import { toast } from "@vellumai/design-library/components/toast";
 
-import { useManagedVoiceSelection } from "@/domains/chat/voice/voice-room/use-managed-voice-selection";
+import { useManagedVoiceSelection } from "@/components/speech/use-managed-voice-selection";
 import {
   groupVoicesByAccent,
   splitVoiceDescription,

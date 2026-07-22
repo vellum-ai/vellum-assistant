@@ -1,6 +1,8 @@
 /**
- * Managed-voice selection for the live-voice surfaces (first-run modal + voice
- * room settings). Reads the current voice from daemon config and writes the
+ * Managed-voice selection for every surface that offers a voice (the first-run
+ * modal, the voice-room settings popover, and the Voice settings page — hence
+ * `components/speech/` rather than either domain). Reads the current voice from
+ * daemon config and writes the
  * chosen one back — the source of truth is `services.tts.providers.vellum.model`,
  * never a client store (server data has one owner).
  *
@@ -12,7 +14,8 @@
  * runtime message.
  *
  * Only offered for managed (Vellum) assistants whose daemon advertises voice
- * selection — BYO providers pick their voice in Settings → Voice. When
+ * selection — BYO providers pick their voice on Settings → Models & Services,
+ * with the rest of their provider config. When
  * unavailable, `available` is false and the surfaces render no picker.
  */
 
