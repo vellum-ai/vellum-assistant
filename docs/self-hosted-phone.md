@@ -5,6 +5,11 @@ hosted Vellum. Everything runs on your own machine; your phone connects
 straight to it over an HTTPS address you control, and a QR code pairs the
 device in a single scan.
 
+Connect from a mobile browser (add it to your home screen for a full-screen
+PWA) or, on a recent build, from the native **Vellum iOS app** pointed at your
+own server — see [Using the Vellum iOS app](#6-using-the-vellum-ios-app). Both
+reach the same assistant.
+
 This is a CLI-driven flow for people who already run their assistant locally
 (`vellum wake`). If you use the managed Vellum Cloud app, you don't need any
 of this — sign in and your phone is already connected.
@@ -12,7 +17,7 @@ of this — sign in and your phone is already connected.
 ## How it works
 
 ```
-phone (Safari / installed PWA)
+phone (Safari · installed PWA · Vellum app)
    │  HTTPS
    ▼
 Tailscale front  (https://your-assistant.ts.net)
@@ -130,24 +135,38 @@ keeps the edge visible only to devices on your own tailnet.
 
 ## 5. Pair your phone
 
-On the host, generate a single-scan pairing QR pointed at your HTTPS address:
+On the host, generate a single-scan pairing QR:
+
+```bash
+vellum pair --qr
+```
+
+If you put the HTTPS front in place with `vellum tunnel` (Step 4),
+`vellum pair --qr` reuses that saved address automatically — it prints
+`Using saved ingress URL … (from vellum tunnel; override with --url)`, so you
+don't pass a URL at all. Add `--url` to advertise a different address (and for
+the manual `tailscale serve` fallback, which doesn't save one):
 
 ```bash
 vellum pair --qr --url https://your-assistant.ts.net
 ```
 
-This mints a pairing challenge and approves it locally — running the command
-on the host _is_ the proof of presence — then renders a QR code (and the same
-URL as text) in your terminal. The URL must be public HTTPS; the command
-refuses loopback or plain-HTTP addresses.
+Either way the command mints a pairing challenge and approves it locally —
+running it on the host _is_ the proof of presence — then renders a QR code (and
+the same URL as text) in your terminal. The advertised URL must be public
+HTTPS; the command refuses loopback or plain-HTTP addresses.
 
 On your phone:
 
 1. Make sure Tailscale is connected (for a `ts.net` address) or that you're
    on any network (for a public tunnel).
 2. Open the **system camera** and point it at the QR code, then tap the
-   notification. Safari opens the pairing page **already approved** and shows
-   **Connected**.
+   notification to open the pairing page in Safari. On iOS the page first
+   offers **Open in the Vellum app** or **Continue in this browser** — tap
+   **Continue in this browser** to pair here (see
+   [Using the Vellum iOS app](#6-using-the-vellum-ios-app) for the app path).
+   The page then shows **Connected**; pairing is already approved, so there's
+   nothing to confirm.
 3. Use the browser **Share → Add to Home Screen** to install the assistant as
    an app icon.
 
@@ -156,11 +175,79 @@ stay signed in. Pairing codes are **single-use and expire after 10 minutes** —
 to add another device (or if a code lapses), just run `vellum pair --qr`
 again.
 
-## 6. Native iOS shell (optional, for developers)
+## 6. Using the Vellum iOS app
 
-The steps above give you a full-screen web app via Add to Home Screen, which
-is enough for most people. If you want to build the native Capacitor iOS shell
-against your own origin, point it at your host's HTTPS URL:
+The native **Vellum iOS app** can point at your self-hosted assistant instead of
+Vellum Cloud, giving you the full app shell — not just a home-screen web page —
+against your own server. Steps 1–4 are identical; only the way the phone
+connects changes.
+
+> **Build requirement.** These app features ship in the next app release
+> (TestFlight, then the App Store). On an older build, use the browser / Add to
+> Home Screen path in [Step 5](#5-pair-your-phone) — it keeps working
+> unchanged. Building the shell from source
+> ([Step 7](#7-native-ios-shell-optional-for-developers)) also produces a build
+> that carries them today.
+
+All three connection methods below reach the same nginx edge you set up above.
+
+### Open the app from the default QR (works for everyone)
+
+The QR from `vellum pair --qr` (Step 5) already serves app users. On iOS its
+pairing page leads with **Open in the Vellum app** and offers **Continue in
+this browser** underneath. Tapping **Open in the Vellum app** hands the pairing
+to the app _before_ the single-use code is spent, so **Continue in this
+browser** still works if the app isn't installed. This one QR is the right
+choice when your phones are a mix of app and browser users.
+
+### Scan straight into the app with `--app`
+
+To make a QR that opens the app directly, add `--app`:
+
+```bash
+vellum pair --qr --app
+```
+
+This encodes the pairing as a `vellum-assistant://connect` link; the plain
+https pairing URL is printed beneath it as a fallback. Point the **system
+camera** at the QR and the app opens — cold-launching if it was closed — saves
+your server, and completes pairing in a single scan. Like plain `--qr`, it
+reuses the `vellum tunnel` address automatically; pass `--url` to override.
+
+An `--app` QR only opens on a phone that already has the app installed, so
+reach for it when every target device has the app. Use `--app-scheme` to target
+a non-production build (`vellum-assistant-dev` for a dev build,
+`vellum-assistant-staging` for staging):
+
+```bash
+vellum pair --qr --app --app-scheme vellum-assistant-dev
+```
+
+### Enter the server by hand in Settings
+
+To point the app at your server without scanning, open the iOS **Settings** app,
+tap **Vellum**, and use the **Self-Hosted Server** section: enter your
+assistant's HTTPS URL (the field shows a `https://` placeholder) — the same
+`https://…ts.net` address `vellum pair --qr` prints. Leaving it empty keeps the
+app on Vellum Cloud. The app applies the change when you reopen it. You still
+pair the device once — by any method above, or a browser sign-in — for the app
+to have access.
+
+If the app can't reach the configured server, it shows an alert —
+**Can't reach `your-assistant.ts.net`.** — with **Retry** and **Use Vellum
+Cloud**. **Use Vellum Cloud** clears the field and returns the app to Vellum
+Cloud; clearing the field yourself does the same.
+
+The [Good to know](#good-to-know) notes below — laptop awake, no background
+push, single-use 10-minute codes — apply to the app just as they do to the
+browser path.
+
+## 7. Native iOS shell (optional, for developers)
+
+The browser (Step 5) and released-app (Step 6) paths above cover most people.
+If you want to build the native Capacitor iOS shell yourself — for example to
+get the app features before they reach TestFlight — point it at your host's
+HTTPS URL:
 
 ```bash
 cd clients/web
