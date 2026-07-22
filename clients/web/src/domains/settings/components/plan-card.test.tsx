@@ -392,6 +392,19 @@ describe("PlanCard", () => {
     expect(html).toContain("Custom");
     expect(html).not.toContain("Mighty (Custom)");
   });
+
+  test("current-plan row labels an unpinned Pro sub as custom", () => {
+    // A legacy Pro sub with no pinned package reads "Custom", not the generic
+    // plan name "Pro".
+    const subscription: SubscriptionResponse = {
+      ...proMightySubscription(),
+      package: null,
+    };
+    const html = renderCard(subscription, plansWithSuper());
+    expect(html).toContain("plan-card-name");
+    expect(html).toContain("Custom");
+    expect(html).not.toContain("Pro");
+  });
 });
 
 describe("PlanCard action button", () => {

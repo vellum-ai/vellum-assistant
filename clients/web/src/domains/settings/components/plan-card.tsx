@@ -425,14 +425,16 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
     }
 
     const display = PLAN_DISPLAY[currentPlan.id] ?? DEFAULT_DISPLAY;
-    // Show the pinned package name (e.g. "Mighty"), or just "Custom" when the
-    // subscription is customized: its tiers differ from that stock package, so
-    // it isn't labeled as one.
-    const planName = subscription.package
-        ? subscription.package.customized
-            ? "Custom"
-            : subscription.package.name
-        : (currentPlan.name ?? currentPlan.id);
+    // A Pro sub shows the stock package name only for a clean (non-customized)
+    // pin (e.g. "Mighty"). Every other Pro state — an unpinned sub
+    // (`package == null`) or a customized pin whose tiers differ from the stock
+    // package — reads just "Custom". Non-Pro plans show their plan name.
+    const planName =
+        currentPlan.id === "pro"
+            ? subscription.package && !subscription.package.customized
+                ? subscription.package.name
+                : "Custom"
+            : (currentPlan.name ?? currentPlan.id);
 
     const isCancelling =
         display.showsRenewal &&
