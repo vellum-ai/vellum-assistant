@@ -144,6 +144,7 @@ export const LLMCallSiteEnum = z.enum([
   "inference",
   "vision",
   "voiceFrontDecision",
+  "voiceFrontDoor",
   "trustRuleSuggestion",
   "homeGreeting",
   "homeSuggestedPrompts",

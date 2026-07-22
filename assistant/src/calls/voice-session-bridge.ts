@@ -1295,7 +1295,12 @@ export async function startVoiceTurn(
           // Note: tool_use_preview_start is intentionally not handled here.
           // Voice only reacts to the definitive tool_use_start event.
         },
-        callSite: "callAgent",
+        // Front-door legs resolve through their own call site, whose shipped
+        // default pins the latency-class verdict model (see
+        // call-site-defaults.ts `voiceFrontDoor`); every other leg keeps the
+        // ordinary call-agent resolution.
+        callSite:
+          opts.routingLeg === "front-door" ? "voiceFrontDoor" : "callAgent",
         // The escalation-continuation prompt is a transcript-suppressed machine
         // signal (persisted `hidden`), so flag the turn to match — keeps
         // prompt-as-user-speech consumers (e.g. title generation) from treating

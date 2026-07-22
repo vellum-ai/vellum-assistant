@@ -26,7 +26,6 @@ import {
   ESCALATE_VERDICT_TOKEN,
   ESCALATION_CONTINUATION_CONTENT,
   FALLBACK_ESCALATION_BRIDGE,
-  FRONT_DOOR_PROFILE,
   isEscalationBridgeComplete,
   isVoiceTriageEscalateEnabled,
   isVoiceUnifiedFrontDoorEnabled,
@@ -2641,15 +2640,15 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       isAssistantFeatureFlagEnabled("voice-mode", cfg) &&
       isVoiceTriageEscalateEnabled(cfg);
 
-    // Front-door leg: with routing on, a fast profile fronts the turn and may
-    // hand off on the escalate verdict; with it off, a single leg runs on the
-    // call-site default — byte-for-byte the prior behavior.
+    // Front-door leg: with routing on, a fast model fronts the turn (the
+    // `voiceFrontDoor` call site pins it) and may hand off on the escalate
+    // verdict; with it off, a single leg runs on the call-site default —
+    // byte-for-byte the prior behavior.
     await this.startAssistantLeg(
       activeTurn,
       escalateEnabled
         ? {
             content,
-            overrideProfile: FRONT_DOOR_PROFILE,
             routingLeg: "front-door",
             frontDoor: true,
           }

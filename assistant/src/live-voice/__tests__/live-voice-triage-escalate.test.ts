@@ -5,7 +5,6 @@ import type { VoiceTurnOptions } from "../../calls/voice-session-bridge.js";
 import {
   ESCALATION_CONTINUATION_CONTENT,
   FALLBACK_ESCALATION_BRIDGE,
-  FRONT_DOOR_PROFILE,
   VOICE_TRIAGE_ESCALATE_FLAG,
 } from "../../calls/voice-triage-escalate.js";
 import { clearFeatureFlagOverridesCache } from "../../config/assistant-feature-flags.js";
@@ -194,9 +193,9 @@ describe("live-voice triage-and-escalate routing", () => {
     await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
 
     expect(starter).toHaveBeenCalledTimes(1);
-    expect(starter.mock.calls[0]?.[0]?.overrideProfile).toBe(
-      FRONT_DOOR_PROFILE,
-    );
+    // The front-door model is pinned by the voiceFrontDoor call site, not a
+    // per-turn profile override.
+    expect(starter.mock.calls[0]?.[0]?.overrideProfile).toBeUndefined();
     expect(starter.mock.calls[0]?.[0]?.routingLeg).toBe("front-door");
     expect(spokenText(frames)).toBe("Sure, it's Tuesday.");
   });
@@ -216,9 +215,10 @@ describe("live-voice triage-and-escalate routing", () => {
     expect(starter).toHaveBeenCalledTimes(2);
     const frontDoor = starter.mock.calls[0]?.[0];
     const escalated = starter.mock.calls[1]?.[0];
-    expect(frontDoor?.overrideProfile).toBe(FRONT_DOOR_PROFILE);
+    expect(frontDoor?.overrideProfile).toBeUndefined();
     expect(frontDoor?.routingLeg).toBe("front-door");
-    // The escalated leg runs on the call-site default profile: no override.
+    // The escalated leg runs on the ordinary call-agent resolution: no
+    // override either.
     expect(escalated?.overrideProfile).toBeUndefined();
     expect(escalated?.routingLeg).toBe("escalated");
     expect(escalated?.content).toBe(ESCALATION_CONTINUATION_CONTENT);

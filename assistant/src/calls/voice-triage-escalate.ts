@@ -27,7 +27,6 @@
  */
 
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
-import type { DefaultProfileKey } from "../config/default-profile-names.js";
 import { getConfig } from "../config/loader.js";
 import type { AssistantConfig } from "../config/schema.js";
 import {
@@ -62,13 +61,12 @@ export function isVoiceUnifiedFrontDoorEnabled(
   return isAssistantFeatureFlagEnabled(VOICE_UNIFIED_FRONT_DOOR_FLAG, config);
 }
 
-/** Fast/weak profile that fronts every turn when the flag is on. */
-export const FRONT_DOOR_PROFILE: DefaultProfileKey = "cost-optimized";
-
-// The escalated leg deliberately carries NO profile override: it runs on the
-// call-site default, i.e. exactly the profile an un-routed voice turn would
-// use (balanced for a fresh workspace, or whatever the user pinned). That
-// guarantees an escalated answer is never weaker OR stronger than the
+// The fast model fronting every turn is pinned by the `voiceFrontDoor` call
+// site (see config/call-site-defaults.ts) — no per-turn profile override.
+// The escalated leg likewise carries NO override: it runs on the ordinary
+// call-agent resolution, i.e. exactly the profile an un-routed voice turn
+// would use (balanced for a fresh workspace, or whatever the user pinned).
+// That guarantees an escalated answer is never weaker OR stronger than the
 // pre-routing behavior, and honors per-user profile choices.
 
 /**

@@ -10,7 +10,6 @@ import {
   escalatedContinuationRule,
   ESCALATION_CONTINUATION_CONTENT,
   FALLBACK_ESCALATION_BRIDGE,
-  FRONT_DOOR_PROFILE,
   frontDoorCapabilityDigest,
   frontDoorDecisionRule,
   HOLD_VERDICT_TOKEN,
@@ -28,12 +27,6 @@ const CONFIG = {} as AssistantConfig;
 
 afterEach(() => {
   clearFeatureFlagOverridesCache();
-});
-
-describe("voice-triage-escalate profiles", () => {
-  test("front door is the fast Speed profile", () => {
-    expect(FRONT_DOOR_PROFILE).toBe("cost-optimized");
-  });
 });
 
 describe("frontDoorCapabilityDigest", () => {
