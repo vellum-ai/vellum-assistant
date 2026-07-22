@@ -1922,6 +1922,28 @@ describe("queryUnreportedUsageEvents", () => {
     expect(events[0].parentTurnIndex).toBe(1);
   });
 
+  test("user-initiated forks (standard type) do not inherit fork parent attribution", () => {
+    const db = getDb();
+    // A user forks a conversation: the fork stamps
+    // fork_parent_conversation_id but is a first-class standard
+    // conversation — its usage must not fold into the source turn.
+    db.run(
+      `INSERT INTO conversations (id, conversation_type, created_at, updated_at) VALUES ('source-3', 'standard', 500, 500)`,
+    );
+    db.run(
+      `INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES ('s3', 'source-3', 'user', 'hello', 1000)`,
+    );
+    db.run(
+      `INSERT INTO conversations (id, conversation_type, created_at, updated_at, fork_parent_conversation_id, fork_parent_message_id) VALUES ('user-fork-1', 'standard', 2000, 2000, 'source-3', 's3')`,
+    );
+    insertEventAt(3000, { conversationId: "user-fork-1" });
+
+    const events = queryUnreportedUsageEvents(0, undefined, 100);
+    expect(events).toHaveLength(1);
+    expect(events[0].parentConversationId).toBeNull();
+    expect(events[0].parentTurnIndex).toBeNull();
+  });
+
   test("parent fields are null for parentless conversations and no-conversation events", () => {
     const db = getDb();
     const now = Date.now();

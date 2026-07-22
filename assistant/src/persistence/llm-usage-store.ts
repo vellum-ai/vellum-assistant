@@ -211,9 +211,11 @@ export interface UnreportedUsageEvent extends UsageEvent {
   /**
    * Id of the conversation that spawned this LLM call's conversation:
    * `parent_conversation_id` (subagent spawns), falling back to
-   * `fork_parent_conversation_id` (retrospective forks). Null when the
-   * conversation was not spawned by another conversation, or when the
-   * LLM call has no `conversationId` at all.
+   * `fork_parent_conversation_id` for background forks (retrospectives).
+   * User-initiated forks are excluded — they are standard conversations
+   * whose usage belongs to themselves. Null when the conversation was
+   * not spawned by another conversation, or when the LLM call has no
+   * `conversationId` at all.
    */
   parentConversationId: string | null;
   /**
@@ -236,11 +238,17 @@ export function queryUnreportedUsageEvents(
   const db = getTelemetryMainDb();
   // Spawn linkage: `parent_conversation_id` (subagent spawns) with a
   // fallback to `fork_parent_conversation_id` (retrospective forks — one
-  // hop up the fork chain is the intended attribution). Null when the
-  // LEFT JOIN below misses or the conversation has no parent.
+  // hop up the fork chain is the intended attribution). The fallback is
+  // gated to background conversations: user-initiated forks also stamp
+  // `fork_parent_conversation_id` but are first-class standard
+  // conversations whose usage belongs to themselves, not the source turn.
+  // Null when the LEFT JOIN below misses or the conversation has no
+  // parent.
   const parentIdSql = sql<string | null>`COALESCE(
     ${conversations.parentConversationId},
-    ${conversations.forkParentConversationId}
+    CASE WHEN ${conversations.conversationType} = 'background'
+      THEN ${conversations.forkParentConversationId}
+    END
   )`;
   // Cutoff for the parent-turn count. Subagent spawns attribute to the
   // parent turn in flight at child creation. Retrospective forks can
