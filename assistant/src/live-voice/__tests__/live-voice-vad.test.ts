@@ -3075,7 +3075,6 @@ describe("LiveVoiceSession unified front-door endpointing", () => {
       {
         "voice-mode": true,
         "voice-triage-escalate": true,
-        "voice-unified-front-door": true,
       },
       { fromGateway: true },
     );
