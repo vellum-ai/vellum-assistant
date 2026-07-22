@@ -14,6 +14,7 @@ import { createElement, type ReactNode } from "react";
 
 import type {
   OnboardingStateResponse,
+  PlanListResponse,
   SubscriptionResponse,
 } from "@/generated/api/types.gen";
 
@@ -27,8 +28,48 @@ const PLANS_KEY = ["plans"];
 // The fixtures the mocked retrieve options resolve; each test seeds them.
 let subscriptionFixture: SubscriptionResponse | null = null;
 let onboardingFixture: OnboardingStateResponse | null = null;
+let plansFixture: PlanListResponse | null = null;
 // When true, the onboarding query stays pending (its first load never lands).
 let onboardingHangs = false;
+
+/** Pro catalog whose machine tiers carry the prices used to rank up/downgrades. */
+function proPlans(): PlanListResponse {
+  return {
+    plans: [
+      {
+        id: "pro",
+        name: "Pro",
+        base_lookup_key: "pro_base",
+        base_price_cents: 2000,
+        billing_interval: "month",
+        included_features: [],
+        machine_tiers: [
+          {
+            tier: "medium",
+            label: "medium",
+            price_cents: 3500,
+            lookup_key: "machine_m",
+            cpu_limit: "2.5",
+            memory_gib: 5,
+            description: "Medium",
+          },
+          {
+            tier: "large",
+            label: "large",
+            price_cents: 6000,
+            lookup_key: "machine_l",
+            cpu_limit: "4",
+            memory_gib: 8,
+            description: "Large",
+          },
+        ],
+        storage_tiers: [],
+        credit_tiers: [],
+        packages: [],
+      },
+    ],
+  };
+}
 
 // Per-dimension captured bodies + resolution controls.
 type Body = { body: Record<string, unknown> };
@@ -54,6 +95,10 @@ mock.module("@/generated/api/@tanstack/react-query.gen", () => ({
   }),
   organizationsBillingSubscriptionOnboardingRetrieveQueryKey: () =>
     ONBOARDING_KEY,
+  organizationsBillingPlansRetrieveOptions: () => ({
+    queryKey: PLANS_KEY,
+    queryFn: () => plansFixture,
+  }),
   organizationsBillingPlansRetrieveQueryKey: () => PLANS_KEY,
   organizationsBillingSubscriptionChangeMachineTierCreateMutation: () => ({
     mutationFn: (opts: Body) => {
@@ -134,6 +179,7 @@ function setup({ seedOnboarding = true }: { seedOnboarding?: boolean } = {}) {
     },
   });
   client.setQueryData(SUBSCRIPTION_KEY, subscriptionFixture);
+  client.setQueryData(PLANS_KEY, plansFixture);
   if (seedOnboarding) {
     client.setQueryData(ONBOARDING_KEY, onboardingFixture);
   }
@@ -162,6 +208,7 @@ describe("useChangeTiers", () => {
     onboardingHangs = false;
     subscriptionFixture = proSubscription();
     onboardingFixture = onboarding();
+    plansFixture = proPlans();
   });
 
   test("derives current tiers and eligibility for an active Pro sub", () => {
@@ -253,6 +300,25 @@ describe("useChangeTiers", () => {
     expect(storageCalls).toEqual([{ body: { storage_tier: "s" } }]);
     expect(machineCalls).toEqual([]);
     expect(captured.value).toEqual({ needsResize: true });
+  });
+
+  test("a machine downgrade does not need a resize", async () => {
+    // Current machine is large; lowering to medium is a downgrade (cheaper),
+    // which is capped server-side and must not open the resize takeover.
+    onboardingFixture = onboarding({ max_machine_tier: "large" });
+    const { result } = setup();
+
+    const captured: { value: ChangeTiersResult | null } = { value: null };
+    await act(async () => {
+      captured.value = await result.current.changeTiers({
+        machineTier: "medium",
+        storageTier: "xs",
+        creditTier: null,
+      });
+    });
+
+    expect(machineCalls).toEqual([{ body: { machine_tier: "medium" } }]);
+    expect(captured.value).toEqual({ needsResize: false });
   });
 
   test("a credit-only change does not need a resize", async () => {

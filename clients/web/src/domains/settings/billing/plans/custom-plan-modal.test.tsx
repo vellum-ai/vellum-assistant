@@ -592,6 +592,25 @@ describe("CustomPlanModal — eligible Pro subscriber", () => {
     expect(openedUrl).toBeNull();
   });
 
+  test("a machine downgrade dispatches but skips the resize takeover", async () => {
+    // Current machine is large; lowering to medium is a downgrade, capped
+    // server-side, so it must not open the Apply & Restart takeover.
+    const { getByRole, queryByText, queryByTestId } = renderPage(
+      proMightySubscription(),
+      onboarding({ max_machine_tier: "large" }),
+    );
+
+    fireEvent.click(getByRole("button", { name: "Configure" }));
+    selectOption("Machine size", "Medium machine (2.5 vCPU, 5 GiB)");
+    fireEvent.click(continueButton());
+
+    await waitFor(() => expect(machineTierCall).not.toBeNull());
+    expect(machineTierCall!.body).toEqual({ machine_tier: "medium" });
+    // The modal closes and the takeover never opens for a downgrade.
+    await waitFor(() => expect(queryByText("Create a custom plan")).toBeNull());
+    expect(queryByTestId("resize-takeover")).toBeNull();
+  });
+
   test("storage tiers below the current size are disabled", () => {
     // Current storage is 30 GB (s), so the 10 GB tier can't be selected.
     const { getByRole } = renderPage(

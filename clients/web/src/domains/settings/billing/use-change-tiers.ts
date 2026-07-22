@@ -6,6 +6,7 @@ import {
   extractMutationError,
 } from "@/domains/settings/components/adjust-plan-utils";
 import {
+  organizationsBillingPlansRetrieveOptions,
   organizationsBillingPlansRetrieveQueryKey,
   organizationsBillingSubscriptionChangeCreditTierCreateMutation,
   organizationsBillingSubscriptionChangeMachineTierCreateMutation,
@@ -18,6 +19,7 @@ import {
 import type {
   CreditTierEnum,
   MachineTierEnum,
+  ProPlan,
   StorageTierEnum,
 } from "@/generated/api/types.gen";
 
@@ -44,9 +46,10 @@ export interface ChangeTiersSelection {
 /** Outcome of a successful `changeTiers` dispatch. */
 export interface ChangeTiersResult {
   /**
-   * A machine or storage dimension changed and persisted, so the assistant
-   * must provision the new compute/disk — the caller opens the resize
-   * takeover. A credit-only change (or a no-op) leaves this false.
+   * A resource dimension grew and persisted — a storage upgrade or a machine
+   * upgrade — so the assistant must provision the new compute/disk and the
+   * caller opens the resize takeover. A machine downgrade, a credit-only
+   * change, or a no-op leaves this false.
    */
   needsResize: boolean;
 }
@@ -91,6 +94,18 @@ export function useChangeTiers(): UseChangeTiersResult {
     ...organizationsBillingSubscriptionOnboardingRetrieveOptions(),
     enabled: onPro,
   });
+  // Supplies the machine-tier prices used to tell an upgrade from a downgrade,
+  // the same way `adjust-plan-modal` reads them. Already cached by the plans
+  // page, so this is a deduped read.
+  const plansQuery = useQuery({
+    ...organizationsBillingPlansRetrieveOptions(),
+    enabled: onPro,
+  });
+  const machineTiers =
+    plansQuery.data?.plans.find((p): p is ProPlan => p.id === "pro")
+      ?.machine_tiers ?? [];
+  const machinePriceCents = (tier: MachineTierEnum | null): number | null =>
+    machineTiers.find((t) => t.tier === tier)?.price_cents ?? null;
 
   const changeMachineTierMutation = useMutation(
     organizationsBillingSubscriptionChangeMachineTierCreateMutation(),
@@ -132,17 +147,21 @@ export function useChangeTiers(): UseChangeTiersResult {
     changeStorageTierMutation.isPending ||
     changeCreditTierMutation.isPending;
 
-  const invalidateBillingQueries = () => {
-    void queryClient.invalidateQueries({
-      queryKey: organizationsBillingSubscriptionRetrieveQueryKey(),
-    });
-    void queryClient.invalidateQueries({
-      queryKey: organizationsBillingSubscriptionOnboardingRetrieveQueryKey(),
-    });
-    void queryClient.invalidateQueries({
-      queryKey: organizationsBillingPlansRetrieveQueryKey(),
-    });
-  };
+  // Awaited before a resize-needed result resolves so the takeover reads the
+  // refetched onboarding ceiling, not the stale cache (mirrors the
+  // package-switch path).
+  const invalidateBillingQueries = () =>
+    Promise.all([
+      queryClient.invalidateQueries({
+        queryKey: organizationsBillingSubscriptionRetrieveQueryKey(),
+      }),
+      queryClient.invalidateQueries({
+        queryKey: organizationsBillingSubscriptionOnboardingRetrieveQueryKey(),
+      }),
+      queryClient.invalidateQueries({
+        queryKey: organizationsBillingPlansRetrieveQueryKey(),
+      }),
+    ]);
 
   const changeTiers = async (
     selection: ChangeTiersSelection,
@@ -150,6 +169,17 @@ export function useChangeTiers(): UseChangeTiersResult {
     const machineChanged = selection.machineTier !== current.machineTier;
     const storageChanged = selection.storageTier !== current.storageTier;
     const creditChanged = selection.creditTier !== current.creditTier;
+
+    // A machine change that lowers the price is a downgrade — capped down
+    // server-side with no provisioning step — so it must not open the resize
+    // takeover (mirrors `adjust-plan-modal`'s price-based check).
+    const nextMachinePrice = machinePriceCents(selection.machineTier);
+    const currentMachinePrice = machinePriceCents(current.machineTier);
+    const machineIsDowngrade =
+      machineChanged &&
+      nextMachinePrice != null &&
+      currentMachinePrice != null &&
+      nextMachinePrice < currentMachinePrice;
 
     type DimensionResult = {
       dimension: "machine" | "storage" | "credit";
@@ -210,14 +240,21 @@ export function useChangeTiers(): UseChangeTiersResult {
     }
 
     const results = await Promise.all(pending);
-    invalidateBillingQueries();
+    // Await the refetches so a resize-needed result resolves only once the
+    // takeover can read the new ceiling instead of the stale cache.
+    await invalidateBillingQueries();
 
-    // Storage here is always an upgrade (the modal disables downgrades) and any
-    // machine change resizes the assistant, so a succeeded resource dimension
-    // means the assistant must provision the new ceiling.
-    const needsResize = results.some(
-      (r) => r.ok && (r.dimension === "machine" || r.dimension === "storage"),
+    // Storage is always an upgrade (the modal disables downgrades). A machine
+    // change needs a resize only when it grows the ceiling — a downgrade is
+    // capped server-side with no provisioning step. Either succeeded resource
+    // grow means the assistant must provision.
+    const machineUpgradeSucceeded =
+      results.some((r) => r.ok && r.dimension === "machine") &&
+      !machineIsDowngrade;
+    const storageSucceeded = results.some(
+      (r) => r.ok && r.dimension === "storage",
     );
+    const needsResize = machineUpgradeSucceeded || storageSucceeded;
 
     const failures = results.filter((r) => !r.ok);
     if (failures.length > 0) {
