@@ -4,8 +4,8 @@
  * come from the shared `ABOUT_ASSISTANT_SECTIONS` registry in
  * `utils/routes.ts`; this module owns only what is overview-specific:
  * ordering, descriptions, and capability gating. Pure so the gating
- * (channels feature flag, memory flag) is unit-testable without
- * rendering the overview.
+ * (channels feature flag, memory-graph availability) is unit-testable
+ * without rendering the overview.
  */
 
 import {
@@ -25,7 +25,12 @@ export interface IdentitySection {
 export interface IdentitySectionGates {
   /** The `channel-trust-floors` flag exposes the Channels surface. */
   showChannels: boolean;
-  /** The `memory-concept-graph` flag exposes the Memory surface. */
+  /**
+   * Whether the memory-concept graph is available for this assistant (memory
+   * v3 live, reported by `GET /memory/stats` as `graph_supported`). The Memory
+   * surface is native — no feature flag — but only offered where the graph can
+   * actually build, so it never dead-ends on a "not available" graph.
+   */
   showMemory: boolean;
 }
 

@@ -1,7 +1,8 @@
 /**
  * Gating behavior of the overview's drill-down section list: Memory only
- * appears behind the memory-concept-graph flag, Channels only behind the
- * channel-trust-floors flag, and the stable sections keep their order.
+ * appears where the memory-concept graph is available (memory v3 live),
+ * Channels only behind the channel-trust-floors flag, and the stable sections
+ * keep their order.
  */
 import { describe, expect, test } from "bun:test";
 
@@ -24,7 +25,7 @@ describe("buildIdentitySections", () => {
     ]);
   });
 
-  test("hides Memory while memory-concept-graph is off", () => {
+  test("hides Memory while the memory-concept graph is unavailable", () => {
     expect(keys({ showChannels: true, showMemory: false })).not.toContain(
       "memory",
     );

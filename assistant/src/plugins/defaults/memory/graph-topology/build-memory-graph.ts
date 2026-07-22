@@ -15,7 +15,7 @@
  * a call into `backend.getGraph()` — the contract and its route do not change.
  */
 
-import { isMemoryV3Live } from "../../../../config/memory-v3-gate.js";
+import { isMemoryGraphSupported } from "../../../../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../../../../config/types.js";
 import { getWorkspaceDir } from "../paths.js";
 import {
@@ -30,7 +30,6 @@ import {
 import { readPage, renderPageContent } from "../v3/substrate/page-store.js";
 import { isSkillSlug } from "../v3/substrate/skill-store.js";
 import type { Slug } from "../v3/types.js";
-import { isMemoryConceptGraphEnabled } from "./flag.js";
 import {
   buildPendingGraph,
   PENDING_NODE_ID_PREFIX,
@@ -236,7 +235,7 @@ export function assembleMemoryGraph(input: AssembleMemoryGraphInput): {
 export async function getMemoryGraph(
   config: AssistantConfig,
 ): Promise<MemoryGraph> {
-  if (!isMemoryConceptGraphEnabled(config) || !isMemoryV3Live(config)) {
+  if (!isMemoryGraphSupported(config)) {
     return { backend: null, supported: false, nodes: [], edges: [] };
   }
 
@@ -300,7 +299,7 @@ export async function getMemoryGraphNode(
   config: AssistantConfig,
   id: string,
 ): Promise<MemoryGraphNodeDetail> {
-  if (!isMemoryConceptGraphEnabled(config) || !isMemoryV3Live(config) || !id) {
+  if (!isMemoryGraphSupported(config) || !id) {
     return { found: false };
   }
   // Pending buffer entries: resolve the id back to its buffer fact. `found:
