@@ -64,14 +64,29 @@ describe("restoreSurfaceStateEntry", () => {
     expect(entry.data).toEqual({ skills: [{ name: "foo" }], cta: "Add" });
   });
 
-  test("falls back to dynamic_page for an unrecognized surfaceType while keeping data", () => {
+  test("preserves an unknown but non-empty surfaceType verbatim (future/custom surfaces)", () => {
     const entry = restoreSurfaceStateEntry({
-      surfaceType: "totally_unknown",
+      surfaceType: "some_future_surface",
       data: { keep: "me" },
     });
 
-    expect(entry.surfaceType).toBe("dynamic_page");
+    // The recorded type must survive restart so the client renders the surface
+    // it recorded rather than a coerced dynamic_page. (The verbatim string is
+    // carried under the SurfaceType-typed field via the restore boundary cast.)
+    expect(entry.surfaceType as string).toBe("some_future_surface");
     expect(entry.data).toEqual({ keep: "me" });
+  });
+
+  test("falls back to dynamic_page only when surfaceType is missing or blank", () => {
+    expect(restoreSurfaceStateEntry({ data: {} }).surfaceType).toBe(
+      "dynamic_page",
+    );
+    expect(
+      restoreSurfaceStateEntry({ surfaceType: "   ", data: {} }).surfaceType,
+    ).toBe("dynamic_page");
+    expect(
+      restoreSurfaceStateEntry({ surfaceType: 42, data: {} }).surfaceType,
+    ).toBe("dynamic_page");
   });
 
   test("rehydrates the daemon-only activationMoment tag and drops a malformed one", () => {

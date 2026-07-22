@@ -175,10 +175,12 @@ export function parseActivationMomentTag(
 
 /**
  * Map a persisted `ui_surface` history block to a live `surfaceState` entry.
- * The block is untyped JSON from the messages table: `surfaceType` is
- * validated against the canonical enum (an unrecognized value falls back to
- * `dynamic_page`, the legacy default for pre-field blocks), while `data` is
- * preserved VERBATIM.
+ * The block is untyped JSON from the messages table: both `surfaceType` and
+ * `data` are preserved VERBATIM. Only a missing/blank `surfaceType` falls
+ * back to the legacy `dynamic_page` default (for pre-field blocks) — an
+ * unknown but non-empty type string (e.g. a newer/custom client-rendered
+ * surface) is kept intact so a restart serves the recorded type rather than
+ * coercing the client into rendering the wrong surface.
  *
  * `data` is deliberately NOT re-parsed through the canonical schema. The
  * `surfaceState` entry is served to clients (the `GET /v1/surfaces/:id`
@@ -194,10 +196,10 @@ export function parseActivationMomentTag(
 export function restoreSurfaceStateEntry(
   b: Record<string, unknown>,
 ): SurfaceStateEntry {
-  const parsedType = SurfaceTypeSchema.safeParse(
-    b.surfaceType ?? "dynamic_page",
-  );
-  const surfaceType = parsedType.success ? parsedType.data : "dynamic_page";
+  const surfaceType =
+    typeof b.surfaceType === "string" && b.surfaceType.trim().length > 0
+      ? b.surfaceType
+      : "dynamic_page";
   const activationMoment = parseActivationMomentTag(b.activationMoment);
 
   return {
