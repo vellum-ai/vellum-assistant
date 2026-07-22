@@ -1,5 +1,10 @@
-import { AlertCircle, CheckCircle2, LoaderCircle } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import {
+  AlertCircle,
+  CheckCircle2,
+  LoaderCircle,
+  Smartphone,
+} from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 
 import { NotFound } from "@/components/not-found";
@@ -11,6 +16,8 @@ import {
   RemoteWebPairingError,
 } from "@/lib/auth/remote-gateway-session";
 import { isRemoteGatewayMode } from "@/lib/local-mode";
+import { isNativePlatform } from "@/runtime/native-auth";
+import { isIOSBrowser } from "@/runtime/platform-detection";
 import { sanitizeReturnTo } from "@/utils/return-to";
 import { routes } from "@/utils/routes";
 
@@ -21,6 +28,7 @@ type PairingDetails = {
 
 type PairingState =
   | { kind: "starting" }
+  | { kind: "handoff_choice" }
   | { kind: "verifying" }
   | { kind: "polling"; expiresAt: string | null }
   | { kind: "approved" }
@@ -33,6 +41,11 @@ function statusCopy(state: PairingState): { title: string; body: string } {
       return {
         title: "Starting pairing",
         body: "Creating a code for this browser.",
+      };
+    case "handoff_choice":
+      return {
+        title: "Open in the Vellum app",
+        body: "Scanning from a phone with the Vellum app installed? Hand this pairing to the app.",
       };
     case "verifying":
       return {
@@ -65,6 +78,9 @@ function statusCopy(state: PairingState): { title: string; body: string } {
 function StatusIcon({ state }: { state: PairingState }) {
   if (state.kind === "approved") {
     return <CheckCircle2 className="h-5 w-5 text-green-600" aria-hidden />;
+  }
+  if (state.kind === "handoff_choice") {
+    return <Smartphone className="h-5 w-5 text-blue-600" aria-hidden />;
   }
   if (
     state.kind === "starting" ||
@@ -99,6 +115,62 @@ function clearDeviceCodeFromUrl(): void {
   }
 }
 
+/**
+ * Custom URL scheme registered by the shipped iOS app. Dev and staging app
+ * builds register suffixed schemes (e.g. `vellum-assistant-dev`), so this
+ * handoff link intentionally targets the production app — the common case for
+ * a phone that scanned a pairing QR with its camera.
+ */
+const VELLUM_APP_SCHEME = "vellum-assistant";
+
+/**
+ * Build the `vellum-assistant://connect?url=<origin>&code=<device-code>` deep
+ * link the iOS app consumes to persist this server and finish pairing inside
+ * the app. `url` is the page's own origin so the app reconnects to the same
+ * self-hosted assistant this browser is already on.
+ */
+function buildAppHandoffUrl(deviceCode: string): string {
+  const query = new URLSearchParams({
+    url: window.location.origin,
+    code: deviceCode,
+  });
+  return `${VELLUM_APP_SCHEME}://connect?${query.toString()}`;
+}
+
+/**
+ * Pre-exchange choice shown to an iOS browser that arrived with a device code.
+ * The primary action is a plain anchor so Safari performs the custom-scheme
+ * navigation natively; tapping it does not burn the single-use code, so
+ * "Continue in this browser" stays available if the app is not installed.
+ */
+function PairingHandoffActions({
+  deviceCode,
+  onContinueInBrowser,
+}: {
+  deviceCode: string;
+  onContinueInBrowser: () => void;
+}) {
+  const appLink = useMemo(() => buildAppHandoffUrl(deviceCode), [deviceCode]);
+
+  return (
+    <div className="mt-6 flex flex-col gap-3">
+      <a
+        href={appLink}
+        className="inline-flex items-center justify-center rounded-md bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700"
+      >
+        Open in the Vellum app
+      </a>
+      <button
+        type="button"
+        onClick={onContinueInBrowser}
+        className="inline-flex items-center justify-center rounded-md border border-[var(--border-default)] bg-[var(--background-surface)] px-4 py-2.5 text-sm font-medium text-[var(--content-primary)] transition-colors hover:bg-[var(--background-muted)]"
+      >
+        Continue in this browser
+      </button>
+    </div>
+  );
+}
+
 export function RemoteWebPairingPage() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -114,6 +186,16 @@ export function RemoteWebPairingPage() {
       ),
     [location.pathname, location.search, location.hash],
   );
+
+  // A phone that scanned the pairing QR with its camera lands here in Safari.
+  // If the Vellum app is installed we offer to hand the pairing to it before
+  // burning the single-use code — but only in an iOS browser, never inside the
+  // app's own WKWebView (which pairs directly).
+  const iosAppHandoff = useMemo(
+    () => Boolean(params.deviceCode) && isIOSBrowser() && !isNativePlatform(),
+    [params.deviceCode],
+  );
+
   const [pairing, setPairing] = useState<PairingDetails | null>(() =>
     params.deviceCode
       ? {
@@ -122,9 +204,20 @@ export function RemoteWebPairingPage() {
         }
       : null,
   );
-  const [state, setState] = useState<PairingState>(
-    pairing ? { kind: "verifying" } : { kind: "starting" },
+
+  // The browser-side exchange burns the single-use code, so on the iOS handoff
+  // screen it waits until the user picks "Continue in this browser"; every
+  // other surface starts it immediately.
+  const [browserExchangeAllowed, setBrowserExchangeAllowed] = useState(
+    () => !iosAppHandoff,
   );
+
+  const [state, setState] = useState<PairingState>(() => {
+    if (iosAppHandoff) {
+      return { kind: "handoff_choice" };
+    }
+    return params.deviceCode ? { kind: "verifying" } : { kind: "starting" };
+  });
 
   useEffect(() => {
     if (!enabled) return;
@@ -162,6 +255,10 @@ export function RemoteWebPairingPage() {
   useEffect(() => {
     if (!enabled) return;
     if (!pairing?.deviceCode) {
+      return;
+    }
+    // Hold the code-burning exchange while the iOS handoff choice is pending.
+    if (!browserExchangeAllowed) {
       return;
     }
 
@@ -222,7 +319,18 @@ export function RemoteWebPairingPage() {
       controller.abort();
       if (timeout) clearTimeout(timeout);
     };
-  }, [enabled, pairing?.deviceCode, navigate, returnTo]);
+  }, [
+    enabled,
+    pairing?.deviceCode,
+    browserExchangeAllowed,
+    navigate,
+    returnTo,
+  ]);
+
+  const handleContinueInBrowser = useCallback(() => {
+    setBrowserExchangeAllowed(true);
+    setState({ kind: "verifying" });
+  }, []);
 
   if (!enabled) {
     return <NotFound />;
@@ -252,6 +360,13 @@ export function RemoteWebPairingPage() {
         <p className="text-sm leading-6 text-[var(--content-secondary)]">
           {copy.body}
         </p>
+
+        {state.kind === "handoff_choice" && pairing ? (
+          <PairingHandoffActions
+            deviceCode={pairing.deviceCode}
+            onContinueInBrowser={handleContinueInBrowser}
+          />
+        ) : null}
 
         {state.kind === "polling" && state.expiresAt ? (
           <p className="mt-4 text-xs text-[var(--content-tertiary)]">
