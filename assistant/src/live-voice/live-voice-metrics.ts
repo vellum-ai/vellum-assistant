@@ -10,6 +10,7 @@ export type LiveVoiceMetricsEvent =
   | "session_ready"
   | "turn_started"
   | "first_audio"
+  | "assistant_dispatch"
   | "first_partial"
   | "vad_speech_start"
   | "ptt_release"
@@ -79,6 +80,11 @@ interface LiveVoiceTurnTimestamps {
   utteranceEndAtMs: number | null;
   bargeInAtMs: number | null;
   finalTranscriptAtMs: number | null;
+  // First assistant-leg dispatch of the turn (first-wins across hold
+  // replays): the moment the felt-latency clock starts, unlike
+  // finalTranscriptAtMs which can predate the boundary by the caller's
+  // whole multi-segment utterance.
+  assistantDispatchAtMs: number | null;
   firstAssistantDeltaAtMs: number | null;
   firstTtsAudioAtMs: number | null;
   completedAtMs: number | null;
@@ -90,6 +96,11 @@ interface LiveVoiceTurnDurations {
   pttReleaseToFinalTranscriptMs: number | null;
   utteranceEndToFinalTranscriptMs: number | null;
   finalTranscriptToFirstAssistantDeltaMs: number | null;
+  // Dispatch-anchored versions of the two numbers above: what the leg (and
+  // the caller's ear) actually waited, immune to final-transcript anchor
+  // inflation on multi-segment utterances.
+  dispatchToFirstAssistantDeltaMs: number | null;
+  dispatchToFirstTtsAudioMs: number | null;
   firstAssistantDeltaToFirstTtsAudioMs: number | null;
   // End-of-speech (utterance_end, or ptt_release in manual mode) to first
   // TTS audio: the server-side turn round trip.
@@ -143,6 +154,11 @@ interface LiveVoiceMetricsSnapshot {
 interface LiveVoiceMetricsAggregateFields {
   sttMs: number | null;
   llmFirstDeltaMs: number | null;
+  // Dispatch-anchored felt latency: leg dispatch to first delta / first TTS
+  // audio, immune to the final-transcript anchor inflation llmFirstDeltaMs
+  // suffers on multi-segment utterances.
+  dispatchToFirstDeltaMs: number | null;
+  dispatchToFirstAudioMs: number | null;
   ttsFirstAudioMs: number | null;
   roundTripMs: number | null;
   totalMs: number | null;
@@ -230,6 +246,7 @@ export class LiveVoiceMetricsCollector {
         utteranceEndAtMs: null,
         bargeInAtMs: null,
         finalTranscriptAtMs: null,
+        assistantDispatchAtMs: null,
         firstAssistantDeltaAtMs: null,
         firstTtsAudioAtMs: null,
         completedAtMs: null,
@@ -359,6 +376,14 @@ export class LiveVoiceMetricsCollector {
       turn.timestamps.finalTranscriptAtMs = this.timestamp();
     }
     return this.emit("final_transcript", turn.turnId);
+  }
+
+  markAssistantDispatch(turnId?: string): LiveVoiceMetricsFrame {
+    const turn = this.ensureActiveTurn(turnId);
+    if (turn.timestamps.assistantDispatchAtMs === null) {
+      turn.timestamps.assistantDispatchAtMs = this.timestamp();
+    }
+    return this.emit("assistant_dispatch", turn.turnId);
   }
 
   markFirstAssistantDelta(turnId?: string): LiveVoiceMetricsFrame {
@@ -516,6 +541,8 @@ export function getLiveVoiceMetricsAggregateFields(
     return {
       sttMs: null,
       llmFirstDeltaMs: null,
+      dispatchToFirstDeltaMs: null,
+      dispatchToFirstAudioMs: null,
       ttsFirstAudioMs: null,
       roundTripMs: null,
       totalMs: null,
@@ -535,6 +562,8 @@ function aggregateFieldsForTurn(
       turn.durations.pttReleaseToFinalTranscriptMs ??
       turn.durations.utteranceEndToFinalTranscriptMs,
     llmFirstDeltaMs: turn.durations.finalTranscriptToFirstAssistantDeltaMs,
+    dispatchToFirstDeltaMs: turn.durations.dispatchToFirstAssistantDeltaMs,
+    dispatchToFirstAudioMs: turn.durations.dispatchToFirstTtsAudioMs,
     ttsFirstAudioMs: turn.durations.firstAssistantDeltaToFirstTtsAudioMs,
     roundTripMs: turn.durations.roundTripMs,
     totalMs: turn.durations.totalTurnDurationMs,
@@ -636,6 +665,14 @@ function snapshotTurn(turn: MutableTurn): LiveVoiceTurnMetrics {
       finalTranscriptToFirstAssistantDeltaMs: duration(
         timestamps.finalTranscriptAtMs,
         timestamps.firstAssistantDeltaAtMs,
+      ),
+      dispatchToFirstAssistantDeltaMs: duration(
+        timestamps.assistantDispatchAtMs,
+        timestamps.firstAssistantDeltaAtMs,
+      ),
+      dispatchToFirstTtsAudioMs: duration(
+        timestamps.assistantDispatchAtMs,
+        timestamps.firstTtsAudioAtMs,
       ),
       firstAssistantDeltaToFirstTtsAudioMs: duration(
         timestamps.firstAssistantDeltaAtMs,

@@ -7,12 +7,14 @@ import type { PlatformGateState } from "@/hooks/use-platform-gate";
  *   - `?tab=billing` — a direct deeplink to the Billing sub-tab.
  *   - `?adjust_plan` — an upgrade / manage-plan CTA (resize card, disk-pressure
  *     banner, managed-content prompts, General page).
+ *   - `?pro_onboarding` — a deeplink that reopens the pro onboarding wizard.
  *   - `?billing_status` / `?session_id` — a Stripe checkout/portal return.
  */
 export function hasBillingIntent(searchParams: URLSearchParams): boolean {
   return (
     searchParams.get("tab") === "billing" ||
     searchParams.has("adjust_plan") ||
+    searchParams.has("pro_onboarding") ||
     searchParams.has("billing_status") ||
     searchParams.has("session_id")
   );

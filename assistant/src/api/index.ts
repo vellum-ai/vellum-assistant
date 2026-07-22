@@ -46,6 +46,9 @@ import { OpenUrlEventSchema } from "./events/open-url.js";
 import { QuestionRequestEventSchema } from "./events/question-request.js";
 import { RelationshipStateUpdatedEventSchema } from "./events/relationship-state-updated.js";
 import { SecretRequestEventSchema } from "./events/secret-request.js";
+import { ServiceGroupUpdateCompleteEventSchema } from "./events/service-group-update-complete.js";
+import { ServiceGroupUpdateProgressEventSchema } from "./events/service-group-update-progress.js";
+import { ServiceGroupUpdateStartingEventSchema } from "./events/service-group-update-starting.js";
 import { SubagentEventEventSchema } from "./events/subagent-event.js";
 import { SubagentSpawnedEventSchema } from "./events/subagent-spawned.js";
 import { SubagentStatusChangedEventSchema } from "./events/subagent-status-changed.js";
@@ -302,6 +305,18 @@ export {
   SecretRequestEventSchema,
 } from "./events/secret-request.js";
 export {
+  type ServiceGroupUpdateCompleteEvent,
+  ServiceGroupUpdateCompleteEventSchema,
+} from "./events/service-group-update-complete.js";
+export {
+  type ServiceGroupUpdateProgressEvent,
+  ServiceGroupUpdateProgressEventSchema,
+} from "./events/service-group-update-progress.js";
+export {
+  type ServiceGroupUpdateStartingEvent,
+  ServiceGroupUpdateStartingEventSchema,
+} from "./events/service-group-update-starting.js";
+export {
   type SubagentEventEvent,
   SubagentEventEventSchema,
   type SubagentInnerEvent,
@@ -538,8 +553,66 @@ export {
 export {
   type CardSurfaceData,
   CardSurfaceDataSchema,
+  type ChoiceOption,
+  ChoiceOptionSchema,
+  type ChoiceSurfaceData,
+  ChoiceSurfaceDataSchema,
+  coerceSurfaceDataRecord,
+  type ConfirmationSurfaceData,
+  ConfirmationSurfaceDataSchema,
+  type CopyBlockSurfaceData,
+  CopyBlockSurfaceDataSchema,
+  type DocumentPreviewSurfaceData,
+  DocumentPreviewSurfaceDataSchema,
+  type DynamicPagePreview,
+  DynamicPagePreviewSchema,
+  type DynamicPageSurfaceData,
+  DynamicPageSurfaceDataSchema,
   type FileUploadSurfaceData,
   FileUploadSurfaceDataSchema,
+  type FormField,
+  FormFieldSchema,
+  type FormPage,
+  FormPageSchema,
+  type FormSurfaceData,
+  FormSurfaceDataSchema,
+  type ListItem,
+  ListItemSchema,
+  type ListSurfaceData,
+  ListSurfaceDataSchema,
+  type OAuthConnectSurfaceData,
+  OAuthConnectSurfaceDataSchema,
+  SURFACE_DATA_SCHEMAS,
+  SURFACE_TYPES,
+  type SurfaceData,
+  type SurfaceType,
+  SurfaceTypeSchema,
+  type TableCellValue,
+  TableCellValueSchema,
+  type TableColumn,
+  TableColumnSchema,
+  type TableRow,
+  TableRowSchema,
+  type TableSurfaceData,
+  TableSurfaceDataSchema,
+  type WorkResultDiff,
+  WorkResultDiffSchema,
+  type WorkResultItem,
+  WorkResultItemSchema,
+  type WorkResultMetadata,
+  WorkResultMetadataSchema,
+  type WorkResultMetric,
+  WorkResultMetricSchema,
+  type WorkResultSection,
+  WorkResultSectionSchema,
+  type WorkResultSectionType,
+  WorkResultSectionTypeSchema,
+  type WorkResultStatus,
+  WorkResultStatusSchema,
+  type WorkResultSurfaceData,
+  WorkResultSurfaceDataSchema,
+  type WorkResultTone,
+  WorkResultToneSchema,
 } from "./surfaces.js";
 
 /**
@@ -602,6 +675,9 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   QuestionRequestEventSchema,
   RelationshipStateUpdatedEventSchema,
   SecretRequestEventSchema,
+  ServiceGroupUpdateCompleteEventSchema,
+  ServiceGroupUpdateProgressEventSchema,
+  ServiceGroupUpdateStartingEventSchema,
   SubagentEventEventSchema,
   SubagentSpawnedEventSchema,
   SubagentStatusChangedEventSchema,

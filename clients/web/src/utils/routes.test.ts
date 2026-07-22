@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  ABOUT_ASSISTANT_SECTIONS,
   isAboutAssistantPath,
   isConversationChatPath,
   isConversationPath,
@@ -49,6 +50,19 @@ describe("isAboutAssistantPath", () => {
     expect(isAboutAssistantPath(routes.skills.root)).toBe(true);
     expect(isAboutAssistantPath(routes.schedules.root)).toBe(true);
     expect(isAboutAssistantPath(routes.schedules.detail("sch_123"))).toBe(true);
+  });
+
+  test("matches the Library section, including the app viewer sub-path", () => {
+    expect(isAboutAssistantPath(routes.library.root)).toBe(true);
+    expect(isAboutAssistantPath(routes.library.app("app-1"))).toBe(true);
+  });
+
+  test("every registry section counts as an About Assistant path", () => {
+    // Chrome and sidebar highlight derive from the same registry — this
+    // guards the wiring, so a new section can't get one without the other.
+    for (const { to } of ABOUT_ASSISTANT_SECTIONS) {
+      expect(isAboutAssistantPath(to)).toBe(true);
+    }
   });
 
   test("rejects the Activity page and conversations", () => {

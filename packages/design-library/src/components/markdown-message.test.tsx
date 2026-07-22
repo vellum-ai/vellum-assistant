@@ -47,7 +47,10 @@ describe("MarkdownMessage", () => {
     expect(html).toContain("mx-0");
     expect(html).toContain("flex");
     expect(html).toContain("gap-3");
-    expect(html).toContain("h-5");
+    // The accent bar stretches with the quote so multi-line quotes get a
+    // full-height rule, not a fixed-height pill floating mid-quote.
+    expect(html).toContain("self-stretch");
+    expect(html).not.toContain("h-5");
     expect(html).toContain("w-0.5");
     expect(html).toContain("rounded-full");
     expect(html).toContain("min-w-0");
@@ -104,35 +107,60 @@ describe("MarkdownMessage", () => {
     expect(html).toContain('<li value="1"');
   });
 
-  test("tables render with the body-small typography token", () => {
+  test("tables render with the small prose typography token", () => {
     const html = renderToStaticMarkup(
       createElement(MarkdownMessage, {
         content: "| a | b |\n| - | - |\n| 1 | 2 |",
       }),
     );
 
-    expect(html).toContain("text-body-small-default");
+    // The prose token (real leading), not the single-line label token —
+    // cell content wraps, and the label token's line-height:1 collapses
+    // wrapped lines onto each other.
+    expect(html).toContain("text-body-small-lighter");
+    expect(html).not.toContain("text-body-small-default");
   });
 
   test("inline code in table cells wraps with preserved spacing and breathing room", () => {
     const html = renderToStaticMarkup(
       createElement(MarkdownMessage, {
-        content: "| Function | Usage |\n| --- | --- |\n| `useState` | `const [s, setS] = useState(v)` |",
+        content:
+          "| Function | Usage |\n| --- | --- |\n| `useState` | `const [s, setS] = useState(v)` |",
       }),
     );
 
     // Both <td> and <th> let inline code wrap while preserving its spacing.
-    // leading-relaxed is load-bearing: the body-small token sets line-height:1,
-    // which clips the padded inline-code background once it wraps onto a second
-    // line.
     const tdMatches = html.match(/<td\b[^>]*class="([^"]*)"/g) ?? [];
     const thMatches = html.match(/<th\b[^>]*class="([^"]*)"/g) ?? [];
     for (const match of [...tdMatches, ...thMatches]) {
       expect(match).toContain("whitespace-pre-wrap");
-      expect(match).toContain("leading-relaxed");
     }
-    // Code elements inside cells are still inline code (not block).
-    expect(html).toContain("<code");
+    // Code elements inside cells are still inline code (not block), and carry
+    // the small prose token so the padded chip background stays inside its
+    // own line box once it wraps in a cell.
+    const cellCodeTag = html.match(/<code[^>]*>/)?.[0] ?? "";
+    expect(cellCodeTag).toContain("text-body-small-lighter");
+  });
+
+  test("inline code and blockquotes use the small prose token so chips never overlap prose", () => {
+    // The body-small *label* token bakes line-height:1 into its utility. A
+    // quote's wrapped prose would get 12px line boxes while a padded
+    // inline-code chip paints ~18px tall — chips from one line would cover
+    // the lines above and below. Both the quote block and the chip must use
+    // the small *prose* token (real leading) instead.
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content: "> Set `backup.enabled` to `false` in the config file.",
+      }),
+    );
+
+    const blockquoteTag = html.match(/<blockquote[^>]*>/)?.[0] ?? "";
+    expect(blockquoteTag).toContain("text-body-small-lighter");
+    expect(blockquoteTag).not.toContain("text-body-small-default");
+
+    const codeTag = html.match(/<code[^>]*>/)?.[0] ?? "";
+    expect(codeTag).toContain("text-body-small-lighter");
+    expect(codeTag).not.toContain("text-body-small-default");
   });
 
   test("forwards a supplied className onto the wrapper", () => {
@@ -413,8 +441,18 @@ describe("MarkdownMessage", () => {
   });
 
   test("custom linkComponent replaces the default link renderer", () => {
-    function CustomLink({ href, children }: { href?: string; children?: React.ReactNode }) {
-      return <a href={href} data-custom="true">{children}</a>;
+    function CustomLink({
+      href,
+      children,
+    }: {
+      href?: string;
+      children?: React.ReactNode;
+    }) {
+      return (
+        <a href={href} data-custom="true">
+          {children}
+        </a>
+      );
     }
 
     const html = renderToStaticMarkup(

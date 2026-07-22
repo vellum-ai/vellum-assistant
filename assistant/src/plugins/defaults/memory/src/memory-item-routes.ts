@@ -32,7 +32,10 @@ import {
 import { z } from "zod";
 
 import { getConfig } from "../../../../config/loader.js";
-import { usesConceptPageMemory } from "../../../../config/memory-v3-gate.js";
+import {
+  isMemoryGraphSupported,
+  usesConceptPageMemory,
+} from "../../../../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../../../../config/types.js";
 import { getDb } from "../../../../persistence/db-connection.js";
 import {
@@ -487,11 +490,19 @@ function handleGetMemoryItem(id: string) {
  * concepts-only filter in `build-memory-graph.ts`, but never triggers the
  * expensive `getMemoryGraph` build (edge / learned / cluster graph) — the
  * concept graph is deliberately kept off identity-page load.
+ *
+ * `graph_supported` reports whether the memory-concept graph is available for
+ * this assistant — the same `isMemoryGraphSupported` condition under which
+ * `GET /memory-graph` returns `supported: true` (memory enabled + v3 live). It
+ * is a cheap config read (no page I/O), so glanceable surfaces can gate the
+ * graph entry point on real availability without triggering the graph build.
  */
-async function handleGetMemoryStats(): Promise<{ concepts: number }> {
+async function handleGetMemoryStats(
+  config: AssistantConfig,
+): Promise<{ concepts: number; graph_supported: boolean }> {
   const pageIndex = await getPageIndex(getWorkspaceDir());
   const concepts = pageIndex.entries.filter((e) => e.modifiedAt > 0).length;
-  return { concepts };
+  return { concepts, graph_supported: isMemoryGraphSupported(config) };
 }
 
 async function handleCreateMemoryItem(body: Record<string, unknown>) {
@@ -811,12 +822,20 @@ export const ROUTES: RouteDefinition[] = [
     description:
       "Return a cheap count of concept pages from the cached memory page " +
       "index, for glanceable surfaces like the identity Memory card. Counts " +
-      "concept pages only and never builds the memory-concept graph.",
+      "concept pages only and never builds the memory-concept graph. Also " +
+      "reports graph_supported: whether the memory-concept graph is available " +
+      "for this assistant (memory enabled and v3 live), so callers can gate " +
+      "the graph entry point without building the graph.",
     tags: ["memory"],
     responseBody: z.object({
       concepts: z.number().describe("Number of concept pages in memory"),
+      graph_supported: z
+        .boolean()
+        .describe(
+          "Whether the memory-concept graph is available (memory enabled and v3 live)",
+        ),
     }),
-    handler: () => handleGetMemoryStats(),
+    handler: () => handleGetMemoryStats(getConfig()),
   },
 
   {

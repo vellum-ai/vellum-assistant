@@ -147,6 +147,14 @@ export interface ConversationCreateOptions {
    * task permissions do not leak into later turns on a reused conversation.
    */
   taskRunId?: string;
+  /**
+   * Skip persisting a `conversations` row for this call. The in-memory
+   * {@link Conversation} is still built and hydrated from whatever rows
+   * already exist, but no sidebar-visible row is created — used by ephemeral
+   * side-chains (e.g. the empty-state greeting) whose contract persists
+   * nothing. Per-call only: never merged into stored conversation metadata.
+   */
+  ephemeral?: boolean;
   /** Normalized auth context for the conversation. */
   authContext?: AuthContext;
   /** Whether this turn can block on interactive approval prompts. */
@@ -704,7 +712,9 @@ export function renderHistoryContent(
               continue;
             }
             const resolved = resolveMediaSourceData(source);
-            if (resolved) {imageDataList.push(resolved.data);}
+            if (resolved) {
+              imageDataList.push(resolved.data);
+            }
           }
         }
       }

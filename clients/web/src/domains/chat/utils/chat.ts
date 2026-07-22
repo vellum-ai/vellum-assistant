@@ -79,6 +79,13 @@ const GLOBAL_STREAM_EVENT_TYPE_NAMES = [
   // reach `handleBackgroundToolCompleted`.
   "background_tool_started",
   "background_tool_completed",
+  // Service-group upgrade lifecycle events are app-wide broadcasts with no
+  // top-level `conversationId` — they announce a daemon restart affecting every
+  // client, not a single conversation. Treat them as global so the
+  // conversation-id gate doesn't drop them as "missing conversationId".
+  "service_group_update_starting",
+  "service_group_update_progress",
+  "service_group_update_complete",
 ] as const;
 
 const GLOBAL_STREAM_EVENT_TYPES: ReadonlySet<string> = new Set(

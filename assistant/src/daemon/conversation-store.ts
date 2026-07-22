@@ -101,7 +101,14 @@ export async function getOrCreateConversation(
   let conversation = findConversation(conversationId);
   const sendToClient = () => {};
 
-  const { taskRunId: _taskRunId, ...persistentOptions } = options ?? {};
+  // `taskRunId` and `ephemeral` are per-call scopes, not durable conversation
+  // metadata, so they are stripped before the remaining options are merged
+  // into the persisted `conversationOptions` map.
+  const {
+    taskRunId: _taskRunId,
+    ephemeral,
+    ...persistentOptions
+  } = options ?? {};
   if (Object.values(persistentOptions).some((v) => v !== undefined)) {
     mergeConversationOptions(conversationId, persistentOptions);
   }
@@ -176,7 +183,12 @@ export async function getOrCreateConversation(
       // pattern as `ensureConversationExists` to prevent path traversal.
       // Otherwise use `ensureConversationExists` directly, which validates
       // and creates a standard row.
-      if (!getConversation(conversationId)) {
+      //
+      // Ephemeral calls skip row creation entirely: their contract persists
+      // nothing, so the in-memory Conversation hydrates from whatever rows
+      // already exist without leaking a sidebar-visible row. `loadFromDb`
+      // tolerates a missing row.
+      if (!ephemeral && !getConversation(conversationId)) {
         if (storedOptions?.conversationType) {
           if (!ADOPTABLE_CONVERSATION_ID_RE.test(conversationId)) {
             throw new Error(

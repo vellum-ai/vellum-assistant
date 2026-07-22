@@ -1,175 +1,189 @@
 import { useCallback, useEffect, useState } from "react";
 
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-
 import {
-    assistantsActiveRetrieveOptions,
-    organizationsBillingSubscriptionOnboardingRetrieveOptions,
-    organizationsBillingSubscriptionOnboardingRetrieveQueryKey,
-    organizationsBillingSubscriptionRetrieveOptions,
-    organizationsBillingSubscriptionRetrieveQueryKey,
-} from "@/generated/api/@tanstack/react-query.gen";
-import type { MachineTierEnum } from "@/generated/api/types.gen";
+    clearCheckoutIntent,
+    readCheckoutIntent,
+    type CheckoutIntent,
+} from "@/lib/billing/checkout-intent";
 import { Modal } from "@vellumai/design-library/components/modal";
+import { toast } from "@vellumai/design-library/components/toast";
 
 import { CompleteState } from "./complete-state";
 import { DomainStep } from "./domain-step";
-import { FetchErrorState, TimeoutState } from "./error-states";
-import { PendingState } from "./pending-state";
-import { SetupStep } from "./setup-step";
-import { PRO_POLL_INTERVAL_MS, PRO_POLL_TIMEOUT_MS } from "./utils";
-import { WelcomeState } from "./welcome-state";
+import { FetchErrorState } from "./error-states";
+import type { ProvisioningDimensions } from "./provisioning-machine";
+import { ProvisioningState } from "./provisioning-state";
+import { useProProvisioning } from "./use-pro-provisioning";
 
-type WizardStep = "confirm-pro" | "welcome" | "setup" | "domain" | "complete";
+type WizardStep = "provisioning" | "domain" | "complete";
+
+const EMPTY_DIMENSIONS: ProvisioningDimensions = {
+  machineSize: null,
+  storageGib: null,
+};
 
 export interface BillingOnboardingModalProps {
   open: boolean;
   onClose: () => void;
+  /** Test hook — forwarded to the provisioning screen's celebration dwell. */
+  dwellMs?: number;
 }
 
 export function BillingOnboardingModal({
   open,
   onClose,
+  dwellMs,
 }: BillingOnboardingModalProps) {
-  const queryClient = useQueryClient();
-  const [step, setStep] = useState<WizardStep>("confirm-pro");
-  const [proPollExpired, setProPollExpired] = useState(false);
-  const [pollGeneration, setPollGeneration] = useState(0);
+  const [step, setStep] = useState<WizardStep>("provisioning");
+  const [finishedInBackground, setFinishedInBackground] = useState(false);
+  const [intent, setIntent] = useState<CheckoutIntent | null>(null);
+
+  // The hook owns the on-open subscription/onboarding cache invalidation and
+  // every provisioning poll; it keeps tracking across step changes so a
+  // backgrounded resize still resolves while the user sets up their domain.
+  const provisioning = useProProvisioning({ open });
 
   useEffect(() => {
-    if (!open) return;
-    void queryClient.invalidateQueries({
-      queryKey: organizationsBillingSubscriptionRetrieveQueryKey(),
-    });
-    // Refresh the tier-ceiling cache (`max_machine_tier`,
-    // `selected_storage_gib`) the wizard's SetupStep and the shared Storage &
-    // Resources ResizeCard read from, so neither renders pre-upgrade limits
-    // once the new subscription is confirmed.
-    void queryClient.invalidateQueries({
-      queryKey: organizationsBillingSubscriptionOnboardingRetrieveQueryKey(),
-    });
-  }, [open, queryClient]);
-
-  const retryPoll = useCallback(() => {
-    setProPollExpired(false);
-    setPollGeneration((g) => g + 1);
-    void queryClient.invalidateQueries({
-      queryKey: organizationsBillingSubscriptionRetrieveQueryKey(),
-    });
-  }, [queryClient]);
-
-  const subscriptionQuery = useQuery({
-    ...organizationsBillingSubscriptionRetrieveOptions(),
-    refetchInterval: (query) => {
-      const planId = query.state.data?.plan_id;
-      if (planId === "pro" || proPollExpired) return false;
-      return PRO_POLL_INTERVAL_MS;
-    },
-    refetchIntervalInBackground: false,
-    enabled: open && step === "confirm-pro",
-  });
-
-  useEffect(() => {
-    if (!open || step !== "confirm-pro") return;
-    const t = setTimeout(() => setProPollExpired(true), PRO_POLL_TIMEOUT_MS);
-    return () => clearTimeout(t);
-  }, [open, step, pollGeneration]);
-
-  useEffect(() => {
-    if (step !== "confirm-pro") return;
-    if (subscriptionQuery.data?.plan_id === "pro") {
-      setStep("welcome");
+    if (open) {
+      setIntent(readCheckoutIntent());
+      return;
     }
-  }, [step, subscriptionQuery.data?.plan_id]);
+    setStep("provisioning");
+    setFinishedInBackground(false);
+  }, [open]);
 
-  const onboardingQuery = useQuery({
-    ...organizationsBillingSubscriptionOnboardingRetrieveOptions(),
-    enabled: open && step !== "confirm-pro",
-  });
+  useEffect(() => {
+    if (step === "complete") clearCheckoutIntent();
+  }, [step]);
 
-  useQuery({
-    ...assistantsActiveRetrieveOptions(),
-    enabled: open,
-  });
-
-  const domainSetupAvailable = onboardingQuery.data?.domain_setup_available;
   // Domain/email/guardian registration must run while the assistant's machine
-  // is still online: registering the email triggers a guardian-channel write to
-  // the machine's gateway. The SetupStep's "Apply & Restart" takes the machine
-  // offline, so the domain step runs *before* setup — otherwise that write hangs
-  // against a restarting machine.
-  const advanceFromWelcome = useCallback(() => {
-    if (domainSetupAvailable === false) {
-      setStep("setup");
-    } else {
-      setStep("domain");
+  // is online: registering the email triggers a guardian-channel write to the
+  // machine's gateway. The platform auto-resizes (and restarts) the machine
+  // right after checkout, so the domain step stays guarded (submit disabled)
+  // while that resize is in flight — including a stall, where the machine may
+  // still be mid-restart.
+  const machineBusy =
+    provisioning.state === "WAITING" ||
+    provisioning.state === "RESIZING" ||
+    provisioning.state === "STALLED";
+  const provisioningSettled =
+    provisioning.state === "DONE" || provisioning.state === "NOT_APPLICABLE";
+
+  const { targets, assistantId, domainSetupAvailable, onboardingSettled } =
+    provisioning;
+  // Routing must never use a stale domain_setup_available: until the first
+  // post-confirm fetch settles, TanStack may still serve pre-checkout cached
+  // data. Both the celebration dwell and the escape hatch wait on this.
+  // Latched: once fresh data has landed, a later background refetch must not
+  // yank the escape hatch or restart the dwell.
+  const [routingSettled, setRoutingSettled] = useState(false);
+  useEffect(() => {
+    if (!open) {
+      setRoutingSettled(false);
+      return;
     }
-  }, [domainSetupAvailable]);
-  const backFromSetup = useCallback(() => {
-    if (domainSetupAvailable === false) {
-      setStep("welcome");
-    } else {
-      setStep("domain");
-    }
+    if (onboardingSettled) setRoutingSettled(true);
+  }, [open, onboardingSettled]);
+
+  const advanceFromProvisioning = useCallback(() => {
+    setStep(domainSetupAvailable === false ? "complete" : "domain");
   }, [domainSetupAvailable]);
 
-  // The welcome card is the user's first real touchpoint with the flow; we lock
-  // it so an accidental backdrop click or Esc can't bail them out of setup. The
-  // explicit X (shown only here) is the deliberate exit, and the card's copy
-  // tells them they can opt into these features later from Settings.
-  const isFirstCard = step === "welcome";
+  const escapeProvisioning = useCallback(() => {
+    setFinishedInBackground(true);
+    advanceFromProvisioning();
+  }, [advanceFromProvisioning]);
+
+  // Stalled recovery re-calls the idempotent, org-wide ensure-provisioned
+  // reconcile — the same path the wizard fires on Pro confirmation. Its errors
+  // surface as-is; a server-side resize that is still running converges the
+  // actuals polling to DONE and replaces the stalled UI regardless.
+  const { stalledAction } = provisioning;
+  const stalledActionIfStalled =
+    provisioning.state === "STALLED" ? stalledAction : undefined;
+
+  // The fetch-error variant of the provisioning step is a standard dismissible
+  // card, not the locked full-bleed takeover — otherwise the light error UI is
+  // marooned in the dark full-screen viewport and the user can't act on it.
+  const provisioningError =
+    step === "provisioning" &&
+    (provisioning.confirmError || provisioning.targetsError);
+
+  const handleClose = () => {
+    if (step === "provisioning" && !provisioningError && machineBusy) {
+      toast.info("Your upgrade continues in the background.");
+    }
+    onClose();
+  };
+
+  // The live provisioning takeover is the user's first real touchpoint with the
+  // flow; we lock it so an accidental backdrop click or Esc can't bail them out
+  // mid-provisioning. Sanctioned exits (escape hatch, stalled apply, timeout
+  // actions) live inside the step content.
+  const isTakeover = step === "provisioning" && !provisioningError;
+
+  // Lock Esc/backdrop while provisioning is active. The takeover exposes no
+  // persistent close control, so two escape valves guarantee a hung routing
+  // refetch can't strand the user: terminal ready states unlock, and a busy
+  // state stuck past the escape grace with routing still hung unlocks to a plain
+  // background-dismiss (the in-content escape hatch needs routing to have settled).
+  const stuckAwaitingRouting =
+    machineBusy && provisioning.escapeEligible && !routingSettled;
+  const lockTakeover =
+    isTakeover && !provisioningSettled && !stuckAwaitingRouting;
+
+  // Full-bleed dark content that fills the viewport for the takeover.
+  const provisioningContentClass =
+    "overflow-hidden inset-0 max-w-none w-screen h-screen max-h-none rounded-none border-0";
 
   return (
-    <Modal.Root open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
+    <Modal.Root open={open} onOpenChange={(o) => { if (!o) handleClose(); }}>
       <Modal.Content
         size="md"
-        hideCloseButton={!isFirstCard}
-        dismissOnOverlayClick={!isFirstCard}
-        onEscapeKeyDown={isFirstCard ? (e) => e.preventDefault() : undefined}
-        onInteractOutside={isFirstCard ? (e) => e.preventDefault() : undefined}
-        className="overflow-hidden"
+        hideCloseButton
+        dismissOnOverlayClick={!lockTakeover}
+        onEscapeKeyDown={lockTakeover ? (e) => e.preventDefault() : undefined}
+        onInteractOutside={lockTakeover ? (e) => e.preventDefault() : undefined}
+        data-theme={isTakeover ? "dark" : undefined}
+        overlayClassName={isTakeover ? "bg-black p-0" : undefined}
+        className={isTakeover ? provisioningContentClass : "overflow-hidden"}
       >
-        {renderStep()}
+        {/* Keyed on step so the fade replays as we swap takeover ⇄ card. */}
+        <div
+          key={step}
+          className="flex min-h-0 flex-1 flex-col [animation:fadeIn_0.25s_ease-out_both] motion-reduce:[animation:none]"
+        >
+          {renderStep()}
+        </div>
       </Modal.Content>
     </Modal.Root>
   );
 
   function renderStep() {
-    if (step === "confirm-pro") {
-      if (subscriptionQuery.isError) {
+    if (step === "provisioning") {
+      if (provisioning.confirmError || provisioning.targetsError) {
         return <FetchErrorState onGoToBilling={onClose} />;
       }
-      if (proPollExpired) {
-        return (
-          <TimeoutState
-            message="We're still confirming your upgrade."
-            onRetry={retryPoll}
-            onGoToBilling={onClose}
-          />
-        );
-      }
       return (
-        <PendingState
-          title="Finalizing your upgrade…"
-          body="This usually takes a few seconds."
-        />
-      );
-    }
-
-    if (step === "welcome") {
-      if (onboardingQuery.isError) {
-        return <FetchErrorState onGoToBilling={onClose} />;
-      }
-      // Gate "Get started" until fresh onboarding data has settled:
-      // advanceFromWelcome routes on domain_setup_available. isPending covers the
-      // cold load; isFetching covers the background refetch from the on-open
-      // invalidation, during which TanStack still serves stale cached data — a
-      // fast click then would route on a pre-checkout domain_setup_available.
-      // On error we show FetchErrorState above rather than routing on stale data.
-      return (
-        <WelcomeState
-          onContinue={advanceFromWelcome}
-          continueDisabled={onboardingQuery.isPending || onboardingQuery.isFetching}
+        <ProvisioningState
+          state={provisioning.state}
+          softWaiting={provisioning.softWaiting}
+          intent={intent}
+          targets={targets ?? EMPTY_DIMENSIONS}
+          fromSnapshot={provisioning.actualsSnapshot ?? EMPTY_DIMENSIONS}
+          celebrating={routingSettled}
+          onCelebrationEnd={advanceFromProvisioning}
+          assistantId={assistantId}
+          escapeAvailable={
+            machineBusy && routingSettled && provisioning.escapeEligible
+          }
+          onEscape={escapeProvisioning}
+          stalledAction={stalledAction}
+          confirm={{
+            onRetry: provisioning.retryConfirm,
+            onGoToBilling: onClose,
+          }}
+          dwellMs={dwellMs}
         />
       );
     }
@@ -177,37 +191,20 @@ export function BillingOnboardingModal({
     if (step === "domain") {
       return (
         <DomainStep
-          onBack={() => setStep("welcome")}
-          onExit={() => setStep("setup")}
+          machineBusy={machineBusy}
+          stalledAction={stalledActionIfStalled}
+          assistantId={assistantId}
+          onExit={() => setStep("complete")}
         />
       );
     }
 
-    if (step === "setup") {
-      if (onboardingQuery.isError) {
-        return <FetchErrorState onGoToBilling={onClose} />;
-      }
-      const maxTier = (onboardingQuery.data?.max_machine_tier ??
-        null) as MachineTierEnum | null;
-      // When domain setup is unavailable the domain step is skipped, so setup is
-      // the sole step in the indicator; otherwise it's the second of two.
-      const domainStepIncluded = domainSetupAvailable !== false;
-      return (
-        <SetupStep
-          storageGib={onboardingQuery.data?.selected_storage_gib ?? null}
-          maxTier={maxTier}
-          onBack={backFromSetup}
-          onAdvance={() => setStep("complete")}
-          dotIndex={domainStepIncluded ? 1 : 0}
-          dotTotal={domainStepIncluded ? 2 : 1}
-        />
-      );
-    }
-
-    if (step === "complete") {
-      return <CompleteState onBack={() => setStep("setup")} />;
-    }
-
-    return null;
+    return (
+      <CompleteState
+        finishedInBackground={finishedInBackground && !provisioningSettled}
+        stalledAction={stalledActionIfStalled}
+        assistantId={assistantId}
+      />
+    );
   }
 }

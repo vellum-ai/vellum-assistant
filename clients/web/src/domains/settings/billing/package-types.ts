@@ -16,6 +16,43 @@ export type { ProPackage };
  */
 export const PACKAGE_ORDER = ["mighty", "super", "ultra"] as const;
 
+/** Tier keys in ascending order, base/free first. */
+const TIER_RANK_ORDER = ["free", ...PACKAGE_ORDER] as const;
+
+/**
+ * Rank of a tier key across `free → mighty → super → ultra` (0..3). Unknown
+ * keys return -1 so callers can treat them defensively.
+ */
+export function packageRank(key: string): number {
+  return TIER_RANK_ORDER.indexOf(key as (typeof TIER_RANK_ORDER)[number]);
+}
+
+export type TierRelation = "current" | "downgrade" | "upgrade";
+
+/**
+ * Classify a target tier relative to the user's current tier. When the current
+ * tier is unknown (null, or an unrecognized key), or the target tier is
+ * unrecognized, the result defaults to "upgrade", preserving base-user
+ * behavior and avoiding a false "downgrade" for keys this bundle doesn't know.
+ */
+export function tierRelation(
+  currentTierKey: string | null,
+  targetKey: string,
+): TierRelation {
+  if (currentTierKey === null) {
+    return "upgrade";
+  }
+  const current = packageRank(currentTierKey);
+  const target = packageRank(targetKey);
+  if (current === -1 || target === -1) {
+    return "upgrade";
+  }
+  if (target === current) {
+    return "current";
+  }
+  return target < current ? "downgrade" : "upgrade";
+}
+
 /**
  * Given a current package key (or null for base/free), return the next
  * package up in the catalog ordering. Returns null if the user is already

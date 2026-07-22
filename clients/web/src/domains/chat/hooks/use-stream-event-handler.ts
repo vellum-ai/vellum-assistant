@@ -467,6 +467,12 @@ export function useStreamEventHandler(
         // (e.g. user-prompt-submit). No web UI renders them yet.
         case "hook_event":
           break;
+        // Service-group upgrade lifecycle broadcasts announcing a daemon
+        // restart. The chat handler is a no-op; no web UI renders them yet.
+        case "service_group_update_starting":
+        case "service_group_update_progress":
+        case "service_group_update_complete":
+          break;
         case "unknown":
           break;
         default: {

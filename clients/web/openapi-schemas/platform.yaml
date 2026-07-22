@@ -4651,6 +4651,56 @@ paths:
           description: ''
       x-vellum-api-clients:
       - platform
+  /v1/organizations/billing/subscription/change-package/:
+    post:
+      operationId: organizations_billing_subscription_change_package_create
+      description: 'Switch the org''s active Pro subscription to a named package (e.g.
+        mighty/super/ultra). Diffs the package''s machine, storage, credit, and base-platform-fee
+        line items against the current subscription and applies them as one or two
+        atomic Stripe updates: the machine/storage/fee items (adding, swapping, or
+        removing — including the ``vellum_pro_base`` fee) settle in a first ``Subscription.modify``
+        that bills immediately, while any included-credit bundle change settles in
+        a separate ``proration_behavior=none`` modify at the next cycle. A net price
+        increase on the primary items invoices immediately and gates on payment success
+        (HTTP 402 on a declined card, leaving the plan unchanged); a net decrease
+        nets onto the next invoice. Machines above the new package''s ceiling are
+        capped via vembda and lower ceilings grow asynchronously; PVCs are never shrunk.
+        Rejected with HTTP 409 while a cancellation is pending, and gated on the ``pro-packages``
+        flag (an unknown or gated package returns the same HTTP 400).'
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      tags:
+      - organizations
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PackageChangeRequestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PackageChangeRequestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PackageChangeRequestRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PackageChangeResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
   /v1/organizations/billing/subscription/change-storage-tier/:
     post:
       operationId: organizations_billing_subscription_change_storage_tier_create
@@ -4801,6 +4851,52 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/OnboardingDomainResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/organizations/billing/subscription/onboarding/ensure-provisioned/:
+    post:
+      operationId: organizations_billing_subscription_onboarding_ensure_provisioned_create
+      description: |-
+        Idempotently reconcile Pro entitlements against actual resources.
+
+        Returns a verdict; when provisioning is needed, submits the same
+        background grow-only auto-resize the subscribe webhook triggers and
+        reports ``started`` — the response never waits on the resize work.
+        Repeated calls converge without duplicating resize work: an in-process
+        guard dedupes submissions until the queued worker finishes (a retry
+        racing ahead of the worker's first resize marker reports
+        ``in_progress`` instead of enqueuing a duplicate org-wide resize).
+
+        Responds 503 when the verdict was ``needs_provisioning`` but the
+        background submission could not be queued (e.g. during a rolling
+        deploy) — nothing was queued, and the request is safe to retry.
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      tags:
+      - organizations
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnsureProvisionedResponse'
+          description: ''
+        '503':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnsureProvisionedUnavailable'
           description: ''
       x-vellum-api-clients:
       - platform
@@ -7044,6 +7140,81 @@ components:
       - id
       - subject
       - to_addresses
+    EnsureProvisionedReasonEnum:
+      enum:
+      - no_active_pro
+      - no_targets
+      type: string
+      description: |-
+        * `no_active_pro` - no_active_pro
+        * `no_targets` - no_targets
+    EnsureProvisionedResponse:
+      type: object
+      description: |-
+        Response from POST /onboarding/ensure-provisioned/.
+
+        ``state`` is the reconcile verdict; ``started`` means a background
+        grow-only resize was just submitted, while ``in_progress`` means resize
+        work is already underway (an active per-assistant resize operation —
+        including a machine/PVC rollout still completing after the targets already
+        read as satisfied — or a submission still in flight from an earlier call).
+        ``already_done`` is terminal: every target is satisfied and no resize
+        rollout remains active. ``reason`` is set only for ``not_applicable``.
+      properties:
+        state:
+          $ref: '#/components/schemas/EnsureProvisionedResponseStateEnum'
+        reason:
+          nullable: true
+          oneOf:
+          - $ref: '#/components/schemas/EnsureProvisionedReasonEnum'
+          - $ref: '#/components/schemas/NullEnum'
+        targets:
+          $ref: '#/components/schemas/EnsureProvisionedTargets'
+      required:
+      - reason
+      - state
+      - targets
+    EnsureProvisionedResponseStateEnum:
+      enum:
+      - already_done
+      - in_progress
+      - started
+      - not_applicable
+      type: string
+      description: |-
+        * `already_done` - already_done
+        * `in_progress` - in_progress
+        * `started` - started
+        * `not_applicable` - not_applicable
+    EnsureProvisionedTargets:
+      type: object
+      description: Resolved resize ceilings the org's Pro subscription grants.
+      properties:
+        machine_size:
+          nullable: true
+          oneOf:
+          - $ref: '#/components/schemas/MachineSizeEnum'
+          - $ref: '#/components/schemas/NullEnum'
+        storage_gib:
+          type: integer
+          nullable: true
+      required:
+      - machine_size
+      - storage_gib
+    EnsureProvisionedUnavailable:
+      type: object
+      description: |-
+        503 body from POST /onboarding/ensure-provisioned/.
+
+        The verdict was ``needs_provisioning`` but the background resize
+        submission could not be queued (e.g. the executor is shutting down during
+        a rolling deploy). Nothing was queued; the request is safe to retry.
+      properties:
+        error:
+          type: string
+          description: Always "provisioning_submission_failed".
+      required:
+      - error
     EventStatusEnum:
       enum:
       - started
@@ -8123,6 +8294,25 @@ components:
       - share_diagnostics_accepted_at
       - share_diagnostics_accepted_version
       - share_diagnostics_chosen
+    PackageChangeRequestRequest:
+      type: object
+      properties:
+        package:
+          type: string
+          minLength: 1
+          pattern: ^[-a-zA-Z0-9_]+$
+      required:
+      - package
+    PackageChangeResponse:
+      type: object
+      properties:
+        status:
+          $ref: '#/components/schemas/TierChangeStatusEnum'
+        package:
+          $ref: '#/components/schemas/SubscriptionPackage'
+      required:
+      - package
+      - status
     PaginatedAssistantDomainList:
       type: object
       required:
@@ -8766,6 +8956,14 @@ components:
       - released_at
       - url
       - version
+    ReturnTargetEnum:
+      enum:
+      - web
+      - native
+      type: string
+      description: |-
+        * `web` - web
+        * `native` - native
     RollbackRequestRequest:
       type: object
       properties:
@@ -9009,6 +9207,10 @@ components:
         include_platform_fee:
           type: boolean
           default: true
+        return_target:
+          allOf:
+          - $ref: '#/components/schemas/ReturnTargetEnum'
+          default: web
       required:
       - confirm
       - target_plan_id

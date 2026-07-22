@@ -106,7 +106,9 @@ class MockStreamingTranscriber implements StreamingTranscriber {
   }
 
   stop(): void {
-    if (this.stopped) return;
+    if (this.stopped) {
+      return;
+    }
     this.stopped = true;
     if (!this.holdStopEvents) {
       this.flushStopEvents();
@@ -299,7 +301,9 @@ async function waitFor(
   // message, not bun's, reports a failure.
   const deadline = Date.now() + 4_000;
   while (Date.now() < deadline) {
-    if (predicate()) return;
+    if (predicate()) {
+      return;
+    }
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
   throw new Error(message);
@@ -3062,5 +3066,357 @@ describe("LiveVoiceSession semantic endpointing", () => {
     expect(calls).toHaveLength(1);
     expect(countType(frames, "utterance_end")).toBe(0);
     expect(frames.length).toBe(framesAtClose);
+  });
+});
+
+describe("LiveVoiceSession unified front-door endpointing", () => {
+  const enableUnifiedFlags = () =>
+    setCachedOverrides(
+      {
+        "voice-mode": true,
+        "voice-triage-escalate": true,
+      },
+      { fromGateway: true },
+    );
+
+  afterEach(() => clearCachedOverrides());
+
+  function spokenDeltaText(frames: LiveVoiceServerFrame[]): string {
+    return frames
+      .filter((frame) => frame.type === "assistant_text_delta")
+      .map((frame) => (frame as { text: string }).text)
+      .join("");
+  }
+
+  // A scriptable speculative starter: per-call delta scripts, with discard
+  // tracked so hold-verdict rollback is observable.
+  function makeVerdictTurnStarter(scripts: string[][]): {
+    startVoiceTurn: LiveVoiceTurnStarter;
+    calls: VoiceTurnOptions[];
+    discard: ReturnType<typeof mock>;
+  } {
+    const calls: VoiceTurnOptions[] = [];
+    const discard = mock(async () => {});
+    const startVoiceTurn: LiveVoiceTurnStarter = async (options) => {
+      calls.push(options);
+      const script = scripts[calls.length - 1];
+      // An empty script models a leg that stays in flight (no verdict, no
+      // completion) — a non-empty one streams its deltas then completes.
+      if (script && script.length > 0) {
+        setTimeout(() => {
+          for (const text of script) {
+            options.callbacks?.assistant_text_delta?.(makeTextDelta(text));
+          }
+          options.callbacks?.message_complete?.(makeMessageComplete());
+        }, 0);
+      }
+      return { turnId: `bridge-turn-${calls.length}`, abort: mock(), discard };
+    };
+    return { startVoiceTurn, calls, discard };
+  }
+
+  // A decider that must never be consulted once the unified flag owns
+  // endpointing.
+  function makeUntouchableDecider(): {
+    decider: VoiceFrontDecider;
+    endpointCalls: () => number;
+  } {
+    let count = 0;
+    return {
+      decider: {
+        decideEndpoint: async () => {
+          count += 1;
+          return { action: "release" as const };
+        },
+        generateAckText: async () => null,
+        generateProgressText: async () => null,
+      },
+      endpointCalls: () => count,
+    };
+  }
+
+  async function startWithPartial(
+    session: LiveVoiceSession,
+    transcribers: MockStreamingTranscriber[],
+    partialText = "hello wor",
+  ): Promise<void> {
+    await session.start();
+    await waitFor(() => transcribers.length === 1);
+    await flushAsyncCallbacks();
+    transcribers[0]?.emit({ type: "partial", text: partialText });
+  }
+
+  test("a chatty answer commits: verdict leg replaces the decider, frames follow commit order", async () => {
+    enableUnifiedFlags();
+    const { decider, endpointCalls } = makeUntouchableDecider();
+    const starter = makeVerdictTurnStarter([["Hey! Not much."]]);
+    const { frames, session, transcribers } = createHarness({
+      finals: ["hello world"],
+      startVoiceTurn: starter.startVoiceTurn,
+      frontDecider: decider,
+    });
+
+    await startWithPartial(session, transcribers);
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    // The leg IS the endpoint decision: the decider was never consulted.
+    expect(endpointCalls()).toBe(0);
+    expect(starter.calls).toHaveLength(1);
+    // Dispatched speculatively on the pre-finalize transcript, as the
+    // front-door leg with the verdict rule requested.
+    expect(starter.calls[0]).toMatchObject({
+      content: "hello wor",
+      routingLeg: "front-door",
+      unifiedVerdict: true,
+    });
+    // Deferred boundary work lands at commit, before the first spoken delta.
+    const types = frameTypes(frames);
+    expect(types.indexOf("utterance_end")).toBeGreaterThan(-1);
+    expect(types.indexOf("utterance_end")).toBeLessThan(
+      types.indexOf("thinking"),
+    );
+    expect(types.indexOf("thinking")).toBeLessThan(
+      types.indexOf("assistant_text_delta"),
+    );
+    expect(starter.discard).not.toHaveBeenCalled();
+  });
+
+  test("a hold verdict discards the leg silently and the extension replays the boundary", async () => {
+    enableUnifiedFlags();
+    const starter = makeVerdictTurnStarter([["[0]"], ["Sure thing."]]);
+    const { frames, session, transcribers } = createHarness({
+      finals: ["hello world"],
+      startVoiceTurn: starter.startVoiceTurn,
+      frontModelConfig: { endpointExtensionMs: 30 },
+    });
+
+    await startWithPartial(session, transcribers);
+    await session.handleBinaryAudio(LOUD_CHUNK);
+
+    // First leg returned the hold token: rollback, no user-visible frames.
+    await waitFor(() => starter.discard.mock.calls.length === 1);
+    expect(countType(frames, "utterance_end")).toBe(0);
+    expect(countType(frames, "thinking")).toBe(0);
+    expect(countType(frames, "assistant_text_delta")).toBe(0);
+
+    // The extension elapses in continued silence: the boundary replays, the
+    // second speculative leg answers, and the turn commits normally.
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+    expect(starter.calls).toHaveLength(2);
+    expect(countType(frames, "utterance_end")).toBe(1);
+    expect(countType(frames, "thinking")).toBe(1);
+    expect(spokenDeltaText(frames)).toContain("Sure thing.");
+    // The spoken stream never contains the verdict token.
+    expect(spokenDeltaText(frames)).not.toContain("[0]");
+    // One hold per utterance: the replay leg is not offered the hold verdict
+    // again — a second silence means the caller is done.
+    expect(starter.calls[0]?.unifiedVerdict).toBe(true);
+    expect(starter.calls[1]?.unifiedVerdict).toBeUndefined();
+  });
+
+  test("a verdict that misses the deadline commits the turn (fail-open)", async () => {
+    enableUnifiedFlags();
+    // The leg never produces a verdict — a provider TTFT tail. The deadline
+    // must commit the turn so the caller gets the thinking frame (and the
+    // ack timer arms) instead of unbounded structural silence.
+    const starter = makeVerdictTurnStarter([[]]);
+    const { frames, session, transcribers } = createHarness({
+      finals: ["hello world"],
+      startVoiceTurn: starter.startVoiceTurn,
+      frontModelConfig: {
+        endpointDecisionTimeoutMs: 40,
+        endpointExtensionMs: 60_000,
+      },
+    });
+
+    await startWithPartial(session, transcribers);
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => starter.calls.length === 1);
+
+    await waitFor(() => countType(frames, "thinking") === 1);
+    expect(countType(frames, "utterance_end")).toBe(1);
+    // Fail-open commits; nothing was discarded or rolled back.
+    expect(starter.discard).not.toHaveBeenCalled();
+  });
+
+  test("a final that extends the held transcript replays the boundary immediately", async () => {
+    enableUnifiedFlags();
+    const starter = makeVerdictTurnStarter([["[0]"], ["Got it."]]);
+    const { frames, session, transcribers } = createHarness({
+      finals: ["hello world how are you"],
+      startVoiceTurn: starter.startVoiceTurn,
+      // Extension far beyond the test window: only the fresh-final path can
+      // re-dispatch in time.
+      frontModelConfig: { endpointExtensionMs: 60_000 },
+    });
+
+    await startWithPartial(session, transcribers);
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => starter.discard.mock.calls.length === 1);
+
+    // The finalized transcript lands mid-extension and extends the partial
+    // the hold judged ("hello wor"): the hold was judged on stale text, so
+    // the boundary replays now instead of after the extension window.
+    transcribers[0]?.emit({ type: "final", text: "hello world how are you" });
+    await waitFor(() => starter.calls.length === 2);
+    expect(starter.calls[1]?.content).toBe("hello world how are you");
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+    expect(spokenDeltaText(frames)).toContain("Got it.");
+  });
+
+  test("speech resuming mid-verdict discards the leg and the utterance keeps accumulating", async () => {
+    enableUnifiedFlags();
+    // First leg never produces a verdict (in flight); second answers.
+    const starter = makeVerdictTurnStarter([[], ["Got it all."]]);
+    const { frames, session, transcribers } = createHarness({
+      finals: ["hello there world"],
+      startVoiceTurn: starter.startVoiceTurn,
+      frontModelConfig: { endpointExtensionMs: 5_000 },
+    });
+
+    await startWithPartial(session, transcribers);
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => starter.calls.length === 1);
+
+    // The caller keeps talking while the verdict is in flight: silent
+    // discard, no frames for the abandoned leg.
+    transcribers[0]?.emit({ type: "partial", text: "hello wor and more" });
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => starter.discard.mock.calls.length === 1);
+    expect(countType(frames, "utterance_end")).toBe(0);
+    expect(countType(frames, "thinking")).toBe(0);
+
+    // The next silence re-speculates with the grown transcript and commits.
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+    expect(starter.calls).toHaveLength(2);
+    expect(starter.calls[1]?.content).toBe("hello wor and more");
+    expect(countType(frames, "utterance_end")).toBe(1);
+  });
+
+  test("a discard that beats the bridge handle still rolls back the user row", async () => {
+    enableUnifiedFlags();
+    const discard = mock(async () => {});
+    const abort = mock();
+    let resolveHandle: (() => void) | null = null;
+    const calls: VoiceTurnOptions[] = [];
+    const startVoiceTurn: LiveVoiceTurnStarter = async (options) => {
+      calls.push(options);
+      if (calls.length === 1) {
+        // The speculative leg's handle resolution is delayed past the
+        // discard — models startVoiceTurn still inside its persist wait.
+        await new Promise<void>((resolve) => {
+          resolveHandle = resolve;
+        });
+        return { turnId: "bridge-slow", abort, discard };
+      }
+      return { turnId: `bridge-${calls.length}`, abort: mock() };
+    };
+    const { session, transcribers } = createHarness({
+      finals: ["hello there world"],
+      startVoiceTurn,
+      frontModelConfig: { endpointExtensionMs: 5_000 },
+    });
+
+    await startWithPartial(session, transcribers);
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => calls.length === 1);
+
+    // Speech resumes while the handle is still unresolved: the discard
+    // finds handle === null and can only latch the request.
+    transcribers[0]?.emit({ type: "partial", text: "hello wor and more" });
+    await session.handleBinaryAudio(LOUD_CHUNK);
+
+    // The handle finally arrives: it must complete the rollback via
+    // discard(), not a plain abort that leaks the persisted user row.
+    await waitFor(() => resolveHandle !== null);
+    // Cast: TS narrows the closure-assigned resolver to null here.
+    (resolveHandle as (() => void) | null)?.();
+    await waitFor(() => discard.mock.calls.length === 1);
+    expect(abort).not.toHaveBeenCalled();
+  });
+
+  test("a manual release during the verdict window commits the leg instead of discarding it", async () => {
+    enableUnifiedFlags();
+    const discard = mock(async () => {});
+    let callbacks: VoiceTurnCallbacks | undefined;
+    const calls: VoiceTurnOptions[] = [];
+    const startVoiceTurn: LiveVoiceTurnStarter = async (options) => {
+      calls.push(options);
+      callbacks = options.callbacks;
+      return { turnId: "bridge-manual", abort: mock(), discard };
+    };
+    const { frames, session, transcribers } = createHarness({
+      finals: ["hello world"],
+      startVoiceTurn,
+      frontModelConfig: { endpointExtensionMs: 5_000 },
+    });
+
+    await startWithPartial(session, transcribers);
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => calls.length === 1);
+
+    // The caller hits release while the verdict is still in flight: the
+    // utterance releases immediately (utterance_end goes out now).
+    await session.handleClientFrame({ type: "ptt_release" });
+    expect(countType(frames, "utterance_end")).toBe(1);
+
+    // The verdict arrives as a normal answer — the caller explicitly asked
+    // to answer now, so it must commit into the released utterance.
+    callbacks?.assistant_text_delta?.(makeTextDelta("Hi there."));
+    callbacks?.message_complete?.(makeMessageComplete());
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    expect(discard).not.toHaveBeenCalled();
+    expect(calls).toHaveLength(1);
+    // No duplicate utterance_end from the commit; the thinking frame and
+    // the spoken answer still go out.
+    expect(countType(frames, "utterance_end")).toBe(1);
+    expect(countType(frames, "thinking")).toBe(1);
+    expect(spokenDeltaText(frames)).toContain("Hi there.");
+  });
+
+  test("a hold verdict after a manual release relaunches a fresh leg on the released utterance", async () => {
+    enableUnifiedFlags();
+    const discard = mock(async () => {});
+    let firstCallbacks: VoiceTurnCallbacks | undefined;
+    const calls: VoiceTurnOptions[] = [];
+    const startVoiceTurn: LiveVoiceTurnStarter = async (options) => {
+      calls.push(options);
+      if (calls.length === 1) {
+        firstCallbacks = options.callbacks;
+        return { turnId: "bridge-held", abort: mock(), discard };
+      }
+      // The relaunched leg answers normally.
+      setTimeout(() => {
+        options.callbacks?.assistant_text_delta?.(
+          makeTextDelta("Fresh answer."),
+        );
+        options.callbacks?.message_complete?.(makeMessageComplete());
+      }, 0);
+      return { turnId: `bridge-${calls.length}`, abort: mock() };
+    };
+    const { frames, session, transcribers } = createHarness({
+      finals: ["hello world"],
+      startVoiceTurn,
+      frontModelConfig: { endpointExtensionMs: 5_000 },
+    });
+
+    await startWithPartial(session, transcribers);
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => calls.length === 1);
+
+    await session.handleClientFrame({ type: "ptt_release" });
+
+    // The hold lands after the caller already said they were done: moot.
+    // The held leg rolls back and a fresh leg answers the released
+    // utterance instead of the turn dying with no response.
+    firstCallbacks?.assistant_text_delta?.(makeTextDelta("[0]"));
+    await waitFor(() => calls.length === 2);
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    expect(discard).toHaveBeenCalledTimes(1);
+    expect(spokenDeltaText(frames)).toContain("Fresh answer.");
+    expect(spokenDeltaText(frames)).not.toContain("[0]");
   });
 });

@@ -25,9 +25,14 @@ import {
  * Two-state result mirroring `MemoryGraphResult`. `unsupported` is a
  * success-shaped outcome (the daemon predates the `/memory/stats` route) that
  * callers render as "no count" — not an error, and not a misleading zero.
+ *
+ * `graphSupported` (on `ready`) reports whether the memory-concept graph is
+ * available for this assistant — the cheap capability signal that lets the
+ * identity Memory card gate its graph entry point on real availability without
+ * building the graph. See the daemon's `graph_supported` on `GET /memory/stats`.
  */
 export type MemoryStatsResult =
-  | { kind: "ready"; concepts: number }
+  | { kind: "ready"; concepts: number; graphSupported: boolean }
   | { kind: "unsupported" };
 
 const FAILURE_MESSAGE = "Failed to load memory stats.";
@@ -60,7 +65,18 @@ export function memoryStatsOptions(assistantId: string) {
         );
       }
 
-      return { kind: "ready", concepts: data?.concepts ?? 0 };
+      return {
+        kind: "ready",
+        concepts: data?.concepts ?? 0,
+        // `graph_supported` is absent on daemons predating the field. This
+        // replaced the `memory-concept-graph` flag, which was live (on) across
+        // all envs — so an older daemon is already showing the graph. During
+        // the web-ahead-of-daemon rollout window, default a missing value to
+        // `true` (the flag-on behavior) so a live graph is never yanked from a
+        // v3 assistant whose daemon hasn't shipped the field yet. Once every
+        // daemon reports it, this default never applies and gating is exact.
+        graphSupported: data?.graph_supported ?? true,
+      };
     },
   });
 }

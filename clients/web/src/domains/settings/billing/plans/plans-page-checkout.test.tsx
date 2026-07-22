@@ -35,6 +35,7 @@ import type {
   ProPackage,
   SubscriptionResponse,
 } from "@/generated/api/types.gen";
+import { readCheckoutIntent } from "@/lib/billing/checkout-intent";
 
 const CHECKOUT_URL = "https://stripe.test/checkout/session";
 
@@ -51,6 +52,17 @@ mock.module("@/generated/api/sdk.gen", () => ({
       response: { ok: true },
     });
   },
+  // PlansPage mounts `useChangeTiers`, which reads onboarding for a Pro sub;
+  // resolve it from a fixture so the checkout tests stay hermetic.
+  organizationsBillingSubscriptionOnboardingRetrieve: () =>
+    Promise.resolve({
+      data: {
+        max_machine_tier: "medium",
+        selected_storage_tier: "xs",
+        selected_storage_gib: 10,
+      },
+      response: { ok: true },
+    }),
 }));
 
 mock.module("@/runtime/browser", () => ({
@@ -195,6 +207,7 @@ function renderPage(subscription: SubscriptionResponse) {
 beforeEach(() => {
   upgradeCall = null;
   openedUrl = null;
+  sessionStorage.clear();
 });
 
 afterEach(() => {
@@ -219,25 +232,39 @@ describe("PlansPage checkout — base subscriber", () => {
         target_plan_id: "pro",
         package: pkg,
         confirm: true,
+        // Off Electron the web return URL is kept — a browser can't open
+        // the `vellum://` bounce the native return relies on.
+        return_target: "web",
       });
       await waitFor(() => expect(openedUrl).toBe(CHECKOUT_URL));
+      expect(readCheckoutIntent()).toMatchObject({
+        kind: "package",
+        packageKey: pkg,
+      });
     });
   }
 });
 
 describe("PlansPage checkout — Pro subscriber", () => {
-  test("routes to the manage modal instead of a package checkout", async () => {
-    const { getByRole, getByTestId } = renderPage(proMightySubscription());
+  // Below Mighty, Free reads "Downgrade to Free". Downgrading a Pro org to the
+  // Free plan is a subscription cancellation, not a package switch — the
+  // change-package endpoint can't express it — so the plans page routes to the
+  // billing manage/cancel surface (`?adjust_plan`) instead. It must not fire a
+  // Stripe checkout. Pro package↔package switches go through change-package,
+  // covered in `plans-page.test.tsx`.
+  test("a Free downgrade CTA routes to the billing manage/cancel flow (no checkout)", async () => {
+    const { getByRole, findByTestId } = renderPage(proMightySubscription());
 
-    fireEvent.click(getByRole("button", { name: "Go Super" }));
+    fireEvent.click(getByRole("button", { name: "Downgrade to Free" }));
 
-    await waitFor(() => {
-      expect(getByTestId("loc").textContent).toBe(
+    const loc = await findByTestId("loc");
+    await waitFor(() =>
+      expect(loc.textContent).toBe(
         "/assistant/settings/usage?tab=billing&adjust_plan",
-      );
-    });
-    // The upgrade endpoint no-ops for an active Pro org, so no checkout fires.
+      ),
+    );
     expect(upgradeCall).toBeNull();
     expect(openedUrl).toBeNull();
+    expect(readCheckoutIntent()).toBeNull();
   });
 });

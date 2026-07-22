@@ -1,41 +1,78 @@
 // Surface types, UI surface lifecycle messages.
 
-import {
-  type CardSurfaceData,
-  CardSurfaceDataSchema,
-  type FileUploadSurfaceData,
-  FileUploadSurfaceDataSchema,
+import type {
+  CardSurfaceData,
+  ChoiceSurfaceData,
+  ConfirmationSurfaceData,
+  CopyBlockSurfaceData,
+  DocumentPreviewSurfaceData,
+  DynamicPageSurfaceData,
+  FileUploadSurfaceData,
+  FormSurfaceData,
+  ListSurfaceData,
+  OAuthConnectSurfaceData,
+  SurfaceData,
+  SurfaceType,
+  TableSurfaceData,
+  WorkResultSurfaceData,
 } from "../../api/surfaces.js";
 
-// Surface `data` shapes are wire payloads owned by `@vellumai/assistant-api`.
-// Card and file_upload are migrated (canonical Zod schemas); the remaining
-// types below are still hand-written interfaces pending migration. Re-exported
-// so the daemon's surface protocol barrel (`message-protocol.ts`) keeps
-// surfacing them to daemon consumers under their canonical names.
+// Surface `data` shapes are wire payloads owned by `@vellumai/assistant-api`
+// (`api/surfaces.ts`) — one canonical Zod schema per surface type, with the
+// types inferred from the schemas. Re-exported so the daemon's surface
+// protocol barrel (`message-protocol.ts`) keeps surfacing them to daemon
+// consumers under their canonical names.
 export {
-  type CardSurfaceData,
   CardSurfaceDataSchema,
-  type FileUploadSurfaceData,
+  type ChoiceOption,
+  ChoiceSurfaceDataSchema,
+  ConfirmationSurfaceDataSchema,
+  CopyBlockSurfaceDataSchema,
+  DocumentPreviewSurfaceDataSchema,
+  type DynamicPagePreview,
+  DynamicPageSurfaceDataSchema,
   FileUploadSurfaceDataSchema,
+  type FormField,
+  type FormPage,
+  FormSurfaceDataSchema,
+  type ListItem,
+  ListSurfaceDataSchema,
+  OAuthConnectSurfaceDataSchema,
+  SURFACE_DATA_SCHEMAS,
+  SURFACE_TYPES,
+  SurfaceTypeSchema,
+  type TableCellValue,
+  type TableColumn,
+  type TableRow,
+  TableSurfaceDataSchema,
+  type WorkResultDiff,
+  type WorkResultItem,
+  type WorkResultMetadata,
+  type WorkResultMetric,
+  type WorkResultSection,
+  type WorkResultSectionType,
+  type WorkResultStatus,
+  WorkResultSurfaceDataSchema,
+  type WorkResultTone,
+} from "../../api/surfaces.js";
+export type {
+  CardSurfaceData,
+  ChoiceSurfaceData,
+  ConfirmationSurfaceData,
+  CopyBlockSurfaceData,
+  DocumentPreviewSurfaceData,
+  DynamicPageSurfaceData,
+  FileUploadSurfaceData,
+  FormSurfaceData,
+  ListSurfaceData,
+  OAuthConnectSurfaceData,
+  SurfaceData,
+  SurfaceType,
+  TableSurfaceData,
+  WorkResultSurfaceData,
 };
 
 // === Surface type definitions ===
-
-export type SurfaceType =
-  | "card"
-  | "channel_setup"
-  | "choice"
-  | "copy_block"
-  | "oauth_connect"
-  | "form"
-  | "list"
-  | "table"
-  | "confirmation"
-  | "dynamic_page"
-  | "file_upload"
-  | "document_preview"
-  | "task_preferences"
-  | "work_result";
 
 export const INTERACTIVE_SURFACE_TYPES: SurfaceType[] = [
   "choice",
@@ -54,222 +91,6 @@ export interface SurfaceAction {
   /** Optional data payload returned to the daemon when this action is clicked. */
   data?: Record<string, unknown>;
 }
-
-export interface ChoiceOption {
-  id: string;
-  title: string;
-  description?: string;
-  /** Visually highlight this option as the assistant's recommendation. */
-  recommended?: boolean;
-  /** Optional structured payload returned with this choice. */
-  data?: Record<string, unknown>;
-}
-
-export interface ChoiceSurfaceData {
-  description?: string;
-  options: ChoiceOption[];
-  selectionMode?: "single" | "multiple";
-  /**
-   * When true, clicking an option submits it immediately. Defaults to true for
-   * single-select choice surfaces.
-   */
-  commitOnSelect?: boolean;
-  submitLabel?: string;
-}
-
-export interface CopyBlockSurfaceData {
-  text: string;
-  label?: string;
-  language?: string;
-}
-
-export interface OAuthConnectSurfaceData {
-  /** OAuth provider key from the managed provider catalog, e.g. "google". */
-  providerKey: string;
-  /** Optional display label. The client falls back to the provider catalog. */
-  displayName?: string;
-  /** Optional helper text. The client falls back to the provider catalog. */
-  description?: string;
-  /** Optional provider logo URL. The client falls back to the provider catalog. */
-  logoUrl?: string | null;
-}
-
-export interface FormField {
-  id: string;
-  type: "text" | "textarea" | "select" | "toggle" | "number" | "password";
-  label: string;
-  placeholder?: string;
-  required?: boolean;
-  defaultValue?: string | number | boolean;
-  options?: Array<{ label: string; value: string }>;
-}
-
-export interface FormPage {
-  id: string;
-  title: string;
-  description?: string;
-  fields: FormField[];
-}
-
-export interface FormSurfaceData {
-  description?: string;
-  fields: FormField[];
-  submitLabel?: string;
-  pages?: FormPage[];
-  pageLabels?: { next?: string; back?: string; submit?: string };
-  /** Progress indicator style for multi-page forms: segment bar or labeled tabs. */
-  progressStyle?: "bar" | "tabs";
-}
-
-export interface ListItem {
-  id: string;
-  title: string;
-  subtitle?: string;
-  icon?: string;
-  selected?: boolean;
-}
-
-export interface ListSurfaceData {
-  items: ListItem[];
-  selectionMode: "single" | "multiple" | "none";
-}
-
-export interface ConfirmationSurfaceData {
-  message: string;
-  detail?: string;
-  confirmLabel?: string;
-  confirmedLabel?: string;
-  cancelLabel?: string;
-  destructive?: boolean;
-}
-
-export interface DynamicPagePreview {
-  title: string;
-  subtitle?: string;
-  description?: string;
-  icon?: string;
-  metrics?: Array<{ label: string; value: string }>;
-  context?: "app_create" | "general";
-  previewImage?: string; // base64 PNG
-}
-
-export interface DynamicPageSurfaceData {
-  html: string;
-  width?: number;
-  height?: number;
-  appId?: string;
-  /** Filesystem directory name for this app (may differ from `appId`). */
-  dirName?: string;
-  reloadGeneration?: number;
-  status?: string;
-  preview?: DynamicPagePreview;
-}
-
-export interface TableColumn {
-  id: string;
-  label: string;
-  width?: number;
-}
-
-export interface TableCellValue {
-  text: string;
-  icon?: string; // SF Symbol name
-  iconColor?: string; // semantic token: "success" | "warning" | "error" | "muted"
-}
-
-export interface TableRow {
-  id: string;
-  cells: Record<string, string | TableCellValue>;
-  selectable?: boolean;
-  selected?: boolean;
-}
-
-export interface TableSurfaceData {
-  columns: TableColumn[];
-  rows: TableRow[];
-  selectionMode?: "none" | "single" | "multiple";
-  caption?: string;
-}
-
-export interface DocumentPreviewSurfaceData {
-  title: string;
-  surfaceId: string; // the doc's real surfaceId, for focusing the panel
-  subtitle?: string;
-}
-
-export type WorkResultStatus =
-  | "completed"
-  | "partial"
-  | "failed"
-  | "in_progress";
-
-export type WorkResultTone = "neutral" | "positive" | "warning" | "negative";
-
-export type WorkResultSectionType =
-  | "items"
-  | "timeline"
-  | "diff"
-  | "artifacts"
-  | "warnings";
-
-export interface WorkResultMetric {
-  label: string;
-  value: string | number;
-  detail?: string;
-  tone?: WorkResultTone;
-}
-
-export interface WorkResultMetadata {
-  label: string;
-  value: string | number;
-}
-
-export interface WorkResultItem {
-  id?: string;
-  title: string;
-  description?: string;
-  status?: string;
-  tone?: WorkResultTone;
-  metadata?: WorkResultMetadata[];
-  href?: string;
-}
-
-export interface WorkResultDiff {
-  label?: string;
-  before?: string;
-  after?: string;
-}
-
-export interface WorkResultSection {
-  id?: string;
-  title: string;
-  description?: string;
-  type?: WorkResultSectionType;
-  items?: WorkResultItem[];
-  diffs?: WorkResultDiff[];
-}
-
-export interface WorkResultSurfaceData {
-  eyebrow?: string;
-  status?: WorkResultStatus;
-  summary?: string;
-  metrics?: WorkResultMetric[];
-  sections?: WorkResultSection[];
-}
-
-export type SurfaceData =
-  | CardSurfaceData
-  | ChoiceSurfaceData
-  | CopyBlockSurfaceData
-  | OAuthConnectSurfaceData
-  | FormSurfaceData
-  | ListSurfaceData
-  | TableSurfaceData
-  | ConfirmationSurfaceData
-  | DynamicPageSurfaceData
-  | FileUploadSurfaceData
-  | DocumentPreviewSurfaceData
-  | WorkResultSurfaceData;
 
 // === Client → Server ===
 

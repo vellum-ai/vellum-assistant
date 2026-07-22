@@ -544,6 +544,10 @@
   --text-body-medium-default-weight: 500;
   --text-body-medium-default-line-height: 18px;
 
+  --text-body-small-lighter-size: 12px;
+  --text-body-small-lighter-weight: 400;
+  --text-body-small-lighter-line-height: 18px;
+
   --text-body-small-default-size: 12px;
   --text-body-small-default-weight: 500;
   --text-body-small-default-line-height: 1;
@@ -610,6 +614,12 @@
   font-size: var(--text-body-medium-lighter-size);
   font-weight: var(--text-body-medium-lighter-weight);
   line-height: var(--text-body-medium-lighter-line-height);
+}
+@utility text-body-small-lighter {
+  font-family: var(--font-sans);
+  font-size: var(--text-body-small-lighter-size);
+  font-weight: var(--text-body-small-lighter-weight);
+  line-height: var(--text-body-small-lighter-line-height);
 }
 @utility text-body-small-default {
   font-family: var(--font-sans);
