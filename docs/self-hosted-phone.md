@@ -53,18 +53,30 @@ assistant:
 vellum flags set web-remote-ingress true
 ```
 
-## 2. Build the web app in self-hosted mode
+## 2. The web app ships with the CLI
 
-The nginx edge serves a build of the web app compiled for self-hosting
-(pointed at your own gateway, not Vellum Cloud):
+There's nothing to build: the `vellum` CLI already includes a prebuilt bundle
+of the web app compiled for self-hosting (pointed at your own gateway, not
+Vellum Cloud). The nginx edge in the next step finds it automatically.
+
+To try the web UI on the host machine right now, serve that same bundle
+locally:
+
+```bash
+vellum client --interface web
+```
+
+<details>
+<summary>Running from a source checkout?</summary>
+
+A source checkout has no prebuilt bundle, so build the web app in self-hosted
+mode before starting the edge:
 
 ```bash
 cd clients/web && VITE_PLATFORM_MODE=false bun run build
 ```
 
-> Prefer a prebuilt bundle? Installing the `@vellumai/web` package makes its
-> packaged `dist/` available, and the nginx edge will find it automatically —
-> no local build required.
+</details>
 
 ## 3. Start the nginx edge
 
