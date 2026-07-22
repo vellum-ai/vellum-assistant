@@ -2,7 +2,7 @@ import { clsx, type ClassValue } from "clsx";
 import { extendTailwindMerge } from "tailwind-merge";
 
 /**
- * Register the 12 canonical app typography utility classes (defined in
+ * Register the 13 canonical app typography utility classes (defined in
  * `src/app/globals.css`) under tailwind-merge's `font-size` group.
  *
  * Without this extension, `tailwind-merge` treats unrecognized `text-*`
@@ -25,6 +25,7 @@ const twMerge = extendTailwindMerge({
         "text-body-large-default",
         "text-body-medium-lighter",
         "text-body-medium-default",
+        "text-body-small-lighter",
         "text-body-small-default",
         "text-body-small-emphasised",
         "text-label-medium-default",
