@@ -17,10 +17,7 @@ import { platform } from "os";
 import { dirname, join } from "path";
 
 import { SEEDS } from "@vellumai/environments";
-import {
-  guardianTokenPath,
-  resolveConfigDir,
-} from "@vellumai/local-mode";
+import { guardianTokenPath, resolveConfigDir } from "@vellumai/local-mode";
 
 import { getConfigDir } from "./environments/paths.js";
 import { getCurrentEnvironment } from "./environments/resolve.js";
@@ -347,21 +344,24 @@ export async function refreshGuardianToken(
 
     const tokenData = current ?? before;
 
-    const response = await loopbackSafeFetch(`${gatewayUrl}/v1/guardian/refresh`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${tokenData.accessToken}`,
+    const response = await loopbackSafeFetch(
+      `${gatewayUrl}/v1/guardian/refresh`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${tokenData.accessToken}`,
+        },
+        body: JSON.stringify({
+          refreshToken: tokenData.refreshToken,
+          // The refresh token is device-bound; send the device id used at init
+          // (falling back to a fresh computation for tokens persisted before the
+          // field was stored) so the gateway can verify the binding.
+          deviceId: tokenData.deviceId || computeDeviceId(),
+        }),
+        signal: AbortSignal.timeout(REFRESH_FETCH_TIMEOUT_MS),
       },
-      body: JSON.stringify({
-        refreshToken: tokenData.refreshToken,
-        // The refresh token is device-bound; send the device id used at init
-        // (falling back to a fresh computation for tokens persisted before the
-        // field was stored) so the gateway can verify the binding.
-        deviceId: tokenData.deviceId || computeDeviceId(),
-      }),
-      signal: AbortSignal.timeout(REFRESH_FETCH_TIMEOUT_MS),
-    });
+    );
     if (!response.ok) return null;
 
     const json = (await response.json()) as Record<string, unknown>;

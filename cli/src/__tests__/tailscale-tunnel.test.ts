@@ -6,6 +6,7 @@ import { join } from "node:path";
 import {
   normalizeDnsName,
   resolveServeHostname,
+  shouldClearIngressUrl,
   startTailscaleServe,
   stopTailscaleServe,
   type TailscaleCommandResult,
@@ -204,5 +205,25 @@ describe("stopTailscaleServe", () => {
     const result = stopTailscaleServe("tailscale", deps);
     expect(result.status).toBe(0);
     expect(calls).toContainEqual(["serve", "--https=443", "off"]);
+  });
+});
+
+// ── shouldClearIngressUrl ─────────────────────────────────────────────────────
+
+describe("shouldClearIngressUrl", () => {
+  test("clears only after a confirmed successful stop", () => {
+    expect(shouldClearIngressUrl({ status: 0, stdout: "", stderr: "" })).toBe(
+      true,
+    );
+  });
+
+  test("keeps the URL when the stop command fails", () => {
+    expect(
+      shouldClearIngressUrl({ status: 1, stdout: "", stderr: "boom" }),
+    ).toBe(false);
+  });
+
+  test("keeps the URL when the stop command threw before running", () => {
+    expect(shouldClearIngressUrl(null)).toBe(false);
   });
 });
