@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
-    clearCheckoutIntent,
-    readCheckoutIntent,
-    type CheckoutIntent,
+  clearCheckoutIntent,
+  readCheckoutIntent,
+  type CheckoutIntent,
 } from "@/lib/billing/checkout-intent";
 import { Modal } from "@vellumai/design-library/components/modal";
 import { toast } from "@vellumai/design-library/components/toast";
@@ -11,7 +11,10 @@ import { toast } from "@vellumai/design-library/components/toast";
 import { CompleteState } from "./complete-state";
 import { DomainStep } from "./domain-step";
 import { FetchErrorState } from "./error-states";
-import type { ProvisioningDimensions } from "./provisioning-machine";
+import type {
+  ProvisioningDimensions,
+  ProvisioningStateKind,
+} from "./provisioning-machine";
 import { ProvisioningState, TAKEOVER_BACKGROUND } from "./provisioning-state";
 import { useProProvisioning } from "./use-pro-provisioning";
 
@@ -34,6 +37,11 @@ function prefersReducedMotion() {
     window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true
   );
 }
+
+const isMachineBusy = (state: ProvisioningStateKind) =>
+  state === "WAITING" || state === "RESIZING" || state === "STALLED";
+const isSettled = (state: ProvisioningStateKind) =>
+  state === "DONE" || state === "NOT_APPLICABLE";
 
 const EMPTY_DIMENSIONS: ProvisioningDimensions = {
   machineSize: null,
@@ -60,6 +68,10 @@ export function BillingOnboardingModal({
   const [takeoverExit, setTakeoverExit] = useState<TakeoverExit>("idle");
   const exitTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const [intent, setIntent] = useState<CheckoutIntent | null>(null);
+  // The phase the takeover currently has on screen, which lags the live one by
+  // up to the per-phase hold. Null until the takeover first reports.
+  const [displayedPhase, setDisplayedPhase] =
+    useState<ProvisioningStateKind | null>(null);
 
   // The hook owns the on-open subscription/onboarding cache invalidation and
   // every provisioning poll; it keeps tracking across step changes so a
@@ -71,9 +83,14 @@ export function BillingOnboardingModal({
       setIntent(readCheckoutIntent());
       return;
     }
+    // Closing mid-exit must drop the queued step change with it, or it lands
+    // while the wizard is closed and a reopen starts on the wrong step.
+    exitTimers.current.forEach(clearTimeout);
+    exitTimers.current = [];
     setStep("provisioning");
     setFinishedInBackground(false);
     setTakeoverExit("idle");
+    setDisplayedPhase(null);
   }, [open]);
 
   useEffect(
@@ -93,12 +110,16 @@ export function BillingOnboardingModal({
   // right after checkout, so the domain step stays guarded (submit disabled)
   // while that resize is in flight — including a stall, where the machine may
   // still be mid-restart.
-  const machineBusy =
-    provisioning.state === "WAITING" ||
-    provisioning.state === "RESIZING" ||
-    provisioning.state === "STALLED";
-  const provisioningSettled =
-    provisioning.state === "DONE" || provisioning.state === "NOT_APPLICABLE";
+  const machineBusy = isMachineBusy(provisioning.state);
+  const provisioningSettled = isSettled(provisioning.state);
+
+  // The lock and the close toast describe the screen the user is looking at, so
+  // they read the takeover's held phase rather than the live one. The steps
+  // after it keep tracking live provisioning: a resize backgrounded via the
+  // escape hatch has to unblock the domain step when it actually finishes.
+  const onScreenPhase = displayedPhase ?? provisioning.state;
+  const onScreenBusy = isMachineBusy(onScreenPhase);
+  const onScreenSettled = isSettled(onScreenPhase);
 
   const { targets, assistantId, domainSetupAvailable, onboardingSettled } =
     provisioning;
@@ -156,7 +177,7 @@ export function BillingOnboardingModal({
     (provisioning.confirmError || provisioning.targetsError);
 
   const handleClose = () => {
-    if (step === "provisioning" && !provisioningError && machineBusy) {
+    if (step === "provisioning" && !provisioningError && onScreenBusy) {
       toast.info("Your upgrade continues in the background.");
     }
     onClose();
@@ -174,9 +195,8 @@ export function BillingOnboardingModal({
   // state stuck past the escape grace with routing still hung unlocks to a plain
   // background-dismiss (the in-content escape hatch needs routing to have settled).
   const stuckAwaitingRouting =
-    machineBusy && provisioning.escapeEligible && !routingSettled;
-  const lockTakeover =
-    isTakeover && !provisioningSettled && !stuckAwaitingRouting;
+    onScreenBusy && provisioning.escapeEligible && !routingSettled;
+  const lockTakeover = isTakeover && !onScreenSettled && !stuckAwaitingRouting;
 
   // Full-bleed dark content that fills the viewport for the takeover.
   const provisioningContentClass =
@@ -196,7 +216,12 @@ export function BillingOnboardingModal({
       : "[animation:fadeIn_0.25s_ease-out_both]";
 
   return (
-    <Modal.Root open={open} onOpenChange={(o) => { if (!o) handleClose(); }}>
+    <Modal.Root
+      open={open}
+      onOpenChange={(o) => {
+        if (!o) handleClose();
+      }}
+    >
       <Modal.Content
         size="md"
         hideCloseButton
@@ -257,6 +282,7 @@ export function BillingOnboardingModal({
             machineBusy && routingSettled && provisioning.escapeEligible
           }
           onEscape={escapeProvisioning}
+          onPhaseChange={setDisplayedPhase}
           stalledAction={stalledAction}
           confirm={{
             onRetry: provisioning.retryConfirm,

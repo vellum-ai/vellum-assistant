@@ -13,8 +13,8 @@ import { Button } from "@vellumai/design-library/components/button";
 import { Typography } from "@vellumai/design-library/components/typography";
 
 import type {
-    ProvisioningDimensions,
-    ProvisioningStateKind,
+  ProvisioningDimensions,
+  ProvisioningStateKind,
 } from "./provisioning-machine";
 import { SERIF_HEADING_STYLE, type StalledApplyAction } from "./primitives";
 import {
@@ -64,6 +64,8 @@ export interface ProvisioningStateProps {
   assistantId?: string | null;
   escapeAvailable: boolean;
   onEscape: () => void;
+  /** Reports the phase actually on screen, which lags `state` by the hold. */
+  onPhaseChange?: (phase: ProvisioningStateKind) => void;
   stalledAction: StalledApplyAction;
   confirm: { onRetry: () => void; onGoToBilling: () => void };
   /** Test hook — overrides the per-phase minimum; 0 disables the hold. */
@@ -116,7 +118,10 @@ function TakeoverAvatar({
 function Copy({ status, caption }: { status: string; caption?: string }) {
   return (
     <div className="flex flex-col items-center gap-1.5">
-      <h1 className="text-[var(--content-emphasised)]" style={SERIF_HEADING_STYLE}>
+      <h1
+        className="text-[var(--content-emphasised)]"
+        style={SERIF_HEADING_STYLE}
+      >
         {status}
       </h1>
       {caption && (
@@ -366,6 +371,7 @@ export function ProvisioningState({
   assistantId,
   escapeAvailable,
   onEscape,
+  onPhaseChange,
   stalledAction,
   confirm,
   dwellMs = PROVISION_MIN_DWELL_MS,
@@ -383,6 +389,15 @@ export function ProvisioningState({
   const heldState = useHeldPhase(state, phaseMinMs);
   const resolved = heldState === "DONE" || heldState === "NOT_APPLICABLE";
   const phaseKey = heldState === "RESIZING" ? "WAITING" : heldState;
+
+  // The wizard locks itself against the phase on screen, not the live one.
+  const onPhaseChangeRef = useRef(onPhaseChange);
+  useEffect(() => {
+    onPhaseChangeRef.current = onPhaseChange;
+  }, [onPhaseChange]);
+  useEffect(() => {
+    onPhaseChangeRef.current?.(heldState);
+  }, [heldState]);
 
   const dwelling = celebrating && resolved;
   useEffect(() => {

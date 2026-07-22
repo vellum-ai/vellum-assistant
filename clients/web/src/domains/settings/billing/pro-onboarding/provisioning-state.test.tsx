@@ -376,9 +376,7 @@ describe("stalled", () => {
 
     expect(getByText("We couldn't finish this automatically")).toBeTruthy();
     expect(
-      getByText(
-        "Apply the changes below to finish setting up your upgrade.",
-      ),
+      getByText("Apply the changes below to finish setting up your upgrade."),
     ).toBeTruthy();
     expect(getByText("Machine")).toBeTruthy();
     fireEvent.click(getByTestId("provisioning-apply"));
@@ -415,9 +413,7 @@ describe("confirm_timeout", () => {
 
     expect(getByText("Still confirming your upgrade")).toBeTruthy();
     expect(
-      getByText(
-        "Your payment went through safely — this can take a minute.",
-      ),
+      getByText("Your payment went through safely — this can take a minute."),
     ).toBeTruthy();
     fireEvent.click(getByTestId("onboarding-retry"));
     expect(onRetry).toHaveBeenCalledTimes(1);
@@ -526,5 +522,35 @@ describe("ProvisioningState phase hold", () => {
       </QueryClientProvider>,
     );
     expect(getByText("All done!")).toBeTruthy();
+  });
+
+  test("reports the phase on screen, not the live one", async () => {
+    // The wizard locks Esc/backdrop against this report, so it has to describe
+    // what the user is looking at — reporting DONE early unlocks the takeover
+    // while it still reads as busy.
+    const reported: string[] = [];
+    const onPhaseChange = (phase: ProvisioningStateProps["state"]) => {
+      reported.push(phase);
+    };
+    const { rerender, getByText } = renderState({
+      state: "WAITING",
+      phaseMinMs: 150,
+      onPhaseChange,
+    });
+    expect(reported).toEqual(["WAITING"]);
+
+    rerender(
+      <QueryClientProvider client={new QueryClient()}>
+        <ProvisioningState
+          {...baseProps({ state: "DONE", phaseMinMs: 150, onPhaseChange })}
+        />
+      </QueryClientProvider>,
+    );
+    expect(reported).toEqual(["WAITING"]);
+
+    await waitFor(() => expect(getByText("All done!")).toBeTruthy(), {
+      timeout: 1000,
+    });
+    expect(reported).toEqual(["WAITING", "DONE"]);
   });
 });
