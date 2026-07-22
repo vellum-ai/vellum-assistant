@@ -184,16 +184,21 @@ function setup({ seedOnboarding = true }: { seedOnboarding?: boolean } = {}) {
     client.setQueryData(ONBOARDING_KEY, onboardingFixture);
   }
   const invalidatedKeys: unknown[] = [];
+  // Ordered log of when each invalidation settled, so a test can prove
+  // `changeTiers` resolves only after they have.
+  const events: string[] = [];
   type InvalidateFn = QueryClient["invalidateQueries"];
   const originalInvalidate = client.invalidateQueries.bind(client);
   client.invalidateQueries = ((...args: Parameters<InvalidateFn>) => {
     invalidatedKeys.push(args[0]?.queryKey);
-    return originalInvalidate(...args);
+    return originalInvalidate(...args).then(() => {
+      events.push("invalidated");
+    });
   }) as InvalidateFn;
   const wrapper = ({ children }: { children: ReactNode }) =>
     createElement(QueryClientProvider, { client }, children);
   const { result } = renderHook(() => useChangeTiers(), { wrapper });
-  return { result, invalidatedKeys };
+  return { result, invalidatedKeys, events };
 }
 
 describe("useChangeTiers", () => {
@@ -300,6 +305,29 @@ describe("useChangeTiers", () => {
     expect(storageCalls).toEqual([{ body: { storage_tier: "s" } }]);
     expect(machineCalls).toEqual([]);
     expect(captured.value).toEqual({ needsResize: true });
+  });
+
+  test("billing refetches are awaited before the result resolves", async () => {
+    // The resize takeover reads the onboarding query and treats cached data as
+    // loaded, so every invalidation must settle before the caller opens it —
+    // otherwise a machine upgrade applies against the pre-change ceiling.
+    const { result, events } = setup();
+
+    await act(async () => {
+      await result.current.changeTiers({
+        machineTier: "large",
+        storageTier: "xs",
+        creditTier: null,
+      });
+      events.push("resolved");
+    });
+
+    expect(events).toEqual([
+      "invalidated",
+      "invalidated",
+      "invalidated",
+      "resolved",
+    ]);
   });
 
   test("a machine downgrade does not need a resize", async () => {
