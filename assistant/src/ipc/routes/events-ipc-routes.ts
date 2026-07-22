@@ -6,9 +6,9 @@
  * any other process that needs to surface an event (sidecar workers today;
  * a conversation's own out-of-process turn as that lands) must hand the event
  * to the daemon rather than construct a disconnected hub of its own. This
- * route is that transport: it takes a full `AssistantEvent` envelope and
- * republishes it on the daemon's `assistantEventHub`, where real subscribers
- * observe it.
+ * route is that transport: it validates a full event envelope against the
+ * shared `AssistantEventEnvelopeSchema` and republishes it on the daemon's
+ * `assistantEventHub`, where real subscribers observe it.
  *
  * The route does not filter host-proxy (`host_*`) events: the security
  * boundary for privileged host execution sits with the host proxies, which
@@ -22,9 +22,12 @@
 
 import { z } from "zod";
 
-import type { HostProxyCapability, InterfaceId } from "../../channels/types.js";
+import { AssistantEventEnvelopeSchema } from "../../api/index.js";
+import {
+  HOST_PROXY_CAPABILITIES,
+  INTERFACE_IDS,
+} from "../../channels/types.js";
 import type { ServerMessage } from "../../daemon/message-protocol.js";
-import type { AssistantEvent } from "../../runtime/assistant-event.js";
 import { assistantEventHub } from "../../runtime/assistant-event-hub.js";
 import type { RouteHandlerArgs } from "../../runtime/routes/types.js";
 
@@ -32,25 +35,23 @@ import type { RouteHandlerArgs } from "../../runtime/routes/types.js";
 export const EVENTS_PUBLISH_IPC_METHOD = "/events/publish";
 
 /**
- * A complete event envelope. `id`/`emittedAt`/`message` are required — SSE
- * framing dereferences `event.id`, so a partial envelope would throw in a
- * subscriber callback and silently drop that client. `message` is the opaque
- * outbound payload; its `ServerMessage` union is not re-validated here.
+ * The event envelope reuses the shared wire schema's transport fields (`id`,
+ * `emittedAt`, `conversationId`, `seq`) and overrides only `message`: the hub
+ * publishes runtime `ServerMessage`-typed events, whose union is defined
+ * separately from the api schema's message union, so the override yields a
+ * value assignable to `assistantEventHub.publish` without a cast.
  */
-const EventEnvelopeSchema: z.ZodType<AssistantEvent> = z.object({
-  id: z.string().min(1),
-  conversationId: z.string().optional(),
-  seq: z.number().optional(),
-  emittedAt: z.string().min(1),
+const EventEnvelopeSchema = AssistantEventEnvelopeSchema.extend({
   message: z.custom<ServerMessage>(
     (value) => value != null && typeof value === "object",
   ),
 });
 
+/** Publish targeting/suppression options — see the hub's `publish`. */
 const PublishOptionsSchema = z.object({
-  targetCapability: z.custom<HostProxyCapability>().optional(),
+  targetCapability: z.enum(HOST_PROXY_CAPABILITIES).optional(),
   targetClientId: z.string().optional(),
-  targetInterfaceId: z.custom<InterfaceId>().optional(),
+  targetInterfaceId: z.enum(INTERFACE_IDS).optional(),
   excludeClientId: z.string().optional(),
 });
 
