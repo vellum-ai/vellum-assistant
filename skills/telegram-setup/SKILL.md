@@ -23,7 +23,7 @@ You are helping your user connect a Telegram bot to the Vellum Assistant gateway
 | -------------- | ---------- | ------------------------------------------- | ------- |
 | Bot Token      | Credential | `assistant credentials prompt`              | **Yes** |
 | Bot Username   | Config     | `assistant config set telegram.botUsername` | No      |
-| Webhook Secret | Credential | `assistant credentials set`                 | **Yes** |
+| Webhook Secret | Credential | `assistant credentials set … --generated`   | **Yes** |
 
 - **Bot Token** is a secret. Always collect via `assistant credentials prompt` - never accept it pasted in plaintext chat.
 - **Bot Username** is derived from the token via the Telegram API and stored as config.

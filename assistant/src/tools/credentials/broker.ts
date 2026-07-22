@@ -26,6 +26,14 @@ const log = getLogger("credential-broker");
 const TOKEN_TTL_MS = 5 * 60 * 1000;
 
 /**
+ * Remediation for a credential whose allowed_tools list is empty. Points at
+ * `credentials prompt` (not inline `credentials set`, which agent shells
+ * refuse): the secure prompt re-collects the value and sets allowed_tools.
+ */
+const NO_TOOLS_ALLOWED_REMEDIATION =
+  "No tools are currently allowed - grant access via `assistant credentials prompt --service <service> --field <field> --label <label> --allowed-tools <tools>` (re-collects the value securely and sets allowed_tools).";
+
+/**
  * Credential broker that issues single-use tokens for policy-checked credential access.
  *
  * The broker never exposes plaintext secret values. Instead, it:
@@ -76,7 +84,7 @@ export class CredentialBroker {
         reason:
           `Tool "${request.toolName}" is not allowed to use credential ${request.service}/${request.field}. ` +
           (tools.length === 0
-            ? "No tools are currently allowed - update the credential's allowed_tools via `assistant credentials set`."
+            ? NO_TOOLS_ALLOWED_REMEDIATION
             : `Allowed tools: ${tools.join(", ")}.`),
       };
     }
@@ -186,7 +194,7 @@ export class CredentialBroker {
         reason:
           `Tool "${request.toolName}" is not allowed to use credential ${request.service}/${request.field}. ` +
           (tools.length === 0
-            ? "No tools are currently allowed - update the credential's allowed_tools via `assistant credentials set`."
+            ? NO_TOOLS_ALLOWED_REMEDIATION
             : `Allowed tools: ${tools.join(", ")}.`),
       };
     }
@@ -282,7 +290,7 @@ export class CredentialBroker {
         reason:
           `Tool "${request.toolName}" is not allowed to use credential ${request.service}/${request.field}. ` +
           (tools.length === 0
-            ? "No tools are currently allowed - update the credential's allowed_tools via `assistant credentials set`."
+            ? NO_TOOLS_ALLOWED_REMEDIATION
             : `Allowed tools: ${tools.join(", ")}.`),
       };
     }
@@ -365,7 +373,7 @@ export class CredentialBroker {
         reason:
           `Tool "${request.requestingTool}" is not allowed to use credential ${metadata.service}/${metadata.field}. ` +
           (tools.length === 0
-            ? "No tools are currently allowed - update the credential's allowed_tools via `assistant credentials set`."
+            ? NO_TOOLS_ALLOWED_REMEDIATION
             : `Allowed tools: ${tools.join(", ")}.`),
       };
     }

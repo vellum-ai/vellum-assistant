@@ -291,7 +291,7 @@ export function registerConnectCommand(oauth: Command): void {
             if (authorizeUrl === "urn:manual-token") {
               writeError(
                 `"${provider}" uses manual token configuration, not an OAuth browser flow. ` +
-                  `Set the token with: assistant credentials set <token_value> --service ${provider} --field <field_name>`,
+                  `Collect the token securely with: assistant credentials prompt --service ${provider} --field <field_name> --label "<label>"`,
               );
               return;
             }

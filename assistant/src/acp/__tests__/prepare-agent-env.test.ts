@@ -227,8 +227,8 @@ describe("prepareAgentEnv — claude-agent-acp gating", () => {
     expect(message).toContain("Connect Claude Code");
     expect(message).toContain("Do NOT");
     expect(message).toContain("claude setup-token");
-    // Keeps the headless CLI fallback available.
-    expect(message).toContain("assistant credentials set");
+    // Keeps the headless CLI fallback available, via the secure prompt.
+    expect(message).toContain("assistant credentials prompt");
     // Corrects the earlier "nothing to paste" framing — the cloud (manual) flow
     // does paste a key, and the model is told not to claim otherwise.
     expect(message).toContain("does paste a key");
