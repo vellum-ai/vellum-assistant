@@ -76,6 +76,16 @@ const createRes = await window.vellum.fetch("/v1/x/items", {
 if (!createRes.ok) throw new Error(`HTTP ${createRes.status}`);
 ```
 
+### Typing `window.vellum`
+
+Don't hand-declare `window.vellum` in a local `vellum.d.ts`. If the app depends on `@vellumai/plugin-api`, the `window.vellum` global is typed for you — either import anything from the package, or add a one-line reference in a `.d.ts` (or entry file):
+
+```typescript
+/// <reference types="@vellumai/plugin-api/app" />
+```
+
+Equivalently, add `"@vellumai/plugin-api/app"` to `compilerOptions.types` in `tsconfig.json`.
+
 ## Runtime context
 
 Every handler receives a frozen `context` object as its second argument. This provides access to daemon singletons that are otherwise unreachable from dynamically imported route modules.
