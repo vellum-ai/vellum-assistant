@@ -75,10 +75,19 @@ const realCliCommandStore = {
 };
 const realCoreSet = { ...(await import("../core-set.js")) };
 const realHotSet = { ...(await import("../hot-set.js")) };
+const realCheckpoints = {
+  ...(await import("../../../../../persistence/checkpoints.js")),
+};
 
 let shadowMockActive = false;
 
 // ─── mutable test state, read by the mocks below ────────────────────────────
+
+// In-memory stand-in for the `memory_checkpoints` row backing the
+// lanes-version token, so tests control the cross-process signal without a
+// migrated main DB. `checkpointReadThrows` simulates an unavailable DB.
+const checkpointStore = new Map<string, string>();
+let checkpointReadThrows = false;
 
 let liveEnabled = false;
 let memoryEnabled = true;
@@ -449,11 +458,28 @@ mock.module("../orchestrate.js", () => ({
       : realOrchestrate.orchestrate(...args),
 }));
 
+mock.module("../../../../../persistence/checkpoints.js", () => ({
+  ...realCheckpoints,
+  getMemoryCheckpoint: (key: string) => {
+    if (!shadowMockActive) return realCheckpoints.getMemoryCheckpoint(key);
+    if (checkpointReadThrows) throw new Error("checkpoint store unavailable");
+    return checkpointStore.get(key) ?? null;
+  },
+  setMemoryCheckpoint: (key: string, value: string) => {
+    if (!shadowMockActive) {
+      realCheckpoints.setMemoryCheckpoint(key, value);
+      return;
+    }
+    checkpointStore.set(key, value);
+  },
+}));
+
 // Import AFTER mocks so the plugin binds to them.
 const {
   observeTurn: observeTurnImpl,
   resetShadowLanesForTests,
   invalidateLanes,
+  LANES_VERSION_CHECKPOINT_KEY,
   attributeSelections,
   writeSelections,
   backfillMemoryV3SelectionMessageId,
@@ -510,6 +536,8 @@ beforeEach(() => {
   hotSetResult = [];
   hotSetOpts = null;
   testDb = makeDb();
+  checkpointStore.clear();
+  checkpointReadThrows = false;
   resetShadowLanesForTests();
   // The injector memoizes one orchestration per (conversation, turn); clear it
   // so tests reusing the same ids observe fresh orchestrations.
@@ -913,6 +941,45 @@ describe("memory-v3 engine", () => {
     await Promise.all([observeTurn("conv-1", 1), observeTurn("conv-1", 2)]);
     expect(sectionBuilds).toBe(2);
     expect(needleBuilds).toBe(2);
+  });
+
+  test("invalidateLanes writes a new, distinct lanes-version token each call", () => {
+    invalidateLanes();
+    const first = checkpointStore.get(LANES_VERSION_CHECKPOINT_KEY);
+    invalidateLanes();
+    const second = checkpointStore.get(LANES_VERSION_CHECKPOINT_KEY);
+    expect(first).toBeDefined();
+    expect(second).toBeDefined();
+    expect(second).not.toBe(first);
+  });
+
+  test("a lanes-version bump from another process forces a rebuild on the next turn", async () => {
+    await observeTurn("conv-1", 0);
+    await observeTurn("conv-1", 1);
+    expect(sectionBuilds).toBe(1);
+
+    // Simulate the memory worker's invalidateLanes(): its in-process memo
+    // clear is invisible to this process — only the persisted token write
+    // crosses the boundary.
+    checkpointStore.set(LANES_VERSION_CHECKPOINT_KEY, "worker-bump-1");
+
+    await observeTurn("conv-1", 2);
+    expect(sectionBuilds).toBe(2);
+    expect(needleBuilds).toBe(2);
+
+    // The rebuild captured the new token — the observer path never re-bumps,
+    // so later turns reuse the rebuilt memo instead of churning.
+    await observeTurn("conv-1", 3);
+    expect(sectionBuilds).toBe(2);
+  });
+
+  test("a lanes-version read failure serves the memoized lanes", async () => {
+    await observeTurn("conv-1", 0);
+    expect(sectionBuilds).toBe(1);
+
+    checkpointReadThrows = true;
+    await observeTurn("conv-1", 1);
+    expect(sectionBuilds).toBe(1);
   });
 
   test("no user message → no orchestrate, no writes", async () => {
