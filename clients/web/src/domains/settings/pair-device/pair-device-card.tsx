@@ -4,6 +4,8 @@ import { Notice } from "@vellumai/design-library/components/notice";
 
 import { DetailCard } from "@/components/detail-card";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
+import { useSupportsRemoteWebPairing } from "@/lib/backwards-compat/remote-web-pairing-gate";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 
 import { resolvePairDeviceGatewayBase } from "./pair-device-client";
 import { PairDeviceReady } from "./pair-device-ready";
@@ -16,15 +18,20 @@ import { usePairDevice } from "./use-pair-device";
  * https pair URL as a QR with a copyable link and expiry countdown.
  *
  * Rendered only in desktop/local mode against an on-machine gateway (the gate
- * lives in {@link resolvePairDeviceGatewayBase}); a remote or platform session
- * sees nothing.
+ * lives in {@link resolvePairDeviceGatewayBase}) whose assistant version
+ * serves the pairing routes ({@link useSupportsRemoteWebPairing}); a remote or
+ * platform session, or an older assistant, sees nothing. Generating also
+ * requires the `web-remote-ingress` flag — checked before minting, like the
+ * CLI, so a rendered QR always represents a scannable pairing.
  */
 export function PairDeviceCard() {
   const base = resolvePairDeviceGatewayBase();
-  const pair = usePairDevice(base);
+  const supported = useSupportsRemoteWebPairing();
+  const webRemoteIngressOn = useAssistantFeatureFlagStore.use.webRemoteIngress();
+  const pair = usePairDevice(base, webRemoteIngressOn);
   const { copy, copied } = useCopyToClipboard();
 
-  if (!base) {
+  if (!base || !supported) {
     return null;
   }
 
