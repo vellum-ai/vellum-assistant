@@ -64,8 +64,8 @@ export function MemoryPage({ onOpenThread }: MemoryPageProps) {
         headerAction={
           showCreate ? (
             /* Rendered into the graph header's right slot — a flex sibling of
-               the stats/search cluster, so it can never overlap them the way
-               the old absolutely-positioned overlay did on narrow screens. */
+               the stats/search cluster, so it cannot overlap them at any
+               viewport width. */
             <Button
               variant="primary"
               size="compact"

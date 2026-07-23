@@ -1374,8 +1374,17 @@ export function ConceptGraphView({
                     }}
                     onKeyDown={(e) => {
                       if (e.key === "Escape") {
-                        setSearch("");
-                        setSearchOpen(false);
+                        // Progressive Escape: with search state to clear,
+                        // clear it and swallow the event so the detail
+                        // drawer's window-level Escape handler doesn't also
+                        // close the drawer. With nothing to clear, let it
+                        // bubble so Escape still closes the drawer from the
+                        // field.
+                        if (search || searchOpen) {
+                          e.stopPropagation();
+                          setSearch("");
+                          setSearchOpen(false);
+                        }
                       } else if (e.key === "Enter" && searchResults.length > 0) {
                         e.preventDefault();
                         focusOn(searchResults[0].id);
