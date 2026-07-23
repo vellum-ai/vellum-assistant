@@ -1,9 +1,29 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { organizationsBillingPlansRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen";
-import type { CreditTierEnum, ProPlan } from "@/generated/api/types.gen";
+import type {
+  CreditTierEnum,
+  PlanCatalogEntry,
+  ProPlan,
+} from "@/generated/api/types.gen";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import type { CheckoutIntent } from "@/lib/billing/checkout-intent";
+
+/**
+ * Resolves a credit tier's catalog label from the Pro plan's `credit_tiers`.
+ * Returns null for a null/undefined tier or when the tier can't be resolved
+ * (catalog still loading, no Pro plan, no matching tier).
+ */
+function creditTierLabel(
+  plans: PlanCatalogEntry[] | undefined,
+  tier: CreditTierEnum | null | undefined,
+): string | null {
+  if (tier == null) {
+    return null;
+  }
+  const proPlan = plans?.find((p): p is ProPlan => p.id === "pro");
+  return proPlan?.credit_tiers?.find((t) => t.tier === tier)?.label ?? null;
+}
 
 /**
  * Resolves the human-readable monthly-credit label for the purchased plan from
@@ -44,11 +64,7 @@ export function useProvisioningCredits(
     return pkg?.credits_usd != null ? `${pkg.credits_usd} credits` : null;
   }
 
-  if (intent.creditTier != null) {
-    return creditTiers.find((t) => t.tier === intent.creditTier)?.label ?? null;
-  }
-
-  return null;
+  return creditTierLabel(data?.plans, intent.creditTier);
 }
 
 /**
@@ -71,11 +87,5 @@ export function useCreditTierLabel(
     enabled: orgReady && creditTier != null,
   });
 
-  if (creditTier == null) {
-    return null;
-  }
-  const proPlan = data?.plans.find((p): p is ProPlan => p.id === "pro");
-  return (
-    proPlan?.credit_tiers?.find((t) => t.tier === creditTier)?.label ?? null
-  );
+  return creditTierLabel(data?.plans, creditTier);
 }

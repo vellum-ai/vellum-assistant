@@ -152,14 +152,8 @@ export function PlansPage() {
   // the grow-only resize the platform already fired server-side (no redundant
   // client-driven resize).
   const [resizeTakeoverOpen, setResizeTakeoverOpen] = useState(false);
-  // The credit bundle just applied by an in-place custom change, threaded to
-  // the takeover so its terminal phase can confirm a credit-only change (which
-  // owes no resize and so never reaches the WAITING credits chip). `undefined`
-  // when the change didn't touch credits. Deliberately NOT sourced from the
-  // checkout intent: the package-switch path also opens this takeover without
-  // seeding one, so reading the intent there could surface a stale prior
-  // checkout's credits — this in-memory value stays scoped to the change that
-  // set it.
+  // The credit tier applied by an in-place change, threaded to the takeover's
+  // terminal confirmation. See `ProvisioningStateProps.resizeCredits`.
   const [resizeCreditTier, setResizeCreditTier] = useState<
     CreditTierEnum | null | undefined
   >(undefined);
@@ -335,9 +329,7 @@ export function PlansPage() {
       if (relation === "downgrade") {
         toast.success(`Downgraded to ${target.name}.`);
       } else {
-        // The switch path seeds no credit value — its bundle isn't sourced
-        // cleanly here, and a stale one from a prior custom change must not
-        // leak onto this takeover. Clear it so the terminal phase stays neutral.
+        // The switch path owes no credit confirmation; clear any prior tier.
         setResizeCreditTier(undefined);
         setResizeTakeoverOpen(true);
       }
@@ -373,11 +365,8 @@ export function PlansPage() {
       }
       setCustomPlanOpen(false);
       if (result.needsResize || result.creditChanged) {
-        // A machine/storage change needs the assistant to provision the new
-        // ceiling; a credit change owes no provisioning but still opens the same
-        // in-tab takeover for a readable confirmation moment. Thread the applied
-        // bundle only when it actually changed so the terminal phase can confirm
-        // it — a resize-only change leaves this undefined.
+        // Both a resize and a credit-only change open the takeover; thread the
+        // applied tier only when credits actually changed.
         setResizeCreditTier(
           result.creditChanged ? selection.creditTier : undefined,
         );
@@ -515,7 +504,12 @@ export function PlansPage() {
         <BillingOnboardingModal
           mode="resize"
           open={resizeTakeoverOpen}
-          onClose={() => setResizeTakeoverOpen(false)}
+          onClose={() => {
+            setResizeTakeoverOpen(false);
+            // Fail-safe: clear the tier so a stale credit chip can't resurface
+            // if an open path forgot to set it.
+            setResizeCreditTier(undefined);
+          }}
           resizeCredits={resizeCreditTier}
         />
 
