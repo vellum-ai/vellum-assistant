@@ -171,20 +171,14 @@ export function CustomPlanModal({
     machineTiers.find((t) => t.tier === machineTier) ?? null;
   const selectedStorage =
     storageTiers.find((t) => t.tier === storageTier) ?? null;
-  const selectedCredit =
-    creditChoice && creditChoice !== NO_EXTRA_CREDITS
-      ? (creditTiers.find((t) => t.tier === creditChoice) ?? null)
-      : null;
 
   const complete =
     selectedMachine != null && selectedStorage != null && creditChoice !== "";
-  const totalCents =
-    proPlan.base_price_cents +
-    (selectedMachine?.price_cents ?? 0) +
-    (selectedStorage?.price_cents ?? 0) +
-    (selectedCredit?.price_cents ?? 0);
 
-  // Recap rows + signed price delta vs. the current plan (seed).
+  // The "$X/mo" total, the delta line, and the recap rows all derive from this
+  // single computeCustomPlanDiff resolution against the FULL catalog, so they
+  // can never disagree — in particular a legacy-seed storage price stays in the
+  // header total (the modal's own `!legacy`-filtered lists would drop it).
   const diff = useMemo(
     () =>
       computeCustomPlanDiff({
@@ -295,7 +289,7 @@ export function CustomPlanModal({
               <div className="flex flex-col gap-4">
                 <div className="flex flex-col gap-1">
                   <span className="text-[24px] font-medium text-[var(--content-default)]">
-                    {formatMonthly(totalCents)}
+                    {formatMonthly(diff.totalCents)}
                   </span>
                   {diff.deltaCents != null &&
                     diff.deltaCents !== 0 &&

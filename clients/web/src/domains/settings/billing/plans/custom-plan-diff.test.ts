@@ -92,6 +92,8 @@ describe("computeCustomPlanDiff — base checkout (no seed)", () => {
 
     expect(diff.deltaCents).toBeNull();
     expect(diff.previousTotalCents).toBeNull();
+    // base $20 + large $60 + 30 GB $10 + $50 credits.
+    expect(diff.totalCents).toBe(2000 + 6000 + 1000 + 5000);
     expect(diff.rows.map((r) => r.label)).toEqual([
       "Pro base plan — $20/mo",
       "Large machine (4 vCPU, 8 GiB)",
@@ -172,6 +174,8 @@ describe("computeCustomPlanDiff — seeded reconfigure", () => {
     });
 
     expect(diff.deltaCents).toBe(2500);
+    // Current config total: base $20 + large $60 + xs $5.
+    expect(diff.totalCents).toBe(2000 + 6000 + 500);
     const machineRow = diff.rows.find((r) => r.key === "machine");
     expect(machineRow?.changed).toBe(true);
     expect(machineRow?.previousLabel).toBe("Medium machine (2.5 vCPU, 5 GiB)");
@@ -248,6 +252,29 @@ describe("computeCustomPlanDiff — seeded reconfigure", () => {
     expect(storageRow?.changed).toBe(true);
     expect(storageRow?.previousLabel).toBe("250 GB storage");
     expect(storageRow?.label).toBe("30 GB storage");
+  });
+
+  test("a held legacy storage tier is priced into totalCents so the total matches its row", () => {
+    // Reopening seeded to a legacy storage tier with no change: the selected
+    // storageTier is still the legacy `xl`. totalCents must resolve it against
+    // the full catalog and include its $60 price, so the header total agrees
+    // with the "250 GB storage" row the recap renders (the modal's own
+    // `!legacy`-filtered list would have dropped it and mispriced the total).
+    const diff = computeCustomPlanDiff({
+      proPlan: proPlan(),
+      seed: { machineTier: "medium", storageTier: "xl", creditTier: null },
+      machineTier: "medium",
+      storageTier: "xl",
+      creditChoice: NO_EXTRA_CREDITS,
+    });
+
+    // base $20 + medium $35 + legacy 250 GB $60.
+    expect(diff.totalCents).toBe(2000 + 3500 + 6000);
+    // A no-op reopen, so it equals the seed's total and the delta is zero.
+    expect(diff.previousTotalCents).toBe(2000 + 3500 + 6000);
+    expect(diff.deltaCents).toBe(0);
+    const storageRow = diff.rows.find((r) => r.key === "storage");
+    expect(storageRow?.label).toBe("250 GB storage");
   });
 
   test("removing a deprecated seed credit bundle is detected as a change but suppresses the delta", () => {
