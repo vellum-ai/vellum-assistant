@@ -92,10 +92,7 @@ import type {
   _NotificationsClientMessages,
   _NotificationsServerMessages,
 } from "./message-types/notifications.js";
-import type {
-  _SchedulesClientMessages,
-  _SchedulesServerMessages,
-} from "./message-types/schedules.js";
+import type { _SchedulesServerMessages } from "./message-types/schedules.js";
 import type { _SettingsServerMessages } from "./message-types/settings.js";
 import type { _SkillsServerMessages } from "./message-types/skills.js";
 import type {
@@ -136,7 +133,6 @@ export type ClientMessage =
   | _HostBrowserClientMessages
   | _SubagentsClientMessages
   | _WorkspaceClientMessages
-  | _SchedulesClientMessages
   | _DiagnosticsClientMessages
   | _NotificationsClientMessages;
 

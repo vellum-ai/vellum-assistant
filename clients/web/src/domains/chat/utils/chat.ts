@@ -116,6 +116,10 @@ const GLOBAL_STREAM_EVENT_TYPE_NAMES = [
   "assistant_status",
   "model_info",
   "schedule_conversation_created",
+  // Heartbeat alert (no conversationId) and heartbeat-created conversation
+  // (announces a *new* conversation) are app-wide, not conversation-scoped.
+  "heartbeat_alert",
+  "heartbeat_conversation_created",
   // Settings/config broadcasts (client-setting push, config.json change, sounds
   // change) carry no `conversationId` — they're app-wide, not conversation-scoped.
   "client_settings_update",
