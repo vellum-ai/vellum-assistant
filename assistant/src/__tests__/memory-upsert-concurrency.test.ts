@@ -52,7 +52,7 @@ await initializeDb();
 function resetTables() {
   const db = getDb();
   db.run("DELETE FROM memory_embeddings");
-  db.run("DELETE FROM memory_graph_nodes");
+  getMemorySqlite()!.run("DELETE FROM memory_graph_nodes");
   db.run("DELETE FROM memory_segments");
   getMemorySqlite()!.run("DELETE FROM memory_jobs");
   db.run("DELETE FROM messages");

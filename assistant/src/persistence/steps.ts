@@ -456,6 +456,7 @@ import { migrateMoveMemoryV3EverInjectedToMemoryDb } from "./migrations/345-move
 import { migrateMoveMemoryRetrospectiveStateToMemoryDb } from "./migrations/346-move-memory-retrospective-state-to-memory-db.js";
 import { migrateDeleteStrayGreetingConversation } from "./migrations/347-delete-stray-greeting-conversation.js";
 import { migrateMemorySummariesScopeUpdatedIndex } from "./migrations/348-memory-summaries-scope-updated-index.js";
+import { migrateMoveMemoryGraphTablesToMemoryDb } from "./migrations/348-move-memory-graph-tables-to-memory-db.js";
 import type { MigrationStep } from "./migrations/run-migrations.js";
 
 export const migrationSteps: MigrationStep[] = [
@@ -1443,4 +1444,27 @@ export const migrationSteps: MigrationStep[] = [
   },
   migrateDeleteStrayGreetingConversation,
   migrateMemorySummariesScopeUpdatedIndex,
+  {
+    name: "migrateMoveMemoryGraphTablesToMemoryDb",
+    run: migrateMoveMemoryGraphTablesToMemoryDb,
+    // Gate the move on every migration that reads or writes a graph table on the
+    // main connection, so it never drains a table another migration still
+    // expects on main. This includes migrateDeletePrivateConversations, which
+    // directly deletes private-scoped graph rows on main: were the move to run
+    // first, those rows would land in the memory DB and that delete would no-op
+    // against an empty main table, stranding them there. (The runtime
+    // conversation-delete path is separate: the graph is scope-keyed, not
+    // conversation-keyed, so it stays out of CONVERSATION_KEYED_MEMORY_TABLES.)
+    dependsOn: [
+      "migrateCreateMemoryGraphTables",
+      "migrateRenameMemoryGraphTypeValues",
+      "migrateMemoryGraphImageRefs",
+      "migrateCreateMemoryGraphNodeEdits",
+      "migrateDeletePrivateConversations",
+      "migrate231RepairMemoryGraphEventDates",
+      "migrateDeleteNonDefaultMemoryScopes",
+      "migrateSweepOrphanedGraphNodeVectors",
+      "migrateSweepCachelessGraphNodeVectors",
+    ],
+  },
 ];

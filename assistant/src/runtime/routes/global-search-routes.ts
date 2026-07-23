@@ -17,7 +17,7 @@ import {
   embedWithBackend,
   getMemoryBackendStatus,
 } from "../../persistence/embeddings/embedding-backend.js";
-import { rawAll } from "../../persistence/raw-query.js";
+import { rawMemoryAll } from "../../persistence/raw-query.js";
 import { semanticSearch } from "../../plugins/defaults/memory/search/semantic.js";
 import { listSchedules } from "../../schedule/schedule-store.js";
 import { getLogger } from "../../util/logger.js";
@@ -161,7 +161,7 @@ function searchMemoryItems(query: string, limit: number): GlobalSearchMemory[] {
     last_accessed: number;
   }
 
-  const rows = rawAll<MemoryRow>(
+  const rows = rawMemoryAll<MemoryRow>(
     "globalSearch:searchMemoryItems",
     `SELECT id, type, content, confidence, last_accessed
      FROM memory_graph_nodes
