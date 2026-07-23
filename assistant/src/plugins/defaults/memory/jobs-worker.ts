@@ -60,7 +60,10 @@ import {
 import type { JobHandler } from "../../types.js";
 import { sweepOrphanConversationMemoryTables } from "./conversation-memory-orphan-sweep.js";
 import { getLogger } from "./logging.js";
+import { countRetrospectiveMessagesAfter } from "./memory-retrospective-accounting.js";
+import { enqueueMemoryRetrospectiveIfEnabled } from "./memory-retrospective-enqueue.js";
 import { sweepOrphanMemoryRetrospectiveConversations } from "./memory-retrospective-startup-cleanup.js";
+import { listConversationsNeedingRetrospective } from "./memory-retrospective-state.js";
 import { getWorkspaceDir } from "./paths.js";
 import { hasPkbBufferContent } from "./pkb-schedule.js";
 import {
@@ -394,6 +397,7 @@ export async function runMemoryJobsOnce(
     }
     maybeEnqueueGraphMaintenanceJobs(config);
     if (memoryEnabled) {
+      maybeEnqueueRetrospectiveSweepJobs(config);
       await maybeRunDbMaintenance();
       await maybeRunPassiveWalCheckpoint();
     }
@@ -462,6 +466,9 @@ export async function runMemoryJobsOnce(
     maybeEnqueueScheduledCleanupJobs(config);
   }
   maybeEnqueueGraphMaintenanceJobs(config);
+  if (memoryEnabled) {
+    maybeEnqueueRetrospectiveSweepJobs(config);
+  }
   await maybeRunDbMaintenance();
   await maybeRunPassiveWalCheckpoint();
   return slowProcessed + fastProcessed + embedProcessed;
@@ -818,6 +825,114 @@ export function maybeEnqueueScheduledCleanupJobs(
   return enqueuedAny;
 }
 
+// ── Retrospective sweep scheduling ────────────────────────────────
+
+/**
+ * Max conversations examined per sweep pass. Keeps the per-tick DB load
+ * bounded even on instances with large conversation histories; the cursor
+ * checkpoint advances through the full set across successive passes.
+ */
+export const RETRO_SWEEP_BATCH_LIMIT = 50;
+
+/**
+ * Walk up to `RETRO_SWEEP_BATCH_LIMIT` conversations (paginated via a durable
+ * cursor) and enqueue a retrospective for each one that has unprocessed
+ * messages and is past its cooldown. Runs on the cadence set by
+ * `config.memory.retrospective.sweepIntervalMs` (default 8h).
+ *
+ * This is the catch-all backstop for turns that ended without firing the
+ * normal turn-end trigger (crash, IPC drop, early exit). It never fires
+ * duplicate jobs — `upsertMemoryRetrospectiveJob` coalesces rapid enqueues
+ * per conversation — and it respects the same cooldown as the turn-end path
+ * so it cannot spin a tight retry loop.
+ *
+ * Two durable checkpoints drive this function:
+ *   - `retro_sweep:last_run`  — epoch-ms timestamp of the last sweep start.
+ *     Seeded to `nowMs` on first startup so the first actual sweep fires a
+ *     full interval later (matches the PKB/cleanup no-LLM-work-at-boot rule).
+ *   - `retro_sweep:cursor`    — last conversation id examined. Advances by
+ *     `RETRO_SWEEP_BATCH_LIMIT` per sweep pass so the full conversation list
+ *     is eventually covered even when many candidates have no new messages.
+ *     Resets to "" when the end of the list is reached.
+ *
+ * Returns the number of retrospective jobs enqueued this pass.
+ */
+export function maybeEnqueueRetrospectiveSweepJobs(
+  config: AssistantConfig,
+  nowMs = Date.now(),
+): number {
+  const sweepIntervalMs = config.memory.retrospective.sweepIntervalMs;
+  const rawCheckpoint = getMemoryCheckpoint(
+    GRAPH_MAINTENANCE_CHECKPOINTS.retroSweep,
+  );
+
+  // Seed to nowMs on first startup (missing checkpoint) so the first actual
+  // sweep fires after a full interval, matching the PKB and cleanup schedule
+  // patterns — no LLM-backed retrospective jobs should fire at boot.
+  if (rawCheckpoint === null) {
+    setMemoryCheckpoint(
+      GRAPH_MAINTENANCE_CHECKPOINTS.retroSweep,
+      String(nowMs),
+    );
+    return 0;
+  }
+
+  const lastRun = parseInt(rawCheckpoint, 10);
+  if (nowMs - lastRun < sweepIntervalMs) {
+    return 0;
+  }
+
+  setMemoryCheckpoint(GRAPH_MAINTENANCE_CHECKPOINTS.retroSweep, String(nowMs));
+
+  // Advance the cursor so each sweep pass covers a different window of
+  // conversations. Without a cursor, the query always returns the same top-N
+  // rows and conversations beyond index N are never examined.
+  const cursor =
+    getMemoryCheckpoint(GRAPH_MAINTENANCE_CHECKPOINTS.retroSweepCursor) ?? "";
+  const candidates = listConversationsNeedingRetrospective(
+    RETRO_SWEEP_BATCH_LIMIT,
+    cursor,
+  );
+
+  // Advance or reset the cursor. < limit means we reached the end of the list.
+  if (candidates.length < RETRO_SWEEP_BATCH_LIMIT) {
+    setMemoryCheckpoint(GRAPH_MAINTENANCE_CHECKPOINTS.retroSweepCursor, "");
+  } else {
+    const lastId = candidates[candidates.length - 1]!.conversationId;
+    setMemoryCheckpoint(GRAPH_MAINTENANCE_CHECKPOINTS.retroSweepCursor, lastId);
+  }
+
+  const minCooldownMs = config.memory.retrospective.minCooldownMs;
+  let enqueued = 0;
+  for (const {
+    conversationId,
+    lastProcessedMessageId,
+    lastRunAt,
+  } of candidates) {
+    if (nowMs - lastRunAt < minCooldownMs) {
+      continue;
+    }
+    const newMessages = countRetrospectiveMessagesAfter(
+      conversationId,
+      lastProcessedMessageId,
+    );
+    if (newMessages === 0) {
+      continue;
+    }
+    enqueueMemoryRetrospectiveIfEnabled({ conversationId, trigger: "sweep" });
+    enqueued += 1;
+  }
+
+  if (enqueued > 0) {
+    log.info(
+      { enqueued, candidates: candidates.length, cursor },
+      "Retrospective sweep enqueued jobs",
+    );
+  }
+
+  return enqueued;
+}
+
 // ── Graph maintenance scheduling ──────────────────────────────────
 
 const GRAPH_DECAY_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
@@ -840,6 +955,8 @@ export const GRAPH_MAINTENANCE_CHECKPOINTS = {
   memoryV3Maintain: "memory_v3_maintain_last_run",
   pkbFiling: "pkb_filing_last_run",
   pkbCompaction: "pkb_compaction_last_run",
+  retroSweep: "retro_sweep:last_run",
+  retroSweepCursor: "retro_sweep:cursor",
 } as const;
 
 /**
