@@ -159,8 +159,8 @@ describe("VoiceFirstRunCard", () => {
       fireEvent.click(getByText(SETTINGS_LINK));
 
       expect(dialogTitle()).toBe("Voice settings");
-      // Simplified to just the voice picker plus a pointer to Models & Services
-      // for the advanced/BYO config that used to crowd this view.
+      // The view is just the voice picker plus a pointer to Models & Services,
+      // where advanced/BYO provider and API-key config lives.
       expect(getByTestId("voice-list")).toBeTruthy();
       expect(getByText("Models & Services")).toBeTruthy();
       // The voice hot-applies, so there's no Save; and this is a view swap, not
