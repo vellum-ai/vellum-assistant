@@ -43,7 +43,6 @@ import {
   updateMessageContent,
 } from "../persistence/conversation-crud.js";
 import { syncMessageToDisk } from "../persistence/conversation-disk-view.js";
-import { getBindingByConversation } from "../persistence/external-conversation-store.js";
 import { enqueueLexicalIndexForMessage } from "../persistence/job-handlers/message-lexical.js";
 import {
   backfillMessageIdOnLogs,
@@ -1262,15 +1261,14 @@ function buildAssistantChannelMetadata(
   if (deps.turnChannelContext.assistantMessageChannel === "slack") {
     const channelId = deps.ctx.trustContext?.requesterChatId;
     if (channelId) {
-      // Resolve the reply thread from the durable conversation binding
-      // (per-thread-scoped, written on every inbound Slack thread turn), the
-      // same source the approval-card link path reads.
-      const binding = getBindingByConversation(deps.ctx.conversationId);
-      const threadTs =
-        binding?.sourceChannel === "slack" &&
-        isSlackTs(binding.externalThreadId)
-          ? binding.externalThreadId
-          : undefined;
+      // Resolve the reply thread from this turn's own inbound thread id,
+      // captured turn-locally on the trust context at ingress (the same field
+      // guardian-approval cards read). This is deliberately not the shared
+      // conversation binding: on a legacy flat→thread aliased Slack
+      // conversation a concurrent inbound can rewrite the binding's
+      // externalThreadId mid-turn, whereas the trust context is per-turn.
+      const turnThreadTs = deps.ctx.trustContext?.sourceThreadId;
+      const threadTs = isSlackTs(turnThreadTs) ? turnThreadTs : undefined;
       const timestampTimezone = resolveAssistantReplyTimestampTimezone(
         deps.ctx,
       );

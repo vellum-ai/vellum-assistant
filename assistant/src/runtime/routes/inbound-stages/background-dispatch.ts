@@ -11,7 +11,7 @@ import {
   extractMessageTsFromCallbackUrl,
   extractThreadTsFromCallbackUrl,
   isSlackDeliveryCallbackUrl,
-} from "../../../channels/slack-thread-store.js";
+} from "../../../channels/slack-callback-url.js";
 import type { ChannelId, InterfaceId } from "../../../channels/types.js";
 import {
   getGuardianDelivery,

@@ -150,18 +150,6 @@ mock.module("../persistence/attachments-store.js", () => ({
   getAttachmentMetadataForMessage: () => [],
 }));
 
-// Controllable Slack binding for the `getBindingByConversation` read in
-// `buildAssistantChannelMetadata`, which resolves the reply threadTs from the
-// durable conversation binding. Each test sets the shape it needs.
-let mockSlackBinding: {
-  sourceChannel: string;
-  externalChatId: string;
-  externalThreadId: string | null;
-} | null = null;
-mock.module("../persistence/external-conversation-store.js", () => ({
-  getBindingByConversation: () => mockSlackBinding,
-}));
-
 // ── Imports (after mocks) ──────────────────────────────────────────────────
 
 import type { AgentEvent } from "../agent/loop.js";
@@ -188,6 +176,7 @@ function makeDeps(
     requesterChatId?: string;
     requesterTimezoneLabel?: string;
     clientTimezone?: string;
+    sourceThreadId?: string;
   } = {},
 ): EventHandlerDeps {
   const assistantMessageChannel = overrides.assistantMessageChannel ?? "slack";
@@ -201,6 +190,7 @@ function makeDeps(
         trustClass: "guardian",
         requesterChatId: overrides.requesterChatId,
         requesterTimezoneLabel: overrides.requesterTimezoneLabel,
+        sourceThreadId: overrides.sourceThreadId,
       },
       clientTimezone: overrides.clientTimezone,
     } as unknown as EventHandlerDeps["ctx"],
@@ -256,7 +246,6 @@ describe("outbound assistant Slack metadata persistence", () => {
   beforeEach(() => {
     addMessageCalls.length = 0;
     persistedRows.length = 0;
-    mockSlackBinding = null;
     setConfig("ui", {});
     nextDeliveryTs = null;
     state = createEventHandlerState();
@@ -269,20 +258,17 @@ describe("outbound assistant Slack metadata persistence", () => {
     nextDeliveryTs = null;
   });
 
-  test("stamps slackMeta with threadTs when the conversation has a Slack thread mapping", async () => {
+  test("stamps slackMeta with threadTs from the turn's inbound thread id", async () => {
     const conversationId = "conv-slack-threaded";
     const channelId = "C123CHANNEL";
-    // Seed a Slack thread binding (mirrors the inbound path that records
-    // externalThreadId on the conversation's binding when a thread_ts arrives).
-    mockSlackBinding = {
-      sourceChannel: "slack",
-      externalChatId: channelId,
-      externalThreadId: "1234.5678",
-    };
 
+    // The turn arrived in a thread — its inbound thread ts is captured on the
+    // trust context (`sourceThreadId`) at ingress, and the reply is stamped
+    // from that turn-local value.
     const deps = makeDeps(conversationId, {
       assistantMessageChannel: "slack",
       requesterChatId: channelId,
+      sourceThreadId: "1234.5678",
     });
     await handleLlmCallStarted(state, deps);
     await handleMessageComplete(state, deps, makeMessageCompleteEvent("hi"));
@@ -414,8 +400,8 @@ describe("outbound assistant Slack metadata persistence", () => {
   test("stamps slackMeta WITHOUT threadTs for top-level Slack replies", async () => {
     const conversationId = "conv-slack-toplevel";
     const channelId = "C456NOTHREAD";
-    // No binding for this conversation (mockSlackBinding stays null), so the
-    // assistant's reply targets the channel root, not a thread.
+    // The turn arrived at the channel root — no `sourceThreadId` on the trust
+    // context, so the reply targets the channel root, not a thread.
 
     const deps = makeDeps(conversationId, {
       assistantMessageChannel: "slack",
@@ -441,20 +427,14 @@ describe("outbound assistant Slack metadata persistence", () => {
     expect(slackMeta.channelTs).toBeUndefined();
   });
 
-  test("does NOT stamp a threadTs when the binding has no thread (channel-root reply)", async () => {
-    const conversationId = "conv-slack-cleared";
-    const channelId = "C789CLEARED";
-    // A channel-root turn resolves to a thread-less binding (externalThreadId
-    // null), so no threadTs is stamped onto the reply.
-    mockSlackBinding = {
-      sourceChannel: "slack",
-      externalChatId: channelId,
-      externalThreadId: null,
-    };
-
+  test("ignores a non-ts sourceThreadId", async () => {
+    const conversationId = "conv-slack-bad-thread";
+    const channelId = "C789BAD";
+    // A malformed thread id must not be stamped as a threadTs (isSlackTs guard).
     const deps = makeDeps(conversationId, {
       assistantMessageChannel: "slack",
       requesterChatId: channelId,
+      sourceThreadId: "not-a-ts",
     });
     await handleLlmCallStarted(state, deps);
     await handleMessageComplete(
