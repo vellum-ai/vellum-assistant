@@ -470,15 +470,24 @@ export function useStreamEventHandler(
         // (e.g. user-prompt-submit). No web UI renders them yet.
         case "hook_event":
           break;
-        // Host-proxy instructions (bash / computer-use / ui-snapshot) targeting
-        // the desktop client. The web chat handler is a no-op — the web is not a
-        // host-proxy capability holder, so the hub never delivers these to it.
+        // Host-proxy instructions targeting the desktop client / chrome
+        // extension. The web chat handler is a no-op — host-proxy frames are
+        // delivered to their capability holder by the hub, not through the
+        // conversation stream.
         case "host_bash_request":
         case "host_bash_cancel":
         case "host_cu_request":
         case "host_cu_cancel":
         case "host_ui_snapshot_request":
         case "host_ui_snapshot_cancel":
+        case "host_app_control_request":
+        case "host_app_control_cancel":
+        case "host_browser_request":
+        case "host_browser_cancel":
+        case "host_file_request":
+        case "host_file_cancel":
+        case "host_transfer_request":
+        case "host_transfer_cancel":
           break;
         // Service-group upgrade lifecycle broadcasts announcing a daemon
         // restart. The chat handler is a no-op; no web UI renders them yet.
