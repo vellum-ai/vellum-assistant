@@ -351,8 +351,10 @@ describe("PlanCard", () => {
     expect(html).not.toContain("4 GB");
     expect(html).not.toContain("Small Machine");
     // The recommended (Mighty) card shows the single summary chip, replacing the
-    // old absolute per-resource chips (machine · credits · storage).
-    expect(html).toContain("more credits, storage, and a stronger machine");
+    // old absolute per-resource chips (machine · credits · storage). Free→Mighty
+    // stays on the Small baseline, so the chip omits the machine claim.
+    expect(html).toContain("more credits and storage");
+    expect(html).not.toContain("stronger machine");
     expect(html).not.toContain("$25 credits");
     expect(html).not.toContain("10 GB");
     expect(html).not.toContain("vCPU");
@@ -399,9 +401,10 @@ describe("PlanCard", () => {
     expect(html).toContain("Switch to Mighty");
     // A neutral switch drops the "Recommended" tag and renders no chips on the
     // recommended card — not even the summary chip; the current "Custom" card
-    // also has no knowable chips.
+    // also has no knowable chips. Asserting on the "more credits" prefix covers
+    // both the full and machine-less summary labels.
     expect(html).not.toContain("Recommended");
-    expect(html).not.toContain("more credits, storage, and a stronger machine");
+    expect(html).not.toContain("more credits");
   });
 
   test("a customized Pro sub's banner drops the stock upgrade framing", () => {
@@ -418,8 +421,9 @@ describe("PlanCard", () => {
     expect(html).toContain("Switch plan");
     expect(html).toContain("Switch to Super");
     expect(html).not.toContain("Recommended");
-    // A neutral switch renders no summary chip either.
-    expect(html).not.toContain("more credits, storage, and a stronger machine");
+    // A neutral switch renders no summary chip either. The "more credits" prefix
+    // covers both the full and machine-less summary labels.
+    expect(html).not.toContain("more credits");
   });
 
   test("a base user's banner keeps the directional upgrade framing", () => {
@@ -492,8 +496,10 @@ describe("PlanCard", () => {
     expect(html).not.toContain("$0 credits");
     expect(html).not.toContain("4 GB");
     expect(html).not.toContain("Small Machine");
-    // The recommended (Mighty) card shows the single summary chip.
-    expect(html).toContain("more credits, storage, and a stronger machine");
+    // The recommended (Mighty) card shows the single summary chip. Free→Mighty
+    // keeps the Small baseline machine, so the chip claims only credits/storage.
+    expect(html).toContain("more credits and storage");
+    expect(html).not.toContain("stronger machine");
   });
 });
 

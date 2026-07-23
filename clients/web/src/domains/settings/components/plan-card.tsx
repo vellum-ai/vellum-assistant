@@ -17,6 +17,7 @@ import { useChangePackage } from "@/domains/settings/billing/use-change-package"
 import { PackageSwitchConfirmModal } from "@/domains/settings/billing/plans/package-switch-confirm-modal";
 import { getPlanTierCopy } from "@/domains/settings/billing/plans/plans-copy";
 import {
+  machineLabel,
   packageSpecs,
   type PlanSpec,
 } from "@/domains/settings/billing/plan-spec";
@@ -74,15 +75,6 @@ const PLAN_DISPLAY: Record<string, PlanDisplay> = {
 };
 
 const DEFAULT_DISPLAY: PlanDisplay = PLAN_DISPLAY.base;
-
-/** The recommended card's single summary chip (replaces per-resource chips). */
-const RECOMMENDED_SUMMARY_SPECS: PlanSpec[] = [
-  {
-    icon: ArrowUp,
-    label: "more credits, storage, and a stronger machine",
-    multiline: true,
-  },
-];
 
 export interface PlanCardProps {
   onManage: () => void;
@@ -169,6 +161,20 @@ function RecommendedUpgrade({
   const currentPackage = currentKey
     ? (packages.find((p) => p.key === currentKey) ?? null)
     : null;
+  // "a stronger machine" only holds when the recommended tier's machine size
+  // actually steps up. Free→Mighty stays on the Small baseline (machine_size
+  // null), so only credits and storage increase there — drop the machine clause.
+  const machineUpgrades =
+    machineLabel(currentPackage) !== machineLabel(recommended);
+  const summarySpecs: PlanSpec[] = [
+    {
+      icon: ArrowUp,
+      label: machineUpgrades
+        ? "more credits, storage, and a stronger machine"
+        : "more credits and storage",
+      multiline: true,
+    },
+  ];
   const deltaCents =
     recommended.total_price_cents - (currentPackage?.total_price_cents ?? 0);
   // A Custom (customized or unpinned) sub's real tiers can diverge from any
@@ -291,7 +297,7 @@ function RecommendedUpgrade({
           </Tag>
         }
         tagline={recommendedCopy?.tagline}
-        specs={isNeutralSwitch ? null : RECOMMENDED_SUMMARY_SPECS}
+        specs={isNeutralSwitch ? null : summarySpecs}
         action={upgradeButton}
       />
       <PackageSwitchConfirmModal
