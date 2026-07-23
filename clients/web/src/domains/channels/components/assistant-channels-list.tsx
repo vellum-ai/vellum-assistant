@@ -423,45 +423,87 @@ function ChannelPanel({
   policyError = false,
   onPolicyChange,
 }: ChannelPanelProps) {
-  const meta = CHANNEL_META[channel.key];
   const connected = channel.status === "ready";
-  // Disconnected Telegram/Phone default to the pitch + guided setup; the
-  // manual credential form swaps in when the user opts into it (or arrived
-  // via a setup deep link).
+  // Manual credential entry is a connect-time affordance, so it only applies
+  // while disconnected — seeded from a `?setup=<channel>` deep link. Declared
+  // before the Slack branch to keep hook order stable across renders.
   const [manualEntry, setManualEntry] = useState(initialManualEntry);
-  const showCredentialForm = connected || manualEntry;
 
+  // Slack is its own adapter shape — a token-pair channel with dedicated
+  // connected/disconnected cards (connection card vs. setup wizard) that own
+  // their card chrome, so it returns bare (the parent skips the DetailCard).
+  if (channel.key === "slack") {
+    return (
+      <div className="flex flex-col gap-4">
+        {connected ? (
+          <SlackConnectionCard
+            slackHandle={channel.address}
+            disconnectPending={pending}
+            onDisconnect={onDisconnect}
+          >
+            <SlackThreadBehavior
+              threadMode={slackThreadMode}
+              threadModePending={slackThreadModePending}
+              onThreadModeChange={onSlackThreadModeChange}
+            />
+          </SlackConnectionCard>
+        ) : (
+          <SlackChannelCard>
+            <SlackSetupWizard
+              assistantName={assistantName}
+              onSave={onSaveSlackConfig}
+              saveStatus={slackSaveStatus}
+              saveError={slackSaveError}
+            />
+          </SlackChannelCard>
+        )}
+
+        {connected ? (
+          <SlackChannelSection
+            assistantId={assistantId}
+            assistantDisplayName={assistantDisplayName}
+            slackHandle={channel.address}
+          />
+        ) : null}
+      </div>
+    );
+  }
+
+  // Telegram and Phone are single-credential adapters that share one shape.
+  // Connected: the connection header plus the trust-floor control. Disconnected:
+  // a pitch with guided setup and a manual credential-entry escape hatch. The
+  // credential form is a connect-time affordance and never shows while
+  // connected — mirroring Slack's setup wizard, so "Connected" never sits next
+  // to an empty token field.
+  const meta = CHANNEL_META[channel.key];
   return (
     <div className="flex flex-col gap-4">
-      {/* Slack renders no standalone connection row — connected Slack's
-          connection state lives in the consolidated card's header below. */}
-      {channel.key !== "slack" && connected ? (
-        <div className="flex items-center gap-3">
-          <Tag tone="positive" leftIcon={<CheckCircle />}>
-            Connected
-          </Tag>
-          {channel.address ? (
-            <span
-              className="text-body-medium-lighter"
-              style={{ color: "var(--content-tertiary)" }}
-            >
-              {channel.address}
-            </span>
+      {connected ? (
+        <>
+          <ConnectedChannelHeader
+            address={channel.address}
+            pending={pending}
+            onDisconnect={onDisconnect}
+          />
+          {meta.hasTrustFloorControl && onPolicyChange ? (
+            <ChannelTrustFloorSection
+              assistantDisplayName={assistantDisplayName}
+              policy={policy}
+              saving={policySaving}
+              loading={policyLoading}
+              error={policyError}
+              onChange={onPolicyChange}
+            />
           ) : null}
-          <div className="ml-auto">
-            <Button
-              type="button"
-              variant="danger"
-              onClick={onDisconnect}
-              disabled={!onDisconnect || pending}
-            >
-              {pending ? "Disconnecting…" : "Disconnect"}
-            </Button>
-          </div>
-        </div>
-      ) : channel.key !== "slack" && !manualEntry ? (
-        // Slack's disconnected state is the setup wizard below; Telegram and
-        // Phone pitch the channel and point at the guided setup, with a
+        </>
+      ) : manualEntry ? (
+        channel.key === "telegram" ? (
+          <TelegramCredentialEntry onSave={onSaveTelegramToken} />
+        ) : (
+          <TwilioCredentialEntry onSave={onSaveTwilioCredentials} />
+        )
+      ) : (
+        // Pitch the channel and point at guided setup, with a
         // manual-credentials escape hatch.
         <EmptyState
           icon={<ChannelIcon channelId={channel.key} className="h-6 w-6" />}
@@ -487,59 +529,57 @@ function ChannelPanel({
             </div>
           }
         />
-      ) : null}
+      )}
+    </div>
+  );
+}
 
-      {connected && meta.hasTrustFloorControl && onPolicyChange ? (
-        <ChannelTrustFloorSection
-          assistantDisplayName={assistantDisplayName}
-          policy={policy}
-          saving={policySaving}
-          loading={policyLoading}
-          error={policyError}
-          onChange={onPolicyChange}
-        />
-      ) : null}
+// ---------------------------------------------------------------------------
+// Connected Channel Header (Telegram / Phone)
+// ---------------------------------------------------------------------------
 
-      {channel.key === "telegram" && showCredentialForm ? (
-        <TelegramCredentialEntry onSave={onSaveTelegramToken} />
-      ) : null}
+interface ConnectedChannelHeaderProps {
+  /** The connected channel's address/handle, when known. */
+  address?: string;
+  /** Disconnect in flight; disables the button and swaps its label. */
+  pending: boolean;
+  onDisconnect?: () => void;
+}
 
-      {channel.key === "slack" ? (
-        connected ? (
-          <SlackConnectionCard
-            slackHandle={channel.address}
-            disconnectPending={pending}
-            onDisconnect={onDisconnect}
-          >
-            <SlackThreadBehavior
-              threadMode={slackThreadMode}
-              threadModePending={slackThreadModePending}
-              onThreadModeChange={onSlackThreadModeChange}
-            />
-          </SlackConnectionCard>
-        ) : (
-          <SlackChannelCard>
-            <SlackSetupWizard
-              assistantName={assistantName}
-              onSave={onSaveSlackConfig}
-              saveStatus={slackSaveStatus}
-              saveError={slackSaveError}
-            />
-          </SlackChannelCard>
-        )
+/**
+ * The connected-state header for the single-credential adapters (Telegram,
+ * Phone): a Connected chip, the channel address, and a right-aligned
+ * Disconnect affordance (the caller confirms first). Slack has its own
+ * `SlackConnectionCard`; these channels render inside the panel's DetailCard.
+ */
+function ConnectedChannelHeader({
+  address,
+  pending,
+  onDisconnect,
+}: ConnectedChannelHeaderProps) {
+  return (
+    <div className="flex items-center gap-3">
+      <Tag tone="positive" leftIcon={<CheckCircle />}>
+        Connected
+      </Tag>
+      {address ? (
+        <span
+          className="text-body-medium-lighter"
+          style={{ color: "var(--content-tertiary)" }}
+        >
+          {address}
+        </span>
       ) : null}
-
-      {channel.key === "slack" && connected ? (
-        <SlackChannelSection
-          assistantId={assistantId}
-          assistantDisplayName={assistantDisplayName}
-          slackHandle={channel.address}
-        />
-      ) : null}
-
-      {channel.key === "phone" && showCredentialForm ? (
-        <TwilioCredentialEntry onSave={onSaveTwilioCredentials} />
-      ) : null}
+      <div className="ml-auto">
+        <Button
+          type="button"
+          variant="danger"
+          onClick={onDisconnect}
+          disabled={!onDisconnect || pending}
+        >
+          {pending ? "Disconnecting…" : "Disconnect"}
+        </Button>
+      </div>
     </div>
   );
 }
