@@ -221,6 +221,29 @@ interface SystemEventsTabProps {
 }
 
 export function SystemEventsTab({ assistantId, platformGate }: SystemEventsTabProps) {
+    const {
+      data,
+      isLoading,
+      isError,
+      isFetchingNextPage,
+      hasNextPage,
+      fetchNextPage,
+    } = useInfiniteQuery({
+      ...assistantsSystemEventsListInfiniteOptions({
+        path: { assistant_id: assistantId },
+      }),
+      enabled: platformGate === "full",
+      initialPageParam: 0,
+      getNextPageParam: (lastPage, allPages) => {
+        if (!lastPage.next) return undefined;
+        const loaded = allPages.reduce(
+          (acc, page) => acc + page.results.length,
+          0,
+        );
+        return loaded;
+      },
+    });
+
     if (platformGate === "disabled") {
       return (
         <div
@@ -234,29 +257,6 @@ export function SystemEventsTab({ assistantId, platformGate }: SystemEventsTabPr
         </div>
       );
     }
-
-    const {
-      data,
-      isLoading,
-      isError,
-      isFetchingNextPage,
-      hasNextPage,
-      fetchNextPage,
-    } = useInfiniteQuery({
-    ...assistantsSystemEventsListInfiniteOptions({
-      path: { assistant_id: assistantId },
-    }),
-    initialPageParam: 0,
-    getNextPageParam: (lastPage, allPages) => {
-      if (!lastPage.next) return undefined;
-      const loaded = allPages.reduce(
-        (acc, page) => acc + page.results.length,
-        0,
-      );
-      return loaded;
-    },
-  });
-
   const allEvents = data?.pages.flatMap((page) => page.results) ?? [];
 
   return (

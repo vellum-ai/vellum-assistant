@@ -192,20 +192,6 @@ interface EmailsTabProps {
 }
 
 export function EmailsTab({ assistantId, platformGate }: EmailsTabProps) {
-    if (platformGate === "disabled") {
-      return (
-        <div
-          className="flex items-center justify-center rounded-xl border px-4 py-12 text-body-medium-lighter"
-          style={{
-            borderColor: "var(--border-base)",
-            color: "var(--content-tertiary)",
-          }}
-        >
-          Email settings require a platform session.
-        </div>
-      );
-    }
-
     const gateEnabled = platformGate === "full";
 
   const addressesQuery = useQuery({
@@ -230,6 +216,20 @@ export function EmailsTab({ assistantId, platformGate }: EmailsTabProps) {
     }),
     enabled: gateEnabled,
   });
+
+    if (platformGate === "disabled") {
+      return (
+        <div
+          className="flex items-center justify-center rounded-xl border px-4 py-12 text-body-medium-lighter"
+          style={{
+            borderColor: "var(--border-base)",
+            color: "var(--content-tertiary)",
+          }}
+        >
+          Email settings require a platform session.
+        </div>
+      );
+    }
 
   const usage: EmailAddressUsage | undefined = statusQuery.data?.usage;
   const emails: EmailMessage[] = emailsQuery.data?.results ?? [];
