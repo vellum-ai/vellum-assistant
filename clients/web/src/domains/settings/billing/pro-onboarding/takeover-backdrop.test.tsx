@@ -34,7 +34,8 @@ describe("TakeoverBackdrop", () => {
     );
     const image = container.querySelector("img");
     expect(image?.style.filter).toBe("blur(60px)");
-    expect(image?.className).toContain("h-[130%]");
-    expect(image?.className).toContain("w-[130%]");
+    // Over-scan is 2x the 60px radius per side, so each axis grows by 240px.
+    expect(image?.style.width.replace(/\s/g, "")).toBe("calc(100%+240px)");
+    expect(image?.style.height.replace(/\s/g, "")).toBe("calc(100%+240px)");
   });
 });
