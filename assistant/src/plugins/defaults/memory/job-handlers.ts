@@ -44,6 +44,7 @@ import { embedPkbFileJob } from "./jobs/embed-pkb-file.js";
 import { getLogger } from "./logging.js";
 import { memoryRetrospectiveJob } from "./memory-retrospective-job.js";
 import { skillCardInsertJob } from "./memory-retrospective-skill-card.js";
+import { memoryRetrospectiveSweepJob } from "./memory-retrospective-sweep.js";
 import {
   memoryV2ActivationRecomputeJob,
   memoryV2MigrateJob,
@@ -212,6 +213,10 @@ export const memoryJobHandlers: readonly JobHandlerEntry[] = [
   {
     type: "memory_retrospective",
     handler: (job, config) => memoryRetrospectiveJob(job, config),
+  },
+  {
+    type: "memory_retrospective_sweep",
+    handler: (job, config) => memoryRetrospectiveSweepJob(job, config),
   },
   {
     type: "skill_card_insert",
