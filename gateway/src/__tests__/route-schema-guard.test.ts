@@ -211,6 +211,9 @@ const EXCLUDED_FROM_SCHEMA = new Set([
   // ingress path; not part of the public gateway API
   "/v1/speech/stt/stream",
   "/v1/speech/tts/stream",
+  // Cluster-internal pre-checkpoint quiesce (called by vembda) — not part of
+  // the public gateway API
+  "/internal/prepare-for-checkpoint",
 ]);
 
 // ── Schema paths that don't map to a discrete route definition ──
