@@ -52,9 +52,9 @@ export function invalidateAssistantInferredItemsForConversation(
   cancelPendingExtractionJobsForConversation(conversationId);
 
   // memory_graph_nodes lives on the memory connection and cron_runs on the main
-  // connection, so the old single cross-DB UPDATE is now an app-level two-step:
-  // read the candidate nodes on memory, resolve which corroborating
-  // conversations are failed on main, then invalidate in JS.
+  // connection, so this reads across both in two steps: pull the candidate nodes
+  // from memory, ask main which of their corroborating conversations failed, then
+  // invalidate the nodes with no surviving corroborator in JS.
   const candidates = rawMemoryAll<{
     id: string;
     source_conversations: string;
