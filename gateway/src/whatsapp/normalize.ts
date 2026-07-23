@@ -1,84 +1,155 @@
+import { z } from "zod";
+
+import { getLogger } from "../logger.js";
 import type { GatewayInboundEvent } from "../types.js";
 
-// WhatsApp Cloud API webhook payload shapes
+// WhatsApp Cloud API webhook payloads are untrusted external input:
 // https://developers.facebook.com/docs/whatsapp/cloud-api/webhooks/payload-examples
+//
+// The envelope and each message are validated with Zod. The core routing fields
+// of a message (`id`, `from`, `timestamp`) are required — a message missing or
+// malforming any of them is dropped rather than processed, so one bad message in
+// a batch can never take down the rest. Content-bearing fields (text body,
+// button reply, media metadata) stay tolerant: a malformed value collapses to
+// `undefined` rather than rejecting the whole message. The original payload is
+// preserved verbatim as `raw`.
 
-interface WhatsAppContact {
-  profile?: { name?: string };
-  wa_id?: string;
-}
+const log = getLogger("whatsapp-normalize");
 
-interface WhatsAppTextMessage {
-  id: string;
-  from: string;
-  timestamp: string;
-  type: "text";
-  text: { body: string };
-}
+const optionalString = () => z.string().optional().catch(undefined);
+const optionalNumber = () => z.number().optional().catch(undefined);
 
-interface WhatsAppInteractiveMessage {
-  id: string;
-  from: string;
-  timestamp: string;
-  type: "interactive";
-  interactive: {
-    type: "button_reply";
-    button_reply: {
-      id: string;
-      title: string;
-    };
-  };
-}
+/**
+ * Core routing fields present on every WhatsApp message. Required and validated:
+ * `id` is the dedup key / external message id, `from` is the sender identity and
+ * conversation address, and `timestamp` is unix-epoch **seconds** as a digit
+ * string. Validating `timestamp` here is what prevents
+ * `new Date(Number(timestamp) * 1000)` from being fed `NaN` (an Invalid Date,
+ * which throws on `.toISOString()`).
+ */
+const messageCore = {
+  id: z.string().min(1),
+  from: z.string().min(1),
+  timestamp: z.string().regex(/^\d+$/),
+};
 
-interface WhatsAppMediaPayload {
-  caption?: string;
-  mime_type?: string;
-  id?: string;
-  file_size?: number;
-  filename?: string;
-}
+const mediaPayloadSchema = z.object({
+  caption: optionalString(),
+  mime_type: optionalString(),
+  id: optionalString(),
+  file_size: optionalNumber(),
+  filename: optionalString(),
+});
 
-interface WhatsAppMediaMessage {
-  id: string;
-  from: string;
-  timestamp: string;
-  type: "audio" | "video" | "image" | "document" | "sticker";
-  // image, video, and document messages can carry a caption
-  image?: WhatsAppMediaPayload;
-  video?: WhatsAppMediaPayload;
-  document?: WhatsAppMediaPayload;
-  audio?: WhatsAppMediaPayload;
-  sticker?: WhatsAppMediaPayload;
-}
+const textMessageSchema = z.object({
+  ...messageCore,
+  type: z.literal("text"),
+  text: z.object({ body: optionalString() }).optional().catch(undefined),
+});
 
-type WhatsAppMessage =
-  | WhatsAppTextMessage
-  | WhatsAppInteractiveMessage
-  | WhatsAppMediaMessage;
+const interactiveMessageSchema = z.object({
+  ...messageCore,
+  type: z.literal("interactive"),
+  interactive: z
+    .object({
+      type: optionalString(),
+      button_reply: z
+        .object({ id: optionalString(), title: optionalString() })
+        .optional()
+        .catch(undefined),
+    })
+    .optional()
+    .catch(undefined),
+});
 
-interface WhatsAppValue {
-  messaging_product: "whatsapp";
-  metadata?: { phone_number_id?: string; display_phone_number?: string };
-  contacts?: WhatsAppContact[];
-  messages?: WhatsAppMessage[];
-  // statuses are delivery/read receipts — we ignore them
-  statuses?: unknown[];
-}
+const imageMessageSchema = z.object({
+  ...messageCore,
+  type: z.literal("image"),
+  image: mediaPayloadSchema.optional().catch(undefined),
+});
 
-interface WhatsAppChange {
-  field: string;
-  value?: WhatsAppValue;
-}
+const videoMessageSchema = z.object({
+  ...messageCore,
+  type: z.literal("video"),
+  video: mediaPayloadSchema.optional().catch(undefined),
+});
 
-interface WhatsAppEntry {
-  id?: string;
-  changes?: WhatsAppChange[];
-}
+const audioMessageSchema = z.object({
+  ...messageCore,
+  type: z.literal("audio"),
+  audio: mediaPayloadSchema.optional().catch(undefined),
+});
 
-interface WhatsAppWebhookPayload {
-  object?: string;
-  entry?: WhatsAppEntry[];
-}
+const documentMessageSchema = z.object({
+  ...messageCore,
+  type: z.literal("document"),
+  document: mediaPayloadSchema.optional().catch(undefined),
+});
+
+const stickerMessageSchema = z.object({
+  ...messageCore,
+  type: z.literal("sticker"),
+  sticker: mediaPayloadSchema.optional().catch(undefined),
+});
+
+const whatsAppMessageSchema = z.discriminatedUnion("type", [
+  textMessageSchema,
+  interactiveMessageSchema,
+  imageMessageSchema,
+  videoMessageSchema,
+  audioMessageSchema,
+  documentMessageSchema,
+  stickerMessageSchema,
+]);
+type WhatsAppMessage = z.infer<typeof whatsAppMessageSchema>;
+
+/** The message types this normalizer produces events for. */
+const HANDLED_MESSAGE_TYPES = new Set([
+  "text",
+  "interactive",
+  "image",
+  "video",
+  "audio",
+  "document",
+  "sticker",
+]);
+
+const contactSchema = z.object({
+  profile: z.object({ name: optionalString() }).optional().catch(undefined),
+  wa_id: optionalString(),
+});
+
+const valueSchema = z.object({
+  messaging_product: optionalString(),
+  metadata: z
+    .object({
+      phone_number_id: optionalString(),
+      display_phone_number: optionalString(),
+    })
+    .optional()
+    .catch(undefined),
+  contacts: z.array(contactSchema).optional().catch(undefined),
+  // Individual messages are parsed per-item in the loop so one malformed
+  // message drops on its own rather than failing the whole array.
+  messages: z.array(z.unknown()).optional().catch(undefined),
+  // statuses are delivery/read receipts — parsed loosely and ignored.
+  statuses: z.array(z.unknown()).optional().catch(undefined),
+});
+
+const changeSchema = z.object({
+  field: optionalString(),
+  value: valueSchema.optional().catch(undefined),
+});
+
+const entrySchema = z.object({
+  id: optionalString(),
+  changes: z.array(changeSchema).optional().catch(undefined),
+});
+
+const whatsAppWebhookSchema = z.object({
+  object: optionalString(),
+  entry: z.array(entrySchema).optional().catch(undefined),
+});
 
 export interface NormalizedWhatsAppMessage {
   event: GatewayInboundEvent;
@@ -88,24 +159,59 @@ export interface NormalizedWhatsAppMessage {
   mediaType?: string;
 }
 
+type WhatsAppMediaMessage = Extract<
+  WhatsAppMessage,
+  { type: "image" | "video" | "audio" | "document" | "sticker" }
+>;
+
+/** The media payload carried under the key matching the message's type. */
+function mediaPayloadOf(msg: WhatsAppMediaMessage) {
+  switch (msg.type) {
+    case "image":
+      return msg.image;
+    case "video":
+      return msg.video;
+    case "audio":
+      return msg.audio;
+    case "document":
+      return msg.document;
+    case "sticker":
+      return msg.sticker;
+  }
+}
+
+/** The `type` of a raw message that failed validation, if it is a string. */
+function rawMessageType(rawMsg: unknown): string | undefined {
+  if (
+    rawMsg &&
+    typeof rawMsg === "object" &&
+    "type" in rawMsg &&
+    typeof (rawMsg as { type: unknown }).type === "string"
+  ) {
+    return (rawMsg as { type: string }).type;
+  }
+  return undefined;
+}
+
 /**
  * Normalize a WhatsApp Cloud API webhook payload into an array of GatewayInboundEvent events.
  *
- * Returns an empty array if:
- * - The payload is not a WhatsApp messages webhook
- * - Required fields are missing
+ * Returns an empty array if the payload is not a WhatsApp messages webhook.
  *
  * Media messages (image/video/audio/document/sticker) are normalized with any
  * accompanying caption as the message content. The `mediaType` field is set so
  * the caller can log that media content itself was not processed.
  *
- * Meta may batch multiple messages in a single webhook payload; we process all
- * of them rather than discarding messages beyond the first.
+ * Meta may batch multiple messages in a single webhook payload; every valid
+ * message is processed. A message that fails validation is dropped individually
+ * (and, when its type is one we handle, logged) so it cannot discard the batch.
  */
 export function normalizeWhatsAppWebhook(
   payload: Record<string, unknown>,
 ): NormalizedWhatsAppMessage[] {
-  const wh = payload as WhatsAppWebhookPayload;
+  const parsed = whatsAppWebhookSchema.safeParse(payload);
+  if (!parsed.success) return [];
+  const wh = parsed.data;
 
   if (wh.object !== "whatsapp_business_account") return [];
 
@@ -119,7 +225,23 @@ export function normalizeWhatsAppWebhook(
     const messages = value.messages;
     if (!messages || messages.length === 0) continue;
 
-    for (const msg of messages) {
+    for (const rawMsg of messages) {
+      const parsedMsg = whatsAppMessageSchema.safeParse(rawMsg);
+      if (!parsedMsg.success) {
+        const rawType = rawMessageType(rawMsg);
+        // A valid WhatsApp message of a type we don't produce events for
+        // (location, reaction, order, …) is skipped quietly. Only a message
+        // whose type we *do* handle but that failed validation — or one with no
+        // usable type at all — is malformed and worth a warning.
+        if (rawType && !HANDLED_MESSAGE_TYPES.has(rawType)) continue;
+        log.warn(
+          { messageType: rawType },
+          "Dropping malformed WhatsApp message",
+        );
+        continue;
+      }
+      const msg = parsedMsg.data;
+
       let body: string;
       let callbackData: string | undefined;
       let mediaType: string | undefined;
@@ -134,31 +256,18 @@ export function normalizeWhatsAppWebhook(
         | undefined;
 
       if (msg.type === "text") {
-        const textMsg = msg as WhatsAppTextMessage;
-        body = textMsg.text?.body?.trim() ?? "";
+        body = msg.text?.body?.trim() ?? "";
       } else if (msg.type === "interactive") {
         // Interactive button reply — extract the button ID as callback data
-        const interactiveMsg = msg as WhatsAppInteractiveMessage;
-        if (interactiveMsg.interactive?.type !== "button_reply") continue;
-        const buttonReply = interactiveMsg.interactive.button_reply;
+        if (msg.interactive?.type !== "button_reply") continue;
+        const buttonReply = msg.interactive.button_reply;
         if (!buttonReply?.id) continue;
         callbackData = buttonReply.id;
         body = buttonReply.title ?? "";
-      } else if (
-        msg.type === "image" ||
-        msg.type === "video" ||
-        msg.type === "audio" ||
-        msg.type === "document" ||
-        msg.type === "sticker"
-      ) {
-        const mediaMsg = msg as WhatsAppMediaMessage;
-        const mediaPayload = mediaMsg[msg.type];
+      } else {
+        const mediaPayload = mediaPayloadOf(msg);
         // image, video, and document can carry a caption; audio and sticker cannot
-        const caption =
-          mediaMsg.image?.caption ??
-          mediaMsg.video?.caption ??
-          mediaMsg.document?.caption;
-        body = caption?.trim() ?? "";
+        body = mediaPayload?.caption?.trim() ?? "";
         mediaType = msg.type;
 
         if (mediaPayload?.id) {
@@ -178,13 +287,10 @@ export function normalizeWhatsAppWebhook(
             },
           ];
         }
-      } else {
-        continue;
       }
 
       // from is the sender's WhatsApp phone number in E.164 format
       const from = msg.from;
-      if (!from) continue;
 
       // Resolve display name from contacts array when available
       const contact = value.contacts?.find((c) => c.wa_id === from);
