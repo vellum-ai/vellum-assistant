@@ -484,6 +484,12 @@ export function useStreamEventHandler(
         // the contacts page refetches through its own query invalidation.
         case "contacts_changed":
           break;
+        // Settings/config broadcasts. The chat handler is a no-op — these target
+        // the desktop client or are handled by config-sync consumers.
+        case "client_settings_update":
+        case "config_changed":
+        case "sounds_config_updated":
+          break;
         // Notification-created broadcasts and recording lifecycle
         // instructions. The web chat handler is a no-op for these — they target
         // the CLI/desktop clients or are handled elsewhere.

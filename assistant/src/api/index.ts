@@ -14,8 +14,10 @@ import { BackgroundToolCompletedEventSchema } from "./events/background-tool-com
 import { BackgroundToolStartedEventSchema } from "./events/background-tool-started.js";
 import { BookmarkCreatedEventSchema } from "./events/bookmark-created.js";
 import { BookmarkDeletedEventSchema } from "./events/bookmark-deleted.js";
+import { ClientSettingsUpdateEventSchema } from "./events/client-settings-update.js";
 import { CompactionCircuitClosedEventSchema } from "./events/compaction-circuit-closed.js";
 import { CompactionCircuitOpenEventSchema } from "./events/compaction-circuit-open.js";
+import { ConfigChangedEventSchema } from "./events/config-changed.js";
 import { ConfirmationRequestEventSchema } from "./events/confirmation-request.js";
 import { ContactRequestEventSchema } from "./events/contact-request.js";
 import { ContactsChangedEventSchema } from "./events/contacts-changed.js";
@@ -61,6 +63,7 @@ import { SecretRequestEventSchema } from "./events/secret-request.js";
 import { ServiceGroupUpdateCompleteEventSchema } from "./events/service-group-update-complete.js";
 import { ServiceGroupUpdateProgressEventSchema } from "./events/service-group-update-progress.js";
 import { ServiceGroupUpdateStartingEventSchema } from "./events/service-group-update-starting.js";
+import { SoundsConfigUpdatedEventSchema } from "./events/sounds-config-updated.js";
 import { SubagentEventEventSchema } from "./events/subagent-event.js";
 import { SubagentSpawnedEventSchema } from "./events/subagent-spawned.js";
 import { SubagentStatusChangedEventSchema } from "./events/subagent-status-changed.js";
@@ -164,6 +167,10 @@ export {
   BookmarkDeletedEventSchema,
 } from "./events/bookmark-deleted.js";
 export {
+  type ClientSettingsUpdateEvent,
+  ClientSettingsUpdateEventSchema,
+} from "./events/client-settings-update.js";
+export {
   type CompactionCircuitClosedEvent,
   CompactionCircuitClosedEventSchema,
 } from "./events/compaction-circuit-closed.js";
@@ -171,6 +178,10 @@ export {
   type CompactionCircuitOpenEvent,
   CompactionCircuitOpenEventSchema,
 } from "./events/compaction-circuit-open.js";
+export {
+  type ConfigChangedEvent,
+  ConfigChangedEventSchema,
+} from "./events/config-changed.js";
 export {
   type ACPOption,
   type ACPOptionKind,
@@ -370,6 +381,10 @@ export {
   type ServiceGroupUpdateStartingEvent,
   ServiceGroupUpdateStartingEventSchema,
 } from "./events/service-group-update-starting.js";
+export {
+  type SoundsConfigUpdatedEvent,
+  SoundsConfigUpdatedEventSchema,
+} from "./events/sounds-config-updated.js";
 export {
   type SubagentEventEvent,
   SubagentEventEventSchema,
@@ -703,8 +718,10 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   BackgroundToolStartedEventSchema,
   BookmarkCreatedEventSchema,
   BookmarkDeletedEventSchema,
+  ClientSettingsUpdateEventSchema,
   CompactionCircuitClosedEventSchema,
   CompactionCircuitOpenEventSchema,
+  ConfigChangedEventSchema,
   ConfirmationRequestEventSchema,
   ContactRequestEventSchema,
   ContactsChangedEventSchema,
@@ -748,6 +765,7 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   ServiceGroupUpdateCompleteEventSchema,
   ServiceGroupUpdateProgressEventSchema,
   ServiceGroupUpdateStartingEventSchema,
+  SoundsConfigUpdatedEventSchema,
   SubagentEventEventSchema,
   SubagentSpawnedEventSchema,
   SubagentStatusChangedEventSchema,
