@@ -14,6 +14,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Brain,
   CalendarClock,
+  ChevronRight,
   FolderOpen,
   LayoutGrid,
   Pencil,
@@ -156,6 +157,35 @@ const BG_TINT_PERCENT = 14;
 const CARD_TINT_PERCENT = 5;
 const HOVER_TINT_PERCENT = 22;
 
+/**
+ * Overlay palette for the custom-photo backdrop (Figma: New-App
+ * 7219-160935). With a custom avatar the page floats on the user's
+ * blurred photo, so surfaces and text are fixed light-on-dark values —
+ * the photo, not the theme, is the background in every theme. The values
+ * are the dark theme's content/surface set; the feature cards go
+ * translucent (they additionally get a backdrop blur via `photoBackdrop`).
+ */
+const PHOTO_OVERLAY_STYLE = {
+  "--card-bg": "#24292e",
+  // Glassy per Figma; legibility on bright photos comes from the
+  // backdrop's brightness dimming, so the wash itself can stay thin
+  // (white text keeps ~4.5:1 even over a pure-white photo).
+  "--card-feature-bg": "rgba(23, 25, 28, 0.35)",
+  // Card.Root asChild puts the hover bg on the same element as the card
+  // bg, so a translucent hover would punch through to the photo. Opaque
+  // value = the theme's hover wash pre-composited over the dark card.
+  "--card-hover": "#2d3339",
+  "--card-accent": "#bd4900",
+  "--radar-fill": "#fea973",
+  "--radar-fill-opacity": "0.1",
+  "--card-flood-fg": "#fdfdfc",
+  "--content-default": "#fdfdfc",
+  "--content-strong": "#fdfdfc",
+  "--content-secondary": "#a9b2bb",
+  "--content-tertiary": "#8d99a5",
+  "--border-base": "rgba(255, 255, 255, 0.08)",
+} as CSSProperties;
+
 interface IdentityOverviewProps {
   assistantId: string;
 }
@@ -236,9 +266,13 @@ export function IdentityOverview({ assistantId }: IdentityOverviewProps) {
   });
   const isLoading = isAvatarLoading || identityQuery.isLoading;
   const avatarHex = resolveAvatarHex(components, traits);
+  // Custom image (no character color): the page background becomes the
+  // photo itself, blown up and heavily blurred behind the content.
+  const photoBackdrop = Boolean(customImageUrl) && !avatarHex;
 
   return (
     <PageShell
+      className={photoBackdrop ? "relative overflow-hidden" : undefined}
       style={
         avatarHex
           ? {
@@ -247,8 +281,22 @@ export function IdentityOverview({ assistantId }: IdentityOverviewProps) {
           : undefined
       }
     >
+      {photoBackdrop && customImageUrl && (
+        <div aria-hidden="true" className="pointer-events-none absolute inset-0">
+          {/* Scaled up so the blur never bleeds transparent edges in.
+              Dimmed via brightness (not a flat scrim) so bright photos
+              darken naturally — highlights keep their hue, like the dark
+              reference backdrop in Figma (7219-160942) — and the white
+              overlay text and translucent cards stay readable. */}
+          <img
+            src={customImageUrl}
+            alt=""
+            className="h-full w-full scale-110 object-cover blur-[60px] brightness-[0.65]"
+          />
+        </div>
+      )}
       {isLoading ? (
-        <div className="flex flex-1 items-center justify-center">
+        <div className="relative flex flex-1 items-center justify-center">
           <div
             className="h-6 w-6 animate-spin rounded-full border-2"
             style={{
@@ -266,6 +314,7 @@ export function IdentityOverview({ assistantId }: IdentityOverviewProps) {
           sections={sections}
           stats={sectionStats}
           avatarHex={avatarHex}
+          photoBackdrop={photoBackdrop}
           isRenaming={isRenaming}
           onOpenAvatarModal={() => setModalOpen(true)}
         />
@@ -295,33 +344,31 @@ function SectionCard({
   cardStyle,
   hoverFill,
   mini,
-  stacked,
   flooded = false,
   floodOrigin,
+  photoBackdrop = false,
   linkRef,
   onHoverChange,
 }: {
   section: IdentitySection;
   stat: IdentitySectionStat | undefined;
-  /** Named bento cell; omitted in the stacked layout's plain grid. */
+  /** Named bento cell; unset in the stacked layout's plain grid. */
   gridArea?: string;
   /** Extra card-root styles (e.g. self-sizing within a taller area). */
   cardStyle?: CSSProperties;
   /** Tint the card itself on hover — off when the amoeba avatar reacts instead. */
   hoverFill: boolean;
-  /** Compact one-row variant for the bottom-strip sections. */
+  /** Compact one-row variant for the bottom-strip and stacked-grid
+   *  sections. */
   mini?: boolean;
-  /** Uniform tile for the stacked (small-viewport) grid: every card gets
-   *  the same chrome — icon + title row, subtitle, small stat line. The
-   *  bento-only orchestration props (`hoverFill`, `flooded`, `floodOrigin`,
-   *  `linkRef`, `onHoverChange`) are ignored; the amoeba hover act never
-   *  runs in the stacked layout. */
-  stacked?: boolean;
   /** The avatar has poured itself over this card — fill it with the
    *  avatar color and flip the content to the contrast tone. */
   flooded?: boolean;
   /** Where the flood enters, in percent of the card box. */
   floodOrigin?: { x: number; y: number };
+  /** On the blurred-photo backdrop the feature cards go translucent
+   *  (a dark wash + backdrop blur) instead of the avatar-color wash. */
+  photoBackdrop?: boolean;
   linkRef?: (el: HTMLAnchorElement | null) => void;
   onHoverChange?: (hovering: boolean) => void;
 }) {
@@ -364,48 +411,6 @@ function SectionCard({
       }
     />
   );
-
-  if (stacked) {
-    // Small-viewport tile: one shared template for every section — no
-    // feature-card wash, no radar or schedule previews, no display-size
-    // numerals — so the stacked grid reads as one calm, even surface.
-    const stackedStat =
-      stat?.value !== undefined
-        ? `${stat.value} ${stat.label ?? ""}`.trim()
-        : stat?.text;
-    return (
-      <Card.Root
-        asChild
-        bordered
-        elevated
-        clipContents
-        className="rounded-2xl bg-[var(--card-bg)]"
-      >
-        <Link
-          to={section.to}
-          className="relative flex h-full w-full cursor-pointer flex-col gap-1 p-4 text-left transition-all duration-150 hover:bg-[var(--card-hover)] active:scale-[0.98]"
-        >
-          <span className="flex items-center gap-2">
-            <Icon
-              className="h-5 w-5 shrink-0 text-[var(--content-default)]"
-              aria-hidden
-            />
-            <span className="truncate text-body-medium-default text-[var(--content-default)]">
-              {section.label}
-            </span>
-          </span>
-          <span className="text-[13px] text-[var(--content-secondary)]">
-            {section.description}
-          </span>
-          {stackedStat && (
-            <span className="mt-auto truncate pt-1 text-[12px] font-medium text-[var(--content-tertiary)]">
-              {stackedStat}
-            </span>
-          )}
-        </Link>
-      </Card.Root>
-    );
-  }
 
   if (mini) {
     const miniStat =
@@ -478,7 +483,11 @@ function SectionCard({
       elevated={!isFeatureCard}
       className={`${SECTION_RADII[section.key] ?? ""} ${
         isFeatureCard
-          ? "border border-[var(--border-base)] bg-[var(--card-feature-bg,var(--card-bg))]"
+          ? `border bg-[var(--card-feature-bg,var(--card-bg))] ${
+              photoBackdrop
+                ? "border-transparent backdrop-blur-[32px]"
+                : "border-[var(--border-base)]"
+            }`
           : "bg-[var(--card-bg)]"
       }`}
       style={{
@@ -509,7 +518,11 @@ function SectionCard({
             className={`absolute inset-x-5 top-14 bottom-4 flex items-center justify-center transition-colors duration-300 ${
               flooded
                 ? "text-[var(--card-flood-fg)]"
-                : "text-[var(--content-secondary)]"
+                : photoBackdrop
+                  ? // On the photo backdrop the radar grid/labels read in
+                    // white (Figma 7219-160964), not the muted secondary.
+                    "text-[var(--content-default)]"
+                  : "text-[var(--content-secondary)]"
             }`}
             style={
               flooded
@@ -646,13 +659,14 @@ function CenterCell({
         className="avatar-edit-cursor outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]"
       >
         {customImageUrl && !traits ? (
-          // Custom image: a plain static circle — no entrance or bounce.
+          // Custom image: a plain static rounded square (Figma
+          // 7259-169118) — no entrance or bounce.
           <img
             src={customImageUrl}
             alt=""
             width={avatarSize}
             height={avatarSize}
-            className="rounded-full object-cover"
+            className="rounded-[32px] object-cover"
             style={{ width: avatarSize, height: avatarSize }}
           />
         ) : (
@@ -687,6 +701,7 @@ function OverviewBento({
   sections,
   stats,
   avatarHex,
+  photoBackdrop,
   isRenaming,
   onOpenAvatarModal,
 }: {
@@ -697,6 +712,8 @@ function OverviewBento({
   sections: IdentitySection[];
   stats: Record<string, IdentitySectionStat | undefined>;
   avatarHex: string | null;
+  /** The page sits on the blurred custom photo — use the overlay palette. */
+  photoBackdrop: boolean;
   isRenaming: boolean;
   onOpenAvatarModal: () => void;
 }) {
@@ -800,21 +817,25 @@ function OverviewBento({
   // Without a character color (custom image / not loaded) every surface
   // falls back to the regular theme tokens — no forced white/black card
   // faces, no accent wash — so the page reads like the rest of the app.
-  const tintStyle = {
-    "--card-bg": avatarHex
-      ? `color-mix(in srgb, ${avatarHex} var(--card-tint-pct, ${CARD_TINT_PERCENT}%), var(--card-surface, var(--surface-lift)))`
-      : "var(--surface-lift)",
-    "--card-feature-bg": avatarHex
-      ? "color-mix(in srgb, var(--card-accent) 28%, var(--card-surface, var(--surface-lift)))"
-      : "var(--surface-lift)",
-    "--card-hover": avatarHex
-      ? `color-mix(in srgb, ${avatarHex} ${HOVER_TINT_PERCENT}%, var(--card-surface, var(--surface-lift)))`
-      : "var(--surface-hover)",
-    "--card-accent": avatarHex ?? "var(--content-default)",
-    "--card-flood-fg": avatarHex
-      ? contrastForeground(avatarHex)
-      : "var(--content-default)",
-  } as CSSProperties;
+  // Exception: on the blurred-photo backdrop the fixed overlay palette
+  // takes over so cards and text read on the photo in every theme.
+  const tintStyle = photoBackdrop
+    ? PHOTO_OVERLAY_STYLE
+    : ({
+        "--card-bg": avatarHex
+          ? `color-mix(in srgb, ${avatarHex} var(--card-tint-pct, ${CARD_TINT_PERCENT}%), var(--card-surface, var(--surface-lift)))`
+          : "var(--surface-lift)",
+        "--card-feature-bg": avatarHex
+          ? "color-mix(in srgb, var(--card-accent) 28%, var(--card-surface, var(--surface-lift)))"
+          : "var(--surface-lift)",
+        "--card-hover": avatarHex
+          ? `color-mix(in srgb, ${avatarHex} ${HOVER_TINT_PERCENT}%, var(--card-surface, var(--surface-lift)))`
+          : "var(--surface-hover)",
+        "--card-accent": avatarHex ?? "var(--content-default)",
+        "--card-flood-fg": avatarHex
+          ? contrastForeground(avatarHex)
+          : "var(--content-default)",
+      } as CSSProperties);
 
   // The avatar is a background element positioned against the full page —
   // cards overlap it freely; cap only so his head stays inside the frame.
@@ -841,23 +862,127 @@ function OverviewBento({
   );
 
   if (!useBento) {
+    // Stacked (mobile) layout per Figma 7259-169032: greeting + avatar,
+    // a compact Schedules row (title · count › ), the Personality card
+    // with the full radar, then the remaining sections as a two-column
+    // grid of mini tiles.
+    const schedulesSection = sections.find((s) => s.key === "schedules");
+    const personalitySection = sections.find((s) => s.key === "personality");
+    const gridSections = sections.filter(
+      (s) => s.key !== "schedules" && s.key !== "personality",
+    );
+    const schedulesStat = stats["schedules"]?.schedules;
+    const scheduleCount = schedulesStat
+      ? schedulesStat.items.length + schedulesStat.more
+      : undefined;
+    const radar = stats["personality"]?.radar;
+    // Same feature-card chrome as the bento's Personality/Schedules
+    // cards: translucent glass on the photo backdrop, themed otherwise.
+    const featureCardClass = `w-full rounded-[12px] border bg-[var(--card-feature-bg,var(--card-bg))] ${
+      photoBackdrop
+        ? "border-transparent backdrop-blur-[32px]"
+        : "border-[var(--border-base)]"
+    }`;
+
     return (
       <div
         ref={setContainerRef}
-        className="identity-bento flex min-h-0 flex-1 flex-col items-center gap-6 overflow-y-auto px-2 py-4"
-        style={tintStyle}
+        className="identity-bento relative flex min-h-0 flex-1 flex-col items-center gap-6 overflow-y-auto px-2 py-4"
+        style={
+          photoBackdrop
+            ? // The mobile grid tiles sit on the deeper dark base (Figma
+              // 7259-169066) rather than the desktop strip's lift color.
+              ({ ...tintStyle, "--card-bg": "#17191c" } as CSSProperties)
+            : tintStyle
+        }
       >
         {centerCell}
-        <div className="grid w-full max-w-md shrink-0 grid-cols-2 gap-3">
-          {sections.map((section) => (
-            <SectionCard
-              key={section.key}
-              section={section}
-              stat={stats[section.key]}
-              hoverFill
-              stacked
-            />
-          ))}
+        <div className="flex w-full max-w-md shrink-0 flex-col gap-2">
+          {schedulesSection && (
+            <Card.Root
+              asChild
+              bordered={false}
+              elevated={false}
+              clipContents
+              className={featureCardClass}
+            >
+              <Link
+                to={schedulesSection.to}
+                className="flex w-full cursor-pointer items-center gap-2 p-4 transition-all duration-150 hover:bg-[var(--card-hover)] active:scale-[0.98]"
+              >
+                <CalendarClock
+                  className="h-5 w-5 shrink-0 text-[var(--content-default)]"
+                  aria-hidden
+                />
+                <span className="flex min-w-0 flex-1 items-center gap-2">
+                  <span className="truncate text-body-medium-default text-[var(--content-default)]">
+                    {schedulesSection.label}
+                  </span>
+                  {scheduleCount !== undefined && (
+                    <>
+                      <span
+                        className="h-[3px] w-[3px] shrink-0 rounded-full bg-[var(--content-tertiary)]"
+                        aria-hidden
+                      />
+                      <span className="text-body-medium-default text-[var(--content-tertiary)]">
+                        {scheduleCount}
+                      </span>
+                    </>
+                  )}
+                </span>
+                <ChevronRight
+                  className="h-4 w-4 shrink-0 text-[var(--content-default)]"
+                  aria-hidden
+                />
+              </Link>
+            </Card.Root>
+          )}
+          {personalitySection && (
+            <Card.Root
+              asChild
+              bordered={false}
+              elevated={false}
+              clipContents
+              className={featureCardClass}
+            >
+              <Link
+                to={personalitySection.to}
+                className="flex w-full cursor-pointer flex-col gap-4 px-4 pt-4 pb-6 transition-all duration-150 hover:bg-[var(--card-hover)] active:scale-[0.98]"
+              >
+                <span className="flex items-center gap-2">
+                  <Sparkles
+                    className="h-5 w-5 text-[var(--content-default)]"
+                    aria-hidden
+                  />
+                  <span className="text-body-medium-default text-[var(--content-default)]">
+                    {personalitySection.label}
+                  </span>
+                </span>
+                {radar && (
+                  <span
+                    className={`flex items-center justify-center ${
+                      photoBackdrop
+                        ? "text-[var(--content-default)]"
+                        : "text-[var(--content-secondary)]"
+                    }`}
+                  >
+                    <PersonalityRadar values={radar} className="h-auto w-full" />
+                  </span>
+                )}
+              </Link>
+            </Card.Root>
+          )}
+          <div className="grid grid-cols-2 gap-2">
+            {gridSections.map((section) => (
+              <SectionCard
+                key={section.key}
+                section={section}
+                stat={stats[section.key]}
+                hoverFill
+                mini
+              />
+            ))}
+          </div>
         </div>
       </div>
     );
@@ -905,6 +1030,7 @@ function OverviewBento({
     section,
     stat: stats[section.key],
     hoverFill: !morphing,
+    photoBackdrop,
     flooded: activeHug?.key === section.key,
     floodOrigin: activeHug?.key === section.key ? activeHug.origin : undefined,
     linkRef: (el: HTMLAnchorElement | null) => {
