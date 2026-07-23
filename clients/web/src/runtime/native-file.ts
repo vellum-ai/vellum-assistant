@@ -1,6 +1,5 @@
 import { Capacitor } from "@capacitor/core";
 
-import { isElectron } from "@/runtime/is-electron";
 import { shareFileViaMacSheet } from "@/runtime/native-share";
 
 /**
@@ -39,12 +38,10 @@ export async function saveFile(
   source: Blob | string,
   filename: string,
 ): Promise<void> {
-  // Electron (macOS): native Share Sheet, falling through to the browser
-  // download if the desktop bridge is unavailable (older preload).
-  if (
-    isElectron() &&
-    (await shareFileViaMacSheet(await toBlob(source), filename))
-  ) {
+  // Electron (macOS): native Share Sheet. The blob is resolved lazily so a URL
+  // source is only fetched once the desktop bridge is confirmed present;
+  // otherwise we fall through to the browser download (older preload).
+  if (await shareFileViaMacSheet(() => toBlob(source), filename)) {
     return;
   }
   if (Capacitor.isNativePlatform()) {
