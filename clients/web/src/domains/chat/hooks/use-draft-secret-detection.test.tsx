@@ -37,16 +37,25 @@ function setDraft(text: string) {
   });
 }
 
-function renderDetection(conversationId: string | null = "conv-1") {
+function renderDetection(
+  conversationId: string | null = "conv-1",
+  debounceMs = 0,
+) {
   return renderHook(
     (props: { conversationId: string | null }) =>
       useDraftSecretDetection({
         conversationId: props.conversationId,
-        debounceMs: 0,
+        debounceMs,
       }),
     { initialProps: { conversationId } },
   );
 }
+
+/**
+ * A debounce that never elapses within a test — assertions passing under it
+ * prove the scan ran synchronously rather than through the debounce timer.
+ */
+const NEVER_ELAPSES_MS = 60_000;
 
 beforeEach(() => {
   seedFlags({ composerSecretGuard: false, hasHydrated: false });
@@ -159,6 +168,53 @@ describe("useDraftSecretDetection detection", () => {
 
     rerender({ conversationId: "conv-2" });
     expect(result.current.dismissed).toBe(false);
+  });
+
+  test("conversation switch clears stale matches synchronously — even dismissed ones", () => {
+    seedFlags({ composerSecretGuard: true, hasHydrated: true });
+    setDraft(`here is ${SYNTHETIC_PROJECT_KEY}`);
+    const { result, rerender } = renderDetection("conv-1", NEVER_ELAPSES_MS);
+    expect(result.current.matches).toHaveLength(1);
+    act(() => {
+      result.current.dismiss();
+    });
+    act(() => {
+      result.current.checkBeforeSend(`send ${SYNTHETIC_PROJECT_KEY}`);
+    });
+    expect(result.current.sendBlocked).toBe(true);
+
+    // The draft swap lands via a post-render store effect, so at switch time
+    // the composer still holds conversation A's draft. The stale match (and
+    // its masked preview, un-hidden by the dismissal reset) must already be
+    // gone — no debounce-window flash over conversation B's composer.
+    rerender({ conversationId: "conv-2" });
+    expect(result.current.matches).toEqual([]);
+    expect(result.current.dismissed).toBe(false);
+    expect(result.current.sendBlocked).toBe(false);
+  });
+
+  test("a restored draft with a secret warns immediately after a switch", () => {
+    seedFlags({ composerSecretGuard: true, hasHydrated: true });
+    setDraft(`conversation A: ${SYNTHETIC_PROJECT_KEY}`);
+    const { result, rerender } = renderDetection("conv-1", NEVER_ELAPSES_MS);
+    expect(result.current.matches).toHaveLength(1);
+
+    rerender({ conversationId: "conv-2" });
+    expect(result.current.matches).toEqual([]);
+
+    // The session store restores conversation B's saved draft after the
+    // switch commit; its secret surfaces without waiting out the debounce.
+    setDraft(`restored draft: ${SYNTHETIC_GITHUB_TOKEN}`);
+    expect(result.current.matches).toHaveLength(1);
+    expect(result.current.matches[0]?.value).toBe(SYNTHETIC_GITHUB_TOKEN);
+    expect(result.current.dismissed).toBe(false);
+
+    // The immediate scan is single-use — the next input change is a
+    // keystroke again and waits out the (never-elapsing) debounce.
+    setDraft(
+      `restored draft: ${SYNTHETIC_GITHUB_TOKEN} plus ${SYNTHETIC_PROJECT_KEY}`,
+    );
+    expect(result.current.matches).toHaveLength(1);
   });
 
   test("scanning waits out the debounce between keystrokes", async () => {

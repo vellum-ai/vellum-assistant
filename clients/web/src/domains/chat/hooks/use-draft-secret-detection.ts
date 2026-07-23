@@ -12,6 +12,12 @@
  * orchestrator that mounts this hook deliberately does not subscribe to
  * composer input, so typing must never re-render it. React state only
  * changes when the detected set changes.
+ *
+ * Conversation switches are the one non-debounced path: stale matches are
+ * cleared in the switch commit and the incoming conversation's restored
+ * draft is scanned as soon as the session store swaps it in, so a stale
+ * notice never flashes over the new composer and a restored secret warns
+ * without waiting out the debounce.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -76,7 +82,8 @@ const EMPTY_VALUE_SET: ReadonlySet<string> = new Set();
 export interface UseDraftSecretDetectionParams {
   /**
    * Routing-truth conversation id. Switching conversations swaps the draft,
-   * so dismissal and send-block state reset when it changes.
+   * so matches, dismissal, and send-block state reset when it changes and
+   * the incoming draft is re-scanned immediately.
    */
   conversationId: string | null;
   /** Scan debounce override for tests. */
@@ -123,6 +130,12 @@ export function useDraftSecretDetection({
     useState<ReadonlySet<string>>(EMPTY_VALUE_SET);
   const [sendBlocked, setSendBlocked] = useState(false);
   const allowOnceRef = useRef(false);
+  // Armed on a conversation switch: the next composer input change is the
+  // incoming conversation's restored draft (applied by the session store's
+  // post-render switch effect), not a keystroke, so it is scanned
+  // immediately instead of debounced.
+  const scanNextInputImmediatelyRef = useRef(false);
+  const prevConversationIdRef = useRef(conversationId);
 
   // Dismissal and send-block state are scoped to one conversation's draft
   // under one flag state — any transition of either invalidates them.
@@ -131,6 +144,21 @@ export function useDraftSecretDetection({
     setSendBlocked(false);
     setDismissedValues(EMPTY_VALUE_SET);
   }, [enabled, conversationId]);
+
+  // Conversation switches swap the draft in a parent post-render effect,
+  // after this effect runs — the composer store still holds the outgoing
+  // conversation's draft here, so scanning it would resurrect the old
+  // matches. Instead: drop the stale matches in this commit (the previous
+  // conversation's notice must never carry over the new composer) and arm
+  // the immediate scan of the incoming draft when the swap lands.
+  useEffect(() => {
+    if (prevConversationIdRef.current === conversationId) {
+      return;
+    }
+    prevConversationIdRef.current = conversationId;
+    setMatches((prev) => (prev.length === 0 ? prev : []));
+    scanNextInputImmediatelyRef.current = true;
+  }, [conversationId]);
 
   useEffect(() => {
     if (!enabled) {
@@ -152,6 +180,7 @@ export function useDraftSecretDetection({
 
     // Scan the current draft immediately (restored drafts, prefills);
     // conversation switches re-enter here through the input subscription.
+    scanNextInputImmediatelyRef.current = false;
     applyScan(useComposerStore.getState().input);
 
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -161,6 +190,14 @@ export function useDraftSecretDetection({
       }
       if (timer !== null) {
         clearTimeout(timer);
+        timer = null;
+      }
+      if (scanNextInputImmediatelyRef.current) {
+        // Conversation-switch draft swap: surface the incoming draft's
+        // secrets without waiting out the keystroke debounce.
+        scanNextInputImmediatelyRef.current = false;
+        applyScan(state.input);
+        return;
       }
       timer = setTimeout(() => {
         timer = null;
