@@ -597,6 +597,20 @@ export function ConceptGraphView({
     const ro = new ResizeObserver(applySize);
     ro.observe(container);
 
+    // Label/edge colors are sampled from CSS variables, which only change when
+    // the root's theme attributes do: a live theme switch (data-theme/class) or
+    // a workspace-theme inline-var write (style). Re-sample on those mutations
+    // so the canvas doesn't keep painting the previous theme's colors — e.g.
+    // light-theme label ink on a dark background.
+    const themeObserver = new MutationObserver(() => {
+      colorsRef.current = resolveColors(container);
+      view.current.dirty = true;
+    });
+    themeObserver.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-theme", "class", "style"],
+    });
+
     let raf = 0;
     let last = 0;
     const render = (t: number) => {
@@ -952,6 +966,7 @@ export function ConceptGraphView({
     return () => {
       cancelAnimationFrame(raf);
       ro.disconnect();
+      themeObserver.disconnect();
     };
   }, [ready, layout, adjacency, massRadius, clusters, clusterHubs]);
 
