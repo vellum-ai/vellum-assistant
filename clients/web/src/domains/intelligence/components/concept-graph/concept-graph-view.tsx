@@ -149,9 +149,9 @@ export interface ConceptGraphViewProps {
    * chat-from-node actions. When absent, those actions are hidden. */
   onOpenThread?: (message: string) => void;
   /** Page-owned action rendered at the header's right edge (e.g. the Memory
-   * tab's "Create memory" CTA). The header owns ordering, so the action can
-   * never overlap the stats/search cluster the way a page-level absolute
-   * overlay could. */
+   * tab's "Create memory" CTA). The header owns ordering, so the action is a
+   * flex sibling of the stats/search cluster and cannot overlap it at any
+   * container width. */
   headerAction?: React.ReactNode;
 }
 
@@ -1318,11 +1318,11 @@ export function ConceptGraphView({
     >
       {/* Header — one flex row that owns the top-of-page controls (fullscreen,
           search, the stats/hover center slot, and the page-provided action).
-          Siblings in a row can't overlap the way the old free-floating
-          absolutes could, and the row degrades by container width: the search
-          field collapses to an icon below @2xl, the stats compact to bare
-          numbers below @md. Lives outside the canvas wrapper, so its controls
-          need no data-graph-control opt-outs. */}
+          Flex siblings in a single row cannot overlap at any width, and the
+          row degrades by container width: the search field collapses to an
+          icon below @2xl, the stats compact to bare numbers below @md. Lives
+          outside the canvas wrapper, so its controls need no
+          data-graph-control opt-outs. */}
       {showHeader ? (
         <div
           className="flex h-12 flex-none items-center gap-2 px-3"
@@ -1427,13 +1427,18 @@ export function ConceptGraphView({
                       <li key={node.id}>
                         <button
                           type="button"
-                          onClick={() =>
+                          onClick={() => {
                             travelTo({
                               id: node.id,
                               label: node.label,
                               updatedAtMs: node.updatedAtMs,
-                            })
-                          }
+                            });
+                            // The search found its target — clear it so the
+                            // dropdown (z-30, header layer) doesn't sit over
+                            // the detail drawer this opens.
+                            setSearch("");
+                            setSearchOpen(false);
+                          }}
                           className="block w-full truncate px-3 py-1 text-left text-[12px] hover:bg-[color-mix(in_srgb,var(--content-tertiary)_14%,transparent)]"
                           style={{ color: "var(--content-default)" }}
                         >
