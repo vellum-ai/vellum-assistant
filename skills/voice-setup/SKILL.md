@@ -1,6 +1,6 @@
 ---
 name: voice-setup
-description: Complete voice configuration in chat - PTT key, microphone permissions, ElevenLabs TTS, and troubleshooting
+description: Complete voice configuration in chat - PTT key, microphone permissions, ElevenLabs/Deepgram TTS, and troubleshooting
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   icon: assets/icon.svg
@@ -8,9 +8,9 @@ metadata:
   vellum:
     category: "voice"
     display-name: "Voice Setup"
-    includes: ["elevenlabs-voice"]
+    includes: ["elevenlabs-voice", "deepgram-voice"]
     activation-hints:
-      - "Guided setup or troubleshooting (walkthrough, PTT not working, mic issues, ElevenLabs/TTS)"
+      - "Guided setup or troubleshooting (walkthrough, PTT not working, mic issues, ElevenLabs/Deepgram/TTS)"
       - "Simple voice setting changes (PTT key, wake word) -> use voice_config_update directly"
     avoid-when:
       - 'If "voice" is in a Twilio/phone context, load phone-calls instead'
@@ -23,7 +23,7 @@ You are helping the user set up and troubleshoot voice features (push-to-talk, t
 - `voice_config_update` - Change any voice setting (PTT key, conversation timeout, TTS voice ID)
 - `open_system_settings` - Open macOS System Settings to a specific privacy pane
 - `navigate_settings_tab` - Open the Vellum settings panel to the Voice tab
-- `assistant credentials prompt` - Collect API keys securely (for ElevenLabs TTS)
+- `assistant credentials prompt` - Collect API keys securely (for ElevenLabs/Deepgram TTS)
 
 ## Setup Flow
 
@@ -58,13 +58,21 @@ Ask which key they prefer, then use `voice_config_update` with `setting: "activa
 - If they pick a key that conflicts with their emoji picker (Fn or Globe on newer Macs), warn them and suggest an alternative.
 - If they use a terminal app heavily, warn that some keys may be captured by the terminal.
 
-### 3. Text-to-Speech / ElevenLabs (Optional)
+### 3. Text-to-Speech Voice (Optional)
 
-Ask if they want high-quality text-to-speech voices via ElevenLabs (optional - standard TTS works without it).
+Ask if they want high-quality text-to-speech voices via ElevenLabs or Deepgram (optional - standard TTS works without it).
 
-If yes, the included **ElevenLabs Voice** skill (automatically appended below via `includes`) provides the full setup flow: curated voice list, API key collection, advanced voice selection, and tuning parameters. Follow the instructions there.
+If yes, the included **ElevenLabs Voice** and **Deepgram Voice** skills (automatically appended below via `includes`) provide the full setup flow for each provider: curated voice list, API key collection, advanced voice selection, and tuning parameters.
 
-Note: The config key `services.tts.providers.elevenlabs.voiceId` controls the voice for both in-app TTS and phone calls. If the user sets up phone calls later, they will automatically use the same voice for a consistent experience.
+**Check the active provider first** (`assistant config get services.tts.provider`) — `voice_config_update` writes the voice to whichever provider is active, and each provider only accepts its own voice ids (e.g. ElevenLabs rejects hyphenated Aura ids). If the user's preferred provider doesn't match the active one, switch before selecting a voice — after collecting the provider's API key if one is needed:
+
+```
+voice_config_update setting="tts_provider" value="deepgram"
+```
+
+Exception: the managed `vellum` provider accepts both ElevenLabs and Deepgram voice ids, so no switch is needed there. Then follow the instructions in the matching voice skill.
+
+Note: The active provider's voice config key controls the voice for both in-app TTS and phone calls. If the user sets up phone calls later, they will automatically use the same voice for a consistent experience.
 
 ### 4. Verification
 
