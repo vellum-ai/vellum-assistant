@@ -321,6 +321,41 @@ describe("ui_update on a restored unknown surface type", () => {
       customField: 42,
     });
   });
+
+  test("also syncs the current-turn snapshot so the two persist writers agree", async () => {
+    const ctx = makeContext();
+    ctx.surfaceState.set(
+      "future-1",
+      restoreSurfaceStateEntry({
+        surfaceType: "future_widget",
+        data: { title: "Widget", customField: 42 },
+      }),
+    );
+    // The surface is also tracked in the current turn: the turn-end persist
+    // loop writes `currentTurnSurfaces[i].data` to the same ui_surface block
+    // that the debounced persist writes. If this snapshot were left stale for
+    // an opaquely-forwarded (unknown-type) update, the two writers would race
+    // on divergent data.
+    ctx.currentTurnSurfaces.push({
+      surfaceId: "future-1",
+      surfaceType: "future_widget",
+      data: { title: "Widget", customField: 42 },
+    } as unknown as (typeof ctx.currentTurnSurfaces)[number]);
+
+    const result = await surfaceProxyResolver(ctx, "ui_update", {
+      surface_id: "future-1",
+      data: { title: "Widget (edited)" },
+    });
+    expect(result.isError).toBe(false);
+
+    // The current-turn snapshot reflects the update, matching surfaceState.
+    expect(ctx.currentTurnSurfaces[0]?.data as Record<string, unknown>).toEqual(
+      {
+        title: "Widget (edited)",
+        customField: 42,
+      },
+    );
+  });
 });
 
 describe("ui_update normalizes modeled fields for known surface types", () => {

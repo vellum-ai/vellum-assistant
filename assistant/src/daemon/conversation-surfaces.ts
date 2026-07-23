@@ -3269,11 +3269,18 @@ export async function surfaceProxyResolver(
       data: mergedData,
     });
 
-    // Keep the persisted snapshot in sync so updates survive conversation restart.
+    // Keep the persisted snapshot in sync so updates survive conversation
+    // restart. This must track EVERY branch that changed `mergedData` — not
+    // just the schema-parsed one — because the turn-end persist loop writes
+    // `currentTurnSurfaces[idx].data` to the same `ui_surface` block that the
+    // debounced `scheduleSurfaceDataPersist` below writes. If an unknown-type
+    // (opaquely forwarded) update updated `surfaceState` but not this array,
+    // the two writers would persist divergent data and race on which lands
+    // last. Gating on `idx !== -1` alone keeps all three in lockstep.
     const idx = ctx.currentTurnSurfaces.findIndex(
       (s) => s.surfaceId === surfaceId,
     );
-    if (idx !== -1 && mergedPair !== undefined) {
+    if (idx !== -1) {
       ctx.currentTurnSurfaces[idx] = {
         ...ctx.currentTurnSurfaces[idx],
         data: mergedData,
