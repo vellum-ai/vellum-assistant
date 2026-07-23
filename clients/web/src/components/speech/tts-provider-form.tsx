@@ -426,14 +426,15 @@ export function TtsProviderForm({
   const managedVoiceSupported =
     isManaged && selectedProvider.supportsVoiceSelection;
 
-  // The catalog/custom toggle sits on the "Voice" label row (right-aligned) and
-  // reads as a link at rest — icon plus a standing underline — so it's an
-  // obvious action tied to the field, not a caption for the control below it.
+  // The catalog/custom toggle reads as a link at rest — icon plus a standing
+  // underline — and sits on the action row beside Save. `inline-flex` overrides
+  // the link variant's `inline` display so the icon centers with the label
+  // instead of riding the line above it.
   const enterCustomVoiceLink = (
     <Button
       variant="link"
       size="compact"
-      className="h-auto gap-1 px-0 underline"
+      className="inline-flex h-auto items-center gap-1 px-0 underline"
       onClick={() => setCustomModeOverride(true)}
     >
       <Pencil className="h-3.5 w-3.5" aria-hidden />
@@ -444,7 +445,7 @@ export function TtsProviderForm({
     <Button
       variant="link"
       size="compact"
-      className="h-auto gap-1 px-0 underline"
+      className="inline-flex h-auto items-center gap-1 px-0 underline"
       onClick={() => {
         setCustomModeOverride(false);
         // Snap a non-catalog draft back to a real catalog voice so the picker's
@@ -460,6 +461,18 @@ export function TtsProviderForm({
       Choose from catalog
     </Button>
   );
+  // From the catalog the toggle offers custom entry; from custom it offers a way
+  // back, but only when there's actually a catalog to return to. Null until the
+  // catalog resolves so it never flashes.
+  const managedVoiceToggle = !managedVoiceSupported
+    ? null
+    : customManagedVoice
+      ? managedVoices.length > 0
+        ? chooseFromCatalogLink
+        : null
+      : fetched
+        ? enterCustomVoiceLink
+        : null;
 
   return (
     <div className="space-y-4">
@@ -495,17 +508,9 @@ export function TtsProviderForm({
 
       {managedVoiceSupported && (
         <div className="space-y-1">
-          <div className="flex items-center justify-between gap-2">
-            <label className="text-body-small-default text-[var(--content-tertiary)]">
-              Voice
-            </label>
-            {/* The toggle only appears once the catalog has resolved: from the
-                catalog it offers custom entry; from custom it offers a way back,
-                but only when there's actually a catalog to return to. */}
-            {customManagedVoice
-              ? managedVoices.length > 0 && chooseFromCatalogLink
-              : fetched && enterCustomVoiceLink}
-          </div>
+          <label className="block text-body-small-default text-[var(--content-tertiary)]">
+            Voice
+          </label>
           {customManagedVoice ? (
             /* Free-text entry for a managed voice id outside the catalog
                (power users, or an id the platform serves but doesn't list). */
@@ -566,7 +571,8 @@ export function TtsProviderForm({
             {testing ? "Testing…" : "Test"}
           </Button>
         )}
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex items-center gap-3">
+          {managedVoiceToggle}
           {!hideSaveButton && (
             <SaveButton onClick={handleSave} disabled={!hasChanges || saving} />
           )}
