@@ -17,6 +17,7 @@ import { MemoryRouter } from "react-router";
 import {
   assistantsDomainsListOptions,
   assistantsDomainsListSetQueryData,
+  organizationsBillingSubscriptionOnboardingRetrieveSetQueryData,
 } from "@/generated/api/@tanstack/react-query.gen";
 import * as sdkGen from "@/generated/api/sdk.gen";
 import type {
@@ -1162,6 +1163,103 @@ describe("BillingOnboardingModal — resize mode", () => {
         timeout: 5000,
       });
       expect(queryByText("Assistant Email")).toBeNull();
+    },
+    20_000,
+  );
+
+  test(
+    "re-invalidates domains when the provisioning target flips active→primary mid-open",
+    async () => {
+      // Multi-assistant race: the active assistant (A = "assistant-1") differs
+      // from the onboarding payload's primary_assistant_id (B = "assistant-2").
+      // A WARM stale onboarding cache (domain_setup_available: true) makes
+      // domainAnswerNeeded flip true while provisioning.assistantId is still the
+      // active A, so the on-open domains invalidation first fires for A. When
+      // onboarding lands fresh, assistantId flips to B — whose domains list is
+      // already cached within staleTime. The forced refetch must RE-FIRE for B
+      // (a per-id guard), not latch on A (a boolean guard): otherwise B's cache
+      // never crosses the open fence, domainsKnown stays false, routing never
+      // settles, and the takeover strands on "All done!".
+      subscriptionPlanId = "pro";
+      // Active assistant A, already at the target so DONE lands off the verdict.
+      assistantResponse = makeAssistant("large", 50);
+      ensureResponse = makeEnsureResponse("already_done");
+      // The fresh onboarding names primary B, distinct from active A.
+      onboardingResponse = makeOnboarding({ primary_assistant_id: "assistant-2" });
+
+      // A 10s staleTime (matching the app's QueryClient) is essential: with the
+      // default staleTime 0, re-keying to B's seeded cache would trigger a
+      // staleness-driven refetch on mount and mask the bug. Here only the forced
+      // on-open invalidation — the code under test — can refetch B's fresh cache.
+      const client = new QueryClient({
+        defaultOptions: { queries: { retry: false, staleTime: 10_000 } },
+      });
+
+      // Seed a WARM stale onboarding payload (domain_setup_available true),
+      // timestamped before this open: it drives domainAnswerNeeded true during
+      // the A window while onboardingFresh is still false. Held below so that
+      // stale window persists and the invalidation latches on A first.
+      dateNowOffsetMs = -5000;
+      organizationsBillingSubscriptionOnboardingRetrieveSetQueryData(
+        client,
+        undefined,
+        makeOnboarding({ primary_assistant_id: "assistant-2" }),
+      );
+      // Seed B's domains list empty, before this open yet inside the 10s
+      // staleTime, so only the forced on-open refetch — never a staleness-driven
+      // one — can cross the fence for B.
+      assistantsDomainsListSetQueryData(
+        client,
+        { path: { assistant_id: "assistant-2" } },
+        makeDomains(false),
+      );
+      dateNowOffsetMs = 0;
+
+      // Hold the onboarding refetch so the A window (assistantId = active A,
+      // domainAnswerNeeded true) is observable and the invalidation latches on A
+      // before the primary B ever appears.
+      let releaseOnboarding!: () => void;
+      onboardingHold = new Promise((resolve) => {
+        releaseOnboarding = resolve;
+      });
+
+      const onClose = mock(() => {});
+      const { getByText } = render(
+        <MemoryRouter>
+          <QueryClientProvider client={client}>
+            <BillingOnboardingModal
+              open
+              onClose={onClose}
+              dwellMs={TEST_DWELL_MS}
+              phaseMinMs={0}
+              mode="resize"
+            />
+          </QueryClientProvider>
+        </MemoryRouter>,
+      );
+
+      // A window: DONE lands off the already_done verdict, but with onboarding
+      // held routing can't settle yet — the takeover sits on "All done!".
+      await waitFor(() => expect(getByText("All done!")).toBeTruthy(), {
+        timeout: 5000,
+      });
+      // The forced on-open refetch fired for the active assistant A.
+      await waitFor(() => expect(domainsCalls).toBeGreaterThan(0));
+      const callsAfterActive = domainsCalls;
+
+      // Release onboarding → assistantId flips to the primary B.
+      releaseOnboarding();
+
+      // The per-id guard re-invalidates for B, so its cached list is refetched
+      // and crosses the fence; domainsKnown flips true, routing settles, and the
+      // takeover auto-advances to the domain step (B has no domain) instead of
+      // stranding on "All done!".
+      await waitFor(() => expect(getByText("Assistant Email")).toBeTruthy(), {
+        timeout: 5000,
+      });
+      // The re-fire for B is what unblocks routing — a boolean latch would have
+      // skipped it and left B's fresh cache never crossing the fence.
+      expect(domainsCalls).toBeGreaterThan(callsAfterActive);
     },
     20_000,
   );
