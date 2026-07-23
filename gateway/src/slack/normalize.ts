@@ -25,6 +25,8 @@ import type {
 // `undefined` so the existing null-checks drop an unprocessable event rather than
 // trusting garbage. The original payload is preserved verbatim as `raw`.
 const optionalString = () => z.string().optional().catch(undefined);
+/** A required id string: a missing/non-string value collapses to `""`. */
+const requiredString = () => z.string().catch("");
 
 /**
  * Resolved Slack user info for populating actor fields.
@@ -360,88 +362,28 @@ export function getChannelInfoCacheSize(): number {
 }
 
 /** Slack file object (subset relevant to attachment handling). */
-export interface SlackFile {
-  id: string;
-  name?: string;
-  mimetype?: string;
-  size?: number;
-  url_private_download?: string;
-  url_private?: string;
-}
+/** A Slack file attachment; only the fields the gateway forwards are modeled. */
+const slackFileSchema = z.object({
+  id: requiredString(),
+  name: optionalString(),
+  mimetype: optionalString(),
+  size: z.number().optional().catch(undefined),
+  url_private_download: optionalString(),
+  url_private: optionalString(),
+});
+export type SlackFile = z.infer<typeof slackFileSchema>;
 
 /**
  * Slack `bot_profile` object attached to bot-authored messages
  * (subset relevant to sender classification).
  */
-export interface SlackBotProfile {
-  id?: string;
-  name?: string;
-  app_id?: string;
-  team_id?: string;
-}
-
-/**
- * Slack `app_mention` event shape (subset relevant to normalization).
- */
-export interface SlackAppMentionEvent {
-  type: "app_mention";
-  user: string;
-  text: string;
-  ts: string;
-  channel: string;
-  thread_ts?: string;
-  client_msg_id?: string;
-  event_ts?: string;
-  files?: SlackFile[];
-  /** Team ID of the mentioning user's workspace. */
-  team?: string;
-  /** Present when the message was authored by a bot/app. */
-  bot_id?: string;
-  bot_profile?: SlackBotProfile;
-}
-
-/**
- * Slack `message` event shape for direct messages (IMs).
- */
-export interface SlackDirectMessageEvent {
-  type: "message";
-  subtype?: string;
-  user?: string;
-  text: string;
-  ts: string;
-  channel: string;
-  channel_type: "im";
-  thread_ts?: string;
-  client_msg_id?: string;
-  event_ts?: string;
-  files?: SlackFile[];
-  /** Present when the message was authored by a bot/app. */
-  bot_id?: string;
-  bot_profile?: SlackBotProfile;
-}
-
-/**
- * Slack `message` event shape for channel/group messages (non-DM).
- * Used to pick up thread replies in threads the bot is already participating in.
- */
-export interface SlackChannelMessageEvent {
-  type: "message";
-  subtype?: string;
-  user?: string;
-  text: string;
-  ts: string;
-  channel: string;
-  channel_type: "channel" | "group" | "mpim";
-  thread_ts?: string;
-  client_msg_id?: string;
-  event_ts?: string;
-  files?: SlackFile[];
-  /** Team ID of the sending user's workspace. */
-  team?: string;
-  /** Present when the message was authored by a bot/app. */
-  bot_id?: string;
-  bot_profile?: SlackBotProfile;
-}
+const slackBotProfileSchema = z.object({
+  id: optionalString(),
+  name: optionalString(),
+  app_id: optionalString(),
+  team_id: optionalString(),
+});
+export type SlackBotProfile = z.infer<typeof slackBotProfileSchema>;
 
 /** `message.edited` / `previous_message.edited` sub-object. */
 const slackEditedSchema = z
@@ -567,6 +509,45 @@ type _SlackMessageApiCrossChecks = [
   >,
 ];
 
+/**
+ * Tolerant schema for the plain-message family — `app_mention`, direct
+ * messages, and channel/group messages. The three differ only in discriminator
+ * values (`type` / `channel_type`) and which fields the normalizer keys on, so
+ * one tolerant shape backs all three; each normalizer applies its own guards.
+ */
+const slackMessageEventSchema = z.object({
+  type: optionalString(),
+  subtype: optionalString(),
+  user: optionalString(),
+  text: optionalString(),
+  ts: optionalString(),
+  channel: optionalString(),
+  channel_type: slackMessageChannelType(),
+  thread_ts: optionalString(),
+  client_msg_id: optionalString(),
+  event_ts: optionalString(),
+  files: z.array(slackFileSchema).optional().catch(undefined),
+  team: optionalString(),
+  bot_id: optionalString(),
+  bot_profile: slackBotProfileSchema.optional().catch(undefined),
+});
+type SlackMessageEvent = z.infer<typeof slackMessageEventSchema>;
+
+/** All three plain-message events share the one tolerant shape. */
+export type SlackAppMentionEvent = SlackMessageEvent;
+export type SlackDirectMessageEvent = SlackMessageEvent;
+export type SlackChannelMessageEvent = SlackMessageEvent;
+
+// Key-integrity cross-check against the official `GenericMessageEvent` (a
+// superset of the fields all three plain-message events carry). Value-checking
+// is skipped here because `@slack/types` models `files` as DOM `File[]`, which
+// our forwarded-file subset intentionally does not match.
+type _SlackMessageEventApiCrossCheck = [
+  Expect<
+    ModeledKeysAreOfficial<SlackMessageEvent, SlackApiGenericMessageEvent>
+  >,
+];
+
 export type SlackTextRenderContext = {
   userLabels?: Record<string, string>;
   channelLabels?: Record<string, string>;
@@ -614,7 +595,7 @@ function extractSlackAttachments(files: SlackFile[] | undefined): Array<{
 }> {
   if (!files || files.length === 0) return [];
   return files
-    .filter((f) => f.url_private_download || f.url_private)
+    .filter((f) => f.id && (f.url_private_download || f.url_private))
     .map((f) => ({
       type: f.mimetype?.startsWith("image/")
         ? ("image" as const)
@@ -631,7 +612,7 @@ function extractSlackFileMap(
 ): Map<string, SlackFile> | undefined {
   if (!files || files.length === 0) return undefined;
   const downloadableFiles = files.filter(
-    (f) => f.url_private_download || f.url_private,
+    (f) => f.id && (f.url_private_download || f.url_private),
   );
   return downloadableFiles.length
     ? new Map(downloadableFiles.map((f) => [f.id, f]))
@@ -742,213 +723,196 @@ export function enrichNormalizedActor(
  * Bot's own messages are dropped by `processEventPayload` before
  * normalization.
  */
+/** The per-event-type differences across the plain-message normalizers. */
+type SlackMessageShape = {
+  /** `source.chatType`; omitted for `app_mention`. */
+  chatType?: "im" | "channel";
+  /** Stamp the sender's workspace id onto the actor (channel + app_mention). */
+  stampTeam: boolean;
+  /** Reply in the message's own ts when it has no `thread_ts` (channel + app_mention). */
+  fallbackThreadToTs: boolean;
+};
+
+/**
+ * Shared construction for the plain-message family (`app_mention` / DM /
+ * channel). Each caller owns its own guards, routing, and identity extraction;
+ * this builds the canonical normalized event they all produce, so the three
+ * public normalizers stay thin variant wrappers.
+ */
+function buildNormalizedSlackMessage(
+  event: SlackMessageEvent,
+  rawEvent: Record<string, unknown>,
+  eventId: string,
+  routing: RouteResult,
+  channel: string,
+  actorId: string,
+  shape: SlackMessageShape,
+  botToken?: string,
+  renderContext?: SlackTextRenderContext,
+): NormalizedSlackEvent {
+  const externalMessageId =
+    event.client_msg_id ?? event.ts ?? `${channel}:${event.ts}`;
+  const attachments = extractSlackAttachments(event.files);
+  const slackFiles = extractSlackFileMap(event.files);
+
+  // Cache-only lookup to avoid blocking normalization on network calls; a
+  // background fetch warms the cache for subsequent messages from this user.
+  const userInfo = botToken
+    ? resolveSlackUserSync(actorId, botToken)
+    : undefined;
+  const botSender = slackBotSenderInfo(event, userInfo);
+  const content = renderSlackInboundText(event.text ?? "", renderContext);
+  const threadTs =
+    event.thread_ts ?? (shape.fallbackThreadToTs ? event.ts : undefined);
+
+  return {
+    event: {
+      version: "v1",
+      sourceChannel: "slack",
+      receivedAt: new Date().toISOString(),
+      message: {
+        content,
+        conversationExternalId: channel,
+        externalMessageId,
+        ...(attachments.length > 0 ? { attachments } : {}),
+      },
+      actor: {
+        actorExternalId: actorId,
+        ...(userInfo ? slackUserActorFields(userInfo) : {}),
+        ...(shape.stampTeam && event.team ? { teamId: event.team } : {}),
+        ...(botSender ? { isBot: true } : {}),
+      },
+      source: {
+        updateId: eventId,
+        messageId: event.ts,
+        ...(shape.chatType ? { chatType: shape.chatType } : {}),
+        ...(event.thread_ts ? { threadId: event.thread_ts } : {}),
+      },
+      raw: rawEvent,
+    },
+    routing,
+    ...(threadTs ? { threadTs } : {}),
+    channel,
+    ...(slackFiles ? { slackFiles } : {}),
+    ...(botSender ? { botSender } : {}),
+  };
+}
+
 export function normalizeSlackDirectMessage(
-  event: SlackDirectMessageEvent,
+  event: unknown,
   eventId: string,
   config: GatewayConfig,
   botToken?: string,
   renderContext?: SlackTextRenderContext,
 ): NormalizedSlackEvent | null {
-  // Ignore message subtypes (edits, deletions, etc.) — only handle plain user messages.
-  // message_changed is handled separately by normalizeSlackMessageEdit.
-  // file_share is allowed so image/file uploads are delivered to the assistant.
-  if (event.subtype && event.subtype !== "file_share") return null;
-  // user is required for routing
-  if (!event.user) return null;
+  const parsed = slackMessageEventSchema.safeParse(event);
+  if (!parsed.success) return null;
+  const msg = parsed.data;
 
-  // DMs are always directed at the bot, so use the default assistant even
-  // when the DM channel ID (D...) isn't in the routing table. This ensures
-  // guardian verification replies aren't silently dropped.
-  let routing = resolveAssistant(config, event.channel, event.user);
+  // Only plain user messages; file_share carries uploads. Edits/deletes have
+  // their own normalizers.
+  if (msg.subtype && msg.subtype !== "file_share") return null;
+  if (!msg.user || !msg.channel || !msg.ts) return null;
+
+  // DMs are always directed at the bot, so fall back to the default assistant
+  // even when the DM channel id isn't in the routing table — otherwise guardian
+  // verification replies would be silently dropped.
+  let routing = resolveAssistant(config, msg.channel, msg.user);
   if (isRejection(routing) && config.defaultAssistantId) {
     routing = {
       assistantId: config.defaultAssistantId,
       routeSource: "default" as const,
     };
   }
-  if (isRejection(routing)) {
-    return null;
-  }
+  if (isRejection(routing)) return null;
 
-  const externalMessageId =
-    event.client_msg_id ?? event.ts ?? `${event.channel}:${event.ts}`;
-
-  const attachments = extractSlackAttachments(event.files);
-  const slackFiles = extractSlackFileMap(event.files);
-
-  // Use cache-only lookup to avoid blocking normalization on network calls.
-  // A background fetch warms the cache for subsequent messages from this user.
-  const userInfo =
-    botToken && event.user
-      ? resolveSlackUserSync(event.user, botToken)
-      : undefined;
-  const botSender = slackBotSenderInfo(event, userInfo);
-  const content = renderSlackInboundText(event.text, renderContext);
-
-  return {
-    event: {
-      version: "v1",
-      sourceChannel: "slack",
-      receivedAt: new Date().toISOString(),
-      message: {
-        content,
-        conversationExternalId: event.channel,
-        externalMessageId,
-        ...(attachments.length > 0 ? { attachments } : {}),
-      },
-      actor: {
-        actorExternalId: event.user,
-        ...(userInfo ? slackUserActorFields(userInfo) : {}),
-        ...(botSender ? { isBot: true } : {}),
-      },
-      source: {
-        updateId: eventId,
-        messageId: event.ts,
-        chatType: "im",
-        ...(event.thread_ts ? { threadId: event.thread_ts } : {}),
-      },
-      raw: event as unknown as Record<string, unknown>,
-    },
+  return buildNormalizedSlackMessage(
+    msg,
+    event as Record<string, unknown>,
+    eventId,
     routing,
-    ...(event.thread_ts ? { threadTs: event.thread_ts } : {}),
-    channel: event.channel,
-    ...(slackFiles ? { slackFiles } : {}),
-    ...(botSender ? { botSender } : {}),
-  };
+    msg.channel,
+    msg.user,
+    { chatType: "im", stampTeam: false, fallbackThreadToTs: false },
+    botToken,
+    renderContext,
+  );
 }
 
 /**
  * Normalize a Slack channel `message` event (thread reply in an active bot
  * thread) into the gateway's canonical inbound event shape.
  *
- * Returns null if the event should be ignored (subtypes, missing user,
+ * Returns null if the event should be ignored (subtypes, missing user/channel,
  * or unroutable channels).
  *
  * Bot's own messages are dropped by `processEventPayload` before
  * normalization.
  */
 export function normalizeSlackChannelMessage(
-  event: SlackChannelMessageEvent,
+  event: unknown,
   eventId: string,
   config: GatewayConfig,
   botToken?: string,
   renderContext?: SlackTextRenderContext,
 ): NormalizedSlackEvent | null {
-  // file_share is allowed so image/file uploads are delivered to the assistant.
-  if (event.subtype && event.subtype !== "file_share") return null;
-  if (!event.user) return null;
+  const parsed = slackMessageEventSchema.safeParse(event);
+  if (!parsed.success) return null;
+  const msg = parsed.data;
 
-  const routing = resolveAssistant(config, event.channel, event.user);
+  // file_share is allowed so image/file uploads are delivered to the assistant.
+  if (msg.subtype && msg.subtype !== "file_share") return null;
+  if (!msg.user || !msg.channel || !msg.ts) return null;
+
+  const routing = resolveAssistant(config, msg.channel, msg.user);
   if (isRejection(routing)) return null;
 
-  const content = renderSlackInboundText(event.text, renderContext);
-  const externalMessageId =
-    event.client_msg_id ?? event.ts ?? `${event.channel}:${event.ts}`;
-
-  const attachments = extractSlackAttachments(event.files);
-  const slackFiles = extractSlackFileMap(event.files);
-
-  const userInfo =
-    botToken && event.user
-      ? resolveSlackUserSync(event.user, botToken)
-      : undefined;
-  const botSender = slackBotSenderInfo(event, userInfo);
-
-  return {
-    event: {
-      version: "v1",
-      sourceChannel: "slack",
-      receivedAt: new Date().toISOString(),
-      message: {
-        content,
-        conversationExternalId: event.channel,
-        externalMessageId,
-        ...(attachments.length > 0 ? { attachments } : {}),
-      },
-      actor: {
-        actorExternalId: event.user,
-        ...(userInfo ? slackUserActorFields(userInfo) : {}),
-        ...(event.team ? { teamId: event.team } : {}),
-        ...(botSender ? { isBot: true } : {}),
-      },
-      source: {
-        updateId: eventId,
-        messageId: event.ts,
-        chatType: "channel",
-        ...(event.thread_ts ? { threadId: event.thread_ts } : {}),
-      },
-      raw: event as unknown as Record<string, unknown>,
-    },
+  return buildNormalizedSlackMessage(
+    msg,
+    event as Record<string, unknown>,
+    eventId,
     routing,
-    threadTs: event.thread_ts ?? event.ts,
-    channel: event.channel,
-    ...(slackFiles ? { slackFiles } : {}),
-    ...(botSender ? { botSender } : {}),
-  };
+    msg.channel,
+    msg.user,
+    { chatType: "channel", stampTeam: true, fallbackThreadToTs: true },
+    botToken,
+    renderContext,
+  );
 }
 
 /**
- * Normalize a Slack `app_mention` event into the gateway's
- * canonical inbound event shape, matching the pattern used by
- * the Telegram normalizer.
+ * Normalize a Slack `app_mention` event into the gateway's canonical inbound
+ * event shape, matching the pattern used by the Telegram normalizer.
  *
- * Returns null if the event cannot be routed.
+ * Returns null if the event is missing identity fields or cannot be routed.
  */
 export function normalizeSlackAppMention(
-  event: SlackAppMentionEvent,
+  event: unknown,
   eventId: string,
   config: GatewayConfig,
   botToken?: string,
   renderContext?: SlackTextRenderContext,
 ): NormalizedSlackEvent | null {
-  const routing = resolveAssistant(config, event.channel, event.user);
-  if (isRejection(routing)) {
-    return null;
-  }
+  const parsed = slackMessageEventSchema.safeParse(event);
+  if (!parsed.success) return null;
+  const msg = parsed.data;
 
-  const content = renderSlackInboundText(event.text, renderContext);
-  const externalMessageId =
-    event.client_msg_id ?? event.ts ?? `${event.channel}:${event.ts}`;
+  if (!msg.user || !msg.channel || !msg.ts) return null;
 
-  const attachments = extractSlackAttachments(event.files);
-  const slackFiles = extractSlackFileMap(event.files);
+  const routing = resolveAssistant(config, msg.channel, msg.user);
+  if (isRejection(routing)) return null;
 
-  const userInfo =
-    botToken && event.user
-      ? resolveSlackUserSync(event.user, botToken)
-      : undefined;
-  const botSender = slackBotSenderInfo(event, userInfo);
-
-  return {
-    event: {
-      version: "v1",
-      sourceChannel: "slack",
-      receivedAt: new Date().toISOString(),
-      message: {
-        content,
-        conversationExternalId: event.channel,
-        externalMessageId,
-        ...(attachments.length > 0 ? { attachments } : {}),
-      },
-      actor: {
-        actorExternalId: event.user,
-        ...(userInfo ? slackUserActorFields(userInfo) : {}),
-        ...(event.team ? { teamId: event.team } : {}),
-        ...(botSender ? { isBot: true } : {}),
-      },
-      source: {
-        updateId: eventId,
-        messageId: event.ts,
-        ...(event.thread_ts ? { threadId: event.thread_ts } : {}),
-      },
-      raw: event as unknown as Record<string, unknown>,
-    },
+  return buildNormalizedSlackMessage(
+    msg,
+    event as Record<string, unknown>,
+    eventId,
     routing,
-    threadTs: event.thread_ts ?? event.ts,
-    channel: event.channel,
-    ...(slackFiles ? { slackFiles } : {}),
-    ...(botSender ? { botSender } : {}),
-  };
+    msg.channel,
+    msg.user,
+    { stampTeam: true, fallbackThreadToTs: true },
+    botToken,
+    renderContext,
+  );
 }
 
 /**
