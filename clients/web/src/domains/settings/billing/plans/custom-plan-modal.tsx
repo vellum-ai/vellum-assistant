@@ -29,28 +29,13 @@ import { Modal } from "@vellumai/design-library/components/modal";
 
 import {
   type CreditChoice,
+  type CustomPlanSeed,
+  type CustomPlanSelection,
   computeCustomPlanDiff,
   NO_EXTRA_CREDITS,
 } from "./custom-plan-diff";
 
-export interface CustomPlanSelection {
-  machineTier: MachineTierEnum;
-  storageTier: StorageTierEnum;
-  /** `null` is the explicit "No extra credits" choice. */
-  creditTier: CreditTierEnum | null;
-}
-
-/**
- * The current Pro tiers used to pre-fill the modal. Unlike a submitted
- * selection, `machineTier` may be `null` — a package with no paid machine tier
- * (baseline "Small" computer) has no `MachineTierEnum` to seed, so its machine
- * dropdown starts empty and the user picks a paid tier to continue.
- */
-export interface CustomPlanSeed {
-  machineTier: MachineTierEnum | null;
-  storageTier: StorageTierEnum;
-  creditTier: CreditTierEnum | null;
-}
+export type { CustomPlanSeed, CustomPlanSelection };
 
 export interface CustomPlanModalProps {
   open: boolean;
@@ -125,13 +110,15 @@ export function CustomPlanModal({
   }, [open, initialSelection]);
 
   const machineTiers = proPlan.machine_tiers;
-  // Legacy tiers stay in the catalog only for existing subscribers; a new
-  // custom configuration must not offer them.
-  const storageTiers = useMemo(
-    () => proPlan.storage_tiers.filter((t) => !t.legacy),
-    [proPlan.storage_tiers],
-  );
+  const storageTiers = proPlan.storage_tiers;
   const creditTiers = proPlan.credit_tiers ?? [];
+
+  // Legacy tiers stay in the catalog only for existing subscribers, so a new
+  // configuration must not offer them — but a subscriber seeded onto one still
+  // has to see the tier they hold, rendered disabled.
+  const offerableStorageTiers = storageTiers.filter(
+    (t) => !t.legacy || t.tier === initialSelection?.storageTier,
+  );
 
   const machineOptions: DropdownOption<MachineTierEnum>[] = machineTiers.map(
     (t) => ({
@@ -142,17 +129,17 @@ export function CustomPlanModal({
       disabled: isTierDisabled(t),
     }),
   );
-  const storageOptions: DropdownOption<StorageTierEnum>[] = storageTiers.map(
-    (t) => ({
+  const storageOptions: DropdownOption<StorageTierEnum>[] =
+    offerableStorageTiers.map((t) => ({
       value: t.tier as StorageTierEnum,
       label: t.label,
       icon: <HardDrive className="h-4 w-4" aria-hidden />,
       suffix: priceSuffix(t.price_cents),
       disabled:
         isTierDisabled(t) ||
+        t.legacy ||
         (currentStorageGib != null && t.storage_gib < currentStorageGib),
-    }),
-  );
+    }));
   const creditOptions: DropdownOption<CreditChoice>[] = [
     {
       value: NO_EXTRA_CREDITS,
@@ -175,10 +162,6 @@ export function CustomPlanModal({
   const complete =
     selectedMachine != null && selectedStorage != null && creditChoice !== "";
 
-  // The "$X/mo" total, the delta line, and the recap rows all derive from this
-  // single computeCustomPlanDiff resolution against the FULL catalog, so they
-  // can never disagree — in particular a legacy-seed storage price stays in the
-  // header total (the modal's own `!legacy`-filtered lists would drop it).
   const diff = useMemo(
     () =>
       computeCustomPlanDiff({
@@ -321,9 +304,9 @@ export function CustomPlanModal({
                             className="mt-0.5 h-4 w-4 shrink-0 text-[var(--content-disabled)]"
                             aria-hidden
                           />
-                          <span className="text-[14px] font-medium leading-[18px] text-[var(--content-disabled)] line-through">
+                          <s className="text-[14px] font-medium leading-[18px] text-[var(--content-disabled)] line-through">
                             {row.previousLabel}
-                          </span>
+                          </s>
                         </div>
                       )}
                       <div className="flex items-start gap-2">

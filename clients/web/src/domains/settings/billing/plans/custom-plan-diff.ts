@@ -1,11 +1,7 @@
 /**
- * Pure diff/recap computation for the Custom Plan configurator.
- *
- * Owns the recap-row and signed-delta logic that the modal renders, kept free
- * of React/JSX/tokens so it can be unit-tested in isolation and reused across
- * the base-checkout and Pro-reconfigure paths. The modal supplies the live
- * dropdown selection plus the seed (current plan), and consumes the returned
- * rows and raw cents to render the recap and price delta.
+ * Pure diff/recap computation for the Custom Plan configurator — the recap rows
+ * and signed price delta the modal renders, kept free of React/JSX/tokens so it
+ * can be unit-tested in isolation.
  */
 
 import {
@@ -15,59 +11,60 @@ import {
 import type {
   CreditTier,
   CreditTierEnum,
-  MachineTier,
   MachineTierEnum,
   ProPlan,
   StorageTier,
   StorageTierEnum,
 } from "@/generated/api/types.gen";
 
-import type { CustomPlanSeed } from "./custom-plan-modal";
-
 /** Sentinel for the "No extra credits" dropdown entry (Dropdown is generic over string, cannot carry real null). */
 export const NO_EXTRA_CREDITS = "__none__";
 export type CreditChoice = CreditTierEnum | typeof NO_EXTRA_CREDITS;
 
-export interface CustomPlanDiffRow {
-  /** Stable React key. */
+const NO_CREDITS_LABEL = "No extra credits";
+
+export interface CustomPlanSelection {
+  machineTier: MachineTierEnum;
+  storageTier: StorageTierEnum;
+  /** `null` is the explicit "No extra credits" choice. */
+  creditTier: CreditTierEnum | null;
+}
+
+/**
+ * The current Pro tiers used to pre-fill the modal. Unlike a submitted
+ * selection, `machineTier` may be `null` — a package with no paid machine tier
+ * (baseline "Small" computer) has no `MachineTierEnum` to seed, so its machine
+ * dropdown starts empty and the user picks a paid tier to continue.
+ */
+export interface CustomPlanSeed {
+  machineTier: MachineTierEnum | null;
+  storageTier: StorageTierEnum;
+  creditTier: CreditTierEnum | null;
+}
+
+interface CustomPlanDiffRow {
   key: string;
-  /** Label for the current/new value. */
   label: string;
-  /** Present only when this dimension changed from the seed: previous value's label, shown struck-through above the new one. */
+  /** Present only when the dimension changed and the seed value is one the catalog can label. */
   previousLabel?: string;
-  /** True when the dimension changed from the seed — new value gets the green check. */
   changed: boolean;
 }
 
-export interface CustomPlanDiff {
-  /** Total for the current selection incl. base fee; always a number (base checkout included). The modal renders this as the "$X/mo" figure so the header total, delta, and rows share one full-catalog resolution. */
+interface CustomPlanDiff {
   totalCents: number;
-  /** Total for the seed (previous) config incl. base fee; null for base checkout (no seed) or a held credit bundle the catalog can no longer price. */
+  /** Null when there is no seed, or when a seed tier is absent from the catalog and so cannot be priced. */
   previousTotalCents: number | null;
-  /** newTotal - previousTotal; null for base checkout. */
   deltaCents: number | null;
   rows: CustomPlanDiffRow[];
 }
 
-/** `tier.description`, e.g. "Medium machine (2.5 vCPU, 5 GiB)". */
-function machineLabel(tier: MachineTier): string {
-  return tier.description;
-}
-
-/** e.g. "30 GB storage". */
 function storageLabel(tier: StorageTier): string {
   return `${tier.storage_gib} GB storage`;
 }
 
-/** "No extra credits" for null; else "$50 of bundled credits". */
-function creditLabel(tier: CreditTier | null): string {
-  return tier
-    ? `${formatDollars(tier.credits_usd * 100)} of bundled credits`
-    : "No extra credits";
+function creditLabel(tier: CreditTier): string {
+  return `${formatDollars(tier.credits_usd * 100)} of bundled credits`;
 }
-
-/** Single "none" token for the "No extra credits" choice/seed. */
-const NO_CREDIT_KEY = "none";
 
 export function computeCustomPlanDiff(input: {
   proPlan: ProPlan;
@@ -78,12 +75,10 @@ export function computeCustomPlanDiff(input: {
 }): CustomPlanDiff {
   const { proPlan, seed, machineTier, storageTier, creditChoice } = input;
 
+  // Resolve against the full catalog, legacy tiers included: a tier a
+  // subscriber still holds has to price and label even where the modal no
+  // longer offers it as a choice.
   const machineTiers = proPlan.machine_tiers;
-  // Resolve against the FULL catalog, legacy tiers included. This helper only
-  // resolves already-chosen values into prices/labels — it never offers dropdown
-  // options — so a known tier value (e.g. a legacy current/seed storage tier a
-  // subscriber still pays for) must resolve to its real price/label. The
-  // `!legacy` option-gating lives in the modal, not here.
   const storageTiers = proPlan.storage_tiers;
   const creditTiers = proPlan.credit_tiers ?? [];
 
@@ -121,11 +116,9 @@ export function computeCustomPlanDiff(input: {
     const changed = seed != null && seedMachine?.tier !== selectedMachine.tier;
     rows.push({
       key: "machine",
-      label: machineLabel(selectedMachine),
-      // A null baseline seed machine has no representable previous value → omit
-      // previousLabel, still changed: true.
+      label: selectedMachine.description,
       previousLabel:
-        changed && seedMachine != null ? machineLabel(seedMachine) : undefined,
+        changed && seedMachine != null ? seedMachine.description : undefined,
       changed,
     });
   }
@@ -141,27 +134,30 @@ export function computeCustomPlanDiff(input: {
     });
   }
 
-  if (creditChoice !== "") {
-    // Detect the change from the RAW seed key, not the resolved objects: a
-    // deprecated seed bundle (absent from proPlan.credit_tiers) resolves to
-    // null, which would otherwise read identically to "No extra credits" and
-    // hide the change.
-    const seedCreditKey =
-      seed != null ? (seed.creditTier ?? NO_CREDIT_KEY) : null;
-    const selectedCreditKey =
-      creditChoice === NO_EXTRA_CREDITS ? NO_CREDIT_KEY : creditChoice;
-    const changed = seed != null && seedCreditKey !== selectedCreditKey;
+  // A concrete bundle the catalog can no longer resolve gets no row at all —
+  // "No extra credits" would be affirmatively false for a sub paying for one.
+  const selectedCreditLabel =
+    creditChoice === NO_EXTRA_CREDITS
+      ? NO_CREDITS_LABEL
+      : selectedCredit != null
+        ? creditLabel(selectedCredit)
+        : null;
+
+  if (selectedCreditLabel != null) {
+    // Compare the raw keys: a delisted seed bundle resolves to null, which
+    // would otherwise read identically to "no credits" and hide the change.
+    const changed =
+      seed != null && (seed.creditTier ?? NO_EXTRA_CREDITS) !== creditChoice;
+    const previousCreditLabel =
+      seed?.creditTier == null
+        ? NO_CREDITS_LABEL
+        : seedCredit != null
+          ? creditLabel(seedCredit)
+          : undefined;
     rows.push({
       key: "credit",
-      label: creditLabel(selectedCredit),
-      // A deprecated seed bundle's price/label is absent from the catalog, so
-      // seedCredit is null and we omit previousLabel there (mirroring a
-      // null-baseline seed machine) rather than fabricate one. That same
-      // unresolvable case suppresses previousTotalCents/deltaCents below.
-      previousLabel:
-        changed && (seed.creditTier == null || seedCredit != null)
-          ? creditLabel(seedCredit)
-          : undefined,
+      label: selectedCreditLabel,
+      previousLabel: changed ? previousCreditLabel : undefined,
       changed,
     });
   }
@@ -172,26 +168,15 @@ export function computeCustomPlanDiff(input: {
     (selectedStorage?.price_cents ?? 0) +
     (selectedCredit?.price_cents ?? 0);
 
-  if (seed == null) {
-    return {
-      totalCents: newTotalCents,
-      previousTotalCents: null,
-      deltaCents: null,
-      rows,
-    };
-  }
+  // An unpriceable seed tier suppresses the comparison rather than implying $0.
+  // A null seed machine is the baseline "Small" and legitimately costs nothing.
+  const seedUnpriceable =
+    seed != null &&
+    ((seed.machineTier != null && seedMachine == null) ||
+      seedStorage == null ||
+      (seed.creditTier != null && seedCredit == null));
 
-  // A held credit tier that is a concrete enum value but absent from the catalog
-  // (a delisted/deprecated bundle) resolves to null, yet is NOT the
-  // NO_EXTRA_CREDITS sentinel — so we cannot faithfully price it. Rather than
-  // fabricate a $0 credit price (which would show a false-precise previous total
-  // and delta), suppress the whole comparison: null out previousTotalCents AND
-  // deltaCents so the modal hides the "compared to previous" line. The credit
-  // row itself is unaffected — its key-based `changed` detection and omitted
-  // previousLabel are already handled above. Defense-in-depth: such subs are
-  // routed to the manage/adjust-plan modal upstream and do not normally reach here.
-  const seedCreditUnresolved = seed.creditTier != null && seedCredit == null;
-  if (seedCreditUnresolved) {
+  if (seed == null || seedUnpriceable) {
     return {
       totalCents: newTotalCents,
       previousTotalCents: null,
