@@ -130,7 +130,11 @@ function Title({
           <Icon className="h-5 w-5 text-[var(--primary-base)]" />
         </span>
       ) : null}
-      <span className="min-w-0 truncate">{children}</span>
+      {/* `text-title-*` set line-height: 1, so `truncate`'s `overflow: hidden`
+          shears glyph descenders (the tail of a g/p/y). `leading-snug` grows
+          the line box to contain them; single-line ellipsis still works.
+          Mirrors the same fix in `modal.tsx`. */}
+      <span className="min-w-0 truncate leading-snug">{children}</span>
     </Dialog.Title>
   );
 }
