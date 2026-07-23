@@ -186,7 +186,9 @@ export const DOCKER_STATEFUL_SET_SPEC: DockerStatefulSetSpec = {
         { kind: "static", name: "VELLUM_WORKSPACE_DIR",      value: "/workspace" },
         { kind: "static", name: "VELLUM_BACKUP_DIR",         value: "/workspace/.backups" },
         { kind: "static", name: "VELLUM_BACKUP_KEY_PATH",    value: "/workspace/.backup.key" },
-        { kind: "static", name: "CES_CREDENTIAL_URL",        value: "http://localhost:8090" },
+        // Literal IPv4, not `localhost`: in-pod `localhost` can resolve to
+        // `::1` first, but CES only binds IPv4, so the name would refuse.
+        { kind: "static", name: "CES_CREDENTIAL_URL",        value: "http://127.0.0.1:8090" },
         { kind: "static", name: "GATEWAY_IPC_SOCKET_DIR",    value: "/run/gateway-ipc" },
         { kind: "static", name: "ASSISTANT_IPC_SOCKET_DIR",  value: "/run/assistant-ipc" },
         { kind: "secret", name: "CES_SERVICE_TOKEN",         secret: "cesServiceToken" },
@@ -216,7 +218,9 @@ export const DOCKER_STATEFUL_SET_SPEC: DockerStatefulSetSpec = {
         { kind: "static", name: "VELLUM_WORKSPACE_DIR",      value: "/workspace" },
         { kind: "static", name: "GATEWAY_SECURITY_DIR",      value: "/gateway-security" },
         { kind: "static", name: "ASSISTANT_HOST",            value: "localhost" },
-        { kind: "static", name: "CES_CREDENTIAL_URL",        value: "http://localhost:8090" },
+        // Literal IPv4, not `localhost`: in-pod `localhost` can resolve to
+        // `::1` first, but CES only binds IPv4, so the name would refuse.
+        { kind: "static", name: "CES_CREDENTIAL_URL",        value: "http://127.0.0.1:8090" },
         { kind: "static", name: "GATEWAY_IPC_SOCKET_DIR",    value: "/run/gateway-ipc" },
         { kind: "static", name: "ASSISTANT_IPC_SOCKET_DIR",  value: "/run/assistant-ipc" },
         { kind: "static", name: "GATEWAY_PORT",              value: `${GATEWAY_INTERNAL_PORT}` },

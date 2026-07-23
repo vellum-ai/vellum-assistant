@@ -239,6 +239,7 @@ function startHealthServer(
 ): ReturnType<typeof Bun.serve> {
   const server = Bun.serve({
     port,
+    hostname: "0.0.0.0",
     async fetch(req) {
       const url = new URL(req.url);
       if (url.pathname === "/healthz") {
