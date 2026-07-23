@@ -41,6 +41,7 @@ import {
   organizationsBillingSubscriptionUpgradeCreateMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
 import type {
+  CreditTierEnum,
   MachineSizeEnum,
   ProPlan,
   SubscriptionUpgradeRequestRequest,
@@ -151,6 +152,17 @@ export function PlansPage() {
   // the grow-only resize the platform already fired server-side (no redundant
   // client-driven resize).
   const [resizeTakeoverOpen, setResizeTakeoverOpen] = useState(false);
+  // The credit bundle just applied by an in-place custom change, threaded to
+  // the takeover so its terminal phase can confirm a credit-only change (which
+  // owes no resize and so never reaches the WAITING credits chip). `undefined`
+  // when the change didn't touch credits. Deliberately NOT sourced from the
+  // checkout intent: the package-switch path also opens this takeover without
+  // seeding one, so reading the intent there could surface a stale prior
+  // checkout's credits — this in-memory value stays scoped to the change that
+  // set it.
+  const [resizeCreditTier, setResizeCreditTier] = useState<
+    CreditTierEnum | null | undefined
+  >(undefined);
 
   const subscription = subscriptionQuery.data;
   const proPlan = plansQuery.data?.plans.find(
@@ -323,6 +335,10 @@ export function PlansPage() {
       if (relation === "downgrade") {
         toast.success(`Downgraded to ${target.name}.`);
       } else {
+        // The switch path seeds no credit value — its bundle isn't sourced
+        // cleanly here, and a stale one from a prior custom change must not
+        // leak onto this takeover. Clear it so the terminal phase stays neutral.
+        setResizeCreditTier(undefined);
         setResizeTakeoverOpen(true);
       }
     };
@@ -359,7 +375,12 @@ export function PlansPage() {
       if (result.needsResize || result.creditChanged) {
         // A machine/storage change needs the assistant to provision the new
         // ceiling; a credit change owes no provisioning but still opens the same
-        // in-tab takeover for a readable confirmation moment.
+        // in-tab takeover for a readable confirmation moment. Thread the applied
+        // bundle only when it actually changed so the terminal phase can confirm
+        // it — a resize-only change leaves this undefined.
+        setResizeCreditTier(
+          result.creditChanged ? selection.creditTier : undefined,
+        );
         setResizeTakeoverOpen(true);
       } else {
         toast.success("Plan updated.");
@@ -495,6 +516,7 @@ export function PlansPage() {
           mode="resize"
           open={resizeTakeoverOpen}
           onClose={() => setResizeTakeoverOpen(false)}
+          resizeCredits={resizeCreditTier}
         />
 
         <p className="mt-10 text-center text-[12px] font-medium text-[var(--content-tertiary)]">

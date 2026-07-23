@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { organizationsBillingPlansRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen";
-import type { ProPlan } from "@/generated/api/types.gen";
+import type { CreditTierEnum, ProPlan } from "@/generated/api/types.gen";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import type { CheckoutIntent } from "@/lib/billing/checkout-intent";
 
@@ -49,4 +49,33 @@ export function useProvisioningCredits(
   }
 
   return null;
+}
+
+/**
+ * Resolves a single credit tier's human-readable label from the shared plan
+ * catalog, for the in-place resize takeover's terminal "credits updated" chip.
+ * Mirrors `useProvisioningCredits`'s custom-intent resolution but takes the tier
+ * directly — the resize path threads the just-applied tier, not a stashed
+ * checkout intent. Returns null while the catalog loads, when no tier is given
+ * (e.g. the "No extra credits" choice), or when the tier can't be resolved.
+ * Display-only.
+ */
+export function useCreditTierLabel(
+  creditTier: CreditTierEnum | null | undefined,
+): string | null {
+  const orgReady = useIsOrgReady();
+  // Gate the same way the sibling provisioning queries do: without a ready org
+  // the request carries no `Vellum-Organization-Id` and fails.
+  const { data } = useQuery({
+    ...organizationsBillingPlansRetrieveOptions(),
+    enabled: orgReady && creditTier != null,
+  });
+
+  if (creditTier == null) {
+    return null;
+  }
+  const proPlan = data?.plans.find((p): p is ProPlan => p.id === "pro");
+  return (
+    proPlan?.credit_tiers?.find((t) => t.tier === creditTier)?.label ?? null
+  );
 }
