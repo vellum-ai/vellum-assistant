@@ -204,10 +204,14 @@ export function normalizeWhatsAppWebhook(
   payload: Record<string, unknown>,
 ): NormalizedWhatsAppMessage[] {
   const parsed = whatsAppWebhookSchema.safeParse(payload);
-  if (!parsed.success) return [];
+  if (!parsed.success) {
+    return [];
+  }
   const wh = parsed.data;
 
-  if (wh.object !== "whatsapp_business_account") return [];
+  if (wh.object !== "whatsapp_business_account") {
+    return [];
+  }
 
   // One receipt time for the whole webhook — the gateway's wall clock, like
   // every other channel. The sender-supplied `timestamp` is not trusted for this.
@@ -217,11 +221,15 @@ export function normalizeWhatsAppWebhook(
 
   for (const entry of wh.entry ?? []) {
     const change = entry.changes?.find((c) => c.field === "messages");
-    if (!change?.value) continue;
+    if (!change?.value) {
+      continue;
+    }
 
     const value = change.value;
     const messages = value.messages;
-    if (!messages || messages.length === 0) continue;
+    if (!messages || messages.length === 0) {
+      continue;
+    }
 
     for (const rawMsg of messages) {
       const parsedMsg = whatsAppMessageSchema.safeParse(rawMsg);
@@ -231,7 +239,9 @@ export function normalizeWhatsAppWebhook(
         // (location, reaction, order, …) is skipped quietly. Only a message
         // whose type we *do* handle but that failed validation — or one with no
         // usable type at all — is malformed and worth a warning.
-        if (rawType && !HANDLED_MESSAGE_TYPES.has(rawType)) continue;
+        if (rawType && !HANDLED_MESSAGE_TYPES.has(rawType)) {
+          continue;
+        }
         log.warn(
           { messageType: rawType },
           "Dropping malformed WhatsApp message",
@@ -257,9 +267,13 @@ export function normalizeWhatsAppWebhook(
         body = msg.text?.body?.trim() ?? "";
       } else if (msg.type === "interactive") {
         // Interactive button reply — extract the button ID as callback data
-        if (msg.interactive?.type !== "button_reply") continue;
+        if (msg.interactive?.type !== "button_reply") {
+          continue;
+        }
         const buttonReply = msg.interactive.button_reply;
-        if (!buttonReply?.id) continue;
+        if (!buttonReply?.id) {
+          continue;
+        }
         callbackData = buttonReply.id;
         body = buttonReply.title ?? "";
       } else {
