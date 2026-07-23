@@ -19,9 +19,11 @@ import { CompactionCircuitClosedEventSchema } from "./events/compaction-circuit-
 import { CompactionCircuitOpenEventSchema } from "./events/compaction-circuit-open.js";
 import { ConfigChangedEventSchema } from "./events/config-changed.js";
 import { ConfirmationRequestEventSchema } from "./events/confirmation-request.js";
+import { ConfirmationStateChangedEventSchema } from "./events/confirmation-state-changed.js";
 import { ContactRequestEventSchema } from "./events/contact-request.js";
 import { ContactsChangedEventSchema } from "./events/contacts-changed.js";
 import { ConversationErrorEventSchema } from "./events/conversation-error.js";
+import { ConversationInferenceProfileUpdatedEventSchema } from "./events/conversation-inference-profile-updated.js";
 import { ConversationListInvalidatedEventSchema } from "./events/conversation-list-invalidated.js";
 import { ConversationNoticeEventSchema } from "./events/conversation-notice.js";
 import { ConversationTitleUpdatedEventSchema } from "./events/conversation-title-updated.js";
@@ -74,6 +76,7 @@ import { MessageDequeuedEventSchema } from "./events/message-dequeued.js";
 import { MessageQueuedEventSchema } from "./events/message-queued.js";
 import { MessageQueuedDeletedEventSchema } from "./events/message-queued-deleted.js";
 import { MessageRequestCompleteEventSchema } from "./events/message-request-complete.js";
+import { MessageSteeredEventSchema } from "./events/message-steered.js";
 import { NavigateSettingsEventSchema } from "./events/navigate-settings.js";
 import { NotificationConversationCreatedEventSchema } from "./events/notification-conversation-created.js";
 import { NotificationIntentEventSchema } from "./events/notification-intent.js";
@@ -98,6 +101,7 @@ import { SubagentEventEventSchema } from "./events/subagent-event.js";
 import { SubagentSpawnedEventSchema } from "./events/subagent-spawned.js";
 import { SubagentStatusChangedEventSchema } from "./events/subagent-status-changed.js";
 import { SyncChangedEventSchema } from "./events/sync-changed.js";
+import { ToolInputDeltaEventSchema } from "./events/tool-input-delta.js";
 import { ToolOutputChunkEventSchema } from "./events/tool-output-chunk.js";
 import { ToolResultEventSchema } from "./events/tool-result.js";
 import { ToolUsePreviewStartEventSchema } from "./events/tool-use-preview-start.js";
@@ -231,6 +235,10 @@ export {
   ScopeOptionSchema,
 } from "./events/confirmation-request.js";
 export {
+  type ConfirmationStateChangedEvent,
+  ConfirmationStateChangedEventSchema,
+} from "./events/confirmation-state-changed.js";
+export {
   type ContactRequestEvent,
   ContactRequestEventSchema,
 } from "./events/contact-request.js";
@@ -244,6 +252,10 @@ export {
   type ConversationErrorEvent,
   ConversationErrorEventSchema,
 } from "./events/conversation-error.js";
+export {
+  type ConversationInferenceProfileUpdatedEvent,
+  ConversationInferenceProfileUpdatedEventSchema,
+} from "./events/conversation-inference-profile-updated.js";
 export {
   type ConversationListInvalidatedEvent,
   ConversationListInvalidatedEventSchema,
@@ -403,6 +415,10 @@ export {
   MessageRequestCompleteEventSchema,
 } from "./events/message-request-complete.js";
 export {
+  type MessageSteeredEvent,
+  MessageSteeredEventSchema,
+} from "./events/message-steered.js";
+export {
   type NavigateSettingsEvent,
   NavigateSettingsEventSchema,
 } from "./events/navigate-settings.js";
@@ -493,6 +509,10 @@ export {
   type SyncChangedEvent,
   SyncChangedEventSchema,
 } from "./events/sync-changed.js";
+export {
+  type ToolInputDeltaEvent,
+  ToolInputDeltaEventSchema,
+} from "./events/tool-input-delta.js";
 export {
   type ToolOutputChunkEvent,
   ToolOutputChunkEventSchema,
@@ -809,9 +829,11 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   CompactionCircuitOpenEventSchema,
   ConfigChangedEventSchema,
   ConfirmationRequestEventSchema,
+  ConfirmationStateChangedEventSchema,
   ContactRequestEventSchema,
   ContactsChangedEventSchema,
   ConversationErrorEventSchema,
+  ConversationInferenceProfileUpdatedEventSchema,
   ConversationListInvalidatedEventSchema,
   ConversationNoticeEventSchema,
   ConversationTitleUpdatedEventSchema,
@@ -850,6 +872,7 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   MessageQueuedEventSchema,
   MessageQueuedDeletedEventSchema,
   MessageRequestCompleteEventSchema,
+  MessageSteeredEventSchema,
   NavigateSettingsEventSchema,
   NotificationConversationCreatedEventSchema,
   NotificationIntentEventSchema,
@@ -872,6 +895,7 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   SubagentSpawnedEventSchema,
   SubagentStatusChangedEventSchema,
   SyncChangedEventSchema,
+  ToolInputDeltaEventSchema,
   ToolOutputChunkEventSchema,
   ToolResultEventSchema,
   ToolUsePreviewStartEventSchema,
