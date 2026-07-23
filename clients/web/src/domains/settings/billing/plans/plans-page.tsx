@@ -189,6 +189,12 @@ export function PlansPage() {
     (f) => !baseFeatureSet.has(f),
   );
 
+  // Any billing action in flight — a checkout, a package switch, or the Stripe
+  // portal opening — disables every plan CTA (and Configure) so a second click
+  // can't start a competing billing operation before the first resolves.
+  const billingActionPending =
+    pending || changePackagePending || portalMutation.isPending;
+
   // Seed the custom-plan modal with the Pro sub's current tiers so an unrelated
   // edit (e.g. only the machine) doesn't force re-picking — and dropping — the
   // storage or credit the user still holds. Null for base checkout, which
@@ -283,6 +289,12 @@ export function PlansPage() {
           : null;
 
     const selectTier = (tierKey: string) => {
+      // A billing action is already in flight (checkout / package switch /
+      // portal opening) — ignore the click. The CTAs are also disabled; this
+      // guards against a race between the click and the disabled re-render.
+      if (billingActionPending) {
+        return;
+      }
       if (isProUser) {
         if (tierKey === "free") {
           // Pro → Free is a subscription cancellation, not a package switch.
@@ -408,6 +420,11 @@ export function PlansPage() {
     };
 
     const handleConfigure = () => {
+      // Don't open the configurator while another billing action is in flight
+      // (the CTA is also disabled — see `configureDisabled`).
+      if (billingActionPending) {
+        return;
+      }
       // A Pro sub's current tiers load after the page renders; the modal seeds
       // from them, so hold the click until that first load settles (the CTA is
       // also held disabled meanwhile — see `configureDisabled`).
@@ -470,7 +487,7 @@ export function PlansPage() {
             tone="dark"
             isCurrent={currentTierKey === "free"}
             intent={freeRelation}
-            pending={pending || changePackagePending || portalMutation.isPending}
+            pending={billingActionPending}
             onCta={() => selectTier("free")}
           />
           {orderedPackages.map((pkg) => {
@@ -494,7 +511,7 @@ export function PlansPage() {
                 tone={copy?.recommended ? "light" : "dark"}
                 isCurrent={currentTierKey === pkg.key}
                 intent={relation}
-                pending={pending || changePackagePending}
+                pending={billingActionPending}
                 onCta={() => selectTier(pkg.key)}
               />
             );
@@ -504,7 +521,7 @@ export function PlansPage() {
         <CustomPlanRow
           className="mt-10"
           onConfigure={handleConfigure}
-          configureDisabled={isProUser && !currentReady}
+          configureDisabled={(isProUser && !currentReady) || billingActionPending}
         />
 
         <CustomPlanModal

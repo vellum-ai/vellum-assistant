@@ -57,6 +57,9 @@ let changePackageCall: Captured | null = null;
 let upgradeCall: Captured | null = null;
 // Captures the billing-portal session create — the Pro → Free cancel path.
 let portalSessionCall: Captured | null = null;
+// When false, the portal-session promise never settles — used to observe the
+// in-flight (pending) state after confirming the Free downgrade.
+let portalSessionResolves = true;
 let machineTierCall: Captured | null = null;
 let storageTierCall: Captured | null = null;
 let creditTierCall: Captured | null = null;
@@ -108,6 +111,9 @@ mock.module("@/generated/api/sdk.gen", () => ({
   },
   organizationsBillingPortalSessionCreate: (opts: Captured) => {
     portalSessionCall = opts;
+    if (!portalSessionResolves) {
+      return new Promise(() => {});
+    }
     return Promise.resolve({
       data: { portal_url: PORTAL_URL },
       response: { ok: true },
@@ -549,6 +555,7 @@ beforeEach(() => {
   changePackageCall = null;
   upgradeCall = null;
   portalSessionCall = null;
+  portalSessionResolves = true;
   machineTierCall = null;
   storageTierCall = null;
   creditTierCall = null;
@@ -670,6 +677,37 @@ describe("PlansPage — Pro package switch (change-package)", () => {
     await findByText("Downgrade to Free?");
     await findByText("Managed email");
     await findByText("Custom domain");
+  });
+
+  test("while the portal is opening, the other plan CTAs and Configure are disabled", async () => {
+    // Hold the portal-session request in flight so `portalMutation.isPending`
+    // stays true after the Free downgrade is confirmed.
+    portalSessionResolves = false;
+    const { findByRole, findByTestId } = renderInteractive(
+      proMightySubscription(),
+    );
+
+    fireEvent.click(await findByRole("button", { name: "Downgrade to Free" }));
+    fireEvent.click(await findByTestId("confirm-free-downgrade-button"));
+
+    // The portal request is in flight and never settles: every other plan
+    // action is disabled so a second click can't start a competing billing
+    // operation before the redirect lands.
+    const goSuper = (await findByRole("button", {
+      name: "Go Super",
+    })) as HTMLButtonElement;
+    const configure = (await findByRole("button", {
+      name: "Configure",
+    })) as HTMLButtonElement;
+    await waitFor(() => {
+      expect(goSuper.disabled).toBe(true);
+      expect(configure.disabled).toBe(true);
+    });
+
+    // The portal was actually initiated, and no competing action started.
+    expect(portalSessionCall).not.toBeNull();
+    expect(changePackageCall).toBeNull();
+    expect(upgradeCall).toBeNull();
   });
 
   test("base user CTA starts Stripe checkout, not change-package", async () => {
