@@ -108,15 +108,12 @@ export function avatarSurfaceHex(accentHex: string): string {
  * text is picked against this, not the raw avatar color, so contrast reflects
  * what the eye sees.
  */
-function compositeOverlay(base: string, overlay: 0 | 255, alpha: number): string {
-  const m = /^#?([0-9a-f]{6})$/i.exec(base);
-  if (!m) {
-    return base;
-  }
-  const n = parseInt(m[1]!, 16);
-  const mix = (shift: number) =>
-    Math.round(((n >> shift) & 0xff) * (1 - alpha) + overlay * alpha);
-  return `#${((1 << 24) | (mix(16) << 16) | (mix(8) << 8) | mix(0)).toString(16).slice(1)}`;
+function compositeOverlay(
+  base: string,
+  overlay: 0 | 255,
+  alpha: number,
+): string {
+  return blendHex(base, overlay === 255 ? "#ffffff" : "#000000", alpha);
 }
 
 /** WCAG relative luminance (sRGB-linearized), 0–1. */
