@@ -251,13 +251,20 @@ export function emitResearchOnboardingCheckinCalendarOpened(
 }
 
 /**
- * Emit the first-run scope option click, with the chosen scope in `screen`.
+ * Emit the first-run scope option click. The chosen scope rides the event's
+ * `screen` field — the same dimension-in-`screen` pattern the tips and tour
+ * funnels use — so analysts read the scope from `screen`, not `step_name`.
  * Stamped with the research funnel version and `control` variant like the
  * in-flow steps, so click-through rate is derivable against their completion
- * rows in the same funnel.
+ * rows in the same funnel. `userId` keys the row to the clicking user; when
+ * unavailable the event still emits with `user_id: null`.
  */
-export function emitFirstMessageScopeSelected(scope: FirstRunScope): void {
+export function emitFirstMessageScopeSelected(
+  scope: FirstRunScope,
+  options: { userId?: string | null } = {},
+): void {
   emitOnboardingFunnelStepCompleted(FIRST_MESSAGE_SCOPE_STEP, {
+    userId: options.userId,
     funnelVersion: RESEARCH_ONBOARDING_FUNNEL_VERSION,
     screen: scope,
     outcome: "completed",

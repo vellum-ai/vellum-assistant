@@ -31,11 +31,16 @@ mock.module("@/domains/chat/api/surfaces", () => ({
 }));
 
 const emittedScopes: string[] = [];
+const emittedUserIds: Array<string | null | undefined> = [];
 let emitThrows = false;
 
 mock.module("@/domains/onboarding/funnel-events", () => ({
-  emitFirstMessageScopeSelected: (scope: string): void => {
+  emitFirstMessageScopeSelected: (
+    scope: string,
+    options?: { userId?: string | null },
+  ): void => {
     emittedScopes.push(scope);
+    emittedUserIds.push(options?.userId);
     if (emitThrows) throw new Error("telemetry down");
   },
 }));
@@ -49,13 +54,16 @@ const { useChatSessionStore } = await import(
 );
 const { useStreamStore } = await import("@/domains/chat/stream-store");
 const { useTurnStore } = await import("@/domains/chat/turn-store");
+const { useAuthStore } = await import("@/stores/auth-store");
 
 beforeEach(() => {
   submitResult = { ok: true };
   submitThrows = false;
   submitCalls.length = 0;
   emittedScopes.length = 0;
+  emittedUserIds.length = 0;
   emitThrows = false;
+  useAuthStore.setState({ user: null });
   useStreamStore.getState().setStreamContext({
     assistantId: "ast-1",
     conversationId: "conv-1",
@@ -65,13 +73,35 @@ beforeEach(() => {
 });
 
 describe("handleSurfaceAction — first-run scope funnel event", () => {
-  it("emits exactly one event with the chosen scope", async () => {
+  it("emits exactly one event with the chosen scope and the auth user id", async () => {
+    useAuthStore.setState({
+      user: {
+        kind: "platform",
+        id: "user-42",
+        username: null,
+        email: null,
+        isStaff: false,
+        firstName: "",
+        lastName: "",
+      },
+    });
+
     await handleSurfaceAction("srf-1", "scope_work", {
       [FIRST_RUN_SCOPE_DATA_KEY]: "work",
     });
 
     expect(emittedScopes).toEqual(["work"]);
+    expect(emittedUserIds).toEqual(["user-42"]);
     expect(useChatSessionStore.getState().error).toBeNull();
+  });
+
+  it("still emits, with a null user id, when no user is signed in", async () => {
+    await handleSurfaceAction("srf-1", "scope_work", {
+      [FIRST_RUN_SCOPE_DATA_KEY]: "work",
+    });
+
+    expect(emittedScopes).toEqual(["work"]);
+    expect(emittedUserIds).toEqual([null]);
   });
 
   it("emits nothing for surface actions without the scope marker", async () => {

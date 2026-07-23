@@ -1,12 +1,8 @@
-import {
-  FIRST_RUN_SCOPE_DATA_KEY,
-  FIRST_RUN_SCOPE_OPTION_IDS,
-  type FirstRunScope,
-} from "./first-run-scope";
+import { FIRST_RUN_SCOPE_DATA_KEY, type FirstRunScope } from "./first-run-scope";
 
 /** Renders one choice option's wire fields (id + data payload) for the prompt. */
 function optionWire(scope: FirstRunScope): string {
-  return `id \`${FIRST_RUN_SCOPE_OPTION_IDS[scope]}\`, \`data: {"${FIRST_RUN_SCOPE_DATA_KEY}": "${scope}"}\``;
+  return `id \`scope_${scope}\`, \`data: {"${FIRST_RUN_SCOPE_DATA_KEY}": "${scope}"}\``;
 }
 
 /**
@@ -24,8 +20,9 @@ function optionWire(scope: FirstRunScope): string {
  *
  * The greeting ends with a scope question backed by a single `ui_show` choice
  * surface offering three clickable options (work / personal / both). The
- * option ids and `data` payloads come from `first-run-scope.ts` — they're the
- * wire contract a click-telemetry consumer matches on.
+ * `data` payloads come from `first-run-scope.ts` — they're the wire contract a
+ * click-telemetry consumer matches on. The option ids are presentation-only
+ * (`scope_<scope>`), derived here.
  */
 export function buildLetsChatKickoffMessage(assistantName?: string): string {
   const name = assistantName?.trim();

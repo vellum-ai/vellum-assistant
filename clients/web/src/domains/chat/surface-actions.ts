@@ -10,10 +10,10 @@ import { captureError } from "@/lib/sentry/capture-error";
 
 import {
   FIRST_RUN_SCOPE_DATA_KEY,
-  FIRST_RUN_SCOPES,
-  type FirstRunScope,
+  isFirstRunScope,
 } from "@/domains/onboarding/first-run-scope";
 import { emitFirstMessageScopeSelected } from "@/domains/onboarding/funnel-events";
+import { useAuthStore } from "@/stores/auth-store";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { patchTranscriptMessages } from "@/domains/chat/transcript/patch-transcript-messages";
 import { useStreamStore } from "@/domains/chat/stream-store";
@@ -45,9 +45,12 @@ function formatDecisionReason(reason?: string): string {
  */
 function emitFirstRunScopeTelemetry(data?: Record<string, unknown>): void {
   const scope = data?.[FIRST_RUN_SCOPE_DATA_KEY];
-  if (!(FIRST_RUN_SCOPES as readonly unknown[]).includes(scope)) return;
+  if (!isFirstRunScope(scope)) return;
   try {
-    emitFirstMessageScopeSelected(scope as FirstRunScope);
+    // Same auth source `active-chat-view.tsx` derives `authUserId` from, read
+    // non-reactively; an absent user id emits as null rather than blocking.
+    const userId = useAuthStore.getState().user?.id ?? null;
+    emitFirstMessageScopeSelected(scope, { userId });
   } catch (err) {
     captureError(err, { context: "first_run_scope_telemetry" });
   }
