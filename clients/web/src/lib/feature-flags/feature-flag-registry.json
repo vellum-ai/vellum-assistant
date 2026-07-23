@@ -117,14 +117,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "voice-triage-escalate",
-      "scope": "assistant",
-      "key": "voice-triage-escalate",
-      "label": "Voice Triage & Escalate",
-      "description": "Front each live-voice turn with a fast model that answers simple turns and escalates tricky ones to the quality model, cutting perceived latency. The same leg decides the endpoint: its first token holds a mid-thought pause, escalates, or begins the answer, replacing the separate endpoint-decider call",
-      "defaultEnabled": false
-    },
-    {
       "id": "voice-duplex-handoff",
       "scope": "assistant",
       "key": "voice-duplex-handoff",

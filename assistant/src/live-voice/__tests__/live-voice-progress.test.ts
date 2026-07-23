@@ -6,7 +6,6 @@ import type {
   VoiceTurnCallbacks,
   VoiceTurnOptions,
 } from "../../calls/voice-session-bridge.js";
-import { VOICE_TRIAGE_ESCALATE_FLAG } from "../../calls/voice-triage-escalate.js";
 import { clearFeatureFlagOverridesCache } from "../../config/assistant-feature-flags.js";
 import type {
   LiveVoiceFrontModelConfig,
@@ -257,7 +256,6 @@ describe("LiveVoiceSession progress narration", () => {
   test("the escalated leg re-arms idle narration into post-bridge dead air", async () => {
     setOverridesForTesting({
       "voice-mode": true,
-      [VOICE_TRIAGE_ESCALATE_FLAG]: true,
     });
     try {
       const generateProgressText = mock(
