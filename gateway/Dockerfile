@@ -67,6 +67,9 @@ RUN chmod +x \
     /usr/local/bin/vellum-block-volume-mount.sh \
     /usr/local/bin/vellum-block-volume-resize.sh
 
+# Stable launcher path consumed by vembda's pod template.
+COPY --chmod=755 gateway/docker-entrypoint.sh /usr/local/bin/gateway-entrypoint.sh
+
 USER gateway
 
 # RISK: gateway moved from /app to /app/gateway. The k8s command is
@@ -78,4 +81,4 @@ EXPOSE 7830
 
 ENV GATEWAY_PORT=7830
 
-CMD ["bun", "--smol", "run", "src/index.ts"]
+CMD ["/usr/local/bin/gateway-entrypoint.sh"]
