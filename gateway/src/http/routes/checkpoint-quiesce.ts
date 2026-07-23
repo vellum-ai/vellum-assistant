@@ -72,19 +72,31 @@ export async function handleCheckpointQuiesce(
   req: Request,
   deps: CheckpointQuiesceDeps,
 ): Promise<Response> {
+  // Every response (including rejections) sends Connection: close so the
+  // request that initiates the capture can't itself linger as an idle
+  // keep-alive socket in the epoll set the checkpoint is about to freeze.
+  const withConnectionClose = (res: Response): Response => {
+    res.headers.set("connection", "close");
+    return res;
+  };
+
   // Managed-platform pods only — on self-hosted deployments the gateway port
   // can be publicly reachable and there is no checkpoint control plane, so
   // the route does not exist.
   if (!(deps.isPlatform ?? isPlatformDeployment())) {
-    return errorResponse("NOT_FOUND", "not found", 404);
+    return withConnectionClose(errorResponse("NOT_FOUND", "not found", 404));
   }
   // In-cluster control-plane only: never reachable through the public tunnel
   // or the self-hosted edge.
   if (req.headers.get(VELAY_FORWARDED_HEADER)) {
-    return errorResponse("FORBIDDEN", "endpoint is cluster-internal", 403);
+    return withConnectionClose(
+      errorResponse("FORBIDDEN", "endpoint is cluster-internal", 403),
+    );
   }
   if (requestArrivedViaEdgeProxy(req)) {
-    return errorResponse("FORBIDDEN", "endpoint is cluster-internal", 403);
+    return withConnectionClose(
+      errorResponse("FORBIDDEN", "endpoint is cluster-internal", 403),
+    );
   }
 
   const callAssistant = deps.callAssistant ?? ipcCallAssistant;
@@ -129,5 +141,5 @@ export async function handleCheckpointQuiesce(
     daemon,
   };
   log.info(summary, "Pre-checkpoint quiesce complete");
-  return Response.json(summary);
+  return withConnectionClose(Response.json(summary));
 }

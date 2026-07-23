@@ -206,6 +206,15 @@ export function createRuntimeProxyHandler(config: GatewayConfig) {
       "Proxy request completed",
     );
 
+    // SSE connections are dedicated to their stream: close the client-facing
+    // TCP socket when the stream ends. stripHopByHop removed the daemon's
+    // Connection header, and without this the gateway (idleTimeout: 0) would
+    // park the socket as idle keep-alive — a dead-on-restore epoll entry if a
+    // pod checkpoint follows a pre-checkpoint quiesce.
+    if (resHeaders.get("content-type")?.includes("text/event-stream")) {
+      resHeaders.set("connection", "close");
+    }
+
     return new Response(response.body, {
       status: response.status,
       headers: resHeaders,
