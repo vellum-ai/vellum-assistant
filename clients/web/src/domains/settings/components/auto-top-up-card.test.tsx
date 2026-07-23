@@ -90,6 +90,14 @@ const ENABLED_WITH_CARD: AutoTopUpConfigResponse = {
   payment_method_last4: "4242",
 };
 
+const DISABLED_WITH_CARD: AutoTopUpConfigResponse = {
+  ...DISABLED_CONFIG,
+  enabled: false,
+  has_payment_method: true,
+  payment_method_brand: "visa",
+  payment_method_last4: "4242",
+};
+
 beforeEach(() => {
   removeCalls = [];
   retrieveResponse = { ...DISABLED_CONFIG };
@@ -247,6 +255,71 @@ describe("AutoTopUpCard remove card", () => {
         throw new Error("payment-method row still present");
       }
     });
+  });
+});
+
+describe("AutoTopUpCard disabled with a saved card", () => {
+  test("renders the payment-method row (Update/Remove) while Extra Usage is off", () => {
+    const html = renderCard(DISABLED_WITH_CARD);
+
+    // The saved card and its controls stay reachable even though Extra Usage
+    // is off, so the user can still update or remove the card.
+    expect(html).toContain("payment-method-row");
+    expect(html).toContain("payment-method-update");
+    expect(html).toContain("Update Card");
+    expect(html).toContain("payment-method-remove");
+    expect(html).toContain("Remove");
+    // The enabled-only summary chips stay hidden while off.
+    expect(html).not.toContain("auto-top-up-summary");
+  });
+
+  test("confirming Remove from the disabled state calls the endpoint and clears the card", async () => {
+    retrieveResponse = { ...DISABLED_WITH_CARD };
+    const { container, getByLabelText } = render(
+      <QueryClientProvider client={makeClient(DISABLED_WITH_CARD)}>
+        <AutoTopUpCard />
+      </QueryClientProvider>,
+    );
+
+    // Precondition: Extra Usage is off but the card row is on file.
+    expect(getByLabelText("Enable Extra Usage").getAttribute("aria-checked")).toBe(
+      "false",
+    );
+    expect(
+      container.querySelector('[data-testid="payment-method-row"]'),
+    ).not.toBeNull();
+
+    fireEvent.click(
+      container.querySelector('[data-testid="payment-method-remove"]')!,
+    );
+    const confirmButton = await waitFor(() => {
+      const btn = document.querySelector<HTMLButtonElement>(
+        "[data-confirm-dialog-confirm]",
+      );
+      if (!btn) {
+        throw new Error("confirm dialog not open");
+      }
+      return btn;
+    });
+    expect(removeCalls.length).toBe(0);
+
+    fireEvent.click(confirmButton);
+
+    await waitFor(() => {
+      if (removeCalls.length === 0) {
+        throw new Error("remove endpoint not called");
+      }
+    });
+
+    // The card row drops once the PM is cleared.
+    await waitFor(() => {
+      if (container.querySelector('[data-testid="payment-method-row"]')) {
+        throw new Error("payment-method row still present");
+      }
+    });
+    expect(
+      container.querySelector('[data-testid="auto-top-up-remove-error"]'),
+    ).toBeNull();
   });
 });
 

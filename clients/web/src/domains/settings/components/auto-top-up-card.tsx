@@ -467,7 +467,7 @@ export function AutoTopUpCard() {
         />
       </div>
 
-      {enabled && config.has_payment_method && (
+      {config.has_payment_method && (
         <div className="mt-3">
           <PaymentMethodRow
             brand={config.payment_method_brand}
