@@ -47,6 +47,8 @@ const log = getLogger("slack-socket-mode");
 
 const BASE_BACKOFF_MS = 1_000;
 const MAX_BACKOFF_MS = 30_000;
+// Reconnect holdoff after a pre-checkpoint quiesce (see prepareForCheckpoint).
+const CHECKPOINT_RECONNECT_HOLDOFF_MS = 60_000;
 const DEDUP_TTL_MS = 24 * 60 * 60 * 1_000;
 const DEDUP_CLEANUP_INTERVAL_MS = 60 * 60 * 1_000;
 const ACTIVE_THREAD_TTL_MS = 24 * 60 * 60 * 1_000;
@@ -141,6 +143,9 @@ export class SlackSocketModeClient {
   private running = false;
   private reconnectAttempt = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  // Epoch-ms until which reconnects are deferred after a pre-checkpoint
+  // quiesce. 0 when no holdoff is active.
+  private reconnectHoldoffUntil = 0;
   private dedupCleanupTimer: ReturnType<typeof setInterval> | null = null;
   private store: SlackStore;
   private emitQueues: Map<string, Promise<void>> | undefined = new Map();
@@ -314,6 +319,42 @@ export class SlackSocketModeClient {
   }
 
   /**
+   * Close the socket ahead of a gVisor pod checkpoint so the snapshot's epoll
+   * set holds no external TCP connection (dead-on-restore sockets crash Bun's
+   * event loop on resume). Stays `running`; reconnect is held off for
+   * {@link CHECKPOINT_RECONNECT_HOLDOFF_MS} — the post-restore wake detector's
+   * `forceReconnect()` (which clears the holdoff) or the holdoff expiry
+   * restores the connection.
+   *
+   * Returns true when an active socket was closed.
+   */
+  prepareForCheckpoint(): boolean {
+    if (!this.running) return false;
+    this.reconnectHoldoffUntil = Date.now() + CHECKPOINT_RECONNECT_HOLDOFF_MS;
+    this.reconnectAttempt = 0;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    const ws = this.ws;
+    if (!ws) {
+      // Not connected — re-arm the reconnect loop so the holdoff still ends
+      // in a connect attempt.
+      this.scheduleReconnect();
+      return false;
+    }
+    log.info("Closing Slack Socket Mode connection for pre-checkpoint quiesce");
+    this.ws = null;
+    try {
+      ws.close(1000, "pre-checkpoint quiesce");
+    } catch {
+      // ignore close errors — the socket is being abandoned either way
+    }
+    this.scheduleReconnect();
+    return true;
+  }
+
+  /**
    * Force-close the current WebSocket and reconnect immediately.
    * Used by the sleep/wake detector to recover from half-open connections
    * that survive system sleep.
@@ -327,6 +368,7 @@ export class SlackSocketModeClient {
 
     log.info("Force-reconnecting Slack Socket Mode (sleep/wake recovery)");
 
+    this.reconnectHoldoffUntil = 0;
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -1651,7 +1693,10 @@ export class SlackSocketModeClient {
     );
     // Add jitter: 0-50% of backoff
     const jitter = Math.random() * backoff * 0.5;
-    const delay = Math.round(backoff + jitter);
+    // A pre-checkpoint holdoff overrides the backoff so a reconnect can't
+    // race the checkpoint and recreate a doomed socket.
+    const holdoffRemaining = this.reconnectHoldoffUntil - Date.now();
+    const delay = Math.max(Math.round(backoff + jitter), holdoffRemaining);
 
     log.info(
       { attempt: this.reconnectAttempt, delayMs: delay },

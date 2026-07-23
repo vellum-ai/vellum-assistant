@@ -32,6 +32,11 @@ const RECONNECT_JITTER_RATIO = 0.5;
 const VELAY_POLICY_CLOSE_CODE = 4008;
 const HEARTBEAT_INTERVAL_MS = 30_000;
 const HEARTBEAT_READ_TIMEOUT_MS = 60_000;
+// How long to hold off reconnecting after a pre-checkpoint quiesce. The
+// checkpoint lands within seconds; if it never does, the normal reconnect
+// path resumes once this window expires. `resumeAfterWake()` (fired by the
+// post-restore wake detector) short-circuits the wait.
+const CHECKPOINT_RECONNECT_HOLDOFF_MS = 60_000;
 
 export type WebSocketConstructorWithOptions = {
   new (
@@ -97,6 +102,9 @@ export class VelayTunnelClient {
   // Last observed value of `ingress.enabled === false`, so a config change can
   // detect a disabled → enabled transition and wake a waiting reconnect.
   private lastPublicIngressDisabled = false;
+  // Epoch-ms until which reconnects are deferred after a pre-checkpoint
+  // quiesce. 0 when no holdoff is active.
+  private reconnectHoldoffUntil = 0;
 
   constructor(private readonly options: VelayTunnelClientOptions) {
     this.webSocketConstructor =
@@ -160,6 +168,56 @@ export class VelayTunnelClient {
     }
 
     this.connectForCredentialRefresh(reason);
+  }
+
+  /**
+   * Close the tunnel socket ahead of a gVisor pod checkpoint so the snapshot's
+   * epoll set holds no external TCP connection (dead-on-restore sockets crash
+   * Bun's event loop on resume). Reconnect is held off for
+   * {@link CHECKPOINT_RECONNECT_HOLDOFF_MS}; the holdoff expiry (capture
+   * failed / pod kept running) or `resumeAfterWake()` (post-restore wake
+   * detection) re-establishes the tunnel via the normal reconnect path.
+   *
+   * Returns true when an active tunnel socket was closed.
+   */
+  prepareForCheckpoint(): boolean {
+    if (!this.running) return false;
+    this.reconnectHoldoffUntil = Date.now() + CHECKPOINT_RECONNECT_HOLDOFF_MS;
+    this.reconnectAttempt = 0;
+    if (this.reconnectTimer) {
+      this.timerApi.clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    const ws = this.ws;
+    if (!ws) {
+      // Not connected — re-arm the reconnect loop so the holdoff still ends
+      // in a connect attempt.
+      this.scheduleReconnect();
+      return false;
+    }
+    log.info("Closing Velay tunnel for pre-checkpoint quiesce");
+    this.disconnectActiveWebSocket(ws, 1000, "pre-checkpoint quiesce");
+    return true;
+  }
+
+  /**
+   * Cancel a pre-checkpoint reconnect holdoff and reconnect immediately when
+   * disconnected. Called on system-wake detection (which also fires after a
+   * pod snapshot restore). No-op while connected or when never started.
+   */
+  resumeAfterWake(): void {
+    this.reconnectHoldoffUntil = 0;
+    if (!this.running || this.ws || this.connecting) return;
+    this.reconnectAttempt = 0;
+    if (this.reconnectTimer) {
+      this.timerApi.clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    void this.connect().catch((err) => {
+      this.connecting = false;
+      log.error({ err }, "Velay reconnect after wake failed");
+      this.scheduleReconnect();
+    });
   }
 
   start(): void {
@@ -576,7 +634,10 @@ export class VelayTunnelClient {
       this.maxReconnectDelayMs,
     );
     const jitter = backoff * this.reconnectJitterRatio * this.random();
-    const delay = Math.round(backoff + jitter);
+    // A pre-checkpoint holdoff overrides the backoff so a reconnect can't
+    // race the checkpoint and recreate a doomed socket.
+    const holdoffRemaining = this.reconnectHoldoffUntil - Date.now();
+    const delay = Math.max(Math.round(backoff + jitter), holdoffRemaining);
     this.reconnectAttempt++;
 
     this.reconnectTimer = this.timerApi.setTimeout(() => {

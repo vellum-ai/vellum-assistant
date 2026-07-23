@@ -86,6 +86,7 @@ import { createVercelControlPlaneProxyHandler } from "./http/routes/vercel-contr
 import { createContactsControlPlaneProxyHandler } from "./http/routes/contacts-control-plane-proxy.js";
 import { buildContactsControlPlaneRoutes } from "./http/routes/contacts-control-plane-route-table.js";
 import { handleContactPromptSubmit } from "./http/routes/contact-prompt.js";
+import { handleCheckpointQuiesce } from "./http/routes/checkpoint-quiesce.js";
 import {
   handleListDevices,
   handleRevokeDevice,
@@ -1702,6 +1703,20 @@ async function main() {
     handler: (req) => handleCreateToken(req, server, config.trustProxy),
   });
 
+  // ── Pre-checkpoint socket quiesce (platform control plane) ──
+  // vembda calls this right before triggering a gVisor pod snapshot so no
+  // external TCP connection is captured (dead-on-restore sockets crash Bun).
+  routes.push({
+    path: "/internal/prepare-for-checkpoint",
+    method: "POST",
+    auth: "custom",
+    handler: (req) =>
+      handleCheckpointQuiesce(req, {
+        velayTunnelClient,
+        getSlackSocketClient: () => slackSocketClient,
+      }),
+  });
+
   // Runtime proxy catch-all — must be last so specific routes are checked first.
   routes.push({
     path: /^\//, // match everything
@@ -2702,6 +2717,10 @@ async function main() {
 
     // Force-reconnect Slack WebSocket (may be half-open after sleep)
     slackSocketClient?.forceReconnect();
+
+    // Reconnect the Velay tunnel if it was closed by a pre-checkpoint
+    // quiesce (pod snapshot restore fires this wake path) or died in sleep.
+    velayTunnelClient?.resumeAfterWake();
 
     // Invalidate caches so next read picks up any config changes (e.g. new ngrok URL)
     configFileCache.invalidate();

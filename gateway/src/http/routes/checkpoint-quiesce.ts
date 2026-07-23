@@ -1,0 +1,102 @@
+/**
+ * Pre-checkpoint socket quiesce — `POST /internal/prepare-for-checkpoint`.
+ *
+ * Called by the platform control plane (vembda) right before it triggers a
+ * gVisor pod checkpoint (GKE pod snapshot). A checkpoint captures each
+ * process's epoll set as-is; TCP connections whose remote peer lives outside
+ * the sandbox (the Velay tunnel, the Slack Socket Mode connection, SSE
+ * streams held by the daemon) are dead by definition after a restore, and
+ * readiness events on them crash Bun's event loop (uSockets null-deref in
+ * `us_internal_dispatch_ready_poll`). This handler closes every external
+ * long-lived socket the pod owns so the snapshot holds none:
+ *
+ *  1. asks the daemon (over the restore-safe in-pod IPC socket) to close its
+ *     external connections, and
+ *  2. closes the gateway's own — the Velay tunnel and the Slack socket —
+ *     with a short reconnect holdoff so the reconnect can't race the
+ *     checkpoint.
+ *
+ * After the pod resumes, the existing wake detection (epoch-gap) and the
+ * holdoff expiry re-establish every connection through the normal reconnect
+ * paths. The call is strictly best-effort on the vembda side: any failure
+ * here only means the capture proceeds unquiesced.
+ *
+ * Not authenticated: the route is only reachable from inside the cluster
+ * (the Velay allowlist excludes it from the public tunnel, and the handler
+ * additionally rejects tunnel-bridged and edge-proxied requests). Its effect
+ * is a transient, self-healing disconnect.
+ */
+
+import {
+  ipcCallAssistant,
+  IpcHandlerError,
+} from "../../ipc/assistant-client.js";
+import { getLogger } from "../../logger.js";
+import { VELAY_FORWARDED_HEADER } from "../../velay/bridge-utils.js";
+import { requestArrivedViaEdgeProxy } from "../edge-forwarded-header.js";
+import { errorResponse } from "../loopback-guard.js";
+
+const log = getLogger("checkpoint-quiesce");
+
+/** IPC method registered by the daemon (see assistant checkpoint-ipc-routes). */
+export const CHECKPOINT_PREPARE_IPC_METHOD = "/checkpoint/prepare";
+
+const DAEMON_QUIESCE_TIMEOUT_MS = 3_000;
+
+export type CheckpointQuiesceDeps = {
+  velayTunnelClient: { prepareForCheckpoint(): boolean } | undefined;
+  getSlackSocketClient: () => { prepareForCheckpoint(): boolean } | null;
+  /** Injectable for tests; defaults to the real IPC client. */
+  callAssistant?: typeof ipcCallAssistant;
+};
+
+export async function handleCheckpointQuiesce(
+  req: Request,
+  deps: CheckpointQuiesceDeps,
+): Promise<Response> {
+  // In-cluster control-plane only: never reachable through the public tunnel
+  // or the self-hosted edge.
+  if (req.headers.get(VELAY_FORWARDED_HEADER)) {
+    return errorResponse("FORBIDDEN", "endpoint is cluster-internal", 403);
+  }
+  if (requestArrivedViaEdgeProxy(req)) {
+    return errorResponse("FORBIDDEN", "endpoint is cluster-internal", 403);
+  }
+
+  const callAssistant = deps.callAssistant ?? ipcCallAssistant;
+
+  // Daemon first — its quiesce is independent of the gateway's own sockets,
+  // and a daemon failure must not stop the gateway from closing its own.
+  let daemon: Record<string, unknown>;
+  try {
+    daemon = (await callAssistant(
+      CHECKPOINT_PREPARE_IPC_METHOD,
+      {},
+      { timeoutMs: DAEMON_QUIESCE_TIMEOUT_MS },
+    )) as Record<string, unknown>;
+  } catch (err) {
+    // Tolerated: old daemon images without the method (IpcHandlerError),
+    // IPC transport failures, timeouts. The capture proceeds either way.
+    log.warn(
+      { err, tolerated: err instanceof IpcHandlerError },
+      "Daemon pre-checkpoint quiesce failed",
+    );
+    daemon = {
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+
+  const velayTunnelClosed =
+    deps.velayTunnelClient?.prepareForCheckpoint() ?? false;
+  const slackSocketClosed =
+    deps.getSlackSocketClient()?.prepareForCheckpoint() ?? false;
+
+  const summary = {
+    ok: true,
+    gateway: { velayTunnelClosed, slackSocketClosed },
+    daemon,
+  };
+  log.info(summary, "Pre-checkpoint quiesce complete");
+  return Response.json(summary);
+}
