@@ -263,6 +263,12 @@ export class VelayTunnelClient {
 
   private async connect(): Promise<void> {
     if (!this.running || this.connecting) return;
+    if (Date.now() < this.reconnectHoldoffUntil) {
+      // Pre-checkpoint holdoff: defer any connect attempt (credential
+      // refresh, config invalidation, early timer) until it expires.
+      this.scheduleReconnect();
+      return;
+    }
     this.connecting = true;
 
     if (this.isPublicIngressDisabled()) {

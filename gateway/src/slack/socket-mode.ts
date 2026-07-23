@@ -647,6 +647,12 @@ export class SlackSocketModeClient {
   private async connect(): Promise<void> {
     if (!this.running) return;
     if (this.connecting) return;
+    if (Date.now() < this.reconnectHoldoffUntil) {
+      // Pre-checkpoint holdoff: defer any connect attempt until it expires
+      // (forceReconnect clears the holdoff before connecting).
+      this.scheduleReconnect();
+      return;
+    }
     this.connecting = true;
 
     let wsUrl: string;
