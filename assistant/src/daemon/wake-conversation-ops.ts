@@ -273,11 +273,19 @@ export async function persistWakeTailMessage(
  * for identification and skips indexing (the body may carry untrusted command
  * output). The `backgroundEventSource` stamp lets clients hide this row from the
  * rendered transcript — the user-facing wake card carries the status instead.
+ *
+ * `interactive` records the permission mode the woken turn ran under (derived
+ * from the wake's `clientless` option): most background events (scheduled
+ * runs, backgrounded-tool completions, remote wakes) run interactive, while
+ * clientless/headless wakes (interrupted-turn recovery, local IPC wakes) run
+ * non-interactive. Retrying the anchor reuses this so the re-run reproduces the
+ * original turn's approval semantics.
  */
 export async function persistWakeTriggerMessage(
   conversation: Conversation,
   message: Message,
   source: string,
+  interactive: boolean,
   completion?: CompletedBackgroundTool,
 ): Promise<void> {
   const turnChannelCtx = conversation.getTurnChannelContext();
@@ -292,6 +300,7 @@ export async function persistWakeTriggerMessage(
       turnInterfaceCtx?.assistantMessageInterface ?? "web",
     kind: "background-event",
     backgroundEventSource: source,
+    backgroundEventInteractive: interactive,
     automated: true,
     ...(completion ? { backgroundToolCompletion: completion } : {}),
   };

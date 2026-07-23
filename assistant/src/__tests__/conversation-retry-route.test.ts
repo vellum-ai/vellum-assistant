@@ -316,7 +316,10 @@ describe("POST /v1/conversations/:id/retry", () => {
     expect(typeof (options as { onEvent?: unknown }).onEvent).toBe("function");
   });
 
-  test("background-event anchor re-runs hidden AND non-interactive", async () => {
+  test("legacy background-event anchor (no recorded mode) re-runs hidden AND non-interactive", async () => {
+    // Anchors persisted before `backgroundEventInteractive` existed carry only
+    // `backgroundEventSource`. Fall back to non-interactive so a retried
+    // scheduled turn doesn't stall on approvals the original never asked for.
     discardResult = {
       anchor: anchorRow({
         metadata: JSON.stringify({ backgroundEventSource: "schedule" }),
@@ -335,8 +338,72 @@ describe("POST /v1/conversations/:id/retry", () => {
     expect(res.status).toBe(202);
     await settle();
 
-    // A scheduled/wake anchor was dispatched non-interactively, so the retry
-    // reproduces that background permission mode instead of a foreground chat.
+    const [, , options] = ctx.runAgentLoop.mock.calls[0];
+    expect(options).toMatchObject({
+      isHiddenPrompt: true,
+      isInteractive: false,
+    });
+  });
+
+  test("background-event anchor recorded interactive re-runs hidden but interactive", async () => {
+    // A scheduled/backgrounded-tool/remote wake ran interactive and stamped
+    // `backgroundEventInteractive: true`; the retry reproduces that mode so it
+    // keeps the approval prompts the original turn had (rather than the legacy
+    // assumption that every background event ran headless).
+    discardResult = {
+      anchor: anchorRow({
+        metadata: JSON.stringify({
+          backgroundEventSource: "schedule",
+          backgroundEventInteractive: true,
+        }),
+      }),
+      deletedMessageIds: ["assistant-msg-1"],
+    };
+    const ctx = makeConversation();
+    activeConversation = ctx.conversation;
+
+    const res = await callHandler(
+      retryHandler,
+      makeRequest(),
+      { id: "conv-retry-test" },
+      202,
+    );
+    expect(res.status).toBe(202);
+    await settle();
+
+    const [, , options] = ctx.runAgentLoop.mock.calls[0];
+    expect(options).toMatchObject({
+      isHiddenPrompt: true,
+      isInteractive: true,
+    });
+  });
+
+  test("background-event anchor recorded non-interactive re-runs hidden AND non-interactive", async () => {
+    // A clientless/headless wake (interrupted-turn recovery, local IPC wake)
+    // stamped `backgroundEventInteractive: false`; the retry reproduces the
+    // non-interactive mode so side-effecting tools resolve against trust rules
+    // instead of blocking on an absent client.
+    discardResult = {
+      anchor: anchorRow({
+        metadata: JSON.stringify({
+          backgroundEventSource: "interrupted-turn",
+          backgroundEventInteractive: false,
+        }),
+      }),
+      deletedMessageIds: ["assistant-msg-1"],
+    };
+    const ctx = makeConversation();
+    activeConversation = ctx.conversation;
+
+    const res = await callHandler(
+      retryHandler,
+      makeRequest(),
+      { id: "conv-retry-test" },
+      202,
+    );
+    expect(res.status).toBe(202);
+    await settle();
+
     const [, , options] = ctx.runAgentLoop.mock.calls[0];
     expect(options).toMatchObject({
       isHiddenPrompt: true,
