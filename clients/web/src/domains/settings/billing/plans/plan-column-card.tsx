@@ -16,7 +16,8 @@ export interface PlanColumnCardProps {
   /** CTA label for a selectable tier; ignored when `isCurrent`. */
   ctaLabel: string;
   features: readonly string[];
-  mostPopular?: boolean;
+  /** Renders the "Recommended" chip — suppressed on the user's current plan. */
+  recommended?: boolean;
   /**
    * The featured tier renders as the white/light card; the rest stay dark. The
    * value drives a nested `data-theme` scope so the design tokens inside the
@@ -47,7 +48,7 @@ export function PlanColumnCard({
   priceCaption,
   ctaLabel,
   features,
-  mostPopular = false,
+  recommended = false,
   tone = "dark",
   isCurrent,
   intent = "upgrade",
@@ -67,9 +68,9 @@ export function PlanColumnCard({
           <span className="text-[20px] font-medium text-[var(--content-emphasised)]">
             {name}
           </span>
-          {mostPopular ? (
+          {recommended && !isCurrent ? (
             <Tag className="bg-[var(--feed-digest-weak)] text-[12px] font-semibold uppercase text-[var(--credits-accent)]">
-              Most Popular
+              Recommended
             </Tag>
           ) : null}
         </div>

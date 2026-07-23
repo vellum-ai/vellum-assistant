@@ -490,8 +490,8 @@ export function PlansPage() {
                     : (copy?.cta ?? pkg.name)
                 }
                 features={packageFeatures(pkg, copy?.extraFeatures ?? [])}
-                mostPopular={copy?.mostPopular}
-                tone={copy?.mostPopular ? "light" : "dark"}
+                recommended={copy?.recommended}
+                tone={copy?.recommended ? "light" : "dark"}
                 isCurrent={currentTierKey === pkg.key}
                 intent={relation}
                 pending={pending || changePackagePending}

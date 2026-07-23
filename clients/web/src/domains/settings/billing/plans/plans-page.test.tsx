@@ -339,11 +339,12 @@ describe("PlansPage — full catalog render", () => {
     expect(html).toContain("$200/month");
   });
 
-  test("shows the Most Popular badge exactly once", () => {
+  test("shows the Recommended badge exactly once", () => {
     const html = renderStatic(freeSubscription(), fullCatalog());
-    // The badge text is "Most Popular"; the all-caps look is CSS `uppercase`,
+    // The badge text is "Recommended"; the all-caps look is CSS `uppercase`,
     // which renderToStaticMarkup does not apply.
-    expect(count(html, /Most Popular/g)).toBe(1);
+    expect(count(html, /Recommended/g)).toBe(1);
+    expect(html).not.toContain("Most Popular");
   });
 
   test("derives feature rows from the fixture (storage, credits, machine)", () => {
@@ -412,6 +413,13 @@ describe("PlansPage — current-plan state", () => {
     // which a static first-paint render (no effects) never loads.
     expect(count(html, /disabled=""/g)).toBe(2);
   });
+
+  test("pro subscriber on Mighty: no Recommended badge, but Mighty keeps the light card", () => {
+    const html = renderStatic(proMightySubscription(), fullCatalog());
+    expect(html).not.toContain("Recommended");
+    expect(count(html, /data-theme="light"/g)).toBe(1);
+    expect(html).toContain("Current Plan");
+  });
 });
 
 describe("PlansPage — empty catalog (pro-packages flag off)", () => {
@@ -428,9 +436,10 @@ describe("PlansPage — empty catalog (pro-packages flag off)", () => {
 });
 
 describe("getPlanTierCopy", () => {
-  test("returns tier copy including the most-popular flag and CTA", () => {
+  test("returns tier copy including the recommended flag and CTA", () => {
     expect(getPlanTierCopy("mighty")?.cta).toBe("Power Up");
-    expect(getPlanTierCopy("super")?.mostPopular).toBe(true);
+    expect(getPlanTierCopy("mighty")?.recommended).toBe(true);
+    expect(getPlanTierCopy("super")?.recommended).toBeFalsy();
     expect(getPlanTierCopy("ultra")?.cta).toBe("Unleash Ultra");
   });
 
