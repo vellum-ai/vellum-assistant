@@ -106,6 +106,9 @@ const GLOBAL_STREAM_EVENT_TYPE_NAMES = [
   // the desktop client, not a conversation.
   "host_ui_snapshot_request",
   "host_ui_snapshot_cancel",
+  // host_browser_cancel carries no `conversationId` (only a requestId), so it
+  // must be gated as global; the other host-proxy frames carry one.
+  "host_browser_cancel",
   // Settings/config broadcasts (client-setting push, config.json change, sounds
   // change) carry no `conversationId` — they're app-wide, not conversation-scoped.
   "client_settings_update",

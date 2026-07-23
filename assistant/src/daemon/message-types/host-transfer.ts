@@ -1,45 +1,12 @@
-// Host transfer proxy types.
-// Enables bidirectional file transfer between sandbox and host machine
-// when running as a managed assistant.
+// Host transfer proxy events.
+//
+// Server→client events are single-sourced from their canonical `api/events`
+// wire schemas; this file only composes them into the domain union consumed by
+// `message-protocol.ts`.
 
-// === Server → Client ===
-
-export interface HostTransferToHostRequest {
-  type: "host_transfer_request";
-  requestId: string;
-  conversationId: string;
-  targetClientId?: string;
-  direction: "to_host";
-  transferId: string;
-  destPath: string;
-  sizeBytes: number;
-  sha256: string;
-  overwrite: boolean;
-}
-
-export interface HostTransferToSandboxRequest {
-  type: "host_transfer_request";
-  requestId: string;
-  conversationId: string;
-  targetClientId?: string;
-  direction: "to_sandbox";
-  transferId: string;
-  sourcePath: string;
-}
-
-export type HostTransferRequest =
-  | HostTransferToHostRequest
-  | HostTransferToSandboxRequest;
-
-export interface HostTransferCancelRequest {
-  type: "host_transfer_cancel";
-  requestId: string;
-  conversationId: string;
-  targetClientId?: string;
-}
-
-// --- Domain-level union aliases (consumed by the barrel file) ---
+import type { HostTransferCancelEvent } from "../../api/events/host-transfer.js";
+import type { HostTransferRequestEvent } from "../../api/events/host-transfer.js";
 
 export type _HostTransferServerMessages =
-  | HostTransferRequest
-  | HostTransferCancelRequest;
+  | HostTransferRequestEvent
+  | HostTransferCancelEvent;
