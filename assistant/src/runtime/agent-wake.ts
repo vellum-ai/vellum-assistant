@@ -860,6 +860,12 @@ export async function wakeAgentForOpportunity(
           conversation,
           triggerMessage,
           source,
+          // Forward this wake's `clientless` option; `persistWakeTriggerMessage`
+          // derives the recorded interactivity from it plus the conversation's
+          // client state, matching the mode the loop resolves for the dispatch
+          // below (`clientless` pins `hasNoClient` → non-interactive; see the
+          // `hasNoClient` pin before `agentLoop.run`). A later retry replays it.
+          opts.clientless ?? false,
           opts.backgroundToolCompletion,
         );
       } catch (err) {

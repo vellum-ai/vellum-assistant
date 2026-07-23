@@ -470,6 +470,41 @@ export function useStreamEventHandler(
         // (e.g. user-prompt-submit). No web UI renders them yet.
         case "hook_event":
           break;
+        // Conversation-scoped signals the web chat view does not render:
+        // streaming tool-input deltas, steer acks, authoritative confirmation
+        // state transitions, and inference-profile override changes.
+        case "tool_input_delta":
+        case "message_steered":
+        case "confirmation_state_changed":
+        case "conversation_inference_profile_updated":
+          break;
+        // Daemon status / model-catalog / compaction / schedule-created signals.
+        // The web chat handler is a no-op — these are surfaced elsewhere or not
+        // rendered by the web today.
+        case "assistant_status":
+        case "model_info":
+        case "context_compacted":
+        case "schedule_conversation_created":
+          break;
+        // Host-proxy instructions targeting the desktop client / chrome
+        // extension. The web chat handler is a no-op — host-proxy frames are
+        // delivered to their capability holder by the hub, not through the
+        // conversation stream.
+        case "host_bash_request":
+        case "host_bash_cancel":
+        case "host_cu_request":
+        case "host_cu_cancel":
+        case "host_ui_snapshot_request":
+        case "host_ui_snapshot_cancel":
+        case "host_app_control_request":
+        case "host_app_control_cancel":
+        case "host_browser_request":
+        case "host_browser_cancel":
+        case "host_file_request":
+        case "host_file_cancel":
+        case "host_transfer_request":
+        case "host_transfer_cancel":
+          break;
         // Service-group upgrade lifecycle broadcasts announcing a daemon
         // restart. The chat handler is a no-op; no web UI renders them yet.
         case "service_group_update_starting":

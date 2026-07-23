@@ -95,6 +95,7 @@ const CREDIT_TIERS: CreditTier[] = [
     credits_usd: 25,
     price_cents: 2500,
     lookup_key: "credits_25_lk",
+    legacy: false,
   },
   {
     tier: "credits_50",
@@ -102,6 +103,7 @@ const CREDIT_TIERS: CreditTier[] = [
     credits_usd: 50,
     price_cents: 5000,
     lookup_key: "credits_50_lk",
+    legacy: false,
   },
 ];
 

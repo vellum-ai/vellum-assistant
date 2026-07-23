@@ -37,6 +37,15 @@
       "values": ["control", "variant-a", "personal-page"]
     },
     {
+      "id": "experiment-billing-cta-2026-07-23",
+      "scope": "client",
+      "key": "experiment-billing-cta-2026-07-23",
+      "label": "Experiment: Billing CTA 2026-07-23",
+      "description": "Credit paywall CTA experiment. control = single Add Credits CTA for everyone (opens Add Credits modal). upgrade-cta = FREE users (plan_id base) get a single Upgrade CTA (View Plans takeover) instead; PAID users still get Add Credits.",
+      "defaultEnabled": "control",
+      "values": ["control", "upgrade-cta"]
+    },
+    {
       "id": "local-docker-enabled",
       "scope": "client",
       "key": "local-docker-enabled",

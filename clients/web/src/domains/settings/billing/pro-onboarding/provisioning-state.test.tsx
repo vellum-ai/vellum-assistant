@@ -14,6 +14,9 @@ import * as motionReact from "motion/react";
 import { organizationsBillingPlansRetrieveQueryKey } from "@/generated/api/@tanstack/react-query.gen";
 import type { PlanListResponse } from "@/generated/api/types.gen";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
+import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
+import { SURFACE_GROUND } from "@/utils/avatar-tone";
 
 import type { ProvisioningStateProps } from "./provisioning-state";
 
@@ -22,13 +25,19 @@ import type { ProvisioningStateProps } from "./provisioning-state";
 let avatarQueryId: string | null | undefined;
 /** Flipped per-test to hold the avatar query in flight. */
 let avatarLoading = false;
+/** The avatar the mocked query resolves to; null components keep the neutral
+ *  fallback the phase/mode cases render against. */
+let avatarComponents: CharacterComponents | null = null;
+let avatarTraits: CharacterTraits | null = null;
+/** An uploaded avatar image, which the takeover also blurs behind its content. */
+let avatarCustomImageUrl: string | null = null;
 mock.module("@/hooks/use-assistant-avatar", () => ({
   useAssistantAvatar: (assistantId: string | null) => {
     avatarQueryId = assistantId;
     return {
-      components: null,
-      traits: null,
-      customImageUrl: null,
+      components: avatarComponents,
+      traits: avatarTraits,
+      customImageUrl: avatarCustomImageUrl,
       isLoading: avatarLoading,
       invalidate: () => {},
     };
@@ -44,11 +53,15 @@ mock.module("motion/react", () => ({
   useReducedMotion: () => reducedMotion,
 }));
 
-const { ProvisioningState } = await import("./provisioning-state");
+const { ProvisioningState, TAKEOVER_SURFACE, TAKEOVER_SURFACE_VAR } =
+  await import("./provisioning-state");
 
 beforeEach(() => {
   avatarQueryId = undefined;
   avatarLoading = false;
+  avatarComponents = null;
+  avatarTraits = null;
+  avatarCustomImageUrl = null;
   reducedMotion = false;
   useResolvedAssistantsStore.setState({ activeAssistantId: null });
 });
@@ -96,6 +109,7 @@ function plansResponse(): PlanListResponse {
             credits_usd: 50,
             price_cents: 5000,
             lookup_key: "credits_50_key",
+            legacy: false,
           },
         ],
         packages: [
@@ -365,6 +379,45 @@ describe("done / not_applicable", () => {
     expect(queryByTestId("provisioning-apply")).toBeNull();
     await waitFor(() => expect(onCelebrationEnd).toHaveBeenCalledTimes(1));
   });
+
+  test("not_applicable confirms an applied credit bundle with the catalog label", () => {
+    // A credit-only in-place change owes no resize, so it lands here — the only
+    // surface where its bundle can be confirmed (the WAITING credits chip never
+    // shows).
+    const { getByText } = renderState({
+      state: "NOT_APPLICABLE",
+      resizeCredits: "credits_50",
+    });
+
+    expect(getByText("Your plan is ready")).toBeTruthy();
+    expect(getByText("Credits")).toBeTruthy();
+    expect(getByText("$50 credits/mo")).toBeTruthy();
+  });
+
+  test("not_applicable falls back to plain copy when the bundle can't resolve", () => {
+    // "No extra credits" (null tier) still counts as a change, so it confirms
+    // without a catalog label rather than leaving the phase blank.
+    const { getByText, queryByText } = renderState({
+      state: "NOT_APPLICABLE",
+      resizeCredits: null,
+    });
+
+    expect(getByText("Credits updated")).toBeTruthy();
+    expect(queryByText(/credits\/mo/)).toBeNull();
+  });
+
+  test("done confirms an applied credit bundle alongside the target chips", () => {
+    const { getByText } = renderState({
+      state: "DONE",
+      targets: { machineSize: "large", storageGib: 100 },
+      fromSnapshot: { machineSize: "small", storageGib: 30 },
+      resizeCredits: "credits_50",
+    });
+
+    expect(getByText("All done!")).toBeTruthy();
+    expect(getByText("Large")).toBeTruthy();
+    expect(getByText("$50 credits/mo")).toBeTruthy();
+  });
 });
 
 describe("stalled", () => {
@@ -465,6 +518,117 @@ describe("takeover avatar", () => {
     renderState();
 
     expect(avatarQueryId).toBe("active-assistant");
+  });
+});
+
+/** The takeover root, which publishes the tint, paints from it, and holds the
+ *  backdrop and the content layered over it. */
+function root(container: HTMLElement): HTMLElement {
+  const el = container.querySelector<HTMLElement>(".provision-surface-settle");
+  if (!el) {
+    throw new Error("takeover root not found");
+  }
+  return el;
+}
+
+describe("takeover surface", () => {
+  test("paints from the published variable rather than a literal colour", () => {
+    const { container } = renderState({ assistantId: "primary-assistant" });
+
+    expect(root(container).style.backgroundColor).toBe(TAKEOVER_SURFACE);
+  });
+
+  test("a purple character publishes its own deep tint", () => {
+    avatarComponents = BUNDLED_COMPONENTS;
+    avatarTraits = { bodyShape: "blob", eyeStyle: "curious", color: "purple" };
+
+    const { container } = renderState({ assistantId: "primary-assistant" });
+
+    expect(
+      root(container)
+        .style.getPropertyValue(TAKEOVER_SURFACE_VAR)
+        .toLowerCase(),
+    ).toBe("#29202e");
+  });
+
+  test("an unresolved avatar holds the neutral ground", () => {
+    // A hue committed before the query settles is the wrong assistant's, at
+    // full-viewport scale.
+    avatarLoading = true;
+    avatarComponents = BUNDLED_COMPONENTS;
+    avatarTraits = { bodyShape: "blob", eyeStyle: "curious", color: "purple" };
+
+    const { container } = renderState({ assistantId: "primary-assistant" });
+
+    expect(root(container).style.getPropertyValue(TAKEOVER_SURFACE_VAR)).toBe(
+      SURFACE_GROUND,
+    );
+  });
+
+  test("the default green creature keeps the takeover's established tint", () => {
+    avatarComponents = BUNDLED_COMPONENTS;
+
+    const { container } = renderState({ assistantId: "primary-assistant" });
+
+    expect(
+      root(container)
+        .style.getPropertyValue(TAKEOVER_SURFACE_VAR)
+        .toLowerCase(),
+    ).toBe("#1d281d");
+  });
+});
+
+describe("takeover backdrop", () => {
+  test("a custom-image avatar blurs that image behind the takeover", () => {
+    avatarCustomImageUrl = "blob:vellum/avatar-image";
+
+    const { getByTestId } = renderState({ assistantId: "primary-assistant" });
+
+    expect(
+      getByTestId("takeover-backdrop")
+        .querySelector("img")
+        ?.getAttribute("src"),
+    ).toBe("blob:vellum/avatar-image");
+  });
+
+  test("every layer beside the backdrop stacks above it", () => {
+    // The backdrop is absolutely positioned, so it paints over any sibling left
+    // in normal flow — the avatar and the phase block both have to be raised.
+    avatarCustomImageUrl = "blob:vellum/avatar-image";
+
+    const { container, getByTestId } = renderState({
+      state: "WAITING",
+      assistantId: "primary-assistant",
+    });
+    const backdrop = getByTestId("takeover-backdrop");
+    const content = Array.from(root(container).children).filter(
+      (el) => el !== backdrop,
+    );
+
+    expect(content.length).toBeGreaterThan(0);
+    for (const el of content) {
+      expect(el.className).toContain("z-10");
+    }
+  });
+
+  test("a character avatar gets the flat tint and no image layer", () => {
+    avatarComponents = BUNDLED_COMPONENTS;
+    avatarTraits = { bodyShape: "blob", eyeStyle: "curious", color: "purple" };
+
+    const { queryByTestId } = renderState({ assistantId: "primary-assistant" });
+
+    expect(queryByTestId("takeover-backdrop")).toBeNull();
+  });
+
+  test("withholds the backdrop until the avatar query settles", () => {
+    // A backdrop that appears and then disappears is worse than one that
+    // arrives late.
+    avatarLoading = true;
+    avatarCustomImageUrl = "blob:vellum/avatar-image";
+
+    const { queryByTestId } = renderState({ assistantId: "primary-assistant" });
+
+    expect(queryByTestId("takeover-backdrop")).toBeNull();
   });
 });
 

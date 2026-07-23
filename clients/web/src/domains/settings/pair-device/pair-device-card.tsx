@@ -27,6 +27,7 @@ import { usePairDevice } from "./use-pair-device";
 export function PairDeviceCard() {
   const base = resolvePairDeviceGatewayBase();
   const supported = useSupportsRemoteWebPairing();
+  const flagsHydrated = useAssistantFeatureFlagStore.use.hasHydrated();
   const webRemoteIngressOn = useAssistantFeatureFlagStore.use.webRemoteIngress();
   const pair = usePairDevice(base, webRemoteIngressOn);
   const { copy, copied } = useCopyToClipboard();
@@ -38,11 +39,25 @@ export function PairDeviceCard() {
   const { phase } = pair;
   const isMinting = phase.kind === "minting";
   const isReady = phase.kind === "ready";
-  const buttonLabel = isMinting
-    ? "Generating…"
-    : isReady
-      ? "Generate new code"
-      : "Generate pairing QR";
+  // Until the feature-flag store hydrates, webRemoteIngressOn is the registry
+  // default (false), not this assistant's real value, so the mint precheck
+  // can't be trusted until hasHydrated is true.
+  const buttonLabel = !flagsHydrated
+    ? "Loading…"
+    : isMinting
+      ? "Generating…"
+      : isReady
+        ? "Generate new code"
+        : "Generate pairing QR";
+
+  // Both the button and the Enter key mint through here, so the flag precheck
+  // is never evaluated against the pre-hydration default.
+  const handleGenerate = () => {
+    if (!flagsHydrated) {
+      return;
+    }
+    pair.generate();
+  };
 
   return (
     <DetailCard
@@ -63,15 +78,17 @@ export function PairDeviceCard() {
             onKeyDown={(event) => {
               if (event.key === "Enter") {
                 event.preventDefault();
-                pair.generate();
+                handleGenerate();
               }
             }}
           />
           <Button
             variant="primary"
             className="self-start"
-            disabled={isMinting || pair.publicBaseUrl.trim() === ""}
-            onClick={pair.generate}
+            disabled={
+              !flagsHydrated || isMinting || pair.publicBaseUrl.trim() === ""
+            }
+            onClick={handleGenerate}
           >
             {buttonLabel}
           </Button>

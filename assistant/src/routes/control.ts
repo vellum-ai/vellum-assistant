@@ -3,18 +3,20 @@
  * entry point is `worker.ts`, which runs user-defined `/x/*` route handlers off
  * the daemon.
  *
- * The `assistant routes worker` CLI (via the `routes_worker_*` routes) needs to
+ * The daemon lifecycle ({@link startRouteHost} / {@link stopRouteHost}) and the
+ * `assistant routes worker` CLI (via the `routes_worker_*` routes) both need to
  * probe, spawn, and stop this process. The generic PID-file mechanics live in
  * `util/worker-process.ts`; this module binds them to the route host's PID path
  * and entry point.
  *
- * Note the route host is spawned *on demand*, not at boot: {@link RouteHostClient}
- * also spawns it lazily on the first request. Both share the same PID file, so a
- * CLI-initiated `start` and a lazy spawn cooperate — whichever loses the race
- * sees `alreadyRunning`. Likewise `stop` is only a pause: the next request
- * respawns the host.
+ * The host may be brought up three ways, all sharing one PID file so they
+ * cooperate (whoever loses a race sees `alreadyRunning`): pre-warmed at boot
+ * when enabled ({@link startRouteHost}), started via the CLI, or lazily on the
+ * first request ({@link RouteHostClient}). A `stop` is only a pause — the next
+ * request respawns it.
  */
 
+import { getConfigReadOnly } from "../config/loader.js";
 import { getLogger } from "../util/logger.js";
 import { getProcPidPath } from "../util/platform.js";
 import {
@@ -28,6 +30,15 @@ import {
 import { ROUTE_HOST_PROC_NAME } from "./route-host-protocol.js";
 
 const log = getLogger("route-host-control");
+
+/**
+ * Whether `/x/*` handlers should execute in the route host subprocess rather
+ * than inline on the daemon's event loop. Read per-request so a `config.json`
+ * edit (hot-reloaded by the config watcher) takes effect without a restart.
+ */
+export function isRouteHostEnabled(): boolean {
+  return getConfigReadOnly().userRoutes.host.enabled;
+}
 
 function routeHostPidPath(): string {
   return getProcPidPath(ROUTE_HOST_PROC_NAME);
@@ -74,9 +85,43 @@ export async function spawnRouteHostWorkerProcess(
  * (e.g. EPERM) — a not-running host is a no-op.
  */
 export function stopRouteHostWorkerProcess(): WorkerProcessStatus {
-  const status = probeRouteHostWorker();
-  if (status.status === "running") {
-    log.info({ pid: status.pid }, "Sending SIGTERM to route host process");
-  }
   return stopWorkerProcess(routeHostPidPath());
+}
+
+/**
+ * Daemon-lifecycle entry point: pre-warm the route host at boot, as a child of
+ * the daemon (so it appears in `assistant ps` and is torn down on shutdown).
+ *
+ * Only when enabled — the host is opt-in, so a disabled config is a no-op here
+ * (a request lazily spawns it if the flag is flipped on at runtime). Runs
+ * fire-and-forget: a spawn failure must never block boot.
+ */
+export function startRouteHost(): void {
+  if (!isRouteHostEnabled()) {
+    return;
+  }
+  void spawnRouteHostWorkerProcess({ detached: false })
+    .then((r) =>
+      log.info(
+        { pid: r.pid, alreadyRunning: r.alreadyRunning },
+        "Route host started at boot",
+      ),
+    )
+    .catch((err) => log.warn({ err }, "Failed to start route host at boot"));
+}
+
+/**
+ * Daemon-lifecycle entry point: SIGTERM the route host if it is running. Keyed
+ * off live state, not config — the host may have been spawned at boot, via
+ * `assistant routes worker start`, or lazily on a request. Never throws.
+ */
+export function stopRouteHost(): void {
+  try {
+    const status = stopRouteHostWorkerProcess();
+    if (status.status === "running") {
+      log.info({ pid: status.pid }, "Sent SIGTERM to route host process");
+    }
+  } catch (err) {
+    log.warn({ err }, "Failed to stop route host process (non-fatal)");
+  }
 }

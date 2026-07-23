@@ -7,9 +7,9 @@
  * selected tiers. An eligible Pro subscriber reaches the same modal seeded to
  * its current tiers, and Continue dispatches the change-machine/storage/
  * credit-tier endpoints (not checkout, which no-ops for an active Pro sub) and
- * opens the resize takeover. A Pro sub the modal can't faithfully represent — a
- * legacy storage tier or a deprecated credit bundle — or an ineligible one
- * (cancelling / bad status) routes to the manage modal instead.
+ * opens the resize takeover. Configure opens the modal for a Pro sub the
+ * catalog can't fully represent too — e.g. a deprecated credit bundle — with
+ * the seed holding the tier and any un-representable apply surfacing as a toast.
  *
  * Strategy mirrors plans-page-checkout.test.tsx: mock the generated SDK to
  * capture the request bodies and return fixtures, mock `openUrl` to capture
@@ -226,6 +226,18 @@ function fullCatalog(): PlanListResponse {
             credits_usd: 50,
             price_cents: 5000,
             lookup_key: "credits_50",
+            legacy: false,
+          },
+          {
+            // A grandfathered bundle: no longer offered, present in the catalog
+            // only because a current Pro sub still holds it. Matches MIGHTY's
+            // credit tier so a sub on it seeds the modal to a held legacy pick.
+            tier: "credits_25",
+            label: "25 credits",
+            credits_usd: 25,
+            price_cents: 2500,
+            lookup_key: "credits_25",
+            legacy: true,
           },
         ],
         packages: [MIGHTY],
@@ -701,62 +713,82 @@ describe("CustomPlanModal — eligible Pro subscriber", () => {
   });
 });
 
-describe("CustomPlanModal — ineligible Pro subscriber", () => {
-  test("a cancelling Pro sub's Configure routes to the manage modal", async () => {
-    const { getByRole, getByTestId, queryByText } = renderPage(
-      proMightySubscription({ cancel_at_period_end: true }),
-    );
-
-    fireEvent.click(getByRole("button", { name: "Configure" }));
-
-    await waitFor(() => {
-      expect(getByTestId("loc").textContent).toBe(
-        "/assistant/settings/usage?tab=billing&adjust_plan",
-      );
-    });
-    expect(queryByText("Create a custom plan")).toBeNull();
-    expect(machineTierCall).toBeNull();
-    expect(upgradeCall).toBeNull();
-  });
-});
-
-describe("CustomPlanModal — non-representable Pro plan", () => {
-  test("a legacy storage tier routes to the manage modal", async () => {
-    // The configurator filters legacy storage tiers, so a sub holding one can't
-    // be shown or re-selected here — route to adjust-plan, which preserves it,
-    // rather than force the user to upgrade off it.
-    const { getByRole, getByTestId, queryByText } = renderPage(
-      proMightySubscription(),
-      onboarding({ selected_storage_tier: "xl", selected_storage_gib: 250 }),
-    );
-
-    fireEvent.click(getByRole("button", { name: "Configure" }));
-
-    await waitFor(() => {
-      expect(getByTestId("loc").textContent).toBe(
-        "/assistant/settings/usage?tab=billing&adjust_plan",
-      );
-    });
-    expect(queryByText("Create a custom plan")).toBeNull();
-    expect(machineTierCall).toBeNull();
-  });
-
-  test("a deprecated credit bundle routes to the manage modal", async () => {
-    // The configurator only offers live credit tiers; the sub's `credits_25`
-    // bundle is absent from the catalog, so routing it here would drop the paid
-    // credits — fall back to adjust-plan instead.
-    const { getByRole, getByTestId, queryByText } = renderPage(
+describe("CustomPlanModal — Pro plan holding a deprecated (legacy) credit bundle", () => {
+  // The catalog surfaces the held bundle as a `legacy: true` tier
+  // (`credits_25`) so the modal can price it. Configure opens seeded to the
+  // held credit; the recap totals it, and the dropdown shows it as the current
+  // (disabled) selection without offering it to a new configuration.
+  test("prices the held legacy bundle in the recap total and selection row", () => {
+    const { getByRole, getByTestId, getByText } = renderPage(
       proMightySubscription({ selected_credit_tier: "credits_25" }),
     );
 
     fireEvent.click(getByRole("button", { name: "Configure" }));
 
-    await waitFor(() => {
-      expect(getByTestId("loc").textContent).toBe(
-        "/assistant/settings/usage?tab=billing&adjust_plan",
-      );
-    });
-    expect(queryByText("Create a custom plan")).toBeNull();
-    expect(machineTierCall).toBeNull();
+    getByText("Create a custom plan");
+    expect(getByTestId("loc").textContent).toBe("/assistant/plans");
+
+    // $20 base + $35 medium machine + $5 (10 GB) storage + $25 held credits.
+    getByText("$85/mo");
+
+    const dialog = document.querySelector('[role="dialog"]');
+    const rows = Array.from(dialog?.querySelectorAll("li") ?? []).map(
+      (li) => li.textContent?.trim() ?? "",
+    );
+    expect(rows).toEqual([
+      "Pro base plan — $20/mo",
+      "Medium machine (2.5 vCPU, 5 GiB)",
+      "10 GB storage",
+      "$25 of bundled credits",
+    ]);
+  });
+
+  test("shows the held bundle in the dropdown as the current, disabled choice", () => {
+    const { getByRole } = renderPage(
+      proMightySubscription({ selected_credit_tier: "credits_25" }),
+    );
+
+    fireEvent.click(getByRole("button", { name: "Configure" }));
+    openDropdown("Credit bundle");
+
+    // The held legacy bundle appears so the current selection is visible, but
+    // it's disabled — a new config can never pick it.
+    expect(findOption("25 credits").getAttribute("aria-disabled")).toBe("true");
+    // The live tier stays selectable.
+    expect(findOption("50 credits").getAttribute("aria-disabled")).toBe(
+      "false",
+    );
+  });
+
+  test("Continue preserves the held credit when another dimension changes", async () => {
+    const { getByRole, findByTestId } = renderPage(
+      proMightySubscription({ selected_credit_tier: "credits_25" }),
+    );
+
+    fireEvent.click(getByRole("button", { name: "Configure" }));
+    // Raise the machine but leave the held credit as seeded.
+    selectOption("Machine size", "Large machine (4 vCPU, 8 GiB)");
+    fireEvent.click(continueButton());
+
+    await waitFor(() => expect(machineTierCall).not.toBeNull());
+    expect(machineTierCall!.body).toEqual({ machine_tier: "large" });
+    // The held credit is unchanged, so it's neither re-sent nor dropped.
+    expect(creditTierCall).toBeNull();
+    expect(storageTierCall).toBeNull();
+    const takeover = await findByTestId("resize-takeover");
+    expect(takeover.getAttribute("data-mode")).toBe("resize");
+  });
+
+  test("a config not holding the legacy bundle is never offered it", () => {
+    // A base subscriber configuring from scratch only sees the live tiers — the
+    // legacy `credits_25` bundle is filtered out of the selectable options.
+    const { getByRole } = renderPage(freeSubscription());
+
+    fireEvent.click(getByRole("button", { name: "Configure" }));
+    openDropdown("Credit bundle");
+
+    const labels = optionLabels();
+    expect(labels.some((l) => l.startsWith("50 credits"))).toBe(true);
+    expect(labels.some((l) => l.startsWith("25 credits"))).toBe(false);
   });
 });

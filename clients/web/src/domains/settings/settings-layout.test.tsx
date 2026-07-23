@@ -8,6 +8,7 @@ import type { SidebarItem } from "@/components/sidebar-tree";
 
 let assistantFlags: Record<string, boolean> = {};
 let clientFlags: Record<string, boolean> = {};
+let supportsBookmarks = false;
 
 mock.module("@/stores/assistant-feature-flag-store", () => {
   const store = () => null;
@@ -25,6 +26,18 @@ mock.module("@/stores/client-feature-flag-store", () => {
     accountMfa: () => clientFlags.accountMfa ?? false,
   };
   return { useClientFeatureFlagStore: store };
+});
+
+mock.module("@/lib/backwards-compat/use-supports-bookmarks", () => ({
+  useSupportsBookmarks: () => supportsBookmarks,
+}));
+
+mock.module("@/stores/resolved-assistants-store", () => {
+  const store = () => null;
+  store.use = {
+    activeAssistantId: () => "asst-active",
+  };
+  return { useResolvedAssistantsStore: store };
 });
 
 mock.module("@/hooks/use-platform-gate", () => ({
@@ -74,6 +87,7 @@ afterEach(() => {
   cleanup();
   assistantFlags = {};
   clientFlags = {};
+  supportsBookmarks = false;
 });
 
 describe("SettingsLayout", () => {
@@ -97,6 +111,24 @@ describe("SettingsLayout", () => {
     );
 
     expect(screen.queryByRole("link", { name: "Security" })).toBeNull();
+  });
+
+  test("renders Bookmarks only when the assistant supports the bookmark routes", () => {
+    render(
+      <MemoryRouter initialEntries={["/assistant/settings"]}>
+        <SettingsLayout />
+      </MemoryRouter>,
+    );
+    expect(screen.queryByRole("link", { name: "Bookmarks" })).toBeNull();
+    cleanup();
+
+    supportsBookmarks = true;
+    render(
+      <MemoryRouter initialEntries={["/assistant/settings"]}>
+        <SettingsLayout />
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole("link", { name: "Bookmarks" })).not.toBeNull();
   });
 
   test("renders Credentials only when the credentials-settings flag is on", () => {

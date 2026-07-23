@@ -36,7 +36,7 @@ export function migrateConversationsTotalInputTokensNullable(
   const headerPattern = /^CREATE TABLE\s+["'`[]?conversations["'`\]]?/i;
   if (!headerPattern.test(ddl.sql)) {
     throw new Error(
-      "migration 348: unrecognized conversations DDL header; refusing to rebuild",
+      "migration 349: unrecognized conversations DDL header; refusing to rebuild",
     );
   }
   const newDdl = ddl.sql

@@ -56,6 +56,8 @@ mock.module("@/lib/streaming/reconnect-cursor", () => ({
   getReconnectCursor: () => null,
   getAbandonedGenerationCeiling: () => null,
   recordAbandonedGeneration: () => {},
+  getSeqGeneration: () => 0,
+  advanceSeqGeneration: () => {},
   advanceReconnectCursor: () => {},
   replaceReconnectCursor: () => {},
   resetReconnectCursor: resetReconnectCursorMock,

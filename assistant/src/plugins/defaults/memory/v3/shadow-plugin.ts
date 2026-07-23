@@ -11,9 +11,9 @@
  *      dense lane config, link-graph edge graph, curated core set, frecency
  *      hot set), memoizing the init promise so concurrent first turns share a
  *      single build. The memo lives until the persisted lanes-version token
- *      changes ({@link LANES_VERSION_CHECKPOINT_KEY}) — writers in any
- *      process bump it via {@link invalidateLanes}, and {@link getLanes}
- *      observes the change and rebuilds.
+ *      changes (see `./lanes-version-store.js`) — writers in any process bump
+ *      it via {@link invalidateLanes}, and {@link getLanes} observes the change
+ *      and rebuilds.
  *   2. Build a {@link MemoryRoutingTurn} from the conversation's recent messages.
  *   3. Run {@link orchestrate} and record its selection set to
  *      `memory_v3_selections` with a best-effort lane attribution.
@@ -37,10 +37,6 @@ import {
   recordLatencySubSpan,
   timeLatencySubSpan,
 } from "../../../../daemon/turn-latency-sub-spans.js";
-import {
-  getMemoryCheckpoint,
-  setMemoryCheckpoint,
-} from "../../../../persistence/checkpoints.js";
 import { stripCommentLines } from "../host-utils.js";
 import { getLogger } from "../logging.js";
 import { memorySqliteOrNull } from "../memory-db.js";
@@ -59,6 +55,7 @@ import { getActiveSlugs } from "./ever-injected-store.js";
 import { computeFreshSet } from "./fresh-set.js";
 import { isMemoryV3InjectionGateEnabled } from "./gate-flag.js";
 import { computeHotSet } from "./hot-set.js";
+import { bumpLanesVersion, readLanesVersion } from "./lanes-version-store.js";
 import { computeLearnedEdgeGraph } from "./learned-edges.js";
 import type { OrchestrateResult } from "./orchestrate.js";
 import { orchestrate } from "./orchestrate.js";
@@ -148,36 +145,10 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  */
 let lanesPromise: Promise<ShadowLanes> | null = null;
 
-/**
- * `memory_checkpoints` key carrying the lanes-version token — the
- * cross-process invalidation signal. Memory jobs (the consolidation run's
- * `memory_v3_maintain` follow-up) execute in the standalone memory worker
- * process, so their `invalidateLanes()` cannot touch the daemon's
- * `lanesPromise` directly; bumping the token in the shared workspace DB is
- * how an invalidation reaches the process that owns the live lanes. Writers
- * bump the token; {@link getLanes} compares it per call and rebuilds on any
- * change. The value is an opaque string — only inequality matters.
- */
-export const LANES_VERSION_CHECKPOINT_KEY = "memory_v3_lanes_version";
-
-/** The persisted lanes-version token captured when the memoized build
- *  started. {@link getLanes} rebuilds when the store's token differs. */
+/** The persisted lanes-version token captured when the memoized build started
+ *  ({@link readLanesVersion}). {@link getLanes} rebuilds when the store's token
+ *  differs. */
 let builtLanesVersion: string | null = null;
-
-/**
- * Current persisted lanes-version token: `null` when the store carries no
- * token (a legitimate stable state, compared as such), `undefined` when the
- * read itself failed (DB unavailable). Callers treat `undefined` as "cannot
- * judge staleness" and keep serving the memoized lanes — degraded freshness
- * beats a broken turn.
- */
-function readLanesVersion(): string | null | undefined {
-  try {
-    return getMemoryCheckpoint(LANES_VERSION_CHECKPOINT_KEY);
-  } catch {
-    return undefined;
-  }
-}
 
 /** Drop THIS process's lane caches: the memo and the page-index cache the
  *  rebuild reads through. Shared by the writer path ({@link invalidateLanes})
@@ -205,13 +176,13 @@ function dropLanesLocal(): void {
  *     and without the bump the daemon's lanes would never rebuild.
  *
  * The bump is best-effort: invalidation must never throw (it runs inside
- * jobs, the rebuild-index route, and tests), so a checkpoint-write failure
- * only logs — the local invalidation above still holds.
+ * jobs, the rebuild-index route, and tests), so a token-write failure only
+ * logs — the local invalidation above still holds.
  */
 export function invalidateLanes(): void {
   dropLanesLocal();
   try {
-    setMemoryCheckpoint(LANES_VERSION_CHECKPOINT_KEY, crypto.randomUUID());
+    bumpLanesVersion(getWorkspaceDir());
   } catch (err) {
     log.warn(
       { err },
@@ -447,7 +418,7 @@ async function initLanes(config: AssistantConfig): Promise<ShadowLanes> {
  */
 function getLanes(config: AssistantConfig): Promise<ShadowLanes> {
   if (lanesPromise) {
-    const current = readLanesVersion();
+    const current = readLanesVersion(getWorkspaceDir());
     if (current !== undefined && current !== builtLanesVersion) {
       // A writer bumped the persisted token since this build — the memory
       // worker's maintain job after a consolidation, or the rebuild-index
@@ -460,7 +431,7 @@ function getLanes(config: AssistantConfig): Promise<ShadowLanes> {
   if (!lanesPromise) {
     // Capture the token BEFORE building: a bump that lands mid-build is then
     // detected on the next call (one extra rebuild, never a missed one).
-    builtLanesVersion = readLanesVersion() ?? null;
+    builtLanesVersion = readLanesVersion(getWorkspaceDir()) ?? null;
     lanesPromise = initLanes(config).catch((err) => {
       // Reset on failure so a transient init error doesn't permanently wedge
       // the shadow lane — the next turn retries.

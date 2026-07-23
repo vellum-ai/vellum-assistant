@@ -45,6 +45,9 @@ export interface AvatarTone {
 const FG_DARK = "#1A1A1A";
 const FG_LIGHT = "#FFFFFF";
 
+/** Near-black ground that avatar-tinted full-bleed surfaces blend over. */
+export const SURFACE_GROUND = "#151515";
+
 /** Perceived brightness (YIQ), 0–1. */
 function brightness(hex: string): number {
   const m = /^#?([0-9a-f]{6})$/i.exec(hex);
@@ -71,21 +74,31 @@ export function darkenHex(hex: string, factor: number): string {
 }
 
 /**
- * Composite a solid `base` #rrggbb under a white (255) or black (0) overlay at
- * `alpha`, returning the resulting opaque #rrggbb — the actual pixel color a
- * translucent bubble lift resolves to when painted over the avatar fill. Bubble
- * text is picked against this, not the raw avatar color, so contrast reflects
- * what the eye sees.
+ * Composite `overlay` at `alpha` over the solid `base`, returning the resulting
+ * opaque #rrggbb. Either hex may carry a leading `#`; a malformed input returns
+ * `base` unchanged, and `alpha` is clamped to 0–1.
  */
-function compositeOverlay(base: string, overlay: 0 | 255, alpha: number): string {
-  const m = /^#?([0-9a-f]{6})$/i.exec(base);
-  if (!m) {
+export function blendHex(base: string, overlay: string, alpha: number): string {
+  const b = /^#?([0-9a-f]{6})$/i.exec(base);
+  const o = /^#?([0-9a-f]{6})$/i.exec(overlay);
+  if (!b || !o) {
     return base;
   }
-  const n = parseInt(m[1]!, 16);
+  const a = Math.max(0, Math.min(1, alpha));
+  const bn = parseInt(b[1]!, 16);
+  const on = parseInt(o[1]!, 16);
   const mix = (shift: number) =>
-    Math.round(((n >> shift) & 0xff) * (1 - alpha) + overlay * alpha);
+    Math.round(((bn >> shift) & 0xff) * (1 - a) + ((on >> shift) & 0xff) * a);
   return `#${((1 << 24) | (mix(16) << 16) | (mix(8) << 8) | mix(0)).toString(16).slice(1)}`;
+}
+
+/**
+ * Deep full-bleed surface for an avatar accent: the accent washed over
+ * {@link SURFACE_GROUND}. 0.14 is calibrated so the green character reproduces
+ * the takeover's established `#1D271E`.
+ */
+export function avatarSurfaceHex(accentHex: string): string {
+  return blendHex(SURFACE_GROUND, accentHex, 0.14);
 }
 
 /** WCAG relative luminance (sRGB-linearized), 0–1. */
@@ -132,7 +145,7 @@ export function toneForBg(bg: string): AvatarTone {
     // saturated avatars get near-black text instead of failing white-on-color.
     bubbleBg: isLight ? "rgba(0,0,0,0.10)" : "rgba(255,255,255,0.16)",
     bubbleFg: isLight
-      ? contrastForeground(compositeOverlay(bg, 0, 0.1))
-      : contrastForeground(compositeOverlay(bg, 255, 0.16)),
+      ? contrastForeground(blendHex(bg, "#000000", 0.1))
+      : contrastForeground(blendHex(bg, "#ffffff", 0.16)),
   };
 }
