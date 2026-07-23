@@ -93,7 +93,11 @@ export function buildMenuProps(
         ? () => ctx.onMarkUnread?.(conversation)
         : undefined,
     isMarkUnreadDisabled: !canMarkUnread(conversation),
-    moveToGroups: buildMoveToGroupTargets(conversation, ctx.conversationGroups),
+    // Only compute targets when the move action is wired — the rail flyout and
+    // other unwired surfaces skip this per-row allocation.
+    moveToGroups: ctx.onMoveToGroup
+      ? buildMoveToGroupTargets(conversation, ctx.conversationGroups)
+      : undefined,
     onMoveToGroup: ctx.onMoveToGroup
       ? (groupId) => ctx.onMoveToGroup?.(conversation, groupId)
       : undefined,

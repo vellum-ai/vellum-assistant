@@ -25,6 +25,7 @@ import {
   loadOpenCategories,
   loadOpenCustomGroups,
   loadOpenPrimary,
+  PRIMARY_SECTION_KEYS,
   saveOpenCategories,
   saveOpenCustomGroups,
   saveOpenPrimary,
@@ -82,7 +83,7 @@ const INITIAL_STATE: SidebarCollapseState = {
   openCustomGroups: [],
   // Pinned + Chats start open; the real per-assistant value loads on
   // setAssistantId.
-  openPrimary: ["pinned", "recents"],
+  openPrimary: [...PRIMARY_SECTION_KEYS],
   backgroundActivated: false,
   scheduledActivated: false,
 };

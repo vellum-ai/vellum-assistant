@@ -13,7 +13,7 @@
  * @see {@link https://react.dev/reference/react/useMemo}
  */
 
-import { useCallback, useEffect, useMemo, useState, startTransition } from "react";
+import { useEffect, useMemo, useState, startTransition } from "react";
 
 import type { Conversation, ConversationGroup } from "@/types/conversation-types";
 import { groupConversations, type CustomGroup } from "@/domains/chat/utils/group-conversations";
@@ -97,6 +97,40 @@ function buildPaginatedSection(
       ),
     onShowLess: () => setVisibleCount(() => SIDEBAR_CONVERSATION_LIMIT),
   };
+}
+
+interface AttentionSection {
+  /** The section's collapse key (matches its `CollapsibleNavSection.Section`). */
+  key: string;
+  conversations: Conversation[];
+}
+
+/**
+ * Merge a persisted open-set with any sections that currently hold an
+ * attention-flagged conversation, so their indicator stays reachable even when
+ * the user has collapsed them. The forced-open keys are not persisted. Returns
+ * the original `open` reference when nothing needs forcing so memoized
+ * consumers stay referentially stable.
+ */
+function withAttentionForcedOpen(
+  open: string[],
+  attentionConversationIds: Set<string> | undefined,
+  sections: AttentionSection[],
+): string[] {
+  if (!attentionConversationIds || attentionConversationIds.size === 0) {
+    return open;
+  }
+  const extra = sections
+    .filter((s) =>
+      s.conversations.some((c) =>
+        attentionConversationIds.has(c.conversationId),
+      ),
+    )
+    .map((s) => s.key);
+  if (extra.every((k) => open.includes(k))) {
+    return open;
+  }
+  return [...new Set([...open, ...extra])];
 }
 
 export interface SidebarState {
@@ -283,84 +317,53 @@ export function useSidebarState({
   );
 
   // --- Attention-forced expansion ---
+  //
+  // Each effective-open set force-opens (without persisting) any of its
+  // sections that hold an attention-flagged conversation, via the shared
+  // withAttentionForcedOpen helper. Only the section list differs.
 
-  const hasAttentionIn = useCallback(
-    (convs: Conversation[]) =>
-      attentionConversationIds
-        ? convs.some((c) =>
-            attentionConversationIds.has(c.conversationId),
-          )
-        : false,
-    [attentionConversationIds],
+  const effectiveOpenCategories = useMemo(
+    () =>
+      withAttentionForcedOpen(openCategories, attentionConversationIds, [
+        { key: "scheduled", conversations: grouped.scheduled },
+        { key: "background", conversations: grouped.background },
+        ...grouped.channelSections.map((s) => ({
+          key: channelSectionKey(s.channelId),
+          conversations: s.conversations,
+        })),
+      ]),
+    [
+      openCategories,
+      attentionConversationIds,
+      grouped.scheduled,
+      grouped.background,
+      grouped.channelSections,
+    ],
   );
 
-  const effectiveOpenCategories = useMemo(() => {
-    if (!attentionConversationIds || attentionConversationIds.size === 0)
-      return openCategories;
-    const extra: string[] = [];
-    if (grouped.scheduled.length > 0 && hasAttentionIn(grouped.scheduled))
-      extra.push("scheduled");
-    if (grouped.background.length > 0 && hasAttentionIn(grouped.background))
-      extra.push("background");
-    for (const section of grouped.channelSections) {
-      if (
-        section.conversations.length > 0 &&
-        hasAttentionIn(section.conversations)
-      )
-        extra.push(channelSectionKey(section.channelId));
-    }
-    if (extra.length === 0) return openCategories;
-    if (extra.every((c) => openCategories.includes(c))) return openCategories;
-    return [...new Set([...openCategories, ...extra])];
-  }, [
-    openCategories,
-    attentionConversationIds,
-    grouped.scheduled,
-    grouped.background,
-    grouped.channelSections,
-    hasAttentionIn,
-  ]);
+  const effectiveOpenCustomGroups = useMemo(
+    () =>
+      withAttentionForcedOpen(
+        openCustomGroups,
+        attentionConversationIds,
+        grouped.customGroups.map((g) => ({
+          key: g.id,
+          conversations: g.conversations,
+        })),
+      ),
+    [openCustomGroups, attentionConversationIds, grouped.customGroups],
+  );
 
-  const effectiveOpenCustomGroups = useMemo(() => {
-    if (!attentionConversationIds || attentionConversationIds.size === 0)
-      return openCustomGroups;
-    const extra: string[] = [];
-    for (const group of grouped.customGroups) {
-      if (
-        group.conversations.some((c) =>
-          attentionConversationIds.has(c.conversationId),
-        )
-      ) {
-        extra.push(group.id);
-      }
-    }
-    if (extra.length === 0) return openCustomGroups;
-    if (extra.every((g) => openCustomGroups.includes(g)))
-      return openCustomGroups;
-    return [...new Set([...openCustomGroups, ...extra])];
-  }, [openCustomGroups, attentionConversationIds, grouped.customGroups]);
-
-  // Pinned and Chats default open, but if the user has collapsed one and a
-  // conversation in it needs attention, force it open (without persisting) so
-  // the attention indicator is reachable — same treatment as the categories.
-  const effectiveOpenPrimary = useMemo(() => {
-    if (!attentionConversationIds || attentionConversationIds.size === 0)
-      return openPrimary;
-    const extra: string[] = [];
-    if (grouped.pinned.length > 0 && hasAttentionIn(grouped.pinned))
-      extra.push("pinned");
-    if (grouped.recents.length > 0 && hasAttentionIn(grouped.recents))
-      extra.push("recents");
-    if (extra.length === 0) return openPrimary;
-    if (extra.every((c) => openPrimary.includes(c))) return openPrimary;
-    return [...new Set([...openPrimary, ...extra])];
-  }, [
-    openPrimary,
-    attentionConversationIds,
-    grouped.pinned,
-    grouped.recents,
-    hasAttentionIn,
-  ]);
+  // Pinned and Chats default open; force-open still applies if the user has
+  // collapsed one and a conversation in it needs attention.
+  const effectiveOpenPrimary = useMemo(
+    () =>
+      withAttentionForcedOpen(openPrimary, attentionConversationIds, [
+        { key: "pinned", conversations: grouped.pinned },
+        { key: "recents", conversations: grouped.recents },
+      ]),
+    [openPrimary, attentionConversationIds, grouped.pinned, grouped.recents],
+  );
 
   return {
     pinned: grouped.pinned,

@@ -20,7 +20,7 @@ const OPEN_CATEGORY_KEYS = new Set([
  * The always-present primary sections (Pinned, Chats). Unlike the built-in
  * categories and custom groups, these default to OPEN.
  */
-const PRIMARY_SECTION_KEYS = ["pinned", "recents"] as const;
+export const PRIMARY_SECTION_KEYS = ["pinned", "recents"] as const;
 
 function isKnownPrimaryKey(key: string): boolean {
   return (PRIMARY_SECTION_KEYS as readonly string[]).includes(key);

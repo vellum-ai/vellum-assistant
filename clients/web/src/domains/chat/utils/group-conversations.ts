@@ -145,10 +145,7 @@ export function isCustomGroupId(groupId: string | undefined): groupId is string 
 // ---------------------------------------------------------------------------
 
 /** A custom group a conversation can be filed into via the "Move to group" menu. */
-export interface MoveToGroupTarget {
-  id: string;
-  name: string;
-}
+export type MoveToGroupTarget = Pick<ConversationGroup, "id" | "name">;
 
 /** True when a conversation currently belongs to a custom (non-system) group. */
 export function isInCustomGroup(conversation: Conversation): boolean {
@@ -161,9 +158,7 @@ export function isInCustomGroup(conversation: Conversation): boolean {
  *
  * System buckets (Pinned, Recents, channel sections) are intentionally
  * excluded — Pinning has its own menu item, and the rest are derived sections,
- * not folders an arbitrary conversation can be filed into. This is why the
- * older `SYSTEM_MOVE_TARGETS` list (removed in #34458) is not restored: with
- * only custom groups as targets there is nothing to duplicate.
+ * not folders an arbitrary conversation can be filed into.
  */
 export function buildMoveToGroupTargets(
   conversation: Conversation,

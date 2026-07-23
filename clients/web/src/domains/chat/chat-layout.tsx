@@ -489,7 +489,9 @@ export function ChatLayout({
   const handleCreateGroupForConversation = useCallback(
     async (conversation: Conversation) => {
       const group = await handleCreateGroup();
-      if (group) handleMoveToGroup(conversation, group.id);
+      if (group) {
+        handleMoveToGroup(conversation, group.id);
+      }
     },
     [handleCreateGroup, handleMoveToGroup],
   );

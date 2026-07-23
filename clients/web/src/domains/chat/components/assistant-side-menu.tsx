@@ -23,9 +23,7 @@ import {
     ConversationListProvider,
     type ConversationListContextValue,
 } from "@/domains/chat/components/conversation-list-context";
-import {
-    ConversationNavSection,
-} from "@/domains/chat/components/conversation-nav-section";
+import { ConversationNavSection } from "@/domains/chat/components/conversation-nav-section";
 import { CollapsedGroupFlyout } from "@/domains/chat/components/conversation-rail-flyout";
 import { GroupActionsMenu, renderGroupMenuItems } from "@/domains/chat/components/group-actions-menu";
 import { AssistantNavItem } from "@/domains/chat/components/assistant-nav-item";
