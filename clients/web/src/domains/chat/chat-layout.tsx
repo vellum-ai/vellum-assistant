@@ -18,6 +18,7 @@ import {
   selectChatFocusActive,
   selectHeaderCenterHidden,
   selectHeaderControlsHidden,
+  selectTourActive,
   useInChatOnboardingStore,
 } from "@/stores/in-chat-onboarding-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
@@ -252,6 +253,7 @@ export function ChatLayout({
     selectHeaderCenterHidden,
   );
   const navTourActive = useInChatOnboardingStore.use.navTourActive();
+  const tourActive = useInChatOnboardingStore(selectTourActive);
 
   // --- Assistant identity from store (written by ChatPage) ---
   const assistantName = useAssistantIdentityStore.use.name();
@@ -297,6 +299,11 @@ export function ChatLayout({
   // --- Sidebar collapsed / drawer state ---
   const [collapsed, setCollapsed] = useState<boolean>(readPersistedCollapsed);
   const [sidebarWidth, setSidebarWidth] = useState<number>(readPersistedWidth);
+  // The tour walks the sidebar's rows, which a 48px collapsed rail doesn't
+  // show — so the tour's whole run forces the rail expanded. Derived (not
+  // written through setCollapsed) so the user's persisted preference is
+  // untouched and the rail collapses back on its own when the tour ends.
+  const effectiveCollapsed = collapsed && !tourActive;
 
   useEffect(() => {
     setLocalBool(SIDEBAR_COLLAPSED_STORAGE_KEY, collapsed);
@@ -359,6 +366,12 @@ export function ChatLayout({
   const drawerVisible = isMobile && drawerOpen;
 
   const toggleSidebar = useCallback(() => {
+    // The tour forces the rail expanded; a toggle would only flip the
+    // persisted preference invisibly (Ctrl+\ still fires under the tour's
+    // click-blocking overlay), so ignore it for the tour's duration.
+    if (selectTourActive(useInChatOnboardingStore.getState())) {
+      return;
+    }
     haptic.light();
     if (window.matchMedia(MOBILE_MEDIA_QUERY).matches) {
       setDrawerOpen((value) => {
@@ -764,7 +777,7 @@ export function ChatLayout({
         <ChatLayoutHeader
           isMobile={isMobile}
           drawerOpen={drawerOpen}
-          collapsed={collapsed}
+          collapsed={effectiveCollapsed}
           sidebarWidth={sidebarWidth}
           toggleSidebar={toggleSidebar}
           controlsHidden={headerControlsHidden}
@@ -887,7 +900,7 @@ export function ChatLayout({
             // Hiding eases smoothly; revealing uses a back-ease so the rail
             // lands with a slight bounce (the tour's takeover moment).
             style={{
-              width: chatFocusActive ? 0 : collapsed ? 48 : sidebarWidth,
+              width: chatFocusActive ? 0 : effectiveCollapsed ? 48 : sidebarWidth,
               opacity: chatFocusActive ? 0 : 1,
               marginRight: chatFocusActive ? -16 : 0,
               transition: chatFocusActive
@@ -896,7 +909,7 @@ export function ChatLayout({
             }}
           >
             {renderSideMenu({
-              collapsed,
+              collapsed: effectiveCollapsed,
               variant: "rail",
               width: sidebarWidth,
               onWidthChange: handleSidebarWidthChange,
