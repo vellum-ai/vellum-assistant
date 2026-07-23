@@ -52,6 +52,15 @@ import { useProviderCredentialsList } from "@/domains/settings/ai/use-provider-c
 // Edit lives in `ProviderEditorContent` and is intentionally NOT handled
 // here — this component is create-only.
 
+/** Built-in provider ids and display names, lowercased — names a custom
+ * provider may not take. */
+const RESERVED_PROVIDER_NAMES = new Set(
+  Object.entries(PROVIDER_DISPLAY_NAMES).flatMap(([id, display]) => [
+    id.toLowerCase(),
+    display.toLowerCase(),
+  ]),
+);
+
 export interface ProviderCreateFormProps {
   assistantId: string;
   existingNames: string[];
@@ -163,8 +172,16 @@ export function ProviderCreateForm({
     enabled: true,
   });
 
+  // A custom provider must not take a built-in provider's name — entries
+  // share one flat list, and an entry labeled "Anthropic" would be
+  // indistinguishable from the catalog provider.
+  const reservedNameConflict =
+    isOpenAICompatible &&
+    RESERVED_PROVIDER_NAMES.has(label.trim().toLowerCase());
   const canSave =
-    name.trim().length > 0 && (!isOpenAICompatible || label.trim().length > 0);
+    name.trim().length > 0 &&
+    (!isOpenAICompatible || label.trim().length > 0) &&
+    !reservedNameConflict;
 
   async function handleSave() {
     if (!canSave) {
@@ -423,6 +440,15 @@ export function ProviderCreateForm({
               placeholder="xAI"
               fullWidth
             />
+            {reservedNameConflict ? (
+              <Typography
+                variant="body-small-default"
+                as="p"
+                className="text-(--system-negative-strong)"
+              >
+                That name belongs to a built-in provider. Pick another.
+              </Typography>
+            ) : null}
           </div>
           <div className="space-y-1">
             <label className="block text-body-small-default text-[var(--content-tertiary)]">

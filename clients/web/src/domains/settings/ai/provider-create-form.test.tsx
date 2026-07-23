@@ -778,6 +778,35 @@ describe("ProviderCreateForm submit sequence", () => {
     );
   });
 
+  test("a custom provider cannot take a built-in provider's name", () => {
+    render(
+      <ModalWrapper>
+        <ProviderCreateForm
+          assistantId={ASSISTANT_ID}
+          existingNames={[]}
+          defaultProviderType="openai-compatible"
+          onCreated={() => {}}
+          onCancel={() => {}}
+        />
+      </ModalWrapper>,
+    );
+
+    fireEvent.change(getInputByPlaceholder("xAI"), {
+      target: { value: "Anthropic" },
+    });
+    expect(document.body.textContent).toContain(
+      "That name belongs to a built-in provider.",
+    );
+    expect(getSubmitButton().disabled).toBe(true);
+
+    fireEvent.change(getInputByPlaceholder("xAI"), {
+      target: { value: "xAI" },
+    });
+    expect(document.body.textContent).not.toContain(
+      "That name belongs to a built-in provider.",
+    );
+  });
+
   test("clicking Cancel invokes onCancel", () => {
     let cancelled = false;
     render(
