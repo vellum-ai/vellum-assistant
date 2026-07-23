@@ -29,6 +29,7 @@ import {
   TAKEOVER_SURFACE,
   TAKEOVER_SURFACE_VAR,
 } from "./provisioning-state";
+import { TakeoverBackdrop } from "./takeover-backdrop";
 import { useAssistantDomains } from "./use-assistant-domains";
 import { useProProvisioning } from "./use-pro-provisioning";
 import { useTakeoverSurface } from "./use-takeover-surface";
@@ -158,9 +159,11 @@ export function BillingOnboardingModal({
   const { targets, assistantId, domainSetupAvailable, onboardingSettled } =
     provisioning;
 
-  // Published on the modal so the takeover and the sheet that covers it on the
-  // way out paint from one value — the handoff can't cross-fade two colours.
-  const { tintHex } = useTakeoverSurface(assistantId);
+  // The takeover and the sheet that covers it on the way out paint from one
+  // surface: the tint published as a custom property, plus the same blurred
+  // backdrop a custom-image avatar shows — so the handoff can't cross-fade a
+  // colour or an image against a flat fill.
+  const { tintHex, backdropImageUrl } = useTakeoverSurface(assistantId);
 
   // Resize-mode routing needs "is a domain already registered?", which
   // checkout mode never consults — DomainStep owns its own fetch there. The
@@ -379,7 +382,12 @@ export function BillingOnboardingModal({
               }`
             }
             style={{ backgroundColor: TAKEOVER_SURFACE }}
-          />
+          >
+            {/* A custom-image takeover's colour lives in this blurred image, not
+                the ground fill, so the sheet reproduces it to match. The
+                `TAKEOVER_SURFACE` fill shows through while it decodes. */}
+            {backdropImageUrl && <TakeoverBackdrop imageUrl={backdropImageUrl} />}
+          </div>
         )}
       </Modal.Content>
     </Modal.Root>
