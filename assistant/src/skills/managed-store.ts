@@ -1,8 +1,12 @@
 import { randomUUID } from "node:crypto";
 import {
+  closeSync,
+  constants as fsConstants,
   existsSync,
+  fstatSync,
   lstatSync,
   mkdirSync,
+  openSync,
   readFileSync,
   realpathSync,
   renameSync,
@@ -282,16 +286,31 @@ export function validateCompanionSource(
   if (!underAllowedRoot) {
     return { error: genericError };
   }
-  const stat = statSync(realSource);
-  if (!stat.isFile()) {
+  // Open once with O_NOFOLLOW and fstat/read the SAME fd: a stat-then-read by
+  // pathname would let another process swap the validated path for a symlink
+  // between the two calls (TOCTOU) and pull an out-of-bounds file through the
+  // copy. O_NOFOLLOW makes a final-component symlink fail the open, and the
+  // fd pins the inode for both the type/size check and the read.
+  let fd: number;
+  try {
+    fd = openSync(realSource, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+  } catch {
     return { error: genericError };
   }
-  if (stat.size > MAX_COMPANION_SOURCE_BYTES) {
-    return {
-      error: `copy_from source exceeds ${MAX_COMPANION_SOURCE_BYTES} bytes: "${sourcePath}"`,
-    };
+  try {
+    const stat = fstatSync(fd);
+    if (!stat.isFile()) {
+      return { error: genericError };
+    }
+    if (stat.size > MAX_COMPANION_SOURCE_BYTES) {
+      return {
+        error: `copy_from source exceeds ${MAX_COMPANION_SOURCE_BYTES} bytes: "${sourcePath}"`,
+      };
+    }
+    return { content: readFileSync(fd, "utf-8") };
+  } finally {
+    closeSync(fd);
   }
-  return { content: readFileSync(realSource, "utf-8") };
 }
 
 // ─── SKILL.md generation ─────────────────────────────────────────────────────
