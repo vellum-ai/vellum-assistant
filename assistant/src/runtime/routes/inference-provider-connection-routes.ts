@@ -38,6 +38,7 @@ import {
   MANAGED_CONNECTION_NAMES,
   updateConnection,
 } from "../../providers/inference/connections.js";
+import { PROVIDER_CATALOG } from "../../providers/model-catalog.js";
 import { credentialKey } from "../../security/credential-key.js";
 import { deleteSecureKeyAsync } from "../../security/secure-keys.js";
 import {
@@ -217,6 +218,56 @@ function handleGetConnection({ pathParams = {} }: RouteHandlerArgs) {
   return conn;
 }
 
+/**
+ * Custom providers share the flat provider list with built-ins, so their
+ * display identity (label, falling back to name) must not collide with a
+ * built-in provider's id or display name, nor with another custom
+ * provider's identity. Enforced daemon-side: every client (web, CLI, API)
+ * goes through these routes.
+ */
+function assertValidCustomProviderLabel(
+  provider: string,
+  labelRaw: unknown,
+  selfName: string,
+): void {
+  if (provider !== "openai-compatible") {
+    return;
+  }
+  const label = typeof labelRaw === "string" ? labelRaw.trim() : "";
+  if (!label) {
+    return;
+  }
+  const lower = label.toLowerCase();
+  if (RESERVED_PROVIDER_IDENTITIES.has(lower)) {
+    throw new BadRequestError(
+      `Invalid label: "${label}" belongs to a built-in provider. Pick another name.`,
+    );
+  }
+  const duplicate = listConnections(getDb(), {
+    provider: "openai-compatible",
+  }).find(
+    (c) =>
+      c.name !== selfName &&
+      (c.label?.trim() || c.name).toLowerCase() === lower,
+  );
+  if (duplicate) {
+    throw new BadRequestError(
+      `Invalid label: a custom provider named "${label}" already exists.`,
+    );
+  }
+}
+
+/** Built-in provider ids, display names, and routing identities, lowercased. */
+const RESERVED_PROVIDER_IDENTITIES = new Set<string>([
+  ...PROVIDER_CATALOG.flatMap((p) => [
+    p.id.toLowerCase(),
+    p.displayName.toLowerCase(),
+  ]),
+  "vellum",
+  "chatgpt",
+  "chatgpt subscription",
+]);
+
 async function handleCreateConnection({ body = {} }: RouteHandlerArgs) {
   const name = body.name;
   const provider = body.provider;
@@ -249,6 +300,8 @@ async function handleCreateConnection({ body = {} }: RouteHandlerArgs) {
       `Invalid label: must be a non-empty string or null`,
     );
   }
+
+  assertValidCustomProviderLabel(providerResult.data, labelRaw, name);
 
   const customFields = await parseCustomProviderFields(
     body,
@@ -340,6 +393,7 @@ async function handleUpdateConnection({
       `Invalid label: must be a non-empty string or null`,
     );
   }
+  assertValidCustomProviderLabel(existing.provider, labelRaw, name);
 
   // Managed connections: lock auth to `{type:"platform"}`. The boot upsert in
   // `seedCanonicalConnections` would revert any other value on next restart;

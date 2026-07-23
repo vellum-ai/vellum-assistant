@@ -266,6 +266,79 @@ describe("POST inference/provider-connections (create)", () => {
     expect(result.auth).toEqual({ type: "platform" });
   });
 
+  test("rejects a custom-provider label matching a built-in provider", async () => {
+    await expect(
+      call(findHandler("inference_provider_connections_create"), {
+        body: {
+          name: "sneaky",
+          provider: "openai-compatible",
+          label: "Anthropic",
+          base_url: "http://localhost:1234/v1",
+          models: [{ id: "my-model" }],
+        },
+      }),
+    ).rejects.toThrow(/belongs to a built-in provider/);
+  });
+
+  test("rejects a custom-provider label duplicating another custom provider", async () => {
+    await call(findHandler("inference_provider_connections_create"), {
+      body: {
+        name: "first-endpoint",
+        provider: "openai-compatible",
+        label: "xAI",
+        base_url: "http://localhost:1234/v1",
+        models: [{ id: "my-model" }],
+      },
+    });
+    await expect(
+      call(findHandler("inference_provider_connections_create"), {
+        body: {
+          name: "second-endpoint",
+          provider: "openai-compatible",
+          label: "xai",
+          base_url: "http://localhost:5678/v1",
+          models: [{ id: "other" }],
+        },
+      }),
+    ).rejects.toThrow(/already exists/);
+    // Updating a different row onto the taken label is rejected too; keeping
+    // its own label is fine.
+    await call(findHandler("inference_provider_connections_create"), {
+      body: {
+        name: "third-endpoint",
+        provider: "openai-compatible",
+        label: "Local Box",
+        base_url: "http://localhost:9999/v1",
+        models: [{ id: "m" }],
+      },
+    });
+    await expect(
+      call(findHandler("inference_provider_connections_update"), {
+        pathParams: { name: "third-endpoint" },
+        body: { label: "xAI" },
+      }),
+    ).rejects.toThrow(/already exists/);
+    await call(findHandler("inference_provider_connections_update"), {
+      pathParams: { name: "first-endpoint" },
+      body: { label: "xAI" },
+    });
+  });
+
+  test("catalog providers may reuse their own display name as a label", async () => {
+    const result = (await call(
+      findHandler("inference_provider_connections_create"),
+      {
+        body: {
+          name: "anthropic-personal",
+          provider: "anthropic",
+          label: "Anthropic",
+          credential: "credential/anthropic/api_key",
+        },
+      },
+    )) as { label: string | null };
+    expect(result.label).toBe("Anthropic");
+  });
+
   test("derives none auth for openai-compatible without a credential", async () => {
     const result = (await call(
       findHandler("inference_provider_connections_create"),

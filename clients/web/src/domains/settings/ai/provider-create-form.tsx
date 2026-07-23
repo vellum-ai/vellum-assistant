@@ -21,6 +21,10 @@ import {
 
 import { PROVIDER_DISPLAY_NAMES } from "@/assistant/llm-model-catalog";
 import { ChatgptOAuthSection } from "@/domains/settings/ai/chatgpt-oauth-section";
+import {
+  CUSTOM_PROVIDER_NAME_ERRORS,
+  customProviderNameConflict,
+} from "@/domains/settings/ai/custom-provider-names";
 import { deriveProviderDefaults } from "@/domains/settings/ai/profile-prefill";
 import type {
   Auth,
@@ -52,18 +56,11 @@ import { useProviderCredentialsList } from "@/domains/settings/ai/use-provider-c
 // Edit lives in `ProviderEditorContent` and is intentionally NOT handled
 // here — this component is create-only.
 
-/** Built-in provider ids and display names, lowercased — names a custom
- * provider may not take. */
-const RESERVED_PROVIDER_NAMES = new Set(
-  Object.entries(PROVIDER_DISPLAY_NAMES).flatMap(([id, display]) => [
-    id.toLowerCase(),
-    display.toLowerCase(),
-  ]),
-);
-
 export interface ProviderCreateFormProps {
   assistantId: string;
   existingNames: string[];
+  /** Existing connections, for custom-provider name-collision checks. */
+  connections?: ProviderConnection[];
   /** Pre-selected provider type. */
   defaultProviderType?: ConnectionProvider;
   onCreated: (connection: ProviderConnection) => void;
@@ -75,6 +72,7 @@ export interface ProviderCreateFormProps {
 export function ProviderCreateForm({
   assistantId,
   existingNames,
+  connections,
   defaultProviderType,
   onCreated,
   onCancel,
@@ -179,16 +177,16 @@ export function ProviderCreateForm({
     enabled: true,
   });
 
-  // A custom provider must not take a built-in provider's name — entries
-  // share one flat list, and an entry labeled "Anthropic" would be
-  // indistinguishable from the catalog provider.
-  const reservedNameConflict =
-    isOpenAICompatible &&
-    RESERVED_PROVIDER_NAMES.has(label.trim().toLowerCase());
+  // A custom provider must not take a built-in provider's name or another
+  // custom provider's — entries share one flat list. Mirrors the daemon's
+  // route-side validation for inline feedback.
+  const nameConflict = isOpenAICompatible
+    ? customProviderNameConflict(label, connections)
+    : null;
   const canSave =
     name.trim().length > 0 &&
     (!isOpenAICompatible || label.trim().length > 0) &&
-    !reservedNameConflict;
+    nameConflict === null;
 
   async function handleSave() {
     if (!canSave) {
@@ -450,13 +448,13 @@ export function ProviderCreateForm({
               placeholder="xAI"
               fullWidth
             />
-            {reservedNameConflict ? (
+            {nameConflict ? (
               <Typography
                 variant="body-small-default"
                 as="p"
                 className="text-(--system-negative-strong)"
               >
-                That name belongs to a built-in provider. Pick another.
+                {CUSTOM_PROVIDER_NAME_ERRORS[nameConflict]}
               </Typography>
             ) : null}
           </div>
