@@ -2,18 +2,22 @@ import { randomUUID } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
+  readFileSync,
+  realpathSync,
   renameSync,
   rmSync,
   statSync,
   writeFileSync,
 } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, normalize, relative, sep } from "node:path";
 
 import { stringify as stringifyYaml } from "yaml";
 
 import { deleteSkillCapabilityNode } from "../plugins/defaults/memory/graph/capability-seed.js";
+import { isDeniedBasename } from "../tools/shared/filesystem/path-policy.js";
 import { getLogger } from "../util/logger.js";
-import { getWorkspaceSkillsDir } from "../util/platform.js";
+import { getWorkspaceDir, getWorkspaceSkillsDir } from "../util/platform.js";
 import { writeInstallMeta } from "./install-meta.js";
 
 const log = getLogger("managed-store");
@@ -118,6 +122,86 @@ const RESERVED_COMPANION_NAMES = new Set([
   "tools.json",
 ]);
 
+/**
+ * Size cap for `copy_from` companion sources. Companion files are instructions
+ * and scripts, not data assets — a source past this size is almost certainly
+ * the wrong file.
+ */
+export const MAX_COMPANION_SOURCE_BYTES = 1024 * 1024;
+
+/**
+ * Validate a `copy_from` companion source and return its contents.
+ *
+ * The scaffold's `files` input is the only write path available to the
+ * retrospective fork (it has no shell), so the same call is the only sanctioned
+ * read of an on-disk source. The source must be an absolute path to a regular
+ * file whose real path (symlinks resolved) lives under the workspace or the
+ * system temp dir — the two places conversation-produced scripts land. That
+ * boundary keeps an unattended, prompt-injectable pass from lifting arbitrary
+ * host files (dotfiles, keys) into a skill folder the model will later read.
+ *
+ * Contents are read here, at validation time, so the caller's write loop stays
+ * a single all-or-nothing pass over pre-resolved content.
+ */
+export function validateCompanionSource(sourcePath: string): {
+  content?: string;
+  error?: string;
+} {
+  if (!sourcePath || typeof sourcePath !== "string") {
+    return { error: "copy_from source path is required" };
+  }
+  if (!isAbsolute(sourcePath)) {
+    return {
+      error: `copy_from source must be an absolute path: "${sourcePath}"`,
+    };
+  }
+  let realSource: string;
+  try {
+    realSource = realpathSync(sourcePath);
+  } catch {
+    return { error: `copy_from source does not exist: "${sourcePath}"` };
+  }
+  // Shared filesystem denylist (path-policy.ts): key-material basenames are
+  // unreadable even inside the workspace boundary, so a copy must not become a
+  // side door. Check both the submitted path and its realpath so neither a
+  // direct name nor a symlink to a denied name slips through.
+  if (isDeniedBasename(sourcePath) || isDeniedBasename(realSource)) {
+    return {
+      error: `copy_from source is a denied filename: "${sourcePath}"`,
+    };
+  }
+  // Literal /tmp is allowed alongside os.tmpdir(): on macOS tmpdir() is the
+  // per-user /var/folders/... path, but the documented snippet-testing
+  // workflow (and the retrospective prompt) use /tmp, which realpaths to
+  // /private/tmp there.
+  const allowedRoots = [getWorkspaceDir(), tmpdir(), "/tmp"].map((root) => {
+    try {
+      return realpathSync(root);
+    } catch {
+      return root;
+    }
+  });
+  const underAllowedRoot = allowedRoots.some((root) => {
+    const rel = relative(root, realSource);
+    return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel);
+  });
+  if (!underAllowedRoot) {
+    return {
+      error: `copy_from source must live under the workspace or the system temp dir: "${sourcePath}"`,
+    };
+  }
+  const stat = statSync(realSource);
+  if (!stat.isFile()) {
+    return { error: `copy_from source is not a regular file: "${sourcePath}"` };
+  }
+  if (stat.size > MAX_COMPANION_SOURCE_BYTES) {
+    return {
+      error: `copy_from source exceeds ${MAX_COMPANION_SOURCE_BYTES} bytes: "${sourcePath}"`,
+    };
+  }
+  return { content: readFileSync(realSource, "utf-8") };
+}
+
 // ─── SKILL.md generation ─────────────────────────────────────────────────────
 
 interface BuildSkillMarkdownInput {
@@ -221,7 +305,9 @@ interface CreateManagedSkillParams {
   // docs on `SkillInstallMeta` (install-meta.ts).
   sourceConversationId?: string;
   retrospectiveConversationId?: string;
-  files?: Array<{ path: string; content: string }>;
+  // Exactly one of `content` (inline) or `copyFrom` (validated on-disk source)
+  // per entry — enforced in the pre-write validation loop.
+  files?: Array<{ path: string; content?: string; copyFrom?: string }>;
 }
 
 interface CreateManagedSkillResult {
@@ -290,7 +376,28 @@ export function createManagedSkill(
         error: `companion file path resolves to an existing directory: "${file.path}"`,
       };
     }
-    companionWrites.push({ resolvedPath, content: file.content });
+    if ((file.content === undefined) === (file.copyFrom === undefined)) {
+      return {
+        created: false,
+        path: skillFilePath,
+        error: `companion file "${file.path}" must set exactly one of content or copy_from`,
+      };
+    }
+    let content: string;
+    if (file.copyFrom !== undefined) {
+      const source = validateCompanionSource(file.copyFrom);
+      if (source.error || source.content === undefined) {
+        return {
+          created: false,
+          path: skillFilePath,
+          error: source.error ?? "invalid copy_from source",
+        };
+      }
+      content = source.content;
+    } else {
+      content = file.content as string;
+    }
+    companionWrites.push({ resolvedPath, content });
   }
 
   const content = buildSkillMarkdown({
