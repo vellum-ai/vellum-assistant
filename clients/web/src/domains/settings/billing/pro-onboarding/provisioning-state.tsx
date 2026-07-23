@@ -165,7 +165,8 @@ function avatarModeFor(
  * body-morph and the reduced-motion gating all come from `AnimatedAvatar`
  * inside `ChatAvatar`.
  *
- * Nothing renders until the avatar query settles. `components ?? fallback`
+ * Nothing renders until the target assistant resolves and its avatar query
+ * settles. `components ?? fallback`
  * synthesizes traits from the first bundled entry of each list — a green blob —
  * so drawing during the fetch shows a different assistant's avatar for a beat,
  * and the takeover is the one surface that reliably mounts cold: the Stripe
@@ -192,6 +193,11 @@ function TakeoverAvatar({
   const fallbackComponents = useBundledAvatarComponents();
   const size = useTakeoverAvatarSize();
   const laboring = mode === "working" || mode === "settling";
+  // A null id means the target assistant has not resolved yet, not that it has
+  // no avatar — and `useAssistantAvatar(null)` is a disabled query, which
+  // reports `isLoading: false` with no data. Both have to clear before there is
+  // anything safe to draw.
+  const avatarReady = resolvedId != null && !isLoading;
   return (
     <div
       aria-hidden
@@ -207,7 +213,7 @@ function TakeoverAvatar({
         <div className="provision-avatar-layer">
           <div className="provision-avatar-current">
             <div className="provision-avatar-strain">
-              {!isLoading && (
+              {avatarReady && (
                 <div className="provision-avatar-reveal">
                   <ChatAvatar
                     components={components ?? fallbackComponents}

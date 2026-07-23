@@ -514,17 +514,36 @@ describe("takeover avatar mode", () => {
     // of the assistant's real avatar.
     avatarLoading = true;
 
-    const { container } = renderState({ state: "WAITING" });
+    const { container } = renderState({
+      state: "WAITING",
+      assistantId: "primary-assistant",
+    });
 
     expect(container.querySelector(".provision-avatar-reveal")).toBeNull();
     // The stage still reserves its height, so nothing moves when it arrives.
     expect(container.querySelector(".provision-avatar-stage")).toBeTruthy();
   });
 
-  test("reveals the avatar once the query settles", () => {
-    const { container } = renderState({ state: "WAITING" });
+  test("reveals the avatar once the target and the query both settle", () => {
+    const { container } = renderState({
+      state: "WAITING",
+      assistantId: "primary-assistant",
+    });
 
     expect(container.querySelector(".provision-avatar-reveal")).toBeTruthy();
+  });
+
+  test("keeps waiting while the target assistant is still unknown", () => {
+    // `useAssistantAvatar(null)` is a disabled query, and a disabled query
+    // reports `isLoading: false` with no data — so the id has to gate the
+    // render too. On a cold Stripe return both the onboarding primary and the
+    // active-store id are null for a beat.
+    useResolvedAssistantsStore.setState({ activeAssistantId: null });
+
+    const { container } = renderState({ state: "WAITING", assistantId: null });
+
+    expect(container.querySelector(".provision-avatar-reveal")).toBeNull();
+    expect(container.querySelector(".provision-avatar-stage")).toBeTruthy();
   });
 
   test("steps the creature down so a short viewport keeps the actions below it", () => {
