@@ -133,10 +133,11 @@ export function VoiceSections() {
 }
 
 /**
- * Pointer to the BYO speech providers, which live with every other provider on
- * Models & Services rather than on this page. Restores the cross-link the Voice
- * page carried before speech briefly moved into a Services tab — most people
- * want the managed voice above, but the ones bringing their own key need a way
+ * Pointer to Models & Services, which carries the BYO speech providers (they
+ * live with every other provider there, not on this page) and the managed
+ * custom-voice-ID entry. Restores the cross-link the Voice page carried before
+ * speech briefly moved into a Services tab — most people want the managed voice
+ * above, but those bringing their own key or a specific voice ID need a way
  * across.
  */
 function SpeechServicesBanner() {
@@ -144,10 +145,10 @@ function SpeechServicesBanner() {
     <div className="flex flex-wrap items-center gap-1.5 px-1 text-body-small-default text-[var(--content-tertiary)]">
       <Info className="h-3.5 w-3.5 shrink-0 text-[var(--content-quiet)]" />
       <span>
-        Want to use your own API key for speech-to-text or text-to-speech?
+        Want to use your own API key for STT or TTS, or set a custom voice?
       </span>
       <Link
-        to={routes.settings.ai}
+        to={`${routes.settings.ai}#text-to-speech`}
         className="inline-flex items-center gap-1 text-[var(--content-secondary)] underline decoration-[var(--border-element)] underline-offset-2 hover:text-[var(--content-default)]"
       >
         Set it up in Models &amp; Services
