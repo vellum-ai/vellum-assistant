@@ -13,7 +13,18 @@
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
+import { ContentMismatchError } from "@vellumai/download-validation";
+
 import { downloadSlackFile } from "../download.js";
+
+/** Minimal valid PNG buffer that file-type can detect as `image/png`. */
+function makePngBuffer(): Uint8Array {
+  return new Uint8Array([
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d,
+    0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+    0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77, 0x53, 0xde,
+  ]);
+}
 
 interface CapturedFetchCall {
   url: string;
@@ -220,5 +231,51 @@ describe("downloadSlackFile", () => {
       "xoxb-test",
     );
     expect(result?.mimeType).toBe("image/webp");
+  });
+
+  test("throws ContentMismatchError when an HTML page is returned as image/png", async () => {
+    responses.push(
+      new Response(
+        new TextEncoder().encode(
+          "<!DOCTYPE html><html><body>Sign in to continue</body></html>",
+        ).buffer as ArrayBuffer,
+        {
+          status: 200,
+          headers: { "Content-Type": "text/html" },
+        },
+      ),
+    );
+    await expect(
+      downloadSlackFile(
+        {
+          id: "F1",
+          name: "screenshot.png",
+          mimetype: "image/png",
+          urlPrivate: "https://files.slack.com/files-pri/T/F1/inline",
+        },
+        "xoxb-test",
+      ),
+    ).rejects.toThrow(ContentMismatchError);
+  });
+
+  test("returns a valid PNG declared as image/png without throwing", async () => {
+    const png = makePngBuffer();
+    responses.push(
+      new Response(png.buffer as ArrayBuffer, {
+        status: 200,
+        headers: { "Content-Type": "image/png" },
+      }),
+    );
+    const result = await downloadSlackFile(
+      {
+        id: "F1",
+        name: "shot.png",
+        mimetype: "image/png",
+        urlPrivate: "https://files.slack.com/files-pri/T/F1/inline",
+      },
+      "xoxb-test",
+    );
+    expect(result?.mimeType).toBe("image/png");
+    expect(result?.data).toBe(Buffer.from(png).toString("base64"));
   });
 });

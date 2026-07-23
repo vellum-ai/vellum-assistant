@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
-import { ContentMismatchError } from "../download-validation.js";
+import { ContentMismatchError } from "@vellumai/download-validation";
 import type { SlackFile } from "./normalize.js";
 
 type FetchFn = (
@@ -142,9 +142,7 @@ describe("downloadSlackFile", () => {
   });
 
   test("throws when redirect has no Location header", async () => {
-    fetchMock = mock(
-      async () => new Response(null, { status: 302 }),
-    );
+    fetchMock = mock(async () => new Response(null, { status: 302 }));
 
     const file = makeSlackFile();
 

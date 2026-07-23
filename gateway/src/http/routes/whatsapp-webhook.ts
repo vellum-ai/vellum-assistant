@@ -21,7 +21,7 @@ import {
   AttachmentValidationError,
   uploadAttachment,
 } from "../../runtime/client.js";
-import { ContentMismatchError } from "../../download-validation.js";
+import { ContentMismatchError } from "@vellumai/download-validation";
 import {
   handleCircuitBreakerError,
   handleNewCommand,

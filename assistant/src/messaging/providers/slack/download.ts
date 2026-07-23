@@ -13,7 +13,13 @@
  *    where the signed redirect URL is self-authenticating; the WHATWG fetch
  *    spec strips `Authorization` on cross-origin redirects, so we manually
  *    follow the redirect without re-sending the bot token.
+ *
+ * Both implementations also share the same byte-level guard from
+ * `@vellumai/download-validation`: a CDN that returns an HTML auth/error page
+ * with a 200 status can never be surfaced as an image attachment.
  */
+
+import { validateDownloadedContent } from "@vellumai/download-validation";
 
 import { getLogger } from "../../../util/logger.js";
 
@@ -48,10 +54,11 @@ const DOWNLOAD_TIMEOUT_MS = 30_000;
  * (`{ id, name, mimetype }`) and have no way to download. This is treated as
  * an expected branch rather than an error.
  *
- * Throws on transport / HTTP errors so the caller can decide whether to log
- * and skip or fail the surrounding operation. The thread-backfill caller
- * logs and proceeds with the text-only message rather than failing the whole
- * backfill.
+ * Throws on transport / HTTP errors, and `ContentMismatchError` when the
+ * downloaded bytes don't match the declared MIME type (e.g. an HTML auth page
+ * served as an image), so the caller can decide whether to log and skip or
+ * fail the surrounding operation. The thread-backfill caller logs and proceeds
+ * with the text-only message rather than failing the whole backfill.
  */
 export async function downloadSlackFile(
   file: SlackFileDownloadInput,
@@ -94,10 +101,17 @@ export async function downloadSlackFile(
   }
 
   const buffer = await response.arrayBuffer();
+  const bytes = new Uint8Array(buffer);
   const mimeType =
     file.mimetype ||
     response.headers.get("Content-Type")?.split(";")[0]?.trim() ||
     "application/octet-stream";
+
+  // Reject an HTML auth/error page masquerading as a binary before it can be
+  // base64-encoded and stored as an image attachment. ContentMismatchError
+  // propagates for the caller to log-and-skip.
+  await validateDownloadedContent(bytes, mimeType, file.id ?? file.name);
+
   const filename = file.name || `slack_file_${file.id ?? "unknown"}`;
   const data = Buffer.from(buffer).toString("base64");
   return { filename, mimeType, data };

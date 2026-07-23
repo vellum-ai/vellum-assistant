@@ -28,6 +28,7 @@
     "@slack/types": "2.21.1",
     "@vellumai/assistant-client": "workspace:*",
     "@vellumai/ces-client": "workspace:*",
+    "@vellumai/download-validation": "workspace:*",
     "@vellumai/gateway-client": "workspace:*",
     "@vellumai/ipc-server-utils": "workspace:*",
     "@vellumai/service-contracts": "workspace:*",
@@ -46,6 +47,7 @@
   "bundledDependencies": [
     "@vellumai/assistant-client",
     "@vellumai/ces-client",
+    "@vellumai/download-validation",
     "@vellumai/gateway-client",
     "@vellumai/ipc-server-utils",
     "@vellumai/service-contracts",

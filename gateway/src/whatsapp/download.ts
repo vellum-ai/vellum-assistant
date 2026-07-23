@@ -1,6 +1,6 @@
 import { fileTypeFromBuffer } from "file-type";
 import type { GatewayConfig } from "../config.js";
-import { validateDownloadedContent } from "../download-validation.js";
+import { validateDownloadedContent } from "@vellumai/download-validation";
 import {
   getWhatsAppMediaMetadata,
   downloadWhatsAppMediaBytes,

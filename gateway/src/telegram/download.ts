@@ -2,7 +2,7 @@ import { fileTypeFromBuffer } from "file-type";
 import type { ConfigFileCache } from "../config-file-cache.js";
 import type { CredentialCache } from "../credential-cache.js";
 import { credentialKey } from "../credential-key.js";
-import { validateDownloadedContent } from "../download-validation.js";
+import { validateDownloadedContent } from "@vellumai/download-validation";
 import { fetchImpl } from "../fetch.js";
 import { callTelegramApi } from "./api.js";
 

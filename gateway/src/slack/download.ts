@@ -1,5 +1,5 @@
 import { fileTypeFromBuffer } from "file-type";
-import { validateDownloadedContent } from "../download-validation.js";
+import { validateDownloadedContent } from "@vellumai/download-validation";
 import { fetchImpl } from "../fetch.js";
 import type { SlackFile } from "./normalize.js";
 
