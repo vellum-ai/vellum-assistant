@@ -45,6 +45,9 @@ export interface AvatarTone {
 const FG_DARK = "#1A1A1A";
 const FG_LIGHT = "#FFFFFF";
 
+/** Near-black ground that avatar-tinted full-bleed surfaces blend over. */
+export const SURFACE_GROUND = "#151515";
+
 /** Perceived brightness (YIQ), 0–1. */
 function brightness(hex: string): number {
   const m = /^#?([0-9a-f]{6})$/i.exec(hex);
@@ -68,6 +71,34 @@ export function darkenHex(hex: string, factor: number): string {
   const ch = (shift: number) =>
     Math.max(0, Math.min(255, Math.round(((n >> shift) & 0xff) * factor)));
   return `#${((1 << 24) | (ch(16) << 16) | (ch(8) << 8) | ch(0)).toString(16).slice(1)}`;
+}
+
+/**
+ * Composite `overlay` at `alpha` over the solid `base`, returning the resulting
+ * opaque #rrggbb. Either hex may carry a leading `#`; a malformed input returns
+ * `base` unchanged, and `alpha` is clamped to 0–1.
+ */
+export function blendHex(base: string, overlay: string, alpha: number): string {
+  const b = /^#?([0-9a-f]{6})$/i.exec(base);
+  const o = /^#?([0-9a-f]{6})$/i.exec(overlay);
+  if (!b || !o) {
+    return base;
+  }
+  const a = Math.max(0, Math.min(1, alpha));
+  const bn = parseInt(b[1]!, 16);
+  const on = parseInt(o[1]!, 16);
+  const mix = (shift: number) =>
+    Math.round(((bn >> shift) & 0xff) * (1 - a) + ((on >> shift) & 0xff) * a);
+  return `#${((1 << 24) | (mix(16) << 16) | (mix(8) << 8) | mix(0)).toString(16).slice(1)}`;
+}
+
+/**
+ * Deep full-bleed surface for an avatar accent: the accent washed over
+ * {@link SURFACE_GROUND}. 0.14 is calibrated so the green character reproduces
+ * the takeover's established `#1D271E`.
+ */
+export function avatarSurfaceHex(accentHex: string): string {
+  return blendHex(SURFACE_GROUND, accentHex, 0.14);
 }
 
 /**
