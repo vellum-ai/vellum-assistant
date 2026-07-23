@@ -874,6 +874,7 @@ function customCatalog(): PlanListResponse {
             credits_usd: 50,
             price_cents: 5000,
             lookup_key: "credits_50",
+            legacy: false,
           },
         ],
         packages: [MIGHTY, SUPER, ULTRA],

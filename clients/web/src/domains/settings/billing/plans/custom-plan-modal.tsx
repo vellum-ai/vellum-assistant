@@ -132,7 +132,13 @@ export function CustomPlanModal({
     () => proPlan.storage_tiers.filter((t) => !t.legacy),
     [proPlan.storage_tiers],
   );
-  const creditTiers = proPlan.credit_tiers ?? [];
+  const allCreditTiers = proPlan.credit_tiers ?? [];
+  // Same legacy filter as storage for the selectable options; the full list is
+  // kept so a held legacy bundle can still be priced and shown (below).
+  const selectableCreditTiers = useMemo(
+    () => (proPlan.credit_tiers ?? []).filter((t) => !t.legacy),
+    [proPlan.credit_tiers],
+  );
 
   const machineOptions: DropdownOption<MachineTierEnum>[] = machineTiers.map(
     (t) => ({
@@ -154,28 +160,45 @@ export function CustomPlanModal({
         (currentStorageGib != null && t.storage_gib < currentStorageGib),
     }),
   );
+  // Price the current credit choice against the full catalog (legacy included)
+  // so a held bundle's price flows into the total and its recap row.
+  const selectedCredit =
+    creditChoice && creditChoice !== NO_EXTRA_CREDITS
+      ? (allCreditTiers.find((t) => t.tier === creditChoice) ?? null)
+      : null;
+  // A held legacy bundle isn't offered to a new config, but when it's the
+  // current selection it's appended disabled so the dropdown still shows it.
+  const heldLegacyCredit = selectedCredit?.legacy ? selectedCredit : null;
+
   const creditOptions: DropdownOption<CreditChoice>[] = [
     {
       value: NO_EXTRA_CREDITS,
       label: "No extra credits",
       icon: <Coins className="h-4 w-4" aria-hidden />,
     },
-    ...creditTiers.map((t) => ({
+    ...selectableCreditTiers.map((t) => ({
       value: t.tier as CreditTierEnum,
       label: t.label,
       icon: <Coins className="h-4 w-4" aria-hidden />,
       suffix: priceSuffix(t.price_cents),
     })),
+    ...(heldLegacyCredit
+      ? [
+          {
+            value: heldLegacyCredit.tier as CreditTierEnum,
+            label: heldLegacyCredit.label,
+            icon: <Coins className="h-4 w-4" aria-hidden />,
+            suffix: priceSuffix(heldLegacyCredit.price_cents),
+            disabled: true,
+          },
+        ]
+      : []),
   ];
 
   const selectedMachine =
     machineTiers.find((t) => t.tier === machineTier) ?? null;
   const selectedStorage =
     storageTiers.find((t) => t.tier === storageTier) ?? null;
-  const selectedCredit =
-    creditChoice && creditChoice !== NO_EXTRA_CREDITS
-      ? (creditTiers.find((t) => t.tier === creditChoice) ?? null)
-      : null;
 
   const complete =
     selectedMachine != null && selectedStorage != null && creditChoice !== "";
