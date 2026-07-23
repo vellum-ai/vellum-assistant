@@ -26,6 +26,7 @@ import { useTranscriptData } from "@/domains/chat/hooks/use-transcript-data";
 import { useTranscriptMessages } from "@/domains/chat/transcript/use-transcript-messages";
 import { useChatEmptyState } from "@/domains/chat/hooks/use-chat-empty-state";
 import { useComposerSubmit } from "@/domains/chat/hooks/use-composer-submit";
+import { useDraftSecretDetection } from "@/domains/chat/hooks/use-draft-secret-detection";
 import { DiskPressureBannerSlot } from "@/domains/chat/components/disk-pressure-banner-slot";
 import { useRuleEditorBridge } from "@/domains/chat/hooks/use-rule-editor-bridge";
 import { useChatBannerSlots } from "@/domains/chat/hooks/use-chat-banner-slots";
@@ -54,6 +55,7 @@ import { ChatBody } from "@/domains/chat/components/chat-body";
 import { ChatComposer } from "@/domains/chat/components/chat-composer/chat-composer";
 import { ChatRuleEditorModal } from "@/domains/chat/components/chat-rule-editor-modal";
 import { ComposerNotices } from "@/domains/chat/components/composer-notices";
+import { ComposerSecretNotice } from "@/domains/chat/components/composer-secret-notice";
 import { ComposerSettingsMenu } from "@/domains/chat/components/composer-settings-menu";
 import { ContextWindowIndicator } from "@/domains/chat/components/context-window-indicator";
 import { CreditsExhaustedBanner } from "@/domains/chat/components/credits-exhausted-banner";
@@ -451,6 +453,14 @@ export function ChatMainPanel({
   // Feature flags
   // -------------------------------------------------------------------------
   const queueSteering = useAssistantFeatureFlagStore.use.queueSteering();
+
+  // -------------------------------------------------------------------------
+  // Draft secret detection (flag-gated) — owns the composer warning's
+  // matches/dismissal plus the pre-send gate state.
+  // -------------------------------------------------------------------------
+  const draftSecretDetection = useDraftSecretDetection({
+    conversationId: activeConversationId,
+  });
 
   // -------------------------------------------------------------------------
   // Onboarding choice card
@@ -998,41 +1008,50 @@ export function ChatMainPanel({
         />
       }
       noticesAboveFormSlot={
-        <ComposerNotices
-          voiceError={voiceError}
-          onClearVoiceError={clearVoiceError}
-          onRetryMicPermission={handleRetryMicPermission}
-          onOpenMicSettings={handleOpenMicSettings}
-          onOpenTextInsertionSettings={handleOpenTextInsertionSettings}
-          billingBannerSlot={
-            billingBannerDecision === "daily_limit" ? (
-              <DailyLimitBanner onAdjustLimit={pushToBillingSettings} />
-            ) : billingBannerDecision === "managed_credits" ? (
-              <CreditsExhaustedBanner
-                mode={creditPaywallMode}
-                onAddCredits={() => setShowAddCreditsModal(true)}
-                onUpgrade={pushToPlansTakeover}
+        <>
+          {draftSecretDetection.matches.length > 0 &&
+            !draftSecretDetection.dismissed && (
+              <ComposerSecretNotice
+                matches={draftSecretDetection.matches}
+                onDismiss={draftSecretDetection.dismiss}
               />
-            ) : billingBannerDecision === "provider_billing" ? (
-              <ProviderBillingBanner onOpenSettings={pushToAiSettings} />
-            ) : null
-          }
-          diskPressureBanner={diskPressureBannerSlot}
-          showMissingApiKeyBanner={
-            error?.code === "PROVIDER_NOT_CONFIGURED"
-          }
-          onOpenAiSettings={pushToAiSettings}
-          onDismissApiKeyError={handleDismissApiKeyError}
-          compactionCircuitOpenUntil={compactionCircuitOpenUntil}
-          onCompactionCircuitExpired={handleCompactionCircuitExpired}
-          showMaintenanceBanner={
-            assistantState.kind === "active" &&
-            assistantState.maintenanceMode?.enabled === true
-          }
-          showMaintenanceExitAction={!statusBannerVisible}
-          assistantId={assistantId}
-          onMaintenanceExited={handleMaintenanceExited}
-        />
+            )}
+          <ComposerNotices
+            voiceError={voiceError}
+            onClearVoiceError={clearVoiceError}
+            onRetryMicPermission={handleRetryMicPermission}
+            onOpenMicSettings={handleOpenMicSettings}
+            onOpenTextInsertionSettings={handleOpenTextInsertionSettings}
+            billingBannerSlot={
+              billingBannerDecision === "daily_limit" ? (
+                <DailyLimitBanner onAdjustLimit={pushToBillingSettings} />
+              ) : billingBannerDecision === "managed_credits" ? (
+                <CreditsExhaustedBanner
+                  mode={creditPaywallMode}
+                  onAddCredits={() => setShowAddCreditsModal(true)}
+                  onUpgrade={pushToPlansTakeover}
+                />
+              ) : billingBannerDecision === "provider_billing" ? (
+                <ProviderBillingBanner onOpenSettings={pushToAiSettings} />
+              ) : null
+            }
+            diskPressureBanner={diskPressureBannerSlot}
+            showMissingApiKeyBanner={
+              error?.code === "PROVIDER_NOT_CONFIGURED"
+            }
+            onOpenAiSettings={pushToAiSettings}
+            onDismissApiKeyError={handleDismissApiKeyError}
+            compactionCircuitOpenUntil={compactionCircuitOpenUntil}
+            onCompactionCircuitExpired={handleCompactionCircuitExpired}
+            showMaintenanceBanner={
+              assistantState.kind === "active" &&
+              assistantState.maintenanceMode?.enabled === true
+            }
+            showMaintenanceExitAction={!statusBannerVisible}
+            assistantId={assistantId}
+            onMaintenanceExited={handleMaintenanceExited}
+          />
+        </>
       }
     />
   );
