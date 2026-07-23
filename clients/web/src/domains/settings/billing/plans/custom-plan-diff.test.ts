@@ -254,7 +254,11 @@ describe("computeCustomPlanDiff — seeded reconfigure", () => {
     const diff = computeCustomPlanDiff({
       proPlan: proPlan(),
       // credits_100 is not present in the fixture's credit_tiers (deprecated).
-      seed: { machineTier: "medium", storageTier: "xs", creditTier: "credits_100" },
+      seed: {
+        machineTier: "medium",
+        storageTier: "xs",
+        creditTier: "credits_100",
+      },
       machineTier: "medium",
       storageTier: "xs",
       creditChoice: NO_EXTRA_CREDITS,
@@ -270,7 +274,11 @@ describe("computeCustomPlanDiff — seeded reconfigure", () => {
   test("switching from a deprecated seed credit to a live bundle is a change with no previous label", () => {
     const diff = computeCustomPlanDiff({
       proPlan: proPlan(),
-      seed: { machineTier: "medium", storageTier: "xs", creditTier: "credits_100" },
+      seed: {
+        machineTier: "medium",
+        storageTier: "xs",
+        creditTier: "credits_100",
+      },
       machineTier: "medium",
       storageTier: "xs",
       creditChoice: "credits_50",

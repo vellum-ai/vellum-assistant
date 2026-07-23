@@ -144,7 +144,8 @@ export function computeCustomPlanDiff(input: {
     // deprecated seed bundle (absent from proPlan.credit_tiers) resolves to
     // null, which would otherwise read identically to "No extra credits" and
     // hide the change.
-    const seedCreditKey = seed != null ? (seed.creditTier ?? NO_CREDIT_KEY) : null;
+    const seedCreditKey =
+      seed != null ? (seed.creditTier ?? NO_CREDIT_KEY) : null;
     const selectedCreditKey =
       creditChoice === NO_EXTRA_CREDITS ? NO_CREDIT_KEY : creditChoice;
     const changed = seed != null && seedCreditKey !== selectedCreditKey;
