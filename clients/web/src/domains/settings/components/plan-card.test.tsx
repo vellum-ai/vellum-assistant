@@ -343,34 +343,37 @@ describe("PlanCard", () => {
     expect(html).not.toContain("recommended-upgrade-button");
   });
 
-  test("Free → Mighty chips: both cards render absolute per-plan chips", () => {
+  test("Free current card is chip-less; recommended shows the summary chip", () => {
     const html = renderCard(baseSubscription(), basePlansResponse());
-    // Both peer cards render absolute chips (machine → credits → storage); the
-    // recommended (Mighty) card and the current (Free) card each show their own
-    // values, with no delta/arrow framing and no vCPU chip.
-    expect(html).toContain("$25 credits");
-    expect(html).toContain("10 GB");
-    expect(html).toContain("Small Machine");
-    // The current (Free) card shows the free baseline chips.
-    expect(html).toContain("$0 credits");
-    expect(html).toContain("4 GB");
+    // The current (Free) card is now a minimal centered card with NO spec chips:
+    // none of the free-baseline chip labels appear.
+    expect(html).not.toContain("$0 credits");
+    expect(html).not.toContain("4 GB");
+    expect(html).not.toContain("Small Machine");
+    // The recommended (Mighty) card shows the single summary chip, replacing the
+    // old absolute per-resource chips (machine · credits · storage).
+    expect(html).toContain("more credits, storage, and a stronger machine");
+    expect(html).not.toContain("$25 credits");
+    expect(html).not.toContain("10 GB");
     expect(html).not.toContain("vCPU");
-    // A known-specs (free baseline) current card keeps its stock tagline — the
-    // tagline gate only suppresses the Custom/unknown case, not this one.
+    // The centered free card still shows its "Your Current Plan" tag and its real
+    // tagline — the tagline follows "known plan", not "has chips".
+    expect(html).toContain("Your Current Plan");
     expect(html).toContain(PLAN_TIER_COPY.free.tagline);
   });
 
-  test("Mighty → Super: recommends Super with absolute chips on both cards", () => {
+  test("Mighty → Super: current keeps its chips, recommended shows the summary chip", () => {
     const html = renderCard(proMightySubscription(), plansWithSuper());
     // On Mighty, the recommended upgrade is the next catalog package, Super.
     expect(html).toContain("recommended-upgrade-button");
     expect(html).toContain("Recommended");
     expect(html).toContain("Super");
-    // The recommended (Super) card shows Super's absolute chips.
-    expect(html).toContain("$45 credits");
-    expect(html).toContain("30 GB");
-    expect(html).toContain("Medium Machine");
-    // The current (Mighty) card shows Mighty's absolute chips.
+    // The recommended (Super) card shows the single summary chip, not Super's
+    // absolute per-resource chips.
+    expect(html).toContain("more credits, storage, and a stronger machine");
+    expect(html).not.toContain("$45 credits");
+    expect(html).not.toContain("30 GB");
+    // The current (Mighty) card keeps its absolute chips.
     expect(html).toContain("$25 credits");
     expect(html).toContain("10 GB");
     expect(html).toContain("Small Machine");
@@ -394,9 +397,11 @@ describe("PlanCard", () => {
     expect(html).toContain("recommended-upgrade-button");
     expect(html).toContain("Switch plan");
     expect(html).toContain("Switch to Mighty");
-    // A neutral switch drops the "Recommended" tag and renders no stock chips on
-    // the recommended card; the current "Custom" card also has no knowable chips.
+    // A neutral switch drops the "Recommended" tag and renders no chips on the
+    // recommended card — not even the summary chip; the current "Custom" card
+    // also has no knowable chips.
     expect(html).not.toContain("Recommended");
+    expect(html).not.toContain("more credits, storage, and a stronger machine");
   });
 
   test("a customized Pro sub's banner drops the stock upgrade framing", () => {
@@ -413,6 +418,8 @@ describe("PlanCard", () => {
     expect(html).toContain("Switch plan");
     expect(html).toContain("Switch to Super");
     expect(html).not.toContain("Recommended");
+    // A neutral switch renders no summary chip either.
+    expect(html).not.toContain("more credits, storage, and a stronger machine");
   });
 
   test("a base user's banner keeps the directional upgrade framing", () => {
@@ -473,6 +480,20 @@ describe("PlanCard", () => {
     expect(html).not.toContain("$0 credits");
     expect(html).not.toContain("4 GB");
     expect(html).not.toContain("Small Machine");
+  });
+
+  test("a free user's current card is centered, chip-less, and keeps its tagline", () => {
+    const html = renderCard(baseSubscription(), basePlansResponse());
+    // The free current card is a minimal centered card: centering classes on the
+    // card, its "Your Current Plan" tag, and the real free tagline, but NO chips.
+    expect(html).toContain("justify-center");
+    expect(html).toContain("Your Current Plan");
+    expect(html).toContain(PLAN_TIER_COPY.free.tagline);
+    expect(html).not.toContain("$0 credits");
+    expect(html).not.toContain("4 GB");
+    expect(html).not.toContain("Small Machine");
+    // The recommended (Mighty) card shows the single summary chip.
+    expect(html).toContain("more credits, storage, and a stronger machine");
   });
 });
 
