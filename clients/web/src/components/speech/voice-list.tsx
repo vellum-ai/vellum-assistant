@@ -26,6 +26,7 @@ import { Check, Square, Volume2 } from "lucide-react";
 
 import { cn } from "@vellumai/design-library";
 import { Button } from "@vellumai/design-library/components/button";
+import { Dropdown } from "@vellumai/design-library/components/dropdown";
 import { toast } from "@vellumai/design-library/components/toast";
 
 import { useManagedVoiceSelection } from "@/components/speech/use-managed-voice-selection";
@@ -138,6 +139,14 @@ export interface VoiceListProps {
    * card free of provider jargon.
    */
   showSource?: boolean;
+  /**
+   * Add a provider dropdown above the list that scopes it to one upstream
+   * source (ElevenLabs, Deepgram, …), grouped by accent within that choice —
+   * the Voice-page picker modal. When on, the per-row source badge is dropped
+   * (the chosen provider already labels the whole list) and the list gets more
+   * height. The dropdown hides itself when the catalog has a single provider.
+   */
+  filterBySource?: boolean;
 }
 
 export function VoiceList({
@@ -148,6 +157,7 @@ export function VoiceList({
   value,
   onChange,
   showSource = false,
+  filterBySource = false,
 }: VoiceListProps) {
   const {
     available,
@@ -168,7 +178,42 @@ export function VoiceList({
     onSelect?.();
   };
 
-  const groups = useMemo(() => groupVoicesByAccent(voices), [voices]);
+  // Provider filter (Voice-page modal): a dropdown scopes the list to one
+  // upstream source so accent grouping isn't split across providers. Sources are
+  // ordered by their display label for a stable dropdown.
+  const sources = useMemo(() => {
+    const seen = new Set<string>();
+    const ordered: string[] = [];
+    for (const v of voices) {
+      if (!seen.has(v.source)) {
+        seen.add(v.source);
+        ordered.push(v.source);
+      }
+    }
+    return ordered.sort((a, b) =>
+      (MANAGED_VOICE_SOURCE_LABELS[a] ?? a).localeCompare(
+        MANAGED_VOICE_SOURCE_LABELS[b] ?? b,
+      ),
+    );
+  }, [voices]);
+  const [sourceOverride, setSourceOverride] = useState<string | null>(null);
+  const activeVoiceSource = voices.find((v) => v.model === activeModel)?.source;
+  // Default to the current voice's provider so the modal opens on the group it
+  // lives in; the user's own pick then wins.
+  const selectedSource = filterBySource
+    ? (sourceOverride ?? activeVoiceSource ?? sources[0] ?? null)
+    : null;
+  const showSourceFilter = filterBySource && sources.length > 1;
+
+  const groups = useMemo(
+    () =>
+      groupVoicesByAccent(
+        selectedSource
+          ? voices.filter((v) => v.source === selectedSource)
+          : voices,
+      ),
+    [voices, selectedSource],
+  );
   const { previewingModel, play, stop } = useVoiceSamplePreview();
 
   // Bring the current voice into view on open — grouping means it may sit in a
@@ -201,11 +246,25 @@ export function VoiceList({
           {heading}
         </span>
       )}
+      {showSourceFilter && (
+        <div className="px-1 pb-1">
+          <Dropdown
+            value={selectedSource ?? ""}
+            onChange={setSourceOverride}
+            options={sources.map((s) => ({
+              value: s,
+              label: MANAGED_VOICE_SOURCE_LABELS[s] ?? s,
+            }))}
+            aria-label="Voice provider"
+          />
+        </div>
+      )}
       <div
         role="listbox"
         aria-label="Assistant voice"
         className={cn(
-          "flex max-h-80 flex-col overflow-y-auto",
+          "flex flex-col overflow-y-auto",
+          filterBySource ? "max-h-[60vh]" : "max-h-80",
           selecting && "pointer-events-none opacity-70",
         )}
       >
@@ -243,7 +302,7 @@ export function VoiceList({
                       </span>
                     )}
                   </span>
-                  {showSource && (
+                  {showSource && !filterBySource && (
                     <span className="shrink-0 text-body-small-default text-[var(--content-tertiary)]">
                       {MANAGED_VOICE_SOURCE_LABELS[voice.source] ?? voice.source}
                     </span>

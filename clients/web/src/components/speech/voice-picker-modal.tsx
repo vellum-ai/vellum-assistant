@@ -21,6 +21,12 @@ export interface VoicePickerModalProps {
   onOpenChange: (open: boolean) => void;
   /** Show each voice's provider badge (settings surfaces). */
   showSource?: boolean;
+  /**
+   * Browse by provider: a dropdown scopes the catalog to one source, and the
+   * modal widens to give the list room. On for the Voice-page picker; the
+   * in-call voice-room modal stays the compact single-list picker.
+   */
+  filterBySource?: boolean;
 }
 
 export function VoicePickerModal({
@@ -28,6 +34,7 @@ export function VoicePickerModal({
   open,
   onOpenChange,
   showSource = false,
+  filterBySource = false,
 }: VoicePickerModalProps) {
   const assistantName = useResolvedAssistantsStore.use
     .assistants()
@@ -35,7 +42,7 @@ export function VoicePickerModal({
 
   return (
     <Modal.Root open={open} onOpenChange={onOpenChange}>
-      <Modal.Content size="sm">
+      <Modal.Content size={filterBySource ? "md" : "sm"}>
         <Modal.Header>
           <Modal.Title>
             Pick a voice for {assistantName ?? "your assistant"}
@@ -46,6 +53,7 @@ export function VoicePickerModal({
             assistantId={assistantId}
             onSelect={() => onOpenChange(false)}
             showSource={showSource}
+            filterBySource={filterBySource}
           />
         </Modal.Body>
       </Modal.Content>
