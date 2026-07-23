@@ -1,13 +1,13 @@
 /**
- * The voice-picker modal ("Pick a voice for <assistant>"), opened from the
- * voice-room settings popover's Voice row. Gives voice selection the room the
- * cramped popover can't: every voice's full description on its own line with a
- * per-voice preview.
+ * The voice-picker modal ("Pick a voice for <assistant>"). Gives voice
+ * selection the room a cramped trigger can't: every voice's full description on
+ * its own line with a per-voice preview.
  *
  * Selecting a voice persists it (hot-applies on the next reply) and closes the
  * modal. The list itself lives in {@link VoiceList}; the first-run card renders
- * that list as one of its own views, so this modal serves only popover callers,
- * which have no dialog of their own to stack on.
+ * that list inline as one of its own views, so this modal serves callers with
+ * no dialog of their own to host the list — the voice-room settings popover and
+ * the Voice settings page's picker card.
  */
 
 import { Modal } from "@vellumai/design-library/components/modal";

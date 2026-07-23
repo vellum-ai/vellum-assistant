@@ -1,4 +1,4 @@
-import { Info } from "lucide-react";
+import { ArrowUpRight, Info } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -8,6 +8,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
 } from "react";
+import { Link } from "react-router";
 
 import { Button } from "@vellumai/design-library/components/button";
 import { Dropdown } from "@vellumai/design-library/components/dropdown";
@@ -50,6 +51,7 @@ import {
   getPreferredInputDeviceId,
 } from "@/utils/voice-input-device";
 import { canConfigureFnPushToTalk } from "@/runtime/hotkey";
+import { routes } from "@/utils/routes";
 import { VOICE_TRANSCRIPT_RECOMMENDATION } from "@/utils/voice-transcript-prefs";
 
 const PTT_PRESETS: ReadonlyArray<{ label: string; activator: PTTActivator }> = [
@@ -75,9 +77,13 @@ const FN_PTT_PRESET: { label: string; activator: PTTActivator } = {
 const labelClasses = "text-body-small-default text-[var(--content-tertiary)]";
 
 /**
- * Settings → Voice. One scrolling page, ordered by what people come here for:
- * the voice itself first, then the mic, then how you take a turn, then the
- * fine-tuning, then captions.
+ * Settings → Voice, split into the two halves of a spoken conversation so
+ * output settings and input settings don't sit in one undifferentiated stack:
+ *
+ *  - **Output** — how the assistant sounds (its voice).
+ *  - **Input** — how you talk to it (mic, push to talk, turn taking).
+ *  - **Captions** — reading along, which belongs to neither half, so it trails
+ *    on its own.
  *
  * Deliberately NOT here: the BYO text-to-speech / speech-to-text provider forms
  * (they live with every other provider on Models & Services) and the event
@@ -90,13 +96,79 @@ export function VoicePage() {
 
 export function VoiceSections() {
   return (
-    <div className="flex flex-col gap-6">
-      <VoicePickerCard />
-      <MicrophoneCard />
-      <PushToTalkCard />
-      <ConversationTuningCard />
-      <CaptionsCard />
+    <div className="flex flex-col gap-8">
+      <VoiceSection
+        heading="Output"
+        description="How your assistant sounds."
+      >
+        <VoicePickerCard />
+        <SpeechServicesBanner />
+      </VoiceSection>
+
+      <VoiceSection
+        heading="Input"
+        description="How you talk to your assistant."
+      >
+        <MicrophoneCard />
+        <PushToTalkCard />
+        <ConversationTuningCard />
+      </VoiceSection>
+
+      <VoiceSection heading="Captions">
+        <CaptionsCard />
+      </VoiceSection>
     </div>
+  );
+}
+
+/**
+ * Pointer to the BYO speech providers, which live with every other provider on
+ * Models & Services rather than on this page. Restores the cross-link the Voice
+ * page carried before speech briefly moved into a Services tab — most people
+ * want the managed voice above, but the ones bringing their own key need a way
+ * across.
+ */
+function SpeechServicesBanner() {
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 px-1 text-body-small-default text-[var(--content-tertiary)]">
+      <Info className="h-3.5 w-3.5 shrink-0 text-[var(--content-quiet)]" />
+      <span>
+        Want to use your own API key for speech-to-text or text-to-speech?
+      </span>
+      <Link
+        to={routes.settings.ai}
+        className="inline-flex items-center gap-1 text-[var(--content-secondary)] underline decoration-[var(--border-element)] underline-offset-2 hover:text-[var(--content-default)]"
+      >
+        Set it up in Models &amp; Services
+        <ArrowUpRight className="h-3 w-3" />
+      </Link>
+    </div>
+  );
+}
+
+function VoiceSection({
+  heading,
+  description,
+  children,
+}: {
+  heading: string;
+  description?: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className="flex flex-col gap-4">
+      <div className="flex flex-col gap-1">
+        <h2 className="text-label-medium-default uppercase tracking-wide text-[var(--content-tertiary)]">
+          {heading}
+        </h2>
+        {description && (
+          <p className="text-body-small-default text-[var(--content-quiet)]">
+            {description}
+          </p>
+        )}
+      </div>
+      {children}
+    </section>
   );
 }
 
