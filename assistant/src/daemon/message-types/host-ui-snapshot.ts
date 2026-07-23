@@ -1,36 +1,18 @@
 // Host UI-snapshot proxy types.
-// Asks the desktop client to render a staged view of the app's own UI
-// (`/assistant/theme-stage/:view`) in a hidden window with the current
-// workspace-theme tokens applied, capture it, and post the PNG back. The
-// stage contains only fixed generic content — never user data — so the
-// assistant can check its theming work without a human screenshotting the
-// app. Distinct from host-app-control's `observe` (which captures OTHER
-// applications' windows via the native helper).
+//
+// The server→client events (`host_ui_snapshot_request` / `_cancel`) and the
+// `HostUiSnapshotView` enum are single-sourced from their canonical `api/events`
+// wire schema. `HostUiSnapshotResultPayload` is the HTTP body the client POSTs
+// to /v1/host-ui-snapshot-result — a route contract, not an event.
 
-/** Staged compositions the web client can render for capture. */
-export type HostUiSnapshotView = "sampler" | "chat";
+import type { HostUiSnapshotCancelEvent } from "../../api/events/host-ui-snapshot.js";
+import type { HostUiSnapshotRequestEvent } from "../../api/events/host-ui-snapshot.js";
 
-export interface HostUiSnapshotRequestMessage {
-  type: "host_ui_snapshot_request";
-  requestId: string;
-  view: HostUiSnapshotView;
-  /**
-   * Validated workspace-theme tokens to apply on the stage. The daemon reads
-   * them from ui/theme.json at request time so the capture reflects the
-   * current file even before connected clients refetch. Absent when no valid
-   * theme exists — the stage renders the built-in base theme.
-   */
-  tokens?: Record<string, string>;
-}
-
-export interface HostUiSnapshotCancelMessage {
-  type: "host_ui_snapshot_cancel";
-  requestId: string;
-}
+export type { HostUiSnapshotView } from "../../api/events/host-ui-snapshot.js";
 
 export type _HostUiSnapshotServerMessages =
-  | HostUiSnapshotRequestMessage
-  | HostUiSnapshotCancelMessage;
+  | HostUiSnapshotRequestEvent
+  | HostUiSnapshotCancelEvent;
 
 /** Body the desktop client POSTs to /v1/host-ui-snapshot-result. */
 export interface HostUiSnapshotResultPayload {
