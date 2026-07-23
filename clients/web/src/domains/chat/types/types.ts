@@ -156,6 +156,14 @@ export interface DisplayMessage {
 }
 
 /**
+ * Semantic tone of a completed surface, mapped to an icon + color in
+ * {@link SurfaceContainer}. `success` is the affirmative green check; `danger`
+ * is a rejection (denied/blocked); `neutral` is a non-affirmative terminal
+ * state (expired/cancelled/timed out) that should not read as success.
+ */
+export type SurfaceCompletionTone = "success" | "neutral" | "danger";
+
+/**
  * A UI surface (widget) rendered in the transcript. Extends the canonical wire
  * `ConversationMessageSurface` (carrying `surfaceId`/`surfaceType`/`data`/
  * `actions`/`completed`/`completionSummary`/`toolCallId`) with the client-only
@@ -165,6 +173,14 @@ export interface DisplayMessage {
 export interface Surface extends ConversationMessageSurface {
   /** Narrowed placement; the wire ships `display` as a free string. */
   display?: "inline" | "panel";
+  /**
+   * Client-only semantic tone for the completion summary, driving the
+   * completed-state icon/color. Set by the optimistic action handler (which
+   * knows the decision outcome); absent on surfaces completed via the SSE
+   * `ui_surface_complete` path or restored from history, where the tone is
+   * inferred from {@link ConversationMessageSurface.completionSummary}.
+   */
+  completionTone?: SurfaceCompletionTone;
   /** Resolved id of the message the surface is bound to. */
   messageId?: string;
   /** True when the surface's messageId doesn't match any existing message
@@ -203,7 +219,7 @@ export const INHERENTLY_INTERACTIVE_SURFACE_TYPES = [
  * — are non-interactive and should never block the composer.
  */
 export function isSurfaceInteractive(surface: Surface): boolean {
-  if (surface.completed) return false;
+  if (surface.completed) {return false;}
   const hasActions =
     Array.isArray(surface.actions) && surface.actions.length > 0;
   return (

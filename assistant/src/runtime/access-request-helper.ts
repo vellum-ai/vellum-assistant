@@ -24,6 +24,7 @@ import {
   recordGuardianRequestDeliveries,
 } from "../notifications/guardian-delivery-recorder.js";
 import type { GuardianResolutionSource } from "../notifications/signal.js";
+import { getConversation } from "../persistence/conversation-crud.js";
 import { IntegrityError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import { resolveAnchoredGuardian } from "./anchored-guardian.js";
@@ -63,6 +64,15 @@ export interface AccessRequestParams {
   messageTs?: string;
   /** Defaults to `denied` — see {@link AccessRequestTrigger}. */
   trigger?: AccessRequestTrigger;
+  /**
+   * Internal conversation the in-app (vellum) approval card should be attached
+   * to, instead of minting a fresh standalone "Chat". Set by ingress paths that
+   * already created a conversation for the inbound message (e.g. the admission
+   * floor deny path, which records the originating Slack/Telegram conversation)
+   * so the card lands inside the originating conversation and its
+   * `guardian_request_deliveries.destination_conversation_id` points there.
+   */
+  destinationConversationId?: string;
 }
 
 export type AccessRequestResult =
@@ -203,6 +213,7 @@ export async function notifyGuardianOfAccessRequest(
     isStranger,
     isRestricted,
     messageTs,
+    destinationConversationId,
   } = params;
   const trigger: AccessRequestTrigger = params.trigger ?? "denied";
 
@@ -358,11 +369,27 @@ export async function notifyGuardianOfAccessRequest(
     TEXT_CHANNELS_WITH_DELIVERY.has(sourceChannel) &&
     guardianResolutionSource === "source-channel-contact";
 
+  // Pin the in-app (vellum) card to the originating conversation when the caller
+  // supplied one, so the card lands inside it instead of a fresh standalone
+  // "Chat". `pairDeliveryWithConversation` reuses a conversation only when its
+  // source matches the signal's, so mirror the target's source (inbound
+  // conversations default to "user"); a stale/missing target falls back to a
+  // new conversation via the same pairing path.
+  const vellumConversationAffinity = destinationConversationId
+    ? {
+        conversationAffinityHint: { vellum: destinationConversationId },
+        conversationMetadata: {
+          source: getConversation(destinationConversationId)?.source ?? "user",
+        },
+      }
+    : undefined;
+
   void emitNotificationSignal({
     sourceEventName: "ingress.access_request",
     sourceChannel,
     sourceContextId: `access-req-${sourceChannel}-${actorExternalId}`,
     requiresConversation: true,
+    ...(vellumConversationAffinity ?? {}),
     ...(sameChannelOnly ? { routingIntent: "single_channel" as const } : {}),
     attentionHints: {
       requiresAction: true,

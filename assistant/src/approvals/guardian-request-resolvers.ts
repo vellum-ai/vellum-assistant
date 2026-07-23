@@ -684,7 +684,10 @@ async function notifyRequesterOfDenial(params: {
       assistantId,
       channelDeliveryContext,
       desktopDeliverUrl,
-      text: "Your access request has been denied.",
+      // Active-denial copy, deliberately distinct from the expiry notice
+      // ("…expired before it was reviewed") so a reviewed decline never reads
+      // as a request that simply timed out.
+      text: "Your access request was declined.",
     });
   }
 
@@ -1044,7 +1047,10 @@ const accessRequestResolver: GuardianRequestResolver = {
     const session = ctx.mintedSession;
     if (!session) {
       log.error(
-        { event: "resolver_access_request_missing_mint", requestId: request.id },
+        {
+          event: "resolver_access_request_missing_mint",
+          requestId: request.id,
+        },
         "Access request resolver: decide returned no mintedSession for a verify_code outcome",
       );
       return { ok: false, reason: "minted_session_missing" };

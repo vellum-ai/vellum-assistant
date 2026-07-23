@@ -14,19 +14,60 @@ import { useStreamStore } from "@/domains/chat/stream-store";
 import { useTurnStore } from "@/domains/chat/turn-store";
 import { completeSubmittedSurface } from "@/domains/chat/utils/send-message-utils";
 import { submitSurfaceAction } from "@/domains/chat/api/surfaces";
-import type { DisplayMessage } from "@/domains/chat/types/types";
+import type {
+  DisplayMessage,
+  SurfaceCompletionTone,
+} from "@/domains/chat/types/types";
 
+// Guardian-decision failure reasons (applied === false) → guardian-facing
+// label. Covers every reason `processGuardianDecision` can return; anything
+// unmapped falls back to the generic "Not applied". None of these is a
+// requester-facing string — the requester's notice is delivered by the daemon
+// resolver, and a decline is deliberately distinct from an expiry there.
 const DECISION_REASON_LABELS: Record<string, string> = {
   already_resolved: "Already resolved",
   expired: "Request expired",
   identity_mismatch: "Not authorized",
   not_found: "Request not found",
+  request_misconfigured: "Couldn't be processed",
+  invalid_action: "Not applied",
   resolver_failed: "Action failed",
 };
 
 function formatDecisionReason(reason?: string): string {
-  if (!reason) return "Not applied";
+  if (!reason) {return "Not applied";}
   return DECISION_REASON_LABELS[reason] ?? "Not applied";
+}
+
+/** Guardian-decision actions that resolve a request to a denied state. */
+const DENY_DECISION_ACTIONS: ReadonlySet<string> = new Set([
+  "reject",
+  "leave_unverified",
+  "block",
+]);
+
+/** Action segment of an `apr:<requestId>:<action>` guardian-decision id. */
+function guardianDecisionAction(actionId: string): string {
+  return actionId.startsWith("apr:")
+    ? actionId.split(":").slice(2).join(":")
+    : actionId;
+}
+
+/**
+ * Completion tone for a guardian decision (apr:*): a decision that didn't apply
+ * (already resolved, expired, …) is a neutral non-affirmative state; an applied
+ * deny/block is a rejection (danger); an applied approve/trust is a success.
+ * This keeps the completed card's icon from showing an affirmative green check
+ * on a denial.
+ */
+function guardianDecisionTone(
+  actionId: string,
+  result: { applied?: boolean },
+): SurfaceCompletionTone {
+  if (result.applied === false) {return "neutral";}
+  return DENY_DECISION_ACTIONS.has(guardianDecisionAction(actionId))
+    ? "danger"
+    : "success";
 }
 
 /**
@@ -82,6 +123,11 @@ export async function handleSurfaceAction(
       : result.replyText;
 
   patchTranscriptMessages((prev: DisplayMessage[]) =>
-    completeSubmittedSurface(prev, surfaceId, actionId, completionText),
+    completeSubmittedSurface(prev, surfaceId, actionId, completionText, {
+      isGuardianDecision,
+      ...(isGuardianDecision
+        ? { tone: guardianDecisionTone(actionId, result) }
+        : {}),
+    }),
   );
 }
