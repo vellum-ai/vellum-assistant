@@ -344,7 +344,8 @@ export function AvatarTour({
         }
         const rect = measureComposerRect();
         if (!rect) {
-          // Composer gone (layout changed mid-tour) — end past the finale.
+          // No composer to flood (never mounted, or the layout changed
+          // mid-tour) — end past the finale.
           onDone();
           return;
         }
@@ -394,11 +395,12 @@ export function AvatarTour({
           beats.push({ kind: "row", step, ...placement });
         }
       }
-      // The finale — the composer's rect is measured at entry, since the
-      // sidebar reveal reflows the main column under it.
-      if (measureComposerRect()) {
-        beats.push({ kind: "composer" });
-      }
+      // The finale — always scheduled, with its rect measured at entry:
+      // the sidebar reveal reflows the main column under it, and on the
+      // post-onboarding hand-off the composer is still mounting behind the
+      // first-message gate at this point. If it still isn't there when the
+      // beat is entered, the tour ends past the finale (see goTo).
+      beats.push({ kind: "composer" });
       beatsRef.current = beats;
       setBeatCount(beats.length);
       void goTo(0);

@@ -197,9 +197,9 @@ export function resolveResumeStep(
   // state that a snapshot can't restore, so a saved journey never resumes onto
   // it — land on the form and let a resubmit re-evaluate the guard.
   if (snapshot.step === "existing") return "form";
-  // Retired step, but snapshots persisted before its removal can still carry
-  // it (the load path casts without validating) — resume on the terminal step
-  // it was entered from.
+  // Snapshots in the wild can carry the legacy "finishing" step, which the
+  // route no longer renders (the load path casts without validating) — land
+  // it on the terminal step instead.
   if ((snapshot.step as string) === "finishing") return "suggestions";
   return snapshot.step;
 }

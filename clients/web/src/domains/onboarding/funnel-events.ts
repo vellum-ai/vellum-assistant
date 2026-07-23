@@ -56,11 +56,10 @@ export const RESEARCH_ONBOARDING_FUNNEL_STEPS = {
   results: { stepName: "research_results", stepIndex: 9 },
   suggestions: { stepName: "research_suggestions", stepIndex: 10 },
   // Established-assistant guard — an off-ramp branch after the form, not a
-  // sequential stage, so it takes the next free index rather than renumbering
-  // the funnel. Outcome: "completed" = kept the assistant (left for chat),
-  // "skipped" = declined the off-ramp and redid onboarding anyway.
-  // (Index 11 belonged to the retired `finishing` loading step; it stays
-  // skipped so historical rows keep their meaning.)
+  // sequential stage. Outcome: "completed" = kept the assistant (left for
+  // chat), "skipped" = declined the off-ramp and redid onboarding anyway.
+  // Index 11 is intentionally unassigned: indices identify steps in emitted
+  // rows across app versions, so they are never renumbered or reused.
   existing: { stepName: "research_existing_assistant", stepIndex: 12 },
 } as const satisfies Record<ResearchStep, OnboardingFunnelStepDescriptor>;
 
