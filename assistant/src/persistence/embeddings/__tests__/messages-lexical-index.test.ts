@@ -31,7 +31,10 @@ let deleteCollectionCalls: string[];
 let payloadIndexCalls: Array<Record<string, unknown>>;
 // Sparse-vector config reported by getCollection for an existing collection.
 let mockSparseVectors: Record<string, unknown> | null;
+// Optimizer config reported by getCollection for an existing collection.
+let mockOptimizerConfig: Record<string, unknown> | null;
 let updateCollectionCalls: Array<{ name: string; params: unknown }>;
+let mockUpdateCollectionError: Error | null;
 let mockQueryPoints: Array<{
   id: string | number;
   score: number;
@@ -47,7 +50,9 @@ function resetMockState() {
   deleteCollectionCalls = [];
   payloadIndexCalls = [];
   mockSparseVectors = { sparse: { index: { on_disk: true } } };
+  mockOptimizerConfig = { default_segment_number: 2 };
   updateCollectionCalls = [];
+  mockUpdateCollectionError = null;
   mockQueryPoints = [];
 }
 
@@ -68,11 +73,17 @@ mock.module("@qdrant/js-client-rest", () => ({
           params: {
             ...(mockSparseVectors ? { sparse_vectors: mockSparseVectors } : {}),
           },
+          ...(mockOptimizerConfig
+            ? { optimizer_config: mockOptimizerConfig }
+            : {}),
         },
       };
     }
 
     async updateCollection(name: string, params: unknown) {
+      if (mockUpdateCollectionError) {
+        throw mockUpdateCollectionError;
+      }
       updateCollectionCalls.push({ name, params });
     }
 
@@ -187,6 +198,71 @@ describe("MessagesLexicalIndex", () => {
     await index.ensureCollection();
 
     expect(updateCollectionCalls).toEqual([]);
+  });
+
+  test("sets the explicit segment count on an existing auto-sized collection", async () => {
+    mockCollectionExists = true;
+    // Collection created before the explicit count: Qdrant auto-detected 8
+    // segments from the node's CPU count.
+    mockOptimizerConfig = { default_segment_number: 8 };
+
+    const index = makeIndex();
+    await index.ensureCollection();
+
+    expect(createCollectionCalls).toEqual([]);
+    expect(deleteCollectionCalls).toEqual([]);
+    expect(updateCollectionCalls).toEqual([
+      {
+        name: "messages_lexical",
+        params: { optimizers_config: { default_segment_number: 2 } },
+      },
+    ]);
+  });
+
+  test("treats an unset segment count (auto) as needing the explicit value", async () => {
+    mockCollectionExists = true;
+    mockOptimizerConfig = { default_segment_number: null };
+
+    const index = makeIndex();
+    await index.ensureCollection();
+
+    expect(updateCollectionCalls).toEqual([
+      {
+        name: "messages_lexical",
+        params: { optimizers_config: { default_segment_number: 2 } },
+      },
+    ]);
+  });
+
+  test("leaves a collection already at the target segment count alone", async () => {
+    mockCollectionExists = true;
+    mockOptimizerConfig = { default_segment_number: 2 };
+
+    const index = makeIndex();
+    await index.ensureCollection();
+
+    expect(updateCollectionCalls).toEqual([]);
+  });
+
+  test("a failed segment-count update is swallowed and startup continues", async () => {
+    mockCollectionExists = true;
+    mockOptimizerConfig = { default_segment_number: 8 };
+    mockUpdateCollectionError = new Error("qdrant unavailable");
+
+    const index = makeIndex();
+    await index.ensureCollection();
+
+    // No update recorded (it threw) — but ensureCollection completed and the
+    // payload indexes were still ensured.
+    expect(updateCollectionCalls).toEqual([]);
+    expect(payloadIndexCalls.length).toBeGreaterThan(0);
+
+    // The collection is usable: a subsequent write goes straight through.
+    await index.upsertMessage("m1", SPARSE, {
+      conversationId: "c1",
+      createdAt: 1,
+    });
+    expect(upsertCalls.length).toBe(1);
   });
 
   test("upsertMessage writes a deterministic point id and a sparse-only vector with the right payload", async () => {
