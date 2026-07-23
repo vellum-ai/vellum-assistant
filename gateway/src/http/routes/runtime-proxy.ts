@@ -175,6 +175,21 @@ export function createRuntimeProxyHandler(config: GatewayConfig) {
     const resHeaders = stripHopByHop(new Headers(response.headers));
     const duration = Math.round(performance.now() - start);
 
+    // SSE connections are dedicated to their stream: close the client-facing
+    // TCP socket when the response ends. This must also cover rejected SSE
+    // requests (e.g. the daemon's JSON 503 while a pre-checkpoint quiesce
+    // latch is armed — clients retry within 1–2s), so match the request's
+    // Accept header as well as the upstream content-type. stripHopByHop
+    // removed the daemon's Connection header, and without this the gateway
+    // (idleTimeout: 0) would park the socket as idle keep-alive — a
+    // dead-on-restore epoll entry if a pod checkpoint follows.
+    if (
+      resHeaders.get("content-type")?.includes("text/event-stream") ||
+      req.headers.get("accept")?.includes("text/event-stream")
+    ) {
+      resHeaders.set("connection", "close");
+    }
+
     if (response.status >= 400) {
       const body = await response.text();
       const level = response.status >= 500 ? "error" : "warn";

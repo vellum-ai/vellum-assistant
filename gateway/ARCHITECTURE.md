@@ -332,6 +332,16 @@ Local platform smoke-test flow:
 6. Verify HTTP forwarding by requesting `${VELAY_PUBLIC_BASE_URL}/<assistant-id>/healthz` and `${VELAY_PUBLIC_BASE_URL}/<assistant-id>/schema`. When validating a JSON webhook route under active development, POST a small JSON body through the same Velay public URL and confirm it reaches the loopback gateway.
 7. Verify Twilio WebSocket forwarding with a synthetic local WebSocket client against `${VELAY_PUBLIC_BASE_URL}/<assistant-id>/webhooks/twilio/media-stream/<callSessionId>/<token>`, then with a real Twilio call after the gateway has registered with Velay.
 
+### Pre-Checkpoint Socket Quiesce
+
+`POST /internal/prepare-for-checkpoint` (`http/routes/checkpoint-quiesce.ts`) is called by the platform control plane (vembda) right before it triggers a gVisor pod checkpoint (GKE pod snapshot). A checkpoint captures each process's epoll set as-is; TCP connections whose remote peer lives outside the sandbox are dead by definition after a restore, and readiness events on them crash Bun's event loop. The handler:
+
+1. Relays to the daemon over the in-pod IPC socket (`/checkpoint/prepare`), which closes its external SSE subscriber streams.
+2. Closes the gateway's own external sockets — the Velay tunnel (`VelayTunnelClient.prepareForCheckpoint()`) and the Slack Socket Mode connection — with a 60s reconnect holdoff so a reconnect cannot race the checkpoint.
+3. Returns a JSON summary of what was closed. Every step is best-effort; a failed quiesce never blocks the capture.
+
+After restore, the sleep/wake detector's epoch-gap wake path (`resumeAfterWake()` / `forceReconnect()`) — or the holdoff expiry when no checkpoint happened — re-establishes all connections through the normal reconnect machinery. The route is cluster-internal: it is absent from the Velay path allowlist and additionally rejects tunnel-bridged and edge-proxied requests.
+
 ### URL Builders
 
 All public-facing URLs are constructed by `assistant/src/inbound/public-ingress-urls.ts`:

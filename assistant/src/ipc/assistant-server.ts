@@ -55,6 +55,7 @@ import {
   writeStreamChunk,
   writeStreamEnd,
 } from "./ipc-framing.js";
+import { CHECKPOINT_IPC_METHODS } from "./routes/checkpoint-ipc-routes.js";
 import { CONTACTS_INFO_IPC_METHODS } from "./routes/contacts-info-ipc-routes.js";
 import { CONTACTS_MIRROR_IPC_METHODS } from "./routes/contacts-mirror-ipc-routes.js";
 import { CONVERSATION_SYNC_IPC_METHODS } from "./routes/conversation-sync-ipc-routes.js";
@@ -215,6 +216,7 @@ export class AssistantIpcServer {
       GUARDIAN_LABEL_IPC_METHODS,
       CONVERSATION_SYNC_IPC_METHODS,
       EVENTS_IPC_METHODS,
+      CHECKPOINT_IPC_METHODS,
     ]) {
       for (const [operationId, handler] of Object.entries(methodMap)) {
         this.methods.set(operationId, handler);
@@ -451,9 +453,13 @@ export class AssistantIpcServer {
     id: string,
   ): IpcResponse | null {
     // `$cancel` only aborts an in-flight request and never reads the DB.
-    if (method === "$cancel" || isDbMigrationGateBypassed(method)) return null;
+    if (method === "$cancel" || isDbMigrationGateBypassed(method)) {
+      return null;
+    }
     const readiness = getDbMigrationReadiness();
-    if (readiness.ready) return null;
+    if (readiness.ready) {
+      return null;
+    }
     return {
       id,
       error: `Database migrations ${readiness.state}; IPC method '${method}' is temporarily unavailable`,

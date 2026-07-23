@@ -1258,3 +1258,118 @@ describe("VelayTunnelClient", () => {
     expect(delays).toEqual([100, 1000, 100, 10]);
   });
 });
+
+describe("pre-checkpoint quiesce", () => {
+  test("prepareForCheckpoint closes the tunnel and defers reconnect past the holdoff", async () => {
+    const sockets: FakeWebSocket[] = [];
+    const reconnectDelays: number[] = [];
+    const client = makeClient({ sockets, reconnectDelays });
+
+    client.start();
+    await flushPromises();
+    sockets[0].readyState = WS_OPEN;
+    sockets[0].emit("open");
+    await flushPromises();
+
+    expect(await client.prepareForCheckpoint()).toBe(true);
+    await flushPromises();
+
+    expect(sockets[0].closes).toEqual([
+      { code: 1000, reason: "pre-checkpoint quiesce" },
+    ]);
+    // No new socket while the holdoff is pending; the deferred reconnect is
+    // scheduled at (roughly) the holdoff, not the 10ms test backoff.
+    expect(sockets).toHaveLength(1);
+    expect(reconnectDelays).toHaveLength(1);
+    expect(reconnectDelays[0]).toBeGreaterThanOrEqual(59_000);
+    await client.stop();
+  });
+
+  test("prepareForCheckpoint without an active socket re-arms reconnect under the holdoff", async () => {
+    const sockets: FakeWebSocket[] = [];
+    const reconnectDelays: number[] = [];
+    const client = makeClient({
+      sockets,
+      reconnectDelays,
+      credentials: makeCredentials({
+        [credentialKey("vellum", "platform_assistant_id")]: "asst-123",
+      }),
+    });
+
+    client.start();
+    await flushPromises();
+    expect(sockets).toHaveLength(0);
+    expect(reconnectDelays).toEqual([10]);
+
+    expect(await client.prepareForCheckpoint()).toBe(false);
+    const lastDelay = reconnectDelays[reconnectDelays.length - 1];
+    expect(lastDelay).toBeGreaterThanOrEqual(59_000);
+    await client.stop();
+  });
+
+  test("prepareForCheckpoint is a no-op before start", async () => {
+    const client = makeClient({});
+    expect(await client.prepareForCheckpoint()).toBe(false);
+    await flushPromises();
+  });
+
+  test("resumeAfterWake reconnects immediately after a quiesce", async () => {
+    const sockets: FakeWebSocket[] = [];
+    const reconnectDelays: number[] = [];
+    const client = makeClient({ sockets, reconnectDelays });
+
+    client.start();
+    await flushPromises();
+    sockets[0].readyState = WS_OPEN;
+    sockets[0].emit("open");
+    await flushPromises();
+
+    await client.prepareForCheckpoint();
+    await flushPromises();
+    expect(sockets).toHaveLength(1);
+
+    client.resumeAfterWake();
+    await flushPromises();
+
+    expect(sockets).toHaveLength(2);
+    await client.stop();
+  });
+});
+
+describe("pre-checkpoint quiesce vs in-flight connect", () => {
+  test("aborts an in-flight connect before the socket is constructed", async () => {
+    const sockets: FakeWebSocket[] = [];
+    const reconnectDelays: number[] = [];
+    let releaseCredentials!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      releaseCredentials = resolve;
+    });
+    const values: Record<string, string> = {
+      [credentialKey("vellum", "assistant_api_key")]: "api-key-123",
+      [credentialKey("vellum", "platform_assistant_id")]: "asst-123",
+    };
+    const credentials = {
+      get: async (key: string) => {
+        await gate;
+        return values[key];
+      },
+      onInvalidate: () => () => {},
+    } as unknown as CredentialCache;
+    const client = makeClient({ sockets, reconnectDelays, credentials });
+
+    client.start();
+    await flushPromises();
+    // Connect is in flight, blocked on the credential read.
+    expect(sockets).toHaveLength(0);
+
+    expect(await client.prepareForCheckpoint()).toBe(false);
+    releaseCredentials();
+    await flushPromises();
+
+    // The in-flight connect aborted before constructing a doomed socket.
+    expect(sockets).toHaveLength(0);
+    const lastDelay = reconnectDelays[reconnectDelays.length - 1];
+    expect(lastDelay).toBeGreaterThanOrEqual(59_000);
+    await client.stop();
+  });
+});

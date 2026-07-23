@@ -35,9 +35,13 @@ let dbMigrationReadiness: DbMigrationReadiness = {
  * it (adding the DB-free `$cancel` control method). `health`/`healthz` must
  * remain exempt so the gateway can poll them to observe when migrations
  * finish (see gateway/src/post-assistant-ready.ts).
+ *
+ * `/checkpoint/prepare` (pre-checkpoint socket quiesce) only touches the
+ * in-memory event hub — never the DB — and must stay answerable so a pod
+ * snapshot taken mid-migration still gets its external sockets closed.
  */
 export const DB_MIGRATION_READINESS_EXEMPT_OPERATIONS: ReadonlySet<string> =
-  new Set(["health", "healthz", "ps"]);
+  new Set(["health", "healthz", "ps", "/checkpoint/prepare"]);
 
 /**
  * The migration-repair surface: operations additionally allowed while DB
