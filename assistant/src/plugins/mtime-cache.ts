@@ -13,9 +13,10 @@
  *
  * - Boot does one full discovery scan; after that, every change (plugin
  *   installed, removed, disabled, or any source file inside a plugin edited
- *   — including helper modules hooks/tools import) arrives through the
- *   source-versions sentinel published by the resource monitor's watcher.
- *   The dispatch path stats that one file and otherwise runs on memory.
+ *   — including helper modules hooks/tools import) is applied by the
+ *   imperative reconcile the install/uninstall/enable/disable routes call
+ *   ({@link reconcilePluginSourcesNow}). The dispatch path is a pure cache
+ *   read — it never scans disk, activates a plugin, or runs `init`.
  * - A changed plugin is redeployed in place: its `shutdown` runs (resolved
  *   from disk), its hook/tool cache entries and module-registry entries are
  *   swept, and reactivation runs `init`; the next read of each hook re-resolves
@@ -74,13 +75,8 @@ import {
 import { snapshotPluginSource } from "./source-fingerprint.js";
 import type { PluginSourceVersion } from "./source-versions.js";
 import {
-  getSourceVersionsPath,
-  readSourceVersions,
-} from "./source-versions.js";
-import {
   clearSurfaceImportInflight,
   evictModule,
-  getFileSignature,
   getMtime,
   importWithTimeout,
   setSurfaceImportTimeout,
@@ -206,32 +202,28 @@ const disabledPluginDirs = new Set<string>();
 
 /**
  * The source-versions state this process last applied, keyed by directory
- * (see `./source-versions.ts`). Seeded at boot from the daemon's own walk —
- * the same fingerprint algorithm over the same disk yields the same stamps
- * as the watcher, so the first sentinel publication after boot diffs
- * correctly even against edits made while the daemon was down.
+ * (see `./source-versions.ts`). Seeded at boot from the daemon's own walk,
+ * so the first imperative reconcile after boot diffs correctly against the
+ * state boot just loaded.
  */
 let lastVersions: Record<string, PluginSourceVersion> = {};
 
-/**
- * Change signature (`mtimeMs:size:ino`) of the sentinel document as of the last
- * look; `""` = never seen. A composite signature rather than mtime alone so a
- * publish is detected even when the filesystem's mtime granularity can't move
- * the timestamp between two rewrites (see {@link getFileSignature}).
- */
-let lastSentinelSignature = "";
-
-/** In-flight reconcile — concurrent dispatches await it rather than racing. */
+/** In-flight reconcile — concurrent imperative pokes await it rather than racing. */
 let reconcileInFlight: Promise<void> | null = null;
 
 // ─── Hook reads ──────────────────────────────────────────────────────────────
 
 /**
  * Get all hooks for a given event name from user plugins and standalone
- * workspace hooks. Checks the source-versions sentinel first (one stat;
- * reconciles only when the watcher published a change), then delegates to
- * the hook loader's in-memory cache. Plugin hooks run in install-date
- * order, the workspace hook runs last.
+ * workspace hooks, from the hook loader's in-memory cache. Plugin hooks run
+ * in install-date order, the workspace hook runs last.
+ *
+ * This is a pure cache read: it never scans disk, activates a plugin, or
+ * runs `init`. Activation happens only at boot ({@link populateCacheAtBoot})
+ * and through the imperative install/uninstall poke
+ * ({@link reconcilePluginSourcesNow}) — both main-daemon paths — so a
+ * sidecar process that dispatches hooks (a worker running conversation
+ * turns) can never bring a plugin up in its own process.
  *
  * `effectiveEnabledPlugins` carries the per-chat plugin scope: when non-null,
  * user plugins outside the set are skipped (standalone workspace hooks always
@@ -241,7 +233,6 @@ export async function getUserHookEntriesFor<TCtx = unknown>(
   hookName: string,
   effectiveEnabledPlugins?: Set<string> | null,
 ): Promise<HookEntry<TCtx>[]> {
-  await maybeReconcileFromSentinel();
   return collectUserHookEntries<TCtx>(
     hookName,
     discoveredPluginDirs.values(),
@@ -267,80 +258,26 @@ export async function getUserHooksFor<TCtx = unknown>(
 // ─── Source-versions reconcile ───────────────────────────────────────────────
 
 /**
- * Dispatch-path gate: one stat of the source-versions sentinel. When its
- * change signature is unchanged since the last look (the overwhelmingly common
- * case) this returns immediately, and dispatch runs entirely on memory. When
- * the watcher published a change, the document is applied before the dispatch
- * proceeds, so the turn that follows an edit already runs the new code.
- *
- * The signature is `mtimeMs:size:ino`, not mtime alone: the sentinel is
- * published via temp-file + atomic rename, which swaps in a fresh inode on
- * every write, so a runtime install is picked up even on filesystems whose
- * mtime granularity is too coarse to move the timestamp between two publishes
- * (virtiofs / 9p / network mounts). With an mtime-only gate such a publish is
- * invisible until the next daemon restart re-walks the plugins directory.
- *
- * A missing or unreadable sentinel is degraded mode, not an error: the
- * boot-time state keeps serving, and live reload resumes when the monitor
- * publishes again.
- */
-async function maybeReconcileFromSentinel(): Promise<void> {
-  // Loop so a dispatch that waits out an in-flight reconcile re-checks the
-  // sentinel afterward: the monitor may have published a newer version while
-  // that reconcile ran, and this turn must run against the latest on disk —
-  // not whatever the reconcile it happened to await had already applied.
-  for (;;) {
-    if (reconcileInFlight !== null) {
-      await reconcileInFlight;
-      continue;
-    }
-    const signature = getFileSignature(getSourceVersionsPath());
-    if (signature === lastSentinelSignature) {
-      return;
-    }
-    // Claim the signature before any async work, so a concurrent dispatch
-    // either finds the in-flight promise above or skips on the updated value.
-    lastSentinelSignature = signature;
-    if (signature === "") {
-      return;
-    }
-    const doc = readSourceVersions();
-    if (doc === null) {
-      return;
-    }
-    reconcileInFlight = applySourceVersions(doc.plugins).finally(() => {
-      reconcileInFlight = null;
-    });
-    await reconcileInFlight;
-    return;
-  }
-}
-
-/**
  * Imperatively reconcile the plugin caches against the current on-disk state
- * *now* — without waiting for the resource monitor to republish the
- * source-versions sentinel or for the next hook dispatch to notice it.
+ * *now*.
  *
- * An install / uninstall / enable / disable materializes files on disk; the
- * steady-state path picks that up eventually — the monitor republishes the
- * sentinel and the dispatch-path gate applies the diff on the next turn. That
- * is eventually-correct but not immediate: nothing runs a newly installed
- * plugin's `init` until some later turn dispatches a hook. Callers that just
- * changed the plugin set on disk (the install / uninstall routes, and the
- * CLI's best-effort post-install poke) call this to bring the change up
+ * An install / uninstall / enable / disable materializes files on disk;
+ * nothing else applies that change to the caches. Callers that just changed
+ * the plugin set on disk (the install / uninstall routes, and the CLI's
+ * best-effort post-install poke) call this to bring the change up
  * deterministically, so a freshly installed plugin's `init` fires as part of
- * the install rather than at the next daemon boot.
+ * the install rather than at the next daemon boot. Together with the boot
+ * scan this is the only path that activates plugins — dispatch-time hook and
+ * tool reads are pure cache reads — so activation only ever happens in the
+ * main daemon, where these routes run.
  *
- * Reuses the same collector the monitor writes into the sentinel, so the map
- * applied here is identical to the monitor's next publish — which then diffs to
- * a no-op. Idempotent and safe to call redundantly: `applySourceVersions` only
- * redeploys directories whose fingerprint moved, and activation is guarded so a
- * plugin already up is never re-initialized. Never throws — a failure is
+ * Idempotent and safe to call redundantly: `applySourceVersions` only
+ * redeploys directories whose fingerprint moved, and activation is guarded so
+ * a plugin already up is never re-initialized. Never throws — a failure is
  * contained inside `applySourceVersions` and logged there.
  *
- * Coordinates with the sentinel gate through the shared `reconcileInFlight`
- * latch: it waits out any dispatch-driven reconcile already running, then
- * claims the latch for its own apply, so the two paths never overlap.
+ * Concurrent pokes serialize through the `reconcileInFlight` latch, so two
+ * applies never overlap.
  */
 export async function reconcilePluginSourcesNow(): Promise<void> {
   while (reconcileInFlight !== null) {
@@ -363,14 +300,11 @@ export async function reconcilePluginSourcesNow(): Promise<void> {
 }
 
 /**
- * Validate that a directory path from the sentinel is an allowed plugin
- * source: either under the workspace plugins directory or the standalone
- * workspace hooks directory. The sentinel file lives under
- * `<workspace>/data/monitoring/` which is not protected by the file-risk
- * classifier, so a forged sentinel could point at arbitrary directories
- * containing attacker-controlled TypeScript. This check ensures
- * `bringUpPlugin` never dynamically imports code from outside the
- * designated plugin roots, regardless of what the sentinel contains.
+ * Validate that a directory path from a collected source-versions map is an
+ * allowed plugin source: either under the workspace plugins directory or the
+ * standalone workspace hooks directory. This check ensures `bringUpPlugin`
+ * never dynamically imports code from outside the designated plugin roots,
+ * regardless of what the collector walked.
  *
  * Uses `realpathSync` to resolve symlinks before the prefix check, so a
  * symlinked path that looks like it's under the plugins dir but points
@@ -402,9 +336,9 @@ function isAllowedPluginDir(
 }
 
 /**
- * Apply a published source-versions map: diff it against the state last
+ * Apply a collected source-versions map: diff it against the state last
  * applied and redeploy exactly what changed. Never throws — a failed apply
- * is logged and the next publication retries from the sentinel's truth.
+ * is logged and the next imperative reconcile retries from disk.
  *
  * Per directory, the transitions are:
  * - present + enabled with a moved fingerprint → in-place redeploy:
@@ -433,14 +367,13 @@ async function applySourceVersions(
       if (dir === workspaceHooksDir) {
         continue;
       }
-      // Reject directories from the sentinel that are outside the allowed
-      // plugin roots. A forged sentinel could point at arbitrary paths;
-      // without this check, bringUpPlugin would dynamic-import attacker
-      // code from anywhere on the filesystem.
+      // Reject directories outside the allowed plugin roots; without this
+      // check, bringUpPlugin would dynamic-import code from anywhere on
+      // the filesystem.
       if (!isAllowedPluginDir(dir, pluginsDir, workspaceHooksDir)) {
         log.warn(
           { dir },
-          "sentinel references directory outside allowed plugin roots — skipping",
+          "source-versions map references directory outside allowed plugin roots — skipping",
         );
         continue;
       }
@@ -521,7 +454,7 @@ async function applySourceVersions(
 }
 
 /**
- * Bring up a directory the sentinel reports as present and enabled. Returns
+ * Bring up a directory the source-versions map reports as present and enabled. Returns
  * whether the plugin joined the discovered set (a malformed manifest is
  * logged by the parser and the directory is skipped until it changes again).
  */
@@ -587,13 +520,9 @@ async function reconcileWorkspaceHooks(
 }
 
 /**
- * Seed the reconcile baseline at boot from the daemon's own walk, and record
- * the sentinel's current mtime without applying its content. Both sides run
- * the same fingerprint algorithm over the same disk, so the seed matches
- * whatever a healthy watcher would publish for the state boot just loaded —
- * and the first publication that differs (including edits made while the
- * daemon was down, which the watcher detects against its own adopted state)
- * diffs correctly against it.
+ * Seed the reconcile baseline at boot from the daemon's own walk, so the
+ * first imperative reconcile after boot diffs against the state boot just
+ * loaded (an unchanged plugin costs a fingerprint compare, not a redeploy).
  */
 function seedVersionBaseline(): void {
   const seeded: Record<string, PluginSourceVersion> = {};
@@ -615,7 +544,6 @@ function seedVersionBaseline(): void {
     };
   }
   lastVersions = seeded;
-  lastSentinelSignature = getFileSignature(getSourceVersionsPath());
 }
 
 // ─── Tool cache ──────────────────────────────────────────────────────────────
@@ -729,23 +657,21 @@ export interface ActivePluginTools {
  * This is a pure read of the already-reconciled caches — it never scans disk,
  * activates a plugin, or runs an `init` hook. Reconciliation (which activates
  * plugins and is the only thing that runs `init`) is owned exclusively by the
- * three paths that legitimately change the plugin set: the boot scan
- * ({@link populateCacheAtBoot}), the source-versions gate on the hook-dispatch
- * path ({@link getUserHookEntriesFor} → {@link maybeReconcileFromSentinel}), and
- * the imperative install/uninstall poke ({@link reconcilePluginSourcesNow}).
- * Pulling tools must not be a fourth: the tool registry is populated from
- * processes that never run plugin lifecycle (sidecar workers call
- * `initializeTools()` for their own tool surface), so folding activation into
- * this read would run `init` in a worker against daemon-owned plugin storage.
+ * two paths that legitimately change the plugin set, both main-daemon only:
+ * the boot scan ({@link populateCacheAtBoot}) and the imperative
+ * install/uninstall poke ({@link reconcilePluginSourcesNow}). Pulling tools
+ * (or dispatching hooks) must not be a third: those reads run in processes
+ * that never run plugin lifecycle (sidecar workers call `initializeTools()`
+ * for their own tool surface and dispatch hooks for the conversations they
+ * wake), so folding activation into a read would run `init` in a worker
+ * against daemon-owned plugin storage.
  *
  * This is the pull half of the tool-registry relationship: the registry's
  * `loadPluginTools()` reconcile calls this and diffs the result into its own
  * maps — this module never writes to the registry. Because a runtime plugin
- * change lands in the cache via the hook-dispatch reconcile that runs each turn
- * (or the explicit install poke), the very next `loadPluginTools()` reads the
- * updated set, so live install/remove/edit is still picked up without recreating
- * the conversation. Mirrors how hook reads pull through
- * {@link getUserHookEntriesFor}.
+ * change lands in the cache via the install poke, the very next
+ * `loadPluginTools()` reads the updated set, so install/remove through the
+ * routes is still picked up without recreating the conversation.
  */
 export function getActiveUserPluginTools(): Map<string, ActivePluginTools> {
   const byPlugin = new Map<string, CachedTool[]>();
@@ -1137,10 +1063,10 @@ async function deactivatePlugin(
  * {@link getActiveUserPluginTools}.
  *
  * Called by `loadUserPlugins()` during daemon startup. After boot, the same
- * `activatePlugin`/`deactivatePlugin` reconciliation runs via the
- * source-versions sentinel on every hook dispatch and registry pull, so
- * plugins whose files appear or disappear at runtime are picked up without a
- * restart.
+ * `activatePlugin`/`deactivatePlugin` reconciliation runs only through the
+ * imperative poke ({@link reconcilePluginSourcesNow}) the install/uninstall/
+ * enable/disable routes call, so plugin lifecycle stays confined to the main
+ * daemon — dispatch-time hook and tool reads never activate anything.
  */
 export async function populateCacheAtBoot(
   opts: { importTimeoutMs?: number } = {},
@@ -1163,8 +1089,8 @@ export async function populateCacheAtBoot(
     activatedPlugins.push({ kind: "workspace", name: WORKSPACE_HOOKS_OWNER });
   }
 
-  // Boot is self-sufficient (the scan above never waits on the monitor);
-  // from here on, changes arrive via the sentinel diffed against this seed.
+  // From here on, changes arrive via the imperative reconcile diffed
+  // against this seed.
   seedVersionBaseline();
 }
 
@@ -1191,7 +1117,6 @@ export function resetPluginCacheForTests(): void {
   activatedNames.clear();
   disabledPluginDirs.clear();
   lastVersions = {};
-  lastSentinelSignature = "";
   reconcileInFlight = null;
 }
 
