@@ -1,7 +1,6 @@
 import {
   existsSync,
   mkdirSync,
-  mkdtempSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -801,60 +800,6 @@ describe("scaffold_managed_skill tool", () => {
         detail: { authored_by: "retrospective" },
       },
     ]);
-  });
-
-  test("retrospective copy_from rejects a workspace source even when the workspace lives under tmpdir", async () => {
-    const sourcePath = join(TEST_DIR, "workspace-script.py");
-    writeFileSync(sourcePath, "print('workspace')\n", "utf-8");
-
-    const result = await executeScaffoldManagedSkill(
-      {
-        skill_id: "retro-copy-workspace",
-        name: "Retro Copy Workspace",
-        description: "Workspace source under retrospective origin",
-        body_markdown: "Body.",
-        files: [{ path: "scripts/x.py", copy_from: sourcePath }],
-      },
-      makeRetrospectiveContext(),
-    );
-
-    expect(result.isError).toBe(true);
-    expect(result.content).toContain(
-      "existing regular file under /tmp/vellum-eval",
-    );
-    expect(existsSync(join(TEST_DIR, "skills", "retro-copy-workspace"))).toBe(
-      false,
-    );
-  });
-
-  test("retrospective copy_from accepts a /tmp/vellum-eval source", async () => {
-    mkdirSync("/tmp/vellum-eval", { recursive: true });
-    const tmpDir = mkdtempSync("/tmp/vellum-eval/retro-copy-test-");
-    const sourcePath = join(tmpDir, "tested.py");
-    writeFileSync(sourcePath, "print('tmp')\n", "utf-8");
-
-    try {
-      const result = await executeScaffoldManagedSkill(
-        {
-          skill_id: "retro-copy-tmp",
-          name: "Retro Copy Tmp",
-          description: "Tmp source under retrospective origin",
-          body_markdown: "Body.",
-          files: [{ path: "scripts/tested.py", copy_from: sourcePath }],
-        },
-        makeRetrospectiveContext(),
-      );
-
-      expect(result.isError).toBe(false);
-      expect(
-        readFileSync(
-          join(TEST_DIR, "skills", "retro-copy-tmp", "scripts", "tested.py"),
-          "utf-8",
-        ),
-      ).toBe("print('tmp')\n");
-    } finally {
-      rmSync(tmpDir, { recursive: true, force: true });
-    }
   });
 
   test('tags author "user" for a normal (non-retrospective) scaffold', async () => {

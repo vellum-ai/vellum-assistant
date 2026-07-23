@@ -1,12 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
-  closeSync,
-  constants as fsConstants,
   existsSync,
-  fstatSync,
-  lstatSync,
   mkdirSync,
-  openSync,
   readFileSync,
   realpathSync,
   renameSync,
@@ -135,58 +130,20 @@ const RESERVED_COMPANION_NAMES = new Set([
 export const MAX_COMPANION_SOURCE_BYTES = 1024 * 1024;
 
 /**
- * The Vellum-owned temp convention dir where the documented workflow tests
- * snippets (`/tmp/vellum-eval/snippet.ts` in the scaffold tool description).
- * Retrospective-origin copy_from sources are confined to it (plus its
- * `os.tmpdir()` sibling) — see validateCompanionSource.
- */
-export const RETRO_COPY_SOURCE_DIR = "/tmp/vellum-eval";
-
-/**
- * Resolve a `vellum-eval` copy root under `parent`, or null when it cannot be
- * trusted as a boundary. The parent temp dirs are world-writable, so the
- * `vellum-eval` entry is attacker-creatable: if it is a symlink, realpathing
- * the root would relocate the containment check to wherever the link points
- * (e.g. `/`), collapsing the confinement. Canonicalize only the parent, then
- * require the child to be a real (non-symlink) directory via lstat.
- */
-export function resolveVellumEvalRoot(parent: string): string | null {
-  let realParent: string;
-  try {
-    realParent = realpathSync(parent);
-  } catch {
-    return null;
-  }
-  const root = join(realParent, "vellum-eval");
-  try {
-    if (!lstatSync(root).isDirectory()) {
-      return null;
-    }
-  } catch {
-    return null;
-  }
-  return root;
-}
-
-/**
  * Validate a `copy_from` companion source and return its contents.
  *
  * The scaffold's `files` input is the only write path available to the
  * retrospective fork (it has no shell), so the same call is the only sanctioned
  * read of an on-disk source. The source must be an absolute path to a regular
  * file whose real path (symlinks resolved) lives under the workspace or the
- * vellum-eval snippet dir — the places conversation-produced scripts land.
- * That boundary keeps an unattended, prompt-injectable pass from lifting
- * arbitrary host files (dotfiles, keys) into a skill folder the model will
- * later read.
+ * system temp dir — the two places conversation-produced scripts land. That
+ * boundary keeps an unattended, prompt-injectable pass from lifting arbitrary
+ * host files (dotfiles, keys) into a skill folder the model will later read.
  *
  * Contents are read here, at validation time, so the caller's write loop stays
  * a single all-or-nothing pass over pre-resolved content.
  */
-export function validateCompanionSource(
-  sourcePath: string,
-  opts: { tmpOnly?: boolean } = {},
-): {
+export function validateCompanionSource(sourcePath: string): {
   content?: string;
   error?: string;
 } {
@@ -198,119 +155,51 @@ export function validateCompanionSource(
       error: `copy_from source must be an absolute path: "${sourcePath}"`,
     };
   }
-  // Every disk-derived failure past this point returns this ONE message.
-  // Distinguishing missing / out-of-bounds / denied-by-realpath / non-file
-  // would hand the shell-less, prompt-injectable retrospective a host-file
-  // existence oracle: inject candidate paths, read which error comes back.
-  const genericError = opts.tmpOnly
-    ? `copy_from source must be an existing regular file under ${RETRO_COPY_SOURCE_DIR}: "${sourcePath}"`
-    : `copy_from source must be an existing regular file under the workspace or ${RETRO_COPY_SOURCE_DIR}: "${sourcePath}"`;
-  // Lexical denylist check (path-policy.ts) on the submitted path — this leaks
-  // nothing (it derives from the input alone). Key-material basenames are
-  // unreadable even inside the workspace boundary, so a copy must not become a
-  // side door.
-  if (isDeniedBasename(sourcePath)) {
-    return {
-      error: `copy_from source is a denied filename: "${sourcePath}"`,
-    };
-  }
   let realSource: string;
   try {
     realSource = realpathSync(sourcePath);
   } catch {
-    return { error: genericError };
+    return { error: `copy_from source does not exist: "${sourcePath}"` };
   }
-  // Realpath-side denylist: a symlink to a denied name must fail, but with the
-  // generic message — a distinct error would reveal what the link points at.
-  if (isDeniedBasename(realSource)) {
-    return { error: genericError };
+  // Shared filesystem denylist (path-policy.ts): key-material basenames are
+  // unreadable even inside the workspace boundary, so a copy must not become a
+  // side door. Check both the submitted path and its realpath so neither a
+  // direct name nor a symlink to a denied name slips through.
+  if (isDeniedBasename(sourcePath) || isDeniedBasename(realSource)) {
+    return {
+      error: `copy_from source is a denied filename: "${sourcePath}"`,
+    };
   }
-  // Both the literal /tmp and os.tmpdir() vellum-eval siblings are resolved:
-  // on macOS tmpdir() is the per-user /var/folders/... path, but the
-  // documented snippet-testing workflow (and the retrospective prompt) use
-  // /tmp, which realpaths to /private/tmp there.
-  //
-  // tmpOnly explicitly denies workspace sources before the allowlist is
-  // consulted: a workspace configured under os.tmpdir() (or /tmp) would
-  // otherwise leave every workspace file reachable through the temp roots,
-  // defeating the no-workspace-reads restriction.
-  if (opts.tmpOnly) {
-    let realWorkspace = getWorkspaceDir();
+  // Literal /tmp is allowed alongside os.tmpdir(): on macOS tmpdir() is the
+  // per-user /var/folders/... path, but the documented snippet-testing
+  // workflow (and the retrospective prompt) use /tmp, which realpaths to
+  // /private/tmp there.
+  const allowedRoots = [getWorkspaceDir(), tmpdir(), "/tmp"].map((root) => {
     try {
-      realWorkspace = realpathSync(realWorkspace);
+      return realpathSync(root);
     } catch {
-      // Missing workspace dir: nothing can resolve under it.
+      return root;
     }
-    const relToWorkspace = relative(realWorkspace, realSource);
-    if (
-      relToWorkspace === "" ||
-      (!relToWorkspace.startsWith("..") && !isAbsolute(relToWorkspace))
-    ) {
-      return { error: genericError };
-    }
-  }
-  // tmpOnly narrows the roots to the Vellum-owned snippet-eval convention dir
-  // instead of the whole world-shared temp tree. The unattended retrospective
-  // runs over prompt-injectable content with scaffold_managed_skill
-  // auto-granted, so this root list is its entire read boundary: workspace
-  // reads would let an injected pass persist unrelated user/assistant state
-  // into a skill folder, and tmp-wide reads would do the same for other
-  // processes' temp files. /tmp/vellum-eval is where the documented workflow
-  // tests snippets, so proven scripts land there; anything else travels via
-  // inline `content`, which the model already holds in its trace.
-  // Interactive scaffolds additionally get the workspace root, which parallels
-  // what the interactive session's own file tools can already read — a
-  // persisted scaffold_managed_skill approval must not silently expand into a
-  // broad temp-tree read grant, so /tmp beyond vellum-eval is out of bounds in
-  // BOTH modes.
-  const evalRoots = [
-    resolveVellumEvalRoot(tmpdir()),
-    resolveVellumEvalRoot("/tmp"),
-  ].filter((root): root is string => root !== null);
-  const allowedRoots = opts.tmpOnly
-    ? evalRoots
-    : [
-        ...[getWorkspaceDir()].map((root) => {
-          try {
-            return realpathSync(root);
-          } catch {
-            return root;
-          }
-        }),
-        ...evalRoots,
-      ];
+  });
   const underAllowedRoot = allowedRoots.some((root) => {
     const rel = relative(root, realSource);
     return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel);
   });
   if (!underAllowedRoot) {
-    return { error: genericError };
+    return {
+      error: `copy_from source must live under the workspace or the system temp dir: "${sourcePath}"`,
+    };
   }
-  // Open once with O_NOFOLLOW and fstat/read the SAME fd: a stat-then-read by
-  // pathname would let another process swap the validated path for a symlink
-  // between the two calls (TOCTOU) and pull an out-of-bounds file through the
-  // copy. O_NOFOLLOW makes a final-component symlink fail the open, and the
-  // fd pins the inode for both the type/size check and the read.
-  let fd: number;
-  try {
-    fd = openSync(realSource, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
-  } catch {
-    return { error: genericError };
+  const stat = statSync(realSource);
+  if (!stat.isFile()) {
+    return { error: `copy_from source is not a regular file: "${sourcePath}"` };
   }
-  try {
-    const stat = fstatSync(fd);
-    if (!stat.isFile()) {
-      return { error: genericError };
-    }
-    if (stat.size > MAX_COMPANION_SOURCE_BYTES) {
-      return {
-        error: `copy_from source exceeds ${MAX_COMPANION_SOURCE_BYTES} bytes: "${sourcePath}"`,
-      };
-    }
-    return { content: readFileSync(fd, "utf-8") };
-  } finally {
-    closeSync(fd);
+  if (stat.size > MAX_COMPANION_SOURCE_BYTES) {
+    return {
+      error: `copy_from source exceeds ${MAX_COMPANION_SOURCE_BYTES} bytes: "${sourcePath}"`,
+    };
   }
+  return { content: readFileSync(realSource, "utf-8") };
 }
 
 // ─── SKILL.md generation ─────────────────────────────────────────────────────
@@ -419,9 +308,6 @@ interface CreateManagedSkillParams {
   // Exactly one of `content` (inline) or `copyFrom` (validated on-disk source)
   // per entry — enforced in the pre-write validation loop.
   files?: Array<{ path: string; content?: string; copyFrom?: string }>;
-  // Restrict copyFrom sources to the temp roots (no workspace reads). Set for
-  // unattended retrospective scaffolds — see validateCompanionSource.
-  restrictCopySourcesToTmp?: boolean;
 }
 
 interface CreateManagedSkillResult {
@@ -499,9 +385,7 @@ export function createManagedSkill(
     }
     let content: string;
     if (file.copyFrom !== undefined) {
-      const source = validateCompanionSource(file.copyFrom, {
-        tmpOnly: params.restrictCopySourcesToTmp === true,
-      });
+      const source = validateCompanionSource(file.copyFrom);
       if (source.error || source.content === undefined) {
         return {
           created: false,

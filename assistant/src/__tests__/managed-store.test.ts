@@ -19,9 +19,7 @@ import {
   buildSkillMarkdown,
   createManagedSkill,
   deleteManagedSkill,
-  resolveVellumEvalRoot,
   validateCompanionPath,
-  validateCompanionSource,
   validateManagedSkillId,
 } from "../skills/managed-store.js";
 
@@ -803,7 +801,7 @@ describe("createManagedSkill copy_from companion sources", () => {
     });
 
     expect(result.created).toBe(false);
-    expect(result.error).toContain("must be an existing regular file");
+    expect(result.error).toContain("does not exist");
     expect(existsSync(join(TEST_DIR, "skills", "copy-missing"))).toBe(false);
   });
 
@@ -818,7 +816,7 @@ describe("createManagedSkill copy_from companion sources", () => {
 
     expect(result.created).toBe(false);
     expect(result.error).toContain(
-      "existing regular file under the workspace or /tmp/vellum-eval",
+      "must live under the workspace or the system temp dir",
     );
   });
 
@@ -836,13 +834,12 @@ describe("createManagedSkill copy_from companion sources", () => {
 
     expect(result.created).toBe(false);
     expect(result.error).toContain(
-      "existing regular file under the workspace or /tmp/vellum-eval",
+      "must live under the workspace or the system temp dir",
     );
   });
 
-  test("accepts a source under literal /tmp/vellum-eval (macOS: tmpdir() is /var/folders)", () => {
-    fs.mkdirSync("/tmp/vellum-eval", { recursive: true });
-    const tmpDir = fs.mkdtempSync("/tmp/vellum-eval/copy-from-test-");
+  test("accepts a source under literal /tmp (macOS: tmpdir() is /var/folders)", () => {
+    const tmpDir = fs.mkdtempSync("/tmp/copy-from-test-");
     const sourcePath = join(tmpDir, "tested-snippet.ts");
     writeFileSync(sourcePath, "console.log('ok');\n", "utf-8");
 
@@ -867,70 +864,6 @@ describe("createManagedSkill copy_from companion sources", () => {
     }
   });
 
-  test("tmpOnly drops the workspace root and rewords the error", () => {
-    // The test workspace lives under os.tmpdir(), so exercise the tmpOnly
-    // branch with an out-of-bounds path and assert the retrospective-specific
-    // message — proving the restricted root list was used.
-    const outside = validateCompanionSource("/etc/hosts", { tmpOnly: true });
-    expect(outside.error).toContain(
-      "existing regular file under /tmp/vellum-eval",
-    );
-
-    const outsideDefault = validateCompanionSource("/etc/hosts");
-    expect(outsideDefault.error).toContain("workspace or /tmp/vellum-eval");
-  });
-
-  test("tmpOnly rejects a workspace source even though the test workspace lives under tmpdir", () => {
-    const sourcePath = join(TEST_DIR, "ws-under-tmp.py");
-    writeFileSync(sourcePath, "print('ws')\n", "utf-8");
-
-    const result = validateCompanionSource(sourcePath, { tmpOnly: true });
-    expect(result.error).toContain(
-      "existing regular file under /tmp/vellum-eval",
-    );
-  });
-
-  test("resolveVellumEvalRoot rejects missing, symlinked, and non-dir roots", () => {
-    const parent = fs.mkdtempSync("/tmp/root-guard-");
-    const evalDir = join(parent, "vellum-eval");
-    try {
-      // Missing: no vellum-eval entry yet.
-      expect(resolveVellumEvalRoot(parent)).toBeNull();
-
-      // Symlink: an attacker-planted link would relocate the boundary.
-      fs.symlinkSync("/", evalDir);
-      expect(resolveVellumEvalRoot(parent)).toBeNull();
-      fs.rmSync(evalDir);
-
-      // Plain file: not a directory boundary either.
-      writeFileSync(evalDir, "not a dir", "utf-8");
-      expect(resolveVellumEvalRoot(parent)).toBeNull();
-      fs.rmSync(evalDir);
-
-      // Real directory: trusted.
-      mkdirSync(evalDir);
-      expect(resolveVellumEvalRoot(parent)).toBe(
-        join(fs.realpathSync(parent), "vellum-eval"),
-      );
-    } finally {
-      rmSync(parent, { recursive: true, force: true });
-    }
-  });
-
-  test("tmpOnly still accepts a /tmp/vellum-eval source", () => {
-    fs.mkdirSync("/tmp/vellum-eval", { recursive: true });
-    const tmpDir = fs.mkdtempSync("/tmp/vellum-eval/tmponly-test-");
-    const sourcePath = join(tmpDir, "ok.py");
-    writeFileSync(sourcePath, "print('ok')\n", "utf-8");
-    try {
-      const result = validateCompanionSource(sourcePath, { tmpOnly: true });
-      expect(result.error).toBeUndefined();
-      expect(result.content).toBe("print('ok')\n");
-    } finally {
-      rmSync(tmpDir, { recursive: true, force: true });
-    }
-  });
-
   test("rejects a denied basename source even inside the workspace", () => {
     const keyPath = join(TEST_DIR, "backup.key");
     writeFileSync(keyPath, "secret", "utf-8");
@@ -947,7 +880,7 @@ describe("createManagedSkill copy_from companion sources", () => {
     expect(result.error).toContain("denied filename");
   });
 
-  test("rejects a symlink resolving to a denied basename with the generic message", () => {
+  test("rejects a symlink resolving to a denied basename", () => {
     const keyPath = join(TEST_DIR, ".backup.key");
     writeFileSync(keyPath, "secret", "utf-8");
     const linkPath = join(TEST_DIR, "looks-fine.txt");
@@ -962,8 +895,7 @@ describe("createManagedSkill copy_from companion sources", () => {
     });
 
     expect(result.created).toBe(false);
-    // Deliberately generic: a distinct error would reveal the link's target.
-    expect(result.error).toContain("must be an existing regular file");
+    expect(result.error).toContain("denied filename");
   });
 
   test("rejects a directory source", () => {
@@ -979,7 +911,7 @@ describe("createManagedSkill copy_from companion sources", () => {
     });
 
     expect(result.created).toBe(false);
-    expect(result.error).toContain("must be an existing regular file");
+    expect(result.error).toContain("not a regular file");
   });
 
   test("copy_from still cannot target a reserved destination", () => {
