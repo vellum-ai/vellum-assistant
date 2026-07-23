@@ -96,6 +96,9 @@ const GLOBAL_STREAM_EVENT_TYPE_NAMES = [
   // gate them as global.
   "bookmark.created",
   "bookmark.deleted",
+  // Contacts-table invalidation broadcast — carries no `conversationId`; clients
+  // refetch their contact list on receipt.
+  "contacts_changed",
   // Notification-created broadcasts and recording lifecycle instructions are not
   // tied to the active conversation stream (they carry no top-level
   // `conversationId`, or — for notification_conversation_created — announce a

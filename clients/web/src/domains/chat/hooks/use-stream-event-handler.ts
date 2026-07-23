@@ -480,6 +480,10 @@ export function useStreamEventHandler(
         case "memory_recalled":
         case "memory_status":
           break;
+        // Contacts-table invalidation broadcast. The chat handler is a no-op;
+        // the contacts page refetches through its own query invalidation.
+        case "contacts_changed":
+          break;
         // Notification-created broadcasts and recording lifecycle
         // instructions. The web chat handler is a no-op for these — they target
         // the CLI/desktop clients or are handled elsewhere.

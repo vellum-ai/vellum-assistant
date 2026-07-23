@@ -23,7 +23,6 @@ export * from "./message-types/conversations.js";
 export * from "./message-types/diagnostics.js";
 export * from "./message-types/document-comments.js";
 export * from "./message-types/documents.js";
-export * from "./message-types/guardian-actions.js";
 export * from "./message-types/home.js";
 export * from "./message-types/host-app-control.js";
 export * from "./message-types/host-bash.js";
@@ -61,10 +60,7 @@ import type {
   _ComputerUseClientMessages,
   _ComputerUseServerMessages,
 } from "./message-types/computer-use.js";
-import type {
-  _ContactsClientMessages,
-  _ContactsServerMessages,
-} from "./message-types/contacts.js";
+import type { _ContactsServerMessages } from "./message-types/contacts.js";
 import type {
   _ConversationsClientMessages,
   _ConversationsServerMessages,
@@ -75,10 +71,6 @@ import type {
   _DocumentsClientMessages,
   _DocumentsServerMessages,
 } from "./message-types/documents.js";
-import type {
-  _GuardianActionsClientMessages,
-  _GuardianActionsServerMessages,
-} from "./message-types/guardian-actions.js";
 import type { _HomeServerMessages } from "./message-types/home.js";
 import type { _HostAppControlServerMessages } from "./message-types/host-app-control.js";
 import type { _HostBashServerMessages } from "./message-types/host-bash.js";
@@ -151,11 +143,9 @@ export type ClientMessage =
   | _AppsClientMessages
   | _IntegrationsClientMessages
   | _ComputerUseClientMessages
-  | _ContactsClientMessages
   | _HostBrowserClientMessages
   | _SubagentsClientMessages
   | _DocumentsClientMessages
-  | _GuardianActionsClientMessages
   | _WorkspaceClientMessages
   | _SchedulesClientMessages
   | _DiagnosticsClientMessages
@@ -176,7 +166,6 @@ export type ServerMessage =
   | _SubagentsServerMessages
   | _DocumentsServerMessages
   | _DocumentCommentsServerMessages
-  | _GuardianActionsServerMessages
   | _SyncInvalidationServerMessages
   | _HomeServerMessages
   | _HostAppControlServerMessages
