@@ -90,6 +90,10 @@ export const ConceptPageSchema = z.object({
   slug: z.string(),
   frontmatter: ConceptPageFrontmatterSchema,
   body: z.string(),
+  /** Set when the file parsed in a degraded way (e.g. a frontmatter fence
+   *  that opens but never closes, leaving the fields ignored). Never written
+   *  to disk — `renderPageContent` serializes only frontmatter + body. */
+  parseWarning: z.string().optional(),
 });
 
 export type ConceptPage = z.infer<typeof ConceptPageSchema>;

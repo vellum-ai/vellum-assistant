@@ -200,6 +200,41 @@ describe("getPageIndex", () => {
     expect(idx.entries.map((e) => e.id)).toEqual([1, 2]);
   });
 
+  test("records parse failures: dropped reads and degraded fenceless pages", async () => {
+    await writePage(workspaceDir, makePage("alice", { summary: "Alice" }));
+    await writePage(workspaceDir, makePage("bob", { summary: "Bob" }));
+    // A page whose frontmatter fence opens but never closes: indexed
+    // (body-only) but reported for repair.
+    writeFileSync(
+      join(workspaceDir, "memory", "concepts", "fenceless.md"),
+      "---\ntitle: Fenceless\nslug: fenceless\n\n# Fenceless\n\nBody.\n",
+    );
+
+    failingSlugs.add("bob");
+
+    const idx = await getPageIndex(workspaceDir);
+    expect(idx.entries.map((e) => e.slug)).toEqual(["alice", "fenceless"]);
+    expect(idx.parseFailures).toEqual([
+      {
+        slug: "bob",
+        error: "simulated read failure for bob",
+        dropped: true,
+      },
+      {
+        slug: "fenceless",
+        error: expect.stringContaining("closing --- fence is missing"),
+        dropped: false,
+      },
+    ]);
+  });
+
+  test("parseFailures is empty when every page parses", async () => {
+    await writePage(workspaceDir, makePage("alice", { summary: "Alice" }));
+
+    const idx = await getPageIndex(workspaceDir);
+    expect(idx.parseFailures).toEqual([]);
+  });
+
   test("integrates seeded skill entries under the skills/ slug prefix", async () => {
     await writePage(workspaceDir, makePage("alice", { summary: "Alice" }));
     skillState.entries = [

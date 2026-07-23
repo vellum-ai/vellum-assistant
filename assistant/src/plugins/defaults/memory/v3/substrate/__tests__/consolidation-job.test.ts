@@ -194,6 +194,7 @@ const { memoryV2ConsolidateJob, CONSOLIDATION_FAILURE_CHECKPOINT_KEY } =
   await import("../consolidation-job.js");
 const { CUTOFF_PLACEHOLDER, CONSOLIDATION_PROMPT } =
   await import("../prompts/consolidation.js");
+const { invalidatePageIndex } = await import("../page-index.js");
 
 // The handler only reads `config.memory.enabled`, `config.memory.v2.enabled`,
 // `config.memory.v2.consolidation_prompt_path`, and
@@ -542,6 +543,25 @@ describe("memoryV2ConsolidateJob — non-empty buffer", () => {
     // Cutoff is a buffer-entry-format timestamp (`Mon D, h:mm AM/PM`) so it
     // compares like-with-like against `buffer.md` lines at minute precision.
     expect(prompt).toMatch(/\b[A-Z][a-z]{2} \d{1,2}, \d{1,2}:\d{2} (AM|PM)\b/);
+  });
+
+  test("threads page-index parse failures into the prompt's repair step", async () => {
+    const conceptsDir = join(tmpWorkspace, "memory", "concepts");
+    mkdirSync(conceptsDir, { recursive: true });
+    const brokenPath = join(conceptsDir, "broken-page.md");
+    // Prose after a closing quote — invalid YAML, so the index drops the page.
+    writeFileSync(brokenPath, '---\ntitle: "Phrase" — subtitle\n---\n# x\n');
+    invalidatePageIndex();
+    try {
+      const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+      expect(result.kind).toBe("invoked");
+      const prompt = runnerLastArgs?.prompt as string;
+      expect(prompt).toContain("repair unreadable pages");
+      expect(prompt).toContain("`memory/concepts/broken-page.md`");
+    } finally {
+      rmSync(brokenPath, { force: true });
+      invalidatePageIndex();
+    }
   });
 
   test("dispatches with skipPromptIndexing so the kickoff prompt is not indexed", async () => {

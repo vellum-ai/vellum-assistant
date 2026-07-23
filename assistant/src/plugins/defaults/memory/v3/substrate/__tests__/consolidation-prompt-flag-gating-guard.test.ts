@@ -26,6 +26,7 @@ import {
   CONSOLIDATION_PROMPT_V3,
   CORE_PAGES_CONSOLIDATION_SECTION,
   renderConsolidationPrompt,
+  renderParseFailuresSection,
 } from "../prompts/consolidation.js";
 
 type Registry = {
@@ -50,6 +51,13 @@ const GATED_SECTIONS: Array<{
     name: "memory-v3 core-pages curation (gate: memory-v3-shadow|live)",
     section: CORE_PAGES_CONSOLIDATION_SECTION,
     marker: "core-pages",
+  },
+  {
+    name: "parse-failure repair step (gate: index-reported parse failures)",
+    section: renderParseFailuresSection([
+      { slug: "example-page", error: "example parse error", dropped: true },
+    ]),
+    marker: "repair unreadable pages",
   },
 ];
 
