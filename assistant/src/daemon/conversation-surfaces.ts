@@ -73,6 +73,7 @@ import type {
   CardSurfaceData,
   ChoiceSurfaceData,
   ConfirmationSurfaceData,
+  DynamicPagePreview,
   DynamicPageSurfaceData,
   FormSurfaceData,
   ServerMessage,
@@ -2640,6 +2641,32 @@ function buildUserFacingLabel(
 }
 
 /**
+ * Layer a caller-supplied (already schema-parsed) app preview over the
+ * app-metadata default for `app_open`.
+ *
+ * `DynamicPagePreviewSchema.title` is `z.string().catch("")`, so a parsed
+ * preview that omitted its title carries `title: ""`, which would clobber the
+ * app-name default in the spread — reassert the default whenever the parsed
+ * preview has no non-empty title. A generated `previewImage` always wins.
+ * Preserves the pre-parse behavior for a caller that omits a field: `parsed`
+ * drops missing optional fields, so the default's `subtitle` survives; a
+ * missing title falls back to the app name exactly as the old raw-object
+ * spread did (which simply had no `title` key to override the default).
+ */
+export function buildAppOpenPreview(
+  defaultPreview: { title: string; subtitle?: string },
+  preview: DynamicPagePreview | undefined,
+  storedPreviewImage: string | null | undefined,
+): DynamicPagePreview {
+  return {
+    ...defaultPreview,
+    ...preview,
+    ...(preview && !preview.title ? { title: defaultPreview.title } : {}),
+    ...(storedPreviewImage ? { previewImage: storedPreviewImage } : {}),
+  };
+}
+
+/**
  * Resolve a proxy tool call that targets a UI surface.
  * Handles ui_show, ui_update, ui_dismiss, computer_use_* proxy tools, and app_open.
  */
@@ -3419,16 +3446,7 @@ export async function surfaceProxyResolver(
       html,
       appId: app.id,
       dirName,
-      preview: {
-        ...defaultPreview,
-        ...preview,
-        // `DynamicPagePreviewSchema` fills `title: ""` when the caller omits it
-        // (`z.string().catch("")`); that empty string would clobber the
-        // app-name default from `defaultPreview` in this spread. Reassert the
-        // default when the supplied preview has no non-empty title.
-        ...(preview && !preview.title ? { title: defaultPreview.title } : {}),
-        ...(storedPreview ? { previewImage: storedPreview } : {}),
-      },
+      preview: buildAppOpenPreview(defaultPreview, preview, storedPreview),
     };
     const surfaceId = uuid();
 
