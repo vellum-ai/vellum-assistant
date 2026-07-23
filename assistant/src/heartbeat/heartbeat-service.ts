@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+import type { HeartbeatAlertEvent } from "../api/events/heartbeat-alert.js";
 import { getConfig } from "../config/loader.js";
 import type { HeartbeatConfig } from "../config/schemas/heartbeat.js";
 import { getGuardianDelivery } from "../contacts/guardian-delivery-reader.js";
@@ -9,7 +10,6 @@ import {
   diskPressureBackgroundSkipLogFields,
   shouldLogDiskPressureBackgroundSkip,
 } from "../daemon/disk-pressure-background-gate.js";
-import type { HeartbeatAlert } from "../daemon/message-protocol.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import {
   GUARDIAN_PERSONA_TEMPLATE,
@@ -82,10 +82,14 @@ function getReengagementTimestampPath(): string {
 
 function isReengagementCooldownElapsed(): boolean {
   const tsPath = getReengagementTimestampPath();
-  if (!existsSync(tsPath)) return true;
+  if (!existsSync(tsPath)) {
+    return true;
+  }
   try {
     const lastTs = parseInt(readFileSync(tsPath, "utf-8").trim(), 10);
-    if (isNaN(lastTs)) return true;
+    if (isNaN(lastTs)) {
+      return true;
+    }
     return Date.now() - lastTs >= REENGAGEMENT_COOLDOWN_MS;
   } catch {
     return true;
@@ -177,7 +181,9 @@ export class HeartbeatService {
   /** Whether the consecutive-run cap has been reached. */
   get isConsecutiveRunCapReached(): boolean {
     const config = getConfig().heartbeat;
-    if (config.maxConsecutiveRuns == null) return false;
+    if (config.maxConsecutiveRuns == null) {
+      return false;
+    }
     return (
       countRecentConsecutiveRuns(config.maxConsecutiveRuns) >=
       config.maxConsecutiveRuns
@@ -187,7 +193,9 @@ export class HeartbeatService {
   /** Whether the daily run cap has been reached. */
   get isDailyCapReached(): boolean {
     const config = getConfig().heartbeat;
-    if (config.maxDailyRuns == null) return false;
+    if (config.maxDailyRuns == null) {
+      return false;
+    }
     return countCompletedRunsToday() >= config.maxDailyRuns;
   }
 
@@ -234,7 +242,9 @@ export class HeartbeatService {
       refreshBackgroundWakeIntentSoon("heartbeat-disabled");
       return;
     }
-    if (this.timer) return;
+    if (this.timer) {
+      return;
+    }
 
     if (!this._hasRunStartupRecovery) {
       this._hasRunStartupRecovery = true;
@@ -317,7 +327,9 @@ export class HeartbeatService {
   }
 
   private scheduleNextCronRun(config: HeartbeatConfig): void {
-    if (this.stopped) return;
+    if (this.stopped) {
+      return;
+    }
     try {
       const nextRunAt = computeNextRunAt({
         syntax: "cron",
@@ -401,7 +413,9 @@ export class HeartbeatService {
       this._pendingRunId = null;
     }
     refreshBackgroundWakeIntentSoon("heartbeat-counter-reset");
-    if (!this.timer) return;
+    if (!this.timer) {
+      return;
+    }
     if (this.cronMode) {
       clearTimeout(this.timer as ReturnType<typeof setTimeout>);
       clearInterval(this.timer as ReturnType<typeof setInterval>);
@@ -465,7 +479,9 @@ export class HeartbeatService {
     }
 
     if (!force && !config.enabled) {
-      if (runId) skipHeartbeatRun(runId, "disabled");
+      if (runId) {
+        skipHeartbeatRun(runId, "disabled");
+      }
       refreshBackgroundWakeIntentSoon("heartbeat-disabled");
       return false;
     }
@@ -485,7 +501,9 @@ export class HeartbeatService {
       log.info(
         "Heartbeat skipped — daemon has not received a first user message yet",
       );
-      if (runId) skipHeartbeatRun(runId, "pre_first_user_message");
+      if (runId) {
+        skipHeartbeatRun(runId, "pre_first_user_message");
+      }
       if (!this.cronMode) {
         this.scheduleNextRun(config.intervalMs);
       }
@@ -525,7 +543,9 @@ export class HeartbeatService {
           },
           "Outside active hours, skipping",
         );
-        if (runId) skipHeartbeatRun(runId, "outside_active_hours");
+        if (runId) {
+          skipHeartbeatRun(runId, "outside_active_hours");
+        }
         if (!this.cronMode) {
           this.scheduleNextRun(config.intervalMs);
         }
@@ -548,7 +568,9 @@ export class HeartbeatService {
         },
         "Max consecutive runs reached, skipping",
       );
-      if (runId) skipHeartbeatRun(runId, "max_consecutive_runs");
+      if (runId) {
+        skipHeartbeatRun(runId, "max_consecutive_runs");
+      }
       if (!this.cronMode) {
         this.scheduleNextRun(config.intervalMs);
       }
@@ -566,7 +588,9 @@ export class HeartbeatService {
         { maxDailyRuns: config.maxDailyRuns },
         "Daily run cap reached, skipping",
       );
-      if (runId) skipHeartbeatRun(runId, "max_daily_runs");
+      if (runId) {
+        skipHeartbeatRun(runId, "max_daily_runs");
+      }
       if (!this.cronMode) {
         this.scheduleNextRun(config.intervalMs);
       }
@@ -576,7 +600,9 @@ export class HeartbeatService {
     // Overlap prevention
     if (this.activeRun) {
       log.debug("Previous heartbeat run still active, skipping");
-      if (runId) skipHeartbeatRun(runId, "overlap");
+      if (runId) {
+        skipHeartbeatRun(runId, "overlap");
+      }
       return false;
     }
 
@@ -672,7 +698,7 @@ export class HeartbeatService {
           body:
             "Could not verify OAuth credential health. " +
             (err instanceof Error ? err.message : String(err)),
-        } satisfies HeartbeatAlert);
+        } satisfies HeartbeatAlertEvent);
       } catch {
         // Last resort — alerter itself failed. Already logged above.
       }
@@ -861,7 +887,7 @@ export class HeartbeatService {
           type: "heartbeat_alert",
           title: "Heartbeat Failed",
           body: result.error?.message ?? "Unknown error",
-        } satisfies HeartbeatAlert);
+        } satisfies HeartbeatAlertEvent);
       } catch (alertErr) {
         log.error({ alertErr }, "Failed to broadcast heartbeat alert");
       }
@@ -939,7 +965,9 @@ export function getHeartbeatService(): HeartbeatService | null {
 
 function isDiskPressureBackgroundLocked(logKey: string): boolean {
   const diskPressureGate = checkDiskPressureBackgroundGate("background-work");
-  if (diskPressureGate.action === "allow") return false;
+  if (diskPressureGate.action === "allow") {
+    return false;
+  }
   if (shouldLogDiskPressureBackgroundSkip(logKey)) {
     log.warn(
       {

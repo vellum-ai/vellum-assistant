@@ -1,9 +1,9 @@
 /**
- * Tests for migration 349 — dropping NOT NULL from
+ * Tests for migration 350 — dropping NOT NULL from
  * conversations.total_input_tokens via table rebuild.
  *
  * `initializeDb()` runs the full chain: 000 creates the column NOT NULL and
- * 349 rebuilds the table without the constraint, so these tests exercise the
+ * 350 rebuilds the table without the constraint, so these tests exercise the
  * real rebuild path, then verify idempotency and index preservation.
  */
 import { describe, expect, test } from "bun:test";
@@ -11,7 +11,7 @@ import { describe, expect, test } from "bun:test";
 const { getDb, getSqlite } = await import("../../db-connection.js");
 const { initializeDb } = await import("../../db-init.js");
 const { migrateConversationsTotalInputTokensNullable } =
-  await import("../349-conversations-total-input-tokens-nullable.js");
+  await import("../350-conversations-total-input-tokens-nullable.js");
 
 await initializeDb();
 
@@ -34,7 +34,7 @@ function indexNames(): string[] {
   ).map((r) => r.name);
 }
 
-describe("migration 349 — nullable total_input_tokens", () => {
+describe("migration 350 — nullable total_input_tokens", () => {
   test("drops NOT NULL, keeps DEFAULT 0 and sibling constraints", () => {
     expect(columnInfo("total_input_tokens").notnull).toBe(0);
     expect(columnInfo("total_input_tokens").dflt_value).toBe("0");
@@ -47,10 +47,10 @@ describe("migration 349 — nullable total_input_tokens", () => {
       .query(
         `INSERT INTO conversations (id, created_at, updated_at, total_input_tokens) VALUES (?, ?, ?, NULL)`,
       )
-      .run("conv-349-null", Date.now(), Date.now());
+      .run("conv-350-null", Date.now(), Date.now());
     const row = getSqlite()
       .query(
-        `SELECT total_input_tokens FROM conversations WHERE id = 'conv-349-null'`,
+        `SELECT total_input_tokens FROM conversations WHERE id = 'conv-350-null'`,
       )
       .get() as { total_input_tokens: number | null };
     expect(row.total_input_tokens).toBeNull();
@@ -68,7 +68,7 @@ describe("migration 349 — nullable total_input_tokens", () => {
     expect(indexNames()).toEqual(before);
     expect(
       getSqlite()
-        .query(`SELECT 1 FROM conversations WHERE id = 'conv-349-null'`)
+        .query(`SELECT 1 FROM conversations WHERE id = 'conv-350-null'`)
         .get(),
     ).not.toBeNull();
   });

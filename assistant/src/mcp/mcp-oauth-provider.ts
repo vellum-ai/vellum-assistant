@@ -416,6 +416,12 @@ export class McpOAuthProvider implements OAuthClientProvider {
     });
     this._codePromise = codePromise;
 
+    // stopCallbackServer() can reject this deferred before any consumer is
+    // attached. Without a handler that rejection is unhandled, which the daemon
+    // treats as fatal; the no-op catch keeps it observed while a real consumer
+    // awaits the same promise and still sees the rejection.
+    void codePromise.catch(() => {});
+
     log.info(
       { serverId: this.serverId, redirectUrl },
       "MCP OAuth gateway callback prepared (awaiting state from auth URL)",

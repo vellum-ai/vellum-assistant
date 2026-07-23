@@ -35,6 +35,7 @@ import {
 } from "../../../../persistence/schema/index.js";
 import { resolveQdrantUrl } from "../embeddings.js";
 import { getLogger } from "../logging.js";
+import { memoryDbOrNull } from "../memory-db.js";
 import { getWorkspaceDir } from "../paths.js";
 import { runGraphExtraction } from "./extraction.js";
 import { countNodes } from "./store.js";
@@ -318,11 +319,13 @@ export function resetBootstrapCheckpoint(): void {
  * already pending/running.
  */
 export function maybeEnqueueGraphBootstrap(): void {
-  const db = getDb();
+  // Graph nodes live on the memory connection; segments still live on main.
+  const memoryDb = memoryDbOrNull("maybeEnqueueGraphBootstrap");
+  if (!memoryDb) return;
 
   // Check for non-procedural graph nodes (procedural = capability seeds, not real memories)
   const nonProceduralCount =
-    db
+    memoryDb
       .select({ count: sql<number>`count(*)` })
       .from(memoryGraphNodes)
       .where(
@@ -337,7 +340,7 @@ export function maybeEnqueueGraphBootstrap(): void {
 
   // Check for historical data to bootstrap from
   const segmentCount =
-    db
+    getDb()
       .select({ count: sql<number>`count(*)` })
       .from(memorySegments)
       .get()?.count ?? 0;

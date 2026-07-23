@@ -29,9 +29,10 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 import * as schema from "../persistence/schema/index.js";
 
 let db: ReturnType<typeof drizzle>;
+let sqlite: Database;
 
 function createTestDb() {
-  const sqlite = new Database(":memory:");
+  sqlite = new Database(":memory:");
   db = drizzle(sqlite, { schema });
 
   // Create minimal tables needed by rebuildIndexJob
@@ -112,8 +113,13 @@ function createTestDb() {
   return { sqlite, db };
 }
 
+// The graph cluster now lives on the memory connection, which rebuildIndexJob
+// reads through memoryDbOrNull. Point both handles at the single in-memory db
+// that holds every table this test creates.
 mock.module("../persistence/db-connection.js", () => ({
   getDb: () => db,
+  getMemoryDb: () => db,
+  getMemorySqlite: () => sqlite,
 }));
 
 // ── Tests ────────────────────────────────────────────────────────────

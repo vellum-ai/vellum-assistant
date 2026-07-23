@@ -455,6 +455,18 @@ describe("extractVellumLinks", () => {
     expect(result.directiveRequests[0].filename).toBe("doc.pdf");
   });
 
+  test("ignores vellum://open/ reference links", () => {
+    // `open` links point at a workspace file for in-app navigation; they must
+    // never be materialized as attachments.
+    const text =
+      "See [skills/foo/SKILL.md](vellum://open/skills/foo/SKILL.md) and [report.pdf](vellum://workspace/scratch/report.pdf)";
+    const result = extractVellumLinks(text);
+
+    expect(result.parseWarnings).toHaveLength(0);
+    expect(result.directiveRequests).toHaveLength(1);
+    expect(result.directiveRequests[0].path).toBe("scratch/report.pdf");
+  });
+
   test("extracts multiple links", () => {
     const text = [
       "Here are the files:",
@@ -639,6 +651,12 @@ describe("stripVellumLinks", () => {
     expect(stripVellumLinks(text)).toBe("a.png and b.pdf");
   });
 
+  test("replaces vellum://open/ reference links with their link text", () => {
+    const text =
+      "See [skills/foo/SKILL.md](vellum://open/skills/foo/SKILL.md) for details";
+    expect(stripVellumLinks(text)).toBe("See skills/foo/SKILL.md for details");
+  });
+
   test("preserves text with no vellum links", () => {
     const text = "Plain text with [link](https://example.com)";
     expect(stripVellumLinks(text)).toBe(text);
@@ -700,6 +718,9 @@ describe("incompleteVellumLinkSuffixLength", () => {
     ["at slash", "grab [a.pdf](vellum://host/"],
     ["at authority", "grab [a.pdf](vellum://host"],
     ["partial authority", "grab [a.pdf](vellum://ho"],
+    ["open mid path", "see [SKILL.md](vellum://open/skills/fo"],
+    ["open at slash", "see [SKILL.md](vellum://open/"],
+    ["partial open authority", "see [SKILL.md](vellum://op"],
     ["partial scheme", "grab [a.pdf](vel"],
     ["open paren", "grab [a.pdf]("],
     ["closed label", "grab [a.pdf]"],

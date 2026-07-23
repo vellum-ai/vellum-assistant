@@ -11,8 +11,6 @@ import {
   enrichNormalizedActor,
   slackBotContactNote,
   type SlackBlockActionsPayload,
-  type SlackReactionAddedEvent,
-  type SlackReactionRemovedEvent,
   type SlackDirectMessageEvent,
   type SlackChannelMessageEvent,
   type SlackAppMentionEvent,
@@ -69,7 +67,7 @@ function makeReactionAddedEvent(
     channelId: string;
     messageTs: string;
   }>,
-): SlackReactionAddedEvent {
+) {
   return {
     type: "reaction_added",
     user: overrides?.user ?? "U123",
@@ -89,7 +87,7 @@ function makeReactionRemovedEvent(
     channelId: string;
     messageTs: string;
   }>,
-): SlackReactionRemovedEvent {
+) {
   return {
     type: "reaction_removed",
     user: overrides?.user ?? "U123",
@@ -547,6 +545,123 @@ describe("normalizeSlackReactionRemoved", () => {
     expect(addResult!.event.message.externalMessageId).not.toBe(
       removeResult!.event.message.externalMessageId,
     );
+  });
+});
+
+describe("reaction event tolerant validation", () => {
+  const config = makeConfig();
+
+  it("drops a non-object payload instead of throwing", () => {
+    // The socket frame is unvalidated JSON.parse output; a scalar where an
+    // object is expected must be dropped at the boundary, not crash the batch.
+    expect(
+      normalizeSlackReactionAdded("not-an-object", "evt-x1", config),
+    ).toBeNull();
+    expect(normalizeSlackReactionAdded(null, "evt-x2", config)).toBeNull();
+    expect(normalizeSlackReactionAdded(42, "evt-x3", config)).toBeNull();
+  });
+
+  it("collapses a non-object item to undefined and drops the event", () => {
+    // A malformed `item` (here a string) is caught to undefined by the schema
+    // rather than rejecting the whole payload; the downstream null-check on
+    // `item.channel` then drops the unroutable event.
+    const result = normalizeSlackReactionAdded(
+      {
+        type: "reaction_added",
+        user: "U123",
+        reaction: "thumbsup",
+        item: "bogus",
+      },
+      "evt-x4",
+      config,
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("collapses a non-string user to undefined and drops the event", () => {
+    const result = normalizeSlackReactionAdded(
+      {
+        type: "reaction_added",
+        user: { id: "U123" },
+        reaction: "thumbsup",
+        item: { type: "message", channel: "C456", ts: "1700000000.000100" },
+      },
+      "evt-x5",
+      config,
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("drops a missing reaction rather than emitting reaction:undefined", () => {
+    // `reaction` forms the callbackData and part of the dedup externalMessageId.
+    // A missing reaction must be dropped, not stringified into a bogus
+    // `reaction:undefined` that the assistant parser treats as a real emoji.
+    const result = normalizeSlackReactionAdded(
+      {
+        type: "reaction_added",
+        user: "U123",
+        item: { type: "message", channel: "C456", ts: "1700000000.000100" },
+      },
+      "evt-x5a",
+      config,
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("collapses a non-string reaction to undefined and drops the event", () => {
+    const result = normalizeSlackReactionAdded(
+      {
+        type: "reaction_added",
+        user: "U123",
+        reaction: { name: "thumbsup" },
+        item: { type: "message", channel: "C456", ts: "1700000000.000100" },
+      },
+      "evt-x5b",
+      config,
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("collapses a malformed item field but keeps the rest of the event routable", () => {
+    // A single bad field (non-string `ts`) collapses to undefined without
+    // taking down the sibling fields; the event is dropped only because the
+    // now-missing `ts` fails the identity null-check.
+    const result = normalizeSlackReactionAdded(
+      {
+        type: "reaction_added",
+        user: "U123",
+        reaction: "thumbsup",
+        item: { type: "message", channel: "C456", ts: { nested: true } },
+      },
+      "evt-x6",
+      config,
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("preserves unknown extra keys verbatim in raw", () => {
+    // `raw` carries the original untrusted payload, not the schema-stripped
+    // working copy, so downstream consumers and debugging see it as-sent.
+    const payload = {
+      type: "reaction_added",
+      user: "U123",
+      reaction: "thumbsup",
+      item: { type: "message", channel: "C456", ts: "1700000000.000100" },
+      unexpected_field: "surprise",
+      nested_extra: { a: 1 },
+    };
+    const result = normalizeSlackReactionAdded(payload, "evt-x7", config);
+
+    expect(result).not.toBeNull();
+    expect(result!.event.raw).toEqual(payload);
+    expect(
+      (result!.event.raw as Record<string, unknown>).unexpected_field,
+    ).toBe("surprise");
   });
 });
 
@@ -1035,6 +1150,141 @@ function makeMessageChangedEvent(
   };
 }
 
+describe("message event tolerant validation", () => {
+  const config = makeConfig();
+
+  it("drops non-object message payloads instead of throwing", () => {
+    expect(normalizeSlackDirectMessage("nope", "evt-t1", config)).toBeNull();
+    expect(normalizeSlackDirectMessage(null, "evt-t2", config)).toBeNull();
+    expect(normalizeSlackChannelMessage(42, "evt-t3", config)).toBeNull();
+    expect(normalizeSlackAppMention(null, "evt-t4", config)).toBeNull();
+  });
+
+  it("renders empty content for a non-string DM text instead of crashing", () => {
+    // The live crash this closes: the normalizer calls renderSlackInboundText
+    // (which `matchAll`s the text). A non-string text collapses to undefined at
+    // the schema, and `?? ""` yields empty content rather than throwing.
+    const result = normalizeSlackDirectMessage(
+      {
+        type: "message",
+        channel_type: "im",
+        user: "U123",
+        channel: "D789",
+        ts: "1.2",
+        text: 12345,
+      },
+      "evt-t5",
+      config,
+    );
+
+    expect(result).not.toBeNull();
+    expect(result!.event.message.content).toBe("");
+  });
+
+  it("renders empty content for a non-string app_mention text", () => {
+    const result = normalizeSlackAppMention(
+      {
+        type: "app_mention",
+        user: "U123",
+        channel: "C456",
+        ts: "1.2",
+        text: { rich: "obj" },
+      },
+      "evt-t6",
+      config,
+    );
+
+    expect(result).not.toBeNull();
+    expect(result!.event.message.content).toBe("");
+  });
+
+  it("drops a channel message missing its user", () => {
+    const result = normalizeSlackChannelMessage(
+      {
+        type: "message",
+        channel_type: "channel",
+        channel: "C456",
+        ts: "1.2",
+        text: "hi",
+      },
+      "evt-t7",
+      config,
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("drops a message missing its channel", () => {
+    const result = normalizeSlackDirectMessage(
+      {
+        type: "message",
+        channel_type: "im",
+        user: "U123",
+        ts: "1.2",
+        text: "hi",
+      },
+      "evt-t8",
+      config,
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("collapses a malformed files array to no attachments rather than throwing", () => {
+    const result = normalizeSlackChannelMessage(
+      {
+        type: "message",
+        channel_type: "channel",
+        channel: "C456",
+        user: "U123",
+        ts: "1.2",
+        text: "hi",
+        files: "not-an-array",
+      },
+      "evt-t9",
+      config,
+    );
+
+    expect(result).not.toBeNull();
+    expect(result!.event.message.attachments).toBeUndefined();
+  });
+
+  it("preserves unknown extra keys verbatim in raw", () => {
+    const payload = {
+      type: "message",
+      channel_type: "channel",
+      channel: "C456",
+      user: "U123",
+      ts: "1.2",
+      text: "hi",
+      unexpected_field: "surprise",
+    };
+    const result = normalizeSlackChannelMessage(payload, "evt-t10", config);
+
+    expect(result).not.toBeNull();
+    expect(result!.event.raw).toEqual(payload);
+  });
+
+  it("drops a message with no usable timestamp (dedup key)", () => {
+    // Neither ts nor client_msg_id → the externalMessageId would collapse to
+    // `channel:undefined` and collide across every such malformed message in
+    // the channel, so the message is dropped instead.
+    const result = normalizeSlackChannelMessage(
+      {
+        type: "message",
+        channel_type: "channel",
+        channel: "C456",
+        user: "U123",
+        text: "hi",
+      },
+      "evt-t11",
+      config,
+    );
+
+    expect(result).toBeNull();
+  });
+});
+
 describe("normalizeSlackMessageEdit", () => {
   it("normalizes an edit in a subscribed channel (not DM, not bot thread)", () => {
     // Bot is subscribed to the channel via a conversation_id routing entry —
@@ -1365,6 +1615,126 @@ describe("normalizeSlackMessageDelete", () => {
 
     expect(result).not.toBeNull();
     expect(result!.event.actor.actorExternalId).toBe("UBOT");
+  });
+});
+
+describe("message edit/delete tolerant validation", () => {
+  const config = makeConfig();
+
+  it("drops non-object edit/delete payloads instead of throwing", () => {
+    // Socket frames are unvalidated JSON.parse output; a scalar where an object
+    // is expected must be dropped at the boundary, not crash the batch.
+    expect(normalizeSlackMessageEdit("nope", "evt-me1", config)).toBeNull();
+    expect(normalizeSlackMessageEdit(null, "evt-me2", config)).toBeNull();
+    expect(normalizeSlackMessageDelete(42, "evt-md1", config)).toBeNull();
+    expect(normalizeSlackMessageDelete(null, "evt-md2", config)).toBeNull();
+  });
+
+  it("collapses a non-object edit message to undefined and drops the event", () => {
+    const result = normalizeSlackMessageEdit(
+      {
+        type: "message",
+        subtype: "message_changed",
+        channel: "C456",
+        message: "not-an-object",
+      },
+      "evt-me3",
+      config,
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("drops an edit missing the channel", () => {
+    const result = normalizeSlackMessageEdit(
+      {
+        type: "message",
+        subtype: "message_changed",
+        message: { user: "U123", text: "hi", ts: "1700000000.000100" },
+      },
+      "evt-me4",
+      config,
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("drops an edit whose message ts collapsed (no correlation key)", () => {
+    const result = normalizeSlackMessageEdit(
+      {
+        type: "message",
+        subtype: "message_changed",
+        channel: "C456",
+        message: { user: "U123", text: "hi", ts: { bogus: true } },
+      },
+      "evt-me5",
+      config,
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("tolerates a missing edit text, rendering empty content", () => {
+    // A collapsed `text` must not crash the renderer (which requires a string);
+    // the edit still normalizes so the runtime can correlate it by ts.
+    const result = normalizeSlackMessageEdit(
+      {
+        type: "message",
+        subtype: "message_changed",
+        channel: "C456",
+        message: { user: "U123", ts: "1700000000.000100" },
+      },
+      "evt-me6",
+      config,
+    );
+
+    expect(result).not.toBeNull();
+    expect(result!.event.message.content).toBe("");
+    expect(result!.event.message.isEdit).toBe(true);
+  });
+
+  it("preserves unknown extra keys verbatim in an edit's raw", () => {
+    const payload = {
+      type: "message",
+      subtype: "message_changed",
+      channel: "C456",
+      message: { user: "U123", text: "hi", ts: "1700000000.000100" },
+      unexpected_field: "surprise",
+    };
+    const result = normalizeSlackMessageEdit(payload, "evt-me7", config);
+
+    expect(result).not.toBeNull();
+    expect(result!.event.raw).toEqual(payload);
+  });
+
+  it("collapses a non-string delete channel to undefined and drops the event", () => {
+    const result = normalizeSlackMessageDelete(
+      {
+        type: "message",
+        subtype: "message_deleted",
+        channel: { id: "C456" },
+        deleted_ts: "1700000000.000100",
+      },
+      "evt-md3",
+      config,
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("preserves unknown extra keys verbatim in a delete's raw", () => {
+    const payload = {
+      type: "message",
+      subtype: "message_deleted",
+      channel: "C456",
+      deleted_ts: "1700000000.000100",
+      previous_message: { user: "U123", text: "gone", ts: "1700000000.000100" },
+      unexpected_field: "surprise",
+    };
+    const result = normalizeSlackMessageDelete(payload, "evt-md4", config);
+
+    expect(result).not.toBeNull();
+    expect(result!.event.raw).toEqual(payload);
   });
 });
 

@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { Link } from "react-router";
 
 import { ArrowLeft, AudioLines, Captions, MicOff, Settings } from "lucide-react";
 
@@ -9,10 +8,10 @@ import { Modal } from "@vellumai/design-library/components/modal";
 import { ChatAvatar } from "@/components/avatar/chat-avatar";
 import { useManagedVoiceSelection } from "@/components/speech/use-managed-voice-selection";
 import { VoiceList } from "@/components/speech/voice-list";
+import { VoiceProvidersNote } from "@/components/speech/voice-providers-note";
 import { MANAGED_VOICE_CREDITS_NOTE } from "@/lib/tts/managed-voice-catalog";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
-import { routes } from "@/utils/routes";
 
 /**
  * One-time welcome card shown the first time a user enters voice mode, before
@@ -277,16 +276,7 @@ function VoiceSettingsView({
           change when a voice is chosen. Start waits out an in-flight voice write
           so the session can't open on the previous voice. */}
       <Modal.Footer className="items-center justify-between gap-3">
-        <p className="text-label-small-default text-[var(--content-tertiary)]">
-          Speech providers, transcription, and API keys live in{" "}
-          <Link
-            to={`${routes.settings.ai}#text-to-speech`}
-            className="text-[var(--content-secondary)] underline decoration-[var(--border-element)] underline-offset-2 hover:text-[var(--content-default)]"
-          >
-            Models &amp; Services
-          </Link>
-          .
-        </p>
+        <VoiceProvidersNote />
         <Button
           variant="primary"
           onClick={onStart}

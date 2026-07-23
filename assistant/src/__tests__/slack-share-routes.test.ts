@@ -9,6 +9,12 @@ import {
 // ---------------------------------------------------------------------------
 // Mocks — must be declared before any imports that pull in mocked modules
 // ---------------------------------------------------------------------------
+//
+// This file covers the share HANDLER's contract: token-not-configured, input
+// validation, app lookup, and the success response shape. Which Slack identity
+// the post authenticates as (always the bot) is proven end-to-end at the wire
+// level in the routes' token-routing.test.ts, so it is deliberately not
+// re-asserted here.
 
 const secureKeyValues = new Map<string, string>();
 mock.module("../security/secure-keys.js", () => ({
@@ -22,6 +28,15 @@ mock.module("../oauth/oauth-store.js", () => ({
     connectionByProvider[key] ?? undefined,
 }));
 
+// The route resolves auth via messaging/providers/slack/auth.ts, which imports
+// the OAuth connection resolver; stub it so the import graph loads (Socket Mode
+// never reaches it).
+mock.module("../oauth/connection-resolver.js", () => ({
+  resolveOAuthConnection: async () => {
+    throw new Error("No OAuth connection (Socket Mode test)");
+  },
+}));
+
 let postMessageResult: unknown = {
   ok: true,
   ts: "1234567890.123456",
@@ -31,11 +46,14 @@ let postMessageResult: unknown = {
 
 mock.module("../messaging/providers/slack/client.js", () => ({
   postMessage: async (
-    _token: string,
+    _token: unknown,
     _channel: string,
     _text: string,
     _opts?: unknown,
   ) => postMessageResult,
+  // auth.ts imports SlackApiError from the client; export it so the import
+  // graph loads (this file never triggers the fallback that inspects it).
+  SlackApiError: class SlackApiError extends Error {},
 }));
 
 let appStoreResult: unknown = null;
@@ -95,22 +113,14 @@ describe("handleShareToSlackChannel", () => {
   });
 
   test("throws BadRequestError when missing required fields", async () => {
-    connectionByProvider["slack"] = { id: "conn-slack-1" };
-    secureKeyValues.set(
-      "oauth_connection/conn-slack-1/access_token",
-      "xoxb-test",
-    );
+    secureKeyValues.set("credential/slack_channel/bot_token", "xoxb-test");
     expect(
       handleShareToSlackChannel({ body: { appId: "app1" } }),
     ).rejects.toThrow(BadRequestError);
   });
 
   test("throws NotFoundError when app not found", async () => {
-    connectionByProvider["slack"] = { id: "conn-slack-1" };
-    secureKeyValues.set(
-      "oauth_connection/conn-slack-1/access_token",
-      "xoxb-test",
-    );
+    secureKeyValues.set("credential/slack_channel/bot_token", "xoxb-test");
     appStoreResult = null;
     expect(
       handleShareToSlackChannel({
@@ -120,11 +130,7 @@ describe("handleShareToSlackChannel", () => {
   });
 
   test("posts message and returns success", async () => {
-    connectionByProvider["slack"] = { id: "conn-slack-1" };
-    secureKeyValues.set(
-      "oauth_connection/conn-slack-1/access_token",
-      "xoxb-test",
-    );
+    secureKeyValues.set("credential/slack_channel/bot_token", "xoxb-test");
     appStoreResult = {
       id: "app1",
       name: "My App",

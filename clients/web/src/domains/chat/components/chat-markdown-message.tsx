@@ -38,6 +38,7 @@ import {
   rehypeRedactedCredential,
 } from "@/domains/chat/utils/rehype-redacted-credential";
 import { rehypeStreamWordFade } from "@/domains/chat/utils/rehype-stream-word-fade";
+import { isVellumOpenLink } from "@/utils/open-workspace-file";
 
 /** Returns true when `href` is a known `vellum://` attachment link. */
 export function isVellumLink(href: string | undefined): boolean {
@@ -50,14 +51,12 @@ export function isVellumLink(href: string | undefined): boolean {
 
 /**
  * Extends react-markdown's default URL sanitization to allow known
- * `vellum://workspace/` and `vellum://host/` attachment URIs. Other
- * `vellum://` shapes are rejected to limit protocol-handler attack surface.
+ * `vellum://workspace/` and `vellum://host/` attachment URIs plus
+ * `vellum://open/` reference URIs. Other `vellum://` shapes are rejected to
+ * limit protocol-handler attack surface.
  */
 function vellumUrlTransform(url: string): string {
-  if (
-    url.startsWith("vellum://workspace/") ||
-    url.startsWith("vellum://host/")
-  ) {
+  if (isVellumLink(url) || isVellumOpenLink(url)) {
     return url;
   }
   return defaultUrlTransform(url);
@@ -288,7 +287,7 @@ export const ChatMarkdownMessage = memo(function ChatMarkdownMessage({
       href,
       children,
     }: Pick<AnchorHTMLAttributes<HTMLAnchorElement>, "href" | "children">) => {
-      if (onVellumLinkClick && isVellumLink(href)) {
+      if (onVellumLinkClick && (isVellumLink(href) || isVellumOpenLink(href))) {
         return (
           <a
             href={href}

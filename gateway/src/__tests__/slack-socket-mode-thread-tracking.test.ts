@@ -1660,6 +1660,45 @@ describe("SlackSocketModeClient thread tracking", () => {
     },
   );
 
+  test("does not arm a thread for a malformed app mention missing its user", async () => {
+    const { rawDb, store } = createSlackStore();
+    const emitted: NormalizedSlackEvent[] = [];
+    const client = createHarness(store, (event) => emitted.push(event));
+    const ws = makeOpenSocket();
+    const threadTs = "1700000005.000100";
+
+    try {
+      // Channel "C-thread" IS routed (conversation_id), so routing succeeds on
+      // the channel alone even though `user` is missing. Without the identity
+      // guard the thread would arm here, then normalizeSlackAppMention drops the
+      // mention for missing identity — leaving a thread that admits later
+      // unmentioned replies.
+      client.handleMessage(
+        JSON.stringify({
+          envelope_id: "env-malformed-mention",
+          type: "events_api",
+          payload: {
+            event_id: "Ev-malformed-mention",
+            event: {
+              type: "app_mention",
+              text: "<@UBOT> hi",
+              ts: "1700000005.000200",
+              channel: "C-thread",
+              thread_ts: threadTs,
+            },
+          },
+        }),
+        ws,
+      );
+      await flushAsyncEventEmission();
+
+      expect(emitted).toHaveLength(0);
+      expect(store.hasThread(threadTs)).toBe(false);
+    } finally {
+      rawDb.close();
+    }
+  });
+
   test("renders live app mention user IDs as display-name labels", async () => {
     const { rawDb, store } = createSlackStore();
     const emitted: NormalizedSlackEvent[] = [];

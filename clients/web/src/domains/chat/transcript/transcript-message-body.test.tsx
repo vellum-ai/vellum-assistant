@@ -30,6 +30,15 @@ mock.module("@/domains/chat/utils/background-task-actions", () => ({
   stopBackgroundTask: stopBackgroundTaskMock,
 }));
 
+// `openWorkspaceFile` lazily imports the app router, which these tests don't
+// build. Stub it to record the workspace paths opened by `vellum://open/`
+// reference-link clicks.
+const openWorkspaceFileMock = mock(async (_path: string) => {});
+mock.module("@/utils/open-workspace-file", () => ({
+  VELLUM_OPEN_PREFIX: "vellum://open/",
+  openWorkspaceFile: openWorkspaceFileMock,
+}));
+
 // Captures the latest `onVellumLinkClick` handler so tests can drive the
 // vellum:// link download path directly through the mocked markdown renderer.
 let lastVellumLinkClick: ((href: string, linkText: string) => void) | undefined;
@@ -1168,6 +1177,53 @@ describe("TranscriptMessageBody", () => {
     expect(
       (downloadAttachmentMock.mock.calls[0] as unknown[])[0],
     ).toMatchObject({ id: "att-real" });
+  });
+
+  test("vellum://open/ link click navigates to the workspace file, never downloads", () => {
+    downloadAttachmentMock.mockClear();
+    openWorkspaceFileMock.mockClear();
+    render(
+      <TranscriptMessageBody
+        message={{
+          id: "a-open",
+          role: "assistant",
+          contentBlocks: [textBlock("see the skill")],
+          attachments: [
+            {
+              // Even an attachment whose filename matches the link must not
+              // shadow reference-link navigation.
+              id: "att-skill",
+              filename: "SKILL.md",
+              mimeType: "text/markdown",
+              sizeBytes: 5,
+              previewUrl: null,
+            },
+          ],
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    lastVellumLinkClick?.("vellum://open/skills/foo/SKILL.md", "SKILL.md");
+    expect(openWorkspaceFileMock).toHaveBeenCalledWith("skills/foo/SKILL.md");
+    expect(downloadAttachmentMock).not.toHaveBeenCalled();
+  });
+
+  test("vellum://open/ link click decodes percent-encoded paths", () => {
+    openWorkspaceFileMock.mockClear();
+    render(
+      <TranscriptMessageBody
+        message={{
+          id: "a-open-enc",
+          role: "assistant",
+          contentBlocks: [textBlock("see the notes")],
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    lastVellumLinkClick?.("vellum://open/notes/weekly%20plan.md", "plan");
+    expect(openWorkspaceFileMock).toHaveBeenCalledWith("notes/weekly plan.md");
   });
 
   test("vellum link click still matches link text and raw basename", () => {

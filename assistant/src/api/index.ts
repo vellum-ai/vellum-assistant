@@ -5,6 +5,7 @@ import { AcpSessionErrorEventSchema } from "./events/acp-session-error.js";
 import { AcpSessionSpawnedEventSchema } from "./events/acp-session-spawned.js";
 import { AcpSessionUpdateEventSchema } from "./events/acp-session-update.js";
 import { AcpSessionUsageEventSchema } from "./events/acp-session-usage.js";
+import { AppFilesChangedEventSchema } from "./events/app-files-changed.js";
 import { AssistantActivityStateEventSchema } from "./events/assistant-activity-state.js";
 import { AssistantStatusEventSchema } from "./events/assistant-status.js";
 import { AssistantTextDeltaEventSchema } from "./events/assistant-text-delta.js";
@@ -39,6 +40,8 @@ import { DocumentEditorUpdateEventSchema } from "./events/document-editor-update
 import { ErrorEventSchema } from "./events/error.js";
 import { GenerationCancelledEventSchema } from "./events/generation-cancelled.js";
 import { GenerationHandoffEventSchema } from "./events/generation-handoff.js";
+import { HeartbeatAlertEventSchema } from "./events/heartbeat-alert.js";
+import { HeartbeatConversationCreatedEventSchema } from "./events/heartbeat-conversation-created.js";
 import { HomeFeedUpdatedEventSchema } from "./events/home-feed-updated.js";
 import { HookEventSchema } from "./events/hook-event.js";
 import {
@@ -83,9 +86,11 @@ import { ModelInfoEventSchema } from "./events/model-info.js";
 import { NavigateSettingsEventSchema } from "./events/navigate-settings.js";
 import { NotificationConversationCreatedEventSchema } from "./events/notification-conversation-created.js";
 import { NotificationIntentEventSchema } from "./events/notification-intent.js";
+import { OAuthConnectResultEventSchema } from "./events/oauth-connect-result.js";
 import { OpenConversationEventSchema } from "./events/open-conversation.js";
 import { OpenPanelEventSchema } from "./events/open-panel.js";
 import { OpenUrlEventSchema } from "./events/open-url.js";
+import { PlatformDisconnectedEventSchema } from "./events/platform-disconnected.js";
 import { QuestionRequestEventSchema } from "./events/question-request.js";
 import {
   RecordingPauseEventSchema,
@@ -99,6 +104,7 @@ import { SecretRequestEventSchema } from "./events/secret-request.js";
 import { ServiceGroupUpdateCompleteEventSchema } from "./events/service-group-update-complete.js";
 import { ServiceGroupUpdateProgressEventSchema } from "./events/service-group-update-progress.js";
 import { ServiceGroupUpdateStartingEventSchema } from "./events/service-group-update-starting.js";
+import { ShowPlatformLoginEventSchema } from "./events/show-platform-login.js";
 import { SkillStateChangedEventSchema } from "./events/skill-state-changed.js";
 import { SoundsConfigUpdatedEventSchema } from "./events/sounds-config-updated.js";
 import { SubagentEventEventSchema } from "./events/subagent-event.js";
@@ -156,6 +162,10 @@ export {
   type AcpSessionUsageEvent,
   AcpSessionUsageEventSchema,
 } from "./events/acp-session-usage.js";
+export {
+  type AppFilesChangedEvent,
+  AppFilesChangedEventSchema,
+} from "./events/app-files-changed.js";
 export {
   type AssistantActivityAnchor,
   AssistantActivityAnchorSchema,
@@ -327,6 +337,14 @@ export {
   GenerationHandoffEventSchema,
 } from "./events/generation-handoff.js";
 export {
+  type HeartbeatAlertEvent,
+  HeartbeatAlertEventSchema,
+} from "./events/heartbeat-alert.js";
+export {
+  type HeartbeatConversationCreatedEvent,
+  HeartbeatConversationCreatedEventSchema,
+} from "./events/heartbeat-conversation-created.js";
+export {
   type HomeFeedUpdatedEvent,
   HomeFeedUpdatedEventSchema,
 } from "./events/home-feed-updated.js";
@@ -447,6 +465,10 @@ export {
   NotificationIntentEventSchema,
 } from "./events/notification-intent.js";
 export {
+  type OAuthConnectResultEvent,
+  OAuthConnectResultEventSchema,
+} from "./events/oauth-connect-result.js";
+export {
   type OpenConversationEvent,
   OpenConversationEventSchema,
 } from "./events/open-conversation.js";
@@ -455,6 +477,10 @@ export {
   OpenPanelEventSchema,
 } from "./events/open-panel.js";
 export { type OpenUrlEvent, OpenUrlEventSchema } from "./events/open-url.js";
+export {
+  type PlatformDisconnectedEvent,
+  PlatformDisconnectedEventSchema,
+} from "./events/platform-disconnected.js";
 export {
   type QuestionEntry,
   QuestionEntrySchema,
@@ -499,6 +525,10 @@ export {
   type ServiceGroupUpdateStartingEvent,
   ServiceGroupUpdateStartingEventSchema,
 } from "./events/service-group-update-starting.js";
+export {
+  type ShowPlatformLoginEvent,
+  ShowPlatformLoginEventSchema,
+} from "./events/show-platform-login.js";
 export {
   type SkillStateChangedEvent,
   SkillStateChangedEventSchema,
@@ -835,6 +865,7 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   AcpSessionSpawnedEventSchema,
   AcpSessionUpdateEventSchema,
   AcpSessionUsageEventSchema,
+  AppFilesChangedEventSchema,
   AssistantActivityStateEventSchema,
   AssistantStatusEventSchema,
   AssistantTextDeltaEventSchema,
@@ -869,6 +900,8 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   ErrorEventSchema,
   GenerationCancelledEventSchema,
   GenerationHandoffEventSchema,
+  HeartbeatAlertEventSchema,
+  HeartbeatConversationCreatedEventSchema,
   HomeFeedUpdatedEventSchema,
   HookEventSchema,
   HostAppControlCancelEventSchema,
@@ -899,9 +932,11 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   NavigateSettingsEventSchema,
   NotificationConversationCreatedEventSchema,
   NotificationIntentEventSchema,
+  OAuthConnectResultEventSchema,
   OpenConversationEventSchema,
   OpenPanelEventSchema,
   OpenUrlEventSchema,
+  PlatformDisconnectedEventSchema,
   QuestionRequestEventSchema,
   RecordingPauseEventSchema,
   RecordingResumeEventSchema,
@@ -913,6 +948,7 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   ServiceGroupUpdateCompleteEventSchema,
   ServiceGroupUpdateProgressEventSchema,
   ServiceGroupUpdateStartingEventSchema,
+  ShowPlatformLoginEventSchema,
   SkillStateChangedEventSchema,
   SoundsConfigUpdatedEventSchema,
   SubagentEventEventSchema,

@@ -50,10 +50,16 @@ import type {
 } from "@/generated/api/types.gen";
 
 const CHECKOUT_URL = "https://stripe.test/checkout/session";
+const PORTAL_URL = "https://stripe.test/portal/session";
 
 type Captured = { body?: unknown };
 let changePackageCall: Captured | null = null;
 let upgradeCall: Captured | null = null;
+// Captures the billing-portal session create — the Pro → Free cancel path.
+let portalSessionCall: Captured | null = null;
+// When false, the portal-session promise never settles — used to observe the
+// in-flight (pending) state after confirming the Free downgrade.
+let portalSessionResolves = true;
 let machineTierCall: Captured | null = null;
 let storageTierCall: Captured | null = null;
 let creditTierCall: Captured | null = null;
@@ -100,6 +106,16 @@ mock.module("@/generated/api/sdk.gen", () => ({
     upgradeCall = opts;
     return Promise.resolve({
       data: { status: "redirect", checkout_url: CHECKOUT_URL },
+      response: { ok: true },
+    });
+  },
+  organizationsBillingPortalSessionCreate: (opts: Captured) => {
+    portalSessionCall = opts;
+    if (!portalSessionResolves) {
+      return new Promise(() => {});
+    }
+    return Promise.resolve({
+      data: { portal_url: PORTAL_URL },
       response: { ok: true },
     });
   },
@@ -335,7 +351,7 @@ function count(html: string, needle: RegExp): number {
 describe("PlansPage — full catalog render", () => {
   test("renders the headline and all four tier names", () => {
     const html = renderStatic(freeSubscription(), fullCatalog());
-    expect(html).toContain("Plans designed to empower you");
+    expect(html).toContain("Give your assistant more power");
     expect(html).toContain("Free");
     expect(html).toContain("Mighty");
     expect(html).toContain("Super");
@@ -367,7 +383,7 @@ describe("PlansPage — full catalog render", () => {
     // Free plan's baseline storage (FREE_STORAGE_GIB).
     expect(html).toContain("4 GB Storage");
     // Credits row, formatted from credits_usd.
-    expect(html).toContain("$25 in credits per month");
+    expect(html).toContain("$25 in credits included");
     // Machine "Computer" labels; a null machine_size renders "Small".
     expect(html).toContain("Small Computer");
     expect(html).toContain("Medium Computer");
@@ -448,7 +464,7 @@ describe("PlansPage — empty catalog (pro-packages flag off)", () => {
     // the pre-redirect markup is the loading spinner.
     const html = renderStatic(freeSubscription(), plansWith([]));
     expect(html).toContain("Loading plans");
-    expect(html).not.toContain("Plans designed to empower you");
+    expect(html).not.toContain("Give your assistant more power");
     expect(html).not.toContain("Mighty");
     expect(html).not.toContain("Power Up");
     expect(html).not.toContain("Custom Plan");
@@ -538,6 +554,8 @@ function renderInteractive(
 beforeEach(() => {
   changePackageCall = null;
   upgradeCall = null;
+  portalSessionCall = null;
+  portalSessionResolves = true;
   machineTierCall = null;
   storageTierCall = null;
   creditTierCall = null;
@@ -607,21 +625,87 @@ describe("PlansPage — Pro package switch (change-package)", () => {
     expect(getByTestId("loc").textContent).toBe("/assistant/plans");
   });
 
-  test("Pro → Free downgrade routes to the manage/cancel flow, not change-package", async () => {
-    const { findByRole, findByTestId } = renderInteractive(
-      proSuperSubscription(),
-    );
+  test("Pro → Free downgrade confirms first, then opens the Stripe billing portal", async () => {
+    const { findByRole, findByText, findByTestId, getByTestId } =
+      renderInteractive(proSuperSubscription());
 
-    // Below Super, Free reads "Downgrade to Free". Cancellation can't go through
-    // the package-only change-package endpoint, so it routes to `?adjust_plan`.
+    // Below Super, Free reads "Downgrade to Free". Clicking it opens the confirm
+    // dialog — not an immediate portal redirect.
     fireEvent.click(await findByRole("button", { name: "Downgrade to Free" }));
+    await findByText("Downgrade to Free?");
+    expect(openedUrl).toBeNull();
+    expect(portalSessionCall).toBeNull();
 
-    const loc = await findByTestId("loc");
-    await waitFor(() =>
-      expect(loc.textContent).toBe(
-        "/assistant/settings/usage?tab=billing&adjust_plan",
-      ),
+    // Confirming opens the Stripe billing portal (the same destination as the
+    // adjust-plan modal's Downgrade to Base). Cancellation can't go through the
+    // package-only change-package endpoint.
+    fireEvent.click(await findByTestId("confirm-free-downgrade-button"));
+    await waitFor(() => expect(openedUrl).toBe(PORTAL_URL));
+    expect(portalSessionCall).not.toBeNull();
+    // Stays on the plans page (no navigation to the manage surface) and never
+    // touches the package/checkout endpoints.
+    expect(getByTestId("loc").textContent).toBe("/assistant/plans");
+    expect(changePackageCall).toBeNull();
+    expect(upgradeCall).toBeNull();
+  });
+
+  test("dismissing the Free downgrade confirm doesn't open the portal", async () => {
+    const { findByRole, findByText, getByRole, queryByText } =
+      renderInteractive(proSuperSubscription());
+
+    fireEvent.click(await findByRole("button", { name: "Downgrade to Free" }));
+    await findByText("Downgrade to Free?");
+
+    // The confirm dialog's Cancel closes it without creating a portal session.
+    fireEvent.click(getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(queryByText("Downgrade to Free?")).toBeNull());
+    expect(portalSessionCall).toBeNull();
+    expect(openedUrl).toBeNull();
+  });
+
+  test("the Free downgrade confirm lists the Pro features being lost", async () => {
+    const plans = fullCatalog();
+    const pro = plans.plans.find((p) => p.id === "pro") as ProPlan;
+    // Base plan lists no features, so both Pro features are "lost".
+    pro.included_features = ["Managed email", "Custom domain"];
+    const { findByRole, findByText } = renderInteractive(
+      proSuperSubscription(),
+      { plans },
     );
+
+    fireEvent.click(await findByRole("button", { name: "Downgrade to Free" }));
+    await findByText("Downgrade to Free?");
+    await findByText("Managed email");
+    await findByText("Custom domain");
+  });
+
+  test("while the portal is opening, the other plan CTAs and Configure are disabled", async () => {
+    // Hold the portal-session request in flight so `portalMutation.isPending`
+    // stays true after the Free downgrade is confirmed.
+    portalSessionResolves = false;
+    const { findByRole, findByTestId } = renderInteractive(
+      proMightySubscription(),
+    );
+
+    fireEvent.click(await findByRole("button", { name: "Downgrade to Free" }));
+    fireEvent.click(await findByTestId("confirm-free-downgrade-button"));
+
+    // The portal request is in flight and never settles: every other plan
+    // action is disabled so a second click can't start a competing billing
+    // operation before the redirect lands.
+    const goSuper = (await findByRole("button", {
+      name: "Go Super",
+    })) as HTMLButtonElement;
+    const configure = (await findByRole("button", {
+      name: "Configure",
+    })) as HTMLButtonElement;
+    await waitFor(() => {
+      expect(goSuper.disabled).toBe(true);
+      expect(configure.disabled).toBe(true);
+    });
+
+    // The portal was actually initiated, and no competing action started.
+    expect(portalSessionCall).not.toBeNull();
     expect(changePackageCall).toBeNull();
     expect(upgradeCall).toBeNull();
   });

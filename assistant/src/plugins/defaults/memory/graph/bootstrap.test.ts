@@ -28,6 +28,28 @@ beforeAll(async () => {
 }, 30_000);
 
 beforeEach(() => {
+  // migrateToolCreatedItems runs as a migration before the graph cluster moves
+  // to the memory DB, so it reads and writes memory_graph_nodes on the main
+  // connection. initializeDb() has since applied that move, dropping the table
+  // from main — recreate its current shape here so the migration and these
+  // assertions run against the connection it actually uses.
+  rawRun(
+    "test:recreateMainGraphNodes",
+    /*sql*/ `CREATE TABLE IF NOT EXISTS memory_graph_nodes (
+      id TEXT PRIMARY KEY, content TEXT NOT NULL, type TEXT NOT NULL,
+      created INTEGER NOT NULL, last_accessed INTEGER NOT NULL,
+      last_consolidated INTEGER NOT NULL, emotional_charge TEXT NOT NULL,
+      fidelity TEXT NOT NULL DEFAULT 'vivid', confidence REAL NOT NULL,
+      significance REAL NOT NULL, stability REAL NOT NULL DEFAULT 14,
+      reinforcement_count INTEGER NOT NULL DEFAULT 0,
+      last_reinforced INTEGER NOT NULL,
+      source_conversations TEXT NOT NULL DEFAULT '[]',
+      source_type TEXT NOT NULL DEFAULT 'inferred',
+      narrative_role TEXT, part_of_story TEXT,
+      scope_id TEXT NOT NULL DEFAULT 'default',
+      event_date INTEGER, image_refs TEXT
+    )`,
+  );
   // Clear graph nodes and checkpoints between tests so each test starts clean.
   // memory_jobs lives in the dedicated memory connection; the rest in main.
   resetTestTables("memory_graph_nodes", "memory_checkpoints");

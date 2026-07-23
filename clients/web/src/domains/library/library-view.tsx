@@ -25,6 +25,7 @@ import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
 import type { AppSummary } from "@/types/app-types";
 import { getCachedAppHtml } from "@/utils/app-html-cache";
 import { importBundle } from "@/utils/import-bundle";
+import { isPointerCoarse } from "@/utils/pointer";
 import { Button, Input, toast } from "@vellumai/design-library";
 
 export interface LibraryViewProps {
@@ -70,6 +71,15 @@ export function LibraryView({
   } = useAppDelete(assistantId);
 
   // --- Import state ---
+  // iOS Safari/WKWebView (including iOS Chrome) doesn't implement `accept`
+  // with filename extensions, so a `.vellum` filter makes the custom-extension
+  // bundle non-selectable in the file picker there. Constrain the picker to
+  // `.vellum` only on fine-pointer (desktop) devices; touch devices get an
+  // unrestricted picker and rely on the server's bundle validation.
+  // https://github.com/mdn/browser-compat-data/issues/26043
+  const [bundleAccept] = useState<string | undefined>(() =>
+    isPointerCoarse() ? undefined : ".vellum",
+  );
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isImporting, setIsImporting] = useState(false);
 
@@ -157,6 +167,7 @@ export function LibraryView({
   if (apps.length === 0 && documents.length === 0) {
     return (
       <LibraryEmptyState
+        accept={bundleAccept}
         fileInputRef={fileInputRef}
         isImporting={isImporting}
         onImportBundle={handleImportBundle}
@@ -175,7 +186,7 @@ export function LibraryView({
           <input
             ref={fileInputRef}
             type="file"
-            accept=".vellum"
+            accept={bundleAccept}
             className="hidden"
             onChange={handleImportBundle}
           />

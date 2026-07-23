@@ -179,7 +179,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "platform/client.ts", // platform client credential store fallback for standalone CLI auth
       "mcp/mcp-header-store.ts", // MCP static auth header persistence (credential store CRUD + legacy migration)
       "mcp/mcp-oauth-provider.ts", // MCP OAuth token/client/discovery persistence
-      "runtime/routes/integrations/slack/token.ts", // shared Slack token resolver (bot/user token lookup for CLI use routes)
+      "messaging/providers/slack/auth.ts", // canonical Slack auth resolver (bot/user token lookup for adapter + routes)
       "mcp/client.ts", // MCP client cached-token lookup
       "oauth/token-persistence.ts", // OAuth token persistence (set/delete tokens)
       "oauth/credential-token-resolver.ts", // centralized access-token key resolution for OAuth and manual-token providers

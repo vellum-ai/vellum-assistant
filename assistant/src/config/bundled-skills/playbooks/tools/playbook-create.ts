@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm";
 
-import { getDb } from "../../../../persistence/db-connection.js";
+import { getMemoryDb } from "../../../../persistence/db-connection.js";
 import {
   enqueueMemoryJob,
   isMemoryEnabled,
@@ -66,7 +66,10 @@ export async function executePlaybookCreate(
   const content = `${subject}\n${statement}`;
 
   try {
-    const db = getDb();
+    const db = getMemoryDb();
+    if (!db) {
+      return { content: "Error: memory database unavailable.", isError: true };
+    }
 
     // Check for duplicate by matching content in playbook-prefixed graph nodes
     const existing = db

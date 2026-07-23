@@ -19,6 +19,9 @@ import {
   type SlackHistoryMessage,
 } from "./slack-web.js";
 import { isSlackDmChannel } from "./channel.js";
+import { slackEventOrderingKey } from "./event-ordering.js";
+import { slackEventText } from "./event-text.js";
+import { stampSlackEventTeam } from "./event-team.js";
 import {
   normalizeSlackAppMention,
   normalizeSlackDirectMessage,
@@ -406,7 +409,8 @@ export class SlackSocketModeClient {
   }
 
   private handleSlackMuteCommand(event: SlackAppMentionEvent): boolean {
-    if (!isSlackMuteCommand(event.text, this.config.botUserId)) {
+    const text = slackEventText(event);
+    if (!text || !isSlackMuteCommand(text, this.config.botUserId)) {
       return false;
     }
 
@@ -793,9 +797,7 @@ export class SlackSocketModeClient {
     // event so normalization can capture the actor's team. An event-level
     // `team` (e.g. a Slack Connect sender's home workspace) takes precedence.
     const innerEvent = eventPayload.event as { team?: string };
-    if (eventPayload.team_id && !innerEvent.team) {
-      innerEvent.team = eventPayload.team_id;
-    }
+    stampSlackEventTeam(innerEvent, eventPayload.team_id);
 
     this.processEventPayload({
       event_id: eventPayload.event_id,
@@ -1071,23 +1073,31 @@ export class SlackSocketModeClient {
 
     if (isAppMention) {
       const appMentionEvent = event as SlackAppMentionEvent;
+      const { channel, user } = appMentionEvent;
       const threadTs = appMentionEvent.thread_ts ?? appMentionEvent.ts;
-      const routing = resolveAssistant(
-        this.config.gatewayConfig,
-        appMentionEvent.channel,
-        appMentionEvent.user,
-      );
+      // Only arm the thread for a well-formed, routable mention — the same
+      // identity fields normalizeSlackAppMention requires. These are read from
+      // the raw, untrusted frame, so guard type as well as presence: a
+      // malformed mention (missing/non-string channel, user, or ts) must not
+      // arm a thread that would then admit later unmentioned replies, since the
+      // mention itself is dropped at normalization.
       if (
         this.config.threadMode === "mention_then_thread" &&
-        threadTs &&
-        !isRejection(routing) &&
-        appMentionEvent.channel
+        typeof channel === "string" &&
+        channel &&
+        typeof user === "string" &&
+        user &&
+        typeof threadTs === "string" &&
+        threadTs
       ) {
-        this.store.trackThread(
-          threadTs,
-          appMentionEvent.channel,
-          ACTIVE_THREAD_TTL_MS,
+        const routing = resolveAssistant(
+          this.config.gatewayConfig,
+          channel,
+          user,
         );
+        if (!isRejection(routing)) {
+          this.store.trackThread(threadTs, channel, ACTIVE_THREAD_TTL_MS);
+        }
       }
     }
 
@@ -1102,30 +1112,6 @@ export class SlackSocketModeClient {
       isMessageDeleted,
       isDm,
     );
-  }
-
-  private extractTextBearingContent(
-    event:
-      | SlackAppMentionEvent
-      | SlackDirectMessageEvent
-      | SlackChannelMessageEvent
-      | SlackMessageChangedEvent
-      | SlackMessageDeletedEvent
-      | SlackReactionAddedEvent
-      | SlackReactionRemovedEvent,
-  ): string | undefined {
-    if (
-      event.type === "message" &&
-      (event as SlackMessageChangedEvent).subtype === "message_changed"
-    ) {
-      return (event as SlackMessageChangedEvent).message?.text;
-    }
-
-    if (event.type === "app_mention" || event.type === "message") {
-      return (event as SlackAppMentionEvent | SlackDirectMessageEvent).text;
-    }
-
-    return undefined;
   }
 
   private async resolveMentionLabelsForText(
@@ -1192,7 +1178,7 @@ export class SlackSocketModeClient {
     isDm: boolean,
   ): void {
     const queues = (this.emitQueues ??= new Map());
-    const orderingKey = this.getEventOrderingKey(event, eventId);
+    const orderingKey = slackEventOrderingKey(event, eventId);
     const previous = queues.get(orderingKey) ?? Promise.resolve();
     const current = previous
       .catch(() => undefined)
@@ -1222,47 +1208,6 @@ export class SlackSocketModeClient {
       });
   }
 
-  private getEventOrderingKey(
-    event:
-      | SlackAppMentionEvent
-      | SlackDirectMessageEvent
-      | SlackChannelMessageEvent
-      | SlackMessageChangedEvent
-      | SlackMessageDeletedEvent
-      | SlackReactionAddedEvent
-      | SlackReactionRemovedEvent,
-    eventId: string,
-  ): string {
-    if (event.type === "reaction_added" || event.type === "reaction_removed") {
-      const reaction = event as
-        | SlackReactionAddedEvent
-        | SlackReactionRemovedEvent;
-      return `${reaction.item.channel}:${reaction.item.ts}`;
-    }
-
-    if (
-      event.type === "message" &&
-      (event as SlackMessageChangedEvent).subtype === "message_changed"
-    ) {
-      const changed = event as SlackMessageChangedEvent;
-      return `${changed.channel}:${changed.message.thread_ts ?? changed.message.ts ?? eventId}`;
-    }
-
-    if (
-      event.type === "message" &&
-      (event as SlackMessageDeletedEvent).subtype === "message_deleted"
-    ) {
-      const deleted = event as SlackMessageDeletedEvent;
-      return `${deleted.channel}:${deleted.previous_message?.thread_ts ?? deleted.deleted_ts ?? eventId}`;
-    }
-
-    const message = event as
-      | SlackAppMentionEvent
-      | SlackDirectMessageEvent
-      | SlackChannelMessageEvent;
-    return `${message.channel}:${message.thread_ts ?? message.ts ?? eventId}`;
-  }
-
   private async normalizeAndEmit(
     event:
       | SlackAppMentionEvent
@@ -1281,7 +1226,7 @@ export class SlackSocketModeClient {
     isMessageDeleted: boolean,
     isDm: boolean,
   ): Promise<void> {
-    const text = this.extractTextBearingContent(event);
+    const text = slackEventText(event);
     const renderContext = text ? await this.resolveTextRenderContext(text) : {};
     const userLabels = renderContext.userLabels ?? {};
 

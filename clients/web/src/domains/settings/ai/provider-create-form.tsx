@@ -52,6 +52,15 @@ import { useProviderCredentialsList } from "@/domains/settings/ai/use-provider-c
 // Edit lives in `ProviderEditorContent` and is intentionally NOT handled
 // here — this component is create-only.
 
+/** Built-in provider ids and display names, lowercased — names a custom
+ * provider may not take. */
+const RESERVED_PROVIDER_NAMES = new Set(
+  Object.entries(PROVIDER_DISPLAY_NAMES).flatMap(([id, display]) => [
+    id.toLowerCase(),
+    display.toLowerCase(),
+  ]),
+);
+
 export interface ProviderCreateFormProps {
   assistantId: string;
   existingNames: string[];
@@ -85,7 +94,9 @@ export function ProviderCreateForm({
     existingNames,
   );
 
-  const [label, setLabel] = useState(initialDefaults.name);
+  const [label, setLabel] = useState(
+    initialProvider === "openai-compatible" ? "" : initialDefaults.name,
+  );
   const [name, setName] = useState(initialDefaults.key);
   // The picker offers real connection providers plus "chatgpt", a
   // subscription-auth pseudo-provider: its connection is created by the OAuth
@@ -161,7 +172,16 @@ export function ProviderCreateForm({
     enabled: true,
   });
 
-  const canSave = name.trim().length > 0;
+  // A custom provider must not take a built-in provider's name — entries
+  // share one flat list, and an entry labeled "Anthropic" would be
+  // indistinguishable from the catalog provider.
+  const reservedNameConflict =
+    isOpenAICompatible &&
+    RESERVED_PROVIDER_NAMES.has(label.trim().toLowerCase());
+  const canSave =
+    name.trim().length > 0 &&
+    (!isOpenAICompatible || label.trim().length > 0) &&
+    !reservedNameConflict;
 
   async function handleSave() {
     if (!canSave) {
@@ -360,7 +380,10 @@ export function ProviderCreateForm({
               existingNames,
             );
             if (!isLabelDirty.current) {
-              setLabel(seedName);
+              // A custom provider's name is the user's identity for it —
+              // seeding the protocol's display name would produce
+              // "Add OpenAI-compatible".
+              setLabel(newSelected === "openai-compatible" ? "" : seedName);
             }
             setName(seedKey);
             setCredential(
@@ -371,16 +394,62 @@ export function ProviderCreateForm({
             // Credential ref changes above trigger a new TQ query key,
             // so the presence check auto-refetches for the new provider.
           }}
-          options={connectionProviderOptions.map((p) => ({
-            value: p,
-            label: PROVIDER_DISPLAY_NAMES[p],
-          }))}
+          options={[
+            // Catalog providers first; the custom-provider entry closes the
+            // list. "OpenAI-compatible" is the protocol a custom provider
+            // must speak, not the provider's identity.
+            ...connectionProviderOptions
+              .filter((p) => p !== "openai-compatible")
+              .map((p) => ({
+                value: p,
+                label: PROVIDER_DISPLAY_NAMES[p],
+              })),
+            ...(connectionProviderOptions.includes("openai-compatible")
+              ? [
+                  {
+                    value: "openai-compatible" as ConnectionProvider,
+                    label: "Custom provider",
+                  },
+                ]
+              : []),
+          ]}
         />
+        {isOpenAICompatible ? (
+          <Typography
+            variant="body-small-default"
+            as="p"
+            className="text-[var(--content-tertiary)]"
+          >
+            Custom providers connect to any endpoint that serves the
+            OpenAI-compatible API — xAI, Groq, LM Studio, vLLM, and similar.
+          </Typography>
+        ) : null}
       </div>
 
-      {/* Base URL + Models — openai-compatible only */}
+      {/* Name + Base URL + Models — custom providers only. Name leads:
+          the user is adding "xAI", not configuring a URL. */}
       {isOpenAICompatible && (
         <>
+          <div className="space-y-1">
+            <label className="block text-body-small-default text-[var(--content-tertiary)]">
+              Name
+            </label>
+            <Input
+              value={label}
+              onChange={(e) => handleLabelChange(e.target.value)}
+              placeholder="xAI"
+              fullWidth
+            />
+            {reservedNameConflict ? (
+              <Typography
+                variant="body-small-default"
+                as="p"
+                className="text-(--system-negative-strong)"
+              >
+                That name belongs to a built-in provider. Pick another.
+              </Typography>
+            ) : null}
+          </div>
           <div className="space-y-1">
             <label className="block text-body-small-default text-[var(--content-tertiary)]">
               Base URL
@@ -388,7 +457,7 @@ export function ProviderCreateForm({
             <Input
               value={baseUrl}
               onChange={(e) => setBaseUrl(e.target.value)}
-              placeholder="https://api.example.com/v1"
+              placeholder="https://api.x.ai/v1"
               fullWidth
             />
           </div>
@@ -429,6 +498,16 @@ export function ProviderCreateForm({
         />
       )}
 
+      {isOpenAICompatible && authType === "api_key" ? (
+        <Typography
+          variant="body-small-default"
+          as="p"
+          className="text-[var(--content-tertiary)]"
+        >
+          Leave the key empty for local endpoints — they connect keyless.
+        </Typography>
+      ) : null}
+
       {/* ChatGPT Subscription OAuth — shown when auth type is oauth_subscription */}
       {authType === "oauth_subscription" && (
         <ChatgptOAuthSection
@@ -437,7 +516,7 @@ export function ProviderCreateForm({
         />
       )}
 
-      {!isChatgpt && advancedDetailsSection}
+      {!isChatgpt && !isOpenAICompatible && advancedDetailsSection}
 
       {error && (
         <Typography
@@ -463,7 +542,11 @@ export function ProviderCreateForm({
           disabled={!canSave || saving || isSavingKey}
           onClick={() => void handleSave()}
         >
-          {saving ? "Saving…" : "Add"}
+          {saving
+            ? "Saving…"
+            : isOpenAICompatible && label.trim()
+              ? `Add ${label.trim()}`
+              : "Add"}
         </Button>
       )}
     </>
