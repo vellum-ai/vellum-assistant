@@ -15,6 +15,7 @@ import { dirname, isAbsolute, join, normalize, relative, sep } from "node:path";
 import { stringify as stringifyYaml } from "yaml";
 
 import { deleteSkillCapabilityNode } from "../plugins/defaults/memory/graph/capability-seed.js";
+import { isDeniedBasename } from "../tools/shared/filesystem/path-policy.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir, getWorkspaceSkillsDir } from "../util/platform.js";
 import { writeInstallMeta } from "./install-meta.js";
@@ -159,6 +160,15 @@ export function validateCompanionSource(sourcePath: string): {
     realSource = realpathSync(sourcePath);
   } catch {
     return { error: `copy_from source does not exist: "${sourcePath}"` };
+  }
+  // Shared filesystem denylist (path-policy.ts): key-material basenames are
+  // unreadable even inside the workspace boundary, so a copy must not become a
+  // side door. Check both the submitted path and its realpath so neither a
+  // direct name nor a symlink to a denied name slips through.
+  if (isDeniedBasename(sourcePath) || isDeniedBasename(realSource)) {
+    return {
+      error: `copy_from source is a denied filename: "${sourcePath}"`,
+    };
   }
   const allowedRoots = [getWorkspaceDir(), tmpdir()].map((root) => {
     try {

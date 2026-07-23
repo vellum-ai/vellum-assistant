@@ -838,6 +838,40 @@ describe("createManagedSkill copy_from companion sources", () => {
     );
   });
 
+  test("rejects a denied basename source even inside the workspace", () => {
+    const keyPath = join(TEST_DIR, "backup.key");
+    writeFileSync(keyPath, "secret", "utf-8");
+
+    const result = createManagedSkill({
+      id: "copy-denied",
+      name: "Denied",
+      description: "Denied basename",
+      bodyMarkdown: "Body.",
+      files: [{ path: "scripts/innocent.txt", copyFrom: keyPath }],
+    });
+
+    expect(result.created).toBe(false);
+    expect(result.error).toContain("denied filename");
+  });
+
+  test("rejects a symlink resolving to a denied basename", () => {
+    const keyPath = join(TEST_DIR, ".backup.key");
+    writeFileSync(keyPath, "secret", "utf-8");
+    const linkPath = join(TEST_DIR, "looks-fine.txt");
+    fs.symlinkSync(keyPath, linkPath);
+
+    const result = createManagedSkill({
+      id: "copy-denied-link",
+      name: "Denied Link",
+      description: "Symlink to denied basename",
+      bodyMarkdown: "Body.",
+      files: [{ path: "scripts/innocent.txt", copyFrom: linkPath }],
+    });
+
+    expect(result.created).toBe(false);
+    expect(result.error).toContain("denied filename");
+  });
+
   test("rejects a directory source", () => {
     const dirPath = join(TEST_DIR, "a-directory");
     mkdirSync(dirPath, { recursive: true });
