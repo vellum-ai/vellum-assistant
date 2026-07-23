@@ -1,6 +1,8 @@
 /**
  * Tests for `ComposerSecretNotice` — masked display, generic copy, and
- * dismissal. The token is a synthetic value invented for these tests.
+ * dismissal in the passive state, plus the blocked-send state's exact copy
+ * and "Send anyway" / "Dismiss" actions. The token is a synthetic value
+ * invented for these tests.
  */
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
@@ -11,6 +13,7 @@ import type { DetectedSecret } from "@vellumai/service-contracts/secret-detectio
 import {
   ComposerSecretNotice,
   maskSecretValue,
+  type ComposerSecretNoticeProps,
 } from "./composer-secret-notice";
 
 const SYNTHETIC_PROJECT_KEY =
@@ -24,6 +27,21 @@ const match: DetectedSecret = {
   wholeMessage: false,
 };
 
+const BLOCKED_TITLE =
+  "Message not sent — it looks like it contains an API key";
+
+function renderNotice(overrides: Partial<ComposerSecretNoticeProps> = {}) {
+  return render(
+    <ComposerSecretNotice
+      matches={[match]}
+      sendBlocked={false}
+      onDismiss={() => {}}
+      onSendAnyway={() => {}}
+      {...overrides}
+    />,
+  );
+}
+
 afterEach(() => {
   cleanup();
 });
@@ -36,11 +54,9 @@ describe("maskSecretValue", () => {
   });
 });
 
-describe("ComposerSecretNotice", () => {
+describe("ComposerSecretNotice (passive)", () => {
   test("renders the masked value — the full plaintext never reaches the DOM", () => {
-    const { container } = render(
-      <ComposerSecretNotice matches={[match]} onDismiss={() => {}} />,
-    );
+    const { container } = renderNotice();
     expect(container.textContent).toContain("This looks like an API key");
     expect(container.textContent).toContain(
       maskSecretValue(SYNTHETIC_PROJECT_KEY),
@@ -51,19 +67,53 @@ describe("ComposerSecretNotice", () => {
     expect(container.innerHTML).not.toContain(SYNTHETIC_PROJECT_KEY);
     // The detection label (vendor) stays internal.
     expect(container.textContent).not.toContain("OpenAI");
+    // Blocked-state affordances are absent while passive.
+    expect(container.textContent).not.toContain(BLOCKED_TITLE);
+    expect(screen.queryByRole("button", { name: "Send anyway" })).toBeNull();
   });
 
   test("dismiss control invokes onDismiss", () => {
     const onDismiss = mock(() => {});
-    render(<ComposerSecretNotice matches={[match]} onDismiss={onDismiss} />);
+    renderNotice({ onDismiss });
     fireEvent.click(screen.getByLabelText("Dismiss"));
     expect(onDismiss).toHaveBeenCalledTimes(1);
   });
 
   test("renders nothing without matches", () => {
-    const { container } = render(
-      <ComposerSecretNotice matches={[]} onDismiss={() => {}} />,
-    );
+    const { container } = renderNotice({ matches: [] });
     expect(container.innerHTML).toBe("");
+  });
+});
+
+describe("ComposerSecretNotice (blocked send)", () => {
+  test("shows the exact blocked copy, the masked value, and both actions", () => {
+    const { container } = renderNotice({ sendBlocked: true });
+    expect(container.textContent).toContain(BLOCKED_TITLE);
+    expect(container.textContent).toContain(
+      maskSecretValue(SYNTHETIC_PROJECT_KEY),
+    );
+    expect(container.innerHTML).not.toContain(SYNTHETIC_PROJECT_KEY);
+    // Copy stays generic — never names the detected vendor.
+    expect(container.textContent).not.toContain("OpenAI");
+    expect(
+      screen.getByRole("button", { name: "Send anyway" }),
+    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Dismiss" })).toBeTruthy();
+  });
+
+  test("Send anyway invokes the bypass-and-resubmit handler once", () => {
+    // The handler is the orchestrator's composition of allowOnce() +
+    // submitMessage(); the component just fires it.
+    const onSendAnyway = mock(() => {});
+    renderNotice({ sendBlocked: true, onSendAnyway });
+    fireEvent.click(screen.getByRole("button", { name: "Send anyway" }));
+    expect(onSendAnyway).toHaveBeenCalledTimes(1);
+  });
+
+  test("Dismiss action invokes onDismiss", () => {
+    const onDismiss = mock(() => {});
+    renderNotice({ sendBlocked: true, onDismiss });
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+    expect(onDismiss).toHaveBeenCalledTimes(1);
   });
 });

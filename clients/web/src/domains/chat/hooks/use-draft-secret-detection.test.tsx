@@ -232,7 +232,7 @@ describe("useDraftSecretDetection detection", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Hook — pre-send gate state (nothing in the submit path calls this yet)
+// Hook — pre-send gate state (invoked by useComposerSubmit's beforeSend)
 // ---------------------------------------------------------------------------
 
 describe("useDraftSecretDetection checkBeforeSend", () => {
@@ -265,6 +265,61 @@ describe("useDraftSecretDetection checkBeforeSend", () => {
 
     act(() => {
       allowed = result.current.checkBeforeSend(`send ${SYNTHETIC_PROJECT_KEY}`);
+    });
+    expect(allowed).toBe(false);
+    expect(result.current.sendBlocked).toBe(true);
+  });
+
+  test("a draft edit invalidates an armed allowOnce bypass", () => {
+    seedFlags({ composerSecretGuard: true, hasHydrated: true });
+    // Never-elapsing debounce: only the synchronous subscription runs, so a
+    // block below proves the edit itself disarmed the bypass.
+    const { result } = renderDetection("conv-1", NEVER_ELAPSES_MS);
+    act(() => {
+      result.current.allowOnce();
+    });
+
+    setDraft(`edited to ${SYNTHETIC_GITHUB_TOKEN}`);
+    let allowed = true;
+    act(() => {
+      allowed = result.current.checkBeforeSend(
+        `edited to ${SYNTHETIC_GITHUB_TOKEN}`,
+      );
+    });
+    expect(allowed).toBe(false);
+    expect(result.current.sendBlocked).toBe(true);
+  });
+
+  test("dismissing a blocked notice clears sendBlocked but keeps dismissal", () => {
+    seedFlags({ composerSecretGuard: true, hasHydrated: true });
+    setDraft(`here is ${SYNTHETIC_PROJECT_KEY}`);
+    const { result } = renderDetection();
+    act(() => {
+      result.current.checkBeforeSend(`here is ${SYNTHETIC_PROJECT_KEY}`);
+    });
+    expect(result.current.sendBlocked).toBe(true);
+
+    act(() => {
+      result.current.dismiss();
+    });
+    expect(result.current.sendBlocked).toBe(false);
+    expect(result.current.dismissed).toBe(true);
+  });
+
+  test("a blocked send after dismissal re-blocks (dismissal never bypasses)", () => {
+    seedFlags({ composerSecretGuard: true, hasHydrated: true });
+    setDraft(`here is ${SYNTHETIC_PROJECT_KEY}`);
+    const { result } = renderDetection();
+    act(() => {
+      result.current.dismiss();
+    });
+    expect(result.current.dismissed).toBe(true);
+
+    let allowed = true;
+    act(() => {
+      allowed = result.current.checkBeforeSend(
+        `here is ${SYNTHETIC_PROJECT_KEY}`,
+      );
     });
     expect(allowed).toBe(false);
     expect(result.current.sendBlocked).toBe(true);

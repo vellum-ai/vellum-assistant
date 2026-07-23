@@ -118,7 +118,11 @@ export interface DraftSecretDetectionResult {
    * detected and no {@link allowOnce} bypass is armed.
    */
   checkBeforeSend: (text: string) => boolean;
-  /** Arm a single-use bypass so the next {@link checkBeforeSend} passes. */
+  /**
+   * Arm a single-use bypass so the next {@link checkBeforeSend} passes.
+   * Invalidated by any subsequent draft edit, flag flip, or conversation
+   * switch — the bypass approves the content as it stood when armed.
+   */
   allowOnce: () => void;
 }
 
@@ -196,6 +200,11 @@ export function useDraftSecretDetection({
       if (state.input === prevState.input) {
         return;
       }
+      // Any draft edit invalidates an armed send bypass — "Send anyway"
+      // approved the content as it stood, not whatever it becomes. The
+      // normal bypass flow consumes the ref synchronously before the send
+      // clears the input, so this only disarms genuinely stale bypasses.
+      allowOnceRef.current = false;
       if (timer !== null) {
         clearTimeout(timer);
         timer = null;
@@ -223,6 +232,9 @@ export function useDraftSecretDetection({
 
   const dismiss = useCallback(() => {
     setDismissedValues(new Set(matches.map((m) => m.value)));
+    // Dismissing the blocked-send notice acknowledges the interception;
+    // the block state is per-attempt and re-arms on the next send.
+    setSendBlocked(false);
   }, [matches]);
 
   const allowOnce = useCallback(() => {
