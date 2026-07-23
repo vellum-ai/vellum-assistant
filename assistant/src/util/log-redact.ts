@@ -4,10 +4,13 @@
  * so secrets never reach log files even when errors bubble up opaque objects.
  *
  * API-key patterns are imported from security/secret-patterns.ts — the shared
- * source of truth.  That module is data-only (no entropy, encoding, or config
- * logic) so it is safe for this hot-path serializer.
+ * source of truth — and unioned with plugin-declared patterns from
+ * security/plugin-secret-patterns.ts at call time.  Both modules are
+ * import-light by contract (no logger, no config, no entropy/encoding logic)
+ * so they are safe for this hot-path serializer.
  */
 
+import { memoizePluginPatternDerivation } from "../security/plugin-secret-patterns.js";
 import { PREFIX_PATTERNS } from "../security/secret-patterns.js";
 
 // ---------------------------------------------------------------------------
@@ -16,8 +19,17 @@ import { PREFIX_PATTERNS } from "../security/secret-patterns.js";
 
 const BEARER_RE = /Bearer [A-Za-z0-9._\-]+/g;
 
-const API_KEY_PATTERNS: RegExp[] = PREFIX_PATTERNS.map(
+const STATIC_API_KEY_PATTERNS: RegExp[] = PREFIX_PATTERNS.map(
   (p) => new RegExp(p.regex.source, "g"),
+);
+
+// Full pattern list, rebuilt only when the plugin-pattern registry changes so
+// registrations apply to the next serialized string without a daemon restart.
+const getApiKeyPatterns = memoizePluginPatternDerivation(
+  (pluginPatterns): RegExp[] => [
+    ...STATIC_API_KEY_PATTERNS,
+    ...pluginPatterns.map((p) => new RegExp(p.regex.source, "g")),
+  ],
 );
 
 // Header names whose values should always be fully redacted
@@ -41,7 +53,7 @@ export function redactLogString(value: string): string {
   result = result.replace(BEARER_RE, "Bearer [REDACTED]");
 
   // Redact API key patterns
-  for (const pattern of API_KEY_PATTERNS) {
+  for (const pattern of getApiKeyPatterns()) {
     pattern.lastIndex = 0;
     result = result.replace(pattern, "[REDACTED]");
   }

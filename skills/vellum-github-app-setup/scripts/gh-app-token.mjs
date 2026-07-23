@@ -13,15 +13,16 @@
  *
  * Requires these credentials in the vault (service: github-app):
  *   - app_id
- *   - pem
+ *   - pem_b64 (base64-encoded single-line PEM; a legacy multi-line
+ *     `pem` entry is also accepted)
  *   - installation_id
  */
 import crypto from "crypto";
 import { execSync } from "child_process";
 
-const ALLOWED_FIELDS = new Set(["app_id", "pem", "installation_id"]);
+const ALLOWED_FIELDS = new Set(["app_id", "pem_b64", "pem", "installation_id"]);
 
-function getCredential(field) {
+function getCredential(field, { optional = false } = {}) {
   if (!ALLOWED_FIELDS.has(field)) {
     throw new Error(`Invalid credential field: ${field}`);
   }
@@ -30,6 +31,7 @@ function getCredential(field) {
       `assistant credentials reveal --service github-app --field ${field}`,
       {
         timeout: 10_000,
+        stdio: ["ignore", "pipe", "pipe"],
       },
     )
       .toString()
@@ -39,6 +41,9 @@ function getCredential(field) {
     }
     return value;
   } catch (err) {
+    if (optional) {
+      return null;
+    }
     console.error(
       `Failed to read credential github-app:${field}. Is it stored in the vault?`,
     );
@@ -48,7 +53,13 @@ function getCredential(field) {
 }
 
 const appId = getCredential("app_id");
-const pem = getCredential("pem");
+// The private key is stored base64-encoded as `pem_b64` because the secure
+// credential prompt is a single-line input. Fall back to a legacy multi-line
+// `pem` entry when present.
+const pemB64 = getCredential("pem_b64", { optional: true });
+const pem = pemB64
+  ? Buffer.from(pemB64, "base64").toString("utf8")
+  : getCredential("pem");
 const installationId = getCredential("installation_id");
 
 // Generate JWT signed with the app's private key
