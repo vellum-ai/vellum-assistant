@@ -799,7 +799,19 @@ export function ChatMainPanel({
     typingDisabled,
     assistantId,
     activeConversationId,
+    // Synchronous pre-send gate: re-scans the outgoing content so pastes
+    // sent inside the detection debounce window are still caught. Flag off
+    // or no secrets → returns true, fully inert.
+    beforeSend: draftSecretDetection.checkBeforeSend,
   });
+
+  // "Send anyway" on the blocked notice: arm the single-use bypass, then
+  // resubmit the exact content that was intercepted.
+  const { allowOnce: allowSecretSendOnce } = draftSecretDetection;
+  const handleSecretSendAnyway = useCallback(() => {
+    allowSecretSendOnce();
+    void submitMessage();
+  }, [allowSecretSendOnce, submitMessage]);
 
   const handleSelectStarter = useCallback((starter: { prompt: string }) => {
     useComposerStore.getState().setInput(starter.prompt);
@@ -1010,10 +1022,15 @@ export function ChatMainPanel({
       noticesAboveFormSlot={
         <>
           {draftSecretDetection.matches.length > 0 &&
-            !draftSecretDetection.dismissed && (
+            // A blocked send always surfaces the notice — even when the
+            // passive warning for these values was previously dismissed.
+            (!draftSecretDetection.dismissed ||
+              draftSecretDetection.sendBlocked) && (
               <ComposerSecretNotice
                 matches={draftSecretDetection.matches}
+                sendBlocked={draftSecretDetection.sendBlocked}
                 onDismiss={draftSecretDetection.dismiss}
+                onSendAnyway={handleSecretSendAnyway}
               />
             )}
           <ComposerNotices

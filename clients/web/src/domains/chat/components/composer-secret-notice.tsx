@@ -1,4 +1,4 @@
-import { Notice } from "@vellumai/design-library";
+import { Button, Notice } from "@vellumai/design-library";
 import type { DetectedSecret } from "@vellumai/service-contracts/secret-detection";
 
 /** Leading characters of the detected value kept visible in the masked preview. */
@@ -16,20 +16,47 @@ export function maskSecretValue(value: string): string {
 export interface ComposerSecretNoticeProps {
   /** Detected secrets ordered by draft position; the first is previewed. */
   matches: DetectedSecret[];
+  /**
+   * True when the pre-send gate intercepted the last submit. Switches the
+   * notice from the passive warning to the blocked-send state with explicit
+   * actions.
+   */
+  sendBlocked: boolean;
   /** Invoked when the user dismisses the warning. */
   onDismiss: () => void;
+  /**
+   * Blocked state only: the user explicitly chose to send despite the
+   * warning. The orchestrator arms the detection hook's single-use
+   * `allowOnce()` bypass and re-invokes the composer submit handler.
+   */
+  onSendAnyway: () => void;
 }
 
 /**
- * Passive warning above the composer when the draft contains what looks
- * like an API key. The copy is deliberately generic — the detection label
- * (which names the vendor) stays internal and is never rendered. The
- * detected value appears masked only; the full plaintext never reaches the
- * DOM.
+ * Warning above the composer when the draft contains what looks like an API
+ * key. Two states:
+ *
+ * - Passive (`sendBlocked` false): informational warning with a dismiss
+ *   control, shown while typing.
+ * - Blocked (`sendBlocked` true): the pre-send gate intercepted a submit;
+ *   the draft is untouched and the user chooses "Send anyway" (single-use
+ *   bypass + resubmit) or "Dismiss". Follow-up actions (e.g. storing the
+ *   credential securely) slot in as additional buttons alongside these.
+ *
+ * The copy is deliberately generic — the detection label (which names the
+ * vendor) stays internal and is never rendered. The detected value appears
+ * masked only; the full plaintext never reaches the DOM.
+ *
+ * "Send anyway" is a client-side bypass only: messages that consist
+ * entirely of a token are still rejected server-side by the daemon's
+ * `secret_blocked` ingress guard and surface through the existing send
+ * error path (`api/messages.ts`) — intentionally unchanged here.
  */
 export function ComposerSecretNotice({
   matches,
+  sendBlocked,
   onDismiss,
+  onSendAnyway,
 }: ComposerSecretNoticeProps) {
   const first = matches[0];
   if (!first) {
@@ -39,8 +66,24 @@ export function ComposerSecretNotice({
     <div className="mb-2">
       <Notice
         tone="warning"
-        title="This looks like an API key"
-        onDismiss={onDismiss}
+        title={
+          sendBlocked
+            ? "Message not sent — it looks like it contains an API key"
+            : "This looks like an API key"
+        }
+        onDismiss={sendBlocked ? undefined : onDismiss}
+        actions={
+          sendBlocked ? (
+            <>
+              <Button variant="outlined" size="compact" onClick={onSendAnyway}>
+                Send anyway
+              </Button>
+              <Button variant="ghost" size="compact" onClick={onDismiss}>
+                Dismiss
+              </Button>
+            </>
+          ) : undefined
+        }
       >
         <span className="font-mono">{maskSecretValue(first.value)}</span>
         <p>
