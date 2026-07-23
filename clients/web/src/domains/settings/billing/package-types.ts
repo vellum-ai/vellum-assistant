@@ -5,9 +5,23 @@
  * `pro-packages` LaunchDarkly flag is off; callers no-op on an empty array.
  */
 
-import type { ProPackage } from "@/generated/api/types.gen";
+import type {
+  ProPackage,
+  SubscriptionPackage,
+} from "@/generated/api/types.gen";
 
 export type { ProPackage };
+
+/**
+ * Display name for a Pro subscription's plan: the stock package name only for
+ * a clean pin. An unpinned sub or a customized pin reads "Custom", since its
+ * real tiers can diverge from any stock package.
+ */
+export function proPackageDisplayName(
+  pkg: SubscriptionPackage | null | undefined,
+): string {
+  return pkg && !pkg.customized ? pkg.name : "Custom";
+}
 
 /**
  * Catalog display order (mirrors `PRO_PACKAGES` insertion order from

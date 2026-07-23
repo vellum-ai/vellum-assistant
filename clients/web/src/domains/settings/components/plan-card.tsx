@@ -15,6 +15,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
   nextPackageUp,
+  proPackageDisplayName,
   type ProPackage,
   type SwitchRelation,
 } from "@/domains/settings/billing/package-types";
@@ -447,15 +448,9 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
   }
 
   const display = PLAN_DISPLAY[currentPlan.id] ?? DEFAULT_DISPLAY;
-  // A Pro sub shows the stock package name only for a clean (non-customized)
-  // pin (e.g. "Mighty"). Every other Pro state — an unpinned sub
-  // (`package == null`) or a customized pin whose tiers differ from the stock
-  // package — reads just "Custom". Non-Pro plans show their plan name.
   const planName =
     currentPlan.id === "pro"
-      ? subscription.package && !subscription.package.customized
-        ? subscription.package.name
-        : "Custom"
+      ? proPackageDisplayName(subscription.package)
       : (currentPlan.name ?? currentPlan.id);
 
   const isCancelling =
