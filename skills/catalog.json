@@ -716,7 +716,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-23T13:03:24.000Z"
+      "updatedAt": "2026-07-23T14:02:39.000Z"
     },
     {
       "id": "public-ingress",
@@ -932,7 +932,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-22T17:55:24.000Z"
+      "updatedAt": "2026-07-23T15:54:16.000Z"
     },
     {
       "id": "twilio-setup",
@@ -950,7 +950,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-22T16:44:13.000Z"
+      "updatedAt": "2026-07-23T15:54:16.000Z"
     },
     {
       "id": "typescript-eval",
@@ -1026,7 +1026,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants. Requires Python 3, bun, and the assistant credentials CLI.",
-      "updatedAt": "2026-07-22T18:18:53.000Z"
+      "updatedAt": "2026-07-23T15:54:16.000Z"
     },
     {
       "id": "vellum-heartbeat",
@@ -1106,7 +1106,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-22T17:12:50.000Z"
+      "updatedAt": "2026-07-23T15:54:16.000Z"
     },
     {
       "id": "vellum-self-knowledge",
