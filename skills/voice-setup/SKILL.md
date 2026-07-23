@@ -62,7 +62,15 @@ Ask which key they prefer, then use `voice_config_update` with `setting: "activa
 
 Ask if they want high-quality text-to-speech voices via ElevenLabs or Deepgram (optional - standard TTS works without it).
 
-If yes, the included **ElevenLabs Voice** and **Deepgram Voice** skills (automatically appended below via `includes`) provide the full setup flow for each provider: curated voice list, API key collection, advanced voice selection, and tuning parameters. Follow the instructions for whichever provider matches the active `services.tts.provider` (or the user's preference).
+If yes, the included **ElevenLabs Voice** and **Deepgram Voice** skills (automatically appended below via `includes`) provide the full setup flow for each provider: curated voice list, API key collection, advanced voice selection, and tuning parameters.
+
+**Check the active provider first** (`assistant config get services.tts.provider`) — `voice_config_update` writes the voice to whichever provider is active, and each provider only accepts its own voice ids (e.g. ElevenLabs rejects hyphenated Aura ids). If the user's preferred provider doesn't match the active one, switch before selecting a voice — after collecting the provider's API key if one is needed:
+
+```
+voice_config_update setting="tts_provider" value="deepgram"
+```
+
+Exception: the managed `vellum` provider accepts both ElevenLabs and Deepgram voice ids, so no switch is needed there. Then follow the instructions in the matching voice skill.
 
 Note: The active provider's voice config key controls the voice for both in-app TTS and phone calls. If the user sets up phone calls later, they will automatically use the same voice for a consistent experience.
 
