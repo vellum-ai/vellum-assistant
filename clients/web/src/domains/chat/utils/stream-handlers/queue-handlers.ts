@@ -10,8 +10,9 @@ import type {
   MessageQueuedEvent,
   MessageRequestCompleteEvent,
 } from "@vellumai/assistant-api";
-import { deleteQueuedMessage } from "@/domains/chat/api/messages";
 import { useConversationStore } from "@/stores/conversation-store";
+import { patchTranscriptMessages } from "@/domains/chat/transcript/patch-transcript-messages";
+import { confirmQueuedMessageDeletion } from "@/domains/chat/queue-cancellation";
 
 export function handleMessageQueued(
   event: MessageQueuedEvent,
@@ -28,11 +29,17 @@ export function handleMessageQueued(
     const conversationId =
       useConversationStore.getState().activeConversationId;
     if (ctx.assistantId && conversationId) {
-      void deleteQueuedMessage(
-        ctx.assistantId,
+      void confirmQueuedMessageDeletion({
+        assistantId: ctx.assistantId,
         conversationId,
         requestId,
-      );
+        messageId,
+        setOptimisticSends: ctx.setOptimisticSends,
+        onDeleted: () => {
+          ctx.popRequestIdMapping(requestId);
+          ctx.turnActions.deleteQueuedMessage();
+        },
+      });
     }
   } else {
     ctx.setOptimisticSends((prev) => setQueuePosition(prev, messageId, position + 1));
@@ -48,6 +55,9 @@ export function handleMessageDequeued(
   if (dequeuedMessageId) {
     ctx.setOptimisticSends((prev) => clearQueueStatus(prev, dequeuedMessageId));
   }
+  patchTranscriptMessages((prev) =>
+    clearQueueStatus(prev, dequeuedMessageId ?? event.requestId),
+  );
 }
 
 export function handleMessageQueuedDeleted(

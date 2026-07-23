@@ -711,6 +711,10 @@ export async function postChatMessage(
   };
 }
 
+function queuedMessageHeaders(conversationId: string) {
+  return { "X-Vellum-Conversation-Id": conversationId };
+}
+
 /**
  * Steer the assistant to a queued message by aborting the current
  * generation and promoting the message to the head of the queue.
@@ -724,6 +728,7 @@ export async function steerToMessage(
     const { response } = await messagesQueuedByIdSteerPost({
       path: { assistant_id: assistantId, id: requestId },
       query: { conversationId },
+      headers: queuedMessageHeaders(conversationId),
       throwOnError: false,
     });
     return response?.ok ?? false;
@@ -746,6 +751,7 @@ export async function deleteQueuedMessage(
     const { response } = await messagesQueuedByIdDelete({
       path: { assistant_id: assistantId, id: requestId },
       query: { conversationId },
+      headers: queuedMessageHeaders(conversationId),
       throwOnError: false,
     });
     return response?.ok ?? false;

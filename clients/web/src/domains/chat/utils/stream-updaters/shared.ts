@@ -8,6 +8,7 @@
  */
 
 import type { DisplayMessage } from "@/domains/chat/types/types";
+import { messageMatchKeys } from "@/domains/chat/utils/message-identity";
 import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
 
 // ---------------------------------------------------------------------------
@@ -130,6 +131,10 @@ export function finalizeRunningToolCalls(
 // Queue updaters
 // ---------------------------------------------------------------------------
 
+function hasQueueMessageIdentity(message: DisplayMessage, id: string): boolean {
+  return messageMatchKeys(message).includes(id);
+}
+
 /** Set queue position on a message by id. */
 export function setQueuePosition(
   prev: DisplayMessage[],
@@ -139,22 +144,34 @@ export function setQueuePosition(
   return prev.map((m) => (m.id === id ? { ...m, queuePosition: position } : m));
 }
 
-/** Clear queue status on a message by id. */
+/** Clear queue status by server id or client correlation id. */
 export function clearQueueStatus(
   prev: DisplayMessage[],
   id: string,
 ): DisplayMessage[] {
   return prev.map((m) =>
-    m.id === id
+    hasQueueMessageIdentity(m, id)
       ? { ...m, queueStatus: undefined, queuePosition: undefined }
       : m,
   );
 }
 
-/** Remove a queued message by id. */
+/** Mark a message as queued by server id or client correlation id. */
+export function markMessageQueued(
+  prev: DisplayMessage[],
+  id: string,
+): DisplayMessage[] {
+  return prev.map((m) =>
+    hasQueueMessageIdentity(m, id)
+      ? { ...m, queueStatus: "queued" as const }
+      : m,
+  );
+}
+
+/** Remove a queued message by server id or client correlation id. */
 export function removeQueuedMessage(
   prev: DisplayMessage[],
   id: string,
 ): DisplayMessage[] {
-  return prev.filter((m) => m.id !== id);
+  return prev.filter((m) => !hasQueueMessageIdentity(m, id));
 }

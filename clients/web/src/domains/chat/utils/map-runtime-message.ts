@@ -165,6 +165,12 @@ export function mapRuntimeToDisplayMessage(
   if (m.slackMessage) msg.slackMessage = m.slackMessage;
   if (toolCalls) msg.toolCalls = toolCalls;
   if (timestamp != null) msg.timestamp = timestamp;
+  if (m.queueStatus) {
+    msg.queueStatus = m.queueStatus;
+  }
+  if (m.queuePosition != null) {
+    msg.queuePosition = m.queuePosition;
+  }
 
   const attachments = structuredAttachments ?? parsedAttachments;
   if (attachments) msg.attachments = attachments;
