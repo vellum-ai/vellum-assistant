@@ -309,11 +309,14 @@ export function AssistantSideMenu({
       ) : null}
       {/* The assistant cluster: the New Chat row (avatar-tinted, plus +
           label; icon-only tile on the collapsed rail) with the
-          avatar-gradient assistant row beneath it. No divider when
-          expanded; breathing room below instead. The overlay drawer skips
-          the New Chat row — its floating New Chat pill already owns that
-          action in the thumb zone. */}
-      <div className="mb-4">
+          avatar-colored assistant row beneath it. No divider when
+          expanded; breathing room below instead. On the collapsed rail
+          the separator provides the section break, so the margin drops
+          and the header's own gap (8px) plus the separator's margin keeps
+          the divider ~12px off the cluster (Figma 7257:135812). The
+          overlay drawer skips the New Chat row — its floating New Chat
+          pill already owns that action in the thumb zone. */}
+      <div className={isCollapsedRail ? undefined : "mb-4"}>
         <AssistantNavItem
           assistantId={assistantId ?? null}
           label={assistantName || "Your Assistant"}
@@ -370,7 +373,12 @@ export function AssistantSideMenu({
               /* pb-24 is a coarse floating-column reserve until the measured
                  inline padding below is applied. */
               ? "gap-4 pt-3 pb-24 max-md:pt-4"
-              : "gap-4 pt-3 max-md:pt-4"
+              /* The collapsed rail tucks the group icons up under the
+                 cluster separator (~12px to the first icon tile) so they
+                 read as the next section, not a distant island. */
+              : isCollapsedRail
+                ? "gap-4 pt-2"
+                : "gap-4 pt-3 max-md:pt-4"
           }
           style={
             variant === "overlay" && overlayBottomColumnHeight > 0
