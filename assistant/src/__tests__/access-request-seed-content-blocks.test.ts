@@ -166,7 +166,7 @@ describe("buildAccessRequestSeedContentBlocks", () => {
       { id: "apr:req-123:trust", label: "Trust", style: "primary" },
       {
         id: "apr:req-123:leave_unverified",
-        label: "Deny",
+        label: "Leave unverified",
         style: "secondary",
       },
       { id: "apr:req-123:block", label: "Block", style: "destructive" },
@@ -194,7 +194,7 @@ describe("buildAccessRequestSeedContentBlocks", () => {
       { id: "apr:req-123:trust", label: "Trust anyway", style: "secondary" },
       {
         id: "apr:req-123:leave_unverified",
-        label: "Deny",
+        label: "Leave unverified",
         style: "secondary",
       },
       { id: "apr:req-123:block", label: "Block", style: "destructive" },

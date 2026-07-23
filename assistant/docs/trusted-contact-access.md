@@ -39,7 +39,7 @@ Design doc defining how unknown users gain access to a Vellum assistant via chan
 
    This ensures unknown inbound access attempts always trigger guardian notification, even when the requester's source channel has no guardian binding.
 
-4. **Guardian decides.** All decisions route through the guardian decision primitive (`applyGuardianDecision`, `approvals/guardian-decision-primitive.ts`) and commit via the gateway's `guardian_requests_decide` IPC op: the status CAS and the decision's ACL outcome execute in ONE gateway transaction, so an `approved` request can never exist without its ACL write. The introduction card supports four outcomes: **approve** (start the verification handshake), **trust** (activate directly, no code — used for workspace-vouched identities), **deny** (persist a terminal denial), and **block**.
+4. **Guardian decides.** All decisions route through the guardian decision primitive (`applyGuardianDecision`, `approvals/guardian-decision-primitive.ts`) and commit via the gateway's `guardian_requests_decide` IPC op: the status CAS and the decision's ACL outcome execute in ONE gateway transaction, so an `approved` request can never exist without its ACL write. The introduction card supports four outcomes: **approve** (start the verification handshake), **trust** (activate directly, no code — used for workspace-vouched identities), **leave unverified** (the `leave_unverified` action id — persist a terminal denial by leaving the sender an `unverified` contact, **silently**: the requester is not notified and only learns if they message again), and **block** (revoke the sender's channel and notify them their request was declined). Note the `unverified` contact left by "leave unverified" is not a guaranteed keep-out — it is still admitted under the permissive admission floors (`any_contact`, `strangers`); **block** (→ revoked) is the hard keep-out.
 5. **On approval the gateway mints a verification session.** The decide op carries a `mint_outbound_session` outcome; inside the decide transaction the gateway (`gateway/src/verification/session-service.ts`) generates a 6-digit code, persists only its SHA-256 hash in `channel_verification_sessions` (identity-bound to the requester, `verificationPurpose: 'trusted_contact'`), and returns the raw secret to the daemon in the decide response for delivery.
 6. **The code is delivered.** The daemon delivers the code to the guardian's verified channel (ephemeral + DM on Slack shared channels so other members never see it). On Slack the code is also DM'd straight to the requester; on other channels the guardian relays it out-of-band (in person, text message, phone call). That out-of-band transfer is the trust anchor: it proves the requester has a real-world relationship with the guardian.
 7. **Requester enters the code** back to the assistant on the same channel. The **gateway** intercepts bare verification codes at ingress (`gateway/src/verification/text-verification.ts`) whenever an interceptable session exists for that channel — the daemon never sees verification code messages.
@@ -112,7 +112,7 @@ Identity binding ensures the verification code can only be consumed by the inten
 | -------------------------------------------------- | ------------------- | ------------------------------------------------------------- |
 | gateway `guardian-request-service.ts` (gateway DB) | `guardian_requests` | Updated to `status: 'denied'`, `decidedByExternalUserId` set. |
 
-No trusted-contact activation happens. The sender is persisted as an unverified contact, and the terminal-deny check suppresses re-prompting the guardian for the same sender.
+No trusted-contact activation happens. The `leave_unverified` outcome persists the sender as an `unverified` contact **and sends no requester notification** (silent park); `block` instead revokes the channel and **does** notify the requester ("Your access request was declined."). In both cases the terminal-deny check suppresses re-prompting the guardian for the same sender.
 
 ### Stage: `expired`
 
@@ -191,10 +191,15 @@ sequenceDiagram
         GW->>A: Forward with allow verdict
         A->>A: Process message normally
 
-    else Guardian denies
-        G->>A: Deny (inline button / app / plain text)
-        A->>A: Resolver persists denial (terminal-deny)
-        A-->>U: (No notification — user only knows<br/>they were denied if they message again)
+    else Guardian leaves unverified
+        G->>A: Leave unverified (inline button / app / plain text)
+        A->>A: Resolver seeds unverified contact (terminal-deny)
+        A-->>U: (No notification — user only learns<br/>if they message again)
+
+    else Guardian blocks
+        G->>A: Block
+        A->>A: Resolver revokes the channel (terminal-deny)
+        A-->>U: "Your access request was declined."
 
     else Guardian never responds
         Note over A: runGuardianExpirySweep()<br/>runs every 60 seconds

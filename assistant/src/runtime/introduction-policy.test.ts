@@ -157,19 +157,12 @@ describe("introduction action lists", () => {
     expect(actions[1].label).toBe("Trust anyway");
   });
 
-  test("leave_unverified label is mode-specific: 'Deny' on a deny-path request", () => {
-    const leaveUnverifiedLabel = (trigger?: string) =>
-      buildIntroductionActions("slack", SLACK_MEMBER, trigger).find(
-        (a) => a.id === "leave_unverified",
-      )?.label;
-
-    // Deny-path (default / explicit "denied"): clicking sends a decline notice,
-    // so the label communicates that consequence.
-    expect(leaveUnverifiedLabel()).toBe("Deny");
-    expect(leaveUnverifiedLabel("denied")).toBe("Deny");
-    // Admitted-mode nudge: the sender keeps floor-granted access and is not
-    // notified, so the neutral "Leave unverified" is correct.
-    expect(leaveUnverifiedLabel("admitted")).toBe("Leave unverified");
+  test("leave_unverified is labeled 'Leave unverified' (the silent park)", () => {
+    const leaveUnverifiedLabel = buildIntroductionActions(
+      "slack",
+      SLACK_MEMBER,
+    ).find((a) => a.id === "leave_unverified")?.label;
+    expect(leaveUnverifiedLabel).toBe("Leave unverified");
   });
 });
 

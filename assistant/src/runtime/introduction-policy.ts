@@ -224,26 +224,24 @@ export function isHandshakeOffered(
  * Build the ordered introduction-card action list for a requester. The first
  * action is the emphasized default:
  *
- *   workspace member / bot / voice:  [ Trust ] [ Deny ] [ Block ]
+ *   workspace member / bot / voice:  [ Trust ] [ Leave unverified ] [ Block ]
  *   external / stranger / guest:     [ Verify with a code ] [ Trust anyway ]
- *                                    [ Deny ] [ Block ]
+ *                                    [ Leave unverified ] [ Block ]
  *
- * The `leave_unverified` action's label is mode-specific (see
- * {@link IntroductionModePolicy.leaveUnverifiedActionLabel}): a deny-path
- * request labels it "Deny" — clicking it sends the requester a decline notice
- * — while an admitted-mode nudge labels it "Leave unverified" (the admitted
- * sender keeps their floor-granted access and is never notified). The code
- * option is NEVER rendered for a bot.
+ * `leave_unverified` is the silent "park" outcome: it leaves the sender an
+ * `unverified` contact and never notifies the requester. It is NOT a guaranteed
+ * keep-out — an `unverified` contact is still admitted under the permissive
+ * admission floors (`any_contact`, `strangers`); the hard keep-out is `block`
+ * (→ revoked). The code option is NEVER rendered for a bot.
  */
 export function buildIntroductionActions(
   sourceChannel: string | undefined,
   signals: RequesterIdentitySignals,
-  trigger?: string | null,
 ): IntroductionActionOption[] {
   const tail: IntroductionActionOption[] = [
     {
       id: "leave_unverified",
-      label: introductionMode(trigger).leaveUnverifiedActionLabel,
+      label: "Leave unverified",
       emphasis: "secondary",
     },
     { id: "block", label: "Block", emphasis: "destructive" },
@@ -298,16 +296,13 @@ export interface IntroductionModePolicy {
    * requester.
    */
   notifyRequesterOnTrust: boolean;
+  /**
+   * Whether the requester is notified when the guardian's decision resolves to
+   * a `denied` request. Applies to the `block` outcome only — `leave_unverified`
+   * is always silent (a neutral park at `unverified`), regardless of mode.
+   */
   notifyRequesterOnDeny: boolean;
   notifyRequesterOnExpiry: boolean;
-  /**
-   * Button label for the `leave_unverified` action. Mode-specific because the
-   * consequence differs: a deny-path request declines the requester (and
-   * notifies them), so the label communicates that ("Deny"); an admitted-mode
-   * nudge only declines to raise trust — the sender keeps their floor-granted
-   * access and is not notified — so the neutral "Leave unverified" fits.
-   */
-  leaveUnverifiedActionLabel: string;
   /** Guardian confirmation for Leave unverified (desktop inline reply). */
   leaveUnverifiedGuardianReply: (requesterLabel: string) => string;
 }
@@ -325,9 +320,11 @@ const INTRODUCTION_MODES: Record<AccessRequestTrigger, IntroductionModePolicy> =
       notifyRequesterOnTrust: true,
       notifyRequesterOnDeny: true,
       notifyRequesterOnExpiry: true,
-      leaveUnverifiedActionLabel: "Deny",
+      // Accurate for the neutral park: an `unverified` contact is not a
+      // guaranteed keep-out (still admitted under permissive floors), so the
+      // reply does not promise they "won't be able to message."
       leaveUnverifiedGuardianReply: (requesterLabel) =>
-        `${requesterLabel} will stay unverified. They won't be able to message the assistant.`,
+        `${requesterLabel} will stay unverified.`,
     },
     admitted: {
       urgency: "medium",
@@ -340,7 +337,6 @@ const INTRODUCTION_MODES: Record<AccessRequestTrigger, IntroductionModePolicy> =
       notifyRequesterOnTrust: false,
       notifyRequesterOnDeny: false,
       notifyRequesterOnExpiry: false,
-      leaveUnverifiedActionLabel: "Leave unverified",
       leaveUnverifiedGuardianReply: (requesterLabel) =>
         `${requesterLabel} will stay unverified.`,
     },

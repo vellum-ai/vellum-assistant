@@ -131,15 +131,11 @@ export function buildAccessRequestWarnings(
 export function buildIntroductionActionsForPayload(
   p: ParsedAccessRequestPayload,
 ): IntroductionActionOption[] {
-  return buildIntroductionActions(
-    p.sourceChannel,
-    {
-      isBot: p.isBot,
-      isStranger: p.isStranger,
-      isRestricted: p.isRestricted,
-    },
-    p.trigger,
-  );
+  return buildIntroductionActions(p.sourceChannel, {
+    isBot: p.isBot,
+    isStranger: p.isStranger,
+    isRestricted: p.isRestricted,
+  });
 }
 
 /** Whether the verification handshake is offered for this requester. */

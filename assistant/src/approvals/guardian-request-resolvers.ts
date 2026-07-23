@@ -641,9 +641,13 @@ async function deliverRequesterNotice(params: {
 }
 
 /**
- * Deliver the "denied" notice to the requester and emit the denial lifecycle
- * signals. Shared by the `leave_unverified` and `block` outcomes — both look
- * identical to the requester (the block is not revealed).
+ * Emit the guardian-facing denial lifecycle signals and, unless suppressed,
+ * deliver the "declined" notice to the requester. Both the `leave_unverified`
+ * and `block` outcomes call this for the lifecycle signals, but the requester
+ * notice is delivered only for `block` (in denied mode) — `leave_unverified`
+ * always passes `suppressRequesterNotice: true`, staying a silent park at
+ * `unverified`. The notice text is a plain decline that does not reveal whether
+ * the sender was blocked.
  */
 async function notifyRequesterOfDenial(params: {
   channel: NotificationSourceChannel;
@@ -940,7 +944,12 @@ const accessRequestResolver: GuardianRequestResolver = {
         deniedPayload,
         requestId: request.id,
         conversationId: request.sourceConversationId,
-        suppressRequesterNotice: !mode.notifyRequesterOnDeny,
+        // Leave-unverified is a silent park: the sender stays an `unverified`
+        // contact and is never told (per docs/trusted-contact-access.md — they
+        // only learn if they message again). Unlike `block`, this notice is
+        // always suppressed, in both denied and admitted modes; the
+        // guardian-facing lifecycle signals still emit.
+        suppressRequesterNotice: true,
       });
 
       return {
