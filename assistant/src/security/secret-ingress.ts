@@ -9,6 +9,12 @@
  * false positives on legitimate user input.
  */
 
+import {
+  KNOWN_PLACEHOLDERS,
+  PLACEHOLDER_PREFIXES,
+  TOKEN_SHAPE,
+} from "@vellumai/service-contracts/secret-detection";
+
 import { getConfig } from "../config/loader.js";
 import { memoizePluginPatternDerivation } from "./plugin-secret-patterns.js";
 import { isAllowlisted } from "./secret-allowlist.js";
@@ -53,49 +59,9 @@ const getGlobalPatterns = memoizePluginPatternDerivation(
 );
 
 // ---------------------------------------------------------------------------
-// Placeholder detection (inline — not imported from secret-scanner.ts)
+// Placeholder detection — ingress-specific heuristics layered on the shared
+// placeholder constants (not imported from secret-scanner.ts)
 // ---------------------------------------------------------------------------
-
-const KNOWN_PLACEHOLDERS = new Set([
-  "your-api-key-here",
-  "your_api_key_here",
-  "insert-your-key-here",
-  "insert_your_key_here",
-  "replace-with-your-key",
-  "replace_with_your_key",
-  "xxx",
-  "xxxxxxxx",
-  "test",
-  "example",
-  "sample",
-  "demo",
-  "placeholder",
-  "changeme",
-  "CHANGEME",
-  "TODO",
-  "FIXME",
-  "your-token-here",
-  "your_token_here",
-  "my-api-key",
-  "my_api_key",
-]);
-
-const PLACEHOLDER_PREFIXES = [
-  "sk-test-",
-  "sk_test_",
-  "fake_",
-  "fake-",
-  "dummy_",
-  "dummy-",
-  "test_",
-  "test-",
-  "example_",
-  "example-",
-  "sample_",
-  "sample-",
-  "mock_",
-  "mock-",
-];
 
 /**
  * Check if the text immediately before a matched value indicates
@@ -143,17 +109,6 @@ function isPlaceholder(value: string): boolean {
 // ---------------------------------------------------------------------------
 // Token-shape heuristic (whole-message only)
 // ---------------------------------------------------------------------------
-
-/**
- * A single token-shaped value: an alphanumeric head, a separator-delimited
- * secret keyword infix, and a >=16-char tail (e.g. `virlo_tkn_JF…`). The
- * capture group isolates the tail for placeholder checks. Applied only when
- * the entire trimmed message is one such token — the whole-message and
- * keyword-infix requirements keep false positives near zero without any
- * entropy scoring.
- */
-const TOKEN_SHAPE =
-  /^[A-Za-z0-9][A-Za-z0-9_-]*[_-](?:tkn|token|key|secret|api|pat|sk|auth)[_-]([A-Za-z0-9_-]{16,})$/i;
 
 const TOKEN_SHAPE_MIN_LENGTH = 20;
 const TOKEN_SHAPE_MAX_LENGTH = 512;
