@@ -154,8 +154,8 @@ export function computeCustomPlanDiff(input: {
       label: creditLabel(selectedCredit),
       // A deprecated seed bundle's price/label is absent from the catalog, so
       // seedCredit is null and we omit previousLabel there (mirroring a
-      // null-baseline seed machine) rather than fabricate one — previousTotalCents
-      // is best-effort for that upstream-gated case.
+      // null-baseline seed machine) rather than fabricate one. That same
+      // unresolvable case suppresses previousTotalCents/deltaCents below.
       previousLabel:
         changed && (seed.creditTier == null || seedCredit != null)
           ? creditLabel(seedCredit)
@@ -171,6 +171,20 @@ export function computeCustomPlanDiff(input: {
     (selectedCredit?.price_cents ?? 0);
 
   if (seed == null) {
+    return { previousTotalCents: null, deltaCents: null, rows };
+  }
+
+  // A held credit tier that is a concrete enum value but absent from the catalog
+  // (a delisted/deprecated bundle) resolves to null, yet is NOT the
+  // NO_EXTRA_CREDITS sentinel — so we cannot faithfully price it. Rather than
+  // fabricate a $0 credit price (which would show a false-precise previous total
+  // and delta), suppress the whole comparison: null out previousTotalCents AND
+  // deltaCents so the modal hides the "compared to previous" line. The credit
+  // row itself is unaffected — its key-based `changed` detection and omitted
+  // previousLabel are already handled above. Defense-in-depth: such subs are
+  // routed to the manage/adjust-plan modal upstream and do not normally reach here.
+  const seedCreditUnresolved = seed.creditTier != null && seedCredit == null;
+  if (seedCreditUnresolved) {
     return { previousTotalCents: null, deltaCents: null, rows };
   }
 

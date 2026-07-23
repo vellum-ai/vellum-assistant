@@ -250,7 +250,7 @@ describe("computeCustomPlanDiff — seeded reconfigure", () => {
     expect(storageRow?.label).toBe("30 GB storage");
   });
 
-  test("removing a deprecated seed credit bundle is detected as a change", () => {
+  test("removing a deprecated seed credit bundle is detected as a change but suppresses the delta", () => {
     const diff = computeCustomPlanDiff({
       proPlan: proPlan(),
       // credits_100 is not present in the fixture's credit_tiers (deprecated).
@@ -269,9 +269,13 @@ describe("computeCustomPlanDiff — seeded reconfigure", () => {
     expect(creditRow?.label).toBe("No extra credits");
     // The deprecated bundle's price/label is absent from the catalog → omitted.
     expect(creditRow?.previousLabel).toBeUndefined();
+    // The held bundle can't be priced, so the comparison is suppressed rather
+    // than mispricing it at $0.
+    expect(diff.previousTotalCents).toBeNull();
+    expect(diff.deltaCents).toBeNull();
   });
 
-  test("switching from a deprecated seed credit to a live bundle is a change with no previous label", () => {
+  test("switching from a deprecated seed credit to a live bundle is a change with no delta or previous label", () => {
     const diff = computeCustomPlanDiff({
       proPlan: proPlan(),
       seed: {
@@ -288,5 +292,9 @@ describe("computeCustomPlanDiff — seeded reconfigure", () => {
     expect(creditRow?.changed).toBe(true);
     expect(creditRow?.label).toBe("$50 of bundled credits");
     expect(creditRow?.previousLabel).toBeUndefined();
+    // The delisted seed bundle can't be priced → no trustworthy previous total,
+    // so both the previous total and the delta are suppressed.
+    expect(diff.previousTotalCents).toBeNull();
+    expect(diff.deltaCents).toBeNull();
   });
 });
