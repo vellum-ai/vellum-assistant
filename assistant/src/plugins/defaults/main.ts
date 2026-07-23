@@ -20,6 +20,14 @@ import { dirname, join, resolve } from "node:path";
 
 const DEFAULTS_DIR = import.meta.dir;
 
+/**
+ * Route-namespace prefix for default plugins. A default plugin's route
+ * namespace is `default-<directory-name>` by convention (matching its
+ * `package.json` name and its `.disabled` sentinel key), so route resolution
+ * derives the namespace from the directory name directly — no manifest read.
+ */
+const DEFAULT_PLUGIN_NAMESPACE_PREFIX = "default-";
+
 let cachedNames: readonly string[] | null = null;
 let cachedDirToManifest: ReadonlyMap<string, string> | null = null;
 
@@ -89,20 +97,24 @@ export function getDefaultPluginManifestName(dirName: string): string | null {
 
 /**
  * Absolute path to a default plugin's `routes/` directory in the source tree,
- * or `null` when `<name>` is not a default plugin.
+ * or `null` when `<name>` is not a default plugin's route namespace.
  *
- * A default plugin's route namespace is its *directory* name (e.g.
- * `platform-hosted`), matching how a workspace plugin's namespace is its
- * directory name — not the `default-…` manifest name. The path is derived
- * from this module's own location (`import.meta.dir`), so it resolves relative
- * to the app source, which the assistant always ships and runs un-bundled.
- *
- * `name` is taken from a URL path segment, so the resolved directory is
- * required to sit directly under `plugins/defaults/` — a `..` or nested
- * segment that escapes the defaults tree returns `null`.
+ * A default plugin's route namespace is `default-<directory-name>` (e.g.
+ * `default-platform-hosted`) — the same `default-…` name its `.disabled`
+ * sentinel and per-chat scoping are keyed by. `<name>` is the namespace: the
+ * `default-` prefix is stripped to recover the source directory, so a name
+ * without the prefix (e.g. the bare directory name) resolves to `null`. The
+ * containment guard rejects any `..`/nested segment taken from a URL path so it
+ * can never escape the defaults tree. The path is derived from this module's
+ * own location (`import.meta.dir`), so it resolves relative to the app source,
+ * which the assistant always ships and runs un-bundled.
  */
 export function getDefaultPluginRoutesDir(name: string): string | null {
-  const pluginDir = resolve(join(DEFAULTS_DIR, name));
+  if (!name.startsWith(DEFAULT_PLUGIN_NAMESPACE_PREFIX)) {
+    return null;
+  }
+  const dirName = name.slice(DEFAULT_PLUGIN_NAMESPACE_PREFIX.length);
+  const pluginDir = resolve(join(DEFAULTS_DIR, dirName));
   if (dirname(pluginDir) !== resolve(DEFAULTS_DIR)) {
     return null;
   }
@@ -114,8 +126,9 @@ export function getDefaultPluginRoutesDir(name: string): string | null {
 
 /**
  * Enumerate default plugins that ship a `routes/` directory, keyed by their
- * directory name (the route namespace). Mirrors {@link getDefaultPluginRoutesDir}
- * so route discovery and dispatch agree on which default plugin routes exist.
+ * route namespace (`default-<directory-name>`, e.g. `default-platform-hosted`).
+ * Mirrors {@link getDefaultPluginRoutesDir} so route discovery and dispatch
+ * agree on which default plugin routes exist and under which namespace.
  */
 export function getDefaultPluginRouteRoots(): {
   pluginName: string;
@@ -128,7 +141,10 @@ export function getDefaultPluginRouteRoots(): {
     }
     const routesDir = join(DEFAULTS_DIR, entry.name, "routes");
     if (existsSync(routesDir) && statSync(routesDir).isDirectory()) {
-      roots.push({ pluginName: entry.name, routesDir });
+      roots.push({
+        pluginName: DEFAULT_PLUGIN_NAMESPACE_PREFIX + entry.name,
+        routesDir,
+      });
     }
   }
   return roots;

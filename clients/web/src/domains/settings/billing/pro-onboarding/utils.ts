@@ -9,8 +9,14 @@ export const PROVISION_WAIT_GRACE_MS = 30_000;
 export const PROVISION_STALL_MS = 90_000;
 /** How long the watch must run before the background escape hatch is offered. */
 export const PROVISION_ESCAPE_MS = (PROVISION_STALL_MS * 2) / 3;
-/** Minimum time a provisioning phase stays on screen so it doesn't flash. */
+/** Minimum time the finished state stays on screen before the wizard advances. */
 export const PROVISION_MIN_DWELL_MS = 2_500;
+/**
+ * Minimum time any other provisioning phase stays on screen. Without a floor a
+ * fast upgrade renders CONFIRMING and WAITING for however long the API happened
+ * to take, which reads as a flash rather than a step.
+ */
+export const PROVISION_PHASE_MIN_MS = 900;
 /**
  * How long to wait before re-asking ensure-provisioned when it answered
  * `not_applicable` / `no_active_pro` — the subscription flipped to Pro but the

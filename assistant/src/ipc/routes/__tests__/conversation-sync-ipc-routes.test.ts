@@ -6,8 +6,10 @@
  *
  * `recordConversationPersistedSeq` and `publishConversationMessagesChanged`
  * are stubbed to capture calls (their own behavior is covered in their own
- * suites); the seq authority (`assistant-stream-state`) is exercised for real
- * so the anchor value the handler records is the daemon's genuine `getCurrentSeq()`.
+ * suites); the seq authority (`assistant-stream-state`) and the in-flight-turn
+ * registry are exercised for real so the anchor the handler records is a
+ * genuine `getCurrentSeq()` — capped at a streaming turn's flushed-content
+ * watermark when one is in flight for the conversation.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -27,7 +29,12 @@ mock.module("../../../runtime/sync/resource-sync-events.js", () => ({
   },
 }));
 
+import type { EventHandlerState } from "../../../daemon/conversation-agent-loop-handlers.js";
 import { DB_MIGRATION_READINESS_EXEMPT_OPERATIONS } from "../../../daemon/daemon-readiness.js";
+import {
+  registerInflightTurn,
+  unregisterInflightTurn,
+} from "../../../daemon/inflight-turn-registry.js";
 import type { AssistantEvent } from "../../../runtime/assistant-event.js";
 import {
   _resetStreamStateForTesting,
@@ -53,7 +60,7 @@ describe("conversation-sync IPC route", () => {
     _resetStreamStateForTesting();
   });
 
-  test("records the anchor at the daemon's current seq and republishes the invalidation", () => {
+  test("records the anchor at the daemon's current seq when no turn is streaming the conversation", () => {
     // Advance the daemon's real seq counter so the recorded anchor is a
     // concrete, non-zero daemon-issued position — never above what it has served.
     stampEvent();
@@ -67,6 +74,53 @@ describe("conversation-sync IPC route", () => {
     expect(result).toEqual({ ok: true });
     expect(recordCalls).toEqual([["conv-1", 3]]);
     expect(publishCalls).toEqual(["conv-1"]);
+  });
+
+  test("caps the anchor at the streaming turn's flushed-content seq, below the live counter", () => {
+    stampEvent();
+    stampEvent();
+    stampEvent(); // getCurrentSeq() === 3
+
+    // A daemon turn is streaming into conv-1 but has flushed content only
+    // through seq 2 — the live counter (3) is ahead of the durable rows.
+    const state = {
+      lastPersistedContentSeq: 2,
+    } as unknown as EventHandlerState;
+    registerInflightTurn("conv-1", state);
+    try {
+      const result = handleNotifyConversationPersisted({
+        body: { conversationId: "conv-1" },
+      });
+
+      expect(result).toEqual({ ok: true });
+      // Anchored at the flushed watermark (2), NOT the live counter (3), so the
+      // snapshot never claims the in-flight delta at seq 3.
+      expect(recordCalls).toEqual([["conv-1", 2]]);
+      expect(publishCalls).toEqual(["conv-1"]);
+    } finally {
+      unregisterInflightTurn("conv-1", state);
+    }
+  });
+
+  test("records 0 (a raise-only no-op) when a streaming turn has flushed no content yet", () => {
+    stampEvent(); // getCurrentSeq() === 1
+
+    // A turn is streaming but has not flushed any content, so its watermark is
+    // undefined; the ceiling is 0, capping the anchor below the un-flushed seq.
+    const state = {
+      lastPersistedContentSeq: undefined,
+    } as unknown as EventHandlerState;
+    registerInflightTurn("conv-1", state);
+    try {
+      handleNotifyConversationPersisted({ body: { conversationId: "conv-1" } });
+
+      // The handler passes 0; `recordConversationPersistedSeq` ignores it and
+      // leaves the existing anchor intact (the live seq 1 is never advertised).
+      expect(recordCalls).toEqual([["conv-1", 0]]);
+      expect(publishCalls).toEqual(["conv-1"]);
+    } finally {
+      unregisterInflightTurn("conv-1", state);
+    }
   });
 
   test("rejects a payload without a conversationId", () => {

@@ -1,82 +1,13 @@
-// Document editor and document persistence types.
+// Document editor events.
+//
+// Server→client events are single-sourced from their canonical `api/events`
+// wire schemas; this file only composes them into the domain union consumed by
+// `message-protocol.ts`. Document save/load/list are served by the document
+// tools and HTTP document routes, not by client messages.
 
+import type { DocumentEditorShowEvent } from "../../api/events/document-editor-show.js";
 import type { DocumentEditorUpdateEvent } from "../../api/events/document-editor-update.js";
 
-// === Server → Client ===
-
-export interface DocumentEditorShow {
-  type: "document_editor_show";
-  conversationId: string;
-  surfaceId: string;
-  title: string;
-  initialContent: string;
-}
-
-// === Client → Server ===
-
-export interface DocumentSaveRequest {
-  type: "document_save";
-  surfaceId: string;
-  conversationId: string;
-  title: string;
-  content: string;
-  wordCount: number;
-}
-
-export interface DocumentLoadRequest {
-  type: "document_load";
-  surfaceId: string;
-}
-
-export interface DocumentListRequest {
-  type: "document_list";
-  conversationId?: string;
-}
-
-// === Server → Client ===
-
-export interface DocumentSaveResponse {
-  type: "document_save_response";
-  surfaceId: string;
-  success: boolean;
-  error?: string;
-}
-
-export interface DocumentLoadResponse {
-  type: "document_load_response";
-  surfaceId: string;
-  conversationId: string;
-  title: string;
-  content: string;
-  wordCount: number;
-  createdAt: number;
-  updatedAt: number;
-  success: boolean;
-  error?: string;
-}
-
-export interface DocumentListResponse {
-  type: "document_list_response";
-  documents: Array<{
-    surfaceId: string;
-    conversationId: string;
-    title: string;
-    wordCount: number;
-    createdAt: number;
-    updatedAt: number;
-  }>;
-}
-
-// --- Domain-level union aliases (consumed by the barrel file) ---
-
-export type _DocumentsClientMessages =
-  | DocumentSaveRequest
-  | DocumentLoadRequest
-  | DocumentListRequest;
-
 export type _DocumentsServerMessages =
-  | DocumentEditorShow
-  | DocumentEditorUpdateEvent
-  | DocumentSaveResponse
-  | DocumentLoadResponse
-  | DocumentListResponse;
+  | DocumentEditorShowEvent
+  | DocumentEditorUpdateEvent;

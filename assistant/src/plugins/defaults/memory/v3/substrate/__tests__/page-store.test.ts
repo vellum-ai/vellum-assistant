@@ -263,6 +263,44 @@ describe("writePage + readPage round-trip", () => {
     expect(read!.body).toBe("");
   });
 
+  test("flags an unterminated frontmatter fence with parseWarning, body-only parse", async () => {
+    const raw =
+      "---\ntitle: Example Page\nslug: fenceless\n\n# Example Page\n\nBody text.\n";
+    mkdirSync(join(workspaceDir, "memory", "concepts"), { recursive: true });
+    writeFileSync(
+      join(workspaceDir, "memory", "concepts", "fenceless.md"),
+      raw,
+    );
+
+    const read = await readPage(workspaceDir, "fenceless");
+    expect(read).not.toBeNull();
+    expect(read!.parseWarning).toContain("closing --- fence is missing");
+    // Degraded, not dropped: the whole file is body, frontmatter is empty.
+    expect(read!.body).toBe(raw);
+    expect(read!.frontmatter.title).toBeUndefined();
+  });
+
+  test("no parseWarning on well-formed frontmatter", async () => {
+    const page = makePage();
+    await writePage(workspaceDir, page);
+
+    const read = await readPage(workspaceDir, page.slug);
+    expect(read!.parseWarning).toBeUndefined();
+  });
+
+  test("no parseWarning on a page with no frontmatter at all", async () => {
+    mkdirSync(join(workspaceDir, "memory", "concepts"), { recursive: true });
+    writeFileSync(
+      join(workspaceDir, "memory", "concepts", "bare.md"),
+      "# bare heading\n\nJust body.\n",
+    );
+
+    const read = await readPage(workspaceDir, "bare");
+    expect(read).not.toBeNull();
+    expect(read!.parseWarning).toBeUndefined();
+    expect(read!.body).toBe("# bare heading\n\nJust body.\n");
+  });
+
   test("preserves multiline body with embedded YAML-looking lines", async () => {
     const tricky = "key: value\n---\nnot-frontmatter\n";
     const page = makePage({ slug: "tricky", body: tricky });

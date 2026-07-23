@@ -1,30 +1,40 @@
 /**
- * The voice-picker modal ("Pick a voice for <assistant>"), opened from the
- * voice-room settings popover's Voice row. Gives voice selection the room the
- * cramped popover can't: every voice's full description on its own line with a
- * per-voice preview.
+ * The voice-picker modal ("Pick a voice for <assistant>"). Gives voice
+ * selection the room a cramped trigger can't: every voice's full description on
+ * its own line with a per-voice preview.
  *
  * Selecting a voice persists it (hot-applies on the next reply) and closes the
  * modal. The list itself lives in {@link VoiceList}; the first-run card renders
- * that list as one of its own views, so this modal serves only popover callers,
- * which have no dialog of their own to stack on.
+ * that list inline as one of its own views, so this modal serves callers with
+ * no dialog of their own to host the list — the voice-room settings popover and
+ * the Voice settings page's picker card.
  */
 
 import { Modal } from "@vellumai/design-library/components/modal";
 
-import { VoiceList } from "@/domains/chat/voice/voice-room/voice-list";
+import { VoiceList } from "@/components/speech/voice-list";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
 export interface VoicePickerModalProps {
   assistantId: string | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Show each voice's provider badge (settings surfaces). */
+  showSource?: boolean;
+  /**
+   * Browse by provider: a dropdown scopes the catalog to one source, and the
+   * modal widens to give the list room. On for the Voice-page picker; the
+   * in-call voice-room modal stays the compact single-list picker.
+   */
+  filterBySource?: boolean;
 }
 
 export function VoicePickerModal({
   assistantId,
   open,
   onOpenChange,
+  showSource = false,
+  filterBySource = false,
 }: VoicePickerModalProps) {
   const assistantName = useResolvedAssistantsStore.use
     .assistants()
@@ -32,7 +42,7 @@ export function VoicePickerModal({
 
   return (
     <Modal.Root open={open} onOpenChange={onOpenChange}>
-      <Modal.Content size="sm">
+      <Modal.Content size={filterBySource ? "md" : "sm"}>
         <Modal.Header>
           <Modal.Title>
             Pick a voice for {assistantName ?? "your assistant"}
@@ -42,6 +52,8 @@ export function VoicePickerModal({
           <VoiceList
             assistantId={assistantId}
             onSelect={() => onOpenChange(false)}
+            showSource={showSource}
+            filterBySource={filterBySource}
           />
         </Modal.Body>
       </Modal.Content>

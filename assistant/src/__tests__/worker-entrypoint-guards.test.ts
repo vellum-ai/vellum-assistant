@@ -34,6 +34,8 @@ const WORK_START_MARKERS: Record<string, string> = {
   "schedule/worker.ts": "void tick()",
   "monitoring/worker.ts": "startResourceSampler(",
   "plugins/defaults/memory/worker.ts": "startMemoryJobsWorkerLoop(",
+  // The route host begins serving when it attaches the connection handler.
+  "routes/worker.ts": 'server.on("connection"',
 };
 
 function findWorkerEntrypoints(): string[] {

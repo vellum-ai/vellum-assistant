@@ -4,8 +4,8 @@ import {
 } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
-import { resolveRoutingIdentity } from "../providers/connection-resolution.js";
 import { ROUTING_IDENTITY_PROVIDERS } from "../providers/inference/auth.js";
+import { resolveRoutingIdentity } from "../providers/routing-identity.js";
 import { safeStringSlice } from "../util/unicode.js";
 
 const MAX_METADATA_VALUE_LENGTH = 128;

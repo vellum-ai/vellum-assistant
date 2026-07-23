@@ -1,7 +1,13 @@
 import type { LucideIcon } from "lucide-react";
 import { ArrowRight, Check, Coins, Cpu, HardDrive } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { useEffect, useRef, type ReactNode } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 
 import { ChatAvatar } from "@/components/avatar/chat-avatar";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
@@ -13,8 +19,8 @@ import { Button } from "@vellumai/design-library/components/button";
 import { Typography } from "@vellumai/design-library/components/typography";
 
 import type {
-    ProvisioningDimensions,
-    ProvisioningStateKind,
+  ProvisioningDimensions,
+  ProvisioningStateKind,
 } from "./provisioning-machine";
 import { SERIF_HEADING_STYLE, type StalledApplyAction } from "./primitives";
 import {
@@ -23,11 +29,16 @@ import {
 } from "./resource-changes";
 import { useProvisioningCredits } from "./use-provisioning-credits";
 import { useRotatingIndex } from "./use-rotating-index";
-import { extractOnboardingErrorMessage, PROVISION_MIN_DWELL_MS } from "./utils";
+import { useHeldPhase } from "./use-held-phase";
+import {
+  extractOnboardingErrorMessage,
+  PROVISION_MIN_DWELL_MS,
+  PROVISION_PHASE_MIN_MS,
+} from "./utils";
 
 // The mock's takeover tint, matched to the green Vellum creature. No token
 // holds this, so it follows the plans-page PAGE_BACKGROUND raw-hex precedent.
-const TAKEOVER_BACKGROUND = "#1D271E";
+export const TAKEOVER_BACKGROUND = "#1D271E";
 
 const CHIP_BACKGROUND =
   "color-mix(in srgb, var(--content-emphasised) 10%, transparent)";
@@ -37,6 +48,45 @@ const CHIP_BACKGROUND =
 // cleanly; a third (machine + storage + credits) is what triggers rotation.
 const MAX_CHIPS_IN_ROW = 2;
 const RESOURCE_ROTATE_MS = 2500;
+
+// The takeover avatar's resting size, and how much bigger it stands once the
+// upgrade lands — the mock's 244px → 346px pair. Growth is a transform, so the
+// SVG scales without re-rendering at a second size.
+const AVATAR_SIZE = 240;
+const AVATAR_GROWTH = 1.414;
+
+// The stage reserves the grown height from first paint, so the takeover needs
+// `size * AVATAR_GROWTH + 309` of viewport before the phase block underneath —
+// which carries the escape hatch and the stalled retry — starts to clip. Step
+// the creature down instead of pushing those actions off a short screen.
+const AVATAR_SIZE_STEPS: Array<{ minHeight: number; size: number }> = [
+  { minHeight: 680, size: AVATAR_SIZE },
+  { minHeight: 600, size: 184 },
+];
+const AVATAR_SIZE_MIN = 132;
+
+function avatarSizeForHeight(height: number): number {
+  for (const step of AVATAR_SIZE_STEPS) {
+    if (height >= step.minHeight) {
+      return step.size;
+    }
+  }
+  return AVATAR_SIZE_MIN;
+}
+
+function useTakeoverAvatarSize(): number {
+  const [size, setSize] = useState(() =>
+    avatarSizeForHeight(
+      typeof window === "undefined" ? Infinity : window.innerHeight,
+    ),
+  );
+  useEffect(() => {
+    const onResize = () => setSize(avatarSizeForHeight(window.innerHeight));
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  return size;
+}
 
 const RESOURCE_CHIP_ICON: Record<ResourceChangeKey, LucideIcon> = {
   machine: Cpu,
@@ -59,49 +109,138 @@ export interface ProvisioningStateProps {
   assistantId?: string | null;
   escapeAvailable: boolean;
   onEscape: () => void;
+  /** Reports the phase actually on screen, which lags `state` by the hold. */
+  onPhaseChange?: (phase: ProvisioningStateKind) => void;
   stalledAction: StalledApplyAction;
   confirm: { onRetry: () => void; onGoToBilling: () => void };
+  /** Test hook — overrides the per-phase minimum; 0 disables the hold. */
+  phaseMinMs?: number;
   /** Test hook — overrides the celebration min dwell. */
   dwellMs?: number;
 }
 
 /**
+ * What the creature is doing, derived from the phase it is rendering. One
+ * gesture at three amplitudes — a strain loop while the machine works, the
+ * same crouch-and-push at full size once it lands — so the ending reads as the
+ * rep that finally succeeded rather than an unrelated flourish.
+ *
+ * `settling` is the 30s mark, where the caption already concedes the wait. It
+ * de-escalates rather than pushing harder: the copy says settle in, so the
+ * creature does. `stalled` stops entirely, because motion that promises
+ * progress under copy that says there is none is worse than stillness.
+ */
+type AvatarMode = "idle" | "working" | "settling" | "stalled" | "grown";
+
+const AVATAR_MODE_CLASS: Record<AvatarMode, string> = {
+  idle: "",
+  working: " is-working",
+  settling: " is-settling",
+  stalled: " is-stalled",
+  grown: " is-evolved",
+};
+
+function avatarModeFor(
+  state: ProvisioningStateKind,
+  softWaiting: boolean,
+): AvatarMode {
+  if (state === "DONE" || state === "NOT_APPLICABLE") {
+    return "grown";
+  }
+  if (state === "STALLED") {
+    return "stalled";
+  }
+  if (state === "WAITING" || state === "RESIZING") {
+    return softWaiting ? "settling" : "working";
+  }
+  // CONFIRMING and CONFIRM_TIMEOUT are both waits on Stripe, not on the
+  // machine — straining there would claim work that isn't happening.
+  return "idle";
+}
+
+/**
  * The user's assistant avatar, centered and oversized as the takeover's focal
  * point. Falls back to a neutral bundled creature (and finally the "V") while
- * the avatar resolves or when none is configured. The idle breathe + reduced
- * -motion gating come from `AnimatedAvatar` inside `ChatAvatar`.
+ * the avatar resolves or when none is configured. The idle breathe, the busy
+ * body-morph and the reduced-motion gating all come from `AnimatedAvatar`
+ * inside `ChatAvatar`.
+ *
+ * Nothing renders until the target assistant resolves and its avatar query
+ * settles. `components ?? fallback`
+ * synthesizes traits from the first bundled entry of each list — a green blob —
+ * so drawing during the fetch shows a different assistant's avatar for a beat,
+ * and the takeover is the one surface that reliably mounts cold: the Stripe
+ * return is a full page load, so the fetch always loses the race. Withholding
+ * costs no layout, because the stage reserves its height from first paint.
+ *
+ * On resolve it grows to `AVATAR_GROWTH` against a bottom baseline, so the
+ * creature stands taller off its shadow instead of drifting up the screen. The
+ * stage reserves the grown height from first paint. The strain loop sits on its
+ * own nesting level so it composes with the growth rather than fighting it for
+ * `transform`. The choreography lives in `.provision-avatar-*`.
  */
 function TakeoverAvatar({
   assistantId,
-  resolved,
+  mode,
 }: {
   assistantId?: string | null;
-  /** The work finished — play the one-shot settle. */
-  resolved: boolean;
+  mode: AvatarMode;
 }) {
   const activeId = useResolvedAssistantsStore.use.activeAssistantId();
-  const resolvedId = assistantId ?? activeId;
-  const { components, traits, customImageUrl } = useAssistantAvatar(resolvedId);
+  // An explicit null is the provisioning hook saying it does not know the
+  // target yet — it withholds `primary_assistant_id` until onboarding is fresh
+  // precisely so a multi-assistant org does not aim at the active assistant
+  // when the two diverge. Only an omitted prop falls back to active; a null one
+  // stays unresolved, so the takeover never fades in a different assistant's
+  // avatar on the way to the right one.
+  const resolvedId = assistantId === undefined ? activeId : assistantId;
+  const { components, traits, customImageUrl, isLoading } =
+    useAssistantAvatar(resolvedId);
   const fallbackComponents = useBundledAvatarComponents();
+  const size = useTakeoverAvatarSize();
+  const laboring = mode === "working" || mode === "settling";
+  // A null id means the target assistant has not resolved yet, not that it has
+  // no avatar — and `useAssistantAvatar(null)` is a disabled query, which
+  // reports `isLoading: false` with no data. Both have to clear before there is
+  // anything safe to draw.
+  const avatarReady = resolvedId != null && !isLoading;
+  // Every mode animates the wrapper or its child, so the class waits for
+  // something to animate. Otherwise a phase that resolves before the fetch does
+  // — likely here, since the avatar is read off the machine being restarted —
+  // runs the grow on an empty wrapper and leaves the creature to fade in at its
+  // final scale with the success beat already spent.
+  const activeMode: AvatarMode = avatarReady ? mode : "idle";
   return (
     <div
       aria-hidden
-      className={`flex flex-col items-center ${resolved ? "provision-avatar-resolved" : ""}`}
+      className={`provision-avatar-evolve flex flex-col items-center${AVATAR_MODE_CLASS[activeMode]}`}
+      style={
+        {
+          "--provision-avatar-size": `${size}px`,
+          "--provision-avatar-growth": AVATAR_GROWTH,
+        } as CSSProperties
+      }
     >
-      <ChatAvatar
-        components={components ?? fallbackComponents}
-        traits={traits}
-        customImageUrl={customImageUrl}
-        size={240}
-      />
-      <div
-        className="mt-1 h-5 w-64"
-        style={{
-          // Decorative avatar drop-shadow; raw rgba is conventional for a CSS shadow.
-          background:
-            "radial-gradient(ellipse at center, rgba(0, 0, 0, 0.45), transparent 70%)",
-        }}
-      />
+      <div className="provision-avatar-stage">
+        <div className="provision-avatar-layer">
+          <div className="provision-avatar-current">
+            <div className="provision-avatar-strain">
+              {avatarReady && (
+                <div className="provision-avatar-reveal">
+                  <ChatAvatar
+                    components={components ?? fallbackComponents}
+                    traits={traits}
+                    customImageUrl={customImageUrl}
+                    size={size}
+                    isAssistantBusy={laboring}
+                  />
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+      <div className="provision-avatar-shadow" />
     </div>
   );
 }
@@ -109,7 +248,10 @@ function TakeoverAvatar({
 function Copy({ status, caption }: { status: string; caption?: string }) {
   return (
     <div className="flex flex-col items-center gap-1.5">
-      <h1 className="text-[var(--content-emphasised)]" style={SERIF_HEADING_STYLE}>
+      <h1
+        className="text-[var(--content-emphasised)]"
+        style={SERIF_HEADING_STYLE}
+      >
         {status}
       </h1>
       {caption && (
@@ -359,17 +501,33 @@ export function ProvisioningState({
   assistantId,
   escapeAvailable,
   onEscape,
+  onPhaseChange,
   stalledAction,
   confirm,
   dwellMs = PROVISION_MIN_DWELL_MS,
+  phaseMinMs = PROVISION_PHASE_MIN_MS,
 }: ProvisioningStateProps) {
   const onCelebrationEndRef = useRef(onCelebrationEnd);
   useEffect(() => {
     onCelebrationEndRef.current = onCelebrationEnd;
   }, [onCelebrationEnd]);
 
-  const resolved = state === "DONE" || state === "NOT_APPLICABLE";
-  const phaseKey = state === "RESIZING" ? "WAITING" : state;
+  // Everything below renders from the held phase, not the live one, so a phase
+  // the user couldn't have read never reaches the screen. The celebration dwell
+  // keys off it too — otherwise the wizard could advance past "All done!"
+  // before it was shown.
+  const heldState = useHeldPhase(state, phaseMinMs);
+  const resolved = heldState === "DONE" || heldState === "NOT_APPLICABLE";
+  const phaseKey = heldState === "RESIZING" ? "WAITING" : heldState;
+
+  // The wizard locks itself against the phase on screen, not the live one.
+  const onPhaseChangeRef = useRef(onPhaseChange);
+  useEffect(() => {
+    onPhaseChangeRef.current = onPhaseChange;
+  }, [onPhaseChange]);
+  useEffect(() => {
+    onPhaseChangeRef.current?.(heldState);
+  }, [heldState]);
 
   const dwelling = celebrating && resolved;
   useEffect(() => {
@@ -383,18 +541,23 @@ export function ProvisioningState({
   return (
     <div
       data-theme="dark"
-      className="relative flex h-full min-h-[420px] w-full flex-col items-center justify-center gap-10 px-6 py-10 text-center"
+      className="relative flex h-full min-h-[420px] w-full flex-col items-center [justify-content:safe_center] gap-10 px-6 py-10 text-center"
       style={{ backgroundColor: TAKEOVER_BACKGROUND }}
     >
-      <TakeoverAvatar assistantId={assistantId} resolved={resolved} />
+      <TakeoverAvatar
+        assistantId={assistantId}
+        mode={avatarModeFor(heldState, softWaiting)}
+      />
       {/* Keyed so each phase replays the entrance instead of swapping its copy
           in place. WAITING and RESIZING render identical copy, so they share a
           key and don't retrigger. The min-height anchors the block: phases
-          carry different chip counts, and without it the whole centred group
-          jumps as they swap. */}
+          carry different chip counts and captions, and without it the whole
+          centred group jumps as they swap — most visibly under the resolve,
+          where the shorter "All done!" copy would tug the evolving avatar up
+          mid-animation. */}
       <div
         key={phaseKey}
-        className="flex min-h-[120px] w-full flex-col items-center gap-8 [animation:onboarding-step-in_420ms_ease-out] motion-reduce:[animation:none]"
+        className="flex min-h-[144px] w-full flex-col items-center gap-8 [animation:onboarding-step-in_420ms_ease-out] motion-reduce:[animation:none]"
       >
         {renderPhase()}
       </div>
@@ -417,7 +580,7 @@ export function ProvisioningState({
   }
 
   function renderPhase() {
-    if (state === "CONFIRMING") {
+    if (heldState === "CONFIRMING") {
       return (
         <>
           <Copy
@@ -430,7 +593,7 @@ export function ProvisioningState({
       );
     }
 
-    if (state === "WAITING" || state === "RESIZING") {
+    if (heldState === "WAITING" || heldState === "RESIZING") {
       return (
         <>
           <Copy
@@ -451,7 +614,7 @@ export function ProvisioningState({
       );
     }
 
-    if (state === "DONE") {
+    if (heldState === "DONE") {
       return (
         <>
           <Copy status="All done!" />
@@ -460,11 +623,11 @@ export function ProvisioningState({
       );
     }
 
-    if (state === "NOT_APPLICABLE") {
+    if (heldState === "NOT_APPLICABLE") {
       return <Copy status="Your plan is ready" />;
     }
 
-    if (state === "STALLED") {
+    if (heldState === "STALLED") {
       return (
         <>
           <Copy
@@ -488,7 +651,7 @@ export function ProvisioningState({
       );
     }
 
-    if (state === "CONFIRM_TIMEOUT") {
+    if (heldState === "CONFIRM_TIMEOUT") {
       return (
         <>
           <Copy

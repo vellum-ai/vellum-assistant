@@ -3074,7 +3074,6 @@ describe("LiveVoiceSession unified front-door endpointing", () => {
     setCachedOverrides(
       {
         "voice-mode": true,
-        "voice-triage-escalate": true,
       },
       { fromGateway: true },
     );

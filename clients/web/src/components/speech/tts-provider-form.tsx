@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
+import { List, Pencil } from "lucide-react";
+
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import {
   configGetOptions,
@@ -30,11 +32,7 @@ import {
   LS_TTS_PROVIDER,
   LS_TTS_VOICE_ID_PREFIX,
 } from "@/utils/local-settings-keys";
-import {
-  groupVoicesByAccent,
-  MANAGED_VOICE_SOURCE_LABELS,
-  voiceTraitsLabel,
-} from "@/lib/tts/managed-voice-catalog";
+import { VoicePickerField } from "@/components/speech/voice-picker-field";
 import { useManagedVoices } from "@/lib/tts/use-managed-voices";
 import { TTS_PROVIDERS } from "@/lib/provider-catalogs";
 
@@ -176,17 +174,35 @@ export function TtsProviderForm({
     managedVoices.find((v) => v.model === draftManagedVoice) ??
     managedVoices[0];
 
+  // Custom-voice entry: a free-text field for a managed voice id outside the
+  // curated catalog. Null override means "not yet toggled by the user" — the
+  // mode then derives from the saved config, opening custom automatically when
+  // the saved voice isn't a catalog voice so an already-custom id shows in the
+  // field instead of the picker misrepresenting it as the first catalog voice.
+  const [customModeOverride, setCustomModeOverride] = useState<boolean | null>(
+    null,
+  );
+  const serverVoiceInCatalog = managedVoices.some(
+    (v) => v.model === serverManagedVoice,
+  );
+  const customManagedVoice =
+    customModeOverride ??
+    (fetched && serverManagedVoice !== "" && !serverVoiceInCatalog);
+
   const selectedProvider = useMemo(() => {
     return providers.find((p) => p.id === draftProvider) ?? providers[0]!;
   }, [draftProvider, providers]);
 
   // Written to config only when true: never writing on an untouched default
   // keeps "unset = platform default" configs unset, and daemons that predate
-  // managed voice selection never receive a field they would silently drop.
+  // managed voice selection never receive a field they would silently drop. The
+  // non-empty guard keeps a cleared custom-voice field from PATCHing an empty
+  // model (which the daemon would treat as an unknown voice).
   const managedVoiceChanged =
     draftProvider === "vellum" &&
     selectedProvider.supportsVoiceSelection &&
-    draftManagedVoice !== serverManagedVoice;
+    draftManagedVoice.trim() !== "" &&
+    draftManagedVoice.trim() !== serverManagedVoice;
 
   const loadProviderState = useCallback((providerId: string) => {
     const storedKey = getLocalSetting(LS_TTS_API_KEY_PREFIX + providerId, "");
@@ -289,7 +305,7 @@ export function TtsProviderForm({
             }
           : {}),
         ...(managedVoiceChanged
-          ? { providers: { vellum: { model: draftManagedVoice } } }
+          ? { providers: { vellum: { model: draftManagedVoice.trim() } } }
           : {}),
       };
       if (Object.keys(ttsBody).length > 0) {
@@ -337,53 +353,6 @@ export function TtsProviderForm({
   ]);
 
   // Voices grouped by accent, each row named by its character traits alone —
-  // no proper name (the assistant has its own) and no accent (the group states
-  // it). Mirrors the voice-room picker so a voice reads the same in both.
-  // `Dropdown` has no group concept, so each accent enters as a disabled row
-  // that heads its group.
-  const managedVoiceOptions = useMemo(
-    () =>
-      groupVoicesByAccent(managedVoices).flatMap(({ accent, voices }) => [
-        { value: `group:${accent}`, label: accent, disabled: true },
-        ...voices.map((v) => ({
-          value: v.model,
-          label: `${voiceTraitsLabel(v.description)}${
-            v.model === defaultManagedVoice ? " (default)" : ""
-          }`,
-          // Voices come from different upstream providers; the badge makes the
-          // source visible while browsing, not only after selecting.
-          suffix: (
-            <span className="text-body-small-default text-[var(--content-tertiary)]">
-              {MANAGED_VOICE_SOURCE_LABELS[v.source] ?? v.source}
-            </span>
-          ),
-        })),
-      ]),
-    [managedVoices, defaultManagedVoice],
-  );
-
-  // Managed voices preview via Deepgram's public hosted samples — no key,
-  // no billing, works before saving.
-  const [previewing, setPreviewing] = useState(false);
-  const handlePreviewVoice = useCallback(async () => {
-    if (!selectedManagedVoice) {
-      return;
-    }
-    setPreviewing(true);
-    try {
-      const audio = new Audio(selectedManagedVoice.sampleUrl);
-      await audio.play();
-      await new Promise<void>((resolve) => {
-        audio.onended = () => resolve();
-        audio.onerror = () => resolve();
-      });
-    } catch {
-      toast.error("Could not play the voice sample.");
-    } finally {
-      setPreviewing(false);
-    }
-  }, [selectedManagedVoice]);
-
   // Publish save state so a parent rendering its own Save (see
   // `hideSaveButton`) can enable it and commit this form.
   useEffect(() => {
@@ -457,6 +426,55 @@ export function TtsProviderForm({
   const managedVoiceSupported =
     isManaged && selectedProvider.supportsVoiceSelection;
 
+  // The catalog/custom toggle sits on the action row beside Save. It's a muted
+  // secondary action — the icon plus a standing underline carry the affordance
+  // while the tertiary tone keeps Save the dominant control. `inline-flex`
+  // overrides the link variant's `inline` display so the icon centers with the
+  // label instead of riding the line above it.
+  const enterCustomVoiceLink = (
+    <Button
+      variant="link"
+      size="compact"
+      className="inline-flex h-auto items-center gap-1 px-0 underline [--vbtn-fg:var(--content-tertiary)]"
+      onClick={() => setCustomModeOverride(true)}
+    >
+      <Pencil className="h-3.5 w-3.5" aria-hidden />
+      Enter a custom voice ID
+    </Button>
+  );
+  const chooseFromCatalogLink = (
+    <Button
+      variant="link"
+      size="compact"
+      className="inline-flex h-auto items-center gap-1 px-0 underline [--vbtn-fg:var(--content-tertiary)]"
+      onClick={() => {
+        setCustomModeOverride(false);
+        // Snap a non-catalog draft back to a real catalog voice so the picker's
+        // trigger label matches the selection.
+        if (!managedVoices.some((v) => v.model === draftManagedVoice)) {
+          setDraftManagedVoice(
+            defaultManagedVoice || managedVoices[0]?.model || "",
+          );
+        }
+      }}
+    >
+      <List className="h-3.5 w-3.5" aria-hidden />
+      Choose from catalog
+    </Button>
+  );
+  // From the catalog the toggle offers custom entry; from custom it offers a way
+  // back, but only when there's actually a catalog to return to. Null until the
+  // catalog resolves so it never flashes.
+  const managedVoiceToggle = !managedVoiceSupported
+    ? null
+    : customManagedVoice
+      ? managedVoices.length > 0
+        ? chooseFromCatalogLink
+        : null
+      : fetched
+        ? enterCustomVoiceLink
+        : null;
+
   return (
     <div className="space-y-4">
       <div className="space-y-1">
@@ -489,29 +507,40 @@ export function TtsProviderForm({
         </div>
       )}
 
-      {managedVoiceSupported && selectedManagedVoice && (
+      {managedVoiceSupported && (
         <div className="space-y-1">
           <label className="block text-body-small-default text-[var(--content-tertiary)]">
             Voice
           </label>
-          <Dropdown
-            value={draftManagedVoice}
-            onChange={setDraftManagedVoice}
-            options={managedVoiceOptions}
-            aria-label="Managed voice"
-          />
-          <p className="text-body-small-default text-[var(--content-tertiary)]">
-            Voice by{" "}
-            {MANAGED_VOICE_SOURCE_LABELS[selectedManagedVoice.source] ??
-              selectedManagedVoice.source}
-          </p>
+          {customManagedVoice ? (
+            /* Free-text entry for a managed voice id outside the catalog
+               (power users, or an id the platform serves but doesn't list). */
+            <Input
+              type="text"
+              value={draftManagedVoice}
+              onChange={(e) => setDraftManagedVoice(e.target.value)}
+              placeholder="Enter a voice ID"
+              aria-label="Custom voice ID"
+              fullWidth
+            />
+          ) : selectedManagedVoice ? (
+            /* Collapsed select-style field that opens the shared voice list
+               (grouped, per-row preview, provider badge). Controlled so the
+               pick stays a draft until Save, matching the rest of this form. */
+            <VoicePickerField
+              assistantId={assistantId}
+              value={draftManagedVoice}
+              onChange={setDraftManagedVoice}
+            />
+          ) : (
+            // Gated on `fetched` so the note never flashes while loading.
+            fetched && (
+              <p className="text-body-small-default text-[var(--content-tertiary)]">
+                No managed voices are currently available.
+              </p>
+            )
+          )}
         </div>
-      )}
-      {/* Gated on `fetched` so the note never flashes while loading. */}
-      {managedVoiceSupported && fetched && !selectedManagedVoice && (
-        <p className="text-body-small-default text-[var(--content-tertiary)]">
-          No managed voices are currently available.
-        </p>
       )}
 
       {selectedProvider.supportsVoiceSelection && !isManaged && (
@@ -529,7 +558,11 @@ export function TtsProviderForm({
         </div>
       )}
 
-      {!hideCredentialsGuide && (
+      {/* The credentials guide is the "where's my API key" helper for BYO
+          providers. The managed (Vellum) provider needs no key — the assistant
+          is already connected — so its "Connect this assistant" card is just
+          noise between the voice picker and the preview button. */}
+      {!hideCredentialsGuide && !isManaged && (
         <CredentialsGuide guide={selectedProvider.credentialsGuide} />
       )}
 
@@ -539,20 +572,8 @@ export function TtsProviderForm({
             {testing ? "Testing…" : "Test"}
           </Button>
         )}
-        {managedVoiceSupported &&
-          selectedManagedVoice &&
-          // An empty sampleUrl means no hosted preview exists for this
-          // voice; a button that can only error is worse than none.
-          selectedManagedVoice.sampleUrl !== "" && (
-            <Button
-              variant="outlined"
-              onClick={handlePreviewVoice}
-              disabled={previewing}
-            >
-              {previewing ? "Playing…" : "Preview voice"}
-            </Button>
-          )}
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex items-center gap-3">
+          {managedVoiceToggle}
           {!hideSaveButton && (
             <SaveButton onClick={handleSave} disabled={!hasChanges || saving} />
           )}

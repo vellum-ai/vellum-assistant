@@ -100,3 +100,93 @@ export interface RemoteWebPairingTokenApprovedResponse {
 export type RemoteWebPairingTokenResponse =
   | RemoteWebPairingTokenPendingResponse
   | RemoteWebPairingTokenApprovedResponse;
+
+// ── Shared pairing URL helpers ──────────────────────────────────────────────
+//
+// Every surface that mints a pairing (the `vellum pair --qr` CLI, the web
+// settings "Pair a device" card) must accept the same public URLs and build
+// the same scannable links. The helpers are environment-neutral (WHATWG URL
+// only) so both Node and browser callers share one implementation.
+
+/** Why a public base URL can't be advertised in a pairing challenge. */
+export type PublicBaseUrlRejection = "unparseable" | "loopback" | "non-https";
+
+export type PublicBaseUrlResult =
+  | { ok: true; url: string }
+  | { ok: false; reason: PublicBaseUrlRejection };
+
+/**
+ * A loopback URL — `localhost`, `[::1]`, or `127.x.x.x`. A pairing link that
+ * encodes a loopback address is unreachable from the scanning device.
+ */
+export function isLoopbackPublicUrl(url: string): boolean {
+  try {
+    // WHATWG URL canonicalizes hostnames, so IPv6 loopback is always "[::1]".
+    const hostname = new URL(url).hostname;
+    return (
+      hostname === "localhost" ||
+      hostname === "[::1]" ||
+      /^127(?:\.\d{1,3}){3}$/.test(hostname)
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Normalize an address to the public base a scanning device opens:
+ * query/hash stripped, the `assistant` path segment (and everything after it)
+ * removed so a pasted pair-page URL collapses to its base, and trailing
+ * slashes trimmed. Throws if the value is not a parseable URL.
+ */
+export function normalizePublicBaseUrl(value: string): string {
+  const url = new URL(value);
+  url.search = "";
+  url.hash = "";
+  const parts = url.pathname.split("/").filter(Boolean);
+  const assistantIndex = parts.indexOf("assistant");
+  if (assistantIndex >= 0) {
+    parts.splice(assistantIndex);
+  }
+  url.pathname = parts.length ? `/${parts.join("/")}` : "/";
+  return url.toString().replace(/\/+$/, "");
+}
+
+/**
+ * Resolve an address to the public https base URL to advertise in a pairing
+ * challenge, or report why it can't be used. Loopback and non-https links are
+ * refused with a specific reason callers turn into their own guidance.
+ */
+export function resolvePublicBaseUrl(raw: string): PublicBaseUrlResult {
+  let normalized: string;
+  try {
+    normalized = normalizePublicBaseUrl(raw);
+  } catch {
+    return { ok: false, reason: "unparseable" };
+  }
+  if (isLoopbackPublicUrl(normalized)) {
+    return { ok: false, reason: "loopback" };
+  }
+  if (new URL(normalized).protocol !== "https:") {
+    return { ok: false, reason: "non-https" };
+  }
+  return { ok: true, url: normalized };
+}
+
+/**
+ * The scannable pair URL: the challenge's verification URI with the device
+ * code carried in the fragment (`#device_code=…`), matching what the pair
+ * page reads on load. Fragments never reach the wire.
+ */
+export function buildRemoteWebPairingUrl(
+  challenge: Pick<
+    RemoteWebPairingChallengeResponse,
+    "verificationUri" | "deviceCode"
+  >,
+): string {
+  const url = new URL(challenge.verificationUri);
+  url.hash = new URLSearchParams({
+    device_code: challenge.deviceCode,
+  }).toString();
+  return url.toString();
+}

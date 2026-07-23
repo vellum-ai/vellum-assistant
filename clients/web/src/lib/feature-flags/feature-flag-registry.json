@@ -6,7 +6,7 @@
       "scope": "client",
       "key": "in-chat-onboarding-tour",
       "label": "In-Chat Onboarding Tour",
-      "description": "Multivariate experiment for the eyes-led in-chat onboarding tour. control = straight to chat after research onboarding (current behavior); tour = the extended tour auto-plays on first workspace entry, and the header replay button shows. Targeted via LaunchDarkly (planned 70% tour / 30% control).",
+      "description": "Multivariate experiment for the eyes-led in-chat onboarding tour. control = straight to chat after research onboarding (current behavior); tour = the extended tour auto-plays on first workspace entry, and the header replay button shows. Desktop-only: phone-width viewports and the native shell get neither the tour nor its telemetry (not even the exposure event), so the funnel measures desktop sessions exclusively. Targeted via LaunchDarkly (planned 70% tour / 30% control).",
       "defaultEnabled": "control",
       "values": ["control", "tour"]
     },
@@ -35,6 +35,15 @@
       "description": "Multivariate activation-flow experiment. control = standard flow; variant-a = activation rail; personal-page = new sign-up-page variant (front-end only). Targeted via LaunchDarkly.",
       "defaultEnabled": "control",
       "values": ["control", "variant-a", "personal-page"]
+    },
+    {
+      "id": "experiment-billing-cta-2026-07-23",
+      "scope": "client",
+      "key": "experiment-billing-cta-2026-07-23",
+      "label": "Experiment: Billing CTA 2026-07-23",
+      "description": "Credit paywall CTA experiment. control = single Add Credits CTA for everyone (opens Add Credits modal). upgrade-cta = FREE users (plan_id base) get a single Upgrade CTA (View Plans takeover) instead; PAID users still get Add Credits.",
+      "defaultEnabled": "control",
+      "values": ["control", "upgrade-cta"]
     },
     {
       "id": "local-docker-enabled",
@@ -114,14 +123,6 @@
       "key": "voice-mode",
       "label": "Voice Mode",
       "description": "Show the live voice conversation button in the composer",
-      "defaultEnabled": false
-    },
-    {
-      "id": "voice-triage-escalate",
-      "scope": "assistant",
-      "key": "voice-triage-escalate",
-      "label": "Voice Triage & Escalate",
-      "description": "Front each live-voice turn with a fast model that answers simple turns and escalates tricky ones to the quality model, cutting perceived latency. The same leg decides the endpoint: its first token holds a mid-thought pause, escalates, or begins the answer, replacing the separate endpoint-decider call",
       "defaultEnabled": false
     },
     {

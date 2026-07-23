@@ -451,6 +451,7 @@ export function useStreamEventHandler(
         case "avatar_updated":
         case "disk_pressure_status_changed":
         case "notification_intent":
+        case "document_editor_show":
         case "document_editor_update":
         case "conversation_title_updated":
         case "document_comment_created":
@@ -479,6 +480,29 @@ export function useStreamEventHandler(
         // no web UI renders them yet.
         case "memory_recalled":
         case "memory_status":
+          break;
+        // Contacts-table invalidation broadcast. The chat handler is a no-op;
+        // the contacts page refetches through its own query invalidation.
+        case "contacts_changed":
+          break;
+        // Skill state-change broadcast. The chat handler is a no-op; the skills
+        // surfaces refetch through their own query invalidation.
+        case "skills_state_changed":
+          break;
+        // Settings/config broadcasts. The chat handler is a no-op — these target
+        // the desktop client or are handled by config-sync consumers.
+        case "client_settings_update":
+        case "config_changed":
+        case "sounds_config_updated":
+          break;
+        // Notification-created broadcasts and recording lifecycle
+        // instructions. The web chat handler is a no-op for these — they target
+        // the CLI/desktop clients or are handled elsewhere.
+        case "notification_conversation_created":
+        case "recording_start":
+        case "recording_stop":
+        case "recording_pause":
+        case "recording_resume":
           break;
         case "unknown":
           break;

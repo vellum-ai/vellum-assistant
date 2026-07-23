@@ -66,14 +66,15 @@ export const useInChatOnboardingStore = createSelectors(
   useInChatOnboardingStoreBase,
 );
 
+/** Whether the tour is running — every beat, intro through last stop. */
+export function selectTourActive(state: InChatOnboardingStore): boolean {
+  return state.prototypeActive && state.stage === "tour";
+}
+
 /** Whether the sidebar is hidden: the tour's opening beats, until the tour
  *  itself reveals it with a bounce. */
 export function selectChatFocusActive(state: InChatOnboardingStore): boolean {
-  return (
-    state.prototypeActive &&
-    state.stage === "tour" &&
-    !state.tourSidebarRevealed
-  );
+  return selectTourActive(state) && !state.tourSidebarRevealed;
 }
 
 /** Whether the header's center chat title is hidden — the ENTIRE tour: the
@@ -82,7 +83,7 @@ export function selectChatFocusActive(state: InChatOnboardingStore): boolean {
 export function selectHeaderCenterHidden(
   state: InChatOnboardingStore,
 ): boolean {
-  return state.prototypeActive && state.stage === "tour";
+  return selectTourActive(state);
 }
 
 /** Whether the header's controls are hidden — the tour's opening beats;
@@ -91,9 +92,5 @@ export function selectHeaderCenterHidden(
 export function selectHeaderControlsHidden(
   state: InChatOnboardingStore,
 ): boolean {
-  return (
-    state.prototypeActive &&
-    state.stage === "tour" &&
-    !state.tourSidebarRevealed
-  );
+  return selectTourActive(state) && !state.tourSidebarRevealed;
 }

@@ -1,5 +1,5 @@
 
-import { AlertCircle, CreditCard, Loader2 } from "lucide-react";
+import { AlertCircle, ChevronRight, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useLocation, useSearchParams } from "react-router";
 
@@ -118,10 +118,9 @@ export function AddCreditsModal({ open, onOpenChange }: AddCreditsModalProps) {
     <Modal.Root open={open} onOpenChange={onOpenChange}>
       <Modal.Content size="sm">
         <Modal.Header>
-          <Modal.Title icon={CreditCard}>Add Credits</Modal.Title>
+          <Modal.Title>Add Credits</Modal.Title>
           <Modal.Description>
-            Purchase credits to continue using the assistant. You&apos;ll be
-            redirected to Stripe to complete the payment.
+            You&apos;ll be redirected to Stripe to complete the payment.
           </Modal.Description>
         </Modal.Header>
 
@@ -160,11 +159,14 @@ export function AddCreditsModal({ open, onOpenChange }: AddCreditsModalProps) {
 
             <Link
               to={routes.settings.usageBilling}
-              className="text-body-small-default text-[var(--content-tertiary)] underline hover:text-[var(--content-secondary)]"
+              className="flex items-center gap-1 text-body-small-default text-[var(--content-tertiary)] hover:text-[var(--content-secondary)]"
               onClick={() => onOpenChange(false)}
             >
-              Configure Automatic Top-Ups →
+              Configure Automatic Top-Ups
+              <ChevronRight className="size-4" />
             </Link>
+
+            <div className="h-px w-full bg-[var(--border-subtle)]" />
           </div>
         </Modal.Body>
 
@@ -182,7 +184,7 @@ export function AddCreditsModal({ open, onOpenChange }: AddCreditsModalProps) {
             onClick={handleAddFunds}
             disabled={checkoutMutation.isPending || isLoading || !summary}
           >
-            Add credits
+            Continue
           </Button>
         </Modal.Footer>
       </Modal.Content>

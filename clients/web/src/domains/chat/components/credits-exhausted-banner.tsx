@@ -1,21 +1,35 @@
 
 import { BillingErrorBanner } from "@/domains/chat/components/billing-error-banner";
+import type { CreditPaywallCtaMode } from "@/domains/chat/utils/credit-paywall-cta";
 
 interface CreditsExhaustedBannerProps {
-  onAddFunds: () => void;
+  mode: CreditPaywallCtaMode;
+  onAddCredits: () => void;
+  onUpgrade: () => void;
 }
 
 export function CreditsExhaustedBanner({
-  onAddFunds,
+  mode,
+  onAddCredits,
+  onUpgrade,
 }: CreditsExhaustedBannerProps) {
+  const isUpgrade = mode === "upgrade";
   return (
     <BillingErrorBanner
-      ariaLabel="Your credit balance has run out"
-      icon={<span style={{ fontSize: "1.25rem" }}>💰</span>}
-      title="Your credit balance has run out"
-      subtitle="Purchase additional credits to pick up where you left off."
-      ctaLabel="Add Funds"
-      onAction={onAddFunds}
+      ariaLabel={
+        isUpgrade
+          ? "Your balance has run out. Upgrade to a higher plan to continue."
+          : "Your balance has run out. Add credits to continue."
+      }
+      title="💰  Your balance has run out"
+      subtitle={
+        isUpgrade
+          ? "Upgrade to a higher plan to continue."
+          : "Add credits to continue."
+      }
+      ctaLabel={isUpgrade ? "Upgrade" : "Add Credits"}
+      onAction={isUpgrade ? onUpgrade : onAddCredits}
+      detached={true}
     />
   );
 }

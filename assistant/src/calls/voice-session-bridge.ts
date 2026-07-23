@@ -466,7 +466,7 @@ function buildVoiceCallControlPrompt(opts: {
     `12. ${VOICE_NO_SETUP_FLOWS_RULE}`,
   );
 
-  // Triage-and-escalate routing rules (voice-triage-escalate flag). The
+  // Triage-and-escalate routing rules (gated by the voice-mode flag). The
   // front-door leg decides and may hand off; the escalated leg continues the
   // answer after a holding phrase was already spoken.
   if (opts.routingLeg === "front-door") {

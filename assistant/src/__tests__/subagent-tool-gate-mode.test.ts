@@ -18,7 +18,6 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { SkillProjectionCache } from "../daemon/conversation-skill-tools.js";
-import type { SurfaceData, SurfaceType } from "../daemon/message-protocol.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
@@ -120,10 +119,7 @@ function makeSetupCtx(
     sendToClient: mock(() => {}),
     pendingSurfaceActions: new Map(),
     lastSurfaceAction: new Map(),
-    surfaceState: new Map<
-      string,
-      { surfaceType: SurfaceType; data: SurfaceData; title?: string }
-    >(),
+    surfaceState: new Map(),
     surfaceUndoStacks: new Map(),
     accumulatedSurfaceState: new Map(),
     surfaceActionRequestIds: new Set<string>(),

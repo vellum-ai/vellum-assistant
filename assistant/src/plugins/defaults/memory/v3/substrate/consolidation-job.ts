@@ -99,6 +99,7 @@ import { isProcessAlive } from "../../host-utils.js";
 import { getLogger } from "../../logging.js";
 import { getWorkspaceDir } from "../../paths.js";
 import { MEMORY_V2_CONSOLIDATION_SOURCE } from "./constants.js";
+import { getPageIndex, type PageParseFailure } from "./page-index.js";
 import { resolveConsolidationPrompt } from "./prompts/consolidation.js";
 
 const log = getLogger("memory-v2-consolidate");
@@ -438,12 +439,26 @@ export async function memoryV2ConsolidateJob(
     // article shape drops the `summary:` field v2 injection depends on, so a
     // v2-only install must keep producing `summary:`-bearing fragment pages.
     const memoryV3Live = isMemoryV3Live(config);
+    // Pages the index build dropped (malformed frontmatter) or degraded
+    // (unterminated fence) — rendered into the prompt's repair step so the
+    // agent fixes them this pass. Best-effort: prompt assembly must never
+    // fail because the index build did.
+    let parseFailures: PageParseFailure[] = [];
+    try {
+      parseFailures = (await getPageIndex(getWorkspaceDir())).parseFailures;
+    } catch (err) {
+      log.warn(
+        { err },
+        "consolidation: page-index read failed; omitting the repair section",
+      );
+    }
     const prompt = resolveConsolidationPrompt(
       config.memory.v2.consolidation_prompt_path,
       cutoff,
       {
         includeCorePagesSection: memoryV3Live,
         articleShape: memoryV3Live ? "v3" : "v2",
+        parseFailures,
       },
     );
 

@@ -178,7 +178,9 @@ export function runStorageMigrations(): void {
 
   // voice: → vellum:voice:
   migrateKey("voice:permissionPrimerSeen", "vellum:voice:permissionPrimerSeen");
-  migrateKey("voice:conversationTimeoutSeconds", "vellum:voice:conversationTimeoutSeconds");
+  // `voice:conversationTimeoutSeconds` is intentionally not migrated: the
+  // setting was a leftover of the Swift macOS app, and nothing on web has read
+  // it since that client was removed.
   migrateKey("voice:ttsProvider", "vellum:voice:ttsProvider");
   migrateKey("voice:sttProvider", "vellum:voice:sttProvider");
   migrateKey("voice:activationKey", "vellum:voice:activationKey");

@@ -9,7 +9,6 @@ import type {
   CardSurfaceData,
   DynamicPageSurfaceData,
   ServerMessage,
-  SurfaceData,
   SurfaceType,
   UiSurfaceShow,
   UiSurfaceUpdate,
@@ -28,10 +27,7 @@ function makeContext(
       string,
       { actionId: string; data?: Record<string, unknown> }
     >(),
-    surfaceState: new Map<
-      string,
-      { surfaceType: SurfaceType; data: SurfaceData; title?: string }
-    >(),
+    surfaceState: new Map(),
     surfaceUndoStacks: new Map<string, string[]>(),
     accumulatedSurfaceState: new Map<string, Record<string, unknown>>(),
     surfaceActionRequestIds: new Set<string>(),
@@ -105,7 +101,9 @@ describe("task_progress surface compatibility", () => {
       (msg): msg is UiSurfaceShow => msg.type === "ui_surface_show",
     );
     expect(showMessage).toBeDefined();
-    if (!showMessage || showMessage.surfaceType !== "card") return;
+    if (!showMessage || showMessage.surfaceType !== "card") {
+      return;
+    }
     expect((showMessage.data as CardSurfaceData).template).toBe(
       "task_progress",
     );
@@ -196,7 +194,9 @@ describe("task_progress surface compatibility", () => {
       (msg): msg is UiSurfaceShow => msg.type === "ui_surface_show",
     );
     expect(showMessage).toBeDefined();
-    if (!showMessage || showMessage.surfaceType !== "card") return;
+    if (!showMessage || showMessage.surfaceType !== "card") {
+      return;
+    }
 
     const card = showMessage.data as CardSurfaceData;
     expect(card.template).toBe("task_progress");
@@ -224,7 +224,9 @@ describe("task_progress surface compatibility", () => {
       (msg): msg is UiSurfaceShow => msg.type === "ui_surface_show",
     );
     expect(showMessage).toBeDefined();
-    if (!showMessage || showMessage.surfaceType !== "card") return;
+    if (!showMessage || showMessage.surfaceType !== "card") {
+      return;
+    }
 
     const card = showMessage.data as CardSurfaceData;
     expect(card.template).toBe("task_progress");
@@ -259,7 +261,9 @@ describe("task_progress surface compatibility", () => {
       (msg): msg is UiSurfaceShow => msg.type === "ui_surface_show",
     );
     expect(showMessage).toBeDefined();
-    if (!showMessage || showMessage.surfaceType !== "card") return;
+    if (!showMessage || showMessage.surfaceType !== "card") {
+      return;
+    }
 
     const templateData = (showMessage.data as CardSurfaceData)
       .templateData as Record<string, unknown>;
@@ -291,7 +295,9 @@ describe("task_progress surface compatibility", () => {
       (msg): msg is UiSurfaceShow => msg.type === "ui_surface_show",
     );
     expect(showMessage).toBeDefined();
-    if (!showMessage || showMessage.surfaceType !== "dynamic_page") return;
+    if (!showMessage || showMessage.surfaceType !== "dynamic_page") {
+      return;
+    }
 
     const page = showMessage.data as DynamicPageSurfaceData;
     expect(page.html).toBe("<h1>Hello</h1>");
@@ -322,7 +328,9 @@ describe("task_progress surface compatibility", () => {
       (msg): msg is UiSurfaceShow => msg.type === "ui_surface_show",
     );
     expect(showMessage).toBeDefined();
-    if (!showMessage || showMessage.surfaceType !== "file_upload") return;
+    if (!showMessage || showMessage.surfaceType !== "file_upload") {
+      return;
+    }
 
     expect(showMessage.title).toBe("Upload a receipt");
     expect(showMessage.data).toEqual({
@@ -356,7 +364,9 @@ describe("task_progress surface compatibility", () => {
       (msg): msg is UiSurfaceShow => msg.type === "ui_surface_show",
     );
     expect(showMessage).toBeDefined();
-    if (!showMessage || showMessage.surfaceType !== "file_upload") return;
+    if (!showMessage || showMessage.surfaceType !== "file_upload") {
+      return;
+    }
 
     expect(showMessage.data.acceptedTypes).toEqual([
       "image/*",
@@ -380,7 +390,9 @@ describe("task_progress surface compatibility", () => {
       (msg): msg is UiSurfaceShow => msg.type === "ui_surface_show",
     );
     expect(showMessage).toBeDefined();
-    if (!showMessage || showMessage.surfaceType !== "dynamic_page") return;
+    if (!showMessage || showMessage.surfaceType !== "dynamic_page") {
+      return;
+    }
 
     const page = showMessage.data as DynamicPageSurfaceData;
     expect(page.html).toBe("<h1>Nested</h1>");
@@ -422,7 +434,9 @@ describe("task_progress surface compatibility", () => {
       (msg): msg is UiSurfaceUpdate => msg.type === "ui_surface_update",
     );
     expect(updateMessage).toBeDefined();
-    if (!updateMessage) return;
+    if (!updateMessage) {
+      return;
+    }
 
     const updatedCard = updateMessage.data as CardSurfaceData &
       Record<string, unknown>;
@@ -459,7 +473,9 @@ describe("task_progress surface compatibility", () => {
       (msg): msg is UiSurfaceUpdate => msg.type === "ui_surface_update",
     );
     expect(updateMessage).toBeDefined();
-    if (!updateMessage) return;
+    if (!updateMessage) {
+      return;
+    }
     const templateData = (updateMessage.data as CardSurfaceData)
       .templateData as Record<string, unknown>;
     expect(templateData.status).toBe("completed");
@@ -610,7 +626,9 @@ describe("ui_show card content recovery", () => {
     const show = sent.find(
       (m): m is UiSurfaceShow => m.type === "ui_surface_show",
     );
-    if (!show || show.surfaceType !== "card") return undefined;
+    if (!show || show.surfaceType !== "card") {
+      return undefined;
+    }
     return show.data;
   }
 

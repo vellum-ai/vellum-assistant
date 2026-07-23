@@ -23,7 +23,7 @@
  * check as "no stamp" and serve the plain verdict (degraded, loud).
  */
 
-import { eq } from "drizzle-orm";
+import { and, eq, isNotNull } from "drizzle-orm";
 
 import { getGatewayDb } from "../db/connection.js";
 import {
@@ -70,6 +70,50 @@ export function hasEvidenceOfPriorGuardian(): boolean {
 }
 
 /**
+ * Whether any `role='guardian'` contact row exists in the gateway DB.
+ *
+ * Side-effect-free (unlike {@link guardianIntegrityState}, it never fires the
+ * missing-guardian reporter) and distinct from `findVellumGuardian`, which
+ * additionally requires an ACTIVE vellum channel. Callers use this to tell a
+ * genuinely absent guardian (true data loss) from one that still exists but
+ * whose binding was deliberately revoked/blocked.
+ */
+export function hasGuardianContactRow(): boolean {
+  return (
+    getGatewayDb()
+      .select({ id: contacts.id })
+      .from(contacts)
+      .where(eq(contacts.role, "guardian"))
+      .limit(1)
+      .get() !== undefined
+  );
+}
+
+/**
+ * Whether a *bootstrapped* guardian exists: a `role='guardian'` contact row
+ * with a non-null `principal_id`.
+ *
+ * Distinct from {@link hasGuardianContactRow}, which also counts the
+ * principal-less guardian STUBS the gateway-first contact-prompt path creates
+ * before bootstrap. Recovery keys on this so a stub can't masquerade as a real
+ * guardian and suppress the self-heal, while a genuine guardian — which always
+ * carries a principal, even when its binding is revoked — still blocks it.
+ * Mirrors the `isNotNull(principalId)` guard `findGuardian` already applies.
+ */
+export function hasGuardianContactWithPrincipal(): boolean {
+  return (
+    getGatewayDb()
+      .select({ id: contacts.id })
+      .from(contacts)
+      .where(
+        and(eq(contacts.role, "guardian"), isNotNull(contacts.principalId)),
+      )
+      .limit(1)
+      .get() !== undefined
+  );
+}
+
+/**
  * `missing_guardian` when zero `role='guardian'` contact rows exist AND the
  * DB carries evidence of prior onboarding; `ok` otherwise (healthy install or
  * genuinely fresh install). Cached with a short TTL; a `missing_guardian`
@@ -86,13 +130,7 @@ export function guardianIntegrityState(): GuardianIntegrityState {
 }
 
 function computeState(): GuardianIntegrityState {
-  const guardianRow = getGatewayDb()
-    .select({ id: contacts.id })
-    .from(contacts)
-    .where(eq(contacts.role, "guardian"))
-    .limit(1)
-    .get();
-  if (guardianRow) {
+  if (hasGuardianContactRow()) {
     return "ok";
   }
 

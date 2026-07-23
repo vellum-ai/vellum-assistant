@@ -11,7 +11,6 @@ import type {
   CopyBlockSurfaceData,
   OAuthConnectSurfaceData,
   ServerMessage,
-  SurfaceData,
   SurfaceType,
   UiSurfaceShow,
 } from "../daemon/message-protocol.js";
@@ -28,20 +27,7 @@ function makeContext(sent: ServerMessage[] = []): SurfaceConversationContext {
       string,
       { actionId: string; data?: Record<string, unknown> }
     >(),
-    surfaceState: new Map<
-      string,
-      {
-        surfaceType: SurfaceType;
-        data: SurfaceData;
-        title?: string;
-        actions?: Array<{
-          id: string;
-          label: string;
-          style?: string;
-          data?: Record<string, unknown>;
-        }>;
-      }
-    >(),
+    surfaceState: new Map(),
     surfaceUndoStacks: new Map<string, string[]>(),
     accumulatedSurfaceState: new Map<string, Record<string, unknown>>(),
     surfaceActionRequestIds: new Set<string>(),
@@ -301,6 +287,32 @@ describe("choice and copy_block surface proxying", () => {
     expect(result.content).toContain('"copyblock" is not a valid surface_type');
     expect(result.content).toContain("copy_block");
     expect(sent).toHaveLength(0);
+  });
+
+  test("ui_show rejects daemon-internal surface types and omits them from the valid list", async () => {
+    for (const internalType of ["skill_card", "call_summary"]) {
+      const sent: ServerMessage[] = [];
+      const ctx = makeContext(sent);
+
+      const result = await surfaceProxyResolver(ctx, "ui_show", {
+        surface_type: internalType,
+        data: { anything: true },
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain(
+        `"${internalType}" is not a valid surface_type`,
+      );
+      // The advertised valid list must never enumerate the internal types
+      // (the leading echo of the rejected input naming it is expected).
+      const validList =
+        typeof result.content === "string"
+          ? (result.content.split("Valid surface_type values:")[1] ?? "")
+          : "";
+      expect(validList).not.toContain("skill_card");
+      expect(validList).not.toContain("call_summary");
+      expect(sent).toHaveLength(0);
+    }
   });
 
   test("ui_show teaching guard accepts copy_block text at the top level of the input", () => {

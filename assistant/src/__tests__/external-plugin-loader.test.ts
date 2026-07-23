@@ -14,7 +14,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 
-import { loadExternalPlugin } from "../plugins/external-plugin-loader.js";
+import {
+  loadExternalPlugin,
+  parsePluginManifest,
+} from "../plugins/external-plugin-loader.js";
 import {
   getRegisteredPlugins,
   resetPluginRegistryForTests,
@@ -101,6 +104,96 @@ describe("loadExternalPlugin — manifest", () => {
     expect(registered).toBeDefined();
     expect(registered?.manifest.version).toBe("0.0.0");
   });
+});
+
+describe("credentialKeyPatterns manifest field", () => {
+  const validPatterns = [
+    { label: "Example API token", pattern: "^ex_tkn_[A-Za-z0-9]{24}$" },
+    { label: "Example legacy key", pattern: "^ex_key_[0-9a-f]{32}$" },
+  ];
+
+  test("a valid declaration round-trips through loadExternalPlugin", async () => {
+    const dir = freshPluginDir("cred-patterns-valid");
+    writePackageJson(dir, {
+      name: "cred-patterns-valid",
+      version: "0.1.0",
+      credentialKeyPatterns: validPatterns,
+    });
+
+    await loadExternalPlugin(dir);
+
+    const registered = getRegisteredPlugins().find(
+      (p) => p.manifest.name === "cred-patterns-valid",
+    );
+    expect(registered?.manifest.credentialKeyPatterns).toEqual(validPatterns);
+  });
+
+  test("a valid declaration round-trips through parsePluginManifest", async () => {
+    const dir = freshPluginDir("cred-patterns-parse");
+    writePackageJson(dir, {
+      name: "cred-patterns-parse",
+      version: "0.1.0",
+      credentialKeyPatterns: validPatterns,
+    });
+
+    const manifest = await parsePluginManifest(dir);
+
+    expect(manifest).toEqual({
+      name: "cred-patterns-parse",
+      version: "0.1.0",
+      credentialKeyPatterns: validPatterns,
+    });
+  });
+
+  test("absent field parses to undefined on both paths", async () => {
+    const dir = freshPluginDir("cred-patterns-absent");
+    writePackageJson(dir, { name: "cred-patterns-absent", version: "0.1.0" });
+
+    await loadExternalPlugin(dir);
+    const manifest = await parsePluginManifest(dir);
+
+    const registered = getRegisteredPlugins().find(
+      (p) => p.manifest.name === "cred-patterns-absent",
+    );
+    expect(registered).toBeDefined();
+    expect(registered?.manifest.credentialKeyPatterns).toBeUndefined();
+    expect(manifest?.credentialKeyPatterns).toBeUndefined();
+  });
+
+  test.each([
+    ["a string instead of an array", "not-an-array"],
+    [
+      "more than 5 entries",
+      Array.from({ length: 6 }, (_, i) => ({
+        label: `key-${i}`,
+        pattern: `^ex_tkn_${i}_[A-Za-z0-9]+$`,
+      })),
+    ],
+    ["an empty label", [{ label: "", pattern: "^ex_tkn_[A-Za-z0-9]+$" }]],
+  ])(
+    "malformed declaration (%s) degrades to undefined without blocking load",
+    async (_desc, malformed) => {
+      const dir = freshPluginDir("cred-patterns-malformed");
+      writePackageJson(dir, {
+        name: "cred-patterns-malformed",
+        version: "0.1.0",
+        credentialKeyPatterns: malformed,
+      });
+
+      await loadExternalPlugin(dir);
+      const manifest = await parsePluginManifest(dir);
+
+      const registered = getRegisteredPlugins().find(
+        (p) => p.manifest.name === "cred-patterns-malformed",
+      );
+      expect(registered).toBeDefined();
+      expect(registered?.manifest.credentialKeyPatterns).toBeUndefined();
+      expect(manifest).toEqual({
+        name: "cred-patterns-malformed",
+        version: "0.1.0",
+      });
+    },
+  );
 });
 
 describe("loadExternalPlugin — plugin-api peerDependency", () => {

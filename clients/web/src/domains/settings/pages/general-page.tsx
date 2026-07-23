@@ -20,6 +20,7 @@ import {
 import { DeleteAccountSection } from "@/domains/settings/components/delete-account-section";
 import { DevModeVersionUnlock } from "@/domains/settings/components/dev-mode-version-unlock";
 import { IOSAppCard } from "@/domains/settings/components/ios-app-card";
+import { PairDeviceCard } from "@/domains/settings/pair-device/pair-device-card";
 import { PreferencesModal } from "@/domains/settings/components/preferences-modal";
 import { PreviewReleaseChannel } from "@/domains/settings/components/preview-release-channel";
 import { ResizeCard } from "@/domains/settings/components/resize-card";
@@ -306,6 +307,8 @@ export function GeneralPage() {
       {teleportEnabled && isElectron() && <TeleportCard />}
 
       <IOSAppCard />
+
+      <PairDeviceCard />
 
       {infraGate === "full" && platformAssistant && settingsSleepPolicy && (
         <DetailCard

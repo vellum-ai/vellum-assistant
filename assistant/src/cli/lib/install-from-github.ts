@@ -166,6 +166,8 @@ export interface InstallPluginDeps {
   readonly runPostinstall?: PostinstallRunner;
   /** Override the runner used to install a plugin's dependencies. Falls back to {@link defaultDependencyInstaller}. */
   readonly runInstallDeps?: DependencyInstaller;
+  /** Forwarded to {@link finalizeStagedInstall}; see {@link FinalizeStagedInstallParams.beforeSwap}. */
+  readonly beforeSwap?: () => Promise<void>;
 }
 
 /** Successful install result. */
@@ -501,6 +503,7 @@ export async function installPlugin(
     committedAt,
     pluginsDir,
     installDependencies: deps.runInstallDeps,
+    beforeSwap: deps.beforeSwap,
   });
 
   return { name, target, fileCount, ref, commit, committedAt };
@@ -522,6 +525,15 @@ export interface FinalizeStagedInstallParams {
   readonly pluginsDir: string;
   /** Override the runner used to install the plugin's dependencies. Falls back to {@link defaultDependencyInstaller}. */
   readonly installDependencies?: DependencyInstaller;
+  /**
+   * Invoked after the staged tree is fully populated (dependencies installed,
+   * fingerprint recorded) and immediately before it is swapped over the live
+   * install. The upgrade path uses this to run the outgoing version's
+   * `shutdown` while its files are still on disk — mirroring
+   * `uninstallPlugin`, which runs `shutdown` before `rmSync`. Best-effort: a
+   * rejection is swallowed so a failing teardown can never block the swap.
+   */
+  readonly beforeSwap?: () => Promise<void>;
 }
 
 /**
@@ -548,6 +560,7 @@ export async function finalizeStagedInstall(
     etag,
     pluginsDir,
     installDependencies,
+    beforeSwap,
   }: FinalizeStagedInstallParams,
 ): Promise<{ target: string; fingerprint: Fingerprint }> {
   // Install the plugin's own runtime dependencies into the staged tree before
@@ -591,6 +604,19 @@ export async function finalizeStagedInstall(
   // it, so the target's parent is no longer created as a side effect.
   const target = join(pluginsDir, name);
   mkdirSync(pluginsDir, { recursive: true });
+
+  // Give the outgoing version its shutdown before anything below reads or
+  // replaces the live install: everything fallible (fetch, merge, dependency
+  // install) has already succeeded, so a staging failure never tears a
+  // running plugin down, and the preserved-entries copy below still captures
+  // any final state the shutdown hook writes into data/.
+  if (beforeSwap) {
+    try {
+      await beforeSwap();
+    } catch {
+      // Best-effort teardown; the swap must proceed regardless.
+    }
+  }
 
   // Copy preserved entries (config.json, data/, .disabled) from the existing
   // install into the staging dir before the swap so user-owned state survives

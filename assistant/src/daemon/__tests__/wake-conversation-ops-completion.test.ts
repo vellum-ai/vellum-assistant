@@ -76,6 +76,7 @@ describe("persistWakeTriggerMessage backgroundToolCompletion", () => {
       makeConversationStub(conversationId),
       triggerMessage(),
       "background-tool",
+      true,
       completion,
     );
 
@@ -85,6 +86,8 @@ describe("persistWakeTriggerMessage backgroundToolCompletion", () => {
     expect(metadata.kind).toBe("background-event");
     expect(metadata.backgroundEventSource).toBe("background-tool");
     expect(metadata.automated).toBe(true);
+    // The interactivity mode the wake ran under is recorded for later retries.
+    expect(metadata.backgroundEventInteractive).toBe(true);
   });
 
   test("omits the key entirely when no completion is passed", async () => {
@@ -92,10 +95,13 @@ describe("persistWakeTriggerMessage backgroundToolCompletion", () => {
       makeConversationStub(conversationId),
       triggerMessage(),
       "background-tool",
+      false,
     );
 
     const metadata = readMetadata(conversationId);
     expect("backgroundToolCompletion" in metadata).toBe(false);
     expect(metadata.kind).toBe("background-event");
+    // A clientless/headless wake records the non-interactive mode.
+    expect(metadata.backgroundEventInteractive).toBe(false);
   });
 });
