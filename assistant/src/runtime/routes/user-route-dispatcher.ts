@@ -130,8 +130,8 @@ interface CachedModule {
   mtimeMs: number;
 }
 
-/** Default per-request timeout for user-defined route handlers (30 seconds). */
-const DEFAULT_HANDLER_TIMEOUT_MS = 30_000;
+/** Default per-request timeout for user-defined route handlers (2 minutes). */
+const DEFAULT_HANDLER_TIMEOUT_MS = 120_000;
 
 export class UserRouteDispatcher {
   private moduleCache = new Map<string, CachedModule>();
@@ -151,7 +151,13 @@ export class UserRouteDispatcher {
     this.handlerTimeoutMs =
       options.handlerTimeoutMs ?? DEFAULT_HANDLER_TIMEOUT_MS;
     this.context = Object.freeze({ ...options.context });
-    this.routeHostClient = new RouteHostClient();
+    // Both execution paths — in-process ({@link executeHandler}) and the route
+    // host subprocess — must honor the same per-request timeout, so the host
+    // client's hard-kill deadline is driven by the dispatcher's timeout rather
+    // than its own independent default.
+    this.routeHostClient = new RouteHostClient({
+      invokeTimeoutMs: this.handlerTimeoutMs,
+    });
   }
 
   /**
