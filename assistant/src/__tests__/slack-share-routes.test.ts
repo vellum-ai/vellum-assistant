@@ -12,9 +12,9 @@ import {
 //
 // This file covers the share HANDLER's contract: token-not-configured, input
 // validation, app lookup, and the success response shape. Which Slack identity
-// the post authenticates as (user-first, bot fallback) is proven end-to-end at
-// the wire level in the routes' token-routing.test.ts, so it is deliberately
-// not re-asserted here.
+// the post authenticates as (always the bot) is proven end-to-end at the wire
+// level in the routes' token-routing.test.ts, so it is deliberately not
+// re-asserted here.
 
 const secureKeyValues = new Map<string, string>();
 mock.module("../security/secure-keys.js", () => ({
