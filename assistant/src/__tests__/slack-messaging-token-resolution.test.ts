@@ -167,6 +167,9 @@ describe("Slack messaging token resolution", () => {
         accessToken: "xoxp-oauth-token",
       } as unknown as OAuthConnection;
       resolveOAuthConnectionMock.mockImplementation(async () => oauthConn);
+      getConnectionByProviderMock.mockImplementation(() => ({
+        status: "active",
+      }));
 
       const result = await slackProvider.resolveConnection!();
       expect(result).toBe(oauthConn);
@@ -205,6 +208,9 @@ describe("Slack messaging token resolution", () => {
         accessToken: "xoxp-oauth-token",
       } as unknown as OAuthConnection;
       resolveOAuthConnectionMock.mockImplementation(async () => oauthConn);
+      getConnectionByProviderMock.mockImplementation(() => ({
+        status: "active",
+      }));
 
       const result = await getProviderConnection(slackProvider);
       expect(result).toBe(oauthConn);

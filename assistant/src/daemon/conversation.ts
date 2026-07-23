@@ -18,6 +18,7 @@
 import type { AgentLoopConfig } from "../agent/loop.js";
 import { AgentLoop } from "../agent/loop.js";
 import type { AssistantActivityStateEvent } from "../api/events/assistant-activity-state.js";
+import type { ConfirmationStateChangedEvent } from "../api/events/confirmation-state-changed.js";
 import { decideGuardianRequest } from "../channels/gateway-guardian-requests.js";
 import type {
   ChannelId,
@@ -170,7 +171,6 @@ import type {
 import { filterMessagesForUntrustedActor } from "./message-provenance.js";
 import type { ConversationTransportMetadata } from "./message-types/conversations.js";
 import { isHostProxyTransport } from "./message-types/conversations.js";
-import type { ConfirmationStateChanged } from "./message-types/messages.js";
 import { conversationMetadataSyncTag } from "./message-types/sync.js";
 import {
   resolveSummarizeBoundary,
@@ -1750,7 +1750,7 @@ export class Conversation {
       selectedScope?: string;
       decisionContext?: string;
       emissionContext?: {
-        source?: ConfirmationStateChanged["source"];
+        source?: ConfirmationStateChangedEvent["source"];
         causedByRequestId?: string;
         decisionText?: string;
       };
@@ -1864,7 +1864,7 @@ export class Conversation {
   // ── Server-authoritative state signals ─────────────────────────────
 
   emitConfirmationStateChanged(
-    params: Omit<ConfirmationStateChanged, "type">,
+    params: Omit<ConfirmationStateChangedEvent, "type">,
   ): void {
     const msg: ServerMessage = {
       type: "confirmation_state_changed",

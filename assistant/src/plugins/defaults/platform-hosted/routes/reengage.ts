@@ -100,6 +100,12 @@ export const POST = async (request: Request): Promise<Response> => {
     await runConversationTurn({
       content: [{ type: "text", text: buildPrompt(outputPath) }],
       conversationType: "background",
+      // Drafting a short email is latency-bound, not depth-bound, so run it on
+      // the fast model rather than the balanced main-agent default. `inference`
+      // is the general-purpose call site plugins use for exactly this — it
+      // resolves to the Speed (cost-optimized) profile — so we reuse it instead
+      // of teaching the daemon about a reengagement-specific call site.
+      callSite: "inference",
       signal: request.signal,
     });
 

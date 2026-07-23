@@ -10,7 +10,7 @@ import { resolveCallSiteConfig } from "../../config/llm-resolver.js";
 import { getConfig } from "../../config/loader.js";
 import { countConversations } from "../../persistence/conversation-queries.js";
 import { getMemoryJobCounts } from "../../persistence/jobs-store.js";
-import { rawAll } from "../../persistence/raw-query.js";
+import { rawMemoryAll } from "../../persistence/raw-query.js";
 import {
   getProviderRoutingSource,
   listProviders,
@@ -33,7 +33,7 @@ function getDatabaseSizeBytes(): number | null {
 
 function getMemoryItemCount(): number {
   try {
-    const rows = rawAll<{ c: number }>(
+    const rows = rawMemoryAll<{ c: number }>(
       "debug:getMemoryItemCount",
       "SELECT COUNT(*) AS c FROM memory_graph_nodes",
     );

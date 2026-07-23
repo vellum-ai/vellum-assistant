@@ -1,13 +1,17 @@
-export type CreditPaywallCtaMode = "add-credits" | "upgrade";
+export type CreditPaywallCtaMode =
+  "add-credits-free" | "add-credits-paid" | "upgrade";
 
 /**
  * Upgrade CTA shows ONLY in the experiment upgrade arm AND for a free-plan
- * org. Control arm, paid plan, or unknown/unresolved plan / unhydrated flags
- * all fall back to Add Credits (today's default for everyone).
+ * org. Everything else gets Add Credits, whose copy differs for free vs paid
+ * orgs; an unknown/unresolved plan / unhydrated flags count as paid.
  */
 export function resolveCreditPaywallCta(args: {
   isUpgradeArm: boolean;
   isFreePlan: boolean | undefined;
 }): CreditPaywallCtaMode {
-  return args.isUpgradeArm && args.isFreePlan === true ? "upgrade" : "add-credits";
+  if (args.isUpgradeArm && args.isFreePlan === true) {
+    return "upgrade";
+  }
+  return args.isFreePlan === true ? "add-credits-free" : "add-credits-paid";
 }

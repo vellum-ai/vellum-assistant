@@ -141,9 +141,6 @@ mock.module("@/domains/settings/components/plan-card", () => ({
         <button data-testid="plan-card-tier-upgraded" onClick={onTierUpgraded} />
     ),
 }));
-mock.module("@/domains/settings/components/referral-panel", () => ({
-    ReferralPanel: () => null,
-}));
 
 const { BillingPage } = await import("./billing-page");
 

@@ -101,6 +101,17 @@ describe("VoiceSections turn-taking defaults", () => {
   });
 });
 
+describe("VoiceSections Models & Services pointer", () => {
+  test("stays hidden while the voice card carries the same pointer", () => {
+    // The mocked selection reports no managed catalog, so the card renders its
+    // own "set its voice on Models & Services" copy — the banner beneath it
+    // would just repeat that sentence.
+    renderPage();
+
+    expect(screen.queryByText(/own API key for STT or TTS/)).toBeNull();
+  });
+});
+
 describe("VoiceSections caption toggles", () => {
   test("both transcript toggles default to off on first render", () => {
     renderPage();

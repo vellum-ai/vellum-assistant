@@ -337,6 +337,15 @@ export function extractVellumLinks(text: string): VellumLinkExtractResult {
 }
 
 /**
+ * Like {@link VELLUM_LINK_RE} but also matching `vellum://open/` reference
+ * links. Used only for channel sanitization: reference links must degrade to
+ * their bracket text off-web, but must never be materialized as attachments,
+ * so the extraction regex keeps excluding `open`.
+ */
+const VELLUM_STRIPPABLE_LINK_RE =
+  /(!?)\[([^\]]*)\]\(vellum:\/\/(workspace|host|open)(\/[^)]*)\)/g;
+
+/**
  * Replace `[text](vellum://...)` and `![alt](vellum://...)` markdown links with
  * their bracket text. Used to sanitize text before channel delivery (Slack,
  * Telegram, etc.) where the `vellum://` scheme has no meaning. The image form's
@@ -344,7 +353,7 @@ export function extractVellumLinks(text: string): VellumLinkExtractResult {
  * text is empty).
  */
 export function stripVellumLinks(text: string): string {
-  return text.replace(VELLUM_LINK_RE, "$2");
+  return text.replace(VELLUM_STRIPPABLE_LINK_RE, "$2");
 }
 
 /** Regex fragment matching any prefix of `literal`, including empty and full. */
@@ -371,7 +380,7 @@ const INCOMPLETE_VELLUM_LINK_TAIL_RE = new RegExp(
     "(?:\\(" +
     anyPrefixOf("vellum://") +
     "(?:" +
-    `(?:${anyPrefixOf("workspace")}|${anyPrefixOf("host")})` +
+    `(?:${anyPrefixOf("workspace")}|${anyPrefixOf("host")}|${anyPrefixOf("open")})` +
     "(?:/[^)]*)?" +
     ")?" +
     ")?" +

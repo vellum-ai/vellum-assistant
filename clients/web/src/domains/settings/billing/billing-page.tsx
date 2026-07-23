@@ -18,7 +18,6 @@ import { BillingUsagePanel } from "@/domains/settings/components/billing-usage/b
 import { GracePeriodBanner } from "@/domains/settings/components/grace-period-banner";
 import { InvoicesTable } from "@/domains/settings/components/invoices-table";
 import { PlanCard } from "@/domains/settings/components/plan-card";
-import { ReferralPanel } from "@/domains/settings/components/referral-panel";
 import { useAssistantDomains } from "@/domains/settings/billing/pro-onboarding/use-assistant-domains";
 import {
     organizationsBillingSubscriptionOnboardingRetrieveOptions,
@@ -238,7 +237,6 @@ function BillingTab() {
             <Suspense fallback={null}>
                 <BillingPanel />
             </Suspense>
-            <ReferralPanel />
             <Suspense fallback={null}>
                 <InvoicesTable />
             </Suspense>

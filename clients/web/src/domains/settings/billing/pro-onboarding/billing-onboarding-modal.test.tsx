@@ -163,6 +163,7 @@ function plansWithCredits(): PlanListResponse {
             credits_usd: 50,
             price_cents: 5000,
             lookup_key: "credits_50_key",
+            legacy: false,
           },
         ],
         packages: [],
@@ -401,6 +402,33 @@ describe("BillingOnboardingModal", () => {
     expect(readCheckoutIntent()).toBeNull();
     // Checkout mode never fires the modal-level domains query.
     expect(domainsCalls).toBe(0);
+  });
+
+  test("the complete step exposes a close button that dismisses", async () => {
+    subscriptionPlanId = "pro";
+    onboardingResponse = makeOnboarding({ domain_setup_available: false });
+    const { client, getByText, onClose } = renderModal();
+
+    await waitFor(
+      () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
+      { timeout: 5000 },
+    );
+    await waitFor(() => expect(getByText("10 GB")).toBeTruthy(), {
+      timeout: 5000,
+    });
+    // The takeover holds no close control on the way through.
+    expect(document.body.querySelector('[aria-label="Close"]')).toBeNull();
+
+    assistantResponse = makeAssistant("large", 50);
+    await client.invalidateQueries();
+    await waitFor(() => expect(getByText("You're all set!")).toBeTruthy(), {
+      timeout: 5000,
+    });
+
+    const close = document.body.querySelector('[aria-label="Close"]');
+    expect(close).not.toBeNull();
+    fireEvent.click(close as Element);
+    expect(onClose).toHaveBeenCalled();
   });
 
   test("storage-only package provisions without a machine card", async () => {

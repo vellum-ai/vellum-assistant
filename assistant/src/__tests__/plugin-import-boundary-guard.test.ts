@@ -169,6 +169,7 @@ const BASELINE: Record<string, readonly string[]> = {
     "../../../home/job-handlers/conversation-starters.js",
     "../../../media/job-handlers/media-processing.js",
     "../../../permissions/types.js",
+    "../../../persistence/auto-analysis-constants.js",
     "../../../persistence/checkpoints.js",
     "../../../persistence/cleanup-schedule-state.js",
     "../../../persistence/conversation-crud.js",

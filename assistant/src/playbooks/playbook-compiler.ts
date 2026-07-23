@@ -6,7 +6,7 @@
 
 import { and, sql } from "drizzle-orm";
 
-import { getDb } from "../persistence/db-connection.js";
+import { getMemoryDb } from "../persistence/db-connection.js";
 import { memoryGraphNodes } from "../persistence/schema/index.js";
 import type { Playbook } from "./types.js";
 import { parsePlaybookStatement } from "./types.js";
@@ -26,7 +26,10 @@ interface PlaybookRow {
 }
 
 export function compilePlaybooks(): CompiledPlaybooks {
-  const db = getDb();
+  const db = getMemoryDb();
+  if (!db) {
+    return { text: "", totalCount: 0, includedCount: 0 };
+  }
 
   const rows: PlaybookRow[] = db
     .select({

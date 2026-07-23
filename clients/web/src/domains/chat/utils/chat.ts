@@ -44,6 +44,9 @@ const GLOBAL_STREAM_EVENT_TYPE_NAMES = [
   "avatar_updated",
   "sync_changed",
   "disk_pressure_status_changed",
+  // App source-file change broadcast — carries an `appId`, not a
+  // `conversationId`; clients re-read the app on receipt.
+  "app_files_changed",
   "home_feed_updated",
   "relationship_state_updated",
   // Workspace-scoped prompt — the `contacts/prompt` IPC route fires it
@@ -109,11 +112,28 @@ const GLOBAL_STREAM_EVENT_TYPE_NAMES = [
   // host_browser_cancel carries no `conversationId` (only a requestId), so it
   // must be gated as global; the other host-proxy frames carry one.
   "host_browser_cancel",
+  // Daemon status, model catalog, and schedule-created broadcasts are not tied
+  // to the active conversation stream (assistant_status / model_info carry no or
+  // optional conversationId; schedule_conversation_created announces a *new*
+  // conversation), so gate them as global.
+  "assistant_status",
+  "model_info",
+  "schedule_conversation_created",
+  // Heartbeat alert (no conversationId) and heartbeat-created conversation
+  // (announces a *new* conversation) are app-wide, not conversation-scoped.
+  "heartbeat_alert",
+  "heartbeat_conversation_created",
   // Settings/config broadcasts (client-setting push, config.json change, sounds
   // change) carry no `conversationId` — they're app-wide, not conversation-scoped.
   "client_settings_update",
   "config_changed",
   "sounds_config_updated",
+  // Integration/platform lifecycle broadcasts — OAuth-connect completion,
+  // platform login prompt, and platform disconnect notice — are app-wide and
+  // carry no `conversationId`, so gate them as global.
+  "oauth_connect_result",
+  "show_platform_login",
+  "platform_disconnected",
   // Notification-created broadcasts and recording lifecycle instructions are not
   // tied to the active conversation stream (they carry no top-level
   // `conversationId`, or — for notification_conversation_created — announce a
