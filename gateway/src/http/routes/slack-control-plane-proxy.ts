@@ -57,9 +57,5 @@ export function createSlackControlPlaneProxyHandler(config: GatewayConfig) {
       const url = new URL(req.url);
       return proxyToRuntime(req, "/v1/slack/channels", url.search);
     },
-
-    async handleShareToSlack(req: Request): Promise<Response> {
-      return proxyToRuntime(req, "/v1/slack/share", "");
-    },
   };
 }

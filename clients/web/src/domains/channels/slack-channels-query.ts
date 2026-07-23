@@ -1,6 +1,7 @@
 /**
- * Shared query options/key for the member-only Slack channel list
- * (`GET /v1/slack/channels?memberOnly=true`) shown in the Slack sub-tab.
+ * Shared query options/key for the Slack channel list
+ * (`GET /v1/slack/channels`) shown in the Slack sub-tab — the rooms the
+ * connected bot is a member of.
  *
  * The cached list is scoped to whichever Slack workspace the stored
  * credentials point at, but the key only carries the assistant id — so
@@ -19,8 +20,6 @@ export type SlackChannel = SlackChannelsGetResponse["channels"][number];
 function memberChannelsRequestOptions(assistantId: string) {
   return {
     path: { assistant_id: assistantId },
-    // Member-only is the product contract for the presence list (no toggle).
-    query: { memberOnly: "true" } as const,
   };
 }
 

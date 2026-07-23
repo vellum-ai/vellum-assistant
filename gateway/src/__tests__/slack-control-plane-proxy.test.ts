@@ -53,11 +53,11 @@ afterEach(() => {
 });
 
 describe("slack control-plane proxy", () => {
-  test("forwards slack share endpoints to the runtime", async () => {
+  test("forwards the channels endpoint to the runtime", async () => {
     const captured: string[] = [];
     fetchMock = mock(async (input: string | URL | Request) => {
       captured.push(String(input));
-      return new Response(JSON.stringify({ ok: true }), {
+      return new Response(JSON.stringify({ channels: [] }), {
         status: 200,
         headers: { "content-type": "application/json" },
       });
@@ -68,18 +68,8 @@ describe("slack control-plane proxy", () => {
     await handler.handleListSlackChannels(
       new Request("http://localhost:7830/v1/slack/channels"),
     );
-    await handler.handleShareToSlack(
-      new Request("http://localhost:7830/v1/slack/share", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ channel: "C123", text: "hello" }),
-      }),
-    );
 
-    expect(captured).toEqual([
-      "http://localhost:7821/v1/slack/channels",
-      "http://localhost:7821/v1/slack/share",
-    ]);
+    expect(captured).toEqual(["http://localhost:7821/v1/slack/channels"]);
   });
 
   test("forwards query string for channel listing", async () => {
@@ -113,15 +103,12 @@ describe("slack control-plane proxy", () => {
     );
 
     const handler = createSlackControlPlaneProxyHandler(makeConfig());
-    const res = await handler.handleShareToSlack(
-      new Request("http://localhost:7830/v1/slack/share", {
-        method: "POST",
+    const res = await handler.handleListSlackChannels(
+      new Request("http://localhost:7830/v1/slack/channels", {
         headers: {
           authorization: "Bearer caller-token",
-          "content-type": "application/json",
           host: "localhost:7830",
         },
-        body: JSON.stringify({ channel: "C123", text: "hello" }),
       }),
     );
 
@@ -139,10 +126,8 @@ describe("slack control-plane proxy", () => {
     });
 
     const handler = createSlackControlPlaneProxyHandler(makeConfig());
-    const res = await handler.handleShareToSlack(
-      new Request("http://localhost:7830/v1/slack/share", {
-        method: "POST",
-      }),
+    const res = await handler.handleListSlackChannels(
+      new Request("http://localhost:7830/v1/slack/channels"),
     );
 
     expect(res.status).toBe(400);

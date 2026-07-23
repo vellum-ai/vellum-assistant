@@ -29,19 +29,8 @@ mock.module("../oauth/connection-resolver.js", () => ({
 }));
 
 let listConversationsResult: unknown = { ok: true, channels: [] };
-let userInfoResults: Map<string, unknown> = new Map();
-
 mock.module("../messaging/providers/slack/client.js", () => ({
   listConversations: async () => listConversationsResult,
-  userInfo: async (_token: string, userId: string) => {
-    const result = userInfoResults.get(userId);
-    if (result) {
-      return result;
-    }
-    throw new Error(`User not found: ${userId}`);
-  },
-  // auth.ts imports SlackApiError from the client; export it from the mock.
-  SlackApiError: class SlackApiError extends Error {},
 }));
 
 // ---------------------------------------------------------------------------
@@ -57,8 +46,7 @@ const { handleListSlackChannels } =
 
 function configureToken() {
   // Socket Mode bot token — the connected Channels-page install. resolveSlackAuth
-  // returns it directly for both the presence ("bot") and share-picker ("user")
-  // paths, so no OAuth connection resolution is involved.
+  // returns it directly for the "bot" identity, so no OAuth resolution runs.
   secureKeyValues.set("credential/slack_channel/bot_token", "xoxb-test");
 }
 
@@ -66,7 +54,6 @@ beforeEach(() => {
   secureKeyValues.clear();
   connectionByProvider = {};
   listConversationsResult = { ok: true, channels: [] };
-  userInfoResults = new Map();
 });
 
 describe("handleListSlackChannels", () => {
@@ -74,55 +61,35 @@ describe("handleListSlackChannels", () => {
     expect(handleListSlackChannels()).rejects.toThrow(ServiceUnavailableError);
   });
 
-  test("returns channels sorted by type then name", async () => {
+  test("returns member channels and group DMs sorted by type then name, dropping non-member and 1:1 IM rows", async () => {
     configureToken();
 
     listConversationsResult = {
       ok: true,
       channels: [
-        {
-          id: "D1",
-          name: undefined,
-          is_im: true,
-          user: "U1",
-          is_private: true,
-        },
-        { id: "C2", name: "beta-channel", is_channel: true },
-        { id: "C1", name: "alpha-channel", is_channel: true },
+        // 1:1 IM — person-scoped, dropped.
+        { id: "D1", is_im: true, user: "U1", is_private: true },
+        // Non-member public channel — dropped (the bot can't act there).
+        { id: "C3", name: "not-joined", is_channel: true, is_member: false },
+        { id: "C2", name: "beta-channel", is_channel: true, is_member: true },
+        { id: "C1", name: "alpha-channel", is_channel: true, is_member: true },
+        // Group DM — kept.
         { id: "G1", name: "group-chat", is_mpim: true, is_private: true },
       ],
     };
-
-    userInfoResults.set("U1", {
-      ok: true,
-      user: {
-        id: "U1",
-        name: "alice",
-        profile: { display_name: "Alice Smith" },
-      },
-    });
 
     const result = (await handleListSlackChannels()) as {
       channels: Array<Record<string, unknown>>;
     };
 
-    expect(result.channels).toHaveLength(4);
+    // Channels first (by name), then the group DM.
+    expect(result.channels.map((c) => c.id)).toEqual(["C1", "C2", "G1"]);
     expect(result.channels[0]).toEqual({
       id: "C1",
       name: "alpha-channel",
       type: "channel",
       isPrivate: false,
-      isMember: false,
-      memberCount: null,
-      topic: null,
-      imageUrl: null,
-    });
-    expect(result.channels[1]).toEqual({
-      id: "C2",
-      name: "beta-channel",
-      type: "channel",
-      isPrivate: false,
-      isMember: false,
+      isMember: true,
       memberCount: null,
       topic: null,
       imageUrl: null,
@@ -137,19 +104,9 @@ describe("handleListSlackChannels", () => {
       topic: null,
       imageUrl: null,
     });
-    expect(result.channels[3]).toEqual({
-      id: "D1",
-      name: "Alice Smith",
-      type: "dm",
-      isPrivate: true,
-      isMember: true,
-      memberCount: null,
-      topic: null,
-      imageUrl: null,
-    });
   });
 
-  test("maps isMember, memberCount, topic, and purpose fallback from the raw payload", async () => {
+  test("maps memberCount, topic, and purpose fallback from the raw payload", async () => {
     configureToken();
 
     listConversationsResult = {
@@ -168,14 +125,10 @@ describe("handleListSlackChannels", () => {
           id: "C2",
           name: "purpose-fallback",
           is_channel: true,
+          is_member: true,
           num_members: 7,
           topic: { value: "" },
           purpose: { value: "Escalation hand-offs" },
-        },
-        {
-          id: "C3",
-          name: "bare-channel",
-          is_channel: true,
         },
       ],
     };
@@ -184,27 +137,18 @@ describe("handleListSlackChannels", () => {
       channels: Array<Record<string, unknown>>;
     };
 
+    // Sorted by name: "purpose-fallback" before "with-topic".
     expect(result.channels[0]).toEqual({
-      id: "C3",
-      name: "bare-channel",
-      type: "channel",
-      isPrivate: false,
-      isMember: false,
-      memberCount: null,
-      topic: null,
-      imageUrl: null,
-    });
-    expect(result.channels[1]).toEqual({
       id: "C2",
       name: "purpose-fallback",
       type: "channel",
       isPrivate: false,
-      isMember: false,
+      isMember: true,
       memberCount: 7,
       topic: "Escalation hand-offs",
       imageUrl: null,
     });
-    expect(result.channels[2]).toEqual({
+    expect(result.channels[1]).toEqual({
       id: "C1",
       name: "with-topic",
       type: "channel",
@@ -214,166 +158,5 @@ describe("handleListSlackChannels", () => {
       topic: "P2 incident triage",
       imageUrl: null,
     });
-  });
-
-  test("populates imageUrl on DM rows from the userInfo profile", async () => {
-    configureToken();
-
-    listConversationsResult = {
-      ok: true,
-      channels: [
-        { id: "D1", is_im: true, user: "U1", is_private: true },
-        { id: "D2", is_im: true, user: "U2", is_private: true },
-      ],
-    };
-
-    userInfoResults.set("U1", {
-      ok: true,
-      user: {
-        id: "U1",
-        name: "alice",
-        profile: {
-          display_name: "Alice Smith",
-          image_48: "https://avatars.example.com/u1_48.png",
-        },
-      },
-    });
-    userInfoResults.set("U2", {
-      ok: true,
-      user: {
-        id: "U2",
-        name: "bob",
-        profile: { display_name: "Bob Jones" },
-      },
-    });
-
-    const result = (await handleListSlackChannels()) as {
-      channels: Array<Record<string, unknown>>;
-    };
-
-    expect(result.channels[0]).toEqual({
-      id: "D1",
-      name: "Alice Smith",
-      type: "dm",
-      isPrivate: true,
-      isMember: true,
-      memberCount: null,
-      topic: null,
-      imageUrl: "https://avatars.example.com/u1_48.png",
-    });
-    expect(result.channels[1]).toEqual({
-      id: "D2",
-      name: "Bob Jones",
-      type: "dm",
-      isPrivate: true,
-      isMember: true,
-      memberCount: null,
-      topic: null,
-      imageUrl: null,
-    });
-  });
-
-  test("memberOnly=true filters out non-member channels before normalizing", async () => {
-    configureToken();
-
-    listConversationsResult = {
-      ok: true,
-      channels: [
-        { id: "C1", name: "member-channel", is_channel: true, is_member: true },
-        { id: "C2", name: "other-channel", is_channel: true, is_member: false },
-        { id: "C3", name: "bare-channel", is_channel: true },
-      ],
-    };
-
-    const result = (await handleListSlackChannels({
-      queryParams: { memberOnly: "true" },
-    })) as { channels: Array<Record<string, unknown>> };
-
-    expect(result.channels).toHaveLength(1);
-    expect(result.channels[0]).toEqual({
-      id: "C1",
-      name: "member-channel",
-      type: "channel",
-      isPrivate: false,
-      isMember: true,
-      memberCount: null,
-      topic: null,
-      imageUrl: null,
-    });
-  });
-
-  test("memberOnly=true keeps group DMs but excludes 1:1 DMs (person-scoped)", async () => {
-    configureToken();
-
-    listConversationsResult = {
-      ok: true,
-      channels: [
-        { id: "C2", name: "other-channel", is_channel: true, is_member: false },
-        { id: "D1", is_im: true, user: "U1", is_private: true },
-        { id: "G1", name: "group-chat", is_mpim: true, is_private: true },
-      ],
-    };
-
-    const result = (await handleListSlackChannels({
-      queryParams: { memberOnly: "true" },
-    })) as { channels: Array<Record<string, unknown>> };
-
-    expect(result.channels.map((c) => c.id)).toEqual(["G1"]);
-    expect(result.channels[0]).toEqual({
-      id: "G1",
-      name: "group-chat",
-      type: "group",
-      isPrivate: true,
-      isMember: true,
-      memberCount: null,
-      topic: null,
-      imageUrl: null,
-    });
-  });
-
-  test("drops Slackbot and deleted-user IMs from the share picker path", async () => {
-    configureToken();
-
-    listConversationsResult = {
-      ok: true,
-      channels: [
-        { id: "D1", is_im: true, user: "USLACKBOT", is_private: true },
-        {
-          id: "D2",
-          is_im: true,
-          user: "U2",
-          is_private: true,
-          is_user_deleted: true,
-        },
-        { id: "D3", is_im: true, user: "U3", is_private: true },
-      ],
-    };
-    userInfoResults.set("U3", {
-      ok: true,
-      user: { id: "U3", name: "carol", profile: { display_name: "Carol" } },
-    });
-
-    const all = (await handleListSlackChannels({})) as {
-      channels: Array<Record<string, unknown>>;
-    };
-    expect(all.channels.map((c) => c.id)).toEqual(["D3"]);
-  });
-
-  test("omitting memberOnly returns all conversations", async () => {
-    configureToken();
-
-    listConversationsResult = {
-      ok: true,
-      channels: [
-        { id: "C1", name: "member-channel", is_channel: true, is_member: true },
-        { id: "C2", name: "other-channel", is_channel: true, is_member: false },
-      ],
-    };
-
-    const result = (await handleListSlackChannels({})) as {
-      channels: Array<Record<string, unknown>>;
-    };
-
-    expect(result.channels).toHaveLength(2);
   });
 });

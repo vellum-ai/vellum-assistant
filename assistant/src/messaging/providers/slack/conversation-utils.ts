@@ -37,7 +37,7 @@ export function isPrivateConversation(
  * conversations. Note this is access, not presence: Slack materializes IM
  * rows without any conversation happening (Slackbot, a user opening the
  * bot's DM tab) — surfaces that mean "an actual DM exists" must add their
- * own history check (see the slack channels route's memberOnly path).
+ * own history check.
  */
 export function isMemberConversation(conv: SlackConversation): boolean {
   return conv.is_member === true || !!conv.is_im || !!conv.is_mpim;

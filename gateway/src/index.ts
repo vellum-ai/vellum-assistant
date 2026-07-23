@@ -1052,12 +1052,6 @@ async function main() {
       auth: "edge",
       handler: (req) => slackControlPlaneProxy.handleListSlackChannels(req),
     },
-    {
-      path: "/v1/slack/share",
-      method: "POST",
-      auth: "edge",
-      handler: (req) => slackControlPlaneProxy.handleShareToSlack(req),
-    },
 
     // ── OAuth providers ──
     {

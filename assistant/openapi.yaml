@@ -28656,23 +28656,10 @@ paths:
   /v1/slack/channels:
     get:
       operationId: slack_channels_get
-      summary: List Slack channels
-      description: List Slack channels, groups, and DMs for the channel picker.
+      summary: List the Slack rooms the bot is in
+      description: List the Slack channels and group DMs the connected bot is a member of, for the Channels settings tab.
       tags:
         - integrations
-      parameters:
-        - name: memberOnly
-          in: query
-          required: false
-          schema:
-            type: string
-            enum:
-              - "true"
-              - "false"
-          description:
-            "When 'true', only return rooms the connected identity is in: channels with is_member plus group DMs. 1:1
-            DMs are excluded — they are person-scoped, and Slack materializes IM rows without any conversation
-            happening."
       responses:
         "200":
           description: Successful response
@@ -28724,51 +28711,6 @@ paths:
                       additionalProperties: false
                 required:
                   - channels
-                additionalProperties: false
-  /v1/slack/share:
-    post:
-      operationId: slack_share_post
-      summary: Share to Slack channel
-      description: Post an app link directly to a Slack channel.
-      tags:
-        - integrations
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                appId:
-                  type: string
-                  description: App to share
-                channelId:
-                  type: string
-                  description: Target Slack channel ID
-                message:
-                  description: Optional accompanying message
-                  type: string
-              required:
-                - appId
-                - channelId
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  ok:
-                    type: boolean
-                  ts:
-                    type: string
-                  channel:
-                    type: string
-                required:
-                  - ok
-                  - ts
-                  - channel
                 additionalProperties: false
   /v1/slack/users:
     get:

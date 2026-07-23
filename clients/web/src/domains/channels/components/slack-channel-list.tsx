@@ -173,7 +173,7 @@ const EMPTY_PENDING_IDS: ReadonlySet<string> = new Set();
  * expand inline (single-open accordion; "Expand all" switches to multi-open)
  * to configure the channel's Assistant Access tier. Search and the kind chips
  * narrow the list client-side; the membership filter itself is server-side
- * (`?memberOnly=true`) with no toggle.
+ * — the route returns only the rooms the bot is in.
  */
 export function SlackChannelList({
   assistantDisplayName,

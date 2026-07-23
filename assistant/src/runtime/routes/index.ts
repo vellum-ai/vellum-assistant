@@ -93,7 +93,6 @@ import { ROUTES as INFERENCE_SEND_ROUTES } from "./inference-send-routes.js";
 import { ROUTES as A2A_ROUTES } from "./integrations/a2a.js";
 import { ROUTES as SLACK_CHANNEL_CONFIG_ROUTES } from "./integrations/slack/channel.js";
 import { ROUTES as SLACK_CHANNELS_ROUTES } from "./integrations/slack/channels.js";
-import { ROUTES as SLACK_SHARE_ROUTES } from "./integrations/slack/share.js";
 import { ROUTES as SLACK_USERS_ROUTES } from "./integrations/slack/users.js";
 import { ROUTES as TELEGRAM_ROUTES } from "./integrations/telegram.js";
 import { ROUTES as TWILIO_ROUTES } from "./integrations/twilio.js";
@@ -282,7 +281,6 @@ export const ROUTES: RouteDefinition[] = [
   ...SLACK_CHANNEL_CONFIG_ROUTES,
   ...SLACK_CHANNEL_RESOLVE_ROUTES,
   ...SLACK_CHANNELS_ROUTES,
-  ...SLACK_SHARE_ROUTES,
   ...SLACK_USERS_ROUTES,
   ...STT_ROUTES,
   ...SUGGEST_TRUST_RULE_ROUTES,
