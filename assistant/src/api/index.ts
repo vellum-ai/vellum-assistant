@@ -39,6 +39,8 @@ import { DocumentEditorUpdateEventSchema } from "./events/document-editor-update
 import { ErrorEventSchema } from "./events/error.js";
 import { GenerationCancelledEventSchema } from "./events/generation-cancelled.js";
 import { GenerationHandoffEventSchema } from "./events/generation-handoff.js";
+import { HeartbeatAlertEventSchema } from "./events/heartbeat-alert.js";
+import { HeartbeatConversationCreatedEventSchema } from "./events/heartbeat-conversation-created.js";
 import { HomeFeedUpdatedEventSchema } from "./events/home-feed-updated.js";
 import { HookEventSchema } from "./events/hook-event.js";
 import {
@@ -326,6 +328,14 @@ export {
   type GenerationHandoffEvent,
   GenerationHandoffEventSchema,
 } from "./events/generation-handoff.js";
+export {
+  type HeartbeatAlertEvent,
+  HeartbeatAlertEventSchema,
+} from "./events/heartbeat-alert.js";
+export {
+  type HeartbeatConversationCreatedEvent,
+  HeartbeatConversationCreatedEventSchema,
+} from "./events/heartbeat-conversation-created.js";
 export {
   type HomeFeedUpdatedEvent,
   HomeFeedUpdatedEventSchema,
@@ -869,6 +879,8 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   ErrorEventSchema,
   GenerationCancelledEventSchema,
   GenerationHandoffEventSchema,
+  HeartbeatAlertEventSchema,
+  HeartbeatConversationCreatedEventSchema,
   HomeFeedUpdatedEventSchema,
   HookEventSchema,
   HostAppControlCancelEventSchema,
