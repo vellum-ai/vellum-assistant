@@ -526,6 +526,10 @@ export function useStreamEventHandler(
         // surfaces refetch through their own query invalidation.
         case "skills_state_changed":
           break;
+        // App source-file change broadcast. The chat handler is a no-op; app
+        // surfaces re-read the app through their own refresh path.
+        case "app_files_changed":
+          break;
         // Settings/config broadcasts. The chat handler is a no-op — these target
         // the desktop client or are handled by config-sync consumers.
         case "client_settings_update":
