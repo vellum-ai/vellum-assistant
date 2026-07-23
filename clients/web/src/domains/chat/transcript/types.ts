@@ -128,6 +128,13 @@ export interface PaginatedHistoryResult
    *  completion); it is optional so other constructors (snapshot spreads, tests)
    *  need not restate it. */
   backgroundToolCompletions?: BackgroundTaskEntry[];
+  /** Client-stamped seq generation captured when this page's `/messages`
+   *  request was ISSUED (see `reconnect-cursor.ts`). Lets the snapshot-anchor
+   *  frontier be tagged with the generation its watermark belongs to, so a
+   *  page that raced a generation reset is recognised as stale. Undefined for
+   *  constructors that don't stamp it (snapshot spreads, tests) — the caller
+   *  falls back to the current generation. */
+  seqGeneration?: number;
 }
 
 /** Snapshot of the transcript pagination state held by the scroll

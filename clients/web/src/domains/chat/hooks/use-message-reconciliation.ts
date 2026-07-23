@@ -10,6 +10,7 @@ import { bucketMessagesAdded, recordDiagnostic, resolvePlatformTag } from "@/lib
 import { summarizeRuntimeMessages } from "@/domains/chat/utils/diagnostics";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import { recordLocalSeq } from "@/lib/streaming/local-seq";
+import { getSeqGeneration } from "@/lib/streaming/reconnect-cursor";
 import { mapRuntimeToDisplayMessage } from "@/domains/chat/utils/map-runtime-message";
 import { selectTranscriptMessages } from "@/domains/chat/transcript/select-transcript-messages";
 import { conversationHistoryQueryKey } from "@/domains/chat/transcript/use-history-pagination";
@@ -104,6 +105,12 @@ export function useMessageReconciliation({
       serverSeq: number | null,
       serverProcessing: boolean | undefined,
       authoritative = false,
+      // The seq generation this snapshot's `/messages` request was ISSUED in.
+      // A request that raced a generation reset returns a dead-generation
+      // watermark; tagging the frontier with the issue-time generation lets the
+      // stale-frontier guard recognise and clear it. Defaults to the current
+      // generation for callers that fetched synchronously with no reset window.
+      issuedGeneration: number = getSeqGeneration(),
     ): {
       changed: boolean;
       assistantProgress: boolean;
@@ -115,7 +122,7 @@ export function useMessageReconciliation({
       }
 
       // Advance the local seq frontier — we've observed this server snapshot.
-      recordLocalSeq(conversationId, serverSeq);
+      recordLocalSeq(conversationId, serverSeq, issuedGeneration);
 
       const localView = currentLocalView();
       const serverView = serverMessages.map(mapRuntimeToDisplayMessage);
@@ -225,6 +232,7 @@ export function useMessageReconciliation({
       serverSeq: number | null,
       serverProcessing: boolean | undefined,
       authoritative = false,
+      issuedGeneration: number = getSeqGeneration(),
     ): ReconcileActiveConversationResult => {
       const { changed, assistantProgress, messagesAdded } =
         reconcileFromServerDetailed(
@@ -233,6 +241,7 @@ export function useMessageReconciliation({
           serverSeq,
           serverProcessing,
           authoritative,
+          issuedGeneration,
         );
 
       // Reconcile turn state: only fire the silent-stall rescue when ALL
@@ -327,6 +336,11 @@ export function useMessageReconciliation({
       // in the store prevents stale reconciliation from idling it.
       const snapshotTurnId = useTurnStore.getState().activeTurnId;
       const snapshotEpoch = streamState.streamEpoch;
+      // Capture the seq generation at request-ISSUE time: if the daemon's
+      // counter resets while this fetch is in flight, the watermark it returns
+      // belongs to the abandoned generation, and tagging the frontier with the
+      // issue-time generation is what lets the stale-frontier guard clear it.
+      const issuedGeneration = getSeqGeneration();
 
       try {
         const snapshot = await fetchConversationMessages(
@@ -368,6 +382,7 @@ export function useMessageReconciliation({
           serverSeq,
           serverProcessing,
           authoritative,
+          issuedGeneration,
         );
       } catch (err) {
         // Re-throw so callers that await the result (e.g. the
@@ -426,6 +441,9 @@ export function useMessageReconciliation({
           return;
         }
         const snapshotTurnId = useTurnStore.getState().activeTurnId;
+        // Issue-time generation (see `reconcileActiveConversation`): a reset
+        // mid-fetch makes this snapshot's watermark a dead-generation anchor.
+        const issuedGeneration = getSeqGeneration();
 
         fetchConversationMessages(ctx.assistantId, ctx.conversationId, {
           latestPageLimit: RECONCILE_LATEST_PAGE_LIMIT,
@@ -450,6 +468,9 @@ export function useMessageReconciliation({
               ctx.conversationId,
               serverSeq,
               serverProcessing,
+              // Poll-loop reconciles are never authoritative.
+              false,
+              issuedGeneration,
             );
 
             if (changed) {
