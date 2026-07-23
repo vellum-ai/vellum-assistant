@@ -88,6 +88,12 @@ export interface AssistantSideMenuProps extends UseSidebarStateParams {
   onOpenInNewWindow?: (conversation: Conversation) => void;
   onShareFeedback?: () => void;
   onInspect?: (conversation: Conversation) => void;
+  /** Move a conversation into an existing custom group. */
+  onMoveToGroup?: (conversation: Conversation, groupId: string) => void;
+  /** Create a new custom group ("New group…") and move the conversation into it. */
+  onCreateGroupInto?: (conversation: Conversation) => void;
+  /** Remove a conversation from its current custom group (back to Recents). */
+  onRemoveFromGroup?: (conversation: Conversation) => void;
 }
 
 function SearchButton() {
@@ -170,6 +176,9 @@ export function AssistantSideMenu({
   onOpenInNewWindow,
   onShareFeedback,
   onInspect,
+  onMoveToGroup,
+  onCreateGroupInto,
+  onRemoveFromGroup,
 }: AssistantSideMenuProps) {
   const sidebar = useSidebarState({
     assistantId,
@@ -279,6 +288,10 @@ export function AssistantSideMenu({
     onOpenInNewWindow,
     onShareFeedback,
     onInspect,
+    conversationGroups,
+    onMoveToGroup,
+    onCreateGroupInto,
+    onRemoveFromGroup,
     dragReorder,
     canReorder: !!onReorderConversations,
   };
