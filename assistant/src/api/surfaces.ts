@@ -614,6 +614,18 @@ export function safeParseSurfaceData<K extends SurfaceType>(
   surfaceType: K,
   data: unknown,
 ): SurfaceDataByType[K] | undefined {
-  const result = SURFACE_DATA_SCHEMAS[surfaceType].safeParse(data);
+  // `surfaceType` is typed as a known type, but nothing stops a JS caller — or a
+  // runtime string that only survived under a widened type — from passing one
+  // that isn't in the registry, where `SURFACE_DATA_SCHEMAS[surfaceType]` is
+  // `undefined` and `.safeParse` would throw. Return `undefined` (the same
+  // "couldn't produce a typed payload" signal a parse miss gives) so this stays
+  // total, as its name promises.
+  const schema = SURFACE_DATA_SCHEMAS[surfaceType] as
+    | z.ZodType<SurfaceDataByType[K]>
+    | undefined;
+  if (!schema) {
+    return undefined;
+  }
+  const result = schema.safeParse(data);
   return result.success ? result.data : undefined;
 }
