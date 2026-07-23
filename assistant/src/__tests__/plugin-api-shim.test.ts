@@ -15,9 +15,11 @@
  */
 
 import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "bun:test";
 
 import {
@@ -27,6 +29,7 @@ import {
 import {
   buildShimSource,
   ensurePluginApiShim,
+  pluginApiFallbackEntry,
 } from "../plugins/ensure-plugin-api-shim.js";
 
 const SHIM_REL_PATH = "node_modules/@vellumai/plugin-api";
@@ -36,22 +39,25 @@ describe("buildShimSource", () => {
     const source = buildShimSource(
       ["foo", "bar"],
       Symbol.for("vellum.plugin-api"),
+      "file:///somewhere/plugin-api/index.ts",
     );
-    // Prefers the host-installed namespace, falls back to importing the
-    // plugin-api source directly, and caches the fallback on globalThis.
-    expect(source).toContain(
-      `let api = globalThis[Symbol.for("vellum.plugin-api")];`,
+    // Prefers the host-installed namespace and falls back to importing
+    // the baked plugin-api entry directly.
+    expect(source).toBe(
+      `let api = globalThis[Symbol.for("vellum.plugin-api")];\n` +
+        `if (api === undefined) {\n` +
+        `  api = await import("file:///somewhere/plugin-api/index.ts");\n` +
+        `}\n` +
+        `export const foo = api.foo;\n` +
+        `export const bar = api.bar;\n`,
     );
-    expect(source).toContain(`if (api === undefined) {`);
-    expect(source).toContain(`await import(`);
-    expect(source).toContain(
-      `process.env.VELLUM_PLUGIN_API_ENTRY ?? "/app/assistant/src/plugin-api/index.ts"`,
-    );
-    expect(source).toContain(
-      `api = globalThis[Symbol.for("vellum.plugin-api")] = apid;`,
-    );
-    expect(source).toContain(`export const foo = api.foo;`);
-    expect(source).toContain(`export const bar = api.bar;`);
+  });
+
+  test("bakes the entry resolved from this source tree by default", () => {
+    const source = buildShimSource(["foo"], Symbol.for("vellum.plugin-api"));
+    expect(source).toContain(pluginApiFallbackEntry());
+    // The default entry points at the real file next to this repo's source.
+    expect(existsSync(fileURLToPath(pluginApiFallbackEntry()))).toBe(true);
   });
 
   test("handles an empty export list (types-only surface)", () => {
@@ -112,9 +118,10 @@ describe("ensurePluginApiShim", () => {
   test("a bare subprocess falls back to importing the plugin-api source directly", async () => {
     // A plugin-spawned subprocess never evaluates the assistant's embed
     // wrapper, so globalThis carries no namespace there. The shim must
-    // fall back to importing the plugin-api entry itself. Point the
-    // entry override at this repo's real source and prove a runtime
-    // export is live in a fresh process.
+    // fall back to the entry baked at generation time (resolved from this
+    // source tree via import.meta.url — no env var involved, so a
+    // sanitized subprocess env cannot break it). Prove a runtime export
+    // is live in a fresh process.
     const workspaceDir = await mkdtemp(join(tmpdir(), "plugin-api-shim-"));
     await ensurePluginApiShim({ workspaceDir });
 
@@ -129,10 +136,8 @@ describe("ensurePluginApiShim", () => {
         `}));\n`,
     );
 
-    const entry = join(import.meta.dir, "..", "plugin-api", "index.ts");
     const result = spawnSync(process.execPath, ["run", probe], {
       encoding: "utf8",
-      env: { ...process.env, VELLUM_PLUGIN_API_ENTRY: entry },
       timeout: 30_000,
     });
     expect(result.status).toBe(0);
