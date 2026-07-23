@@ -17,7 +17,7 @@ export interface PlanTierCopy {
   cta: string;
   /** Small caption rendered under the price. */
   priceCaption: string;
-  /** Marks the "RECOMMENDED" tier — also renders as the light/white card. */
+  /** Marks the recommended tier; plans-page keys the light/white card off this. */
   recommended?: boolean;
   /** Feature rows appended after the catalog-derived rows. */
   extraFeatures?: readonly string[];

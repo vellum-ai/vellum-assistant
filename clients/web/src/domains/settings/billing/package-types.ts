@@ -12,15 +12,18 @@ import type {
 
 export type { ProPackage };
 
-/**
- * Display name for a Pro subscription's plan: the stock package name only for
- * a clean pin. An unpinned sub or a customized pin reads "Custom", since its
- * real tiers can diverge from any stock package.
- */
+/** A Pro sub pinned to a stock package whose tiers still match it (not customized). */
+export function isCleanPin(
+  pkg: SubscriptionPackage | null | undefined,
+): pkg is SubscriptionPackage {
+  return pkg != null && !pkg.customized;
+}
+
+/** A clean pin reads its stock name; anything else reads "Custom" (tiers can diverge). */
 export function proPackageDisplayName(
   pkg: SubscriptionPackage | null | undefined,
 ): string {
-  return pkg && !pkg.customized ? pkg.name : "Custom";
+  return isCleanPin(pkg) ? pkg.name : "Custom";
 }
 
 /**

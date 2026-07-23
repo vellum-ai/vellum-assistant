@@ -14,6 +14,7 @@ import { useNavigate } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
+  isCleanPin,
   nextPackageUp,
   proPackageDisplayName,
   type ProPackage,
@@ -479,8 +480,7 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
   // the takeover.
   const canOpenPlansTakeover =
     packages.length > 0 &&
-    (currentPlan.id === "base" ||
-      (subscription.package != null && !subscription.package.customized));
+    (currentPlan.id === "base" || isCleanPin(subscription.package));
   // The banner's one-click switch is offered to any switch-eligible Pro sub —
   // a clean pin, a customized pin, or an unpinned (Custom) sub — inheriting the
   // shared eligibility gate. The confirm copy adapts to the sub's state via
@@ -492,8 +492,7 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
   // tiers can diverge from any stock package — gets the direction-neutral
   // switch, since a stock delta could misstate the change.
   const switchRelation: SwitchRelation =
-    currentPlan.id === "base" ||
-    (subscription.package && !subscription.package.customized)
+    currentPlan.id === "base" || isCleanPin(subscription.package)
       ? "upgrade"
       : "switch";
 

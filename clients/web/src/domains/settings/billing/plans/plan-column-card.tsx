@@ -16,7 +16,7 @@ export interface PlanColumnCardProps {
   /** CTA label for a selectable tier; ignored when `isCurrent`. */
   ctaLabel: string;
   features: readonly string[];
-  /** Renders the "Recommended" chip — suppressed on the user's current plan. */
+  /** Renders the "Recommended" chip — only on a non-current, non-downgrade column. */
   recommended?: boolean;
   /**
    * The featured tier renders as the white/light card; the rest stay dark. The
@@ -68,7 +68,7 @@ export function PlanColumnCard({
           <span className="text-[20px] font-medium text-[var(--content-emphasised)]">
             {name}
           </span>
-          {recommended && !isCurrent ? (
+          {recommended && !isDowngrade && !isCurrent ? (
             <Tag className="bg-[var(--feed-digest-weak)] text-[12px] font-semibold uppercase text-[var(--credits-accent)]">
               Recommended
             </Tag>

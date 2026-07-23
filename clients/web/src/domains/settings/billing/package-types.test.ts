@@ -1,10 +1,29 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  isCleanPin,
   packageRank,
   proPackageDisplayName,
   tierRelation,
 } from "./package-types";
+
+describe("isCleanPin", () => {
+  test("true only for a non-customized pin", () => {
+    expect(
+      isCleanPin({
+        key: "super",
+        name: "Super",
+        version: 1,
+        customized: false,
+      }),
+    ).toBe(true);
+    expect(
+      isCleanPin({ key: "super", name: "Super", version: 1, customized: true }),
+    ).toBe(false);
+    expect(isCleanPin(null)).toBe(false);
+    expect(isCleanPin(undefined)).toBe(false);
+  });
+});
 
 describe("proPackageDisplayName", () => {
   test("names a clean pin", () => {

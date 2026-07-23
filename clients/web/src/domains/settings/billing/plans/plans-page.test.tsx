@@ -420,6 +420,15 @@ describe("PlansPage — current-plan state", () => {
     expect(count(html, /data-theme="light"/g)).toBe(1);
     expect(html).toContain("Current Plan");
   });
+
+  test("pro subscriber on Super: Mighty is a downgrade, no Recommended badge, but keeps the light card", () => {
+    const html = renderStatic(proSuperSubscription(), fullCatalog());
+    // Mighty sits below Super, so its CTA is a downgrade and the chip is hidden.
+    expect(html).toContain("Downgrade to Mighty");
+    expect(html).not.toContain("Recommended");
+    // Mighty still renders as the light card for a Super subscriber.
+    expect(count(html, /data-theme="light"/g)).toBe(1);
+  });
 });
 
 describe("PlansPage — empty catalog (pro-packages flag off)", () => {
