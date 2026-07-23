@@ -1,12 +1,12 @@
 /**
  * Default-plugin route resolution: a first-party default plugin's routes are
  * served in the `/x/plugins/<name>/` namespace from the app source tree
- * (`plugins/defaults/<dir>/routes/`), where `<name>` is the plugin's
- * `default-…` MANIFEST name (e.g. `default-platform-hosted`) — the same name
- * its `.disabled` sentinel is keyed by — not its bare directory name. An
- * installed workspace plugin of the same name overrides the default.
+ * (`plugins/defaults/<dir>/routes/`), where `<name>` is `default-<dir>` (e.g.
+ * `default-platform-hosted`) — the same `default-…` name its `.disabled`
+ * sentinel is keyed by — not its bare directory name. An installed workspace
+ * plugin of the same name overrides the default.
  *
- * These tests exercise the real `platform-hosted` default plugin (manifest name
+ * These tests exercise the real `platform-hosted` default plugin (namespace
  * `default-platform-hosted`), which ships `routes/reengage.ts`, a POST-only
  * handler. A GET reaches the resolved source file and 405s — proving
  * resolution + source-tree module load without running the handler's heavy
@@ -24,7 +24,6 @@ import { dirname, join, relative } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 
 import {
-  getDefaultPluginManifestName,
   getDefaultPluginRouteRoots,
   getDefaultPluginRoutesDir,
 } from "../../../plugins/defaults/main.js";
@@ -41,8 +40,8 @@ import {
 
 /** The default plugin's source directory name. */
 const DEFAULT_PLUGIN_DIR = "platform-hosted";
-/** Its route namespace = its `default-…` manifest name. */
-const DEFAULT_PLUGIN = getDefaultPluginManifestName(DEFAULT_PLUGIN_DIR)!;
+/** Its route namespace = `default-<dir>` by convention. */
+const DEFAULT_PLUGIN = `default-${DEFAULT_PLUGIN_DIR}`;
 
 function makeDispatcher(): UserRouteDispatcher {
   const context: UserRouteContext = {
@@ -88,11 +87,13 @@ describe("default plugin route source resolution", () => {
   });
 
   test("getDefaultPluginRoutesDir returns null for the bare directory name, unknown names, and path traversal", () => {
-    // The bare dir name is no longer a route namespace — only the manifest name.
+    // The bare dir name is no longer a route namespace — only `default-<dir>`.
     expect(getDefaultPluginRoutesDir(DEFAULT_PLUGIN_DIR)).toBeNull();
     expect(getDefaultPluginRoutesDir("definitely-not-a-plugin")).toBeNull();
     expect(getDefaultPluginRoutesDir("../util")).toBeNull();
     expect(getDefaultPluginRoutesDir("..")).toBeNull();
+    // The containment guard still rejects a traversal hidden behind the prefix.
+    expect(getDefaultPluginRoutesDir("default-../util")).toBeNull();
   });
 
   test("getDefaultPluginRouteRoots includes the platform-hosted plugin under its manifest name", () => {
