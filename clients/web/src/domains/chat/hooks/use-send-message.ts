@@ -113,6 +113,26 @@ type SendStreamResult =
   | { status: "failed"; error: ChatError };
 
 // ---------------------------------------------------------------------------
+// Send options
+// ---------------------------------------------------------------------------
+
+/** Per-send options for `sendMessage`. */
+export interface SendChatMessageOptions {
+  /**
+   * Persist the message but suppress it from the transcript (drives the
+   * turn LLM-side). Used for machine signals the user never typed.
+   */
+  hidden?: boolean;
+  /**
+   * Single-use override for the daemon's `secret_blocked` ingress guard.
+   * Set ONLY by the composer secret guard's "Send anyway" handler, after
+   * the user explicitly confirmed sending content the client-side scan
+   * blocked. Applies to this send alone and is never persisted.
+   */
+  bypassSecretCheck?: boolean;
+}
+
+// ---------------------------------------------------------------------------
 // Params
 // ---------------------------------------------------------------------------
 
@@ -258,7 +278,7 @@ export function useSendMessage({
   // sendMessageViaStream — low-level POST + polling fallback
   // -------------------------------------------------------------------------
   const sendMessageViaStream = useCallback(
-    async (content: string, epoch: number, turnId: string, attachmentIds: string[] = [], isDraft = false, clientMessageId?: string, isHidden = false): Promise<SendStreamResult> => {
+    async (content: string, epoch: number, turnId: string, attachmentIds: string[] = [], isDraft = false, clientMessageId?: string, isHidden = false, bypassSecretCheck = false): Promise<SendStreamResult> => {
       if (!activeConversationId || !assistantId) {
         return {
           status: "failed",
@@ -331,6 +351,7 @@ export function useSendMessage({
           inferenceProfile: inferenceProfileForSend,
           enabledPlugins: enabledPluginsForSend,
           hidden: isHidden,
+          bypassSecretCheck,
         },
       );
       if (
@@ -547,7 +568,7 @@ export function useSendMessage({
     async (
       content: string,
       attachments: DisplayAttachment[] = [],
-      opts: { hidden?: boolean } = {},
+      opts: SendChatMessageOptions = {},
     ) => {
       // A hidden send (e.g. the onboarding "Let's chat" kickoff) drives a turn
       // and the assistant's reply, but renders NO user bubble: skip the
@@ -555,6 +576,9 @@ export function useSendMessage({
       // always a fresh first message (conversation idle), so they never take the
       // queue path below.
       const isHidden = opts.hidden === true;
+      // Explicit user override from the composer secret guard's "Send
+      // anyway" confirmation — forwarded on this send's POST only.
+      const bypassSecretCheck = opts.bypassSecretCheck === true;
       if (!activeConversationId || !assistantId) {
         setError({ message: "No active conversation. Please try again." });
         return;
@@ -659,7 +683,7 @@ export function useSendMessage({
             assistantId,
             activeConversationId,
             content,
-            { attachmentIds, clientMessageId, hidden: isHidden },
+            { attachmentIds, clientMessageId, hidden: isHidden, bypassSecretCheck },
           );
           if (!postResult.ok) {
             revertQueuedMessage(userMessage.id);
@@ -753,6 +777,7 @@ export function useSendMessage({
           isDraft,
           clientMessageId,
           isHidden,
+          bypassSecretCheck,
         );
 
         if (result.status === "failed") {

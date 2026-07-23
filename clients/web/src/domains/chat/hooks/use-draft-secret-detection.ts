@@ -110,16 +110,23 @@ export interface DraftSecretDetectionResult {
    * conversation changes.
    */
   dismiss: () => void;
-  /** True when the most recent {@link checkBeforeSend} blocked a send. */
+  /**
+   * True when the most recent {@link checkBeforeSend} blocked a send.
+   * Cleared as soon as the draft changes — an edited draft always earns a
+   * fresh scan and a fresh explicit confirmation.
+   */
   sendBlocked: boolean;
   /**
    * Pre-send gate: scans the outgoing text and returns whether the send may
    * proceed. Returns false (and sets {@link sendBlocked}) when secrets are
-   * detected and no {@link allowOnce} bypass is armed.
+   * detected. An armed {@link allowOnce} bypass is honored only when the
+   * outgoing text is strictly equal to the content the bypass was armed
+   * for; any other text is scanned as usual.
    */
   checkBeforeSend: (text: string) => boolean;
   /**
-   * Arm a single-use bypass so the next {@link checkBeforeSend} passes.
+   * Arm a single-use bypass bound to the exact content the last
+   * {@link checkBeforeSend} blocked. A no-op when nothing is blocked.
    * Invalidated by any subsequent draft edit, flag flip, or conversation
    * switch — the bypass approves the content as it stood when armed.
    */
@@ -139,7 +146,12 @@ export function useDraftSecretDetection({
   const [dismissedValues, setDismissedValues] =
     useState<ReadonlySet<string>>(EMPTY_VALUE_SET);
   const [sendBlocked, setSendBlocked] = useState(false);
-  const allowOnceRef = useRef(false);
+  // Exact content the last checkBeforeSend intercepted; what allowOnce()
+  // binds its bypass to.
+  const blockedContentRef = useRef<string | null>(null);
+  // Armed single-use bypass, holding the exact content it approves. A
+  // checkBeforeSend for any OTHER text ignores it and scans normally.
+  const allowOnceContentRef = useRef<string | null>(null);
   // Armed on a conversation switch: the next composer input change is the
   // incoming conversation's restored draft (applied by the session store's
   // post-render switch effect), not a keystroke, so it is scanned
@@ -151,7 +163,8 @@ export function useDraftSecretDetection({
   // under one flag state — any transition of either invalidates them.
   // Layout effect: the reset must land before the switched route paints.
   useLayoutEffect(() => {
-    allowOnceRef.current = false;
+    allowOnceContentRef.current = null;
+    blockedContentRef.current = null;
     setSendBlocked(false);
     setDismissedValues(EMPTY_VALUE_SET);
   }, [enabled, conversationId]);
@@ -186,6 +199,7 @@ export function useDraftSecretDetection({
         setDismissedValues((prev) =>
           prev.size === 0 ? prev : EMPTY_VALUE_SET,
         );
+        blockedContentRef.current = null;
         setSendBlocked(false);
       }
     };
@@ -200,11 +214,15 @@ export function useDraftSecretDetection({
       if (state.input === prevState.input) {
         return;
       }
-      // Any draft edit invalidates an armed send bypass — "Send anyway"
-      // approved the content as it stood, not whatever it becomes. The
-      // normal bypass flow consumes the ref synchronously before the send
-      // clears the input, so this only disarms genuinely stale bypasses.
-      allowOnceRef.current = false;
+      // Any draft edit invalidates an armed send bypass AND the blocked
+      // state — "Send anyway" approved the content as it stood, not
+      // whatever it becomes, and an edited draft must earn a fresh scan
+      // and a fresh explicit confirmation. The normal bypass flow consumes
+      // the ref synchronously before the send clears the input, so this
+      // only disarms genuinely stale state.
+      allowOnceContentRef.current = null;
+      blockedContentRef.current = null;
+      setSendBlocked(false);
       if (timer !== null) {
         clearTimeout(timer);
         timer = null;
@@ -233,12 +251,17 @@ export function useDraftSecretDetection({
   const dismiss = useCallback(() => {
     setDismissedValues(new Set(matches.map((m) => m.value)));
     // Dismissing the blocked-send notice acknowledges the interception;
-    // the block state is per-attempt and re-arms on the next send.
+    // the block state is per-attempt and re-arms on the next send. The
+    // recorded blocked content goes with it — a dismissed block can no
+    // longer be approved via allowOnce.
+    blockedContentRef.current = null;
     setSendBlocked(false);
   }, [matches]);
 
   const allowOnce = useCallback(() => {
-    allowOnceRef.current = true;
+    // Bind the bypass to the exact content that was intercepted. Without a
+    // recorded block there is nothing to approve, so nothing is armed.
+    allowOnceContentRef.current = blockedContentRef.current;
     setSendBlocked(false);
   }, []);
 
@@ -247,16 +270,22 @@ export function useDraftSecretDetection({
       if (!enabled) {
         return true;
       }
-      if (allowOnceRef.current) {
-        allowOnceRef.current = false;
+      // Single-use: consumed on this attempt whether or not it applies.
+      const approvedContent = allowOnceContentRef.current;
+      allowOnceContentRef.current = null;
+      if (approvedContent !== null && approvedContent === text) {
+        blockedContentRef.current = null;
         setSendBlocked(false);
         return true;
       }
+      // Anything other than the exact approved content is scanned as usual.
       const found = scanDraftForSecrets(text, true);
       if (found.length === 0) {
+        blockedContentRef.current = null;
         setSendBlocked(false);
         return true;
       }
+      blockedContentRef.current = text;
       setMatches((prev) => (sameMatches(prev, found) ? prev : found));
       setSendBlocked(true);
       return false;

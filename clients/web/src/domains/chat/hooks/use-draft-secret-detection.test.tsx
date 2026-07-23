@@ -249,9 +249,14 @@ describe("useDraftSecretDetection checkBeforeSend", () => {
     expect(result.current.matches).toHaveLength(1);
   });
 
-  test("allowOnce arms a single-use bypass", () => {
+  test("allowOnce arms a single-use bypass for the blocked content", () => {
     seedFlags({ composerSecretGuard: true, hasHydrated: true });
     const { result } = renderDetection();
+
+    act(() => {
+      result.current.checkBeforeSend(`send ${SYNTHETIC_PROJECT_KEY}`);
+    });
+    expect(result.current.sendBlocked).toBe(true);
 
     act(() => {
       result.current.allowOnce();
@@ -263,6 +268,7 @@ describe("useDraftSecretDetection checkBeforeSend", () => {
     expect(allowed).toBe(true);
     expect(result.current.sendBlocked).toBe(false);
 
+    // Single-use: the identical content blocks again without a fresh arm.
     act(() => {
       allowed = result.current.checkBeforeSend(`send ${SYNTHETIC_PROJECT_KEY}`);
     });
@@ -270,16 +276,67 @@ describe("useDraftSecretDetection checkBeforeSend", () => {
     expect(result.current.sendBlocked).toBe(true);
   });
 
-  test("a draft edit invalidates an armed allowOnce bypass", () => {
+  test("the bypass is content-bound: different content is scanned and re-blocked", () => {
     seedFlags({ composerSecretGuard: true, hasHydrated: true });
-    // Never-elapsing debounce: only the synchronous subscription runs, so a
-    // block below proves the edit itself disarmed the bypass.
-    const { result } = renderDetection("conv-1", NEVER_ELAPSES_MS);
+    const { result } = renderDetection();
+
+    // Block on key A, then approve via Send anyway.
+    act(() => {
+      result.current.checkBeforeSend(`send ${SYNTHETIC_PROJECT_KEY}`);
+    });
+    expect(result.current.sendBlocked).toBe(true);
     act(() => {
       result.current.allowOnce();
     });
 
+    // The outgoing content changed to carry key B — the armed bypass must
+    // NOT apply; the synchronous scan runs and blocks key B.
+    let allowed = true;
+    act(() => {
+      allowed = result.current.checkBeforeSend(
+        `send ${SYNTHETIC_GITHUB_TOKEN}`,
+      );
+    });
+    expect(allowed).toBe(false);
+    expect(result.current.sendBlocked).toBe(true);
+    expect(result.current.matches[0]?.value).toBe(SYNTHETIC_GITHUB_TOKEN);
+  });
+
+  test("allowOnce without a recorded block arms nothing", () => {
+    seedFlags({ composerSecretGuard: true, hasHydrated: true });
+    const { result } = renderDetection();
+
+    act(() => {
+      result.current.allowOnce();
+    });
+    let allowed = true;
+    act(() => {
+      allowed = result.current.checkBeforeSend(`send ${SYNTHETIC_PROJECT_KEY}`);
+    });
+    expect(allowed).toBe(false);
+    expect(result.current.sendBlocked).toBe(true);
+  });
+
+  test("a draft edit after a block clears sendBlocked and disarms the bypass", () => {
+    seedFlags({ composerSecretGuard: true, hasHydrated: true });
+    // Never-elapsing debounce: only the synchronous subscription runs, so
+    // the resets below prove the edit itself cleared the state.
+    const { result } = renderDetection("conv-1", NEVER_ELAPSES_MS);
+    act(() => {
+      result.current.checkBeforeSend(`send ${SYNTHETIC_PROJECT_KEY}`);
+    });
+    expect(result.current.sendBlocked).toBe(true);
+    act(() => {
+      result.current.allowOnce();
+    });
+
+    // The edit clears the blocked state immediately — the notice drops back
+    // to the passive warning — without waiting for the debounced re-scan.
     setDraft(`edited to ${SYNTHETIC_GITHUB_TOKEN}`);
+    expect(result.current.sendBlocked).toBe(false);
+
+    // And the edited content gets a fresh scan + fresh block, even when it
+    // is exactly what a stale bypass might have been armed for.
     let allowed = true;
     act(() => {
       allowed = result.current.checkBeforeSend(

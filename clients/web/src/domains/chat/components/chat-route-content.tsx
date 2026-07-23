@@ -27,6 +27,7 @@ import { useTranscriptMessages } from "@/domains/chat/transcript/use-transcript-
 import { useChatEmptyState } from "@/domains/chat/hooks/use-chat-empty-state";
 import { useComposerSubmit } from "@/domains/chat/hooks/use-composer-submit";
 import { useDraftSecretDetection } from "@/domains/chat/hooks/use-draft-secret-detection";
+import type { SendChatMessageOptions } from "@/domains/chat/hooks/use-send-message";
 import { DiskPressureBannerSlot } from "@/domains/chat/components/disk-pressure-banner-slot";
 import { useRuleEditorBridge } from "@/domains/chat/hooks/use-rule-editor-bridge";
 import { useChatBannerSlots } from "@/domains/chat/hooks/use-chat-banner-slots";
@@ -130,7 +131,11 @@ import { useConversationStore } from "@/stores/conversation-store";
 
 export interface ChatMainPanelProps {
   // Send message (orchestration owns the SSE / queue lifecycle)
-  sendMessage: (content: string, attachments?: DisplayAttachment[]) => Promise<void>;
+  sendMessage: (
+    content: string,
+    attachments?: DisplayAttachment[],
+    opts?: SendChatMessageOptions,
+  ) => Promise<void>;
   handleStopGenerating: () => Promise<void>;
   queuedMessages: DisplayMessage[];
   handleCancelQueuedMessage: (messageId: string) => void;
@@ -805,12 +810,17 @@ export function ChatMainPanel({
     beforeSend: draftSecretDetection.checkBeforeSend,
   });
 
-  // "Send anyway" on the blocked notice: arm the single-use bypass, then
-  // resubmit the exact content that was intercepted.
+  // "Send anyway" on the blocked notice: arm the single-use client bypass
+  // (bound to the exact intercepted content), then resubmit carrying the
+  // daemon-side `bypassSecretCheck` override so the explicit confirmation
+  // is honored end to end instead of resurfacing as a server
+  // `secret_blocked` error. The `beforeSend` gate still runs: if the draft
+  // changed since the block, the content-bound bypass misses, the send
+  // re-blocks, and the override never reaches the wire.
   const { allowOnce: allowSecretSendOnce } = draftSecretDetection;
   const handleSecretSendAnyway = useCallback(() => {
     allowSecretSendOnce();
-    void submitMessage();
+    void submitMessage(undefined, { bypassSecretCheck: true });
   }, [allowSecretSendOnce, submitMessage]);
 
   const handleSelectStarter = useCallback((starter: { prompt: string }) => {

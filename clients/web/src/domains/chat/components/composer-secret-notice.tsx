@@ -27,7 +27,8 @@ export interface ComposerSecretNoticeProps {
   /**
    * Blocked state only: the user explicitly chose to send despite the
    * warning. The orchestrator arms the detection hook's single-use
-   * `allowOnce()` bypass and re-invokes the composer submit handler.
+   * `allowOnce()` bypass and re-invokes the composer submit handler with
+   * the daemon's per-message `bypassSecretCheck` override.
    */
   onSendAnyway: () => void;
 }
@@ -47,10 +48,11 @@ export interface ComposerSecretNoticeProps {
  * vendor) stays internal and is never rendered. The detected value appears
  * masked only; the full plaintext never reaches the DOM.
  *
- * "Send anyway" is a client-side bypass only: messages that consist
- * entirely of a token are still rejected server-side by the daemon's
- * `secret_blocked` ingress guard and surface through the existing send
- * error path (`api/messages.ts`) — intentionally unchanged here.
+ * "Send anyway" is honored end to end: the orchestrator's handler arms the
+ * detection hook's content-bound single-use bypass and resubmits with the
+ * daemon's per-message `bypassSecretCheck` override, so the explicit
+ * confirmation clears both the client gate and the daemon's
+ * `secret_blocked` ingress guard.
  */
 export function ComposerSecretNotice({
   matches,

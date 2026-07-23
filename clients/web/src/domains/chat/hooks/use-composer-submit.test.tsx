@@ -38,7 +38,11 @@ const uploadedAttachment: UploadedAttachment = {
 
 function renderSubmit(overrides: Partial<UseComposerSubmitParams> = {}) {
   const sendMessage = mock(
-    async (_content: string, _attachments?: DisplayAttachment[]) => {},
+    async (
+      _content: string,
+      _attachments?: DisplayAttachment[],
+      _opts?: { bypassSecretCheck?: boolean },
+    ) => {},
   );
   const { result } = renderHook(() =>
     useComposerSubmit({
@@ -148,6 +152,56 @@ describe("useComposerSubmit beforeSend gate", () => {
     await submit(result);
 
     expect(beforeSend).not.toHaveBeenCalled();
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+});
+
+describe("useComposerSubmit bypassSecretCheck plumbing", () => {
+  test("Send-anyway submits forward bypassSecretCheck to sendMessage for that send only", async () => {
+    useComposerStore.getState().setInput(`approved ${SYNTHETIC_PROJECT_KEY}`);
+    // The gate passes (the detection hook consumed its content-bound
+    // allowOnce bypass); the explicit override must ride the send.
+    const beforeSend = mock((_content: string) => true);
+    const { result, sendMessage } = renderSubmit({ beforeSend });
+    await act(async () => {
+      await result.current.submitMessage(undefined, {
+        bypassSecretCheck: true,
+      });
+    });
+
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(sendMessage.mock.calls[0]?.[2]).toEqual({ bypassSecretCheck: true });
+
+    // The very next ordinary submit carries no override.
+    useComposerStore.getState().setInput("plain follow-up message");
+    await submit(result);
+    expect(sendMessage).toHaveBeenCalledTimes(2);
+    expect(sendMessage.mock.calls[1]?.[2]).toBeUndefined();
+  });
+
+  test("an ordinary submit never sets bypassSecretCheck", async () => {
+    useComposerStore.getState().setInput("no override here");
+    const { result, sendMessage } = renderSubmit();
+    await submit(result);
+
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(sendMessage.mock.calls[0]?.[2]).toBeUndefined();
+  });
+
+  test("a blocking gate keeps the override off the wire entirely", async () => {
+    useComposerStore.getState().setInput(`edited to ${SYNTHETIC_PROJECT_KEY}`);
+    // The draft changed since the block, so the content-bound bypass
+    // missed and the gate re-blocks — the stale Send-anyway click must not
+    // send anything, override or not.
+    const beforeSend = mock((_content: string) => false);
+    const { result, sendMessage } = renderSubmit({ beforeSend });
+    await act(async () => {
+      await result.current.submitMessage(undefined, {
+        bypassSecretCheck: true,
+      });
+    });
+
+    expect(beforeSend).toHaveBeenCalledTimes(1);
     expect(sendMessage).not.toHaveBeenCalled();
   });
 });
