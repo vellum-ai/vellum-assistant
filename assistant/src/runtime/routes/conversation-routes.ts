@@ -3007,6 +3007,12 @@ export const ROUTES: RouteDefinition[] = [
           "Plugin ids that scope this conversation to a subset of installed plugins (first-party defaults are always available). When present on a message, it sets/updates the conversation's plugin scope (the web client sends it only on the first message of a new chat). null clears the scope to default (all enabled plugins); omitting the field leaves the existing scope unchanged.",
         ),
       riskThreshold: z.enum(VALID_RISK_THRESHOLDS).optional(),
+      bypassSecretCheck: z
+        .boolean()
+        .optional()
+        .describe(
+          'When true, skip the secret-ingress scan for this message only. Set exclusively when the user explicitly confirms a client-side blocked send (the composer\'s "Send anyway" action); it is per-message and never persisted.',
+        ),
       hidden: z
         .boolean()
         .optional()

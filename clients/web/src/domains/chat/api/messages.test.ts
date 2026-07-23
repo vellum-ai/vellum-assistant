@@ -176,6 +176,36 @@ describe("postChatMessage — enabledPlugins wire format", () => {
   });
 });
 
+describe("postChatMessage — bypassSecretCheck wire format", () => {
+  test("includes bypassSecretCheck: true for an explicit Send-anyway override", async () => {
+    await postChatMessage("assistant-1", "conv-key", "user-approved content", {
+      bypassSecretCheck: true,
+    });
+
+    expect(
+      (capturedBody as Record<string, unknown>).bypassSecretCheck,
+    ).toBe(true);
+  });
+
+  test("omits bypassSecretCheck on an ordinary send", async () => {
+    await postChatMessage("assistant-1", "conv-key", "Hello");
+
+    expect(
+      (capturedBody as Record<string, unknown>).bypassSecretCheck,
+    ).toBeUndefined();
+  });
+
+  test("omits bypassSecretCheck when explicitly false", async () => {
+    await postChatMessage("assistant-1", "conv-key", "Hello", {
+      bypassSecretCheck: false,
+    });
+
+    expect(
+      (capturedBody as Record<string, unknown>).bypassSecretCheck,
+    ).toBeUndefined();
+  });
+});
+
 describe("normalizeContentOrder", () => {
   test("converts string-format entries to objects", () => {
     const result = normalizeContentOrder(["text:0", "tool:1", "surface:2"]);
