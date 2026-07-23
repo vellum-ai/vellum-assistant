@@ -1,6 +1,6 @@
 ---
 name: voice-setup
-description: Complete voice configuration in chat - PTT key, microphone permissions, ElevenLabs TTS, and troubleshooting
+description: Complete voice configuration in chat - PTT key, microphone permissions, ElevenLabs/Deepgram TTS, and troubleshooting
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   icon: assets/icon.svg
@@ -10,7 +10,7 @@ metadata:
     display-name: "Voice Setup"
     includes: ["elevenlabs-voice", "deepgram-voice"]
     activation-hints:
-      - "Guided setup or troubleshooting (walkthrough, PTT not working, mic issues, ElevenLabs/TTS)"
+      - "Guided setup or troubleshooting (walkthrough, PTT not working, mic issues, ElevenLabs/Deepgram/TTS)"
       - "Simple voice setting changes (PTT key, wake word) -> use voice_config_update directly"
     avoid-when:
       - 'If "voice" is in a Twilio/phone context, load phone-calls instead'
@@ -23,7 +23,7 @@ You are helping the user set up and troubleshoot voice features (push-to-talk, t
 - `voice_config_update` - Change any voice setting (PTT key, conversation timeout, TTS voice ID)
 - `open_system_settings` - Open macOS System Settings to a specific privacy pane
 - `navigate_settings_tab` - Open the Vellum settings panel to the Voice tab
-- `assistant credentials prompt` - Collect API keys securely (for ElevenLabs TTS)
+- `assistant credentials prompt` - Collect API keys securely (for ElevenLabs/Deepgram TTS)
 
 ## Setup Flow
 

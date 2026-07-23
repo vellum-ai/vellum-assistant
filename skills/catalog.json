@@ -154,7 +154,8 @@
           "display-name": "Deepgram Voice"
         }
       },
-      "compatibility": "Designed for Vellum personal assistants"
+      "compatibility": "Designed for Vellum personal assistants",
+      "updatedAt": "2026-07-23T15:14:45.000Z"
     },
     {
       "id": "deploy-fullstack-vercel",
@@ -1246,7 +1247,7 @@
     {
       "id": "voice-setup",
       "name": "voice-setup",
-      "description": "Complete voice configuration in chat - PTT key, microphone permissions, ElevenLabs TTS, and troubleshooting",
+      "description": "Complete voice configuration in chat - PTT key, microphone permissions, ElevenLabs/Deepgram TTS, and troubleshooting",
       "metadata": {
         "icon": "assets/icon.svg",
         "emoji": "🎙️",
@@ -1258,7 +1259,7 @@
             "deepgram-voice"
           ],
           "activation-hints": [
-            "Guided setup or troubleshooting (walkthrough, PTT not working, mic issues, ElevenLabs/TTS)",
+            "Guided setup or troubleshooting (walkthrough, PTT not working, mic issues, ElevenLabs/Deepgram/TTS)",
             "Simple voice setting changes (PTT key, wake word) -> use voice_config_update directly"
           ],
           "avoid-when": [
@@ -1267,7 +1268,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-15T21:08:24.000Z"
+      "updatedAt": "2026-07-23T15:14:45.000Z"
     },
     {
       "id": "watch-together",
