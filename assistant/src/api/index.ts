@@ -43,11 +43,18 @@ import { MessageQueuedEventSchema } from "./events/message-queued.js";
 import { MessageQueuedDeletedEventSchema } from "./events/message-queued-deleted.js";
 import { MessageRequestCompleteEventSchema } from "./events/message-request-complete.js";
 import { NavigateSettingsEventSchema } from "./events/navigate-settings.js";
+import { NotificationConversationCreatedEventSchema } from "./events/notification-conversation-created.js";
 import { NotificationIntentEventSchema } from "./events/notification-intent.js";
 import { OpenConversationEventSchema } from "./events/open-conversation.js";
 import { OpenPanelEventSchema } from "./events/open-panel.js";
 import { OpenUrlEventSchema } from "./events/open-url.js";
 import { QuestionRequestEventSchema } from "./events/question-request.js";
+import {
+  RecordingPauseEventSchema,
+  RecordingResumeEventSchema,
+  RecordingStartEventSchema,
+  RecordingStopEventSchema,
+} from "./events/recording.js";
 import { RelationshipStateUpdatedEventSchema } from "./events/relationship-state-updated.js";
 import { SecretRequestEventSchema } from "./events/secret-request.js";
 import { ServiceGroupUpdateCompleteEventSchema } from "./events/service-group-update-complete.js";
@@ -302,6 +309,10 @@ export {
   NavigateSettingsEventSchema,
 } from "./events/navigate-settings.js";
 export {
+  type NotificationConversationCreatedEvent,
+  NotificationConversationCreatedEventSchema,
+} from "./events/notification-conversation-created.js";
+export {
   type NotificationIntentEvent,
   NotificationIntentEventSchema,
 } from "./events/notification-intent.js";
@@ -322,6 +333,18 @@ export {
   type QuestionRequestEvent,
   QuestionRequestEventSchema,
 } from "./events/question-request.js";
+export {
+  type RecordingOptions,
+  RecordingOptionsSchema,
+  type RecordingPauseEvent,
+  RecordingPauseEventSchema,
+  type RecordingResumeEvent,
+  RecordingResumeEventSchema,
+  type RecordingStartEvent,
+  RecordingStartEventSchema,
+  type RecordingStopEvent,
+  RecordingStopEventSchema,
+} from "./events/recording.js";
 export {
   type RelationshipStateUpdatedEvent,
   RelationshipStateUpdatedEventSchema,
@@ -704,11 +727,16 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   MessageQueuedDeletedEventSchema,
   MessageRequestCompleteEventSchema,
   NavigateSettingsEventSchema,
+  NotificationConversationCreatedEventSchema,
   NotificationIntentEventSchema,
   OpenConversationEventSchema,
   OpenPanelEventSchema,
   OpenUrlEventSchema,
   QuestionRequestEventSchema,
+  RecordingPauseEventSchema,
+  RecordingResumeEventSchema,
+  RecordingStartEventSchema,
+  RecordingStopEventSchema,
   RelationshipStateUpdatedEventSchema,
   SecretRequestEventSchema,
   ServiceGroupUpdateCompleteEventSchema,
