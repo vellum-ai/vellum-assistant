@@ -8,6 +8,7 @@ import type { CredentialCache } from "../credential-cache.js";
 import { credentialKey } from "../credential-key.js";
 import { mutateConfigFile } from "../config-file-utils.js";
 import { getLogger } from "../logger.js";
+import { waitForWebSocketClose } from "../util/wait-for-ws-close.js";
 import {
   VELAY_ALLOWED_PATHS_HEADER,
   VELAY_ALLOWED_PATHS_HEADER_VALUE,
@@ -178,9 +179,12 @@ export class VelayTunnelClient {
    * failed / pod kept running) or `resumeAfterWake()` (post-restore wake
    * detection) re-establishes the tunnel via the normal reconnect path.
    *
-   * Returns true when an active tunnel socket was closed.
+   * Resolves true when an active tunnel socket was closed. The returned
+   * promise settles only once the close handshake finishes (or the bounded
+   * wait force-terminates), so the caller can respond after the socket is
+   * really gone.
    */
-  prepareForCheckpoint(): boolean {
+  async prepareForCheckpoint(): Promise<boolean> {
     if (!this.running) {
       return false;
     }
@@ -199,6 +203,7 @@ export class VelayTunnelClient {
     }
     log.info("Closing Velay tunnel for pre-checkpoint quiesce");
     this.disconnectActiveWebSocket(ws, 1000, "pre-checkpoint quiesce");
+    await waitForWebSocketClose(ws);
     return true;
   }
 

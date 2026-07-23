@@ -41,6 +41,10 @@ import {
 import type { ReplaySubscriber } from "../assistant-stream-state.js";
 import { getReplayWindow } from "../assistant-stream-state.js";
 import { ACTOR_PRINCIPALS, GATEWAY_PRINCIPALS } from "../auth/route-policy.js";
+import {
+  isCheckpointQuiesceActive,
+  registerSseSubscription,
+} from "../checkpoint-quiesce.js";
 import { DEFAULT_HEARTBEAT_INTERVAL_MS } from "../client-health.js";
 import { resolveActorPrincipalIdForLocalGuardianSync } from "../local-actor-identity.js";
 import {
@@ -262,6 +266,13 @@ export function handleSubscribeAssistantEvents(
 ): ReadableStream<Uint8Array> {
   const { queryParams, headers, abortSignal } = args;
 
+  // Pre-checkpoint quiesce latch: SSE clients auto-retry within seconds, so
+  // without this a fresh external socket could be admitted between the
+  // quiesce and the checkpoint freeze. Clients keep retrying through the 503.
+  if (isCheckpointQuiesceActive()) {
+    throw new ServiceUnavailableError("Quiescing for checkpoint");
+  }
+
   const rawConversationId = queryParams?.conversationId;
   const rawConversationKey = queryParams?.conversationKey;
   const rawLastSeenSeq = queryParams?.lastSeenSeq;
@@ -353,6 +364,7 @@ export function handleSubscribeAssistantEvents(
   let controllerRef: ReadableStreamDefaultController<Uint8Array> | null = null;
   let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   let sub!: AssistantEventSubscription;
+  let unregisterSseSubscription: (() => void) | null = null;
 
   const instrumentation: SseSubscriberInstrumentation = {
     subscribedAtMs: Date.now(),
@@ -367,6 +379,7 @@ export function handleSubscribeAssistantEvents(
   ensureEventLoopDelayMonitorStarted();
 
   function cleanup() {
+    unregisterSseSubscription?.();
     if (heartbeatTimer) {
       clearInterval(heartbeatTimer);
       heartbeatTimer = null;
@@ -438,6 +451,13 @@ export function handleSubscribeAssistantEvents(
     // Stamp the hub-assigned connection id so a later backpressure shed can be
     // tied back to this specific connection in logs.
     instrumentation.connectionId = sub.connectionId;
+    // Track for the pre-checkpoint quiesce: every SSE subscription — client
+    // or headerless "process"-typed — backs an external socket that must be
+    // closable before a pod snapshot.
+    unregisterSseSubscription = registerSseSubscription(() => {
+      sub.dispose();
+      cleanup();
+    });
   } catch (err) {
     if (err instanceof RangeError) {
       throw new ServiceUnavailableError("Too many concurrent connections");

@@ -46,8 +46,12 @@ export const CHECKPOINT_PREPARE_IPC_METHOD = "/checkpoint/prepare";
 const DAEMON_QUIESCE_TIMEOUT_MS = 3_000;
 
 export type CheckpointQuiesceDeps = {
-  velayTunnelClient: { prepareForCheckpoint(): boolean } | undefined;
-  getSlackSocketClient: () => { prepareForCheckpoint(): boolean } | null;
+  velayTunnelClient:
+    | { prepareForCheckpoint(): boolean | Promise<boolean> }
+    | undefined;
+  getSlackSocketClient: () => {
+    prepareForCheckpoint(): boolean | Promise<boolean>;
+  } | null;
   /** Injectable for tests; defaults to the real IPC client. */
   callAssistant?: typeof ipcCallAssistant;
   /** Injectable for tests; defaults to the IS_PLATFORM env detection. */
@@ -107,10 +111,12 @@ export async function handleCheckpointQuiesce(
     };
   }
 
+  // Awaited: each resolves only once the socket's close handshake finished
+  // (or was force-terminated), so the 200 below means the sockets are gone.
   const velayTunnelClosed =
-    deps.velayTunnelClient?.prepareForCheckpoint() ?? false;
+    (await deps.velayTunnelClient?.prepareForCheckpoint()) ?? false;
   const slackSocketClosed =
-    deps.getSlackSocketClient()?.prepareForCheckpoint() ?? false;
+    (await deps.getSlackSocketClient()?.prepareForCheckpoint()) ?? false;
 
   const summary = {
     ok: true,

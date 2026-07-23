@@ -1271,7 +1271,7 @@ describe("pre-checkpoint quiesce", () => {
     sockets[0].emit("open");
     await flushPromises();
 
-    expect(client.prepareForCheckpoint()).toBe(true);
+    expect(await client.prepareForCheckpoint()).toBe(true);
     await flushPromises();
 
     expect(sockets[0].closes).toEqual([
@@ -1301,7 +1301,7 @@ describe("pre-checkpoint quiesce", () => {
     expect(sockets).toHaveLength(0);
     expect(reconnectDelays).toEqual([10]);
 
-    expect(client.prepareForCheckpoint()).toBe(false);
+    expect(await client.prepareForCheckpoint()).toBe(false);
     const lastDelay = reconnectDelays[reconnectDelays.length - 1];
     expect(lastDelay).toBeGreaterThanOrEqual(59_000);
     await client.stop();
@@ -1309,7 +1309,7 @@ describe("pre-checkpoint quiesce", () => {
 
   test("prepareForCheckpoint is a no-op before start", async () => {
     const client = makeClient({});
-    expect(client.prepareForCheckpoint()).toBe(false);
+    expect(await client.prepareForCheckpoint()).toBe(false);
     await flushPromises();
   });
 
@@ -1324,7 +1324,7 @@ describe("pre-checkpoint quiesce", () => {
     sockets[0].emit("open");
     await flushPromises();
 
-    client.prepareForCheckpoint();
+    await client.prepareForCheckpoint();
     await flushPromises();
     expect(sockets).toHaveLength(1);
 
@@ -1362,7 +1362,7 @@ describe("pre-checkpoint quiesce vs in-flight connect", () => {
     // Connect is in flight, blocked on the credential read.
     expect(sockets).toHaveLength(0);
 
-    expect(client.prepareForCheckpoint()).toBe(false);
+    expect(await client.prepareForCheckpoint()).toBe(false);
     releaseCredentials();
     await flushPromises();
 

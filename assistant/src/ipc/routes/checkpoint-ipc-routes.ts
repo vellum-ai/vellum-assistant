@@ -15,7 +15,10 @@
  * `assistant-server.ts`), never in the shared `ROUTES` array.
  */
 
-import { assistantEventHub } from "../../runtime/assistant-event-hub.js";
+import {
+  beginCheckpointQuiesce,
+  closeAllSseSubscriptions,
+} from "../../runtime/checkpoint-quiesce.js";
 import type { RouteHandlerArgs } from "../../runtime/routes/types.js";
 import { getLogger } from "../../util/logger.js";
 
@@ -33,13 +36,14 @@ export type CheckpointPrepareResult = {
 export async function handleCheckpointPrepare(
   _args: RouteHandlerArgs,
 ): Promise<CheckpointPrepareResult> {
-  // Dispose only client-type subscribers: each backs an SSE stream to an
-  // external peer. Process-type subscribers are in-process (plugins, workers)
-  // and must survive — they hold no socket of their own.
-  let disposed = 0;
-  for (const client of assistantEventHub.listClients()) {
-    disposed += assistantEventHub.disposeClient(client.clientId);
-  }
+  // Latch first: SSE clients auto-retry within 1–2s, so admissions must stop
+  // before existing streams close or a fresh external socket could slip into
+  // the snapshot. The latch is wall-clock based and self-clears on restore.
+  beginCheckpointQuiesce();
+  // Close every SSE-backed subscription — client-identified or headerless
+  // "process"-typed — via the events route's registry. Genuine in-process
+  // subscribers (plugins, workers) never register and are untouched.
+  const disposed = closeAllSseSubscriptions();
   log.info({ disposedSseClients: disposed }, "Pre-checkpoint quiesce complete");
   return { ok: true, disposedSseClients: disposed };
 }

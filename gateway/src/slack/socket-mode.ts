@@ -4,6 +4,7 @@ import {
 } from "@vellumai/slack-text";
 import { getLogger } from "../logger.js";
 import { fetchImpl } from "../fetch.js";
+import { waitForWebSocketClose } from "../util/wait-for-ws-close.js";
 import type { GatewayConfig } from "../config.js";
 import { SlackStore } from "../db/slack-store.js";
 import { isRejection, resolveAssistant } from "../routing/resolve-assistant.js";
@@ -326,9 +327,12 @@ export class SlackSocketModeClient {
    * `forceReconnect()` (which clears the holdoff) or the holdoff expiry
    * restores the connection.
    *
-   * Returns true when an active socket was closed.
+   * Resolves true when an active socket was closed. The returned promise
+   * settles only once the close handshake finishes (or the bounded wait
+   * force-terminates), so the caller can respond after the socket is really
+   * gone.
    */
-  prepareForCheckpoint(): boolean {
+  async prepareForCheckpoint(): Promise<boolean> {
     if (!this.running) {
       return false;
     }
@@ -353,6 +357,7 @@ export class SlackSocketModeClient {
       // ignore close errors — the socket is being abandoned either way
     }
     this.scheduleReconnect();
+    await waitForWebSocketClose(ws);
     return true;
   }
 
