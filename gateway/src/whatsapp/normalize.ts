@@ -20,17 +20,29 @@ const optionalString = () => z.string().optional().catch(undefined);
 const optionalNumber = () => z.number().optional().catch(undefined);
 
 /**
+ * The largest unix-epoch **seconds** value `new Date(seconds * 1000)` can
+ * represent: JS `Date`'s range is ±8.64e15 ms, so 8.64e15 / 1000 seconds. A
+ * digit string above this still makes `new Date(Number(timestamp) * 1000)` an
+ * Invalid Date that throws on `.toISOString()`, so it is rejected.
+ */
+const MAX_TIMESTAMP_SECONDS = 8_640_000_000_000;
+
+/**
  * Core routing fields present on every WhatsApp message. Required and validated:
  * `id` is the dedup key / external message id, `from` is the sender identity and
  * conversation address, and `timestamp` is unix-epoch **seconds** as a digit
- * string. Validating `timestamp` here is what prevents
- * `new Date(Number(timestamp) * 1000)` from being fed `NaN` (an Invalid Date,
- * which throws on `.toISOString()`).
+ * string bounded to `Date`'s representable range. Validating `timestamp` here is
+ * what keeps `new Date(Number(timestamp) * 1000)` from being an Invalid Date
+ * (fed `NaN` by a missing/non-numeric value, or overflowed by an out-of-range
+ * one), which would throw on `.toISOString()`.
  */
 const messageCore = {
   id: z.string().min(1),
   from: z.string().min(1),
-  timestamp: z.string().regex(/^\d+$/),
+  timestamp: z
+    .string()
+    .regex(/^\d+$/)
+    .refine((s) => Number(s) <= MAX_TIMESTAMP_SECONDS),
 };
 
 const mediaPayloadSchema = z.object({

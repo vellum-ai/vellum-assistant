@@ -347,9 +347,9 @@ describe("normalizeWhatsAppWebhook", () => {
   });
 
   describe("malformed input is dropped, not trusted", () => {
-    test("a missing timestamp drops the message instead of throwing (was a RangeError crash)", () => {
-      // Before validation, `new Date(Number(undefined) * 1000).toISOString()`
-      // threw `RangeError: Invalid time value`, taking down the whole batch.
+    test("a missing timestamp drops the message instead of feeding NaN to new Date", () => {
+      // A message with no timestamp must be dropped, not passed to
+      // `new Date(Number(undefined) * 1000)` (an Invalid Date that throws).
       const payload = makeWhatsAppPayload({
         id: "wamid.no-ts",
         from: WA_FROM,
@@ -368,6 +368,21 @@ describe("normalizeWhatsAppWebhook", () => {
         type: "text",
         text: { body: "hi" },
       });
+      expect(normalizeWhatsAppWebhook(payload)).toHaveLength(0);
+    });
+
+    test("an out-of-range digit timestamp is dropped rather than overflowing new Date", () => {
+      // Digits only, but too large for `Date` (> ±8.64e15 ms): the seconds
+      // value overflows `new Date(seconds * 1000)` into an Invalid Date, so the
+      // message must be dropped rather than crash the batch on `.toISOString()`.
+      const payload = makeWhatsAppPayload({
+        id: "wamid.huge-ts",
+        from: WA_FROM,
+        timestamp: "9999999999999",
+        type: "text",
+        text: { body: "hi" },
+      });
+      expect(() => normalizeWhatsAppWebhook(payload)).not.toThrow();
       expect(normalizeWhatsAppWebhook(payload)).toHaveLength(0);
     });
 
@@ -392,8 +407,9 @@ describe("normalizeWhatsAppWebhook", () => {
     });
 
     test("valid messages in a batch survive when one message is malformed", () => {
-      // The malformed message is first; before the fix its throw discarded
-      // every valid message in the batch. Now it is dropped and the rest live.
+      // The malformed message is first: a valid message after it in the same
+      // batch must still be normalized (one bad message does not discard the
+      // whole batch).
       const payload = {
         object: "whatsapp_business_account",
         entry: [
