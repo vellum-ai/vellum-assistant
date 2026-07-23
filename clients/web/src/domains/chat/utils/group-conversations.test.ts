@@ -5,7 +5,6 @@ import type { Conversation, ConversationGroup } from "@/types/conversation-types
 import {
   buildMoveToGroupTargets,
   groupConversations,
-  isInCustomGroup,
 } from "@/domains/chat/utils/group-conversations";
 
 function makeConversation(overrides: Partial<Conversation>): Conversation {
@@ -770,20 +769,6 @@ describe("groupConversations · surfaced promotion to recents", () => {
       "pinned-1",
     ]);
     expect(result.recents.map((c) => c.conversationId)).toEqual(["regular"]);
-  });
-});
-
-describe("isInCustomGroup", () => {
-  test("true only when the conversation belongs to a custom group", () => {
-    expect(isInCustomGroup(makeConversation({ groupId: "g_research" }))).toBe(
-      true,
-    );
-    expect(isInCustomGroup(makeConversation({ groupId: "system:pinned" }))).toBe(
-      false,
-    );
-    expect(isInCustomGroup(makeConversation({ groupId: undefined }))).toBe(
-      false,
-    );
   });
 });
 

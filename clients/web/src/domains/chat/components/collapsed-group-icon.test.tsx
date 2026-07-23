@@ -38,7 +38,6 @@ mock.module("@vellumai/design-library", () => ({
 import {
     CollapsedGroupIcon,
     getGroupIndicatorState,
-    GroupIndicatorDot,
 } from "@/domains/chat/components/collapsed-group-icon";
 import type { Conversation } from "@/types/conversation-types";
 import { Pin } from "lucide-react";
@@ -233,33 +232,5 @@ describe("CollapsedGroupIcon disabled state", () => {
       <CollapsedGroupIcon icon={Pin} label="Pinned" indicatorState="attention" disabled />,
     );
     expect(html).not.toContain("rounded-full");
-  });
-});
-
-describe("GroupIndicatorDot", () => {
-  test("renders nothing when the group is idle (null state)", () => {
-    expect(renderToStaticMarkup(<GroupIndicatorDot state={null} />)).toBe("");
-  });
-
-  test("renders a pulsing dot for processing", () => {
-    const html = renderToStaticMarkup(<GroupIndicatorDot state="processing" />);
-    expect(html).toContain("rounded-full");
-    expect(html).toContain("animate-pulse");
-  });
-
-  test("renders a solid (non-pulsing) dot for attention and unread", () => {
-    for (const state of ["attention", "unread"] as const) {
-      const html = renderToStaticMarkup(<GroupIndicatorDot state={state} />);
-      expect(html).toContain("rounded-full");
-      expect(html).not.toContain("animate-pulse");
-    }
-  });
-
-  test("merges caller-provided positioning classes", () => {
-    const html = renderToStaticMarkup(
-      <GroupIndicatorDot state="attention" className="absolute right-0 top-0" />,
-    );
-    expect(html).toContain("absolute");
-    expect(html).toContain("right-0");
   });
 });
