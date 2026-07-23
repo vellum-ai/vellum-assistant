@@ -90,4 +90,19 @@ describe("ReferralContent", () => {
     expect(container.textContent).toContain("Friends Referred");
     expect(getByTestId("referral-copy-button")).toBeDefined();
   });
+
+  test("shows the gated subtitle and notice when not eligible for credits", () => {
+    const client = makeClient();
+    client.setQueryData(referralCodesMeRetrieveQueryKey(), {
+      ...referralData(),
+      is_eligible_for_credits: false,
+    });
+    const { container, getByTestId } = renderWith(client);
+    expect(container.textContent).toContain("Invite friends to Vellum.");
+    expect(container.textContent).toContain(
+      "not currently earning referral credits",
+    );
+    expect(container.textContent).toContain("Credits Earned");
+    expect(getByTestId("referral-copy-button")).toBeDefined();
+  });
 });

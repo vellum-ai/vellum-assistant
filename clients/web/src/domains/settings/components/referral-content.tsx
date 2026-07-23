@@ -75,22 +75,13 @@ export function ReferralContent() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-col gap-1">
-        <Typography
-          as="h2"
-          variant="title-medium"
-          className="text-[var(--content-emphasised)]"
-        >
-          Earn Free Credits
-        </Typography>
-        <Typography
-          as="p"
-          variant="body-medium-default"
-          className="text-[var(--content-tertiary)]"
-        >
-          {subtitle}
-        </Typography>
-      </div>
+      <Typography
+        as="p"
+        variant="body-medium-default"
+        className="text-[var(--content-tertiary)]"
+      >
+        {subtitle}
+      </Typography>
 
       {creditsGated && (
         <Typography
