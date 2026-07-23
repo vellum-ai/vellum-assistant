@@ -11,6 +11,11 @@ import { fetchImpl } from "../fetch.js";
 import { resolveAssistant, isRejection } from "../routing/resolve-assistant.js";
 import type { RouteResult } from "../routing/types.js";
 import type { GatewayInboundEvent } from "../types.js";
+import type {
+  Expect,
+  ModeledKeysAreOfficial,
+  OfficialValueSatisfiesOurs,
+} from "../webhook-crosscheck.js";
 
 // Slack event payloads are untrusted external input (Socket Mode / Events API).
 // Fields are validated with tolerant Zod schemas: a malformed value collapses to
@@ -915,27 +920,13 @@ type SlackReactionEvent = z.infer<typeof slackReactionEventSchema>;
 export type SlackReactionAddedEvent = SlackReactionEvent;
 export type SlackReactionRemovedEvent = SlackReactionEvent;
 
-// Compile-time cross-check against the official Slack event types.
-//
-// `@slack/types` is a types-only dependency: the `import type` above is erased
-// from the build, so `slackReactionEventSchema` stays the sole runtime
-// validator. Its job is to make `tsc` prove our tolerant schema never
-// contradicts Slack's published shape, so a field rename or wrong primitive
-// fails the build instead of silently parsing a live event to `undefined`:
-//   1. every key we model is a real key on the official event; and
-//   2. a real official event still satisfies our (looser) schema.
-// One-directional on purpose — our schema is a narrower, all-optional view of
-// only the fields the normalizer reads, so the reverse is not required.
-type Expect<T extends true> = T;
-/** Every key we model is a real key on the official type. */
-type ModeledKeysAreOfficial<Ours, Official> = keyof Ours extends keyof Official
-  ? true
-  : false;
-/** A real official value is accepted by our tolerant schema. */
-type OfficialValueSatisfiesOurs<Ours, Official> = Official extends Ours
-  ? true
-  : false;
-
+// Compile-time cross-check against the official Slack event types, via the
+// shared `webhook-crosscheck` helpers. `@slack/types` is a types-only
+// dependency: the `import type` above is erased from the build, so
+// `slackReactionEventSchema` stays the sole runtime validator. `tsc` proves our
+// tolerant schema never contradicts Slack's published shape, so a field rename
+// or wrong primitive fails the build instead of silently parsing a live event
+// to `undefined`.
 type _SlackReactionApiCrossChecks = [
   Expect<
     ModeledKeysAreOfficial<SlackReactionEvent, SlackApiReactionAddedEvent>
