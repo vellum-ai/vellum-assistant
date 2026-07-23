@@ -529,7 +529,11 @@ export function TtsProviderForm({
         </div>
       )}
 
-      {!hideCredentialsGuide && (
+      {/* The credentials guide is the "where's my API key" helper for BYO
+          providers. The managed (Vellum) provider needs no key — the assistant
+          is already connected — so its "Connect this assistant" card is just
+          noise between the voice picker and the preview button. */}
+      {!hideCredentialsGuide && !isManaged && (
         <CredentialsGuide guide={selectedProvider.credentialsGuide} />
       )}
 
