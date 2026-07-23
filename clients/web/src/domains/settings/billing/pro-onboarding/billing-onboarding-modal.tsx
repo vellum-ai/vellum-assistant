@@ -152,8 +152,13 @@ export function BillingOnboardingModal({
   // enabled gate keeps this query fully off in checkout mode and in fee-less
   // resize flows (domainSetupAvailable false for Mighty-tier packages).
   const domainAnswerNeeded = isResize && domainSetupAvailable === true;
-  const { domains, domainsError, domainsFetching, domainsUpdatedAt } =
-    useAssistantDomains(open && domainAnswerNeeded, assistantId);
+  const {
+    domains,
+    domainsError,
+    domainsFetching,
+    domainsUpdatedAt,
+    domainsErrorUpdatedAt,
+  } = useAssistantDomains(open && domainAnswerNeeded, assistantId);
   const hasExistingDomain = (domains?.results.length ?? 0) > 0;
 
   // The domains list is a shared query — the billing page's finish-setup notice
@@ -169,8 +174,12 @@ export function BillingOnboardingModal({
       domainsInvalidatedRef.current = false;
       return;
     }
-    if (domainsInvalidatedRef.current) return;
-    if (!domainAnswerNeeded || assistantId == null) return;
+    if (domainsInvalidatedRef.current) {
+      return;
+    }
+    if (!domainAnswerNeeded || assistantId == null) {
+      return;
+    }
     domainsInvalidatedRef.current = true;
     void queryClient.invalidateQueries({
       queryKey: assistantsDomainsListQueryKey({
@@ -181,15 +190,24 @@ export function BillingOnboardingModal({
 
   // "Answered" must mean a domains response fetched during THIS open, not merely
   // one already sitting in the shared cache. Mirror the onboarding freshness
-  // guard: require `dataUpdatedAt` to cross the open fence (and not be mid-
-  // refetch) before trusting it, so a stale empty cache can't latch routing with
+  // guard: require the answer to cross the open fence (and not be mid-refetch)
+  // before trusting it, so a stale empty cache can't latch routing with
   // hasExistingDomain=false and route to the domain step when a domain exists.
-  // An errored fetch still counts as answered: routing then falls back to the
+  // Both outcomes are fenced by their own timestamp: success by `dataUpdatedAt`,
+  // error by `errorUpdatedAt`. A cached error left by a pre-open failed refetch
+  // (React Query keeps `isError` set with the OLD list while the forced on-open
+  // refetch is still in flight) must NOT read as answered — otherwise routing
+  // latches on the stale list before the fresh response lands. A genuine
+  // post-open error still counts as answered: routing then falls back to the
   // domain step, whose own fetch/locked-state handling degrades gracefully.
-  const domainsFresh =
+  const domainsFreshData =
     domainsOpenedAt != null && domainsUpdatedAt >= domainsOpenedAt;
+  const domainsFreshError =
+    domainsOpenedAt != null &&
+    Boolean(domainsError) &&
+    domainsErrorUpdatedAt >= domainsOpenedAt;
   const domainsKnown =
-    (domainsFresh && !domainsFetching) || Boolean(domainsError);
+    !domainsFetching && (domainsFreshData || domainsFreshError);
   // Routing must never use a stale domain_setup_available: until the first
   // post-confirm fetch settles, TanStack may still serve pre-checkout cached
   // data. Both the celebration dwell and the escape hatch wait on this.
@@ -203,7 +221,9 @@ export function BillingOnboardingModal({
       setRoutingSettled(false);
       return;
     }
-    if (routingInputsSettled) setRoutingSettled(true);
+    if (routingInputsSettled) {
+      setRoutingSettled(true);
+    }
   }, [open, routingInputsSettled]);
 
   const advanceFromProvisioning = useCallback(() => {

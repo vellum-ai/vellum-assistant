@@ -14,7 +14,10 @@ import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
 
-import { assistantsDomainsListSetQueryData } from "@/generated/api/@tanstack/react-query.gen";
+import {
+  assistantsDomainsListOptions,
+  assistantsDomainsListSetQueryData,
+} from "@/generated/api/@tanstack/react-query.gen";
 import * as sdkGen from "@/generated/api/sdk.gen";
 import type {
   Assistant,
@@ -1065,6 +1068,90 @@ describe("BillingOnboardingModal — resize mode", () => {
       await waitFor(() => expect(domainsCalls).toBeGreaterThan(0));
       // While the fresh answer is still in flight, routing must not fall through
       // to the domain step off the stale empty cache.
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      expect(queryByText("Assistant Email")).toBeNull();
+      expect(queryByText("You're all set!")).toBeNull();
+
+      // The fresh answer lands: a domain already exists → skip to complete.
+      releaseDomains();
+      await waitFor(() => expect(getByText("You're all set!")).toBeTruthy(), {
+        timeout: 5000,
+      });
+      expect(queryByText("Assistant Email")).toBeNull();
+    },
+    20_000,
+  );
+
+  test(
+    "waits past a stale cached domains ERROR, not just a stale success",
+    async () => {
+      // The reviewer's P2 race: the shared assistantsDomainsList cache holds a
+      // FAILED background refetch from before this open — React Query exposes
+      // isError=true alongside the OLD (empty) list. That cached error must not
+      // count as an answered domains read: routing has to wait for the forced
+      // on-open refetch, which reveals an existing domain, then skip straight to
+      // complete — never latch on the stale error and route to the domain step.
+      subscriptionPlanId = "pro";
+      assistantResponse = makeAssistant("large", 50);
+      // Already at the target, so DONE lands off the reconcile without a resize.
+      ensureResponse = makeEnsureResponse("already_done");
+
+      const client = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      });
+      const domainsQuery = assistantsDomainsListOptions({
+        path: { assistant_id: "assistant-1" },
+      });
+
+      // Seed a stale errored cache timestamped before this open (negative
+      // offset): an empty success, then a failed refetch on top. React Query
+      // keeps the empty data with isError=true and an errorUpdatedAt earlier
+      // than the open — the exact state the success-only fence let slip through.
+      dateNowOffsetMs = -5000;
+      domainsResponse = makeDomains(false);
+      domainsFails = false;
+      await client.fetchQuery({ ...domainsQuery, retry: false });
+      domainsFails = true;
+      await client
+        .fetchQuery({ ...domainsQuery, retry: false, staleTime: 0 })
+        .catch(() => {});
+      dateNowOffsetMs = 0;
+
+      // The forced on-open refetch reveals an existing domain; held so routing
+      // can only observe it once it lands — never the stale cached error.
+      domainsFails = false;
+      domainsResponse = makeDomains(true);
+      let releaseDomains!: () => void;
+      domainsHold = new Promise((resolve) => {
+        releaseDomains = resolve;
+      });
+      // Reset so `domainsCalls > 0` cleanly means the on-open refetch fired,
+      // not the two seeding fetches above.
+      domainsCalls = 0;
+
+      const onClose = mock(() => {});
+      const { getByText, queryByText } = render(
+        <MemoryRouter>
+          <QueryClientProvider client={client}>
+            <BillingOnboardingModal
+              open
+              onClose={onClose}
+              dwellMs={TEST_DWELL_MS}
+              phaseMinMs={0}
+              mode="resize"
+            />
+          </QueryClientProvider>
+        </MemoryRouter>,
+      );
+
+      // Provisioning reaches DONE, but the cached error must not settle routing.
+      await waitFor(() => expect(getByText("All done!")).toBeTruthy(), {
+        timeout: 5000,
+      });
+      // The forced on-open refetch fired — the stale error alone is not answered.
+      await waitFor(() => expect(domainsCalls).toBeGreaterThan(0));
+      // While the fresh answer is still in flight, routing must not latch on the
+      // stale error — neither the domain step nor complete may appear yet.
       await new Promise((resolve) => setTimeout(resolve, 400));
       expect(queryByText("Assistant Email")).toBeNull();
       expect(queryByText("You're all set!")).toBeNull();
