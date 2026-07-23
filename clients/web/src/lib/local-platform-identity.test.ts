@@ -4,6 +4,7 @@ const RUNTIME_ASSISTANT_ID = "qa-loopback-auth";
 const PLATFORM_ASSISTANT_ID = "019ed7d1-e995-71cc-9859-c54f422ace3c";
 const OTHER_PLATFORM_ASSISTANT_ID = "019ed7d1-e995-71cc-9859-c54f422ace3d";
 const ORGANIZATION_ID = "019ed7d1-e995-71cc-9859-c54f422ace3e";
+const PLATFORM_USER_ID = "019ed7d1-e995-71cc-9859-c54f422ace3f";
 const GATEWAY_URL = "http://localhost:5173/assistant/__gateway/20101";
 const HOST_INSTALLATION_ID = "host-installation-1";
 const STATUS_PLATFORM_BASE_URL = "https://registered-platform.example.com";
@@ -91,6 +92,18 @@ mock.module("@/stores/organization-store", () => ({
   },
 }));
 
+const fetchMeMock = mock(async () => ({
+  id: PLATFORM_USER_ID,
+  username: "example-user",
+  email: "user@example.com",
+  first_name: "",
+  last_name: "",
+}));
+
+mock.module("@/domains/account/profile", () => ({
+  fetchMe: fetchMeMock,
+}));
+
 const {
   bootstrapLocalAssistantPlatformIdentity,
   resetLocalPlatformIdentityCacheForTesting,
@@ -156,6 +169,14 @@ beforeEach(() => {
   primeLocalGatewayConnectionWithRepairMock.mockClear();
   fetchOrganizationsMock.mockClear();
   updateLockfileAssistantMock.mockClear();
+  fetchMeMock.mockClear();
+  fetchMeMock.mockImplementation(async () => ({
+    id: PLATFORM_USER_ID,
+    username: "example-user",
+    email: "user@example.com",
+    first_name: "",
+    last_name: "",
+  }));
   resetLocalPlatformIdentityCacheForTesting();
   // Single attempt by default — retry tests opt into a schedule.
   setBootstrapRetryDelaysForTesting([]);
@@ -218,13 +239,59 @@ describe("resolveLocalAssistantPlatformIdentity", () => {
       await resolveLocalAssistantPlatformIdentity(RUNTIME_ASSISTANT_ID);
 
     expect(platformAssistantId).toBe(PLATFORM_ASSISTANT_ID);
-    expect(requestNames()).toEqual(["status"]);
+    // The status probe reports no stored platform_user_id, so the flow
+    // backfills it via a single secrets write before returning.
+    expect(requestNames()).toEqual(["status", "secrets"]);
+    expect(storedSecrets).toEqual(["vellum:platform_user_id"]);
     expect(updateLockfileAssistantMock).toHaveBeenCalledWith({
       ...activeAssistant,
       platformAssistantId: PLATFORM_ASSISTANT_ID,
       platformBaseUrl: STATUS_PLATFORM_BASE_URL,
       platformOrganizationId: ORGANIZATION_ID,
     });
+  });
+
+  test("does not backfill the platform user id when status already reports one", async () => {
+    statusBody = {
+      ...(statusBody as Record<string, unknown>),
+      user_id: PLATFORM_USER_ID,
+    };
+
+    const platformAssistantId =
+      await resolveLocalAssistantPlatformIdentity(RUNTIME_ASSISTANT_ID);
+
+    expect(platformAssistantId).toBe(PLATFORM_ASSISTANT_ID);
+    expect(requestNames()).toEqual(["status"]);
+    expect(fetchMeMock).not.toHaveBeenCalled();
+    expect(storedSecrets).toEqual([]);
+  });
+
+  test("backfills the signed-in platform user id when status omits it", async () => {
+    await resolveLocalAssistantPlatformIdentity(RUNTIME_ASSISTANT_ID);
+
+    expect(fetchMeMock).toHaveBeenCalledTimes(1);
+    const secretsWrite = requests.find((request) =>
+      request.pathname.endsWith("/v1/secrets"),
+    );
+    expect(secretsWrite?.body).toEqual({
+      type: "credential",
+      name: "vellum:platform_user_id",
+      value: PLATFORM_USER_ID,
+    });
+  });
+
+  test("skips the user-id backfill when the platform lookup fails", async () => {
+    fetchMeMock.mockImplementation(async () => {
+      throw new Error("platform unreachable");
+    });
+
+    const platformAssistantId =
+      await resolveLocalAssistantPlatformIdentity(RUNTIME_ASSISTANT_ID);
+
+    // A failed lookup must not block resolution or write a bad credential.
+    expect(platformAssistantId).toBe(PLATFORM_ASSISTANT_ID);
+    expect(requestNames()).toEqual(["status"]);
+    expect(storedSecrets).toEqual([]);
   });
 
   test("falls back to the configured platform URL when status omits its base URL", async () => {
@@ -272,6 +339,7 @@ describe("resolveLocalAssistantPlatformIdentity", () => {
       "secrets",
       "secrets",
       "secrets",
+      "secrets",
     ]);
     expect(
       requests.find((request) =>
@@ -310,6 +378,11 @@ describe("resolveLocalAssistantPlatformIdentity", () => {
       name: "vellum:platform_base_url",
       value: STATUS_PLATFORM_BASE_URL,
     });
+    expect(injectedSecrets).toContainEqual({
+      type: "credential",
+      name: "vellum:platform_user_id",
+      value: PLATFORM_USER_ID,
+    });
     expect(updateLockfileAssistantMock).toHaveBeenCalledWith({
       ...activeAssistant,
       platformAssistantId: PLATFORM_ASSISTANT_ID,
@@ -333,7 +406,7 @@ describe("resolveLocalAssistantPlatformIdentity", () => {
 
     expect(platformAssistantId).toBe(PLATFORM_ASSISTANT_ID);
     expect(primeLocalGatewayConnectionWithRepairMock).toHaveBeenCalledTimes(1);
-    expect(requestNames()).toEqual(["status"]);
+    expect(requestNames()).toEqual(["status", "secrets"]);
   });
 
   test("skips raw platform calls when platform features are disabled", async () => {
@@ -352,7 +425,7 @@ describe("bootstrapLocalAssistantPlatformIdentity", () => {
     bootstrapLocalAssistantPlatformIdentity(RUNTIME_ASSISTANT_ID);
     await flushAsyncWork();
 
-    expect(requestNames()).toEqual(["status"]);
+    expect(requestNames()).toEqual(["status", "secrets"]);
   });
 
   test("does not repair gateway access during best-effort bootstrap", async () => {
@@ -372,7 +445,7 @@ describe("bootstrapLocalAssistantPlatformIdentity", () => {
     bootstrapLocalAssistantPlatformIdentity();
     await flushAsyncWork();
 
-    expect(requestNames()).toEqual(["status"]);
+    expect(requestNames()).toEqual(["status", "secrets"]);
   });
 
   test("does nothing when platform features are disabled", async () => {

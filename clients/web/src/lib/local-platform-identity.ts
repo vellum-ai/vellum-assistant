@@ -1,3 +1,4 @@
+import { fetchMe } from "@/domains/account/profile";
 import { buildVellumMutatingHeaders } from "@/lib/auth/request-headers";
 import {
   getActiveAssistant,
@@ -35,6 +36,8 @@ type PlatformStatusBody = {
   base_url?: unknown;
   organizationId?: unknown;
   organization_id?: unknown;
+  userId?: unknown;
+  user_id?: unknown;
   hasAssistantApiKey?: unknown;
   has_assistant_api_key?: unknown;
   clientInstallationId?: unknown;
@@ -45,6 +48,7 @@ type LocalPlatformStatus = {
   assistantId: string | null;
   baseUrl: string | null;
   organizationId: string | null;
+  userId: string | null;
   hasAssistantApiKey: boolean | null;
   clientInstallationId: string | null;
 };
@@ -220,6 +224,14 @@ async function ensureLocalAssistantPlatformIdentity(
         organizationId: statusOrganizationId,
       });
     }
+    // Backfill the platform user id for an assistant registered before this
+    // credential was injected. Such an assistant is otherwise healthy
+    // (assistant id + API key present, so the flow early-returns here) yet the
+    // gateway's edge auth 403s every request because no platform_user_id is
+    // stored to match against the request's user identity.
+    if (!status?.userId) {
+      await backfillPlatformUserId(gateway);
+    }
     return statusPlatformAssistantId;
   }
 
@@ -269,11 +281,13 @@ async function ensureLocalAssistantPlatformIdentity(
   }
 
   const platformBaseUrl = status?.baseUrl ?? getPlatformRuntimeUrl();
+  const platformUserId = status?.userId ?? (await resolvePlatformUserId());
   await injectPlatformCredentials(gateway, {
     assistantApiKey,
     platformAssistantId,
     platformBaseUrl,
     organizationId,
+    userId: platformUserId,
     webhookSecret: stringValue(registration.webhook_secret),
   });
   await persistPlatformRegistrationMetadata(assistant, {
@@ -356,6 +370,7 @@ async function fetchPlatformStatus(
     assistantId: firstString(body?.assistantId, body?.assistant_id),
     baseUrl: firstString(body?.baseUrl, body?.base_url),
     organizationId: firstString(body?.organizationId, body?.organization_id),
+    userId: firstString(body?.userId, body?.user_id),
     hasAssistantApiKey: firstBoolean(
       body?.hasAssistantApiKey,
       body?.has_assistant_api_key,
@@ -490,6 +505,7 @@ async function injectPlatformCredentials(
     platformAssistantId: string;
     platformBaseUrl: string;
     organizationId: string;
+    userId: string | null;
     webhookSecret: string | null;
   },
 ): Promise<void> {
@@ -497,6 +513,7 @@ async function injectPlatformCredentials(
     ["vellum:platform_assistant_id", params.platformAssistantId],
     ["vellum:platform_base_url", params.platformBaseUrl],
     ["vellum:platform_organization_id", params.organizationId],
+    ["vellum:platform_user_id", params.userId],
     ["vellum:webhook_secret", params.webhookSecret],
   ];
 
@@ -517,6 +534,41 @@ async function injectPlatformCredentials(
       "vellum:assistant_api_key",
       params.assistantApiKey,
     );
+  }
+}
+
+/**
+ * Resolve the signed-in platform user's id (the WorkOS user UUID the gateway's
+ * edge auth matches requests against). Best-effort: returns `null` when the
+ * lookup fails so a transient platform hiccup never blocks identity resolution.
+ */
+async function resolvePlatformUserId(): Promise<string | null> {
+  try {
+    const me = await fetchMe();
+    return stringValue(me.id);
+  } catch (error) {
+    console.warn("local assistant platform user lookup failed", error);
+    return null;
+  }
+}
+
+/**
+ * Store `vellum:platform_user_id` on an already-registered assistant that is
+ * missing it. Best-effort: a lookup or injection failure is logged and
+ * swallowed so a healthy assistant's identity resolution still succeeds.
+ */
+async function backfillPlatformUserId(gateway: {
+  gatewayUrl: string;
+  actorToken: string;
+}): Promise<void> {
+  const userId = await resolvePlatformUserId();
+  if (!userId) {
+    return;
+  }
+  try {
+    await injectCredential(gateway, "vellum:platform_user_id", userId);
+  } catch (error) {
+    console.warn("local assistant platform_user_id backfill failed", error);
   }
 }
 
