@@ -20,6 +20,7 @@ import {
 } from "./slack-web.js";
 import { isSlackDmChannel } from "./channel.js";
 import { slackEventOrderingKey } from "./event-ordering.js";
+import { slackEventText } from "./event-text.js";
 import { stampSlackEventTeam } from "./event-team.js";
 import {
   normalizeSlackAppMention,
@@ -1104,30 +1105,6 @@ export class SlackSocketModeClient {
     );
   }
 
-  private extractTextBearingContent(
-    event:
-      | SlackAppMentionEvent
-      | SlackDirectMessageEvent
-      | SlackChannelMessageEvent
-      | SlackMessageChangedEvent
-      | SlackMessageDeletedEvent
-      | SlackReactionAddedEvent
-      | SlackReactionRemovedEvent,
-  ): string | undefined {
-    if (
-      event.type === "message" &&
-      (event as SlackMessageChangedEvent).subtype === "message_changed"
-    ) {
-      return (event as SlackMessageChangedEvent).message?.text;
-    }
-
-    if (event.type === "app_mention" || event.type === "message") {
-      return (event as SlackAppMentionEvent | SlackDirectMessageEvent).text;
-    }
-
-    return undefined;
-  }
-
   private async resolveMentionLabelsForText(
     text: string,
   ): Promise<Record<string, string>> {
@@ -1240,7 +1217,7 @@ export class SlackSocketModeClient {
     isMessageDeleted: boolean,
     isDm: boolean,
   ): Promise<void> {
-    const text = this.extractTextBearingContent(event);
+    const text = slackEventText(event);
     const renderContext = text ? await this.resolveTextRenderContext(text) : {};
     const userLabels = renderContext.userLabels ?? {};
 
