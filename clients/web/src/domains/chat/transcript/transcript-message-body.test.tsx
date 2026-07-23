@@ -30,19 +30,19 @@ mock.module("@/domains/chat/utils/background-task-actions", () => ({
   stopBackgroundTask: stopBackgroundTaskMock,
 }));
 
-// `useOpenWorkspaceFile` calls `useNavigate`, which needs a Router context
-// these tests don't mount. Stub it to record the workspace paths opened by
-// `vellum://open/` reference-link clicks.
-const openWorkspaceFileMock = mock((_path: string) => {});
-mock.module("@/hooks/use-open-workspace-file", () => ({
-  useOpenWorkspaceFile: () => openWorkspaceFileMock,
+// `openWorkspaceFile` lazily imports the app router, which these tests don't
+// build. Stub it to record the workspace paths opened by `vellum://open/`
+// reference-link clicks.
+const openWorkspaceFileMock = mock(async (_path: string) => {});
+mock.module("@/utils/open-workspace-file", () => ({
+  VELLUM_OPEN_PREFIX: "vellum://open/",
+  openWorkspaceFile: openWorkspaceFileMock,
 }));
 
 // Captures the latest `onVellumLinkClick` handler so tests can drive the
 // vellum:// link download path directly through the mocked markdown renderer.
 let lastVellumLinkClick: ((href: string, linkText: string) => void) | undefined;
 mock.module("@/domains/chat/components/chat-markdown-message", () => ({
-  VELLUM_OPEN_PREFIX: "vellum://open/",
   ChatMarkdownMessage: ({
     content,
     hardLineBreaks,

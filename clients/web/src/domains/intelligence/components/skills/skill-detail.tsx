@@ -25,9 +25,9 @@ import {
     type SkillInfo,
 } from "@/domains/intelligence/skills/types";
 import { useWorkspaceWritePostMutation } from "@/generated/daemon/@tanstack/react-query.gen";
-import { useOpenWorkspaceFile } from "@/hooks/use-open-workspace-file";
 import { useSkillDetailFiles } from "@/hooks/use-skill-detail-files";
 import { captureError } from "@/lib/sentry/capture-error";
+import { openWorkspaceFile } from "@/utils/open-workspace-file";
 import { invalidateSkillsList, isRemovableSkill } from "@/utils/skills";
 import { Button, Card } from "@vellumai/design-library";
 
@@ -256,7 +256,6 @@ function SkillFileContent({
   isBinary: boolean;
   editable: boolean;
 }) {
-  const openWorkspaceFile = useOpenWorkspaceFile();
   const queryClient = useQueryClient();
 
   const [isEditing, setIsEditing] = useState(false);
@@ -332,7 +331,7 @@ function SkillFileContent({
       variant="ghost"
       size="regular"
       iconOnly={<ExternalLink aria-hidden />}
-      onClick={() => openWorkspaceFile(workspacePath)}
+      onClick={() => void openWorkspaceFile(workspacePath)}
       aria-label="Open in Workspace"
       className="hover:bg-[var(--surface-base)]"
     />

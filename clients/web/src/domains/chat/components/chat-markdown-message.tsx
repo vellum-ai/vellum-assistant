@@ -38,6 +38,7 @@ import {
   rehypeRedactedCredential,
 } from "@/domains/chat/utils/rehype-redacted-credential";
 import { rehypeStreamWordFade } from "@/domains/chat/utils/rehype-stream-word-fade";
+import { isVellumOpenLink } from "@/utils/open-workspace-file";
 
 /** Returns true when `href` is a known `vellum://` attachment link. */
 export function isVellumLink(href: string | undefined): boolean {
@@ -46,18 +47,6 @@ export function isVellumLink(href: string | undefined): boolean {
     (href.startsWith("vellum://workspace/") ||
       href.startsWith("vellum://host/"))
   );
-}
-
-/** Prefix of `vellum://open/` reference links (workspace-relative path follows). */
-export const VELLUM_OPEN_PREFIX = "vellum://open/";
-
-/**
- * Returns true when `href` is a `vellum://open/` reference link — a pointer
- * to a workspace file that opens in the workspace browser, as opposed to an
- * attachment link that downloads.
- */
-export function isVellumOpenLink(href: string | undefined): boolean {
-  return href != null && href.startsWith(VELLUM_OPEN_PREFIX);
 }
 
 /**

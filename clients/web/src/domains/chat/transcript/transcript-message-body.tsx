@@ -15,10 +15,7 @@ import { resolveAttachmentFilename } from "@vellumai/service-contracts/attachmen
 import { downloadAttachment } from "@/domains/chat/components/chat-attachments/download-attachment";
 import { MessageAttachments } from "@/domains/chat/components/chat-attachments/message-attachments";
 import { ToolResultImages } from "@/domains/chat/components/chat-attachments/tool-result-images";
-import {
-  ChatMarkdownMessage,
-  VELLUM_OPEN_PREFIX,
-} from "@/domains/chat/components/chat-markdown-message";
+import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
 import { toast } from "@vellumai/design-library";
 import { MessageHoverActions } from "@/domains/chat/components/message-hover-actions/message-hover-actions";
 import { MessageLongPressActions } from "@/domains/chat/components/message-hover-actions/message-long-press-actions";
@@ -48,7 +45,10 @@ import { getExternalLinkUrl } from "@/domains/chat/types/types";
 import { wireSurfaceToDisplay } from "@/domains/chat/utils/map-runtime-message";
 import { isPointerCoarse } from "@/utils/pointer";
 import { useLongPress } from "@/hooks/use-long-press";
-import { useOpenWorkspaceFile } from "@/hooks/use-open-workspace-file";
+import {
+  openWorkspaceFile,
+  VELLUM_OPEN_PREFIX,
+} from "@/utils/open-workspace-file";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useWorkflowStore } from "@/domains/chat/workflow-store";
 import { useAcpRunStore } from "@/domains/chat/acp-run-store";
@@ -396,14 +396,12 @@ export function TranscriptMessageBody({
     useViewerStore.getState().openBackgroundTaskDetail(id);
   }, []);
 
-  const openWorkspaceFile = useOpenWorkspaceFile();
-
   const handleVellumLinkClick = useCallback(
     (href: string, linkText: string) => {
       // `vellum://open/` links are references, not attachments: navigate to
       // the workspace browser with the file selected instead of downloading.
       if (href.startsWith(VELLUM_OPEN_PREFIX)) {
-        openWorkspaceFile(
+        void openWorkspaceFile(
           safeDecodeURIComponent(href.slice(VELLUM_OPEN_PREFIX.length)),
         );
         return;
@@ -474,7 +472,7 @@ export function TranscriptMessageBody({
         );
       }
     },
-    [message.attachments, assistantId, openWorkspaceFile],
+    [message.attachments, assistantId],
   );
 
   const renderTextWithInlineSurfaces = (
