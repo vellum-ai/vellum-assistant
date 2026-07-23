@@ -1012,6 +1012,24 @@ async function activatePlugin(
  * *before* removing the directory (see `cli/lib/uninstall-plugin.ts`), and an
  * out-of-band `rm` leaves nothing to resolve.
  */
+/**
+ * Deactivate a plugin ahead of an in-place upgrade's file swap: run the
+ * outgoing version's `shutdown` while its files are still on disk and drop
+ * its cached hook/tool resolutions. The upgrade route passes this as the
+ * upgrade's `beforeSwap` so teardown precedes the new files landing; the
+ * post-swap reconcile's redeploy branch then finds the plugin already
+ * deactivated (the `activatedNames` guard makes its own deactivate a no-op,
+ * so `shutdown` never double-runs) and proceeds straight to re-import and
+ * the new version's `init`. Safe no-op when the plugin is not active.
+ */
+export async function deactivatePluginForUpdate(
+  pluginName: string,
+): Promise<void> {
+  await deactivatePlugin(pluginName, "reload");
+  evictHooksForOwner("plugin", pluginName);
+  evictToolCacheEntries(pluginName);
+}
+
 async function deactivatePlugin(
   pluginName: string,
   reason: ShutdownReason,

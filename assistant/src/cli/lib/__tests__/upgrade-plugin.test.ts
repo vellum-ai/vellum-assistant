@@ -427,6 +427,113 @@ describe("upgradePlugin", () => {
     // AND the previously installed copy is left intact at its old pin
     expect(sidecarCommit(pluginsDir, "level-up")).toBe(SHA_A);
   });
+
+  test("invokes beforeSwap after staging and before the files are replaced", async () => {
+    // GIVEN an installed copy pinned to SHA_A and an advanced marketplace pin
+    installCopy(pluginsDir, "level-up", { commit: SHA_A });
+    const fetch = makeFetch({ manifest: manifestWith("level-up", SHA_B) });
+    const runGit = fakeGitRunner(SHA_B);
+    // AND a beforeSwap that records what was on disk when it ran
+    const commitsSeen: Array<string | null> = [];
+    const beforeSwap = async () => {
+      commitsSeen.push(sidecarCommit(pluginsDir, "level-up"));
+    };
+
+    // WHEN the plugin is upgraded
+    const result = await upgradePlugin(
+      { name: "level-up" },
+      { fetch, runGit, workspacePluginsDir: pluginsDir, beforeSwap },
+    );
+
+    // THEN beforeSwap ran exactly once, while the OLD install was still on
+    // disk (the outgoing version's shutdown sees its own files), and the swap
+    // completed afterwards
+    expect(result.outcome).toBe("upgraded");
+    expect(commitsSeen).toEqual([SHA_A]);
+    expect(sidecarCommit(pluginsDir, "level-up")).toBe(SHA_B);
+  });
+
+  test("a beforeSwap rejection never blocks the swap", async () => {
+    installCopy(pluginsDir, "level-up", { commit: SHA_A });
+    const fetch = makeFetch({ manifest: manifestWith("level-up", SHA_B) });
+    const runGit = fakeGitRunner(SHA_B);
+
+    const result = await upgradePlugin(
+      { name: "level-up" },
+      {
+        fetch,
+        runGit,
+        workspacePluginsDir: pluginsDir,
+        beforeSwap: async () => {
+          throw new Error("teardown exploded");
+        },
+      },
+    );
+
+    expect(result.outcome).toBe("upgraded");
+    expect(sidecarCommit(pluginsDir, "level-up")).toBe(SHA_B);
+  });
+
+  test("does not invoke beforeSwap for a dry run or a no-op upgrade", async () => {
+    installCopy(pluginsDir, "level-up", { commit: SHA_A });
+    let calls = 0;
+    const beforeSwap = async () => {
+      calls += 1;
+    };
+
+    // Dry run against an advanced pin: reports the move, never swaps.
+    const dry = await upgradePlugin(
+      { name: "level-up", dryRun: true },
+      {
+        fetch: makeFetch({ manifest: manifestWith("level-up", SHA_B) }),
+        runGit: fakeGitRunner(SHA_B),
+        workspacePluginsDir: pluginsDir,
+        beforeSwap,
+      },
+    );
+    expect(dry.outcome).toBe("would-upgrade");
+
+    // No-op: the install already sits at the pin.
+    const noop = await upgradePlugin(
+      { name: "level-up" },
+      {
+        fetch: makeFetch({ manifest: manifestWith("level-up", SHA_A) }),
+        runGit: fakeGitRunner(SHA_A),
+        workspacePluginsDir: pluginsDir,
+        beforeSwap,
+      },
+    );
+    expect(noop.outcome).toBe("already-up-to-date");
+
+    expect(calls).toBe(0);
+  });
+
+  test("does not invoke beforeSwap when staging fails", async () => {
+    // The running plugin must never be torn down for an upgrade that cannot
+    // complete: a clone failure aborts before the swap boundary.
+    installCopy(pluginsDir, "level-up", { commit: SHA_A });
+    const fetch = makeFetch({ manifest: manifestWith("level-up", SHA_B) });
+    const failingGit: GitRunner = async (args) => {
+      if (args[0] === "fetch") throw new Error("network down");
+      return { stdout: "" };
+    };
+    let calls = 0;
+
+    await expect(
+      upgradePlugin(
+        { name: "level-up" },
+        {
+          fetch,
+          runGit: failingGit,
+          workspacePluginsDir: pluginsDir,
+          beforeSwap: async () => {
+            calls += 1;
+          },
+        },
+      ),
+    ).rejects.toThrow("network down");
+    expect(calls).toBe(0);
+  });
 });
 
 describe("upgradePlugin — direct GitHub-URL installs", () => {

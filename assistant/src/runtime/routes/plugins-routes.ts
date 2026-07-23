@@ -91,7 +91,10 @@ import {
 import { getPlatformBaseUrl } from "../../config/env.js";
 import { isPluginDisabled } from "../../plugins/disabled-state.js";
 import { ensurePluginApiShim } from "../../plugins/ensure-plugin-api-shim.js";
-import { reconcilePluginSourcesNow } from "../../plugins/mtime-cache.js";
+import {
+  deactivatePluginForUpdate,
+  reconcilePluginSourcesNow,
+} from "../../plugins/mtime-cache.js";
 import { getLocalCategorySlugs } from "../../skills/categories-cache.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspacePluginsDir } from "../../util/platform.js";
@@ -1413,24 +1416,44 @@ async function handleUpgradePlugin({
   // (resolved inside `upgradePlugin` via `inspectPlugin`), never a
   // caller-supplied ref — a `settings.write` principal cannot redirect the
   // upgrade at an unreviewed revision.
+  //
+  // Ensure the workspace `@vellumai/plugin-api` shim before the upgrade (as
+  // the uninstall route does before `uninstallPlugin`): the old version's
+  // `shutdown` runs mid-upgrade at the swap boundary, and a hook that imports
+  // the package must resolve even inside the daemon boot window.
+  await ensurePluginApiShim().catch(() => {});
+  // Set when the upgrade reached the swap boundary and this route deactivated
+  // the old version; from that point the plugin is down until a reconcile
+  // brings the on-disk version up, so the reconcile below must run even when
+  // the swap itself failed (re-initializing the untouched old install).
+  let deactivated = false;
   try {
+    const name = sanitizePluginName(rawName);
     const result = await upgradePlugin(
-      { name: rawName, dryRun, strategy },
-      { fetch: globalThis.fetch.bind(globalThis) },
+      { name, dryRun, strategy },
+      {
+        fetch: globalThis.fetch.bind(globalThis),
+        // Tear the old version down BEFORE the staged tree replaces its
+        // files, mirroring uninstall (shutdown runs while the files it was
+        // initialized from are still on disk). Deactivating in-process also
+        // marks the plugin inactive, so the post-swap reconcile's redeploy
+        // branch skips its own deactivate (no double shutdown) and only the
+        // new version's `init` remains to run.
+        beforeSwap: async () => {
+          deactivated = true;
+          await deactivatePluginForUpdate(name);
+        },
+      },
     );
-    // An upgrade that actually moved files (outcome `upgraded`) rewrites the
-    // plugin's on-disk source; bring the change up in-process right now — run
-    // the old version's `shutdown` and the new version's `init` via the
-    // reconcile — instead of waiting for the resource monitor to republish the
-    // sentinel and a later turn to apply it. This is what makes the lifecycle
-    // fire as part of the upgrade rather than at the next daemon boot,
-    // symmetric to the install and uninstall routes. A no-op or dry run leaves
-    // the tree unchanged, so there is nothing to reconcile. Ensure the
-    // workspace `@vellumai/plugin-api` shim first (as uninstall does) so a hook
-    // that imports the package resolves even inside the daemon boot window.
-    // Never throws; a failure is contained and logged.
+    // Bring the change up in-process right now — the new version's `init`
+    // via the reconcile — instead of waiting for the resource monitor to
+    // republish the sentinel and a later turn to apply it. This is what
+    // makes the lifecycle fire as part of the upgrade rather than at the
+    // next daemon boot, symmetric to the install and uninstall routes. A
+    // no-op or dry run leaves the tree unchanged (and never reaches the
+    // swap boundary), so there is nothing to reconcile. Never throws; a
+    // failure is contained and logged.
     if (result.outcome === "upgraded") {
-      await ensurePluginApiShim().catch(() => {});
       await reconcilePluginSourcesNow();
     }
     publishPluginsChanged(getOriginClientId(headers));
@@ -1480,6 +1503,18 @@ async function handleUpgradePlugin({
     throw new InternalError(
       err instanceof Error ? err.message : "plugin upgrade failed",
     );
+  } finally {
+    // Once `beforeSwap` deactivated the old version, the plugin is down until
+    // a reconcile brings the on-disk tree up — the new revision on success,
+    // or the untouched old install when the swap itself failed. Run it here
+    // rather than only on the success path so a failed swap never strands
+    // the plugin deactivated until the next sentinel-driven reconcile.
+    // (On success this is the same reconcile the try block already awaited;
+    // `reconcilePluginSourcesNow` coalesces, and a second pass with nothing
+    // changed is a cheap no-op.)
+    if (deactivated) {
+      await reconcilePluginSourcesNow();
+    }
   }
 }
 
