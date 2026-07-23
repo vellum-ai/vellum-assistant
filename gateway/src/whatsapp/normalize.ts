@@ -6,13 +6,15 @@ import type { GatewayInboundEvent } from "../types.js";
 // WhatsApp Cloud API webhook payloads are untrusted external input:
 // https://developers.facebook.com/docs/whatsapp/cloud-api/webhooks/payload-examples
 //
-// The envelope and each message are validated with Zod. The core routing fields
-// of a message (`id`, `from`, `timestamp`) are required — a message missing or
-// malforming any of them is dropped rather than processed, so one bad message in
-// a batch can never take down the rest. Content-bearing fields (text body,
-// button reply, media metadata) stay tolerant: a malformed value collapses to
-// `undefined` rather than rejecting the whole message. The original payload is
-// preserved verbatim as `raw`.
+// The envelope and each message are validated with Zod. The routing fields a
+// message is keyed on (`id` for dedup/identity, `from` for sender/conversation)
+// are required — a message missing either is dropped rather than processed, so
+// one bad message in a batch can never take down the rest. Content-bearing
+// fields (text body, button reply, media metadata) stay tolerant: a malformed
+// value collapses to `undefined` rather than rejecting the whole message. Fields
+// the normalizer does not consume (e.g. the provider `timestamp`) are not
+// modeled; they are stripped from the parsed copy and survive only in `raw`,
+// which carries the original payload verbatim.
 
 const log = getLogger("whatsapp-normalize");
 
@@ -20,29 +22,15 @@ const optionalString = () => z.string().optional().catch(undefined);
 const optionalNumber = () => z.number().optional().catch(undefined);
 
 /**
- * The largest unix-epoch **seconds** value `new Date(seconds * 1000)` can
- * represent: JS `Date`'s range is ±8.64e15 ms, so 8.64e15 / 1000 seconds. A
- * digit string above this still makes `new Date(Number(timestamp) * 1000)` an
- * Invalid Date that throws on `.toISOString()`, so it is rejected.
- */
-const MAX_TIMESTAMP_SECONDS = 8_640_000_000_000;
-
-/**
- * Core routing fields present on every WhatsApp message. Required and validated:
- * `id` is the dedup key / external message id, `from` is the sender identity and
- * conversation address, and `timestamp` is unix-epoch **seconds** as a digit
- * string bounded to `Date`'s representable range. Validating `timestamp` here is
- * what keeps `new Date(Number(timestamp) * 1000)` from being an Invalid Date
- * (fed `NaN` by a missing/non-numeric value, or overflowed by an out-of-range
- * one), which would throw on `.toISOString()`.
+ * Routing fields present on every WhatsApp message. Required and validated:
+ * `id` is the dedup key / external message id, and `from` is the sender identity
+ * and conversation address. The provider `timestamp` is intentionally not
+ * modeled — the event's `receivedAt` is the gateway's own receipt time (as on
+ * every other channel), so the sender-supplied time is never consumed.
  */
 const messageCore = {
   id: z.string().min(1),
   from: z.string().min(1),
-  timestamp: z
-    .string()
-    .regex(/^\d+$/)
-    .refine((s) => Number(s) <= MAX_TIMESTAMP_SECONDS),
 };
 
 const mediaPayloadSchema = z.object({
@@ -227,6 +215,10 @@ export function normalizeWhatsAppWebhook(
 
   if (wh.object !== "whatsapp_business_account") return [];
 
+  // One receipt time for the whole webhook — the gateway's wall clock, like
+  // every other channel. The sender-supplied `timestamp` is not trusted for this.
+  const receivedAt = new Date().toISOString();
+
   const results: NormalizedWhatsAppMessage[] = [];
 
   for (const entry of wh.entry ?? []) {
@@ -314,7 +306,7 @@ export function normalizeWhatsAppWebhook(
         event: {
           version: "v1",
           sourceChannel: "whatsapp",
-          receivedAt: new Date(Number(msg.timestamp) * 1000).toISOString(),
+          receivedAt,
           message: {
             content: body,
             // Use sender phone number as the chat identifier for 1:1 conversations

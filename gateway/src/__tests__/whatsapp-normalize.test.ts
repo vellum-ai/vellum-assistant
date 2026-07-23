@@ -346,46 +346,51 @@ describe("normalizeWhatsAppWebhook", () => {
     });
   });
 
+  describe("provider timestamp is not consumed (receivedAt is the gateway's clock)", () => {
+    // `receivedAt` is the gateway's wall-clock receipt time, like every other
+    // channel — the sender-supplied `timestamp` never reaches a `Date`. So no
+    // timestamp value (missing, non-numeric, or out of Date's range) can throw
+    // or otherwise affect normalization; the message is processed normally.
+    test.each([
+      ["missing", undefined],
+      ["non-numeric", "not-a-number"],
+      ["out-of-range digits", "9999999999999"],
+    ])("a %s timestamp is processed normally, never throwing", (_label, ts) => {
+      const payload = makeWhatsAppPayload({
+        id: "wamid.ts",
+        from: WA_FROM,
+        ...(ts === undefined ? {} : { timestamp: ts }),
+        type: "text",
+        text: { body: "hi" },
+      });
+      let results!: ReturnType<typeof normalizeWhatsAppWebhook>;
+      expect(() => {
+        results = normalizeWhatsAppWebhook(payload);
+      }).not.toThrow();
+      expect(results).toHaveLength(1);
+      expect(results[0].event.message.content).toBe("hi");
+    });
+
+    test("receivedAt is a recent wall-clock time, not derived from the provider timestamp", () => {
+      const before = Date.now();
+      const payload = makeWhatsAppPayload({
+        id: "wamid.recv",
+        from: WA_FROM,
+        // A historical send-time; receivedAt must NOT reflect it.
+        timestamp: WA_TS,
+        type: "text",
+        text: { body: "hi" },
+      });
+      const results = normalizeWhatsAppWebhook(payload);
+      const after = Date.now();
+      expect(results).toHaveLength(1);
+      const receivedMs = new Date(results[0].event.receivedAt).getTime();
+      expect(receivedMs).toBeGreaterThanOrEqual(before);
+      expect(receivedMs).toBeLessThanOrEqual(after);
+    });
+  });
+
   describe("malformed input is dropped, not trusted", () => {
-    test("a missing timestamp drops the message instead of feeding NaN to new Date", () => {
-      // A message with no timestamp must be dropped, not passed to
-      // `new Date(Number(undefined) * 1000)` (an Invalid Date that throws).
-      const payload = makeWhatsAppPayload({
-        id: "wamid.no-ts",
-        from: WA_FROM,
-        type: "text",
-        text: { body: "hi" },
-      });
-      expect(() => normalizeWhatsAppWebhook(payload)).not.toThrow();
-      expect(normalizeWhatsAppWebhook(payload)).toHaveLength(0);
-    });
-
-    test("a non-numeric timestamp is dropped rather than producing an Invalid Date", () => {
-      const payload = makeWhatsAppPayload({
-        id: "wamid.bad-ts",
-        from: WA_FROM,
-        timestamp: "not-a-number",
-        type: "text",
-        text: { body: "hi" },
-      });
-      expect(normalizeWhatsAppWebhook(payload)).toHaveLength(0);
-    });
-
-    test("an out-of-range digit timestamp is dropped rather than overflowing new Date", () => {
-      // Digits only, but too large for `Date` (> ±8.64e15 ms): the seconds
-      // value overflows `new Date(seconds * 1000)` into an Invalid Date, so the
-      // message must be dropped rather than crash the batch on `.toISOString()`.
-      const payload = makeWhatsAppPayload({
-        id: "wamid.huge-ts",
-        from: WA_FROM,
-        timestamp: "9999999999999",
-        type: "text",
-        text: { body: "hi" },
-      });
-      expect(() => normalizeWhatsAppWebhook(payload)).not.toThrow();
-      expect(normalizeWhatsAppWebhook(payload)).toHaveLength(0);
-    });
-
     test("a message with a missing id is dropped", () => {
       const payload = makeWhatsAppPayload({
         from: WA_FROM,
@@ -422,10 +427,10 @@ describe("normalizeWhatsAppWebhook", () => {
                   messaging_product: "whatsapp",
                   contacts: [{ wa_id: WA_FROM, profile: { name: "A" } }],
                   messages: [
-                    // malformed: no timestamp
+                    // malformed: no sender identity
                     {
                       id: "wamid.bad",
-                      from: WA_FROM,
+                      timestamp: WA_TS,
                       type: "text",
                       text: { body: "bad" },
                     },
