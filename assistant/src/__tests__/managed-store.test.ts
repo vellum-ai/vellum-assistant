@@ -19,8 +19,8 @@ import {
   buildSkillMarkdown,
   createManagedSkill,
   deleteManagedSkill,
-  validateCompanionPath,
   resolveVellumEvalRoot,
+  validateCompanionPath,
   validateCompanionSource,
   validateManagedSkillId,
 } from "../skills/managed-store.js";
