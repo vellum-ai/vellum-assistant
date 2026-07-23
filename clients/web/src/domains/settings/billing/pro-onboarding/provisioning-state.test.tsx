@@ -490,7 +490,11 @@ describe("takeover avatar mode", () => {
   for (const [state, softWaiting, expected] of CASES) {
     const label = softWaiting ? `${state} past the grace window` : state;
     test(`${label} renders ${expected || "no mode class"}`, () => {
-      const { container } = renderState({ state, softWaiting });
+      const { container } = renderState({
+        state,
+        softWaiting,
+        assistantId: "primary-assistant",
+      });
       const classes = modeClasses(container);
 
       if (expected) {
@@ -546,6 +550,22 @@ describe("takeover avatar mode", () => {
     expect(container.querySelector(".provision-avatar-stage")).toBeTruthy();
   });
 
+  test("holds the grow until there is an avatar to play it on", () => {
+    // The phase can resolve before the avatar fetch does — the avatar is read
+    // off the machine being restarted — and a grow that runs on an empty
+    // wrapper leaves the creature to fade in already at its final scale.
+    avatarLoading = true;
+
+    const { container } = renderState({
+      state: "DONE",
+      assistantId: "primary-assistant",
+    });
+
+    expect(
+      container.querySelector(".provision-avatar-evolve")?.className,
+    ).not.toContain("is-evolved");
+  });
+
   test("steps the creature down so a short viewport keeps the actions below it", () => {
     // The stage reserves the grown height, so a full-size creature needs about
     // 650px before the phase block — which carries the escape hatch and the
@@ -586,7 +606,11 @@ describe("takeover avatar mode", () => {
   });
 
   test("the grace window never softens a state that isn't waiting", () => {
-    const { container } = renderState({ state: "STALLED", softWaiting: true });
+    const { container } = renderState({
+      state: "STALLED",
+      softWaiting: true,
+      assistantId: "primary-assistant",
+    });
 
     expect(modeClasses(container)).toContain("is-stalled");
   });

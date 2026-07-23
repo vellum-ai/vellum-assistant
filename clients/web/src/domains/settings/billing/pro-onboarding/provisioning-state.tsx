@@ -198,10 +198,16 @@ function TakeoverAvatar({
   // reports `isLoading: false` with no data. Both have to clear before there is
   // anything safe to draw.
   const avatarReady = resolvedId != null && !isLoading;
+  // Every mode animates the wrapper or its child, so the class waits for
+  // something to animate. Otherwise a phase that resolves before the fetch does
+  // — likely here, since the avatar is read off the machine being restarted —
+  // runs the grow on an empty wrapper and leaves the creature to fade in at its
+  // final scale with the success beat already spent.
+  const activeMode: AvatarMode = avatarReady ? mode : "idle";
   return (
     <div
       aria-hidden
-      className={`provision-avatar-evolve flex flex-col items-center${AVATAR_MODE_CLASS[mode]}`}
+      className={`provision-avatar-evolve flex flex-col items-center${AVATAR_MODE_CLASS[activeMode]}`}
       style={
         {
           "--provision-avatar-size": `${size}px`,
