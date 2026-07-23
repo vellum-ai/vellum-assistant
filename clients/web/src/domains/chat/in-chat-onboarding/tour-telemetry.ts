@@ -1,10 +1,10 @@
 /**
- * Telemetry for the in-chat onboarding tour experiment. Rides the
- * onboarding funnel event shape and ingest path (`funnel-events.ts`) — the
- * backend stores `step_name`/`funnel_version` as open strings, so these
- * need no backend change — and stamps every event with the
- * `in-chat-onboarding-tour` arm as `ab_variant`, so BigQuery can compare
- * the 70% `tour` arm against `control`.
+ * Telemetry for the in-chat onboarding tour. Rides the onboarding funnel
+ * event shape and ingest path (`funnel-events.ts`) — the backend stores
+ * `step_name`/`funnel_version` as open strings, so these need no backend
+ * change — and stamps every event with the `in-chat-onboarding-tour` arm
+ * as `ab_variant` (now defaulted to `tour`; `control` is the kill-switch
+ * arm), keeping rows comparable with the original experiment's.
  *
  * DESKTOP-ONLY: the tour doesn't run on phone-width viewports or in the
  * native shell, and neither do these events — both call sites gate on
@@ -17,7 +17,8 @@
  *                      the control cohort emits nothing else, and the
  *                      experiment needs its rows for comparison.
  * - `tour_started`   — the tour began; `screen` records the trigger
- *                      (`auto` = post-onboarding hand-off, `replay` = the
+ *                      (`auto` = post-onboarding hand-off; historical rows
+ *                      may also carry `replay`, from the since-removed
  *                      header button).
  * - `tour_skipped`   — Skip pressed; `screen` records which beat it was
  *                      pressed on (`beat_<index>_of_<count>`).
@@ -37,8 +38,8 @@ export const IN_CHAT_TOUR_FUNNEL_STEPS = {
   skipped: { stepName: "tour_skipped", stepIndex: 3 },
 } as const;
 
-/** How the tour began: the post-onboarding hand-off or the header button. */
-export type InChatTourTrigger = "auto" | "replay";
+/** How the tour began — only the post-onboarding hand-off remains. */
+export type InChatTourTrigger = "auto";
 
 /** The arm-exposure moment — emitted for every user (both arms) at the
  *  post-onboarding hand-off, stamped with their assigned arm. */

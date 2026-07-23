@@ -233,32 +233,16 @@ export function MeetingCreatedStep({
 // Rotating status lines shown while the web-research turn settles in the
 // background. They loop until `ready`, so the copy is pure flavor — it never
 // gates progress. The personality rewrite is NOT narrated here: it runs
-// decoupled and is finished off in the dedicated FinishingUpStep, so this quick
-// loader isn't held hostage to the persona turn.
-const WEB_SEARCH_MESSAGES = [
+// decoupled (settling while the post-hand-off in-chat tour plays), so this
+// quick loader isn't held hostage to the persona turn.
+const LOOKING_MESSAGES = [
   "Searching the web to get to know you…",
   "Reading public profiles…",
   "Skimming the highlights…",
   "Connecting the dots…",
   "Piecing it together…",
+  "Almost there…",
 ];
-
-// Persona-rewrite lines, shown by FinishingUpStep while the personality turn
-// wraps up right before the chat handoff.
-const PERSONALITY_MESSAGES = [
-  "Updating my personality…",
-  "Finding my voice…",
-  "Getting into character…",
-];
-
-// Shared closing line both carousels settle on.
-const LOOKING_CLOSING_MESSAGE = "Almost there…";
-
-/** The web-search carousel: search lines, then the shared closer. */
-const LOOKING_MESSAGES = [...WEB_SEARCH_MESSAGES, LOOKING_CLOSING_MESSAGE];
-
-/** The finishing carousel: persona lines, then the shared closer. */
-const FINISHING_MESSAGES = [...PERSONALITY_MESSAGES, LOOKING_CLOSING_MESSAGE];
 
 /** How long each rotating message lingers before advancing to the next. */
 const LOOKING_MESSAGE_INTERVAL_MS = 2800;
@@ -324,72 +308,6 @@ export function LookingYouUpStep({
             transition={{ duration: 0.35 }}
           >
             {LOOKING_MESSAGES[index]}
-          </motion.p>
-        </AnimatePresence>
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Finishing up (personality-rewrite loading carousel)
-// ---------------------------------------------------------------------------
-
-/**
- * Terminal loading carousel shown after "Let's chat" while the personality
- * rewrite finishes in the background. The rewrite runs decoupled from the
- * looking-you-up (web-search) carousel — it lands here at the very end so that
- * quick step, and the results, aren't held hostage to the persona turn. Loops
- * its lines until `ready` (the rewrite settled), then snaps to the closing line
- * and hands off — so the user never drops into chat before the persona they
- * configured is fully written. No nav: the user has already committed to
- * entering the chat.
- */
-export function FinishingUpStep({
-  onDone,
-  ready,
-}: {
-  onDone: () => void;
-  /** The personality rewrite has settled; hand off after the closing line. */
-  ready: boolean;
-}) {
-  const tone = DARK_TONE;
-  const [index, setIndex] = useState(0);
-
-  useEffect(() => {
-    const lastIndex = FINISHING_MESSAGES.length - 1;
-    if (ready) {
-      // Snap to the closing line first (so we don't hand off mid-list), hold a
-      // beat, then enter chat.
-      if (index !== lastIndex) {
-        setIndex(lastIndex);
-        return;
-      }
-      const done = setTimeout(onDone, LOOKING_MESSAGE_INTERVAL_MS);
-      return () => clearTimeout(done);
-    }
-    const next = setTimeout(
-      () => setIndex((i) => (i + 1) % FINISHING_MESSAGES.length),
-      LOOKING_MESSAGE_INTERVAL_MS,
-    );
-    return () => clearTimeout(next);
-  }, [index, ready, onDone]);
-
-  return (
-    <div className="absolute inset-0 z-10" style={{ color: tone.fg }}>
-      <div className="absolute left-1/2 top-[14%] sm:top-[26%] flex w-full max-w-xl -translate-x-1/2 items-start gap-3 px-6">
-        <MiniAssistant isAssistantBusy />
-        <AnimatePresence mode="wait">
-          <motion.p
-            key={index}
-            className={AVATAR_HEADING_CLASS}
-            style={{ fontFamily: "var(--font-serif)" }}
-            initial={{ y: 12, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            exit={{ y: -12, opacity: 0 }}
-            transition={{ duration: 0.35 }}
-          >
-            {FINISHING_MESSAGES[index]}
           </motion.p>
         </AnimatePresence>
       </div>

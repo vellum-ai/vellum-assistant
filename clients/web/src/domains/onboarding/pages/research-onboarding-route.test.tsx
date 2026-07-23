@@ -256,7 +256,6 @@ mock.module("@/domains/onboarding/screens/lets-chat-tomorrow-step", () => ({
 mock.module("@/domains/onboarding/screens/research-result-steps", () => ({
   MeetingCreatedStep: () => <div data-testid="meeting-step" />,
   LookingYouUpStep: () => <div data-testid="looking-step" />,
-  FinishingUpStep: () => <div data-testid="finishing-step" />,
   ResearchResultsStep: () => <div data-testid="results-step" />,
   SuggestionsStep: () => <div data-testid="suggestions-step" />,
   // Renders the real step's contract: a "Let's chat" CTA that the parent can

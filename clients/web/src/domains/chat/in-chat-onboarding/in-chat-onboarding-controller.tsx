@@ -22,13 +22,12 @@ import {
 } from "./tour-telemetry";
 
 /**
- * SPIKE — orchestrator for the in-chat onboarding UI prototype, mounted
- * alongside `ChatLayout` so it runs over the REAL app UI.
+ * Orchestrator for the in-chat onboarding tour, mounted alongside
+ * `ChatLayout` so it runs over the REAL app UI.
  *
- * The prototype IS the tour: activating it (the header's Sparkles button,
- * standing in for the hand-off from research onboarding — users' first
- * sight of the app) plays {@link AvatarTour} immediately. The tour walks
- * the left nav beat by beat while each stop's line typewrites over
+ * Activation is the hand-off from research onboarding — users' first
+ * sight of the app — which plays {@link AvatarTour} immediately. The tour
+ * walks the left nav beat by beat while each stop's line typewrites over
  * {@link TourOverlay}, a full-screen takeover of the app. The takeover
  * latches on the first landing so the app doesn't flash back between
  * stops, and lifts when the tour finishes. This controller renders the
