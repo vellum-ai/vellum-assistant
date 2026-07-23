@@ -8,7 +8,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
 } from "react";
-import { Link } from "react-router";
+import { Link, Navigate, useSearchParams } from "react-router";
 
 import { Button } from "@vellumai/design-library/components/button";
 import { Dropdown } from "@vellumai/design-library/components/dropdown";
@@ -91,6 +91,17 @@ const labelClasses = "text-body-small-default text-[var(--content-tertiary)]";
  * voice).
  */
 export function VoicePage() {
+  // Honor legacy deep links from when this page carried Sounds and Services
+  // tabs: those moved to their own pages, but bookmarks and native links to
+  // `?tab=sounds` / `?tab=services` are part of the URL contract.
+  const [searchParams] = useSearchParams();
+  const tab = searchParams.get("tab");
+  if (tab === "sounds") {
+    return <Navigate replace to={routes.settings.sounds} />;
+  }
+  if (tab === "services") {
+    return <Navigate replace to={routes.settings.ai} />;
+  }
   return <VoiceSections />;
 }
 

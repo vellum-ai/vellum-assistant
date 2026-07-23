@@ -35,9 +35,13 @@ export function VoicePickerField({
   className,
 }: VoicePickerFieldProps) {
   const [open, setOpen] = useState(false);
-  const { available, voices } = useManagedVoiceSelection(assistantId);
+  // Gate on the catalog, not the saved-config `available`: this field is always
+  // parent-controlled (the Text-to-Speech card decides to show it from its
+  // draft provider), so a draft switch to Vellum must reveal the picker before
+  // the provider is persisted.
+  const { voices } = useManagedVoiceSelection(assistantId);
 
-  if (!available) return null;
+  if (voices.length === 0) return null;
 
   const current = voices.find((v) => v.model === value) ?? voices[0];
 

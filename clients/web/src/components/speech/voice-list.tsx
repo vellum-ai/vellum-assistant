@@ -179,9 +179,14 @@ export function VoiceList({
     selectedRef.current?.scrollIntoView?.({ block: "nearest" });
   }, []);
 
-  // Nothing to offer (BYO provider, old daemon, empty catalog) — render no
-  // list at all, so the surrounding section chrome collapses with it.
-  if (!available) return null;
+  // Render nothing when there's no catalog, so the surrounding chrome collapses
+  // with it. Uncontrolled surfaces also require the assistant to be managed
+  // (`available`); a controlled parent (the Text-to-Speech card) owns that
+  // decision via its own draft provider, so gate only on having voices —
+  // otherwise switching the draft provider to Vellum would show an empty picker
+  // until the first Save persists the provider.
+  const hasCatalog = voices.length > 0;
+  if (controlled ? !hasCatalog : !available) return null;
 
   return (
     <div
