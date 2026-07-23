@@ -352,6 +352,7 @@ export interface ViewerActions {
   handleAppLoadFailed: () => void;
   closeApp: () => void;
   toggleAppMinimized: () => void;
+  minimizeApp: () => void;
   handleAppUnpinned: (appId: string) => boolean;
   enterAppEditing: () => void;
   exitAppEditing: () => void;
@@ -560,6 +561,10 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
 
   toggleAppMinimized: () => {
     set({ isAppMinimized: !get().isAppMinimized });
+  },
+
+  minimizeApp: () => {
+    set({ isAppMinimized: true });
   },
 
   handleAppUnpinned: (appId) => {
