@@ -18,6 +18,7 @@
  * the convention established for the sweep prompt.
  */
 
+import { truncate } from "../../../host-utils.js";
 import { getLogger } from "../../../logging.js";
 import { getWorkspaceDir } from "../../../paths.js";
 import { loadPromptOverride } from "../../../prompt-override.js";
@@ -39,6 +40,27 @@ export const CUTOFF_PLACEHOLDER = "{{CUTOFF}}";
  */
 export const PARSE_FAILURES_PLACEHOLDER = "{{PARSE_FAILURES_SECTION}}";
 
+/** Length cap for a rendered slug — long enough to stay identifiable. */
+const MAX_SLUG_CHARS = 200;
+/** Length cap for a rendered parser-error string. */
+const MAX_ERROR_CHARS = 300;
+
+/**
+ * Neutralize an untrusted page slug or parser-error string before it lands in
+ * the consolidation prompt. The consolidation run executes with unrestricted
+ * workspace file-write tools, and both values are attacker-influenced: a slug
+ * is a concept-page filename, and a YAML parser message embeds excerpts of the
+ * file's own content. Left raw they could break out of the Markdown list item
+ * or the inline-code span and inject instructions. Collapse every newline run
+ * to a single space so each failure stays one list item, replace backticks so
+ * an inline-code span cannot be opened or closed early, and cap the length so a
+ * pathological value cannot flood the prompt. The result stays identifiable.
+ */
+function sanitizeParseFailureText(value: string, maxChars: number): string {
+  const collapsed = value.replace(/[\r\n]+/g, " ").replaceAll("`", "'");
+  return truncate(collapsed, maxChars, "…");
+}
+
 /**
  * Render the repair step for pages the index build could not fully parse.
  * Empty input renders the empty string — with the section's trailing blank
@@ -53,11 +75,14 @@ export function renderParseFailuresSection(
   }
   const lines = failures.map(
     (f) =>
-      `- \`memory/concepts/${f.slug}.md\` — ${
+      `- \`memory/concepts/${sanitizeParseFailureText(
+        f.slug,
+        MAX_SLUG_CHARS,
+      )}.md\` — ${
         f.dropped
           ? "INVISIBLE to retrieval until repaired"
           : "indexed, but its frontmatter fields are ignored"
-      } — ${f.error}`,
+      } — ${sanitizeParseFailureText(f.error, MAX_ERROR_CHARS)}`,
   );
   return `## 0. FIRST — repair unreadable pages
 
