@@ -116,11 +116,24 @@ mock.module("@/utils/use-bundled-avatar-components", () => ({
 }));
 
 // Stand in for the provisioning takeover so a Pro tier change can assert it was
-// revealed without driving its own resize queries.
-mock.module("@/domains/settings/components/tier-upgrade-resize-modal", () => ({
-  TierUpgradeResizeModal: ({ open }: { open: boolean }) =>
-    open ? <div data-testid="resize-takeover" /> : null,
-}));
+// revealed in resize mode without driving its own provisioning polls. The full
+// loading → "You're all set!" flow is owned by
+// billing-onboarding-modal.test.tsx's resize-mode suite (PR 1).
+mock.module(
+  "@/domains/settings/billing/pro-onboarding/billing-onboarding-modal",
+  () => ({
+    BillingOnboardingModal: ({
+      open,
+      mode,
+    }: {
+      open: boolean;
+      mode?: string;
+    }) =>
+      open ? (
+        <div data-testid="resize-takeover" data-mode={mode ?? "checkout"} />
+      ) : null,
+  }),
+);
 
 const { PlansPage } = await import("./plans-page");
 
@@ -605,7 +618,8 @@ describe("CustomPlanModal — eligible Pro subscriber", () => {
     expect(storageTierCall).toBeNull();
     expect(creditTierCall).toBeNull();
     // Baseline → medium is an upgrade, so the resize takeover opens.
-    await findByTestId("resize-takeover");
+    const takeover = await findByTestId("resize-takeover");
+    expect(takeover.getAttribute("data-mode")).toBe("resize");
   });
 
   test("Continue dispatches only the changed tiers and opens the resize takeover", async () => {
@@ -627,7 +641,8 @@ describe("CustomPlanModal — eligible Pro subscriber", () => {
     expect(storageTierCall).toBeNull();
 
     // A machine change resizes the assistant, so the takeover opens.
-    await findByTestId("resize-takeover");
+    const takeover = await findByTestId("resize-takeover");
+    expect(takeover.getAttribute("data-mode")).toBe("resize");
     // The change-tier path never touches the checkout endpoint.
     expect(upgradeCall).toBeNull();
     expect(openedUrl).toBeNull();
