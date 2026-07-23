@@ -39,6 +39,19 @@ export const MemoryRetrospectiveConfigSchema = z
         "Minimum milliseconds between attempts (success or failure). Prevents tight retry loops across trigger types. Pre-compaction bypasses this gate.",
       ),
 
+    sweepIntervalMs: z
+      .number({
+        error: "memory.retrospective.sweepIntervalMs must be a number",
+      })
+      .int("memory.retrospective.sweepIntervalMs must be an integer")
+      .positive(
+        "memory.retrospective.sweepIntervalMs must be a positive integer",
+      )
+      .default(8 * 60 * 60 * 1000)
+      .describe(
+        "Cadence of the scheduled retrospective sweep, the timer-driven backstop that re-scans conversations for unprocessed messages the event-driven triggers missed (e.g. a turn that ended in a crash or IPC drop before the post-turn hooks ran). A conversation is only swept when its last retrospective attempt is at least this old, so the sweep never competes with the responsive interval/message_count triggers on active conversations.",
+      ),
+
     keepSupersededRuns: z
       .boolean({
         error: "memory.retrospective.keepSupersededRuns must be a boolean",
@@ -64,19 +77,6 @@ export const MemoryRetrospectiveConfigSchema = z
       .default(null)
       .describe(
         "Optional path to a file whose contents replace the bundled retrospective fork-instruction prompt. Relative paths resolve under the workspace root; absolute paths and a leading `~/` (expanded to the home directory) are honored only when they still resolve inside the workspace root — a path that lands outside the workspace (including via symlinks) is rejected. The loaded contents may include `{{AVAILABLE_TOOLS_LINE}}`, `{{WINDOW_ANCHOR}}`, `{{ALREADY_REMEMBERED}}`, and `{{SKILL_AUTHORING_SECTION}}`, which are substituted at runtime. If the file is rejected, missing, unreadable, or empty, the bundled prompt is used and a warning is logged.",
-      ),
-
-    sweepIntervalMs: z
-      .number({
-        error: "memory.retrospective.sweepIntervalMs must be a number",
-      })
-      .int("memory.retrospective.sweepIntervalMs must be an integer")
-      .positive(
-        "memory.retrospective.sweepIntervalMs must be a positive integer",
-      )
-      .default(8 * 60 * 60 * 1000)
-      .describe(
-        "Milliseconds between scheduled sweep passes that find conversations with unprocessed messages and enqueue retrospective jobs. Supplements the turn-end trigger so memory quality does not depend on clean turn completions. Runs on each idle/drain worker tick after the interval elapses.",
       ),
   })
   .describe(
