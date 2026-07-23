@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
   existsSync,
+  lstatSync,
   mkdirSync,
   readFileSync,
   realpathSync,
@@ -138,6 +139,32 @@ export const MAX_COMPANION_SOURCE_BYTES = 1024 * 1024;
 export const RETRO_COPY_SOURCE_DIR = "/tmp/vellum-eval";
 
 /**
+ * Resolve a `vellum-eval` copy root under `parent`, or null when it cannot be
+ * trusted as a boundary. The parent temp dirs are world-writable, so the
+ * `vellum-eval` entry is attacker-creatable: if it is a symlink, realpathing
+ * the root would relocate the containment check to wherever the link points
+ * (e.g. `/`), collapsing the confinement. Canonicalize only the parent, then
+ * require the child to be a real (non-symlink) directory via lstat.
+ */
+export function resolveVellumEvalRoot(parent: string): string | null {
+  let realParent: string;
+  try {
+    realParent = realpathSync(parent);
+  } catch {
+    return null;
+  }
+  const root = join(realParent, "vellum-eval");
+  try {
+    if (!lstatSync(root).isDirectory()) {
+      return null;
+    }
+  } catch {
+    return null;
+  }
+  return root;
+}
+
+/**
  * Validate a `copy_from` companion source and return its contents.
  *
  * The scaffold's `files` input is the only write path available to the
@@ -216,17 +243,17 @@ export function validateCompanionSource(
   // processes' temp files. /tmp/vellum-eval is where the documented workflow
   // tests snippets, so proven scripts land there; anything else travels via
   // inline `content`, which the model already holds in its trace.
-  const allowedRoots = (
-    opts.tmpOnly
-      ? [join(tmpdir(), "vellum-eval"), RETRO_COPY_SOURCE_DIR]
-      : [getWorkspaceDir(), tmpdir(), "/tmp"]
-  ).map((root) => {
-    try {
-      return realpathSync(root);
-    } catch {
-      return root;
-    }
-  });
+  const allowedRoots = opts.tmpOnly
+    ? [resolveVellumEvalRoot(tmpdir()), resolveVellumEvalRoot("/tmp")].filter(
+        (root): root is string => root !== null,
+      )
+    : [getWorkspaceDir(), tmpdir(), "/tmp"].map((root) => {
+        try {
+          return realpathSync(root);
+        } catch {
+          return root;
+        }
+      });
   const underAllowedRoot = allowedRoots.some((root) => {
     const rel = relative(root, realSource);
     return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel);

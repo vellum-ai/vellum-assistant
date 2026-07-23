@@ -20,6 +20,7 @@ import {
   createManagedSkill,
   deleteManagedSkill,
   validateCompanionPath,
+  resolveVellumEvalRoot,
   validateCompanionSource,
   validateManagedSkillId,
 } from "../skills/managed-store.js";
@@ -886,6 +887,33 @@ describe("createManagedSkill copy_from companion sources", () => {
     expect(result.error).toContain(
       "/tmp/vellum-eval for retrospective scaffolds",
     );
+  });
+
+  test("resolveVellumEvalRoot rejects missing, symlinked, and non-dir roots", () => {
+    const parent = fs.mkdtempSync("/tmp/root-guard-");
+    const evalDir = join(parent, "vellum-eval");
+    try {
+      // Missing: no vellum-eval entry yet.
+      expect(resolveVellumEvalRoot(parent)).toBeNull();
+
+      // Symlink: an attacker-planted link would relocate the boundary.
+      fs.symlinkSync("/", evalDir);
+      expect(resolveVellumEvalRoot(parent)).toBeNull();
+      fs.rmSync(evalDir);
+
+      // Plain file: not a directory boundary either.
+      writeFileSync(evalDir, "not a dir", "utf-8");
+      expect(resolveVellumEvalRoot(parent)).toBeNull();
+      fs.rmSync(evalDir);
+
+      // Real directory: trusted.
+      mkdirSync(evalDir);
+      expect(resolveVellumEvalRoot(parent)).toBe(
+        join(fs.realpathSync(parent), "vellum-eval"),
+      );
+    } finally {
+      rmSync(parent, { recursive: true, force: true });
+    }
   });
 
   test("tmpOnly still accepts a /tmp/vellum-eval source", () => {
