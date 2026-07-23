@@ -5,10 +5,7 @@ import type {
   VoiceTurnCallbacks,
   VoiceTurnOptions,
 } from "../../calls/voice-session-bridge.js";
-import {
-  FALLBACK_ESCALATION_BRIDGE,
-  VOICE_TRIAGE_ESCALATE_FLAG,
-} from "../../calls/voice-triage-escalate.js";
+import { FALLBACK_ESCALATION_BRIDGE } from "../../calls/voice-triage-escalate.js";
 import {
   clearCachedOverrides,
   setCachedOverrides,
@@ -778,7 +775,6 @@ describe("LiveVoiceSession spoken ack", () => {
     setCachedOverrides(
       {
         "voice-mode": true,
-        [VOICE_TRIAGE_ESCALATE_FLAG]: true,
       },
       { fromGateway: true },
     );
