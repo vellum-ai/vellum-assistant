@@ -11,7 +11,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Install bun (pinned version)
-RUN curl -fsSL https://bun.sh/install | bash -s "bun-v1.3.11"
+RUN curl -fsSL https://bun.sh/install | bash -s "bun-v1.3.14"
 ENV PATH="/root/.bun/bin:${PATH}"
 
 # We must include every workspace member's manifest to validate and install the

@@ -20,7 +20,7 @@
     "zod": "4.3.6"
   },
   "devDependencies": {
-    "@types/bun": "1.3.10",
+    "@types/bun": "1.3.14",
     "typescript": "5.9.3"
   }
 }
