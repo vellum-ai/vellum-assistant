@@ -127,7 +127,7 @@ export function ReferralContent() {
             }
             data-testid="referral-copy-button"
           >
-            {copied ? "Copied!" : "Copy Share Link"}
+            {copied ? "Copied!" : "Share Link"}
           </Button>
         </div>
       )}
