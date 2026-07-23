@@ -480,7 +480,7 @@ describe("tool preview lifecycle", () => {
         thinking: "Let me reason about this.",
       } as Extract<AgentEvent, { type: "thinking_delta" }>);
 
-      // THEN it is mirrored into the running view and the persisted seq field
+      // THEN it is mirrored into the running view and the streamed seq field
       // tracks the emitted delta
       const thinkingDelta = events.find(
         (e) => e.type === "assistant_thinking_delta",
@@ -493,7 +493,7 @@ describe("tool preview lifecycle", () => {
           signature: "",
         },
       ]);
-      expect(state.lastPersistedContentSeq).toBe(
+      expect(state.lastStreamedContentSeq).toBe(
         (thinkingDelta as unknown as AssistantEvent).seq ?? undefined,
       );
     });
@@ -589,11 +589,11 @@ describe("tool preview lifecycle", () => {
         },
       } as Extract<AgentEvent, { type: "message_complete" }>);
 
-      // THEN no thinking_delta was emitted and the persisted seq stays unset
+      // THEN no thinking_delta was emitted and the streamed seq stays unset
       expect(
         events.find((e) => e.type === "assistant_thinking_delta"),
       ).toBeUndefined();
-      expect(state.lastPersistedContentSeq).toBeUndefined();
+      expect(state.lastStreamedContentSeq).toBeUndefined();
       expect(getConversationPersistedSeq(conversationId)).toBeNull();
     });
   });
