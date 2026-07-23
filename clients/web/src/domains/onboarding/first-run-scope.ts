@@ -14,8 +14,8 @@
 export const FIRST_RUN_SCOPE_DATA_KEY = "firstRunScope";
 export const FIRST_RUN_SCOPES = ["work", "personal", "both"] as const;
 export type FirstRunScope = (typeof FIRST_RUN_SCOPES)[number];
-export const FIRST_RUN_SCOPE_OPTION_IDS: Record<FirstRunScope, string> = {
-  work: "scope_work",
-  personal: "scope_personal",
-  both: "scope_both",
-};
+
+/** Narrow an untrusted wire value (a click payload's `firstRunScope`) to a scope. */
+export function isFirstRunScope(value: unknown): value is FirstRunScope {
+  return (FIRST_RUN_SCOPES as readonly unknown[]).includes(value);
+}

@@ -7,10 +7,7 @@
 
 import { describe, expect, test } from "bun:test";
 
-import {
-  FIRST_RUN_SCOPE_DATA_KEY,
-  FIRST_RUN_SCOPE_OPTION_IDS,
-} from "./first-run-scope";
+import { FIRST_RUN_SCOPES } from "./first-run-scope";
 import { buildLetsChatKickoffMessage } from "./lets-chat-kickoff";
 
 describe("buildLetsChatKickoffMessage", () => {
@@ -31,10 +28,13 @@ describe("buildLetsChatKickoffMessage", () => {
     const msg = buildLetsChatKickoffMessage("Quill");
     expect(msg).toContain("`ui_show` tool exactly once");
     expect(msg).toContain('"choice"');
-    for (const id of Object.values(FIRST_RUN_SCOPE_OPTION_IDS)) {
-      expect(msg).toContain(id);
+    // Pin the exact option wire text: the data payloads are the contract the
+    // click-telemetry consumer matches on, so they must stay byte-identical.
+    for (const scope of FIRST_RUN_SCOPES) {
+      expect(msg).toContain(
+        `id \`scope_${scope}\`, \`data: {"firstRunScope": "${scope}"}\``,
+      );
     }
-    expect(msg).toContain(FIRST_RUN_SCOPE_DATA_KEY);
   });
 
   test("frames the options as starters, not a menu", () => {
