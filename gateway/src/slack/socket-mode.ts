@@ -19,6 +19,7 @@ import {
   type SlackHistoryMessage,
 } from "./slack-web.js";
 import { isSlackDmChannel } from "./channel.js";
+import { slackEventOrderingKey } from "./event-ordering.js";
 import {
   normalizeSlackAppMention,
   normalizeSlackDirectMessage,
@@ -1192,7 +1193,7 @@ export class SlackSocketModeClient {
     isDm: boolean,
   ): void {
     const queues = (this.emitQueues ??= new Map());
-    const orderingKey = this.getEventOrderingKey(event, eventId);
+    const orderingKey = slackEventOrderingKey(event, eventId);
     const previous = queues.get(orderingKey) ?? Promise.resolve();
     const current = previous
       .catch(() => undefined)
@@ -1220,47 +1221,6 @@ export class SlackSocketModeClient {
           queues.delete(orderingKey);
         }
       });
-  }
-
-  private getEventOrderingKey(
-    event:
-      | SlackAppMentionEvent
-      | SlackDirectMessageEvent
-      | SlackChannelMessageEvent
-      | SlackMessageChangedEvent
-      | SlackMessageDeletedEvent
-      | SlackReactionAddedEvent
-      | SlackReactionRemovedEvent,
-    eventId: string,
-  ): string {
-    if (event.type === "reaction_added" || event.type === "reaction_removed") {
-      const reaction = event as
-        | SlackReactionAddedEvent
-        | SlackReactionRemovedEvent;
-      return `${reaction.item.channel}:${reaction.item.ts}`;
-    }
-
-    if (
-      event.type === "message" &&
-      (event as SlackMessageChangedEvent).subtype === "message_changed"
-    ) {
-      const changed = event as SlackMessageChangedEvent;
-      return `${changed.channel}:${changed.message.thread_ts ?? changed.message.ts ?? eventId}`;
-    }
-
-    if (
-      event.type === "message" &&
-      (event as SlackMessageDeletedEvent).subtype === "message_deleted"
-    ) {
-      const deleted = event as SlackMessageDeletedEvent;
-      return `${deleted.channel}:${deleted.previous_message?.thread_ts ?? deleted.deleted_ts ?? eventId}`;
-    }
-
-    const message = event as
-      | SlackAppMentionEvent
-      | SlackDirectMessageEvent
-      | SlackChannelMessageEvent;
-    return `${message.channel}:${message.thread_ts ?? message.ts ?? eventId}`;
   }
 
   private async normalizeAndEmit(
