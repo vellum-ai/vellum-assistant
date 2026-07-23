@@ -5,6 +5,7 @@ import { useNavigate } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
+  isCleanPin,
   PACKAGE_ORDER,
   type ProPackage,
   type SwitchRelation,
@@ -278,7 +279,7 @@ export function PlansPage() {
     const currentTierKey =
       subscription.plan_id === "base"
         ? "free"
-        : subscription.package && !subscription.package.customized
+        : isCleanPin(subscription.package)
           ? subscription.package.key
           : null;
 
@@ -452,8 +453,9 @@ export function PlansPage() {
         </header>
 
         {/* Shrinks the four columns to fit as the viewport narrows, reflowing
-            to two-up then one-up; `items-start` keeps each card at its content
-            height so the four-feature Super/Ultra cards stay taller. */}
+            to two-up then one-up; `items-start` keeps each card at its natural
+            content height, so the four-feature Super/Ultra columns are taller
+            than the featured Mighty column. */}
         <div className="mt-10 grid w-full max-w-[1312px] grid-cols-1 items-start gap-6 sm:grid-cols-2 lg:grid-cols-4">
           <PlanColumnCard
             tierKey="free"

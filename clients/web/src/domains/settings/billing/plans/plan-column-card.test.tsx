@@ -1,8 +1,9 @@
 /**
- * Rendering tests for PlanColumnCard's CTA chrome. The `intent` prop selects
- * the button variant (outlined for downgrade) without changing the current /
- * upgrade rendering. The avatar compositor is mocked out — it's a lazy bundle
- * irrelevant to the CTA.
+ * Rendering tests for PlanColumnCard's CTA chrome and the Recommended chip. The
+ * `intent` prop selects the button variant (outlined for downgrade) without
+ * changing the current / upgrade rendering, and gates the chip alongside
+ * `isCurrent`. The avatar compositor is mocked out — it's a lazy bundle
+ * irrelevant to either.
  */
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
@@ -79,6 +80,22 @@ describe("PlanColumnCard Recommended badge", () => {
       <PlanColumnCard {...baseProps} recommended isCurrent intent="current" />,
     );
     expect(await findByRole("button", { name: "Current Plan" })).toBeTruthy();
+    expect(queryByText("Recommended")).toBeNull();
+  });
+
+  test("hides the badge on a downgrade column", async () => {
+    const { queryByText, findByRole } = render(
+      <PlanColumnCard
+        {...baseProps}
+        recommended
+        isCurrent={false}
+        intent="downgrade"
+        ctaLabel="Downgrade to Mighty"
+      />,
+    );
+    expect(
+      await findByRole("button", { name: "Downgrade to Mighty" }),
+    ).toBeTruthy();
     expect(queryByText("Recommended")).toBeNull();
   });
 });
