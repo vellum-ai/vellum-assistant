@@ -20,7 +20,18 @@ voice_config_update setting="tts_voice_id" value="<aura-model-id>"
 
 > **The voice lives under the _active_ provider, not always Deepgram.** The config key depends on `services.tts.provider`: `deepgram` → `services.tts.providers.deepgram.model`, `vellum` (managed) → `services.tts.providers.vellum.model`, `elevenlabs` → `services.tts.providers.elevenlabs.voiceId`. The `voice_config_update` tool (and the `assistant tts voice <id>` CLI command) handle this routing for you. **Do NOT `assistant config set services.tts.providers.deepgram.model ...` blindly** — on a managed (`vellum`) assistant that field is ignored, so the write "succeeds" but the voice never changes. See [Setting the voice](#setting-the-voice) for the CLI fallback.
 >
-> **The tables below apply when the active provider is `deepgram` (BYO key) or managed `vellum`.** Managed assistants synthesize Deepgram voices through the platform — the platform bills per rate-carded model and rejects voices it does not offer (the write succeeds but the voice fails on the next turn), so stick to current Aura-2 voices there. With a BYO key ([setup below](#deepgram-api-key-setup)), any Aura model id from the catalog works. Other TTS providers (`elevenlabs`, `xai`, `fish-audio`, …) use their own voice identifiers — never write a Deepgram Aura model id to them; pick from that provider's own catalog instead.
+> **The tables below apply when the active provider is `deepgram` (BYO key) or managed `vellum`.** Managed assistants synthesize Deepgram voices through the platform — the platform bills per rate-carded model and rejects voices it does not offer (the write succeeds but the voice fails on the next turn), so stick to current Aura-2 voices there. With a BYO key ([setup below](#deepgram-api-key-setup)), any Aura model id from the catalog works. Other BYO TTS providers (`elevenlabs`, `xai`, `fish-audio`, …) use their own voice identifiers — never write a Deepgram Aura model id to them; see [Getting to a Deepgram voice from another provider](#getting-to-a-deepgram-voice-from-another-provider).
+
+## Getting to a Deepgram voice from another provider
+
+Check the active provider first: `assistant config get services.tts.provider`.
+
+- **Already on managed `vellum`?** No provider change needed. The managed platform supports **both Deepgram and ElevenLabs voices** — `services.tts.providers.vellum.model` accepts either an Aura model id or an ElevenLabs voice id, so switching between a Deepgram and an ElevenLabs voice is just another `voice_config_update` call.
+- **On a BYO provider (e.g. `elevenlabs`) and the user wants a Deepgram voice?** Two options — ask which they prefer:
+  1. **Switch to managed `vellum`** (`assistant config set services.tts.provider vellum`) — no Deepgram key needed; requires a platform connection and bills managed credits. Bonus: they keep access to both the Deepgram and ElevenLabs catalogs.
+  2. **Switch to BYO `deepgram`** (`assistant config set services.tts.provider deepgram`) — requires a Deepgram API key ([setup below](#deepgram-api-key-setup)); usage bills their Deepgram account directly.
+
+After either switch, set the voice with `voice_config_update` as usual.
 
 ## Choose a Voice
 
