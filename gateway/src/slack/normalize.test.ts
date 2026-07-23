@@ -1483,6 +1483,126 @@ describe("normalizeSlackMessageDelete", () => {
   });
 });
 
+describe("message edit/delete tolerant validation", () => {
+  const config = makeConfig();
+
+  it("drops non-object edit/delete payloads instead of throwing", () => {
+    // Socket frames are unvalidated JSON.parse output; a scalar where an object
+    // is expected must be dropped at the boundary, not crash the batch.
+    expect(normalizeSlackMessageEdit("nope", "evt-me1", config)).toBeNull();
+    expect(normalizeSlackMessageEdit(null, "evt-me2", config)).toBeNull();
+    expect(normalizeSlackMessageDelete(42, "evt-md1", config)).toBeNull();
+    expect(normalizeSlackMessageDelete(null, "evt-md2", config)).toBeNull();
+  });
+
+  it("collapses a non-object edit message to undefined and drops the event", () => {
+    const result = normalizeSlackMessageEdit(
+      {
+        type: "message",
+        subtype: "message_changed",
+        channel: "C456",
+        message: "not-an-object",
+      },
+      "evt-me3",
+      config,
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("drops an edit missing the channel", () => {
+    const result = normalizeSlackMessageEdit(
+      {
+        type: "message",
+        subtype: "message_changed",
+        message: { user: "U123", text: "hi", ts: "1700000000.000100" },
+      },
+      "evt-me4",
+      config,
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("drops an edit whose message ts collapsed (no correlation key)", () => {
+    const result = normalizeSlackMessageEdit(
+      {
+        type: "message",
+        subtype: "message_changed",
+        channel: "C456",
+        message: { user: "U123", text: "hi", ts: { bogus: true } },
+      },
+      "evt-me5",
+      config,
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("tolerates a missing edit text, rendering empty content", () => {
+    // A collapsed `text` must not crash the renderer (which requires a string);
+    // the edit still normalizes so the runtime can correlate it by ts.
+    const result = normalizeSlackMessageEdit(
+      {
+        type: "message",
+        subtype: "message_changed",
+        channel: "C456",
+        message: { user: "U123", ts: "1700000000.000100" },
+      },
+      "evt-me6",
+      config,
+    );
+
+    expect(result).not.toBeNull();
+    expect(result!.event.message.content).toBe("");
+    expect(result!.event.message.isEdit).toBe(true);
+  });
+
+  it("preserves unknown extra keys verbatim in an edit's raw", () => {
+    const payload = {
+      type: "message",
+      subtype: "message_changed",
+      channel: "C456",
+      message: { user: "U123", text: "hi", ts: "1700000000.000100" },
+      unexpected_field: "surprise",
+    };
+    const result = normalizeSlackMessageEdit(payload, "evt-me7", config);
+
+    expect(result).not.toBeNull();
+    expect(result!.event.raw).toEqual(payload);
+  });
+
+  it("collapses a non-string delete channel to undefined and drops the event", () => {
+    const result = normalizeSlackMessageDelete(
+      {
+        type: "message",
+        subtype: "message_deleted",
+        channel: { id: "C456" },
+        deleted_ts: "1700000000.000100",
+      },
+      "evt-md3",
+      config,
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("preserves unknown extra keys verbatim in a delete's raw", () => {
+    const payload = {
+      type: "message",
+      subtype: "message_deleted",
+      channel: "C456",
+      deleted_ts: "1700000000.000100",
+      previous_message: { user: "U123", text: "gone", ts: "1700000000.000100" },
+      unexpected_field: "surprise",
+    };
+    const result = normalizeSlackMessageDelete(payload, "evt-md4", config);
+
+    expect(result).not.toBeNull();
+    expect(result!.event.raw).toEqual(payload);
+  });
+});
+
 // --- source.threadId propagation ---
 //
 // Asserts that PR 2's new `source.threadId` field is populated on every

@@ -1,5 +1,8 @@
 import { renderSlackTextForModel } from "@vellumai/slack-text";
 import type {
+  GenericMessageEvent as SlackApiGenericMessageEvent,
+  MessageChangedEvent as SlackApiMessageChangedEvent,
+  MessageDeletedEvent as SlackApiMessageDeletedEvent,
   ReactionAddedEvent as SlackApiReactionAddedEvent,
   ReactionRemovedEvent as SlackApiReactionRemovedEvent,
 } from "@slack/types";
@@ -440,56 +443,129 @@ export interface SlackChannelMessageEvent {
   bot_profile?: SlackBotProfile;
 }
 
-/**
- * Slack `message_changed` event shape — subtype `message_changed` wraps the
- * edited message in `event.message` and the prior version in
- * `event.previous_message`.
- */
-export interface SlackMessageChangedEvent {
-  type: "message";
-  subtype: "message_changed";
-  channel: string;
-  channel_type?: "im" | "channel" | "group" | "mpim";
-  hidden?: boolean;
-  ts: string;
-  event_ts?: string;
-  message: {
-    user?: string;
-    text: string;
-    ts: string;
-    client_msg_id?: string;
-    thread_ts?: string;
-    edited?: { user: string; ts: string };
-  };
-  previous_message?: {
-    user?: string;
-    text: string;
-    ts: string;
-    edited?: { user: string; ts: string };
-  };
-}
+/** `message.edited` / `previous_message.edited` sub-object. */
+const slackEditedSchema = z
+  .object({ user: optionalString(), ts: optionalString() })
+  .optional()
+  .catch(undefined);
+
+/** `channel_type` is a known enum; an unrecognized value collapses to undefined. */
+const slackMessageChannelType = () =>
+  z.enum(["im", "channel", "group", "mpim"]).optional().catch(undefined);
+
+/** The edited message body carried in a `message_changed` event's `message`. */
+const slackChangedMessageSchema = z
+  .object({
+    user: optionalString(),
+    text: optionalString(),
+    ts: optionalString(),
+    client_msg_id: optionalString(),
+    thread_ts: optionalString(),
+    edited: slackEditedSchema,
+  })
+  .optional()
+  .catch(undefined);
+
+/** The prior version carried in a `message_changed` event's `previous_message`. */
+const slackChangedPreviousMessageSchema = z
+  .object({
+    user: optionalString(),
+    text: optionalString(),
+    ts: optionalString(),
+    edited: slackEditedSchema,
+  })
+  .optional()
+  .catch(undefined);
 
 /**
- * Slack `message_deleted` event shape — subtype `message_deleted` carries
- * the original message's `ts` in `event.deleted_ts` and the prior content
- * in `event.previous_message`.
+ * Slack `message_changed` event — subtype `message_changed` wraps the edited
+ * message in `event.message` and the prior version in `event.previous_message`.
  */
-export interface SlackMessageDeletedEvent {
-  type: "message";
-  subtype: "message_deleted";
-  channel: string;
-  channel_type?: "im" | "channel" | "group" | "mpim";
-  hidden?: boolean;
-  ts: string;
-  event_ts?: string;
-  deleted_ts: string;
-  previous_message?: {
-    user?: string;
-    text: string;
-    ts: string;
-    thread_ts?: string;
-  };
-}
+const slackMessageChangedEventSchema = z.object({
+  type: optionalString(),
+  subtype: optionalString(),
+  channel: optionalString(),
+  channel_type: slackMessageChannelType(),
+  hidden: z.boolean().optional().catch(undefined),
+  ts: optionalString(),
+  event_ts: optionalString(),
+  message: slackChangedMessageSchema,
+  previous_message: slackChangedPreviousMessageSchema,
+});
+export type SlackMessageChangedEvent = z.infer<
+  typeof slackMessageChangedEventSchema
+>;
+
+/** The prior content carried in a `message_deleted` event's `previous_message`. */
+const slackDeletedPreviousMessageSchema = z
+  .object({
+    user: optionalString(),
+    text: optionalString(),
+    ts: optionalString(),
+    thread_ts: optionalString(),
+  })
+  .optional()
+  .catch(undefined);
+
+/**
+ * Slack `message_deleted` event — subtype `message_deleted` carries the
+ * original message's `ts` in `event.deleted_ts` and the prior content in
+ * `event.previous_message`.
+ */
+const slackMessageDeletedEventSchema = z.object({
+  type: optionalString(),
+  subtype: optionalString(),
+  channel: optionalString(),
+  channel_type: slackMessageChannelType(),
+  hidden: z.boolean().optional().catch(undefined),
+  ts: optionalString(),
+  event_ts: optionalString(),
+  deleted_ts: optionalString(),
+  previous_message: slackDeletedPreviousMessageSchema,
+});
+export type SlackMessageDeletedEvent = z.infer<
+  typeof slackMessageDeletedEventSchema
+>;
+
+// Compile-time cross-check against the official Slack event types, via the
+// shared `webhook-crosscheck` helpers. The tolerant Zod schemas above stay the
+// sole runtime validators; these type-only assertions make a field rename fail
+// the build. Only key-integrity is asserted at the top level — the official
+// `message` / `previous_message` are the broad `MessageEvent` union, so the
+// inner edited-message shape is value-checked against the concrete
+// `GenericMessageEvent` member instead.
+type _SlackMessageApiCrossChecks = [
+  Expect<
+    ModeledKeysAreOfficial<
+      z.infer<typeof slackMessageChangedEventSchema>,
+      SlackApiMessageChangedEvent
+    >
+  >,
+  Expect<
+    ModeledKeysAreOfficial<
+      z.infer<typeof slackMessageDeletedEventSchema>,
+      SlackApiMessageDeletedEvent
+    >
+  >,
+  Expect<
+    ModeledKeysAreOfficial<
+      NonNullable<z.infer<typeof slackChangedMessageSchema>>,
+      SlackApiGenericMessageEvent
+    >
+  >,
+  Expect<
+    OfficialValueSatisfiesOurs<
+      NonNullable<z.infer<typeof slackChangedMessageSchema>>,
+      SlackApiGenericMessageEvent
+    >
+  >,
+  Expect<
+    ModeledKeysAreOfficial<
+      NonNullable<z.infer<typeof slackDeletedPreviousMessageSchema>>,
+      SlackApiGenericMessageEvent
+    >
+  >,
+];
 
 export type SlackTextRenderContext = {
   userLabels?: Record<string, string>;
@@ -1171,26 +1247,34 @@ export function normalizeSlackReactionRemoved(
  * normalization.
  */
 export function normalizeSlackMessageEdit(
-  event: SlackMessageChangedEvent,
+  event: unknown,
   eventId: string,
   config: GatewayConfig,
   renderContext?: SlackTextRenderContext,
 ): NormalizedSlackEvent | null {
-  const edited = event.message;
+  const parsed = slackMessageChangedEventSchema.safeParse(event);
+  if (!parsed.success) return null;
+  const changed = parsed.data;
+  const rawEvent = event as Record<string, unknown>;
+
+  const edited = changed.message;
   if (!edited) return null;
 
   const editTimestampUnchanged =
-    event.previous_message !== undefined &&
-    event.previous_message.edited?.ts === edited.edited?.ts;
+    changed.previous_message !== undefined &&
+    changed.previous_message.edited?.ts === edited.edited?.ts;
   if (editTimestampUnchanged) return null;
 
-  // user is required for routing
-  if (!edited.user) return null;
+  // channel (addressing), user (actor/routing), and the edited message's ts
+  // (the correlation key the runtime uses to find the edited row) are the
+  // fields this normalizer keys on; a collapsed one drops the event.
+  if (!changed.channel || !edited.user || !edited.ts) return null;
+  const channel = changed.channel;
 
   // Try channel routing, fall back to default for DMs so edits in DMs still
   // take the defaultAssistantId routing branch.
-  const isDm = isSlackDmChannel(event.channel, event.channel_type);
-  let routing = resolveAssistant(config, event.channel, edited.user);
+  const isDm = isSlackDmChannel(channel, changed.channel_type);
+  let routing = resolveAssistant(config, channel, edited.user);
   if (isRejection(routing) && isDm && config.defaultAssistantId) {
     routing = {
       assistantId: config.defaultAssistantId,
@@ -1199,7 +1283,7 @@ export function normalizeSlackMessageEdit(
   }
   if (isRejection(routing)) return null;
 
-  const content = renderSlackInboundText(edited.text, renderContext);
+  const content = renderSlackInboundText(edited.text ?? "", renderContext);
 
   // Each edit event gets a unique externalMessageId so the dedup pipeline
   // does not discard subsequent edits of the same Slack message.
@@ -1212,7 +1296,7 @@ export function normalizeSlackMessageEdit(
       receivedAt: new Date().toISOString(),
       message: {
         content,
-        conversationExternalId: event.channel,
+        conversationExternalId: channel,
         externalMessageId,
         isEdit: true,
       },
@@ -1226,7 +1310,7 @@ export function normalizeSlackMessageEdit(
         ...(isDm ? {} : { chatType: "channel" }),
         ...(edited.thread_ts ? { threadId: edited.thread_ts } : {}),
       },
-      raw: event as unknown as Record<string, unknown>,
+      raw: rawEvent,
     },
     routing,
     // For DMs without a thread, omit threadTs so the reply goes directly in conversation.
@@ -1234,7 +1318,7 @@ export function normalizeSlackMessageEdit(
     ...(isDm && !edited.thread_ts
       ? {}
       : { threadTs: edited.thread_ts ?? edited.ts }),
-    channel: event.channel,
+    channel,
   };
 }
 
@@ -1255,20 +1339,28 @@ export function normalizeSlackMessageEdit(
  * Returns null if the event cannot be routed.
  */
 export function normalizeSlackMessageDelete(
-  event: SlackMessageDeletedEvent,
+  event: unknown,
   eventId: string,
   config: GatewayConfig,
 ): NormalizedSlackEvent | null {
-  if (!event.deleted_ts) return null;
+  const parsed = slackMessageDeletedEventSchema.safeParse(event);
+  if (!parsed.success) return null;
+  const deleted = parsed.data;
+  const rawEvent = event as Record<string, unknown>;
+
+  // deleted_ts (the runtime's lookup key for the stored row) and channel
+  // (addressing) are the fields this normalizer keys on.
+  if (!deleted.deleted_ts || !deleted.channel) return null;
+  const channel = deleted.channel;
 
   // Use the previous author for actor identity when available; otherwise fall
   // back to a synthetic identifier so routing/trust still has something to key on.
-  const actorId = event.previous_message?.user ?? "slack-system";
+  const actorId = deleted.previous_message?.user ?? "slack-system";
 
   // Fall back to the default assistant for DMs so deletes from DMs still take
   // the defaultAssistantId routing branch.
-  const isDm = isSlackDmChannel(event.channel, event.channel_type);
-  let routing = resolveAssistant(config, event.channel, actorId);
+  const isDm = isSlackDmChannel(channel, deleted.channel_type);
+  let routing = resolveAssistant(config, channel, actorId);
   if (isRejection(routing) && isDm && config.defaultAssistantId) {
     routing = {
       assistantId: config.defaultAssistantId,
@@ -1277,7 +1369,7 @@ export function normalizeSlackMessageDelete(
   }
   if (isRejection(routing)) return null;
 
-  const previousThreadTs = event.previous_message?.thread_ts;
+  const previousThreadTs = deleted.previous_message?.thread_ts;
 
   return {
     event: {
@@ -1286,7 +1378,7 @@ export function normalizeSlackMessageDelete(
       receivedAt: new Date().toISOString(),
       message: {
         content: "",
-        conversationExternalId: event.channel,
+        conversationExternalId: channel,
         // Unique per delete event to avoid dedup collisions
         externalMessageId: eventId,
         // Sentinel value the daemon uses to detect deletions
@@ -1299,16 +1391,16 @@ export function normalizeSlackMessageDelete(
         updateId: eventId,
         // Original message's ts — the lookup key the daemon uses to find
         // the stored row to mark deleted.
-        messageId: event.deleted_ts,
+        messageId: deleted.deleted_ts,
         ...(isDm ? {} : { chatType: "channel" }),
         ...(previousThreadTs ? { threadId: previousThreadTs } : {}),
       },
-      raw: event as unknown as Record<string, unknown>,
+      raw: rawEvent,
     },
     routing,
     // Preserve thread context so downstream handling stays scoped to the
     // original conversation thread when applicable.
     ...(previousThreadTs ? { threadTs: previousThreadTs } : {}),
-    channel: event.channel,
+    channel,
   };
 }
