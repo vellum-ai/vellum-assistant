@@ -86,7 +86,7 @@ const ENABLED_WITH_CARD: AutoTopUpConfigResponse = {
   monthly_cap_usd: "500.00",
   current_month_credits_purchased_usd: "150.00",
   has_payment_method: true,
-  payment_method_brand: "Visa",
+  payment_method_brand: "visa",
   payment_method_last4: "4242",
 };
 

@@ -3,6 +3,8 @@ import { CreditCard } from "lucide-react";
 import { Button } from "@vellumai/design-library/components/button";
 import { Typography } from "@vellumai/design-library/components/typography";
 
+import { brandLabel } from "@/domains/settings/utils/payment-method-brand";
+
 export interface PaymentMethodRowProps {
   brand: string | null;
   last4: string | null;
@@ -34,7 +36,7 @@ export function PaymentMethodRow({
             variant="body-medium-default"
             className="text-[var(--content-default)]"
           >
-            {brand ?? "Saved card"}
+            {brand ? brandLabel(brand) : "Saved card"}
           </Typography>
           {last4 != null && (
             <Typography
