@@ -20,6 +20,7 @@ import type {
   EnsureProvisionedResponse,
   OnboardingStateResponse,
   OperationalStatus,
+  PaginatedAssistantDomainList,
   SubscriptionResponse,
 } from "@/generated/api/types.gen";
 import { readCheckoutIntent, saveCheckoutIntent } from "@/lib/billing/checkout-intent";
@@ -128,6 +129,24 @@ function makeEnsureResponse(
   };
 }
 
+function makeDomains(hasDomain: boolean): PaginatedAssistantDomainList {
+  return {
+    count: hasDomain ? 1 : 0,
+    next: null,
+    previous: null,
+    results: hasDomain
+      ? [
+          {
+            id: "domain-1",
+            subdomain: "velly",
+            created: "2026-07-01T00:00:00Z",
+            modified: "2026-07-01T00:00:00Z",
+          },
+        ]
+      : [],
+  };
+}
+
 let subscriptionPlanId: SubscriptionResponse["plan_id"] = "base";
 let onboardingResponse = makeOnboarding();
 let assistantResponse = makeAssistant("small", 10);
@@ -140,6 +159,12 @@ let ensureCalls = 0;
 let ensureResponse = makeEnsureResponse("started");
 /** When set, the reconcile rejects with this error body (e.g. the 503). */
 let ensureError: unknown = null;
+/** Domains list the modal-level resize query reads; empty by default. */
+let domainsResponse: PaginatedAssistantDomainList = makeDomains(false);
+/** Counts modal-level domains fetches so tests can assert it never fires. */
+let domainsCalls = 0;
+/** When set, the domains list rejects (models the endpoint failing). */
+let domainsFails = false;
 
 mock.module("@/generated/api/sdk.gen", () => ({
   ...sdkGen,
@@ -173,8 +198,13 @@ mock.module("@/generated/api/sdk.gen", () => ({
     }
     return Promise.resolve({ data: ensureResponse, response: { ok: true } });
   },
-  assistantsDomainsList: () =>
-    Promise.resolve({ data: { results: [] }, response: { ok: true } }),
+  assistantsDomainsList: () => {
+    domainsCalls += 1;
+    if (domainsFails) {
+      return Promise.reject(new Error("500 Internal Server Error"));
+    }
+    return Promise.resolve({ data: domainsResponse, response: { ok: true } });
+  },
   organizationsBillingSubscriptionOnboardingDomainCreate: () =>
     Promise.resolve({ data: { status: "ok" }, response: { ok: true } }),
 }));
@@ -192,7 +222,7 @@ const BACKGROUND_LINE =
  */
 const TEST_DWELL_MS = 250;
 
-function renderModal() {
+function renderModal({ mode }: { mode?: "checkout" | "resize" } = {}) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -205,6 +235,7 @@ function renderModal() {
           onClose={onClose}
           dwellMs={TEST_DWELL_MS}
           phaseMinMs={0}
+          mode={mode}
         />
       </QueryClientProvider>
     </MemoryRouter>,
@@ -222,6 +253,9 @@ beforeEach(() => {
   ensureCalls = 0;
   ensureResponse = makeEnsureResponse("started");
   ensureError = null;
+  domainsResponse = makeDomains(false);
+  domainsCalls = 0;
+  domainsFails = false;
   dateNowOffsetMs = 0;
   sessionStorage.clear();
 });
@@ -297,6 +331,8 @@ describe("BillingOnboardingModal", () => {
     expect(queryByText("Assistant Email")).toBeNull();
     expect(queryByText(BACKGROUND_LINE)).toBeNull();
     expect(readCheckoutIntent()).toBeNull();
+    // Checkout mode never fires the modal-level domains query.
+    expect(domainsCalls).toBe(0);
   });
 
   test("storage-only package provisions without a machine card", async () => {
@@ -853,4 +889,113 @@ describe("BillingOnboardingModal", () => {
     },
     20_000,
   );
+
+  test("an already-registered domain does not skip the domain step in checkout mode", async () => {
+    subscriptionPlanId = "pro";
+    assistantResponse = makeAssistant("large", 50);
+    // A domain already exists, but checkout mode never consults it — the
+    // modal-level query stays off and DomainStep renders its locked variant.
+    domainsResponse = makeDomains(true);
+    const { getByText } = renderModal();
+
+    await waitFor(() => expect(getByText("All done!")).toBeTruthy(), {
+      timeout: 5000,
+    });
+    await waitFor(() => expect(getByText("Assistant Email")).toBeTruthy(), {
+      timeout: 5000,
+    });
+  });
+});
+
+describe("BillingOnboardingModal — resize mode", () => {
+  test("entitled with no domain routes through the domain step", async () => {
+    subscriptionPlanId = "pro";
+    const { client, getByText } = renderModal({ mode: "resize" });
+
+    await waitFor(
+      () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
+      { timeout: 5000 },
+    );
+
+    assistantResponse = makeAssistant("large", 50);
+    await client.invalidateQueries();
+    await waitFor(() => expect(getByText("All done!")).toBeTruthy(), {
+      timeout: 5000,
+    });
+    await waitFor(() => expect(getByText("Assistant Email")).toBeTruthy(), {
+      timeout: 5000,
+    });
+  });
+
+  test("entitled with an existing domain skips straight to complete", async () => {
+    subscriptionPlanId = "pro";
+    domainsResponse = makeDomains(true);
+    const { client, getByText, queryByText } = renderModal({ mode: "resize" });
+
+    await waitFor(
+      () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
+      { timeout: 5000 },
+    );
+
+    assistantResponse = makeAssistant("large", 50);
+    await client.invalidateQueries();
+    await waitFor(() => expect(getByText("You're all set!")).toBeTruthy(), {
+      timeout: 5000,
+    });
+    expect(queryByText("Assistant Email")).toBeNull();
+  });
+
+  test("fee-less package goes straight to complete and never queries domains", async () => {
+    subscriptionPlanId = "pro";
+    onboardingResponse = makeOnboarding({ domain_setup_available: false });
+    const { client, getByText, queryByText } = renderModal({ mode: "resize" });
+
+    await waitFor(
+      () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
+      { timeout: 5000 },
+    );
+    await waitFor(() => expect(getByText("10 GB")).toBeTruthy(), {
+      timeout: 5000,
+    });
+
+    assistantResponse = makeAssistant("large", 50);
+    await client.invalidateQueries();
+    await waitFor(() => expect(getByText("You're all set!")).toBeTruthy(), {
+      timeout: 5000,
+    });
+    expect(queryByText("Assistant Email")).toBeNull();
+    // The fee-less gate keeps the modal-level domains query fully off.
+    expect(domainsCalls).toBe(0);
+  });
+
+  test("a failing domains endpoint still advances to the domain step", async () => {
+    subscriptionPlanId = "pro";
+    domainsFails = true;
+    const { client, getByText } = renderModal({ mode: "resize" });
+
+    await waitFor(
+      () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
+      { timeout: 5000 },
+    );
+
+    assistantResponse = makeAssistant("large", 50);
+    await client.invalidateQueries();
+    // An errored fetch counts as answered: routing falls back to the domain
+    // step rather than hanging on the celebration.
+    await waitFor(() => expect(getByText("Assistant Email")).toBeTruthy(), {
+      timeout: 5000,
+    });
+  });
+
+  test("a stale checkout intent is ignored in resize mode", async () => {
+    // Keep the plan at base so CONFIRMING persists and the copy is observable.
+    saveCheckoutIntent({ kind: "package", packageKey: "super" });
+    const { getByText, queryByText } = renderModal({ mode: "resize" });
+
+    await waitFor(
+      () => expect(getByText("Confirming your upgrade…")).toBeTruthy(),
+      { timeout: 5000 },
+    );
+    expect(queryByText("Super package")).toBeNull();
+  });
 });

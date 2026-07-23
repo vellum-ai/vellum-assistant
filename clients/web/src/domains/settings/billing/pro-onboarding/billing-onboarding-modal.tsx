@@ -16,6 +16,7 @@ import type {
   ProvisioningStateKind,
 } from "./provisioning-machine";
 import { ProvisioningState, TAKEOVER_BACKGROUND } from "./provisioning-state";
+import { useAssistantDomains } from "./use-assistant-domains";
 import { useProProvisioning } from "./use-pro-provisioning";
 
 type WizardStep = "provisioning" | "domain" | "complete";
@@ -55,6 +56,14 @@ export interface BillingOnboardingModalProps {
   dwellMs?: number;
   /** Test hook — forwarded to the provisioning screen's per-phase minimum. */
   phaseMinMs?: number;
+  /**
+   * "checkout" (default): post-Stripe base→Pro onboarding — optimistic domain
+   * routing, reads the stashed checkout intent.
+   * "resize": observe an in-place plan change whose grow-only resize the
+   * platform already fired server-side — no checkout intent, and the domain
+   * step shows only when it is newly usable (entitled AND no domain yet).
+   */
+  mode?: "checkout" | "resize";
 }
 
 export function BillingOnboardingModal({
@@ -62,7 +71,9 @@ export function BillingOnboardingModal({
   onClose,
   dwellMs,
   phaseMinMs,
+  mode = "checkout",
 }: BillingOnboardingModalProps) {
+  const isResize = mode === "resize";
   const [step, setStep] = useState<WizardStep>("provisioning");
   const [finishedInBackground, setFinishedInBackground] = useState(false);
   const [takeoverExit, setTakeoverExit] = useState<TakeoverExit>("idle");
@@ -80,7 +91,7 @@ export function BillingOnboardingModal({
 
   useEffect(() => {
     if (open) {
-      setIntent(readCheckoutIntent());
+      setIntent(isResize ? null : readCheckoutIntent());
       return;
     }
     // Closing mid-exit must drop the queued step change with it, or it lands
@@ -91,7 +102,7 @@ export function BillingOnboardingModal({
     setFinishedInBackground(false);
     setTakeoverExit("idle");
     setDisplayedPhase(null);
-  }, [open]);
+  }, [open, isResize]);
 
   useEffect(
     () => () => {
@@ -123,22 +134,47 @@ export function BillingOnboardingModal({
 
   const { targets, assistantId, domainSetupAvailable, onboardingSettled } =
     provisioning;
+
+  // Resize-mode routing needs "is a domain already registered?", which
+  // checkout mode never consults — DomainStep owns its own fetch there. The
+  // enabled gate keeps this query fully off in checkout mode and in fee-less
+  // resize flows (domainSetupAvailable false for Mighty-tier packages).
+  const { domains, domainsError } = useAssistantDomains(
+    open && isResize && domainSetupAvailable === true,
+    assistantId,
+  );
+  const hasExistingDomain = (domains?.results.length ?? 0) > 0;
+  // An errored fetch counts as answered: routing then falls back to the
+  // domain step, whose own fetch/locked-state handling degrades gracefully.
+  const domainsKnown = domains !== undefined || domainsError;
   // Routing must never use a stale domain_setup_available: until the first
   // post-confirm fetch settles, TanStack may still serve pre-checkout cached
   // data. Both the celebration dwell and the escape hatch wait on this.
   // Latched: once fresh data has landed, a later background refetch must not
   // yank the escape hatch or restart the dwell.
   const [routingSettled, setRoutingSettled] = useState(false);
+  const domainAnswerNeeded = isResize && domainSetupAvailable === true;
+  const routingInputsSettled =
+    onboardingSettled && (!domainAnswerNeeded || domainsKnown);
   useEffect(() => {
     if (!open) {
       setRoutingSettled(false);
       return;
     }
-    if (onboardingSettled) setRoutingSettled(true);
-  }, [open, onboardingSettled]);
+    if (routingInputsSettled) setRoutingSettled(true);
+  }, [open, routingInputsSettled]);
 
   const advanceFromProvisioning = useCallback(() => {
-    const next = domainSetupAvailable === false ? "complete" : "domain";
+    // Checkout treats unknown availability optimistically (`undefined` → domain
+    // step); resize requires affirmative `domainSetupAvailable === true` AND no
+    // existing domain before it surfaces the newly-usable domain step.
+    const next = isResize
+      ? domainSetupAvailable === true && !hasExistingDomain
+        ? "domain"
+        : "complete"
+      : domainSetupAvailable === false
+        ? "complete"
+        : "domain";
     if (prefersReducedMotion()) {
       setStep(next);
       return;
@@ -154,7 +190,7 @@ export function BillingOnboardingModal({
         );
       }, TAKEOVER_COVER_MS),
     );
-  }, [domainSetupAvailable]);
+  }, [domainSetupAvailable, isResize, hasExistingDomain]);
 
   const escapeProvisioning = useCallback(() => {
     setFinishedInBackground(true);

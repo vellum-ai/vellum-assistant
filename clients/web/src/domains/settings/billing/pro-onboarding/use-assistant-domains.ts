@@ -21,11 +21,11 @@ export function useAssistantDomains(
 ) {
   const assistant = usePreferredOrActiveAssistant(preferredAssistantId, enabled);
   const assistantId = preferredAssistantId ?? assistant?.id;
-  const { data: domains } = useQuery({
+  const { data: domains, isError: domainsError } = useQuery({
     ...assistantsDomainsListOptions({
       path: { assistant_id: assistantId ?? "" },
     }),
     enabled: enabled && !!assistantId,
   });
-  return { assistant, assistantId, domains };
+  return { assistant, assistantId, domains, domainsError };
 }
