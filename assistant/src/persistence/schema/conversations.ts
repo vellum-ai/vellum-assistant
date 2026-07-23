@@ -15,7 +15,8 @@ export const conversations = sqliteTable(
     title: text("title"),
     createdAt: integer("created_at").notNull(),
     updatedAt: integer("updated_at").notNull(),
-    totalInputTokens: integer("total_input_tokens").notNull().default(0),
+    // Nullable (migration 348): NULL = unknown total; readers coalesce to 0.
+    totalInputTokens: integer("total_input_tokens").default(0),
     totalOutputTokens: integer("total_output_tokens").notNull().default(0),
     totalEstimatedCost: real("total_estimated_cost").notNull().default(0),
     contextSummary: text("context_summary"),
