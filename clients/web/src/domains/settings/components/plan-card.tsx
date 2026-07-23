@@ -1,4 +1,4 @@
-import { Loader2, Sparkles } from "lucide-react";
+import { ArrowUp, Loader2, Sparkles } from "lucide-react";
 
 import { useState } from "react";
 
@@ -16,7 +16,10 @@ import {
 import { useChangePackage } from "@/domains/settings/billing/use-change-package";
 import { PackageSwitchConfirmModal } from "@/domains/settings/billing/plans/package-switch-confirm-modal";
 import { getPlanTierCopy } from "@/domains/settings/billing/plans/plans-copy";
-import { packageSpecs } from "@/domains/settings/billing/plan-spec";
+import {
+  packageSpecs,
+  type PlanSpec,
+} from "@/domains/settings/billing/plan-spec";
 import { PlanSpecCard } from "@/domains/settings/billing/plan-spec-card";
 import { useCheckoutDismissRefresh } from "@/domains/settings/billing/use-checkout-dismiss-refresh";
 import {
@@ -71,6 +74,15 @@ const PLAN_DISPLAY: Record<string, PlanDisplay> = {
 };
 
 const DEFAULT_DISPLAY: PlanDisplay = PLAN_DISPLAY.base;
+
+/** The recommended card's single summary chip (replaces per-resource chips). */
+const RECOMMENDED_SUMMARY_SPECS: PlanSpec[] = [
+  {
+    icon: ArrowUp,
+    label: "more credits, storage, and a stronger machine",
+    multiline: true,
+  },
+];
 
 export interface PlanCardProps {
   onManage: () => void;
@@ -267,6 +279,7 @@ function RecommendedUpgrade({
         tone="dark"
         tierKey={recommended.key}
         name={recommended.name}
+        className="lg:flex-[2]"
         tag={
           <Tag
             className="bg-[var(--feed-digest-weak)] text-[var(--credits-accent)]"
@@ -278,7 +291,7 @@ function RecommendedUpgrade({
           </Tag>
         }
         tagline={recommendedCopy?.tagline}
-        specs={isNeutralSwitch ? null : packageSpecs(recommended)}
+        specs={isNeutralSwitch ? null : RECOMMENDED_SUMMARY_SPECS}
         action={upgradeButton}
       />
       <PackageSwitchConfirmModal
@@ -377,23 +390,20 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
       : "switch";
 
   const currentCopy = getPlanTierCopy(currentTier);
-  // The current card shows absolute chips only when its specs are knowable: the
-  // free/base baseline, or a clean-pinned stock package that's present in the
-  // catalog. A customized pin or an unpinned legacy Pro sub (both read "Custom")
-  // has tiers that can diverge from any stock package; and a clean pin whose key
-  // is absent from the catalog (e.g. the `pro-packages` flag left `packages`
-  // empty, or a newer key isn't in this response) has unknown specs — both
-  // render no chips. `.find()`'s natural `undefined` for a missing package must
-  // flow through untouched: coercing it to `null` would make `packageSpecs` emit
-  // the FREE baseline, mislabeling a paid Pro sub as $0/4 GB/Small.
-  const currentStockPackage =
-    currentPlan.id === "base"
-      ? null
-      : isCleanPin(subscription.package)
-        ? packages.find((p) => p.key === currentKey)
-        : undefined; // undefined = unknown specs → no chips
-  const currentSpecs =
-    currentStockPackage === undefined ? null : packageSpecs(currentStockPackage);
+  const isFreePlan = currentPlan.id === "base";
+  // Chips render only for a paid plan whose stock package specs are known.
+  // Free shows a minimal centered card (no chips); a clean pin absent from the
+  // catalog and a customized/unpinned "Custom" sub show no chips either (never
+  // fall back to the free baseline, which would mislabel a paid sub).
+  const currentPackage =
+    !isFreePlan && isCleanPin(subscription.package)
+      ? (packages.find((p) => p.key === currentKey) ?? null)
+      : null;
+  const currentSpecs = currentPackage ? packageSpecs(currentPackage) : null;
+  // Tagline shows for a KNOWN plan (free, or a clean stock pin); hidden for a
+  // Custom/unknown sub whose real plan can't be named. (Note: this is gated on
+  // "known plan", NOT on having chips — free has no chips but a real tagline.)
+  const isKnownCurrentPlan = isFreePlan || isCleanPin(subscription.package);
 
   return (
     <Card padding="md">
@@ -440,18 +450,18 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
             tierKey={currentTier}
             name={planName}
             nameTestId="plan-card-name"
+            className="lg:flex-[3]"
+            centered={isFreePlan}
             tag={
               <Tag className="bg-[var(--feed-digest-weak)] text-[var(--content-default)]">
                 Your Current Plan
               </Tag>
             }
-            // Gate the tagline on the same "known stock specs" condition as the
-            // chips: a Custom/unknown current plan (`currentSpecs === null`)
-            // renders as "Custom" with no chips, so showing stock marketing copy
-            // under it would reintroduce the misleading stock-plan labeling the
-            // chip guard avoids. Only the free/base baseline or a clean-pinned
-            // package (both have non-null specs) keeps its tagline.
-            tagline={currentSpecs ? currentCopy?.tagline : undefined}
+            // The tagline follows "known plan" (free, or a clean stock pin), not
+            // "has chips": free is centered with no chips but still shows its
+            // real tagline, while a Custom/unknown sub — whose real plan can't be
+            // named — hides it to avoid mislabeling a paid sub with stock copy.
+            tagline={isKnownCurrentPlan ? currentCopy?.tagline : undefined}
             specs={currentSpecs}
           />
           <RecommendedUpgrade

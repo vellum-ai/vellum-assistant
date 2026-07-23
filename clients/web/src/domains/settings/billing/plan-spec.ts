@@ -12,6 +12,8 @@ import { SIZE_LABEL } from "@/lib/billing/machine-sizes";
 export interface PlanSpec {
   icon: LucideIcon;
   label: string;
+  /** Render the chip as a wrap-capable pill for long summary labels. */
+  multiline?: boolean;
 }
 
 /**

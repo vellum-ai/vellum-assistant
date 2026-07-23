@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { PlanTierAvatar } from "@/domains/settings/billing/plan-tier-meta";
 import type { PlanSpec } from "@/domains/settings/billing/plan-spec";
 import { SpecChip } from "@/domains/settings/billing/spec-chip";
+import { cn } from "@/utils/misc";
 import { Typography } from "@vellumai/design-library/components/typography";
 
 export interface PlanSpecCardProps {
@@ -20,6 +21,10 @@ export interface PlanSpecCardProps {
   specs?: PlanSpec[] | null;
   /** Header right-aligned action (e.g. the Upgrade button). */
   action?: ReactNode;
+  /** Centers the card content on both axes (the minimal free current card). */
+  centered?: boolean;
+  /** Extra root classes (e.g. a responsive width override); applied last. */
+  className?: string;
 }
 
 /**
@@ -37,14 +42,27 @@ export function PlanSpecCard({
   tagline,
   specs,
   action,
+  centered = false,
+  className,
 }: PlanSpecCardProps) {
   const hasSpecs = specs != null && specs.length > 0;
   return (
     <div
       data-theme={tone}
-      className="flex flex-1 flex-col gap-4 rounded-xl bg-[var(--surface-base)] py-3 pl-3 pr-4"
+      className={cn(
+        "flex min-w-0 flex-1 flex-col gap-4 rounded-xl bg-[var(--surface-base)] py-3 pl-3 pr-4",
+        centered && "items-center justify-center",
+        className,
+      )}
     >
-      <div className="flex flex-wrap items-start justify-between gap-3">
+      <div
+        className={cn(
+          "flex flex-wrap gap-3",
+          centered
+            ? "items-center justify-center"
+            : "items-start justify-between",
+        )}
+      >
         <div className="flex items-center gap-3">
           <PlanTierAvatar tier={tierKey} />
           <div className="flex min-w-0 flex-col gap-1">
@@ -77,7 +95,12 @@ export function PlanSpecCard({
           <div className="h-px w-full bg-[var(--border-base)]" />
           <div className="flex flex-wrap items-center gap-2">
             {specs.map((spec) => (
-              <SpecChip key={spec.label} icon={spec.icon} label={spec.label} />
+              <SpecChip
+                key={spec.label}
+                icon={spec.icon}
+                label={spec.label}
+                multiline={spec.multiline}
+              />
             ))}
           </div>
         </>

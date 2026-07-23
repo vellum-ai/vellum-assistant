@@ -83,4 +83,54 @@ describe("PlanSpecCard", () => {
     );
     expect(html).toContain('data-theme="dark"');
   });
+
+  test("centers the card content when centered is set", () => {
+    const html = renderToStaticMarkup(
+      <PlanSpecCard
+        tone="light"
+        tierKey="free"
+        name="Free"
+        tagline="A great starter plan"
+        centered
+        specs={null}
+      />,
+    );
+    // The centering utilities land on both the root and the header row.
+    expect(html).toContain("justify-center");
+    expect(html).toContain("items-center");
+  });
+
+  test("renders a wrapping pill for a multiline spec", () => {
+    const html = renderToStaticMarkup(
+      <PlanSpecCard
+        tone="dark"
+        tierKey="mighty"
+        name="Mighty"
+        specs={[
+          {
+            icon: Coins,
+            label: "more credits, storage, and a stronger machine",
+            multiline: true,
+          },
+        ]}
+      />,
+    );
+    expect(html).toContain("more credits, storage, and a stronger machine");
+    // A multiline chip wraps (whitespace-normal) and grows vertically (min-h-8).
+    expect(html).toContain("whitespace-normal");
+    expect(html).toContain("min-h-8");
+  });
+
+  test("applies the passed className to the root", () => {
+    const html = renderToStaticMarkup(
+      <PlanSpecCard
+        tone="light"
+        tierKey="free"
+        name="Free"
+        className="lg:flex-[3]"
+        specs={null}
+      />,
+    );
+    expect(html).toContain("lg:flex-[3]");
+  });
 });
