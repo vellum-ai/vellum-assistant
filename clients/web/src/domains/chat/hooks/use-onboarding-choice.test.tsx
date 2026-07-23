@@ -19,8 +19,7 @@ function baseOptions() {
     isNative: true,
     didOnboarding: true,
     messages: greeting,
-    onboardingTasksEmpty: true,
-    onboardingKickoffHidden: false,
+    onboardingChoiceEligible: true,
     activeConversationId: CONVERSATION_ID,
     onboardingConversationId: CONVERSATION_ID,
     sendMessage: mock(() => {}),
@@ -33,12 +32,9 @@ describe("useOnboardingChoice", () => {
     expect(result.current.showOnboardingChoice).toBe(true);
   });
 
-  test("suppresses the card for hidden-kickoff handoffs (research onboarding)", () => {
-    // The research-onboarding "Let's chat" handoff auto-sends a hidden kickoff
-    // whose scripted greeting carries its own choice surface; the legacy card
-    // must not stack a second chooser on top of it.
+  test("suppresses the card for ineligible handoffs (tasks selected or hidden kickoff)", () => {
     const { result } = renderHook(() =>
-      useOnboardingChoice({ ...baseOptions(), onboardingKickoffHidden: true }),
+      useOnboardingChoice({ ...baseOptions(), onboardingChoiceEligible: false }),
     );
     expect(result.current.showOnboardingChoice).toBe(false);
   });
