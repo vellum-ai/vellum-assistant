@@ -256,8 +256,8 @@ describe("normalizeTelegramUpdate — audio messages", () => {
 
 describe("normalizeTelegramUpdate — malformed input is validated, not trusted", () => {
   it("drops a message whose chat.id is not a number", () => {
-    // Before validation the blanket cast trusted this and forwarded
-    // `String({...})` = "[object Object]" as the conversation id.
+    // A non-number chat.id must be dropped, not coerced to
+    // `String({...})` = "[object Object]" and forwarded as the conversation id.
     const result = normalizeTelegramUpdate({
       update_id: 600,
       message: {
@@ -271,8 +271,8 @@ describe("normalizeTelegramUpdate — malformed input is validated, not trusted"
   });
 
   it("ignores a non-array photo instead of treating it like an array", () => {
-    // Before, `photo.length` on a non-array string produced a garbage
-    // single-character attachment with an undefined fileId.
+    // A non-array photo must be ignored: `.length` on a string would otherwise
+    // produce a garbage single-character attachment with an undefined fileId.
     const result = normalizeTelegramUpdate({
       update_id: 601,
       message: {

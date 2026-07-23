@@ -6,10 +6,9 @@ import type { GatewayInboundEvent } from "../types.js";
 // These schemas validate the *types* of the nested fields the normalizer reads
 // while staying tolerant: a malformed field collapses to `undefined` (or an
 // empty string for required ids) rather than rejecting the whole update, so the
-// existing downstream null-checks drop an unsupported message as before instead
-// of trusting garbage narrowed off a blanket cast. Unknown keys are stripped
-// from the parsed working copy; the original payload is still preserved verbatim
-// as `raw`.
+// downstream null-checks drop an unsupported message instead of forwarding a
+// malformed value. Unknown keys are stripped from the parsed working copy; the
+// original payload is preserved verbatim as `raw`.
 const optionalNumber = () => z.number().optional().catch(undefined);
 const optionalString = () => z.string().optional().catch(undefined);
 const optionalBoolean = () => z.boolean().optional().catch(undefined);
