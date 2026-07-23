@@ -37,6 +37,14 @@ import { GenerationCancelledEventSchema } from "./events/generation-cancelled.js
 import { GenerationHandoffEventSchema } from "./events/generation-handoff.js";
 import { HomeFeedUpdatedEventSchema } from "./events/home-feed-updated.js";
 import { HookEventSchema } from "./events/hook-event.js";
+import {
+  HostBashCancelEventSchema,
+  HostBashRequestEventSchema,
+} from "./events/host-bash.js";
+import {
+  HostCuCancelEventSchema,
+  HostCuRequestEventSchema,
+} from "./events/host-cu.js";
 import { IdentityChangedEventSchema } from "./events/identity-changed.js";
 import { InteractionResolvedEventSchema } from "./events/interaction-resolved.js";
 import { MemoryRecalledEventSchema } from "./events/memory-recalled.js";
@@ -284,6 +292,18 @@ export {
   HookEventOwnerSchema,
   HookEventSchema,
 } from "./events/hook-event.js";
+export {
+  type HostBashCancelEvent,
+  HostBashCancelEventSchema,
+  type HostBashRequestEvent,
+  HostBashRequestEventSchema,
+} from "./events/host-bash.js";
+export {
+  type HostCuCancelEvent,
+  HostCuCancelEventSchema,
+  type HostCuRequestEvent,
+  HostCuRequestEventSchema,
+} from "./events/host-cu.js";
 export {
   type IdentityChangedEvent,
   IdentityChangedEventSchema,
@@ -751,6 +771,10 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   GenerationHandoffEventSchema,
   HomeFeedUpdatedEventSchema,
   HookEventSchema,
+  HostBashCancelEventSchema,
+  HostBashRequestEventSchema,
+  HostCuCancelEventSchema,
+  HostCuRequestEventSchema,
   IdentityChangedEventSchema,
   InteractionResolvedEventSchema,
   MemoryRecalledEventSchema,
