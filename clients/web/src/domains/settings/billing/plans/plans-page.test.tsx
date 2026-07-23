@@ -958,6 +958,32 @@ describe("PlansPage — Pro custom plan (change-tier)", () => {
     expect(upgradeCall).toBeNull();
   });
 
+  test("a credits-only Continue opens the takeover, not just a toast", async () => {
+    // Current config is medium machine / 10 GB (xs) storage / no credits; change
+    // only the credit bundle.
+    const { findByRole, findByTestId } = renderInteractive(
+      proMightySubscription(),
+      { plans: customCatalog() },
+    );
+
+    fireEvent.click(await findByRole("button", { name: "Configure" }));
+
+    selectOption("Credit bundle", "50 credits");
+    fireEvent.click(continueButton());
+
+    await waitFor(() => expect(creditTierCall).not.toBeNull());
+    expect(creditTierCall!.body).toEqual({ credit_tier: "credits_50" });
+    // Machine and storage are unchanged, so no resource-tier request fires.
+    expect(machineTierCall).toBeNull();
+    expect(storageTierCall).toBeNull();
+
+    // A credit-only change owes no provisioning but still opens the takeover for
+    // a readable confirmation moment.
+    const takeover = await findByTestId("resize-takeover");
+    expect(takeover.getAttribute("data-mode")).toBe("resize");
+    expect(upgradeCall).toBeNull();
+  });
+
   // Configure always opens the in-place custom modal for a Pro sub, whatever the
   // sub's eligibility or tier legacy status. An ineligible or legacy-tier sub
   // that then tries to apply a change surfaces the backend's 4xx as a toast (the

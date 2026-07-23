@@ -356,9 +356,10 @@ export function PlansPage() {
         return;
       }
       setCustomPlanOpen(false);
-      if (result.needsResize) {
+      if (result.needsResize || result.creditChanged) {
         // A machine/storage change needs the assistant to provision the new
-        // ceiling — open the same in-tab resize takeover the tier-change flow uses.
+        // ceiling; a credit change owes no provisioning but still opens the same
+        // in-tab takeover for a readable confirmation moment.
         setResizeTakeoverOpen(true);
       } else {
         toast.success("Plan updated.");
