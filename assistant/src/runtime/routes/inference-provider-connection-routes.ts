@@ -38,6 +38,8 @@ import {
   MANAGED_CONNECTION_NAMES,
   updateConnection,
 } from "../../providers/inference/connections.js";
+import { credentialKey } from "../../security/credential-key.js";
+import { deleteSecureKeyAsync } from "../../security/secure-keys.js";
 import {
   isPrivateOrLocalHost,
   resolveHostAddresses,
@@ -458,6 +460,17 @@ function handleDeleteConnection({ pathParams = {} }: RouteHandlerArgs) {
       );
     }
     throw new BadRequestError("Delete failed.");
+  }
+
+  // A per-connection credential slot is owned by exactly this row, so the
+  // delete removes it too. Provider-keyed and custom refs stay: they can be
+  // shared across rows. Best-effort — a vault outage leaves an orphaned
+  // secret, never a failed delete.
+  if (
+    existing.auth.type === "api_key" &&
+    existing.auth.credential === credentialKey(name, "api_key")
+  ) {
+    void deleteSecureKeyAsync(existing.auth.credential).catch(() => {});
   }
 
   return { ok: true as const };
