@@ -860,11 +860,12 @@ export async function wakeAgentForOpportunity(
           conversation,
           triggerMessage,
           source,
-          // Record the permission mode this wake runs under so a later retry
-          // reproduces it. `clientless` pins `hasNoClient` → `isInteractive:
-          // false`; its absence leaves the turn interactive (see the option's
-          // doc and the `hasNoClient` pin below).
-          !opts.clientless,
+          // Forward this wake's `clientless` option; `persistWakeTriggerMessage`
+          // derives the recorded interactivity from it plus the conversation's
+          // client state, matching the mode the loop resolves for the dispatch
+          // below (`clientless` pins `hasNoClient` → non-interactive; see the
+          // `hasNoClient` pin before `agentLoop.run`). A later retry replays it.
+          opts.clientless ?? false,
           opts.backgroundToolCompletion,
         );
       } catch (err) {
