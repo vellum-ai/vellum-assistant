@@ -19,7 +19,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, useLocation } from "react-router";
 
@@ -697,9 +697,18 @@ describe("CustomPlanModal — eligible Pro subscriber", () => {
     fireEvent.click(getByRole("button", { name: "Configure" }));
     fireEvent.click(continueButton());
 
+    // A seeded no-op applies no tier change, so — unlike the dispatch paths —
+    // there is no post-mutation query invalidation whose refetch pumps a
+    // follow-up render. The modal-close state update lands from the apply's
+    // floating promise; flush the microtask queue inside act so it commits here
+    // rather than racing (and outliving) the assertions below.
+    await act(async () => {
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    });
+
     // Nothing diverged from the current plan, so no change-tier request fires
     // and the resize takeover stays closed.
-    await waitFor(() => expect(queryByText("Create a custom plan")).toBeNull());
+    expect(queryByText("Create a custom plan")).toBeNull();
     expect(machineTierCall).toBeNull();
     expect(storageTierCall).toBeNull();
     expect(creditTierCall).toBeNull();
