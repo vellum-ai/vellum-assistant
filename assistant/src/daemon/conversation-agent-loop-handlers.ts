@@ -357,15 +357,24 @@ export interface EventHandlerState {
   currentThinkingTimestamps: { startedAt: number; completedAt: number }[];
   /**
    * `seq` of the most recent streamed content delta mirrored into
-   * `currentMessageContent`. Recorded as the conversation's persisted `seq`
-   * after each flush commits (the debounced partial flushes and the
-   * `message_complete` finalize), so the snapshot's advertised `seq` tracks
-   * exactly the streamed content the durable row holds. `undefined` until the
-   * first content delta of the in-flight message. Because every streamed
-   * content type rides the same mirror-and-flush path, this single field
-   * never claims content a flush has not yet written.
+   * `currentMessageContent`, stamped synchronously as the delta is emitted —
+   * before any flush writes it, so this runs ahead of the durable rows. Each
+   * flush snapshots it to learn how far the live stream has advanced; the
+   * committed watermark lives in `flushedContentSeq`. `undefined` until the
+   * first content delta of the in-flight message.
    */
-  lastPersistedContentSeq: number | undefined;
+  lastStreamedContentSeq: number | undefined;
+  /**
+   * Highest `seq` whose streamed content a flush has committed to durable rows
+   * for the in-flight turn. Raised (monotonic max) only after a partial flush
+   * or the `message_complete` finalize write commits — never at emit time —
+   * and never reset mid-turn, so it is a turn-level high-water mark that trails
+   * `lastStreamedContentSeq` by exactly the content not yet written. A caller
+   * anchoring a snapshot at this value (`inflight-turn-registry`) never
+   * advertises content the durable rows do not hold. `undefined` until the
+   * first flush of the turn commits.
+   */
+  flushedContentSeq: number | undefined;
   /**
    * Pre-compaction history buffered from `context_compacting` start events,
    * keyed by `compactionId`. The paired `compaction_completed` event no
@@ -583,7 +592,8 @@ export function createEventHandlerState(): EventHandlerState {
     pendingPartialFlushPromise: undefined,
     currentMessageContent: [],
     currentThinkingTimestamps: [],
-    lastPersistedContentSeq: undefined,
+    lastStreamedContentSeq: undefined,
+    flushedContentSeq: undefined,
     compactionStartMessages: new Map(),
     latencyCursor: 0,
     deferredFinalizeEffects: [],
@@ -937,7 +947,7 @@ function resetPartialPersistAccumulator(state: EventHandlerState): void {
   }
   state.currentMessageContent = [];
   state.currentThinkingTimestamps = [];
-  state.lastPersistedContentSeq = undefined;
+  state.lastStreamedContentSeq = undefined;
   state.pendingPartialFlushPromise = undefined;
   // If a previous LLM call (e.g. a retried/replaced stream) held back
   // sentinel-guarded text via `drainSentinelGuardedText`, the stale
@@ -1021,6 +1031,23 @@ async function persistLoopMessageContent(
   }
 }
 
+/**
+ * Raise the in-flight turn's flushed-content watermark once a flush or finalize
+ * write has committed `committedSeq`'s content to durable rows. Monotonic max: a
+ * slower flush can resolve after a newer delta already advanced the watermark,
+ * so it must never regress. Feeds `getInflightFlushedContentSeq`, which caps the
+ * worker → daemon persist hand-off's snapshot anchor at flushed content.
+ */
+function raiseFlushedContentWatermark(
+  state: EventHandlerState,
+  committedSeq: number,
+): void {
+  state.flushedContentSeq = Math.max(
+    state.flushedContentSeq ?? 0,
+    committedSeq,
+  );
+}
+
 /** Flush `state.currentMessageContent` to the persisted assistant row. */
 async function flushAccumulatedContent(
   state: EventHandlerState,
@@ -1044,9 +1071,9 @@ async function flushAccumulatedContent(
     persistRemintAuthorities(state, deps, revealCandidates),
   );
   // Pair the seq with the exact content snapshot taken above: deltas that
-  // arrive while the write is in flight bump `lastPersistedContentSeq`
+  // arrive while the write is in flight bump `lastStreamedContentSeq`
   // again, but they are not part of this write.
-  const flushedSeq = state.lastPersistedContentSeq;
+  const flushedSeq = state.lastStreamedContentSeq;
 
   // Partial flushes append to the in-flight delta file — a pure file
   // write; the row has held the `{ ref }` since it was reserved. Delta
@@ -1061,10 +1088,11 @@ async function flushAccumulatedContent(
         "partial_flush_assistant_content",
         deps.rlog,
       );
-  // Record only after the write commits, so the snapshot seq never
-  // claims content that is not yet durable.
+  // Record only after the write commits, so the snapshot seq never claims
+  // content that is not yet durable.
   if (persisted && flushedSeq != null) {
     recordConversationPersistedSeq(deps.ctx.conversationId, flushedSeq);
+    raiseFlushedContentWatermark(state, flushedSeq);
   }
 }
 
@@ -1410,7 +1438,7 @@ function handleTextDelta(
       // `getCurrentSeq()` here is that delta's seq -- the position the
       // mirrored content now reflects. A partial flush snapshots this to
       // record how far the durable rows track the live stream.
-      state.lastPersistedContentSeq = getCurrentSeq();
+      state.lastStreamedContentSeq = getCurrentSeq();
       schedulePartialFlush(state, deps);
     }
     if (deps.shouldGenerateTitle) {
@@ -1458,7 +1486,7 @@ function handleThinkingDelta(
   appendThinkingToCurrentMessage(state, event.thinking);
   // The hub stamps `seq` synchronously on the delta emitted above, so
   // `getCurrentSeq()` is that delta's position in the mirrored content.
-  state.lastPersistedContentSeq = getCurrentSeq();
+  state.lastStreamedContentSeq = getCurrentSeq();
   schedulePartialFlush(state, deps);
 }
 
@@ -2696,14 +2724,14 @@ export async function handleMessageComplete(
       messageId: state.lastAssistantMessageId,
     });
     // The hub stamps `seq` synchronously on the delta emitted above, so
-    // `getCurrentSeq()` is that delta's position — advance the persisted-seq
+    // `getCurrentSeq()` is that delta's position — advance the streamed-seq
     // mirror exactly like the normal text-delta path. The finalize below
     // records this value; without the advance it would record the PREVIOUS
     // emitted chunk's seq, so a `/messages` snapshot could contain this tail
     // while advertising a seq before the delta that carried it — and a
     // reconnecting client applying `seq > snapshot.seq` would append the
     // tail a second time.
-    state.lastPersistedContentSeq = getCurrentSeq();
+    state.lastStreamedContentSeq = getCurrentSeq();
     if (deps.shouldGenerateTitle) {
       state.firstAssistantText += state.pendingDirectiveDisplayBuffer;
     }
@@ -2803,7 +2831,7 @@ export async function handleMessageComplete(
   state.assistantRowAwaitingFinalization = false;
   // The assistant row now holds the authoritative content (text + thinking +
   // tool_use blocks from `event.message`), and any drained tool-result rows
-  // are durable. `lastPersistedContentSeq` is the last streamed text/thinking
+  // are durable. `lastStreamedContentSeq` is the last streamed text/thinking
   // delta's seq -- the highest stamped content event this row reflects -- so
   // recording it is honest. A drained tool result was stamped earlier in the
   // turn, so this seq already covers it; a call that streams no content (a
@@ -2811,17 +2839,19 @@ export async function handleMessageComplete(
   // `recordConversationPersistedSeq` clamps monotonically, so a lower value
   // here never regresses the seq. Gate on `persisted` so a swallowed finalize
   // write never advances the seq past content that is not durable.
-  if (persisted && state.lastPersistedContentSeq != null) {
+  if (persisted && state.lastStreamedContentSeq != null) {
     recordConversationPersistedSeq(
       deps.ctx.conversationId,
-      state.lastPersistedContentSeq,
+      state.lastStreamedContentSeq,
     );
+    raiseFlushedContentWatermark(state, state.lastStreamedContentSeq);
   }
   // Reset the partial-persist mirror so subsequent calls in this turn
-  // start with an empty running view.
+  // start with an empty running view. `flushedContentSeq` is a turn-level
+  // watermark and intentionally survives the reset.
   state.currentMessageContent = [];
   state.currentThinkingTimestamps = [];
-  state.lastPersistedContentSeq = undefined;
+  state.lastStreamedContentSeq = undefined;
 
   // ── Indexing + attention projection (deferred off the critical path) ──
   // `reserveMessage` + `updateMessageContent` are CRUD-only — unlike

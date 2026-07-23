@@ -132,7 +132,7 @@ describe("agent loop SQLite write-contention resilience", () => {
     // A row was reserved at llm_call_started; message_complete finalizes it.
     state.lastAssistantMessageId = "assistant-row";
     state.assistantRowAwaitingFinalization = true;
-    state.lastPersistedContentSeq = 5;
+    state.lastStreamedContentSeq = 5;
     updateContentFailuresRemaining = 0;
     writtenContentById.clear();
     persistedSeqByConversation.clear();

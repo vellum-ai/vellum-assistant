@@ -218,6 +218,41 @@ describe("user plugin credential key pattern lifecycle", () => {
     expect(getPluginSecretPatterns()).toHaveLength(0);
   });
 
+  test("patterns stay active through the shutdown hook on disable", async () => {
+    // Mirror of the init-ordering guarantee: shutdown-time logging must still
+    // be covered by the plugin's declared redaction patterns, so unregister
+    // happens only after the shutdown hook returns.
+    const g = globalThis as {
+      __patternProbe?: () => number;
+      __shutdownPatternCount?: number;
+    };
+    g.__patternProbe = () => getPluginSecretPatterns().length;
+    delete g.__shutdownPatternCount;
+    try {
+      const dir = writePluginDir("shutdown-order-plugin", [VIRLO_PATTERN]);
+      writeHook(
+        dir,
+        "shutdown",
+        `export default () => { const g = globalThis; g.__shutdownPatternCount = g.__patternProbe ? g.__patternProbe() : -1; };`,
+      );
+      await populateCacheAtBoot();
+      expect(
+        findRegistered("Virlo API Key", "shutdown-order-plugin"),
+      ).toBeDefined();
+
+      writeFileSync(join(dir, ".disabled"), "");
+      await publishAndDispatch();
+
+      const observed = (globalThis as { __shutdownPatternCount?: number })
+        .__shutdownPatternCount;
+      expect(observed).toBe(1);
+      expect(getPluginSecretPatterns()).toHaveLength(0);
+    } finally {
+      delete g.__patternProbe;
+      delete g.__shutdownPatternCount;
+    }
+  });
+
   test("an invalid declaration never blocks activation; the valid one still registers", async () => {
     const dir = writePluginDir("mixed-plugin", [
       VIRLO_PATTERN,

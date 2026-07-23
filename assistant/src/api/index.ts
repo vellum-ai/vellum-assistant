@@ -38,13 +38,29 @@ import { GenerationHandoffEventSchema } from "./events/generation-handoff.js";
 import { HomeFeedUpdatedEventSchema } from "./events/home-feed-updated.js";
 import { HookEventSchema } from "./events/hook-event.js";
 import {
+  HostAppControlCancelEventSchema,
+  HostAppControlRequestEventSchema,
+} from "./events/host-app-control.js";
+import {
   HostBashCancelEventSchema,
   HostBashRequestEventSchema,
 } from "./events/host-bash.js";
 import {
+  HostBrowserCancelEventSchema,
+  HostBrowserRequestEventSchema,
+} from "./events/host-browser.js";
+import {
   HostCuCancelEventSchema,
   HostCuRequestEventSchema,
 } from "./events/host-cu.js";
+import {
+  HostFileCancelEventSchema,
+  HostFileRequestEventSchema,
+} from "./events/host-file.js";
+import {
+  HostTransferCancelEventSchema,
+  HostTransferRequestEventSchema,
+} from "./events/host-transfer.js";
 import {
   HostUiSnapshotCancelEventSchema,
   HostUiSnapshotRequestEventSchema,
@@ -297,17 +313,45 @@ export {
   HookEventSchema,
 } from "./events/hook-event.js";
 export {
+  type HostAppControlCancelEvent,
+  HostAppControlCancelEventSchema,
+  type HostAppControlInput,
+  HostAppControlInputSchema,
+  type HostAppControlRequestEvent,
+  HostAppControlRequestEventSchema,
+  type HostAppControlSequenceStep,
+  HostAppControlSequenceStepSchema,
+} from "./events/host-app-control.js";
+export {
   type HostBashCancelEvent,
   HostBashCancelEventSchema,
   type HostBashRequestEvent,
   HostBashRequestEventSchema,
 } from "./events/host-bash.js";
 export {
+  type HostBrowserCancelEvent,
+  HostBrowserCancelEventSchema,
+  type HostBrowserRequestEvent,
+  HostBrowserRequestEventSchema,
+} from "./events/host-browser.js";
+export {
   type HostCuCancelEvent,
   HostCuCancelEventSchema,
   type HostCuRequestEvent,
   HostCuRequestEventSchema,
 } from "./events/host-cu.js";
+export {
+  type HostFileCancelEvent,
+  HostFileCancelEventSchema,
+  type HostFileRequestEvent,
+  HostFileRequestEventSchema,
+} from "./events/host-file.js";
+export {
+  type HostTransferCancelEvent,
+  HostTransferCancelEventSchema,
+  type HostTransferRequestEvent,
+  HostTransferRequestEventSchema,
+} from "./events/host-transfer.js";
 export {
   type HostUiSnapshotCancelEvent,
   HostUiSnapshotCancelEventSchema,
@@ -783,10 +827,18 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   GenerationHandoffEventSchema,
   HomeFeedUpdatedEventSchema,
   HookEventSchema,
+  HostAppControlCancelEventSchema,
+  HostAppControlRequestEventSchema,
   HostBashCancelEventSchema,
   HostBashRequestEventSchema,
+  HostBrowserCancelEventSchema,
+  HostBrowserRequestEventSchema,
   HostCuCancelEventSchema,
   HostCuRequestEventSchema,
+  HostFileCancelEventSchema,
+  HostFileRequestEventSchema,
+  HostTransferCancelEventSchema,
+  HostTransferRequestEventSchema,
   HostUiSnapshotCancelEventSchema,
   HostUiSnapshotRequestEventSchema,
   IdentityChangedEventSchema,

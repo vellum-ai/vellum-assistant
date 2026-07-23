@@ -1039,11 +1039,14 @@ async function deactivatePlugin(
   if (idx >= 0) {
     activatedPlugins.splice(idx, 1);
   }
-  unregisterPluginSecretPatterns(pluginName);
-
   if (reason !== "uninstall") {
     await runShutdownHook("plugin", pluginName, reason);
   }
+  // Unregister AFTER the shutdown hook: patterns must stay active while the
+  // hook runs so shutdown-time logging (including caught-error paths that
+  // echo a configured key) is still covered by log redaction — the mirror of
+  // the register-before-init ordering in activatePlugin.
+  unregisterPluginSecretPatterns(pluginName);
 }
 
 // ─── Boot population ─────────────────────────────────────────────────────────
