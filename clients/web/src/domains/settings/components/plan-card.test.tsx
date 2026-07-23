@@ -36,6 +36,7 @@ import type {
   SubscriptionResponse,
 } from "@/generated/api/types.gen";
 import * as runtimeBrowser from "@/runtime/browser";
+import { PLAN_TIER_COPY } from "@/domains/settings/billing/plans/plans-copy";
 import { routes } from "@/utils/routes";
 
 // Capture navigate() targets so the action-button wiring can be asserted
@@ -354,6 +355,9 @@ describe("PlanCard", () => {
     expect(html).toContain("$0 credits");
     expect(html).toContain("4 GB");
     expect(html).not.toContain("vCPU");
+    // A known-specs (free baseline) current card keeps its stock tagline — the
+    // tagline gate only suppresses the Custom/unknown case, not this one.
+    expect(html).toContain(PLAN_TIER_COPY.free.tagline);
   });
 
   test("Mighty → Super: recommends Super with absolute chips on both cards", () => {
@@ -433,6 +437,9 @@ describe("PlanCard", () => {
     // doesn't masquerade as a stock package.
     expect(html).toContain("Custom");
     expect(html).not.toContain("Mighty (Custom)");
+    // Its specs are unknowable (no chips), so the stock Mighty tagline must not
+    // render under the "Custom" name either — same gate as the chips.
+    expect(html).not.toContain(PLAN_TIER_COPY.mighty.tagline);
   });
 
   test("current-plan row labels an unpinned Pro sub as custom", () => {
@@ -446,6 +453,10 @@ describe("PlanCard", () => {
     expect(html).toContain("plan-card-name");
     expect(html).toContain("Custom");
     expect(html).not.toContain("Pro");
+    // `currentTier` falls back to "free" for an unpinned sub, but its specs are
+    // unknowable (no chips), so the stock free tagline must not leak in under
+    // the "Custom" name.
+    expect(html).not.toContain(PLAN_TIER_COPY.free.tagline);
   });
 
   test("a clean-pinned Pro sub whose package is absent from the catalog shows no chips", () => {

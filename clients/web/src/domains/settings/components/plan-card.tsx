@@ -445,7 +445,13 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
                 Your Current Plan
               </Tag>
             }
-            tagline={currentCopy?.tagline}
+            // Gate the tagline on the same "known stock specs" condition as the
+            // chips: a Custom/unknown current plan (`currentSpecs === null`)
+            // renders as "Custom" with no chips, so showing stock marketing copy
+            // under it would reintroduce the misleading stock-plan labeling the
+            // chip guard avoids. Only the free/base baseline or a clean-pinned
+            // package (both have non-null specs) keeps its tagline.
+            tagline={currentSpecs ? currentCopy?.tagline : undefined}
             specs={currentSpecs}
           />
           <RecommendedUpgrade
