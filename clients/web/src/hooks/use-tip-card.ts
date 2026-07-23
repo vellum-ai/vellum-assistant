@@ -83,7 +83,7 @@ export interface UseTipCardResult {
   carouselCount: number;
   onDismiss: () => void;
   onLearnMore: () => void;
-  /** Carousel navigation — clamped at the catalog edges. */
+  /** Carousel navigation — prev clamps at the start, next wraps to the first tip. */
   onPrevTip: () => void;
   onNextTip: () => void;
 }
@@ -247,7 +247,9 @@ export function useTipCard(): UseTipCardResult {
   }, [carouselIndex]);
 
   const onNextTip = useCallback(() => {
-    setBrowseIndex(Math.min(carouselIndex + 1, carouselCount - 1));
+    // Wraps past the last tip back to the first, so forward browsing never
+    // dead-ends. The chevron only renders when carouselCount > 1.
+    setBrowseIndex((carouselIndex + 1) % carouselCount);
   }, [carouselIndex, carouselCount]);
 
   const onDismiss = useCallback(() => {
