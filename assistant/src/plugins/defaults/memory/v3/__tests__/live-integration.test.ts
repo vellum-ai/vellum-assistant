@@ -31,7 +31,8 @@ import type {
 } from "@vellumai/plugin-api";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
-import { migrateAddMemoryV3EverInjected } from "../../../../../persistence/migrations/277-add-memory-v3-ever-injected.js";
+import { ensureMemoryV3SelectionsSchema } from "../../../../../persistence/migrations/338-move-memory-v3-selections-to-memory-db.js";
+import { ensureMemoryV3EverInjectedSchema } from "../../../../../persistence/migrations/345-move-memory-v3-ever-injected-to-memory-db.js";
 import * as schema from "../../../../../persistence/schema/index.js";
 import { wrapMemoryBlock } from "../../memory-marker.js";
 import { cardBytes, renderCard } from "../card.js";
@@ -85,11 +86,17 @@ const realDbConnection = {
   ...(await import("../../../../../persistence/db-connection.js")),
 };
 let testSqlite: Database;
+// The everInjected carry and v3 selection rows live on the dedicated memory
+// connection, resolved via `getMemorySqlite` — stubbed to a second in-memory DB
+// carrying the relocated tables' schema.
+let memorySqlite: Database;
 let testDb = makeDb();
 function makeDb() {
   testSqlite = new Database(":memory:");
   const db = drizzle(testSqlite, { schema });
-  migrateAddMemoryV3EverInjected(db);
+  memorySqlite = new Database(":memory:");
+  ensureMemoryV3SelectionsSchema(memorySqlite);
+  ensureMemoryV3EverInjectedSchema(memorySqlite);
   return db;
 }
 mock.module("../../../../../persistence/db-connection.js", () => ({
@@ -101,6 +108,12 @@ mock.module("../../../../../persistence/db-connection.js", () => ({
       : realDbConnection.getSqliteFrom(
           db as Parameters<typeof realDbConnection.getSqliteFrom>[0],
         ),
+  getMemorySqlite: () =>
+    denseMockActive ? memorySqlite : realDbConnection.getMemorySqlite(),
+  getMemoryDb: () =>
+    denseMockActive
+      ? drizzle(memorySqlite, { schema })
+      : realDbConnection.getMemoryDb(),
 }));
 
 const { orchestrate } = await import("../orchestrate.js");

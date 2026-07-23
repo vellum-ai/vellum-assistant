@@ -428,18 +428,25 @@ export function unregisterPluginTools(pluginName: string): void {
  * Pull the active user-plugin tool set from the plugin mtime-cache into the
  * registry. This is the pull half of the plugin-tool relationship — the
  * mtime-cache never writes to the registry; instead this reconcile reads
- * {@link import("../plugins/mtime-cache.js").getActiveUserPluginTools} (which
- * syncs against the source-versions sentinel first) and diffs the result into
- * the registry: plugins that vanished are unregistered, new plugins register,
- * and a plugin whose per-tool source mtimes moved is re-registered. Mirrors
- * how hooks resolve through `getUserHookEntriesFor`.
+ * {@link import("../plugins/mtime-cache.js").getActiveUserPluginTools} and diffs
+ * the result into the registry: plugins that vanished are unregistered, new
+ * plugins register, and a plugin whose per-tool source mtimes moved is
+ * re-registered. Mirrors how hooks resolve through `getUserHookEntriesFor`.
  *
- * Idempotent, cheap when nothing changed (one sentinel stat + fingerprint
- * compares), and concurrency-safe (concurrent callers coalesce onto one
- * in-flight reconcile). Runs as the final step of `initializeTools()` (at
- * daemon boot the plugin cache is already populated by then), and
- * fire-and-forget from the per-turn conversation tool resolver — the same
- * cadence `loadWorkspaceTools` runs on.
+ * This is a pure read of the plugin cache — it does NOT reconcile the cache
+ * against the source-versions sentinel, so it never activates a plugin or runs
+ * an `init` hook. Cache reconciliation is owned by the hook-dispatch gate and
+ * the boot/install paths (see `getActiveUserPluginTools`); this pull picks up
+ * whatever they last landed. That keeps tool registration decoupled from plugin
+ * lifecycle: sidecar workers call `initializeTools()` for their own tool
+ * surface and must never run a plugin's `init` as a side effect.
+ *
+ * Idempotent, cheap when nothing changed (a fingerprint compare per plugin),
+ * and concurrency-safe (concurrent callers coalesce onto one in-flight
+ * reconcile). Runs as the final step of `initializeTools()` (at daemon boot the
+ * plugin cache is already populated by then), and fire-and-forget from the
+ * per-turn conversation tool resolver — the same cadence `loadWorkspaceTools`
+ * runs on.
  */
 export function loadPluginTools(): Promise<void> {
   if (pluginToolsReconcileInFlight) {
@@ -462,7 +469,7 @@ async function reconcilePluginToolsFromCache(): Promise<void> {
   try {
     const { getActiveUserPluginTools } =
       await import("../plugins/mtime-cache.js");
-    active = await getActiveUserPluginTools();
+    active = getActiveUserPluginTools();
   } catch (err) {
     log.warn(
       { err },
@@ -1091,11 +1098,13 @@ async function runToolInitialization(): Promise<void> {
 
   // Pull the active user-plugin tool set last, so core and workspace
   // registrations already own their names when plugin conflicts resolve.
-  // At daemon boot the plugin mtime-cache is populated before this runs
-  // (`initializePlugins()` precedes `initializeTools()` in the lifecycle);
-  // in worker/standalone processes the cache is empty and this is a no-op.
-  // Runtime changes keep flowing through the same reconcile, re-fired by
-  // the per-turn conversation tool resolver.
+  // This is a pure cache read (it never activates a plugin or runs `init`):
+  // at daemon boot the plugin mtime-cache is already populated by
+  // `initializePlugins()`, which precedes `initializeTools()` in the lifecycle;
+  // in worker/standalone processes the cache is empty, so this registers no
+  // plugin tools and — critically — runs no plugin lifecycle. Runtime changes
+  // reach the cache via the hook-dispatch reconcile and are re-pulled by the
+  // per-turn conversation tool resolver.
   await loadPluginTools();
 }
 

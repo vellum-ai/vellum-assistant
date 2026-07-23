@@ -318,14 +318,25 @@ function fillCreateForm(): void {
   });
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   createdConnection = makeConnection("anthropic-personal");
   toastSuccessCalls = [];
   useAssistantLifecycleStore.setState(initialLifecycleState, true);
+  // Seed a hydrated pre-gate version: the save path awaits
+  // whenAssistantVersionKnown(), and an unhydrated store would stall each
+  // save until that helper's timeout. Gate-on tests override per-test.
+  const { useAssistantIdentityStore } = await import(
+    "@/stores/assistant-identity-store"
+  );
+  useAssistantIdentityStore.getState().setIdentity("test-asst", "0.10.11");
 });
 
-afterEach(() => {
+afterEach(async () => {
   cleanup();
+  const { useAssistantIdentityStore } = await import(
+    "@/stores/assistant-identity-store"
+  );
+  useAssistantIdentityStore.getState().clearIdentity();
 });
 
 // ---------------------------------------------------------------------------
@@ -477,6 +488,72 @@ describe("ProfileEditorModal create mode — provider-first", () => {
     });
     expect(saveCalls[0].entry.provider).toBe("fireworks");
     expect(saveCalls[0].entry.provider_connection).toBe("vellum-managed");
+  });
+
+  test("a new-enough assistant gets the identity payload: provider vellum, no binding", async () => {
+    const { useAssistantIdentityStore } = await import(
+      "@/stores/assistant-identity-store"
+    );
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity("test-asst", "0.10.12", ASSISTANT_ID);
+    try {
+      const saveCalls: { name: string; entry: Record<string, unknown> }[] = [];
+      const onSave = (name: string, entry: unknown) => {
+        saveCalls.push({ name, entry: entry as Record<string, unknown> });
+        return Promise.resolve();
+      };
+      renderCreate([makeConnection("vellum-managed", "vellum")], onSave);
+
+      selectProvider("Vellum");
+      selectModel("Claude Opus 4.8");
+
+      await waitFor(() => {
+        expect(getSaveBtn().disabled).toBe(false);
+      });
+      fireEvent.click(getSaveBtn());
+
+      await waitFor(() => {
+        expect(saveCalls.length).toBe(1);
+      });
+      expect(saveCalls[0].entry.provider).toBe("vellum");
+      expect(saveCalls[0].entry.model).toBe("claude-opus-4-8");
+      expect(saveCalls[0].entry.provider_connection).toBeUndefined();
+    } finally {
+      useAssistantIdentityStore.getState().clearIdentity();
+    }
+  });
+
+  test("an older assistant keeps the legacy payload byte-identical", async () => {
+    const { useAssistantIdentityStore } = await import(
+      "@/stores/assistant-identity-store"
+    );
+    useAssistantIdentityStore.getState().setIdentity("test-asst", "0.10.11");
+    try {
+      const saveCalls: { name: string; entry: Record<string, unknown> }[] = [];
+      const onSave = (name: string, entry: unknown) => {
+        saveCalls.push({ name, entry: entry as Record<string, unknown> });
+        return Promise.resolve();
+      };
+      renderCreate([makeConnection("vellum-managed", "vellum")], onSave);
+
+      selectProvider("Vellum");
+      selectModel("Claude Opus 4.8");
+
+      await waitFor(() => {
+        expect(getSaveBtn().disabled).toBe(false);
+      });
+      fireEvent.click(getSaveBtn());
+
+      await waitFor(() => {
+        expect(saveCalls.length).toBe(1);
+      });
+      expect(saveCalls[0].entry.provider).toBe("anthropic");
+      expect(saveCalls[0].entry.model).toBe("claude-opus-4-8");
+      expect(saveCalls[0].entry.provider_connection).toBe("vellum-managed");
+    } finally {
+      useAssistantIdentityStore.getState().clearIdentity();
+    }
   });
 
   test("a legacy-shape managed profile presents as Vellum in edit mode", async () => {
@@ -721,7 +798,7 @@ describe("ProfileEditorModal create mode — provider-first", () => {
     // ...and the hint below spells out why and what to do about it.
     expect(document.body.textContent).toContain(
       "No models are available for this provider in this app version. " +
-        "Update the app, or use an OpenAI-compatible connection to enter a custom model.",
+        "Update the app, or enter a custom model ID.",
     );
   });
 
@@ -1090,6 +1167,112 @@ describe("ProfileEditorModal edit mode — catalog-absent bound model", () => {
     });
     expect(optionLabels).toContain("GPT-5.5");
     expect(optionLabels).not.toContain("GPT-5.5 Pro");
+  });
+
+  test("lets the user enter a custom model ID the catalog omits and saves it verbatim", async () => {
+    // The static OpenRouter catalog can't track every routable model, so the
+    // Model field offers a free-text escape hatch. Picking it and typing an id
+    // the build doesn't list must produce a saveable profile bound to that id.
+
+    // GIVEN an OpenRouter profile open in the editor, bound to a catalog model
+    const saveCalls: { name: string; entry: Record<string, unknown> }[] = [];
+    render(
+      <Wrapper>
+        <ProfileEditorModal
+          isOpen
+          mode="edit"
+          profileName="fusion"
+          initialValues={
+            {
+              name: "fusion",
+              label: "Fusion",
+              provider: "openrouter",
+              model: "anthropic/claude-opus-4.8",
+              provider_connection: "openrouter",
+              status: "active",
+            } as unknown as never
+          }
+          existingNames={["fusion"]}
+          connections={[makeConnection("openrouter", "openrouter")]}
+          assistantId={ASSISTANT_ID}
+          onSave={(name, entry) => {
+            saveCalls.push({ name, entry: entry as Record<string, unknown> });
+            return Promise.resolve();
+          }}
+          onCancel={() => {}}
+        />
+      </Wrapper>,
+    );
+
+    // WHEN the user picks the free-text option (the Model dropdown is the only
+    // one offering it) and types an id absent from the catalog, then saves
+    let pickedCustom = false;
+    for (const trigger of dropdownTriggers()) {
+      fireEvent.click(trigger);
+      const customOption = Array.from(
+        document.querySelectorAll<HTMLElement>('[role="option"]'),
+      ).find((o) => o.textContent?.trim() === "Enter a custom model ID…");
+      if (customOption) {
+        fireEvent.click(customOption);
+        pickedCustom = true;
+        break;
+      }
+      fireEvent.click(trigger);
+    }
+    expect(pickedCustom).toBe(true);
+
+    const modelInput = getInputByPlaceholder("provider/model-id");
+    fireEvent.change(modelInput, { target: { value: "tencent/hy3" } });
+
+    await waitFor(() => {
+      expect(getSaveBtn().disabled).toBe(false);
+    });
+    fireEvent.click(getSaveBtn());
+
+    // THEN the typed id is persisted exactly as entered
+    await waitFor(() => {
+      expect(saveCalls.length).toBe(1);
+    });
+    expect(saveCalls[0].entry.model).toBe("tencent/hy3");
+  });
+
+  test("withholds the custom-model option from a subscription-restricted connection", () => {
+    // A ChatGPT-subscription OpenAI connection only accepts the Codex model
+    // set, so the free-text escape hatch must not appear — a typed id the
+    // endpoint rejects would otherwise be saveable.
+    const subscriptionConnection = {
+      name: "openai-chatgpt",
+      label: null,
+      provider: "openai",
+      auth: {
+        type: "oauth_subscription",
+        credential: "credential/openai/oauth_subscription",
+      },
+      models: null,
+    } as unknown as ProviderConnection;
+
+    renderEdit(
+      {
+        name: "codex",
+        label: "Codex",
+        provider: "openai",
+        model: "gpt-5.5",
+        provider_connection: "openai-chatgpt",
+        status: "active",
+      },
+      subscriptionConnection,
+    );
+
+    const optionLabels = dropdownTriggers().flatMap((trigger) => {
+      fireEvent.click(trigger);
+      const labels = Array.from(
+        document.querySelectorAll<HTMLElement>('[role="option"]'),
+      ).map((o) => o.textContent?.trim());
+      fireEvent.click(trigger);
+      return labels;
+    });
+    expect(optionLabels).toContain("GPT-5.5");
+    expect(optionLabels).not.toContain("Enter a custom model ID…");
   });
 });
 

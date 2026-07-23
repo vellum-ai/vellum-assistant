@@ -32,7 +32,10 @@ import {
 import { z } from "zod";
 
 import { getConfig } from "../../../../config/loader.js";
-import { usesConceptPageMemory } from "../../../../config/memory-v3-gate.js";
+import {
+  isMemoryGraphSupported,
+  usesConceptPageMemory,
+} from "../../../../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../../../../config/types.js";
 import { getDb } from "../../../../persistence/db-connection.js";
 import {
@@ -64,6 +67,7 @@ import {
   handleUpdateMemory,
 } from "../graph/tool-handlers.js";
 import type {
+  CapabilityKind,
   Fidelity,
   ImageRef,
   MemoryNode,
@@ -101,6 +105,9 @@ const VALID_SORT_FIELDS = [
 
 type SortField = (typeof VALID_SORT_FIELDS)[number];
 
+/** Capability flavors accepted by the `memory-nodes` list `kind` filter. */
+const CAPABILITY_KINDS: readonly CapabilityKind[] = ["skill", "cli"];
+
 const SORT_COLUMN_MAP = {
   lastSeenAt: memoryGraphNodes.lastAccessed,
   importance: memoryGraphNodes.significance,
@@ -118,6 +125,10 @@ function isValidType(value: string): value is MemoryType {
 
 function isValidSortField(value: string): value is SortField {
   return (VALID_SORT_FIELDS as readonly string[]).includes(value);
+}
+
+function isCapabilityKind(value: string): value is CapabilityKind {
+  return (CAPABILITY_KINDS as readonly string[]).includes(value);
 }
 
 /**
@@ -479,11 +490,19 @@ function handleGetMemoryItem(id: string) {
  * concepts-only filter in `build-memory-graph.ts`, but never triggers the
  * expensive `getMemoryGraph` build (edge / learned / cluster graph) — the
  * concept graph is deliberately kept off identity-page load.
+ *
+ * `graph_supported` reports whether the memory-concept graph is available for
+ * this assistant — the same `isMemoryGraphSupported` condition under which
+ * `GET /memory-graph` returns `supported: true` (memory enabled + v3 live). It
+ * is a cheap config read (no page I/O), so glanceable surfaces can gate the
+ * graph entry point on real availability without triggering the graph build.
  */
-async function handleGetMemoryStats(): Promise<{ concepts: number }> {
+async function handleGetMemoryStats(
+  config: AssistantConfig,
+): Promise<{ concepts: number; graph_supported: boolean }> {
   const pageIndex = await getPageIndex(getWorkspaceDir());
   const concepts = pageIndex.entries.filter((e) => e.modifiedAt > 0).length;
-  return { concepts };
+  return { concepts, graph_supported: isMemoryGraphSupported(config) };
 }
 
 async function handleCreateMemoryItem(body: Record<string, unknown>) {
@@ -803,12 +822,20 @@ export const ROUTES: RouteDefinition[] = [
     description:
       "Return a cheap count of concept pages from the cached memory page " +
       "index, for glanceable surfaces like the identity Memory card. Counts " +
-      "concept pages only and never builds the memory-concept graph.",
+      "concept pages only and never builds the memory-concept graph. Also " +
+      "reports graph_supported: whether the memory-concept graph is available " +
+      "for this assistant (memory enabled and v3 live), so callers can gate " +
+      "the graph entry point without building the graph.",
     tags: ["memory"],
     responseBody: z.object({
       concepts: z.number().describe("Number of concept pages in memory"),
+      graph_supported: z
+        .boolean()
+        .describe(
+          "Whether the memory-concept graph is available (memory enabled and v3 live)",
+        ),
     }),
-    handler: () => handleGetMemoryStats(),
+    handler: () => handleGetMemoryStats(getConfig()),
   },
 
   {
@@ -923,6 +950,12 @@ export const ROUTES: RouteDefinition[] = [
         schema: { type: "integer" },
         description: "Max results (default 50, max 200)",
       },
+      {
+        name: "kind",
+        schema: { type: "string", enum: [...CAPABILITY_KINDS] },
+        description:
+          "Restrict to auto-seeded capability nodes: 'skill' or 'cli'",
+      },
     ],
     responseBody: z.object({
       success: z.boolean(),
@@ -947,8 +980,16 @@ export const ROUTES: RouteDefinition[] = [
           throw new BadRequestError("limit must be an integer");
         }
       }
+
+      const kindRaw = queryParams?.kind;
+      if (kindRaw !== undefined && !isCapabilityKind(kindRaw)) {
+        throw new BadRequestError(
+          `Invalid kind "${kindRaw}". Must be one of: ${CAPABILITY_KINDS.join(", ")}`,
+        );
+      }
+
       return handleListMemory(
-        { search: queryParams?.search, limit },
+        { search: queryParams?.search, limit, kind: kindRaw },
         getConfig(),
       );
     },

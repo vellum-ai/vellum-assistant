@@ -22,8 +22,12 @@ mock.module("../daemon/conversation-launch.js", () => ({
   launchConversation: async () => ({ conversationId: "spawned-conv" }),
 }));
 
-const { createSurfaceMutex, handleSurfaceAction, surfaceProxyResolver } =
-  await import("../daemon/conversation-surfaces.js");
+const {
+  createSurfaceMutex,
+  handleSurfaceAction,
+  restoreSurfaceStateEntry,
+  surfaceProxyResolver,
+} = await import("../daemon/conversation-surfaces.js");
 
 import type { SurfaceConversationContext } from "../daemon/conversation-surfaces.js";
 import type { SurfaceType, UiSurfaceShow } from "../daemon/message-protocol.js";
@@ -334,18 +338,13 @@ describe("activation moment emission from ui_show surface commits", () => {
     }));
     expect(persisted[0]!.activationMoment).toBe("moment_2");
 
-    // Simulate a reload: drop the in-memory surfaceState, then rebuild it from
-    // the persisted history block the same way restoreSurfaceStateFromHistory
-    // does (including rehydrating the daemon-only tag).
+    // Simulate a reload: drop the in-memory surfaceState, then rebuild it
+    // from the persisted history block through the same helper
+    // `restoreSurfaceStateFromHistory` uses (including rehydrating the
+    // daemon-only tag).
     ctx.surfaceState.clear();
     for (const b of persisted) {
-      ctx.surfaceState.set(b.surfaceId, {
-        surfaceType: b.surfaceType,
-        data: b.data,
-        title: b.title,
-        actions: b.actions,
-        ...(b.activationMoment ? { activationMoment: b.activationMoment } : {}),
-      });
+      ctx.surfaceState.set(b.surfaceId, restoreSurfaceStateEntry(b));
     }
 
     // A commit after restore still records exactly one row.

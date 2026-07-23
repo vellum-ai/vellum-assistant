@@ -160,6 +160,95 @@ describe("parseVellumUrl", () => {
     });
   });
 
+  test("vellum://billing/checkout-complete?status=success&session_id=… → billingCheckoutComplete", () => {
+    expect(
+      parseVellumUrl(
+        "vellum://billing/checkout-complete?status=success&session_id=cs_test_a1B2",
+      ),
+    ).toEqual({
+      kind: "billingCheckoutComplete",
+      status: "success",
+      sessionId: "cs_test_a1B2",
+    });
+  });
+
+  test("checkout-complete under the alternate scheme parses the same", () => {
+    expect(
+      parseVellumUrl(
+        "vellum-assistant://billing/checkout-complete?status=success&session_id=cs_live_XYZ",
+      ),
+    ).toEqual({
+      kind: "billingCheckoutComplete",
+      status: "success",
+      sessionId: "cs_live_XYZ",
+    });
+  });
+
+  test("status=cancel → cancel with no session id", () => {
+    expect(
+      parseVellumUrl("vellum://billing/checkout-complete?status=cancel"),
+    ).toEqual({
+      kind: "billingCheckoutComplete",
+      status: "cancel",
+      sessionId: null,
+    });
+  });
+
+  test("status=cancel ignores any session id that rides along", () => {
+    expect(
+      parseVellumUrl(
+        "vellum://billing/checkout-complete?status=cancel&session_id=cs_test_a1B2",
+      ),
+    ).toEqual({
+      kind: "billingCheckoutComplete",
+      status: "cancel",
+      sessionId: null,
+    });
+  });
+
+  test("success without a session id → unknown (never a success state with nothing to open)", () => {
+    expect(
+      parseVellumUrl("vellum://billing/checkout-complete?status=success"),
+    ).toEqual({
+      kind: "unknown",
+      url: "vellum://billing/checkout-complete",
+    });
+  });
+
+  test("success with a malformed session id → unknown, query stripped", () => {
+    expect(
+      parseVellumUrl(
+        "vellum://billing/checkout-complete?status=success&session_id=../../etc/passwd",
+      ),
+    ).toEqual({
+      kind: "unknown",
+      url: "vellum://billing/checkout-complete",
+    });
+  });
+
+  test("missing / unrecognized status → unknown, query stripped (no session-id leak)", () => {
+    expect(
+      parseVellumUrl(
+        "vellum://billing/checkout-complete?session_id=cs_test_a1B2",
+      ),
+    ).toEqual({ kind: "unknown", url: "vellum://billing/checkout-complete" });
+    expect(
+      parseVellumUrl(
+        "vellum://billing/checkout-complete?status=bogus&session_id=cs_test_a1B2",
+      ),
+    ).toEqual({ kind: "unknown", url: "vellum://billing/checkout-complete" });
+  });
+
+  test("unrecognized billing path → unknown, query stripped", () => {
+    expect(
+      parseVellumUrl("vellum://billing/other?session_id=cs_test_a1B2"),
+    ).toEqual({ kind: "unknown", url: "vellum://billing/other" });
+    expect(parseVellumUrl("vellum://billing")).toEqual({
+      kind: "unknown",
+      url: "vellum://billing",
+    });
+  });
+
   test("rejects foreign schemes — javascript: returns unknown", () => {
     expect(parseVellumUrl("javascript:alert(1)")).toEqual({
       kind: "unknown",
@@ -450,6 +539,13 @@ describe("handleDeepLink — window activation", () => {
 
   test("brings the main window forward for `openThread`", () => {
     handleDeepLink("vellum://thread/abc");
+    expect(ensureMainWindowVisibleMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("brings the main window forward for `billingCheckoutComplete`", () => {
+    handleDeepLink(
+      "vellum://billing/checkout-complete?status=success&session_id=cs_test_a1B2",
+    );
     expect(ensureMainWindowVisibleMock).toHaveBeenCalledTimes(1);
   });
 

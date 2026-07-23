@@ -146,8 +146,8 @@ export interface ChatMainPanelProps {
   diskPressure: UseDiskPressureMonitorResult;
 
   // Upward signals to ActiveChatView local state
-  setShowAddCreditsModal: Dispatch<SetStateAction<boolean>>;
   setRefreshEpoch: Dispatch<SetStateAction<number>>;
+  setShowAddCreditsModal: Dispatch<SetStateAction<boolean>>;
 
   // Shared refs (owned by ActiveChatView for debug API / keydown handler)
   inputRef: RefObject<HTMLTextAreaElement | null>;
@@ -221,8 +221,8 @@ export function ChatMainPanel({
   handleInspectMessage,
   historyPagination,
   diskPressure,
-  setShowAddCreditsModal,
   setRefreshEpoch,
+  setShowAddCreditsModal,
   inputRef,
   sanitizedMessagesRef,
   transcriptItemsRef,
@@ -375,6 +375,10 @@ export function ChatMainPanel({
 
   const pushToBillingSettings = useCallback(() => {
     void navigate(routes.settings.usageBilling);
+  }, [navigate]);
+
+  const pushToPlansTakeover = useCallback(() => {
+    void navigate(routes.plans);
   }, [navigate]);
 
   const checkAssistant = useCallback(() => lifecycleService.checkAssistant(), []);
@@ -987,7 +991,8 @@ export function ChatMainPanel({
               <DailyLimitBanner onAdjustLimit={pushToBillingSettings} />
             ) : billingBannerDecision === "managed_credits" ? (
               <CreditsExhaustedBanner
-                onAddFunds={() => setShowAddCreditsModal(true)}
+                onAddCredits={() => setShowAddCreditsModal(true)}
+                onUpgrade={pushToPlansTakeover}
               />
             ) : billingBannerDecision === "provider_billing" ? (
               <ProviderBillingBanner onOpenSettings={pushToAiSettings} />

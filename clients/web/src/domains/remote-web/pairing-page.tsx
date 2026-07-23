@@ -1,5 +1,10 @@
-import { AlertCircle, CheckCircle2, LoaderCircle } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import {
+  AlertCircle,
+  CheckCircle2,
+  LoaderCircle,
+  Smartphone,
+} from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 
 import { NotFound } from "@/components/not-found";
@@ -11,6 +16,8 @@ import {
   RemoteWebPairingError,
 } from "@/lib/auth/remote-gateway-session";
 import { isRemoteGatewayMode } from "@/lib/local-mode";
+import { isNativePlatform } from "@/runtime/native-auth";
+import { isIOSBrowser } from "@/runtime/platform-detection";
 import { sanitizeReturnTo } from "@/utils/return-to";
 import { routes } from "@/utils/routes";
 
@@ -21,6 +28,8 @@ type PairingDetails = {
 
 type PairingState =
   | { kind: "starting" }
+  | { kind: "handoff_choice" }
+  | { kind: "verifying" }
   | { kind: "polling"; expiresAt: string | null }
   | { kind: "approved" }
   | { kind: "expired" }
@@ -33,6 +42,16 @@ function statusCopy(state: PairingState): { title: string; body: string } {
         title: "Starting pairing",
         body: "Creating a code for this browser.",
       };
+    case "handoff_choice":
+      return {
+        title: "Open in the Vellum app",
+        body: "Scanning from a phone with the Vellum app installed? Hand this pairing to the app.",
+      };
+    case "verifying":
+      return {
+        title: "Pairing",
+        body: "Connecting this device to your assistant.",
+      };
     case "approved":
       return {
         title: "Connected",
@@ -41,7 +60,7 @@ function statusCopy(state: PairingState): { title: string; body: string } {
     case "expired":
       return {
         title: "Pairing expired",
-        body: "Start a new web pairing from the local assistant.",
+        body: "This pairing code is invalid or expired. Run vellum pair --qr (or vellum pair --web) on the machine running your assistant to get a new one.",
       };
     case "error":
       return {
@@ -60,7 +79,14 @@ function StatusIcon({ state }: { state: PairingState }) {
   if (state.kind === "approved") {
     return <CheckCircle2 className="h-5 w-5 text-green-600" aria-hidden />;
   }
-  if (state.kind === "starting" || state.kind === "polling") {
+  if (state.kind === "handoff_choice") {
+    return <Smartphone className="h-5 w-5 text-blue-600" aria-hidden />;
+  }
+  if (
+    state.kind === "starting" ||
+    state.kind === "verifying" ||
+    state.kind === "polling"
+  ) {
     return (
       <LoaderCircle
         className="h-5 w-5 animate-spin text-blue-600"
@@ -69,6 +95,99 @@ function StatusIcon({ state }: { state: PairingState }) {
     );
   }
   return <AlertCircle className="h-5 w-5 text-red-600" aria-hidden />;
+}
+
+/**
+ * Strip the burned `#device_code=` fragment (and any query variants) from the
+ * address bar after a successful exchange, preserving `returnTo`, so the spent
+ * code does not linger in the location bar or get re-submitted on reload.
+ */
+function clearDeviceCodeFromUrl(): void {
+  try {
+    const url = new URL(window.location.href);
+    for (const key of ["deviceCode", "device_code", "userCode", "user_code"]) {
+      url.searchParams.delete(key);
+    }
+    url.hash = "";
+    window.history.replaceState(null, "", `${url.pathname}${url.search}`);
+  } catch {
+    // history.replaceState unavailable — the burned code is inert regardless.
+  }
+}
+
+/**
+ * Custom URL scheme registered by the shipped iOS app. Dev and staging app
+ * builds register suffixed schemes (e.g. `vellum-assistant-dev`), so this
+ * handoff link intentionally targets the production app — the common case for
+ * a phone that scanned a pairing QR with its camera.
+ */
+const VELLUM_APP_SCHEME = "vellum-assistant";
+
+/**
+ * The server's public base URL: origin plus any path prefix the deployment is
+ * served under, derived by stripping this page's own route from the pathname.
+ * A prefix-served assistant (pair page at
+ * `https://host/assistant-123/assistant/pair`) must hand the app
+ * `https://host/assistant-123` — the connect handler appends the pair route
+ * back onto whatever base it receives.
+ */
+function publicBaseFromLocation(): string {
+  const { origin, pathname } = window.location;
+  const normalized = pathname.replace(/\/+$/, "");
+  const suffix = "/assistant/pair";
+  if (normalized.endsWith(suffix)) {
+    return `${origin}${normalized.slice(0, -suffix.length)}`;
+  }
+  return origin;
+}
+
+/**
+ * Build the `vellum-assistant://connect?url=<base>&code=<device-code>` deep
+ * link the iOS app consumes to persist this server and finish pairing inside
+ * the app. `url` is the page's own public base (origin + served path prefix)
+ * so the app reconnects to the same self-hosted assistant this browser is
+ * already on.
+ */
+function buildAppHandoffUrl(deviceCode: string): string {
+  const query = new URLSearchParams({
+    url: publicBaseFromLocation(),
+    code: deviceCode,
+  });
+  return `${VELLUM_APP_SCHEME}://connect?${query.toString()}`;
+}
+
+/**
+ * Pre-exchange choice shown to an iOS browser that arrived with a device code.
+ * The primary action is a plain anchor so Safari performs the custom-scheme
+ * navigation natively; tapping it does not burn the single-use code, so
+ * "Continue in this browser" stays available if the app is not installed.
+ */
+function PairingHandoffActions({
+  deviceCode,
+  onContinueInBrowser,
+}: {
+  deviceCode: string;
+  onContinueInBrowser: () => void;
+}) {
+  const appLink = useMemo(() => buildAppHandoffUrl(deviceCode), [deviceCode]);
+
+  return (
+    <div className="mt-6 flex flex-col gap-3">
+      <a
+        href={appLink}
+        className="inline-flex items-center justify-center rounded-md bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700"
+      >
+        Open in the Vellum app
+      </a>
+      <button
+        type="button"
+        onClick={onContinueInBrowser}
+        className="inline-flex items-center justify-center rounded-md border border-[var(--border-default)] bg-[var(--background-surface)] px-4 py-2.5 text-sm font-medium text-[var(--content-primary)] transition-colors hover:bg-[var(--background-muted)]"
+      >
+        Continue in this browser
+      </button>
+    </div>
+  );
 }
 
 export function RemoteWebPairingPage() {
@@ -86,6 +205,16 @@ export function RemoteWebPairingPage() {
       ),
     [location.pathname, location.search, location.hash],
   );
+
+  // A phone that scanned the pairing QR with its camera lands here in Safari.
+  // If the Vellum app is installed we offer to hand the pairing to it before
+  // burning the single-use code — but only in an iOS browser, never inside the
+  // app's own WKWebView (which pairs directly).
+  const iosAppHandoff = useMemo(
+    () => Boolean(params.deviceCode) && isIOSBrowser() && !isNativePlatform(),
+    [params.deviceCode],
+  );
+
   const [pairing, setPairing] = useState<PairingDetails | null>(() =>
     params.deviceCode
       ? {
@@ -94,9 +223,20 @@ export function RemoteWebPairingPage() {
         }
       : null,
   );
-  const [state, setState] = useState<PairingState>(
-    pairing ? { kind: "polling", expiresAt: null } : { kind: "starting" },
+
+  // The browser-side exchange burns the single-use code, so on the iOS handoff
+  // screen it waits until the user picks "Continue in this browser"; every
+  // other surface starts it immediately.
+  const [browserExchangeAllowed, setBrowserExchangeAllowed] = useState(
+    () => !iosAppHandoff,
   );
+
+  const [state, setState] = useState<PairingState>(() => {
+    if (iosAppHandoff) {
+      return { kind: "handoff_choice" };
+    }
+    return params.deviceCode ? { kind: "verifying" } : { kind: "starting" };
+  });
 
   useEffect(() => {
     if (!enabled) return;
@@ -136,6 +276,10 @@ export function RemoteWebPairingPage() {
     if (!pairing?.deviceCode) {
       return;
     }
+    // Hold the code-burning exchange while the iOS handoff choice is pending.
+    if (!browserExchangeAllowed) {
+      return;
+    }
 
     const controller = new AbortController();
     let timeout: ReturnType<typeof setTimeout> | null = null;
@@ -156,6 +300,9 @@ export function RemoteWebPairingPage() {
         }
 
         activateRemoteGatewaySession(result);
+        // Drop the burned device code from the URL before navigating so it
+        // never lingers in the address bar or re-submits on reload.
+        clearDeviceCodeFromUrl();
         setState({ kind: "approved" });
         timeout = setTimeout(() => navigate(returnTo, { replace: true }), 250);
       } catch (err) {
@@ -191,7 +338,18 @@ export function RemoteWebPairingPage() {
       controller.abort();
       if (timeout) clearTimeout(timeout);
     };
-  }, [enabled, pairing?.deviceCode, navigate, returnTo]);
+  }, [
+    enabled,
+    pairing?.deviceCode,
+    browserExchangeAllowed,
+    navigate,
+    returnTo,
+  ]);
+
+  const handleContinueInBrowser = useCallback(() => {
+    setBrowserExchangeAllowed(true);
+    setState({ kind: "verifying" });
+  }, []);
 
   if (!enabled) {
     return <NotFound />;
@@ -207,7 +365,7 @@ export function RemoteWebPairingPage() {
           <h1 className="text-xl font-semibold">{copy.title}</h1>
         </div>
 
-        {pairing?.userCode ? (
+        {state.kind === "polling" && pairing?.userCode ? (
           <div className="mb-5 rounded-md border border-[var(--border-subtle)] bg-[var(--background-muted)] p-4 text-center">
             <div className="text-xs font-medium uppercase text-[var(--content-secondary)]">
               Pairing code
@@ -221,6 +379,13 @@ export function RemoteWebPairingPage() {
         <p className="text-sm leading-6 text-[var(--content-secondary)]">
           {copy.body}
         </p>
+
+        {state.kind === "handoff_choice" && pairing ? (
+          <PairingHandoffActions
+            deviceCode={pairing.deviceCode}
+            onContinueInBrowser={handleContinueInBrowser}
+          />
+        ) : null}
 
         {state.kind === "polling" && state.expiresAt ? (
           <p className="mt-4 text-xs text-[var(--content-tertiary)]">

@@ -76,6 +76,16 @@ const createRes = await window.vellum.fetch("/v1/x/items", {
 if (!createRes.ok) throw new Error(`HTTP ${createRes.status}`);
 ```
 
+### Typing `window.vellum`
+
+Don't hand-declare `window.vellum` in a local `vellum.d.ts`. If the app depends on `@vellumai/plugin-api`, the `window.vellum` global is typed for you — add a one-line reference in a `.d.ts` (or entry file):
+
+```typescript
+/// <reference types="@vellumai/plugin-api/app" />
+```
+
+Equivalently, add `"@vellumai/plugin-api/app"` to `compilerOptions.types` in `tsconfig.json`. Both are types-only — do **not** `import` from `@vellumai/plugin-api` to get the global; a runtime bare import isn't supported for sandboxed apps. If you want to name a type, use `import type { VellumAppBridge } from "@vellumai/plugin-api/app"`.
+
 ## Runtime context
 
 Every handler receives a frozen `context` object as its second argument. This provides access to daemon singletons that are otherwise unreachable from dynamically imported route modules.
@@ -83,7 +93,6 @@ Every handler receives a frozen `context` object as its second argument. This pr
 ```typescript
 export async function POST(request: Request, context): Promise<Response> {
   // context.assistantEventHub — publish events to connected SSE clients
-  // context.assistantId       — the daemon's logical assistant ID ("self")
   // context.conversations     — post messages into conversations as real turns
 }
 ```
@@ -99,7 +108,7 @@ export async function POST(request: Request, context): Promise<Response> {
 
   await context.assistantEventHub.publish({
     id: crypto.randomUUID(),
-    assistantId: context.assistantId,
+    assistantId: "self",
     conversationId,
     emittedAt: new Date().toISOString(),
     message: { type: "open_conversation", conversationId },

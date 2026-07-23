@@ -5,11 +5,7 @@ import {
   handleSurfaceAction,
   type SurfaceConversationContext,
 } from "../daemon/conversation-surfaces.js";
-import type {
-  ServerMessage,
-  SurfaceData,
-  SurfaceType,
-} from "../daemon/message-protocol.js";
+import type { ServerMessage, SurfaceType } from "../daemon/message-protocol.js";
 
 /**
  * Build a minimal SurfaceConversationContext for testing table surface actions.
@@ -146,7 +142,7 @@ function registerTableSurface(
 
   ctx.surfaceState.set(surfaceId, {
     surfaceType: "table",
-    data: data as unknown as SurfaceData,
+    data,
     title: "Test Table",
     actions,
   });

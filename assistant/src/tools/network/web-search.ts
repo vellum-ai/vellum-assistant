@@ -37,7 +37,6 @@ const TAVILY_API_URL = "https://api.tavily.com/search";
 const FIRECRAWL_API_URL = "https://api.firecrawl.dev/v2/search";
 
 type WebSearchProvider = "perplexity" | "brave" | "tavily" | "firecrawl";
-type WebSearchMode = "managed" | "your-own";
 
 /**
  * Arguments passed to every {@link WebSearchAdapter}. The full superset is
@@ -136,17 +135,13 @@ function getWebSearchProvider(): WebSearchProvider {
   // In Your Own mode, `inference-provider-native` is only executable when the
   // inference provider swaps this tool for a native hosted-search definition.
   // If this app-executed tool is still invoked, fall back to the existing BYOK
-  // provider chain. Managed mode short-circuits before this function and uses
-  // the platform search proxy instead.
-  if (configured === "inference-provider-native") return "perplexity";
+  // provider chain. `vellum` short-circuits into the managed branch before
+  // this function runs, so its coercion here only satisfies the return type
+  // and keeps an undefined WEB_SEARCH_ADAPTERS lookup unreachable.
+  if (configured === "inference-provider-native" || configured === "vellum") {
+    return "perplexity";
+  }
   return configured as WebSearchProvider;
-}
-
-function getWebSearchMode(): WebSearchMode {
-  const config = getConfig();
-  return config.services["web-search"].mode === "managed"
-    ? "managed"
-    : "your-own";
 }
 
 async function getApiKey(
@@ -764,11 +759,11 @@ function managedSearchProxyErrorMessage(
   result: Exclude<ManagedSearchProxyResult, { ok: true }>,
 ): string {
   if (result.kind === "unavailable") {
-    return `${result.message} Log in to Vellum or switch web search to Your Own mode.`;
+    return `${result.message} Log in to Vellum or choose a different web search provider in Settings.`;
   }
 
   if (result.kind === "platform-error" && result.status === 402) {
-    return "Managed web search is unavailable because your Vellum account balance is too low. Add funds or switch web search to Your Own mode.";
+    return "Managed web search is unavailable because your Vellum account balance is too low. Add funds or choose a different web search provider in Settings.";
   }
 
   if (result.kind === "platform-error") {
@@ -1180,7 +1175,10 @@ export const webSearchTool = {
     }
 
     const startedAt = Date.now();
-    const mode = getWebSearchMode();
+    // An explicit vellum choice is unconditionally managed: proxy errors
+    // (including 402) surface to the user and never fall back to BYOK keys.
+    const managedSearch =
+      getConfig().services["web-search"].provider === "vellum";
 
     const count =
       typeof input.count === "number"
@@ -1193,7 +1191,7 @@ export const webSearchTool = {
     const freshness =
       typeof input.freshness === "string" ? input.freshness : undefined;
 
-    if (mode === "managed") {
+    const executeManagedSearch = async (): Promise<ToolExecutionResult> => {
       try {
         log.debug({ query, provider: "brave" }, "Executing managed web search");
         return await managedBraveSearchAdapter.execute({
@@ -1214,6 +1212,10 @@ export const webSearchTool = {
           context.signal,
         );
       }
+    };
+
+    if (managedSearch) {
+      return executeManagedSearch();
     }
 
     let provider = getWebSearchProvider();
@@ -1237,6 +1239,20 @@ export const webSearchTool = {
       }
 
       if (!apiKey) {
+        // Provider Native reaches this app-executed path only when the
+        // inference model had no hosted search of its own. The user's own keys
+        // win above; the platform proxy is the last resort, which is what
+        // `mode: "managed"` did for installs that never configured a search
+        // key. Read the configured provider off config — the local `provider`
+        // has already been coerced to "perplexity".
+        const configured = getConfig().services["web-search"].provider;
+        if (configured === "inference-provider-native") {
+          const { managedSearchAvailable } =
+            await import("./managed-search-proxy.js");
+          if (await managedSearchAvailable()) {
+            return executeManagedSearch();
+          }
+        }
         return errorResult(
           query,
           provider,

@@ -36,6 +36,14 @@ export const conversations = sqliteTable(
     originInterface: text("origin_interface"),
     forkParentConversationId: text("fork_parent_conversation_id"),
     forkParentMessageId: text("fork_parent_message_id"),
+    /**
+     * Id of the conversation that spawned this one (subagent spawns stamp
+     * their parent's conversation id). Distinct from
+     * `forkParentConversationId`, which records message-history inheritance;
+     * this column records spawn attribution for telemetry. NULL for
+     * conversations not spawned by another conversation.
+     */
+    parentConversationId: text("parent_conversation_id"),
     isAutoTitle: integer("is_auto_title").notNull().default(1),
     scheduleJobId: text("schedule_job_id"),
     lastMessageAt: integer("last_message_at"),
@@ -92,6 +100,9 @@ export const conversations = sqliteTable(
     index("idx_conversations_surfaced_at").on(table.surfacedAt),
     index("idx_conversations_fork_parent_conversation_id").on(
       table.forkParentConversationId,
+    ),
+    index("idx_conversations_parent_conversation_id").on(
+      table.parentConversationId,
     ),
   ],
 );
@@ -194,12 +205,16 @@ export const messageAttachments = sqliteTable("message_attachments", {
   createdAt: integer("created_at").notNull(),
 });
 
+// Per-conversation ConversationGraphMemory + InContextTracker snapshot,
+// rehydrated on resume. Lives in the dedicated memory database
+// (`assistant-memory.db`), not main — access it via the memory connection
+// (`getMemoryDb()` / `getMemorySqlite()`). No FK to conversations.id: SQLite
+// foreign keys cannot span database files, so the deleted-conversation cascade
+// is replaced by an explicit delete in the memory `conversation-deleted` hook.
 export const conversationGraphMemoryState = sqliteTable(
   "conversation_graph_memory_state",
   {
-    conversationId: text("conversation_id")
-      .primaryKey()
-      .references(() => conversations.id, { onDelete: "cascade" }),
+    conversationId: text("conversation_id").primaryKey(),
     stateJson: text("state_json").notNull(),
     createdAt: integer("created_at").notNull(),
     updatedAt: integer("updated_at").notNull(),

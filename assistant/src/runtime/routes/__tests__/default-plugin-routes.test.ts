@@ -10,8 +10,14 @@
  * running the handler's heavy background-turn logic.
  */
 
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname, join, relative } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 
 import {
@@ -24,6 +30,7 @@ import { AssistantEventHub } from "../../assistant-event-hub.js";
 import type { UserRouteContext } from "../user-route-dispatcher.js";
 import { UserRouteDispatcher } from "../user-route-dispatcher.js";
 import {
+  isRouteTestPath,
   listPluginRouteRoots,
   resolveHandlerFile,
   resolveRouteLocation,
@@ -35,7 +42,6 @@ const DEFAULT_PLUGIN_MANIFEST = getDefaultPluginManifestName(DEFAULT_PLUGIN)!;
 function makeDispatcher(): UserRouteDispatcher {
   const context: UserRouteContext = {
     assistantEventHub: new AssistantEventHub(),
-    assistantId: "test-assistant",
     conversations: { postMessage: async () => ({ messageId: "m" }) },
   };
   return new UserRouteDispatcher({ context });
@@ -190,6 +196,58 @@ describe("default plugin route dispatch", () => {
     );
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ source: "workspace" });
+  });
+
+  test("never dispatches test files or __tests__ paths (mock.module containment)", async () => {
+    // Importing a test file into the live daemon executes its process-global
+    // mock.module calls, replacing production modules. Dispatch must 404
+    // without importing the file.
+    writeWorkspacePluginHandler(
+      DEFAULT_PLUGIN,
+      "poison.test.ts",
+      `export const GET = () => Response.json({ imported: true });`,
+    );
+    writeWorkspacePluginHandler(
+      DEFAULT_PLUGIN,
+      "__tests__/poison.ts",
+      `export const GET = () => Response.json({ imported: true });`,
+    );
+
+    const routesDir = join(getWorkspacePluginsDir(), DEFAULT_PLUGIN, "routes");
+    expect(resolveHandlerFile(routesDir, "poison.test")).toBeNull();
+    expect(resolveHandlerFile(routesDir, "__tests__/poison")).toBeNull();
+
+    const dispatcher = makeDispatcher();
+    for (const path of ["poison.test", "__tests__/poison"]) {
+      const response = await dispatcher.dispatch(
+        `plugins/${DEFAULT_PLUGIN}/${path}`,
+        new Request(`http://localhost/v1/x/plugins/${DEFAULT_PLUGIN}/${path}`, {
+          method: "GET",
+        }),
+      );
+      expect(response.status).toBe(404);
+    }
+  });
+
+  test("tripwire: no default plugin ships test files under its routes/ dir", () => {
+    // Everything under a default plugin's routes/ is served from the source
+    // tree and dynamically imported by discovery — test files belong in src/
+    // or a __tests__ dir outside routes/.
+    const offenders: string[] = [];
+    const walk = (dir: string, routesDir: string): void => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const fullPath = join(dir, entry.name);
+        if (isRouteTestPath(relative(routesDir, fullPath))) {
+          offenders.push(fullPath);
+        } else if (entry.isDirectory()) {
+          walk(fullPath, routesDir);
+        }
+      }
+    };
+    for (const { routesDir } of getDefaultPluginRouteRoots()) {
+      walk(routesDir, routesDir);
+    }
+    expect(offenders).toEqual([]);
   });
 
   test("disabling the default does not disable an installed override of the same namespace", async () => {

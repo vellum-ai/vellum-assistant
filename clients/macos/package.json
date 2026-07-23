@@ -11,7 +11,7 @@
     "dev:electron-only": "bun install && bun run setup && bun run prepare:electron-dev && electron-vite dev",
     "install:all": "bun install && bun run setup",
     "dev:web": "cd ../web && bun run dev -- --port 5173 --strictPort",
-    "dev:electron": "wait-on --timeout 180000 http://localhost:5173 && bun run prepare:electron-dev && electron-vite dev",
+    "dev:electron": "bun scripts/wait-for-web.ts --timeout 180000 http://localhost:5173 && bun run prepare:electron-dev && electron-vite dev",
     "prepare:electron-dev": "bun scripts/prepare-electron-dev-app.ts",
     "build": "electron-vite build",
     "typecheck": "bunx tsc --noEmit",
@@ -32,8 +32,7 @@
     "electron-builder": "26.8.1",
     "electron-vite": "5.0.0",
     "typescript": "5.9.3",
-    "vite": "7.3.3",
-    "wait-on": "8.0.1"
+    "vite": "7.3.3"
   },
   "dependencies": {
     "@sentry/electron": "7.13.0",

@@ -439,9 +439,11 @@ export function useStreamEventHandler(
           break;
         // Cross-domain events handled by bus subscribers mounted in
         // RootLayout (useAssistantResourceSync, useConversationSync,
-        // useNotificationIntentSync, useDocumentEditorSync) or
-        // ChatPage-scoped hooks (useDiskPressureMonitor). The chat
+        // useNotificationIntentSync, useDocumentEditorSync, useBookmarksSync)
+        // or ChatPage-scoped hooks (useDiskPressureMonitor). The chat
         // handler is intentionally a no-op for these.
+        case "bookmark.created":
+        case "bookmark.deleted":
         case "sync_changed":
         case "home_feed_updated":
         case "relationship_state_updated":
@@ -466,6 +468,36 @@ export function useStreamEventHandler(
         // Transient, best-effort progress signals from lifecycle hooks
         // (e.g. user-prompt-submit). No web UI renders them yet.
         case "hook_event":
+          break;
+        // Service-group upgrade lifecycle broadcasts announcing a daemon
+        // restart. The chat handler is a no-op; no web UI renders them yet.
+        case "service_group_update_starting":
+        case "service_group_update_progress":
+        case "service_group_update_complete":
+          break;
+        // Memory recall/status telemetry gauges. The chat handler is a no-op;
+        // no web UI renders them yet.
+        case "memory_recalled":
+        case "memory_status":
+          break;
+        // Contacts-table invalidation broadcast. The chat handler is a no-op;
+        // the contacts page refetches through its own query invalidation.
+        case "contacts_changed":
+          break;
+        // Settings/config broadcasts. The chat handler is a no-op — these target
+        // the desktop client or are handled by config-sync consumers.
+        case "client_settings_update":
+        case "config_changed":
+        case "sounds_config_updated":
+          break;
+        // Notification-created broadcasts and recording lifecycle
+        // instructions. The web chat handler is a no-op for these — they target
+        // the CLI/desktop clients or are handled elsewhere.
+        case "notification_conversation_created":
+        case "recording_start":
+        case "recording_stop":
+        case "recording_pause":
+        case "recording_resume":
           break;
         case "unknown":
           break;

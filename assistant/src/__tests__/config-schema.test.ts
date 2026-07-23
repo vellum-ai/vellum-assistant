@@ -72,7 +72,7 @@ describe("AssistantConfigSchema", () => {
     expect(result.services["web-search"].provider).toBe(
       "inference-provider-native",
     );
-    expect(result.services["web-search"].mode).toBe("your-own");
+    expect(result.services["web-search"]).not.toHaveProperty("mode");
     expect(result.llm.profileSession).toEqual({
       defaultTtlSeconds: 1800,
       maxTtlSeconds: 43200,
@@ -106,7 +106,8 @@ describe("AssistantConfigSchema", () => {
     });
 
     expect(result.services["web-search"].provider).toBe("tavily");
-    expect(result.services["web-search"].mode).toBe("your-own");
+    // A mode key sent by an older client is stripped at parse.
+    expect(result.services["web-search"]).not.toHaveProperty("mode");
   });
 
   test("accepts Firecrawl as a web search provider", () => {
@@ -117,7 +118,7 @@ describe("AssistantConfigSchema", () => {
     });
 
     expect(result.services["web-search"].provider).toBe("firecrawl");
-    expect(result.services["web-search"].mode).toBe("your-own");
+    expect(result.services["web-search"]).not.toHaveProperty("mode");
   });
 
   test("defaults the web-fetch provider to the built-in fetcher", () => {
@@ -392,20 +393,66 @@ describe("AssistantConfigSchema", () => {
     expect(result.success).toBe(false);
   });
 
-  test("write-locks the vellum and chatgpt routing identities in profiles and call sites", () => {
-    // The enum admits the identities (so dispatch-layer types can carry
-    // them), but stored config rejects them — parse-level rejection covers
-    // every write path, not just the profiles route.
-    for (const provider of ["vellum", "chatgpt"]) {
-      const inProfile = AssistantConfigSchema.safeParse({
-        llm: { profiles: { custom: { provider } } },
-      });
-      expect(inProfile.success).toBe(false);
-      const inCallSite = AssistantConfigSchema.safeParse({
-        llm: { callSites: { mainAgent: { provider } } },
-      });
-      expect(inCallSite.success).toBe(false);
-    }
+  test("accepts the vellum and chatgpt routing identities with a routable model", () => {
+    const inProfile = AssistantConfigSchema.safeParse({
+      llm: {
+        profiles: {
+          custom: { provider: "vellum", model: "claude-opus-4-8" },
+        },
+      },
+    });
+    expect(inProfile.success).toBe(true);
+    const inCallSite = AssistantConfigSchema.safeParse({
+      llm: {
+        callSites: { mainAgent: { provider: "chatgpt", model: "gpt-5.5" } },
+      },
+    });
+    expect(inCallSite.success).toBe(true);
+  });
+
+  test("rejects routing identities with a missing or unroutable model", () => {
+    // A call-site fragment naming an identity without a model would inherit
+    // the winning profile's model, which the identity may not serve.
+    expect(
+      AssistantConfigSchema.safeParse({
+        llm: { callSites: { mainAgent: { provider: "chatgpt" } } },
+      }).success,
+    ).toBe(false);
+    expect(
+      AssistantConfigSchema.safeParse({
+        llm: { profiles: { custom: { provider: "vellum" } } },
+      }).success,
+    ).toBe(false);
+    expect(
+      AssistantConfigSchema.safeParse({
+        llm: {
+          profiles: {
+            custom: { provider: "vellum", model: "not-a-real-model" },
+          },
+        },
+      }).success,
+    ).toBe(false);
+    expect(
+      AssistantConfigSchema.safeParse({
+        llm: {
+          profiles: { custom: { provider: "chatgpt", model: "gpt-4o" } },
+        },
+      }).success,
+    ).toBe(false);
+    // Encoded routing strings are a telemetry/display codec, not a stored
+    // model id — dispatch would pass one to the upstream adapter verbatim.
+    expect(
+      AssistantConfigSchema.safeParse({
+        llm: {
+          profiles: {
+            custom: {
+              provider: "vellum",
+              model: "fireworks/accounts/fireworks/models/glm-5p2",
+            },
+          },
+        },
+      }).success,
+    ).toBe(false);
   });
 
   test("rejects negative llm.callSites maxTokens", () => {
@@ -559,6 +606,38 @@ describe("AssistantConfigSchema", () => {
       rateLimit: { maxRequestsPerMinute: -1 },
     });
     expect(result.success).toBe(false);
+  });
+
+  // ── apiRateLimit config (authenticated /v1/* API limiter) ────────────
+
+  test("applies apiRateLimit default of 300 when unset", () => {
+    const result = AssistantConfigSchema.parse({});
+    expect(result.apiRateLimit).toEqual({
+      authenticatedMaxRequestsPerMinute: 300,
+    });
+  });
+
+  test("accepts a custom apiRateLimit.authenticatedMaxRequestsPerMinute override", () => {
+    const result = AssistantConfigSchema.parse({
+      apiRateLimit: { authenticatedMaxRequestsPerMinute: 600 },
+    });
+    expect(result.apiRateLimit.authenticatedMaxRequestsPerMinute).toBe(600);
+  });
+
+  test("rejects zero, negative, and non-integer apiRateLimit budgets", () => {
+    for (const bad of [0, -1, 12.5, "300"]) {
+      const result = AssistantConfigSchema.safeParse({
+        apiRateLimit: { authenticatedMaxRequestsPerMinute: bad },
+      });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(
+          result.error.issues.some((i) =>
+            i.path.join(".").includes("authenticatedMaxRequestsPerMinute"),
+          ),
+        ).toBe(true);
+      }
+    }
   });
 
   test("rejects negative auditLog.retentionDays", () => {

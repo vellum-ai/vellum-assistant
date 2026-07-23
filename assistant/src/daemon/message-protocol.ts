@@ -23,7 +23,6 @@ export * from "./message-types/conversations.js";
 export * from "./message-types/diagnostics.js";
 export * from "./message-types/document-comments.js";
 export * from "./message-types/documents.js";
-export * from "./message-types/guardian-actions.js";
 export * from "./message-types/home.js";
 export * from "./message-types/host-app-control.js";
 export * from "./message-types/host-bash.js";
@@ -31,7 +30,6 @@ export * from "./message-types/host-browser.js";
 export * from "./message-types/host-cu.js";
 export * from "./message-types/host-file.js";
 export * from "./message-types/host-transfer.js";
-export * from "./message-types/inbox.js";
 export * from "./message-types/integrations.js";
 export * from "./message-types/memory.js";
 export * from "./message-types/messages.js";
@@ -62,27 +60,17 @@ import type {
   _ComputerUseClientMessages,
   _ComputerUseServerMessages,
 } from "./message-types/computer-use.js";
-import type {
-  _ContactsClientMessages,
-  _ContactsServerMessages,
-} from "./message-types/contacts.js";
+import type { _ContactsServerMessages } from "./message-types/contacts.js";
 import type {
   _ConversationsClientMessages,
   _ConversationsServerMessages,
 } from "./message-types/conversations.js";
-import type {
-  _DiagnosticsClientMessages,
-  _DiagnosticsServerMessages,
-} from "./message-types/diagnostics.js";
+import type { _DiagnosticsClientMessages } from "./message-types/diagnostics.js";
 import type { _DocumentCommentsServerMessages } from "./message-types/document-comments.js";
 import type {
   _DocumentsClientMessages,
   _DocumentsServerMessages,
 } from "./message-types/documents.js";
-import type {
-  _GuardianActionsClientMessages,
-  _GuardianActionsServerMessages,
-} from "./message-types/guardian-actions.js";
 import type { _HomeServerMessages } from "./message-types/home.js";
 import type { _HostAppControlServerMessages } from "./message-types/host-app-control.js";
 import type { _HostBashServerMessages } from "./message-types/host-bash.js";
@@ -94,10 +82,6 @@ import type { _HostCuServerMessages } from "./message-types/host-cu.js";
 import type { _HostFileServerMessages } from "./message-types/host-file.js";
 import type { _HostTransferServerMessages } from "./message-types/host-transfer.js";
 import type { _HostUiSnapshotServerMessages } from "./message-types/host-ui-snapshot.js";
-import type {
-  _InboxClientMessages,
-  _InboxServerMessages,
-} from "./message-types/inbox.js";
 import type {
   _IntegrationsClientMessages,
   _IntegrationsServerMessages,
@@ -115,10 +99,7 @@ import type {
   _SchedulesClientMessages,
   _SchedulesServerMessages,
 } from "./message-types/schedules.js";
-import type {
-  _SettingsClientMessages,
-  _SettingsServerMessages,
-} from "./message-types/settings.js";
+import type { _SettingsServerMessages } from "./message-types/settings.js";
 import type {
   _SkillsClientMessages,
   _SkillsServerMessages,
@@ -159,17 +140,13 @@ export type ClientMessage =
   | _AppsClientMessages
   | _IntegrationsClientMessages
   | _ComputerUseClientMessages
-  | _ContactsClientMessages
   | _HostBrowserClientMessages
   | _SubagentsClientMessages
   | _DocumentsClientMessages
-  | _GuardianActionsClientMessages
   | _WorkspaceClientMessages
   | _SchedulesClientMessages
   | _DiagnosticsClientMessages
-  | _InboxClientMessages
-  | _NotificationsClientMessages
-  | _SettingsClientMessages;
+  | _NotificationsClientMessages;
 
 // === Server -> Client aggregate union ===
 
@@ -185,7 +162,6 @@ export type ServerMessage =
   | _SubagentsServerMessages
   | _DocumentsServerMessages
   | _DocumentCommentsServerMessages
-  | _GuardianActionsServerMessages
   | _SyncInvalidationServerMessages
   | _HomeServerMessages
   | _HostAppControlServerMessages
@@ -199,8 +175,6 @@ export type ServerMessage =
   | _WorkspaceServerMessages
   | _SchedulesServerMessages
   | _SettingsServerMessages
-  | _DiagnosticsServerMessages
-  | _InboxServerMessages
   | _NotificationsServerMessages
   | _UpgradesServerMessages
   | _AcpServerMessages

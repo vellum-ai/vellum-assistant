@@ -62,7 +62,7 @@ function StagedQuoteChip({ quote }: { quote: StagedQuote }) {
       <Card.Body padding="md" className="relative flex flex-col gap-2 pr-8">
         <Typography
           as="div"
-          variant="body-small-default"
+          variant="body-small-lighter"
           className={`${quoteBlockquoteClassName} mb-0`}
         >
           <span aria-hidden="true" className={quoteBlockquoteAccentClassName} />

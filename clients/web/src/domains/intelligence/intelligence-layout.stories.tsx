@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { Navigate } from "react-router";
+import { Navigate, Route, Routes } from "react-router";
 
 import { IntelligenceLayout } from "./intelligence-layout";
 
@@ -38,5 +38,35 @@ export const SectionChrome: Story = {
   ],
 };
 
-/** At a non-section path the layout renders bare — an empty outlet here. */
-export const BareOverview: Story = {};
+/**
+ * At a non-section path the layout renders bare — no back link, no heading —
+ * and passes the outlet through untouched. A stub child route stands in for
+ * the overview stage so the story renders visible content (an empty outlet
+ * makes the story a blank page that can't distinguish working from broken).
+ */
+export const BareOverview: Story = {
+  render: () => (
+    <Routes>
+      <Route element={<IntelligenceLayout />}>
+        <Route
+          index
+          element={
+            <div
+              style={{
+                display: "grid",
+                placeItems: "center",
+                height: "100%",
+                width: "100%",
+                border: "1px dashed var(--border-default)",
+                borderRadius: 8,
+                color: "var(--content-tertiary)",
+              }}
+            >
+              overview stage (outlet content)
+            </div>
+          }
+        />
+      </Route>
+    </Routes>
+  ),
+};

@@ -10,7 +10,7 @@
  *   - lazy-init runs the lane builders only once across multiple turns, and
  *     `invalidateLanes` forces exactly one rebuild;
  *   - `initLanes` feeds synthetic capability pages (skills / CLI commands) into
- *     the section index via `renderCapabilityContent`, so the needle lane ranks
+ *     the section index via `renderCapabilityBody`, so the needle lane ranks
  *     them like any other page (they are no longer always-added to the pool).
  *
  * All heavy dependencies (config, flag resolver, conversation reads, v2 page
@@ -28,8 +28,8 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import { setConfig } from "../../../../../__tests__/helpers/set-config.js";
 import { MemoryV3GateSchema } from "../../../../../config/schemas/memory-v3.js";
-import { migrateAddMemoryV3EverInjected } from "../../../../../persistence/migrations/277-add-memory-v3-ever-injected.js";
 import { ensureMemoryV3SelectionsSchema } from "../../../../../persistence/migrations/338-move-memory-v3-selections-to-memory-db.js";
+import { ensureMemoryV3EverInjectedSchema } from "../../../../../persistence/migrations/345-move-memory-v3-ever-injected-to-memory-db.js";
 import * as schema from "../../../../../persistence/schema/index.js";
 import type { HotSetEntry, HotSetOptions } from "../hot-set.js";
 import type { OrchestrateResult } from "../orchestrate.js";
@@ -75,10 +75,19 @@ const realCliCommandStore = {
 };
 const realCoreSet = { ...(await import("../core-set.js")) };
 const realHotSet = { ...(await import("../hot-set.js")) };
+const realCheckpoints = {
+  ...(await import("../../../../../persistence/checkpoints.js")),
+};
 
 let shadowMockActive = false;
 
 // ─── mutable test state, read by the mocks below ────────────────────────────
+
+// In-memory stand-in for the `memory_checkpoints` row backing the
+// lanes-version token, so tests control the cross-process signal without a
+// migrated main DB. `checkpointReadThrows` simulates an unavailable DB.
+const checkpointStore = new Map<string, string>();
+let checkpointReadThrows = false;
 
 let liveEnabled = false;
 let memoryEnabled = true;
@@ -169,9 +178,9 @@ let hotSetOpts: HotSetOptions | null = null;
 // page body.
 let capturedPageBody: ((slug: string) => Promise<string>) | null = null;
 
-// Shared in-memory DBs so writes are observable from the test. Selection rows
-// live on the dedicated memory connection (`memorySqlite`, resolved through
-// the stubbed `getMemorySqlite`); the everInjected store stays in main.
+// Shared in-memory DBs so writes are observable from the test. The selection
+// and everInjected rows live on the dedicated memory connection (`memorySqlite`,
+// resolved through the stubbed `getMemorySqlite`).
 let testSqlite: Database;
 let memorySqlite: Database;
 // When false, the stubbed `getMemorySqlite` resolves to null — the contract
@@ -182,10 +191,10 @@ function makeDb() {
   testSqlite = new Database(":memory:");
   testSqlite.exec("PRAGMA journal_mode=WAL");
   const db = drizzle(testSqlite, { schema });
-  // The live injector's net-new dedup reads/writes the everInjected store.
-  migrateAddMemoryV3EverInjected(db);
   memorySqlite = new Database(":memory:");
   ensureMemoryV3SelectionsSchema(memorySqlite);
+  // The live injector's net-new dedup reads/writes the everInjected store.
+  ensureMemoryV3EverInjectedSchema(memorySqlite);
   return db;
 }
 
@@ -279,6 +288,8 @@ mock.module("../../../../../persistence/db-connection.js", () => ({
   getDb: () => testDb,
   getSqliteFrom: () => testSqlite,
   getMemorySqlite: () => (memoryDbAvailable ? memorySqlite : null),
+  getMemoryDb: () =>
+    memoryDbAvailable ? drizzle(memorySqlite, { schema }) : null,
 }));
 
 mock.module("../substrate/page-index.js", () => ({
@@ -355,10 +366,11 @@ mock.module("../../../../../util/platform.js", () => ({
     join(realPlatform.getWorkspaceDir(), "config.json"),
 }));
 
-// Capability stores: `renderCapabilityContent` (reached from `initLanes`' pageBody
-// and from the live injector) resolves synthetic slugs through these. Spread the
-// real module so the prefix predicates (`isSkillSlug`/`isCliCommandSlug`) stay
-// intact; override only the content lookup so the capability slug resolves.
+// Capability stores: `renderCapabilityBody` (reached from `initLanes`' pageBody)
+// and `renderCapabilityContent` (the live injector's short form) resolve
+// synthetic slugs through these. Spread the real module so the prefix
+// predicates (`isSkillSlug`/`isCliCommandSlug`) stay intact; override only the
+// content lookup so the capability slug resolves.
 mock.module("../substrate/skill-store.js", () => ({
   ...realSkillStore,
   getSkillCapability: (idOrSlug: string) =>
@@ -446,11 +458,28 @@ mock.module("../orchestrate.js", () => ({
       : realOrchestrate.orchestrate(...args),
 }));
 
+mock.module("../../../../../persistence/checkpoints.js", () => ({
+  ...realCheckpoints,
+  getMemoryCheckpoint: (key: string) => {
+    if (!shadowMockActive) return realCheckpoints.getMemoryCheckpoint(key);
+    if (checkpointReadThrows) throw new Error("checkpoint store unavailable");
+    return checkpointStore.get(key) ?? null;
+  },
+  setMemoryCheckpoint: (key: string, value: string) => {
+    if (!shadowMockActive) {
+      realCheckpoints.setMemoryCheckpoint(key, value);
+      return;
+    }
+    checkpointStore.set(key, value);
+  },
+}));
+
 // Import AFTER mocks so the plugin binds to them.
 const {
   observeTurn: observeTurnImpl,
   resetShadowLanesForTests,
   invalidateLanes,
+  LANES_VERSION_CHECKPOINT_KEY,
   attributeSelections,
   writeSelections,
   backfillMemoryV3SelectionMessageId,
@@ -507,6 +536,8 @@ beforeEach(() => {
   hotSetResult = [];
   hotSetOpts = null;
   testDb = makeDb();
+  checkpointStore.clear();
+  checkpointReadThrows = false;
   resetShadowLanesForTests();
   // The injector memoizes one orchestration per (conversation, turn); clear it
   // so tests reusing the same ids observe fresh orchestrations.
@@ -910,6 +941,45 @@ describe("memory-v3 engine", () => {
     await Promise.all([observeTurn("conv-1", 1), observeTurn("conv-1", 2)]);
     expect(sectionBuilds).toBe(2);
     expect(needleBuilds).toBe(2);
+  });
+
+  test("invalidateLanes writes a new, distinct lanes-version token each call", () => {
+    invalidateLanes();
+    const first = checkpointStore.get(LANES_VERSION_CHECKPOINT_KEY);
+    invalidateLanes();
+    const second = checkpointStore.get(LANES_VERSION_CHECKPOINT_KEY);
+    expect(first).toBeDefined();
+    expect(second).toBeDefined();
+    expect(second).not.toBe(first);
+  });
+
+  test("a lanes-version bump from another process forces a rebuild on the next turn", async () => {
+    await observeTurn("conv-1", 0);
+    await observeTurn("conv-1", 1);
+    expect(sectionBuilds).toBe(1);
+
+    // Simulate the memory worker's invalidateLanes(): its in-process memo
+    // clear is invisible to this process — only the persisted token write
+    // crosses the boundary.
+    checkpointStore.set(LANES_VERSION_CHECKPOINT_KEY, "worker-bump-1");
+
+    await observeTurn("conv-1", 2);
+    expect(sectionBuilds).toBe(2);
+    expect(needleBuilds).toBe(2);
+
+    // The rebuild captured the new token — the observer path never re-bumps,
+    // so later turns reuse the rebuilt memo instead of churning.
+    await observeTurn("conv-1", 3);
+    expect(sectionBuilds).toBe(2);
+  });
+
+  test("a lanes-version read failure serves the memoized lanes", async () => {
+    await observeTurn("conv-1", 0);
+    expect(sectionBuilds).toBe(1);
+
+    checkpointReadThrows = true;
+    await observeTurn("conv-1", 1);
+    expect(sectionBuilds).toBe(1);
   });
 
   test("no user message → no orchestrate, no writes", async () => {

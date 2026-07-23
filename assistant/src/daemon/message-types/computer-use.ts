@@ -1,6 +1,18 @@
 // Computer use and recording types.
+//
+// The recording lifecycle server→client events (start/stop/pause/resume) are
+// single-sourced from their canonical `api/events` wire schemas; the shared
+// `RecordingOptions` shape is re-exported from there for barrel consumers.
 
+import type {
+  RecordingPauseEvent,
+  RecordingResumeEvent,
+  RecordingStartEvent,
+  RecordingStopEvent,
+} from "../../api/events/recording.js";
 import type { CommandIntent, UserMessageAttachment } from "./shared.js";
+
+export type { RecordingOptions } from "../../api/events/recording.js";
 
 // === Client → Server ===
 
@@ -15,22 +27,10 @@ export interface TaskSubmit {
   commandIntent?: CommandIntent;
 }
 
-// === Recording ===
-
-/** Recording options shared across standalone and CU recording flows. */
-export interface RecordingOptions {
-  captureScope?: "display" | "window";
-  displayId?: string; // CGDirectDisplayID as string
-  windowId?: number; // CGWindowID
-  includeAudio?: boolean;
-  includeMicrophone?: boolean;
-  promptForSource?: boolean; // show source picker
-}
-
 /** Client → Server: recording lifecycle status update. */
 export interface RecordingStatus {
   type: "recording_status";
-  conversationId: string; // matches recordingId from RecordingStart
+  conversationId: string; // matches recordingId from RecordingStartEvent
   status:
     | "started"
     | "stopped"
@@ -42,38 +42,8 @@ export interface RecordingStatus {
   durationMs?: number; // on stop
   error?: string; // on failure
   attachToConversationId?: string;
-  /** Operation token for restart race hardening — matches the token from RecordingStart. */
+  /** Operation token for restart race hardening — matches the token from RecordingStartEvent. */
   operationToken?: string;
-}
-
-// === Server → Client ===
-
-/** Server → Client: start a recording. */
-export interface RecordingStart {
-  type: "recording_start";
-  recordingId: string; // daemon-assigned UUID
-  attachToConversationId?: string;
-  options?: RecordingOptions;
-  /** Operation token for restart race hardening — stale completions with mismatched tokens are rejected. */
-  operationToken?: string;
-}
-
-/** Server → Client: stop a recording. */
-export interface RecordingStop {
-  type: "recording_stop";
-  recordingId: string; // matches RecordingStart.recordingId
-}
-
-/** Server → Client: pause the active recording. */
-export interface RecordingPause {
-  type: "recording_pause";
-  recordingId: string;
-}
-
-/** Server → Client: resume a paused recording. */
-export interface RecordingResume {
-  type: "recording_resume";
-  recordingId: string;
 }
 
 // --- Domain-level union aliases (consumed by the barrel file) ---
@@ -81,7 +51,7 @@ export interface RecordingResume {
 export type _ComputerUseClientMessages = TaskSubmit | RecordingStatus;
 
 export type _ComputerUseServerMessages =
-  | RecordingStart
-  | RecordingStop
-  | RecordingPause
-  | RecordingResume;
+  | RecordingStartEvent
+  | RecordingStopEvent
+  | RecordingPauseEvent
+  | RecordingResumeEvent;

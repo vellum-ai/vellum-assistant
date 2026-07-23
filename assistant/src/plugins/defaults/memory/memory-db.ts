@@ -1,4 +1,8 @@
-import { getMemorySqlite } from "../../../persistence/db-connection.js";
+import {
+  type DrizzleDb,
+  getMemoryDb,
+  getMemorySqlite,
+} from "../../../persistence/db-connection.js";
 import { getLogger } from "./logging.js";
 
 const log = getLogger("memory-db");
@@ -25,4 +29,17 @@ export function memorySqliteOrNull(context: string) {
     );
   }
   return sqlite;
+}
+
+/**
+ * The drizzle counterpart of {@link memorySqliteOrNull}: returns the memory
+ * connection's `DrizzleDb`, or `null` (with the same degraded-mode warning)
+ * when the connection is unavailable. Availability is gated on the underlying
+ * sqlite client so callers degrade in exactly the cases the raw path did — a
+ * stored connection whose `$client` is absent reports null here even though
+ * `getMemoryDb()` still returns the shell.
+ */
+export function memoryDbOrNull(context: string): DrizzleDb | null {
+  if (!memorySqliteOrNull(context)) return null;
+  return getMemoryDb();
 }

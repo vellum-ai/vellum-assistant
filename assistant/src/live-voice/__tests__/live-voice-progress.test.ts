@@ -1,10 +1,12 @@
 import { describe, expect, mock, test } from "bun:test";
 
+import { setOverridesForTesting } from "../../__tests__/feature-flag-test-helpers.js";
 import { sanitizeForTts } from "../../calls/tts-text-sanitizer.js";
 import type {
   VoiceTurnCallbacks,
   VoiceTurnOptions,
 } from "../../calls/voice-session-bridge.js";
+import { clearFeatureFlagOverridesCache } from "../../config/assistant-feature-flags.js";
 import type {
   LiveVoiceFrontModelConfig,
   LiveVoiceProgressConfig,
@@ -251,6 +253,37 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
 }
 
 describe("LiveVoiceSession progress narration", () => {
+  test("the escalated leg re-arms idle narration into post-bridge dead air", async () => {
+    setOverridesForTesting({
+      "voice-mode": true,
+    });
+    try {
+      const generateProgressText = mock(
+        async () => "Still working through your calendar.",
+      );
+      const { session, getCallbacks, ttsTexts } = createProgressHarness({
+        frontModelConfig: progressConfig({ idleIntervalMs: 40 }),
+        frontDecider: makeProgressDecider(generateProgressText),
+      });
+      await startReleasedTurn(session, getCallbacks);
+
+      // Bare escalate verdict: the canned bridge speaks and the escalated
+      // leg takes over. Its strong-model thinking + tool loops are the
+      // longest dead air in the system — narration must cover it once the
+      // bridge audio has drained, where it used to be suppressed for the
+      // rest of the turn.
+      emitTextDelta(getCallbacks, "[1]");
+      emitMessageComplete(getCallbacks);
+      await waitFor(() => ttsTexts.length === 1);
+
+      await waitFor(() => generateProgressText.mock.calls.length >= 1);
+      await waitFor(() => ttsTexts.length >= 2);
+      expect(ttsTexts[1]).toContain("Still working");
+    } finally {
+      clearFeatureFlagOverridesCache();
+    }
+  });
+
   test("ops threshold: three tool ops speak exactly one narration with the accumulated activity", async () => {
     const inputs: VoiceProgressTextInput[] = [];
     const generateProgressText = mock(async (input: VoiceProgressTextInput) => {

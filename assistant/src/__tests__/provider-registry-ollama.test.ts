@@ -17,10 +17,7 @@ import {
 
 const baseLlm = LLMSchema.parse({});
 
-function ollamaConfig(webSearch: {
-  mode: "managed" | "your-own";
-  provider: "inference-provider-native";
-}) {
+function ollamaConfig(webSearch: { provider: "inference-provider-native" }) {
   return {
     services: {
       inference: {},
@@ -49,7 +46,6 @@ describe("provider registry (ollama)", () => {
   test("registers ollama when selected provider has no API key", async () => {
     await initializeProviders(
       ollamaConfig({
-        mode: "your-own",
         provider: "inference-provider-native",
       }),
     );
@@ -62,7 +58,6 @@ describe("provider registry (ollama)", () => {
   test("managed native web search preference does not make ollama a managed web-search provider", async () => {
     await initializeProviders(
       ollamaConfig({
-        mode: "managed",
         provider: "inference-provider-native",
       }),
     );

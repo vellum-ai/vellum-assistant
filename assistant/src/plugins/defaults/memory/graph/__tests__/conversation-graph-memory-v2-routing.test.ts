@@ -161,6 +161,7 @@ afterAll(() => {
     process.env.VELLUM_WORKSPACE_DIR = previousWorkspaceEnv;
   }
   rmSync(tmpWorkspace, { recursive: true, force: true });
+  clearStoredDb("memory");
   // Restore mocks so a sibling test loaded in the same `bun test` run sees
   // unmocked module bindings.
   mock.restore();
@@ -180,8 +181,12 @@ const { getSqliteFrom } =
   await import("../../../../../persistence/db-connection.js");
 const { migrateActivationState } =
   await import("../../../../../persistence/migrations/232-activation-state.js");
-const { migrateAddMemoryV3EverInjected } =
-  await import("../../../../../persistence/migrations/277-add-memory-v3-ever-injected.js");
+const { ensureActivationStateSchema } =
+  await import("../../../../../persistence/migrations/343-move-activation-state-to-memory-db.js");
+const { ensureConversationGraphMemoryStateSchema } =
+  await import("../../../../../persistence/migrations/344-move-conversation-graph-memory-state-to-memory-db.js");
+const { ensureMemoryV3EverInjectedSchema } =
+  await import("../../../../../persistence/migrations/345-move-memory-v3-ever-injected-to-memory-db.js");
 const { getActiveSlugs: getV3ActiveSlugs, recordInjected: recordV3Injected } =
   await import("../../v3/ever-injected-store.js");
 const schema = await import("../../../../../persistence/schema/index.js");
@@ -189,6 +194,8 @@ const { _resetMemoryV2QdrantForTests } =
   await import("../../v3/substrate/qdrant.js");
 const { hydrate: hydrateActivationState, save: saveActivationState } =
   await import("../../v2/activation-store.js");
+const { setStoredDb, clearStoredDb } =
+  await import("../../../../../persistence/db-singleton.js");
 
 // The wiring layer calls `getDb()` to fetch the SQLite handle. We mock
 // only that one export and spread the real module so unrelated callers
@@ -196,6 +203,9 @@ const { hydrate: hydrateActivationState, save: saveActivationState } =
 // others. A live mutable holder lets each `beforeEach` swap the handle
 // without re-registering the mock.
 let testDbHandle: DrizzleDb | null = null;
+// memory-v3's everInjected record lives on the dedicated memory connection now;
+// each test db carries a matching in-memory memory connection.
+let memorySqliteHandle: Database | null = null;
 const realDbModule =
   await import("../../../../../persistence/db-connection.js");
 mock.module("../../../../../persistence/db-connection.js", () => ({
@@ -204,6 +214,9 @@ mock.module("../../../../../persistence/db-connection.js", () => ({
     if (!testDbHandle) throw new Error("test db not initialized");
     return testDbHandle;
   },
+  getMemorySqlite: () => memorySqliteHandle,
+  getMemoryDb: () =>
+    memorySqliteHandle ? drizzle(memorySqliteHandle, { schema }) : null,
 }));
 
 // ---------------------------------------------------------------------------
@@ -223,8 +236,13 @@ function createTestDb(): DrizzleDb {
     )
   `);
   migrateActivationState(db);
-  // `onCompacted` also clears memory-v3's everInjected record.
-  migrateAddMemoryV3EverInjected(db);
+  // The relocated per-conversation tables prepareMemory touches — activation
+  // state, graph-memory state, and v3 ever-injected — all live on the dedicated
+  // memory connection now, so the mocked handle carries each one's schema.
+  memorySqliteHandle = new Database(":memory:");
+  ensureActivationStateSchema(memorySqliteHandle);
+  ensureConversationGraphMemoryStateSchema(memorySqliteHandle);
+  ensureMemoryV3EverInjectedSchema(memorySqliteHandle);
   return db;
 }
 
@@ -309,6 +327,9 @@ const noopEvent = () => {};
 
 beforeEach(() => {
   testDbHandle = createTestDb();
+  // The v2 activation store resolves `activation_state` through the memory
+  // connection; point that slot at the same handle the `getDb()` mock serves.
+  setStoredDb("memory", testDbHandle, () => {});
   qdrantState.queryResponses.dense.length = 0;
   qdrantState.queryResponses.sparse.length = 0;
   loadContextMemoryMock.mockClear();
@@ -601,7 +622,7 @@ describe("ConversationGraphMemory.onCompacted — v2 activation eviction", () =>
       "# memory/concepts/alice-vscode.md",
     );
 
-    const before = await hydrateActivationState(testDbHandle!, conversationId);
+    const before = await hydrateActivationState(conversationId);
     expect(before?.everInjected.map((e) => e.slug)).toContain("alice-vscode");
 
     // Seed a memory-v3 everInjected record too: the same trigger clears it
@@ -611,7 +632,7 @@ describe("ConversationGraphMemory.onCompacted — v2 activation eviction", () =>
 
     await memory.onCompacted(1);
 
-    const after = await hydrateActivationState(testDbHandle!, conversationId);
+    const after = await hydrateActivationState(conversationId);
     expect(after?.everInjected).toEqual([]);
     expect(getV3ActiveSlugs(conversationId)).toEqual(new Set());
 
@@ -645,7 +666,7 @@ describe("ConversationGraphMemory.onCompacted — v2 activation eviction", () =>
     // currentTurn=0 (default for a fresh ConversationGraphMemory), while the
     // persisted row carries everInjected entries from turns 10 and 20 (left
     // over from a prior session that never disposed cleanly).
-    await saveActivationState(testDbHandle!, conversationId, {
+    await saveActivationState(conversationId, {
       messageId: "msg-zombie",
       state: {},
       everInjected: [
@@ -658,7 +679,7 @@ describe("ConversationGraphMemory.onCompacted — v2 activation eviction", () =>
 
     await memory.onCompacted(0);
 
-    const after = await hydrateActivationState(testDbHandle!, conversationId);
+    const after = await hydrateActivationState(conversationId);
     expect(after?.everInjected).toEqual([]);
   });
 });

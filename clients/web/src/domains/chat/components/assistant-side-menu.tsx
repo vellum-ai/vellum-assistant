@@ -283,25 +283,6 @@ export function AssistantSideMenu({
     canReorder: !!onReorderConversations,
   };
 
-  // --- Header actions ---
-  // A plain icon button that starts a new conversation on click.
-
-  const headerActions = onStartNewConversation ? (
-    <Button
-      variant="ghost"
-      size="compact"
-      iconOnly={<SquarePen />}
-      aria-label="New Chat"
-      tooltip="New Chat"
-      tooltipSide="right"
-      className="text-[var(--content-tertiary)]"
-      onClick={() => {
-        onStartNewConversation();
-        onClose?.();
-      }}
-    />
-  ) : null;
-
   // --- Built-in navigation ---
   // Pinned apps above the built-in nav, separated by a divider. On the rail
   // this block lives in the non-scrolling header; on the overlay it renders
@@ -326,12 +307,16 @@ export function AssistantSideMenu({
           <SideMenu.Separator />
         </>
       ) : null}
-      {/* The assistant cluster: the New Chat row (plus chip + label) with
-          the avatar-colored assistant row beneath it. No divider; breathing
-          room below instead. The overlay drawer skips the New Chat row —
-          its floating New Chat pill already owns that action in the thumb
-          zone. */}
-      <div className="mb-4">
+      {/* The assistant cluster: the New Chat row (avatar-tinted, plus +
+          label; icon-only tile on the collapsed rail) with the
+          avatar-colored assistant row beneath it. No divider when
+          expanded; breathing room below instead. On the collapsed rail
+          the separator provides the section break, so the margin drops
+          and the header's own gap (8px) plus the separator's margin keeps
+          the divider ~12px off the cluster (Figma 7257:135812). The
+          overlay drawer skips the New Chat row — its floating New Chat
+          pill already owns that action in the thumb zone. */}
+      <div className={isCollapsedRail ? undefined : "mb-4"}>
         <AssistantNavItem
           assistantId={assistantId ?? null}
           label={assistantName || "Your Assistant"}
@@ -345,6 +330,9 @@ export function AssistantSideMenu({
           }
         />
       </div>
+      {/* The collapsed rail separates the cluster from the group icons
+          below it (Figma 7257:135826). */}
+      {isCollapsedRail ? <SideMenu.Separator /> : null}
     </>
   );
 
@@ -385,7 +373,12 @@ export function AssistantSideMenu({
               /* pb-24 is a coarse floating-column reserve until the measured
                  inline padding below is applied. */
               ? "gap-4 pt-3 pb-24 max-md:pt-4"
-              : "gap-4 pt-3 max-md:pt-4"
+              /* The collapsed rail tucks the group icons up under the
+                 cluster separator (~12px to the first icon tile) so they
+                 read as the next section, not a distant island. */
+              : isCollapsedRail
+                ? "gap-4 pt-2"
+                : "gap-4 pt-3 max-md:pt-4"
           }
           style={
             variant === "overlay" && overlayBottomColumnHeight > 0
@@ -403,7 +396,6 @@ export function AssistantSideMenu({
           {variant === "overlay" ? builtInNav : null}
           {isCollapsedRail ? (
             <div className="flex flex-col items-center gap-2">
-              {headerActions}
               {sidebar.pinned.length > 0 ? (
                 <CollapsedGroupIcon
                   icon={Pin}

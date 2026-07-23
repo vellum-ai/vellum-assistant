@@ -152,7 +152,7 @@ export function QuoteReplyBubble({ onAddToChat }: QuoteReplyBubbleProps) {
       <Card.Body padding="sm" className="flex flex-col gap-3">
         <Typography
           as="div"
-          variant="body-small-default"
+          variant="body-small-lighter"
           className={`${quoteBlockquoteClassName} mb-0`}
         >
           <span aria-hidden="true" className={quoteBlockquoteAccentClassName} />
@@ -169,7 +169,7 @@ export function QuoteReplyBubble({ onAddToChat }: QuoteReplyBubbleProps) {
           placeholder="Type your reply…"
           rows={2}
           fullWidth
-          className="min-h-[64px] resize-none text-body-small-default"
+          className="min-h-[64px] resize-none text-body-small-lighter"
         />
 
         <div className="flex items-center justify-between gap-2">

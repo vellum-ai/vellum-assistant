@@ -29,6 +29,7 @@ import {
 } from "./approval-card-builder.js";
 import {
   buildGuardianRequestCodeInstruction,
+  buildToolApprovalSourceView,
   type GuardianQuestionPayload,
   type LenientToolApprovalPayload,
   LenientToolApprovalPayloadSchema,
@@ -95,6 +96,35 @@ export interface ToolApprovalCardData {
  */
 export type ApprovalCardData = AccessRequestCardData | ToolApprovalCardData;
 
+// ── Shared source rendering ──────────────────────────────────────────────────
+
+/**
+ * "Source" metadata row shared by the access-request and tool-approval
+ * cards: Slack sources with a known chat get a channel/DM-aware label,
+ * every other channel falls back to its raw channel id.
+ */
+function sourceMetadataRow(
+  channel: string | undefined,
+  slackChatId: string | undefined,
+  isSlackDm: boolean,
+): { label: string; value: string } | undefined {
+  if (channel === "slack" && slackChatId) {
+    return {
+      label: "Source",
+      value: isSlackDm ? "Slack — Direct message" : `Slack — #${slackChatId}`,
+    };
+  }
+  if (channel) {
+    return { label: "Source", value: channel };
+  }
+  return undefined;
+}
+
+/** Card-body link back to the originating message, shared by both cards. */
+function viewMessageLine(permalink: string): string {
+  return `[View message](${permalink})`;
+}
+
 // ── Access-request resolution ────────────────────────────────────────────────
 
 /** Shape the parsed access-request payload into card params via the view model. */
@@ -123,15 +153,13 @@ function resolveAccessRequestCard(
     });
   }
 
-  if (view.sourceChannel === "slack" && view.conversationExternalId) {
-    metadata.push({
-      label: "Source",
-      value: view.isSlackDm
-        ? "Slack — Direct message"
-        : `Slack — #${view.conversationExternalId}`,
-    });
-  } else if (view.sourceChannel) {
-    metadata.push({ label: "Source", value: view.sourceChannel });
+  const sourceRow = sourceMetadataRow(
+    view.sourceChannel,
+    view.conversationExternalId,
+    view.isSlackDm,
+  );
+  if (sourceRow) {
+    metadata.push(sourceRow);
   }
 
   const bodyParts: string[] = [];
@@ -143,7 +171,7 @@ function resolveAccessRequestCard(
     bodyParts.push(`⚠️ ${w}`);
   }
   if (view.messagePermalink) {
-    bodyParts.push(`[View message](${view.messagePermalink})`);
+    bodyParts.push(viewMessageLine(view.messagePermalink));
   }
 
   const body =
@@ -220,14 +248,28 @@ function extractToolApprovalCard(
   // channel user ID — this placeholder covers defensive/lenient parses.
   const metadata: Array<{ label: string; value: string }> = [];
   metadata.push({ label: "Requested by", value: requester ?? "Unknown" });
-  const sourceChannel = nonEmpty(p.sourceChannel);
-  if (sourceChannel) {
-    metadata.push({ label: "Source", value: sourceChannel });
+
+  const sourceView = buildToolApprovalSourceView(p);
+  const sourceRow = sourceMetadataRow(
+    nonEmpty(p.sourceChannel),
+    sourceView?.chatId,
+    sourceView?.isSlackDm ?? false,
+  );
+  if (sourceRow) {
+    metadata.push(sourceRow);
   }
 
-  const body = p.questionText
-    ? `> ${p.questionText}`
-    : "No additional context available.";
+  const bodyParts: string[] = [];
+  if (p.questionText) {
+    bodyParts.push(`> ${p.questionText}`);
+  }
+  if (sourceView?.permalink) {
+    bodyParts.push(viewMessageLine(sourceView.permalink));
+  }
+  const body =
+    bodyParts.length > 0
+      ? bodyParts.join("\n\n")
+      : "No additional context available.";
 
   // Fallback text with request-code instructions for older clients.
   const baseFallback =

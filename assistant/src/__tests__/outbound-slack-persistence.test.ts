@@ -153,7 +153,6 @@ mock.module("../persistence/attachments-store.js", () => ({
 // ── Imports (after mocks) ──────────────────────────────────────────────────
 
 import type { AgentEvent } from "../agent/loop.js";
-import { clearThreadTs, setThreadTs } from "../channels/slack-thread-store.js";
 import type {
   EventHandlerDeps,
   EventHandlerState,
@@ -177,6 +176,7 @@ function makeDeps(
     requesterChatId?: string;
     requesterTimezoneLabel?: string;
     clientTimezone?: string;
+    sourceThreadId?: string;
   } = {},
 ): EventHandlerDeps {
   const assistantMessageChannel = overrides.assistantMessageChannel ?? "slack";
@@ -190,6 +190,7 @@ function makeDeps(
         trustClass: "guardian",
         requesterChatId: overrides.requesterChatId,
         requesterTimezoneLabel: overrides.requesterTimezoneLabel,
+        sourceThreadId: overrides.sourceThreadId,
       },
       clientTimezone: overrides.clientTimezone,
     } as unknown as EventHandlerDeps["ctx"],
@@ -257,16 +258,17 @@ describe("outbound assistant Slack metadata persistence", () => {
     nextDeliveryTs = null;
   });
 
-  test("stamps slackMeta with threadTs when the conversation has a Slack thread mapping", async () => {
+  test("stamps slackMeta with threadTs from the turn's inbound thread id", async () => {
     const conversationId = "conv-slack-threaded";
     const channelId = "C123CHANNEL";
-    // Seed an in-memory Slack thread mapping (mirrors the inbound path that
-    // calls setThreadTs when a thread_ts arrives).
-    setThreadTs(conversationId, channelId, "1234.5678");
 
+    // The turn arrived in a thread — its inbound thread ts is captured on the
+    // trust context (`sourceThreadId`) at ingress, and the reply is stamped
+    // from that turn-local value.
     const deps = makeDeps(conversationId, {
       assistantMessageChannel: "slack",
       requesterChatId: channelId,
+      sourceThreadId: "1234.5678",
     });
     await handleLlmCallStarted(state, deps);
     await handleMessageComplete(state, deps, makeMessageCompleteEvent("hi"));
@@ -398,8 +400,8 @@ describe("outbound assistant Slack metadata persistence", () => {
   test("stamps slackMeta WITHOUT threadTs for top-level Slack replies", async () => {
     const conversationId = "conv-slack-toplevel";
     const channelId = "C456NOTHREAD";
-    // No setThreadTs() call — the conversation has no thread mapping, so
-    // the assistant's reply targets the channel root, not a thread.
+    // The turn arrived at the channel root — no `sourceThreadId` on the trust
+    // context, so the reply targets the channel root, not a thread.
 
     const deps = makeDeps(conversationId, {
       assistantMessageChannel: "slack",
@@ -425,17 +427,14 @@ describe("outbound assistant Slack metadata persistence", () => {
     expect(slackMeta.channelTs).toBeUndefined();
   });
 
-  test("does NOT stamp a stale threadTs after the mapping is cleared", async () => {
-    const conversationId = "conv-slack-cleared";
-    const channelId = "C789CLEARED";
-    // Simulate an earlier threaded turn that seeded the mapping, followed
-    // by a channel-root turn whose inbound path cleared it.
-    setThreadTs(conversationId, channelId, "1111.2222");
-    clearThreadTs(conversationId);
-
+  test("ignores a non-ts sourceThreadId", async () => {
+    const conversationId = "conv-slack-bad-thread";
+    const channelId = "C789BAD";
+    // A malformed thread id must not be stamped as a threadTs (isSlackTs guard).
     const deps = makeDeps(conversationId, {
       assistantMessageChannel: "slack",
       requesterChatId: channelId,
+      sourceThreadId: "not-a-ts",
     });
     await handleLlmCallStarted(state, deps);
     await handleMessageComplete(

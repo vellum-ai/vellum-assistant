@@ -12,10 +12,15 @@ import { AssistantTurnStartEventSchema } from "./events/assistant-turn-start.js"
 import { AvatarUpdatedEventSchema } from "./events/avatar-updated.js";
 import { BackgroundToolCompletedEventSchema } from "./events/background-tool-completed.js";
 import { BackgroundToolStartedEventSchema } from "./events/background-tool-started.js";
+import { BookmarkCreatedEventSchema } from "./events/bookmark-created.js";
+import { BookmarkDeletedEventSchema } from "./events/bookmark-deleted.js";
+import { ClientSettingsUpdateEventSchema } from "./events/client-settings-update.js";
 import { CompactionCircuitClosedEventSchema } from "./events/compaction-circuit-closed.js";
 import { CompactionCircuitOpenEventSchema } from "./events/compaction-circuit-open.js";
+import { ConfigChangedEventSchema } from "./events/config-changed.js";
 import { ConfirmationRequestEventSchema } from "./events/confirmation-request.js";
 import { ContactRequestEventSchema } from "./events/contact-request.js";
+import { ContactsChangedEventSchema } from "./events/contacts-changed.js";
 import { ConversationErrorEventSchema } from "./events/conversation-error.js";
 import { ConversationListInvalidatedEventSchema } from "./events/conversation-list-invalidated.js";
 import { ConversationNoticeEventSchema } from "./events/conversation-notice.js";
@@ -33,19 +38,32 @@ import { HomeFeedUpdatedEventSchema } from "./events/home-feed-updated.js";
 import { HookEventSchema } from "./events/hook-event.js";
 import { IdentityChangedEventSchema } from "./events/identity-changed.js";
 import { InteractionResolvedEventSchema } from "./events/interaction-resolved.js";
+import { MemoryRecalledEventSchema } from "./events/memory-recalled.js";
+import { MemoryStatusEventSchema } from "./events/memory-status.js";
 import { MessageCompleteEventSchema } from "./events/message-complete.js";
 import { MessageDequeuedEventSchema } from "./events/message-dequeued.js";
 import { MessageQueuedEventSchema } from "./events/message-queued.js";
 import { MessageQueuedDeletedEventSchema } from "./events/message-queued-deleted.js";
 import { MessageRequestCompleteEventSchema } from "./events/message-request-complete.js";
 import { NavigateSettingsEventSchema } from "./events/navigate-settings.js";
+import { NotificationConversationCreatedEventSchema } from "./events/notification-conversation-created.js";
 import { NotificationIntentEventSchema } from "./events/notification-intent.js";
 import { OpenConversationEventSchema } from "./events/open-conversation.js";
 import { OpenPanelEventSchema } from "./events/open-panel.js";
 import { OpenUrlEventSchema } from "./events/open-url.js";
 import { QuestionRequestEventSchema } from "./events/question-request.js";
+import {
+  RecordingPauseEventSchema,
+  RecordingResumeEventSchema,
+  RecordingStartEventSchema,
+  RecordingStopEventSchema,
+} from "./events/recording.js";
 import { RelationshipStateUpdatedEventSchema } from "./events/relationship-state-updated.js";
 import { SecretRequestEventSchema } from "./events/secret-request.js";
+import { ServiceGroupUpdateCompleteEventSchema } from "./events/service-group-update-complete.js";
+import { ServiceGroupUpdateProgressEventSchema } from "./events/service-group-update-progress.js";
+import { ServiceGroupUpdateStartingEventSchema } from "./events/service-group-update-starting.js";
+import { SoundsConfigUpdatedEventSchema } from "./events/sounds-config-updated.js";
 import { SubagentEventEventSchema } from "./events/subagent-event.js";
 import { SubagentSpawnedEventSchema } from "./events/subagent-spawned.js";
 import { SubagentStatusChangedEventSchema } from "./events/subagent-status-changed.js";
@@ -139,6 +157,20 @@ export {
   BackgroundToolStartedEventSchema,
 } from "./events/background-tool-started.js";
 export {
+  type BookmarkCreatedEvent,
+  BookmarkCreatedEventSchema,
+  type BookmarkSummary,
+  BookmarkSummarySchema,
+} from "./events/bookmark-created.js";
+export {
+  type BookmarkDeletedEvent,
+  BookmarkDeletedEventSchema,
+} from "./events/bookmark-deleted.js";
+export {
+  type ClientSettingsUpdateEvent,
+  ClientSettingsUpdateEventSchema,
+} from "./events/client-settings-update.js";
+export {
   type CompactionCircuitClosedEvent,
   CompactionCircuitClosedEventSchema,
 } from "./events/compaction-circuit-closed.js";
@@ -146,6 +178,10 @@ export {
   type CompactionCircuitOpenEvent,
   CompactionCircuitOpenEventSchema,
 } from "./events/compaction-circuit-open.js";
+export {
+  type ConfigChangedEvent,
+  ConfigChangedEventSchema,
+} from "./events/config-changed.js";
 export {
   type ACPOption,
   type ACPOptionKind,
@@ -168,6 +204,10 @@ export {
   type ContactRequestEvent,
   ContactRequestEventSchema,
 } from "./events/contact-request.js";
+export {
+  type ContactsChangedEvent,
+  ContactsChangedEventSchema,
+} from "./events/contacts-changed.js";
 export {
   type ConversationErrorCode,
   ConversationErrorCodeSchema,
@@ -249,6 +289,18 @@ export {
   InteractionResolvedEventSchema,
 } from "./events/interaction-resolved.js";
 export {
+  type MemoryRecalledCandidateDebug,
+  MemoryRecalledCandidateDebugSchema,
+  type MemoryRecalledDegradation,
+  MemoryRecalledDegradationSchema,
+  type MemoryRecalledEvent,
+  MemoryRecalledEventSchema,
+} from "./events/memory-recalled.js";
+export {
+  type MemoryStatusEvent,
+  MemoryStatusEventSchema,
+} from "./events/memory-status.js";
+export {
   type MessageCompleteEvent,
   MessageCompleteEventSchema,
 } from "./events/message-complete.js";
@@ -273,6 +325,10 @@ export {
   NavigateSettingsEventSchema,
 } from "./events/navigate-settings.js";
 export {
+  type NotificationConversationCreatedEvent,
+  NotificationConversationCreatedEventSchema,
+} from "./events/notification-conversation-created.js";
+export {
   type NotificationIntentEvent,
   NotificationIntentEventSchema,
 } from "./events/notification-intent.js";
@@ -294,6 +350,18 @@ export {
   QuestionRequestEventSchema,
 } from "./events/question-request.js";
 export {
+  type RecordingOptions,
+  RecordingOptionsSchema,
+  type RecordingPauseEvent,
+  RecordingPauseEventSchema,
+  type RecordingResumeEvent,
+  RecordingResumeEventSchema,
+  type RecordingStartEvent,
+  RecordingStartEventSchema,
+  type RecordingStopEvent,
+  RecordingStopEventSchema,
+} from "./events/recording.js";
+export {
   type RelationshipStateUpdatedEvent,
   RelationshipStateUpdatedEventSchema,
 } from "./events/relationship-state-updated.js";
@@ -301,6 +369,22 @@ export {
   type SecretRequestEvent,
   SecretRequestEventSchema,
 } from "./events/secret-request.js";
+export {
+  type ServiceGroupUpdateCompleteEvent,
+  ServiceGroupUpdateCompleteEventSchema,
+} from "./events/service-group-update-complete.js";
+export {
+  type ServiceGroupUpdateProgressEvent,
+  ServiceGroupUpdateProgressEventSchema,
+} from "./events/service-group-update-progress.js";
+export {
+  type ServiceGroupUpdateStartingEvent,
+  ServiceGroupUpdateStartingEventSchema,
+} from "./events/service-group-update-starting.js";
+export {
+  type SoundsConfigUpdatedEvent,
+  SoundsConfigUpdatedEventSchema,
+} from "./events/sounds-config-updated.js";
 export {
   type SubagentEventEvent,
   SubagentEventEventSchema,
@@ -536,10 +620,74 @@ export {
   WorkflowLeafSchema,
 } from "./responses/workflow-journal.js";
 export {
+  type AnySurfaceData,
   type CardSurfaceData,
   CardSurfaceDataSchema,
+  type ChoiceOption,
+  ChoiceOptionSchema,
+  type ChoiceSurfaceData,
+  ChoiceSurfaceDataSchema,
+  coerceSurfaceDataRecord,
+  type ConfirmationSurfaceData,
+  ConfirmationSurfaceDataSchema,
+  type CopyBlockSurfaceData,
+  CopyBlockSurfaceDataSchema,
+  DAEMON_INTERNAL_SURFACE_TYPES,
+  type DocumentPreviewSurfaceData,
+  DocumentPreviewSurfaceDataSchema,
+  type DynamicPagePreview,
+  DynamicPagePreviewSchema,
+  type DynamicPageSurfaceData,
+  DynamicPageSurfaceDataSchema,
   type FileUploadSurfaceData,
   FileUploadSurfaceDataSchema,
+  type FormField,
+  FormFieldSchema,
+  type FormPage,
+  FormPageSchema,
+  type FormSurfaceData,
+  FormSurfaceDataSchema,
+  isDaemonInternalSurfaceType,
+  type ListItem,
+  ListItemSchema,
+  type ListSurfaceData,
+  ListSurfaceDataSchema,
+  MODEL_INVOKABLE_SURFACE_TYPES,
+  normalizeCopyBlockShowData,
+  type OAuthConnectSurfaceData,
+  OAuthConnectSurfaceDataSchema,
+  SURFACE_DATA_SCHEMAS,
+  SURFACE_TYPES,
+  type SurfaceData,
+  type SurfaceDataByType,
+  type SurfaceType,
+  SurfaceTypeSchema,
+  type TableCellValue,
+  TableCellValueSchema,
+  type TableColumn,
+  TableColumnSchema,
+  type TableRow,
+  TableRowSchema,
+  type TableSurfaceData,
+  TableSurfaceDataSchema,
+  type WorkResultDiff,
+  WorkResultDiffSchema,
+  type WorkResultItem,
+  WorkResultItemSchema,
+  type WorkResultMetadata,
+  WorkResultMetadataSchema,
+  type WorkResultMetric,
+  WorkResultMetricSchema,
+  type WorkResultSection,
+  WorkResultSectionSchema,
+  type WorkResultSectionType,
+  WorkResultSectionTypeSchema,
+  type WorkResultStatus,
+  WorkResultStatusSchema,
+  type WorkResultSurfaceData,
+  WorkResultSurfaceDataSchema,
+  type WorkResultTone,
+  WorkResultToneSchema,
 } from "./surfaces.js";
 
 /**
@@ -568,10 +716,15 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   AvatarUpdatedEventSchema,
   BackgroundToolCompletedEventSchema,
   BackgroundToolStartedEventSchema,
+  BookmarkCreatedEventSchema,
+  BookmarkDeletedEventSchema,
+  ClientSettingsUpdateEventSchema,
   CompactionCircuitClosedEventSchema,
   CompactionCircuitOpenEventSchema,
+  ConfigChangedEventSchema,
   ConfirmationRequestEventSchema,
   ContactRequestEventSchema,
+  ContactsChangedEventSchema,
   ConversationErrorEventSchema,
   ConversationListInvalidatedEventSchema,
   ConversationNoticeEventSchema,
@@ -589,19 +742,30 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   HookEventSchema,
   IdentityChangedEventSchema,
   InteractionResolvedEventSchema,
+  MemoryRecalledEventSchema,
+  MemoryStatusEventSchema,
   MessageCompleteEventSchema,
   MessageDequeuedEventSchema,
   MessageQueuedEventSchema,
   MessageQueuedDeletedEventSchema,
   MessageRequestCompleteEventSchema,
   NavigateSettingsEventSchema,
+  NotificationConversationCreatedEventSchema,
   NotificationIntentEventSchema,
   OpenConversationEventSchema,
   OpenPanelEventSchema,
   OpenUrlEventSchema,
   QuestionRequestEventSchema,
+  RecordingPauseEventSchema,
+  RecordingResumeEventSchema,
+  RecordingStartEventSchema,
+  RecordingStopEventSchema,
   RelationshipStateUpdatedEventSchema,
   SecretRequestEventSchema,
+  ServiceGroupUpdateCompleteEventSchema,
+  ServiceGroupUpdateProgressEventSchema,
+  ServiceGroupUpdateStartingEventSchema,
+  SoundsConfigUpdatedEventSchema,
   SubagentEventEventSchema,
   SubagentSpawnedEventSchema,
   SubagentStatusChangedEventSchema,

@@ -104,9 +104,7 @@ export function createInboundRegisterHandler(
   _config: GatewayConfig,
   credentialCache: CredentialCache,
 ) {
-  return async function handleInboundRegister(
-    req: Request,
-  ): Promise<Response> {
+  return async function handleInboundRegister(req: Request): Promise<Response> {
     // ── Parse & validate request body ─────────────────────────────
 
     let rawBody: unknown;
@@ -177,9 +175,7 @@ export function createInboundRegisterHandler(
 
     const guardian = await findGuardian();
     if (!guardian) {
-      log.warn(
-        "No guardian contact exists — cannot auto-verify email channel",
-      );
+      log.warn("No guardian contact exists — cannot auto-verify email channel");
       return Response.json(
         {
           error:
@@ -197,6 +193,7 @@ export function createInboundRegisterHandler(
         guardianPrincipalId: guardian.principal_id,
         displayName: binding.displayName,
         verifiedVia: "webhook_registration",
+        reactivateRevoked: true,
       });
     } catch (err) {
       log.error(

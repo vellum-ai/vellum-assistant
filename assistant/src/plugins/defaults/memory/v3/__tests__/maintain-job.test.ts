@@ -7,7 +7,7 @@ import { EmbeddingBackendUnavailableError } from "../../../../../persistence/emb
 import { EmbeddingBillingBlockError } from "../../../../../persistence/embeddings/embedding-billing-breaker.js";
 import type { MemoryJob } from "../../../../../persistence/jobs-store.js";
 import type { SkillInstallMeta } from "../../../../../skills/install-meta.js";
-import { renderCapabilityContent } from "../capabilities.js";
+import { renderCapabilityBody } from "../capabilities.js";
 import {
   backfillAllSections,
   type BackfillJobDeps,
@@ -566,7 +566,7 @@ describe("backfillAllSections", () => {
       cli: () => null,
     };
     const readPageBody = async (slug: Slug): Promise<string> =>
-      renderCapabilityContent(slug, resolvers) ?? `body for ${slug}`;
+      renderCapabilityBody(slug, resolvers) ?? `body for ${slug}`;
 
     const { deps: d, calls } = deps({
       selectAllPages: async () => ["page-a", "skills/example"],

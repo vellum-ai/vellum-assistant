@@ -11,7 +11,6 @@ import type pino from "pino";
 import { v4 as uuid } from "uuid";
 
 import type { AgentEvent } from "../agent/loop.js";
-import { getThreadTs } from "../channels/slack-thread-store.js";
 import type {
   TurnChannelContext,
   TurnInterfaceContext,
@@ -23,6 +22,7 @@ import { stripInjectionsForCompaction } from "../context/strip-injections.js";
 import { getCalibrationProviderKey } from "../context/token-estimator.js";
 import {
   formatSlackTimezoneLabel,
+  isSlackTs,
   type SlackMessageMetadata,
   writeSlackMetadata,
 } from "../messaging/providers/slack/message-metadata.js";
@@ -1068,6 +1068,43 @@ async function flushAccumulatedContent(
   }
 }
 
+/**
+ * Settle the debounced partial flush at the turn-tail seam, BEFORE the
+ * stranded-content fold. A cancelled/aborted turn exits with the debounce
+ * timer still pending; left alone it fires up to a second later — after the
+ * fold has finalized the row (and cleared the in-flight writer, so the late
+ * flush lands as a direct row write), and after the voice bridge's
+ * transcript-hygiene pass has already read and settled the row. The
+ * accumulated tail is flushed NOW, in order, so nothing is lost (barge-in
+ * partials keep their final second of text) and nothing writes after the
+ * row is settled. No-op for completed turns — `handleMessageComplete`
+ * already cleared the timer and awaited the in-flight flush.
+ */
+export async function settlePendingPartialFlush(
+  state: EventHandlerState,
+  deps: EventHandlerDeps,
+): Promise<void> {
+  if (state.pendingPartialFlushTimer !== undefined) {
+    clearTimeout(state.pendingPartialFlushTimer);
+    state.pendingPartialFlushTimer = undefined;
+    try {
+      await flushAccumulatedContent(state, deps);
+    } catch (err) {
+      // Same tolerance as the debounced path: a failed partial flush must
+      // not escalate a finished turn into a turn-level throw.
+      deps.rlog.warn({ err }, "Turn-tail partial flush failed (non-fatal)");
+    }
+  }
+  if (state.pendingPartialFlushPromise !== undefined) {
+    try {
+      await state.pendingPartialFlushPromise;
+    } catch {
+      // The flush swallows its own errors; defensive against future changes.
+    }
+    state.pendingPartialFlushPromise = undefined;
+  }
+}
+
 /** Schedule a debounced partial flush. First-scheduled wins; no-op when timer pending. */
 function schedulePartialFlush(
   state: EventHandlerState,
@@ -1224,7 +1261,14 @@ function buildAssistantChannelMetadata(
   if (deps.turnChannelContext.assistantMessageChannel === "slack") {
     const channelId = deps.ctx.trustContext?.requesterChatId;
     if (channelId) {
-      const threadTs = getThreadTs(deps.ctx.conversationId);
+      // Resolve the reply thread from this turn's own inbound thread id,
+      // captured turn-locally on the trust context at ingress (the same field
+      // guardian-approval cards read). This is deliberately not the shared
+      // conversation binding: on a legacy flat→thread aliased Slack
+      // conversation a concurrent inbound can rewrite the binding's
+      // externalThreadId mid-turn, whereas the trust context is per-turn.
+      const turnThreadTs = deps.ctx.trustContext?.sourceThreadId;
+      const threadTs = isSlackTs(turnThreadTs) ? turnThreadTs : undefined;
       const timestampTimezone = resolveAssistantReplyTimestampTimezone(
         deps.ctx,
       );

@@ -123,6 +123,9 @@ describe("LiveVoiceMetricsCollector", () => {
     expect(getLiveVoiceMetricsAggregateFields(snapshot, "turn-vad")).toEqual({
       sttMs: 50,
       llmFirstDeltaMs: 25,
+      // No assistant-dispatch mark in this scripted turn.
+      dispatchToFirstDeltaMs: null,
+      dispatchToFirstAudioMs: null,
       ttsFirstAudioMs: 75,
       roundTripMs: 190,
       totalMs: 200,

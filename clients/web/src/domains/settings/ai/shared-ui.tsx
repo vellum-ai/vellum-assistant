@@ -10,10 +10,8 @@ import {
 } from "lucide-react";
 
 import { DetailCard } from "@/components/detail-card";
-import { Button } from "@vellumai/design-library/components/button";
 import { SegmentControl } from "@vellumai/design-library/components/segment-control";
 
-import type { ProviderCredentialsGuide } from "@/domains/settings/ai/provider-catalogs";
 import type { ServiceMode } from "@/generated/daemon/types.gen";
 
 interface ModeToggleProps {
@@ -30,15 +28,7 @@ interface ServiceCardProps {
   children: ReactNode;
 }
 
-interface SaveButtonProps {
-  onClick: () => void;
-  disabled?: boolean;
-}
 
-interface ResetButtonProps {
-  onClick: () => void;
-  filled?: boolean;
-}
 
 interface ByoServiceCardProps {
   id?: string;
@@ -47,9 +37,6 @@ interface ByoServiceCardProps {
   children: ReactNode;
 }
 
-interface CredentialsGuideProps {
-  guide: ProviderCredentialsGuide;
-}
 
 export function ModeToggle({ mode, onChange }: ModeToggleProps) {
   return (
@@ -81,21 +68,7 @@ export function ServiceCard({ id, title, subtitle, mode, onModeChange, children 
   );
 }
 
-export function SaveButton({ onClick, disabled }: SaveButtonProps) {
-  return (
-    <Button onClick={onClick} disabled={disabled}>
-      Save
-    </Button>
-  );
-}
 
-export function ResetButton({ onClick, filled = false }: ResetButtonProps) {
-  return (
-    <Button variant={filled ? "danger" : "dangerGhost"} onClick={onClick}>
-      Reset
-    </Button>
-  );
-}
 
 export function ByoServiceCard({ id, title, subtitle, children }: ByoServiceCardProps) {
   return (
@@ -127,25 +100,6 @@ export function ManagedServicesBanner() {
   );
 }
 
-export function CredentialsGuide({ guide }: CredentialsGuideProps) {
-  return (
-    <div className="flex items-start gap-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-sunken)] p-3 text-body-small-default text-[var(--content-tertiary)]">
-      <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--system-positive-strong)]" />
-      <div className="flex flex-col gap-1">
-        <span>{guide.description}</span>
-        <a
-          href={guide.url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-1 text-[var(--system-positive-strong)] underline hover:opacity-80"
-        >
-          {guide.linkLabel}
-          <ExternalLink className="h-3 w-3" />
-        </a>
-      </div>
-    </div>
-  );
-}
 
 export function DomainVerificationChip({
   status,

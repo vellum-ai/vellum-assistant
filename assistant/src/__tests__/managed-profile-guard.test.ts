@@ -195,31 +195,41 @@ describe("PUT /v1/config/llm/profiles/:name — managed profile guard", () => {
     expect(committedRaw()).not.toBeNull();
   });
 
-  test("rejects write-locked routing identities in a raw llm.default write", async () => {
-    // llm.default is a raw compatibility field outside the parsed schema; a
-    // raw PATCH can persist one and materialization uses the on-disk blob as
-    // its fill base, so the write-lock must cover it.
+  test("accepts routing identities on the replace path without deriving a connection", async () => {
+    const result = await replaceRoute.handler({
+      pathParams: { name: "my-custom" },
+      body: { provider: "vellum", model: "claude-opus-4-8" },
+    });
+    expect(result).toEqual({ ok: true });
+    const committed = committedRaw() as {
+      llm?: { profiles?: Record<string, Record<string, unknown>> };
+    } | null;
+    expect(committed?.llm?.profiles?.["my-custom"]).toMatchObject({
+      provider: "vellum",
+      model: "claude-opus-4-8",
+    });
+    expect(
+      committed?.llm?.profiles?.["my-custom"]?.provider_connection,
+    ).toBeUndefined();
+  });
+
+  test("rejects a routing identity with an unroutable model at the write choke point", async () => {
     await expect(
-      patchRoute.handler({
-        body: { llm: { default: { provider: "vellum" } } },
+      replaceRoute.handler({
+        pathParams: { name: "my-custom" },
+        body: { provider: "vellum", model: "not-a-real-model" },
       }),
-    ).rejects.toThrow(/not yet enabled/);
+    ).rejects.toThrow(/not served by the Vellum managed route/);
     expect(committedRaw()).toBeNull();
   });
 
-  test("rejects write-locked routing identities on the replace path", async () => {
-    // This route validates with ProfileEntry.safeParse only, so the
-    // commitConfigWrite choke-point guard is what keeps the schema-admitted
-    // identities from reaching disk.
-    for (const provider of ["vellum", "chatgpt"]) {
-      await expect(
-        replaceRoute.handler({
-          pathParams: { name: "my-custom" },
-          body: { provider, model: "claude-opus-4-8" },
-        }),
-      ).rejects.toThrow(/not yet enabled/);
-      expect(committedRaw()).toBeNull();
-    }
+  test("rejects a routing identity in a raw call-site fragment without a model", async () => {
+    await expect(
+      patchRoute.handler({
+        body: { llm: { callSites: { mainAgent: { provider: "chatgpt" } } } },
+      }),
+    ).rejects.toThrow(/requires an explicit model/);
+    expect(committedRaw()).toBeNull();
   });
 
   // -------------------------------------------------------------------------
@@ -1058,7 +1068,8 @@ describe("code-owned default profiles — wire view and write normalization", ()
     const response = (await getRoute.handler({})) as Record<string, any>;
     const wireBalanced = response.llm.profiles.balanced;
     expect(wireBalanced.model).toBe("accounts/fireworks/models/glm-5p2");
-    expect(wireBalanced.provider_connection).toBe("vellum");
+    expect(wireBalanced.provider).toBe("vellum");
+    expect(wireBalanced.provider_connection).toBeUndefined();
     expect(wireBalanced.status).toBe("disabled");
     expect(wireBalanced.invariant).toBe(true);
     // Absent defaults are materialized too — the catalog owns their content.

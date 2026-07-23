@@ -160,6 +160,7 @@ function insertItem(opts: {
   significance?: number;
   created?: number;
   lastAccessed?: number;
+  sourceConversations?: string[];
 }) {
   const db = getDb();
   const now = Date.now();
@@ -185,7 +186,7 @@ function insertItem(opts: {
       stability: 14,
       reinforcementCount: 0,
       lastReinforced: now,
-      sourceConversations: JSON.stringify([]),
+      sourceConversations: JSON.stringify(opts.sourceConversations ?? []),
       sourceType: "direct",
       narrativeRole: null,
       partOfStory: null,
@@ -984,6 +985,87 @@ describe("Memory Item Routes", () => {
       expect(filtered.nodes.map((n) => n.id)).toEqual(["n1"]);
     });
 
+    test("listMemoryNodes filters to skill capability nodes with kind=skill", async () => {
+      // Skill node addressed by its stable source key.
+      insertItem({
+        id: "skill-pdf",
+        type: "procedural",
+        content: 'The "PDF" skill (pdf) is available. Work with PDF files.',
+        sourceConversations: ["capability:skill:pdf"],
+        significance: 0.6,
+      });
+      // CLI capability node — must be excluded by kind=skill.
+      insertItem({
+        id: "cli-status",
+        type: "procedural",
+        content: 'The "assistant status" CLI command is available.',
+        sourceConversations: ["capability:cli:status"],
+        significance: 0.6,
+      });
+      // High-significance organic memory that would otherwise top the list.
+      insertItem({
+        id: "organic",
+        type: "semantic",
+        content: "User prefers TypeScript",
+        significance: 0.99,
+      });
+
+      const route = getRoute("memory-nodes", "GET");
+      const body = (await (
+        await callHandler(route, { queryParams: { kind: "skill" } })
+      ).json()) as NodesListBody;
+
+      expect(body.success).toBe(true);
+      expect(body.nodes.map((n) => n.id)).toEqual(["skill-pdf"]);
+    });
+
+    test("listMemoryNodes classifies skill nodes by content when the source key is absent", async () => {
+      insertItem({
+        id: "skill-legacy",
+        type: "procedural",
+        content: 'The "Docx" skill (docx) is available. Edit Word docs.',
+        significance: 0.6,
+      });
+
+      const route = getRoute("memory-nodes", "GET");
+      const body = (await (
+        await callHandler(route, { queryParams: { kind: "skill" } })
+      ).json()) as NodesListBody;
+
+      expect(body.nodes.map((n) => n.id)).toEqual(["skill-legacy"]);
+    });
+
+    test("listMemoryNodes composes kind and search filters", async () => {
+      insertItem({
+        id: "skill-pdf",
+        type: "procedural",
+        content: 'The "PDF" skill (pdf) is available. Work with PDF files.',
+        sourceConversations: ["capability:skill:pdf"],
+      });
+      insertItem({
+        id: "skill-docx",
+        type: "procedural",
+        content: 'The "Docx" skill (docx) is available. Edit Word docs.',
+        sourceConversations: ["capability:skill:docx"],
+      });
+
+      const route = getRoute("memory-nodes", "GET");
+      const body = (await (
+        await callHandler(route, {
+          queryParams: { kind: "skill", search: "PDF" },
+        })
+      ).json()) as NodesListBody;
+
+      expect(body.nodes.map((n) => n.id)).toEqual(["skill-pdf"]);
+    });
+
+    test("listMemoryNodes rejects an unknown kind as 400", async () => {
+      const res = await callHandler(getRoute("memory-nodes", "GET"), {
+        queryParams: { kind: "bogus" },
+      });
+      expect(res.status).toBe(400);
+    });
+
     test("listMemoryNodes reports memory v2 disabled as a business failure", async () => {
       setConfig("memory", { v2: { enabled: false } });
       const body = (await (
@@ -1253,6 +1335,41 @@ describe("Memory Item Routes", () => {
       const body = (await res.json()) as { concepts: number };
       // Two real concept pages; the two synthetic skill rows are excluded.
       expect(body.concepts).toBe(2);
+    });
+
+    test("reports graph_supported false when memory v3 is not live", async () => {
+      setConfig("memory", { v3: { live: false } });
+      const res = await callHandler(route);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        concepts: number;
+        graph_supported: boolean;
+      };
+      expect(body.graph_supported).toBe(false);
+    });
+
+    test("reports graph_supported true when memory v3 is live", async () => {
+      setConfig("memory", { enabled: true, v3: { live: true } });
+      const res = await callHandler(route);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        concepts: number;
+        graph_supported: boolean;
+      };
+      expect(body.graph_supported).toBe(true);
+    });
+
+    test("reports graph_supported false when memory is disabled, even if v3 is live", async () => {
+      // The user-facing Memory opt-out writes memory.enabled=false; the graph
+      // must not be advertised even when memory.v3.live is still set.
+      setConfig("memory", { enabled: false, v3: { live: true } });
+      const res = await callHandler(route);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        concepts: number;
+        graph_supported: boolean;
+      };
+      expect(body.graph_supported).toBe(false);
     });
   });
 });

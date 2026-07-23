@@ -45,7 +45,10 @@ import { getLogger } from "../util/logger.js";
 import { getLogsDbPath } from "../util/logs-db-path.js";
 import { getConversationsDir } from "../util/platform.js";
 import { createRowMapper, parseJsonNullable } from "../util/row-mapper.js";
-import { withSqliteRetry } from "../util/sqlite-retry.js";
+import {
+  isRetryableSqliteError,
+  withSqliteRetry,
+} from "../util/sqlite-retry.js";
 import {
   deleteOrphanAttachments,
   linkAttachmentToMessage,
@@ -129,18 +132,74 @@ function logsDb(): DrizzleDb {
   return db;
 }
 
+// ---------------------------------------------------------------------------
+// Dedicated-DB cleanup for conversation deletes.
+// ---------------------------------------------------------------------------
+//
+// `llm_request_logs` (logs DB) and pending `telemetry_events` (telemetry DB)
+// live in their own files. Both conversation-delete variants — the synchronous
+// `deleteConversation` and the off-loop `deleteConversationGently` — must clear
+// them, and both must tolerate the target table not existing yet. The memory
+// worker's startup orphan sweep runs as a separate process that can race ahead
+// of the daemon's async migrations, and a dedicated file accrues its tables
+// over several migrations — so the file can be absent, an empty create-on-open
+// shell, or present-with-other-tables (e.g. the telemetry file exists for an
+// earlier table before `telemetry_events` is created). In every one of those
+// states there are no rows to delete, so the helpers below skip when the table
+// is not yet present rather than fabricate/hit a table-less file and throw
+// `no such table` on every orphan the sweep processes.
+
 /**
- * The telemetry connection (`assistant-telemetry.db`), where the
- * `telemetry_events` outbox lives. Throws if the file cannot be opened — the
- * conversation-delete call sites must not report success while unshipped
- * events referencing the deleted conversation survive to be flushed.
+ * Whether `table` exists on the given dedicated connection. Cheap
+ * `sqlite_master` lookup that distinguishes "file present but this migration
+ * has not created the table yet" from "table ready" — checking file existence
+ * alone is not enough because the dedicated logs/telemetry files hold tables
+ * created across several migrations.
  */
-function telemetryDb(): DrizzleDb {
-  const db = getTelemetryDb();
-  if (!db) {
-    throw new Error("telemetry database unavailable");
+function dedicatedTableExists(db: DrizzleDb, table: string): boolean {
+  return (
+    getSqliteFrom(db)
+      .query<
+        { name: string },
+        [string]
+      >(`SELECT name FROM sqlite_master WHERE type='table' AND name = ? LIMIT 1`)
+      .get(table) != null
+  );
+}
+
+/**
+ * Delete a conversation's pending `telemetry_events` rows from the dedicated
+ * telemetry DB, or skip when that table does not exist yet. Telemetry redaction
+ * keys on `conversation_id` regardless of event name, so this covers every
+ * conversation-scoped pending event.
+ */
+function deletePendingTelemetryEventsForConversation(id: string): void {
+  const telemetry = getTelemetryDb({ createIfMissing: false });
+  if (!telemetry || !dedicatedTableExists(telemetry, "telemetry_events")) {
+    return;
   }
-  return db;
+  telemetry
+    .delete(telemetryEvents)
+    .where(eq(telemetryEvents.conversationId, id))
+    .run();
+}
+
+/**
+ * Delete a conversation's `llm_request_logs` rows in-process from the dedicated
+ * logs DB, or skip when that table does not exist yet. Used by the synchronous
+ * delete path; {@link deleteConversationGently} drains the same table off the
+ * event loop in batches (guarded by the same table-existence check) because its
+ * rows can be bulky.
+ */
+function deleteRequestLogsForConversation(id: string): void {
+  const logs = getLogsDb({ createIfMissing: false });
+  if (!logs || !dedicatedTableExists(logs, "llm_request_logs")) {
+    return;
+  }
+  logs
+    .delete(llmRequestLogs)
+    .where(eq(llmRequestLogs.conversationId, id))
+    .run();
 }
 
 // ── Message metadata Zod schema ──────────────────────────────────────
@@ -791,6 +850,12 @@ export function createConversation(
         scheduleJobId?: string;
         groupId?: string;
         forkParentConversationId?: string;
+        /**
+         * Id of the conversation that spawned this one (subagent spawns).
+         * Persisted for telemetry attribution; unlike
+         * `forkParentConversationId` it implies no history inheritance.
+         */
+        parentConversationId?: string;
       },
 ) {
   const db = getDb();
@@ -833,6 +898,7 @@ export function createConversation(
     source,
     scheduleJobId: opts.scheduleJobId ?? null,
     forkParentConversationId: opts.forkParentConversationId ?? null,
+    parentConversationId: opts.parentConversationId ?? null,
     // Snapshot↔stream alignment baseline, captured at the creation instant.
     // 0 (nothing stamped yet this process) is stored as NULL so `/messages`
     // reports null and the client cold-starts rather than aligning to seq 0.
@@ -1709,17 +1775,10 @@ export function deleteConversation(id: string): DeletedMemoryIds {
   // llm_request_logs and pending telemetry_events rows live in the dedicated
   // logs and telemetry connections, so they are deleted there — separately
   // from (and before) the main-DB transaction below, so a failure leaves the
-  // conversation intact for a retried delete. Telemetry redaction keys on
-  // conversation_id regardless of event name, so every conversation-scoped
-  // pending event is covered.
-  logsDb()
-    .delete(llmRequestLogs)
-    .where(eq(llmRequestLogs.conversationId, id))
-    .run();
-  telemetryDb()
-    .delete(telemetryEvents)
-    .where(eq(telemetryEvents.conversationId, id))
-    .run();
+  // conversation intact for a retried delete. Both helpers skip when their
+  // dedicated file does not exist yet (see the block comment on those helpers).
+  deleteRequestLogsForConversation(id);
+  deletePendingTelemetryEventsForConversation(id);
 
   db.transaction((tx) => {
     // Collect all message IDs for this conversation.
@@ -1838,26 +1897,37 @@ export async function deleteConversationGently(
     .map((r) => r.id);
 
   // Pending telemetry_events rows live in the dedicated telemetry connection;
-  // delete them there (by conversation_id, regardless of event name) before
-  // ANY destructive work so a telemetry failure leaves the conversation fully
+  // delete them (by conversation_id, regardless of event name) before ANY
+  // destructive work so a telemetry failure leaves the conversation fully
   // intact for a retried delete — a throw after the bulk drains below would
-  // strand unredacted rows that could still flush.
-  telemetryDb()
-    .delete(telemetryEvents)
-    .where(eq(telemetryEvents.conversationId, id))
-    .run();
+  // strand unredacted rows that could still flush. Skips when the telemetry
+  // file does not exist yet.
+  deletePendingTelemetryEventsForConversation(id);
 
   // llm_request_logs lives in the dedicated logs connection, and each row is
   // bulky, so drain it off the event loop in batches against the logs DB file.
-  const logsDel = await deleteConversationRowsInBatches({
-    conversationId: id,
-    table: "llm_request_logs",
-    dbPath: getLogsDbPath(),
-  });
-  if (!logsDel.ok) {
-    throw new Error(
-      `gentle conversation delete failed (llm_request_logs, ${logsDel.backend}): ${logsDel.error ?? "unknown"}`,
-    );
+  // Skip entirely when the table does not exist yet: the batch runs a sqlite3
+  // subprocess (or in-process fallback) against getLogsDbPath(), which would
+  // otherwise hit (or create) a table-less file and fail with `no such table`
+  // on every orphan the worker's startup sweep processes before migration 297
+  // lands. The in-process connection sees the same committed schema as the
+  // subprocess, so it is the authority on whether the table is ready. No table,
+  // nothing to drain.
+  const logsDbForBatch = getLogsDb({ createIfMissing: false });
+  if (
+    logsDbForBatch &&
+    dedicatedTableExists(logsDbForBatch, "llm_request_logs")
+  ) {
+    const logsDel = await deleteConversationRowsInBatches({
+      conversationId: id,
+      table: "llm_request_logs",
+      dbPath: getLogsDbPath(),
+    });
+    if (!logsDel.ok) {
+      throw new Error(
+        `gentle conversation delete failed (llm_request_logs, ${logsDel.backend}): ${logsDel.error ?? "unknown"}`,
+      );
+    }
   }
 
   // Bulk message delete off the event loop, in lock-friendly batches. Cascades
@@ -2677,18 +2747,43 @@ export function getConversationPersistedSeq(id: string): number | null {
  * Monotonic: the `WHERE seq IS NULL OR seq < ?` guard makes the update raise
  * the high-water mark only, so out-of-order async commits never regress it.
  * Non-positive or non-finite `seq` values are ignored.
+ *
+ * Transient SQLite write contention (`SQLITE_BUSY`/`SQLITE_IOERR`) is swallowed
+ * rather than thrown. This is a single, idempotent, monotonic UPDATE of a
+ * snapshot↔stream anchor that every subsequent flush re-records with an
+ * equal-or-higher seq, so a dropped write self-heals on the next flush — the
+ * same self-healing property that lets the paired content write
+ * (`persistLoopMessageContent`) swallow its final failure. `busy_timeout`
+ * already made the statement wait for the lock before surfacing `SQLITE_BUSY`,
+ * so this synchronous path cannot usefully back off and retry; it just must not
+ * throw. Several callers are fire-and-forget bookkeeping in the agent loop
+ * (`flushAccumulatedContent`, `handleMessageComplete`, tool events) where a
+ * raw throw is fatal: the debounced partial flush becomes an unhandled
+ * rejection, and `message_complete` is on `dispatchAgentEvent`'s re-throw
+ * allowlist — either one takes down the daemon on lock contention. A
+ * non-contention error (a genuine bug: bad SQL, missing column) still throws.
  */
 export function recordConversationPersistedSeq(id: string, seq: number): void {
   if (!Number.isFinite(seq) || seq <= 0) {
     return;
   }
-  rawRun(
-    "conversation:recordPersistedSeq",
-    "UPDATE conversations SET seq = ? WHERE id = ? AND (seq IS NULL OR seq < ?)",
-    seq,
-    id,
-    seq,
-  );
+  try {
+    rawRun(
+      "conversation:recordPersistedSeq",
+      "UPDATE conversations SET seq = ? WHERE id = ? AND (seq IS NULL OR seq < ?)",
+      seq,
+      id,
+      seq,
+    );
+  } catch (err) {
+    if (!isRetryableSqliteError(err)) {
+      throw err;
+    }
+    log.warn(
+      { err, conversationId: id, seq },
+      "recordConversationPersistedSeq: transient SQLite contention; dropping this anchor advance (self-heals on the next flush)",
+    );
+  }
 }
 
 /**
@@ -3063,6 +3158,15 @@ export async function clearAll(): Promise<{
   await runOrThrow("DELETE FROM tool_invocations");
   await runOrThrow("DELETE FROM messages");
   await runOrThrow("DELETE FROM conversations");
+
+  // The memory feature's relocated conversation-keyed tables lost their main-DB
+  // cascade. Signal the wipe through the hook rather than reaching into the
+  // plugin from here — fired only after the main-DB deletes above succeed, so a
+  // failed clear-all never leaves memory wiped for conversations that still
+  // exist (and it honors the hook's "after the main tables are cleared"
+  // contract). When the plugin is disabled the hook is a no-op; the startup
+  // orphan sweep reclaims those rows on the next memory boot.
+  await runHook(HOOKS.CONVERSATIONS_CLEARED, {});
 
   // Record audit event into the telemetry_events outbox (consent-bypassing);
   // the trail persists platform-side once flushed. Best-effort: the

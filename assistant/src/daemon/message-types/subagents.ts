@@ -1,32 +1,14 @@
 // Subagent lifecycle and communication types.
+//
+// The `subagent_spawned` and `subagent_status_changed` server events are
+// single-sourced from their canonical `api/events` wire schemas; this file
+// composes them into the domain union consumed by `message-protocol.ts`.
 
-import type { SubagentStatus } from "../../subagent/types.js";
+import type { SubagentSpawnedEvent } from "../../api/events/subagent-spawned.js";
+import type { SubagentStatusChangedEvent } from "../../api/events/subagent-status-changed.js";
 import type { UsageStats } from "./shared.js";
 
 // === Server → Client ===
-
-export interface SubagentSpawned {
-  type: "subagent_spawned";
-  subagentId: string;
-  parentConversationId: string;
-  label: string;
-  objective: string;
-  isFork?: boolean;
-  /**
-   * Tool-use id of the `skill_execute` call that spawned this subagent. Lets
-   * the client anchor the inline subagent card to the exact spawn tool call,
-   * independent of the (reconcile-volatile) parent message id.
-   */
-  parentToolUseId?: string;
-}
-
-export interface SubagentStatusChanged {
-  type: "subagent_status_changed";
-  subagentId: string;
-  status: SubagentStatus;
-  error?: string;
-  usage?: UsageStats;
-}
 
 export interface SubagentDetailResponse {
   type: "subagent_detail_response";
@@ -76,6 +58,6 @@ export type _SubagentsClientMessages =
   | SubagentDetailRequest;
 
 export type _SubagentsServerMessages =
-  | SubagentSpawned
-  | SubagentStatusChanged
+  | SubagentSpawnedEvent
+  | SubagentStatusChangedEvent
   | SubagentDetailResponse;

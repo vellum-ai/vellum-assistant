@@ -141,6 +141,16 @@ export interface BusEventMap {
    */
   "deeplink.send": { message: string };
   "deeplink.openThread": { threadId: string };
+  /**
+   * Stripe Checkout finished for a checkout the Electron shell started
+   * in the system browser. The platform bounces the browser to
+   * `<scheme>://billing/checkout-complete`; the billing domain consumes
+   * this to land the user back on billing (and open the post-checkout
+   * Pro onboarding wizard on success).
+   */
+  "deeplink.billingCheckoutComplete":
+    | { status: "success"; sessionId: string }
+    | { status: "cancel"; sessionId: null };
   "deeplink.unknown": { url: string };
   /**
    * Connectivity state change from the Electron host. Main fuses

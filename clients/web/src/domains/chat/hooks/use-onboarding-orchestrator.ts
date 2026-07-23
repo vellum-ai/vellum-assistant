@@ -23,8 +23,19 @@
 import { type MutableRefObject, useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
+import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useIsNativePlatform } from "@/runtime/native-auth";
 import { useConversationStore } from "@/stores/conversation-store";
+import { useInChatOnboardingStore } from "@/stores/in-chat-onboarding-store";
 import { type PreChatOnboardingContext } from "@/domains/onboarding/prechat";
+import {
+  isInChatTourOn,
+  readInChatTourVariant,
+} from "@/domains/chat/in-chat-onboarding/in-chat-tour-flag";
+import {
+  emitInChatTourExposed,
+  emitInChatTourStarted,
+} from "@/domains/chat/in-chat-onboarding/tour-telemetry";
 import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
 import { routes } from "@/utils/routes";
 
@@ -44,6 +55,8 @@ export interface UseOnboardingOrchestratorResult {
 export function useOnboardingOrchestrator(): UseOnboardingOrchestratorResult {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const isMobile = useIsMobile();
+  const isNative = useIsNativePlatform();
 
   const pendingOnboardingContextRef = useRef<PreChatOnboardingContext | null>(null);
   const onboardingDraftConversationIdRef = useRef<string | null>(null);
@@ -65,8 +78,27 @@ export function useOnboardingOrchestrator(): UseOnboardingOrchestratorResult {
     onboardingDraftConversationIdRef.current = draftId;
     setOnboardingConversationId(draftId);
     useConversationStore.getState().setActiveConversationId(draftId);
+    // The in-chat-onboarding-tour experiment — DESKTOP ONLY: phone-width
+    // viewports and the native shell get neither the tour (its takeover
+    // is built around the desktop sidebar/composer layout) nor ANY of its
+    // telemetry. Skipping the exposure event too is deliberate: mobile
+    // sessions must stay out of both cohorts, or arm comparisons would be
+    // diluted by users who could never see the tour. On desktop, an
+    // exposure event fires for BOTH arms at the hand-off (control emits
+    // nothing else, and the funnel needs its rows for comparison), then
+    // the `tour` arm plays the eyes-led tour over the workspace the user
+    // just landed in. The arm is read at consumption time — flags
+    // hydrated long ago during the onboarding flow itself, and the
+    // signal is one-shot.
+    if (!isMobile && !isNative) {
+      emitInChatTourExposed();
+      if (isInChatTourOn(readInChatTourVariant())) {
+        useInChatOnboardingStore.getState().startPrototype();
+        emitInChatTourStarted("auto");
+      }
+    }
     void navigate(routes.conversation(draftId), { replace: true });
-  }, [searchParams, navigate]);
+  }, [searchParams, navigate, isMobile, isNative]);
 
   // Derive onboardingTasksEmpty from the pending context in sessionStorage.
   // Runs once on mount — if initial message key is present, this is an

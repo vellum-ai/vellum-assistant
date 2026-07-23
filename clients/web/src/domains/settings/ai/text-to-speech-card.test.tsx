@@ -320,7 +320,7 @@ describe("TextToSpeechCard — Vellum provider", () => {
     renderCard();
 
     const voiceTrigger = document.querySelector<HTMLButtonElement>(
-      'button[role="combobox"][aria-label="Managed voice"]',
+      'button[aria-label="Voice"]',
     );
     expect(voiceTrigger).not.toBeNull();
     fireEvent.click(voiceTrigger!);
@@ -329,23 +329,35 @@ describe("TextToSpeechCard — Vellum provider", () => {
         '[role="option"]:not([aria-label])',
       ),
     ).map((o) => o.textContent?.trim());
-    // Each option carries its upstream source as a suffix badge so users
-    // can tell providers apart while browsing, not only after selecting.
+    // A voice reads as its character traits in sentence case, with its
+    // upstream source as a suffix badge so users can tell providers apart
+    // while browsing, not only after selecting. The proper name is dropped
+    // (the assistant has its own) and the accent heads the group instead of
+    // repeating on every row.
     expect(options).toContain(
-      "Sarah (default) — American · professional, reassuring, confidentElevenLabs",
+      "Professional, reassuring, confident (default)ElevenLabs",
     );
-    expect(options).toContain(
-      "Zeus — American · deep, trustworthy, smoothDeepgram",
-    );
+    expect(options).toContain("Deep, trustworthy, smoothDeepgram");
+    expect(options?.join(" ")).not.toContain("Sarah");
+    expect(options?.join(" ")).not.toContain("Zeus");
+    // Voices sort by traits within a group: "deep…" before "professional…".
+    // The accent heads its group as a `role="group"` label, not an option row.
+    expect(options).toEqual([
+      "Deep, trustworthy, smoothDeepgram",
+      "Professional, reassuring, confident (default)ElevenLabs",
+    ]);
+    expect(
+      document.querySelector('[role="group"][aria-label="American"]'),
+    ).not.toBeNull();
     // Static-catalog-only voices must not appear once the fetch supplies data.
     expect(options?.join(" ")).not.toContain("Thalia");
-    // The selected default has a hosted preview, so the button renders.
+    // The selected voice has a hosted sample, so its per-row preview renders.
     expect(
-      screen.queryByRole("button", { name: "Preview voice" }),
+      document.querySelector('button[aria-label^="Preview"]'),
     ).not.toBeNull();
   });
 
-  test("the preview button is hidden for voices without a hosted sample", () => {
+  test("the per-row preview is hidden for voices without a hosted sample", () => {
     orgReady = true;
     daemonConfigData = { services: { tts: { provider: "vellum" } } };
     ttsCatalogData = {
@@ -374,7 +386,14 @@ describe("TextToSpeechCard — Vellum provider", () => {
     };
     renderCard();
 
-    expect(screen.queryByRole("button", { name: "Preview voice" })).toBeNull();
+    fireEvent.click(document.querySelector<HTMLButtonElement>(
+      'button[aria-label="Voice"]',
+    )!);
+    // The row renders, but with no sample there's no per-row preview button.
+    expect(
+      document.querySelector('[role="option"]:not([aria-label])'),
+    ).not.toBeNull();
+    expect(document.querySelector('button[aria-label^="Preview"]')).toBeNull();
   });
 
   test("a successful empty catalog hides the voice picker instead of falling back", () => {
@@ -397,10 +416,7 @@ describe("TextToSpeechCard — Vellum provider", () => {
     managedVoicesData = { voices: [], defaultModel: null };
     renderCard();
 
-    expect(
-      document.querySelector('button[aria-label="Managed voice"]'),
-    ).toBeNull();
-    expect(screen.queryByRole("button", { name: "Preview voice" })).toBeNull();
+    expect(document.querySelector('button[aria-label="Voice"]')).toBeNull();
     expect(
       screen.getByText("No managed voices are currently available."),
     ).toBeTruthy();

@@ -4,8 +4,8 @@ import {
   buildDeselectionDescription,
   describeTableRow,
   formatDeselectionList,
+  type SurfaceShowPair,
 } from "../daemon/conversation-surfaces.js";
-import type { SurfaceData, SurfaceType } from "../daemon/message-protocol.js";
 import type {
   ListSurfaceData,
   TableColumn,
@@ -18,10 +18,7 @@ const cols: TableColumn[] = [
   { id: "count", label: "Emails Found" },
 ];
 
-function makeTableState(rows: TableRow[]): {
-  surfaceType: SurfaceType;
-  data: SurfaceData;
-} {
+function makeTableState(rows: TableRow[]): SurfaceShowPair {
   const data: TableSurfaceData = {
     columns: cols,
     rows,
@@ -30,10 +27,7 @@ function makeTableState(rows: TableRow[]): {
   return { surfaceType: "table", data };
 }
 
-function makeListState(items: ListSurfaceData["items"]): {
-  surfaceType: SurfaceType;
-  data: SurfaceData;
-} {
+function makeListState(items: ListSurfaceData["items"]): SurfaceShowPair {
   const data: ListSurfaceData = { items, selectionMode: "multiple" };
   return { surfaceType: "list", data };
 }
