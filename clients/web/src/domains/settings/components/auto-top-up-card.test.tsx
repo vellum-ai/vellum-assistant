@@ -198,6 +198,56 @@ describe("AutoTopUpCard remove card", () => {
       container.querySelector('[data-testid="auto-top-up-remove-error"]'),
     ).toBeNull();
   });
+
+  test("removing while in Adjust form mode exits the form and disables Extra Usage", async () => {
+    retrieveResponse = { ...ENABLED_WITH_CARD };
+    const { container, getByLabelText, getByTestId } = render(
+      <QueryClientProvider client={makeClient(ENABLED_WITH_CARD)}>
+        <AutoTopUpCard />
+      </QueryClientProvider>,
+    );
+
+    // Enter Adjust form mode: the inline form (Save) mounts.
+    fireEvent.click(getByTestId("auto-top-up-edit-button"));
+    expect(
+      container.querySelector('[data-testid="auto-top-up-save-button"]'),
+    ).not.toBeNull();
+
+    // Remove the saved card and confirm.
+    fireEvent.click(
+      container.querySelector('[data-testid="payment-method-remove"]')!,
+    );
+    const confirmButton = await waitFor(() => {
+      const btn = document.querySelector<HTMLButtonElement>(
+        "[data-confirm-dialog-confirm]",
+      );
+      if (!btn) {
+        throw new Error("confirm dialog not open");
+      }
+      return btn;
+    });
+    fireEvent.click(confirmButton);
+
+    await waitFor(() => {
+      if (removeCalls.length === 0) {
+        throw new Error("remove endpoint not called");
+      }
+    });
+
+    // Form mode exited (no Save) and the card is disabled / no card.
+    await waitFor(() => {
+      const toggle = getByLabelText("Enable Extra Usage");
+      if (toggle.getAttribute("aria-checked") !== "false") {
+        throw new Error("still enabled");
+      }
+      if (container.querySelector('[data-testid="auto-top-up-save-button"]')) {
+        throw new Error("form still mounted after removal");
+      }
+      if (container.querySelector('[data-testid="payment-method-row"]')) {
+        throw new Error("payment-method row still present");
+      }
+    });
+  });
 });
 
 describe("AutoTopUpCard repeated-decline cutoff notice", () => {

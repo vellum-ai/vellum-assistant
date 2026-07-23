@@ -350,6 +350,9 @@ export function AutoTopUpCard() {
             queryKey: organizationsBillingAutoTopUpRetrieveQueryKey(),
           });
           setConfirmingRemove(false);
+          // Removal disables auto-reload, so leave the Adjust form (if open)
+          // to keep the OFF toggle and a saveable form from coexisting.
+          exitFormMode();
         },
       },
     );
