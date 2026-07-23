@@ -37,7 +37,7 @@ describe("lanes-version-store", () => {
   test("a bump is observed by a later read of the same workspace (cross-process round-trip)", () => {
     // The writer (memory worker) bumps; a reader (daemon) resolving the same
     // workspace dir sees the new token. `bumpLanesVersion` also creates the
-    // `memory/.v2-state/` state dir on demand.
+    // `plugins-data/default-memory/` storage dir on demand.
     const token = bumpLanesVersion(workspaceDir);
     expect(token).toBeTruthy();
     expect(readLanesVersion(workspaceDir)).toBe(token);
@@ -53,9 +53,10 @@ describe("lanes-version-store", () => {
   test("read returns undefined when the token path is unreadable", () => {
     // A directory at the token path makes the read throw EISDIR (not ENOENT):
     // the "cannot judge staleness" signal, distinct from an absent token.
-    mkdirSync(join(workspaceDir, "memory", ".v2-state", "lanes-version"), {
-      recursive: true,
-    });
+    mkdirSync(
+      join(workspaceDir, "plugins-data", "default-memory", "lanes-version"),
+      { recursive: true },
+    );
     expect(readLanesVersion(workspaceDir)).toBeUndefined();
   });
 });
