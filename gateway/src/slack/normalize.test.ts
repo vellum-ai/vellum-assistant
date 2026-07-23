@@ -1150,6 +1150,122 @@ function makeMessageChangedEvent(
   };
 }
 
+describe("message event tolerant validation", () => {
+  const config = makeConfig();
+
+  it("drops non-object message payloads instead of throwing", () => {
+    expect(normalizeSlackDirectMessage("nope", "evt-t1", config)).toBeNull();
+    expect(normalizeSlackDirectMessage(null, "evt-t2", config)).toBeNull();
+    expect(normalizeSlackChannelMessage(42, "evt-t3", config)).toBeNull();
+    expect(normalizeSlackAppMention(null, "evt-t4", config)).toBeNull();
+  });
+
+  it("renders empty content for a non-string DM text instead of crashing", () => {
+    // The live crash this closes: the normalizer calls renderSlackInboundText
+    // (which `matchAll`s the text). A non-string text collapses to undefined at
+    // the schema, and `?? ""` yields empty content rather than throwing.
+    const result = normalizeSlackDirectMessage(
+      {
+        type: "message",
+        channel_type: "im",
+        user: "U123",
+        channel: "D789",
+        ts: "1.2",
+        text: 12345,
+      },
+      "evt-t5",
+      config,
+    );
+
+    expect(result).not.toBeNull();
+    expect(result!.event.message.content).toBe("");
+  });
+
+  it("renders empty content for a non-string app_mention text", () => {
+    const result = normalizeSlackAppMention(
+      {
+        type: "app_mention",
+        user: "U123",
+        channel: "C456",
+        ts: "1.2",
+        text: { rich: "obj" },
+      },
+      "evt-t6",
+      config,
+    );
+
+    expect(result).not.toBeNull();
+    expect(result!.event.message.content).toBe("");
+  });
+
+  it("drops a channel message missing its user", () => {
+    const result = normalizeSlackChannelMessage(
+      {
+        type: "message",
+        channel_type: "channel",
+        channel: "C456",
+        ts: "1.2",
+        text: "hi",
+      },
+      "evt-t7",
+      config,
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("drops a message missing its channel", () => {
+    const result = normalizeSlackDirectMessage(
+      {
+        type: "message",
+        channel_type: "im",
+        user: "U123",
+        ts: "1.2",
+        text: "hi",
+      },
+      "evt-t8",
+      config,
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("collapses a malformed files array to no attachments rather than throwing", () => {
+    const result = normalizeSlackChannelMessage(
+      {
+        type: "message",
+        channel_type: "channel",
+        channel: "C456",
+        user: "U123",
+        ts: "1.2",
+        text: "hi",
+        files: "not-an-array",
+      },
+      "evt-t9",
+      config,
+    );
+
+    expect(result).not.toBeNull();
+    expect(result!.event.message.attachments).toBeUndefined();
+  });
+
+  it("preserves unknown extra keys verbatim in raw", () => {
+    const payload = {
+      type: "message",
+      channel_type: "channel",
+      channel: "C456",
+      user: "U123",
+      ts: "1.2",
+      text: "hi",
+      unexpected_field: "surprise",
+    };
+    const result = normalizeSlackChannelMessage(payload, "evt-t10", config);
+
+    expect(result).not.toBeNull();
+    expect(result!.event.raw).toEqual(payload);
+  });
+});
+
 describe("normalizeSlackMessageEdit", () => {
   it("normalizes an edit in a subscribed channel (not DM, not bot thread)", () => {
     // Bot is subscribed to the channel via a conversation_id routing entry —

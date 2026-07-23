@@ -409,7 +409,8 @@ export class SlackSocketModeClient {
   }
 
   private handleSlackMuteCommand(event: SlackAppMentionEvent): boolean {
-    if (!isSlackMuteCommand(event.text, this.config.botUserId)) {
+    const text = slackEventText(event);
+    if (!text || !isSlackMuteCommand(text, this.config.botUserId)) {
       return false;
     }
 
@@ -1075,8 +1076,8 @@ export class SlackSocketModeClient {
       const threadTs = appMentionEvent.thread_ts ?? appMentionEvent.ts;
       const routing = resolveAssistant(
         this.config.gatewayConfig,
-        appMentionEvent.channel,
-        appMentionEvent.user,
+        appMentionEvent.channel ?? "",
+        appMentionEvent.user ?? "",
       );
       if (
         this.config.threadMode === "mention_then_thread" &&
