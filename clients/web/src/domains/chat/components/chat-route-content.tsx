@@ -164,6 +164,7 @@ export interface ChatMainPanelProps {
 
   // Onboarding (local state in ActiveChatView)
   onboardingTasksEmpty: boolean;
+  onboardingKickoffHidden: boolean;
   didOnboarding: boolean;
   onboardingConversationId: string | null;
 }
@@ -235,6 +236,7 @@ export function ChatMainPanel({
   transcriptRef,
   uiContextRef,
   onboardingTasksEmpty,
+  onboardingKickoffHidden,
   didOnboarding,
   onboardingConversationId,
 }: ChatMainPanelProps) {
@@ -466,6 +468,7 @@ export function ChatMainPanel({
     didOnboarding,
     messages,
     onboardingTasksEmpty,
+    onboardingKickoffHidden,
     activeConversationId,
     onboardingConversationId,
     sendMessage,
