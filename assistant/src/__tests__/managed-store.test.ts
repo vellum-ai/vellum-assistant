@@ -726,6 +726,151 @@ describe("createManagedSkill companion files", () => {
   });
 });
 
+describe("createManagedSkill copy_from companion sources", () => {
+  test("copies a workspace source file into the skill dir", () => {
+    const sourcePath = join(TEST_DIR, "ran-script.py");
+    writeFileSync(sourcePath, "print('proven')\n", "utf-8");
+
+    const result = createManagedSkill({
+      id: "copy-source",
+      name: "Copy Source",
+      description: "Copies a proven script",
+      bodyMarkdown: "Body.",
+      files: [{ path: "scripts/ran-script.py", copyFrom: sourcePath }],
+    });
+
+    expect(result.created).toBe(true);
+    expect(
+      readFileSync(
+        join(TEST_DIR, "skills", "copy-source", "scripts", "ran-script.py"),
+        "utf-8",
+      ),
+    ).toBe("print('proven')\n");
+  });
+
+  test("rejects an entry setting both content and copyFrom, writing nothing", () => {
+    const sourcePath = join(TEST_DIR, "both.py");
+    writeFileSync(sourcePath, "x", "utf-8");
+
+    const result = createManagedSkill({
+      id: "copy-both",
+      name: "Both",
+      description: "Both content and copyFrom",
+      bodyMarkdown: "Body.",
+      files: [{ path: "scripts/both.py", content: "x", copyFrom: sourcePath }],
+    });
+
+    expect(result.created).toBe(false);
+    expect(result.error).toContain("exactly one of content or copy_from");
+    expect(existsSync(join(TEST_DIR, "skills", "copy-both"))).toBe(false);
+  });
+
+  test("rejects an entry setting neither content nor copyFrom", () => {
+    const result = createManagedSkill({
+      id: "copy-neither",
+      name: "Neither",
+      description: "Neither content nor copyFrom",
+      bodyMarkdown: "Body.",
+      files: [{ path: "scripts/none.py" }],
+    });
+
+    expect(result.created).toBe(false);
+    expect(result.error).toContain("exactly one of content or copy_from");
+  });
+
+  test("rejects a relative copyFrom source", () => {
+    const result = createManagedSkill({
+      id: "copy-relative",
+      name: "Relative",
+      description: "Relative source",
+      bodyMarkdown: "Body.",
+      files: [{ path: "scripts/rel.py", copyFrom: "ran-script.py" }],
+    });
+
+    expect(result.created).toBe(false);
+    expect(result.error).toContain("absolute path");
+  });
+
+  test("rejects a missing copyFrom source, writing nothing", () => {
+    const result = createManagedSkill({
+      id: "copy-missing",
+      name: "Missing",
+      description: "Missing source",
+      bodyMarkdown: "Body.",
+      files: [{ path: "scripts/gone.py", copyFrom: join(TEST_DIR, "gone.py") }],
+    });
+
+    expect(result.created).toBe(false);
+    expect(result.error).toContain("does not exist");
+    expect(existsSync(join(TEST_DIR, "skills", "copy-missing"))).toBe(false);
+  });
+
+  test("rejects a source outside the workspace and temp dir", () => {
+    const result = createManagedSkill({
+      id: "copy-outside",
+      name: "Outside",
+      description: "Out-of-bounds source",
+      bodyMarkdown: "Body.",
+      files: [{ path: "scripts/hosts.txt", copyFrom: "/etc/hosts" }],
+    });
+
+    expect(result.created).toBe(false);
+    expect(result.error).toContain(
+      "must live under the workspace or the system temp dir",
+    );
+  });
+
+  test("rejects a symlink whose target escapes the allowed roots", () => {
+    const linkPath = join(TEST_DIR, "sneaky-link");
+    fs.symlinkSync("/etc/hosts", linkPath);
+
+    const result = createManagedSkill({
+      id: "copy-symlink",
+      name: "Symlink",
+      description: "Symlink escape",
+      bodyMarkdown: "Body.",
+      files: [{ path: "scripts/hosts.txt", copyFrom: linkPath }],
+    });
+
+    expect(result.created).toBe(false);
+    expect(result.error).toContain(
+      "must live under the workspace or the system temp dir",
+    );
+  });
+
+  test("rejects a directory source", () => {
+    const dirPath = join(TEST_DIR, "a-directory");
+    mkdirSync(dirPath, { recursive: true });
+
+    const result = createManagedSkill({
+      id: "copy-dir",
+      name: "Dir",
+      description: "Directory source",
+      bodyMarkdown: "Body.",
+      files: [{ path: "scripts/dir.txt", copyFrom: dirPath }],
+    });
+
+    expect(result.created).toBe(false);
+    expect(result.error).toContain("not a regular file");
+  });
+
+  test("copy_from still cannot target a reserved destination", () => {
+    const sourcePath = join(TEST_DIR, "manifest.json");
+    writeFileSync(sourcePath, "{}", "utf-8");
+
+    const result = createManagedSkill({
+      id: "copy-reserved",
+      name: "Reserved",
+      description: "Reserved destination",
+      bodyMarkdown: "Body.",
+      files: [{ path: "TOOLS.json", copyFrom: sourcePath }],
+    });
+
+    expect(result.created).toBe(false);
+    expect(result.error).toContain("store-owned");
+  });
+});
+
 describe("atomic write safety", () => {
   test("SKILL.md is not partially written on concurrent create", () => {
     // Verify that atomicWriteFile prevents corruption: after creation,

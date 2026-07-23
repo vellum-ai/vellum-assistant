@@ -63,10 +63,14 @@
                 },
                 "content": {
                   "type": "string",
-                  "description": "File contents."
+                  "description": "Inline file contents. Set exactly one of content or copy_from."
+                },
+                "copy_from": {
+                  "type": "string",
+                  "description": "Absolute path of an existing file to copy into the skill instead of re-emitting its contents — prefer this when the file is still on disk. The source must live under the workspace or the system temp dir and be at most 1 MiB. Set exactly one of content or copy_from."
                 }
               },
-              "required": ["path", "content"]
+              "required": ["path"]
             },
             "description": "Optional companion files written under the skill directory, referenced from SKILL.md: references/*.md for gotchas and cached values, scripts/* for reusable code that already ran successfully. Have the body invoke scripts via the {baseDir} placeholder (e.g. `python3 {baseDir}/scripts/export-report.py`) — it resolves to the skill folder on load. Paths must resolve inside the skill folder."
           },
