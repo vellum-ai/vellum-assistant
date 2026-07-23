@@ -124,8 +124,8 @@ interface CachedModule {
   mtimeMs: number;
 }
 
-/** Default per-request timeout for user-defined route handlers (30 seconds). */
-const DEFAULT_HANDLER_TIMEOUT_MS = 30_000;
+/** Default per-request timeout for user-defined route handlers (2 minutes). */
+const DEFAULT_HANDLER_TIMEOUT_MS = 120_000;
 
 export class UserRouteDispatcher {
   private moduleCache = new Map<string, CachedModule>();
