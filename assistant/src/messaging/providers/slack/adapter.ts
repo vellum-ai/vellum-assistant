@@ -512,17 +512,19 @@ export const slackProvider: MessagingProvider = {
   async resolveConnection(
     account?: string,
   ): Promise<OAuthConnection | undefined> {
-    // Resolve write (bot) and read (user-preferred) auth through the canonical
-    // resolver and cache them for the adapter's read/write accessors. Socket
-    // Mode yields raw token strings; the legacy OAuth path yields a refreshing
-    // OAuthConnection. Identity rules live in slack/auth.ts.
-    const writeAuth = await resolveSlackAuth("write", { account });
+    // Resolve both identities through the canonical resolver and cache them
+    // for the adapter's read/write accessors. The write cache holds the bot
+    // identity (posts come from the bot); the read cache holds the user
+    // identity (wider visibility, search). Socket Mode yields raw token
+    // strings; the legacy OAuth path yields a refreshing OAuthConnection.
+    // Identity rules live in slack/auth.ts.
+    const writeAuth = await resolveSlackAuth("bot", { account });
     if (writeAuth === undefined) {
       // No Slack credentials configured — fail fast for the messaging path.
       throw new Error("No OAuth connection found for slack");
     }
     _cachedSlackWriteAuth = writeAuth;
-    const readAuth = await resolveSlackAuth("read", { account });
+    const readAuth = await resolveSlackAuth("user", { account });
     _cachedSlackReadAuth = readAuth ?? writeAuth;
     // Socket Mode caches the token internally (return undefined); OAuth returns
     // the connection to the messaging framework.

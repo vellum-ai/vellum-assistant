@@ -9,7 +9,7 @@ import { z } from "zod";
 
 import {
   resolveSlackAuth,
-  runSlackRead,
+  runAsUserWithBotFallback,
   type SlackAuth,
 } from "../../../../messaging/providers/slack/auth.js";
 import {
@@ -70,10 +70,11 @@ export async function handleListSlackChannels({
 
   // The presence list ("where the assistant is present") reflects the BOT's
   // own membership — Slack's `is_member` is relative to the token's identity —
-  // so it always reads with the bot token, never the optional user token. The
-  // share picker (memberOnly absent) prefers the user token for broader reach
-  // (channels the user is in but the bot isn't) and falls back to the bot
-  // token if that optional user token has been revoked.
+  // so it always reads as the bot, never the optional user token. The share
+  // picker (memberOnly absent) reads as the user for broader reach (channels
+  // the user is in but the bot isn't), falling back to the bot token when no
+  // user token is stored or it has been revoked. Resolve the bot auth up front
+  // either way: it anchors the fallback and gives the "not configured" check.
   const botAuth = await resolveSlackAuth("bot");
   if (botAuth === undefined) {
     throw new ServiceUnavailableError("No Slack token configured");
@@ -174,11 +175,11 @@ export async function handleListSlackChannels({
     return channels;
   };
 
-  // Presence reads as the bot; the share picker reads user-first with a bot
-  // fallback if the stored user token has been revoked.
+  // Presence reads as the bot; the share picker reads as the user with a bot
+  // fallback when no user token is stored or it has been revoked.
   const channels = memberOnly
     ? await enumerate(botAuth)
-    : await runSlackRead(botAuth, enumerate);
+    : await runAsUserWithBotFallback(botAuth, enumerate);
 
   return { channels };
 }

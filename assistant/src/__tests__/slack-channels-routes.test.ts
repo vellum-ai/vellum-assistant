@@ -57,7 +57,7 @@ const { handleListSlackChannels } =
 
 function configureToken() {
   // Socket Mode bot token — the connected Channels-page install. resolveSlackAuth
-  // returns it directly for both the presence ("bot") and share-picker ("read")
+  // returns it directly for both the presence ("bot") and share-picker ("user")
   // paths, so no OAuth connection resolution is involved.
   secureKeyValues.set("credential/slack_channel/bot_token", "xoxb-test");
 }

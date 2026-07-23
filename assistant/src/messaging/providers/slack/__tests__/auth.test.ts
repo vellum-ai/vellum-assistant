@@ -27,11 +27,12 @@ mock.module("../../../../oauth/connection-resolver.js", () => ({
   },
 }));
 
-// Import the real SlackApiError so runSlackRead's `instanceof` check and the
-// test share the same class. Do NOT mock the whole client module here — a
-// mock.module("../client.js") leaks across test files and strips the real
-// listConversations/postMessage the adapter tests rely on.
-const { resolveSlackAuth, runSlackRead } = await import("../auth.js");
+// Import the real SlackApiError so runAsUserWithBotFallback's `instanceof`
+// check and the test share the same class. Do NOT mock the whole client module
+// here — a mock.module("../client.js") leaks across test files and strips the
+// real listConversations/postMessage the adapter tests rely on.
+const { resolveSlackAuth, runAsUserWithBotFallback } =
+  await import("../auth.js");
 const { SlackApiError } = await import("../client.js");
 
 const BOT_KEY = "credential/slack_channel/bot_token";
@@ -51,21 +52,15 @@ describe("resolveSlackAuth", () => {
     expect(await resolveSlackAuth("bot")).toBe("xoxb-bot");
   });
 
-  test("write intent returns the bot token", async () => {
+  test("user intent prefers the user token when stored", async () => {
     secureKeys.set(BOT_KEY, "xoxb-bot");
     secureKeys.set(USER_KEY, "xoxp-user");
-    expect(await resolveSlackAuth("write")).toBe("xoxb-bot");
+    expect(await resolveSlackAuth("user")).toBe("xoxp-user");
   });
 
-  test("read intent prefers the user token when stored", async () => {
+  test("user intent falls back to the bot token without a user token", async () => {
     secureKeys.set(BOT_KEY, "xoxb-bot");
-    secureKeys.set(USER_KEY, "xoxp-user");
-    expect(await resolveSlackAuth("read")).toBe("xoxp-user");
-  });
-
-  test("read intent falls back to the bot token without a user token", async () => {
-    secureKeys.set(BOT_KEY, "xoxb-bot");
-    expect(await resolveSlackAuth("read")).toBe("xoxb-bot");
+    expect(await resolveSlackAuth("user")).toBe("xoxb-bot");
   });
 
   test("resolves the refreshing OAuth connection for legacy installs", async () => {
@@ -78,18 +73,18 @@ describe("resolveSlackAuth", () => {
   });
 
   test("returns undefined (without resolving) when no Slack credentials exist", async () => {
-    expect(await resolveSlackAuth("read")).toBeUndefined();
+    expect(await resolveSlackAuth("user")).toBeUndefined();
     // Guarded by the connection-row check — never reaches resolveOAuthConnection.
     expect(resolveOAuthCalls).toEqual([]);
   });
 });
 
-describe("runSlackRead", () => {
-  test("runs with the read auth (user token) when the call succeeds", async () => {
+describe("runAsUserWithBotFallback", () => {
+  test("runs as the user (user token) when the call succeeds", async () => {
     secureKeys.set(BOT_KEY, "xoxb-bot");
     secureKeys.set(USER_KEY, "xoxp-user");
     const seen: unknown[] = [];
-    const result = await runSlackRead("xoxb-bot", async (auth) => {
+    const result = await runAsUserWithBotFallback("xoxb-bot", async (auth) => {
       seen.push(auth);
       return "ok";
     });
@@ -101,7 +96,7 @@ describe("runSlackRead", () => {
     secureKeys.set(BOT_KEY, "xoxb-bot");
     secureKeys.set(USER_KEY, "xoxp-user");
     const seen: unknown[] = [];
-    const result = await runSlackRead("xoxb-bot", async (auth) => {
+    const result = await runAsUserWithBotFallback("xoxb-bot", async (auth) => {
       seen.push(auth);
       if (auth === "xoxp-user") {
         throw new SlackApiError(401, "invalid_auth", "bad token");
@@ -112,11 +107,11 @@ describe("runSlackRead", () => {
     expect(seen).toEqual(["xoxp-user", "xoxb-bot"]);
   });
 
-  test("does not retry when the read auth is already the bot token", async () => {
-    secureKeys.set(BOT_KEY, "xoxb-bot"); // no user token → read === bot
+  test("does not retry when the user auth is already the bot token", async () => {
+    secureKeys.set(BOT_KEY, "xoxb-bot"); // no user token → user === bot
     let calls = 0;
     await expect(
-      runSlackRead("xoxb-bot", async () => {
+      runAsUserWithBotFallback("xoxb-bot", async () => {
         calls += 1;
         throw new SlackApiError(401, "invalid_auth", "bad token");
       }),
@@ -124,16 +119,41 @@ describe("runSlackRead", () => {
     expect(calls).toBe(1);
   });
 
-  test("does not retry non-401 errors", async () => {
+  test("does not retry non-401 errors by default", async () => {
     secureKeys.set(BOT_KEY, "xoxb-bot");
     secureKeys.set(USER_KEY, "xoxp-user");
     let calls = 0;
     await expect(
-      runSlackRead("xoxb-bot", async () => {
+      runAsUserWithBotFallback("xoxb-bot", async () => {
         calls += 1;
         throw new SlackApiError(500, "internal_error", "boom");
       }),
     ).rejects.toThrow();
     expect(calls).toBe(1);
+  });
+
+  test("a custom shouldFallback widens the retry to non-401 errors (missing_scope)", async () => {
+    secureKeys.set(BOT_KEY, "xoxb-bot");
+    secureKeys.set(USER_KEY, "xoxp-user");
+    const seen: unknown[] = [];
+    // missing_scope maps to status 400, so the default predicate would NOT
+    // retry — this is the share-post path, where the user token can lack
+    // chat:write and the bot token can still post.
+    const result = await runAsUserWithBotFallback(
+      "xoxb-bot",
+      async (auth) => {
+        seen.push(auth);
+        if (auth === "xoxp-user") {
+          throw new SlackApiError(400, "missing_scope", "no chat:write");
+        }
+        return "posted-as-bot";
+      },
+      {
+        shouldFallback: (err) =>
+          err.status === 401 || err.slackError === "missing_scope",
+      },
+    );
+    expect(result).toBe("posted-as-bot");
+    expect(seen).toEqual(["xoxp-user", "xoxb-bot"]);
   });
 });
