@@ -3252,7 +3252,9 @@ export async function surfaceProxyResolver(
             { surfaceId, surfaceType: stored.surfaceType },
             "ui_update patch produced invalid merged data; reverting to stored data",
           );
-          mergedData = stored.data;
+          mergedData =
+            safeParseSurfaceData(stored.surfaceType, stored.data) ??
+            stored.data;
         }
       }
     } else {
