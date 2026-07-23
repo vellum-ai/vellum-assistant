@@ -29,13 +29,15 @@ let avatarLoading = false;
  *  fallback the phase/mode cases render against. */
 let avatarComponents: CharacterComponents | null = null;
 let avatarTraits: CharacterTraits | null = null;
+/** An uploaded avatar image, which the takeover also blurs behind its content. */
+let avatarCustomImageUrl: string | null = null;
 mock.module("@/hooks/use-assistant-avatar", () => ({
   useAssistantAvatar: (assistantId: string | null) => {
     avatarQueryId = assistantId;
     return {
       components: avatarComponents,
       traits: avatarTraits,
-      customImageUrl: null,
+      customImageUrl: avatarCustomImageUrl,
       isLoading: avatarLoading,
       invalidate: () => {},
     };
@@ -59,6 +61,7 @@ beforeEach(() => {
   avatarLoading = false;
   avatarComponents = null;
   avatarTraits = null;
+  avatarCustomImageUrl = null;
   reducedMotion = false;
   useResolvedAssistantsStore.setState({ activeAssistantId: null });
 });
@@ -478,18 +481,17 @@ describe("takeover avatar", () => {
   });
 });
 
-describe("takeover surface", () => {
-  /** The takeover root, which publishes the tint and paints from it. */
-  function root(container: HTMLElement): HTMLElement {
-    const el = container.querySelector<HTMLElement>(
-      ".provision-surface-settle",
-    );
-    if (!el) {
-      throw new Error("takeover root not found");
-    }
-    return el;
+/** The takeover root, which publishes the tint, paints from it, and holds the
+ *  backdrop and the content layered over it. */
+function root(container: HTMLElement): HTMLElement {
+  const el = container.querySelector<HTMLElement>(".provision-surface-settle");
+  if (!el) {
+    throw new Error("takeover root not found");
   }
+  return el;
+}
 
+describe("takeover surface", () => {
   test("paints from the published variable rather than a literal colour", () => {
     const { container } = renderState({ assistantId: "primary-assistant" });
 
@@ -533,6 +535,60 @@ describe("takeover surface", () => {
         .style.getPropertyValue(TAKEOVER_SURFACE_VAR)
         .toLowerCase(),
     ).toBe("#1d281d");
+  });
+});
+
+describe("takeover backdrop", () => {
+  test("a custom-image avatar blurs that image behind the takeover", () => {
+    avatarCustomImageUrl = "blob:vellum/avatar-image";
+
+    const { getByTestId } = renderState({ assistantId: "primary-assistant" });
+
+    expect(
+      getByTestId("takeover-backdrop")
+        .querySelector("img")
+        ?.getAttribute("src"),
+    ).toBe("blob:vellum/avatar-image");
+  });
+
+  test("every layer beside the backdrop stacks above it", () => {
+    // The backdrop is absolutely positioned, so it paints over any sibling left
+    // in normal flow — the avatar and the phase block both have to be raised.
+    avatarCustomImageUrl = "blob:vellum/avatar-image";
+
+    const { container, getByTestId } = renderState({
+      state: "WAITING",
+      assistantId: "primary-assistant",
+    });
+    const backdrop = getByTestId("takeover-backdrop");
+    const content = Array.from(root(container).children).filter(
+      (el) => el !== backdrop,
+    );
+
+    expect(content.length).toBeGreaterThan(0);
+    for (const el of content) {
+      expect(el.className).toContain("z-10");
+    }
+  });
+
+  test("a character avatar gets the flat tint and no image layer", () => {
+    avatarComponents = BUNDLED_COMPONENTS;
+    avatarTraits = { bodyShape: "blob", eyeStyle: "curious", color: "purple" };
+
+    const { queryByTestId } = renderState({ assistantId: "primary-assistant" });
+
+    expect(queryByTestId("takeover-backdrop")).toBeNull();
+  });
+
+  test("withholds the backdrop until the avatar query settles", () => {
+    // A backdrop that appears and then disappears is worse than one that
+    // arrives late.
+    avatarLoading = true;
+    avatarCustomImageUrl = "blob:vellum/avatar-image";
+
+    const { queryByTestId } = renderState({ assistantId: "primary-assistant" });
+
+    expect(queryByTestId("takeover-backdrop")).toBeNull();
   });
 });
 
