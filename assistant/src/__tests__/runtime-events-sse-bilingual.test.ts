@@ -55,7 +55,7 @@ describe("GET /v1/events — bilingual scope query params", () => {
 
     // Publish an event scoped to that conversation — should be delivered.
     await testHub.publish(
-      buildAssistantEvent({ type: "pong" }, conversationId),
+      buildAssistantEvent({ type: "message_complete" }, conversationId),
     );
 
     const { value, done } = await reader.read();
@@ -102,9 +102,13 @@ describe("GET /v1/events — bilingual scope query params", () => {
 
     // Publish on the "key" conversation — should NOT be delivered (filter
     // is locked to idConv because conversationId wins).
-    await testHub.publish(buildAssistantEvent({ type: "pong" }, keyConv));
+    await testHub.publish(
+      buildAssistantEvent({ type: "message_complete" }, keyConv),
+    );
     // Publish on the "id" conversation — should be delivered.
-    await testHub.publish(buildAssistantEvent({ type: "pong" }, idConv));
+    await testHub.publish(
+      buildAssistantEvent({ type: "message_complete" }, idConv),
+    );
 
     const { value } = await reader.read();
     ac.abort();
