@@ -8,6 +8,10 @@
 import { z } from "zod";
 
 import { getApp } from "../../../../apps/app-store.js";
+import {
+  resolveSlackAuth,
+  runAsUserWithBotFallback,
+} from "../../../../messaging/providers/slack/auth.js";
 import { postMessage } from "../../../../messaging/providers/slack/client.js";
 import { getLogger } from "../../../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../../../auth/route-policy.js";
@@ -18,7 +22,6 @@ import {
   ServiceUnavailableError,
 } from "../../errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "../../types.js";
-import { resolveSlackToken } from "./token.js";
 
 const log = getLogger("slack-share");
 
@@ -31,8 +34,12 @@ const SlackShareResultSchema = z.object({
 export async function handleShareToSlackChannel({
   body = {},
 }: RouteHandlerArgs) {
-  const token = await resolveSlackToken("write");
-  if (!token) {
+  // Sharing is a human-initiated action, so post AS THE USER when a user token
+  // is stored — the message should read as the person who clicked Share, not
+  // as the bot. Resolve the bot auth up front to anchor the fallback and to
+  // give the "not configured" check; the actual post prefers the user token.
+  const botAuth = await resolveSlackAuth("bot");
+  if (botAuth === undefined) {
     throw new ServiceUnavailableError("No Slack token configured");
   }
 
@@ -81,9 +88,17 @@ export async function handleShareToSlackChannel({
   }
 
   try {
-    const result = await postMessage(token, channelId, fallbackText, {
-      blocks,
-    });
+    // Fall back to the bot token when the user token is revoked (401) or lacks
+    // chat:write (missing_scope) — otherwise a share would fail for an install
+    // whose user token is under-scoped even though the bot could post fine.
+    const result = await runAsUserWithBotFallback(
+      botAuth,
+      (auth) => postMessage(auth, channelId, fallbackText, { blocks }),
+      {
+        shouldFallback: (err) =>
+          err.status === 401 || err.slackError === "missing_scope",
+      },
+    );
     return {
       ok: true,
       ts: result.ts,
