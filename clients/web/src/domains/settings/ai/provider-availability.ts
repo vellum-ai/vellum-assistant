@@ -138,18 +138,29 @@ export function expandEndpointEntries(
   providers: readonly ConnectionProvider[],
   connections: ProviderConnection[],
   labelFor: (provider: ConnectionProvider) => string,
-): { value: string; label: string }[] {
-  const entries: { value: string; label: string }[] = [];
+): { value: string; label: string; meta?: string }[] {
+  const entries: { value: string; label: string; meta?: string }[] = [];
   for (const provider of providers) {
+    if (provider === VELLUM_CONNECTION_PROVIDER) {
+      entries.push({
+        value: provider,
+        label: labelFor(provider),
+        meta: "Managed",
+      });
+      continue;
+    }
     if (provider !== OPENAI_COMPATIBLE_PROVIDER) {
       entries.push({ value: provider, label: labelFor(provider) });
       continue;
     }
     for (const c of connections) {
-      if (c.provider !== OPENAI_COMPATIBLE_PROVIDER) {continue;}
+      if (c.provider !== OPENAI_COMPATIBLE_PROVIDER) {
+        continue;
+      }
       entries.push({
         value: endpointPickerValue(c.name),
         label: c.label && c.label.trim() !== "" ? c.label : c.name,
+        meta: "Custom",
       });
     }
   }

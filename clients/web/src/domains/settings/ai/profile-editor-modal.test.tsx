@@ -146,18 +146,27 @@ function dropdownTriggers(): HTMLButtonElement[] {
   );
 }
 
+/** An option row's label, excluding any right-aligned suffix meta. */
+function optionLabel(option: Element): string {
+  return (
+    option.querySelector(".truncate")?.textContent ??
+    option.textContent ??
+    ""
+  ).trim();
+}
+
 /** Open the dropdown trigger and click the option whose label matches. */
-function pickOption(trigger: HTMLButtonElement, optionLabel: string): void {
+function pickOption(trigger: HTMLButtonElement, wantedLabel: string): void {
   fireEvent.click(trigger);
   const option = Array.from(
     document.querySelectorAll<HTMLElement>('[role="option"]'),
-  ).find((o) => o.textContent?.trim() === optionLabel);
+  ).find((o) => optionLabel(o) === wantedLabel);
   if (!option) {
     throw new Error(
-      `expected option "${optionLabel}" — saw: ${Array.from(
+      `expected option "${wantedLabel}" — saw: ${Array.from(
         document.querySelectorAll('[role="option"]'),
       )
-        .map((o) => `"${o.textContent?.trim()}"`)
+        .map((o) => `"${optionLabel(o)}"`)
         .join(", ")}`,
     );
   }
@@ -189,7 +198,7 @@ function selectModel(label: string): void {
     fireEvent.click(trigger);
     const option = Array.from(
       document.querySelectorAll<HTMLElement>('[role="option"]'),
-    ).find((o) => o.textContent?.trim() === label);
+    ).find((o) => optionLabel(o) === label);
     if (option) {
       fireEvent.click(option);
       return;
@@ -424,7 +433,7 @@ describe("ProfileEditorModal create mode — provider-first", () => {
     fireEvent.click(providerTrigger());
     const optionLabels = Array.from(
       document.querySelectorAll<HTMLElement>('[role="option"]'),
-    ).map((o) => o.textContent?.trim());
+    ).map((o) => optionLabel(o));
     expect(optionLabels).toEqual(["+ Create new provider"]);
   });
 
@@ -436,7 +445,7 @@ describe("ProfileEditorModal create mode — provider-first", () => {
     fireEvent.click(providerTrigger());
     const optionLabels = Array.from(
       document.querySelectorAll<HTMLElement>('[role="option"]'),
-    ).map((o) => o.textContent?.trim());
+    ).map((o) => optionLabel(o));
     // A single Vellum entry — never the managed upstreams it routes to.
     expect(optionLabels).toEqual(["Vellum", "+ Create new provider"]);
   });
@@ -519,7 +528,7 @@ describe("ProfileEditorModal create mode — provider-first", () => {
     fireEvent.click(providerTrigger());
     const optionLabels = Array.from(
       document.querySelectorAll<HTMLElement>('[role="option"]'),
-    ).map((o) => o.textContent?.trim());
+    ).map((o) => optionLabel(o));
     expect(optionLabels).toEqual([
       "lm-studio",
       "vllm-box",
@@ -528,7 +537,7 @@ describe("ProfileEditorModal create mode — provider-first", () => {
     fireEvent.click(
       Array.from(
         document.querySelectorAll<HTMLElement>('[role="option"]'),
-      ).find((o) => o.textContent?.trim() === "lm-studio")!,
+      ).find((o) => optionLabel(o) === "lm-studio")!,
     );
     expect(document.body.textContent).not.toContain("Endpoint");
     expect(document.body.textContent).not.toContain("Connection (optional)");
@@ -677,7 +686,7 @@ describe("ProfileEditorModal create mode — provider-first", () => {
     );
 
     await waitFor(() => {
-      expect(providerTrigger().textContent?.trim()).toBe("Vellum");
+      expect(optionLabel(providerTrigger())).toBe("Vellum");
     });
     expect(document.body.textContent).not.toContain("Connection (optional)");
   });
@@ -764,7 +773,7 @@ describe("ProfileEditorModal create mode — provider-first", () => {
     // The trigger renders the ENDPOINT entry (labeled by the row name) —
     // not Vellum picker mode; the wire payload proves the distinction.
     await waitFor(() => {
-      expect(providerTrigger().textContent?.trim()).toBe("vellum");
+      expect(optionLabel(providerTrigger())).toBe("vellum");
     });
 
     await waitFor(() => {
@@ -873,7 +882,7 @@ describe("ProfileEditorModal create mode — provider-first", () => {
     fireEvent.click(providerTrigger());
     const optionLabels = Array.from(
       document.querySelectorAll<HTMLElement>('[role="option"]'),
-    ).map((o) => o.textContent?.trim());
+    ).map((o) => optionLabel(o));
     expect(optionLabels).toEqual(["Anthropic", "+ Create new provider"]);
   });
 
@@ -930,7 +939,7 @@ describe("ProfileEditorModal create mode — provider-first", () => {
 
     const optionLabels = Array.from(
       document.querySelectorAll<HTMLElement>('[role="option"]'),
-    ).map((o) => o.textContent?.trim());
+    ).map((o) => optionLabel(o));
     expect(optionLabels).toEqual(["+ Create new provider"]);
   });
 
@@ -1207,7 +1216,7 @@ describe("ProfileEditorModal edit mode — catalog-absent bound model", () => {
       fireEvent.click(trigger);
       const labels = Array.from(
         document.querySelectorAll<HTMLElement>('[role="option"]'),
-      ).map((o) => o.textContent?.trim());
+      ).map((o) => optionLabel(o));
       fireEvent.click(trigger);
       return labels;
     });
@@ -1257,7 +1266,7 @@ describe("ProfileEditorModal edit mode — catalog-absent bound model", () => {
       fireEvent.click(trigger);
       const labels = Array.from(
         document.querySelectorAll<HTMLElement>('[role="option"]'),
-      ).map((o) => o.textContent?.trim());
+      ).map((o) => optionLabel(o));
       fireEvent.click(trigger);
       return labels;
     });
@@ -1363,7 +1372,7 @@ describe("ProfileEditorModal edit mode — catalog-absent bound model", () => {
       fireEvent.click(trigger);
       const labels = Array.from(
         document.querySelectorAll<HTMLElement>('[role="option"]'),
-      ).map((o) => o.textContent?.trim());
+      ).map((o) => optionLabel(o));
       fireEvent.click(trigger);
       return labels;
     });
