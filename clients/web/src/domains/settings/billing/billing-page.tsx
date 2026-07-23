@@ -18,7 +18,6 @@ import { GracePeriodBanner } from "@/domains/settings/components/grace-period-ba
 import { InvoicesTable } from "@/domains/settings/components/invoices-table";
 import { PlanCard } from "@/domains/settings/components/plan-card";
 import { ReferralPanel } from "@/domains/settings/components/referral-panel";
-import { TierUpgradeResizeModal } from "@/domains/settings/components/tier-upgrade-resize-modal";
 import { useAssistantDomains } from "@/domains/settings/billing/pro-onboarding/use-assistant-domains";
 import {
     organizationsBillingSubscriptionOnboardingRetrieveOptions,
@@ -249,7 +248,8 @@ function BillingTab() {
                 />
             )}
             {showPlanManagement && (
-                <TierUpgradeResizeModal
+                <BillingOnboardingModal
+                    mode="resize"
                     open={resizeModalOpen}
                     onClose={() => setResizeModalOpen(false)}
                 />

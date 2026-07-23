@@ -96,6 +96,16 @@ const GLOBAL_STREAM_EVENT_TYPE_NAMES = [
   // gate them as global.
   "bookmark.created",
   "bookmark.deleted",
+  // Notification-created broadcasts and recording lifecycle instructions are not
+  // tied to the active conversation stream (they carry no top-level
+  // `conversationId`, or — for notification_conversation_created — announce a
+  // *different* conversation), so gate them as global rather than through the
+  // conversation-id filter.
+  "notification_conversation_created",
+  "recording_start",
+  "recording_stop",
+  "recording_pause",
+  "recording_resume",
 ] as const;
 
 const GLOBAL_STREAM_EVENT_TYPES: ReadonlySet<string> = new Set(

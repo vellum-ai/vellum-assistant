@@ -127,7 +127,6 @@ type SurfaceConversationContext =
   import("../conversation-surfaces.js").SurfaceConversationContext;
 type TrustContext = import("../trust-context-types.js").TrustContext;
 type ServerMessage = import("../message-protocol.js").ServerMessage;
-type SurfaceData = import("../message-protocol.js").SurfaceData;
 type SurfaceType = import("../message-protocol.js").SurfaceType;
 
 // ── Harness reset helper ───────────────────────────────────────────
@@ -166,10 +165,7 @@ function makeContext(
       string,
       { actionId: string; data?: Record<string, unknown> }
     >(),
-    surfaceState: new Map<
-      string,
-      { surfaceType: SurfaceType; data: SurfaceData; title?: string }
-    >(),
+    surfaceState: new Map(),
     surfaceUndoStacks: new Map<string, string[]>(),
     accumulatedSurfaceState: new Map<string, Record<string, unknown>>(),
     surfaceActionRequestIds: new Set<string>(),
@@ -206,7 +202,7 @@ function registerCardSurface(
 ): void {
   ctx.surfaceState.set(surfaceId, {
     surfaceType: "card",
-    data: { title: "Launch" } as unknown as SurfaceData,
+    data: { title: "Launch" },
   });
 }
 

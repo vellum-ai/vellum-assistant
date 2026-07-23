@@ -69,16 +69,33 @@ export interface PageIndexEntry {
 }
 
 /**
+ * A concept-page file the index build could not fully parse. `dropped: true`
+ * means the read threw (malformed frontmatter YAML, schema failure) and the
+ * page is absent from `entries` — completely invisible to retrieval until
+ * repaired. `dropped: false` means the page is indexed but degraded (e.g. an
+ * unterminated frontmatter fence leaves its frontmatter fields ignored).
+ */
+export interface PageParseFailure {
+  slug: string;
+  /** Concise single-line description of what failed. */
+  error: string;
+  dropped: boolean;
+}
+
+/**
  * Snapshot of the page index for one workspace. `entries` is sorted by slug
  * ASCII so IDs are deterministic across rebuilds with the same input. The
  * `bySlug` and `byId` maps are convenience lookups; `rendered` is the prompt
- * block consumed by the router.
+ * block consumed by the router. `parseFailures` lists the pages this build
+ * dropped or degraded, so consumers (the consolidation prompt) can surface
+ * them for repair.
  */
 export interface PageIndex {
   entries: PageIndexEntry[];
   bySlug: Map<string, PageIndexEntry>;
   byId: Map<number, PageIndexEntry>;
   rendered: string;
+  parseFailures: PageParseFailure[];
 }
 
 interface CachedIndex {
@@ -152,6 +169,7 @@ export async function getPageIndex(workspaceDir: string): Promise<PageIndex> {
   );
 
   const drafts: DraftEntry[] = [];
+  const parseFailures: PageParseFailure[] = [];
   for (let i = 0; i < settled.length; i++) {
     const result = settled[i];
     const slug = slugs[i];
@@ -160,10 +178,18 @@ export async function getPageIndex(workspaceDir: string): Promise<PageIndex> {
         { slug, err: result.reason },
         "Dropping concept page from index — read failed",
       );
+      parseFailures.push({
+        slug,
+        error: firstErrorLine(result.reason),
+        dropped: true,
+      });
       continue;
     }
     const { page, mtimeMs } = result.value;
     if (!page) continue;
+    if (page.parseWarning !== undefined) {
+      parseFailures.push({ slug, error: page.parseWarning, dropped: false });
+    }
     if (skillSlugs.has(slug)) {
       log.warn(
         { slug },
@@ -240,10 +266,23 @@ export async function getPageIndex(workspaceDir: string): Promise<PageIndex> {
     entries[i].edges = resolved;
   }
 
+  // Sorted by slug so downstream renderings (the consolidation repair
+  // section) are byte-stable across rebuilds — directory scan order is not.
+  parseFailures.sort((a, b) =>
+    a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0,
+  );
+
   const rendered = renderIndex(entries);
-  const index: PageIndex = { entries, bySlug, byId, rendered };
+  const index: PageIndex = { entries, bySlug, byId, rendered, parseFailures };
   cache = { workspaceDir, index };
   return index;
+}
+
+/** First line of an error's message — parse errors (YAML) are multi-line with
+ *  source excerpts; the leading line carries the diagnosis. */
+function firstErrorLine(reason: unknown): string {
+  const message = reason instanceof Error ? reason.message : String(reason);
+  return message.split("\n", 1)[0] ?? message;
 }
 
 /**
@@ -362,6 +401,9 @@ function buildLocalPageIndex(
     bySlug: localBySlug,
     byId: localById,
     rendered: renderIndex(localEntries),
+    // Parse failures are a property of the workspace build, not of a carved
+    // batch — the full index is the reporting surface.
+    parseFailures: [],
   };
 }
 
@@ -455,5 +497,6 @@ function emptyPageIndex(): PageIndex {
     bySlug: new Map(),
     byId: new Map(),
     rendered: "",
+    parseFailures: [],
   };
 }

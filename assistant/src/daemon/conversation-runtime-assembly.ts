@@ -75,12 +75,9 @@ import type { SubagentState } from "../subagent/types.js";
 import { TERMINAL_STATUSES } from "../subagent/types.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
 import { findConversationOrSubagent } from "./conversation-registry.js";
+import type { SurfaceShowPair } from "./conversation-surfaces.js";
 import { canonicalizeTimeZone, formatTurnTimestamp } from "./date-context.js";
-import type {
-  DynamicPageSurfaceData,
-  SurfaceData,
-  SurfaceType,
-} from "./message-protocol.js";
+import type {} from "./message-protocol.js";
 import { filterMessagesForUntrustedActor } from "./message-provenance.js";
 import type { TrustContext } from "./trust-context-types.js";
 import { timeLatencySubSpan } from "./turn-latency-sub-spans.js";
@@ -363,10 +360,7 @@ interface ActiveSurfaceContext {
 export function buildActiveSurfaceContext(params: {
   currentActiveSurfaceId: string | undefined;
   currentPage: string | undefined;
-  surfaceState: ReadonlyMap<
-    string,
-    { surfaceType: SurfaceType; data: SurfaceData }
-  >;
+  surfaceState: ReadonlyMap<string, SurfaceShowPair>;
 }): ActiveSurfaceContext | null {
   const { currentActiveSurfaceId, currentPage, surfaceState } = params;
   if (!currentActiveSurfaceId) {
@@ -378,7 +372,7 @@ export function buildActiveSurfaceContext(params: {
     return null;
   }
 
-  const data = stored.data as DynamicPageSurfaceData;
+  const data = stored.data;
   const activeSurface: ActiveSurfaceContext = {
     surfaceId: currentActiveSurfaceId,
     html: data.html,

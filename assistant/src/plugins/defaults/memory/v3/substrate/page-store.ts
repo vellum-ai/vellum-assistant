@@ -189,6 +189,15 @@ export function slugFromConceptPath(
 // Frontmatter parse / render
 // ---------------------------------------------------------------------------
 
+/** Matches the frontmatter fence OPENER alone. A file that matches this but
+ *  not {@link FRONTMATTER_REGEX} opens a frontmatter block that never closes. */
+const FRONTMATTER_OPENER_REGEX = /^---\r?\n/;
+
+/** Warning attached to a page whose frontmatter fence never closes. */
+const UNTERMINATED_FENCE_WARNING =
+  "frontmatter opens with --- but the closing --- fence is missing; the " +
+  "whole file is treated as body and its frontmatter fields are ignored";
+
 /**
  * Split raw file contents into (frontmatter, body). If no frontmatter block
  * is present the entire input is treated as body and an empty frontmatter
@@ -197,18 +206,26 @@ export function slugFromConceptPath(
  * silently dropped data). The schema is `.passthrough()`, so unknown keys are
  * kept rather than rejected — migrated corpora carry leaked source-page fields.
  *
+ * A file that OPENS a frontmatter fence without ever closing it also parses
+ * as body-only (a partially-visible page beats an invisible one), but carries
+ * a `parseWarning` so index-level consumers can surface it for repair.
+ *
  * The schema's defaults guarantee `edges` and `ref_files` are always arrays
  * even on freshly created pages with empty frontmatter.
  */
 function parsePageContent(raw: string): {
   frontmatter: ConceptPage["frontmatter"];
   body: string;
+  parseWarning?: string;
 } {
   const match = raw.match(FRONTMATTER_REGEX);
   if (!match) {
     return {
       frontmatter: ConceptPageFrontmatterSchema.parse({}),
       body: raw,
+      ...(FRONTMATTER_OPENER_REGEX.test(raw)
+        ? { parseWarning: UNTERMINATED_FENCE_WARNING }
+        : {}),
     };
   }
   const yamlBlock = match[1];
@@ -257,8 +274,13 @@ export async function readPage(
     }
     throw err;
   }
-  const { frontmatter, body } = parsePageContent(raw);
-  return { slug, frontmatter, body };
+  const { frontmatter, body, parseWarning } = parsePageContent(raw);
+  return {
+    slug,
+    frontmatter,
+    body,
+    ...(parseWarning !== undefined ? { parseWarning } : {}),
+  };
 }
 
 /**

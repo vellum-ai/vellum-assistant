@@ -3,7 +3,7 @@ import type { SlackStreamTask } from "@vellumai/gateway-client";
 import {
   extractThreadTsFromCallbackUrl,
   isSlackDeliveryCallbackUrl,
-} from "../channels/slack-thread-store.js";
+} from "../channels/slack-callback-url.js";
 import type { ChannelId } from "../channels/types.js";
 import {
   incompleteVellumLinkSuffixLength,

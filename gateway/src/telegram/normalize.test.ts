@@ -25,6 +25,74 @@ function makeCallbackQueryPayload(overrides?: {
   };
 }
 
+describe("normalizeTelegramUpdate — private-chat topics", () => {
+  it("maps message_thread_id to source.threadId", () => {
+    const result = normalizeTelegramUpdate({
+      update_id: 500,
+      message: {
+        message_id: 50,
+        message_thread_id: 777,
+        text: "hello topic",
+        chat: { id: 42, type: "private" },
+        from: { id: 42, first_name: "Alice" },
+      },
+    });
+
+    expect(result).not.toBeNull();
+    expect(result!.source.threadId).toBe("777");
+    expect(result!.message.content).toBe("hello topic");
+  });
+
+  it("leaves source.threadId undefined for messages outside a topic", () => {
+    const result = normalizeTelegramUpdate({
+      update_id: 501,
+      message: {
+        message_id: 51,
+        text: "plain dm",
+        chat: { id: 42, type: "private" },
+        from: { id: 42, first_name: "Alice" },
+      },
+    });
+
+    expect(result).not.toBeNull();
+    expect(result!.source.threadId).toBeUndefined();
+  });
+
+  it("maps callback_query message_thread_id to source.threadId", () => {
+    const result = normalizeTelegramUpdate({
+      update_id: 502,
+      callback_query: {
+        id: "cbq-topic",
+        from: { id: 42, first_name: "Alice" },
+        message: {
+          message_id: 52,
+          message_thread_id: 777,
+          chat: { id: 42, type: "private" },
+        },
+        data: "apr:run1:approve",
+      },
+    });
+
+    expect(result).not.toBeNull();
+    expect(result!.source.threadId).toBe("777");
+  });
+
+  it("still rejects group messages even when they carry message_thread_id", () => {
+    const result = normalizeTelegramUpdate({
+      update_id: 503,
+      message: {
+        message_id: 53,
+        message_thread_id: 777,
+        text: "forum topic message",
+        chat: { id: -100123, type: "supergroup" },
+        from: { id: 42, first_name: "Alice" },
+      },
+    });
+
+    expect(result).toBeNull();
+  });
+});
+
 describe("normalizeTelegramUpdate — callback_query DM-only guard", () => {
   it("accepts callback_query from private chat", () => {
     const result = normalizeTelegramUpdate(

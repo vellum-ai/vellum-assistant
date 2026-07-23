@@ -148,12 +148,25 @@ mock.module("@/utils/use-bundled-avatar-components", () => ({
   useBundledAvatarComponents: () => null,
 }));
 
-// Stand in for the provisioning takeover so the test can assert it was revealed
-// without driving its own resize queries.
-mock.module("@/domains/settings/components/tier-upgrade-resize-modal", () => ({
-  TierUpgradeResizeModal: ({ open }: { open: boolean }) =>
-    open ? <div data-testid="resize-takeover" /> : null,
-}));
+// Stand in for the provisioning takeover so the test can assert it was
+// revealed in resize mode without driving its own provisioning polls.
+// The full loading → "You're all set!" flow is owned by
+// billing-onboarding-modal.test.tsx's resize-mode suite.
+mock.module(
+  "@/domains/settings/billing/pro-onboarding/billing-onboarding-modal",
+  () => ({
+    BillingOnboardingModal: ({
+      open,
+      mode,
+    }: {
+      open: boolean;
+      mode?: string;
+    }) =>
+      open ? (
+        <div data-testid="resize-takeover" data-mode={mode ?? "checkout"} />
+      ) : null,
+  }),
+);
 
 // Capture success toasts so the downgrade path can assert its confirmation
 // message; keep the real module's other methods (error, etc.) intact.
@@ -556,7 +569,8 @@ describe("PlansPage — Pro package switch (change-package)", () => {
     await waitFor(() => expect(changePackageCall).not.toBeNull());
     expect(changePackageCall!.body).toEqual({ package: "ultra" });
 
-    await findByTestId("resize-takeover");
+    const takeover = await findByTestId("resize-takeover");
+    expect(takeover.getAttribute("data-mode")).toBe("resize");
     expect(getByTestId("loc").textContent).toBe("/assistant/plans");
   });
 
@@ -730,7 +744,8 @@ describe("PlansPage — Custom Pro subs switch via neutral confirm", () => {
 
     await waitFor(() => expect(changePackageCall).not.toBeNull());
     expect(changePackageCall!.body).toEqual({ package: "mighty" });
-    await findByTestId("resize-takeover");
+    const takeover = await findByTestId("resize-takeover");
+    expect(takeover.getAttribute("data-mode")).toBe("resize");
     expect(upgradeCall).toBeNull();
   });
 
@@ -902,7 +917,8 @@ describe("PlansPage — Pro custom plan (change-tier)", () => {
 
     // A machine change resizes the assistant, so the takeover opens; checkout
     // (which no-ops for active Pro) is never touched.
-    await findByTestId("resize-takeover");
+    const takeover = await findByTestId("resize-takeover");
+    expect(takeover.getAttribute("data-mode")).toBe("resize");
     expect(upgradeCall).toBeNull();
   });
 
