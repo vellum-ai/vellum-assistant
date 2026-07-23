@@ -5,6 +5,8 @@ import { WebSearchCard } from "@/domains/settings/ai/web-search-card";
 import { WebFetchCard } from "@/domains/settings/ai/web-fetch-card";
 import { EmailServiceCard } from "@/domains/settings/ai/email-service-card";
 import { ImageGenerationCard } from "@/domains/settings/ai/image-generation-card";
+import { TextToSpeechCard } from "@/domains/settings/ai/text-to-speech-card";
+import { SpeechToTextCard } from "@/domains/settings/ai/speech-to-text-card";
 import { ManagedServicesBanner } from "@/domains/settings/ai/shared-ui";
 
 // ---------------------------------------------------------------------------
@@ -30,6 +32,11 @@ export function AiPage() {
       <WebFetchCard />
       <EmailServiceCard />
       <ImageGenerationCard />
+      {/* Speech providers are BYO provider config like every other card here.
+          They used to sit behind a "Services" tab on the Voice page, where the
+          voice picker got buried under an API-key form. */}
+      <TextToSpeechCard />
+      <SpeechToTextCard />
     </div>
   );
 }

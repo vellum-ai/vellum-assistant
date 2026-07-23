@@ -89,7 +89,7 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
 }));
 
 const { VoiceList } = await import(
-  "@/domains/chat/voice/voice-room/voice-list"
+  "@/components/speech/voice-list"
 );
 
 beforeAll(() => {

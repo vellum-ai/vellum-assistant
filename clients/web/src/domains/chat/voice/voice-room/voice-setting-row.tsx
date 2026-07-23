@@ -9,15 +9,16 @@
  * first-run card swaps to its own voice view.
  *
  * Renders nothing unless managed voice selection is available (managed assistant
- * + a daemon that offers it); BYO providers choose their voice in Settings.
+ * + a daemon that offers it); BYO providers choose their voice on Settings →
+ * Models & Services.
  */
 
 import { ChevronRight } from "lucide-react";
 
 import { cn } from "@vellumai/design-library";
 
-import { useManagedVoiceSelection } from "@/domains/chat/voice/voice-room/use-managed-voice-selection";
-import { VoiceLabel } from "@/domains/chat/voice/voice-room/voice-list";
+import { useManagedVoiceSelection } from "@/components/speech/use-managed-voice-selection";
+import { VoiceLabel } from "@/components/speech/voice-list";
 
 export interface VoiceSettingRowProps {
   assistantId: string | null;

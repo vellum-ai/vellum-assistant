@@ -1,7 +1,13 @@
 import type { LucideIcon } from "lucide-react";
 import { ArrowRight, Check, Coins, Cpu, HardDrive } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { useEffect, useRef, type ReactNode } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 
 import { ChatAvatar } from "@/components/avatar/chat-avatar";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
@@ -43,6 +49,45 @@ const CHIP_BACKGROUND =
 const MAX_CHIPS_IN_ROW = 2;
 const RESOURCE_ROTATE_MS = 2500;
 
+// The takeover avatar's resting size, and how much bigger it stands once the
+// upgrade lands — the mock's 244px → 346px pair. Growth is a transform, so the
+// SVG scales without re-rendering at a second size.
+const AVATAR_SIZE = 240;
+const AVATAR_GROWTH = 1.414;
+
+// The stage reserves the grown height from first paint, so the takeover needs
+// `size * AVATAR_GROWTH + 309` of viewport before the phase block underneath —
+// which carries the escape hatch and the stalled retry — starts to clip. Step
+// the creature down instead of pushing those actions off a short screen.
+const AVATAR_SIZE_STEPS: Array<{ minHeight: number; size: number }> = [
+  { minHeight: 680, size: AVATAR_SIZE },
+  { minHeight: 600, size: 184 },
+];
+const AVATAR_SIZE_MIN = 132;
+
+function avatarSizeForHeight(height: number): number {
+  for (const step of AVATAR_SIZE_STEPS) {
+    if (height >= step.minHeight) {
+      return step.size;
+    }
+  }
+  return AVATAR_SIZE_MIN;
+}
+
+function useTakeoverAvatarSize(): number {
+  const [size, setSize] = useState(() =>
+    avatarSizeForHeight(
+      typeof window === "undefined" ? Infinity : window.innerHeight,
+    ),
+  );
+  useEffect(() => {
+    const onResize = () => setSize(avatarSizeForHeight(window.innerHeight));
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  return size;
+}
+
 const RESOURCE_CHIP_ICON: Record<ResourceChangeKey, LucideIcon> = {
   machine: Cpu,
   storage: HardDrive,
@@ -75,42 +120,97 @@ export interface ProvisioningStateProps {
 }
 
 /**
+ * What the creature is doing, derived from the phase it is rendering. One
+ * gesture at three amplitudes — a strain loop while the machine works, the
+ * same crouch-and-push at full size once it lands — so the ending reads as the
+ * rep that finally succeeded rather than an unrelated flourish.
+ *
+ * `settling` is the 30s mark, where the caption already concedes the wait. It
+ * de-escalates rather than pushing harder: the copy says settle in, so the
+ * creature does. `stalled` stops entirely, because motion that promises
+ * progress under copy that says there is none is worse than stillness.
+ */
+type AvatarMode = "idle" | "working" | "settling" | "stalled" | "grown";
+
+const AVATAR_MODE_CLASS: Record<AvatarMode, string> = {
+  idle: "",
+  working: " is-working",
+  settling: " is-settling",
+  stalled: " is-stalled",
+  grown: " is-evolved",
+};
+
+function avatarModeFor(
+  state: ProvisioningStateKind,
+  softWaiting: boolean,
+): AvatarMode {
+  if (state === "DONE" || state === "NOT_APPLICABLE") {
+    return "grown";
+  }
+  if (state === "STALLED") {
+    return "stalled";
+  }
+  if (state === "WAITING" || state === "RESIZING") {
+    return softWaiting ? "settling" : "working";
+  }
+  // CONFIRMING and CONFIRM_TIMEOUT are both waits on Stripe, not on the
+  // machine — straining there would claim work that isn't happening.
+  return "idle";
+}
+
+/**
  * The user's assistant avatar, centered and oversized as the takeover's focal
  * point. Falls back to a neutral bundled creature (and finally the "V") while
- * the avatar resolves or when none is configured. The idle breathe + reduced
- * -motion gating come from `AnimatedAvatar` inside `ChatAvatar`.
+ * the avatar resolves or when none is configured. The idle breathe, the busy
+ * body-morph and the reduced-motion gating all come from `AnimatedAvatar`
+ * inside `ChatAvatar`.
+ *
+ * On resolve it grows to `AVATAR_GROWTH` against a bottom baseline, so the
+ * creature stands taller off its shadow instead of drifting up the screen. The
+ * stage reserves the grown height from first paint. The strain loop sits on its
+ * own nesting level so it composes with the growth rather than fighting it for
+ * `transform`. The choreography lives in `.provision-avatar-*`.
  */
 function TakeoverAvatar({
   assistantId,
-  resolved,
+  mode,
 }: {
   assistantId?: string | null;
-  /** The work finished — play the one-shot settle. */
-  resolved: boolean;
+  mode: AvatarMode;
 }) {
   const activeId = useResolvedAssistantsStore.use.activeAssistantId();
   const resolvedId = assistantId ?? activeId;
   const { components, traits, customImageUrl } = useAssistantAvatar(resolvedId);
   const fallbackComponents = useBundledAvatarComponents();
+  const size = useTakeoverAvatarSize();
+  const laboring = mode === "working" || mode === "settling";
   return (
     <div
       aria-hidden
-      className={`flex flex-col items-center ${resolved ? "provision-avatar-resolved" : ""}`}
+      className={`provision-avatar-evolve flex flex-col items-center${AVATAR_MODE_CLASS[mode]}`}
+      style={
+        {
+          "--provision-avatar-size": `${size}px`,
+          "--provision-avatar-growth": AVATAR_GROWTH,
+        } as CSSProperties
+      }
     >
-      <ChatAvatar
-        components={components ?? fallbackComponents}
-        traits={traits}
-        customImageUrl={customImageUrl}
-        size={240}
-      />
-      <div
-        className="mt-1 h-5 w-64"
-        style={{
-          // Decorative avatar drop-shadow; raw rgba is conventional for a CSS shadow.
-          background:
-            "radial-gradient(ellipse at center, rgba(0, 0, 0, 0.45), transparent 70%)",
-        }}
-      />
+      <div className="provision-avatar-stage">
+        <div className="provision-avatar-layer">
+          <div className="provision-avatar-current">
+            <div className="provision-avatar-strain">
+              <ChatAvatar
+                components={components ?? fallbackComponents}
+                traits={traits}
+                customImageUrl={customImageUrl}
+                size={size}
+                isAssistantBusy={laboring}
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+      <div className="provision-avatar-shadow" />
     </div>
   );
 }
@@ -411,18 +511,23 @@ export function ProvisioningState({
   return (
     <div
       data-theme="dark"
-      className="relative flex h-full min-h-[420px] w-full flex-col items-center justify-center gap-10 px-6 py-10 text-center"
+      className="relative flex h-full min-h-[420px] w-full flex-col items-center [justify-content:safe_center] gap-10 px-6 py-10 text-center"
       style={{ backgroundColor: TAKEOVER_BACKGROUND }}
     >
-      <TakeoverAvatar assistantId={assistantId} resolved={resolved} />
+      <TakeoverAvatar
+        assistantId={assistantId}
+        mode={avatarModeFor(heldState, softWaiting)}
+      />
       {/* Keyed so each phase replays the entrance instead of swapping its copy
           in place. WAITING and RESIZING render identical copy, so they share a
           key and don't retrigger. The min-height anchors the block: phases
-          carry different chip counts, and without it the whole centred group
-          jumps as they swap. */}
+          carry different chip counts and captions, and without it the whole
+          centred group jumps as they swap — most visibly under the resolve,
+          where the shorter "All done!" copy would tug the evolving avatar up
+          mid-animation. */}
       <div
         key={phaseKey}
-        className="flex min-h-[120px] w-full flex-col items-center gap-8 [animation:onboarding-step-in_420ms_ease-out] motion-reduce:[animation:none]"
+        className="flex min-h-[144px] w-full flex-col items-center gap-8 [animation:onboarding-step-in_420ms_ease-out] motion-reduce:[animation:none]"
       >
         {renderPhase()}
       </div>

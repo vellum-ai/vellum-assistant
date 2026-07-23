@@ -310,7 +310,7 @@ export const routeTree = [
                 { path: "credentials", lazy: { Component: () => import("@/domains/settings/credentials/credentials-page").then((m) => m.CredentialsPage) } },
                 { path: "notifications", lazy: { Component: () => import("@/domains/settings/pages/notifications-page").then((m) => m.NotificationsPage) } },
                 { path: "keyboard-shortcuts", lazy: { Component: () => import("@/domains/settings/keyboard-shortcuts/keyboard-shortcuts-redirect-page").then((m) => m.KeyboardShortcutsRedirectPage) } },
-                { path: "sounds", lazy: { Component: () => import("@/domains/settings/pages/sounds-redirect-page").then((m) => m.SoundsRedirectPage) } },
+                { path: "sounds", lazy: { Component: () => import("@/domains/settings/pages/sounds-page").then((m) => m.SoundsPage) } },
                 { path: "voice", lazy: { Component: () => import("@/domains/settings/pages/voice-page").then((m) => m.VoicePage) } },
                 { path: "devices", lazy: { Component: () => import("@/domains/settings/pages/devices-redirect-page").then((m) => m.DevicesRedirectPage) } },
                 { path: "privacy", lazy: { Component: () => import("@/domains/settings/pages/privacy-page").then((m) => m.PrivacyPage) } },
