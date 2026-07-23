@@ -5,6 +5,7 @@ import { useNavigate } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
+  isCleanPin,
   PACKAGE_ORDER,
   type ProPackage,
   type SwitchRelation,
@@ -102,8 +103,8 @@ function packageFeatures(pkg: ProPackage, extra: readonly string[]): string[] {
 
 /**
  * Full-screen "View Plans" pricing takeover at `/assistant/plans`. Always dark
- * regardless of the app theme; the "Super" column flips back to light within
- * its own theme scope. Renders from the live plan catalog — with the
+ * regardless of the app theme; the recommended column flips back to light
+ * within its own theme scope. Renders from the live plan catalog — with the
  * `pro-packages` flag off the catalog is empty and the route bounces back to
  * the billing page.
  */
@@ -248,7 +249,7 @@ export function PlansPage() {
     const currentTierKey =
       subscription.plan_id === "base"
         ? "free"
-        : subscription.package && !subscription.package.customized
+        : isCleanPin(subscription.package)
           ? subscription.package.key
           : null;
 
@@ -408,8 +409,9 @@ export function PlansPage() {
         </header>
 
         {/* Shrinks the four columns to fit as the viewport narrows, reflowing
-            to two-up then one-up; `items-start` keeps each card at its content
-            height so the four-feature Super/Ultra cards stay taller. */}
+            to two-up then one-up; `items-start` keeps each card at its natural
+            content height, so the four-feature Super/Ultra columns are taller
+            than the featured Mighty column. */}
         <div className="mt-10 grid w-full max-w-[1312px] grid-cols-1 items-start gap-6 sm:grid-cols-2 lg:grid-cols-4">
           <PlanColumnCard
             tierKey="free"
@@ -446,8 +448,8 @@ export function PlansPage() {
                     : (copy?.cta ?? pkg.name)
                 }
                 features={packageFeatures(pkg, copy?.extraFeatures ?? [])}
-                mostPopular={copy?.mostPopular}
-                tone={copy?.mostPopular ? "light" : "dark"}
+                recommended={copy?.recommended}
+                tone={copy?.recommended ? "light" : "dark"}
                 isCurrent={currentTierKey === pkg.key}
                 intent={relation}
                 pending={pending || changePackagePending}
