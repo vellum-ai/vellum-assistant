@@ -135,7 +135,6 @@ export function PlansPage() {
     changeTiers,
     isPending: changeTiersPending,
     current,
-    eligible,
     currentReady,
   } = useChangeTiers({ enabled: platformReady });
   // Native iOS keeps Checkout inside an in-app sheet, so the page holds
@@ -176,35 +175,6 @@ export function PlansPage() {
       creditTier: current.creditTier,
     };
   }, [isProUser, current.machineTier, current.storageTier, current.creditTier]);
-
-  // The in-place custom editor can only faithfully represent a Pro sub whose
-  // current tiers are all live catalog options. A legacy storage tier or a
-  // deprecated credit bundle can't be shown or re-selected here — routing such
-  // a sub through the modal would force it to drop that tier — so those fall
-  // back to the adjust-plan surface (which preserves them) instead.
-  const customReconfigurable = useMemo(() => {
-    if (!isProUser || !proPlan) {
-      return false;
-    }
-    // A null baseline machine (a package with no paid machine tier) is a valid
-    // current state — represent it rather than excluding the sub from the modal.
-    const machineOk =
-      current.machineTier == null ||
-      proPlan.machine_tiers.some((t) => t.tier === current.machineTier);
-    const storageOk = proPlan.storage_tiers.some(
-      (t) => !t.legacy && t.tier === current.storageTier,
-    );
-    const creditOk =
-      current.creditTier == null ||
-      (proPlan.credit_tiers ?? []).some((t) => t.tier === current.creditTier);
-    return machineOk && storageOk && creditOk;
-  }, [
-    isProUser,
-    proPlan,
-    current.machineTier,
-    current.storageTier,
-    current.creditTier,
-  ]);
 
   // The takeover only makes sense against a platform-hosted assistant with a
   // live package catalog. Anything else — self-hosted or no platform session,
@@ -395,24 +365,10 @@ export function PlansPage() {
     };
 
     const handleConfigure = () => {
-      if (isProUser) {
-        // The current tiers that decide representability load after the page
-        // renders. While that first load is in flight, don't fall through to
-        // the manage surface — the Configure CTA is held disabled until they
-        // land (see `configureDisabled`), so this is a defensive guard.
-        if (eligible && !currentReady) {
-          return;
-        }
-        // An eligible Pro sub whose current tiers are all representable here
-        // reconfigures in the white modal. Anything else — cancelling /
-        // non-entitlement status, or a legacy/deprecated tier the modal can't
-        // show — routes to the billing manage/cancel surface, the same fallback
-        // the package CTAs use.
-        if (eligible && customReconfigurable) {
-          setCustomPlanOpen(true);
-          return;
-        }
-        navigate(`${routes.settings.usage}?tab=billing&adjust_plan`);
+      // A Pro sub's current tiers load after the page renders; the modal seeds
+      // from them, so hold the click until that first load settles (the CTA is
+      // also held disabled meanwhile — see `configureDisabled`).
+      if (isProUser && !currentReady) {
         return;
       }
       setCustomPlanOpen(true);
@@ -504,7 +460,7 @@ export function PlansPage() {
         <CustomPlanRow
           className="mt-10"
           onConfigure={handleConfigure}
-          configureDisabled={isProUser && eligible && !currentReady}
+          configureDisabled={isProUser && !currentReady}
         />
 
         <CustomPlanModal

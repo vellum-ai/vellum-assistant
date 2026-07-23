@@ -849,6 +849,72 @@ function customCatalog(): PlanListResponse {
   };
 }
 
+/**
+ * A catalog whose only 10 GB storage tier is legacy. A Pro sub sitting on it
+ * can't be represented by the (legacy-filtered) modal storage picker, yet
+ * Configure must still open the modal rather than bounce to the manage surface.
+ */
+function legacyStorageCatalog(): PlanListResponse {
+  return {
+    plans: [
+      {
+        id: "base",
+        name: "Free",
+        price_cents: 0,
+        billing_interval: "month",
+        included_features: [],
+      },
+      {
+        id: "pro",
+        name: "Pro",
+        base_lookup_key: "pro_base",
+        base_price_cents: 2000,
+        billing_interval: "month",
+        included_features: [],
+        machine_tiers: [
+          {
+            tier: "medium",
+            label: "medium",
+            price_cents: 3500,
+            lookup_key: "machine_m",
+            cpu_limit: "2.5",
+            memory_gib: 5,
+            description: "Medium machine (2.5 vCPU, 5 GiB)",
+          },
+        ],
+        storage_tiers: [
+          {
+            tier: "xs",
+            label: "10 GB",
+            storage_gib: 10,
+            price_cents: 500,
+            lookup_key: "storage_10_legacy",
+            legacy: true,
+          },
+          {
+            tier: "s",
+            label: "30 GB",
+            storage_gib: 30,
+            price_cents: 1000,
+            lookup_key: "storage_30",
+            legacy: false,
+          },
+        ],
+        credit_tiers: [
+          {
+            tier: "credits_50",
+            label: "50 credits",
+            credits_usd: 50,
+            price_cents: 5000,
+            lookup_key: "credits_50",
+          },
+        ],
+        packages: [MIGHTY, SUPER, ULTRA],
+      },
+    ],
+  };
+}
+
 function openDropdown(ariaLabel: string): void {
   const trigger = document.querySelector<HTMLButtonElement>(
     `button[role="combobox"][aria-label="${ariaLabel}"]`,
@@ -922,20 +988,49 @@ describe("PlansPage — Pro custom plan (change-tier)", () => {
     expect(upgradeCall).toBeNull();
   });
 
-  test("an ineligible (cancelling) Pro sub's Configure routes to manage", async () => {
-    const { findByRole, getByTestId, queryByText } = renderInteractive(
+  // Configure always opens the in-place custom modal for a Pro sub, whatever the
+  // sub's eligibility or tier legacy status. An ineligible or legacy-tier sub
+  // that then tries to apply a change surfaces the backend's 4xx as a toast (the
+  // modal stays open) instead of being pre-emptively bounced to the manage
+  // surface.
+  test("an ineligible (cancelling) Pro sub's Configure opens the modal, not adjust_plan", async () => {
+    const { findByRole, getByTestId, getByText } = renderInteractive(
       { ...proMightySubscription(), cancel_at_period_end: true },
       { plans: customCatalog() },
     );
 
     fireEvent.click(await findByRole("button", { name: "Configure" }));
 
-    await waitFor(() =>
-      expect(getByTestId("loc").textContent).toBe(
-        "/assistant/settings/usage?tab=billing&adjust_plan",
-      ),
+    getByText("Create a custom plan");
+    expect(getByTestId("loc").textContent).toBe("/assistant/plans");
+    expect(machineTierCall).toBeNull();
+    expect(upgradeCall).toBeNull();
+  });
+
+  test("a base user's Configure opens the custom modal (checkout path), not adjust_plan", async () => {
+    const { findByRole, getByTestId, getByText } = renderInteractive(
+      freeSubscription(),
+      { plans: customCatalog() },
     );
-    expect(queryByText("Create a custom plan")).toBeNull();
+
+    fireEvent.click(await findByRole("button", { name: "Configure" }));
+
+    getByText("Create a custom plan");
+    expect(getByTestId("loc").textContent).toBe("/assistant/plans");
+    // Checkout only fires once the modal's Continue is pressed.
+    expect(upgradeCall).toBeNull();
+  });
+
+  test("a Pro sub on a legacy storage tier's Configure opens the modal, not adjust_plan", async () => {
+    const { findByRole, getByTestId, getByText } = renderInteractive(
+      proMightySubscription(),
+      { plans: legacyStorageCatalog() },
+    );
+
+    fireEvent.click(await findByRole("button", { name: "Configure" }));
+
+    getByText("Create a custom plan");
+    expect(getByTestId("loc").textContent).toBe("/assistant/plans");
     expect(machineTierCall).toBeNull();
     expect(upgradeCall).toBeNull();
   });
