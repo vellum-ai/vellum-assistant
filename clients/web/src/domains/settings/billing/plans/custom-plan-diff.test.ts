@@ -132,19 +132,6 @@ describe("computeCustomPlanDiff — base checkout (no seed)", () => {
     expect(diff.rows.map((r) => r.key)).toEqual(["base", "storage"]);
   });
 
-  test("the legacy xl storage tier is not resolvable", () => {
-    const diff = computeCustomPlanDiff({
-      proPlan: proPlan(),
-      seed: null,
-      machineTier: "medium",
-      storageTier: "xl",
-      creditChoice: NO_EXTRA_CREDITS,
-    });
-
-    // xl is legacy → filtered out → no storage row, and its price is not added.
-    expect(diff.rows.map((r) => r.key)).toEqual(["base", "machine", "credit"]);
-  });
-
   test("selecting a non-legacy tier still resolves normally", () => {
     const diff = computeCustomPlanDiff({
       proPlan: proPlan(),
@@ -241,5 +228,57 @@ describe("computeCustomPlanDiff — seeded reconfigure", () => {
     expect(machineRow?.changed).toBe(true);
     expect(machineRow?.previousLabel).toBeUndefined();
     expect(machineRow?.label).toBe("Medium machine (2.5 vCPU, 5 GiB)");
+  });
+
+  test("a legacy seed storage tier resolves and contributes its real price", () => {
+    const diff = computeCustomPlanDiff({
+      proPlan: proPlan(),
+      // xl is a legacy tier ($60 / 250 GB) the subscriber still pays for.
+      seed: { machineTier: "medium", storageTier: "xl", creditTier: null },
+      machineTier: "medium",
+      storageTier: "s",
+      creditChoice: NO_EXTRA_CREDITS,
+    });
+
+    // The legacy seed resolves against the full catalog, so its price is in the
+    // previous total and the delta reflects it (30 GB $10 − legacy 250 GB $60).
+    expect(diff.previousTotalCents).toBe(2000 + 3500 + 6000);
+    expect(diff.deltaCents).toBe(-5000);
+    const storageRow = diff.rows.find((r) => r.key === "storage");
+    expect(storageRow?.changed).toBe(true);
+    expect(storageRow?.previousLabel).toBe("250 GB storage");
+    expect(storageRow?.label).toBe("30 GB storage");
+  });
+
+  test("removing a deprecated seed credit bundle is detected as a change", () => {
+    const diff = computeCustomPlanDiff({
+      proPlan: proPlan(),
+      // credits_100 is not present in the fixture's credit_tiers (deprecated).
+      seed: { machineTier: "medium", storageTier: "xs", creditTier: "credits_100" },
+      machineTier: "medium",
+      storageTier: "xs",
+      creditChoice: NO_EXTRA_CREDITS,
+    });
+
+    const creditRow = diff.rows.find((r) => r.key === "credit");
+    expect(creditRow?.changed).toBe(true);
+    expect(creditRow?.label).toBe("No extra credits");
+    // The deprecated bundle's price/label is absent from the catalog → omitted.
+    expect(creditRow?.previousLabel).toBeUndefined();
+  });
+
+  test("switching from a deprecated seed credit to a live bundle is a change with no previous label", () => {
+    const diff = computeCustomPlanDiff({
+      proPlan: proPlan(),
+      seed: { machineTier: "medium", storageTier: "xs", creditTier: "credits_100" },
+      machineTier: "medium",
+      storageTier: "xs",
+      creditChoice: "credits_50",
+    });
+
+    const creditRow = diff.rows.find((r) => r.key === "credit");
+    expect(creditRow?.changed).toBe(true);
+    expect(creditRow?.label).toBe("$50 of bundled credits");
+    expect(creditRow?.previousLabel).toBeUndefined();
   });
 });

@@ -64,10 +64,8 @@ function creditLabel(tier: CreditTier | null): string {
     : "No extra credits";
 }
 
-/** Normalized token so "no credits" == "no credits" reads as unchanged. */
-function creditKey(tier: CreditTier | null): string {
-  return tier ? tier.tier : "none";
-}
+/** Single "none" token for the "No extra credits" choice/seed. */
+const NO_CREDIT_KEY = "none";
 
 export function computeCustomPlanDiff(input: {
   proPlan: ProPlan;
@@ -79,9 +77,12 @@ export function computeCustomPlanDiff(input: {
   const { proPlan, seed, machineTier, storageTier, creditChoice } = input;
 
   const machineTiers = proPlan.machine_tiers;
-  // Legacy tiers stay in the catalog only for existing subscribers; a new
-  // custom configuration must not offer them as a current/new value.
-  const storageTiers = proPlan.storage_tiers.filter((t) => !t.legacy);
+  // Resolve against the FULL catalog, legacy tiers included. This helper only
+  // resolves already-chosen values into prices/labels — it never offers dropdown
+  // options — so a known tier value (e.g. a legacy current/seed storage tier a
+  // subscriber still pays for) must resolve to its real price/label. The
+  // `!legacy` option-gating lives in the modal, not here.
+  const storageTiers = proPlan.storage_tiers;
   const creditTiers = proPlan.credit_tiers ?? [];
 
   const selectedMachine =
@@ -139,12 +140,25 @@ export function computeCustomPlanDiff(input: {
   }
 
   if (creditChoice !== "") {
-    const changed =
-      seed != null && creditKey(seedCredit) !== creditKey(selectedCredit);
+    // Detect the change from the RAW seed key, not the resolved objects: a
+    // deprecated seed bundle (absent from proPlan.credit_tiers) resolves to
+    // null, which would otherwise read identically to "No extra credits" and
+    // hide the change.
+    const seedCreditKey = seed != null ? (seed.creditTier ?? NO_CREDIT_KEY) : null;
+    const selectedCreditKey =
+      creditChoice === NO_EXTRA_CREDITS ? NO_CREDIT_KEY : creditChoice;
+    const changed = seed != null && seedCreditKey !== selectedCreditKey;
     rows.push({
       key: "credit",
       label: creditLabel(selectedCredit),
-      previousLabel: changed ? creditLabel(seedCredit) : undefined,
+      // A deprecated seed bundle's price/label is absent from the catalog, so
+      // seedCredit is null and we omit previousLabel there (mirroring a
+      // null-baseline seed machine) rather than fabricate one — previousTotalCents
+      // is best-effort for that upstream-gated case.
+      previousLabel:
+        changed && (seed.creditTier == null || seedCredit != null)
+          ? creditLabel(seedCredit)
+          : undefined,
       changed,
     });
   }
