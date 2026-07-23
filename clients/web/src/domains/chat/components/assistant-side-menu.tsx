@@ -283,25 +283,6 @@ export function AssistantSideMenu({
     canReorder: !!onReorderConversations,
   };
 
-  // --- Header actions ---
-  // A plain icon button that starts a new conversation on click.
-
-  const headerActions = onStartNewConversation ? (
-    <Button
-      variant="ghost"
-      size="compact"
-      iconOnly={<SquarePen />}
-      aria-label="New Chat"
-      tooltip="New Chat"
-      tooltipSide="right"
-      className="text-[var(--content-tertiary)]"
-      onClick={() => {
-        onStartNewConversation();
-        onClose?.();
-      }}
-    />
-  ) : null;
-
   // --- Built-in navigation ---
   // Pinned apps above the built-in nav, separated by a divider. On the rail
   // this block lives in the non-scrolling header; on the overlay it renders
@@ -326,11 +307,12 @@ export function AssistantSideMenu({
           <SideMenu.Separator />
         </>
       ) : null}
-      {/* The assistant cluster: the New Chat row (plus chip + label) with
-          the avatar-colored assistant row beneath it. No divider; breathing
-          room below instead. The overlay drawer skips the New Chat row —
-          its floating New Chat pill already owns that action in the thumb
-          zone. */}
+      {/* The assistant cluster: the New Chat row (avatar-tinted, plus +
+          label; icon-only tile on the collapsed rail) with the
+          avatar-gradient assistant row beneath it. No divider when
+          expanded; breathing room below instead. The overlay drawer skips
+          the New Chat row — its floating New Chat pill already owns that
+          action in the thumb zone. */}
       <div className="mb-4">
         <AssistantNavItem
           assistantId={assistantId ?? null}
@@ -345,6 +327,9 @@ export function AssistantSideMenu({
           }
         />
       </div>
+      {/* The collapsed rail separates the cluster from the group icons
+          below it (Figma 7257:135826). */}
+      {isCollapsedRail ? <SideMenu.Separator /> : null}
     </>
   );
 
@@ -403,7 +388,6 @@ export function AssistantSideMenu({
           {variant === "overlay" ? builtInNav : null}
           {isCollapsedRail ? (
             <div className="flex flex-col items-center gap-2">
-              {headerActions}
               {sidebar.pinned.length > 0 ? (
                 <CollapsedGroupIcon
                   icon={Pin}
