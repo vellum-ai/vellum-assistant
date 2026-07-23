@@ -613,7 +613,6 @@ export {
   normalizeCopyBlockShowData,
   type OAuthConnectSurfaceData,
   OAuthConnectSurfaceDataSchema,
-  safeParseSurfaceData,
   SURFACE_DATA_SCHEMAS,
   SURFACE_TYPES,
   type SurfaceData,
