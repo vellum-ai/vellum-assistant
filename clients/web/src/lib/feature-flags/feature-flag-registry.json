@@ -372,6 +372,14 @@
       "label": "Chat Credential Reveal",
       "description": "Persist chat secret redactions as sentinel markers instead of the legacy HTML marker, enriched with the vault identity when the value byte-matches a credential revealed this turn. Also gates the `credentials reveal --for-chat` channel and the live-stream swap that replaces an echoed reveal plaintext with its sentinel before emission. Redaction itself is NOT gated: a route-proven reveal plaintext stays out of persisted rows in both modes. Client chip rendering is gated on daemon version, not on this flag.",
       "defaultEnabled": false
+    },
+    {
+      "id": "composer-secret-guard",
+      "scope": "assistant",
+      "key": "composer-secret-guard",
+      "label": "Composer Secret Guard",
+      "description": "Detect API keys/secrets typed into the chat composer and offer secure credential storage before send",
+      "defaultEnabled": false
     }
   ]
 }
