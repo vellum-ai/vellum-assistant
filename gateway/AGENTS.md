@@ -13,6 +13,17 @@ Concretely:
 
 Why: the gateway is the single point of ingress, handling TLS termination, auth, rate limiting, and routing. Exposing the daemon directly bypasses these protections and breaks the deployment model.
 
+### Provider Webhook Payload Validation
+
+Provider webhook payloads (Telegram, WhatsApp, Slack, email/Resend, …) are **untrusted external input**. Parse them with tolerant Zod schemas in the provider's `normalize.ts` (or the webhook route, where normalization is split) — never trust a blanket `as` / `as unknown as` cast off `JSON.parse`.
+
+- **Schema-first, co-located.** Define the schema inline in the module that consumes it and derive the type with `z.infer` (single source of truth). These input schemas have a single consumer, so they stay local — do **not** hoist them to `packages/gateway-client` (that package is for schemas that cross the gateway↔daemon↔web wire, e.g. the normalized `GatewayInboundEvent` output).
+- **Tolerant, not strict.** Validate each field's type but `.optional().catch(undefined)` it so a malformed field collapses rather than rejecting the whole payload; the existing downstream null-checks then drop an unprocessable message. Require only the fields the normalizer actually keys on (identity / dedup). `safeParse` at the boundary and drop-or-acknowledge malformed input **individually**, so one bad message can't crash a batch.
+- **`receivedAt` is the gateway's wall clock** (`new Date().toISOString()`), never a provider-supplied timestamp — routing an untrusted time into `new Date()` is a crash class, and receipt time is the correct semantic anyway.
+- **Preserve `raw`.** Keep the original payload verbatim on the event (`raw: payload`); only the parsed working copy is schema-shaped.
+
+Reference implementations: `telegram/normalize.ts` (plus a compile-time cross-check against the `@grammyjs/types` dev dependency), `whatsapp/normalize.ts`, and `http/routes/resend-webhook.ts`.
+
 ### Gateway-Only API Consumption
 
 All assistant API requests from clients, CLI, skills, and user-facing tooling **MUST** target gateway URLs. Never construct URLs using the daemon runtime port (`7821`) or `RUNTIME_HTTP_PORT` for external API consumption.
