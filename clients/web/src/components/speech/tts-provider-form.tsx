@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
+import { List, Pencil } from "lucide-react";
+
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import {
   configGetOptions,
@@ -424,14 +426,38 @@ export function TtsProviderForm({
   const managedVoiceSupported =
     isManaged && selectedProvider.supportsVoiceSelection;
 
+  // The catalog/custom toggle sits on the "Voice" label row (right-aligned) and
+  // reads as a link at rest — icon plus a standing underline — so it's an
+  // obvious action tied to the field, not a caption for the control below it.
   const enterCustomVoiceLink = (
     <Button
       variant="link"
       size="compact"
-      className="h-auto px-0"
+      className="h-auto gap-1 px-0 underline"
       onClick={() => setCustomModeOverride(true)}
     >
+      <Pencil className="h-3.5 w-3.5" aria-hidden />
       Enter a custom voice ID
+    </Button>
+  );
+  const chooseFromCatalogLink = (
+    <Button
+      variant="link"
+      size="compact"
+      className="h-auto gap-1 px-0 underline"
+      onClick={() => {
+        setCustomModeOverride(false);
+        // Snap a non-catalog draft back to a real catalog voice so the picker's
+        // trigger label matches the selection.
+        if (!managedVoices.some((v) => v.model === draftManagedVoice)) {
+          setDraftManagedVoice(
+            defaultManagedVoice || managedVoices[0]?.model || "",
+          );
+        }
+      }}
+    >
+      <List className="h-3.5 w-3.5" aria-hidden />
+      Choose from catalog
     </Button>
   );
 
@@ -469,61 +495,43 @@ export function TtsProviderForm({
 
       {managedVoiceSupported && (
         <div className="space-y-1">
-          <label className="block text-body-small-default text-[var(--content-tertiary)]">
-            Voice
-          </label>
+          <div className="flex items-center justify-between gap-2">
+            <label className="text-body-small-default text-[var(--content-tertiary)]">
+              Voice
+            </label>
+            {/* The toggle only appears once the catalog has resolved: from the
+                catalog it offers custom entry; from custom it offers a way back,
+                but only when there's actually a catalog to return to. */}
+            {customManagedVoice
+              ? managedVoices.length > 0 && chooseFromCatalogLink
+              : fetched && enterCustomVoiceLink}
+          </div>
           {customManagedVoice ? (
-            <>
-              {/* Free-text entry for a managed voice id outside the catalog
-                  (power users, or an id the platform serves but doesn't list). */}
-              <Input
-                type="text"
-                value={draftManagedVoice}
-                onChange={(e) => setDraftManagedVoice(e.target.value)}
-                placeholder="Enter a voice ID"
-                aria-label="Custom voice ID"
-                fullWidth
-              />
-              <Button
-                variant="link"
-                size="compact"
-                className="h-auto px-0"
-                onClick={() => {
-                  setCustomModeOverride(false);
-                  // Snap a non-catalog draft back to a real catalog voice so the
-                  // picker's trigger label matches the selection.
-                  if (!managedVoices.some((v) => v.model === draftManagedVoice)) {
-                    setDraftManagedVoice(
-                      defaultManagedVoice || managedVoices[0]?.model || "",
-                    );
-                  }
-                }}
-              >
-                Choose from catalog
-              </Button>
-            </>
+            /* Free-text entry for a managed voice id outside the catalog
+               (power users, or an id the platform serves but doesn't list). */
+            <Input
+              type="text"
+              value={draftManagedVoice}
+              onChange={(e) => setDraftManagedVoice(e.target.value)}
+              placeholder="Enter a voice ID"
+              aria-label="Custom voice ID"
+              fullWidth
+            />
           ) : selectedManagedVoice ? (
-            <>
-              {/* Collapsed select-style field that opens the shared voice list
-                  (grouped, per-row preview, provider badge). Controlled so the
-                  pick stays a draft until Save, matching the rest of this form. */}
-              <VoicePickerField
-                assistantId={assistantId}
-                value={draftManagedVoice}
-                onChange={setDraftManagedVoice}
-              />
-              {enterCustomVoiceLink}
-            </>
+            /* Collapsed select-style field that opens the shared voice list
+               (grouped, per-row preview, provider badge). Controlled so the
+               pick stays a draft until Save, matching the rest of this form. */
+            <VoicePickerField
+              assistantId={assistantId}
+              value={draftManagedVoice}
+              onChange={setDraftManagedVoice}
+            />
           ) : (
-            // Gated on `fetched` so the note never flashes while loading. Custom
-            // entry stays offered so an empty catalog isn't a dead end.
+            // Gated on `fetched` so the note never flashes while loading.
             fetched && (
-              <>
-                <p className="text-body-small-default text-[var(--content-tertiary)]">
-                  No managed voices are currently available.
-                </p>
-                {enterCustomVoiceLink}
-              </>
+              <p className="text-body-small-default text-[var(--content-tertiary)]">
+                No managed voices are currently available.
+              </p>
             )
           )}
         </div>
