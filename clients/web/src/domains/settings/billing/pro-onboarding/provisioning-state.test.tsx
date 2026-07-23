@@ -20,6 +20,8 @@ import type { ProvisioningStateProps } from "./provisioning-state";
 /** The id handed to the avatar hook, captured so the target-selection wiring
  *  can be asserted without a network fetch. */
 let avatarQueryId: string | null | undefined;
+/** Flipped per-test to hold the avatar query in flight. */
+let avatarLoading = false;
 mock.module("@/hooks/use-assistant-avatar", () => ({
   useAssistantAvatar: (assistantId: string | null) => {
     avatarQueryId = assistantId;
@@ -27,7 +29,7 @@ mock.module("@/hooks/use-assistant-avatar", () => ({
       components: null,
       traits: null,
       customImageUrl: null,
-      isLoading: false,
+      isLoading: avatarLoading,
       invalidate: () => {},
     };
   },
@@ -46,6 +48,7 @@ const { ProvisioningState } = await import("./provisioning-state");
 
 beforeEach(() => {
   avatarQueryId = undefined;
+  avatarLoading = false;
   reducedMotion = false;
   useResolvedAssistantsStore.setState({ activeAssistantId: null });
 });
@@ -504,6 +507,25 @@ describe("takeover avatar mode", () => {
       }
     });
   }
+
+  test("withholds the avatar until its query settles", () => {
+    // `components ?? fallback` synthesizes traits from the first bundled entry
+    // of each list, so drawing during the fetch shows a green blob regardless
+    // of the assistant's real avatar.
+    avatarLoading = true;
+
+    const { container } = renderState({ state: "WAITING" });
+
+    expect(container.querySelector(".provision-avatar-reveal")).toBeNull();
+    // The stage still reserves its height, so nothing moves when it arrives.
+    expect(container.querySelector(".provision-avatar-stage")).toBeTruthy();
+  });
+
+  test("reveals the avatar once the query settles", () => {
+    const { container } = renderState({ state: "WAITING" });
+
+    expect(container.querySelector(".provision-avatar-reveal")).toBeTruthy();
+  });
 
   test("steps the creature down so a short viewport keeps the actions below it", () => {
     // The stage reserves the grown height, so a full-size creature needs about

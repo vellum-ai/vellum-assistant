@@ -165,6 +165,13 @@ function avatarModeFor(
  * body-morph and the reduced-motion gating all come from `AnimatedAvatar`
  * inside `ChatAvatar`.
  *
+ * Nothing renders until the avatar query settles. `components ?? fallback`
+ * synthesizes traits from the first bundled entry of each list — a green blob —
+ * so drawing during the fetch shows a different assistant's avatar for a beat,
+ * and the takeover is the one surface that reliably mounts cold: the Stripe
+ * return is a full page load, so the fetch always loses the race. Withholding
+ * costs no layout, because the stage reserves its height from first paint.
+ *
  * On resolve it grows to `AVATAR_GROWTH` against a bottom baseline, so the
  * creature stands taller off its shadow instead of drifting up the screen. The
  * stage reserves the grown height from first paint. The strain loop sits on its
@@ -180,7 +187,8 @@ function TakeoverAvatar({
 }) {
   const activeId = useResolvedAssistantsStore.use.activeAssistantId();
   const resolvedId = assistantId ?? activeId;
-  const { components, traits, customImageUrl } = useAssistantAvatar(resolvedId);
+  const { components, traits, customImageUrl, isLoading } =
+    useAssistantAvatar(resolvedId);
   const fallbackComponents = useBundledAvatarComponents();
   const size = useTakeoverAvatarSize();
   const laboring = mode === "working" || mode === "settling";
@@ -199,13 +207,17 @@ function TakeoverAvatar({
         <div className="provision-avatar-layer">
           <div className="provision-avatar-current">
             <div className="provision-avatar-strain">
-              <ChatAvatar
-                components={components ?? fallbackComponents}
-                traits={traits}
-                customImageUrl={customImageUrl}
-                size={size}
-                isAssistantBusy={laboring}
-              />
+              {!isLoading && (
+                <div className="provision-avatar-reveal">
+                  <ChatAvatar
+                    components={components ?? fallbackComponents}
+                    traits={traits}
+                    customImageUrl={customImageUrl}
+                    size={size}
+                    isAssistantBusy={laboring}
+                  />
+                </div>
+              )}
             </div>
           </div>
         </div>

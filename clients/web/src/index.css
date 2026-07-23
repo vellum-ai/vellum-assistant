@@ -348,6 +348,24 @@ body {
   animation: provision-grow-shadow 1.1s cubic-bezier(0.36, 0.02, 0.24, 1) both;
 }
 
+/* The avatar is withheld until its query settles, so it arrives rather than
+ * swapping in over a placeholder. The stage has already reserved its height,
+ * so this fades in place with nothing moving around it. */
+@keyframes provision-avatar-reveal {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.provision-avatar-reveal {
+  animation: provision-avatar-reveal 250ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .provision-avatar-reveal {
+    animation: none;
+  }
+}
+
 /* One gesture at three amplitudes. The strain loop sits on its own nesting
  * level so it multiplies with the growth on the parent rather than fighting it
  * for `transform`; the transition is what carries it back to rest from wherever
