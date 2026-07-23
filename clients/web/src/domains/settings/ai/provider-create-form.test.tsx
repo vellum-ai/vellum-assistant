@@ -175,6 +175,17 @@ function getButton(label: string): HTMLButtonElement {
  * input mounts before a test reads or edits it. Idempotent — a no-op when the
  * section is already expanded.
  */
+/** The submit button — labeled "Add" or "Add <name>" for custom providers. */
+function getSubmitButton(): HTMLButtonElement {
+  const match = Array.from(
+    document.querySelectorAll<HTMLButtonElement>("button"),
+  ).find((b) => b.textContent?.trim().startsWith("Add"));
+  if (!match) {
+    throw new Error("expected a submit button labeled Add…");
+  }
+  return match;
+}
+
 function openAdvancedFields(): void {
   const button = Array.from(
     document.querySelectorAll<HTMLButtonElement>("button"),
@@ -303,7 +314,6 @@ describe("ProviderCreateForm submit sequence", () => {
       </ModalWrapper>,
     );
 
-    openAdvancedFields();
     expect(document.body.textContent).not.toContain(
       "openai-compatible-personal",
     );
@@ -313,7 +323,7 @@ describe("ProviderCreateForm submit sequence", () => {
       ),
     ).toBe(false);
 
-    fireEvent.click(getButton("Add"));
+    fireEvent.click(getSubmitButton());
 
     await waitFor(() => {
       expect(createConnectionCalls.length).toBe(1);
@@ -681,7 +691,8 @@ describe("ProviderCreateForm submit sequence", () => {
     });
     selectDropdownOption("Provider", "Custom provider");
 
-    fireEvent.click(getButton("Add"));
+    // The custom form's submit binds to the edited name.
+    fireEvent.click(getButton("Add My Custom Name"));
 
     await waitFor(() => {
       expect(createConnectionCalls.length).toBe(1);
@@ -707,13 +718,13 @@ describe("ProviderCreateForm submit sequence", () => {
       </ModalWrapper>,
     );
 
-    fireEvent.change(getInputByPlaceholder("https://api.example.com/v1"), {
+    fireEvent.change(getInputByPlaceholder("https://api.x.ai/v1"), {
       target: { value: "http://localhost:1234/v1" },
     });
     fireEvent.change(getInputByPlaceholder("model-1, model-2"), {
       target: { value: "my-model" },
     });
-    fireEvent.click(getButton("Add"));
+    fireEvent.click(getSubmitButton());
 
     await waitFor(() => {
       expect(createConnectionCalls.length).toBe(1);
@@ -748,7 +759,13 @@ describe("ProviderCreateForm submit sequence", () => {
     expect(internalKeyInputMounted()).toBe(false);
 
     selectDropdownOption("Provider", "Custom provider");
-    openAdvancedFields();
+    // The custom form replaces the Advanced disclosure with a top-level
+    // Name field; the internal key still never renders.
+    expect(
+      Array.from(document.querySelectorAll("button")).some(
+        (b) => b.textContent?.trim() === "Advanced",
+      ),
+    ).toBe(false);
     expect(internalKeyInputMounted()).toBe(false);
     expect(document.body.textContent).not.toContain(
       "openai-compatible-personal",

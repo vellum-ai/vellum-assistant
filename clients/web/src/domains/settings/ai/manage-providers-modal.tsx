@@ -57,6 +57,33 @@ interface ManageProvidersModalProps {
   onClose: () => void;
 }
 
+/**
+ * Card meta line for a custom provider: the endpoint host plus what it
+ * serves, e.g. "api.x.ai · 2 models" or "127.0.0.1:1234 · keyless".
+ */
+function customProviderMeta(conn: ProviderConnection): string {
+  let host = conn.baseUrl ?? "";
+  try {
+    if (conn.baseUrl) {
+      host = new URL(conn.baseUrl).host;
+    }
+  } catch {
+    // Keep the raw value when it isn't a parseable URL.
+  }
+  const parts: string[] = [];
+  if (host) {
+    parts.push(host);
+  }
+  const modelCount = conn.models?.length ?? 0;
+  if (modelCount > 0) {
+    parts.push(`${modelCount} ${modelCount === 1 ? "model" : "models"}`);
+  }
+  if (conn.auth.type === "none") {
+    parts.push("keyless");
+  }
+  return parts.join(" · ");
+}
+
 export function ManageProvidersModal({
   isOpen,
   assistantId,
@@ -398,6 +425,15 @@ function ManageProvidersModalInner({
                               </Tag>
                             )}
                       </div>
+                      {conn.provider === "openai-compatible" ? (
+                        <Typography
+                          variant="body-small-default"
+                          as="p"
+                          className="text-(--content-tertiary)"
+                        >
+                          {customProviderMeta(conn)}
+                        </Typography>
+                      ) : null}
                     </div>
 
                     {/* Actions */}

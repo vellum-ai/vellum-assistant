@@ -403,9 +403,21 @@ export function ProviderCreateForm({
         ) : null}
       </div>
 
-      {/* Base URL + Models — openai-compatible only */}
+      {/* Name + Base URL + Models — custom providers only. Name leads:
+          the user is adding "xAI", not configuring a URL. */}
       {isOpenAICompatible && (
         <>
+          <div className="space-y-1">
+            <label className="block text-body-small-default text-[var(--content-tertiary)]">
+              Name
+            </label>
+            <Input
+              value={label}
+              onChange={(e) => handleLabelChange(e.target.value)}
+              placeholder="xAI"
+              fullWidth
+            />
+          </div>
           <div className="space-y-1">
             <label className="block text-body-small-default text-[var(--content-tertiary)]">
               Base URL
@@ -413,7 +425,7 @@ export function ProviderCreateForm({
             <Input
               value={baseUrl}
               onChange={(e) => setBaseUrl(e.target.value)}
-              placeholder="https://api.example.com/v1"
+              placeholder="https://api.x.ai/v1"
               fullWidth
             />
           </div>
@@ -454,6 +466,16 @@ export function ProviderCreateForm({
         />
       )}
 
+      {isOpenAICompatible && authType === "api_key" ? (
+        <Typography
+          variant="body-small-default"
+          as="p"
+          className="text-[var(--content-tertiary)]"
+        >
+          Leave the key empty for local endpoints — they connect keyless.
+        </Typography>
+      ) : null}
+
       {/* ChatGPT Subscription OAuth — shown when auth type is oauth_subscription */}
       {authType === "oauth_subscription" && (
         <ChatgptOAuthSection
@@ -462,7 +484,7 @@ export function ProviderCreateForm({
         />
       )}
 
-      {!isChatgpt && advancedDetailsSection}
+      {!isChatgpt && !isOpenAICompatible && advancedDetailsSection}
 
       {error && (
         <Typography
@@ -488,7 +510,11 @@ export function ProviderCreateForm({
           disabled={!canSave || saving || isSavingKey}
           onClick={() => void handleSave()}
         >
-          {saving ? "Saving…" : "Add"}
+          {saving
+            ? "Saving…"
+            : isOpenAICompatible && label.trim()
+              ? `Add ${label.trim()}`
+              : "Add"}
         </Button>
       )}
     </>
