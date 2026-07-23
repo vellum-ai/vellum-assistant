@@ -30,6 +30,7 @@ import { DocumentCommentCreatedEventSchema } from "./events/document-comment-cre
 import { DocumentCommentDeletedEventSchema } from "./events/document-comment-deleted.js";
 import { DocumentCommentReopenedEventSchema } from "./events/document-comment-reopened.js";
 import { DocumentCommentResolvedEventSchema } from "./events/document-comment-resolved.js";
+import { DocumentEditorShowEventSchema } from "./events/document-editor-show.js";
 import { DocumentEditorUpdateEventSchema } from "./events/document-editor-update.js";
 import { ErrorEventSchema } from "./events/error.js";
 import { GenerationCancelledEventSchema } from "./events/generation-cancelled.js";
@@ -255,6 +256,10 @@ export {
   type DocumentCommentResolvedEvent,
   DocumentCommentResolvedEventSchema,
 } from "./events/document-comment-resolved.js";
+export {
+  type DocumentEditorShowEvent,
+  DocumentEditorShowEventSchema,
+} from "./events/document-editor-show.js";
 export {
   type DocumentEditorUpdateEvent,
   DocumentEditorUpdateEventSchema,
@@ -734,6 +739,7 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   DocumentCommentDeletedEventSchema,
   DocumentCommentReopenedEventSchema,
   DocumentCommentResolvedEventSchema,
+  DocumentEditorShowEventSchema,
   DocumentEditorUpdateEventSchema,
   ErrorEventSchema,
   GenerationCancelledEventSchema,

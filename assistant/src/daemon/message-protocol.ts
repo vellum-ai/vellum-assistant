@@ -67,10 +67,7 @@ import type {
 } from "./message-types/conversations.js";
 import type { _DiagnosticsClientMessages } from "./message-types/diagnostics.js";
 import type { _DocumentCommentsServerMessages } from "./message-types/document-comments.js";
-import type {
-  _DocumentsClientMessages,
-  _DocumentsServerMessages,
-} from "./message-types/documents.js";
+import type { _DocumentsServerMessages } from "./message-types/documents.js";
 import type { _HomeServerMessages } from "./message-types/home.js";
 import type { _HostAppControlServerMessages } from "./message-types/host-app-control.js";
 import type { _HostBashServerMessages } from "./message-types/host-bash.js";
@@ -142,7 +139,6 @@ export type ClientMessage =
   | _ComputerUseClientMessages
   | _HostBrowserClientMessages
   | _SubagentsClientMessages
-  | _DocumentsClientMessages
   | _WorkspaceClientMessages
   | _SchedulesClientMessages
   | _DiagnosticsClientMessages
