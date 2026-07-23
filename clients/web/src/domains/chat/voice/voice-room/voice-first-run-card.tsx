@@ -92,10 +92,6 @@ export function VoiceFirstRunCard({
   const assistantName = useResolvedAssistantsStore.use
     .assistants()
     .find((a) => a.id === assistantId)?.name;
-  // Managed assistants get the credits subtitle; BYO ones see no catalog here
-  // (the note below is their path), so the Vellum-credits line wouldn't apply.
-  const { available: managedVoiceAvailable } =
-    useManagedVoiceSelection(assistantId);
 
   const [view, setView] = useState<FirstRunView>("intro");
   const backToIntro = () => setView("intro");
@@ -217,53 +213,75 @@ export function VoiceFirstRunCard({
         )}
 
         {view === "settings" && (
-          <>
-            <Modal.Header>
-              <div className="flex items-center gap-2">
-                <BackButton onClick={backToIntro} />
-                <div className="flex min-w-0 flex-col">
-                  <Modal.Title className="leading-tight">Voices</Modal.Title>
-                  {managedVoiceAvailable && (
-                    <Modal.Description>
-                      {MANAGED_VOICE_CREDITS_NOTE}
-                    </Modal.Description>
-                  )}
-                </div>
-              </div>
-            </Modal.Header>
-            <Modal.Body>
-              {/* Just the voice — the one thing most people come here to change,
-                  and it hot-applies on the next reply (no Save). A provider
-                  dropdown scopes the list; it hides itself for assistants on a
-                  bring-your-own provider, leaving the footer note as their path. */}
-              <VoiceList assistantId={assistantId} filterBySource />
-            </Modal.Body>
-            {/* Mirrors the intro footer (fine print left, primary right) and is
-                always present, so the picker can flow straight into the session
-                without a size change when a voice is chosen. */}
-            <Modal.Footer className="items-center justify-between gap-3">
-              <p className="text-label-small-default text-[var(--content-tertiary)]">
-                Speech providers, transcription, and API keys live in{" "}
-                <Link
-                  to={`${routes.settings.ai}#text-to-speech`}
-                  className="text-[var(--content-secondary)] underline decoration-[var(--border-element)] underline-offset-2 hover:text-[var(--content-default)]"
-                >
-                  Models &amp; Services
-                </Link>
-                .
-              </p>
-              <Button
-                variant="primary"
-                onClick={onStart}
-                className="shrink-0"
-              >
-                Start talking
-              </Button>
-            </Modal.Footer>
-          </>
+          <VoiceSettingsView
+            assistantId={assistantId}
+            onStart={onStart}
+            onBack={backToIntro}
+          />
         )}
       </Modal.Content>
     </Modal.Root>
+  );
+}
+
+/**
+ * The "Voices" view reached from the intro's "Voice settings" link: pick the
+ * assistant's voice, then start. Split into its own component so the managed-
+ * voice query runs only when this view is open — not on the intro (which would
+ * pull the React Query graph into every first-run render).
+ */
+function VoiceSettingsView({
+  assistantId,
+  onStart,
+  onBack,
+}: {
+  assistantId: string | null;
+  onStart: () => void;
+  onBack: () => void;
+}) {
+  // Managed assistants get the credits subtitle; BYO ones see no catalog here
+  // (the footer note is their path), so the Vellum-credits line wouldn't apply.
+  const { available } = useManagedVoiceSelection(assistantId);
+
+  return (
+    <>
+      <Modal.Header>
+        <div className="flex items-center gap-2">
+          <BackButton onClick={onBack} />
+          <div className="flex min-w-0 flex-col">
+            <Modal.Title className="leading-tight">Voices</Modal.Title>
+            {available && (
+              <Modal.Description>{MANAGED_VOICE_CREDITS_NOTE}</Modal.Description>
+            )}
+          </div>
+        </div>
+      </Modal.Header>
+      <Modal.Body>
+        {/* Just the voice — the one thing most people come here to change, and
+            it hot-applies on the next reply (no Save). A provider dropdown
+            scopes the list; it hides itself for assistants on a bring-your-own
+            provider, leaving the footer note as their path. */}
+        <VoiceList assistantId={assistantId} filterBySource />
+      </Modal.Body>
+      {/* Mirrors the intro footer (fine print left, primary right) and is always
+          present, so the picker flows straight into the session without a size
+          change when a voice is chosen. */}
+      <Modal.Footer className="items-center justify-between gap-3">
+        <p className="text-label-small-default text-[var(--content-tertiary)]">
+          Speech providers, transcription, and API keys live in{" "}
+          <Link
+            to={`${routes.settings.ai}#text-to-speech`}
+            className="text-[var(--content-secondary)] underline decoration-[var(--border-element)] underline-offset-2 hover:text-[var(--content-default)]"
+          >
+            Models &amp; Services
+          </Link>
+          .
+        </p>
+        <Button variant="primary" onClick={onStart} className="shrink-0">
+          Start talking
+        </Button>
+      </Modal.Footer>
+    </>
   );
 }
 
