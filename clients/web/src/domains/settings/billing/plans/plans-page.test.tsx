@@ -335,7 +335,7 @@ function count(html: string, needle: RegExp): number {
 describe("PlansPage — full catalog render", () => {
   test("renders the headline and all four tier names", () => {
     const html = renderStatic(freeSubscription(), fullCatalog());
-    expect(html).toContain("Plans designed to empower you");
+    expect(html).toContain("Give your assistant more power");
     expect(html).toContain("Free");
     expect(html).toContain("Mighty");
     expect(html).toContain("Super");
@@ -367,7 +367,7 @@ describe("PlansPage — full catalog render", () => {
     // Free plan's baseline storage (FREE_STORAGE_GIB).
     expect(html).toContain("4 GB Storage");
     // Credits row, formatted from credits_usd.
-    expect(html).toContain("$25 in credits per month");
+    expect(html).toContain("$25 in credits included");
     // Machine "Computer" labels; a null machine_size renders "Small".
     expect(html).toContain("Small Computer");
     expect(html).toContain("Medium Computer");
@@ -448,7 +448,7 @@ describe("PlansPage — empty catalog (pro-packages flag off)", () => {
     // the pre-redirect markup is the loading spinner.
     const html = renderStatic(freeSubscription(), plansWith([]));
     expect(html).toContain("Loading plans");
-    expect(html).not.toContain("Plans designed to empower you");
+    expect(html).not.toContain("Give your assistant more power");
     expect(html).not.toContain("Mighty");
     expect(html).not.toContain("Power Up");
     expect(html).not.toContain("Custom Plan");

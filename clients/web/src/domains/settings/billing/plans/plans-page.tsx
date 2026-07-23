@@ -97,7 +97,7 @@ function packageFeatures(pkg: ProPackage, extra: readonly string[]): string[] {
   return [
     machineComputerLabel(pkg),
     `${pkg.storage_gib} GB Storage`,
-    `${formatDollars(credits * 100)} in credits per month`,
+    `${formatDollars(credits * 100)} in credits included`,
     ...extra,
   ];
 }
@@ -412,10 +412,10 @@ export function PlansPage() {
               letterSpacing: "1.2px",
             }}
           >
-            Plans designed to empower you
+            Give your assistant more power
           </h1>
           <p className="text-[20px] font-medium text-[var(--content-tertiary)]">
-            Start free. Upgrade when you actually need more.
+            Choose the level that matches how much you want it to take on.
           </p>
         </header>
 
