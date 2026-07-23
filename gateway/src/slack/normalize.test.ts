@@ -11,8 +11,6 @@ import {
   enrichNormalizedActor,
   slackBotContactNote,
   type SlackBlockActionsPayload,
-  type SlackReactionAddedEvent,
-  type SlackReactionRemovedEvent,
   type SlackDirectMessageEvent,
   type SlackChannelMessageEvent,
   type SlackAppMentionEvent,
@@ -69,7 +67,7 @@ function makeReactionAddedEvent(
     channelId: string;
     messageTs: string;
   }>,
-): SlackReactionAddedEvent {
+) {
   return {
     type: "reaction_added",
     user: overrides?.user ?? "U123",
@@ -89,7 +87,7 @@ function makeReactionRemovedEvent(
     channelId: string;
     messageTs: string;
   }>,
-): SlackReactionRemovedEvent {
+) {
   return {
     type: "reaction_removed",
     user: overrides?.user ?? "U123",
@@ -547,6 +545,91 @@ describe("normalizeSlackReactionRemoved", () => {
     expect(addResult!.event.message.externalMessageId).not.toBe(
       removeResult!.event.message.externalMessageId,
     );
+  });
+});
+
+describe("reaction event tolerant validation", () => {
+  const config = makeConfig();
+
+  it("drops a non-object payload instead of throwing", () => {
+    // The socket frame is unvalidated JSON.parse output; a scalar where an
+    // object is expected must be dropped at the boundary, not crash the batch.
+    expect(
+      normalizeSlackReactionAdded("not-an-object", "evt-x1", config),
+    ).toBeNull();
+    expect(normalizeSlackReactionAdded(null, "evt-x2", config)).toBeNull();
+    expect(normalizeSlackReactionAdded(42, "evt-x3", config)).toBeNull();
+  });
+
+  it("collapses a non-object item to undefined and drops the event", () => {
+    // A malformed `item` (here a string) is caught to undefined by the schema
+    // rather than rejecting the whole payload; the downstream null-check on
+    // `item.channel` then drops the unroutable event.
+    const result = normalizeSlackReactionAdded(
+      {
+        type: "reaction_added",
+        user: "U123",
+        reaction: "thumbsup",
+        item: "bogus",
+      },
+      "evt-x4",
+      config,
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("collapses a non-string user to undefined and drops the event", () => {
+    const result = normalizeSlackReactionAdded(
+      {
+        type: "reaction_added",
+        user: { id: "U123" },
+        reaction: "thumbsup",
+        item: { type: "message", channel: "C456", ts: "1700000000.000100" },
+      },
+      "evt-x5",
+      config,
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("collapses a malformed item field but keeps the rest of the event routable", () => {
+    // A single bad field (non-string `ts`) collapses to undefined without
+    // taking down the sibling fields; the event is dropped only because the
+    // now-missing `ts` fails the identity null-check.
+    const result = normalizeSlackReactionAdded(
+      {
+        type: "reaction_added",
+        user: "U123",
+        reaction: "thumbsup",
+        item: { type: "message", channel: "C456", ts: { nested: true } },
+      },
+      "evt-x6",
+      config,
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("preserves unknown extra keys verbatim in raw", () => {
+    // `raw` carries the original untrusted payload, not the schema-stripped
+    // working copy, so downstream consumers and debugging see it as-sent.
+    const payload = {
+      type: "reaction_added",
+      user: "U123",
+      reaction: "thumbsup",
+      item: { type: "message", channel: "C456", ts: "1700000000.000100" },
+      unexpected_field: "surprise",
+      nested_extra: { a: 1 },
+    };
+    const result = normalizeSlackReactionAdded(payload, "evt-x7", config);
+
+    expect(result).not.toBeNull();
+    expect(result!.event.raw).toEqual(payload);
+    expect(
+      (result!.event.raw as Record<string, unknown>).unexpected_field,
+    ).toBe("surprise");
   });
 });
 
