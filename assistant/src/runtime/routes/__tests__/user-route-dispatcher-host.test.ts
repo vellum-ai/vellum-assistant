@@ -22,6 +22,7 @@ interface InvokeCall {
 let hostEnabled = false;
 let invokeImpl: (call: InvokeCall) => Promise<RouteInvokeResponse>;
 const invokeCalls: InvokeCall[] = [];
+const ctorOptions: ({ invokeTimeoutMs?: number } | undefined)[] = [];
 
 class FakeTimeoutError extends Error {
   constructor(public readonly timeoutMs: number) {
@@ -35,6 +36,9 @@ mock.module("../../../routes/control.js", () => ({
 }));
 mock.module("../../../routes/route-host-client.js", () => ({
   RouteHostClient: class {
+    constructor(options?: { invokeTimeoutMs?: number }) {
+      ctorOptions.push(options);
+    }
     async invoke(params: RouteInvokeParams, body: Uint8Array | null) {
       const call = { params, body };
       invokeCalls.push(call);
@@ -75,6 +79,7 @@ beforeEach(() => {
   hostEnabled = false;
   invokeImpl = async () => jsonResponse(200, { via: "host" });
   invokeCalls.length = 0;
+  ctorOptions.length = 0;
 });
 
 afterEach(() => {
@@ -178,6 +183,17 @@ describe("UserRouteDispatcher — route host delegation", () => {
       new Request("http://localhost/v1/x/down", { method: "GET" }),
     );
     expect(res.status).toBe(503);
+  });
+
+  test("drives the host client's timeout from the dispatcher's handler timeout", async () => {
+    // The in-process and route-host paths must share one per-request deadline,
+    // so the host client's hard-kill timeout is the dispatcher's, not the
+    // client's own default.
+    new UserRouteDispatcher({ context: context() });
+    expect(ctorOptions.at(-1)?.invokeTimeoutMs).toBe(120_000);
+
+    new UserRouteDispatcher({ context: context(), handlerTimeoutMs: 5_000 });
+    expect(ctorOptions.at(-1)?.invokeTimeoutMs).toBe(5_000);
   });
 
   test("unknown route 404s without touching the host", async () => {

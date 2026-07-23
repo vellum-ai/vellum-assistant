@@ -346,10 +346,10 @@ describe("POST /v1/conversations/:id/retry", () => {
   });
 
   test("background-event anchor recorded interactive re-runs hidden but interactive", async () => {
-    // A scheduled/backgrounded-tool/remote wake ran interactive and stamped
-    // `backgroundEventInteractive: true`; the retry reproduces that mode so it
-    // keeps the approval prompts the original turn had (rather than the legacy
-    // assumption that every background event ran headless).
+    // A scheduled/backgrounded-tool/remote wake that ran with a client attached
+    // stamped `backgroundEventInteractive: true`; the retry reproduces that mode
+    // so it keeps the approval prompts the original turn had (rather than the
+    // legacy assumption that every background event ran headless).
     discardResult = {
       anchor: anchorRow({
         metadata: JSON.stringify({
@@ -379,8 +379,10 @@ describe("POST /v1/conversations/:id/retry", () => {
   });
 
   test("background-event anchor recorded non-interactive re-runs hidden AND non-interactive", async () => {
-    // A clientless/headless wake (interrupted-turn recovery, local IPC wake)
-    // stamped `backgroundEventInteractive: false`; the retry reproduces the
+    // A wake that ran non-interactive — a clientless/headless wake
+    // (interrupted-turn recovery, local IPC wake), or a scheduled wake on a
+    // cold-hydrated conversation with no client attached — stamped
+    // `backgroundEventInteractive: false`; the retry reproduces the
     // non-interactive mode so side-effecting tools resolve against trust rules
     // instead of blocking on an absent client.
     discardResult = {

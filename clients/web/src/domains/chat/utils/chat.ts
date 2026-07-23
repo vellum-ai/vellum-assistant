@@ -102,6 +102,24 @@ const GLOBAL_STREAM_EVENT_TYPE_NAMES = [
   // Skill install/enable state-change broadcast — carries no `conversationId`;
   // clients refetch their skill list on receipt.
   "skills_state_changed",
+  // Host UI-snapshot proxy instructions — carry no `conversationId`; they target
+  // the desktop client, not a conversation.
+  "host_ui_snapshot_request",
+  "host_ui_snapshot_cancel",
+  // host_browser_cancel carries no `conversationId` (only a requestId), so it
+  // must be gated as global; the other host-proxy frames carry one.
+  "host_browser_cancel",
+  // Daemon status, model catalog, and schedule-created broadcasts are not tied
+  // to the active conversation stream (assistant_status / model_info carry no or
+  // optional conversationId; schedule_conversation_created announces a *new*
+  // conversation), so gate them as global.
+  "assistant_status",
+  "model_info",
+  "schedule_conversation_created",
+  // Heartbeat alert (no conversationId) and heartbeat-created conversation
+  // (announces a *new* conversation) are app-wide, not conversation-scoped.
+  "heartbeat_alert",
+  "heartbeat_conversation_created",
   // Settings/config broadcasts (client-setting push, config.json change, sounds
   // change) carry no `conversationId` — they're app-wide, not conversation-scoped.
   "client_settings_update",

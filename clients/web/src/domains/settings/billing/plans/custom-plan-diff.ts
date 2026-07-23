@@ -21,14 +21,8 @@ import type {
 export const NO_EXTRA_CREDITS = "__none__";
 export type CreditChoice = CreditTierEnum | typeof NO_EXTRA_CREDITS;
 
-const NO_CREDITS_LABEL = "No extra credits";
-
-export interface CustomPlanSelection {
-  machineTier: MachineTierEnum;
-  storageTier: StorageTierEnum;
-  /** `null` is the explicit "No extra credits" choice. */
-  creditTier: CreditTierEnum | null;
-}
+/** Shared by the credit dropdown's sentinel option and its recap row. */
+export const NO_CREDITS_LABEL = "No extra credits";
 
 /**
  * The current Pro tiers used to pre-fill the modal. Unlike a submitted
@@ -42,7 +36,7 @@ export interface CustomPlanSeed {
   creditTier: CreditTierEnum | null;
 }
 
-interface CustomPlanDiffRow {
+export interface CustomPlanDiffRow {
   key: string;
   label: string;
   /** Present only when the dimension changed and the seed value is one the catalog can label. */
@@ -50,7 +44,7 @@ interface CustomPlanDiffRow {
   changed: boolean;
 }
 
-interface CustomPlanDiff {
+export interface CustomPlanDiff {
   totalCents: number;
   /** Null when there is no seed, or when a seed tier is absent from the catalog and so cannot be priced. */
   previousTotalCents: number | null;
@@ -79,13 +73,12 @@ export function computeCustomPlanDiff(input: {
   // subscriber still holds has to price and label even where the modal no
   // longer offers it as a choice.
   const machineTiers = proPlan.machine_tiers;
-  const storageTiers = proPlan.storage_tiers;
   const creditTiers = proPlan.credit_tiers ?? [];
 
   const selectedMachine =
     machineTiers.find((t) => t.tier === machineTier) ?? null;
   const selectedStorage =
-    storageTiers.find((t) => t.tier === storageTier) ?? null;
+    proPlan.storage_tiers.find((t) => t.tier === storageTier) ?? null;
   const selectedCredit =
     creditChoice && creditChoice !== NO_EXTRA_CREDITS
       ? (creditTiers.find((t) => t.tier === creditChoice) ?? null)
@@ -97,12 +90,18 @@ export function computeCustomPlanDiff(input: {
       : null;
   const seedStorage =
     seed != null
-      ? (storageTiers.find((t) => t.tier === seed.storageTier) ?? null)
+      ? (proPlan.storage_tiers.find((t) => t.tier === seed.storageTier) ?? null)
       : null;
   const seedCredit =
     seed != null && seed.creditTier != null
       ? (creditTiers.find((t) => t.tier === seed.creditTier) ?? null)
       : null;
+
+  // A seed tier the catalog dropped can't be labelled or priced, so its
+  // dimension reads as unchanged — matching the delta the same gap suppresses.
+  const seedMachineUnresolved =
+    seed != null && seed.machineTier != null && seedMachine == null;
+  const seedStorageUnresolved = seed != null && seedStorage == null;
 
   const rows: CustomPlanDiffRow[] = [
     {
@@ -113,7 +112,10 @@ export function computeCustomPlanDiff(input: {
   ];
 
   if (selectedMachine != null) {
-    const changed = seed != null && seedMachine?.tier !== selectedMachine.tier;
+    const changed =
+      seed != null &&
+      !seedMachineUnresolved &&
+      seedMachine?.tier !== selectedMachine.tier;
     rows.push({
       key: "machine",
       label: selectedMachine.description,
@@ -124,7 +126,10 @@ export function computeCustomPlanDiff(input: {
   }
 
   if (selectedStorage != null) {
-    const changed = seed != null && seedStorage?.tier !== selectedStorage.tier;
+    const changed =
+      seed != null &&
+      !seedStorageUnresolved &&
+      seedStorage?.tier !== selectedStorage.tier;
     rows.push({
       key: "storage",
       label: storageLabel(selectedStorage),
@@ -171,10 +176,9 @@ export function computeCustomPlanDiff(input: {
   // An unpriceable seed tier suppresses the comparison rather than implying $0.
   // A null seed machine is the baseline "Small" and legitimately costs nothing.
   const seedUnpriceable =
-    seed != null &&
-    ((seed.machineTier != null && seedMachine == null) ||
-      seedStorage == null ||
-      (seed.creditTier != null && seedCredit == null));
+    seedMachineUnresolved ||
+    seedStorageUnresolved ||
+    (seed != null && seed.creditTier != null && seedCredit == null);
 
   if (seed == null || seedUnpriceable) {
     return {

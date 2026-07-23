@@ -226,6 +226,18 @@ function fullCatalog(): PlanListResponse {
             credits_usd: 50,
             price_cents: 5000,
             lookup_key: "credits_50",
+            legacy: false,
+          },
+          {
+            // A grandfathered bundle: no longer offered, present in the catalog
+            // only because a current Pro sub still holds it. Matches MIGHTY's
+            // credit tier so a sub on it seeds the modal to a held legacy pick.
+            tier: "credits_25",
+            label: "25 credits",
+            credits_usd: 25,
+            price_cents: 2500,
+            lookup_key: "credits_25",
+            legacy: true,
           },
         ],
         packages: [MIGHTY],
@@ -812,12 +824,12 @@ describe("CustomPlanModal — eligible Pro subscriber", () => {
   });
 });
 
-describe("CustomPlanModal — Pro plan the catalog can't fully represent", () => {
-  test("a deprecated credit bundle Pro sub's Configure opens the custom-plan modal", () => {
-    // The configurator only offers live credit tiers; the sub's `credits_25`
-    // bundle is absent from the catalog. Configure still opens the modal — the
-    // seed keeps the held credit, and an apply the backend can't honor surfaces
-    // as a toast instead of the takeover pre-empting the modal.
+describe("CustomPlanModal — Pro plan holding a deprecated (legacy) credit bundle", () => {
+  // The catalog surfaces the held bundle as a `legacy: true` tier
+  // (`credits_25`) so the modal can price it. Configure opens seeded to the
+  // held credit; the recap totals it, and the dropdown shows it as the current
+  // (disabled) selection without offering it to a new configuration.
+  test("prices the held legacy bundle in the recap total and selection row", () => {
     const { getByRole, getByTestId, getByText } = renderPage(
       proMightySubscription({ selected_credit_tier: "credits_25" }),
     );
@@ -826,7 +838,69 @@ describe("CustomPlanModal — Pro plan the catalog can't fully represent", () =>
 
     getByText("Create a custom plan");
     expect(getByTestId("loc").textContent).toBe("/assistant/plans");
-    expect(machineTierCall).toBeNull();
+
+    // $20 base + $35 medium machine + $5 (10 GB) storage + $25 held credits.
+    getByText("$85/mo");
+
+    const dialog = document.querySelector('[role="dialog"]');
+    const rows = Array.from(dialog?.querySelectorAll("li") ?? []).map(
+      (li) => li.textContent?.trim() ?? "",
+    );
+    expect(rows).toEqual([
+      "Pro base plan — $20/mo",
+      "Medium machine (2.5 vCPU, 5 GiB)",
+      "10 GB storage",
+      "$25 of bundled credits",
+    ]);
+  });
+
+  test("shows the held bundle in the dropdown as the current, disabled choice", () => {
+    const { getByRole } = renderPage(
+      proMightySubscription({ selected_credit_tier: "credits_25" }),
+    );
+
+    fireEvent.click(getByRole("button", { name: "Configure" }));
+    openDropdown("Credit bundle");
+
+    // The held legacy bundle appears so the current selection is visible, but
+    // it's disabled — a new config can never pick it.
+    expect(findOption("25 credits").getAttribute("aria-disabled")).toBe("true");
+    // The live tier stays selectable.
+    expect(findOption("50 credits").getAttribute("aria-disabled")).toBe(
+      "false",
+    );
+  });
+
+  test("Continue preserves the held credit when another dimension changes", async () => {
+    const { getByRole, findByTestId } = renderPage(
+      proMightySubscription({ selected_credit_tier: "credits_25" }),
+    );
+
+    fireEvent.click(getByRole("button", { name: "Configure" }));
+    // Raise the machine but leave the held credit as seeded.
+    selectOption("Machine size", "Large machine (4 vCPU, 8 GiB)");
+    fireEvent.click(continueButton());
+
+    await waitFor(() => expect(machineTierCall).not.toBeNull());
+    expect(machineTierCall!.body).toEqual({ machine_tier: "large" });
+    // The held credit is unchanged, so it's neither re-sent nor dropped.
+    expect(creditTierCall).toBeNull();
+    expect(storageTierCall).toBeNull();
+    const takeover = await findByTestId("resize-takeover");
+    expect(takeover.getAttribute("data-mode")).toBe("resize");
+  });
+
+  test("a config not holding the legacy bundle is never offered it", () => {
+    // A base subscriber configuring from scratch only sees the live tiers — the
+    // legacy `credits_25` bundle is filtered out of the selectable options.
+    const { getByRole } = renderPage(freeSubscription());
+
+    fireEvent.click(getByRole("button", { name: "Configure" }));
+    openDropdown("Credit bundle");
+
+    const labels = optionLabels();
+    expect(labels.some((l) => l.startsWith("50 credits"))).toBe(true);
+    expect(labels.some((l) => l.startsWith("25 credits"))).toBe(false);
   });
 
   test("an untouched deprecated credit bundle is not recapped as 'No extra credits'", () => {
@@ -836,19 +910,22 @@ describe("CustomPlanModal — Pro plan the catalog can't fully represent", () =>
 
     fireEvent.click(getByRole("button", { name: "Configure" }));
 
-    // The held bundle has no catalog entry to label, so the row is omitted
-    // rather than claiming the paying subscriber has no credits.
+    // The held bundle labels its own row rather than claiming the paying
+    // subscriber has no credits, and nothing reads as changed on open.
     expect(recapRows()).toEqual([
       "Pro base plan — $20/mo",
       "Medium machine (2.5 vCPU, 5 GiB)",
       "10 GB storage",
+      "$25 of bundled credits",
     ]);
+    expect(strikethroughs()).toEqual([]);
+    expect(deltaLine()).toBeNull();
   });
 
   test("a legacy-storage Pro sub sees the held tier and can continue", () => {
     // 250 GB (xl) is legacy: no longer offered, but still what this sub pays
-    // for. The picker shows it (disabled), the recap agrees with the total, and
-    // Continue is live so an unrelated edit isn't blocked.
+    // for. The picker shows it, the recap agrees with the total, and Continue
+    // is live so an unrelated edit isn't blocked.
     const { getByRole, getByText } = renderPage(
       proMightySubscription(),
       onboarding({ selected_storage_tier: "xl", selected_storage_gib: 250 }),
@@ -868,7 +945,9 @@ describe("CustomPlanModal — Pro plan the catalog can't fully represent", () =>
     getByText("$115/mo");
   });
 
-  test("the held legacy storage tier is offered but not selectable", () => {
+  test("the held legacy storage tier stays re-selectable", () => {
+    // Every other tier is a downgrade off 250 GB, so disabling the held tier
+    // too would leave a dead dropdown the holder can never return to.
     const { getByRole } = renderPage(
       proMightySubscription(),
       onboarding({ selected_storage_tier: "xl", selected_storage_gib: 250 }),
@@ -877,7 +956,8 @@ describe("CustomPlanModal — Pro plan the catalog can't fully represent", () =>
     fireEvent.click(getByRole("button", { name: "Configure" }));
     openDropdown("Storage");
 
-    expect(findOption("250 GB").getAttribute("aria-disabled")).toBe("true");
+    expect(findOption("250 GB").getAttribute("aria-disabled")).toBe("false");
+    expect(findOption("10 GB").getAttribute("aria-disabled")).toBe("true");
   });
 
   test("a seed machine the catalog dropped hides the delta rather than inverting it", () => {

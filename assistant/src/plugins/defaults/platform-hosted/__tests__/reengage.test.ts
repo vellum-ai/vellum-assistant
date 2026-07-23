@@ -98,6 +98,11 @@ describe("platform-hosted /reengage POST", () => {
     expect(lastOptions?.conversationId).toBeUndefined();
   });
 
+  test("runs on the fast inference call site rather than the main-agent default", async () => {
+    await POST(postRequest());
+    expect(lastOptions?.callSite).toBe("inference");
+  });
+
   test("tolerates JSON wrapped in a code fence", async () => {
     fileContents =
       '```json\n{"subject": "A quick nudge", "body": "Let me know."}\n```';

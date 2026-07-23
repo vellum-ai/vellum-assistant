@@ -74,6 +74,15 @@ function proPlan(): ProPlan {
         credits_usd: 50,
         price_cents: 5000,
         lookup_key: "credits_50",
+        legacy: false,
+      },
+      {
+        tier: "credits_25",
+        label: "25 credits",
+        credits_usd: 25,
+        price_cents: 2500,
+        lookup_key: "credits_25",
+        legacy: true,
       },
     ],
     packages: [],
@@ -277,6 +286,32 @@ describe("computeCustomPlanDiff — seeded reconfigure", () => {
     expect(storageRow?.label).toBe("250 GB storage");
   });
 
+  test("a held legacy credit bundle is priced into totalCents so the total matches its row", () => {
+    // Reopening seeded to a grandfathered bundle with no change: `credits_25`
+    // is `legacy: true`, in the catalog only because this sub holds it. It has
+    // to resolve so the header total agrees with the "$25 of bundled credits"
+    // row (the modal's own selectable list drops it).
+    const diff = computeCustomPlanDiff({
+      proPlan: proPlan(),
+      seed: {
+        machineTier: "medium",
+        storageTier: "xs",
+        creditTier: "credits_25",
+      },
+      machineTier: "medium",
+      storageTier: "xs",
+      creditChoice: "credits_25",
+    });
+
+    // base $20 + medium $35 + xs $5 + legacy $25 bundle.
+    expect(diff.totalCents).toBe(2000 + 3500 + 500 + 2500);
+    expect(diff.previousTotalCents).toBe(2000 + 3500 + 500 + 2500);
+    expect(diff.deltaCents).toBe(0);
+    const creditRow = diff.rows.find((r) => r.key === "credit");
+    expect(creditRow?.label).toBe("$25 of bundled credits");
+    expect(creditRow?.changed).toBe(false);
+  });
+
   test("removing a deprecated seed credit bundle is detected as a change but suppresses the delta", () => {
     const diff = computeCustomPlanDiff({
       proPlan: proPlan(),
@@ -357,8 +392,10 @@ describe("computeCustomPlanDiff — seeded reconfigure", () => {
 
     expect(diff.previousTotalCents).toBeNull();
     expect(diff.deltaCents).toBeNull();
+    // Nothing trustworthy to compare against, so the row agrees with the
+    // suppressed delta instead of claiming a change it can't show.
     const machineRow = diff.rows.find((r) => r.key === "machine");
-    expect(machineRow?.changed).toBe(true);
+    expect(machineRow?.changed).toBe(false);
     expect(machineRow?.previousLabel).toBeUndefined();
   });
 
@@ -374,5 +411,8 @@ describe("computeCustomPlanDiff — seeded reconfigure", () => {
 
     expect(diff.previousTotalCents).toBeNull();
     expect(diff.deltaCents).toBeNull();
+    const storageRow = diff.rows.find((r) => r.key === "storage");
+    expect(storageRow?.changed).toBe(false);
+    expect(storageRow?.previousLabel).toBeUndefined();
   });
 });
