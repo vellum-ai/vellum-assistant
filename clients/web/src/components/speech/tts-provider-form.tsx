@@ -172,16 +172,34 @@ export function TtsProviderForm({
     managedVoices.find((v) => v.model === draftManagedVoice) ??
     managedVoices[0];
 
+  // Custom-voice entry: a free-text field for a managed voice id outside the
+  // curated catalog. Null override means "not yet toggled by the user" — the
+  // mode then derives from the saved config, opening custom automatically when
+  // the saved voice isn't a catalog voice so an already-custom id shows in the
+  // field instead of the picker misrepresenting it as the first catalog voice.
+  const [customModeOverride, setCustomModeOverride] = useState<boolean | null>(
+    null,
+  );
+  const serverVoiceInCatalog = managedVoices.some(
+    (v) => v.model === serverManagedVoice,
+  );
+  const customManagedVoice =
+    customModeOverride ??
+    (fetched && serverManagedVoice !== "" && !serverVoiceInCatalog);
+
   const selectedProvider = useMemo(() => {
     return providers.find((p) => p.id === draftProvider) ?? providers[0]!;
   }, [draftProvider, providers]);
 
   // Written to config only when true: never writing on an untouched default
   // keeps "unset = platform default" configs unset, and daemons that predate
-  // managed voice selection never receive a field they would silently drop.
+  // managed voice selection never receive a field they would silently drop. The
+  // non-empty guard keeps a cleared custom-voice field from PATCHing an empty
+  // model (which the daemon would treat as an unknown voice).
   const managedVoiceChanged =
     draftProvider === "vellum" &&
     selectedProvider.supportsVoiceSelection &&
+    draftManagedVoice.trim() !== "" &&
     draftManagedVoice !== serverManagedVoice;
 
   const loadProviderState = useCallback((providerId: string) => {
@@ -285,7 +303,7 @@ export function TtsProviderForm({
             }
           : {}),
         ...(managedVoiceChanged
-          ? { providers: { vellum: { model: draftManagedVoice } } }
+          ? { providers: { vellum: { model: draftManagedVoice.trim() } } }
           : {}),
       };
       if (Object.keys(ttsBody).length > 0) {
@@ -406,6 +424,16 @@ export function TtsProviderForm({
   const managedVoiceSupported =
     isManaged && selectedProvider.supportsVoiceSelection;
 
+  const enterCustomVoiceLink = (
+    <button
+      type="button"
+      className="text-body-small-default text-[var(--content-tertiary)] underline-offset-2 hover:underline"
+      onClick={() => setCustomModeOverride(true)}
+    >
+      Enter a custom voice ID
+    </button>
+  );
+
   return (
     <div className="space-y-4">
       <div className="space-y-1">
@@ -438,26 +466,65 @@ export function TtsProviderForm({
         </div>
       )}
 
-      {managedVoiceSupported && selectedManagedVoice && (
+      {managedVoiceSupported && (
         <div className="space-y-1">
           <label className="block text-body-small-default text-[var(--content-tertiary)]">
             Voice
           </label>
-          {/* Collapsed select-style field that opens the shared voice list
-              (grouped, per-row preview, provider badge). Controlled so the pick
-              stays a draft until Save, matching the rest of this form. */}
-          <VoicePickerField
-            assistantId={assistantId}
-            value={draftManagedVoice}
-            onChange={setDraftManagedVoice}
-          />
+          {customManagedVoice ? (
+            <>
+              {/* Free-text entry for a managed voice id outside the catalog
+                  (power users, or an id the platform serves but doesn't list). */}
+              <Input
+                type="text"
+                value={draftManagedVoice}
+                onChange={(e) => setDraftManagedVoice(e.target.value)}
+                placeholder="Enter a voice ID"
+                aria-label="Custom voice ID"
+                fullWidth
+              />
+              <button
+                type="button"
+                className="text-body-small-default text-[var(--content-tertiary)] underline-offset-2 hover:underline"
+                onClick={() => {
+                  setCustomModeOverride(false);
+                  // Snap a non-catalog draft back to a real catalog voice so the
+                  // picker's trigger label matches the selection.
+                  if (!managedVoices.some((v) => v.model === draftManagedVoice)) {
+                    setDraftManagedVoice(
+                      defaultManagedVoice || managedVoices[0]?.model || "",
+                    );
+                  }
+                }}
+              >
+                Choose from catalog
+              </button>
+            </>
+          ) : selectedManagedVoice ? (
+            <>
+              {/* Collapsed select-style field that opens the shared voice list
+                  (grouped, per-row preview, provider badge). Controlled so the
+                  pick stays a draft until Save, matching the rest of this form. */}
+              <VoicePickerField
+                assistantId={assistantId}
+                value={draftManagedVoice}
+                onChange={setDraftManagedVoice}
+              />
+              {enterCustomVoiceLink}
+            </>
+          ) : (
+            // Gated on `fetched` so the note never flashes while loading. Custom
+            // entry stays offered so an empty catalog isn't a dead end.
+            fetched && (
+              <>
+                <p className="text-body-small-default text-[var(--content-tertiary)]">
+                  No managed voices are currently available.
+                </p>
+                {enterCustomVoiceLink}
+              </>
+            )
+          )}
         </div>
-      )}
-      {/* Gated on `fetched` so the note never flashes while loading. */}
-      {managedVoiceSupported && fetched && !selectedManagedVoice && (
-        <p className="text-body-small-default text-[var(--content-tertiary)]">
-          No managed voices are currently available.
-        </p>
       )}
 
       {selectedProvider.supportsVoiceSelection && !isManaged && (
