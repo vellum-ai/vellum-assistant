@@ -819,7 +819,9 @@ describe("scaffold_managed_skill tool", () => {
     );
 
     expect(result.isError).toBe(true);
-    expect(result.content).toContain("vellum-eval for retrospective");
+    expect(result.content).toContain(
+      "existing regular file under /tmp/vellum-eval",
+    );
     expect(existsSync(join(TEST_DIR, "skills", "retro-copy-workspace"))).toBe(
       false,
     );

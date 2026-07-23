@@ -803,7 +803,7 @@ describe("createManagedSkill copy_from companion sources", () => {
     });
 
     expect(result.created).toBe(false);
-    expect(result.error).toContain("does not exist");
+    expect(result.error).toContain("must be an existing regular file");
     expect(existsSync(join(TEST_DIR, "skills", "copy-missing"))).toBe(false);
   });
 
@@ -818,7 +818,7 @@ describe("createManagedSkill copy_from companion sources", () => {
 
     expect(result.created).toBe(false);
     expect(result.error).toContain(
-      "must live under the workspace or the system temp dir",
+      "existing regular file under the workspace or the system temp dir",
     );
   });
 
@@ -836,7 +836,7 @@ describe("createManagedSkill copy_from companion sources", () => {
 
     expect(result.created).toBe(false);
     expect(result.error).toContain(
-      "must live under the workspace or the system temp dir",
+      "existing regular file under the workspace or the system temp dir",
     );
   });
 
@@ -872,7 +872,7 @@ describe("createManagedSkill copy_from companion sources", () => {
     // message — proving the restricted root list was used.
     const outside = validateCompanionSource("/etc/hosts", { tmpOnly: true });
     expect(outside.error).toContain(
-      "/tmp/vellum-eval for retrospective scaffolds",
+      "existing regular file under /tmp/vellum-eval",
     );
 
     const outsideDefault = validateCompanionSource("/etc/hosts");
@@ -885,7 +885,7 @@ describe("createManagedSkill copy_from companion sources", () => {
 
     const result = validateCompanionSource(sourcePath, { tmpOnly: true });
     expect(result.error).toContain(
-      "/tmp/vellum-eval for retrospective scaffolds",
+      "existing regular file under /tmp/vellum-eval",
     );
   });
 
@@ -946,7 +946,7 @@ describe("createManagedSkill copy_from companion sources", () => {
     expect(result.error).toContain("denied filename");
   });
 
-  test("rejects a symlink resolving to a denied basename", () => {
+  test("rejects a symlink resolving to a denied basename with the generic message", () => {
     const keyPath = join(TEST_DIR, ".backup.key");
     writeFileSync(keyPath, "secret", "utf-8");
     const linkPath = join(TEST_DIR, "looks-fine.txt");
@@ -961,7 +961,8 @@ describe("createManagedSkill copy_from companion sources", () => {
     });
 
     expect(result.created).toBe(false);
-    expect(result.error).toContain("denied filename");
+    // Deliberately generic: a distinct error would reveal the link's target.
+    expect(result.error).toContain("must be an existing regular file");
   });
 
   test("rejects a directory source", () => {
@@ -977,7 +978,7 @@ describe("createManagedSkill copy_from companion sources", () => {
     });
 
     expect(result.created).toBe(false);
-    expect(result.error).toContain("not a regular file");
+    expect(result.error).toContain("must be an existing regular file");
   });
 
   test("copy_from still cannot target a reserved destination", () => {

@@ -193,20 +193,32 @@ export function validateCompanionSource(
       error: `copy_from source must be an absolute path: "${sourcePath}"`,
     };
   }
+  // Every disk-derived failure past this point returns this ONE message.
+  // Distinguishing missing / out-of-bounds / denied-by-realpath / non-file
+  // would hand the shell-less, prompt-injectable retrospective a host-file
+  // existence oracle: inject candidate paths, read which error comes back.
+  const genericError = opts.tmpOnly
+    ? `copy_from source must be an existing regular file under ${RETRO_COPY_SOURCE_DIR}: "${sourcePath}"`
+    : `copy_from source must be an existing regular file under the workspace or the system temp dir: "${sourcePath}"`;
+  // Lexical denylist check (path-policy.ts) on the submitted path — this leaks
+  // nothing (it derives from the input alone). Key-material basenames are
+  // unreadable even inside the workspace boundary, so a copy must not become a
+  // side door.
+  if (isDeniedBasename(sourcePath)) {
+    return {
+      error: `copy_from source is a denied filename: "${sourcePath}"`,
+    };
+  }
   let realSource: string;
   try {
     realSource = realpathSync(sourcePath);
   } catch {
-    return { error: `copy_from source does not exist: "${sourcePath}"` };
+    return { error: genericError };
   }
-  // Shared filesystem denylist (path-policy.ts): key-material basenames are
-  // unreadable even inside the workspace boundary, so a copy must not become a
-  // side door. Check both the submitted path and its realpath so neither a
-  // direct name nor a symlink to a denied name slips through.
-  if (isDeniedBasename(sourcePath) || isDeniedBasename(realSource)) {
-    return {
-      error: `copy_from source is a denied filename: "${sourcePath}"`,
-    };
+  // Realpath-side denylist: a symlink to a denied name must fail, but with the
+  // generic message — a distinct error would reveal what the link points at.
+  if (isDeniedBasename(realSource)) {
+    return { error: genericError };
   }
   // Literal /tmp is allowed alongside os.tmpdir(): on macOS tmpdir() is the
   // per-user /var/folders/... path, but the documented snippet-testing
@@ -229,9 +241,7 @@ export function validateCompanionSource(
       relToWorkspace === "" ||
       (!relToWorkspace.startsWith("..") && !isAbsolute(relToWorkspace))
     ) {
-      return {
-        error: `copy_from source must live under ${RETRO_COPY_SOURCE_DIR} for retrospective scaffolds: "${sourcePath}"`,
-      };
+      return { error: genericError };
     }
   }
   // tmpOnly narrows the roots to the Vellum-owned snippet-eval convention dir
@@ -259,15 +269,11 @@ export function validateCompanionSource(
     return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel);
   });
   if (!underAllowedRoot) {
-    return {
-      error: opts.tmpOnly
-        ? `copy_from source must live under ${RETRO_COPY_SOURCE_DIR} for retrospective scaffolds: "${sourcePath}"`
-        : `copy_from source must live under the workspace or the system temp dir: "${sourcePath}"`,
-    };
+    return { error: genericError };
   }
   const stat = statSync(realSource);
   if (!stat.isFile()) {
-    return { error: `copy_from source is not a regular file: "${sourcePath}"` };
+    return { error: genericError };
   }
   if (stat.size > MAX_COMPANION_SOURCE_BYTES) {
     return {
