@@ -103,16 +103,10 @@ const whatsAppMessageSchema = z.discriminatedUnion("type", [
 ]);
 type WhatsAppMessage = z.infer<typeof whatsAppMessageSchema>;
 
-/** The message types this normalizer produces events for. */
-const HANDLED_MESSAGE_TYPES = new Set([
-  "text",
-  "interactive",
-  "image",
-  "video",
-  "audio",
-  "document",
-  "sticker",
-]);
+/** The message types this normalizer produces events for, from the union above. */
+const HANDLED_MESSAGE_TYPES: ReadonlySet<string> = new Set(
+  whatsAppMessageSchema.options.map((option) => option.shape.type.value),
+);
 
 const contactSchema = z.object({
   profile: z.object({ name: optionalString() }).optional().catch(undefined),
