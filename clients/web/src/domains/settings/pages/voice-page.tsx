@@ -148,7 +148,7 @@ function SpeechServicesBanner() {
         Want to use your own API key for STT or TTS, or set a custom voice?
       </span>
       <Link
-        to={routes.settings.ai}
+        to={`${routes.settings.ai}#text-to-speech`}
         className="inline-flex items-center gap-1 text-[var(--content-secondary)] underline decoration-[var(--border-element)] underline-offset-2 hover:text-[var(--content-default)]"
       >
         Set it up in Models &amp; Services
