@@ -8,20 +8,15 @@
  * focused on orchestration.
  */
 import {
-  clearThreadTs,
-  extractChannelFromCallbackUrl,
   extractMessageTsFromCallbackUrl,
   extractThreadTsFromCallbackUrl,
   isSlackDeliveryCallbackUrl,
-  peekThreadMapping,
-  setThreadTs,
 } from "../../../channels/slack-thread-store.js";
 import type { ChannelId, InterfaceId } from "../../../channels/types.js";
 import {
   getGuardianDelivery,
   guardianForChannel,
 } from "../../../contacts/guardian-delivery-reader.js";
-import { CONVERSATION_BUSY_MESSAGE } from "../../../daemon/conversation-messaging.js";
 import type { ServerMessage } from "../../../daemon/message-protocol.js";
 import type { TrustContext } from "../../../daemon/trust-context-types.js";
 import {
@@ -196,37 +191,6 @@ export function processChannelMessageInBackground(
         })
       : undefined;
 
-    // Align the Slack thread mapping with this turn's inbound state:
-    // set it when the inbound arrived in a thread, clear it when the
-    // inbound arrived at the channel root. `getThreadTs` is consulted
-    // at outbound-persistence time, so the mapping must reflect the
-    // current turn — a lingering mapping from a prior thread turn
-    // would otherwise be stamped onto a channel-root reply.
-    //
-    // The update must happen BEFORE `processMessage` runs because outbound
-    // persistence (inside the agent loop) reads the mapping. But if a prior
-    // threaded turn is still in flight, our `processMessage` call will be
-    // rejected as already-processing and our update would erase that
-    // in-flight turn's mapping. Snapshot the prior state here and restore
-    // it in the `already processing` rejection path below.
-    let priorSlackMapping: {
-      threadTs: string;
-      channelId: string;
-    } | null = null;
-    let slackMappingMutated = false;
-    if (sourceChannel === "slack" && replyCallbackUrl) {
-      priorSlackMapping = peekThreadMapping(conversationId);
-      const inboundThreadTs = extractThreadTsFromCallbackUrl(replyCallbackUrl);
-      const inboundChannel = extractChannelFromCallbackUrl(replyCallbackUrl);
-      if (inboundThreadTs && inboundChannel) {
-        setThreadTs(conversationId, inboundChannel, inboundThreadTs);
-        slackMappingMutated = true;
-      } else {
-        clearThreadTs(conversationId);
-        slackMappingMutated = true;
-      }
-    }
-
     try {
       const cmdIntent =
         commandIntent && typeof commandIntent.type === "string"
@@ -297,27 +261,6 @@ export function processChannelMessageInBackground(
           storeReplyMessageId(eventId, replyMessageId);
         }
       } catch (err) {
-        // When another turn is already processing this conversation,
-        // `prepareConversationForMessage` throws before any of this turn's
-        // work runs. Our pre-await mapping update would otherwise stomp the
-        // in-flight turn's mapping, causing its outbound persistence to
-        // record `slackMeta` with the wrong (or missing) `threadTs`. Restore
-        // the snapshot so the in-flight turn sees the mapping it installed.
-        if (
-          slackMappingMutated &&
-          err instanceof Error &&
-          err.message.includes(CONVERSATION_BUSY_MESSAGE)
-        ) {
-          if (priorSlackMapping) {
-            setThreadTs(
-              conversationId,
-              priorSlackMapping.channelId,
-              priorSlackMapping.threadTs,
-            );
-          } else {
-            clearThreadTs(conversationId);
-          }
-        }
         log.error(
           { err, conversationId },
           "Background channel message processing failed",

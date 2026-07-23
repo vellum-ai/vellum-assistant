@@ -11,7 +11,6 @@ import type pino from "pino";
 import { v4 as uuid } from "uuid";
 
 import type { AgentEvent } from "../agent/loop.js";
-import { getThreadTs } from "../channels/slack-thread-store.js";
 import type {
   TurnChannelContext,
   TurnInterfaceContext,
@@ -23,6 +22,7 @@ import { stripInjectionsForCompaction } from "../context/strip-injections.js";
 import { getCalibrationProviderKey } from "../context/token-estimator.js";
 import {
   formatSlackTimezoneLabel,
+  isSlackTs,
   type SlackMessageMetadata,
   writeSlackMetadata,
 } from "../messaging/providers/slack/message-metadata.js";
@@ -43,6 +43,7 @@ import {
   updateMessageContent,
 } from "../persistence/conversation-crud.js";
 import { syncMessageToDisk } from "../persistence/conversation-disk-view.js";
+import { getBindingByConversation } from "../persistence/external-conversation-store.js";
 import { enqueueLexicalIndexForMessage } from "../persistence/job-handlers/message-lexical.js";
 import {
   backfillMessageIdOnLogs,
@@ -1261,7 +1262,15 @@ function buildAssistantChannelMetadata(
   if (deps.turnChannelContext.assistantMessageChannel === "slack") {
     const channelId = deps.ctx.trustContext?.requesterChatId;
     if (channelId) {
-      const threadTs = getThreadTs(deps.ctx.conversationId);
+      // Resolve the reply thread from the durable conversation binding
+      // (per-thread-scoped, written on every inbound Slack thread turn), the
+      // same source the approval-card link path reads.
+      const binding = getBindingByConversation(deps.ctx.conversationId);
+      const threadTs =
+        binding?.sourceChannel === "slack" &&
+        isSlackTs(binding.externalThreadId)
+          ? binding.externalThreadId
+          : undefined;
       const timestampTimezone = resolveAssistantReplyTimestampTimezone(
         deps.ctx,
       );

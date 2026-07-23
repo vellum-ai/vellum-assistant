@@ -150,10 +150,21 @@ mock.module("../persistence/attachments-store.js", () => ({
   getAttachmentMetadataForMessage: () => [],
 }));
 
+// Controllable Slack binding for the `getBindingByConversation` read in
+// `buildAssistantChannelMetadata`, which resolves the reply threadTs from the
+// durable conversation binding. Each test sets the shape it needs.
+let mockSlackBinding: {
+  sourceChannel: string;
+  externalChatId: string;
+  externalThreadId: string | null;
+} | null = null;
+mock.module("../persistence/external-conversation-store.js", () => ({
+  getBindingByConversation: () => mockSlackBinding,
+}));
+
 // ── Imports (after mocks) ──────────────────────────────────────────────────
 
 import type { AgentEvent } from "../agent/loop.js";
-import { clearThreadTs, setThreadTs } from "../channels/slack-thread-store.js";
 import type {
   EventHandlerDeps,
   EventHandlerState,
@@ -245,6 +256,7 @@ describe("outbound assistant Slack metadata persistence", () => {
   beforeEach(() => {
     addMessageCalls.length = 0;
     persistedRows.length = 0;
+    mockSlackBinding = null;
     setConfig("ui", {});
     nextDeliveryTs = null;
     state = createEventHandlerState();
@@ -260,9 +272,13 @@ describe("outbound assistant Slack metadata persistence", () => {
   test("stamps slackMeta with threadTs when the conversation has a Slack thread mapping", async () => {
     const conversationId = "conv-slack-threaded";
     const channelId = "C123CHANNEL";
-    // Seed an in-memory Slack thread mapping (mirrors the inbound path that
-    // calls setThreadTs when a thread_ts arrives).
-    setThreadTs(conversationId, channelId, "1234.5678");
+    // Seed a Slack thread binding (mirrors the inbound path that records
+    // externalThreadId on the conversation's binding when a thread_ts arrives).
+    mockSlackBinding = {
+      sourceChannel: "slack",
+      externalChatId: channelId,
+      externalThreadId: "1234.5678",
+    };
 
     const deps = makeDeps(conversationId, {
       assistantMessageChannel: "slack",
@@ -398,8 +414,8 @@ describe("outbound assistant Slack metadata persistence", () => {
   test("stamps slackMeta WITHOUT threadTs for top-level Slack replies", async () => {
     const conversationId = "conv-slack-toplevel";
     const channelId = "C456NOTHREAD";
-    // No setThreadTs() call — the conversation has no thread mapping, so
-    // the assistant's reply targets the channel root, not a thread.
+    // No binding for this conversation (mockSlackBinding stays null), so the
+    // assistant's reply targets the channel root, not a thread.
 
     const deps = makeDeps(conversationId, {
       assistantMessageChannel: "slack",
@@ -425,13 +441,16 @@ describe("outbound assistant Slack metadata persistence", () => {
     expect(slackMeta.channelTs).toBeUndefined();
   });
 
-  test("does NOT stamp a stale threadTs after the mapping is cleared", async () => {
+  test("does NOT stamp a threadTs when the binding has no thread (channel-root reply)", async () => {
     const conversationId = "conv-slack-cleared";
     const channelId = "C789CLEARED";
-    // Simulate an earlier threaded turn that seeded the mapping, followed
-    // by a channel-root turn whose inbound path cleared it.
-    setThreadTs(conversationId, channelId, "1111.2222");
-    clearThreadTs(conversationId);
+    // A channel-root turn resolves to a thread-less binding (externalThreadId
+    // null), so no threadTs is stamped onto the reply.
+    mockSlackBinding = {
+      sourceChannel: "slack",
+      externalChatId: channelId,
+      externalThreadId: null,
+    };
 
     const deps = makeDeps(conversationId, {
       assistantMessageChannel: "slack",
