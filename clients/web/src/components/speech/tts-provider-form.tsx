@@ -500,11 +500,6 @@ export function TtsProviderForm({
             options={managedVoiceOptions}
             aria-label="Managed voice"
           />
-          <p className="text-body-small-default text-[var(--content-tertiary)]">
-            Voice by{" "}
-            {MANAGED_VOICE_SOURCE_LABELS[selectedManagedVoice.source] ??
-              selectedManagedVoice.source}
-          </p>
         </div>
       )}
       {/* Gated on `fetched` so the note never flashes while loading. */}
