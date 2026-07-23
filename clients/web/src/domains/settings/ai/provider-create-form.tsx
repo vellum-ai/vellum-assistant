@@ -371,11 +371,36 @@ export function ProviderCreateForm({
             // Credential ref changes above trigger a new TQ query key,
             // so the presence check auto-refetches for the new provider.
           }}
-          options={connectionProviderOptions.map((p) => ({
-            value: p,
-            label: PROVIDER_DISPLAY_NAMES[p],
-          }))}
+          options={[
+            // Catalog providers first; the custom-provider entry closes the
+            // list. "OpenAI-compatible" is the protocol a custom provider
+            // must speak, not the provider's identity.
+            ...connectionProviderOptions
+              .filter((p) => p !== "openai-compatible")
+              .map((p) => ({
+                value: p,
+                label: PROVIDER_DISPLAY_NAMES[p],
+              })),
+            ...(connectionProviderOptions.includes("openai-compatible")
+              ? [
+                  {
+                    value: "openai-compatible" as ConnectionProvider,
+                    label: "Custom provider",
+                  },
+                ]
+              : []),
+          ]}
         />
+        {isOpenAICompatible ? (
+          <Typography
+            variant="body-small-default"
+            as="p"
+            className="text-[var(--content-tertiary)]"
+          >
+            Custom providers connect to any endpoint that serves the
+            OpenAI-compatible API — xAI, Groq, LM Studio, vLLM, and similar.
+          </Typography>
+        ) : null}
       </div>
 
       {/* Base URL + Models — openai-compatible only */}

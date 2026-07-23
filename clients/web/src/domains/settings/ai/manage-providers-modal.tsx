@@ -387,6 +387,16 @@ function ManageProvidersModalInner({
                             Default
                           </Tag>
                         )}
+                        {conn.provider === VELLUM_CONNECTION_PROVIDER
+                          ? null
+                          : conn.provider === "openai-compatible" && (
+                              <Tag
+                                tone="neutral"
+                                title="A provider you created — served by an OpenAI-compatible endpoint."
+                              >
+                                Custom
+                              </Tag>
+                            )}
                       </div>
                     </div>
 

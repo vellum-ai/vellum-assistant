@@ -679,7 +679,7 @@ describe("ProviderCreateForm submit sequence", () => {
     fireEvent.change(getInputByPlaceholder("e.g. My Anthropic Key"), {
       target: { value: "My Custom Name" },
     });
-    selectDropdownOption("Provider", "OpenAI-compatible");
+    selectDropdownOption("Provider", "Custom provider");
 
     fireEvent.click(getButton("Add"));
 
@@ -747,7 +747,7 @@ describe("ProviderCreateForm submit sequence", () => {
     openAdvancedFields();
     expect(internalKeyInputMounted()).toBe(false);
 
-    selectDropdownOption("Provider", "OpenAI-compatible");
+    selectDropdownOption("Provider", "Custom provider");
     openAdvancedFields();
     expect(internalKeyInputMounted()).toBe(false);
     expect(document.body.textContent).not.toContain(
