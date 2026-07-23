@@ -118,7 +118,7 @@ mock.module("@/utils/use-bundled-avatar-components", () => ({
 // Stand in for the provisioning takeover so a Pro tier change can assert it was
 // revealed in resize mode without driving its own provisioning polls. The full
 // loading → "You're all set!" flow is owned by
-// billing-onboarding-modal.test.tsx's resize-mode suite (PR 1).
+// billing-onboarding-modal.test.tsx's resize-mode suite.
 mock.module(
   "@/domains/settings/billing/pro-onboarding/billing-onboarding-modal",
   () => ({
