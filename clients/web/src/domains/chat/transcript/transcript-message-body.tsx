@@ -15,7 +15,10 @@ import { resolveAttachmentFilename } from "@vellumai/service-contracts/attachmen
 import { downloadAttachment } from "@/domains/chat/components/chat-attachments/download-attachment";
 import { MessageAttachments } from "@/domains/chat/components/chat-attachments/message-attachments";
 import { ToolResultImages } from "@/domains/chat/components/chat-attachments/tool-result-images";
-import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
+import {
+  ChatMarkdownMessage,
+  VELLUM_OPEN_PREFIX,
+} from "@/domains/chat/components/chat-markdown-message";
 import { toast } from "@vellumai/design-library";
 import { MessageHoverActions } from "@/domains/chat/components/message-hover-actions/message-hover-actions";
 import { MessageLongPressActions } from "@/domains/chat/components/message-hover-actions/message-long-press-actions";
@@ -45,6 +48,7 @@ import { getExternalLinkUrl } from "@/domains/chat/types/types";
 import { wireSurfaceToDisplay } from "@/domains/chat/utils/map-runtime-message";
 import { isPointerCoarse } from "@/utils/pointer";
 import { useLongPress } from "@/hooks/use-long-press";
+import { useOpenWorkspaceFile } from "@/hooks/use-open-workspace-file";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useWorkflowStore } from "@/domains/chat/workflow-store";
 import { useAcpRunStore } from "@/domains/chat/acp-run-store";
@@ -81,6 +85,15 @@ import { saveFile } from "@/runtime/native-file";
  * applies), trading polish for headroom on outlier-length messages.
  */
 const STREAM_WORD_FADE_MAX_CHARS = 12000;
+
+/** Percent-decodes `value`, returning it unchanged on malformed encoding. */
+function safeDecodeURIComponent(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
 
 /**
  * Renders a `DisplayMessage`'s body by walking its unified `contentBlocks`
@@ -383,18 +396,23 @@ export function TranscriptMessageBody({
     useViewerStore.getState().openBackgroundTaskDetail(id);
   }, []);
 
+  const openWorkspaceFile = useOpenWorkspaceFile();
+
   const handleVellumLinkClick = useCallback(
     (href: string, linkText: string) => {
+      // `vellum://open/` links are references, not attachments: navigate to
+      // the workspace browser with the file selected instead of downloading.
+      if (href.startsWith(VELLUM_OPEN_PREFIX)) {
+        openWorkspaceFile(
+          safeDecodeURIComponent(href.slice(VELLUM_OPEN_PREFIX.length)),
+        );
+        return;
+      }
       const rawBasename = href.split("/").pop() ?? "";
       // The daemon percent-decodes vellum:// paths before storing attachment
       // filenames, so match on the decoded basename. Keep the raw form as a
       // defensive fallback for malformed encodings.
-      let pathBasename = rawBasename;
-      try {
-        pathBasename = decodeURIComponent(rawBasename);
-      } catch {
-        // Malformed percent-encoding: fall back to the raw basename.
-      }
+      const pathBasename = safeDecodeURIComponent(rawBasename);
       // Mirror the daemon's stored-filename rule (shared contract): a link
       // label is only the stored name when it carries a recognized
       // extension, otherwise the attachment lives under the path basename.
@@ -424,12 +442,9 @@ export function TranscriptMessageBody({
         // the workspace browser uses. Inlined here to avoid a cross-domain
         // import (chat -> workspace).
         const WORKSPACE_PREFIX = "vellum://workspace/";
-        let filePath = href.slice(WORKSPACE_PREFIX.length);
-        try {
-          filePath = decodeURIComponent(filePath);
-        } catch {
-          // Malformed percent-encoding — use the raw path.
-        }
+        const filePath = safeDecodeURIComponent(
+          href.slice(WORKSPACE_PREFIX.length),
+        );
         const filename = resolveAttachmentFilename(
           linkText || undefined,
           pathBasename,
@@ -459,7 +474,7 @@ export function TranscriptMessageBody({
         );
       }
     },
-    [message.attachments, assistantId],
+    [message.attachments, assistantId, openWorkspaceFile],
   );
 
   const renderTextWithInlineSurfaces = (

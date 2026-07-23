@@ -48,16 +48,26 @@ export function isVellumLink(href: string | undefined): boolean {
   );
 }
 
+/** Prefix of `vellum://open/` reference links (workspace-relative path follows). */
+export const VELLUM_OPEN_PREFIX = "vellum://open/";
+
+/**
+ * Returns true when `href` is a `vellum://open/` reference link — a pointer
+ * to a workspace file that opens in the workspace browser, as opposed to an
+ * attachment link that downloads.
+ */
+export function isVellumOpenLink(href: string | undefined): boolean {
+  return href != null && href.startsWith(VELLUM_OPEN_PREFIX);
+}
+
 /**
  * Extends react-markdown's default URL sanitization to allow known
- * `vellum://workspace/` and `vellum://host/` attachment URIs. Other
- * `vellum://` shapes are rejected to limit protocol-handler attack surface.
+ * `vellum://workspace/` and `vellum://host/` attachment URIs plus
+ * `vellum://open/` reference URIs. Other `vellum://` shapes are rejected to
+ * limit protocol-handler attack surface.
  */
 function vellumUrlTransform(url: string): string {
-  if (
-    url.startsWith("vellum://workspace/") ||
-    url.startsWith("vellum://host/")
-  ) {
+  if (isVellumLink(url) || isVellumOpenLink(url)) {
     return url;
   }
   return defaultUrlTransform(url);
@@ -288,7 +298,7 @@ export const ChatMarkdownMessage = memo(function ChatMarkdownMessage({
       href,
       children,
     }: Pick<AnchorHTMLAttributes<HTMLAnchorElement>, "href" | "children">) => {
-      if (onVellumLinkClick && isVellumLink(href)) {
+      if (onVellumLinkClick && (isVellumLink(href) || isVellumOpenLink(href))) {
         return (
           <a
             href={href}

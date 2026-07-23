@@ -9,7 +9,6 @@ import {
     Trash2,
 } from "lucide-react";
 import { useCallback, useState } from "react";
-import { useNavigate } from "react-router";
 
 import {
     ContentActionBar,
@@ -26,9 +25,9 @@ import {
     type SkillInfo,
 } from "@/domains/intelligence/skills/types";
 import { useWorkspaceWritePostMutation } from "@/generated/daemon/@tanstack/react-query.gen";
+import { useOpenWorkspaceFile } from "@/hooks/use-open-workspace-file";
 import { useSkillDetailFiles } from "@/hooks/use-skill-detail-files";
 import { captureError } from "@/lib/sentry/capture-error";
-import { routes } from "@/utils/routes";
 import { invalidateSkillsList, isRemovableSkill } from "@/utils/skills";
 import { Button, Card } from "@vellumai/design-library";
 
@@ -257,7 +256,7 @@ function SkillFileContent({
   isBinary: boolean;
   editable: boolean;
 }) {
-  const navigate = useNavigate();
+  const openWorkspaceFile = useOpenWorkspaceFile();
   const queryClient = useQueryClient();
 
   const [isEditing, setIsEditing] = useState(false);
@@ -333,11 +332,7 @@ function SkillFileContent({
       variant="ghost"
       size="regular"
       iconOnly={<ExternalLink aria-hidden />}
-      onClick={() =>
-        navigate(
-          `${routes.workspace}?file=${encodeURIComponent(workspacePath)}`,
-        )
-      }
+      onClick={() => openWorkspaceFile(workspacePath)}
       aria-label="Open in Workspace"
       className="hover:bg-[var(--surface-base)]"
     />

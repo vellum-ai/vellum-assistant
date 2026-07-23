@@ -455,6 +455,18 @@ describe("extractVellumLinks", () => {
     expect(result.directiveRequests[0].filename).toBe("doc.pdf");
   });
 
+  test("ignores vellum://open/ reference links", () => {
+    // `open` links point at a workspace file for in-app navigation; they must
+    // never be materialized as attachments.
+    const text =
+      "See [skills/foo/SKILL.md](vellum://open/skills/foo/SKILL.md) and [report.pdf](vellum://workspace/scratch/report.pdf)";
+    const result = extractVellumLinks(text);
+
+    expect(result.parseWarnings).toHaveLength(0);
+    expect(result.directiveRequests).toHaveLength(1);
+    expect(result.directiveRequests[0].path).toBe("scratch/report.pdf");
+  });
+
   test("extracts multiple links", () => {
     const text = [
       "Here are the files:",
