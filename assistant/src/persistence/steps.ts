@@ -456,7 +456,7 @@ import { migrateMoveMemoryV3EverInjectedToMemoryDb } from "./migrations/345-move
 import { migrateMoveMemoryRetrospectiveStateToMemoryDb } from "./migrations/346-move-memory-retrospective-state-to-memory-db.js";
 import { migrateDeleteStrayGreetingConversation } from "./migrations/347-delete-stray-greeting-conversation.js";
 import { migrateMemorySummariesScopeUpdatedIndex } from "./migrations/348-memory-summaries-scope-updated-index.js";
-import { migrateMoveMemoryGraphTablesToMemoryDb } from "./migrations/348-move-memory-graph-tables-to-memory-db.js";
+import { migrateMoveMemoryGraphTablesToMemoryDb } from "./migrations/349-move-memory-graph-tables-to-memory-db.js";
 import type { MigrationStep } from "./migrations/run-migrations.js";
 
 export const migrationSteps: MigrationStep[] = [

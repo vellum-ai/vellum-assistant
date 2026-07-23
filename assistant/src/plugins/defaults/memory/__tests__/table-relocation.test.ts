@@ -50,7 +50,7 @@ const {
   MEMORY_GRAPH_TRIGGERS_RELOCATION,
   MEMORY_GRAPH_NODE_EDITS_RELOCATION,
 } =
-  await import("../../../../persistence/migrations/348-move-memory-graph-tables-to-memory-db.js");
+  await import("../../../../persistence/migrations/349-move-memory-graph-tables-to-memory-db.js");
 
 await initializeDb();
 
