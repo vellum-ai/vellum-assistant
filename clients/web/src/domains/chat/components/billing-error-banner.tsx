@@ -5,11 +5,13 @@ import { Button } from "@vellumai/design-library";
 
 interface BillingErrorBannerProps {
   ariaLabel: string;
-  icon: ReactNode;
+  icon?: ReactNode;
   title: string;
   subtitle: string;
   ctaLabel: string;
   onAction: () => void;
+  secondaryCtaLabel?: string;
+  onSecondaryAction?: () => void;
 }
 
 export function BillingErrorBanner({
@@ -19,6 +21,8 @@ export function BillingErrorBanner({
   subtitle,
   ctaLabel,
   onAction,
+  secondaryCtaLabel,
+  onSecondaryAction,
 }: BillingErrorBannerProps) {
   return (
     <div
@@ -33,12 +37,14 @@ export function BillingErrorBanner({
       aria-label={ariaLabel}
     >
       <div className="flex flex-1 items-center gap-3 px-4 py-3">
-        <span
-          className="flex size-8 shrink-0 items-center justify-center"
-          aria-hidden="true"
-        >
-          {icon}
-        </span>
+        {icon ? (
+          <span
+            className="flex size-8 shrink-0 items-center justify-center"
+            aria-hidden="true"
+          >
+            {icon}
+          </span>
+        ) : null}
 
         <div className="min-w-0 flex-1">
           <p
@@ -55,14 +61,27 @@ export function BillingErrorBanner({
           </p>
         </div>
 
-        <Button
-          variant="primary"
-          size="regular"
-          onClick={onAction}
-          aria-label={ctaLabel}
-        >
-          {ctaLabel}
-        </Button>
+        <div className="flex items-center gap-2 shrink-0">
+          {secondaryCtaLabel && onSecondaryAction ? (
+            <Button
+              variant="outlined"
+              size="regular"
+              onClick={onSecondaryAction}
+              aria-label={secondaryCtaLabel}
+            >
+              {secondaryCtaLabel}
+            </Button>
+          ) : null}
+
+          <Button
+            variant="primary"
+            size="regular"
+            onClick={onAction}
+            aria-label={ctaLabel}
+          >
+            {ctaLabel}
+          </Button>
+        </div>
       </div>
     </div>
   );
