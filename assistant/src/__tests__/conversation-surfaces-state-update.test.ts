@@ -3,14 +3,11 @@ import { describe, expect, test } from "bun:test";
 import {
   createSurfaceMutex,
   handleSurfaceAction,
+  restoreSurfaceStateEntry,
   type SurfaceConversationContext,
   surfaceProxyResolver,
 } from "../daemon/conversation-surfaces.js";
-import type {
-  ServerMessage,
-  SurfaceData,
-  SurfaceType,
-} from "../daemon/message-protocol.js";
+import type { ServerMessage, SurfaceType } from "../daemon/message-protocol.js";
 
 /**
  * Build a minimal SurfaceConversationContext for testing.
@@ -35,10 +32,7 @@ function makeContext(opts?: {
       string,
       { actionId: string; data?: Record<string, unknown> }
     >(),
-    surfaceState: new Map<
-      string,
-      { surfaceType: SurfaceType; data: SurfaceData; title?: string }
-    >(),
+    surfaceState: new Map(),
     surfaceUndoStacks: new Map<string, string[]>(),
     accumulatedSurfaceState: new Map<string, Record<string, unknown>>(),
     surfaceActionRequestIds: new Set<string>(),
@@ -71,7 +65,7 @@ function registerDynamicPage(
   ctx.pendingSurfaceActions.set(surfaceId, { surfaceType: "dynamic_page" });
   ctx.surfaceState.set(surfaceId, {
     surfaceType: "dynamic_page",
-    data: { html: "<div>test</div>" } as SurfaceData,
+    data: { html: "<div>test</div>" },
   });
 }
 
@@ -110,7 +104,7 @@ describe("state_update silent accumulation", () => {
       data: {
         columns: [],
         rows: [],
-      } as unknown as SurfaceData,
+      },
     });
 
     handleSurfaceAction(ctx, "surface-table", "state_update", { page: 1 });
@@ -252,17 +246,21 @@ describe("ui_update preserves client-owned keys the daemon schema omits", () => 
   test("a valid patch keeps unmodeled keys on the merged, sent, and stored data", async () => {
     const sent: ServerMessage[] = [];
     const ctx = makeContext({ sent });
-    // A document_preview whose stored data carries `surfaceId` — an unmodeled
-    // key read by the client renderer, not by the daemon schema.
-    ctx.surfaceState.set("doc-1", {
-      surfaceType: "document_preview",
-      data: {
-        title: "Notes",
-        surfaceId: "doc-real",
-        content: "# Heading",
-        mimeType: "text/markdown",
-      } as SurfaceData,
-    });
+    // A document_preview whose stored data carries `content`/`mimeType`
+    // (read by the client renderer, not modeled by the daemon schema).
+    // Built the way history restore produces it (verbatim client-owned keys).
+    ctx.surfaceState.set(
+      "doc-1",
+      restoreSurfaceStateEntry({
+        surfaceType: "document_preview",
+        data: {
+          title: "Notes",
+          surfaceId: "doc-real",
+          content: "# Heading",
+          mimeType: "text/markdown",
+        },
+      }),
+    );
 
     const result = await surfaceProxyResolver(ctx, "ui_update", {
       surface_id: "doc-1",
@@ -270,33 +268,40 @@ describe("ui_update preserves client-owned keys the daemon schema omits", () => 
     });
     expect(result.isError).toBe(false);
 
-    // Stored state keeps the unmodeled key and applies the patch.
-    expect(ctx.surfaceState.get("doc-1")?.data).toMatchObject({
+    // Stored state keeps the unmodeled keys and applies the patch.
+    expect(ctx.surfaceState.get("doc-1")?.data).toEqual({
       title: "Notes (edited)",
       surfaceId: "doc-real",
+      content: "# Heading",
+      mimeType: "text/markdown",
     });
 
-    // The update sent to the client also carries it.
+    // The update sent to the client also carries them verbatim.
     const update = sent.find((m) => m.type === "ui_surface_update");
     expect(update).toBeDefined();
-    expect((update as { data: Record<string, unknown> }).data).toMatchObject({
+    expect((update as { data: Record<string, unknown> }).data).toEqual({
       title: "Notes (edited)",
       surfaceId: "doc-real",
+      content: "# Heading",
+      mimeType: "text/markdown",
     });
   });
 });
 
 describe("ui_update on a restored unknown surface type", () => {
-  test("forwards the merge opaquely instead of storing garbage", async () => {
+  test("forwards the merge opaquely instead of throwing on the schema registry", async () => {
     const sent: ServerMessage[] = [];
     const ctx = makeContext({ sent });
     // Restore preserves an unknown-but-non-empty surfaceType verbatim (a
-    // newer/custom client-rendered surface). safeParseSurfaceData has no schema
-    // for it — the update must forward the merge, not the type string.
-    ctx.surfaceState.set("future-1", {
-      surfaceType: "future_widget" as SurfaceType,
-      data: { title: "Widget", customField: 42 } as SurfaceData,
-    });
+    // newer/custom client-rendered surface). Indexing SURFACE_DATA_SCHEMAS with
+    // it would read `undefined` and throw — the update must forward opaquely.
+    ctx.surfaceState.set(
+      "future-1",
+      restoreSurfaceStateEntry({
+        surfaceType: "future_widget",
+        data: { title: "Widget", customField: 42 },
+      }),
+    );
 
     const result = await surfaceProxyResolver(ctx, "ui_update", {
       surface_id: "future-1",
@@ -304,12 +309,10 @@ describe("ui_update on a restored unknown surface type", () => {
     });
     expect(result.isError).toBe(false);
 
+    // The unknown type is preserved and the merge applied verbatim.
     const stored = ctx.surfaceState.get("future-1");
     expect(stored?.surfaceType as string).toBe("future_widget");
-    expect(stored?.data as Record<string, unknown>).toEqual({
-      title: "Widget (edited)",
-      customField: 42,
-    });
+    expect(stored?.data).toEqual({ title: "Widget (edited)", customField: 42 });
 
     const update = sent.find((m) => m.type === "ui_surface_update");
     expect(update).toBeDefined();
@@ -317,6 +320,41 @@ describe("ui_update on a restored unknown surface type", () => {
       title: "Widget (edited)",
       customField: 42,
     });
+  });
+
+  test("also syncs the current-turn snapshot so the two persist writers agree", async () => {
+    const ctx = makeContext();
+    ctx.surfaceState.set(
+      "future-1",
+      restoreSurfaceStateEntry({
+        surfaceType: "future_widget",
+        data: { title: "Widget", customField: 42 },
+      }),
+    );
+    // The surface is also tracked in the current turn: the turn-end persist
+    // loop writes `currentTurnSurfaces[i].data` to the same ui_surface block
+    // that the debounced persist writes. If this snapshot were left stale for
+    // an opaquely-forwarded (unknown-type) update, the two writers would race
+    // on divergent data.
+    ctx.currentTurnSurfaces.push({
+      surfaceId: "future-1",
+      surfaceType: "future_widget",
+      data: { title: "Widget", customField: 42 },
+    } as unknown as (typeof ctx.currentTurnSurfaces)[number]);
+
+    const result = await surfaceProxyResolver(ctx, "ui_update", {
+      surface_id: "future-1",
+      data: { title: "Widget (edited)" },
+    });
+    expect(result.isError).toBe(false);
+
+    // The current-turn snapshot reflects the update, matching surfaceState.
+    expect(ctx.currentTurnSurfaces[0]?.data as Record<string, unknown>).toEqual(
+      {
+        title: "Widget (edited)",
+        customField: 42,
+      },
+    );
   });
 });
 
@@ -326,7 +364,7 @@ describe("ui_update normalizes modeled fields for known surface types", () => {
     const ctx = makeContext({ sent });
     ctx.surfaceState.set("page-1", {
       surfaceType: "dynamic_page",
-      data: { html: "<p>original</p>" } as SurfaceData,
+      data: { html: "<p>original</p>" },
     });
 
     // A malformed patch: `html` as a non-string. The tolerant schema

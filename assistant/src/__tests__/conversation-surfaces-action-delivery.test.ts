@@ -13,11 +13,7 @@ const { createSurfaceMutex, handleSurfaceAction, surfaceProxyResolver } =
   await import("../daemon/conversation-surfaces.js");
 
 import type { SurfaceConversationContext } from "../daemon/conversation-surfaces.js";
-import type {
-  SurfaceData,
-  SurfaceType,
-  UiSurfaceShow,
-} from "../daemon/message-protocol.js";
+import type { SurfaceType, UiSurfaceShow } from "../daemon/message-protocol.js";
 import type { UserMessageAttachment } from "../daemon/message-types/shared.js";
 
 interface ProcessMessageCall {
@@ -41,20 +37,7 @@ function makeContext(sent: ServerMessage[] = []): SurfaceConversationContext & {
       string,
       { actionId: string; data?: Record<string, unknown> }
     >(),
-    surfaceState: new Map<
-      string,
-      {
-        surfaceType: SurfaceType;
-        data: SurfaceData;
-        title?: string;
-        actions?: Array<{
-          id: string;
-          label: string;
-          style?: string;
-          data?: Record<string, unknown>;
-        }>;
-      }
-    >(),
+    surfaceState: new Map(),
     surfaceUndoStacks: new Map<string, string[]>(),
     accumulatedSurfaceState: new Map<string, Record<string, unknown>>(),
     surfaceActionRequestIds: new Set<string>(),
@@ -188,7 +171,7 @@ describe("surface action delivery to assistant", () => {
       data: {
         columns: [{ id: "col", label: "Col" }],
         rows: [],
-      } as unknown as SurfaceData,
+      },
       title: "History Table",
       actions: [{ id: "delete", label: "Delete" }],
     });
@@ -294,7 +277,7 @@ describe("surface action delivery to assistant", () => {
       data: {
         columns: [{ id: "col", label: "Col" }],
         rows: [],
-      } as unknown as SurfaceData,
+      },
       title: "History Table",
       actions: [{ id: "delete", label: "Delete" }],
     });

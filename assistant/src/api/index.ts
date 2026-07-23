@@ -577,6 +577,7 @@ export {
   WorkflowLeafSchema,
 } from "./responses/workflow-journal.js";
 export {
+  type AnySurfaceData,
   type CardSurfaceData,
   CardSurfaceDataSchema,
   type ChoiceOption,
@@ -613,8 +614,10 @@ export {
   type OAuthConnectSurfaceData,
   OAuthConnectSurfaceDataSchema,
   safeParseSurfaceData,
+  SURFACE_DATA_SCHEMAS,
   SURFACE_TYPES,
   type SurfaceData,
+  type SurfaceDataByType,
   type SurfaceType,
   SurfaceTypeSchema,
   type TableCellValue,

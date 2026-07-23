@@ -1,6 +1,7 @@
 // Surface types, UI surface lifecycle messages.
 
 import type {
+  AnySurfaceData,
   CardSurfaceData,
   ChoiceSurfaceData,
   ConfirmationSurfaceData,
@@ -12,6 +13,7 @@ import type {
   ListSurfaceData,
   OAuthConnectSurfaceData,
   SurfaceData,
+  SurfaceDataByType,
   SurfaceType,
   TableSurfaceData,
   WorkResultSurfaceData,
@@ -56,6 +58,7 @@ export {
   type WorkResultTone,
 } from "../../api/surfaces.js";
 export type {
+  AnySurfaceData,
   CardSurfaceData,
   ChoiceSurfaceData,
   ConfirmationSurfaceData,
@@ -67,6 +70,7 @@ export type {
   ListSurfaceData,
   OAuthConnectSurfaceData,
   SurfaceData,
+  SurfaceDataByType,
   SurfaceType,
   TableSurfaceData,
   WorkResultSurfaceData,
@@ -126,85 +130,44 @@ interface UiSurfaceShowBase {
   toolCallId?: string;
 }
 
-export interface UiSurfaceShowCard extends UiSurfaceShowBase {
-  surfaceType: "card";
-  data: CardSurfaceData;
-}
+/**
+ * The show event for one specific surface type: base fields plus the
+ * correlated `surfaceType`/`data` pair, both indexed from
+ * `SurfaceDataByType` so generic code keeps the pairing.
+ */
+export type UiSurfaceShowFor<K extends SurfaceType> = UiSurfaceShowBase & {
+  surfaceType: K;
+  data: SurfaceDataByType[K];
+};
 
-export interface UiSurfaceShowChoice extends UiSurfaceShowBase {
-  surfaceType: "choice";
-  data: ChoiceSurfaceData;
-}
+/**
+ * Discriminated union over every surface type, derived from
+ * `SurfaceDataByType` so a type added there appears here automatically.
+ * Includes the opaque types (`channel_setup`, `task_preferences`) — their
+ * show events carry opaque record data.
+ */
+export type UiSurfaceShow = {
+  [K in SurfaceType]: UiSurfaceShowFor<K>;
+}[SurfaceType];
 
-export interface UiSurfaceShowCopyBlock extends UiSurfaceShowBase {
-  surfaceType: "copy_block";
-  data: CopyBlockSurfaceData;
-}
-
-export interface UiSurfaceShowOAuthConnect extends UiSurfaceShowBase {
-  surfaceType: "oauth_connect";
-  data: OAuthConnectSurfaceData;
-}
-
-export interface UiSurfaceShowForm extends UiSurfaceShowBase {
-  surfaceType: "form";
-  data: FormSurfaceData;
-}
-
-export interface UiSurfaceShowList extends UiSurfaceShowBase {
-  surfaceType: "list";
-  data: ListSurfaceData;
-}
-
-export interface UiSurfaceShowConfirmation extends UiSurfaceShowBase {
-  surfaceType: "confirmation";
-  data: ConfirmationSurfaceData;
-}
-
-export interface UiSurfaceShowDynamicPage extends UiSurfaceShowBase {
-  surfaceType: "dynamic_page";
-  data: DynamicPageSurfaceData;
-}
-
-export interface UiSurfaceShowTable extends UiSurfaceShowBase {
-  surfaceType: "table";
-  data: TableSurfaceData;
-}
-
-export interface UiSurfaceShowFileUpload extends UiSurfaceShowBase {
-  surfaceType: "file_upload";
-  data: FileUploadSurfaceData;
-}
-
-export interface UiSurfaceShowDocumentPreview extends UiSurfaceShowBase {
-  surfaceType: "document_preview";
-  data: DocumentPreviewSurfaceData;
-}
-
-export interface UiSurfaceShowWorkResult extends UiSurfaceShowBase {
-  surfaceType: "work_result";
-  data: WorkResultSurfaceData;
-}
-
-export type UiSurfaceShow =
-  | UiSurfaceShowCard
-  | UiSurfaceShowChoice
-  | UiSurfaceShowCopyBlock
-  | UiSurfaceShowOAuthConnect
-  | UiSurfaceShowForm
-  | UiSurfaceShowList
-  | UiSurfaceShowTable
-  | UiSurfaceShowConfirmation
-  | UiSurfaceShowDynamicPage
-  | UiSurfaceShowFileUpload
-  | UiSurfaceShowDocumentPreview
-  | UiSurfaceShowWorkResult;
+export type UiSurfaceShowCard = UiSurfaceShowFor<"card">;
+export type UiSurfaceShowChoice = UiSurfaceShowFor<"choice">;
+export type UiSurfaceShowCopyBlock = UiSurfaceShowFor<"copy_block">;
+export type UiSurfaceShowOAuthConnect = UiSurfaceShowFor<"oauth_connect">;
+export type UiSurfaceShowForm = UiSurfaceShowFor<"form">;
+export type UiSurfaceShowList = UiSurfaceShowFor<"list">;
+export type UiSurfaceShowConfirmation = UiSurfaceShowFor<"confirmation">;
+export type UiSurfaceShowDynamicPage = UiSurfaceShowFor<"dynamic_page">;
+export type UiSurfaceShowTable = UiSurfaceShowFor<"table">;
+export type UiSurfaceShowFileUpload = UiSurfaceShowFor<"file_upload">;
+export type UiSurfaceShowDocumentPreview = UiSurfaceShowFor<"document_preview">;
+export type UiSurfaceShowWorkResult = UiSurfaceShowFor<"work_result">;
 
 export interface UiSurfaceUpdate {
   type: "ui_surface_update";
   conversationId: string;
   surfaceId: string;
-  data: Partial<SurfaceData>;
+  data: Partial<AnySurfaceData>;
 }
 
 export interface UiSurfaceDismiss {

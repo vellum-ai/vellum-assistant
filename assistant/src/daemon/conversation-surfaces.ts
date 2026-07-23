@@ -6,6 +6,7 @@ import {
   CardSurfaceDataSchema,
   ChoiceSurfaceDataSchema,
   coerceSurfaceDataRecord,
+  DynamicPagePreviewSchema,
   DynamicPageSurfaceDataSchema,
   isDaemonInternalSurfaceType,
   isKnownSurfaceType,
@@ -58,24 +59,41 @@ import { buildConversationErrorMessage } from "./conversation-error.js";
 import { launchConversation } from "./conversation-launch.js";
 import type { EnqueueMessageOptions } from "./conversation-messaging.js";
 import type { ProcessMessageOptions } from "./conversation-process.js";
+import {
+  buildSurfaceShowPair,
+  type CurrentTurnSurface,
+  parseShowPairOrThrow,
+  type SurfaceShowPair,
+  type SurfaceStateEntry,
+} from "./conversation-surface-state.js";
 import type { HostAppControlProxy } from "./host-app-control-proxy.js";
 import type { HostCuProxy } from "./host-cu-proxy.js";
 import type {
+  AnySurfaceData,
   CardSurfaceData,
   ChoiceSurfaceData,
   ConfirmationSurfaceData,
+  DynamicPagePreview,
   DynamicPageSurfaceData,
   FormSurfaceData,
-  ListSurfaceData,
   ServerMessage,
+  SurfaceAction,
   SurfaceData,
   SurfaceType,
   TableColumn,
   TableRow,
-  TableSurfaceData,
   UiSurfaceShow,
 } from "./message-protocol.js";
 import { INTERACTIVE_SURFACE_TYPES } from "./message-protocol.js";
+export {
+  buildSurfaceShowPair,
+  type CurrentTurnSurface,
+  parseSurfaceShowPair,
+  restoreSurfaceStateEntry,
+  type StoredSurfaceAction,
+  type SurfaceShowPair,
+  type SurfaceStateEntry,
+} from "./conversation-surface-state.js";
 import type { HostAppControlInput } from "./message-types/host-app-control.js";
 import type { UserMessageAttachment } from "./message-types/shared.js";
 import type { TrustContext } from "./trust-context-types.js";
@@ -115,7 +133,7 @@ const pendingSurfacePersists = new Map<
   {
     timer: ReturnType<typeof setTimeout>;
     conversationId: string;
-    data: SurfaceData;
+    data: AnySurfaceData;
   }
 >();
 
@@ -720,12 +738,7 @@ function normalizeTaskProgressCardPatch(
   return normalizedPatch;
 }
 
-function buildChoiceActions(data: ChoiceSurfaceData): Array<{
-  id: string;
-  label: string;
-  style?: string;
-  data?: Record<string, unknown>;
-}> {
+function buildChoiceActions(data: ChoiceSurfaceData): SurfaceAction[] {
   return data.options.map((option) => ({
     id: option.id,
     label: option.title,
@@ -777,10 +790,7 @@ function isSlackTaskProgressUiException(
       return false;
     }
     const rawPatch = coerceSurfaceDataRecord(input.data);
-    const patch = normalizeTaskProgressCardPatch(
-      stored.data as CardSurfaceData,
-      rawPatch,
-    );
+    const patch = normalizeTaskProgressCardPatch(stored.data, rawPatch);
     return isTaskProgressCardData({ ...stored.data, ...patch });
   }
   return false;
@@ -791,6 +801,7 @@ function isSlackTaskProgressUiException(
  * The Conversation class implements this interface so its instances can be
  * passed directly to the extracted functions.
  */
+
 export interface SurfaceConversationContext {
   readonly conversationId: string;
   /** Assistant id (if known) — used when publishing launch-triggered events. */
@@ -813,28 +824,7 @@ export interface SurfaceConversationContext {
     string,
     { actionId: string; data?: Record<string, unknown> }
   >;
-  surfaceState: Map<
-    string,
-    {
-      surfaceType: SurfaceType;
-      data: SurfaceData;
-      title?: string;
-      actions?: Array<{
-        id: string;
-        label: string;
-        style?: string;
-        data?: Record<string, unknown>;
-      }>;
-      /**
-       * Activation-rail telemetry tag (daemon-only). When the model tags a
-       * `ui_show` surface as an activation funnel moment, the token is captured
-       * here so the milestone can be recorded deterministically when the user
-       * commits the surface (`handleSurfaceAction`). Never forwarded to the
-       * client.
-       */
-      activationMoment?: ActivationMomentParam;
-    }
-  >;
+  surfaceState: Map<string, SurfaceStateEntry>;
   surfaceUndoStacks: Map<string, string[]>;
   accumulatedSurfaceState: Map<string, Record<string, unknown>>;
   /** Request IDs that originated from surface action button clicks (not regular user messages). */
@@ -863,27 +853,7 @@ export interface SurfaceConversationContext {
     string,
     ReturnType<typeof setTimeout>
   >;
-  currentTurnSurfaces: Array<{
-    surfaceId: string;
-    surfaceType: SurfaceType;
-    title?: string;
-    data: SurfaceData;
-    actions?: Array<{
-      id: string;
-      label: string;
-      style?: string;
-      data?: Record<string, unknown>;
-    }>;
-    display?: string;
-    persistent?: boolean;
-    toolCallId?: string;
-    /**
-     * Commit-timing activation-rail tag (daemon-only). Carried through to the
-     * persisted `ui_surface` history block so it survives a reload — never sent
-     * to the client.
-     */
-    activationMoment?: ActivationMomentParam;
-  }>;
+  currentTurnSurfaces: CurrentTurnSurface[];
   /** Optional proxy for delegating computer-use actions to a connected desktop client. */
   hostCuProxy?: HostCuProxy;
   /** Optional proxy for delegating per-app app-control actions to a connected desktop client. */
@@ -1029,9 +999,9 @@ export function showStandaloneSurface(
 
   const timeoutMs = request.timeoutMs ?? DEFAULT_STANDALONE_TIMEOUT_MS;
 
-  // Build surface data from the request payload.
+  // Build the correlated surface pair from the request payload.
   const surfaceType: SurfaceType = request.surfaceType;
-  const data = buildStandaloneSurfaceData(request);
+  const pair = buildStandaloneSurfaceData(request);
   const actions = request.actions?.map((a) => ({
     id: a.id,
     label: a.label,
@@ -1077,22 +1047,20 @@ export function showStandaloneSurface(
 
     // ── Store surface state ──
     ctx.surfaceState.set(surfaceId, {
-      surfaceType,
-      data,
       title: request.title,
       actions,
+      ...pair,
     });
 
     broadcastMessage({
       type: "ui_surface_show",
       conversationId: ctx.conversationId,
       surfaceId,
-      surfaceType,
       title: request.title,
-      data,
       actions,
       display: "inline",
-    } as unknown as UiSurfaceShow);
+      ...pair,
+    });
 
     log.info(
       {
@@ -1107,15 +1075,15 @@ export function showStandaloneSurface(
 }
 
 /**
- * Build a SurfaceData object from an InteractiveUiRequest.
+ * Build a correlated surface pair from an InteractiveUiRequest.
  * Maps the generic `data` payload to the typed shape expected by the
  * surface type.
  */
 function buildStandaloneSurfaceData(
   request: InteractiveUiRequest,
-): SurfaceData {
+): SurfaceShowPair {
   if (request.surfaceType === "confirmation") {
-    return {
+    const data: ConfirmationSurfaceData = {
       message:
         typeof request.data.message === "string"
           ? request.data.message
@@ -1136,28 +1104,21 @@ function buildStandaloneSurfaceData(
         typeof request.data.destructive === "boolean"
           ? request.data.destructive
           : undefined,
-    } satisfies ConfirmationSurfaceData;
+    };
+    return { surfaceType: "confirmation", data };
   }
 
-  if (request.surfaceType === "form") {
-    // Preserve the full form payload (pages, pageLabels, and any future
-    // additive keys) via spreading. Apply defensive normalization so that
-    // `fields` is always a valid array — callers that use `pages` instead
-    // of top-level `fields` may omit the latter entirely.
-    const raw = request.data as Record<string, unknown>;
-    const hasFields = Array.isArray(raw.fields) && raw.fields.length > 0;
-    const fields: FormSurfaceData["fields"] = hasFields
-      ? (raw.fields as FormSurfaceData["fields"])
-      : [];
+  // Preserve the full form payload (pages, pageLabels, and any future
+  // additive keys) via spreading. Apply defensive normalization so that
+  // `fields` is always a valid array — callers that use `pages` instead
+  // of top-level `fields` may omit the latter entirely.
+  const raw = request.data;
+  const hasFields = Array.isArray(raw.fields) && raw.fields.length > 0;
+  const fields: FormSurfaceData["fields"] = hasFields
+    ? (raw.fields as FormSurfaceData["fields"])
+    : [];
 
-    return {
-      ...raw,
-      fields,
-    } as FormSurfaceData;
-  }
-
-  // Any other surface type: parse through its canonical schema.
-  return safeParseSurfaceData(request.surfaceType, request.data) ?? {};
+  return { surfaceType: "form", data: { ...raw, fields } as FormSurfaceData };
 }
 
 /**
@@ -1346,8 +1307,7 @@ function handleDocumentContentChanged(
     return;
   }
 
-  const dynamicPageData = surfaceState.data as DynamicPageSurfaceData;
-  const appId = dynamicPageData.appId;
+  const appId = surfaceState.data.appId;
 
   if (!appId || !appId.startsWith("doc-")) {
     // Not a document app, ignore
@@ -1469,7 +1429,7 @@ export function handleSurfaceUndo(
     return;
   }
 
-  const data = stored.data as DynamicPageSurfaceData;
+  const data = stored.data;
 
   // If app-backed, also revert the persisted app and refresh all surfaces for this app
   if (data.appId) {
@@ -1484,7 +1444,7 @@ export function handleSurfaceUndo(
       if (s.surfaceType !== "dynamic_page") {
         continue;
       }
-      const sData = s.data as DynamicPageSurfaceData;
+      const sData = s.data;
       if (sData.appId !== data.appId) {
         continue;
       }
@@ -1510,7 +1470,7 @@ export function handleSurfaceUndo(
       if (s.surfaceType !== "dynamic_page") {
         continue;
       }
-      const sData = s.data as DynamicPageSurfaceData;
+      const sData = s.data;
       if (sData.appId !== data.appId) {
         continue;
       }
@@ -1592,7 +1552,7 @@ export function formatDeselectionList(labels: string[]): string {
  */
 export function buildDeselectionDescription(
   surfaceType: SurfaceType,
-  surfaceState: { surfaceType: SurfaceType; data: SurfaceData } | undefined,
+  surfaceState: SurfaceShowPair | undefined,
   selectedIds: string[],
 ): string {
   if (!surfaceState) {
@@ -1601,7 +1561,7 @@ export function buildDeselectionDescription(
   const selectedSet = new Set(selectedIds);
 
   if (surfaceType === "table" && surfaceState.surfaceType === "table") {
-    const tableData = surfaceState.data as TableSurfaceData;
+    const tableData = surfaceState.data;
     const deselectedLabels: string[] = [];
     for (const row of tableData.rows) {
       if (row.selectable === false) {
@@ -1620,7 +1580,7 @@ export function buildDeselectionDescription(
   }
 
   if (surfaceType === "list" && surfaceState.surfaceType === "list") {
-    const listData = surfaceState.data as ListSurfaceData;
+    const listData = surfaceState.data;
     const deselectedLabels: string[] = [];
     for (const item of listData.items) {
       if (!selectedSet.has(item.id)) {
@@ -2414,7 +2374,7 @@ export function refreshSurfacesForApp(
     if (stored.surfaceType !== "dynamic_page") {
       continue;
     }
-    const data = stored.data as DynamicPageSurfaceData;
+    const data = stored.data;
     if (data.appId !== appId) {
       continue;
     }
@@ -2678,6 +2638,32 @@ function buildUserFacingLabel(
 
   // Generic fallback — humanize the action ID
   return actionId.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+/**
+ * Layer a caller-supplied (already schema-parsed) app preview over the
+ * app-metadata default for `app_open`.
+ *
+ * `DynamicPagePreviewSchema.title` is `z.string().catch("")`, so a parsed
+ * preview that omitted its title carries `title: ""`, which would clobber the
+ * app-name default in the spread — reassert the default whenever the parsed
+ * preview has no non-empty title. A generated `previewImage` always wins.
+ * Preserves the pre-parse behavior for a caller that omits a field: `parsed`
+ * drops missing optional fields, so the default's `subtitle` survives; a
+ * missing title falls back to the app name exactly as the old raw-object
+ * spread did (which simply had no `title` key to override the default).
+ */
+export function buildAppOpenPreview(
+  defaultPreview: { title: string; subtitle?: string },
+  preview: DynamicPagePreview | undefined,
+  storedPreviewImage: string | null | undefined,
+): DynamicPagePreview {
+  return {
+    ...defaultPreview,
+    ...preview,
+    ...(preview && !preview.title ? { title: defaultPreview.title } : {}),
+    ...(storedPreviewImage ? { previewImage: storedPreviewImage } : {}),
+  };
 }
 
 /**
@@ -3028,15 +3014,24 @@ export async function surfaceProxyResolver(
       surfaceType === "oauth_connect"
         ? OAuthConnectSurfaceDataSchema.parse(rawData)
         : undefined;
-    const data: SurfaceData =
-      cardData ??
-      choiceData ??
-      oauthData ??
-      (surfaceType === "copy_block"
-        ? normalizeCopyBlockShowData(input, rawData)
-        : surfaceType === "dynamic_page"
-          ? normalizeDynamicPageShowData(input, rawData)
-          : (safeParseSurfaceData(surfaceType, rawData) ?? {}));
+    const showPair: SurfaceShowPair =
+      cardData !== undefined
+        ? { surfaceType: "card", data: cardData }
+        : choiceData !== undefined
+          ? { surfaceType: "choice", data: choiceData }
+          : oauthData !== undefined
+            ? { surfaceType: "oauth_connect", data: oauthData }
+            : surfaceType === "copy_block"
+              ? {
+                  surfaceType,
+                  data: normalizeCopyBlockShowData(input, rawData),
+                }
+              : surfaceType === "dynamic_page"
+                ? {
+                    surfaceType,
+                    data: normalizeDynamicPageShowData(input, rawData),
+                  }
+                : parseShowPairOrThrow(surfaceType, rawData);
     // Parse actions through the schema instead of typecasting raw model output.
     // The model may place actions inside `data` instead of the top-level
     // `actions` param — recover them so they aren't silently dropped.
@@ -3162,11 +3157,10 @@ export async function surfaceProxyResolver(
     // Track surface state for ui_update merging (includes actions so we can
     // look up per-action data payloads when the client sends an action back).
     ctx.surfaceState.set(surfaceId, {
-      surfaceType,
-      data,
       title,
       actions: mappedActions,
       ...(storeTagForCommit ? { activationMoment } : {}),
+      ...showPair,
     });
 
     if (activationMoment !== undefined && !storeTagForCommit) {
@@ -3178,7 +3172,7 @@ export async function surfaceProxyResolver(
         surfaceId,
         surfaceType,
         title,
-        dataKeys: Object.keys(data),
+        dataKeys: Object.keys(showPair.data),
         actionCount: mappedActions?.length ?? 0,
         display,
         persistent: persistent ?? false,
@@ -3191,28 +3185,26 @@ export async function surfaceProxyResolver(
       type: "ui_surface_show",
       conversationId: ctx.conversationId,
       surfaceId,
-      surfaceType,
       title,
-      data,
       actions: mappedActions,
       display,
       ...(persistent ? { persistent: true } : {}),
       ...(toolUseId ? { toolCallId: toolUseId } : {}),
-    } as unknown as UiSurfaceShow);
+      ...showPair,
+    });
 
     // Track surface for persistence with the message. The commit-timing
     // activation tag rides along (daemon-only) so it survives history restore;
     // show-timing moments aren't stored here (already recorded at render).
     ctx.currentTurnSurfaces.push({
       surfaceId,
-      surfaceType,
       title,
-      data,
       actions: mappedActions,
       display,
       ...(persistent ? { persistent: true } : {}),
       ...(toolUseId ? { toolCallId: toolUseId } : {}),
       ...(storeTagForCommit ? { activationMoment } : {}),
+      ...showPair,
     });
 
     if (awaitAction) {
@@ -3232,48 +3224,56 @@ export async function surfaceProxyResolver(
   }
 
   if (toolName === "ui_update") {
-    const surfaceId = input.surface_id as string;
+    const surfaceId =
+      typeof input.surface_id === "string" ? input.surface_id : "";
     let patch = coerceSurfaceDataRecord(input.data);
 
     // Merge the partial patch into the stored full surface data
     const stored = ctx.surfaceState.get(surfaceId);
-    let mergedData: SurfaceData;
+    let mergedData: AnySurfaceData;
+    let mergedPair: SurfaceShowPair | undefined;
     if (stored) {
       if (stored.surfaceType === "card") {
-        patch = normalizeTaskProgressCardPatch(
-          stored.data as CardSurfaceData,
-          patch,
-        );
+        patch = normalizeTaskProgressCardPatch(stored.data, patch);
       }
       // Push current HTML to undo stack for dynamic pages
       if (stored.surfaceType === "dynamic_page") {
-        const currentHtml = (stored.data as DynamicPageSurfaceData).html;
-        pushUndoState(ctx.surfaceUndoStacks, surfaceId, currentHtml);
+        pushUndoState(ctx.surfaceUndoStacks, surfaceId, stored.data.html);
       }
       const rawMerged = { ...stored.data, ...patch };
       if (!isKnownSurfaceType(stored.surfaceType)) {
-        // Restore preserves an unknown-but-non-empty persisted surfaceType
-        // verbatim (a newer/custom client-rendered surface). safeParseSurfaceData
-        // has no schema for it — it falls through to returning the type string
-        // rather than a data object — so forward the merge opaquely rather than
-        // storing that garbage, mirroring restore's verbatim handling.
-        mergedData = rawMerged as SurfaceData;
+        // Restore preserves an unknown-but-non-empty persisted `surfaceType`
+        // verbatim (a newer/custom client-rendered surface). There is no
+        // canonical schema to validate or normalize against — and indexing
+        // `SURFACE_DATA_SCHEMAS` with it would read `undefined` and throw — so
+        // forward the merge opaquely rather than dropping the update, mirroring
+        // restore's verbatim handling of the same types.
+        mergedData = rawMerged as AnySurfaceData;
+        ctx.surfaceState.set(surfaceId, {
+          ...stored,
+          data: rawMerged,
+        } as SurfaceStateEntry);
       } else {
         // Validate the merged data through the surface type's canonical schema
         // so malformed patches (e.g. metadata as a string) are caught here
         // instead of crashing the client's safeParse. Keep unmodeled
         // client-owned keys from the raw merge, but take the schema-NORMALIZED
-        // value for every modeled field: a tolerant field (dynamic_page `html`
-        // is `z.string().catch("")`, file_upload `acceptedTypes` coerces to
-        // `string[]`) accepts a malformed input and coerces it, and later daemon
-        // code (active-workspace injection's `truncateHtml`, undo-stack pushes)
-        // assumes the canonical shape — so storing the raw value would poison
-        // surfaceState. The parsed object holds only modeled keys, so spreading
-        // it over the raw merge normalizes those while preserving the
+        // value for every modeled field: a tolerant field (e.g. dynamic_page
+        // `html` is `z.string().catch("")`, file_upload `acceptedTypes` coerces
+        // to `string[]`) can accept a malformed input and coerce it, and later
+        // daemon code (active-workspace injection's `truncateHtml`, undo-stack
+        // pushes) assumes the canonical shape — so storing the raw value would
+        // poison `surfaceState`. `mergedPair.data` holds only modeled keys, so
+        // spreading it over `rawMerged` normalizes those while preserving the
         // client-owned ones. Only a failed parse reverts to the stored data.
-        const parsed = safeParseSurfaceData(stored.surfaceType, rawMerged);
-        if (parsed !== undefined) {
-          mergedData = { ...rawMerged, ...parsed } as SurfaceData;
+        mergedPair = buildSurfaceShowPair(stored.surfaceType, rawMerged);
+        if (mergedPair !== undefined) {
+          const normalized = { ...rawMerged, ...mergedPair.data };
+          mergedData = normalized as AnySurfaceData;
+          ctx.surfaceState.set(surfaceId, {
+            ...stored,
+            data: normalized,
+          } as SurfaceStateEntry);
         } else {
           log.warn(
             { surfaceId, surfaceType: stored.surfaceType },
@@ -3284,12 +3284,11 @@ export async function surfaceProxyResolver(
             stored.data;
         }
       }
-      stored.data = mergedData;
     } else {
       // No stored state for this surfaceId, so its surface type — and
       // therefore its canonical schema — is unknown; forward the patch
       // opaquely rather than dropping the update.
-      mergedData = patch as SurfaceData;
+      mergedData = patch;
     }
 
     ctx.sendToClient({
@@ -3299,12 +3298,22 @@ export async function surfaceProxyResolver(
       data: mergedData,
     });
 
-    // Keep the persisted snapshot in sync so updates survive conversation restart.
+    // Keep the persisted snapshot in sync so updates survive conversation
+    // restart. This must track EVERY branch that changed `mergedData` — not
+    // just the schema-parsed one — because the turn-end persist loop writes
+    // `currentTurnSurfaces[idx].data` to the same `ui_surface` block that the
+    // debounced `scheduleSurfaceDataPersist` below writes. If an unknown-type
+    // (opaquely forwarded) update updated `surfaceState` but not this array,
+    // the two writers would persist divergent data and race on which lands
+    // last. Gating on `idx !== -1` alone keeps all three in lockstep.
     const idx = ctx.currentTurnSurfaces.findIndex(
       (s) => s.surfaceId === surfaceId,
     );
     if (idx !== -1) {
-      ctx.currentTurnSurfaces[idx].data = mergedData;
+      ctx.currentTurnSurfaces[idx] = {
+        ...ctx.currentTurnSurfaces[idx],
+        data: mergedData,
+      } as CurrentTurnSurface;
     }
 
     // Persist the merged data back to the assistant message's
@@ -3317,7 +3326,8 @@ export async function surfaceProxyResolver(
   }
 
   if (toolName === "ui_dismiss") {
-    const surfaceId = input.surface_id as string;
+    const surfaceId =
+      typeof input.surface_id === "string" ? input.surface_id : "";
     const lastAction = ctx.lastSurfaceAction.get(surfaceId);
     const stored = ctx.surfaceState.get(surfaceId);
     if (lastAction) {
@@ -3325,7 +3335,7 @@ export async function surfaceProxyResolver(
         stored?.surfaceType,
         lastAction.actionId,
         lastAction.data,
-        stored?.data as Record<string, unknown> | undefined,
+        stored?.data,
       );
       ctx.sendToClient({
         type: "ui_surface_complete",
@@ -3380,12 +3390,15 @@ export async function surfaceProxyResolver(
     // Weaker models routinely omit app_id even though the active app is in
     // context. Fall back to the conversation's most-recently-updated app
     // rather than failing with "Invalid ID: undefined".
-    let appId = input.app_id as string;
-    if (typeof appId !== "string" || appId.trim().length === 0) {
+    let appId = typeof input.app_id === "string" ? input.app_id : "";
+    if (appId.trim().length === 0) {
       appId = listAppsByConversation(ctx.conversationId)[0]?.id ?? "";
     }
-    const preview = input.preview as DynamicPageSurfaceData["preview"];
-    const openMode = input.open_mode as string | undefined;
+    const preview = isPlainObject(input.preview)
+      ? DynamicPagePreviewSchema.parse(input.preview)
+      : undefined;
+    const openMode =
+      typeof input.open_mode === "string" ? input.open_mode : undefined;
     const app = appId ? getApp(appId) : null;
     if (!app) {
       return {
@@ -3433,11 +3446,7 @@ export async function surfaceProxyResolver(
       html,
       appId: app.id,
       dirName,
-      preview: {
-        ...defaultPreview,
-        ...preview,
-        ...(storedPreview ? { previewImage: storedPreview } : {}),
-      },
+      preview: buildAppOpenPreview(defaultPreview, preview, storedPreview),
     };
     const surfaceId = uuid();
 
