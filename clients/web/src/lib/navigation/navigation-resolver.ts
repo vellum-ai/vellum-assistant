@@ -407,12 +407,31 @@ function resolveHatchGate(state: NavigationState): NavigationDecision {
 // post-auth
 // ---------------------------------------------------------------------------
 
+// The bring-your-agent import funnel (marketing /import page) replaces
+// onboarding entirely: the imported agent's data IS the setup. A signup that
+// started there must land back on /import; the funnel offers an explicit
+// "skip import" path into onboarding instead. Other signup entry points
+// (including plugin-attributed signups) keep the onboarding redirect.
+const IMPORT_FUNNEL_PATH = "/import";
+
+function isImportFunnelDestination(destination: string): boolean {
+  return (
+    destination === IMPORT_FUNNEL_PATH ||
+    destination.startsWith(`${IMPORT_FUNNEL_PATH}?`) ||
+    destination.startsWith(`${IMPORT_FUNNEL_PATH}/`)
+  );
+}
+
 function resolvePostAuth(
   authIntent: "login" | "signup",
   returnTo: string | null,
   fallback: string,
 ): NavigationDecision {
   if (authIntent === "signup") {
+    const destination = sanitizeReturnTo(returnTo, fallback);
+    if (isImportFunnelDestination(destination)) {
+      return { action: "redirect", to: destination };
+    }
     return { action: "redirect", to: routes.onboarding.privacy };
   }
   return { action: "redirect", to: sanitizeReturnTo(returnTo, fallback) };
