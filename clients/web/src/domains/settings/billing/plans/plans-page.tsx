@@ -38,6 +38,10 @@ import {
 } from "@/domains/settings/components/adjust-plan-utils";
 import { formatDollars } from "@/domains/settings/components/tier-pricing";
 import {
+  buildPortalReturnSnapshot,
+  useBillingPortalSession,
+} from "@/domains/settings/hooks/use-billing-portal-session";
+import {
   organizationsBillingPlansRetrieveOptions,
   organizationsBillingPlansRetrieveQueryKey,
   organizationsBillingSubscriptionRetrieveOptions,
@@ -166,6 +170,13 @@ export function PlansPage() {
   const hasPackages = packages.length > 0;
   const isProUser = subscription?.plan_id === "pro";
 
+  // Pro → Free is a cancellation: it opens the Stripe billing portal (the same
+  // destination as the adjust-plan modal's "Downgrade to Base") so the user can
+  // cancel there. Snapshot the pre-redirect state for the post-return toast.
+  const portalMutation = useBillingPortalSession(
+    buildPortalReturnSnapshot(subscription),
+  );
+
   // Seed the custom-plan modal with the Pro sub's current tiers so an unrelated
   // edit (e.g. only the machine) doesn't force re-picking — and dropping — the
   // storage or credit the user still holds. Null for base checkout, which
@@ -262,11 +273,11 @@ export function PlansPage() {
     const selectTier = (tierKey: string) => {
       if (isProUser) {
         if (tierKey === "free") {
-          // Pro → Free is a subscription cancellation, not a package switch;
-          // route to the billing manage/cancel surface rather than the
-          // (package-only) change-package endpoint, which 400s on non-package
-          // keys.
-          navigate(`${routes.settings.usage}?tab=billing&adjust_plan`);
+          // Pro → Free is a subscription cancellation, not a package switch.
+          // Open the Stripe billing portal (the same destination as the
+          // adjust-plan modal's "Downgrade to Base"), where the user can cancel
+          // — the package-only change-package endpoint 400s on non-package keys.
+          portalMutation.mutate({});
           return;
         }
         // Active Pro orgs switch packages in place via the change-package
@@ -439,7 +450,7 @@ export function PlansPage() {
             tone="dark"
             isCurrent={currentTierKey === "free"}
             intent={freeRelation}
-            pending={pending || changePackagePending}
+            pending={pending || changePackagePending || portalMutation.isPending}
             onCta={() => selectTier("free")}
           />
           {orderedPackages.map((pkg) => {

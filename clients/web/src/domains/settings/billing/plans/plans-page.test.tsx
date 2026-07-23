@@ -50,10 +50,13 @@ import type {
 } from "@/generated/api/types.gen";
 
 const CHECKOUT_URL = "https://stripe.test/checkout/session";
+const PORTAL_URL = "https://stripe.test/portal/session";
 
 type Captured = { body?: unknown };
 let changePackageCall: Captured | null = null;
 let upgradeCall: Captured | null = null;
+// Captures the billing-portal session create — the Pro → Free cancel path.
+let portalSessionCall: Captured | null = null;
 let machineTierCall: Captured | null = null;
 let storageTierCall: Captured | null = null;
 let creditTierCall: Captured | null = null;
@@ -100,6 +103,13 @@ mock.module("@/generated/api/sdk.gen", () => ({
     upgradeCall = opts;
     return Promise.resolve({
       data: { status: "redirect", checkout_url: CHECKOUT_URL },
+      response: { ok: true },
+    });
+  },
+  organizationsBillingPortalSessionCreate: (opts: Captured) => {
+    portalSessionCall = opts;
+    return Promise.resolve({
+      data: { portal_url: PORTAL_URL },
       response: { ok: true },
     });
   },
@@ -538,6 +548,7 @@ function renderInteractive(
 beforeEach(() => {
   changePackageCall = null;
   upgradeCall = null;
+  portalSessionCall = null;
   machineTierCall = null;
   storageTierCall = null;
   creditTierCall = null;
@@ -607,21 +618,21 @@ describe("PlansPage — Pro package switch (change-package)", () => {
     expect(getByTestId("loc").textContent).toBe("/assistant/plans");
   });
 
-  test("Pro → Free downgrade routes to the manage/cancel flow, not change-package", async () => {
-    const { findByRole, findByTestId } = renderInteractive(
+  test("Pro → Free downgrade opens the Stripe billing portal, not change-package", async () => {
+    const { findByRole, getByTestId } = renderInteractive(
       proSuperSubscription(),
     );
 
     // Below Super, Free reads "Downgrade to Free". Cancellation can't go through
-    // the package-only change-package endpoint, so it routes to `?adjust_plan`.
+    // the package-only change-package endpoint, so it opens the Stripe billing
+    // portal (the same destination as the adjust-plan modal's Downgrade to Base).
     fireEvent.click(await findByRole("button", { name: "Downgrade to Free" }));
 
-    const loc = await findByTestId("loc");
-    await waitFor(() =>
-      expect(loc.textContent).toBe(
-        "/assistant/settings/usage?tab=billing&adjust_plan",
-      ),
-    );
+    await waitFor(() => expect(openedUrl).toBe(PORTAL_URL));
+    expect(portalSessionCall).not.toBeNull();
+    // Stays on the plans page (no navigation to the manage surface) and never
+    // touches the package/checkout endpoints.
+    expect(getByTestId("loc").textContent).toBe("/assistant/plans");
     expect(changePackageCall).toBeNull();
     expect(upgradeCall).toBeNull();
   });
