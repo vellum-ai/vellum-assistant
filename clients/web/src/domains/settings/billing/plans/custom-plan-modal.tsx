@@ -1,4 +1,5 @@
 import {
+  Circle,
   CircleCheck,
   Coins,
   Computer,
@@ -9,6 +10,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { isTierDisabled } from "@/domains/settings/components/tier-picker";
 import {
+  formatDelta,
   formatDollars,
   formatMonthly,
 } from "@/domains/settings/components/tier-pricing";
@@ -25,14 +27,11 @@ import {
 } from "@vellumai/design-library/components/dropdown";
 import { Modal } from "@vellumai/design-library/components/modal";
 
-/**
- * Sentinel option value for the "No extra credits" entry — the Dropdown is
- * generic over `T extends string`, so it cannot carry a real `null`. Mapped
- * to `null` at the `onContinue` boundary (mirrors `credit-bundle-picker`).
- */
-const NO_EXTRA_CREDITS = "__none__";
-
-type CreditChoice = CreditTierEnum | typeof NO_EXTRA_CREDITS;
+import {
+  type CreditChoice,
+  computeCustomPlanDiff,
+  NO_EXTRA_CREDITS,
+} from "./custom-plan-diff";
 
 export interface CustomPlanSelection {
   machineTier: MachineTierEnum;
@@ -185,19 +184,18 @@ export function CustomPlanModal({
     (selectedStorage?.price_cents ?? 0) +
     (selectedCredit?.price_cents ?? 0);
 
-  // The base platform fee is always charged, so it permanently leads the
-  // recap — the total above then reconciles with the visible rows even
-  // before anything is selected.
-  const selectionRows = [
-    `Pro base plan — ${formatMonthly(proPlan.base_price_cents)}`,
-    selectedMachine?.description,
-    selectedStorage ? `${selectedStorage.storage_gib} GB storage` : null,
-    creditChoice === NO_EXTRA_CREDITS
-      ? "No extra credits"
-      : selectedCredit
-        ? `${formatDollars(selectedCredit.credits_usd * 100)} of bundled credits`
-        : null,
-  ].filter((row): row is string => row != null);
+  // Recap rows + signed price delta vs. the current plan (seed).
+  const diff = useMemo(
+    () =>
+      computeCustomPlanDiff({
+        proPlan,
+        seed: initialSelection ?? null,
+        machineTier,
+        storageTier,
+        creditChoice,
+      }),
+    [proPlan, initialSelection, machineTier, storageTier, creditChoice],
+  );
 
   const handleContinue = () => {
     if (!selectedMachine || !selectedStorage || creditChoice === "" || pending) {
@@ -299,6 +297,16 @@ export function CustomPlanModal({
                   <span className="text-[24px] font-medium text-[var(--content-default)]">
                     {formatMonthly(totalCents)}
                   </span>
+                  {diff.deltaCents != null &&
+                    diff.deltaCents !== 0 &&
+                    diff.previousTotalCents != null && (
+                      <span
+                        className={`text-[12px] font-medium ${diff.deltaCents > 0 ? "text-[var(--system-positive-strong)]" : "text-[var(--system-negative-strong)]"}`}
+                      >
+                        {formatDelta(diff.deltaCents)} compared to previous (
+                        {formatDollars(diff.previousTotalCents)})
+                      </span>
+                    )}
                   <span className="text-[11px] font-medium text-[var(--content-tertiary)]">
                     Total
                   </span>
@@ -311,15 +319,28 @@ export function CustomPlanModal({
                 </span>
 
                 <ul className="flex flex-col gap-2">
-                  {selectionRows.map((row) => (
-                    <li key={row} className="flex items-center gap-2">
-                      <CircleCheck
-                        className="h-4 w-4 shrink-0 text-[var(--content-secondary)]"
-                        aria-hidden
-                      />
-                      <span className="text-[14px] font-medium leading-[18px] text-[var(--content-secondary)]">
-                        {row}
-                      </span>
+                  {diff.rows.map((row) => (
+                    <li key={row.key} className="flex flex-col gap-2">
+                      {row.previousLabel != null && (
+                        <div className="flex items-start gap-2">
+                          <Circle
+                            className="mt-0.5 h-4 w-4 shrink-0 text-[var(--content-disabled)]"
+                            aria-hidden
+                          />
+                          <span className="text-[14px] font-medium leading-[18px] text-[var(--content-disabled)] line-through">
+                            {row.previousLabel}
+                          </span>
+                        </div>
+                      )}
+                      <div className="flex items-start gap-2">
+                        <CircleCheck
+                          className={`mt-0.5 h-4 w-4 shrink-0 ${row.changed ? "text-[var(--system-positive-strong)]" : "text-[var(--content-secondary)]"}`}
+                          aria-hidden
+                        />
+                        <span className="text-[14px] font-medium leading-[18px] text-[var(--content-secondary)]">
+                          {row.label}
+                        </span>
+                      </div>
                     </li>
                   ))}
                 </ul>

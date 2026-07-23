@@ -401,6 +401,32 @@ function findOption(label: string): HTMLElement {
   return option;
 }
 
+/** The recap's "…compared to previous (…)" delta span, or null when absent. */
+function deltaLine(): HTMLElement | null {
+  const dialog = document.querySelector('[role="dialog"]');
+  return (
+    Array.from(dialog?.querySelectorAll<HTMLElement>("span") ?? []).find((s) =>
+      (s.textContent ?? "").includes("compared to previous"),
+    ) ?? null
+  );
+}
+
+/** The recap's `<li>` texts (each row's full concatenated text). */
+function recapRows(): string[] {
+  const dialog = document.querySelector('[role="dialog"]');
+  return Array.from(dialog?.querySelectorAll("li") ?? []).map(
+    (li) => li.textContent?.trim() ?? "",
+  );
+}
+
+/** Struck-through (previous-value) recap labels. */
+function strikethroughs(): string[] {
+  const dialog = document.querySelector('[role="dialog"]');
+  return Array.from(dialog?.querySelectorAll(".line-through") ?? []).map(
+    (el) => el.textContent?.trim() ?? "",
+  );
+}
+
 describe("CustomPlanModal — base subscriber", () => {
   test("Continue stays disabled until every dropdown has a choice", () => {
     const { getByRole, getByText } = renderPage(freeSubscription());
@@ -467,6 +493,21 @@ describe("CustomPlanModal — base subscriber", () => {
       "30 GB storage",
       "$50 of bundled credits",
     ]);
+  });
+
+  test("base checkout shows no delta line and no strikethrough", () => {
+    // No seed (a base subscriber), so there is no previous plan to compare
+    // against — the recap stays the plain grey-check list.
+    const { getByRole } = renderPage(freeSubscription());
+
+    fireEvent.click(getByRole("button", { name: "Configure" }));
+
+    selectOption("Machine size", "Large machine (4 vCPU, 8 GiB)");
+    selectOption("Storage", "30 GB");
+    selectOption("Credit bundle", "50 credits");
+
+    expect(deltaLine()).toBeNull();
+    expect(strikethroughs()).toEqual([]);
   });
 
   test("Continue starts a Stripe checkout with the selected tiers", async () => {
@@ -561,6 +602,63 @@ describe("CustomPlanModal — eligible Pro subscriber", () => {
       "10 GB storage",
       "No extra credits",
     ]);
+  });
+
+  test("a seeded no-op shows the plain grey-check recap with no delta line", () => {
+    // Opening seeded to the current plan with no interaction: every dimension
+    // matches the seed, so no row is struck through and the delta line is hidden.
+    const { getByRole } = renderPage(proMightySubscription());
+
+    fireEvent.click(getByRole("button", { name: "Configure" }));
+
+    expect(recapRows()).toEqual([
+      "Pro base plan — $20/mo",
+      "Medium machine (2.5 vCPU, 5 GiB)",
+      "10 GB storage",
+      "No extra credits",
+    ]);
+    expect(deltaLine()).toBeNull();
+    expect(strikethroughs()).toEqual([]);
+  });
+
+  test("a machine upgrade struck-throughs the previous value with a green up delta", () => {
+    // Seed: medium machine / 10 GB (xs) storage / no credits.
+    const { getByRole } = renderPage(proMightySubscription());
+
+    fireEvent.click(getByRole("button", { name: "Configure" }));
+    selectOption("Machine size", "Large machine (4 vCPU, 8 GiB)");
+
+    // The changed machine row shows the previous value struck through above
+    // the new value.
+    expect(strikethroughs()).toContain("Medium machine (2.5 vCPU, 5 GiB)");
+    expect(
+      recapRows().some((r) => r.includes("Large machine (4 vCPU, 8 GiB)")),
+    ).toBe(true);
+
+    // previous = base 2000 + medium 3500 + xs 500 = 6000 ($60);
+    // new = base 2000 + large 6000 + xs 500 = 8500 ($85); delta = +$25/mo.
+    const delta = deltaLine();
+    expect(delta).not.toBeNull();
+    expect(delta!.textContent).toBe("+$25/mo compared to previous ($60)");
+    expect(delta!.className).toContain("text-[var(--system-positive-strong)]");
+  });
+
+  test("a cheaper reconfigure shows a red down delta with the U+2212 minus", () => {
+    // Seed machine to large; lowering to medium is cheaper.
+    const { getByRole } = renderPage(
+      proMightySubscription(),
+      onboarding({ max_machine_tier: "large" }),
+    );
+
+    fireEvent.click(getByRole("button", { name: "Configure" }));
+    selectOption("Machine size", "Medium machine (2.5 vCPU, 5 GiB)");
+
+    // previous = base 2000 + large 6000 + xs 500 = 8500 ($85);
+    // new = base 2000 + medium 3500 + xs 500 = 6000 ($60); delta = −$25/mo.
+    const delta = deltaLine();
+    expect(delta).not.toBeNull();
+    expect(delta!.textContent).toBe("−$25/mo compared to previous ($85)");
+    expect(delta!.className).toContain("text-[var(--system-negative-strong)]");
   });
 
   test("continuing with the seeded config is a no-op with no dispatch", async () => {
