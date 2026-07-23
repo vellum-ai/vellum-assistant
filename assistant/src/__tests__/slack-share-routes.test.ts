@@ -9,6 +9,12 @@ import {
 // ---------------------------------------------------------------------------
 // Mocks — must be declared before any imports that pull in mocked modules
 // ---------------------------------------------------------------------------
+//
+// This file covers the share HANDLER's contract: token-not-configured, input
+// validation, app lookup, and the success response shape. Which Slack identity
+// the post authenticates as (user-first, bot fallback) is proven end-to-end at
+// the wire level in the routes' token-routing.test.ts, so it is deliberately
+// not re-asserted here.
 
 const secureKeyValues = new Map<string, string>();
 mock.module("../security/secure-keys.js", () => ({
@@ -38,45 +44,16 @@ let postMessageResult: unknown = {
   message: { ts: "1234567890.123456", text: "", type: "message" },
 };
 
-// Match the real SlackApiError shape (status + slackError) so the share
-// handler's `shouldFallback` predicate and the fallback wrapper's `instanceof`
-// check both work against tokens thrown from these tests.
-class SlackApiError extends Error {
-  constructor(
-    public readonly status: number,
-    public readonly slackError: string,
-    message: string,
-  ) {
-    super(message);
-    this.name = "SlackApiError";
-  }
-}
-
-// Records every postMessage attempt so tests can assert WHICH token posted.
-let postMessageTokens: unknown[] = [];
-// When set, postMessage throws this error for the user token (xoxp-*), leaving
-// the bot token to succeed — exercises the user→bot fallback.
-let userTokenPostError: SlackApiError | null = null;
-
 mock.module("../messaging/providers/slack/client.js", () => ({
   postMessage: async (
-    token: unknown,
+    _token: unknown,
     _channel: string,
     _text: string,
     _opts?: unknown,
-  ) => {
-    postMessageTokens.push(token);
-    if (
-      userTokenPostError &&
-      typeof token === "string" &&
-      token.startsWith("xoxp-")
-    ) {
-      throw userTokenPostError;
-    }
-    return postMessageResult;
-  },
-  // auth.ts imports SlackApiError from the client; export it from the mock.
-  SlackApiError,
+  ) => postMessageResult,
+  // auth.ts imports SlackApiError from the client; export it so the import
+  // graph loads (this file never triggers the fallback that inspects it).
+  SlackApiError: class SlackApiError extends Error {},
 }));
 
 let appStoreResult: unknown = null;
@@ -118,8 +95,6 @@ beforeEach(() => {
   secureKeyValues.clear();
   connectionByProvider = {};
   appStoreResult = null;
-  postMessageTokens = [];
-  userTokenPostError = null;
   postMessageResult = {
     ok: true,
     ts: "1234567890.123456",
@@ -127,19 +102,6 @@ beforeEach(() => {
     message: { ts: "1234567890.123456", text: "", type: "message" },
   };
 });
-
-/** An app that exists in the store, so share reaches the postMessage step. */
-function configureApp() {
-  appStoreResult = {
-    id: "app1",
-    name: "My App",
-    description: "A great app",
-    htmlDefinition: "<div></div>",
-    schemaJson: "{}",
-    createdAt: 0,
-    updatedAt: 0,
-  };
-}
 
 describe("handleShareToSlackChannel", () => {
   test("throws ServiceUnavailableError when no token is configured", async () => {
@@ -186,62 +148,5 @@ describe("handleShareToSlackChannel", () => {
     expect(result.ok).toBe(true);
     expect(result.ts).toBe("1234567890.123456");
     expect(result.channel).toBe("C123");
-  });
-
-  test("posts as the user token when one is stored (human-initiated share)", async () => {
-    secureKeyValues.set("credential/slack_channel/bot_token", "xoxb-test");
-    secureKeyValues.set("credential/slack_channel/user_token", "xoxp-user");
-    configureApp();
-
-    const result = (await handleShareToSlackChannel({
-      body: { appId: "app1", channelId: "C123" },
-    })) as { ok: boolean };
-
-    expect(result.ok).toBe(true);
-    // No fallback: the user token posted once, as the human who shared.
-    expect(postMessageTokens).toEqual(["xoxp-user"]);
-  });
-
-  test("posts as the bot when no user token is stored", async () => {
-    secureKeyValues.set("credential/slack_channel/bot_token", "xoxb-test");
-    configureApp();
-
-    await handleShareToSlackChannel({
-      body: { appId: "app1", channelId: "C1" },
-    });
-
-    expect(postMessageTokens).toEqual(["xoxb-test"]);
-  });
-
-  test("falls back to the bot token when the user token is revoked (401)", async () => {
-    secureKeyValues.set("credential/slack_channel/bot_token", "xoxb-test");
-    secureKeyValues.set("credential/slack_channel/user_token", "xoxp-user");
-    configureApp();
-    userTokenPostError = new SlackApiError(401, "invalid_auth", "revoked");
-
-    const result = (await handleShareToSlackChannel({
-      body: { appId: "app1", channelId: "C123" },
-    })) as { ok: boolean };
-
-    expect(result.ok).toBe(true);
-    expect(postMessageTokens).toEqual(["xoxp-user", "xoxb-test"]);
-  });
-
-  test("falls back to the bot token when the user token lacks chat:write (missing_scope)", async () => {
-    secureKeyValues.set("credential/slack_channel/bot_token", "xoxb-test");
-    secureKeyValues.set("credential/slack_channel/user_token", "xoxp-user");
-    configureApp();
-    userTokenPostError = new SlackApiError(
-      400,
-      "missing_scope",
-      "no chat:write",
-    );
-
-    const result = (await handleShareToSlackChannel({
-      body: { appId: "app1", channelId: "C123" },
-    })) as { ok: boolean };
-
-    expect(result.ok).toBe(true);
-    expect(postMessageTokens).toEqual(["xoxp-user", "xoxb-test"]);
   });
 });

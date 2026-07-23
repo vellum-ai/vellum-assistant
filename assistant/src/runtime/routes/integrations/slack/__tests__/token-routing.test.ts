@@ -1,5 +1,9 @@
 /**
- * Unit tests for Slack route handler token routing.
+ * Wire-level token routing for the Slack routes (the routes-layer twin of
+ * messaging/providers/slack/__tests__/adapter-token-routing.test.ts). Captures
+ * the Authorization header the real Slack client puts on the wire, so it proves
+ * each handler is actually wired to the identity slack/auth.ts resolves — a
+ * class of bug the mocked-client handler tests can't catch.
  *
  * Verifies which Slack identity each route acts as (see slack/auth.ts):
  * - Channel enumeration (`channels.ts`, GET /v1/slack/channels) prefers the
@@ -107,7 +111,7 @@ function fakeSlackResponse(url: string): Record<string, unknown> {
 const BOT_TOKEN = "xoxb-test-bot-token";
 const USER_TOKEN = "xoxp-test-user-token";
 
-describe("Slack share route token routing", () => {
+describe("Slack route token routing (channels + share)", () => {
   beforeEach(() => {
     captured.length = 0;
     failPostMessageForAuth = null;
