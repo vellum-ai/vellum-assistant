@@ -7,7 +7,7 @@
 // ---------------------------------------------------------------------------
 
 import type { ContentBlock, ImageContent, Message } from "@vellumai/plugin-api";
-import { and, desc, eq, inArray, ne, notInArray } from "drizzle-orm";
+import { and, desc, eq, inArray, ne } from "drizzle-orm";
 import { z } from "zod";
 
 import type { AssistantConfig } from "../../../../config/types.js";
@@ -93,6 +93,16 @@ export function getLiveGraphMemory(
 export type GraphMemoryResult = Awaited<
   ReturnType<ConversationGraphMemory["prepareMemory"]>
 >;
+
+/**
+ * How many recent conversation summaries {@link
+ * ConversationGraphMemory.fetchRecentSummaries} scans to find the 3 it returns.
+ * The scan no longer joins `conversations`, so it over-fetches and partitions in
+ * JS; background/scheduled conversations are a small minority, so this window
+ * contains the 3 most-recent user summaries in every realistic history, and the
+ * read is best-effort regardless.
+ */
+const RECENT_SUMMARY_CANDIDATE_LIMIT = 100;
 
 /**
  * Manages memory graph state for a single conversation.
@@ -199,59 +209,79 @@ export class ConversationGraphMemory {
   private fetchRecentSummaries(): string[] {
     try {
       const db = getDb();
-      const baseWhere = and(
-        eq(memorySummaries.scope, "conversation"),
-        ne(memorySummaries.scopeKey, this.conversationId),
-      );
 
-      // Fetch user conversations first (up to 3)
-      const userRows = db
-        .select({ summary: memorySummaries.summary })
+      // Read candidate summaries most-recent first. This can't join
+      // `conversations` because `memory_summaries` is moving to the dedicated
+      // memory database while `conversations` stays on main, so the
+      // conversationType filter runs as a second lookup below. Over-fetch a
+      // window (see RECENT_SUMMARY_CANDIDATE_LIMIT) and partition in JS.
+      const candidates = db
+        .select({
+          scopeKey: memorySummaries.scopeKey,
+          summary: memorySummaries.summary,
+        })
         .from(memorySummaries)
-        .innerJoin(
-          conversations,
-          eq(memorySummaries.scopeKey, conversations.id),
-        )
         .where(
           and(
-            baseWhere,
-            notInArray(conversations.conversationType, [
-              "background",
-              "scheduled",
-            ]),
+            eq(memorySummaries.scope, "conversation"),
+            ne(memorySummaries.scopeKey, this.conversationId),
           ),
         )
         .orderBy(desc(memorySummaries.updatedAt))
-        .limit(3)
+        .limit(RECENT_SUMMARY_CANDIDATE_LIMIT)
         .all();
 
-      if (userRows.length >= 3) {
-        return userRows.map((r) => r.summary);
+      if (candidates.length === 0) {
+        return [];
       }
 
-      // Fill remaining slots with at most 1 background/scheduled conversation
-      const remaining = Math.min(1, 3 - userRows.length);
-      const bgRows = db
-        .select({ summary: memorySummaries.summary })
-        .from(memorySummaries)
-        .innerJoin(
-          conversations,
-          eq(memorySummaries.scopeKey, conversations.id),
-        )
-        .where(
-          and(
-            baseWhere,
-            inArray(conversations.conversationType, [
-              "background",
-              "scheduled",
-            ]),
-          ),
-        )
-        .orderBy(desc(memorySummaries.updatedAt))
-        .limit(remaining)
-        .all();
+      // Resolve each candidate conversation's type on the main connection. A
+      // summary whose conversation row is gone is dropped, matching the old
+      // innerJoin. Chunk the id list under SQLite's bound-parameter limit.
+      const typeByConversation = new Map<string, string>();
+      const ids = candidates.map((c) => c.scopeKey);
+      const CHUNK = 500;
+      for (let i = 0; i < ids.length; i += CHUNK) {
+        const rows = db
+          .select({
+            id: conversations.id,
+            type: conversations.conversationType,
+          })
+          .from(conversations)
+          .where(inArray(conversations.id, ids.slice(i, i + CHUNK)))
+          .all();
+        for (const r of rows) {
+          typeByConversation.set(r.id, r.type);
+        }
+      }
 
-      return [...userRows, ...bgRows].map((r) => r.summary);
+      // Partition in the candidates' most-recent-first order: up to 3 user
+      // summaries, then at most 1 background/scheduled to fill — exactly the two
+      // limited queries this replaces.
+      const userSummaries: string[] = [];
+      const backgroundSummaries: string[] = [];
+      for (const candidate of candidates) {
+        const type = typeByConversation.get(candidate.scopeKey);
+        if (type === undefined) {
+          continue; // orphan summary — the old innerJoin dropped it
+        }
+        if (type === "background" || type === "scheduled") {
+          if (backgroundSummaries.length < 1) {
+            backgroundSummaries.push(candidate.summary);
+          }
+        } else if (userSummaries.length < 3) {
+          userSummaries.push(candidate.summary);
+        }
+        if (userSummaries.length >= 3) {
+          break;
+        }
+      }
+
+      if (userSummaries.length >= 3) {
+        return userSummaries;
+      }
+      const remaining = Math.min(1, 3 - userSummaries.length);
+      return [...userSummaries, ...backgroundSummaries.slice(0, remaining)];
     } catch (err) {
       log.warn({ err }, "Failed to fetch recent conversation summaries");
       return [];
