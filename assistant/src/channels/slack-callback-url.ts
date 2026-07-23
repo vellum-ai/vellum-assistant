@@ -4,9 +4,8 @@
  * The gateway encodes the Slack reply target (thread ts and, for non-threaded
  * DMs, the originating message ts) as query parameters on the `/deliver/slack`
  * callback URL it hands the daemon. These helpers parse those parameters back
- * out at delivery time. The durable per-conversation thread id is the binding's
- * `externalThreadId` (see `external-conversation-store.ts`); metadata stamping
- * resolves the thread from there, not from these transient URL params.
+ * out at delivery time. (The assistant reply row's thread metadata is stamped
+ * separately, from the turn-local `trustContext.sourceThreadId`.)
  */
 
 /**
