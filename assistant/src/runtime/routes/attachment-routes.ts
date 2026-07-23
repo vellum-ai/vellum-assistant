@@ -137,8 +137,15 @@ export function resolveAllowedFileBackedAttachmentPath(
   return null;
 }
 
-/** 100 MB — maximum file size for binary uploads (multipart / octet-stream). */
-const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
+/**
+ * 500 MB — maximum file size for binary uploads (multipart / octet-stream).
+ * Raised from 100 MB to match the platform's chat-attachment cap so the
+ * bring-your-agent import can hand full agent exports to the assistant as
+ * attachments. Binary uploads are stored file-backed (uploadAttachmentFromBytes
+ * writes to disk), so the cost is a transient in-memory buffer, not a
+ * persistent base64 row; the JSON/base64 path keeps its lower store-level cap.
+ */
+const MAX_UPLOAD_BYTES = 500 * 1024 * 1024;
 
 /**
  * Canonical attachment metadata shape, shared by the upload and get-by-id route
