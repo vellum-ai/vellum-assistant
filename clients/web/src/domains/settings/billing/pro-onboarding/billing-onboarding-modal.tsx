@@ -69,10 +69,9 @@ export interface BillingOnboardingModalProps {
    */
   mode?: "checkout" | "resize";
   /**
-   * Resize mode only: the credit tier just applied by an in-place change, so
-   * the takeover's terminal phase can confirm a credit-bundle change the phase
-   * machine would otherwise show nothing for. `undefined` = no credit change.
-   * Ignored in checkout mode, where credits ride the stashed intent instead.
+   * Resize mode only: the credit tier applied by an in-place change, forwarded
+   * to the takeover. Ignored in checkout mode, where credits ride the stashed
+   * intent instead. See `ProvisioningStateProps.resizeCredits`.
    */
   resizeCredits?: CreditTierEnum | null;
 }
