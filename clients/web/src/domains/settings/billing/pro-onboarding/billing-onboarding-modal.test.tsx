@@ -493,6 +493,9 @@ describe("BillingOnboardingModal", () => {
     expect(backdrop?.querySelector("img")?.getAttribute("src")).toBe(
       "blob:vellum/avatar-image",
     );
+    // The sheet's own fade drives the reveal here, so the backdrop must not
+    // re-fade over it.
+    expect(backdrop?.className).not.toContain("provision-avatar-reveal");
   });
 
   test(

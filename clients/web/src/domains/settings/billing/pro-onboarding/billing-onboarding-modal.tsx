@@ -385,8 +385,12 @@ export function BillingOnboardingModal({
           >
             {/* A custom-image takeover's colour lives in this blurred image, not
                 the ground fill, so the sheet reproduces it to match. The
-                `TAKEOVER_SURFACE` fill shows through while it decodes. */}
-            {backdropImageUrl && <TakeoverBackdrop imageUrl={backdropImageUrl} />}
+                `TAKEOVER_SURFACE` fill shows through while it decodes. The
+                sheet's own fade drives the reveal, so the backdrop doesn't
+                re-fade over it. */}
+            {backdropImageUrl && (
+              <TakeoverBackdrop imageUrl={backdropImageUrl} animateIn={false} />
+            )}
           </div>
         )}
       </Modal.Content>
