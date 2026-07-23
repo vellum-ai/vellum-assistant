@@ -6,14 +6,12 @@ interface CreditsExhaustedBannerProps {
   mode: CreditPaywallCtaMode;
   onAddCredits: () => void;
   onUpgrade: () => void;
-  detached?: boolean;
 }
 
 export function CreditsExhaustedBanner({
   mode,
   onAddCredits,
   onUpgrade,
-  detached,
 }: CreditsExhaustedBannerProps) {
   const isUpgrade = mode === "upgrade";
   return (
@@ -31,7 +29,7 @@ export function CreditsExhaustedBanner({
       }
       ctaLabel={isUpgrade ? "Upgrade" : "Add Credits"}
       onAction={isUpgrade ? onUpgrade : onAddCredits}
-      detached={detached}
+      detached={true}
     />
   );
 }

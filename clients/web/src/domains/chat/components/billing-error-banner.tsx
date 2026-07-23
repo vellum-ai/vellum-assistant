@@ -10,8 +10,6 @@ interface BillingErrorBannerProps {
   subtitle: string;
   ctaLabel: string;
   onAction: () => void;
-  secondaryCtaLabel?: string;
-  onSecondaryAction?: () => void;
   /**
    * Render as a standalone, centered card ~24px narrower than the composer with
    * full rounding, instead of a full-width banner flush-mounted above the
@@ -27,8 +25,6 @@ export function BillingErrorBanner({
   subtitle,
   ctaLabel,
   onAction,
-  secondaryCtaLabel,
-  onSecondaryAction,
   detached = false,
 }: BillingErrorBannerProps) {
   return (
@@ -74,18 +70,7 @@ export function BillingErrorBanner({
           </p>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
-          {secondaryCtaLabel && onSecondaryAction ? (
-            <Button
-              variant="outlined"
-              size="regular"
-              onClick={onSecondaryAction}
-              aria-label={secondaryCtaLabel}
-            >
-              {secondaryCtaLabel}
-            </Button>
-          ) : null}
-
+        <div className="flex items-center shrink-0">
           <Button
             variant="primary"
             size="regular"
