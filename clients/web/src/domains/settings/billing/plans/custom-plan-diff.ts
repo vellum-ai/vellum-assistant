@@ -40,7 +40,9 @@ export interface CustomPlanDiffRow {
 }
 
 export interface CustomPlanDiff {
-  /** Total for the seed (previous) config incl. base fee; null for base checkout (no seed). */
+  /** Total for the current selection incl. base fee; always a number (base checkout included). The modal renders this as the "$X/mo" figure so the header total, delta, and rows share one full-catalog resolution. */
+  totalCents: number;
+  /** Total for the seed (previous) config incl. base fee; null for base checkout (no seed) or a held credit bundle the catalog can no longer price. */
   previousTotalCents: number | null;
   /** newTotal - previousTotal; null for base checkout. */
   deltaCents: number | null;
@@ -171,7 +173,12 @@ export function computeCustomPlanDiff(input: {
     (selectedCredit?.price_cents ?? 0);
 
   if (seed == null) {
-    return { previousTotalCents: null, deltaCents: null, rows };
+    return {
+      totalCents: newTotalCents,
+      previousTotalCents: null,
+      deltaCents: null,
+      rows,
+    };
   }
 
   // A held credit tier that is a concrete enum value but absent from the catalog
@@ -185,7 +192,12 @@ export function computeCustomPlanDiff(input: {
   // routed to the manage/adjust-plan modal upstream and do not normally reach here.
   const seedCreditUnresolved = seed.creditTier != null && seedCredit == null;
   if (seedCreditUnresolved) {
-    return { previousTotalCents: null, deltaCents: null, rows };
+    return {
+      totalCents: newTotalCents,
+      previousTotalCents: null,
+      deltaCents: null,
+      rows,
+    };
   }
 
   const previousTotalCents =
@@ -195,6 +207,7 @@ export function computeCustomPlanDiff(input: {
     (seedCredit?.price_cents ?? 0);
 
   return {
+    totalCents: newTotalCents,
     previousTotalCents,
     deltaCents: newTotalCents - previousTotalCents,
     rows,
