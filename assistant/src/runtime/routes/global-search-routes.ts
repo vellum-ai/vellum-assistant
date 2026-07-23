@@ -13,6 +13,7 @@ import { z } from "zod";
 import { getConfig } from "../../config/loader.js";
 import { searchContacts } from "../../contacts/contact-store.js";
 import { searchConversations } from "../../persistence/conversation-queries.js";
+import { getMemorySqlite } from "../../persistence/db-connection.js";
 import {
   embedWithBackend,
   getMemoryBackendStatus,
@@ -151,6 +152,11 @@ function parseSearchQuery(rawQ: string | undefined): {
 }
 
 function searchMemoryItems(query: string, limit: number): GlobalSearchMemory[] {
+  // The memory graph lives in the dedicated memory database. If it cannot be
+  // opened, degrade this category to empty rather than failing the whole
+  // federated search — conversations, schedules, and contacts still return.
+  if (!getMemorySqlite()) return [];
+
   const likePattern = `%${query.replace(/%/g, "").replace(/_/g, "")}%`;
 
   interface MemoryRow {

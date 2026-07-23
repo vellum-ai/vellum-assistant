@@ -100,17 +100,25 @@ export function invalidateAssistantInferredItemsForConversation(
     .map((p) => p.id);
   if (toInvalidate.length === 0) return 0;
 
-  const placeholders = toInvalidate.map(() => "?").join(", ");
-  const affected = rawMemoryRun(
-    "taskMemory:invalidateInferredNodes:update",
-    `UPDATE memory_graph_nodes
-        SET fidelity = 'gone',
-            last_accessed = ?
-      WHERE fidelity != 'gone'
-        AND id IN (${placeholders})`,
-    Date.now(),
-    ...toInvalidate,
-  );
+  // Chunk the id list so a conversation attached to more nodes than SQLite's
+  // bound-parameter limit still invalidates them all instead of throwing.
+  const now = Date.now();
+  const CHUNK = 500;
+  let affected = 0;
+  for (let i = 0; i < toInvalidate.length; i += CHUNK) {
+    const chunk = toInvalidate.slice(i, i + CHUNK);
+    const placeholders = chunk.map(() => "?").join(", ");
+    affected += rawMemoryRun(
+      "taskMemory:invalidateInferredNodes:update",
+      `UPDATE memory_graph_nodes
+          SET fidelity = 'gone',
+              last_accessed = ?
+        WHERE fidelity != 'gone'
+          AND id IN (${placeholders})`,
+      now,
+      ...chunk,
+    );
+  }
 
   if (affected > 0) {
     log.info(
