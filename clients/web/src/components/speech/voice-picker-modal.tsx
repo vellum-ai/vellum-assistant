@@ -19,12 +19,15 @@ export interface VoicePickerModalProps {
   assistantId: string | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Show each voice's provider badge (settings surfaces). */
+  showSource?: boolean;
 }
 
 export function VoicePickerModal({
   assistantId,
   open,
   onOpenChange,
+  showSource = false,
 }: VoicePickerModalProps) {
   const assistantName = useResolvedAssistantsStore.use
     .assistants()
@@ -42,6 +45,7 @@ export function VoicePickerModal({
           <VoiceList
             assistantId={assistantId}
             onSelect={() => onOpenChange(false)}
+            showSource={showSource}
           />
         </Modal.Body>
       </Modal.Content>

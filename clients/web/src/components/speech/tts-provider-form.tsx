@@ -30,11 +30,7 @@ import {
   LS_TTS_PROVIDER,
   LS_TTS_VOICE_ID_PREFIX,
 } from "@/utils/local-settings-keys";
-import {
-  groupVoicesByAccent,
-  MANAGED_VOICE_SOURCE_LABELS,
-  voiceTraitsLabel,
-} from "@/lib/tts/managed-voice-catalog";
+import { VoicePickerField } from "@/components/speech/voice-picker-field";
 import { useManagedVoices } from "@/lib/tts/use-managed-voices";
 import { TTS_PROVIDERS } from "@/lib/provider-catalogs";
 
@@ -337,53 +333,6 @@ export function TtsProviderForm({
   ]);
 
   // Voices grouped by accent, each row named by its character traits alone —
-  // no proper name (the assistant has its own) and no accent (the group states
-  // it). Mirrors the voice-room picker so a voice reads the same in both.
-  // `Dropdown` has no group concept, so each accent enters as a disabled row
-  // that heads its group.
-  const managedVoiceOptions = useMemo(
-    () =>
-      groupVoicesByAccent(managedVoices).flatMap(({ accent, voices }) => [
-        { value: `group:${accent}`, label: accent, disabled: true },
-        ...voices.map((v) => ({
-          value: v.model,
-          label: `${voiceTraitsLabel(v.description)}${
-            v.model === defaultManagedVoice ? " (default)" : ""
-          }`,
-          // Voices come from different upstream providers; the badge makes the
-          // source visible while browsing, not only after selecting.
-          suffix: (
-            <span className="text-body-small-default text-[var(--content-tertiary)]">
-              {MANAGED_VOICE_SOURCE_LABELS[v.source] ?? v.source}
-            </span>
-          ),
-        })),
-      ]),
-    [managedVoices, defaultManagedVoice],
-  );
-
-  // Managed voices preview via Deepgram's public hosted samples — no key,
-  // no billing, works before saving.
-  const [previewing, setPreviewing] = useState(false);
-  const handlePreviewVoice = useCallback(async () => {
-    if (!selectedManagedVoice) {
-      return;
-    }
-    setPreviewing(true);
-    try {
-      const audio = new Audio(selectedManagedVoice.sampleUrl);
-      await audio.play();
-      await new Promise<void>((resolve) => {
-        audio.onended = () => resolve();
-        audio.onerror = () => resolve();
-      });
-    } catch {
-      toast.error("Could not play the voice sample.");
-    } finally {
-      setPreviewing(false);
-    }
-  }, [selectedManagedVoice]);
-
   // Publish save state so a parent rendering its own Save (see
   // `hideSaveButton`) can enable it and commit this form.
   useEffect(() => {
@@ -494,11 +443,13 @@ export function TtsProviderForm({
           <label className="block text-body-small-default text-[var(--content-tertiary)]">
             Voice
           </label>
-          <Dropdown
+          {/* Collapsed select-style field that opens the shared voice list
+              (grouped, per-row preview, provider badge). Controlled so the pick
+              stays a draft until Save, matching the rest of this form. */}
+          <VoicePickerField
+            assistantId={assistantId}
             value={draftManagedVoice}
             onChange={setDraftManagedVoice}
-            options={managedVoiceOptions}
-            aria-label="Managed voice"
           />
         </div>
       )}
@@ -538,19 +489,6 @@ export function TtsProviderForm({
             {testing ? "Testing…" : "Test"}
           </Button>
         )}
-        {managedVoiceSupported &&
-          selectedManagedVoice &&
-          // An empty sampleUrl means no hosted preview exists for this
-          // voice; a button that can only error is worse than none.
-          selectedManagedVoice.sampleUrl !== "" && (
-            <Button
-              variant="outlined"
-              onClick={handlePreviewVoice}
-              disabled={previewing}
-            >
-              {previewing ? "Playing…" : "Preview voice"}
-            </Button>
-          )}
         <div className="ml-auto flex items-center gap-2">
           {!hideSaveButton && (
             <SaveButton onClick={handleSave} disabled={!hasChanges || saving} />

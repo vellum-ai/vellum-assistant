@@ -10,8 +10,10 @@
  *
  * Each row shows the voice's short character description (e.g.
  * "American · warm, clear") — NOT the catalog's proper name (the assistant has
- * its own name) and NOT the upstream source — with a per-row preview button and
- * a check on the current selection.
+ * its own name) — with a per-row preview button and a check on the current
+ * selection. The upstream provider ("ElevenLabs", "Deepgram") is shown as a
+ * quiet badge only when `showSource` is set (the settings surfaces); the
+ * first-run onboarding card leaves it off.
  *
  * Selecting a voice writes it to daemon config via
  * {@link useManagedVoiceSelection}, which hot-applies on the assistant's next
@@ -29,6 +31,7 @@ import { toast } from "@vellumai/design-library/components/toast";
 import { useManagedVoiceSelection } from "@/components/speech/use-managed-voice-selection";
 import {
   groupVoicesByAccent,
+  MANAGED_VOICE_SOURCE_LABELS,
   splitVoiceDescription,
   voiceTraitsLabel,
 } from "@/lib/tts/managed-voice-catalog";
@@ -120,6 +123,21 @@ export interface VoiceListProps {
   className?: string;
   /** Called after a voice is chosen — e.g. to close the picker modal. */
   onSelect?: () => void;
+  /**
+   * Controlled mode. Pass both to let the parent own the selection — the list
+   * calls `onChange` instead of writing to daemon config, so a batched form
+   * (Models & Services) can hold the pick in a draft until Save. Omit both and
+   * the list self-commits via {@link useManagedVoiceSelection} (instant
+   * hot-apply — the voice room and Voice settings picker).
+   */
+  value?: string;
+  onChange?: (model: string) => void;
+  /**
+   * Show each voice's upstream provider (e.g. "ElevenLabs") as a quiet badge.
+   * On for the settings surfaces; off (default) keeps the first-run onboarding
+   * card free of provider jargon.
+   */
+  showSource?: boolean;
 }
 
 export function VoiceList({
@@ -127,9 +145,28 @@ export function VoiceList({
   heading,
   className,
   onSelect,
+  value,
+  onChange,
+  showSource = false,
 }: VoiceListProps) {
-  const { available, voices, currentModel, selectModel, selecting } =
-    useManagedVoiceSelection(assistantId);
+  const {
+    available,
+    voices,
+    currentModel,
+    defaultModel,
+    selectModel,
+    selecting,
+  } = useManagedVoiceSelection(assistantId);
+
+  // Controlled when the parent supplies both value and onChange; otherwise the
+  // list owns selection and commits instantly.
+  const controlled = value !== undefined && onChange !== undefined;
+  const activeModel = controlled ? value : currentModel;
+  const choose = (model: string) => {
+    if (controlled) onChange(model);
+    else selectModel(model);
+    onSelect?.();
+  };
 
   const groups = useMemo(() => groupVoicesByAccent(voices), [voices]);
   const { previewingModel, play, stop } = useVoiceSamplePreview();
@@ -173,18 +210,16 @@ export function VoiceList({
               {group.accent}
             </div>
             {group.voices.map((voice) => {
-              const isSelected = voice.model === currentModel;
+              const isSelected = voice.model === activeModel;
               const isPreviewing = previewingModel === voice.model;
+              const isDefault = voice.model === defaultModel;
               return (
                 <div
                   key={voice.model}
                   ref={isSelected ? selectedRef : undefined}
                   role="option"
                   aria-selected={isSelected}
-                  onClick={() => {
-                    selectModel(voice.model);
-                    onSelect?.();
-                  }}
+                  onClick={() => choose(voice.model)}
                   className={cn(
                     "group flex cursor-pointer items-center gap-2 rounded-md px-3 py-2.5 transition-colors",
                     // Selected reads as a soft persistent fill + a trailing
@@ -196,44 +231,67 @@ export function VoiceList({
                 >
                   <span className="min-w-0 flex-1 truncate text-body-medium-default text-[var(--content-default)]">
                     {voiceTraitsLabel(voice.description)}
+                    {isDefault && (
+                      <span className="text-[var(--content-tertiary)]">
+                        {" "}
+                        (default)
+                      </span>
+                    )}
                   </span>
-                  {voice.sampleUrl !== "" && (
-                    <Button
-                      variant="ghost"
-                      size="compact"
-                      iconOnly={isPreviewing ? <Square /> : <Volume2 />}
-                      aria-label={
-                        isPreviewing
-                          ? "Stop preview"
-                          : `Preview ${voice.description}`
-                      }
-                      // Quiet affordance: revealed on row hover / keyboard focus
-                      // (and kept visible while previewing). On touch devices —
-                      // which have no hover — it stays visible so preview is
-                      // always reachable.
-                      className={cn(
-                        "shrink-0 transition-opacity",
-                        isPreviewing
-                          ? "opacity-100"
-                          : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100 touch-mobile:opacity-100",
-                      )}
-                      // Preview / stop only — don't let the row's select fire.
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        if (isPreviewing) {
-                          stop();
-                        } else {
-                          play(voice);
+                  {showSource && (
+                    <span className="shrink-0 text-body-small-default text-[var(--content-tertiary)]">
+                      {MANAGED_VOICE_SOURCE_LABELS[voice.source] ?? voice.source}
+                    </span>
+                  )}
+                  {/* One fixed-width trailing slot the preview button and the
+                      selected-check share, so the provider badge never shifts
+                      between rows. At rest: the check on the selected row, empty
+                      otherwise. On hover/focus (or while previewing) the speaker
+                      takes over — so the selected row is previewable too. */}
+                  <div className="relative flex size-7 shrink-0 items-center justify-center">
+                    {voice.sampleUrl !== "" && (
+                      <Button
+                        variant="ghost"
+                        size="compact"
+                        iconOnly={isPreviewing ? <Square /> : <Volume2 />}
+                        aria-label={
+                          isPreviewing
+                            ? "Stop preview"
+                            : `Preview ${voice.description}`
                         }
-                      }}
-                    />
-                  )}
-                  {isSelected && (
-                    <Check
-                      aria-hidden
-                      className="size-4 shrink-0 text-[var(--system-positive-strong)]"
-                    />
-                  )}
+                        className={cn(
+                          "absolute inset-0 transition-opacity",
+                          isPreviewing
+                            ? "opacity-100"
+                            : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100 touch-mobile:opacity-100",
+                        )}
+                        // Preview / stop only — don't let the row's select fire.
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          if (isPreviewing) {
+                            stop();
+                          } else {
+                            play(voice);
+                          }
+                        }}
+                      />
+                    )}
+                    {isSelected && (
+                      <Check
+                        aria-hidden
+                        className={cn(
+                          "pointer-events-none size-4 text-[var(--system-positive-strong)] transition-opacity",
+                          // Hide the check whenever the speaker is showing (hover
+                          // /focus or previewing), so they never stack.
+                          isPreviewing
+                            ? "opacity-0"
+                            : voice.sampleUrl !== ""
+                              ? "opacity-100 group-hover:opacity-0 group-focus-within:opacity-0"
+                              : "opacity-100",
+                        )}
+                      />
+                    )}
+                  </div>
                 </div>
               );
             })}

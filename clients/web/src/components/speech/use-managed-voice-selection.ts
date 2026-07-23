@@ -43,6 +43,8 @@ export interface UseManagedVoiceSelection {
   voices: readonly ManagedVoiceOption[];
   /** The currently-selected model (config value, else the platform default). */
   currentModel: string;
+  /** The platform default model, for a "(default)" marker. Empty if none. */
+  defaultModel: string;
   /** Persist a voice; hot-applies on the assistant's next spoken turn. */
   selectModel: (model: string) => void;
   /** A write is in flight. */
@@ -131,5 +133,12 @@ export function useManagedVoiceSelection(
     [assistantId, currentModel, queryClient],
   );
 
-  return { available, voices, currentModel, selectModel, selecting };
+  return {
+    available,
+    voices,
+    currentModel,
+    defaultModel: defaultModel ?? "",
+    selectModel,
+    selecting,
+  };
 }

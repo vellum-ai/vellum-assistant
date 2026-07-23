@@ -42,14 +42,18 @@ export function VoicePickerCard() {
 
   if (available && current) {
     return (
-      <DetailCard title={voiceTitle}>
+      <DetailCard
+        title={voiceTitle}
+        subtitle="Uses Vellum credits, through providers like ElevenLabs and Deepgram."
+      >
         <div className="flex items-center gap-3">
           <VoiceLabel
             description={current.description}
-            // Full-strength color + heavier weight so the current voice reads as
-            // the selected value, not a muted description. The "· accent" tail
-            // stays quiet (VoiceLabel renders it in --content-tertiary).
-            className="min-w-0 text-body-medium-default font-semibold text-[var(--content-default)]"
+            // Lighter weight than the title differentiates value from heading
+            // (they were both medium and blurred together); full-strength color
+            // keeps it a legible value, not the muted grey of a description. The
+            // "· accent" tail stays quiet (VoiceLabel renders it in tertiary).
+            className="min-w-0 text-body-medium-lighter text-[var(--content-default)]"
           />
           <Button
             variant="outlined"
@@ -63,6 +67,7 @@ export function VoicePickerCard() {
           assistantId={assistantId}
           open={pickerOpen}
           onOpenChange={setPickerOpen}
+          showSource
         />
       </DetailCard>
     );
