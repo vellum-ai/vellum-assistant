@@ -253,3 +253,70 @@ describe("normalizeTelegramUpdate — audio messages", () => {
     expect(result).toBeNull();
   });
 });
+
+describe("normalizeTelegramUpdate — malformed input is validated, not trusted", () => {
+  it("drops a message whose chat.id is not a number", () => {
+    // Before validation the blanket cast trusted this and forwarded
+    // `String({...})` = "[object Object]" as the conversation id.
+    const result = normalizeTelegramUpdate({
+      update_id: 600,
+      message: {
+        message_id: 60,
+        text: "hi",
+        chat: { id: { nested: true }, type: "private" },
+        from: { id: 42, first_name: "Alice" },
+      },
+    });
+    expect(result).toBeNull();
+  });
+
+  it("ignores a non-array photo instead of treating it like an array", () => {
+    // Before, `photo.length` on a non-array string produced a garbage
+    // single-character attachment with an undefined fileId.
+    const result = normalizeTelegramUpdate({
+      update_id: 601,
+      message: {
+        message_id: 61,
+        text: "caption text",
+        photo: "not-an-array",
+        chat: { id: 42, type: "private" },
+        from: { id: 42, first_name: "Alice" },
+      },
+    });
+    expect(result).not.toBeNull();
+    expect(result!.message.content).toBe("caption text");
+    expect(result!.message.attachments).toBeUndefined();
+  });
+
+  it("drops a non-numeric message_thread_id rather than stringifying it", () => {
+    const result = normalizeTelegramUpdate({
+      update_id: 602,
+      message: {
+        message_id: 62,
+        message_thread_id: { bad: true },
+        text: "hi",
+        chat: { id: 42, type: "private" },
+        from: { id: 42, first_name: "Alice" },
+      },
+    });
+    expect(result).not.toBeNull();
+    expect(result!.source.threadId).toBeUndefined();
+  });
+
+  it("preserves the original payload verbatim as `raw`, unknown keys included", () => {
+    const payload = {
+      update_id: 603,
+      message: {
+        message_id: 63,
+        text: "hi",
+        chat: { id: 42, type: "private" },
+        from: { id: 42, first_name: "Alice" },
+      },
+      // The schema strips this from the parsed working copy; `raw` must keep it.
+      unknown_future_field: { anything: 1 },
+    };
+    const result = normalizeTelegramUpdate(payload);
+    expect(result).not.toBeNull();
+    expect(result!.raw).toEqual(payload);
+  });
+});
