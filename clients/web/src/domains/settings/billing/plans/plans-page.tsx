@@ -11,7 +11,11 @@ import {
   type SwitchRelation,
   tierRelation,
 } from "@/domains/settings/billing/package-types";
-import { FREE_STORAGE_GIB } from "@/domains/settings/billing/plan-tier-meta";
+import { machineLabel } from "@/domains/settings/billing/plan-spec";
+import {
+  FREE_CREDITS_USD,
+  FREE_STORAGE_GIB,
+} from "@/domains/settings/billing/plan-tier-meta";
 import {
   CustomPlanModal,
   type CustomPlanSeed,
@@ -42,7 +46,6 @@ import {
 } from "@/generated/api/@tanstack/react-query.gen";
 import type {
   CreditTierEnum,
-  MachineSizeEnum,
   ProPlan,
   SubscriptionUpgradeRequestRequest,
 } from "@/generated/api/types.gen";
@@ -53,7 +56,6 @@ import {
 } from "@/hooks/use-platform-gate";
 import { saveCheckoutIntent } from "@/lib/billing/checkout-intent";
 import { checkoutReturnTarget } from "@/lib/billing/checkout-return-target";
-import { SIZE_LABEL } from "@/lib/billing/machine-sizes";
 import { openUrl } from "@/runtime/browser";
 import { isElectron } from "@/runtime/is-electron";
 import { routes } from "@/utils/routes";
@@ -86,14 +88,12 @@ function priceLabelFromCents(cents: number): string {
 
 /** Machine label for a package's feature row, e.g. "Medium Computer". */
 function machineComputerLabel(pkg: ProPackage): string {
-  const size = pkg.machine_size;
-  const label = size ? (SIZE_LABEL[size as MachineSizeEnum] ?? size) : "Small";
-  return `${label} Computer`;
+  return `${machineLabel(pkg)} Computer`;
 }
 
 /** Catalog-derived feature rows, plus any static extras from the copy. */
 function packageFeatures(pkg: ProPackage, extra: readonly string[]): string[] {
-  const credits = pkg.credits_usd ?? 0;
+  const credits = pkg.credits_usd ?? FREE_CREDITS_USD;
   return [
     machineComputerLabel(pkg),
     `${pkg.storage_gib} GB Storage`,

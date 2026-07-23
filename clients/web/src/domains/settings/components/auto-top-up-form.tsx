@@ -170,7 +170,7 @@ export function AutoTopUpForm({
           <Input
             type="number"
             step="1"
-            label="Auto-Reload when balance below"
+            label="Auto-reload when balance below"
             value={values.threshold_usd}
             onChange={onChange("threshold_usd")}
             onBlur={onBlur("threshold_usd")}
@@ -183,7 +183,7 @@ export function AutoTopUpForm({
           <Input
             type="number"
             step="1"
-            label="Add amount when auto reloading"
+            label="Auto-reload amount"
             value={values.amount_usd}
             onChange={onChange("amount_usd")}
             onBlur={onBlur("amount_usd")}
