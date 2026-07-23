@@ -62,19 +62,32 @@ function isNoiseIm(c: SlackConversation): boolean {
 export async function handleListSlackChannels({
   queryParams,
 }: RouteHandlerArgs = {}) {
-  const token = await resolveSlackToken("read");
+  const memberOnly = queryParams?.memberOnly === "true";
+
+  // The presence list ("where the assistant is present") reflects the BOT's
+  // own membership, so it reads with the bot token — never the optional user
+  // token, whose `is_member` view is the user's channels, not the bot's. The
+  // share picker keeps the broader read (user token when present) so it can
+  // offer channels the user is in but the bot isn't.
+  const token = await resolveSlackToken(memberOnly ? "bot-read" : "read");
   if (!token) {
     throw new ServiceUnavailableError("No Slack token configured");
   }
 
-  const memberOnly = queryParams?.memberOnly === "true";
+  // The presence list renders rooms only — channels and group DMs — and
+  // discards 1:1 IMs below, so it doesn't ask Slack for the `im` type (the
+  // list never shows them). The share picker keeps `im`: DMs are valid share
+  // destinations.
+  const conversationTypes = memberOnly
+    ? "public_channel,private_channel,mpim"
+    : "public_channel,private_channel,mpim,im";
 
   const allChannels: SlackConversation[] = [];
   let cursor: string | undefined;
   do {
     const resp = await listConversations(
       token,
-      "public_channel,private_channel,mpim,im",
+      conversationTypes,
       true,
       200,
       cursor,
