@@ -287,3 +287,70 @@ describe("ui_update preserves client-owned keys the daemon schema omits", () => 
     });
   });
 });
+
+describe("ui_update on a restored unknown surface type", () => {
+  test("forwards the merge opaquely instead of throwing on the schema registry", async () => {
+    const sent: ServerMessage[] = [];
+    const ctx = makeContext({ sent });
+    // Restore preserves an unknown-but-non-empty surfaceType verbatim (a
+    // newer/custom client-rendered surface). Indexing SURFACE_DATA_SCHEMAS with
+    // it would read `undefined` and throw — the update must forward opaquely.
+    ctx.surfaceState.set(
+      "future-1",
+      restoreSurfaceStateEntry({
+        surfaceType: "future_widget",
+        data: { title: "Widget", customField: 42 },
+      }),
+    );
+
+    const result = await surfaceProxyResolver(ctx, "ui_update", {
+      surface_id: "future-1",
+      data: { title: "Widget (edited)" },
+    });
+    expect(result.isError).toBe(false);
+
+    // The unknown type is preserved and the merge applied verbatim.
+    const stored = ctx.surfaceState.get("future-1");
+    expect(stored?.surfaceType as string).toBe("future_widget");
+    expect(stored?.data).toEqual({ title: "Widget (edited)", customField: 42 });
+
+    const update = sent.find((m) => m.type === "ui_surface_update");
+    expect(update).toBeDefined();
+    expect((update as { data: Record<string, unknown> }).data).toEqual({
+      title: "Widget (edited)",
+      customField: 42,
+    });
+  });
+});
+
+describe("ui_update normalizes modeled fields for known surface types", () => {
+  test("a malformed dynamic_page html patch is stored as its schema-coerced string", async () => {
+    const sent: ServerMessage[] = [];
+    const ctx = makeContext({ sent });
+    ctx.surfaceState.set("page-1", {
+      surfaceType: "dynamic_page",
+      data: { html: "<p>original</p>" },
+    });
+
+    // A malformed patch: `html` as a non-string. The tolerant schema
+    // (`z.string().catch("")`) accepts it, so the update must not revert — but
+    // the stored/sent value must be the coerced string, never the raw object,
+    // or later `truncateHtml(...).slice()` on the stored html would crash.
+    const result = await surfaceProxyResolver(ctx, "ui_update", {
+      surface_id: "page-1",
+      data: { html: { unexpected: "object" } },
+    });
+    expect(result.isError).toBe(false);
+
+    const storedHtml = (
+      ctx.surfaceState.get("page-1")?.data as { html: unknown }
+    ).html;
+    expect(typeof storedHtml).toBe("string");
+
+    const update = sent.find((m) => m.type === "ui_surface_update");
+    expect(update).toBeDefined();
+    expect(typeof (update as { data: { html: unknown } }).data.html).toBe(
+      "string",
+    );
+  });
+});

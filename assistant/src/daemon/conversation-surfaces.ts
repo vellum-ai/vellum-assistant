@@ -9,6 +9,7 @@ import {
   DynamicPagePreviewSchema,
   DynamicPageSurfaceDataSchema,
   isDaemonInternalSurfaceType,
+  isKnownSurfaceType,
   MODEL_INVOKABLE_SURFACE_TYPES,
   normalizeCopyBlockShowData,
   OAuthConnectSurfaceDataSchema,
@@ -3212,28 +3213,47 @@ export async function surfaceProxyResolver(
       if (stored.surfaceType === "dynamic_page") {
         pushUndoState(ctx.surfaceUndoStacks, surfaceId, stored.data.html);
       }
-      // Validate the merged data through the surface type's canonical schema
-      // so malformed patches (e.g. metadata as a string) are caught here
-      // instead of crashing the client's safeParse. On success, keep the
-      // VERBATIM merge rather than the schema-parsed output: the parse strips
-      // client-owned/unmodeled keys, and — like restore — this data is served
-      // to clients and persisted, so stripping would regress display. The
-      // parse succeeding proves the raw merge is client-safe (the client
-      // applies the same tolerant schema); only a failed parse reverts.
       const rawMerged = { ...stored.data, ...patch };
-      mergedPair = buildSurfaceShowPair(stored.surfaceType, rawMerged);
-      if (mergedPair !== undefined) {
+      if (!isKnownSurfaceType(stored.surfaceType)) {
+        // Restore preserves an unknown-but-non-empty persisted `surfaceType`
+        // verbatim (a newer/custom client-rendered surface). There is no
+        // canonical schema to validate or normalize against — and indexing
+        // `SURFACE_DATA_SCHEMAS` with it would read `undefined` and throw — so
+        // forward the merge opaquely rather than dropping the update, mirroring
+        // restore's verbatim handling of the same types.
         mergedData = rawMerged as AnySurfaceData;
         ctx.surfaceState.set(surfaceId, {
           ...stored,
           data: rawMerged,
         } as SurfaceStateEntry);
       } else {
-        log.warn(
-          { surfaceId, surfaceType: stored.surfaceType },
-          "ui_update patch produced invalid merged data; reverting to stored data",
-        );
-        mergedData = stored.data;
+        // Validate the merged data through the surface type's canonical schema
+        // so malformed patches (e.g. metadata as a string) are caught here
+        // instead of crashing the client's safeParse. Keep unmodeled
+        // client-owned keys from the raw merge, but take the schema-NORMALIZED
+        // value for every modeled field: a tolerant field (e.g. dynamic_page
+        // `html` is `z.string().catch("")`, file_upload `acceptedTypes` coerces
+        // to `string[]`) can accept a malformed input and coerce it, and later
+        // daemon code (active-workspace injection's `truncateHtml`, undo-stack
+        // pushes) assumes the canonical shape — so storing the raw value would
+        // poison `surfaceState`. `mergedPair.data` holds only modeled keys, so
+        // spreading it over `rawMerged` normalizes those while preserving the
+        // client-owned ones. Only a failed parse reverts to the stored data.
+        mergedPair = buildSurfaceShowPair(stored.surfaceType, rawMerged);
+        if (mergedPair !== undefined) {
+          const normalized = { ...rawMerged, ...mergedPair.data };
+          mergedData = normalized as AnySurfaceData;
+          ctx.surfaceState.set(surfaceId, {
+            ...stored,
+            data: normalized,
+          } as SurfaceStateEntry);
+        } else {
+          log.warn(
+            { surfaceId, surfaceType: stored.surfaceType },
+            "ui_update patch produced invalid merged data; reverting to stored data",
+          );
+          mergedData = stored.data;
+        }
       }
     } else {
       // No stored state for this surfaceId, so its surface type — and

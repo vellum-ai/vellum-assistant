@@ -509,6 +509,19 @@ export const MODEL_INVOKABLE_SURFACE_TYPES = SURFACE_TYPES.filter(
   (type) => !isDaemonInternalSurfaceType(type),
 );
 
+const SURFACE_TYPE_SET = new Set<string>(SURFACE_TYPES);
+
+/**
+ * Whether `type` is a surface type this daemon models (has a canonical schema
+ * for). Restore preserves an unknown-but-non-empty persisted `surfaceType`
+ * verbatim (a newer/custom client-rendered surface), so a runtime string can
+ * reach code that indexes the schema registry; callers must gate on this
+ * before indexing `SURFACE_DATA_SCHEMAS`, which has no entry for unknown types.
+ */
+export function isKnownSurfaceType(type: string): type is SurfaceType {
+  return SURFACE_TYPE_SET.has(type);
+}
+
 export type SurfaceData =
   | CardSurfaceData
   | ChoiceSurfaceData
