@@ -652,6 +652,7 @@ export function AutoTopUpCard() {
         title="Remove payment method?"
         message="Removing your card will turn off Extra Usage."
         confirmLabel={removeMutation.isPending ? "Removing…" : "Remove"}
+        isPending={removeMutation.isPending}
         cancelLabel="Keep card"
         destructive
         onConfirm={handleConfirmRemove}
