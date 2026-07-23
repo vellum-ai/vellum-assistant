@@ -26,6 +26,7 @@ import {
   buildResourceChanges,
   type ResourceChangeKey,
 } from "./resource-changes";
+import { TakeoverBackdrop } from "./takeover-backdrop";
 import { useProvisioningCredits } from "./use-provisioning-credits";
 import { useTakeoverSurface } from "./use-takeover-surface";
 import { useRotatingIndex } from "./use-rotating-index";
@@ -206,7 +207,7 @@ function TakeoverAvatar({
   return (
     <div
       aria-hidden
-      className={`provision-avatar-evolve flex flex-col items-center${AVATAR_MODE_CLASS[activeMode]}`}
+      className={`provision-avatar-evolve relative z-10 flex flex-col items-center${AVATAR_MODE_CLASS[activeMode]}`}
       style={
         {
           "--provision-avatar-size": `${size}px`,
@@ -524,7 +525,7 @@ export function ProvisioningState({
 
   // The surface commits to a hue only once the avatar query settles, and eases
   // there over `--provision-reveal` — the same beat the avatar fades in on.
-  const { tintHex } = useTakeoverSurface(assistantId);
+  const { tintHex, backdropImageUrl } = useTakeoverSurface(assistantId);
 
   const dwelling = celebrating && resolved;
   useEffect(() => {
@@ -546,6 +547,9 @@ export function ProvisioningState({
         } as CSSProperties
       }
     >
+      {/* An absolutely positioned layer paints over in-flow siblings, so the
+          content below carries `z-10` to sit on top of it. */}
+      {backdropImageUrl && <TakeoverBackdrop imageUrl={backdropImageUrl} />}
       <TakeoverAvatar
         assistantId={assistantId}
         mode={avatarModeFor(heldState, softWaiting)}
@@ -559,7 +563,7 @@ export function ProvisioningState({
           mid-animation. */}
       <div
         key={phaseKey}
-        className="flex min-h-[144px] w-full flex-col items-center gap-8 [animation:onboarding-step-in_420ms_ease-out] motion-reduce:[animation:none]"
+        className="relative z-10 flex min-h-[144px] w-full flex-col items-center gap-8 [animation:onboarding-step-in_420ms_ease-out] motion-reduce:[animation:none]"
       >
         {renderPhase()}
       </div>
