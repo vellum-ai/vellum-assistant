@@ -5,9 +5,10 @@
  * Continue stays disabled until all three dropdowns (machine size, storage,
  * credits) have an explicit choice, then fires the Stripe upgrade with the
  * selected tiers. An eligible Pro subscriber reaches the same modal seeded to
- * its current tiers, and Continue dispatches the change-machine/storage/
- * credit-tier endpoints (not checkout, which no-ops for an active Pro sub) and
- * opens the resize takeover. Configure opens the modal for a Pro sub the
+ * its current tiers; Continue stays disabled until a dimension changes, then
+ * dispatches the change-machine/storage/credit-tier endpoints (not checkout,
+ * which no-ops for an active Pro sub) and opens the resize takeover. Configure
+ * opens the modal for a Pro sub the
  * catalog can't fully represent too — e.g. a deprecated credit bundle — with
  * the seed holding the tier and any un-representable apply surfacing as a toast.
  *
@@ -600,7 +601,7 @@ describe("CustomPlanModal — eligible Pro subscriber", () => {
     expect(getByTestId("loc").textContent).toBe("/assistant/plans");
   });
 
-  test("opens seeded to the current plan so Continue needs no re-pick", () => {
+  test("opens seeded to the current plan, Continue disabled until a change", () => {
     // Current config: medium machine / 10 GB (xs) storage / no credits. The
     // configurator opens with all three pre-filled, so an unrelated edit can't
     // strand the user into re-picking — and dropping — a tier they still hold.
@@ -609,8 +610,8 @@ describe("CustomPlanModal — eligible Pro subscriber", () => {
     fireEvent.click(getByRole("button", { name: "Configure" }));
 
     getByText("Create a custom plan");
-    // Seeded, so Continue is enabled with no interaction.
-    expect(continueButton().disabled).toBe(false);
+    // Seeded to the current plan (a no-op), so Continue starts disabled.
+    expect(continueButton().disabled).toBe(true);
 
     // The recap reflects the seeded current tiers.
     expect(recapRows()).toEqual([
@@ -619,6 +620,10 @@ describe("CustomPlanModal — eligible Pro subscriber", () => {
       "10 GB storage",
       "No extra credits",
     ]);
+
+    // Changing any dimension diverges from the seed and enables Continue.
+    selectOption("Machine size", "Large machine (4 vCPU, 8 GiB)");
+    expect(continueButton().disabled).toBe(false);
   });
 
   test("a seeded no-op shows the plain grey-check recap with no delta line", () => {
@@ -689,17 +694,19 @@ describe("CustomPlanModal — eligible Pro subscriber", () => {
     expect(delta!.className).toContain("text-[var(--system-negative-strong)]");
   });
 
-  test("continuing with the seeded config is a no-op with no dispatch", async () => {
-    const { getByRole, queryByText, queryByTestId } = renderPage(
+  test("the untouched seeded config holds Continue disabled and dispatches nothing", () => {
+    const { getByRole, getByText, queryByTestId } = renderPage(
       proMightySubscription(),
     );
 
     fireEvent.click(getByRole("button", { name: "Configure" }));
+
+    // Nothing diverged from the current plan, so Continue is disabled — a click
+    // can't submit a no-op change-tier request and the modal stays open.
+    expect(continueButton().disabled).toBe(true);
     fireEvent.click(continueButton());
 
-    // Nothing diverged from the current plan, so no change-tier request fires
-    // and the resize takeover stays closed.
-    await waitFor(() => expect(queryByText("Create a custom plan")).toBeNull());
+    getByText("Create a custom plan");
     expect(machineTierCall).toBeNull();
     expect(storageTierCall).toBeNull();
     expect(creditTierCall).toBeNull();
@@ -922,10 +929,10 @@ describe("CustomPlanModal — Pro plan holding a deprecated (legacy) credit bund
     expect(deltaLine()).toBeNull();
   });
 
-  test("a legacy-storage Pro sub sees the held tier and can continue", () => {
+  test("a legacy-storage Pro sub sees the held tier and can reconfigure", () => {
     // 250 GB (xl) is legacy: no longer offered, but still what this sub pays
-    // for. The picker shows it, the recap agrees with the total, and Continue
-    // is live so an unrelated edit isn't blocked.
+    // for. The picker shows it and the recap agrees with the total; an unrelated
+    // edit isn't blocked by the held legacy tier.
     const { getByRole, getByText } = renderPage(
       proMightySubscription(),
       onboarding({ selected_storage_tier: "xl", selected_storage_gib: 250 }),
@@ -933,7 +940,8 @@ describe("CustomPlanModal — Pro plan holding a deprecated (legacy) credit bund
 
     fireEvent.click(getByRole("button", { name: "Configure" }));
 
-    expect(continueButton().disabled).toBe(false);
+    // Seeded to the held tier (a no-op), so Continue starts disabled.
+    expect(continueButton().disabled).toBe(true);
     expect(dropdownTrigger("Storage").textContent).toContain("250 GB");
     expect(recapRows()).toEqual([
       "Pro base plan — $20/mo",
@@ -943,6 +951,10 @@ describe("CustomPlanModal — Pro plan holding a deprecated (legacy) credit bund
     ]);
     // base $20 + medium $35 + legacy 250 GB $60.
     getByText("$115/mo");
+
+    // The held legacy storage doesn't block an unrelated edit.
+    selectOption("Machine size", "Large machine (4 vCPU, 8 GiB)");
+    expect(continueButton().disabled).toBe(false);
   });
 
   test("the held legacy storage tier stays re-selectable", () => {

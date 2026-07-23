@@ -22,6 +22,7 @@ import {
   type CustomPlanSelection,
 } from "@/domains/settings/billing/plans/custom-plan-modal";
 import { CustomPlanRow } from "@/domains/settings/billing/plans/custom-plan-row";
+import { FreeDowngradeConfirmModal } from "@/domains/settings/billing/plans/free-downgrade-confirm-modal";
 import { PackageSwitchConfirmModal } from "@/domains/settings/billing/plans/package-switch-confirm-modal";
 import { PlanColumnCard } from "@/domains/settings/billing/plans/plan-column-card";
 import {
@@ -37,6 +38,10 @@ import {
   isPackageSwitchEligible,
 } from "@/domains/settings/components/adjust-plan-utils";
 import { formatDollars } from "@/domains/settings/components/tier-pricing";
+import {
+  buildPortalReturnSnapshot,
+  useBillingPortalSession,
+} from "@/domains/settings/hooks/use-billing-portal-session";
 import {
   organizationsBillingPlansRetrieveOptions,
   organizationsBillingPlansRetrieveQueryKey,
@@ -144,6 +149,8 @@ export function PlansPage() {
   useCheckoutDismissRefresh();
   const [pending, setPending] = useState(false);
   const [customPlanOpen, setCustomPlanOpen] = useState(false);
+  // Whether the Pro → Free cancellation confirm dialog is open.
+  const [freeDowngradeOpen, setFreeDowngradeOpen] = useState(false);
   // The package a Pro user is switching to, awaiting reconfirm; null when the
   // dialog is closed.
   const [switchTarget, setSwitchTarget] = useState<ProPackage | null>(null);
@@ -165,6 +172,28 @@ export function PlansPage() {
   const packages = proPlan?.packages ?? [];
   const hasPackages = packages.length > 0;
   const isProUser = subscription?.plan_id === "pro";
+
+  // Pro → Free is a cancellation: after a confirm step it opens the Stripe
+  // billing portal (the same destination as the adjust-plan modal's "Downgrade
+  // to Base") so the user can cancel there. Snapshot the pre-redirect state for
+  // the post-return toast.
+  const portalMutation = useBillingPortalSession(
+    buildPortalReturnSnapshot(subscription),
+  );
+
+  // Pro features lost by downgrading to Free — the confirm dialog lists these.
+  const baseFeatureSet = new Set(
+    plansQuery.data?.plans.find((p) => p.id === "base")?.included_features ?? [],
+  );
+  const freeDowngradeLostFeatures = (proPlan?.included_features ?? []).filter(
+    (f) => !baseFeatureSet.has(f),
+  );
+
+  // Any billing action in flight — a checkout, a package switch, or the Stripe
+  // portal opening — disables every plan CTA (and Configure) so a second click
+  // can't start a competing billing operation before the first resolves.
+  const billingActionPending =
+    pending || changePackagePending || portalMutation.isPending;
 
   // Seed the custom-plan modal with the Pro sub's current tiers so an unrelated
   // edit (e.g. only the machine) doesn't force re-picking — and dropping — the
@@ -260,13 +289,20 @@ export function PlansPage() {
           : null;
 
     const selectTier = (tierKey: string) => {
+      // A billing action is already in flight (checkout / package switch /
+      // portal opening) — ignore the click. The CTAs are also disabled; this
+      // guards against a race between the click and the disabled re-render.
+      if (billingActionPending) {
+        return;
+      }
       if (isProUser) {
         if (tierKey === "free") {
-          // Pro → Free is a subscription cancellation, not a package switch;
-          // route to the billing manage/cancel surface rather than the
-          // (package-only) change-package endpoint, which 400s on non-package
-          // keys.
-          navigate(`${routes.settings.usage}?tab=billing&adjust_plan`);
+          // Pro → Free is a subscription cancellation, not a package switch.
+          // Confirm first (which Pro features are lost), then open the Stripe
+          // billing portal — the same destination as the adjust-plan modal's
+          // "Downgrade to Base" — where the user actually cancels. The
+          // package-only change-package endpoint 400s on non-package keys.
+          setFreeDowngradeOpen(true);
           return;
         }
         // Active Pro orgs switch packages in place via the change-package
@@ -300,6 +336,13 @@ export function PlansPage() {
         package: tierKey,
         confirm: true,
       });
+    };
+
+    // Confirmed Pro → Free cancellation: close the confirm and hand off to the
+    // Stripe billing portal, where the actual cancellation happens.
+    const confirmFreeDowngrade = () => {
+      setFreeDowngradeOpen(false);
+      portalMutation.mutate({});
     };
 
     const confirmSwitch = async () => {
@@ -377,6 +420,11 @@ export function PlansPage() {
     };
 
     const handleConfigure = () => {
+      // Don't open the configurator while another billing action is in flight
+      // (the CTA is also disabled — see `configureDisabled`).
+      if (billingActionPending) {
+        return;
+      }
       // A Pro sub's current tiers load after the page renders; the modal seeds
       // from them, so hold the click until that first load settles (the CTA is
       // also held disabled meanwhile — see `configureDisabled`).
@@ -439,7 +487,7 @@ export function PlansPage() {
             tone="dark"
             isCurrent={currentTierKey === "free"}
             intent={freeRelation}
-            pending={pending || changePackagePending}
+            pending={billingActionPending}
             onCta={() => selectTier("free")}
           />
           {orderedPackages.map((pkg) => {
@@ -463,7 +511,7 @@ export function PlansPage() {
                 tone={copy?.recommended ? "light" : "dark"}
                 isCurrent={currentTierKey === pkg.key}
                 intent={relation}
-                pending={pending || changePackagePending}
+                pending={billingActionPending}
                 onCta={() => selectTier(pkg.key)}
               />
             );
@@ -473,7 +521,7 @@ export function PlansPage() {
         <CustomPlanRow
           className="mt-10"
           onConfigure={handleConfigure}
-          configureDisabled={isProUser && !currentReady}
+          configureDisabled={(isProUser && !currentReady) || billingActionPending}
         />
 
         <CustomPlanModal
@@ -499,6 +547,14 @@ export function PlansPage() {
           pending={changePackagePending}
           onCancel={() => setSwitchTarget(null)}
           onConfirm={() => void confirmSwitch()}
+        />
+
+        <FreeDowngradeConfirmModal
+          open={freeDowngradeOpen}
+          lostFeatures={freeDowngradeLostFeatures}
+          pending={portalMutation.isPending}
+          onCancel={() => setFreeDowngradeOpen(false)}
+          onConfirm={confirmFreeDowngrade}
         />
 
         <BillingOnboardingModal
