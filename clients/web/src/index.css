@@ -370,13 +370,8 @@ body {
   transition: background-color var(--provision-reveal) ease-out;
 }
 
-.provision-backdrop-reveal {
-  animation: provision-avatar-reveal var(--provision-reveal) ease-out both;
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .provision-avatar-reveal,
-  .provision-backdrop-reveal {
+  .provision-avatar-reveal {
     animation: none;
   }
 

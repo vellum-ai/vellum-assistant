@@ -101,21 +101,6 @@ export function avatarSurfaceHex(accentHex: string): string {
   return blendHex(SURFACE_GROUND, accentHex, 0.14);
 }
 
-/**
- * Composite a solid `base` #rrggbb under a white (255) or black (0) overlay at
- * `alpha`, returning the resulting opaque #rrggbb — the actual pixel color a
- * translucent bubble lift resolves to when painted over the avatar fill. Bubble
- * text is picked against this, not the raw avatar color, so contrast reflects
- * what the eye sees.
- */
-function compositeOverlay(
-  base: string,
-  overlay: 0 | 255,
-  alpha: number,
-): string {
-  return blendHex(base, overlay === 255 ? "#ffffff" : "#000000", alpha);
-}
-
 /** WCAG relative luminance (sRGB-linearized), 0–1. */
 function relativeLuminance(hex: string): number {
   const m = /^#?([0-9a-f]{6})$/i.exec(hex);
@@ -160,7 +145,7 @@ export function toneForBg(bg: string): AvatarTone {
     // saturated avatars get near-black text instead of failing white-on-color.
     bubbleBg: isLight ? "rgba(0,0,0,0.10)" : "rgba(255,255,255,0.16)",
     bubbleFg: isLight
-      ? contrastForeground(compositeOverlay(bg, 0, 0.1))
-      : contrastForeground(compositeOverlay(bg, 255, 0.16)),
+      ? contrastForeground(blendHex(bg, "#000000", 0.1))
+      : contrastForeground(blendHex(bg, "#ffffff", 0.16)),
   };
 }
