@@ -59,11 +59,11 @@ A handler may also reach other Assistant capabilities through its `@vellumai/plu
 
 A plugin [app](apps.md) that backs its data with the plugin's own routes must reach them through the `window.vellum.fetch` bridge — **never the global `fetch`**. An app runs in a sandboxed origin, so a raw `fetch` carries no gateway URL and no auth headers and the request fails; `window.vellum.fetch` injects both and routes the call to the Assistant runtime.
 
-Address the route by its full served path under the `/v1/x/` prefix — a plugin route at `/x/plugins/<name>/<path>` is reached from an app at `/v1/x/plugins/<name>/<path>`:
+Call the route at the same path it is served — `/x/plugins/<name>/<path>`. The wrapper prepends the `/v1` API prefix for you, so you never write it:
 
 ```ts
 // inside apps/<app>/src — calling this plugin's own status route
-const res = await window.vellum.fetch("/v1/x/plugins/my-plugin/status");
+const res = await window.vellum.fetch("/x/plugins/my-plugin/status");
 if (!res.ok) throw new Error(`HTTP ${res.status}`);
 const data = await res.json();
 ```
