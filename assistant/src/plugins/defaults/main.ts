@@ -22,6 +22,7 @@ const DEFAULTS_DIR = import.meta.dir;
 
 let cachedNames: readonly string[] | null = null;
 let cachedDirToManifest: ReadonlyMap<string, string> | null = null;
+let cachedManifestToDir: ReadonlyMap<string, string> | null = null;
 
 /**
  * Names of every first-party default plugin (their `package.json` names,
@@ -88,21 +89,48 @@ export function getDefaultPluginManifestName(dirName: string): string | null {
 }
 
 /**
+ * Directory name (e.g. `platform-hosted`) for a default plugin's *manifest*
+ * name (e.g. `default-platform-hosted`), or `null` when `<manifestName>` is not
+ * a default plugin. The inverse of {@link getDefaultPluginManifestName}.
+ */
+function getDefaultPluginDirName(manifestName: string): string | null {
+  if (cachedManifestToDir === null) {
+    const map = new Map<string, string>();
+    for (const entry of readdirSync(DEFAULTS_DIR, { withFileTypes: true })) {
+      if (!entry.isDirectory()) {
+        continue;
+      }
+      const manifest = getDefaultPluginManifestName(entry.name);
+      if (manifest !== null) {
+        map.set(manifest, entry.name);
+      }
+    }
+    cachedManifestToDir = map;
+  }
+  return cachedManifestToDir.get(manifestName) ?? null;
+}
+
+/**
  * Absolute path to a default plugin's `routes/` directory in the source tree,
  * or `null` when `<name>` is not a default plugin.
  *
- * A default plugin's route namespace is its *directory* name (e.g.
- * `platform-hosted`), matching how a workspace plugin's namespace is its
- * directory name — not the `default-…` manifest name. The path is derived
- * from this module's own location (`import.meta.dir`), so it resolves relative
- * to the app source, which the assistant always ships and runs un-bundled.
- *
- * `name` is taken from a URL path segment, so the resolved directory is
- * required to sit directly under `plugins/defaults/` — a `..` or nested
- * segment that escapes the defaults tree returns `null`.
+ * A default plugin's route namespace is its *manifest* name (e.g.
+ * `default-platform-hosted`) — the same `default-…` name its `.disabled`
+ * sentinel and per-chat scoping are keyed by. `<name>` is looked up against the
+ * known manifest names and mapped back to the plugin's directory, so an
+ * unknown name or a `..`/nested segment taken from a URL path can never escape
+ * the defaults tree (it simply resolves to `null`). The path is derived from
+ * this module's own location (`import.meta.dir`), so it resolves relative to
+ * the app source, which the assistant always ships and runs un-bundled.
  */
 export function getDefaultPluginRoutesDir(name: string): string | null {
-  const pluginDir = resolve(join(DEFAULTS_DIR, name));
+  const dirName = getDefaultPluginDirName(name);
+  if (dirName === null) {
+    return null;
+  }
+  const pluginDir = resolve(join(DEFAULTS_DIR, dirName));
+  // `dirName` comes from the manifest map (a real immediate subdirectory), but
+  // keep the containment guard as a defense-in-depth backstop.
   if (dirname(pluginDir) !== resolve(DEFAULTS_DIR)) {
     return null;
   }
@@ -114,8 +142,9 @@ export function getDefaultPluginRoutesDir(name: string): string | null {
 
 /**
  * Enumerate default plugins that ship a `routes/` directory, keyed by their
- * directory name (the route namespace). Mirrors {@link getDefaultPluginRoutesDir}
- * so route discovery and dispatch agree on which default plugin routes exist.
+ * *manifest* name (the route namespace, e.g. `default-platform-hosted`).
+ * Mirrors {@link getDefaultPluginRoutesDir} so route discovery and dispatch
+ * agree on which default plugin routes exist and under which namespace.
  */
 export function getDefaultPluginRouteRoots(): {
   pluginName: string;
@@ -126,9 +155,13 @@ export function getDefaultPluginRouteRoots(): {
     if (!entry.isDirectory()) {
       continue;
     }
+    const manifestName = getDefaultPluginManifestName(entry.name);
+    if (manifestName === null) {
+      continue;
+    }
     const routesDir = join(DEFAULTS_DIR, entry.name, "routes");
     if (existsSync(routesDir) && statSync(routesDir).isDirectory()) {
-      roots.push({ pluginName: entry.name, routesDir });
+      roots.push({ pluginName: manifestName, routesDir });
     }
   }
   return roots;
