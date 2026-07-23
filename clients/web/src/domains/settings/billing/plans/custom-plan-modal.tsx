@@ -229,9 +229,9 @@ export function CustomPlanModal({
         overlayClassName="backdrop-blur-[2px]"
         className="max-w-[820px] md:min-h-[min(608px,calc(100vh-4rem))]"
       >
-        <Modal.Body className="p-6">
+        <Modal.Body className="p-4">
           <div className="flex flex-col gap-8 md:flex-row md:gap-12">
-            <div className="flex min-w-0 flex-col gap-8 md:w-[440px] md:shrink-0">
+            <div className="flex min-w-0 flex-col gap-6 md:flex-1">
               <div className="flex items-center gap-3">
                 <div className="flex shrink-0 items-center justify-center rounded-xl bg-[var(--surface-active)] p-[14px]">
                   <SlidersHorizontal
@@ -249,7 +249,7 @@ export function CustomPlanModal({
                 </div>
               </div>
 
-              <div className="flex flex-col gap-2">
+              <div className="flex flex-col gap-1">
                 <span className="text-[11px] font-medium text-[var(--content-secondary)]">
                   Select a machine size:
                 </span>
@@ -262,7 +262,7 @@ export function CustomPlanModal({
                 />
               </div>
 
-              <div className="flex flex-col gap-2">
+              <div className="flex flex-col gap-1">
                 <span className="text-[11px] font-medium text-[var(--content-secondary)]">
                   Select storage:
                 </span>
@@ -275,7 +275,7 @@ export function CustomPlanModal({
                 />
               </div>
 
-              <div className="flex flex-col gap-2">
+              <div className="flex flex-col gap-1">
                 <span className="text-[11px] font-medium text-[var(--content-secondary)]">
                   Bundle some credits:
                 </span>
@@ -289,56 +289,58 @@ export function CustomPlanModal({
               </div>
             </div>
 
-            <div className="flex min-w-0 flex-1 flex-col gap-5 md:pt-[3px]">
+            <div className="flex min-w-0 flex-1 flex-col gap-16 md:pt-[5px]">
               <span className="text-[16px] font-medium text-[var(--content-emphasised)]">
                 Recap
               </span>
 
-              <div className="flex flex-col gap-1">
-                <span className="text-[24px] font-medium text-[var(--content-default)]">
-                  {formatMonthly(totalCents)}
+              <div className="flex flex-col gap-4">
+                <div className="flex flex-col gap-1">
+                  <span className="text-[24px] font-medium text-[var(--content-default)]">
+                    {formatMonthly(totalCents)}
+                  </span>
+                  <span className="text-[11px] font-medium text-[var(--content-tertiary)]">
+                    Total
+                  </span>
+                </div>
+
+                <div className="h-px w-full bg-[var(--border-hover)]" />
+
+                <span className="text-[12px] font-medium text-[var(--content-tertiary)]">
+                  Your selection:
                 </span>
-                <span className="text-[11px] font-medium text-[var(--content-tertiary)]">
-                  Total
-                </span>
+
+                <ul className="flex flex-col gap-2">
+                  {selectionRows.map((row) => (
+                    <li key={row} className="flex items-center gap-2">
+                      <CircleCheck
+                        className="h-4 w-4 shrink-0 text-[var(--content-secondary)]"
+                        aria-hidden
+                      />
+                      <span className="text-[14px] font-medium leading-[18px] text-[var(--content-secondary)]">
+                        {row}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+
+                <Button
+                  variant="primary"
+                  fullWidth
+                  disabled={!complete || pending}
+                  onClick={handleContinue}
+                >
+                  Continue
+                </Button>
+                <Button
+                  variant="ghost"
+                  fullWidth
+                  disabled={pending}
+                  onClick={onClose}
+                >
+                  Cancel
+                </Button>
               </div>
-
-              <div className="h-px w-full bg-[var(--border-hover)]" />
-
-              <span className="text-[12px] font-medium text-[var(--content-tertiary)]">
-                Your selection:
-              </span>
-
-              <ul className="flex flex-col gap-2">
-                {selectionRows.map((row) => (
-                  <li key={row} className="flex items-start gap-2">
-                    <CircleCheck
-                      className="mt-0.5 h-4 w-4 shrink-0 text-[var(--content-secondary)]"
-                      aria-hidden
-                    />
-                    <span className="text-[14px] font-medium leading-[18px] text-[var(--content-secondary)]">
-                      {row}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-
-              <Button
-                variant="primary"
-                fullWidth
-                disabled={!complete || pending}
-                onClick={handleContinue}
-              >
-                Continue
-              </Button>
-              <Button
-                variant="ghost"
-                fullWidth
-                disabled={pending}
-                onClick={onClose}
-              >
-                Cancel
-              </Button>
             </div>
           </div>
         </Modal.Body>

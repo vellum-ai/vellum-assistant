@@ -5,6 +5,7 @@ import { Outlet, useLocation, useNavigate } from "react-router";
 import { useOnboardingLogin } from "@/hooks/use-onboarding-login";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { handleLogout } from "@/lib/auth/handle-logout";
+import { useSupportsBookmarks } from "@/lib/backwards-compat/use-supports-bookmarks";
 import { useHasPlatformSession } from "@/stores/auth-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
@@ -23,6 +24,10 @@ export function SettingsLayout() {
   const settingsDeveloperNav = useAssistantFeatureFlagStore.use.settingsDeveloperNav();
   const credentialsSettingsEnabled = useAssistantFeatureFlagStore.use.credentialsSettings();
   const platformNotifications = useClientFeatureFlagStore.use.platformNotifications();
+  // The Bookmarks tab needs the assistant's bookmark routes (v0.8.1+); an
+  // older assistant 404s them, so hide the tab rather than render a dead
+  // "Failed to load bookmarks" page.
+  const supportsBookmarks = useSupportsBookmarks();
   const platformGate = usePlatformGate({ platformHostedOnly: true });
   // The Usage item is never hidden: the Usage tab reads from the local daemon
   // and works for every assistant. Its label only gains "Billing &" when the
@@ -46,6 +51,9 @@ export function SettingsLayout() {
         ) {
           return false;
         }
+        if (item.id === "bookmarks" && !supportsBookmarks) {
+          return false;
+        }
         if (item.id === "credentials" && !credentialsSettingsEnabled) {
           return false;
         }
@@ -59,6 +67,7 @@ export function SettingsLayout() {
     [
       platformNotifications,
       platformGate,
+      supportsBookmarks,
       credentialsSettingsEnabled,
       billingLabel,
     ],

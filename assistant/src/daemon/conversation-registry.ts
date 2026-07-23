@@ -115,10 +115,22 @@ export function getConversationMap(): Map<string, Conversation> {
 // store, so they are deliberately absent from `conversations` above. This
 // point-lookup index lets the per-conversation injectors (workspace context,
 // disk-pressure warning) resolve a subagent's live `Conversation` by id and
-// read state off it. It is intentionally excluded from the iteration accessors
-// and the evictor map so subagent lifecycle stays solely with the manager.
+// read state off it. It is intentionally excluded from the top-level iteration
+// accessors above and the evictor map so subagent lifecycle stays solely with
+// the manager; {@link allSubagentConversations} exposes a read-only iterator
+// for whole-registry sweeps (credential transcript scrubbing) and must never
+// be used to manage lifecycle.
 
 const subagentConversations = new Map<string, Conversation>();
+
+/**
+ * Iterate over all live subagent conversations. Read-only view for sweeps
+ * that must cover every resident transcript; lifecycle (registration,
+ * removal, eviction) stays solely with the `SubagentManager`.
+ */
+export function allSubagentConversations(): IterableIterator<Conversation> {
+  return subagentConversations.values();
+}
 
 /** Register a subagent's live conversation for point lookups. */
 export function setSubagentConversation(

@@ -15,6 +15,7 @@
  * respawns the host.
  */
 
+import { getConfigReadOnly } from "../config/loader.js";
 import { getLogger } from "../util/logger.js";
 import { getProcPidPath } from "../util/platform.js";
 import {
@@ -28,6 +29,15 @@ import {
 import { ROUTE_HOST_PROC_NAME } from "./route-host-protocol.js";
 
 const log = getLogger("route-host-control");
+
+/**
+ * Whether `/x/*` handlers should execute in the route host subprocess rather
+ * than inline on the daemon's event loop. Read per-request so a `config.json`
+ * edit (hot-reloaded by the config watcher) takes effect without a restart.
+ */
+export function isRouteHostEnabled(): boolean {
+  return getConfigReadOnly().userRoutes.host.enabled;
+}
 
 function routeHostPidPath(): string {
   return getProcPidPath(ROUTE_HOST_PROC_NAME);

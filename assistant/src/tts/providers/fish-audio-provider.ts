@@ -194,7 +194,7 @@ export const fishAudioTtsProviderDefinition: TtsProviderDefinition = {
       credentialStoreKey: "credential/fish-audio/api_key",
       displayName: "Fish Audio API Key",
       setCommand:
-        "assistant credentials set --service fish-audio --field api_key <key>",
+        'assistant credentials prompt --service fish-audio --field api_key --label "Fish Audio API Key"',
     },
   ],
   adapter: createFishAudioProvider(),

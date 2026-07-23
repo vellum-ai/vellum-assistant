@@ -29,6 +29,12 @@
 
 import { statSync } from "node:fs";
 
+import { isRouteHostEnabled } from "../../routes/control.js";
+import {
+  RouteHostClient,
+  RouteHostTimeoutError,
+  RouteHostUnavailableError,
+} from "../../routes/route-host-client.js";
 import { getLogger } from "../../util/logger.js";
 import type { AssistantEventHub } from "../assistant-event-hub.js";
 import { httpError } from "../http-errors.js";
@@ -131,6 +137,13 @@ export class UserRouteDispatcher {
   private moduleCache = new Map<string, CachedModule>();
   private handlerTimeoutMs: number;
   private context: UserRouteContext;
+  /**
+   * Lazily created on the first request that runs while the route host is
+   * enabled. Constructing it is inert (the subprocess spawns lazily on the
+   * client's first `invoke`), so a dispatcher whose host is never enabled never
+   * creates one.
+   */
+  private routeHostClient: RouteHostClient | undefined;
 
   constructor(options: {
     handlerTimeoutMs?: number;
@@ -139,6 +152,10 @@ export class UserRouteDispatcher {
     this.handlerTimeoutMs =
       options.handlerTimeoutMs ?? DEFAULT_HANDLER_TIMEOUT_MS;
     this.context = Object.freeze({ ...options.context });
+  }
+
+  private getRouteHostClient(): RouteHostClient {
+    return (this.routeHostClient ??= new RouteHostClient());
   }
 
   /**
@@ -166,6 +183,10 @@ export class UserRouteDispatcher {
       );
     }
 
+    if (isRouteHostEnabled()) {
+      return this.dispatchViaHost(filePath, routePath, request);
+    }
+
     const mod = await this.loadModule(filePath);
     const method = request.method as HttpMethod;
     const handler = mod.handlers[method];
@@ -179,6 +200,73 @@ export class UserRouteDispatcher {
     }
 
     return this.executeHandler(handler, request, routePath);
+  }
+
+  /**
+   * Delegate execution to the route host subprocess. The main thread has
+   * already resolved `filePath` (and 404'd if missing); here it marshals the
+   * request, hands it to the host, and rebuilds a `Response` from the reply.
+   * Maps the host's typed failures to HTTP: timeout → 504, host unavailable →
+   * 503, and a handler that threw → 500 (matching the in-thread contract).
+   */
+  private async dispatchViaHost(
+    filePath: string,
+    routePath: string,
+    request: Request,
+  ): Promise<Response> {
+    const mtimeMs = statSync(filePath).mtimeMs;
+
+    const headers: [string, string][] = [];
+    request.headers.forEach((value, name) => {
+      headers.push([name, value]);
+    });
+    let body: Uint8Array | null = null;
+    if (request.method !== "GET" && request.method !== "HEAD") {
+      const buffer = new Uint8Array(await request.arrayBuffer());
+      body = buffer.byteLength > 0 ? buffer : null;
+    }
+
+    try {
+      const result = await this.getRouteHostClient().invoke(
+        {
+          filePath,
+          mtimeMs,
+          method: request.method,
+          url: request.url,
+          headers,
+        },
+        body,
+      );
+      const responseHeaders = new Headers();
+      for (const [name, value] of result.headers) {
+        responseHeaders.append(name, value);
+      }
+      // `Uint8Array` is a valid body at runtime; the cast placates the DOM lib's
+      // `Uint8Array<ArrayBuffer>` vs `ArrayBufferLike` generic mismatch.
+      return new Response(result.body as BodyInit | null, {
+        status: result.status,
+        headers: responseHeaders,
+      });
+    } catch (err) {
+      if (err instanceof RouteHostTimeoutError) {
+        return httpError(
+          "SERVICE_UNAVAILABLE",
+          `Route handler for /x/${routePath} timed out after ${err.timeoutMs}ms`,
+          504,
+        );
+      }
+      if (err instanceof RouteHostUnavailableError) {
+        return httpError(
+          "SERVICE_UNAVAILABLE",
+          `Route host is unavailable; retry shortly`,
+          503,
+        );
+      }
+      log.error({ err, routePath }, "User route handler threw an error");
+      const message =
+        err instanceof Error ? err.message : "Internal server error";
+      return httpError("INTERNAL_ERROR", message, 500);
+    }
   }
 
   /**

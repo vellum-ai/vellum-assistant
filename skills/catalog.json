@@ -143,6 +143,21 @@
       "updatedAt": "2026-07-01T10:52:10.000Z"
     },
     {
+      "id": "deepgram-voice",
+      "name": "deepgram-voice",
+      "description": "Select and tune a Deepgram TTS voice - curated voice list, full Aura voice catalog via API key, and tuning parameters",
+      "metadata": {
+        "icon": "assets/icon.svg",
+        "emoji": "🎤",
+        "vellum": {
+          "category": "voice",
+          "display-name": "Deepgram Voice"
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants",
+      "updatedAt": "2026-07-23T16:24:31.000Z"
+    },
+    {
       "id": "deploy-fullstack-vercel",
       "name": "deploy-fullstack-vercel",
       "description": "Build and deploy a full-stack app (React frontend + Python/FastAPI backend) or a Vellum app to Vercel as a serverless demo with seeded data",
@@ -199,7 +214,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-23T00:08:19.000Z"
+      "updatedAt": "2026-07-23T16:26:29.000Z"
     },
     {
       "id": "email-setup",
@@ -716,7 +731,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-23T13:03:24.000Z"
+      "updatedAt": "2026-07-23T14:02:39.000Z"
     },
     {
       "id": "public-ingress",
@@ -932,7 +947,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-15T21:08:24.000Z"
+      "updatedAt": "2026-07-23T15:54:16.000Z"
     },
     {
       "id": "twilio-setup",
@@ -950,7 +965,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-14T20:56:46.000Z"
+      "updatedAt": "2026-07-23T15:54:16.000Z"
     },
     {
       "id": "typescript-eval",
@@ -1026,7 +1041,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants. Requires Python 3, bun, and the assistant credentials CLI.",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "updatedAt": "2026-07-23T15:54:16.000Z"
     },
     {
       "id": "vellum-heartbeat",
@@ -1106,7 +1121,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-15T21:08:24.000Z"
+      "updatedAt": "2026-07-23T15:54:16.000Z"
     },
     {
       "id": "vellum-self-knowledge",
@@ -1232,7 +1247,7 @@
     {
       "id": "voice-setup",
       "name": "voice-setup",
-      "description": "Complete voice configuration in chat - PTT key, microphone permissions, ElevenLabs TTS, and troubleshooting",
+      "description": "Complete voice configuration in chat - PTT key, microphone permissions, ElevenLabs/Deepgram TTS, and troubleshooting",
       "metadata": {
         "icon": "assets/icon.svg",
         "emoji": "🎙️",
@@ -1240,10 +1255,11 @@
           "category": "voice",
           "display-name": "Voice Setup",
           "includes": [
-            "elevenlabs-voice"
+            "elevenlabs-voice",
+            "deepgram-voice"
           ],
           "activation-hints": [
-            "Guided setup or troubleshooting (walkthrough, PTT not working, mic issues, ElevenLabs/TTS)",
+            "Guided setup or troubleshooting (walkthrough, PTT not working, mic issues, ElevenLabs/Deepgram/TTS)",
             "Simple voice setting changes (PTT key, wake word) -> use voice_config_update directly"
           ],
           "avoid-when": [
@@ -1252,7 +1268,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-15T21:08:24.000Z"
+      "updatedAt": "2026-07-23T16:26:29.000Z"
     },
     {
       "id": "watch-together",

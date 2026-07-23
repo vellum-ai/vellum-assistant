@@ -64,6 +64,7 @@ import { SecretRequestEventSchema } from "./events/secret-request.js";
 import { ServiceGroupUpdateCompleteEventSchema } from "./events/service-group-update-complete.js";
 import { ServiceGroupUpdateProgressEventSchema } from "./events/service-group-update-progress.js";
 import { ServiceGroupUpdateStartingEventSchema } from "./events/service-group-update-starting.js";
+import { SkillStateChangedEventSchema } from "./events/skill-state-changed.js";
 import { SoundsConfigUpdatedEventSchema } from "./events/sounds-config-updated.js";
 import { SubagentEventEventSchema } from "./events/subagent-event.js";
 import { SubagentSpawnedEventSchema } from "./events/subagent-spawned.js";
@@ -386,6 +387,10 @@ export {
   type ServiceGroupUpdateStartingEvent,
   ServiceGroupUpdateStartingEventSchema,
 } from "./events/service-group-update-starting.js";
+export {
+  type SkillStateChangedEvent,
+  SkillStateChangedEventSchema,
+} from "./events/skill-state-changed.js";
 export {
   type SoundsConfigUpdatedEvent,
   SoundsConfigUpdatedEventSchema,
@@ -771,6 +776,7 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   ServiceGroupUpdateCompleteEventSchema,
   ServiceGroupUpdateProgressEventSchema,
   ServiceGroupUpdateStartingEventSchema,
+  SkillStateChangedEventSchema,
   SoundsConfigUpdatedEventSchema,
   SubagentEventEventSchema,
   SubagentSpawnedEventSchema,

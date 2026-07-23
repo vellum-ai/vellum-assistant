@@ -5,6 +5,7 @@ import { useNavigate } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
+  isCleanPin,
   PACKAGE_ORDER,
   type ProPackage,
   type SwitchRelation,
@@ -102,8 +103,8 @@ function packageFeatures(pkg: ProPackage, extra: readonly string[]): string[] {
 
 /**
  * Full-screen "View Plans" pricing takeover at `/assistant/plans`. Always dark
- * regardless of the app theme; the "Super" column flips back to light within
- * its own theme scope. Renders from the live plan catalog — with the
+ * regardless of the app theme; the recommended column flips back to light
+ * within its own theme scope. Renders from the live plan catalog — with the
  * `pro-packages` flag off the catalog is empty and the route bounces back to
  * the billing page.
  */
@@ -135,7 +136,6 @@ export function PlansPage() {
     changeTiers,
     isPending: changeTiersPending,
     current,
-    eligible,
     currentReady,
   } = useChangeTiers({ enabled: platformReady });
   // Native iOS keeps Checkout inside an in-app sheet, so the page holds
@@ -176,35 +176,6 @@ export function PlansPage() {
       creditTier: current.creditTier,
     };
   }, [isProUser, current.machineTier, current.storageTier, current.creditTier]);
-
-  // The in-place custom editor can only faithfully represent a Pro sub whose
-  // current tiers are all live catalog options. A legacy storage tier or a
-  // deprecated credit bundle can't be shown or re-selected here — routing such
-  // a sub through the modal would force it to drop that tier — so those fall
-  // back to the adjust-plan surface (which preserves them) instead.
-  const customReconfigurable = useMemo(() => {
-    if (!isProUser || !proPlan) {
-      return false;
-    }
-    // A null baseline machine (a package with no paid machine tier) is a valid
-    // current state — represent it rather than excluding the sub from the modal.
-    const machineOk =
-      current.machineTier == null ||
-      proPlan.machine_tiers.some((t) => t.tier === current.machineTier);
-    const storageOk = proPlan.storage_tiers.some(
-      (t) => !t.legacy && t.tier === current.storageTier,
-    );
-    const creditOk =
-      current.creditTier == null ||
-      (proPlan.credit_tiers ?? []).some((t) => t.tier === current.creditTier);
-    return machineOk && storageOk && creditOk;
-  }, [
-    isProUser,
-    proPlan,
-    current.machineTier,
-    current.storageTier,
-    current.creditTier,
-  ]);
 
   // The takeover only makes sense against a platform-hosted assistant with a
   // live package catalog. Anything else — self-hosted or no platform session,
@@ -278,7 +249,7 @@ export function PlansPage() {
     const currentTierKey =
       subscription.plan_id === "base"
         ? "free"
-        : subscription.package && !subscription.package.customized
+        : isCleanPin(subscription.package)
           ? subscription.package.key
           : null;
 
@@ -395,24 +366,10 @@ export function PlansPage() {
     };
 
     const handleConfigure = () => {
-      if (isProUser) {
-        // The current tiers that decide representability load after the page
-        // renders. While that first load is in flight, don't fall through to
-        // the manage surface — the Configure CTA is held disabled until they
-        // land (see `configureDisabled`), so this is a defensive guard.
-        if (eligible && !currentReady) {
-          return;
-        }
-        // An eligible Pro sub whose current tiers are all representable here
-        // reconfigures in the white modal. Anything else — cancelling /
-        // non-entitlement status, or a legacy/deprecated tier the modal can't
-        // show — routes to the billing manage/cancel surface, the same fallback
-        // the package CTAs use.
-        if (eligible && customReconfigurable) {
-          setCustomPlanOpen(true);
-          return;
-        }
-        navigate(`${routes.settings.usage}?tab=billing&adjust_plan`);
+      // A Pro sub's current tiers load after the page renders; the modal seeds
+      // from them, so hold the click until that first load settles (the CTA is
+      // also held disabled meanwhile — see `configureDisabled`).
+      if (isProUser && !currentReady) {
         return;
       }
       setCustomPlanOpen(true);
@@ -452,8 +409,9 @@ export function PlansPage() {
         </header>
 
         {/* Shrinks the four columns to fit as the viewport narrows, reflowing
-            to two-up then one-up; `items-start` keeps each card at its content
-            height so the four-feature Super/Ultra cards stay taller. */}
+            to two-up then one-up; `items-start` keeps each card at its natural
+            content height, so the four-feature Super/Ultra columns are taller
+            than the featured Mighty column. */}
         <div className="mt-10 grid w-full max-w-[1312px] grid-cols-1 items-start gap-6 sm:grid-cols-2 lg:grid-cols-4">
           <PlanColumnCard
             tierKey="free"
@@ -490,8 +448,8 @@ export function PlansPage() {
                     : (copy?.cta ?? pkg.name)
                 }
                 features={packageFeatures(pkg, copy?.extraFeatures ?? [])}
-                mostPopular={copy?.mostPopular}
-                tone={copy?.mostPopular ? "light" : "dark"}
+                recommended={copy?.recommended}
+                tone={copy?.recommended ? "light" : "dark"}
                 isCurrent={currentTierKey === pkg.key}
                 intent={relation}
                 pending={pending || changePackagePending}
@@ -504,7 +462,7 @@ export function PlansPage() {
         <CustomPlanRow
           className="mt-10"
           onConfigure={handleConfigure}
-          configureDisabled={isProUser && eligible && !currentReady}
+          configureDisabled={isProUser && !currentReady}
         />
 
         <CustomPlanModal

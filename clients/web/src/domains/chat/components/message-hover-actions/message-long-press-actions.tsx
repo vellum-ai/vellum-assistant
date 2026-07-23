@@ -14,6 +14,7 @@ import type { MessageHoverActionsProps } from "@/domains/chat/components/message
 import { messagePlainText } from "@/domains/chat/utils/message-plain-text";
 import {
   useBookmarkToggle,
+  useCanBookmark,
   useIsBookmarked,
 } from "@/hooks/use-bookmarks";
 import { BottomSheet, PanelItem } from "@vellumai/design-library";
@@ -44,10 +45,7 @@ export function MessageLongPressActions({
   open,
   onOpenChange,
 }: MessageLongPressActionsProps) {
-  const canBookmark =
-    Boolean(conversationId) &&
-    Boolean(message.id) &&
-    !message.isOptimistic;
+  const canBookmark = useCanBookmark(message, conversationId);
 
   const content = useMemo(() => messagePlainText(message), [message]);
 

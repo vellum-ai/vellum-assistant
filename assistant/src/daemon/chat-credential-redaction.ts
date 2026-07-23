@@ -394,17 +394,32 @@ export function filterRefsByRevealProof(
 const MIN_CANDIDATE_VALUE_LENGTH = 6;
 
 /**
- * Append a candidate in EVERY stdout encoding of its plaintext, deduped on
- * identity+value. `credentials reveal --json` writes the value through
- * `JSON.stringify` (see the CLI's `writeOutput`), so a value containing
- * quotes, backslashes, or control characters — a PEM key's newlines —
- * appears in the tool's stdout ESCAPED: bytes a raw exact-match list can
- * never find, leaving the escaped body to the scanner (which only knows
- * the header). Registering the escaped encoding as its own candidate
- * covers that representation on every surface (persist byte-compare, live
- * guard, tool_result fallback, output chunks). `JSON.stringify` is
- * injective on the value, so an escaped-form match proves the same
- * identity the raw form does.
+ * Every textual encoding of a credential plaintext that can appear on a
+ * transcript surface: the raw value plus its JSON-escaped form
+ * (`JSON.stringify` minus the outer quotes). They differ when the value
+ * contains quotes, backslashes, or control characters — a PEM key's
+ * newlines — because tool stdout (`credentials reveal --json` writes
+ * through `JSON.stringify`) and persisted tool_use inputs carry the
+ * ESCAPED bytes, which a raw exact-match list can never find.
+ * `JSON.stringify` is injective on the value, so an escaped-form match
+ * proves the same identity the raw form does. Deduped: a value needing no
+ * escaping yields a single entry.
+ */
+export function credentialValueEncodings(value: string): string[] {
+  const encodings = [value];
+  const escaped = JSON.stringify(value).slice(1, -1);
+  if (escaped !== value) {
+    encodings.push(escaped);
+  }
+  return encodings;
+}
+
+/**
+ * Append a candidate in EVERY stdout encoding of its plaintext
+ * ({@link credentialValueEncodings}), deduped on identity+value.
+ * Registering the escaped encoding as its own candidate covers that
+ * representation on every surface (persist byte-compare, live guard,
+ * tool_result fallback, output chunks).
  */
 function appendCandidateEncodings(
   candidates: ResolvedRevealCandidate[],
@@ -413,7 +428,7 @@ function appendCandidateEncodings(
   field: string,
   value: string,
 ): void {
-  for (const encoded of [value, JSON.stringify(value).slice(1, -1)]) {
+  for (const encoded of credentialValueEncodings(value)) {
     if (encoded.length < MIN_CANDIDATE_VALUE_LENGTH) {
       continue;
     }
@@ -690,6 +705,14 @@ export interface LiveRevealGuardEntry {
  * classify on its own (context-sensitive patterns like `password=…`).
  */
 const FALLBACK_SENTINEL_TYPE = "Credential";
+
+/**
+ * The generic legacy redaction marker for a credential value — byte-identical
+ * everywhere a credential span is replaced without a proven identity
+ * (persist-time fallback protection, the retroactive transcript scrub), so
+ * downstream scanners and renderers treat every redacted span the same way.
+ */
+export const LEGACY_CREDENTIAL_REDACTION_MARKER = `<redacted type="${FALLBACK_SENTINEL_TYPE}" />`;
 
 /**
  * Precompute live-swap entries from resolved reveal candidates. Every
@@ -1327,7 +1350,7 @@ function protectCandidateValuesLegacy(
   return replaceRawSpans(
     text,
     values,
-    () => `<redacted type="${FALLBACK_SENTINEL_TYPE}" />`,
+    () => LEGACY_CREDENTIAL_REDACTION_MARKER,
     neutralizeRedactedSentinels,
     containedInLongerScannerMatch(text),
   );

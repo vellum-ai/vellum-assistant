@@ -1,8 +1,8 @@
 /**
- * Tests for `CreditsExhaustedBanner` — the two-CTA credit wall.
+ * Tests for `CreditsExhaustedBanner` — the single-CTA credit wall gated by mode.
  *
  * Renders via `@testing-library/react` (happy-dom registered in test-setup.ts)
- * and drives the CTAs with `fireEvent`. No jest-dom matchers — we assert with
+ * and drives the CTA with `fireEvent`. No jest-dom matchers — we assert with
  * plain bun `expect` against query results. The title carries an inline emoji,
  * so it is matched with a regex that tolerates the prefix.
  */
@@ -16,45 +16,42 @@ afterEach(() => {
 });
 
 describe("CreditsExhaustedBanner", () => {
-  test("renders the title, subtitle, and both CTAs", () => {
-    const { getByText, getByRole } = render(
-      <CreditsExhaustedBanner onAddCredits={() => {}} onUpgrade={() => {}} />,
-    );
-
-    expect(getByText(/Your balance has run out/)).toBeTruthy();
-    expect(
-      getByText("Upgrade to a higher plan or add credits to continue."),
-    ).toBeTruthy();
-    expect(getByRole("button", { name: "Add Credits" })).toBeTruthy();
-    expect(getByRole("button", { name: "Upgrade" })).toBeTruthy();
-  });
-
-  test("clicking Add Credits fires onAddCredits only", () => {
+  test("add-credits mode renders exactly one Add Credits CTA and no Upgrade", () => {
     const onAddCredits = mock(() => {});
     const onUpgrade = mock(() => {});
 
-    const { getByRole } = render(
+    const { getAllByRole, getByRole, queryByRole, getByText } = render(
       <CreditsExhaustedBanner
+        mode="add-credits"
         onAddCredits={onAddCredits}
         onUpgrade={onUpgrade}
       />,
     );
+
+    expect(getByText(/Your balance has run out/)).toBeTruthy();
+    expect(getAllByRole("button").length).toBe(1);
+    expect(queryByRole("button", { name: "Upgrade" })).toBeNull();
 
     fireEvent.click(getByRole("button", { name: "Add Credits" }));
     expect(onAddCredits).toHaveBeenCalledTimes(1);
     expect(onUpgrade).not.toHaveBeenCalled();
   });
 
-  test("clicking Upgrade fires onUpgrade only", () => {
+  test("upgrade mode renders exactly one Upgrade CTA and no Add Credits", () => {
     const onAddCredits = mock(() => {});
     const onUpgrade = mock(() => {});
 
-    const { getByRole } = render(
+    const { getAllByRole, getByRole, queryByRole, getByText } = render(
       <CreditsExhaustedBanner
+        mode="upgrade"
         onAddCredits={onAddCredits}
         onUpgrade={onUpgrade}
       />,
     );
+
+    expect(getByText(/Your balance has run out/)).toBeTruthy();
+    expect(getAllByRole("button").length).toBe(1);
+    expect(queryByRole("button", { name: "Add Credits" })).toBeNull();
 
     fireEvent.click(getByRole("button", { name: "Upgrade" }));
     expect(onUpgrade).toHaveBeenCalledTimes(1);

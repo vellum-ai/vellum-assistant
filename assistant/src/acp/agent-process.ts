@@ -302,7 +302,7 @@ export class AcpAgentProcess {
           `ACP agent "${this.agentId}" requires authentication. ` +
             `Advertised methods: ${this.describeAuthMethods()}. ` +
             "Set the required env var under acp.agents.<id>.env in config.json, " +
-            "store it via 'assistant credentials set --service acp --field <field>', " +
+            "collect it securely via 'assistant credentials prompt --service acp --field <field> --label \"<label>\"', " +
             "or complete the agent's own login flow in the workspace.",
         );
       }
