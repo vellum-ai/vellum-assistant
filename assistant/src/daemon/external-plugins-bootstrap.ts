@@ -375,7 +375,6 @@ async function teardownPlugin(
   }
 
   unregisterPluginInjectors(name);
-  unregisterPluginSecretPatterns(name);
 
   if (plugin.hooks?.[HOOKS.SHUTDOWN]) {
     try {
@@ -387,4 +386,9 @@ async function teardownPlugin(
       );
     }
   }
+
+  // Unregister AFTER the shutdown hook so shutdown-time logging is still
+  // covered by the plugin's declared redaction patterns (mirror of the
+  // register-before-init ordering in initializePlugin).
+  unregisterPluginSecretPatterns(name);
 }
