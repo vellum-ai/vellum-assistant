@@ -20,7 +20,13 @@
  * without waiting out the debounce.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import {
   detectSecretsInText,
   type DetectedSecret,
@@ -139,7 +145,8 @@ export function useDraftSecretDetection({
 
   // Dismissal and send-block state are scoped to one conversation's draft
   // under one flag state — any transition of either invalidates them.
-  useEffect(() => {
+  // Layout effect: the reset must land before the switched route paints.
+  useLayoutEffect(() => {
     allowOnceRef.current = false;
     setSendBlocked(false);
     setDismissedValues(EMPTY_VALUE_SET);
@@ -148,10 +155,11 @@ export function useDraftSecretDetection({
   // Conversation switches swap the draft in a parent post-render effect,
   // after this effect runs — the composer store still holds the outgoing
   // conversation's draft here, so scanning it would resurrect the old
-  // matches. Instead: drop the stale matches in this commit (the previous
-  // conversation's notice must never carry over the new composer) and arm
-  // the immediate scan of the incoming draft when the swap lands.
-  useEffect(() => {
+  // matches. Instead: drop the stale matches before the new route paints
+  // (layout effect — the previous conversation's notice must never be
+  // visible over the new composer, even for one frame) and arm the
+  // immediate scan of the incoming draft when the swap lands.
+  useLayoutEffect(() => {
     if (prevConversationIdRef.current === conversationId) {
       return;
     }
