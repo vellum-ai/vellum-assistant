@@ -326,14 +326,18 @@ function renderPage(
   );
 }
 
-function openDropdown(ariaLabel: string): void {
+function dropdownTrigger(ariaLabel: string): HTMLButtonElement {
   const trigger = document.querySelector<HTMLButtonElement>(
     `button[role="combobox"][aria-label="${ariaLabel}"]`,
   );
   if (!trigger) {
     throw new Error(`expected a "${ariaLabel}" dropdown trigger`);
   }
-  fireEvent.click(trigger);
+  return trigger;
+}
+
+function openDropdown(ariaLabel: string): void {
+  fireEvent.click(dropdownTrigger(ariaLabel));
 }
 
 function optionLabels(): string[] {
@@ -411,7 +415,8 @@ function deltaLine(): HTMLElement | null {
   );
 }
 
-/** The recap's `<li>` texts (each row's full concatenated text). */
+/** The recap's `<li>` texts (each row's full concatenated text). Only valid
+ * with the dropdown menus closed — their options render as `li` too. */
 function recapRows(): string[] {
   const dialog = document.querySelector('[role="dialog"]');
   return Array.from(dialog?.querySelectorAll("li") ?? []).map(
@@ -422,8 +427,17 @@ function recapRows(): string[] {
 /** Struck-through (previous-value) recap labels. */
 function strikethroughs(): string[] {
   const dialog = document.querySelector('[role="dialog"]');
-  return Array.from(dialog?.querySelectorAll(".line-through") ?? []).map(
+  return Array.from(dialog?.querySelectorAll("s.line-through") ?? []).map(
     (el) => el.textContent?.trim() ?? "",
+  );
+}
+
+/** Each recap row's check-icon classes, in row order. */
+function checkIconClasses(): string[] {
+  const dialog = document.querySelector('[role="dialog"]');
+  return Array.from(dialog?.querySelectorAll("li") ?? []).map(
+    (li) =>
+      li.querySelector("div:last-child > svg")?.getAttribute("class") ?? "",
   );
 }
 
@@ -480,14 +494,9 @@ describe("CustomPlanModal — base subscriber", () => {
     // $20 base + $60 machine + $10 storage + $50 credits.
     getByText("$140/mo");
 
-    // The recap check-list is the only <ul> in the dialog once the dropdown
-    // menus are closed. (The machine text also appears in its trigger, so a
-    // plain getByText would double-match.)
-    const dialog = document.querySelector('[role="dialog"]');
-    const rows = Array.from(dialog?.querySelectorAll("li") ?? []).map(
-      (li) => li.textContent?.trim() ?? "",
-    );
-    expect(rows).toEqual([
+    // Read the recap rows rather than getByText — the machine text also appears
+    // in its dropdown trigger and would double-match.
+    expect(recapRows()).toEqual([
       "Pro base plan — $20/mo",
       "Large machine (4 vCPU, 8 GiB)",
       "30 GB storage",
@@ -592,11 +601,7 @@ describe("CustomPlanModal — eligible Pro subscriber", () => {
     expect(continueButton().disabled).toBe(false);
 
     // The recap reflects the seeded current tiers.
-    const dialog = document.querySelector('[role="dialog"]');
-    const rows = Array.from(dialog?.querySelectorAll("li") ?? []).map(
-      (li) => li.textContent?.trim() ?? "",
-    );
-    expect(rows).toEqual([
+    expect(recapRows()).toEqual([
       "Pro base plan — $20/mo",
       "Medium machine (2.5 vCPU, 5 GiB)",
       "10 GB storage",
@@ -629,11 +634,22 @@ describe("CustomPlanModal — eligible Pro subscriber", () => {
     selectOption("Machine size", "Large machine (4 vCPU, 8 GiB)");
 
     // The changed machine row shows the previous value struck through above
-    // the new value.
-    expect(strikethroughs()).toContain("Medium machine (2.5 vCPU, 5 GiB)");
-    expect(
-      recapRows().some((r) => r.includes("Large machine (4 vCPU, 8 GiB)")),
-    ).toBe(true);
+    // the new value; every other row keeps its single seeded label.
+    expect(strikethroughs()).toEqual(["Medium machine (2.5 vCPU, 5 GiB)"]);
+    expect(recapRows()).toEqual([
+      "Pro base plan — $20/mo",
+      "Medium machine (2.5 vCPU, 5 GiB)Large machine (4 vCPU, 8 GiB)",
+      "10 GB storage",
+      "No extra credits",
+    ]);
+
+    // Only the changed row's check goes green; the rest stay grey.
+    const checks = checkIconClasses();
+    expect(checks).toHaveLength(4);
+    expect(checks[1]).toContain("text-[var(--system-positive-strong)]");
+    for (const unchanged of [checks[0], checks[2], checks[3]]) {
+      expect(unchanged).toContain("text-[var(--content-secondary)]");
+    }
 
     // previous = base 2000 + medium 3500 + xs 500 = 6000 ($60);
     // new = base 2000 + large 6000 + xs 500 = 8500 ($85); delta = +$25/mo.
@@ -691,11 +707,8 @@ describe("CustomPlanModal — eligible Pro subscriber", () => {
     getByText("Create a custom plan");
     expect(continueButton().disabled).toBe(true);
 
-    const dialog = document.querySelector('[role="dialog"]');
-    const rows = Array.from(dialog?.querySelectorAll("li") ?? []).map(
-      (li) => li.textContent?.trim() ?? "",
-    );
     // Storage and credit are seeded even though the machine is unset.
+    const rows = recapRows();
     expect(rows).toContain("10 GB storage");
     expect(rows).toContain("No extra credits");
   });
@@ -814,5 +827,70 @@ describe("CustomPlanModal — Pro plan the catalog can't fully represent", () =>
     getByText("Create a custom plan");
     expect(getByTestId("loc").textContent).toBe("/assistant/plans");
     expect(machineTierCall).toBeNull();
+  });
+
+  test("an untouched deprecated credit bundle is not recapped as 'No extra credits'", () => {
+    const { getByRole } = renderPage(
+      proMightySubscription({ selected_credit_tier: "credits_25" }),
+    );
+
+    fireEvent.click(getByRole("button", { name: "Configure" }));
+
+    // The held bundle has no catalog entry to label, so the row is omitted
+    // rather than claiming the paying subscriber has no credits.
+    expect(recapRows()).toEqual([
+      "Pro base plan — $20/mo",
+      "Medium machine (2.5 vCPU, 5 GiB)",
+      "10 GB storage",
+    ]);
+  });
+
+  test("a legacy-storage Pro sub sees the held tier and can continue", () => {
+    // 250 GB (xl) is legacy: no longer offered, but still what this sub pays
+    // for. The picker shows it (disabled), the recap agrees with the total, and
+    // Continue is live so an unrelated edit isn't blocked.
+    const { getByRole, getByText } = renderPage(
+      proMightySubscription(),
+      onboarding({ selected_storage_tier: "xl", selected_storage_gib: 250 }),
+    );
+
+    fireEvent.click(getByRole("button", { name: "Configure" }));
+
+    expect(continueButton().disabled).toBe(false);
+    expect(dropdownTrigger("Storage").textContent).toContain("250 GB");
+    expect(recapRows()).toEqual([
+      "Pro base plan — $20/mo",
+      "Medium machine (2.5 vCPU, 5 GiB)",
+      "250 GB storage",
+      "No extra credits",
+    ]);
+    // base $20 + medium $35 + legacy 250 GB $60.
+    getByText("$115/mo");
+  });
+
+  test("the held legacy storage tier is offered but not selectable", () => {
+    const { getByRole } = renderPage(
+      proMightySubscription(),
+      onboarding({ selected_storage_tier: "xl", selected_storage_gib: 250 }),
+    );
+
+    fireEvent.click(getByRole("button", { name: "Configure" }));
+    openDropdown("Storage");
+
+    expect(findOption("250 GB").getAttribute("aria-disabled")).toBe("true");
+  });
+
+  test("a seed machine the catalog dropped hides the delta rather than inverting it", () => {
+    // `xl` is a valid machine tier the fixture catalog no longer lists. Pricing
+    // it at $0 would report this downgrade to Medium as a $35 increase.
+    const { getByRole } = renderPage(
+      proMightySubscription(),
+      onboarding({ max_machine_tier: "xl" }),
+    );
+
+    fireEvent.click(getByRole("button", { name: "Configure" }));
+    selectOption("Machine size", "Medium machine (2.5 vCPU, 5 GiB)");
+
+    expect(deltaLine()).toBeNull();
   });
 });

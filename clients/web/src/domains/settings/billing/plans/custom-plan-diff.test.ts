@@ -324,4 +324,55 @@ describe("computeCustomPlanDiff — seeded reconfigure", () => {
     expect(diff.previousTotalCents).toBeNull();
     expect(diff.deltaCents).toBeNull();
   });
+
+  test("an untouched deprecated credit bundle gets no row at all", () => {
+    // Reopening seeded to a bundle the catalog dropped: the choice is still the
+    // held `credits_100`, which resolves to nothing. Labelling that row "No
+    // extra credits" would be false for a subscriber paying for the bundle.
+    const diff = computeCustomPlanDiff({
+      proPlan: proPlan(),
+      seed: {
+        machineTier: "medium",
+        storageTier: "xs",
+        creditTier: "credits_100",
+      },
+      machineTier: "medium",
+      storageTier: "xs",
+      creditChoice: "credits_100",
+    });
+
+    expect(diff.rows.map((r) => r.key)).toEqual(["base", "machine", "storage"]);
+  });
+
+  test("a seed machine the catalog dropped suppresses the comparison", () => {
+    // `xl` is a valid machine tier absent from the fixture's machine_tiers.
+    // Pricing it at $0 would report this downgrade as a $35 increase.
+    const diff = computeCustomPlanDiff({
+      proPlan: proPlan(),
+      seed: { machineTier: "xl", storageTier: "xs", creditTier: null },
+      machineTier: "medium",
+      storageTier: "xs",
+      creditChoice: NO_EXTRA_CREDITS,
+    });
+
+    expect(diff.previousTotalCents).toBeNull();
+    expect(diff.deltaCents).toBeNull();
+    const machineRow = diff.rows.find((r) => r.key === "machine");
+    expect(machineRow?.changed).toBe(true);
+    expect(machineRow?.previousLabel).toBeUndefined();
+  });
+
+  test("a seed storage tier the catalog dropped suppresses the comparison", () => {
+    const diff = computeCustomPlanDiff({
+      proPlan: proPlan(),
+      // `xxl` is a valid storage tier absent from the fixture's storage_tiers.
+      seed: { machineTier: "medium", storageTier: "xxl", creditTier: null },
+      machineTier: "medium",
+      storageTier: "s",
+      creditChoice: NO_EXTRA_CREDITS,
+    });
+
+    expect(diff.previousTotalCents).toBeNull();
+    expect(diff.deltaCents).toBeNull();
+  });
 });
