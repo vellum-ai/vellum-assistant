@@ -150,10 +150,12 @@ export async function resolveOAuthConnectionWithMeta(
     // When a filter produced zero matches, enumerate the provider's other
     // active connections so the error can name the accounts that DO exist —
     // a one-letter account typo should be self-correctable, not read as a
-    // disconnection.
+    // disconnection. Only the account filter is dropped: clientId narrows to
+    // a specific OAuth app, and accounts under other apps cannot serve a
+    // retry that pins the same clientId, so suggesting them would mislead.
     const availableLabels =
       account || clientId
-        ? getActiveConnections(provider).map(
+        ? getActiveConnections(provider, { clientId }).map(
             (row) => (row.accountInfo as string | null) ?? (row.id as string),
           )
         : [];
