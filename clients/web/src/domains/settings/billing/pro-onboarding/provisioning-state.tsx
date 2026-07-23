@@ -10,6 +10,7 @@ import {
 } from "react";
 
 import { ChatAvatar } from "@/components/avatar/chat-avatar";
+import type { CreditTierEnum } from "@/generated/api/types.gen";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import type { CheckoutIntent } from "@/lib/billing/checkout-intent";
 import { MACHINE_TIER_LABEL, SIZE_LABEL } from "@/lib/billing/machine-sizes";
@@ -27,7 +28,10 @@ import {
   buildResourceChanges,
   type ResourceChangeKey,
 } from "./resource-changes";
-import { useProvisioningCredits } from "./use-provisioning-credits";
+import {
+  useCreditTierLabel,
+  useProvisioningCredits,
+} from "./use-provisioning-credits";
 import { useRotatingIndex } from "./use-rotating-index";
 import { useHeldPhase } from "./use-held-phase";
 import {
@@ -100,6 +104,16 @@ export interface ProvisioningStateProps {
   softWaiting: boolean;
   /** The checkout selection stashed before the Stripe redirect. */
   intent: CheckoutIntent | null;
+  /**
+   * The credit tier just applied by an in-place resize change, threaded from
+   * the plans page so the terminal phase can confirm a credit-bundle change —
+   * a credit-only change skips WAITING/RESIZING, where the checkout-driven
+   * credits chip lives, so this is its only surface. `undefined` = no credit
+   * change (omit the chip); a tier or explicit `null` ("No extra credits") =
+   * show the confirmation. Distinct from `intent` on purpose: resize mode never
+   * reads the checkout intent, so a stale one can't leak in here.
+   */
+  resizeCredits?: CreditTierEnum | null;
   targets: ProvisioningDimensions;
   /** Pre-resize actuals rendered as the "from" side of the resource chips. */
   fromSnapshot: ProvisioningDimensions;
@@ -494,6 +508,7 @@ export function ProvisioningState({
   state,
   softWaiting,
   intent,
+  resizeCredits,
   targets,
   fromSnapshot,
   celebrating,
@@ -507,6 +522,11 @@ export function ProvisioningState({
   dwellMs = PROVISION_MIN_DWELL_MS,
   phaseMinMs = PROVISION_PHASE_MIN_MS,
 }: ProvisioningStateProps) {
+  // `undefined` = no credit change; a tier or explicit null both surface the
+  // terminal confirmation (see the `resizeCredits` prop).
+  const showCreditConfirmation = resizeCredits !== undefined;
+  const creditConfirmationLabel = useCreditTierLabel(resizeCredits ?? null);
+
   const onCelebrationEndRef = useRef(onCelebrationEnd);
   useEffect(() => {
     onCelebrationEndRef.current = onCelebrationEnd;
@@ -579,6 +599,31 @@ export function ProvisioningState({
     );
   }
 
+  // Confirmation chip for a credit-only (or credit-inclusive) in-place change,
+  // shown on the terminal phase. Resolves to the catalog label ("$50
+  // credits/mo") when known, matching the WAITING credits chip; falls back to
+  // a plain "Credits updated" for the "No extra credits" choice or before the
+  // catalog resolves, so the terminal phase is never left blank.
+  function creditConfirmationChip() {
+    if (!showCreditConfirmation) {
+      return null;
+    }
+    return (
+      <ChipRow>
+        {creditConfirmationLabel != null ? (
+          <DimensionChip
+            icon={RESOURCE_CHIP_ICON.credits}
+            label="Credits"
+            to={creditConfirmationLabel}
+            done
+          />
+        ) : (
+          <TextChip label="Credits updated" />
+        )}
+      </ChipRow>
+    );
+  }
+
   function renderPhase() {
     if (heldState === "CONFIRMING") {
       return (
@@ -619,12 +664,18 @@ export function ProvisioningState({
         <>
           <Copy status="All done!" />
           <TargetChips targets={targets} fromSnapshot={fromSnapshot} done />
+          {creditConfirmationChip()}
         </>
       );
     }
 
     if (heldState === "NOT_APPLICABLE") {
-      return <Copy status="Your plan is ready" />;
+      return (
+        <>
+          <Copy status="Your plan is ready" />
+          {creditConfirmationChip()}
+        </>
+      );
     }
 
     if (heldState === "STALLED") {

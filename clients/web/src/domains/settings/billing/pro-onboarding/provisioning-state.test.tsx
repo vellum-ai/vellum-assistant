@@ -365,6 +365,45 @@ describe("done / not_applicable", () => {
     expect(queryByTestId("provisioning-apply")).toBeNull();
     await waitFor(() => expect(onCelebrationEnd).toHaveBeenCalledTimes(1));
   });
+
+  test("not_applicable confirms an applied credit bundle with the catalog label", () => {
+    // A credit-only in-place change owes no resize, so it lands here — the only
+    // surface where its bundle can be confirmed (the WAITING credits chip never
+    // shows).
+    const { getByText } = renderState({
+      state: "NOT_APPLICABLE",
+      resizeCredits: "credits_50",
+    });
+
+    expect(getByText("Your plan is ready")).toBeTruthy();
+    expect(getByText("Credits")).toBeTruthy();
+    expect(getByText("$50 credits/mo")).toBeTruthy();
+  });
+
+  test("not_applicable falls back to plain copy when the bundle can't resolve", () => {
+    // "No extra credits" (null tier) still counts as a change, so it confirms
+    // without a catalog label rather than leaving the phase blank.
+    const { getByText, queryByText } = renderState({
+      state: "NOT_APPLICABLE",
+      resizeCredits: null,
+    });
+
+    expect(getByText("Credits updated")).toBeTruthy();
+    expect(queryByText(/credits\/mo/)).toBeNull();
+  });
+
+  test("done confirms an applied credit bundle alongside the target chips", () => {
+    const { getByText } = renderState({
+      state: "DONE",
+      targets: { machineSize: "large", storageGib: 100 },
+      fromSnapshot: { machineSize: "small", storageGib: 30 },
+      resizeCredits: "credits_50",
+    });
+
+    expect(getByText("All done!")).toBeTruthy();
+    expect(getByText("Large")).toBeTruthy();
+    expect(getByText("$50 credits/mo")).toBeTruthy();
+  });
 });
 
 describe("stalled", () => {
