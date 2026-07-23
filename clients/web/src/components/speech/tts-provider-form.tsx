@@ -200,7 +200,7 @@ export function TtsProviderForm({
     draftProvider === "vellum" &&
     selectedProvider.supportsVoiceSelection &&
     draftManagedVoice.trim() !== "" &&
-    draftManagedVoice !== serverManagedVoice;
+    draftManagedVoice.trim() !== serverManagedVoice;
 
   const loadProviderState = useCallback((providerId: string) => {
     const storedKey = getLocalSetting(LS_TTS_API_KEY_PREFIX + providerId, "");
@@ -425,13 +425,14 @@ export function TtsProviderForm({
     isManaged && selectedProvider.supportsVoiceSelection;
 
   const enterCustomVoiceLink = (
-    <button
-      type="button"
-      className="text-body-small-default text-[var(--content-tertiary)] underline-offset-2 hover:underline"
+    <Button
+      variant="link"
+      size="compact"
+      className="h-auto px-0"
       onClick={() => setCustomModeOverride(true)}
     >
       Enter a custom voice ID
-    </button>
+    </Button>
   );
 
   return (
@@ -483,9 +484,10 @@ export function TtsProviderForm({
                 aria-label="Custom voice ID"
                 fullWidth
               />
-              <button
-                type="button"
-                className="text-body-small-default text-[var(--content-tertiary)] underline-offset-2 hover:underline"
+              <Button
+                variant="link"
+                size="compact"
+                className="h-auto px-0"
                 onClick={() => {
                   setCustomModeOverride(false);
                   // Snap a non-catalog draft back to a real catalog voice so the
@@ -498,7 +500,7 @@ export function TtsProviderForm({
                 }}
               >
                 Choose from catalog
-              </button>
+              </Button>
             </>
           ) : selectedManagedVoice ? (
             <>
