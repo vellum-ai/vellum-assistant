@@ -16,11 +16,17 @@
  */
 
 import { postRouteConversationMessage } from "../../daemon/route-conversation-post.js";
+import { isRouteHostEnabled } from "../../routes/control.js";
+import { RouteHostClient } from "../../routes/route-host-client.js";
 import { assistantEventHub } from "../assistant-event-hub.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 import { RouteResponse } from "./types.js";
 import { UserRouteDispatcher } from "./user-route-dispatcher.js";
+
+// Constructed eagerly but inert: the client spawns the route host lazily on the
+// first request, and only when `userRoutes.host.enabled` gates dispatch to it.
+const routeHostClient = new RouteHostClient();
 
 const dispatcher = new UserRouteDispatcher({
   context: {
@@ -29,6 +35,7 @@ const dispatcher = new UserRouteDispatcher({
       postMessage: postRouteConversationMessage,
     },
   },
+  routeHost: { client: routeHostClient, isEnabled: isRouteHostEnabled },
 });
 
 /**
