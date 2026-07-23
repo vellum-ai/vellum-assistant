@@ -440,7 +440,7 @@
       "source": {
         "source": "github",
         "repo": "simensgreen/vellum-db",
-        "ref": "4a9753280a582e4b9aa2e91481e215377d634667"
+        "ref": "00a587adb5d0344c977334353e0d4df54377340a"
       },
       "description": "Structured storage for Vellum agents: tables via JSON Schema, query/aggregate via JSON, named saved queries.",
       "category": "developer",
