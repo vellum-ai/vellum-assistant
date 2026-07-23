@@ -1449,14 +1449,18 @@ export const migrationSteps: MigrationStep[] = [
     run: migrateMoveMemoryGraphTablesToMemoryDb,
     // Gate the move on every migration that reads or writes a graph table on the
     // main connection, so it never drains a table another migration still
-    // expects on main. This includes migrateDeletePrivateConversations, which
-    // directly deletes private-scoped graph rows on main: were the move to run
-    // first, those rows would land in the memory DB and that delete would no-op
-    // against an empty main table, stranding them there. (The runtime
-    // conversation-delete path is separate: the graph is scope-keyed, not
-    // conversation-keyed, so it stays out of CONVERSATION_KEYED_MEMORY_TABLES.)
+    // expects on main. Two are easy to miss: migrateToolCreatedItems (in the
+    // memory plugin, not migrations/) inserts legacy tool memories into
+    // memory_graph_nodes on main and must land before the move so those rows are
+    // carried over; and migrateDeletePrivateConversations deletes private-scoped
+    // graph rows on main directly, so were the move to run first those rows would
+    // land in the memory DB and that delete would no-op against an empty main
+    // table, stranding them there. (The runtime conversation-delete path is
+    // separate: the graph is scope-keyed, not conversation-keyed, so it stays out
+    // of CONVERSATION_KEYED_MEMORY_TABLES.)
     dependsOn: [
       "migrateCreateMemoryGraphTables",
+      "migrateToolCreatedItems",
       "migrateRenameMemoryGraphTypeValues",
       "migrateMemoryGraphImageRefs",
       "migrateCreateMemoryGraphNodeEdits",

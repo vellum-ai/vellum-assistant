@@ -4,10 +4,8 @@ import { setMemoryCheckpoint } from "../../../../persistence/checkpoints.js";
 import { getMemoryDb } from "../../../../persistence/db-connection.js";
 import { initializeDb } from "../../../../persistence/db-init.js";
 import {
+  rawAll,
   rawGet,
-  rawMemoryAll,
-  rawMemoryGet,
-  rawMemoryRun,
   rawRun,
   resetTestTables,
 } from "../../../../persistence/raw-query.js";
@@ -30,11 +28,31 @@ beforeAll(async () => {
 }, 30_000);
 
 beforeEach(() => {
+  // migrateToolCreatedItems runs as a migration before the graph cluster moves
+  // to the memory DB, so it reads and writes memory_graph_nodes on the main
+  // connection. initializeDb() has since applied that move, dropping the table
+  // from main — recreate its current shape here so the migration and these
+  // assertions run against the connection it actually uses.
+  rawRun(
+    "test:recreateMainGraphNodes",
+    /*sql*/ `CREATE TABLE IF NOT EXISTS memory_graph_nodes (
+      id TEXT PRIMARY KEY, content TEXT NOT NULL, type TEXT NOT NULL,
+      created INTEGER NOT NULL, last_accessed INTEGER NOT NULL,
+      last_consolidated INTEGER NOT NULL, emotional_charge TEXT NOT NULL,
+      fidelity TEXT NOT NULL DEFAULT 'vivid', confidence REAL NOT NULL,
+      significance REAL NOT NULL, stability REAL NOT NULL DEFAULT 14,
+      reinforcement_count INTEGER NOT NULL DEFAULT 0,
+      last_reinforced INTEGER NOT NULL,
+      source_conversations TEXT NOT NULL DEFAULT '[]',
+      source_type TEXT NOT NULL DEFAULT 'inferred',
+      narrative_role TEXT, part_of_story TEXT,
+      scope_id TEXT NOT NULL DEFAULT 'default',
+      event_date INTEGER, image_refs TEXT
+    )`,
+  );
   // Clear graph nodes and checkpoints between tests so each test starts clean.
-  // memory_graph_nodes and memory_jobs live in the dedicated memory connection;
-  // memory_checkpoints stays in main. Deleting nodes cascades to the cluster.
-  resetTestTables("memory_checkpoints");
-  getMemoryDb()!.run("DELETE FROM memory_graph_nodes");
+  // memory_jobs lives in the dedicated memory connection; the rest in main.
+  resetTestTables("memory_graph_nodes", "memory_checkpoints");
   getMemoryDb()!.run("DELETE FROM memory_jobs");
 });
 
@@ -91,7 +109,7 @@ describe("migrateToolCreatedItems", () => {
       migrateToolCreatedItems();
 
       // Assert a corresponding graph node was created
-      const node = rawMemoryGet<{
+      const node = rawGet<{
         id: string;
         content: string;
         type: string;
@@ -145,7 +163,7 @@ describe("migrateToolCreatedItems", () => {
       // the pre-205 schema. SQLite doesn't support DROP COLUMN on all
       // versions, so we use the standard CREATE-new/INSERT-SELECT/DROP-old/
       // RENAME pattern.
-      rawMemoryRun(
+      rawRun(
         "test:backupGraphNodes",
         `CREATE TABLE memory_graph_nodes_backup AS
         SELECT
@@ -156,8 +174,8 @@ describe("migrateToolCreatedItems", () => {
           scope_id
         FROM memory_graph_nodes`,
       );
-      rawMemoryRun("test:dropGraphNodes", "DROP TABLE memory_graph_nodes");
-      rawMemoryRun(
+      rawRun("test:dropGraphNodes", "DROP TABLE memory_graph_nodes");
+      rawRun(
         "test:createGraphNodes",
         `CREATE TABLE memory_graph_nodes (
           id                    TEXT PRIMARY KEY,
@@ -181,12 +199,12 @@ describe("migrateToolCreatedItems", () => {
           scope_id              TEXT NOT NULL DEFAULT 'default'
         )`,
       );
-      rawMemoryRun(
+      rawRun(
         "test:copyGraphNodes",
         `INSERT INTO memory_graph_nodes
          SELECT * FROM memory_graph_nodes_backup`,
       );
-      rawMemoryRun(
+      rawRun(
         "test:dropGraphNodesBackup",
         "DROP TABLE memory_graph_nodes_backup",
       );
@@ -218,7 +236,7 @@ describe("migrateToolCreatedItems", () => {
       expect(() => migrateToolCreatedItems()).not.toThrow();
 
       // Verify the row was migrated
-      const node = rawMemoryGet<{ id: string; content: string }>(
+      const node = rawGet<{ id: string; content: string }>(
         "test:fetchMigratedNode",
         `SELECT id, content FROM memory_graph_nodes
          WHERE source_conversations LIKE ?`,
@@ -230,7 +248,7 @@ describe("migrateToolCreatedItems", () => {
       rawRun("test:dropMemoryItems", "DROP TABLE IF EXISTS memory_items");
       // Restore the full schema for subsequent tests by re-adding image_refs
       try {
-        rawMemoryRun(
+        rawRun(
           "test:addImageRefsColumn",
           "ALTER TABLE memory_graph_nodes ADD COLUMN image_refs TEXT",
         );
@@ -281,7 +299,7 @@ describe("migrateToolCreatedItems", () => {
       migrateToolCreatedItems();
 
       // Assert no rows were inserted into memory_graph_nodes
-      const rows = rawMemoryAll<{ id: string }>(
+      const rows = rawAll<{ id: string }>(
         "test:listGraphNodeIds",
         "SELECT id FROM memory_graph_nodes",
       );

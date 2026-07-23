@@ -27,11 +27,7 @@ import {
   hasActiveJobOfType,
   isMemoryEnabled,
 } from "../../../../persistence/jobs-store.js";
-import {
-  rawAll,
-  rawMemoryGet,
-  rawMemoryRun,
-} from "../../../../persistence/raw-query.js";
+import { rawAll, rawGet, rawRun } from "../../../../persistence/raw-query.js";
 import {
   conversations,
   memoryGraphNodes,
@@ -39,7 +35,6 @@ import {
 } from "../../../../persistence/schema/index.js";
 import { resolveQdrantUrl } from "../embeddings.js";
 import { getLogger } from "../logging.js";
-import { memoryDbOrNull } from "../memory-db.js";
 import { getWorkspaceDir } from "../paths.js";
 import { runGraphExtraction } from "./extraction.js";
 import { countNodes } from "./store.js";
@@ -323,13 +318,11 @@ export function resetBootstrapCheckpoint(): void {
  * already pending/running.
  */
 export function maybeEnqueueGraphBootstrap(): void {
-  // Graph nodes live on the memory connection; segments still live on main.
-  const memoryDb = memoryDbOrNull("maybeEnqueueGraphBootstrap");
-  if (!memoryDb) return;
+  const db = getDb();
 
   // Check for non-procedural graph nodes (procedural = capability seeds, not real memories)
   const nonProceduralCount =
-    memoryDb
+    db
       .select({ count: sql<number>`count(*)` })
       .from(memoryGraphNodes)
       .where(
@@ -344,7 +337,7 @@ export function maybeEnqueueGraphBootstrap(): void {
 
   // Check for historical data to bootstrap from
   const segmentCount =
-    getDb()
+    db
       .select({ count: sql<number>`count(*)` })
       .from(memorySegments)
       .get()?.count ?? 0;
@@ -447,7 +440,7 @@ export function migrateToolCreatedItems(): void {
 
     // Check if already migrated (sourceKey exists in graph)
     const sourceKey = `${prefix}${row.id}`;
-    const existing = rawMemoryGet<{ id: string }>(
+    const existing = rawGet<{ id: string }>(
       "memoryGraph:migrateItems:existing",
       `SELECT id FROM memory_graph_nodes WHERE source_conversations LIKE ?`,
       `%${sourceKey}%`,
@@ -464,7 +457,7 @@ export function migrateToolCreatedItems(): void {
       originalIntensity: 0.1,
     });
 
-    rawMemoryRun(
+    rawRun(
       "memoryGraph:migrateItems:insert",
       `INSERT INTO memory_graph_nodes (
         id, content, type, created, last_accessed, last_consolidated,
