@@ -23,6 +23,7 @@ import { createServer, type Server, type Socket } from "node:net";
 
 import type { IpcEnvelope } from "../ipc/ipc-framing.js";
 import { IpcFrameReader, writeMessage } from "../ipc/ipc-framing.js";
+import { disableStreamSeqStamping } from "../runtime/assistant-stream-state.js";
 import { getLogger } from "../util/logger.js";
 import {
   ensureProcDir,
@@ -171,18 +172,27 @@ function onConnection(socket: Socket): void {
 // Lifecycle
 // ---------------------------------------------------------------------------
 
-let server: Server | undefined;
+let activeServer: Server | undefined;
 let disposePidGuard: (() => void) | undefined;
+let shuttingDown = false;
 
 function shutdown(reason: string): void {
+  if (shuttingDown) {
+    return;
+  }
+  shuttingDown = true;
   log.info({ reason }, "Route host shutting down");
   disposePidGuard?.();
-  server?.close();
+  activeServer?.close();
   cleanupWorkerPidFile(pidPath);
   process.exit(0);
 }
 
 function start(): void {
+  // Only the daemon stamps SSE seqs and writes the shared reservation file; a
+  // worker that stamped would issue overlapping seqs and race the daemon.
+  disableStreamSeqStamping();
+
   ensureProcDir(ROUTE_HOST_PROC_NAME);
 
   // Clear a stale socket from a crashed predecessor (double-spawn is already
@@ -195,24 +205,31 @@ function start(): void {
     }
   }
 
-  server = createServer(onConnection);
+  const server = createServer();
+  activeServer = server;
   server.on("error", (err) => {
     log.error({ err }, "Route host server error — exiting");
     process.exit(1);
   });
 
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT", () => shutdown("SIGINT"));
+
   server.listen(socketPath, () => {
-    // Readiness signal: the socket is accepting connections, so the daemon can
-    // connect the moment it sees the PID file.
+    // Publish the PID (readiness signal), then arm the identity guard BEFORE we
+    // begin serving. The guard's on-arm check runs synchronously, so a worker
+    // superseded during startup begins shutting down here instead of serving.
     writeFileSync(pidPath, String(process.pid), { mode: 0o600 });
     disposePidGuard = startWorkerPidFileGuard(pidPath, {
       onEvicted: (reason) => shutdown(`pid-file evicted: ${reason}`),
     });
+    if (shuttingDown) {
+      return;
+    }
+    // Work-start: begin accepting route invocations only once the guard is armed.
+    server.on("connection", onConnection);
     log.info({ socketPath, pid: process.pid }, "Route host ready");
   });
-
-  process.on("SIGTERM", () => shutdown("SIGTERM"));
-  process.on("SIGINT", () => shutdown("SIGINT"));
 }
 
 start();
