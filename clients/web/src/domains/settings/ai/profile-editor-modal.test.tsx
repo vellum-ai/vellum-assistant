@@ -611,6 +611,45 @@ describe("ProfileEditorModal create mode — provider-first", () => {
     }
   });
 
+  test("an unbound openai-compatible profile keeps its provider label in edit mode", async () => {
+    render(
+      <Wrapper>
+        <ProfileEditorModal
+          isOpen
+          mode="edit"
+          profileName="my-local"
+          initialValues={
+            {
+              name: "my-local",
+              provider: "openai-compatible",
+              model: "my-model",
+            } as never
+          }
+          existingNames={["my-local"]}
+          connections={[
+            {
+              ...makeConnection("lm-studio", "openai-compatible"),
+              models: [{ id: "my-model" }],
+            },
+            {
+              ...makeConnection("vllm-box", "openai-compatible"),
+              models: [{ id: "other-model" }],
+            },
+          ]}
+          assistantId={ASSISTANT_ID}
+          onSave={() => Promise.resolve()}
+          onCancel={() => {}}
+        />
+      </Wrapper>,
+    );
+
+    // No endpoint entry matches the unbound state; the bare protocol value
+    // keeps the trigger labeled instead of falling to the placeholder.
+    await waitFor(() => {
+      expect(providerTrigger().textContent?.trim()).toBe("OpenAI-compatible");
+    });
+  });
+
   test("a legacy-shape managed profile presents as Vellum in edit mode", async () => {
     // Managed profiles store their real upstream (anthropic) bound to the
     // vellum connection; the editor must present them as "Vellum".

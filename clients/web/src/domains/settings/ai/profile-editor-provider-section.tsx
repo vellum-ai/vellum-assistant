@@ -376,6 +376,19 @@ export function ProfileEditorProviderSection({
                     },
                   ]
                 : []),
+              // An unbound openai-compatible profile has no endpoint entry to
+              // select; the bare protocol value keeps the trigger labeled.
+              // Picking an endpoint entry from this same list binds it.
+              ...(provider === OPENAI_COMPATIBLE_PROVIDER && !providerConnection
+                ? [
+                    {
+                      value: OPENAI_COMPATIBLE_PROVIDER,
+                      label:
+                        PROVIDER_DISPLAY_NAMES[OPENAI_COMPATIBLE_PROVIDER] ??
+                        OPENAI_COMPATIBLE_PROVIDER,
+                    },
+                  ]
+                : []),
             ]}
           />
           {providerOptionsSource.length === 0 && !isReadOnly ? (
