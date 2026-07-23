@@ -5,47 +5,27 @@
  * `window.vellum` object into it at load time (see the assistant's
  * `sandbox-bridge` runtime). This file is the type-only counterpart to that
  * injection: it teaches TypeScript the shape of `window.vellum` so an app can
- * call `window.vellum.fetch(...)`, `window.vellum.sendAction(...)`, etc.
- * without hand-declaring the global in every project.
+ * call `window.vellum.fetch(...)` without hand-declaring the global in every
+ * project.
  *
- * A plugin app that depends on `@vellumai/plugin-api` pulls this in one of two
- * ways:
+ * Only `fetch` is typed for now — the surface the vast majority of apps
+ * actually use. Other injected members are intentionally left undeclared until
+ * there's a concrete need.
  *
- * 1. Referenced explicitly (recommended for apps that don't otherwise import
- *    from the package — e.g. a plain Vite app that only calls
- *    `window.vellum.fetch`):
+ * A plugin app that depends on `@vellumai/plugin-api` pulls this in via a
+ * one-line reference (recommended — no runtime import, which apps can't rely
+ * on inside the sandbox):
  *
- *    ```ts
- *    /// <reference types="@vellumai/plugin-api/app" />
- *    ```
+ * ```ts
+ * /// <reference types="@vellumai/plugin-api/app" />
+ * ```
  *
- *    or add `"@vellumai/plugin-api/app"` to `compilerOptions.types` in
- *    `tsconfig.json`.
- *
- * 2. Transitively — importing anything from `@vellumai/plugin-api` also loads
- *    this augmentation, because the package's main type entry references it.
- *
- * Either way the app no longer needs its own `vellum.d.ts`.
+ * or by adding `"@vellumai/plugin-api/app"` to `compilerOptions.types` in
+ * `tsconfig.json`. Either way the app no longer needs its own `vellum.d.ts`.
  *
  * The named types below are also exported, so app code that wants to annotate
  * a variable can `import type { VellumAppBridge } from "@vellumai/plugin-api/app"`.
  */
-
-/**
- * A `sync_changed` invalidation forwarded from the host to a subscribed app.
- * The host scopes delivery to the tags the app asked for (reserved host
- * namespaces are never delivered), so `tags` lists only the matched tags.
- */
-export interface VellumAppSyncEvent {
-  type: "sync_changed";
-  tags: string[];
-}
-
-/** Filter passed to {@link VellumAppBridge.subscribe}. */
-export interface VellumAppSubscribeFilter {
-  /** Sync tags the app wants to hear `sync_changed` invalidations for. */
-  tags?: string[];
-}
 
 /**
  * Request init accepted by {@link VellumAppBridge.fetch}. A subset of the DOM
@@ -66,7 +46,6 @@ export interface VellumAppFetchInit {
  * Response returned by {@link VellumAppBridge.fetch}. A `fetch`-like subset,
  * not a full DOM `Response`: the body is delivered as text across the bridge,
  * so only `json()` and `text()` are available (no `blob()`, `body`, etc.).
- * Use {@link VellumAppBridge.asset} for binary payloads.
  */
 export interface VellumAppFetchResponse {
   /** True when `status` is in the 2xx range. */
@@ -87,42 +66,15 @@ export interface VellumAppFetchResponse {
  */
 export interface VellumAppBridge {
   /**
-   * The deep-link route the app was opened with, or `null` when opened
-   * without one.
-   */
-  route: string | null;
-
-  /**
-   * Forward a surface action to the host chat (e.g. `"relay_prompt"` to send
-   * a prompt into the conversation, `"set_view"` to change the app/chat
-   * layout). Fire-and-forget — the host handles it out of band.
-   */
-  sendAction(actionId: string, data?: unknown): void;
-
-  /**
    * Authenticated `fetch` to the app's own custom routes under `/v1/x/` (a
    * leading `/x/` is accepted and normalized). Proxied through the host so the
    * assistant's session/auth is attached — use this instead of the bare
    * global `fetch`, which fails from the sandboxed origin.
    */
-  fetch(path: string, options?: VellumAppFetchInit): Promise<VellumAppFetchResponse>;
-
-  /**
-   * Resolve a bundled app asset to a `blob:` object URL the sandbox can load
-   * in `<img>` / `<video>` / `<audio>`. The binary sibling of {@link fetch};
-   * results are cached per path.
-   */
-  asset(path: string): Promise<string>;
-
-  /**
-   * Subscribe to host `sync_changed` invalidations matching `filter.tags` so
-   * the app can refresh on demand instead of polling. Returns an unsubscribe
-   * function.
-   */
-  subscribe(
-    filter: VellumAppSubscribeFilter,
-    callback: (event: VellumAppSyncEvent) => void,
-  ): () => void;
+  fetch(
+    path: string,
+    options?: VellumAppFetchInit,
+  ): Promise<VellumAppFetchResponse>;
 }
 
 declare global {

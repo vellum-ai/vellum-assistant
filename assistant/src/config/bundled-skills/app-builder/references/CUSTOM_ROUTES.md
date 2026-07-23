@@ -78,13 +78,13 @@ if (!createRes.ok) throw new Error(`HTTP ${createRes.status}`);
 
 ### Typing `window.vellum`
 
-Don't hand-declare `window.vellum` in a local `vellum.d.ts`. If the app depends on `@vellumai/plugin-api`, the `window.vellum` global is typed for you — either import anything from the package, or add a one-line reference in a `.d.ts` (or entry file):
+Don't hand-declare `window.vellum` in a local `vellum.d.ts`. If the app depends on `@vellumai/plugin-api`, the `window.vellum` global is typed for you — add a one-line reference in a `.d.ts` (or entry file):
 
 ```typescript
 /// <reference types="@vellumai/plugin-api/app" />
 ```
 
-Equivalently, add `"@vellumai/plugin-api/app"` to `compilerOptions.types` in `tsconfig.json`.
+Equivalently, add `"@vellumai/plugin-api/app"` to `compilerOptions.types` in `tsconfig.json`. Both are types-only — do **not** `import` from `@vellumai/plugin-api` to get the global; a runtime bare import isn't supported for sandboxed apps. If you want to name a type, use `import type { VellumAppBridge } from "@vellumai/plugin-api/app"`.
 
 ## Runtime context
 

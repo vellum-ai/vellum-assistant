@@ -8,8 +8,8 @@
  *    which throw `SecurityError` in sandboxed contexts without `allow-same-origin`.
  * The app-side type of the `window.vellum` object injected here is declared in
  * `@vellumai/plugin-api`'s `app-globals.d.ts` (shipped as the package's
- * `/app` subpath). Keep that declaration in sync when the injected surface
- * (`route`, `sendAction`, `fetch`, `asset`, `subscribe`) changes.
+ * `/app` subpath). It currently types only `fetch`; keep it in sync if that
+ * member's signature changes or another member is added to the declaration.
  *
  * 2. **Action bridge** — `window.vellum.sendAction()` forwards surface actions to
  *    the parent via `postMessage`.
