@@ -96,10 +96,7 @@ import type {
   _SubagentsClientMessages,
   _SubagentsServerMessages,
 } from "./message-types/subagents.js";
-import type {
-  _SurfacesClientMessages,
-  _SurfacesServerMessages,
-} from "./message-types/surfaces.js";
+import type { _SurfacesServerMessages } from "./message-types/surfaces.js";
 import type { _SyncInvalidationServerMessages } from "./message-types/sync.js";
 import type { _UpgradesServerMessages } from "./message-types/upgrades.js";
 import type { _WorkflowsServerMessages } from "./message-types/workflows.js";
@@ -123,7 +120,6 @@ export interface SubagentEvent {
 export type ClientMessage =
   | _ConversationsClientMessages
   | _MessagesClientMessages
-  | _SurfacesClientMessages
   | _IntegrationsClientMessages
   | _ComputerUseClientMessages
   | _HostBrowserClientMessages
