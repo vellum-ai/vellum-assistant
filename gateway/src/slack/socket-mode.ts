@@ -20,6 +20,7 @@ import {
 } from "./slack-web.js";
 import { isSlackDmChannel } from "./channel.js";
 import { slackEventOrderingKey } from "./event-ordering.js";
+import { stampSlackEventTeam } from "./event-team.js";
 import {
   normalizeSlackAppMention,
   normalizeSlackDirectMessage,
@@ -794,9 +795,7 @@ export class SlackSocketModeClient {
     // event so normalization can capture the actor's team. An event-level
     // `team` (e.g. a Slack Connect sender's home workspace) takes precedence.
     const innerEvent = eventPayload.event as { team?: string };
-    if (eventPayload.team_id && !innerEvent.team) {
-      innerEvent.team = eventPayload.team_id;
-    }
+    stampSlackEventTeam(innerEvent, eventPayload.team_id);
 
     this.processEventPayload({
       event_id: eventPayload.event_id,
