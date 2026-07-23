@@ -6624,9 +6624,14 @@ components:
           minimum: 0
         lookup_key:
           type: string
+        legacy:
+          type: boolean
+          description: 'True only for a grandfathered tier: no longer offered, present
+            in the catalog solely because it is the org''s current tier.'
       required:
       - credits_usd
       - label
+      - legacy
       - lookup_key
       - price_cents
       - tier

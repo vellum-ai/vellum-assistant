@@ -274,20 +274,28 @@ export async function persistWakeTailMessage(
  * output). The `backgroundEventSource` stamp lets clients hide this row from the
  * rendered transcript — the user-facing wake card carries the status instead.
  *
- * `interactive` records the permission mode the woken turn ran under (derived
- * from the wake's `clientless` option): most background events (scheduled
- * runs, backgrounded-tool completions, remote wakes) run interactive, while
- * clientless/headless wakes (interrupted-turn recovery, local IPC wakes) run
- * non-interactive. Retrying the anchor reuses this so the re-run reproduces the
+ * `backgroundEventInteractive` records the permission mode the woken turn runs
+ * under, matching how the agent loop resolves an unset `isInteractive`
+ * (`!hasNoClient && !headlessLock`; see `runAgentLoopImpl`). A `clientless` wake
+ * pins `hasNoClient = true` for its dispatch, and that pin is applied after this
+ * row is persisted, so `clientless` is taken as a flag here rather than read
+ * back from the conversation post-pin. Most background events run interactive
+ * (scheduled runs, backgrounded-tool completions, and remote wakes on a
+ * client-connected conversation); clientless wakes (interrupted-turn recovery,
+ * local IPC wakes) and wakes on a client-less conversation — e.g. a schedule
+ * firing after a restart with no client attached — run non-interactive.
+ * Retrying the anchor reuses the recorded mode so the re-run reproduces the
  * original turn's approval semantics.
  */
 export async function persistWakeTriggerMessage(
   conversation: Conversation,
   message: Message,
   source: string,
-  interactive: boolean,
+  clientless: boolean,
   completion?: CompletedBackgroundTool,
 ): Promise<void> {
+  const backgroundEventInteractive =
+    !clientless && !conversation.hasNoClient && !conversation.headlessLock;
   const turnChannelCtx = conversation.getTurnChannelContext();
   const turnInterfaceCtx = conversation.getTurnInterfaceContext();
   const metadata: Record<string, unknown> = {
@@ -300,7 +308,7 @@ export async function persistWakeTriggerMessage(
       turnInterfaceCtx?.assistantMessageInterface ?? "web",
     kind: "background-event",
     backgroundEventSource: source,
-    backgroundEventInteractive: interactive,
+    backgroundEventInteractive,
     automated: true,
     ...(completion ? { backgroundToolCompletion: completion } : {}),
   };

@@ -6,7 +6,7 @@ import {
   HardDrive,
   SlidersHorizontal,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
 import { isTierDisabled } from "@/domains/settings/components/tier-picker";
 import {
@@ -18,6 +18,7 @@ import type {
   CreditTierEnum,
   MachineTierEnum,
   ProPlan,
+  StorageTier,
   StorageTierEnum,
 } from "@/generated/api/types.gen";
 import { Button } from "@vellumai/design-library/components/button";
@@ -30,12 +31,19 @@ import { Modal } from "@vellumai/design-library/components/modal";
 import {
   type CreditChoice,
   type CustomPlanSeed,
-  type CustomPlanSelection,
   computeCustomPlanDiff,
+  NO_CREDITS_LABEL,
   NO_EXTRA_CREDITS,
 } from "./custom-plan-diff";
 
-export type { CustomPlanSeed, CustomPlanSelection };
+export type { CustomPlanSeed };
+
+export interface CustomPlanSelection {
+  machineTier: MachineTierEnum;
+  storageTier: StorageTierEnum;
+  /** `null` is the explicit "No extra credits" choice. */
+  creditTier: CreditTierEnum | null;
+}
 
 export interface CustomPlanModalProps {
   open: boolean;
@@ -88,37 +96,60 @@ export function CustomPlanModal({
   onClose,
   onContinue,
 }: CustomPlanModalProps) {
-  const [machineTier, setMachineTier] = useState<MachineTierEnum | "">("");
-  const [storageTier, setStorageTier] = useState<StorageTierEnum | "">("");
-  const [creditChoice, setCreditChoice] = useState<CreditChoice | "">("");
+  // A Pro reconfigure seeds the current tiers so the default is a no-op; base
+  // checkout passes none and leaves every dimension empty. A baseline machine
+  // (null) has no tier to seed, so its picker starts empty.
+  const seed = open ? (initialSelection ?? null) : null;
+  const [machineTier, setMachineTier] = useState<MachineTierEnum | "">(
+    () => seed?.machineTier ?? "",
+  );
+  const [storageTier, setStorageTier] = useState<StorageTierEnum | "">(
+    () => seed?.storageTier ?? "",
+  );
+  const [creditChoice, setCreditChoice] = useState<CreditChoice | "">(() =>
+    seed ? (seed.creditTier ?? NO_EXTRA_CREDITS) : "",
+  );
 
-  useEffect(() => {
-    if (!open) {
-      setMachineTier("");
-      setStorageTier("");
-      setCreditChoice("");
-      return;
-    }
-    // Reopening for a Pro reconfigure seeds the current tiers so the default is
-    // a no-op; base checkout passes none and leaves every dimension empty. A
-    // baseline machine (null) has no tier to seed, so its picker starts empty.
-    if (initialSelection) {
-      setMachineTier(initialSelection.machineTier ?? "");
-      setStorageTier(initialSelection.storageTier);
-      setCreditChoice(initialSelection.creditTier ?? NO_EXTRA_CREDITS);
-    }
-  }, [open, initialSelection]);
+  // Seeding during render rather than from an effect: an effect-seeded modal
+  // paints one frame of empty pickers against a non-empty seed, flashing a
+  // full-magnitude negative delta and a recap collapsed to the base row.
+  const [seededFrom, setSeededFrom] = useState({ open, initialSelection });
+  if (
+    seededFrom.open !== open ||
+    seededFrom.initialSelection !== initialSelection
+  ) {
+    setSeededFrom({ open, initialSelection });
+    setMachineTier(seed?.machineTier ?? "");
+    setStorageTier(seed?.storageTier ?? "");
+    setCreditChoice(seed ? (seed.creditTier ?? NO_EXTRA_CREDITS) : "");
+  }
 
   const machineTiers = proPlan.machine_tiers;
-  const storageTiers = proPlan.storage_tiers;
-  const creditTiers = proPlan.credit_tiers ?? [];
-
   // Legacy tiers stay in the catalog only for existing subscribers, so a new
-  // configuration must not offer them — but a subscriber seeded onto one still
-  // has to see the tier they hold, rendered disabled.
-  const offerableStorageTiers = storageTiers.filter(
-    (t) => !t.legacy || t.tier === initialSelection?.storageTier,
+  // configuration must not offer them — but a subscriber seeded onto one keeps
+  // it, so changing another dimension isn't a one-way door out of the tier they
+  // pay for.
+  const offerableStorageTiers = useMemo(
+    () =>
+      proPlan.storage_tiers.filter(
+        (t) => !t.legacy || t.tier === initialSelection?.storageTier,
+      ),
+    [proPlan.storage_tiers, initialSelection?.storageTier],
   );
+  const allCreditTiers = proPlan.credit_tiers ?? [];
+  // The same legacy split for the selectable credit options; the full list is
+  // kept so a held legacy bundle can still be priced and shown (below).
+  const selectableCreditTiers = useMemo(
+    () => (proPlan.credit_tiers ?? []).filter((t) => !t.legacy),
+    [proPlan.credit_tiers],
+  );
+
+  // Only the seeded legacy tier escapes the legacy disable — it is the current
+  // choice, so it has to stay re-selectable.
+  const storageOptionDisabled = (t: StorageTier) =>
+    isTierDisabled(t) ||
+    (t.legacy && t.tier !== initialSelection?.storageTier) ||
+    (currentStorageGib != null && t.storage_gib < currentStorageGib);
 
   const machineOptions: DropdownOption<MachineTierEnum>[] = machineTiers.map(
     (t) => ({
@@ -135,32 +166,68 @@ export function CustomPlanModal({
       label: t.label,
       icon: <HardDrive className="h-4 w-4" aria-hidden />,
       suffix: priceSuffix(t.price_cents),
-      disabled:
-        isTierDisabled(t) ||
-        t.legacy ||
-        (currentStorageGib != null && t.storage_gib < currentStorageGib),
+      disabled: storageOptionDisabled(t),
     }));
+  // Resolve the current credit choice against the full catalog (legacy
+  // included) so a held bundle is recognised rather than read as unset.
+  const selectedCredit =
+    creditChoice && creditChoice !== NO_EXTRA_CREDITS
+      ? (allCreditTiers.find((t) => t.tier === creditChoice) ?? null)
+      : null;
+  // A held legacy bundle isn't offered to a new config, but when it's the
+  // current selection it's appended disabled so the dropdown still shows it.
+  const heldLegacyCredit = selectedCredit?.legacy ? selectedCredit : null;
+
   const creditOptions: DropdownOption<CreditChoice>[] = [
     {
       value: NO_EXTRA_CREDITS,
-      label: "No extra credits",
+      label: NO_CREDITS_LABEL,
       icon: <Coins className="h-4 w-4" aria-hidden />,
     },
-    ...creditTiers.map((t) => ({
+    ...selectableCreditTiers.map((t) => ({
       value: t.tier as CreditTierEnum,
       label: t.label,
       icon: <Coins className="h-4 w-4" aria-hidden />,
       suffix: priceSuffix(t.price_cents),
     })),
+    ...(heldLegacyCredit
+      ? [
+          {
+            value: heldLegacyCredit.tier as CreditTierEnum,
+            label: heldLegacyCredit.label,
+            icon: <Coins className="h-4 w-4" aria-hidden />,
+            suffix: priceSuffix(heldLegacyCredit.price_cents),
+            disabled: true,
+          },
+        ]
+      : []),
   ];
 
   const selectedMachine =
     machineTiers.find((t) => t.tier === machineTier) ?? null;
-  const selectedStorage =
-    storageTiers.find((t) => t.tier === storageTier) ?? null;
+
+  // A tier the dropdown renders disabled would be rejected server-side, and a
+  // plans refetch can disable the standing selection mid-modal. The seeded
+  // values pass through regardless — re-sending what the sub holds is a no-op.
+  const storageIsSeeded =
+    storageTier !== "" && storageTier === initialSelection?.storageTier;
+  const submittableStorage =
+    offerableStorageTiers.find(
+      (t) =>
+        t.tier === storageTier &&
+        (storageIsSeeded || !storageOptionDisabled(t)),
+    ) ?? null;
+  const creditIsSubmittable =
+    creditChoice === NO_EXTRA_CREDITS ||
+    creditChoice === initialSelection?.creditTier ||
+    selectableCreditTiers.some((t) => t.tier === creditChoice);
+  const submittableCredit: CreditChoice | null =
+    creditChoice !== "" && creditIsSubmittable ? creditChoice : null;
 
   const complete =
-    selectedMachine != null && selectedStorage != null && creditChoice !== "";
+    selectedMachine != null &&
+    submittableStorage != null &&
+    submittableCredit != null;
 
   const diff = useMemo(
     () =>
@@ -175,13 +242,14 @@ export function CustomPlanModal({
   );
 
   const handleContinue = () => {
-    if (!selectedMachine || !selectedStorage || creditChoice === "" || pending) {
+    if (!complete || pending) {
       return;
     }
     onContinue({
       machineTier: selectedMachine.tier as MachineTierEnum,
-      storageTier: selectedStorage.tier as StorageTierEnum,
-      creditTier: creditChoice === NO_EXTRA_CREDITS ? null : creditChoice,
+      storageTier: submittableStorage.tier as StorageTierEnum,
+      creditTier:
+        submittableCredit === NO_EXTRA_CREDITS ? null : submittableCredit,
     });
   };
 
