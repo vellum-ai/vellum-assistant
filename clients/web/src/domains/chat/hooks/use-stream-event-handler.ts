@@ -451,6 +451,7 @@ export function useStreamEventHandler(
         case "avatar_updated":
         case "disk_pressure_status_changed":
         case "notification_intent":
+        case "document_editor_show":
         case "document_editor_update":
         case "conversation_title_updated":
         case "document_comment_created":
