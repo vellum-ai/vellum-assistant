@@ -311,10 +311,14 @@ describe("useChangeTiers", () => {
     expect(creditCalls).toEqual([{ body: { credit_tier: "credits_50" } }]);
     // Storage is unchanged, so no storage-tier call fires.
     expect(storageCalls).toEqual([]);
-    expect(invalidatedKeys).toEqual([SUBSCRIPTION_KEY, ONBOARDING_KEY, PLANS_KEY]);
+    expect(invalidatedKeys).toEqual([
+      SUBSCRIPTION_KEY,
+      ONBOARDING_KEY,
+      PLANS_KEY,
+    ]);
     expect(toastErrorCalls).toEqual([]);
-    // A machine change resizes the assistant.
-    expect(captured.value).toEqual({ needsResize: true });
+    // A machine change resizes the assistant; the credit change persisted too.
+    expect(captured.value).toEqual({ needsResize: true, creditChanged: true });
   });
 
   test("a storage upgrade needs a resize", async () => {
@@ -331,7 +335,7 @@ describe("useChangeTiers", () => {
 
     expect(storageCalls).toEqual([{ body: { storage_tier: "s" } }]);
     expect(machineCalls).toEqual([]);
-    expect(captured.value).toEqual({ needsResize: true });
+    expect(captured.value).toEqual({ needsResize: true, creditChanged: false });
   });
 
   test("billing refetches are awaited before the result resolves", async () => {
@@ -373,10 +377,13 @@ describe("useChangeTiers", () => {
     });
 
     expect(machineCalls).toEqual([{ body: { machine_tier: "medium" } }]);
-    expect(captured.value).toEqual({ needsResize: false });
+    expect(captured.value).toEqual({
+      needsResize: false,
+      creditChanged: false,
+    });
   });
 
-  test("a credit-only change does not need a resize", async () => {
+  test("a credit-only change surfaces the takeover without a resize", async () => {
     const { result } = setup();
 
     const captured: { value: ChangeTiersResult | null } = { value: null };
@@ -391,7 +398,9 @@ describe("useChangeTiers", () => {
     expect(creditCalls).toEqual([{ body: { credit_tier: "credits_50" } }]);
     expect(machineCalls).toEqual([]);
     expect(storageCalls).toEqual([]);
-    expect(captured.value).toEqual({ needsResize: false });
+    // No compute/disk provisioning is owed, but the credit change persisted, so
+    // the caller still opens the takeover.
+    expect(captured.value).toEqual({ needsResize: false, creditChanged: true });
   });
 
   test("toasts the extracted error and returns null on failure", async () => {
@@ -401,7 +410,7 @@ describe("useChangeTiers", () => {
     const { result } = setup();
 
     const captured: { value: ChangeTiersResult | null } = {
-      value: { needsResize: true },
+      value: { needsResize: true, creditChanged: false },
     };
     await act(async () => {
       captured.value = await result.current.changeTiers({
@@ -440,20 +449,20 @@ describe("useChangeTiers", () => {
     expect(toastErrorCalls).toEqual([
       "Payment failed. Your card was declined.",
     ]);
-    expect(captured.value).toEqual({ needsResize: true });
+    // The storage upgrade landed (needs a resize); the credit change did not.
+    expect(captured.value).toEqual({ needsResize: true, creditChanged: false });
   });
 
-  test("returns null when only a non-resource dim landed and a resource failed", async () => {
+  test("surfaces the takeover when only the credit dim landed and a resource failed", async () => {
     // Machine (the sole resource change) fails; the credit change succeeds. No
-    // provisioning is owed, so hold the modal open for a retry.
+    // provisioning is owed, but the persisted credit change still opens the
+    // takeover.
     machineImpl = async () => {
       throw { detail: "Machine tier unavailable." };
     };
     const { result } = setup();
 
-    const captured: { value: ChangeTiersResult | null } = {
-      value: { needsResize: true },
-    };
+    const captured: { value: ChangeTiersResult | null } = { value: null };
     await act(async () => {
       captured.value = await result.current.changeTiers({
         machineTier: "large",
@@ -464,7 +473,7 @@ describe("useChangeTiers", () => {
 
     expect(creditCalls).toEqual([{ body: { credit_tier: "credits_50" } }]);
     expect(toastErrorCalls).toEqual(["Machine tier unavailable."]);
-    expect(captured.value).toBeNull();
+    expect(captured.value).toEqual({ needsResize: false, creditChanged: true });
   });
 
   test("posting no changes is a successful no-op with no dispatch", async () => {
@@ -483,6 +492,9 @@ describe("useChangeTiers", () => {
     expect(storageCalls).toEqual([]);
     expect(creditCalls).toEqual([]);
     expect(invalidatedKeys).toEqual([]);
-    expect(captured.value).toEqual({ needsResize: false });
+    expect(captured.value).toEqual({
+      needsResize: false,
+      creditChanged: false,
+    });
   });
 });

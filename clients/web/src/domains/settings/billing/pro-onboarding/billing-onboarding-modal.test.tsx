@@ -17,15 +17,18 @@ import { MemoryRouter } from "react-router";
 import {
   assistantsDomainsListOptions,
   assistantsDomainsListSetQueryData,
+  organizationsBillingPlansRetrieveQueryKey,
   organizationsBillingSubscriptionOnboardingRetrieveSetQueryData,
 } from "@/generated/api/@tanstack/react-query.gen";
 import * as sdkGen from "@/generated/api/sdk.gen";
 import type {
   Assistant,
+  CreditTierEnum,
   EnsureProvisionedResponse,
   OnboardingStateResponse,
   OperationalStatus,
   PaginatedAssistantDomainList,
+  PlanListResponse,
   SubscriptionResponse,
 } from "@/generated/api/types.gen";
 import { readCheckoutIntent, saveCheckoutIntent } from "@/lib/billing/checkout-intent";
@@ -140,6 +143,34 @@ function makeEnsureResponse(
   };
 }
 
+/** A pro catalog with a `credits_50` tier the terminal credits chip resolves. */
+function plansWithCredits(): PlanListResponse {
+  return {
+    plans: [
+      {
+        id: "pro",
+        name: "Pro",
+        base_lookup_key: "pro_base",
+        base_price_cents: 2000,
+        billing_interval: "month",
+        included_features: [],
+        machine_tiers: [],
+        storage_tiers: [],
+        credit_tiers: [
+          {
+            tier: "credits_50",
+            label: "$50 credits/mo",
+            credits_usd: 50,
+            price_cents: 5000,
+            lookup_key: "credits_50_key",
+          },
+        ],
+        packages: [],
+      },
+    ],
+  };
+}
+
 function makeDomains(hasDomain: boolean): PaginatedAssistantDomainList {
   return {
     count: hasDomain ? 1 : 0,
@@ -241,10 +272,23 @@ const BACKGROUND_LINE =
  */
 const TEST_DWELL_MS = 250;
 
-function renderModal({ mode }: { mode?: "checkout" | "resize" } = {}) {
+function renderModal({
+  mode,
+  resizeCredits,
+  plans,
+}: {
+  mode?: "checkout" | "resize";
+  resizeCredits?: CreditTierEnum | null;
+  plans?: PlanListResponse;
+} = {}) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
+  // Seed the plan catalog so the terminal credits chip resolves its label
+  // without a fetch (the credits hook reads this shared query).
+  if (plans) {
+    client.setQueryData(organizationsBillingPlansRetrieveQueryKey(), plans);
+  }
   const onClose = mock(() => {});
   const view = render(
     <MemoryRouter>
@@ -255,6 +299,7 @@ function renderModal({ mode }: { mode?: "checkout" | "resize" } = {}) {
           dwellMs={TEST_DWELL_MS}
           phaseMinMs={0}
           mode={mode}
+          resizeCredits={resizeCredits}
         />
       </QueryClientProvider>
     </MemoryRouter>,
@@ -1075,6 +1120,29 @@ describe("BillingOnboardingModal — resize mode", () => {
       { timeout: 5000 },
     );
     expect(queryByText("Super package")).toBeNull();
+  });
+
+  test("confirms an applied credit bundle on the terminal phase", async () => {
+    subscriptionPlanId = "pro";
+    const { client, getByText } = renderModal({
+      mode: "resize",
+      resizeCredits: "credits_50",
+      plans: plansWithCredits(),
+    });
+
+    await waitFor(
+      () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
+      { timeout: 5000 },
+    );
+
+    assistantResponse = makeAssistant("large", 50);
+    await client.invalidateQueries();
+    await waitFor(() => expect(getByText("All done!")).toBeTruthy(), {
+      timeout: 5000,
+    });
+    // The threaded bundle is confirmed on the terminal phase — a credit change
+    // never reaches the WAITING credits chip, so this is its only surface.
+    expect(getByText("$50 credits/mo")).toBeTruthy();
   });
 
   test(

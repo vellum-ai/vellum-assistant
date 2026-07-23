@@ -9,6 +9,7 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 
 import { assistantsDomainsListQueryKey } from "@/generated/api/@tanstack/react-query.gen";
+import type { CreditTierEnum } from "@/generated/api/types.gen";
 import {
   clearCheckoutIntent,
   readCheckoutIntent,
@@ -79,6 +80,12 @@ export interface BillingOnboardingModalProps {
    * step shows only when it is newly usable (entitled AND no domain yet).
    */
   mode?: "checkout" | "resize";
+  /**
+   * Resize mode only: the credit tier applied by an in-place change, forwarded
+   * to the takeover. Ignored in checkout mode, where credits ride the stashed
+   * intent instead. See `ProvisioningStateProps.resizeCredits`.
+   */
+  resizeCredits?: CreditTierEnum | null;
 }
 
 export function BillingOnboardingModal({
@@ -87,6 +94,7 @@ export function BillingOnboardingModal({
   dwellMs,
   phaseMinMs,
   mode = "checkout",
+  resizeCredits,
 }: BillingOnboardingModalProps) {
   const isResize = mode === "resize";
   const queryClient = useQueryClient();
@@ -407,6 +415,7 @@ export function BillingOnboardingModal({
           state={provisioning.state}
           softWaiting={provisioning.softWaiting}
           intent={intent}
+          resizeCredits={isResize ? resizeCredits : undefined}
           targets={targets ?? EMPTY_DIMENSIONS}
           fromSnapshot={provisioning.actualsSnapshot ?? EMPTY_DIMENSIONS}
           celebrating={routingSettled}

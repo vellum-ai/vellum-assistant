@@ -19,7 +19,9 @@ mock.module("@/hooks/use-is-org-ready", () => ({
   useIsOrgReady: () => orgReady,
 }));
 
-const { useProvisioningCredits } = await import("./use-provisioning-credits");
+const { useProvisioningCredits, useCreditTierLabel } = await import(
+  "./use-provisioning-credits"
+);
 
 /** A pro-plan catalog with a `credits_50` tier and a Mighty package on it. */
 function plansResponse(): PlanListResponse {
@@ -204,5 +206,61 @@ describe("useProvisioningCredits", () => {
         plansResponse(),
       ),
     ).toBeNull();
+  });
+});
+
+describe("useCreditTierLabel", () => {
+  beforeEach(() => {
+    orgReady = true;
+  });
+
+  function renderLabel(
+    creditTier: Parameters<typeof useCreditTierLabel>[0],
+    plans?: PlanListResponse,
+  ): { value: string | null; client: QueryClient } {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    if (plans) {
+      client.setQueryData(organizationsBillingPlansRetrieveQueryKey(), plans);
+    }
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(QueryClientProvider, { client }, children);
+    const value = renderHook(() => useCreditTierLabel(creditTier), { wrapper })
+      .result.current;
+    return { value, client };
+  }
+
+  test("resolves a credit tier's catalog label", () => {
+    expect(renderLabel("credits_50", plansResponse()).value).toBe(
+      "$50 credits/mo",
+    );
+  });
+
+  test("returns null while the catalog is unresolved", () => {
+    expect(renderLabel("credits_50").value).toBeNull();
+  });
+
+  test("returns null for a tier absent from the catalog", () => {
+    expect(renderLabel("credits_100", plansResponse()).value).toBeNull();
+  });
+
+  test("returns null — and holds the lookup — for a null tier", () => {
+    const { value, client } = renderLabel(null, plansResponse());
+    expect(value).toBeNull();
+    expect(
+      client.getQueryState(organizationsBillingPlansRetrieveQueryKey())
+        ?.fetchStatus ?? "idle",
+    ).toBe("idle");
+  });
+
+  test("holds the lookup until the org is ready", () => {
+    orgReady = false;
+    const { value, client } = renderLabel("credits_50");
+    expect(value).toBeNull();
+    expect(
+      client.getQueryState(organizationsBillingPlansRetrieveQueryKey())
+        ?.fetchStatus ?? "idle",
+    ).toBe("idle");
   });
 });

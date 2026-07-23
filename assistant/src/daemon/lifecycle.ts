@@ -32,6 +32,7 @@ import { syncWorkspaceIdentityToPlatform } from "../platform/sync-identity.js";
 import { ensurePromptFiles } from "../prompts/system-prompt.js";
 import { runProviderConnectionsBackfill } from "../providers/inference/backfill.js";
 import { initializeProviders } from "../providers/registry.js";
+import { startRouteHost } from "../routes/control.js";
 import { floorSeqAbove } from "../runtime/assistant-stream-state.js";
 import {
   initAuthSigningKey,
@@ -702,6 +703,10 @@ export async function runDaemon(): Promise<void> {
   // Spawn the resource monitor as a child of the daemon when enabled, off the
   // main event loop.
   startMonitoring();
+
+  // Pre-warm the route host subprocess when `userRoutes.host.enabled` is set
+  // (no-op otherwise). Fire-and-forget — never blocks boot.
+  startRouteHost();
 
   // The runtime HTTP server is up; broadcast the fresh daemon status so
   // connected clients pick up the transition.

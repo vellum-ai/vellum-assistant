@@ -19,9 +19,11 @@ import { CompactionCircuitClosedEventSchema } from "./events/compaction-circuit-
 import { CompactionCircuitOpenEventSchema } from "./events/compaction-circuit-open.js";
 import { ConfigChangedEventSchema } from "./events/config-changed.js";
 import { ConfirmationRequestEventSchema } from "./events/confirmation-request.js";
+import { ConfirmationStateChangedEventSchema } from "./events/confirmation-state-changed.js";
 import { ContactRequestEventSchema } from "./events/contact-request.js";
 import { ContactsChangedEventSchema } from "./events/contacts-changed.js";
 import { ConversationErrorEventSchema } from "./events/conversation-error.js";
+import { ConversationInferenceProfileUpdatedEventSchema } from "./events/conversation-inference-profile-updated.js";
 import { ConversationListInvalidatedEventSchema } from "./events/conversation-list-invalidated.js";
 import { ConversationNoticeEventSchema } from "./events/conversation-notice.js";
 import { ConversationTitleUpdatedEventSchema } from "./events/conversation-title-updated.js";
@@ -37,6 +39,34 @@ import { GenerationCancelledEventSchema } from "./events/generation-cancelled.js
 import { GenerationHandoffEventSchema } from "./events/generation-handoff.js";
 import { HomeFeedUpdatedEventSchema } from "./events/home-feed-updated.js";
 import { HookEventSchema } from "./events/hook-event.js";
+import {
+  HostAppControlCancelEventSchema,
+  HostAppControlRequestEventSchema,
+} from "./events/host-app-control.js";
+import {
+  HostBashCancelEventSchema,
+  HostBashRequestEventSchema,
+} from "./events/host-bash.js";
+import {
+  HostBrowserCancelEventSchema,
+  HostBrowserRequestEventSchema,
+} from "./events/host-browser.js";
+import {
+  HostCuCancelEventSchema,
+  HostCuRequestEventSchema,
+} from "./events/host-cu.js";
+import {
+  HostFileCancelEventSchema,
+  HostFileRequestEventSchema,
+} from "./events/host-file.js";
+import {
+  HostTransferCancelEventSchema,
+  HostTransferRequestEventSchema,
+} from "./events/host-transfer.js";
+import {
+  HostUiSnapshotCancelEventSchema,
+  HostUiSnapshotRequestEventSchema,
+} from "./events/host-ui-snapshot.js";
 import { IdentityChangedEventSchema } from "./events/identity-changed.js";
 import { InteractionResolvedEventSchema } from "./events/interaction-resolved.js";
 import { MemoryRecalledEventSchema } from "./events/memory-recalled.js";
@@ -46,6 +76,7 @@ import { MessageDequeuedEventSchema } from "./events/message-dequeued.js";
 import { MessageQueuedEventSchema } from "./events/message-queued.js";
 import { MessageQueuedDeletedEventSchema } from "./events/message-queued-deleted.js";
 import { MessageRequestCompleteEventSchema } from "./events/message-request-complete.js";
+import { MessageSteeredEventSchema } from "./events/message-steered.js";
 import { NavigateSettingsEventSchema } from "./events/navigate-settings.js";
 import { NotificationConversationCreatedEventSchema } from "./events/notification-conversation-created.js";
 import { NotificationIntentEventSchema } from "./events/notification-intent.js";
@@ -70,6 +101,7 @@ import { SubagentEventEventSchema } from "./events/subagent-event.js";
 import { SubagentSpawnedEventSchema } from "./events/subagent-spawned.js";
 import { SubagentStatusChangedEventSchema } from "./events/subagent-status-changed.js";
 import { SyncChangedEventSchema } from "./events/sync-changed.js";
+import { ToolInputDeltaEventSchema } from "./events/tool-input-delta.js";
 import { ToolOutputChunkEventSchema } from "./events/tool-output-chunk.js";
 import { ToolResultEventSchema } from "./events/tool-result.js";
 import { ToolUsePreviewStartEventSchema } from "./events/tool-use-preview-start.js";
@@ -203,6 +235,10 @@ export {
   ScopeOptionSchema,
 } from "./events/confirmation-request.js";
 export {
+  type ConfirmationStateChangedEvent,
+  ConfirmationStateChangedEventSchema,
+} from "./events/confirmation-state-changed.js";
+export {
   type ContactRequestEvent,
   ContactRequestEventSchema,
 } from "./events/contact-request.js";
@@ -216,6 +252,10 @@ export {
   type ConversationErrorEvent,
   ConversationErrorEventSchema,
 } from "./events/conversation-error.js";
+export {
+  type ConversationInferenceProfileUpdatedEvent,
+  ConversationInferenceProfileUpdatedEventSchema,
+} from "./events/conversation-inference-profile-updated.js";
 export {
   type ConversationListInvalidatedEvent,
   ConversationListInvalidatedEventSchema,
@@ -285,6 +325,54 @@ export {
   HookEventSchema,
 } from "./events/hook-event.js";
 export {
+  type HostAppControlCancelEvent,
+  HostAppControlCancelEventSchema,
+  type HostAppControlInput,
+  HostAppControlInputSchema,
+  type HostAppControlRequestEvent,
+  HostAppControlRequestEventSchema,
+  type HostAppControlSequenceStep,
+  HostAppControlSequenceStepSchema,
+} from "./events/host-app-control.js";
+export {
+  type HostBashCancelEvent,
+  HostBashCancelEventSchema,
+  type HostBashRequestEvent,
+  HostBashRequestEventSchema,
+} from "./events/host-bash.js";
+export {
+  type HostBrowserCancelEvent,
+  HostBrowserCancelEventSchema,
+  type HostBrowserRequestEvent,
+  HostBrowserRequestEventSchema,
+} from "./events/host-browser.js";
+export {
+  type HostCuCancelEvent,
+  HostCuCancelEventSchema,
+  type HostCuRequestEvent,
+  HostCuRequestEventSchema,
+} from "./events/host-cu.js";
+export {
+  type HostFileCancelEvent,
+  HostFileCancelEventSchema,
+  type HostFileRequestEvent,
+  HostFileRequestEventSchema,
+} from "./events/host-file.js";
+export {
+  type HostTransferCancelEvent,
+  HostTransferCancelEventSchema,
+  type HostTransferRequestEvent,
+  HostTransferRequestEventSchema,
+} from "./events/host-transfer.js";
+export {
+  type HostUiSnapshotCancelEvent,
+  HostUiSnapshotCancelEventSchema,
+  type HostUiSnapshotRequestEvent,
+  HostUiSnapshotRequestEventSchema,
+  type HostUiSnapshotView,
+  HostUiSnapshotViewSchema,
+} from "./events/host-ui-snapshot.js";
+export {
   type IdentityChangedEvent,
   IdentityChangedEventSchema,
 } from "./events/identity-changed.js";
@@ -326,6 +414,10 @@ export {
   type MessageRequestCompleteEvent,
   MessageRequestCompleteEventSchema,
 } from "./events/message-request-complete.js";
+export {
+  type MessageSteeredEvent,
+  MessageSteeredEventSchema,
+} from "./events/message-steered.js";
 export {
   type NavigateSettingsEvent,
   NavigateSettingsEventSchema,
@@ -417,6 +509,10 @@ export {
   type SyncChangedEvent,
   SyncChangedEventSchema,
 } from "./events/sync-changed.js";
+export {
+  type ToolInputDeltaEvent,
+  ToolInputDeltaEventSchema,
+} from "./events/tool-input-delta.js";
 export {
   type ToolOutputChunkEvent,
   ToolOutputChunkEventSchema,
@@ -733,9 +829,11 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   CompactionCircuitOpenEventSchema,
   ConfigChangedEventSchema,
   ConfirmationRequestEventSchema,
+  ConfirmationStateChangedEventSchema,
   ContactRequestEventSchema,
   ContactsChangedEventSchema,
   ConversationErrorEventSchema,
+  ConversationInferenceProfileUpdatedEventSchema,
   ConversationListInvalidatedEventSchema,
   ConversationNoticeEventSchema,
   ConversationTitleUpdatedEventSchema,
@@ -751,6 +849,20 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   GenerationHandoffEventSchema,
   HomeFeedUpdatedEventSchema,
   HookEventSchema,
+  HostAppControlCancelEventSchema,
+  HostAppControlRequestEventSchema,
+  HostBashCancelEventSchema,
+  HostBashRequestEventSchema,
+  HostBrowserCancelEventSchema,
+  HostBrowserRequestEventSchema,
+  HostCuCancelEventSchema,
+  HostCuRequestEventSchema,
+  HostFileCancelEventSchema,
+  HostFileRequestEventSchema,
+  HostTransferCancelEventSchema,
+  HostTransferRequestEventSchema,
+  HostUiSnapshotCancelEventSchema,
+  HostUiSnapshotRequestEventSchema,
   IdentityChangedEventSchema,
   InteractionResolvedEventSchema,
   MemoryRecalledEventSchema,
@@ -760,6 +872,7 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   MessageQueuedEventSchema,
   MessageQueuedDeletedEventSchema,
   MessageRequestCompleteEventSchema,
+  MessageSteeredEventSchema,
   NavigateSettingsEventSchema,
   NotificationConversationCreatedEventSchema,
   NotificationIntentEventSchema,
@@ -782,6 +895,7 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   SubagentSpawnedEventSchema,
   SubagentStatusChangedEventSchema,
   SyncChangedEventSchema,
+  ToolInputDeltaEventSchema,
   ToolOutputChunkEventSchema,
   ToolResultEventSchema,
   ToolUsePreviewStartEventSchema,

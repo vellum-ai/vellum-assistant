@@ -816,15 +816,16 @@ describe("sse-event-consumer — stale seq-generation recovery", () => {
 
   test("a stale /messages anchor BELOW the abandoned ceiling (multi-conversation) is recovered by the generation tag", () => {
     /**
-     * The gap Codex flagged on #38589. `/messages` returns the conversation's
-     * own persisted watermark (`conversations.seq`), which sits BELOW the
+     * In a multi-conversation daemon `/messages` returns the conversation's
+     * own persisted watermark (`conversations.seq`), which can sit BELOW the
      * global abandoned ceiling whenever another conversation emitted the later
-     * pre-reset seqs. The old ceiling-only guard (`localSeq >= ceiling`) never
-     * fired for such an anchor, so every live event through the anchor was
-     * dropped as a replay and the transcript wedged until the counter
-     * re-climbed past it. The generation tag closes this: the racing anchor
-     * carries the pre-reset generation, so it is dead by construction even
-     * though its value is under the ceiling.
+     * pre-reset seqs. A value-only ceiling comparison (`localSeq >= ceiling`)
+     * cannot identify such an anchor as dead, so a live event through the anchor
+     * would drop as a replay and wedge the transcript until the counter
+     * re-climbs past it. The generation tag is the signal that proves it stale:
+     * the racing anchor carries the pre-reset generation, so it is dead by
+     * construction even though its value is under the ceiling, and the frontier
+     * recovers.
      */
     // GIVEN the client had reached global seq 1000 (another conversation held
     // the later seqs; conv-1's own watermark is 900)
@@ -878,8 +879,9 @@ describe("sse-event-consumer — stale seq-generation recovery", () => {
      * the generation tag can't date it as stale — yet `conversations.seq` is
      * monotonic, so it can still return the pre-reset watermark until the new
      * generation re-climbs past it. When that watermark IS the abandoned
-     * ceiling (single-conversation daemon), the retained ceiling check clears
-     * it; this is the case (a) cannot see, and why the ceiling signal stays.
+     * ceiling (single-conversation daemon), the ceiling check clears it: this
+     * is the dead-anchor shape the generation tag cannot see, which is why the
+     * guard needs both signals.
      */
     // GIVEN the client reaches global seq 1000, then observes the reset to 10
     globalCursor = 1000;
@@ -921,7 +923,7 @@ describe("sse-event-consumer — stale seq-generation recovery", () => {
 
   test("a large snapshot overlap with no generation reset is an idempotent replay, not a stale generation", () => {
     /**
-     * The false-positive Codex flagged: a `/messages` reseed or reconcile
+     * The benign false-positive case: a `/messages` reseed or reconcile
      * advances the frontier far past the live cursor during a bursty turn
      * or a main-thread stall, so the queued live backlog trails it by more
      * than the ring — WITHOUT any daemon reset. Those events are contained

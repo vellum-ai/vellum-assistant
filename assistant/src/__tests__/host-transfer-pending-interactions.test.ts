@@ -3,19 +3,17 @@
  * registration.
  *
  * Verifies:
- * - HostTransferRequest and HostTransferCancelRequest are part of ServerMessage
+ * - HostTransferRequestEvent and HostTransferCancelEvent are part of ServerMessage
  * - "host_transfer" is a valid PendingInteraction kind
  * - host_transfer interactions survive removeByConversation (not auto-denied)
  */
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import type {
-  HostTransferCancelRequest,
-  HostTransferRequest,
-  HostTransferToHostRequest,
-  HostTransferToSandboxRequest,
-  ServerMessage,
-} from "../daemon/message-protocol.js";
+  HostTransferCancelEvent,
+  HostTransferRequestEvent,
+} from "../api/events/host-transfer.js";
+import type { ServerMessage } from "../daemon/message-protocol.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 
 // ---------------------------------------------------------------------------
@@ -23,8 +21,8 @@ import * as pendingInteractions from "../runtime/pending-interactions.js";
 // ---------------------------------------------------------------------------
 
 describe("HostTransfer message types", () => {
-  test("HostTransferToHostRequest is assignable to ServerMessage", () => {
-    const msg: HostTransferToHostRequest = {
+  test("host_transfer to_host request is assignable to ServerMessage", () => {
+    const msg: HostTransferRequestEvent = {
       type: "host_transfer_request",
       requestId: "req-1",
       conversationId: "conv-1",
@@ -39,8 +37,8 @@ describe("HostTransfer message types", () => {
     expect(_sm.type).toBe("host_transfer_request");
   });
 
-  test("HostTransferToSandboxRequest is assignable to ServerMessage", () => {
-    const msg: HostTransferToSandboxRequest = {
+  test("host_transfer to_sandbox request is assignable to ServerMessage", () => {
+    const msg: HostTransferRequestEvent = {
       type: "host_transfer_request",
       requestId: "req-2",
       conversationId: "conv-1",
@@ -52,8 +50,8 @@ describe("HostTransfer message types", () => {
     expect(_sm.type).toBe("host_transfer_request");
   });
 
-  test("HostTransferCancelRequest is assignable to ServerMessage", () => {
-    const msg: HostTransferCancelRequest = {
+  test("HostTransferCancelEvent is assignable to ServerMessage", () => {
+    const msg: HostTransferCancelEvent = {
       type: "host_transfer_cancel",
       requestId: "req-3",
       conversationId: "conv-1",
@@ -62,8 +60,8 @@ describe("HostTransfer message types", () => {
     expect(_sm.type).toBe("host_transfer_cancel");
   });
 
-  test("HostTransferRequest union covers both directions", () => {
-    const toHost: HostTransferRequest = {
+  test("HostTransferRequestEvent union covers both directions", () => {
+    const toHost: HostTransferRequestEvent = {
       type: "host_transfer_request",
       requestId: "req-4",
       conversationId: "conv-1",
@@ -74,7 +72,7 @@ describe("HostTransfer message types", () => {
       sha256: "def456",
       overwrite: true,
     };
-    const toSandbox: HostTransferRequest = {
+    const toSandbox: HostTransferRequestEvent = {
       type: "host_transfer_request",
       requestId: "req-5",
       conversationId: "conv-1",
