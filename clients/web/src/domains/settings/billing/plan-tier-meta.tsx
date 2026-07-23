@@ -4,14 +4,6 @@ import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-component
 /** Pro package tier keys, keyed by `ProPackage.key` ("free" is the base plan). */
 export type PlanTierKey = "free" | "mighty" | "super" | "ultra";
 
-/** Accent color per Pro package tier, keyed by `ProPackage.key` ("free" for the base plan). */
-export const TIER_ACCENT: Record<string, string> = {
-    free: "#E9C91A",
-    mighty: "#4C9B50",
-    super: "#0E9B8B",
-    ultra: "#EF4300",
-};
-
 /** Vellum creature traits per plan tier, matching the pricing-page creatures. */
 export const TIER_TRAITS: Record<
     string,
