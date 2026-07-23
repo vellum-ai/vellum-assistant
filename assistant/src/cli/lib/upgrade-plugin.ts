@@ -42,6 +42,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
+import { runShutdownHook } from "../../hooks/hook-loader.js";
 import { PRESERVED_ENTRIES } from "../../plugins/plugin-tree-walk.js";
 import { getWorkspacePluginsDir } from "../../util/platform.js";
 import type { FetchLike } from "./fetch-like.js";
@@ -125,6 +126,18 @@ export interface UpgradePluginDeps {
   readonly runPostinstall?: PostinstallRunner;
   /** Override the dependency-install runner. Forwarded to {@link installPlugin} and {@link finalizeStagedInstall}. */
   readonly runInstallDeps?: DependencyInstaller;
+  /**
+   * Invoked after every fallible staging step succeeds and immediately before
+   * the staged tree is swapped over the live install, so the outgoing
+   * version's teardown runs while its files are still on disk (mirroring
+   * `uninstallPlugin`, which runs `shutdown` before `rmSync`). Defaults to
+   * running the plugin's `shutdown` hook (reason `reload`) in this process,
+   * skipped when the plugin is disabled; the daemon's upgrade route overrides
+   * it to deactivate the plugin in-process instead, so the post-swap
+   * reconcile only has the new version's `init` left to run. Never invoked
+   * for dry runs or no-op upgrades (they never reach the swap).
+   */
+  readonly beforeSwap?: () => Promise<void>;
 }
 
 /** Result of an upgrade attempt. */
@@ -236,6 +249,21 @@ export async function upgradePlugin(
   const name = sanitizePluginName(opts.name);
   const dryRun = opts.dryRun ?? false;
   const strategy = opts.strategy ?? DEFAULT_PLUGIN_UPGRADE_STRATEGY;
+
+  // Old-version teardown at the swap boundary. The default runs the
+  // `shutdown` hook in whatever process performs the upgrade (CLI or
+  // daemon), exactly like `uninstallPlugin`; a disabled plugin is skipped
+  // for the same reason uninstall skips it — it was never init'd, so
+  // running its shutdown would be the first-ever execution of its code.
+  const beforeSwap =
+    deps.beforeSwap ??
+    (async () => {
+      if (existsSync(join(pluginTarget(name, deps), ".disabled"))) {
+        return;
+      }
+      await runShutdownHook("plugin", name, "reload");
+    });
+  deps = { ...deps, beforeSwap };
 
   let inspection: PluginInspection;
   try {
@@ -372,6 +400,7 @@ export async function upgradePlugin(
       runGit: deps.runGit,
       runPostinstall: deps.runPostinstall,
       runInstallDeps: deps.runInstallDeps,
+      beforeSwap: deps.beforeSwap,
     },
   );
 
@@ -561,6 +590,7 @@ async function directUpgrade(
       runGit: deps.runGit,
       runPostinstall: deps.runPostinstall,
       runInstallDeps: deps.runInstallDeps,
+      beforeSwap: deps.beforeSwap,
     },
   );
 
@@ -727,6 +757,7 @@ async function mergeUpgrade(
       committedAt: toTimestamp,
       pluginsDir,
       installDependencies: deps.runInstallDeps,
+      beforeSwap: deps.beforeSwap,
     });
 
     return {
