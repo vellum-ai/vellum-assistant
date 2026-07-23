@@ -85,7 +85,9 @@ export function ProviderCreateForm({
     existingNames,
   );
 
-  const [label, setLabel] = useState(initialDefaults.name);
+  const [label, setLabel] = useState(
+    initialProvider === "openai-compatible" ? "" : initialDefaults.name,
+  );
   const [name, setName] = useState(initialDefaults.key);
   // The picker offers real connection providers plus "chatgpt", a
   // subscription-auth pseudo-provider: its connection is created by the OAuth
@@ -161,7 +163,8 @@ export function ProviderCreateForm({
     enabled: true,
   });
 
-  const canSave = name.trim().length > 0;
+  const canSave =
+    name.trim().length > 0 && (!isOpenAICompatible || label.trim().length > 0);
 
   async function handleSave() {
     if (!canSave) {
@@ -360,7 +363,10 @@ export function ProviderCreateForm({
               existingNames,
             );
             if (!isLabelDirty.current) {
-              setLabel(seedName);
+              // A custom provider's name is the user's identity for it —
+              // seeding the protocol's display name would produce
+              // "Add OpenAI-compatible".
+              setLabel(newSelected === "openai-compatible" ? "" : seedName);
             }
             setName(seedKey);
             setCredential(

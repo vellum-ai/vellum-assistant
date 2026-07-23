@@ -323,6 +323,9 @@ describe("ProviderCreateForm submit sequence", () => {
       ),
     ).toBe(false);
 
+    fireEvent.change(getInputByPlaceholder("xAI"), {
+      target: { value: "Second Endpoint" },
+    });
     fireEvent.click(getSubmitButton());
 
     await waitFor(() => {
@@ -718,6 +721,9 @@ describe("ProviderCreateForm submit sequence", () => {
       </ModalWrapper>,
     );
 
+    fireEvent.change(getInputByPlaceholder("xAI"), {
+      target: { value: "LM Studio" },
+    });
     fireEvent.change(getInputByPlaceholder("https://api.x.ai/v1"), {
       target: { value: "http://localhost:1234/v1" },
     });
