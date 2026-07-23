@@ -9,10 +9,22 @@ import {
 } from "@testing-library/react";
 
 let gatewayPath: string | undefined = "/assistant/__gateway/20100";
+let supportsPairingRoutes = true;
+let webRemoteIngressOn = true;
 
 mock.module("@/lib/local-mode", () => ({
   getLocalGatewayUrl: () => gatewayPath,
   getSelectedAssistant: () => ({ assistantId: "self", cloud: "local" }),
+}));
+
+mock.module("@/lib/backwards-compat/remote-web-pairing-gate", () => ({
+  useSupportsRemoteWebPairing: () => supportsPairingRoutes,
+}));
+
+mock.module("@/stores/assistant-feature-flag-store", () => ({
+  useAssistantFeatureFlagStore: {
+    use: { webRemoteIngress: () => webRemoteIngressOn },
+  },
 }));
 
 mock.module("@/lib/sentry/capture-error", () => ({
@@ -85,6 +97,8 @@ function typeUrl(value: string) {
 
 beforeEach(() => {
   gatewayPath = "/assistant/__gateway/20100";
+  supportsPairingRoutes = true;
+  webRemoteIngressOn = true;
   requests = [];
   localStorage.clear();
 });
@@ -109,6 +123,34 @@ describe("PairDeviceCard", () => {
     expect(
       screen.getByRole("button", { name: "Generate pairing QR" }),
     ).toBeTruthy();
+  });
+
+  test("renders nothing against an assistant without the pairing routes", () => {
+    supportsPairingRoutes = false;
+    const { container } = render(<PairDeviceCard />);
+    expect(container.firstChild).toBeNull();
+    expect(screen.queryByText("Pair a device")).toBeNull();
+  });
+
+  test("reports the enable guidance without minting when web-remote-ingress is off", async () => {
+    webRemoteIngressOn = false;
+    const fetchMock = installFetch(() => jsonResponse(challengeBody()));
+    render(<PairDeviceCard />);
+    typeUrl(PUBLIC_URL);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Generate pairing QR" }),
+    );
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          "Remote web access is disabled on this assistant, so a scanned code couldn't connect.",
+        ),
+      ).toBeTruthy(),
+    );
+    expect(screen.getByText(/web-remote-ingress/)).toBeTruthy();
+    // Mirrors the CLI: the flag is checked before minting, so no network call.
+    expect(fetchMock).toHaveBeenCalledTimes(0);
   });
 
   test("mints + approves, then shows the QR and pair URL", async () => {

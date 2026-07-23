@@ -6,6 +6,7 @@ import { getLocalSetting, setLocalSetting } from "@/utils/local-settings";
 import {
   mintDevicePairing,
   PairDeviceError,
+  WEB_REMOTE_INGRESS_HINT,
   type DevicePairing,
 } from "./pair-device-client";
 import {
@@ -42,8 +43,15 @@ export interface PairDeviceController {
  * request against the host's loopback gateway, and a 1s expiry countdown while a
  * code is live. `base` is the resolved local-gateway base URL, or `null` when
  * pairing isn't available from here (the hook then no-ops).
+ * `webRemoteIngressEnabled` is the host's `web-remote-ingress` flag — when off,
+ * generating reports the enable guidance without minting (the loopback routes
+ * succeed regardless of the flag, but a scan can only connect through public
+ * ingress, so a minted QR would be unusable).
  */
-export function usePairDevice(base: string | null): PairDeviceController {
+export function usePairDevice(
+  base: string | null,
+  webRemoteIngressEnabled: boolean,
+): PairDeviceController {
   const [publicBaseUrl, setPublicBaseUrlState] = useState(() =>
     getLocalSetting(PUBLIC_BASE_URL_STORAGE_KEY, ""),
   );
@@ -84,6 +92,16 @@ export function usePairDevice(base: string | null): PairDeviceController {
     }
     setInputError(null);
 
+    if (!webRemoteIngressEnabled) {
+      setPhase({
+        kind: "error",
+        message:
+          "Remote web access is disabled on this assistant, so a scanned code couldn't connect.",
+        hint: WEB_REMOTE_INGRESS_HINT,
+      });
+      return;
+    }
+
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
@@ -121,7 +139,7 @@ export function usePairDevice(base: string | null): PairDeviceController {
         });
       }
     })();
-  }, [base, publicBaseUrl]);
+  }, [base, publicBaseUrl, webRemoteIngressEnabled]);
 
   const remainingMs =
     phase.kind === "ready" ? Math.max(0, phase.expiresAtMs - nowMs) : 0;
