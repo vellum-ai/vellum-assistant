@@ -6,6 +6,12 @@
  * `in-chat-onboarding-tour` arm as `ab_variant`, so BigQuery can compare
  * the 70% `tour` arm against `control`.
  *
+ * DESKTOP-ONLY: the tour doesn't run on phone-width viewports or in the
+ * native shell, and neither do these events — both call sites gate on
+ * mobile/native BEFORE emitting anything (including `tour_exposed`), so
+ * the experiment's cohorts contain only sessions that could actually see
+ * the tour.
+ *
  * Events:
  * - `tour_exposed`   — the post-onboarding hand-off, fired for BOTH arms;
  *                      the control cohort emits nothing else, and the
