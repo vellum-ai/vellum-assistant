@@ -99,10 +99,7 @@ import type {
   _SchedulesClientMessages,
   _SchedulesServerMessages,
 } from "./message-types/schedules.js";
-import type {
-  _SettingsClientMessages,
-  _SettingsServerMessages,
-} from "./message-types/settings.js";
+import type { _SettingsServerMessages } from "./message-types/settings.js";
 import type {
   _SkillsClientMessages,
   _SkillsServerMessages,
@@ -149,8 +146,7 @@ export type ClientMessage =
   | _WorkspaceClientMessages
   | _SchedulesClientMessages
   | _DiagnosticsClientMessages
-  | _NotificationsClientMessages
-  | _SettingsClientMessages;
+  | _NotificationsClientMessages;
 
 // === Server -> Client aggregate union ===
 

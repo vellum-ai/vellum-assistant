@@ -99,6 +99,11 @@ const GLOBAL_STREAM_EVENT_TYPE_NAMES = [
   // Contacts-table invalidation broadcast — carries no `conversationId`; clients
   // refetch their contact list on receipt.
   "contacts_changed",
+  // Settings/config broadcasts (client-setting push, config.json change, sounds
+  // change) carry no `conversationId` — they're app-wide, not conversation-scoped.
+  "client_settings_update",
+  "config_changed",
+  "sounds_config_updated",
   // Notification-created broadcasts and recording lifecycle instructions are not
   // tied to the active conversation stream (they carry no top-level
   // `conversationId`, or — for notification_conversation_created — announce a
