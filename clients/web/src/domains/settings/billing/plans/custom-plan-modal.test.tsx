@@ -714,7 +714,7 @@ describe("CustomPlanModal — eligible Pro subscriber", () => {
 });
 
 describe("CustomPlanModal — Pro plan holding a deprecated (legacy) credit bundle", () => {
-  // The catalog now surfaces the held bundle as a `legacy: true` tier
+  // The catalog surfaces the held bundle as a `legacy: true` tier
   // (`credits_25`) so the modal can price it. Configure opens seeded to the
   // held credit; the recap totals it, and the dropdown shows it as the current
   // (disabled) selection without offering it to a new configuration.
