@@ -38,12 +38,9 @@ import type {
 import { readCheckoutIntent } from "@/lib/billing/checkout-intent";
 
 const CHECKOUT_URL = "https://stripe.test/checkout/session";
-const PORTAL_URL = "https://stripe.test/portal/session";
 
 type Captured = { body?: unknown };
 let upgradeCall: Captured | null = null;
-// Captures the billing-portal session create — the Pro → Free cancel path.
-let portalSessionCall: Captured | null = null;
 let openedUrl: string | null = null;
 
 mock.module("@/generated/api/sdk.gen", () => ({
@@ -52,13 +49,6 @@ mock.module("@/generated/api/sdk.gen", () => ({
     upgradeCall = opts;
     return Promise.resolve({
       data: { status: "redirect", checkout_url: CHECKOUT_URL },
-      response: { ok: true },
-    });
-  },
-  organizationsBillingPortalSessionCreate: (opts: Captured) => {
-    portalSessionCall = opts;
-    return Promise.resolve({
-      data: { portal_url: PORTAL_URL },
       response: { ok: true },
     });
   },
@@ -216,7 +206,6 @@ function renderPage(subscription: SubscriptionResponse) {
 
 beforeEach(() => {
   upgradeCall = null;
-  portalSessionCall = null;
   openedUrl = null;
   sessionStorage.clear();
 });
@@ -258,24 +247,17 @@ describe("PlansPage checkout — base subscriber", () => {
 
 describe("PlansPage checkout — Pro subscriber", () => {
   // Below Mighty, Free reads "Downgrade to Free". Downgrading a Pro org to the
-  // Free plan is a subscription cancellation, not a package switch — the
-  // change-package endpoint can't express it — so the plans page opens the
-  // Stripe billing portal (the same destination as the adjust-plan modal's
-  // "Downgrade to Base"), where the user can cancel. It must not fire a Stripe
-  // checkout. Pro package↔package switches go through change-package, covered in
-  // `plans-page.test.tsx`.
-  test("a Free downgrade CTA opens the Stripe billing portal (no checkout)", async () => {
-    // This harness intentionally doesn't mock the read endpoints (it seeds the
-    // cache), so asserting the location is unreliable — the loc assertion for
-    // "stays on the plans page" lives in `plans-page.test.tsx`. Here we assert
-    // the portal opens and no checkout fires.
+  // Free plan is a subscription cancellation, not a package switch — clicking it
+  // opens a confirm step (then the Stripe billing portal, the same destination
+  // as the adjust-plan modal's "Downgrade to Base"). The full confirm → portal
+  // flow is covered in `plans-page.test.tsx`; here we only guard that it never
+  // fires a Stripe checkout. This harness seeds the cache without mocking the
+  // read endpoints, so the confirm/portal/location aren't asserted.
+  test("a Free downgrade CTA never starts a Stripe checkout", () => {
     const { getByRole } = renderPage(proMightySubscription());
 
     fireEvent.click(getByRole("button", { name: "Downgrade to Free" }));
 
-    await waitFor(() => expect(openedUrl).toBe(PORTAL_URL));
-    expect(portalSessionCall).not.toBeNull();
-    // Never fires a Stripe checkout / upgrade.
     expect(upgradeCall).toBeNull();
     expect(readCheckoutIntent()).toBeNull();
   });

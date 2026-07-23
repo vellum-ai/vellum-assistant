@@ -618,16 +618,21 @@ describe("PlansPage — Pro package switch (change-package)", () => {
     expect(getByTestId("loc").textContent).toBe("/assistant/plans");
   });
 
-  test("Pro → Free downgrade opens the Stripe billing portal, not change-package", async () => {
-    const { findByRole, getByTestId } = renderInteractive(
-      proSuperSubscription(),
-    );
+  test("Pro → Free downgrade confirms first, then opens the Stripe billing portal", async () => {
+    const { findByRole, findByText, findByTestId, getByTestId } =
+      renderInteractive(proSuperSubscription());
 
-    // Below Super, Free reads "Downgrade to Free". Cancellation can't go through
-    // the package-only change-package endpoint, so it opens the Stripe billing
-    // portal (the same destination as the adjust-plan modal's Downgrade to Base).
+    // Below Super, Free reads "Downgrade to Free". Clicking it opens the confirm
+    // dialog — not an immediate portal redirect.
     fireEvent.click(await findByRole("button", { name: "Downgrade to Free" }));
+    await findByText("Downgrade to Free?");
+    expect(openedUrl).toBeNull();
+    expect(portalSessionCall).toBeNull();
 
+    // Confirming opens the Stripe billing portal (the same destination as the
+    // adjust-plan modal's Downgrade to Base). Cancellation can't go through the
+    // package-only change-package endpoint.
+    fireEvent.click(await findByTestId("confirm-free-downgrade-button"));
     await waitFor(() => expect(openedUrl).toBe(PORTAL_URL));
     expect(portalSessionCall).not.toBeNull();
     // Stays on the plans page (no navigation to the manage surface) and never
@@ -635,6 +640,36 @@ describe("PlansPage — Pro package switch (change-package)", () => {
     expect(getByTestId("loc").textContent).toBe("/assistant/plans");
     expect(changePackageCall).toBeNull();
     expect(upgradeCall).toBeNull();
+  });
+
+  test("dismissing the Free downgrade confirm doesn't open the portal", async () => {
+    const { findByRole, findByText, getByRole, queryByText } =
+      renderInteractive(proSuperSubscription());
+
+    fireEvent.click(await findByRole("button", { name: "Downgrade to Free" }));
+    await findByText("Downgrade to Free?");
+
+    // The confirm dialog's Cancel closes it without creating a portal session.
+    fireEvent.click(getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(queryByText("Downgrade to Free?")).toBeNull());
+    expect(portalSessionCall).toBeNull();
+    expect(openedUrl).toBeNull();
+  });
+
+  test("the Free downgrade confirm lists the Pro features being lost", async () => {
+    const plans = fullCatalog();
+    const pro = plans.plans.find((p) => p.id === "pro") as ProPlan;
+    // Base plan lists no features, so both Pro features are "lost".
+    pro.included_features = ["Managed email", "Custom domain"];
+    const { findByRole, findByText } = renderInteractive(
+      proSuperSubscription(),
+      { plans },
+    );
+
+    fireEvent.click(await findByRole("button", { name: "Downgrade to Free" }));
+    await findByText("Downgrade to Free?");
+    await findByText("Managed email");
+    await findByText("Custom domain");
   });
 
   test("base user CTA starts Stripe checkout, not change-package", async () => {
