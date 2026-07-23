@@ -29,6 +29,7 @@
 
 import { beforeEach, describe, expect, test } from "bun:test";
 
+import { deepRepairHistory, repairHistory } from "../context/history-repair.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import type {
   PluginLogger,
@@ -44,10 +45,6 @@ import {
   markOrderingRepairAttempted,
   resetRepairStateStoreForTests,
 } from "../plugins/defaults/history-repair/repair-state-store.js";
-import {
-  deepRepairHistory,
-  repairHistory,
-} from "../plugins/defaults/history-repair/terminal.js";
 import { defaultHistoryRepairPlugin } from "../plugins/defaults/index.js";
 import { runHook } from "../plugins/pipeline.js";
 import {

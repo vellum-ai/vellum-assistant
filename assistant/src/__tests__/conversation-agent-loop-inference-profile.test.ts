@@ -219,7 +219,7 @@ mock.module("../daemon/date-context.js", () => ({
   formatTurnTimestamp: () => "2026-01-01 (Thursday) 00:00:00 +00:00 (UTC)",
 }));
 
-mock.module("../plugins/defaults/history-repair/terminal.js", () => ({
+mock.module("../context/history-repair.js", () => ({
   repairHistory: (msgs: Message[]) => ({
     messages: msgs,
     stats: {

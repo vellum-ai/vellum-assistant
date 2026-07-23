@@ -3,7 +3,9 @@
  * character budget derived from the model's context window, plus the
  * primitives it wraps.
  *
- * This module is side-effect free: importing it does not register any plugin.
+ * Side-effect free and daemon-dependency free, so both the daemon's
+ * context-truncation path and the `tool-result-truncate` default plugin (via
+ * `@vellumai/plugin-api`) share it.
  */
 
 const HIGH_SURROGATE_START = 0xd800;
@@ -44,7 +46,9 @@ function safeStringSlice(
     const firstCode = str.charCodeAt(safeStart);
     if (isLowSurrogate(firstCode)) {
       safeStart++;
-      if (safeStart > safeEnd) safeEnd = safeStart;
+      if (safeStart > safeEnd) {
+        safeEnd = safeStart;
+      }
     }
   }
 

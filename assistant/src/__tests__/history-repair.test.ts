@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
-import { deepRepairHistory } from "../plugins/defaults/history-repair/terminal.js";
-import { repairHistory } from "../plugins/defaults/history-repair/terminal.js";
+import { deepRepairHistory } from "../context/history-repair.js";
+import { repairHistory } from "../context/history-repair.js";
 import type { Message } from "../providers/types.js";
 
 describe("repairHistory", () => {

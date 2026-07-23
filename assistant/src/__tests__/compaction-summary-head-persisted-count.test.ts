@@ -35,11 +35,11 @@ mock.module("../persistence/llm-request-log-store.js", () => ({
   recordRequestLog: () => {},
 }));
 
+import { repairHistory } from "../context/history-repair.js";
 import {
   ContextWindowManager,
   createContextSummaryMessage,
 } from "../plugins/defaults/compaction/window-manager.js";
-import { repairHistory } from "../plugins/defaults/history-repair/terminal.js";
 import type { Message, Provider } from "../providers/types.js";
 
 function turnTimestamp(turn: number): string {

@@ -24,12 +24,15 @@
  */
 
 import type { HookFunction, PostModelCallContext } from "@vellumai/plugin-api";
+import {
+  deepRepairHistory,
+  isRepairableOrderingError,
+} from "@vellumai/plugin-api";
 
 import {
   isOrderingRepairAttempted,
   markOrderingRepairAttempted,
 } from "../repair-state-store.js";
-import { deepRepairHistory, isRepairableOrderingError } from "../terminal.js";
 
 const postModelCall: HookFunction<PostModelCallContext> = async (ctx) => {
   if (

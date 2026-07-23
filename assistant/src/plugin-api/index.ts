@@ -342,3 +342,26 @@ export type {
 export { createLiveVoiceConnection } from "../live-voice/live-voice-connection.js";
 export type { LiveVoiceSessionCloseReason } from "../live-voice/live-voice-session-manager.js";
 export type { LiveVoiceServerFrame } from "../live-voice/protocol.js";
+
+// Shared context primitives used by the default behavior plugins. These are
+// side-effect-free, daemon-dependency-free helpers that the daemon also uses on
+// its own call sites; exposing them here lets the `history-repair`,
+// `tool-result-truncate`, and `image-recovery` plugins reach the same
+// implementation the daemon runs, instead of a fork.
+//
+// - History repair — normalize a message history to satisfy the provider's
+//   tool-use/tool-result pairing and role-alternation rules. `repairHistory`
+//   is the per-turn pass; `deepRepairHistory` is the aggressive fallback after
+//   an ordering rejection, which `isRepairableOrderingError` recognizes.
+// - Tool-result truncation — tail-drop an oversized tool result down to a
+//   character budget derived from the model's context window.
+// - Image-input error detection — recognize the provider rejections the
+//   image-recovery path can recover (dimensions too large, unprocessable,
+//   media type mismatch).
+export {
+  deepRepairHistory,
+  isRepairableOrderingError,
+  repairHistory,
+} from "../context/history-repair.js";
+export { truncateToolResult } from "../context/tool-result-truncate.js";
+export { isRecoverableImageError } from "../media/image-error-detect.js";

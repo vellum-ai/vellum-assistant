@@ -34,6 +34,7 @@ import {
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite, Speed } from "../config/schemas/llm.js";
+import { repairHistory } from "../context/history-repair.js";
 import {
   derefToolResultReReads,
   postTurnTruncateToolResults,
@@ -62,7 +63,6 @@ import {
   type ContextWindowResult,
   createContextSummaryMessage,
 } from "../plugins/defaults/compaction/window-manager.js";
-import { repairHistory } from "../plugins/defaults/history-repair/terminal.js";
 import { ConversationGraphMemory } from "../plugins/defaults/memory/graph/conversation-graph-memory.js";
 import {
   unwrapMemoryBlock,

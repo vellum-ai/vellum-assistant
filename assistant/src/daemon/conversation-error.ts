@@ -5,12 +5,12 @@ import type {
 import {
   ORDERING_ERROR_PATTERNS,
   WEB_SEARCH_ORDERING_PATTERNS,
-} from "../plugins/defaults/history-repair/terminal.js";
+} from "../context/history-repair.js";
 import {
   isImageDimensionsTooLargeError,
   isImageMediaTypeMismatchError,
   isImageUnprocessableError,
-} from "../plugins/defaults/image-recovery/detect.js";
+} from "../media/image-error-detect.js";
 import { ConnectionResolutionError } from "../providers/connection-resolution.js";
 import { getProviderRoutingSource } from "../providers/registry.js";
 import { isAbortReason } from "../util/abort-reasons.js";

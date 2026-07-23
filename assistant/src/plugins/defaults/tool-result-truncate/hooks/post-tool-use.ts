@@ -9,8 +9,7 @@
  */
 
 import type { HookFunction, PostToolUseContext } from "@vellumai/plugin-api";
-
-import { truncateToolResult } from "../terminal.js";
+import { truncateToolResult } from "@vellumai/plugin-api";
 
 const postToolUse: HookFunction<PostToolUseContext> = async (ctx) => {
   const { content, truncated } = truncateToolResult(

@@ -537,7 +537,7 @@ mock.module("../daemon/date-context.js", () => ({
   resolveTurnTimezoneContext: resolveTurnTimezoneContextMock,
 }));
 
-mock.module("../plugins/defaults/history-repair/terminal.js", () => ({
+mock.module("../context/history-repair.js", () => ({
   repairHistory: (msgs: Message[]) => ({
     messages: msgs,
     stats: {

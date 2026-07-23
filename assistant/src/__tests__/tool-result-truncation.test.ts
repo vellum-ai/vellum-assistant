@@ -6,14 +6,16 @@ import {
   MIN_KEEP_CHARS,
   truncateToolResultText,
   TRUNCATION_SUFFIX,
-} from "../plugins/defaults/tool-result-truncate/terminal.js";
+} from "../context/tool-result-truncate.js";
 
 function hasOrphanedSurrogate(str: string): boolean {
   for (let i = 0; i < str.length; i++) {
     const code = str.charCodeAt(i);
     if (code >= 0xd800 && code <= 0xdbff) {
       const next = i + 1 < str.length ? str.charCodeAt(i + 1) : 0;
-      if (next < 0xdc00 || next > 0xdfff) return true;
+      if (next < 0xdc00 || next > 0xdfff) {
+        return true;
+      }
       i++;
     } else if (code >= 0xdc00 && code <= 0xdfff) {
       return true;

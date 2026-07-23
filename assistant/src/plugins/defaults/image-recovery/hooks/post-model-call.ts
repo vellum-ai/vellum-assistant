@@ -27,8 +27,8 @@
  */
 
 import type { HookFunction, PostModelCallContext } from "@vellumai/plugin-api";
+import { isRecoverableImageError } from "@vellumai/plugin-api";
 
-import { isRecoverableImageError } from "../detect.js";
 import {
   isImageRecoveryAttempted,
   markImageRecoveryAttempted,
