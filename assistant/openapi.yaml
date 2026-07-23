@@ -24318,6 +24318,79 @@ paths:
                   - runs
                   - nextCursor
                 additionalProperties: false
+  /v1/routes/worker/start:
+    post:
+      operationId: routes_worker_start_post
+      summary: Start the route host
+      description: Spawns (or reuses) the route host process as a child of the daemon.
+      tags:
+        - system
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pid:
+                    type: number
+                  alreadyRunning:
+                    type: boolean
+                  pidPath:
+                    type: string
+                required:
+                  - pid
+                  - alreadyRunning
+                  - pidPath
+                additionalProperties: false
+  /v1/routes/worker/status:
+    get:
+      operationId: routes_worker_status_get
+      summary: Route host status
+      description: Reports the route host process liveness.
+      tags:
+        - system
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum:
+                      - running
+                      - not_running
+                  pid:
+                    type: number
+                required:
+                  - status
+                additionalProperties: false
+  /v1/routes/worker/stop:
+    post:
+      operationId: routes_worker_stop_post
+      summary: Stop the route host
+      description: SIGTERMs the route host process if it is running; the next request respawns it.
+      tags:
+        - system
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  workerWasRunning:
+                    type: boolean
+                  pid:
+                    type: number
+                required:
+                  - workerWasRunning
+                additionalProperties: false
   /v1/sanity/connect:
     post:
       operationId: sanity_connect_post
