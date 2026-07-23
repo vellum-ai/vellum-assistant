@@ -23,6 +23,7 @@ import {
   downgradeLabel,
   getPlanTierCopy,
 } from "@/domains/settings/billing/plans/plans-copy";
+import { BillingOnboardingModal } from "@/domains/settings/billing/pro-onboarding/billing-onboarding-modal";
 import { useChangePackage } from "@/domains/settings/billing/use-change-package";
 import { useChangeTiers } from "@/domains/settings/billing/use-change-tiers";
 import { useCheckoutDismissRefresh } from "@/domains/settings/billing/use-checkout-dismiss-refresh";
@@ -30,7 +31,6 @@ import {
   extractMutationError,
   isPackageSwitchEligible,
 } from "@/domains/settings/components/adjust-plan-utils";
-import { TierUpgradeResizeModal } from "@/domains/settings/components/tier-upgrade-resize-modal";
 import { formatDollars } from "@/domains/settings/components/tier-pricing";
 import {
   organizationsBillingPlansRetrieveOptions,
@@ -146,9 +146,10 @@ export function PlansPage() {
   // The package a Pro user is switching to, awaiting reconfirm; null when the
   // dialog is closed.
   const [switchTarget, setSwitchTarget] = useState<ProPackage | null>(null);
-  // Reveals the in-tab provisioning takeover after a successful switch — the
-  // same `TierUpgradeResizeModal` surface the tier-change flow opens via
-  // `onTierUpgraded` (see billing-page.tsx), reused here.
+  // Reveals the in-tab provisioning takeover after a successful switch or
+  // customize — `BillingOnboardingModal` in resize mode, which only observes
+  // the grow-only resize the platform already fired server-side (no redundant
+  // client-driven resize).
   const [resizeTakeoverOpen, setResizeTakeoverOpen] = useState(false);
 
   const subscription = subscriptionQuery.data;
@@ -531,7 +532,8 @@ export function PlansPage() {
           onConfirm={() => void confirmSwitch()}
         />
 
-        <TierUpgradeResizeModal
+        <BillingOnboardingModal
+          mode="resize"
           open={resizeTakeoverOpen}
           onClose={() => setResizeTakeoverOpen(false)}
         />
