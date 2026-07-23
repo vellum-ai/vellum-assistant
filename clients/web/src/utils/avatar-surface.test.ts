@@ -36,6 +36,7 @@ describe("avatarSurfaceHex", () => {
     for (const [i, c] of derived.entries()) {
       expect(Math.abs(c - target[i]!)).toBeLessThanOrEqual(1);
     }
+    expect(avatarSurfaceHex("#4C9B50").toLowerCase()).toBe("#1d281d");
   });
 
   test("every bundled palette color clears 7:1 against white", () => {

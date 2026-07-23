@@ -1,6 +1,7 @@
 const BLUR_RADIUS_PX = 60;
-/** Over-scan per side is 2x the blur radius, so the layer grows by 4x on each axis. */
-const OVERSCAN_PX = BLUR_RADIUS_PX * 2;
+// Over-scan each side by 2x the blur radius so the blurred layer never samples
+// past the image into transparency; each axis therefore grows by 4x the radius.
+const OVERSCAN_PX = BLUR_RADIUS_PX * 2; // 120px per side
 
 /**
  * Decorative backdrop for the provisioning takeover: the avatar image blurred
@@ -11,7 +12,7 @@ export function TakeoverBackdrop({ imageUrl }: { imageUrl: string }) {
     <div
       aria-hidden
       data-testid="takeover-backdrop"
-      className="provision-backdrop-reveal pointer-events-none absolute inset-0 overflow-hidden"
+      className="provision-avatar-reveal pointer-events-none absolute inset-0 overflow-hidden"
     >
       {/* `blur()` samples transparent outside the element, so the layer
           over-scans the container by an absolute amount tied to the radius —
