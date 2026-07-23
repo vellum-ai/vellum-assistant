@@ -1012,7 +1012,6 @@ export function ChatMainPanel({
                 mode={creditPaywallMode}
                 onAddCredits={() => setShowAddCreditsModal(true)}
                 onUpgrade={pushToPlansTakeover}
-                detached
               />
             ) : billingBannerDecision === "provider_billing" ? (
               <ProviderBillingBanner onOpenSettings={pushToAiSettings} />
