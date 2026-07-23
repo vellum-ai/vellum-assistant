@@ -12,6 +12,12 @@ interface BillingErrorBannerProps {
   onAction: () => void;
   secondaryCtaLabel?: string;
   onSecondaryAction?: () => void;
+  /**
+   * Render as a standalone, centered card ~24px narrower than the composer with
+   * full rounding, instead of a full-width banner flush-mounted above the
+   * composer (which flattens its bottom corners into the composer top).
+   */
+  detached?: boolean;
 }
 
 export function BillingErrorBanner({
@@ -23,15 +29,22 @@ export function BillingErrorBanner({
   onAction,
   secondaryCtaLabel,
   onSecondaryAction,
+  detached = false,
 }: BillingErrorBannerProps) {
   return (
     <div
       className="flex overflow-hidden"
       style={{
         background: "var(--surface-active)",
-        borderRadius: "10px 10px 0 0",
         animation: "fadeInUp 0.25s ease-out both",
         width: "100%",
+        ...(detached
+          ? {
+              maxWidth: "calc(100% - 24px)",
+              marginInline: "auto",
+              borderRadius: "10px",
+            }
+          : { borderRadius: "10px 10px 0 0" }),
       }}
       role="status"
       aria-label={ariaLabel}
