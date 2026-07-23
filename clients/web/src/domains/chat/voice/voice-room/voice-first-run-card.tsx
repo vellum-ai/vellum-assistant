@@ -117,7 +117,7 @@ export function VoiceFirstRunCard({
         size="sm"
         // Held constant across views: a sub-view that resized the dialog would
         // shift the back arrow and ✕ out from under the pointer.
-        className="max-w-[440px]"
+        className="max-w-[520px]"
         // iOS lock: strip the ✕, the backdrop-tap dismiss, and Escape so the
         // only way forward is "Start talking" → the mic alert.
         hideCloseButton={nonDismissible}
@@ -240,7 +240,7 @@ export function VoiceFirstRunCard({
               <p className="text-label-small-default text-[var(--content-tertiary)]">
                 Speech providers, transcription, and API keys live in{" "}
                 <Link
-                  to={routes.settings.ai}
+                  to={`${routes.settings.ai}#text-to-speech`}
                   className="text-[var(--content-secondary)] underline decoration-[var(--border-element)] underline-offset-2 hover:text-[var(--content-default)]"
                 >
                   Models &amp; Services
