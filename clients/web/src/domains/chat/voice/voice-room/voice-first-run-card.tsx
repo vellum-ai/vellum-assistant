@@ -1,17 +1,16 @@
-import { type ReactNode, useState } from "react";
+import { useState } from "react";
+import { Link } from "react-router";
 
 import { ArrowLeft, AudioLines, Captions, MicOff, Settings } from "lucide-react";
 
-import { cn } from "@vellumai/design-library";
 import { Button } from "@vellumai/design-library/components/button";
 import { Modal } from "@vellumai/design-library/components/modal";
 
 import { ChatAvatar } from "@/components/avatar/chat-avatar";
-import type { ProviderFormSaveHandle } from "@/components/service-form-controls";
-import { SttProviderForm } from "@/components/speech/stt-provider-form";
-import { TtsProviderForm } from "@/components/speech/tts-provider-form";
+import { VoiceList } from "@/components/speech/voice-list";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+import { routes } from "@/utils/routes";
 
 /**
  * One-time welcome card shown the first time a user enters voice mode, before
@@ -24,17 +23,19 @@ import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
  * before the user has ever experienced voice mode is the wrong moment. The card
  * just sets expectations and starts.
  *
- * The one exception is the voice settings behind the footer link: the speech
- * providers, the assistant's voice, and API keys for users running voice on
- * their own providers. It lives here because it gates whether voice works at
- * all. The label names a destination rather than an action — the defaults work
- * untouched, and a link reading like a task would imply setup is owed. Quiet by
- * design so it never competes with "Start talking".
+ * The one exception is the voice settings behind the footer link: the
+ * assistant's voice, the one thing most people come here to change. It hides
+ * itself for assistants on a bring-your-own provider, whose full config
+ * (providers, transcription, keys) lives in Settings → Models & Services — a
+ * quiet link points there. The label names a destination rather than an action:
+ * the defaults work untouched, and a link reading like a task would imply setup
+ * is owed. Quiet by design so it never competes with "Start talking".
  *
  * Those settings are a **view within this one modal**, not a modal stacked on
- * it: entering swaps the card's header, body, and footer, and a back arrow
- * returns to the intro. Width is held constant across views so navigating
- * doesn't resize the dialog under the cursor.
+ * it: entering swaps the card's header and body, and a back arrow returns to the
+ * intro. The voice hot-applies on the next reply, so there's no Save. Width is
+ * held constant across views so navigating doesn't resize the dialog under the
+ * cursor.
  *
  * The card does NOT persist `firstRunSeen` itself: dismissing it (Escape /
  * backdrop / ✕) is a plain cancel and must leave the first run un-consumed so
@@ -92,25 +93,6 @@ export function VoiceFirstRunCard({
 
   const [view, setView] = useState<FirstRunView>("intro");
   const backToIntro = () => setView("intro");
-
-  // One Save commits both provider forms. Each publishes its own state here;
-  // the footer button derives from the pair and only the dirty ones are
-  // written, so saving a key for one service doesn't touch the other.
-  const [sttSave, setSttSave] = useState<ProviderFormSaveHandle | null>(null);
-  const [ttsSave, setTtsSave] = useState<ProviderFormSaveHandle | null>(null);
-  const keysDirty = !!sttSave?.hasChanges || !!ttsSave?.hasChanges;
-  const keysSaving = !!sttSave?.saving || !!ttsSave?.saving;
-  const saveKeys = async () => {
-    const results = await Promise.all([
-      ttsSave?.hasChanges ? ttsSave.save() : Promise.resolve(true),
-      sttSave?.hasChanges ? sttSave.save() : Promise.resolve(true),
-    ]);
-    // Only leave on a clean save — a rejected key has to stay on screen with
-    // the failure toast, not vanish behind the intro.
-    if (results.every(Boolean)) {
-      backToIntro();
-    }
-  };
 
   return (
     <Modal.Root
@@ -236,90 +218,27 @@ export function VoiceFirstRunCard({
                 <Modal.Title className="leading-tight">Voice settings</Modal.Title>
               </div>
             </Modal.Header>
-            <Modal.Body className="space-y-6">
-              {/* The same forms Settings → AI renders, minus that page's card
-                  chrome and its per-card Save — the footer commits both. Copy
-                  matches Settings → Services so the two read as one surface. */}
-              <ProviderSection
-                title="Text-to-Speech"
-                subtitle="Configure how your assistant speaks"
-              >
-                <TtsProviderForm
-                  assistantId={assistantId ?? undefined}
-                  hideSaveButton
-                  hideCredentialsGuide
-                  onSaveStateChange={setTtsSave}
-                />
-              </ProviderSection>
-              <ProviderSection
-                title="Speech-to-Text"
-                subtitle="Configure how your assistant transcribes speech"
-                divided
-              >
-                <SttProviderForm
-                  assistantId={assistantId ?? undefined}
-                  hideSaveButton
-                  hideCredentialsGuide
-                  onSaveStateChange={setSttSave}
-                />
-              </ProviderSection>
+            <Modal.Body className="space-y-4">
+              {/* Just the voice — the one thing most people come here to change,
+                  and it hot-applies on the next reply (no Save). The list hides
+                  itself for assistants on a bring-your-own provider, leaving the
+                  note below as their path. */}
+              <VoiceList assistantId={assistantId} showSource />
+              <p className="text-label-small-default text-[var(--content-tertiary)]">
+                Speech providers, transcription, and API keys live in{" "}
+                <Link
+                  to={routes.settings.ai}
+                  className="text-[var(--content-secondary)] underline decoration-[var(--border-element)] underline-offset-2 hover:text-[var(--content-default)]"
+                >
+                  Models &amp; Services
+                </Link>
+                .
+              </p>
             </Modal.Body>
-            <Modal.Footer>
-              <Button
-                variant="primary"
-                onClick={saveKeys}
-                disabled={!keysDirty || keysSaving}
-              >
-                {keysSaving ? "Saving…" : "Save"}
-              </Button>
-            </Modal.Footer>
           </>
         )}
       </Modal.Content>
     </Modal.Root>
-  );
-}
-
-/**
- * One titled provider block in the settings view — the modal-scale echo of a
- * Settings → Services card, sharing its title and subtitle copy so the two
- * surfaces read as one. The subtitle sits on the title's line behind a rule,
- * keeping each block one row tall so both services fit without scrolling.
- * `divided` rules off the block from the one above it.
- */
-function ProviderSection({
-  title,
-  subtitle,
-  divided = false,
-  children,
-}: {
-  title: string;
-  subtitle: string;
-  divided?: boolean;
-  children: ReactNode;
-}) {
-  return (
-    <section
-      className={cn(
-        "space-y-3",
-        divided && "border-t border-[var(--border-subtle)] pt-5",
-      )}
-    >
-      {/* Wraps rather than truncates: the subtitle dropping to its own line on
-          a narrow viewport is better than losing the end of the sentence. */}
-      <div className="flex flex-wrap items-baseline gap-x-2">
-        <h3 className="text-body-medium-default text-[var(--content-emphasised)]">
-          {title}
-        </h3>
-        <span aria-hidden className="text-[var(--content-quiet)]">
-          |
-        </span>
-        <p className="text-label-small-default text-[var(--content-tertiary)]">
-          {subtitle}
-        </p>
-      </div>
-      {children}
-    </section>
   );
 }
 
