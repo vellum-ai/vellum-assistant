@@ -31,6 +31,14 @@ export const TIER_TRAITS: Record<
 export const FREE_STORAGE_GIB = 4;
 
 /**
+ * Monthly included credits ($USD) for the free/base plan. The plan catalog's
+ * BasePlan entry carries no credits field, so this is the baseline the plan
+ * card shows on the current-plan chip for a free user.
+ * TODO(confirm): verify the product-correct free credit grant (may be $0).
+ */
+export const FREE_CREDITS_USD = 0;
+
+/**
  * Vellum creature avatar for a plan tier. The ~48 kB bundled component payload
  * loads lazily; a same-size placeholder holds the layout until it resolves.
  */
