@@ -99,6 +99,25 @@ describe("flash guard", () => {
   });
 });
 
+describe("avatar render inputs", () => {
+  test("passes the query payload through for the ready branch to draw", () => {
+    avatar.components = BUNDLED_COMPONENTS;
+    avatar.traits = traits("purple");
+    avatar.customImageUrl = "blob:custom-avatar";
+
+    const { result } = renderHook(() =>
+      useTakeoverSurface("primary-assistant"),
+    );
+
+    expect(result.current.ready).toBe(true);
+    expect(result.current.avatar).toEqual({
+      components: BUNDLED_COMPONENTS,
+      traits: traits("purple"),
+      customImageUrl: "blob:custom-avatar",
+    });
+  });
+});
+
 describe("resolved surfaces", () => {
   test("a character's trait color becomes the tint", () => {
     avatar.components = BUNDLED_COMPONENTS;

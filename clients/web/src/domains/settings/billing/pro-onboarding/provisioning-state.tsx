@@ -10,10 +10,8 @@ import {
 } from "react";
 
 import { ChatAvatar } from "@/components/avatar/chat-avatar";
-import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import type { CheckoutIntent } from "@/lib/billing/checkout-intent";
 import { MACHINE_TIER_LABEL, SIZE_LABEL } from "@/lib/billing/machine-sizes";
-import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
 import { Button } from "@vellumai/design-library/components/button";
 import { Typography } from "@vellumai/design-library/components/typography";
@@ -28,6 +26,7 @@ import {
   type ResourceChangeKey,
 } from "./resource-changes";
 import { useProvisioningCredits } from "./use-provisioning-credits";
+import { useTakeoverSurface } from "./use-takeover-surface";
 import { useRotatingIndex } from "./use-rotating-index";
 import { useHeldPhase } from "./use-held-phase";
 import {
@@ -186,24 +185,13 @@ function TakeoverAvatar({
   assistantId?: string | null;
   mode: AvatarMode;
 }) {
-  const activeId = useResolvedAssistantsStore.use.activeAssistantId();
-  // An explicit null is the provisioning hook saying it does not know the
-  // target yet — it withholds `primary_assistant_id` until onboarding is fresh
-  // precisely so a multi-assistant org does not aim at the active assistant
-  // when the two diverge. Only an omitted prop falls back to active; a null one
-  // stays unresolved, so the takeover never fades in a different assistant's
-  // avatar on the way to the right one.
-  const resolvedId = assistantId === undefined ? activeId : assistantId;
-  const { components, traits, customImageUrl, isLoading } =
-    useAssistantAvatar(resolvedId);
+  // `useTakeoverSurface` owns which assistant the takeover draws and when its
+  // avatar is safe to draw, so the creature and the paint around it can never
+  // disagree about either.
+  const { avatar, ready: avatarReady } = useTakeoverSurface(assistantId);
   const fallbackComponents = useBundledAvatarComponents();
   const size = useTakeoverAvatarSize();
   const laboring = mode === "working" || mode === "settling";
-  // A null id means the target assistant has not resolved yet, not that it has
-  // no avatar — and `useAssistantAvatar(null)` is a disabled query, which
-  // reports `isLoading: false` with no data. Both have to clear before there is
-  // anything safe to draw.
-  const avatarReady = resolvedId != null && !isLoading;
   // Every mode animates the wrapper or its child, so the class waits for
   // something to animate. Otherwise a phase that resolves before the fetch does
   // — likely here, since the avatar is read off the machine being restarted —
@@ -228,9 +216,9 @@ function TakeoverAvatar({
               {avatarReady && (
                 <div className="provision-avatar-reveal">
                   <ChatAvatar
-                    components={components ?? fallbackComponents}
-                    traits={traits}
-                    customImageUrl={customImageUrl}
+                    components={avatar.components ?? fallbackComponents}
+                    traits={avatar.traits}
+                    customImageUrl={avatar.customImageUrl}
                     size={size}
                     isAssistantBusy={laboring}
                   />
