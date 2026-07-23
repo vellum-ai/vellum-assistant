@@ -1073,23 +1073,31 @@ export class SlackSocketModeClient {
 
     if (isAppMention) {
       const appMentionEvent = event as SlackAppMentionEvent;
+      const { channel, user } = appMentionEvent;
       const threadTs = appMentionEvent.thread_ts ?? appMentionEvent.ts;
-      const routing = resolveAssistant(
-        this.config.gatewayConfig,
-        appMentionEvent.channel ?? "",
-        appMentionEvent.user ?? "",
-      );
+      // Only arm the thread for a well-formed, routable mention — the same
+      // identity fields normalizeSlackAppMention requires. These are read from
+      // the raw, untrusted frame, so guard type as well as presence: a
+      // malformed mention (missing/non-string channel, user, or ts) must not
+      // arm a thread that would then admit later unmentioned replies, since the
+      // mention itself is dropped at normalization.
       if (
         this.config.threadMode === "mention_then_thread" &&
-        threadTs &&
-        !isRejection(routing) &&
-        appMentionEvent.channel
+        typeof channel === "string" &&
+        channel &&
+        typeof user === "string" &&
+        user &&
+        typeof threadTs === "string" &&
+        threadTs
       ) {
-        this.store.trackThread(
-          threadTs,
-          appMentionEvent.channel,
-          ACTIVE_THREAD_TTL_MS,
+        const routing = resolveAssistant(
+          this.config.gatewayConfig,
+          channel,
+          user,
         );
+        if (!isRejection(routing)) {
+          this.store.trackThread(threadTs, channel, ACTIVE_THREAD_TTL_MS);
+        }
       }
     }
 

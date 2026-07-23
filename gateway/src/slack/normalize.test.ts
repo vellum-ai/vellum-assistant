@@ -1264,6 +1264,25 @@ describe("message event tolerant validation", () => {
     expect(result).not.toBeNull();
     expect(result!.event.raw).toEqual(payload);
   });
+
+  it("drops a message with no usable timestamp (dedup key)", () => {
+    // Neither ts nor client_msg_id → the externalMessageId would collapse to
+    // `channel:undefined` and collide across every such malformed message in
+    // the channel, so the message is dropped instead.
+    const result = normalizeSlackChannelMessage(
+      {
+        type: "message",
+        channel_type: "channel",
+        channel: "C456",
+        user: "U123",
+        text: "hi",
+      },
+      "evt-t11",
+      config,
+    );
+
+    expect(result).toBeNull();
+  });
 });
 
 describe("normalizeSlackMessageEdit", () => {

@@ -812,7 +812,7 @@ export function normalizeSlackDirectMessage(
   // Only plain user messages; file_share carries uploads. Edits/deletes have
   // their own normalizers.
   if (msg.subtype && msg.subtype !== "file_share") return null;
-  if (!msg.user || !msg.channel) return null;
+  if (!msg.user || !msg.channel || !msg.ts) return null;
 
   // DMs are always directed at the bot, so fall back to the default assistant
   // even when the DM channel id isn't in the routing table — otherwise guardian
@@ -862,7 +862,7 @@ export function normalizeSlackChannelMessage(
 
   // file_share is allowed so image/file uploads are delivered to the assistant.
   if (msg.subtype && msg.subtype !== "file_share") return null;
-  if (!msg.user || !msg.channel) return null;
+  if (!msg.user || !msg.channel || !msg.ts) return null;
 
   const routing = resolveAssistant(config, msg.channel, msg.user);
   if (isRejection(routing)) return null;
@@ -897,7 +897,7 @@ export function normalizeSlackAppMention(
   if (!parsed.success) return null;
   const msg = parsed.data;
 
-  if (!msg.user || !msg.channel) return null;
+  if (!msg.user || !msg.channel || !msg.ts) return null;
 
   const routing = resolveAssistant(config, msg.channel, msg.user);
   if (isRejection(routing)) return null;
