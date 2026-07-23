@@ -65,3 +65,20 @@ describe("PlanColumnCard CTA", () => {
     expect(button.className).toContain("bg-[var(--primary-base)]");
   });
 });
+
+describe("PlanColumnCard Recommended badge", () => {
+  test("renders the badge on a tier the user is not on", async () => {
+    const { findByText } = render(
+      <PlanColumnCard {...baseProps} recommended isCurrent={false} />,
+    );
+    expect(await findByText("Recommended")).toBeTruthy();
+  });
+
+  test("hides the badge on the current plan", async () => {
+    const { queryByText, findByRole } = render(
+      <PlanColumnCard {...baseProps} recommended isCurrent intent="current" />,
+    );
+    expect(await findByRole("button", { name: "Current Plan" })).toBeTruthy();
+    expect(queryByText("Recommended")).toBeNull();
+  });
+});

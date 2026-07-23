@@ -102,8 +102,8 @@ function packageFeatures(pkg: ProPackage, extra: readonly string[]): string[] {
 
 /**
  * Full-screen "View Plans" pricing takeover at `/assistant/plans`. Always dark
- * regardless of the app theme; the "Super" column flips back to light within
- * its own theme scope. Renders from the live plan catalog — with the
+ * regardless of the app theme; the recommended column flips back to light
+ * within its own theme scope. Renders from the live plan catalog — with the
  * `pro-packages` flag off the catalog is empty and the route bounces back to
  * the billing page.
  */
@@ -490,8 +490,8 @@ export function PlansPage() {
                     : (copy?.cta ?? pkg.name)
                 }
                 features={packageFeatures(pkg, copy?.extraFeatures ?? [])}
-                mostPopular={copy?.mostPopular}
-                tone={copy?.mostPopular ? "light" : "dark"}
+                recommended={copy?.recommended}
+                tone={copy?.recommended ? "light" : "dark"}
                 isCurrent={currentTierKey === pkg.key}
                 intent={relation}
                 pending={pending || changePackagePending}
