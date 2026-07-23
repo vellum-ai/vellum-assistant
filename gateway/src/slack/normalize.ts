@@ -1,4 +1,8 @@
 import { renderSlackTextForModel } from "@vellumai/slack-text";
+import type {
+  ReactionAddedEvent as SlackApiReactionAddedEvent,
+  ReactionRemovedEvent as SlackApiReactionRemovedEvent,
+} from "@slack/types";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { isSlackDmChannel } from "./channel.js";
@@ -911,6 +915,42 @@ type SlackReactionEvent = z.infer<typeof slackReactionEventSchema>;
 export type SlackReactionAddedEvent = SlackReactionEvent;
 export type SlackReactionRemovedEvent = SlackReactionEvent;
 
+// Compile-time cross-check against the official Slack event types.
+//
+// `@slack/types` is a types-only dependency: the `import type` above is erased
+// from the build, so `slackReactionEventSchema` stays the sole runtime
+// validator. Its job is to make `tsc` prove our tolerant schema never
+// contradicts Slack's published shape, so a field rename or wrong primitive
+// fails the build instead of silently parsing a live event to `undefined`:
+//   1. every key we model is a real key on the official event; and
+//   2. a real official event still satisfies our (looser) schema.
+// One-directional on purpose — our schema is a narrower, all-optional view of
+// only the fields the normalizer reads, so the reverse is not required.
+type Expect<T extends true> = T;
+/** Every key we model is a real key on the official type. */
+type ModeledKeysAreOfficial<Ours, Official> = keyof Ours extends keyof Official
+  ? true
+  : false;
+/** A real official value is accepted by our tolerant schema. */
+type OfficialValueSatisfiesOurs<Ours, Official> = Official extends Ours
+  ? true
+  : false;
+
+type _SlackReactionApiCrossChecks = [
+  Expect<
+    ModeledKeysAreOfficial<SlackReactionEvent, SlackApiReactionAddedEvent>
+  >,
+  Expect<
+    OfficialValueSatisfiesOurs<SlackReactionEvent, SlackApiReactionAddedEvent>
+  >,
+  Expect<
+    ModeledKeysAreOfficial<SlackReactionEvent, SlackApiReactionRemovedEvent>
+  >,
+  Expect<
+    OfficialValueSatisfiesOurs<SlackReactionEvent, SlackApiReactionRemovedEvent>
+  >,
+];
+
 /**
  * Normalize a Slack `block_actions` interactive payload into the gateway's
  * canonical inbound event shape, matching Telegram's `callback_query` pattern.
@@ -1006,7 +1046,19 @@ function normalizeSlackReaction(
   config: GatewayConfig,
   op: "added" | "removed",
 ): NormalizedSlackEvent | null {
-  if (!event.user || !event.item?.channel || !event.item?.ts) return null;
+  // `reaction` is load-bearing: it forms the `callbackData` and part of the
+  // dedup `externalMessageId`. Without this guard a collapsed (missing /
+  // non-string) reaction would emit `reaction:undefined`, which the
+  // assistant-side parser treats as a real emoji named "undefined" rather
+  // than dropping it.
+  if (
+    !event.user ||
+    !event.reaction ||
+    !event.item?.channel ||
+    !event.item?.ts
+  ) {
+    return null;
+  }
 
   const channel = event.item.channel;
 

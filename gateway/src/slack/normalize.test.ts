@@ -594,6 +594,38 @@ describe("reaction event tolerant validation", () => {
     expect(result).toBeNull();
   });
 
+  it("drops a missing reaction rather than emitting reaction:undefined", () => {
+    // `reaction` forms the callbackData and part of the dedup externalMessageId.
+    // A missing reaction must be dropped, not stringified into a bogus
+    // `reaction:undefined` that the assistant parser treats as a real emoji.
+    const result = normalizeSlackReactionAdded(
+      {
+        type: "reaction_added",
+        user: "U123",
+        item: { type: "message", channel: "C456", ts: "1700000000.000100" },
+      },
+      "evt-x5a",
+      config,
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("collapses a non-string reaction to undefined and drops the event", () => {
+    const result = normalizeSlackReactionAdded(
+      {
+        type: "reaction_added",
+        user: "U123",
+        reaction: { name: "thumbsup" },
+        item: { type: "message", channel: "C456", ts: "1700000000.000100" },
+      },
+      "evt-x5b",
+      config,
+    );
+
+    expect(result).toBeNull();
+  });
+
   it("collapses a malformed item field but keeps the rest of the event routable", () => {
     // A single bad field (non-string `ts`) collapses to undefined without
     // taking down the sibling fields; the event is dropped only because the
