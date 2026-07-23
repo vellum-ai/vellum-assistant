@@ -13,7 +13,7 @@ const mockAppVersion = "1.2.3";
 
 // Baked from .tool-versions by electron.vite.config.ts in a real build; set here
 // (before the module import below reads it) so the packageManager stamp is live.
-const mockBunVersion = "1.3.11";
+const mockBunVersion = "1.3.14";
 (globalThis as Record<string, unknown>).__VELLUM_BUN_VERSION__ = mockBunVersion;
 
 // `process.resourcesPath` is only defined inside a packaged Electron app.

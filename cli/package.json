@@ -44,7 +44,7 @@
     "@vellumai/service-contracts"
   ],
   "devDependencies": {
-    "@types/bun": "1.3.11",
+    "@types/bun": "1.3.14",
     "@types/qrcode-terminal": "0.12.2",
     "@types/react": "19.2.14",
     "eslint": "10.1.0",
