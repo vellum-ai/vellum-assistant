@@ -147,6 +147,7 @@ export interface ChatMainPanelProps {
 
   // Upward signals to ActiveChatView local state
   setRefreshEpoch: Dispatch<SetStateAction<number>>;
+  setShowAddCreditsModal: Dispatch<SetStateAction<boolean>>;
 
   // Shared refs (owned by ActiveChatView for debug API / keydown handler)
   inputRef: RefObject<HTMLTextAreaElement | null>;
@@ -221,6 +222,7 @@ export function ChatMainPanel({
   historyPagination,
   diskPressure,
   setRefreshEpoch,
+  setShowAddCreditsModal,
   inputRef,
   sanitizedMessagesRef,
   transcriptItemsRef,
@@ -988,7 +990,10 @@ export function ChatMainPanel({
             billingBannerDecision === "daily_limit" ? (
               <DailyLimitBanner onAdjustLimit={pushToBillingSettings} />
             ) : billingBannerDecision === "managed_credits" ? (
-              <CreditsExhaustedBanner onUpgrade={pushToPlansTakeover} />
+              <CreditsExhaustedBanner
+                onAddCredits={() => setShowAddCreditsModal(true)}
+                onUpgrade={pushToPlansTakeover}
+              />
             ) : billingBannerDecision === "provider_billing" ? (
               <ProviderBillingBanner onOpenSettings={pushToAiSettings} />
             ) : null
