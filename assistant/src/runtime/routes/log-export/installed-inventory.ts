@@ -10,44 +10,31 @@
  * a session actually had and whether two environments are running the same
  * bytes — the exact question that is otherwise guessed at.
  *
- * Every field is derived (names, ISO dates, hashes); no file body is emitted.
- * The fingerprints reuse the system's own canonical content hashes so an export
- * value can be compared directly against install metadata and reload logs:
- *   - skills  → `computeSkillVersionHash` (`v1:<sha256>`), the same scheme the
- *     skill catalog records.
- *   - plugins → `computeContentHash` (`v2:<sha256>`), the same scheme a plugin
- *     records in its `install-meta.json` `contentHash`.
- * Both hashes exclude runtime-owned / provenance files, and `lastUpdated`
- * applies the matching exclusions to its mtime scan, so a daily `lastUsedAt`
- * stamp or a `data/` write never moves either signal on its own.
+ * Every field is *read from already-persisted metadata* — nothing is walked or
+ * hashed at export time. Both skills and plugins record an `install-meta.json`
+ * sidecar at install carrying `installedAt` and a `v2:<sha256>` whole-tree
+ * `contentHash`; this reuses those verbatim:
+ *   - `lastUpdated`  ← `install-meta.json` `installedAt` (when the content was
+ *     last materialized by install/update).
+ *   - `fingerprint`  ← `install-meta.json` `contentHash` (`v2:<sha256>`), the
+ *     same value the integrity/diff tooling records.
+ * Because the fingerprint is the install-time identity, an in-place edit made
+ * after install is *not* reflected here — capturing live drift is the job of
+ * `plugins diff`, not this snapshot. Entries with no sidecar (bundled/plugin
+ * skills, hand-authored workspace skills, first-party default plugins) report
+ * `null` for the fields they don't persist. No file body is ever emitted.
  */
 
-import { existsSync, statSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { listAllPlugins } from "../../../cli/lib/list-installed-plugins.js";
-import { computeContentHash } from "../../../cli/lib/plugin-fingerprint.js";
-import { getConfig } from "../../../config/loader.js";
-import { resolveSkillStates } from "../../../config/skill-state.js";
-import { loadSkillCatalog } from "../../../config/skills.js";
-import {
-  PRESERVED_ENTRIES,
-  walkPluginTree,
-} from "../../../plugins/plugin-tree-walk.js";
-import { computeSkillVersionHash } from "../../../skills/version-hash.js";
+import { listInstalledSkills } from "../../../skills/available-skills.js";
 import { getLogger } from "../../../util/logger.js";
 
 const log = getLogger("installed-inventory");
 
-/**
- * Top-level files excluded from a skill's `lastUpdated` mtime scan, mirroring
- * the exclusions baked into `computeSkillVersionHash` so a daily `lastUsedAt`
- * stamp (written into `install-meta.json`) does not read as a content change.
- */
-const SKILL_MTIME_EXCLUDED_ENTRIES: readonly string[] = [
-  "install-meta.json",
-  "version.json",
-];
+const INSTALL_META_FILENAME = "install-meta.json";
 
 /** One installed skill, metadata only. */
 export interface SkillInventoryEntry {
@@ -57,9 +44,9 @@ export interface SkillInventoryEntry {
   source: string;
   /** Resolved availability: `enabled` | `disabled` | `unavailable`. */
   state: string;
-  /** ISO 8601 mtime of the newest source file, or `null` if none readable. */
+  /** `install-meta.json` `installedAt` (ISO 8601), or `null` when unrecorded. */
   lastUpdated: string | null;
-  /** `computeSkillVersionHash` output (`v1:<sha256>`), or `null` on failure. */
+  /** `install-meta.json` `contentHash` (`v2:<sha256>`), or `null`. */
   fingerprint: string | null;
 }
 
@@ -69,13 +56,13 @@ export interface PluginInventoryEntry {
   name: string;
   /** `user` (installed) or `default` (first-party). */
   source: string;
-  /** `package.json` version, or `null` when absent/unparseable. */
+  /** `package.json` version (or `install-meta.json` version), or `null`. */
   version: string | null;
   /** True when a `.disabled` sentinel is present. */
   disabled: boolean;
-  /** ISO 8601 mtime of the newest source file, or `null`. */
+  /** `install-meta.json` `installedAt` (ISO 8601), or `null`. */
   lastUpdated: string | null;
-  /** `computeContentHash` output (`v2:<sha256>`), or `null` when not applicable. */
+  /** `install-meta.json` `contentHash` (`v2:<sha256>`), or `null`. */
   fingerprint: string | null;
 }
 
@@ -83,137 +70,134 @@ export interface InstalledInventory {
   collectedAt: string;
   skills: SkillInventoryEntry[];
   plugins: PluginInventoryEntry[];
+  /**
+   * Per-section collection failures. Present only when a section could not be
+   * enumerated, so an empty `skills`/`plugins` array in the bundle is never
+   * ambiguous between "nothing installed" and "collection failed".
+   */
+  errors?: { skills?: string; plugins?: string };
 }
 
-function toIso(mtimeMs: number | null): string | null {
-  return mtimeMs === null ? null : new Date(mtimeMs).toISOString();
-}
-
-/**
- * Newest mtime (ms) across a directory tree, honoring the same exclusions as
- * the corresponding content hash so `lastUpdated` tracks source edits only.
- * Best-effort: unreadable entries and a missing directory yield `null`.
- */
-function latestMtimeMs(
-  dir: string,
-  excludeRootEntries: readonly string[],
-): number | null {
-  let newest: number | null = null;
-  walkPluginTree(
-    dir,
-    { excludeRootEntries, excludeDotEntries: true, bestEffort: true },
-    (_rel, abs) => {
-      try {
-        const { mtimeMs } = statSync(abs);
-        if (newest === null || mtimeMs > newest) {
-          newest = mtimeMs;
-        }
-      } catch {
-        // Raced deletion between walk and stat — the newest surviving file wins.
-      }
-    },
-  );
-  return newest;
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }
 
 /**
- * Every installed skill with its resolved state, last-updated date, and content
- * fingerprint. Sorted by name. Filesystem/config only — no DB access.
+ * Every installed skill with its resolved state, plus the last-updated date and
+ * content fingerprint read from its `install-meta.json`. Sorted by name.
+ *
+ * `listInstalledSkills` already reads each skill's install metadata, so the
+ * date/fingerprint come for free — no directory walk or re-hash here.
  */
-export function collectSkillInventory(): SkillInventoryEntry[] {
-  const catalog = loadSkillCatalog();
-  const stateById = new Map(
-    resolveSkillStates(catalog, getConfig()).map((r) => [
-      r.summary.id,
-      r.state,
-    ]),
-  );
-
-  const entries = catalog.map((summary): SkillInventoryEntry => {
-    let fingerprint: string | null = null;
-    try {
-      fingerprint = computeSkillVersionHash(summary.directoryPath);
-    } catch (err) {
-      log.warn(
-        { err, skill: summary.id },
-        "Failed to fingerprint skill for inventory; emitting null",
-      );
-    }
+export async function collectSkillInventory(): Promise<SkillInventoryEntry[]> {
+  const skills = await listInstalledSkills();
+  const entries = skills.map((skill): SkillInventoryEntry => {
+    const meta = skill.installMeta ?? null;
     return {
-      name: summary.id,
-      source: summary.source,
-      // resolveSkillStates omits flag-gated / disallowed-bundled skills; those
-      // are surfaced as `unavailable` rather than dropped, so the inventory
-      // still enumerates the full installed universe.
-      state: stateById.get(summary.id) ?? "unavailable",
-      lastUpdated: toIso(
-        latestMtimeMs(summary.directoryPath, SKILL_MTIME_EXCLUDED_ENTRIES),
-      ),
-      fingerprint,
+      name: skill.id,
+      source: skill.source ?? "unknown",
+      state: skill.state,
+      lastUpdated: meta?.installedAt ?? null,
+      fingerprint: meta?.contentHash ?? null,
     };
   });
-
   entries.sort((a, b) => a.name.localeCompare(b.name));
   return entries;
+}
+
+interface StoredPluginMeta {
+  installedAt: string | null;
+  contentHash: string | null;
+  version: string | null;
+}
+
+/**
+ * Read the three inventory fields from a plugin's `install-meta.json` sidecar.
+ * Leniently mirrors `list-installed-plugins`' own install-date read (any parse
+ * problem or missing file degrades to nulls) rather than the strict
+ * `readInstallMeta`, so a plugin installed through any path still contributes
+ * whatever it persisted. One small file read; no directory walk.
+ */
+function readStoredPluginMeta(pluginDir: string): StoredPluginMeta {
+  const empty: StoredPluginMeta = {
+    installedAt: null,
+    contentHash: null,
+    version: null,
+  };
+  const metaPath = join(pluginDir, INSTALL_META_FILENAME);
+  if (!existsSync(metaPath)) {
+    return empty;
+  }
+  try {
+    const raw = JSON.parse(readFileSync(metaPath, "utf8")) as Record<
+      string,
+      unknown
+    >;
+    const str = (value: unknown): string | null =>
+      typeof value === "string" && value.length > 0 ? value : null;
+    return {
+      installedAt: str(raw.installedAt),
+      contentHash: str(raw.contentHash),
+      version: str(raw.version),
+    };
+  } catch {
+    return empty;
+  }
 }
 
 /**
  * Every installed plugin (user + first-party default) with its version,
- * disabled state, last-updated date, and content fingerprint. Sorted by name.
+ * disabled state, and the last-updated date + content fingerprint read from its
+ * `install-meta.json`. Sorted by name.
  *
- * A fingerprint and `lastUpdated` are computed only when the plugin directory
- * holds real source (a `package.json`): first-party defaults live in the app
- * build and expose only a workspace stub, so hashing that stub would be
- * meaningless — those entries carry a `null` fingerprint and their manifest
- * version instead.
+ * First-party defaults live in the app build and carry no sidecar, so they
+ * report their manifest version with `null` date/fingerprint.
  */
 export function collectPluginInventory(): PluginInventoryEntry[] {
   const entries = listAllPlugins().map((plugin): PluginInventoryEntry => {
-    const hasSource = existsSync(join(plugin.target, "package.json"));
-    let fingerprint: string | null = null;
-    let lastUpdated: string | null = null;
-    if (hasSource) {
-      try {
-        fingerprint = computeContentHash(plugin.target, [...PRESERVED_ENTRIES]);
-      } catch (err) {
-        log.warn(
-          { err, plugin: plugin.name },
-          "Failed to fingerprint plugin for inventory; emitting null",
-        );
-      }
-      lastUpdated = toIso(latestMtimeMs(plugin.target, [...PRESERVED_ENTRIES]));
-    }
+    const meta = readStoredPluginMeta(plugin.target);
     return {
       name: plugin.name,
       source: plugin.source,
-      version: plugin.packageJson?.version ?? null,
+      version: plugin.packageJson?.version ?? meta.version,
       disabled: plugin.disabled,
-      lastUpdated,
-      fingerprint,
+      lastUpdated: meta.installedAt,
+      fingerprint: meta.contentHash,
     };
   });
-
   entries.sort((a, b) => a.name.localeCompare(b.name));
   return entries;
 }
 
 /**
- * Assemble the full inventory. Each half is collected independently so a
- * failure enumerating one (e.g. a corrupt skill catalog) still yields the
- * other rather than an empty file. Never throws.
+ * Assemble the full inventory. Each half is collected independently; a failure
+ * enumerating one is recorded in `errors` (and its array left empty) rather
+ * than swallowed, so a section that could not be read is never mistaken for a
+ * section with nothing installed. Never throws.
  */
-export function collectInstalledInventory(): InstalledInventory {
+export async function collectInstalledInventory(): Promise<InstalledInventory> {
+  const errors: { skills?: string; plugins?: string } = {};
   let skills: SkillInventoryEntry[] = [];
   let plugins: PluginInventoryEntry[] = [];
   try {
-    skills = collectSkillInventory();
+    skills = await collectSkillInventory();
   } catch (err) {
+    errors.skills = errorMessage(err);
     log.warn({ err }, "Failed to collect skill inventory for export");
   }
   try {
     plugins = collectPluginInventory();
   } catch (err) {
+    errors.plugins = errorMessage(err);
     log.warn({ err }, "Failed to collect plugin inventory for export");
   }
-  return { collectedAt: new Date().toISOString(), skills, plugins };
+  const inventory: InstalledInventory = {
+    collectedAt: new Date().toISOString(),
+    skills,
+    plugins,
+  };
+  if (errors.skills !== undefined || errors.plugins !== undefined) {
+    inventory.errors = errors;
+  }
+  return inventory;
 }

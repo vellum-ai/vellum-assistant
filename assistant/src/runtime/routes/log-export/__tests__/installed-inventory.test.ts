@@ -2,10 +2,10 @@
  * Tests for the installed skills/plugins inventory used by `POST /v1/export`.
  *
  * Validates that the inventory enumerates workspace-installed skills and
- * plugins with a name, a `lastUpdated` date, and a content fingerprint; that
- * the fingerprints are the system's canonical hashes and are stable across
- * runs but move when content changes; and that collection never throws or
- * ships file bodies.
+ * plugins with a name, and surfaces the `lastUpdated` date + content
+ * fingerprint recorded in each one's `install-meta.json` (reused verbatim, not
+ * recomputed); that entries without a sidecar report `null` for those fields;
+ * and that assembly is sorted, stamped, and never throws.
  *
  * The shared `test-preload.ts` sets `VELLUM_WORKSPACE_DIR` to a per-file temp
  * directory, so `getWorkspaceSkillsDir()` / `getWorkspacePluginsDir()` already
@@ -30,18 +30,35 @@ import {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function seedSkill(id: string, body: string): string {
+const HASH_A = `v2:${"a".repeat(64)}`;
+const HASH_B = `v2:${"b".repeat(64)}`;
+
+function seedSkill(
+  id: string,
+  meta?: { installedAt: string; contentHash: string },
+): string {
   const dir = join(getWorkspaceSkillsDir(), id);
   mkdirSync(dir, { recursive: true });
   writeFileSync(
     join(dir, "SKILL.md"),
-    `---\nname: ${id}\ndescription: Test skill ${id} for the inventory unit test.\n---\n\n${body}\n`,
+    `---\nname: ${id}\ndescription: Test skill ${id} for the inventory unit test.\n---\n\nBody.\n`,
     "utf-8",
   );
+  if (meta) {
+    writeFileSync(
+      join(dir, "install-meta.json"),
+      JSON.stringify({ origin: "custom", ...meta }, null, 2),
+      "utf-8",
+    );
+  }
   return dir;
 }
 
-function seedPlugin(name: string, version: string): string {
+function seedPlugin(
+  name: string,
+  version: string,
+  meta?: { installedAt: string; contentHash: string },
+): string {
   const dir = join(getWorkspacePluginsDir(), name);
   mkdirSync(dir, { recursive: true });
   writeFileSync(
@@ -49,11 +66,22 @@ function seedPlugin(name: string, version: string): string {
     JSON.stringify({ name, version }, null, 2),
     "utf-8",
   );
-  writeFileSync(
-    join(dir, "index.ts"),
-    `export const id = "${name}";\n`,
-    "utf-8",
-  );
+  if (meta) {
+    writeFileSync(
+      join(dir, "install-meta.json"),
+      JSON.stringify(
+        {
+          name,
+          origin: "vellum",
+          source: { kind: "github", owner: "o", repo: "r", ref: "main" },
+          ...meta,
+        },
+        null,
+        2,
+      ),
+      "utf-8",
+    );
+  }
   return dir;
 }
 
@@ -73,36 +101,39 @@ describe("collectSkillInventory", () => {
   beforeEach(cleanup);
   afterEach(cleanup);
 
-  test("reports a workspace skill with name, date, and v1 fingerprint", () => {
-    seedSkill("inv-skill-a", "First body.");
+  test("reflects the date and fingerprint stored in install-meta.json", async () => {
+    seedSkill("inv-skill-a", {
+      installedAt: "2026-07-19T10:00:00.000Z",
+      contentHash: HASH_A,
+    });
 
-    const entry = collectSkillInventory().find((s) => s.name === "inv-skill-a");
+    const entry = (await collectSkillInventory()).find(
+      (s) => s.name === "inv-skill-a",
+    );
     expect(entry).toBeDefined();
     // A skill under `<workspace>/skills/` is a user-installed ("managed")
-    // catalog entry; assert it carries one of the user-authored sources rather
-    // than a fixed label.
+    // catalog entry; assert it carries one of the user-authored sources.
     expect(["managed", "workspace", "extra"]).toContain(entry!.source);
-    expect(entry!.lastUpdated).toMatch(/^\d{4}-\d{2}-\d{2}T/);
-    expect(entry!.fingerprint).toMatch(/^v1:[0-9a-f]{64}$/);
+    expect(typeof entry!.state).toBe("string");
+    expect(entry!.lastUpdated).toBe("2026-07-19T10:00:00.000Z");
+    expect(entry!.fingerprint).toBe(HASH_A);
   });
 
-  test("fingerprint is stable across runs and changes with content", () => {
-    seedSkill("inv-skill-b", "Original.");
-    const first = collectSkillInventory().find((s) => s.name === "inv-skill-b");
-    const again = collectSkillInventory().find((s) => s.name === "inv-skill-b");
-    expect(again!.fingerprint).toBe(first!.fingerprint);
+  test("reports null date/fingerprint when no install-meta.json exists", async () => {
+    seedSkill("inv-skill-b");
 
-    seedSkill("inv-skill-b", "Rewritten body — different bytes.");
-    const changed = collectSkillInventory().find(
+    const entry = (await collectSkillInventory()).find(
       (s) => s.name === "inv-skill-b",
     );
-    expect(changed!.fingerprint).not.toBe(first!.fingerprint);
+    expect(entry).toBeDefined();
+    expect(entry!.lastUpdated).toBeNull();
+    expect(entry!.fingerprint).toBeNull();
   });
 
-  test("entries are sorted by name", () => {
-    seedSkill("inv-zeta", "z");
-    seedSkill("inv-alpha", "a");
-    const names = collectSkillInventory()
+  test("entries are sorted by name", async () => {
+    seedSkill("inv-zeta");
+    seedSkill("inv-alpha");
+    const names = (await collectSkillInventory())
       .map((s) => s.name)
       .filter((n) => n.startsWith("inv-"));
     expect(names).toEqual([...names].sort((a, b) => a.localeCompare(b)));
@@ -117,8 +148,11 @@ describe("collectPluginInventory", () => {
   beforeEach(cleanup);
   afterEach(cleanup);
 
-  test("reports a workspace plugin with version, date, and v2 fingerprint", () => {
-    seedPlugin("inv-plugin-a", "1.2.3");
+  test("reports version plus the stored date and fingerprint", () => {
+    seedPlugin("inv-plugin-a", "1.2.3", {
+      installedAt: "2026-07-11T08:00:00.000Z",
+      contentHash: HASH_B,
+    });
 
     const entry = collectPluginInventory().find(
       (p) => p.name === "inv-plugin-a",
@@ -127,24 +161,21 @@ describe("collectPluginInventory", () => {
     expect(entry!.source).toBe("user");
     expect(entry!.version).toBe("1.2.3");
     expect(entry!.disabled).toBe(false);
-    expect(entry!.lastUpdated).toMatch(/^\d{4}-\d{2}-\d{2}T/);
-    expect(entry!.fingerprint).toMatch(/^v2:[0-9a-f]{64}$/);
+    expect(entry!.lastUpdated).toBe("2026-07-11T08:00:00.000Z");
+    expect(entry!.fingerprint).toBe(HASH_B);
   });
 
-  test("a `.disabled` sentinel is reflected without changing the fingerprint", () => {
+  test("reflects a `.disabled` sentinel; null fields without install-meta", () => {
     const dir = seedPlugin("inv-plugin-b", "0.1.0");
-    const enabled = collectPluginInventory().find(
-      (p) => p.name === "inv-plugin-b",
-    );
-
     writeFileSync(join(dir, ".disabled"), "", "utf-8");
-    const disabled = collectPluginInventory().find(
+
+    const entry = collectPluginInventory().find(
       (p) => p.name === "inv-plugin-b",
     );
-
-    expect(disabled!.disabled).toBe(true);
-    // `.disabled` is a runtime sentinel, not source — the content hash is unmoved.
-    expect(disabled!.fingerprint).toBe(enabled!.fingerprint);
+    expect(entry!.disabled).toBe(true);
+    expect(entry!.version).toBe("0.1.0");
+    expect(entry!.lastUpdated).toBeNull();
+    expect(entry!.fingerprint).toBeNull();
   });
 });
 
@@ -156,13 +187,14 @@ describe("collectInstalledInventory", () => {
   beforeEach(cleanup);
   afterEach(cleanup);
 
-  test("returns both sections with a collectedAt stamp and never throws", () => {
-    seedSkill("inv-skill-c", "c");
+  test("returns both sections with a collectedAt stamp and no errors on success", async () => {
+    seedSkill("inv-skill-c");
     seedPlugin("inv-plugin-c", "9.9.9");
 
-    const inventory = collectInstalledInventory();
+    const inventory = await collectInstalledInventory();
     expect(inventory.collectedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     expect(inventory.skills.some((s) => s.name === "inv-skill-c")).toBe(true);
     expect(inventory.plugins.some((p) => p.name === "inv-plugin-c")).toBe(true);
+    expect(inventory.errors).toBeUndefined();
   });
 });

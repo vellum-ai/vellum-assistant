@@ -379,7 +379,7 @@ async function handleExport({
     let inventorySkillCount = 0;
     let inventoryPluginCount = 0;
     try {
-      const inventory = collectInstalledInventory();
+      const inventory = await collectInstalledInventory();
       inventorySkillCount = inventory.skills.length;
       inventoryPluginCount = inventory.plugins.length;
       writeFileSync(
