@@ -231,12 +231,17 @@ export function VoiceFirstRunCard({
                 </div>
               </div>
             </Modal.Header>
-            <Modal.Body className="space-y-4">
+            <Modal.Body>
               {/* Just the voice — the one thing most people come here to change,
                   and it hot-applies on the next reply (no Save). A provider
                   dropdown scopes the list; it hides itself for assistants on a
-                  bring-your-own provider, leaving the note below as their path. */}
+                  bring-your-own provider, leaving the footer note as their path. */}
               <VoiceList assistantId={assistantId} filterBySource />
+            </Modal.Body>
+            {/* Mirrors the intro footer (fine print left, primary right) and is
+                always present, so the picker can flow straight into the session
+                without a size change when a voice is chosen. */}
+            <Modal.Footer className="items-center justify-between gap-3">
               <p className="text-label-small-default text-[var(--content-tertiary)]">
                 Speech providers, transcription, and API keys live in{" "}
                 <Link
@@ -247,7 +252,14 @@ export function VoiceFirstRunCard({
                 </Link>
                 .
               </p>
-            </Modal.Body>
+              <Button
+                variant="primary"
+                onClick={onStart}
+                className="shrink-0"
+              >
+                Start talking
+              </Button>
+            </Modal.Footer>
           </>
         )}
       </Modal.Content>
