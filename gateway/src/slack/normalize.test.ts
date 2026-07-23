@@ -151,9 +151,9 @@ describe("normalizeSlackBlockActions", () => {
   it("generates unique externalMessageId per click via action_ts", () => {
     const config = makeConfig();
     const payload1 = makeBlockActionsPayload();
-    payload1.actions[0].action_ts = "1000000000.000001";
+    payload1.actions![0].action_ts = "1000000000.000001";
     const payload2 = makeBlockActionsPayload();
-    payload2.actions[0].action_ts = "1000000000.000002";
+    payload2.actions![0].action_ts = "1000000000.000002";
 
     const result1 = normalizeSlackBlockActions(payload1, "env-same", config);
     const result2 = normalizeSlackBlockActions(payload2, "env-same", config);
@@ -170,7 +170,7 @@ describe("normalizeSlackBlockActions", () => {
     const payload = makeBlockActionsPayload({
       actionValue: undefined as unknown as string,
     });
-    payload.actions[0].value = undefined;
+    payload.actions![0].value = undefined;
     const result = normalizeSlackBlockActions(payload, "env-2", config);
 
     expect(result).not.toBeNull();
@@ -279,6 +279,114 @@ describe("normalizeSlackBlockActions", () => {
     );
 
     expect(result).toBeNull();
+  });
+});
+
+describe("block_actions tolerant validation", () => {
+  const config = makeConfig();
+
+  it("drops a non-object payload instead of throwing", () => {
+    expect(normalizeSlackBlockActions("nope", "env-x1", config)).toBeNull();
+    expect(normalizeSlackBlockActions(null, "env-x2", config)).toBeNull();
+    expect(normalizeSlackBlockActions(42, "env-x3", config)).toBeNull();
+  });
+
+  it("collapses a non-array actions field and drops the payload", () => {
+    const result = normalizeSlackBlockActions(
+      {
+        type: "block_actions",
+        trigger_id: "t1",
+        user: { id: "U123" },
+        channel: { id: "C456" },
+        actions: "not-an-array",
+      },
+      "env-x4",
+      config,
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("drops an action carrying neither value nor action_id", () => {
+    const result = normalizeSlackBlockActions(
+      {
+        type: "block_actions",
+        trigger_id: "t1",
+        user: { id: "U123" },
+        channel: { id: "C456" },
+        actions: [{ type: "button" }],
+      },
+      "env-x5",
+      config,
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("drops a payload missing the user id", () => {
+    const result = normalizeSlackBlockActions(
+      {
+        type: "block_actions",
+        trigger_id: "t1",
+        channel: { id: "C456" },
+        actions: [{ action_id: "approve", type: "button" }],
+      },
+      "env-x6",
+      config,
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("drops a payload missing the channel id", () => {
+    const result = normalizeSlackBlockActions(
+      {
+        type: "block_actions",
+        trigger_id: "t1",
+        user: { id: "U123" },
+        actions: [{ action_id: "approve", type: "button" }],
+      },
+      "env-x7",
+      config,
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("collapses a non-string action value, falling back to action_id", () => {
+    const result = normalizeSlackBlockActions(
+      {
+        type: "block_actions",
+        trigger_id: "t1",
+        user: { id: "U123" },
+        channel: { id: "C456" },
+        actions: [
+          { action_id: "approve_btn", value: { bad: true }, type: "button" },
+        ],
+      },
+      "env-x8",
+      config,
+    );
+
+    expect(result).not.toBeNull();
+    expect(result!.event.message.callbackData).toBe("approve_btn");
+  });
+
+  it("preserves unknown extra keys verbatim in raw", () => {
+    const payload = {
+      type: "block_actions",
+      trigger_id: "t1",
+      user: { id: "U123" },
+      channel: { id: "C456" },
+      actions: [
+        { action_id: "approve", value: "apr:run1:approve", type: "button" },
+      ],
+      unexpected_field: "surprise",
+    };
+    const result = normalizeSlackBlockActions(payload, "env-x9", config);
+
+    expect(result).not.toBeNull();
+    expect(result!.event.raw).toEqual(payload);
   });
 });
 

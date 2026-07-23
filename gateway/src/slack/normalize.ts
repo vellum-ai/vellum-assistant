@@ -916,23 +916,53 @@ export function normalizeSlackAppMention(
 }
 
 /**
- * Slack `block_actions` interactive payload shape (subset relevant to normalization).
- * Sent when a user clicks a Block Kit interactive element (button, menu, etc.).
+ * Slack `block_actions` interactive payload (subset relevant to normalization),
+ * delivered when a user clicks a Block Kit element (button, menu, …).
+ *
+ * No `@slack/types` cross-check here: unlike the Events API events, the
+ * interaction payload has no published type in `@slack/types` (it models Block
+ * Kit *elements*, e.g. `Button`, not the interaction envelope — that lives in
+ * `@slack/bolt`). The tolerant schema is the sole validator.
  */
-export interface SlackBlockActionsPayload {
-  type: "block_actions";
-  trigger_id: string;
-  user: { id: string; username?: string; name?: string };
-  channel?: { id: string; name?: string };
-  message?: { ts: string; thread_ts?: string; text?: string };
-  actions: Array<{
-    action_id: string;
-    value?: string;
-    type: string;
-    block_id?: string;
-    action_ts?: string;
-  }>;
-}
+const slackBlockActionsPayloadSchema = z.object({
+  type: optionalString(),
+  trigger_id: optionalString(),
+  user: z
+    .object({
+      id: optionalString(),
+      username: optionalString(),
+      name: optionalString(),
+    })
+    .optional()
+    .catch(undefined),
+  channel: z
+    .object({ id: optionalString(), name: optionalString() })
+    .optional()
+    .catch(undefined),
+  message: z
+    .object({
+      ts: optionalString(),
+      thread_ts: optionalString(),
+      text: optionalString(),
+    })
+    .optional()
+    .catch(undefined),
+  actions: z
+    .array(
+      z.object({
+        action_id: optionalString(),
+        value: optionalString(),
+        type: optionalString(),
+        block_id: optionalString(),
+        action_ts: optionalString(),
+      }),
+    )
+    .optional()
+    .catch(undefined),
+});
+export type SlackBlockActionsPayload = z.infer<
+  typeof slackBlockActionsPayloadSchema
+>;
 
 /**
  * Slack `reaction_added` / `reaction_removed` event. Both carry an identical
@@ -993,17 +1023,26 @@ type _SlackReactionApiCrossChecks = [
  * Returns null if the payload is missing required fields or cannot be routed.
  */
 export function normalizeSlackBlockActions(
-  payload: SlackBlockActionsPayload,
+  payload: unknown,
   envelopeId: string,
   config: GatewayConfig,
 ): NormalizedSlackEvent | null {
-  const action = payload.actions?.[0];
+  const parsed = slackBlockActionsPayloadSchema.safeParse(payload);
+  if (!parsed.success) return null;
+  const data = parsed.data;
+
+  const action = data.actions?.[0];
   if (!action) return null;
 
-  const userId = payload.user?.id;
+  // The action's value / id is the callback content and dedup payload; an
+  // action carrying neither is unactionable, so drop it.
+  const callbackData = action.value ?? action.action_id;
+  if (!callbackData) return null;
+
+  const userId = data.user?.id;
   if (!userId) return null;
 
-  const channelId = payload.channel?.id;
+  const channelId = data.channel?.id;
   if (!channelId) return null;
 
   // DM channels (D...) fall back to the default assistant when the DM
@@ -1024,8 +1063,7 @@ export function normalizeSlackBlockActions(
   }
   if (isRejection(routing)) return null;
 
-  const callbackData = action.value ?? action.action_id;
-  const messageTs = payload.message?.ts;
+  const messageTs = data.message?.ts;
   // Use action_ts (unique per click) to prevent dedup collisions when
   // multiple buttons on the same message are clicked or the same button
   // is clicked again after a transient failure.
@@ -1040,27 +1078,27 @@ export function normalizeSlackBlockActions(
         content: callbackData,
         conversationExternalId: channelId,
         externalMessageId: `${channelId}:${messageTs ?? envelopeId}:${actionTs}`,
-        callbackQueryId: payload.trigger_id,
+        callbackQueryId: data.trigger_id,
         callbackData,
       },
       actor: {
         actorExternalId: userId,
-        username: payload.user.username,
-        displayName: payload.user.name,
+        username: data.user?.username,
+        displayName: data.user?.name,
       },
       source: {
         updateId: envelopeId,
         messageId: messageTs,
-        ...(payload.message?.thread_ts
-          ? { threadId: payload.message.thread_ts }
+        ...(data.message?.thread_ts
+          ? { threadId: data.message.thread_ts }
           : {}),
       },
-      raw: payload as unknown as Record<string, unknown>,
+      raw: payload as Record<string, unknown>,
     },
     routing,
     // Prefer the thread root so follow-up messages land in the original
     // conversation thread, not a reply's sub-thread.
-    threadTs: payload.message?.thread_ts ?? messageTs ?? envelopeId,
+    threadTs: data.message?.thread_ts ?? messageTs ?? envelopeId,
     channel: channelId,
   };
 }
