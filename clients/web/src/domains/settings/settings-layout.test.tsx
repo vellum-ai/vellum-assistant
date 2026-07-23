@@ -32,6 +32,14 @@ mock.module("@/lib/backwards-compat/use-supports-bookmarks", () => ({
   useSupportsBookmarks: () => supportsBookmarks,
 }));
 
+mock.module("@/stores/resolved-assistants-store", () => {
+  const store = () => null;
+  store.use = {
+    activeAssistantId: () => "asst-active",
+  };
+  return { useResolvedAssistantsStore: store };
+});
+
 mock.module("@/hooks/use-platform-gate", () => ({
   usePlatformGate: () => "full",
 }));
