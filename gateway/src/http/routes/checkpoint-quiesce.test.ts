@@ -32,7 +32,9 @@ function makeDeps(
     getSlackSocketClient: overrides.getSlackSocketClient ?? (() => null),
     callAssistant: async (method, _params, opts) => {
       calls.push({ method, timeoutMs: opts?.timeoutMs });
-      if (overrides.daemonError) throw overrides.daemonError;
+      if (overrides.daemonError) {
+        throw overrides.daemonError;
+      }
       return overrides.daemonResult ?? { ok: true, disposedSseClients: 2 };
     },
   };
