@@ -457,6 +457,7 @@ import { migrateMoveMemoryRetrospectiveStateToMemoryDb } from "./migrations/346-
 import { migrateDeleteStrayGreetingConversation } from "./migrations/347-delete-stray-greeting-conversation.js";
 import { migrateMemorySummariesScopeUpdatedIndex } from "./migrations/348-memory-summaries-scope-updated-index.js";
 import { migrateMoveMemoryGraphTablesToMemoryDb } from "./migrations/349-move-memory-graph-tables-to-memory-db.js";
+import { migrateConversationsTotalInputTokensNullable } from "./migrations/350-conversations-total-input-tokens-nullable.js";
 import type { MigrationStep } from "./migrations/run-migrations.js";
 
 export const migrationSteps: MigrationStep[] = [
@@ -1471,4 +1472,5 @@ export const migrationSteps: MigrationStep[] = [
       "migrateSweepCachelessGraphNodeVectors",
     ],
   },
+  migrateConversationsTotalInputTokensNullable,
 ];
