@@ -532,6 +532,13 @@ export function useStreamEventHandler(
         case "config_changed":
         case "sounds_config_updated":
           break;
+        // Integration/platform lifecycle broadcasts. The web chat handler is a
+        // no-op — OAuth-connect completion and platform login/disconnect signals
+        // are consumed by the settings surfaces, not the conversation stream.
+        case "oauth_connect_result":
+        case "show_platform_login":
+        case "platform_disconnected":
+          break;
         // Notification-created broadcasts and recording lifecycle
         // instructions. The web chat handler is a no-op for these — they target
         // the CLI/desktop clients or are handled elsewhere.
