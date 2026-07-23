@@ -1,11 +1,27 @@
 import { renderSlackTextForModel } from "@vellumai/slack-text";
+import type {
+  ReactionAddedEvent as SlackApiReactionAddedEvent,
+  ReactionRemovedEvent as SlackApiReactionRemovedEvent,
+} from "@slack/types";
 import { createHash } from "node:crypto";
+import { z } from "zod";
 import { isSlackDmChannel } from "./channel.js";
 import type { GatewayConfig } from "../config.js";
 import { fetchImpl } from "../fetch.js";
 import { resolveAssistant, isRejection } from "../routing/resolve-assistant.js";
 import type { RouteResult } from "../routing/types.js";
 import type { GatewayInboundEvent } from "../types.js";
+import type {
+  Expect,
+  ModeledKeysAreOfficial,
+  OfficialValueSatisfiesOurs,
+} from "../webhook-crosscheck.js";
+
+// Slack event payloads are untrusted external input (Socket Mode / Events API).
+// Fields are validated with tolerant Zod schemas: a malformed value collapses to
+// `undefined` so the existing null-checks drop an unprocessable event rather than
+// trusting garbage. The original payload is preserved verbatim as `raw`.
+const optionalString = () => z.string().optional().catch(undefined);
 
 /**
  * Resolved Slack user info for populating actor fields.
@@ -879,37 +895,52 @@ export interface SlackBlockActionsPayload {
 }
 
 /**
- * Slack `reaction_added` event shape.
+ * Slack `reaction_added` / `reaction_removed` event. Both carry an identical
+ * payload, differentiated only by the `type` discriminator (the caller passes
+ * the add-vs-remove distinction as an explicit `op`).
  */
-export interface SlackReactionAddedEvent {
-  type: "reaction_added";
-  user: string;
-  reaction: string;
-  item: {
-    type: string;
-    channel: string;
-    ts: string;
-  };
-  item_user?: string;
-  event_ts?: string;
-}
+const slackReactionEventSchema = z.object({
+  type: optionalString(),
+  user: optionalString(),
+  reaction: optionalString(),
+  item: z
+    .object({
+      type: optionalString(),
+      channel: optionalString(),
+      ts: optionalString(),
+    })
+    .optional()
+    .catch(undefined),
+  item_user: optionalString(),
+  event_ts: optionalString(),
+});
+type SlackReactionEvent = z.infer<typeof slackReactionEventSchema>;
 
-/**
- * Slack `reaction_removed` event shape — same payload as `reaction_added`,
- * differentiated only by the `type` discriminator.
- */
-export interface SlackReactionRemovedEvent {
-  type: "reaction_removed";
-  user: string;
-  reaction: string;
-  item: {
-    type: string;
-    channel: string;
-    ts: string;
-  };
-  item_user?: string;
-  event_ts?: string;
-}
+/** Kept for `socket-mode.ts`'s narrowing casts; both are one payload shape. */
+export type SlackReactionAddedEvent = SlackReactionEvent;
+export type SlackReactionRemovedEvent = SlackReactionEvent;
+
+// Compile-time cross-check against the official Slack event types, via the
+// shared `webhook-crosscheck` helpers. `@slack/types` is a types-only
+// dependency: the `import type` above is erased from the build, so
+// `slackReactionEventSchema` stays the sole runtime validator. `tsc` proves our
+// tolerant schema never contradicts Slack's published shape, so a field rename
+// or wrong primitive fails the build instead of silently parsing a live event
+// to `undefined`.
+type _SlackReactionApiCrossChecks = [
+  Expect<
+    ModeledKeysAreOfficial<SlackReactionEvent, SlackApiReactionAddedEvent>
+  >,
+  Expect<
+    OfficialValueSatisfiesOurs<SlackReactionEvent, SlackApiReactionAddedEvent>
+  >,
+  Expect<
+    ModeledKeysAreOfficial<SlackReactionEvent, SlackApiReactionRemovedEvent>
+  >,
+  Expect<
+    OfficialValueSatisfiesOurs<SlackReactionEvent, SlackApiReactionRemovedEvent>
+  >,
+];
 
 /**
  * Normalize a Slack `block_actions` interactive payload into the gateway's
@@ -1000,12 +1031,25 @@ export function normalizeSlackBlockActions(
  * downstream callback prefix and externalMessageId suffix.
  */
 function normalizeSlackReaction(
-  event: SlackReactionAddedEvent | SlackReactionRemovedEvent,
+  event: SlackReactionEvent,
+  rawEvent: Record<string, unknown>,
   eventId: string,
   config: GatewayConfig,
   op: "added" | "removed",
 ): NormalizedSlackEvent | null {
-  if (!event.user || !event.item?.channel || !event.item?.ts) return null;
+  // `reaction` is load-bearing: it forms the `callbackData` and part of the
+  // dedup `externalMessageId`. Without this guard a collapsed (missing /
+  // non-string) reaction would emit `reaction:undefined`, which the
+  // assistant-side parser treats as a real emoji named "undefined" rather
+  // than dropping it.
+  if (
+    !event.user ||
+    !event.reaction ||
+    !event.item?.channel ||
+    !event.item?.ts
+  ) {
+    return null;
+  }
 
   const channel = event.item.channel;
 
@@ -1055,7 +1099,7 @@ function normalizeSlackReaction(
         messageId: event.item.ts,
         threadId: event.item.ts,
       },
-      raw: event as unknown as Record<string, unknown>,
+      raw: rawEvent,
     },
     routing,
     threadTs: event.item.ts,
@@ -1072,11 +1116,19 @@ function normalizeSlackReaction(
  * Returns null if the event is missing required fields or cannot be routed.
  */
 export function normalizeSlackReactionAdded(
-  event: SlackReactionAddedEvent,
+  event: unknown,
   eventId: string,
   config: GatewayConfig,
 ): NormalizedSlackEvent | null {
-  return normalizeSlackReaction(event, eventId, config, "added");
+  const parsed = slackReactionEventSchema.safeParse(event);
+  if (!parsed.success) return null;
+  return normalizeSlackReaction(
+    parsed.data,
+    event as Record<string, unknown>,
+    eventId,
+    config,
+    "added",
+  );
 }
 
 /**
@@ -1088,11 +1140,19 @@ export function normalizeSlackReactionAdded(
  * Returns null if the event is missing required fields or cannot be routed.
  */
 export function normalizeSlackReactionRemoved(
-  event: SlackReactionRemovedEvent,
+  event: unknown,
   eventId: string,
   config: GatewayConfig,
 ): NormalizedSlackEvent | null {
-  return normalizeSlackReaction(event, eventId, config, "removed");
+  const parsed = slackReactionEventSchema.safeParse(event);
+  if (!parsed.success) return null;
+  return normalizeSlackReaction(
+    parsed.data,
+    event as Record<string, unknown>,
+    eventId,
+    config,
+    "removed",
+  );
 }
 
 /**
