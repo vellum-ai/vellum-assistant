@@ -73,12 +73,13 @@ export function computeCustomPlanDiff(input: {
   // subscriber still holds has to price and label even where the modal no
   // longer offers it as a choice.
   const machineTiers = proPlan.machine_tiers;
+  const storageTiers = proPlan.storage_tiers;
   const creditTiers = proPlan.credit_tiers ?? [];
 
   const selectedMachine =
     machineTiers.find((t) => t.tier === machineTier) ?? null;
   const selectedStorage =
-    proPlan.storage_tiers.find((t) => t.tier === storageTier) ?? null;
+    storageTiers.find((t) => t.tier === storageTier) ?? null;
   const selectedCredit =
     creditChoice && creditChoice !== NO_EXTRA_CREDITS
       ? (creditTiers.find((t) => t.tier === creditChoice) ?? null)
@@ -90,7 +91,7 @@ export function computeCustomPlanDiff(input: {
       : null;
   const seedStorage =
     seed != null
-      ? (proPlan.storage_tiers.find((t) => t.tier === seed.storageTier) ?? null)
+      ? (storageTiers.find((t) => t.tier === seed.storageTier) ?? null)
       : null;
   const seedCredit =
     seed != null && seed.creditTier != null

@@ -206,11 +206,9 @@ export function CustomPlanModal({
   const selectedMachine =
     machineTiers.find((t) => t.tier === machineTier) ?? null;
 
-  // Pricing resolves against the whole catalog, but submitting must not: a tier
-  // the dropdown renders disabled would be rejected server-side, and a plans
-  // refetch can disable the standing selection while the modal is open. The
-  // seeded values pass through unconditionally — re-sending what the subscriber
-  // already holds is a legitimate no-op.
+  // A tier the dropdown renders disabled would be rejected server-side, and a
+  // plans refetch can disable the standing selection mid-modal. The seeded
+  // values pass through regardless — re-sending what the sub holds is a no-op.
   const storageIsSeeded =
     storageTier !== "" && storageTier === initialSelection?.storageTier;
   const submittableStorage =
@@ -219,13 +217,12 @@ export function CustomPlanModal({
         t.tier === storageTier &&
         (storageIsSeeded || !storageOptionDisabled(t)),
     ) ?? null;
+  const creditIsSubmittable =
+    creditChoice === NO_EXTRA_CREDITS ||
+    creditChoice === initialSelection?.creditTier ||
+    selectableCreditTiers.some((t) => t.tier === creditChoice);
   const submittableCredit: CreditChoice | null =
-    creditChoice === "" ||
-    (creditChoice !== NO_EXTRA_CREDITS &&
-      creditChoice !== initialSelection?.creditTier &&
-      !selectableCreditTiers.some((t) => t.tier === creditChoice))
-      ? null
-      : creditChoice;
+    creditChoice !== "" && creditIsSubmittable ? creditChoice : null;
 
   const complete =
     selectedMachine != null &&
