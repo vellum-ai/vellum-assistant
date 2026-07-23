@@ -33,109 +33,35 @@ import {
 } from "../config/llm-resolver.js";
 import { getDb } from "../persistence/db-connection.js";
 import { credentialKey } from "../security/credential-key.js";
-import { ConfigError, ProviderNotConfiguredError } from "../util/errors.js";
+import { ProviderNotConfiguredError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import {
   describeSubscriptionModelIncompatibility,
   isConnectionCompatibleWithModel,
 } from "./connection-model-compat.js";
-import { CHATGPT_SUBSCRIPTION_CONNECTION_NAME } from "./inference/auth.js";
 import { getConnection, listConnections } from "./inference/connections.js";
-import { isCodexSubscriptionModel } from "./openai/codex-models.js";
 import { resolveManagedProxyContext } from "./platform-proxy/context.js";
 import { checkCredentialPresence } from "./provider-availability.js";
 import type { ProvidersConfig } from "./registry.js";
 import { resolveProviderFromConnection } from "./registry.js";
+import {
+  ConnectionResolutionError,
+  resolveRoutingIdentity,
+} from "./routing-identity.js";
 import type { Provider } from "./types.js";
 import {
-  getManagedUpstream,
   isVellumManagedConnection,
   MANAGED_ROUTABLE_PROVIDERS,
-  VELLUM_MANAGED_CONNECTION_NAME,
 } from "./vellum-model-routing.js";
 
+// Re-exported for the many existing importers; the definitions moved to
+// `routing-identity.ts` so `usage/attribution.ts` can use them without
+// importing this module (this file sits on the registry/attribution import
+// cycle that the move broke — see routing-identity.ts). New code should
+// import them from there.
+export { ConnectionResolutionError, resolveRoutingIdentity };
+
 const log = getLogger("providers/connection-resolution");
-
-/**
- * Error raised when a `provider_connection` reference cannot be resolved
- * because the configuration is broken (DB lookup throws, no such row, or
- * the connection's provider does not match the resolving profile's
- * declared provider). These are deterministic configuration bugs that
- * should fail loudly rather than silently rerouting.
- */
-export class ConnectionResolutionError extends ConfigError {
-  public readonly model?: string;
-  public readonly profileName?: string;
-
-  constructor(
-    public readonly connectionName: string,
-    public readonly reason:
-      | "lookup_failed"
-      | "not_found"
-      | "provider_mismatch"
-      | "missing_connection"
-      | "model_incompatible"
-      | "missing_credential"
-      | "platform_unauthenticated"
-      | "unroutable_managed_model",
-    message: string,
-    options?: { cause?: unknown; model?: string; profileName?: string },
-  ) {
-    super(message, { cause: options?.cause });
-    this.name = "ConnectionResolutionError";
-    this.model = options?.model;
-    this.profileName = options?.profileName;
-  }
-}
-
-/**
- * Translate a routing-identity provider into its dispatch target. "vellum"
- * derives the managed upstream from the model and routes through the
- * canonical vellum connection; "chatgpt" routes through the
- * chatgpt-subscription connection with an openai upstream. Returns null for
- * real providers. Throws `unroutable_managed_model` when a vellum model has
- * no managed upstream, and `model_incompatible` when a chatgpt model is
- * outside the Codex subscription set — loud and explainable, never a soft
- * fall-through to the (possibly platform-billed) default transport.
- */
-export function resolveRoutingIdentity(
-  provider: string | undefined,
-  model: string | undefined,
-): { connectionName: string; expectedProvider: string } | null {
-  if (provider === "vellum") {
-    const upstream = model ? getManagedUpstream(model) : null;
-    if (!upstream) {
-      throw new ConnectionResolutionError(
-        VELLUM_MANAGED_CONNECTION_NAME,
-        "unroutable_managed_model",
-        `provider "vellum" cannot route model "${model ?? "<unset>"}" — no managed upstream serves it. Pick a model from the Vellum catalog or set a concrete provider.`,
-        { model },
-      );
-    }
-    return {
-      connectionName: VELLUM_MANAGED_CONNECTION_NAME,
-      expectedProvider: upstream,
-    };
-  }
-  if (provider === "chatgpt") {
-    // The subscription endpoint rejects non-Codex models with HTTP 400;
-    // gate here so the misconfiguration surfaces as a config error instead
-    // of an upstream request failure.
-    if (model && !isCodexSubscriptionModel(model)) {
-      throw new ConnectionResolutionError(
-        CHATGPT_SUBSCRIPTION_CONNECTION_NAME,
-        "model_incompatible",
-        `provider "chatgpt" cannot route model "${model}" — the ChatGPT subscription serves Codex models only. Pick a Codex model or set a concrete provider.`,
-        { model },
-      );
-    }
-    return {
-      connectionName: CHATGPT_SUBSCRIPTION_CONNECTION_NAME,
-      expectedProvider: "openai",
-    };
-  }
-  return null;
-}
 
 /**
  * Resolve a Provider through a named `provider_connection`.

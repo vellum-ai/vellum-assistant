@@ -4,8 +4,11 @@ import {
 } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
-import { resolveRoutingIdentity } from "../providers/connection-resolution.js";
 import { ROUTING_IDENTITY_PROVIDERS } from "../providers/inference/auth.js";
+// Imported from the leaf module, NOT from connection-resolution.js: that
+// import was the back-edge of the module graph's only cycle (registry ->
+// retry -> attribution -> connection-resolution). See routing-identity.ts.
+import { resolveRoutingIdentity } from "../providers/routing-identity.js";
 import { safeStringSlice } from "../util/unicode.js";
 
 const MAX_METADATA_VALUE_LENGTH = 128;
