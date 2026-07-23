@@ -313,6 +313,7 @@ describe("PlanCard", () => {
     const html = renderCard(baseSubscription(), basePlansResponse());
     expect(html).toContain("plan-card-name");
     expect(html).toContain("Free");
+    expect(html).toContain("Your Current Plan");
     expect(html).toContain("plan-card-renews");
     expect(html).toContain("auto renew");
   });
@@ -320,7 +321,7 @@ describe("PlanCard", () => {
   test("shows the upgrade button for a base plan", () => {
     const html = renderCard(baseSubscription(), basePlansResponse());
     expect(html).toContain("plan-card-upgrade-button");
-    expect(html).toContain("View Plans");
+    expect(html).toContain("View All Plans");
   });
 
   test("does not render the invoices button (moved to inline table)", () => {
@@ -331,47 +332,45 @@ describe("PlanCard", () => {
   test("renders the recommended-upgrade banner (Mighty from Free)", () => {
     const html = renderCard(baseSubscription(), basePlansResponse());
     expect(html).toContain("recommended-upgrade-button");
-    expect(html).toContain("Recommended Upgrade");
+    expect(html).toContain("Recommended");
     expect(html).toContain("Mighty");
   });
 
   test("no upgrade banner when the package catalog is empty (flag off)", () => {
     const html = renderCard(baseSubscription(), emptyCatalogPlans());
+    // Only the current card renders; the recommended card (and its CTA) is gone.
     expect(html).not.toContain("recommended-upgrade-button");
-    expect(html).not.toContain("Recommended Upgrade");
   });
 
-  test("Free → Mighty chips: credits, storage, and the larger-machines unlock", () => {
+  test("Free → Mighty chips: both cards render absolute per-plan chips", () => {
     const html = renderCard(baseSubscription(), basePlansResponse());
-    // Mighty keeps the small baseline machine (machine_size null), so the third
-    // chip advertises the Pro larger-machines unlock rather than a no-op
-    // "Small Machine" row. The vCPU chip is gone entirely.
-    expect(html).toContain("Larger machines");
+    // Both peer cards render absolute chips (machine → credits → storage); the
+    // recommended (Mighty) card and the current (Free) card each show their own
+    // values, with no delta/arrow framing and no vCPU chip.
+    expect(html).toContain("$25 credits");
+    expect(html).toContain("10 GB");
+    expect(html).toContain("Small Machine");
+    // The current (Free) card shows the free baseline chips.
+    expect(html).toContain("$0 credits");
+    expect(html).toContain("4 GB");
     expect(html).not.toContain("vCPU");
-    expect(html).not.toContain("Small Machine");
-    expect(html).not.toContain("Standard");
-    // Credits step from Free's $0 to Mighty's $25 (arrow form, real change),
-    // labelled per-month.
-    expect(html).toContain("$0 → $25 credits/mo");
-    // Storage really changes (free's 4 GiB baseline → Mighty's 10 GB).
-    expect(html).toContain("4 → 10 GB");
-    expect(html).not.toContain("0 → 10 GB");
   });
 
-  test("Mighty → Super: recommends Super with a machine step-up chip", () => {
+  test("Mighty → Super: recommends Super with absolute chips on both cards", () => {
     const html = renderCard(proMightySubscription(), plansWithSuper());
     // On Mighty, the recommended upgrade is the next catalog package, Super.
     expect(html).toContain("recommended-upgrade-button");
-    expect(html).toContain("Recommended Upgrade");
+    expect(html).toContain("Recommended");
     expect(html).toContain("Super");
-    // The machine tier actually changes here, so the third chip is the machine
-    // arrow — NOT the larger-machines unlock (that's only the Free → Pro step).
-    expect(html).toContain("Small → Medium Machine");
-    expect(html).not.toContain("Larger machines");
-    // Credits and storage step up from Mighty's values.
-    expect(html).toContain("$25 → $45 credits/mo");
-    expect(html).toContain("10 → 30 GB");
-    // The current-plan row shows the actual package name "Mighty" (not the
+    // The recommended (Super) card shows Super's absolute chips.
+    expect(html).toContain("$45 credits");
+    expect(html).toContain("30 GB");
+    expect(html).toContain("Medium Machine");
+    // The current (Mighty) card shows Mighty's absolute chips.
+    expect(html).toContain("$25 credits");
+    expect(html).toContain("10 GB");
+    expect(html).toContain("Small Machine");
+    // The current-plan card shows the actual package name "Mighty" (not the
     // generic plan name "Pro").
     expect(html).toContain("plan-card-name");
     expect(html).toContain("Mighty");
@@ -391,9 +390,9 @@ describe("PlanCard", () => {
     expect(html).toContain("recommended-upgrade-button");
     expect(html).toContain("Switch plan");
     expect(html).toContain("Switch to Mighty");
-    expect(html).not.toContain("Recommended Upgrade");
-    expect(html).not.toContain("credits/mo");
-    expect(html).not.toContain("Larger machines");
+    // A neutral switch drops the "Recommended" tag and renders no stock chips on
+    // the recommended card; the current "Custom" card also has no knowable chips.
+    expect(html).not.toContain("Recommended");
   });
 
   test("a customized Pro sub's banner drops the stock upgrade framing", () => {
@@ -409,15 +408,14 @@ describe("PlanCard", () => {
     // neutral switch since the customized tiers can differ from stock Super.
     expect(html).toContain("Switch plan");
     expect(html).toContain("Switch to Super");
-    expect(html).not.toContain("Recommended Upgrade");
-    expect(html).not.toContain("credits/mo");
+    expect(html).not.toContain("Recommended");
   });
 
   test("a base user's banner keeps the directional upgrade framing", () => {
-    // Base → Pro is a genuine Stripe-checkout upgrade, so the banner keeps its
-    // "Recommended Upgrade" tag, the "Upgrade for … more" CTA, and stock deltas.
+    // Base → Pro is a genuine Stripe-checkout upgrade, so the recommended card
+    // keeps its "Recommended" tag and the "Upgrade for … more" CTA.
     const html = renderCard(baseSubscription(), basePlansResponse());
-    expect(html).toContain("Recommended Upgrade");
+    expect(html).toContain("Recommended");
     expect(html).toContain("Upgrade for");
     expect(html).not.toContain("Switch plan");
   });
