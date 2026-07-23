@@ -85,9 +85,11 @@ import { ModelInfoEventSchema } from "./events/model-info.js";
 import { NavigateSettingsEventSchema } from "./events/navigate-settings.js";
 import { NotificationConversationCreatedEventSchema } from "./events/notification-conversation-created.js";
 import { NotificationIntentEventSchema } from "./events/notification-intent.js";
+import { OAuthConnectResultEventSchema } from "./events/oauth-connect-result.js";
 import { OpenConversationEventSchema } from "./events/open-conversation.js";
 import { OpenPanelEventSchema } from "./events/open-panel.js";
 import { OpenUrlEventSchema } from "./events/open-url.js";
+import { PlatformDisconnectedEventSchema } from "./events/platform-disconnected.js";
 import { QuestionRequestEventSchema } from "./events/question-request.js";
 import {
   RecordingPauseEventSchema,
@@ -101,6 +103,7 @@ import { SecretRequestEventSchema } from "./events/secret-request.js";
 import { ServiceGroupUpdateCompleteEventSchema } from "./events/service-group-update-complete.js";
 import { ServiceGroupUpdateProgressEventSchema } from "./events/service-group-update-progress.js";
 import { ServiceGroupUpdateStartingEventSchema } from "./events/service-group-update-starting.js";
+import { ShowPlatformLoginEventSchema } from "./events/show-platform-login.js";
 import { SkillStateChangedEventSchema } from "./events/skill-state-changed.js";
 import { SoundsConfigUpdatedEventSchema } from "./events/sounds-config-updated.js";
 import { SubagentEventEventSchema } from "./events/subagent-event.js";
@@ -457,6 +460,10 @@ export {
   NotificationIntentEventSchema,
 } from "./events/notification-intent.js";
 export {
+  type OAuthConnectResultEvent,
+  OAuthConnectResultEventSchema,
+} from "./events/oauth-connect-result.js";
+export {
   type OpenConversationEvent,
   OpenConversationEventSchema,
 } from "./events/open-conversation.js";
@@ -465,6 +472,10 @@ export {
   OpenPanelEventSchema,
 } from "./events/open-panel.js";
 export { type OpenUrlEvent, OpenUrlEventSchema } from "./events/open-url.js";
+export {
+  type PlatformDisconnectedEvent,
+  PlatformDisconnectedEventSchema,
+} from "./events/platform-disconnected.js";
 export {
   type QuestionEntry,
   QuestionEntrySchema,
@@ -509,6 +520,10 @@ export {
   type ServiceGroupUpdateStartingEvent,
   ServiceGroupUpdateStartingEventSchema,
 } from "./events/service-group-update-starting.js";
+export {
+  type ShowPlatformLoginEvent,
+  ShowPlatformLoginEventSchema,
+} from "./events/show-platform-login.js";
 export {
   type SkillStateChangedEvent,
   SkillStateChangedEventSchema,
@@ -911,9 +926,11 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   NavigateSettingsEventSchema,
   NotificationConversationCreatedEventSchema,
   NotificationIntentEventSchema,
+  OAuthConnectResultEventSchema,
   OpenConversationEventSchema,
   OpenPanelEventSchema,
   OpenUrlEventSchema,
+  PlatformDisconnectedEventSchema,
   QuestionRequestEventSchema,
   RecordingPauseEventSchema,
   RecordingResumeEventSchema,
@@ -925,6 +942,7 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   ServiceGroupUpdateCompleteEventSchema,
   ServiceGroupUpdateProgressEventSchema,
   ServiceGroupUpdateStartingEventSchema,
+  ShowPlatformLoginEventSchema,
   SkillStateChangedEventSchema,
   SoundsConfigUpdatedEventSchema,
   SubagentEventEventSchema,
