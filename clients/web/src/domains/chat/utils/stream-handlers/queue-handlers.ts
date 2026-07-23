@@ -21,7 +21,9 @@ export function handleMessageQueued(
   ctx.turnActions.enqueueMessage();
   const { requestId, position } = event;
   const messageId = ctx.shiftPendingQueuedMessageId();
-  if (!messageId) return;
+  if (!messageId) {
+    return;
+  }
 
   ctx.setRequestIdMapping(requestId, messageId);
 
@@ -69,6 +71,9 @@ export function handleMessageQueuedDeleted(
   if (deletedMessageId) {
     ctx.setOptimisticSends((prev) => removeQueuedMessage(prev, deletedMessageId));
   }
+  patchTranscriptMessages((prev) =>
+    removeQueuedMessage(prev, deletedMessageId ?? event.requestId),
+  );
 }
 
 export function handleMessageRequestComplete(

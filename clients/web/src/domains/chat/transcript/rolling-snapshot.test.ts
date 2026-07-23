@@ -21,6 +21,19 @@ const SEED: PaginatedHistoryResult = {
   seq: 0,
 };
 
+const queuedSnapshot = (): PaginatedHistoryResult => ({
+  ...SEED,
+  messages: [
+    {
+      id: "req-1",
+      role: "user",
+      queueStatus: "queued",
+      queuePosition: 1,
+    },
+  ],
+  seq: 1,
+});
+
 // `emittedAt` is derived from `seq` so the deterministic creation stamp is
 // `1000 + seq` — the reducer parses it back to that epoch ms.
 function env(seq: number, message: AssistantEvent): AssistantEventEnvelope {
@@ -212,6 +225,31 @@ describe("rolling-snapshot reducer", () => {
       // A stale tail (<= snapshot.seq) folds to nothing.
       const resolved = resolveSnapshot(snapshot, [textDelta(4, "a1", " stale")]);
       expect(resolved.messages.find((m) => m.id === "a1")?.textSegments).toEqual(["x"]);
+    });
+
+    test("replays a dequeue transition onto a queued snapshot row", () => {
+      const resolved = resolveSnapshot(queuedSnapshot(), [
+        env(2, {
+          type: "message_dequeued",
+          conversationId: "conv-1",
+          requestId: "req-1",
+        } as AssistantEvent),
+      ]);
+
+      expect(resolved.messages[0]?.queueStatus).toBeUndefined();
+      expect(resolved.messages[0]?.queuePosition).toBeUndefined();
+    });
+
+    test("replays a queued deletion onto a queued snapshot row", () => {
+      const resolved = resolveSnapshot(queuedSnapshot(), [
+        env(2, {
+          type: "message_queued_deleted",
+          conversationId: "conv-1",
+          requestId: "req-1",
+        } as AssistantEvent),
+      ]);
+
+      expect(resolved.messages).toEqual([]);
     });
   });
 

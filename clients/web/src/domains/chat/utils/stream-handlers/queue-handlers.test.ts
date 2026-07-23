@@ -164,6 +164,36 @@ describe("handleMessageQueuedDeleted", () => {
     expect(ctx.turnActions.deleteQueuedMessage).toHaveBeenCalled();
     expect(ctx.setOptimisticSends).not.toHaveBeenCalled();
   });
+
+  it("removes a server-backed queued transcript row", () => {
+    useChatSessionStore.setState({
+      snapshot: {
+        messages: [
+          {
+            id: "req-1",
+            role: "user",
+            queueStatus: "queued",
+            queuePosition: 1,
+          },
+        ],
+        hasMore: false,
+        oldestTimestamp: null,
+        oldestMessageId: null,
+        seq: 1,
+      },
+    });
+
+    handleMessageQueuedDeleted(
+      {
+        type: "message_queued_deleted",
+        conversationId: "conv-1",
+        requestId: "req-1",
+      },
+      makeCtx(),
+    );
+
+    expect(useChatSessionStore.getState().snapshot?.messages).toEqual([]);
+  });
 });
 
 describe("handleMessageRequestComplete", () => {
