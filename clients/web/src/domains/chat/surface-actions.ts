@@ -8,6 +8,12 @@
 
 import { captureError } from "@/lib/sentry/capture-error";
 
+import {
+  FIRST_RUN_SCOPE_DATA_KEY,
+  isFirstRunScope,
+} from "@/domains/onboarding/first-run-scope";
+import { emitFirstMessageScopeSelected } from "@/domains/onboarding/funnel-events";
+import { useAuthStore } from "@/stores/auth-store";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { patchTranscriptMessages } from "@/domains/chat/transcript/patch-transcript-messages";
 import { useStreamStore } from "@/domains/chat/stream-store";
@@ -27,6 +33,27 @@ const DECISION_REASON_LABELS: Record<string, string> = {
 function formatDecisionReason(reason?: string): string {
   if (!reason) return "Not applied";
   return DECISION_REASON_LABELS[reason] ?? "Not applied";
+}
+
+/**
+ * Funnel telemetry for the first-run greeting's scope options. The
+ * `firstRunScope` marker only ever appears on choice-option payloads authored
+ * by the "Let's chat" kickoff prompt (the choice surface spreads each option's
+ * `data` into its click payload), so matching on it here needs no
+ * first-message heuristics. Strictly fire-and-forget — telemetry must never
+ * block or fail the surface-action path.
+ */
+function emitFirstRunScopeTelemetry(data?: Record<string, unknown>): void {
+  const scope = data?.[FIRST_RUN_SCOPE_DATA_KEY];
+  if (!isFirstRunScope(scope)) return;
+  try {
+    // Same auth source `active-chat-view.tsx` derives `authUserId` from, read
+    // non-reactively; an absent user id emits as null rather than blocking.
+    const userId = useAuthStore.getState().user?.id ?? null;
+    emitFirstMessageScopeSelected(scope, { userId });
+  } catch (err) {
+    captureError(err, { context: "first_run_scope_telemetry" });
+  }
 }
 
 /**
@@ -74,6 +101,7 @@ export async function handleSurfaceAction(
   const isGuardianDecision = typeof result.applied === "boolean";
   if (!isGuardianDecision) {
     useTurnStore.getState().requestSend();
+    emitFirstRunScopeTelemetry(data);
   }
 
   const completionText =
