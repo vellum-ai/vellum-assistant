@@ -558,9 +558,9 @@ describe("CallSetupFlow name capture", () => {
     ]);
   });
 
-  test("a previously denied caller gets the denial copy, not the timeout copy", async () => {
+  test("a kept-out caller (revoked/blocked) gets the denial copy, not the timeout copy", async () => {
     const f = createFlow({
-      notifyResult: { notified: false, reason: "already_denied" },
+      notifyResult: { notified: false, reason: "contact_kept_out" },
     });
     await f.flow.start(nameCaptureOutcome, makeResolved());
 
