@@ -40,6 +40,14 @@ import {
 export interface UseManagedVoiceSelection {
   /** True only when this assistant is managed and its daemon offers voice selection. */
   available: boolean;
+  /**
+   * The assistant speaks through a provider the user configured themselves —
+   * there is no catalog to pick from, and its voice is set on Settings → Models
+   * & Services. Distinct from `!available`, which is also false while config is
+   * still loading: this stays false until config says so, so a surface can show
+   * a "set it in Settings" state without flashing it during the fetch.
+   */
+  isByok: boolean;
   voices: readonly ManagedVoiceOption[];
   /** The currently-selected model (config value, else the platform default). */
   currentModel: string;
@@ -91,6 +99,9 @@ export function useManagedVoiceSelection(
 
   const available =
     enabled && isManaged && vellumSupportsVoiceSelection && voices.length > 0;
+  // Gated on config having actually arrived — an unfetched config reads as
+  // "not managed", which would flash the BYO state on every mount.
+  const isByok = enabled && !!daemonConfig && !isManaged;
 
   const currentModel = useMemo(() => {
     const configured = daemonTts?.providers?.vellum?.model;
@@ -135,6 +146,7 @@ export function useManagedVoiceSelection(
 
   return {
     available,
+    isByok,
     voices,
     currentModel,
     defaultModel: defaultModel ?? "",

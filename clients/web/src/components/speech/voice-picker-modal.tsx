@@ -1,61 +1,74 @@
 /**
- * The voice-picker modal ("Pick a voice for <assistant>"). Gives voice
- * selection the room a cramped trigger can't: every voice's full description on
- * its own line with a per-voice preview.
+ * The voice-picker modal: the full catalog with every voice's description on
+ * its own line and a per-voice preview — what a cramped trigger can't hold.
+ * Serves the callers with no dialog of their own to host the list: the
+ * voice-room settings popover and the Settings voice card.
  *
- * Selecting a voice persists it (hot-applies on the next reply) and closes the
- * modal. The list itself lives in {@link VoiceList}; the first-run card renders
- * that list inline as one of its own views, so this modal serves callers with
- * no dialog of their own to host the list — the voice-room settings popover and
- * the Voice settings page's picker card.
+ * Deliberately the same surface as the first-run card's "Voices" view (which
+ * renders {@link VoiceList} inline as one of its own views, so it can't share
+ * this dialog): same title, same managed-credits subtitle, the same
+ * provider-scoped list, and the same Models & Services fine print. Picking a
+ * voice is chosen the same way everywhere.
+ *
+ * Selection is held here rather than left to the list so a pick doesn't close
+ * the modal — auditioning several voices in a row is the whole point, and each
+ * one hot-applies on the assistant's next reply (there is nothing to save).
+ * Done is the only exit, and it waits out an in-flight write.
  */
 
 import { Modal } from "@vellumai/design-library/components/modal";
+import { Button } from "@vellumai/design-library/components/button";
 
+import { useManagedVoiceSelection } from "@/components/speech/use-managed-voice-selection";
 import { VoiceList } from "@/components/speech/voice-list";
-import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+import { VoiceProvidersNote } from "@/components/speech/voice-providers-note";
+import { MANAGED_VOICE_CREDITS_NOTE } from "@/lib/tts/managed-voice-catalog";
 
 export interface VoicePickerModalProps {
   assistantId: string | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** Show each voice's provider badge (settings surfaces). */
-  showSource?: boolean;
-  /**
-   * Browse by provider: a dropdown scopes the catalog to one source, and the
-   * modal widens to give the list room. On for the Voice-page picker; the
-   * in-call voice-room modal stays the compact single-list picker.
-   */
-  filterBySource?: boolean;
 }
 
 export function VoicePickerModal({
   assistantId,
   open,
   onOpenChange,
-  showSource = false,
-  filterBySource = false,
 }: VoicePickerModalProps) {
-  const assistantName = useResolvedAssistantsStore.use
-    .assistants()
-    .find((a) => a.id === assistantId)?.name;
+  const { available, currentModel, selectModel, selecting } =
+    useManagedVoiceSelection(assistantId);
 
   return (
     <Modal.Root open={open} onOpenChange={onOpenChange}>
-      <Modal.Content size={filterBySource ? "md" : "sm"}>
+      <Modal.Content size="md">
         <Modal.Header>
-          <Modal.Title>
-            Pick a voice for {assistantName ?? "your assistant"}
-          </Modal.Title>
+          <Modal.Title>Voices</Modal.Title>
+          {available && (
+            <Modal.Description>{MANAGED_VOICE_CREDITS_NOTE}</Modal.Description>
+          )}
         </Modal.Header>
         <Modal.Body>
+          {/* Provider-scoped, like the first-run view: a dropdown picks the
+              upstream source so accent grouping isn't split across providers.
+              It hides itself when the catalog has a single provider. */}
           <VoiceList
             assistantId={assistantId}
-            onSelect={() => onOpenChange(false)}
-            showSource={showSource}
-            filterBySource={filterBySource}
+            filterBySource
+            value={currentModel}
+            onChange={selectModel}
           />
         </Modal.Body>
+        <Modal.Footer className="items-center justify-between gap-3">
+          <VoiceProvidersNote />
+          <Button
+            variant="primary"
+            onClick={() => onOpenChange(false)}
+            disabled={selecting}
+            className="shrink-0"
+          >
+            Done
+          </Button>
+        </Modal.Footer>
       </Modal.Content>
     </Modal.Root>
   );

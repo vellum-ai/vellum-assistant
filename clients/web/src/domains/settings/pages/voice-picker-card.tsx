@@ -68,7 +68,6 @@ export function VoicePickerCard() {
           assistantId={assistantId}
           open={pickerOpen}
           onOpenChange={setPickerOpen}
-          filterBySource
         />
       </DetailCard>
     );
