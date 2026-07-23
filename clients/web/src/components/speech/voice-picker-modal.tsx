@@ -35,41 +35,62 @@ export function VoicePickerModal({
   open,
   onOpenChange,
 }: VoicePickerModalProps) {
+  return (
+    <Modal.Root open={open} onOpenChange={onOpenChange}>
+      <Modal.Content size="md">
+        {/* The picker's own component, so its daemon queries run only while the
+            modal is open — hosts keep this mounted across a whole session (the
+            voice room parks it outside its popover), and a closed dialog has no
+            business holding a React Query subscription. */}
+        <VoicePickerContent
+          assistantId={assistantId}
+          onDone={() => onOpenChange(false)}
+        />
+      </Modal.Content>
+    </Modal.Root>
+  );
+}
+
+function VoicePickerContent({
+  assistantId,
+  onDone,
+}: {
+  assistantId: string | null;
+  onDone: () => void;
+}) {
   const { available, currentModel, selectModel, selecting } =
     useManagedVoiceSelection(assistantId);
 
   return (
-    <Modal.Root open={open} onOpenChange={onOpenChange}>
-      <Modal.Content size="md">
-        <Modal.Header>
-          <Modal.Title>Voices</Modal.Title>
-          {available && (
-            <Modal.Description>{MANAGED_VOICE_CREDITS_NOTE}</Modal.Description>
-          )}
-        </Modal.Header>
-        <Modal.Body>
-          {/* Provider-scoped, like the first-run view: a dropdown picks the
-              upstream source so accent grouping isn't split across providers.
-              It hides itself when the catalog has a single provider. */}
-          <VoiceList
-            assistantId={assistantId}
-            filterBySource
-            value={currentModel}
-            onChange={selectModel}
-          />
-        </Modal.Body>
-        <Modal.Footer className="items-center justify-between gap-3">
-          <VoiceProvidersNote />
-          <Button
-            variant="primary"
-            onClick={() => onOpenChange(false)}
-            disabled={selecting}
-            className="shrink-0"
-          >
-            Done
-          </Button>
-        </Modal.Footer>
-      </Modal.Content>
-    </Modal.Root>
+    <>
+      <Modal.Header>
+        <Modal.Title>Voices</Modal.Title>
+        {available && (
+          <Modal.Description>{MANAGED_VOICE_CREDITS_NOTE}</Modal.Description>
+        )}
+      </Modal.Header>
+      <Modal.Body>
+        {/* Provider-scoped, like the first-run view: a dropdown picks the
+            upstream source so accent grouping isn't split across providers.
+            It hides itself when the catalog has a single provider. */}
+        <VoiceList
+          assistantId={assistantId}
+          filterBySource
+          value={currentModel}
+          onChange={selectModel}
+        />
+      </Modal.Body>
+      <Modal.Footer className="items-center justify-between gap-3">
+        <VoiceProvidersNote />
+        <Button
+          variant="primary"
+          onClick={onDone}
+          disabled={selecting}
+          className="shrink-0"
+        >
+          Done
+        </Button>
+      </Modal.Footer>
+    </>
   );
 }
