@@ -27,6 +27,10 @@ const log = getLogger("checkpoint-ipc");
 /** IPC method name — called by the gateway's pre-checkpoint quiesce handler. */
 export const CHECKPOINT_PREPARE_IPC_METHOD = "/checkpoint/prepare";
 
+// Bounded settle after closing SSE streams, letting response-finish + FIN
+// propagate before the quiesce is acknowledged.
+const SSE_CLOSE_SETTLE_MS = 250;
+
 export type CheckpointPrepareResult = {
   ok: true;
   /** Number of event-hub client subscribers whose SSE streams were closed. */
@@ -44,6 +48,15 @@ export async function handleCheckpointPrepare(
   // "process"-typed — via the events route's registry. Genuine in-process
   // subscribers (plugins, workers) never register and are untouched.
   const disposed = closeAllSseSubscriptions();
+  if (disposed > 0) {
+    // The closers end the streams synchronously; the response finish and TCP
+    // FIN (Connection: close) complete on the next event-loop turns. The
+    // daemon cannot observe the peer socket leaving the epoll set from this
+    // layer, so give that teardown a short bounded settle before acking —
+    // well inside the gateway's 3s IPC budget, and the control plane's
+    // snapshot-trigger path adds further seconds of margin after the ack.
+    await Bun.sleep(SSE_CLOSE_SETTLE_MS);
+  }
   log.info({ disposedSseClients: disposed }, "Pre-checkpoint quiesce complete");
   return { ok: true, disposedSseClients: disposed };
 }
