@@ -20,6 +20,46 @@ This skill creates a **GitHub App** under a GitHub organization, giving the assi
 
 > **Note:** This skill currently supports GitHub **organizations** only, not personal accounts.
 
+## Before you start — try OAuth first
+
+Before walking a user through the full GitHub App creation flow, check if a lighter option covers their needs. GitHub is a built-in OAuth provider on Vellum assistants:
+
+```bash
+assistant oauth status github
+```
+
+If not connected, render the OAuth connect button:
+
+```
+ui_show with surface_type "oauth_connect" and data.providerKey "github"
+```
+
+This gives the assistant authenticated access to the GitHub API via `assistant oauth request --provider github ...` with a single user click. No manifest, no PEM, no org admin required.
+
+**What OAuth can do:**
+- Read repos, branches, files
+- Create branches via the Git refs API (`POST /repos/{owner}/{repo}/git/refs`)
+- Create or update files via the Contents API (`PUT /repos/{owner}/{repo}/contents/{path}`)
+- Open PRs (`POST /repos/{owner}/{repo}/pulls`)
+- Post comments, review PRs, create issues
+
+**What OAuth cannot do:**
+- Attribute commits and PRs to a bot identity (everything shows as the user's personal account)
+- `git push` over HTTPS may not work with the OAuth token directly — use the GitHub API for file operations instead
+- Fine-grained per-repo permission control (OAuth scopes are broader)
+
+**When to use each:**
+
+| Need | OAuth | GitHub App |
+|---|---|---|
+| Push code and open PRs (identity doesn't matter) | Yes | Overkill |
+| Open PRs attributed to a bot | No | Yes |
+| User is not an org admin | Yes | No (App requires admin) |
+| Personal account repos | Yes | No (App is org-only) |
+| Automated CI/CD with scoped permissions | No | Yes |
+
+**Recommendation:** If the user just wants to "put up a PR" or "push some changes," connect OAuth and use the GitHub Contents API to create branches, update files, and open PRs. Reserve the GitHub App flow for when the user specifically wants a bot identity or needs scoped programmatic access.
+
 ## What Gets Created
 
 - A **GitHub App** owned by the org (not the user's personal account)
