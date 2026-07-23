@@ -207,11 +207,27 @@ export const PLACEHOLDER_PREFIXES = [
 ];
 
 /**
- * Check if a matched value is a placeholder/test value that should not be
- * reported: exact `KNOWN_PLACEHOLDERS` membership or a `PLACEHOLDER_PREFIXES`
- * prefix, case-insensitive.
+ * Check if the text immediately before a matched value indicates a
+ * placeholder context (e.g. "fake_", "test_"): true when the pre-context
+ * window ends with any `PLACEHOLDER_PREFIXES` entry, case-insensitive.
  */
-function isPlaceholderValue(value: string): boolean {
+export function isPlaceholderContext(preContext: string): boolean {
+  const lower = preContext.toLowerCase();
+  for (const prefix of PLACEHOLDER_PREFIXES) {
+    if (lower.endsWith(prefix)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Check if a matched value is a placeholder/test value that should not be
+ * reported: exact `KNOWN_PLACEHOLDERS` membership, a `PLACEHOLDER_PREFIXES`
+ * prefix (both case-insensitive), or a variable portion that is one repeated
+ * character (e.g. `AKIA` + `X` x 16).
+ */
+export function isPlaceholderValue(value: string): boolean {
   const lower = value.toLowerCase();
   if (KNOWN_PLACEHOLDERS.has(lower)) {
     return true;
@@ -221,6 +237,22 @@ function isPlaceholderValue(value: string): boolean {
       return true;
     }
   }
+
+  // Repeated characters in the variable portion (e.g. "AKIA" + "X" x 16)
+  // Strip known prefixes to isolate the variable part
+  const variablePart = value
+    .replace(
+      /^(?:AKIA|gh[pousr]_|github_pat_|glpat-|sk_live_|rk_live_|xoxb-|xoxp-|xapp-|sk-ant-|sk-proj-|sk-or-v1-|AIza|GOCSPX-|SK|SG\.|npm_|pypi-|key-|lin_api_|ntn_|fw_|pplx-|-----BEGIN [A-Z ]*PRIVATE KEY-----)/,
+      "",
+    )
+    .replace(/[^A-Za-z0-9]/g, "");
+  if (variablePart.length >= 8) {
+    const firstChar = variablePart[0];
+    if (variablePart.split("").every((c) => c === firstChar)) {
+      return true;
+    }
+  }
+
   return false;
 }
 
@@ -260,7 +292,10 @@ const GLOBAL_PREFIX_PATTERNS: SecretPrefixPattern[] = PREFIX_PATTERNS.map(
  * Scan a draft message for high-confidence secrets.
  *
  * Runs every `PREFIX_PATTERNS` entry over the text, suppressing placeholder
- * values. When no prefix pattern matches, the trimmed whole message is
+ * values and matches immediately preceded by a placeholder context (e.g.
+ * `fake_` before a real-looking token) — the same suppression the daemon
+ * applies at ingress, so client and server accept the same placeholders.
+ * When no prefix pattern matches, the trimmed whole message is
  * tested against {@link TOKEN_SHAPE} — the same whole-message token-shape
  * heuristic the daemon blocks at ingress. Overlapping spans are deduped
  * (first pattern in list order wins); results are sorted by `start`.
@@ -275,7 +310,12 @@ export function detectSecretsInText(text: string): DetectedSecret[] {
 
     while ((match = regex.exec(text)) !== null) {
       const value = match[0];
-      if (isPlaceholderValue(value)) {
+
+      // Skip placeholders and test values (check both the match and
+      // a small window before it for placeholder prefixes like "fake_")
+      const contextStart = Math.max(0, match.index - 10);
+      const preContext = text.slice(contextStart, match.index);
+      if (isPlaceholderValue(value) || isPlaceholderContext(preContext)) {
         continue;
       }
       const start = match.index;
