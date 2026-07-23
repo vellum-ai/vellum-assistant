@@ -1,30 +1,12 @@
-// Host bash proxy types.
-// Enables proxying shell commands to the desktop client (host machine)
-// when running as a managed assistant.
+// Host bash proxy events.
+//
+// Server→client events are single-sourced from their canonical `api/events`
+// wire schemas; this file only composes them into the domain union consumed by
+// `message-protocol.ts`.
 
-// === Server → Client ===
+import type { HostBashCancelEvent } from "../../api/events/host-bash.js";
+import type { HostBashRequestEvent } from "../../api/events/host-bash.js";
 
-export interface HostBashRequest {
-  type: "host_bash_request";
-  requestId: string;
-  conversationId: string;
-  command: string;
-  working_dir?: string;
-  timeout_seconds?: number;
-  /** Extra environment variables to inject into the subprocess (e.g. __CONVERSATION_ID). */
-  env?: Record<string, string>;
-  /** When set, route this request only to the client with this ID. */
-  targetClientId?: string;
-}
-
-export interface HostBashCancelRequest {
-  type: "host_bash_cancel";
-  requestId: string;
-  conversationId: string;
-  /** When set, route this cancel only to the client that owns the request. */
-  targetClientId?: string;
-}
-
-// --- Domain-level union aliases (consumed by the barrel file) ---
-
-export type _HostBashServerMessages = HostBashRequest | HostBashCancelRequest;
+export type _HostBashServerMessages =
+  | HostBashRequestEvent
+  | HostBashCancelEvent;
