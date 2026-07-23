@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -18,9 +24,14 @@ import type {
   ProvisioningDimensions,
   ProvisioningStateKind,
 } from "./provisioning-machine";
-import { ProvisioningState, TAKEOVER_BACKGROUND } from "./provisioning-state";
+import {
+  ProvisioningState,
+  TAKEOVER_SURFACE,
+  TAKEOVER_SURFACE_VAR,
+} from "./provisioning-state";
 import { useAssistantDomains } from "./use-assistant-domains";
 import { useProProvisioning } from "./use-pro-provisioning";
+import { useTakeoverSurface } from "./use-takeover-surface";
 
 type WizardStep = "provisioning" | "domain" | "complete";
 
@@ -146,6 +157,10 @@ export function BillingOnboardingModal({
 
   const { targets, assistantId, domainSetupAvailable, onboardingSettled } =
     provisioning;
+
+  // Published on the modal so the takeover and the sheet that covers it on the
+  // way out paint from one value — the handoff can't cross-fade two colours.
+  const { tintHex } = useTakeoverSurface(assistantId);
 
   // Resize-mode routing needs "is a domain already registered?", which
   // checkout mode never consults — DomainStep owns its own fetch there. The
@@ -337,6 +352,7 @@ export function BillingOnboardingModal({
         data-theme={isTakeover ? "dark" : undefined}
         overlayClassName={overlayClass}
         className={isTakeover ? provisioningContentClass : "overflow-hidden"}
+        style={{ [TAKEOVER_SURFACE_VAR]: tintHex } as CSSProperties}
       >
         {/* Keyed on step so the fade replays as we swap takeover ⇄ card. The
             takeover is the modal's opening step, so it mounts at full size
@@ -362,7 +378,7 @@ export function BillingOnboardingModal({
                   : "[animation:fadeIn_380ms_ease-out_both_reverse]"
               }`
             }
-            style={{ backgroundColor: TAKEOVER_BACKGROUND }}
+            style={{ backgroundColor: TAKEOVER_SURFACE }}
           />
         )}
       </Modal.Content>

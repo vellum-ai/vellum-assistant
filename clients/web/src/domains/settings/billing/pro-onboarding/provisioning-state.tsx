@@ -12,6 +12,7 @@ import {
 import { ChatAvatar } from "@/components/avatar/chat-avatar";
 import type { CheckoutIntent } from "@/lib/billing/checkout-intent";
 import { MACHINE_TIER_LABEL, SIZE_LABEL } from "@/lib/billing/machine-sizes";
+import { SURFACE_GROUND } from "@/utils/avatar-tone";
 import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
 import { Button } from "@vellumai/design-library/components/button";
 import { Typography } from "@vellumai/design-library/components/typography";
@@ -35,9 +36,13 @@ import {
   PROVISION_PHASE_MIN_MS,
 } from "./utils";
 
-// The mock's takeover tint, matched to the green Vellum creature. No token
-// holds this, so it follows the plans-page PAGE_BACKGROUND raw-hex precedent.
-export const TAKEOVER_BACKGROUND = "#1D271E";
+// The takeover's paint, published as a custom property on the modal so the
+// takeover and the sheet that covers it on the way out resolve one value. The
+// fallback is the hue-neutral ground the surface holds until the avatar
+// resolves. It carries no space after the comma — happy-dom's inline-style
+// parser drops the whole declaration otherwise, so the tests can't see it.
+export const TAKEOVER_SURFACE_VAR = "--takeover-surface";
+export const TAKEOVER_SURFACE = `var(${TAKEOVER_SURFACE_VAR},${SURFACE_GROUND})`;
 
 const CHIP_BACKGROUND =
   "color-mix(in srgb, var(--content-emphasised) 10%, transparent)";
@@ -517,6 +522,10 @@ export function ProvisioningState({
     onPhaseChangeRef.current?.(heldState);
   }, [heldState]);
 
+  // The surface commits to a hue only once the avatar query settles, and eases
+  // there over `--provision-reveal` — the same beat the avatar fades in on.
+  const { tintHex } = useTakeoverSurface(assistantId);
+
   const dwelling = celebrating && resolved;
   useEffect(() => {
     if (!dwelling) {
@@ -529,8 +538,13 @@ export function ProvisioningState({
   return (
     <div
       data-theme="dark"
-      className="relative flex h-full min-h-[420px] w-full flex-col items-center [justify-content:safe_center] gap-10 px-6 py-10 text-center"
-      style={{ backgroundColor: TAKEOVER_BACKGROUND }}
+      className="provision-surface-settle relative flex h-full min-h-[420px] w-full flex-col items-center [justify-content:safe_center] gap-10 px-6 py-10 text-center"
+      style={
+        {
+          [TAKEOVER_SURFACE_VAR]: tintHex,
+          backgroundColor: TAKEOVER_SURFACE,
+        } as CSSProperties
+      }
     >
       <TakeoverAvatar
         assistantId={assistantId}

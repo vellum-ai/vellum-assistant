@@ -14,6 +14,9 @@ import * as motionReact from "motion/react";
 import { organizationsBillingPlansRetrieveQueryKey } from "@/generated/api/@tanstack/react-query.gen";
 import type { PlanListResponse } from "@/generated/api/types.gen";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
+import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
+import { SURFACE_GROUND } from "@/utils/avatar-tone";
 
 import type { ProvisioningStateProps } from "./provisioning-state";
 
@@ -22,12 +25,16 @@ import type { ProvisioningStateProps } from "./provisioning-state";
 let avatarQueryId: string | null | undefined;
 /** Flipped per-test to hold the avatar query in flight. */
 let avatarLoading = false;
+/** The avatar the mocked query resolves to; null components keep the neutral
+ *  fallback the phase/mode cases render against. */
+let avatarComponents: CharacterComponents | null = null;
+let avatarTraits: CharacterTraits | null = null;
 mock.module("@/hooks/use-assistant-avatar", () => ({
   useAssistantAvatar: (assistantId: string | null) => {
     avatarQueryId = assistantId;
     return {
-      components: null,
-      traits: null,
+      components: avatarComponents,
+      traits: avatarTraits,
       customImageUrl: null,
       isLoading: avatarLoading,
       invalidate: () => {},
@@ -44,11 +51,14 @@ mock.module("motion/react", () => ({
   useReducedMotion: () => reducedMotion,
 }));
 
-const { ProvisioningState } = await import("./provisioning-state");
+const { ProvisioningState, TAKEOVER_SURFACE, TAKEOVER_SURFACE_VAR } =
+  await import("./provisioning-state");
 
 beforeEach(() => {
   avatarQueryId = undefined;
   avatarLoading = false;
+  avatarComponents = null;
+  avatarTraits = null;
   reducedMotion = false;
   useResolvedAssistantsStore.setState({ activeAssistantId: null });
 });
@@ -465,6 +475,64 @@ describe("takeover avatar", () => {
     renderState();
 
     expect(avatarQueryId).toBe("active-assistant");
+  });
+});
+
+describe("takeover surface", () => {
+  /** The takeover root, which publishes the tint and paints from it. */
+  function root(container: HTMLElement): HTMLElement {
+    const el = container.querySelector<HTMLElement>(
+      ".provision-surface-settle",
+    );
+    if (!el) {
+      throw new Error("takeover root not found");
+    }
+    return el;
+  }
+
+  test("paints from the published variable rather than a literal colour", () => {
+    const { container } = renderState({ assistantId: "primary-assistant" });
+
+    expect(root(container).style.backgroundColor).toBe(TAKEOVER_SURFACE);
+  });
+
+  test("a purple character publishes its own deep tint", () => {
+    avatarComponents = BUNDLED_COMPONENTS;
+    avatarTraits = { bodyShape: "blob", eyeStyle: "curious", color: "purple" };
+
+    const { container } = renderState({ assistantId: "primary-assistant" });
+
+    expect(
+      root(container)
+        .style.getPropertyValue(TAKEOVER_SURFACE_VAR)
+        .toLowerCase(),
+    ).toBe("#29202e");
+  });
+
+  test("an unresolved avatar holds the neutral ground", () => {
+    // A hue committed before the query settles is the wrong assistant's, at
+    // full-viewport scale.
+    avatarLoading = true;
+    avatarComponents = BUNDLED_COMPONENTS;
+    avatarTraits = { bodyShape: "blob", eyeStyle: "curious", color: "purple" };
+
+    const { container } = renderState({ assistantId: "primary-assistant" });
+
+    expect(root(container).style.getPropertyValue(TAKEOVER_SURFACE_VAR)).toBe(
+      SURFACE_GROUND,
+    );
+  });
+
+  test("the default green creature keeps the takeover's established tint", () => {
+    avatarComponents = BUNDLED_COMPONENTS;
+
+    const { container } = renderState({ assistantId: "primary-assistant" });
+
+    expect(
+      root(container)
+        .style.getPropertyValue(TAKEOVER_SURFACE_VAR)
+        .toLowerCase(),
+    ).toBe("#1d281d");
   });
 });
 
