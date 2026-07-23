@@ -114,7 +114,7 @@ Past 500 lines the model loses things in the middle. Warnings get buried, branch
 Companion files ship through `scaffold_managed_skill`'s `files` input and live inside the skill folder:
 
 - **`references/*.md`** for failure modes, gotchas, and cached values the body should point to.
-- **`scripts/*`** for reusable code the procedure runs. Store the exact version that already ran successfully, and have the body invoke it through the `{baseDir}` placeholder (e.g. `python3 {baseDir}/scripts/export-report.py`) — `{baseDir}` resolves to the skill folder on load, and the terminal does not run from there.
+- **`scripts/*`** for reusable code the procedure runs. Store the exact version that already ran successfully, and have the new skill's body invoke it through the baseDir placeholder — the word baseDir in curly braces, which resolves to that skill's folder when it loads. The terminal does not run from the skill folder, so a bare `scripts/...` path would fail. (The placeholder is spelled out here rather than written literally because this very body undergoes the same substitution.)
 
 ## Step 6 - Test the skill before calling it done
 
