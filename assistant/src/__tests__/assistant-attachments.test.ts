@@ -651,6 +651,12 @@ describe("stripVellumLinks", () => {
     expect(stripVellumLinks(text)).toBe("a.png and b.pdf");
   });
 
+  test("replaces vellum://open/ reference links with their link text", () => {
+    const text =
+      "See [skills/foo/SKILL.md](vellum://open/skills/foo/SKILL.md) for details";
+    expect(stripVellumLinks(text)).toBe("See skills/foo/SKILL.md for details");
+  });
+
   test("preserves text with no vellum links", () => {
     const text = "Plain text with [link](https://example.com)";
     expect(stripVellumLinks(text)).toBe(text);
@@ -712,6 +718,9 @@ describe("incompleteVellumLinkSuffixLength", () => {
     ["at slash", "grab [a.pdf](vellum://host/"],
     ["at authority", "grab [a.pdf](vellum://host"],
     ["partial authority", "grab [a.pdf](vellum://ho"],
+    ["open mid path", "see [SKILL.md](vellum://open/skills/fo"],
+    ["open at slash", "see [SKILL.md](vellum://open/"],
+    ["partial open authority", "see [SKILL.md](vellum://op"],
     ["partial scheme", "grab [a.pdf](vel"],
     ["open paren", "grab [a.pdf]("],
     ["closed label", "grab [a.pdf]"],
