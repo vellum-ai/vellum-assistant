@@ -7,7 +7,9 @@ import { Button } from "@vellumai/design-library/components/button";
 import { Modal } from "@vellumai/design-library/components/modal";
 
 import { ChatAvatar } from "@/components/avatar/chat-avatar";
+import { useManagedVoiceSelection } from "@/components/speech/use-managed-voice-selection";
 import { VoiceList } from "@/components/speech/voice-list";
+import { MANAGED_VOICE_CREDITS_NOTE } from "@/lib/tts/managed-voice-catalog";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { routes } from "@/utils/routes";
@@ -90,6 +92,10 @@ export function VoiceFirstRunCard({
   const assistantName = useResolvedAssistantsStore.use
     .assistants()
     .find((a) => a.id === assistantId)?.name;
+  // Managed assistants get the credits subtitle; BYO ones see no catalog here
+  // (the note below is their path), so the Vellum-credits line wouldn't apply.
+  const { available: managedVoiceAvailable } =
+    useManagedVoiceSelection(assistantId);
 
   const [view, setView] = useState<FirstRunView>("intro");
   const backToIntro = () => setView("intro");
@@ -215,15 +221,22 @@ export function VoiceFirstRunCard({
             <Modal.Header>
               <div className="flex items-center gap-2">
                 <BackButton onClick={backToIntro} />
-                <Modal.Title className="leading-tight">Voice settings</Modal.Title>
+                <div className="flex min-w-0 flex-col">
+                  <Modal.Title className="leading-tight">Voices</Modal.Title>
+                  {managedVoiceAvailable && (
+                    <Modal.Description>
+                      {MANAGED_VOICE_CREDITS_NOTE}
+                    </Modal.Description>
+                  )}
+                </div>
               </div>
             </Modal.Header>
             <Modal.Body className="space-y-4">
               {/* Just the voice — the one thing most people come here to change,
-                  and it hot-applies on the next reply (no Save). The list hides
-                  itself for assistants on a bring-your-own provider, leaving the
-                  note below as their path. */}
-              <VoiceList assistantId={assistantId} showSource />
+                  and it hot-applies on the next reply (no Save). A provider
+                  dropdown scopes the list; it hides itself for assistants on a
+                  bring-your-own provider, leaving the note below as their path. */}
+              <VoiceList assistantId={assistantId} filterBySource />
               <p className="text-label-small-default text-[var(--content-tertiary)]">
                 Speech providers, transcription, and API keys live in{" "}
                 <Link
