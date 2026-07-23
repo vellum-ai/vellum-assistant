@@ -45,6 +45,7 @@ import type {
   PackageChangeResponse,
   PlanListResponse,
   ProPackage,
+  ProPlan,
   SubscriptionResponse,
 } from "@/generated/api/types.gen";
 
@@ -855,64 +856,15 @@ function customCatalog(): PlanListResponse {
  * Configure must still open the modal rather than bounce to the manage surface.
  */
 function legacyStorageCatalog(): PlanListResponse {
-  return {
-    plans: [
-      {
-        id: "base",
-        name: "Free",
-        price_cents: 0,
-        billing_interval: "month",
-        included_features: [],
-      },
-      {
-        id: "pro",
-        name: "Pro",
-        base_lookup_key: "pro_base",
-        base_price_cents: 2000,
-        billing_interval: "month",
-        included_features: [],
-        machine_tiers: [
-          {
-            tier: "medium",
-            label: "medium",
-            price_cents: 3500,
-            lookup_key: "machine_m",
-            cpu_limit: "2.5",
-            memory_gib: 5,
-            description: "Medium machine (2.5 vCPU, 5 GiB)",
-          },
-        ],
-        storage_tiers: [
-          {
-            tier: "xs",
-            label: "10 GB",
-            storage_gib: 10,
-            price_cents: 500,
-            lookup_key: "storage_10_legacy",
-            legacy: true,
-          },
-          {
-            tier: "s",
-            label: "30 GB",
-            storage_gib: 30,
-            price_cents: 1000,
-            lookup_key: "storage_30",
-            legacy: false,
-          },
-        ],
-        credit_tiers: [
-          {
-            tier: "credits_50",
-            label: "50 credits",
-            credits_usd: 50,
-            price_cents: 5000,
-            lookup_key: "credits_50",
-          },
-        ],
-        packages: [MIGHTY, SUPER, ULTRA],
-      },
-    ],
+  const catalog = customCatalog();
+  const pro = catalog.plans.find((p) => p.id === "pro") as ProPlan;
+  // storage_tiers[0] is the 10 GB tier.
+  pro.storage_tiers[0] = {
+    ...pro.storage_tiers[0],
+    lookup_key: "storage_10_legacy",
+    legacy: true,
   };
+  return catalog;
 }
 
 function openDropdown(ariaLabel: string): void {
