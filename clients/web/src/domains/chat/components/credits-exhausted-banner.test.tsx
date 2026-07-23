@@ -15,14 +15,14 @@ afterEach(() => {
 });
 
 describe("CreditsExhaustedBanner", () => {
-  test("renders the title, Pro-oriented subtitle, and an Upgrade CTA", () => {
+  test("renders the title, subtitle, and an Upgrade CTA", () => {
     const { getByText, getByRole } = render(
       <CreditsExhaustedBanner onUpgrade={() => {}} />,
     );
 
     expect(getByText("Your credit balance has run out")).toBeTruthy();
     expect(
-      getByText("Upgrade to a Pro plan to get monthly credits."),
+      getByText("Upgrade your plan for more credits every month."),
     ).toBeTruthy();
     expect(getByRole("button", { name: /upgrade/i })).toBeTruthy();
   });
