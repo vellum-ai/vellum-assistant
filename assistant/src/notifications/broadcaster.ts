@@ -29,7 +29,11 @@ import {
   updateDeliveryStatus,
 } from "./deliveries-store.js";
 import { resolveDestinations } from "./destination-resolver.js";
-import { parseInteractiveApprovalPayload } from "./guardian-question-mode.js";
+import {
+  buildToolApprovalSourceView,
+  parseInteractiveApprovalPayload,
+  type ToolApprovalSourceView,
+} from "./guardian-question-mode.js";
 import { nonEmpty } from "./notification-utils.js";
 import type { NotificationSignal } from "./signal.js";
 import type {
@@ -50,12 +54,22 @@ const APPROVAL_ACTIONS: ApprovalUIMetadata["actions"] = [
 ];
 
 /**
+ * Structured approval data resolved once per broadcast, so channel adapters
+ * render approval cards without re-parsing `contextPayload`.
+ */
+interface ResolvedApprovalContext {
+  approval: ApprovalUIMetadata;
+  /** Source reference for tool-approval cards (guardian.question only). */
+  toolApprovalSource?: ToolApprovalSourceView;
+}
+
+/**
  * Resolve structured approval context from a notification signal.
  * Returns `undefined` when the signal does not represent an approval flow.
  */
 function resolveApprovalContext(
   signal: NotificationSignal,
-): ApprovalUIMetadata | undefined {
+): ResolvedApprovalContext | undefined {
   const payload = signal.contextPayload;
   if (!payload) {
     return undefined;
@@ -69,11 +83,13 @@ function resolveApprovalContext(
       return undefined;
     }
     return {
-      requestId,
-      actions: buildIntroductionActionsForPayload(
-        parseAccessRequestPayload(payload),
-      ),
-      plainTextFallback: buildAccessRequestContractText(payload),
+      approval: {
+        requestId,
+        actions: buildIntroductionActionsForPayload(
+          parseAccessRequestPayload(payload),
+        ),
+        plainTextFallback: buildAccessRequestContractText(payload),
+      },
     };
   }
 
@@ -101,17 +117,20 @@ function resolveApprovalContext(
     }
 
     return {
-      requestId,
-      actions: APPROVAL_ACTIONS,
-      plainTextFallback: `Reply "${parsed.requestCode?.toUpperCase() ?? requestId} approve" or "${parsed.requestCode?.toUpperCase() ?? requestId} reject"`,
-      permissionDetails: toolName
-        ? {
-            toolName,
-            riskLevel: riskLevel ?? "medium",
-            toolInput: commandPreview ? { _summary: commandPreview } : {},
-            requesterIdentifier: nonEmpty(parsed.requesterIdentifier),
-          }
-        : undefined,
+      approval: {
+        requestId,
+        actions: APPROVAL_ACTIONS,
+        plainTextFallback: `Reply "${parsed.requestCode?.toUpperCase() ?? requestId} approve" or "${parsed.requestCode?.toUpperCase() ?? requestId} reject"`,
+        permissionDetails: toolName
+          ? {
+              toolName,
+              riskLevel: riskLevel ?? "medium",
+              toolInput: commandPreview ? { _summary: commandPreview } : {},
+              requesterIdentifier: nonEmpty(parsed.requesterIdentifier),
+            }
+          : undefined,
+      },
+      toolApprovalSource: buildToolApprovalSourceView(parsed),
     };
   }
 
@@ -208,7 +227,9 @@ export class NotificationBroadcaster {
       Record<NotificationChannel, RenderedChannelCopy>
     > | null = null;
 
-    const approvalContext = resolveApprovalContext(signal);
+    const resolvedApproval = resolveApprovalContext(signal);
+    const approvalContext = resolvedApproval?.approval;
+    const toolApprovalSource = resolvedApproval?.toolApprovalSource;
     const accessRequestContext =
       signal.sourceEventName === "ingress.access_request" &&
       signal.contextPayload
@@ -476,6 +497,7 @@ export class NotificationBroadcaster {
         urgency: signal.attentionHints.urgency,
         approvalContext,
         accessRequestContext,
+        toolApprovalSource,
       };
 
       // Compute conversation decision audit fields for the delivery record

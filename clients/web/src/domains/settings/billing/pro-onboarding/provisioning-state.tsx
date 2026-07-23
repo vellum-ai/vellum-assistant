@@ -1,7 +1,13 @@
 import type { LucideIcon } from "lucide-react";
 import { ArrowRight, Check, Coins, Cpu, HardDrive } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { useEffect, useRef, type CSSProperties, type ReactNode } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 
 import { ChatAvatar } from "@/components/avatar/chat-avatar";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
@@ -13,8 +19,8 @@ import { Button } from "@vellumai/design-library/components/button";
 import { Typography } from "@vellumai/design-library/components/typography";
 
 import type {
-    ProvisioningDimensions,
-    ProvisioningStateKind,
+  ProvisioningDimensions,
+  ProvisioningStateKind,
 } from "./provisioning-machine";
 import { SERIF_HEADING_STYLE, type StalledApplyAction } from "./primitives";
 import {
@@ -32,7 +38,7 @@ import {
 
 // The mock's takeover tint, matched to the green Vellum creature. No token
 // holds this, so it follows the plans-page PAGE_BACKGROUND raw-hex precedent.
-const TAKEOVER_BACKGROUND = "#1D271E";
+export const TAKEOVER_BACKGROUND = "#1D271E";
 
 const CHIP_BACKGROUND =
   "color-mix(in srgb, var(--content-emphasised) 10%, transparent)";
@@ -48,6 +54,39 @@ const RESOURCE_ROTATE_MS = 2500;
 // SVG scales without re-rendering at a second size.
 const AVATAR_SIZE = 240;
 const AVATAR_GROWTH = 1.414;
+
+// The stage reserves the grown height from first paint, so the takeover needs
+// `size * AVATAR_GROWTH + 309` of viewport before the phase block underneath —
+// which carries the escape hatch and the stalled retry — starts to clip. Step
+// the creature down instead of pushing those actions off a short screen.
+const AVATAR_SIZE_STEPS: Array<{ minHeight: number; size: number }> = [
+  { minHeight: 680, size: AVATAR_SIZE },
+  { minHeight: 600, size: 184 },
+];
+const AVATAR_SIZE_MIN = 132;
+
+function avatarSizeForHeight(height: number): number {
+  for (const step of AVATAR_SIZE_STEPS) {
+    if (height >= step.minHeight) {
+      return step.size;
+    }
+  }
+  return AVATAR_SIZE_MIN;
+}
+
+function useTakeoverAvatarSize(): number {
+  const [size, setSize] = useState(() =>
+    avatarSizeForHeight(
+      typeof window === "undefined" ? Infinity : window.innerHeight,
+    ),
+  );
+  useEffect(() => {
+    const onResize = () => setSize(avatarSizeForHeight(window.innerHeight));
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  return size;
+}
 
 const RESOURCE_CHIP_ICON: Record<ResourceChangeKey, LucideIcon> = {
   machine: Cpu,
@@ -70,6 +109,8 @@ export interface ProvisioningStateProps {
   assistantId?: string | null;
   escapeAvailable: boolean;
   onEscape: () => void;
+  /** Reports the phase actually on screen, which lags `state` by the hold. */
+  onPhaseChange?: (phase: ProvisioningStateKind) => void;
   stalledAction: StalledApplyAction;
   confirm: { onRetry: () => void; onGoToBilling: () => void };
   /** Test hook — overrides the per-phase minimum; 0 disables the hold. */
@@ -141,6 +182,7 @@ function TakeoverAvatar({
   const resolvedId = assistantId ?? activeId;
   const { components, traits, customImageUrl } = useAssistantAvatar(resolvedId);
   const fallbackComponents = useBundledAvatarComponents();
+  const size = useTakeoverAvatarSize();
   const laboring = mode === "working" || mode === "settling";
   return (
     <div
@@ -148,7 +190,7 @@ function TakeoverAvatar({
       className={`provision-avatar-evolve flex flex-col items-center${AVATAR_MODE_CLASS[mode]}`}
       style={
         {
-          "--provision-avatar-size": `${AVATAR_SIZE}px`,
+          "--provision-avatar-size": `${size}px`,
           "--provision-avatar-growth": AVATAR_GROWTH,
         } as CSSProperties
       }
@@ -161,7 +203,7 @@ function TakeoverAvatar({
                 components={components ?? fallbackComponents}
                 traits={traits}
                 customImageUrl={customImageUrl}
-                size={AVATAR_SIZE}
+                size={size}
                 isAssistantBusy={laboring}
               />
             </div>
@@ -176,7 +218,10 @@ function TakeoverAvatar({
 function Copy({ status, caption }: { status: string; caption?: string }) {
   return (
     <div className="flex flex-col items-center gap-1.5">
-      <h1 className="text-[var(--content-emphasised)]" style={SERIF_HEADING_STYLE}>
+      <h1
+        className="text-[var(--content-emphasised)]"
+        style={SERIF_HEADING_STYLE}
+      >
         {status}
       </h1>
       {caption && (
@@ -426,6 +471,7 @@ export function ProvisioningState({
   assistantId,
   escapeAvailable,
   onEscape,
+  onPhaseChange,
   stalledAction,
   confirm,
   dwellMs = PROVISION_MIN_DWELL_MS,
@@ -444,6 +490,15 @@ export function ProvisioningState({
   const resolved = heldState === "DONE" || heldState === "NOT_APPLICABLE";
   const phaseKey = heldState === "RESIZING" ? "WAITING" : heldState;
 
+  // The wizard locks itself against the phase on screen, not the live one.
+  const onPhaseChangeRef = useRef(onPhaseChange);
+  useEffect(() => {
+    onPhaseChangeRef.current = onPhaseChange;
+  }, [onPhaseChange]);
+  useEffect(() => {
+    onPhaseChangeRef.current?.(heldState);
+  }, [heldState]);
+
   const dwelling = celebrating && resolved;
   useEffect(() => {
     if (!dwelling) {
@@ -456,7 +511,7 @@ export function ProvisioningState({
   return (
     <div
       data-theme="dark"
-      className="relative flex h-full min-h-[420px] w-full flex-col items-center justify-center gap-10 px-6 py-10 text-center"
+      className="relative flex h-full min-h-[420px] w-full flex-col items-center [justify-content:safe_center] gap-10 px-6 py-10 text-center"
       style={{ backgroundColor: TAKEOVER_BACKGROUND }}
     >
       <TakeoverAvatar

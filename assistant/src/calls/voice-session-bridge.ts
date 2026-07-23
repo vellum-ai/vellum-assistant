@@ -64,7 +64,10 @@ const log = getLogger("voice-session-bridge");
  * `includeHold` adds the mid-thought verdict branch (unified front-door
  * speculative legs only).
  */
-function frontDoorRuleWithDigest(includeHold: boolean): string {
+function frontDoorRuleWithDigest(
+  includeHold: boolean,
+  callerUtterance?: string,
+): string {
   let toolNames: string[] = [];
   try {
     toolNames = getAllTools().map((tool) => tool.name);
@@ -74,6 +77,7 @@ function frontDoorRuleWithDigest(includeHold: boolean): string {
   return frontDoorDecisionRule({
     includeHold,
     capabilityDigest: frontDoorCapabilityDigest(toolNames),
+    callerUtterance,
   });
 }
 
@@ -665,7 +669,7 @@ export async function startVoiceTurn(
     voiceCallControlPrompt = opts.voiceControlPrompt;
     const routingLegRule =
       opts.routingLeg === "front-door"
-        ? frontDoorRuleWithDigest(opts.unifiedVerdict === true)
+        ? frontDoorRuleWithDigest(opts.unifiedVerdict === true, opts.content)
         : opts.routingLeg === "escalated"
           ? escalatedContinuationRule(opts.spokenEscalationBridge)
           : null;

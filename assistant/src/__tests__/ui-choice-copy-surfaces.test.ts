@@ -303,6 +303,32 @@ describe("choice and copy_block surface proxying", () => {
     expect(sent).toHaveLength(0);
   });
 
+  test("ui_show rejects daemon-internal surface types and omits them from the valid list", async () => {
+    for (const internalType of ["skill_card", "call_summary"]) {
+      const sent: ServerMessage[] = [];
+      const ctx = makeContext(sent);
+
+      const result = await surfaceProxyResolver(ctx, "ui_show", {
+        surface_type: internalType,
+        data: { anything: true },
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain(
+        `"${internalType}" is not a valid surface_type`,
+      );
+      // The advertised valid list must never enumerate the internal types
+      // (the leading echo of the rejected input naming it is expected).
+      const validList =
+        typeof result.content === "string"
+          ? (result.content.split("Valid surface_type values:")[1] ?? "")
+          : "";
+      expect(validList).not.toContain("skill_card");
+      expect(validList).not.toContain("call_summary");
+      expect(sent).toHaveLength(0);
+    }
+  });
+
   test("ui_show teaching guard accepts copy_block text at the top level of the input", () => {
     const teachingError = uiShowTeachingError({
       surface_type: "copy_block",

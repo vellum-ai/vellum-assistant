@@ -276,9 +276,10 @@ mock.module("@/lib/auth/session-cleanup", () => ({
   clearUserScopedStorage: clearUserScopedStorageMock,
 }));
 
-// Use the REAL resolved-assistants store: the auth-store init path calls its
-// `.getState().setFromApi(...)`, which a plain stub can't provide. It's
-// dependency-light, so loading it for real is cheap.
+// Use the REAL resolved-assistants store: it's dependency-light, so loading it
+// for real is cheap, and the `beforeEach` resets it between tests. (The list is
+// now loaded by the platform-assistants-sync subscription, not the auth store —
+// see platform-assistants-sync.test.ts for that coverage.)
 
 // Auth-store writes the selection through the public wrapper, not the store
 // action — mock the wrapper module so the real one (and its local-mode deps)
@@ -1338,18 +1339,6 @@ describe("auth store onboarding flag reconciliation", () => {
     sessionUser = null;
     await useAuthStore.getState().initSession();
     expect(setConsentHydratedMock).toHaveBeenCalledWith(true);
-  });
-
-  test("initSession marks the assistants list hydrated even when the platform fetch fails", async () => {
-    sessionUser = { id: "user-1", email: "user@example.com" };
-    useResolvedAssistantsStore.setState({ assistantsHydrated: false });
-    listAssistantsMock.mockImplementationOnce(async () => {
-      throw new Error("Network error");
-    });
-
-    await useAuthStore.getState().initSession();
-
-    expect(useResolvedAssistantsStore.getState().assistantsHydrated).toBe(true);
   });
 
   test("initSession falls back to device keys when fetchConsent fails", async () => {

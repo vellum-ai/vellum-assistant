@@ -15,11 +15,15 @@ import { nanoid } from "nanoid";
 // error-correction level off `this`, so a destructured import renders nothing.
 import qrcodeTerminal from "qrcode-terminal";
 
-import type {
-  RemoteWebPairingChallengeRequest,
-  RemoteWebPairingChallengeResponse,
-  RemoteWebPairingVerificationRequest,
-  RemoteWebPairingVerificationResponse,
+import {
+  buildRemoteWebPairingUrl,
+  normalizePublicBaseUrl,
+  resolvePublicBaseUrl,
+  type PublicBaseUrlRejection,
+  type RemoteWebPairingChallengeRequest,
+  type RemoteWebPairingChallengeResponse,
+  type RemoteWebPairingVerificationRequest,
+  type RemoteWebPairingVerificationResponse,
 } from "@vellumai/service-contracts/remote-web-pairing";
 
 import { extractFlag } from "../lib/arg-utils.js";
@@ -127,29 +131,6 @@ interface PairResponse {
   refreshAfter?: string;
 }
 
-function normalizePublicBaseUrl(value: string): string {
-  const url = new URL(value);
-  url.search = "";
-  url.hash = "";
-  const parts = url.pathname.split("/").filter(Boolean);
-  const assistantIndex = parts.indexOf("assistant");
-  if (assistantIndex >= 0) {
-    parts.splice(assistantIndex);
-  }
-  url.pathname = parts.length ? `/${parts.join("/")}` : "/";
-  return url.toString().replace(/\/+$/, "");
-}
-
-function buildRemoteWebPairingUrl(
-  challenge: RemoteWebPairingChallengeResponse,
-): string {
-  const url = new URL(challenge.verificationUri);
-  url.hash = new URLSearchParams({
-    device_code: challenge.deviceCode,
-  }).toString();
-  return url.toString();
-}
-
 /** Default URL scheme registered by production builds of the iOS app. */
 const DEFAULT_APP_CONNECT_SCHEME = "vellum-assistant";
 
@@ -165,35 +146,6 @@ export function buildAppConnectUrl(
 ): string {
   const params = new URLSearchParams({ url: baseUrl, code: deviceCode });
   return `${scheme}://connect?${params.toString()}`;
-}
-
-type QrPublicBaseUrlFailureReason = "unparseable" | "loopback" | "non-https";
-
-type QrPublicBaseUrlResult =
-  | { ok: true; url: string }
-  | { ok: false; reason: QrPublicBaseUrlFailureReason };
-
-/**
- * Normalize the advertised URL to the public https origin a scanning phone can
- * open, or report why it isn't internet-reachable. Stricter than the copy-paste
- * bundle path's loopback guard: a QR that encodes a loopback or plain-http link
- * is unusable from another device, so both are refused. The failure reason is
- * returned so the caller can emit an accurate message per case.
- */
-function resolveQrPublicBaseUrl(advertisedUrl: string): QrPublicBaseUrlResult {
-  let normalized: string;
-  try {
-    normalized = normalizePublicBaseUrl(advertisedUrl);
-  } catch {
-    return { ok: false, reason: "unparseable" };
-  }
-  if (isLoopbackUrl(normalized)) {
-    return { ok: false, reason: "loopback" };
-  }
-  if (new URL(normalized).protocol !== "https:") {
-    return { ok: false, reason: "non-https" };
-  }
-  return { ok: true, url: normalized };
 }
 
 /**
@@ -493,9 +445,9 @@ export async function pair(): Promise<void> {
   if (qrPairing) {
     // Validate the public URL before any network call — a QR that encodes a
     // loopback or plain-http link is unscannable from another device.
-    const qrResult = resolveQrPublicBaseUrl(advertisedUrl);
+    const qrResult = resolvePublicBaseUrl(advertisedUrl);
     if (!qrResult.ok) {
-      const detailByReason: Record<QrPublicBaseUrlFailureReason, string> = {
+      const detailByReason: Record<PublicBaseUrlRejection, string> = {
         unparseable: `${advertisedUrl} isn't a valid URL`,
         loopback: `${advertisedUrl} is a loopback address`,
         "non-https": `${advertisedUrl} is not https`,

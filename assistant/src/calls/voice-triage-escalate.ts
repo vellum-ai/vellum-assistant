@@ -243,11 +243,18 @@ export function frontDoorCapabilityDigest(toolNames: string[]): string {
 export function frontDoorDecisionRule(opts?: {
   includeHold?: boolean;
   capabilityDigest?: string;
+  callerUtterance?: string;
 }): string {
   const holdBranch =
     opts?.includeHold === true
       ? [
-          `- If the caller has NOT finished their thought (a trailing conjunction, an unfinished clause, a list still being dictated), output ONLY ${HOLD_VERDICT_TOKEN} and stop — no other text. When unsure whether they are done, choose ${HOLD_VERDICT_TOKEN}.`,
+          // Hold requires positive evidence of an unfinished sentence, never
+          // mere uncertainty, because the two mistakes cost differently. A
+          // false hold is silent: the verdict, the extension window, and the
+          // replay dispatch all elapse with the thinking frame and ack
+          // deferred until commit, roughly tripling felt latency. A false
+          // release only answers a beat early, which barge-in absorbs.
+          `- If the caller's words are visibly unfinished — a trailing conjunction, a dangling clause, a list still being dictated — output ONLY ${HOLD_VERDICT_TOKEN} and stop, no other text. Judge the words themselves: a complete question or statement means they are done, even when it is short or leans on earlier context ("What do you think?", "Why?", "And then?"). Never hold merely because more could follow.`,
         ]
       : [
           // No hold branch means completeness is settled (a first leg
@@ -256,7 +263,29 @@ export function frontDoorDecisionRule(opts?: {
           // the escalate token.
           "The caller has finished their turn — never judge whether they are done.",
         ];
+  // Name the words being judged. The caller's utterance is the only untagged
+  // text in the assembled message — it sits between tagged injections
+  // (<memory_spotlight>, <channel_capabilities>, <turn_context>) and this
+  // rule, so an undelimited five-word question can read as a fragment of the
+  // block above it. Quoting it verbatim is the same move
+  // escalatedContinuationRule makes with the spoken bridge, for the same
+  // reason: an instruction that points at text is only enforceable when the
+  // text is unambiguous.
+  //
+  // The quote is JSON-serialized because the utterance is caller-controlled
+  // and arrives from speech recognition: a raw `"` or newline in the
+  // transcript would close the quote early and leave the rest of the
+  // caller's words sitting in the prompt as instruction-shaped text, ahead
+  // of the verdict protocol. JSON escaping supplies the surrounding quotes.
+  const utterance = opts?.callerUtterance?.trim();
+  const anchor =
+    utterance !== undefined && utterance.length > 0
+      ? [
+          `The caller just said: ${JSON.stringify(utterance)} — judge only those words.`,
+        ]
+      : [];
   const rule = [
+    ...anchor,
     "DECIDE SILENTLY, then produce exactly ONE of these outputs:",
     ...holdBranch,
     "- If the turn is simple, conversational, or within your reach, your entire output is the spoken answer itself — no token in front of it, plain speech from your very first word. Most turns are answers; when unsure between answering and escalating, answer.",

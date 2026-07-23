@@ -357,6 +357,8 @@ export function createToolExecutor(
       batchAuthorizedByTask: false,
       requesterExternalUserId: turnTrust.requesterExternalUserId,
       requesterChatId: turnTrust.requesterChatId,
+      sourceMessageId: turnTrust.sourceMessageId,
+      sourceThreadId: turnTrust.sourceThreadId,
       requesterIdentifier: turnTrust.requesterIdentifier,
       requesterDisplayName: turnTrust.requesterDisplayName,
       channelConversationType: turnTrust.conversationType,
@@ -858,9 +860,11 @@ export function createResolveToolsCallback(
     void loadWorkspaceTools();
 
     // Same treatment for user-plugin tools: pull the plugin mtime-cache's
-    // active tool set into the registry (a no-op costs one sentinel stat +
-    // fingerprint compares), so a plugin installed/removed/edited at runtime
-    // is picked up without recreating the conversation.
+    // active tool set into the registry (a no-op costs a fingerprint compare
+    // per plugin). This pull is a pure cache read — the sentinel reconcile that
+    // activates plugins runs on the hook-dispatch path that precedes tool
+    // resolution each turn — so a plugin installed/removed/edited at runtime is
+    // still picked up here without recreating the conversation.
     void loadPluginTools();
 
     // Read every registered plugin tool each turn (so runtime installs/edits

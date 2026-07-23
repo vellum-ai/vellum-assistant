@@ -7,10 +7,12 @@ import {
   ChoiceSurfaceDataSchema,
   coerceSurfaceDataRecord,
   DynamicPageSurfaceDataSchema,
+  isDaemonInternalSurfaceType,
+  isKnownSurfaceType,
+  MODEL_INVOKABLE_SURFACE_TYPES,
   normalizeCopyBlockShowData,
   OAuthConnectSurfaceDataSchema,
   safeParseSurfaceData,
-  SURFACE_TYPES,
   SurfaceTypeSchema,
 } from "../api/surfaces.js";
 import {
@@ -2935,16 +2937,23 @@ export async function surfaceProxyResolver(
     const surfaceId = uuid();
     // Parse, don't cast: an unrecognized surface_type used to be asserted
     // into the union and fall through to an opaque passthrough the client
-    // silently dropped. Reject it with the valid values instead.
+    // silently dropped. Reject it with the valid values instead. Daemon-
+    // internal types (skill_card, call_summary) are members of SurfaceType
+    // for persistence but are not model-invokable — reject them here too so
+    // the model can never report an unrenderable surface as shown. Both
+    // messages enumerate only the model-facing set, never the internal types.
     const parsedSurfaceType = SurfaceTypeSchema.safeParse(input.surface_type);
-    if (!parsedSurfaceType.success) {
+    if (
+      !parsedSurfaceType.success ||
+      isDaemonInternalSurfaceType(parsedSurfaceType.data)
+    ) {
       const got =
         typeof input.surface_type === "string" &&
         input.surface_type.trim().length > 0
           ? `"${input.surface_type}" is not a valid surface_type`
           : "`surface_type` is missing";
       return {
-        content: `Error: ui_show was not displayed — ${got}. Valid surface_type values: ${SURFACE_TYPES.join(", ")}. Resend ui_show with one of these values.`,
+        content: `Error: ui_show was not displayed — ${got}. Valid surface_type values: ${MODEL_INVOKABLE_SURFACE_TYPES.join(", ")}. Resend ui_show with one of these values.`,
         isError: true,
       };
     }
@@ -3242,19 +3251,38 @@ export async function surfaceProxyResolver(
         pushUndoState(ctx.surfaceUndoStacks, surfaceId, currentHtml);
       }
       const rawMerged = { ...stored.data, ...patch };
-      // Validate the merged data through the surface type's canonical schema
-      // so malformed patches (e.g. metadata as a string) are caught here
-      // instead of crashing the client's safeParse.
-      const parsed = safeParseSurfaceData(stored.surfaceType, rawMerged);
-      if (parsed !== undefined) {
-        mergedData = parsed;
+      if (!isKnownSurfaceType(stored.surfaceType)) {
+        // Restore preserves an unknown-but-non-empty persisted surfaceType
+        // verbatim (a newer/custom client-rendered surface). safeParseSurfaceData
+        // has no schema for it — it falls through to returning the type string
+        // rather than a data object — so forward the merge opaquely rather than
+        // storing that garbage, mirroring restore's verbatim handling.
+        mergedData = rawMerged as SurfaceData;
       } else {
-        log.warn(
-          { surfaceId, surfaceType: stored.surfaceType },
-          "ui_update patch produced invalid merged data; reverting to stored data",
-        );
-        mergedData =
-          safeParseSurfaceData(stored.surfaceType, stored.data) ?? stored.data;
+        // Validate the merged data through the surface type's canonical schema
+        // so malformed patches (e.g. metadata as a string) are caught here
+        // instead of crashing the client's safeParse. Keep unmodeled
+        // client-owned keys from the raw merge, but take the schema-NORMALIZED
+        // value for every modeled field: a tolerant field (dynamic_page `html`
+        // is `z.string().catch("")`, file_upload `acceptedTypes` coerces to
+        // `string[]`) accepts a malformed input and coerces it, and later daemon
+        // code (active-workspace injection's `truncateHtml`, undo-stack pushes)
+        // assumes the canonical shape — so storing the raw value would poison
+        // surfaceState. The parsed object holds only modeled keys, so spreading
+        // it over the raw merge normalizes those while preserving the
+        // client-owned ones. Only a failed parse reverts to the stored data.
+        const parsed = safeParseSurfaceData(stored.surfaceType, rawMerged);
+        if (parsed !== undefined) {
+          mergedData = { ...rawMerged, ...parsed } as SurfaceData;
+        } else {
+          log.warn(
+            { surfaceId, surfaceType: stored.surfaceType },
+            "ui_update patch produced invalid merged data; reverting to stored data",
+          );
+          mergedData =
+            safeParseSurfaceData(stored.surfaceType, stored.data) ??
+            stored.data;
+        }
       }
       stored.data = mergedData;
     } else {
