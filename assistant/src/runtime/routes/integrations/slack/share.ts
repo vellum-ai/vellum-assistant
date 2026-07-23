@@ -8,6 +8,7 @@
 import { z } from "zod";
 
 import { getApp } from "../../../../apps/app-store.js";
+import { resolveSlackAuth } from "../../../../messaging/providers/slack/auth.js";
 import { postMessage } from "../../../../messaging/providers/slack/client.js";
 import { getLogger } from "../../../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../../../auth/route-policy.js";
@@ -18,7 +19,6 @@ import {
   ServiceUnavailableError,
 } from "../../errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "../../types.js";
-import { resolveSlackToken } from "./token.js";
 
 const log = getLogger("slack-share");
 
@@ -31,8 +31,8 @@ const SlackShareResultSchema = z.object({
 export async function handleShareToSlackChannel({
   body = {},
 }: RouteHandlerArgs) {
-  const token = await resolveSlackToken("write");
-  if (!token) {
+  const auth = await resolveSlackAuth("write");
+  if (auth === undefined) {
     throw new ServiceUnavailableError("No Slack token configured");
   }
 
@@ -81,7 +81,7 @@ export async function handleShareToSlackChannel({
   }
 
   try {
-    const result = await postMessage(token, channelId, fallbackText, {
+    const result = await postMessage(auth, channelId, fallbackText, {
       blocks,
     });
     return {

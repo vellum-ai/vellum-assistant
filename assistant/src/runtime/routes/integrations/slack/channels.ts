@@ -8,6 +8,11 @@
 import { z } from "zod";
 
 import {
+  resolveSlackAuth,
+  runSlackRead,
+  type SlackAuth,
+} from "../../../../messaging/providers/slack/auth.js";
+import {
   listConversations,
   userInfo,
 } from "../../../../messaging/providers/slack/client.js";
@@ -21,7 +26,6 @@ import type { SlackConversation } from "../../../../messaging/providers/slack/ty
 import { ACTOR_PRINCIPALS } from "../../../auth/route-policy.js";
 import { ServiceUnavailableError } from "../../errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "../../types.js";
-import { resolveSlackToken } from "./token.js";
 
 const NormalizedChannelSchema = z.object({
   id: z.string(),
@@ -65,12 +69,13 @@ export async function handleListSlackChannels({
   const memberOnly = queryParams?.memberOnly === "true";
 
   // The presence list ("where the assistant is present") reflects the BOT's
-  // own membership, so it reads with the bot token — never the optional user
-  // token, whose `is_member` view is the user's channels, not the bot's. The
-  // share picker keeps the broader read (user token when present) so it can
-  // offer channels the user is in but the bot isn't.
-  const token = await resolveSlackToken(memberOnly ? "bot-read" : "read");
-  if (!token) {
+  // own membership — Slack's `is_member` is relative to the token's identity —
+  // so it always reads with the bot token, never the optional user token. The
+  // share picker (memberOnly absent) prefers the user token for broader reach
+  // (channels the user is in but the bot isn't) and falls back to the bot
+  // token if that optional user token has been revoked.
+  const botAuth = await resolveSlackAuth("bot");
+  if (botAuth === undefined) {
     throw new ServiceUnavailableError("No Slack token configured");
   }
 
@@ -82,88 +87,98 @@ export async function handleListSlackChannels({
     ? "public_channel,private_channel,mpim"
     : "public_channel,private_channel,mpim,im";
 
-  const allChannels: SlackConversation[] = [];
-  let cursor: string | undefined;
-  do {
-    const resp = await listConversations(
-      token,
-      conversationTypes,
-      true,
-      200,
-      cursor,
+  const enumerate = async (auth: SlackAuth): Promise<NormalizedChannel[]> => {
+    const allChannels: SlackConversation[] = [];
+    let cursor: string | undefined;
+    do {
+      const resp = await listConversations(
+        auth,
+        conversationTypes,
+        true,
+        200,
+        cursor,
+      );
+      allChannels.push(...resp.channels);
+      cursor = resp.response_metadata?.next_cursor || undefined;
+    } while (cursor);
+
+    // The presence list (memberOnly) is rooms only: channels and group DMs.
+    // 1:1 IMs are person-scoped, not room-scoped — the person's settings live
+    // on their contact — and Slack materializes IM rows without any
+    // conversation happening (app install, a user merely opening the bot's DM
+    // tab, Slackbot), so IM existence would overstate presence anyway. The
+    // share picker (memberOnly absent) keeps IMs — they are valid share
+    // destinations — minus the unpostable noise IMs.
+    const conversations = (
+      memberOnly
+        ? allChannels.filter((c) => !c.is_im && isMemberConversation(c))
+        : allChannels
+    ).filter((c) => !isNoiseIm(c));
+
+    const dmUserIds = conversations
+      .filter((c) => c.is_im && c.user)
+      .map((c) => c.user!);
+    const uniqueUserIds = [...new Set(dmUserIds)];
+    const userResults = await Promise.allSettled(
+      uniqueUserIds.map((uid) =>
+        userInfo(auth, uid).then((r) => ({
+          uid,
+          name: slackUserDisplayName(r.user),
+          imageUrl: r.user.profile?.image_48 ?? null,
+        })),
+      ),
     );
-    allChannels.push(...resp.channels);
-    cursor = resp.response_metadata?.next_cursor || undefined;
-  } while (cursor);
-
-  // The presence list (memberOnly) is rooms only: channels and group DMs.
-  // 1:1 IMs are person-scoped, not room-scoped — the person's settings live
-  // on their contact — and Slack materializes IM rows without any
-  // conversation happening (app install, a user merely opening the bot's DM
-  // tab, Slackbot), so IM existence would overstate presence anyway. The
-  // share picker (memberOnly absent) keeps IMs — they are valid share
-  // destinations — minus the unpostable noise IMs.
-  const conversations = (
-    memberOnly
-      ? allChannels.filter((c) => !c.is_im && isMemberConversation(c))
-      : allChannels
-  ).filter((c) => !isNoiseIm(c));
-
-  const dmUserIds = conversations
-    .filter((c) => c.is_im && c.user)
-    .map((c) => c.user!);
-  const uniqueUserIds = [...new Set(dmUserIds)];
-  const userResults = await Promise.allSettled(
-    uniqueUserIds.map((uid) =>
-      userInfo(token, uid).then((r) => ({
-        uid,
-        name: slackUserDisplayName(r.user),
-        imageUrl: r.user.profile?.image_48 ?? null,
-      })),
-    ),
-  );
-  const dmUserMap = new Map<
-    string,
-    { name: string; imageUrl: string | null }
-  >();
-  for (const r of userResults) {
-    if (r.status === "fulfilled") {
-      dmUserMap.set(r.value.uid, {
-        name: r.value.name,
-        imageUrl: r.value.imageUrl,
-      });
+    const dmUserMap = new Map<
+      string,
+      { name: string; imageUrl: string | null }
+    >();
+    for (const r of userResults) {
+      if (r.status === "fulfilled") {
+        dmUserMap.set(r.value.uid, {
+          name: r.value.name,
+          imageUrl: r.value.imageUrl,
+        });
+      }
     }
-  }
 
-  const channels: NormalizedChannel[] = conversations.map((c) => {
-    const type = classifyConversationType(c);
-    let name = c.name ?? c.id;
-    let imageUrl: string | null = null;
-    if (type === "dm" && c.user) {
-      const dmUser = dmUserMap.get(c.user);
-      name = dmUser?.name ?? c.user;
-      imageUrl = dmUser?.imageUrl ?? null;
-    }
-    return {
-      id: c.id,
-      name,
-      type,
-      isPrivate: isPrivateConversation(c),
-      isMember: isMemberConversation(c),
-      memberCount: c.num_members ?? null,
-      topic: c.topic?.value || c.purpose?.value || null,
-      imageUrl,
-    };
-  });
+    const channels: NormalizedChannel[] = conversations.map((c) => {
+      const type = classifyConversationType(c);
+      let name = c.name ?? c.id;
+      let imageUrl: string | null = null;
+      if (type === "dm" && c.user) {
+        const dmUser = dmUserMap.get(c.user);
+        name = dmUser?.name ?? c.user;
+        imageUrl = dmUser?.imageUrl ?? null;
+      }
+      return {
+        id: c.id,
+        name,
+        type,
+        isPrivate: isPrivateConversation(c),
+        isMember: isMemberConversation(c),
+        memberCount: c.num_members ?? null,
+        topic: c.topic?.value || c.purpose?.value || null,
+        imageUrl,
+      };
+    });
 
-  channels.sort((a, b) => {
-    const typeOrder =
-      (TYPE_SORT_ORDER[a.type] ?? 9) - (TYPE_SORT_ORDER[b.type] ?? 9);
-    if (typeOrder !== 0) {
-      return typeOrder;
-    }
-    return a.name.localeCompare(b.name);
-  });
+    channels.sort((a, b) => {
+      const typeOrder =
+        (TYPE_SORT_ORDER[a.type] ?? 9) - (TYPE_SORT_ORDER[b.type] ?? 9);
+      if (typeOrder !== 0) {
+        return typeOrder;
+      }
+      return a.name.localeCompare(b.name);
+    });
+
+    return channels;
+  };
+
+  // Presence reads as the bot; the share picker reads user-first with a bot
+  // fallback if the stored user token has been revoked.
+  const channels = memberOnly
+    ? await enumerate(botAuth)
+    : await runSlackRead(botAuth, enumerate);
 
   return { channels };
 }

@@ -18,6 +18,15 @@ mock.module("../oauth/oauth-store.js", () => ({
     connectionByProvider[key] ?? undefined,
 }));
 
+// The route resolves auth via messaging/providers/slack/auth.ts, which imports
+// the OAuth connection resolver; stub it so the import graph loads (Socket Mode
+// never reaches it).
+mock.module("../oauth/connection-resolver.js", () => ({
+  resolveOAuthConnection: async () => {
+    throw new Error("No OAuth connection (Socket Mode test)");
+  },
+}));
+
 let listUsersPages: unknown[] = [{ ok: true, members: [] }];
 let listUsersCalls: Array<{ cursor: string | undefined }> = [];
 
@@ -26,6 +35,8 @@ mock.module("../messaging/providers/slack/client.js", () => ({
     listUsersCalls.push({ cursor });
     return listUsersPages[listUsersCalls.length - 1];
   },
+  // auth.ts imports SlackApiError from the client; export it from the mock.
+  SlackApiError: class SlackApiError extends Error {},
 }));
 
 // ---------------------------------------------------------------------------
@@ -40,11 +51,7 @@ const { handleListSlackUsers } =
 // ---------------------------------------------------------------------------
 
 function configureToken() {
-  connectionByProvider["slack"] = { id: "conn-slack-1" };
-  secureKeyValues.set(
-    "oauth_connection/conn-slack-1/access_token",
-    "xoxb-test",
-  );
+  secureKeyValues.set("credential/slack_channel/bot_token", "xoxb-test");
 }
 
 beforeEach(() => {

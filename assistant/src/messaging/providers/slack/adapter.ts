@@ -14,7 +14,6 @@ import {
 
 import { findContactChannel } from "../../../contacts/contact-store.js";
 import type { OAuthConnection } from "../../../oauth/connection.js";
-import { resolveOAuthConnection } from "../../../oauth/connection-resolver.js";
 import { isProviderConnected } from "../../../oauth/oauth-store.js";
 import { credentialKey } from "../../../security/credential-key.js";
 import { getSecureKeyAsync } from "../../../security/secure-keys.js";
@@ -31,6 +30,7 @@ import type {
   SendOptions,
   SendResult,
 } from "../../provider-types.js";
+import { resolveSlackAuth } from "./auth.js";
 import * as slack from "./client.js";
 import { SlackApiError } from "./client.js";
 import {
@@ -512,29 +512,21 @@ export const slackProvider: MessagingProvider = {
   async resolveConnection(
     account?: string,
   ): Promise<OAuthConnection | undefined> {
-    // Socket Mode: cache the raw bot token for use in adapter methods.
-    // Token presence is sufficient — no connection row required.
-    //
-    // When a user_token is also stored, prefer it for reads so the adapter
-    // can see channels the user is in but the bot isn't (conversations.list,
-    // conversations.history, search.messages). Writes always stay on the
-    // bot token — see SAFETY note above getWriteAuth().
-    const botToken = await getSecureKeyAsync(
-      credentialKey("slack_channel", "bot_token"),
-    );
-    const userToken = await getSecureKeyAsync(
-      credentialKey("slack_channel", "user_token"),
-    );
-    if (botToken) {
-      _cachedSlackWriteAuth = botToken;
-      _cachedSlackReadAuth = userToken ?? botToken;
-      return undefined;
+    // Resolve write (bot) and read (user-preferred) auth through the canonical
+    // resolver and cache them for the adapter's read/write accessors. Socket
+    // Mode yields raw token strings; the legacy OAuth path yields a refreshing
+    // OAuthConnection. Identity rules live in slack/auth.ts.
+    const writeAuth = await resolveSlackAuth("write", { account });
+    if (writeAuth === undefined) {
+      // No Slack credentials configured — fail fast for the messaging path.
+      throw new Error("No OAuth connection found for slack");
     }
-    // Preserve existing OAuth path for backwards compat.
-    const conn = await resolveOAuthConnection("slack", { account });
-    _cachedSlackWriteAuth = conn;
-    _cachedSlackReadAuth = conn;
-    return conn;
+    _cachedSlackWriteAuth = writeAuth;
+    const readAuth = await resolveSlackAuth("read", { account });
+    _cachedSlackReadAuth = readAuth ?? writeAuth;
+    // Socket Mode caches the token internally (return undefined); OAuth returns
+    // the connection to the messaging framework.
+    return typeof writeAuth === "string" ? undefined : writeAuth;
   },
 
   async testConnection(connection?: OAuthConnection): Promise<ConnectionInfo> {

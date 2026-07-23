@@ -22,6 +22,15 @@ mock.module("../oauth/oauth-store.js", () => ({
     connectionByProvider[key] ?? undefined,
 }));
 
+// The route resolves auth via messaging/providers/slack/auth.ts, which imports
+// the OAuth connection resolver; stub it so the import graph loads (Socket Mode
+// never reaches it).
+mock.module("../oauth/connection-resolver.js", () => ({
+  resolveOAuthConnection: async () => {
+    throw new Error("No OAuth connection (Socket Mode test)");
+  },
+}));
+
 let postMessageResult: unknown = {
   ok: true,
   ts: "1234567890.123456",
@@ -36,6 +45,8 @@ mock.module("../messaging/providers/slack/client.js", () => ({
     _text: string,
     _opts?: unknown,
   ) => postMessageResult,
+  // auth.ts imports SlackApiError from the client; export it from the mock.
+  SlackApiError: class SlackApiError extends Error {},
 }));
 
 let appStoreResult: unknown = null;
@@ -95,22 +106,14 @@ describe("handleShareToSlackChannel", () => {
   });
 
   test("throws BadRequestError when missing required fields", async () => {
-    connectionByProvider["slack"] = { id: "conn-slack-1" };
-    secureKeyValues.set(
-      "oauth_connection/conn-slack-1/access_token",
-      "xoxb-test",
-    );
+    secureKeyValues.set("credential/slack_channel/bot_token", "xoxb-test");
     expect(
       handleShareToSlackChannel({ body: { appId: "app1" } }),
     ).rejects.toThrow(BadRequestError);
   });
 
   test("throws NotFoundError when app not found", async () => {
-    connectionByProvider["slack"] = { id: "conn-slack-1" };
-    secureKeyValues.set(
-      "oauth_connection/conn-slack-1/access_token",
-      "xoxb-test",
-    );
+    secureKeyValues.set("credential/slack_channel/bot_token", "xoxb-test");
     appStoreResult = null;
     expect(
       handleShareToSlackChannel({
@@ -120,11 +123,7 @@ describe("handleShareToSlackChannel", () => {
   });
 
   test("posts message and returns success", async () => {
-    connectionByProvider["slack"] = { id: "conn-slack-1" };
-    secureKeyValues.set(
-      "oauth_connection/conn-slack-1/access_token",
-      "xoxb-test",
-    );
+    secureKeyValues.set("credential/slack_channel/bot_token", "xoxb-test");
     appStoreResult = {
       id: "app1",
       name: "My App",

@@ -27,6 +27,16 @@ mock.module("../../../../../oauth/oauth-store.js", () => ({
   getConnectionByProvider: () => undefined,
 }));
 
+// These handlers resolve auth through messaging/providers/slack/auth.ts, which
+// imports the OAuth connection resolver. Socket Mode (bot token) never reaches
+// it, but the module must be stubbed so the import graph loads under the
+// partial secure-keys mock above.
+mock.module("../../../../../oauth/connection-resolver.js", () => ({
+  resolveOAuthConnection: async () => {
+    throw new Error("No OAuth connection (Socket Mode test)");
+  },
+}));
+
 const FAKE_APP = { id: "app-1", name: "Test App", description: "desc" };
 mock.module("../../../../../apps/app-store.js", () => ({
   getApp: (id: string) => (id === FAKE_APP.id ? FAKE_APP : undefined),
