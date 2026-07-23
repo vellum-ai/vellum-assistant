@@ -478,6 +478,14 @@ export function useStreamEventHandler(
         case "confirmation_state_changed":
         case "conversation_inference_profile_updated":
           break;
+        // Daemon status / model-catalog / compaction / schedule-created signals.
+        // The web chat handler is a no-op — these are surfaced elsewhere or not
+        // rendered by the web today.
+        case "assistant_status":
+        case "model_info":
+        case "context_compacted":
+        case "schedule_conversation_created":
+          break;
         // Host-proxy instructions targeting the desktop client / chrome
         // extension. The web chat handler is a no-op — host-proxy frames are
         // delivered to their capability holder by the hub, not through the

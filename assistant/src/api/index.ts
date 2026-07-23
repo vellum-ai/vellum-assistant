@@ -6,6 +6,7 @@ import { AcpSessionSpawnedEventSchema } from "./events/acp-session-spawned.js";
 import { AcpSessionUpdateEventSchema } from "./events/acp-session-update.js";
 import { AcpSessionUsageEventSchema } from "./events/acp-session-usage.js";
 import { AssistantActivityStateEventSchema } from "./events/assistant-activity-state.js";
+import { AssistantStatusEventSchema } from "./events/assistant-status.js";
 import { AssistantTextDeltaEventSchema } from "./events/assistant-text-delta.js";
 import { AssistantThinkingDeltaEventSchema } from "./events/assistant-thinking-delta.js";
 import { AssistantTurnStartEventSchema } from "./events/assistant-turn-start.js";
@@ -22,6 +23,7 @@ import { ConfirmationRequestEventSchema } from "./events/confirmation-request.js
 import { ConfirmationStateChangedEventSchema } from "./events/confirmation-state-changed.js";
 import { ContactRequestEventSchema } from "./events/contact-request.js";
 import { ContactsChangedEventSchema } from "./events/contacts-changed.js";
+import { ContextCompactedEventSchema } from "./events/context-compacted.js";
 import { ConversationErrorEventSchema } from "./events/conversation-error.js";
 import { ConversationInferenceProfileUpdatedEventSchema } from "./events/conversation-inference-profile-updated.js";
 import { ConversationListInvalidatedEventSchema } from "./events/conversation-list-invalidated.js";
@@ -77,6 +79,7 @@ import { MessageQueuedEventSchema } from "./events/message-queued.js";
 import { MessageQueuedDeletedEventSchema } from "./events/message-queued-deleted.js";
 import { MessageRequestCompleteEventSchema } from "./events/message-request-complete.js";
 import { MessageSteeredEventSchema } from "./events/message-steered.js";
+import { ModelInfoEventSchema } from "./events/model-info.js";
 import { NavigateSettingsEventSchema } from "./events/navigate-settings.js";
 import { NotificationConversationCreatedEventSchema } from "./events/notification-conversation-created.js";
 import { NotificationIntentEventSchema } from "./events/notification-intent.js";
@@ -91,6 +94,7 @@ import {
   RecordingStopEventSchema,
 } from "./events/recording.js";
 import { RelationshipStateUpdatedEventSchema } from "./events/relationship-state-updated.js";
+import { ScheduleConversationCreatedEventSchema } from "./events/schedule-conversation-created.js";
 import { SecretRequestEventSchema } from "./events/secret-request.js";
 import { ServiceGroupUpdateCompleteEventSchema } from "./events/service-group-update-complete.js";
 import { ServiceGroupUpdateProgressEventSchema } from "./events/service-group-update-progress.js";
@@ -166,6 +170,10 @@ export {
   type AssistantOutboundAttachment,
   AssistantOutboundAttachmentSchema,
 } from "./events/assistant-outbound-attachment.js";
+export {
+  type AssistantStatusEvent,
+  AssistantStatusEventSchema,
+} from "./events/assistant-status.js";
 export {
   type AssistantTextDeltaEvent,
   AssistantTextDeltaEventSchema,
@@ -246,6 +254,10 @@ export {
   type ContactsChangedEvent,
   ContactsChangedEventSchema,
 } from "./events/contacts-changed.js";
+export {
+  type ContextCompactedEvent,
+  ContextCompactedEventSchema,
+} from "./events/context-compacted.js";
 export {
   type ConversationErrorCode,
   ConversationErrorCodeSchema,
@@ -419,6 +431,10 @@ export {
   MessageSteeredEventSchema,
 } from "./events/message-steered.js";
 export {
+  type ModelInfoEvent,
+  ModelInfoEventSchema,
+} from "./events/model-info.js";
+export {
   type NavigateSettingsEvent,
   NavigateSettingsEventSchema,
 } from "./events/navigate-settings.js";
@@ -463,6 +479,10 @@ export {
   type RelationshipStateUpdatedEvent,
   RelationshipStateUpdatedEventSchema,
 } from "./events/relationship-state-updated.js";
+export {
+  type ScheduleConversationCreatedEvent,
+  ScheduleConversationCreatedEventSchema,
+} from "./events/schedule-conversation-created.js";
 export {
   type SecretRequestEvent,
   SecretRequestEventSchema,
@@ -816,6 +836,7 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   AcpSessionUpdateEventSchema,
   AcpSessionUsageEventSchema,
   AssistantActivityStateEventSchema,
+  AssistantStatusEventSchema,
   AssistantTextDeltaEventSchema,
   AssistantThinkingDeltaEventSchema,
   AssistantTurnStartEventSchema,
@@ -832,6 +853,7 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   ConfirmationStateChangedEventSchema,
   ContactRequestEventSchema,
   ContactsChangedEventSchema,
+  ContextCompactedEventSchema,
   ConversationErrorEventSchema,
   ConversationInferenceProfileUpdatedEventSchema,
   ConversationListInvalidatedEventSchema,
@@ -873,6 +895,7 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   MessageQueuedDeletedEventSchema,
   MessageRequestCompleteEventSchema,
   MessageSteeredEventSchema,
+  ModelInfoEventSchema,
   NavigateSettingsEventSchema,
   NotificationConversationCreatedEventSchema,
   NotificationIntentEventSchema,
@@ -885,6 +908,7 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   RecordingStartEventSchema,
   RecordingStopEventSchema,
   RelationshipStateUpdatedEventSchema,
+  ScheduleConversationCreatedEventSchema,
   SecretRequestEventSchema,
   ServiceGroupUpdateCompleteEventSchema,
   ServiceGroupUpdateProgressEventSchema,

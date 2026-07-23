@@ -36,14 +36,14 @@ describe("buildAssistantEvent", () => {
   });
 
   test("generates unique ids for each call", () => {
-    const msg: ServerMessage = { type: "pong" };
+    const msg: ServerMessage = { type: "message_complete" };
     const a = buildAssistantEvent(msg);
     const b = buildAssistantEvent(msg);
     expect(a.id).not.toBe(b.id);
   });
 
   test("conversationId is undefined when omitted", () => {
-    const msg: ServerMessage = { type: "pong" };
+    const msg: ServerMessage = { type: "message_complete" };
     const event = buildAssistantEvent(msg);
     expect(event.conversationId).toBeUndefined();
   });
@@ -87,7 +87,7 @@ describe("daemon send → one mirrored assistant event", () => {
       },
     });
 
-    const msg: ServerMessage = { type: "pong" }; // no conversationId field
+    const msg: ServerMessage = { type: "message_complete" }; // no conversationId field
     const event = buildAssistantEvent(msg, "sess_explicit");
 
     await hub.publish(event);
