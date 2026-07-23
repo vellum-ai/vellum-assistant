@@ -29,8 +29,9 @@
 
 import { statSync } from "node:fs";
 
-import type { RouteHostClient } from "../../routes/route-host-client.js";
+import { isRouteHostEnabled } from "../../routes/control.js";
 import {
+  RouteHostClient,
   RouteHostTimeoutError,
   RouteHostUnavailableError,
 } from "../../routes/route-host-client.js";
@@ -132,36 +133,29 @@ interface CachedModule {
 /** Default per-request timeout for user-defined route handlers (30 seconds). */
 const DEFAULT_HANDLER_TIMEOUT_MS = 30_000;
 
-/**
- * Off-daemon execution binding: the route host client plus a per-request check
- * of whether the host is enabled in config. When enabled, handler execution is
- * delegated to the subprocess instead of running inline.
- */
-export interface RouteHostBinding {
-  readonly client: RouteHostClient;
-  readonly isEnabled: () => boolean;
-}
-
 export class UserRouteDispatcher {
   private moduleCache = new Map<string, CachedModule>();
   private handlerTimeoutMs: number;
   private context: UserRouteContext;
-  private routeHost?: RouteHostBinding;
+  /**
+   * Lazily created on the first request that runs while the route host is
+   * enabled. Constructing it is inert (the subprocess spawns lazily on the
+   * client's first `invoke`), so a dispatcher whose host is never enabled never
+   * creates one.
+   */
+  private routeHostClient: RouteHostClient | undefined;
 
   constructor(options: {
     handlerTimeoutMs?: number;
     context: UserRouteContext;
-    /**
-     * When present and `isEnabled()` returns true at dispatch time, handler
-     * execution is delegated to the route host subprocess. Resolution, path
-     * traversal, and 404s stay on the main thread. See {@link RouteHostClient}.
-     */
-    routeHost?: RouteHostBinding;
   }) {
     this.handlerTimeoutMs =
       options.handlerTimeoutMs ?? DEFAULT_HANDLER_TIMEOUT_MS;
     this.context = Object.freeze({ ...options.context });
-    this.routeHost = options.routeHost;
+  }
+
+  private getRouteHostClient(): RouteHostClient {
+    return (this.routeHostClient ??= new RouteHostClient());
   }
 
   /**
@@ -189,7 +183,7 @@ export class UserRouteDispatcher {
       );
     }
 
-    if (this.routeHost?.isEnabled()) {
+    if (isRouteHostEnabled()) {
       return this.dispatchViaHost(filePath, routePath, request);
     }
 
@@ -233,7 +227,7 @@ export class UserRouteDispatcher {
     }
 
     try {
-      const result = await this.routeHost!.client.invoke(
+      const result = await this.getRouteHostClient().invoke(
         {
           filePath,
           mtimeMs,

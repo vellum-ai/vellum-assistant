@@ -15,7 +15,7 @@
  * respawns the host.
  */
 
-import { getConfig } from "../config/loader.js";
+import { getConfigReadOnly } from "../config/loader.js";
 import { getLogger } from "../util/logger.js";
 import { getProcPidPath } from "../util/platform.js";
 import {
@@ -36,7 +36,7 @@ const log = getLogger("route-host-control");
  * edit (hot-reloaded by the config watcher) takes effect without a restart.
  */
 export function isRouteHostEnabled(): boolean {
-  return getConfig().userRoutes.host.enabled;
+  return getConfigReadOnly().userRoutes.host.enabled;
 }
 
 function routeHostPidPath(): string {

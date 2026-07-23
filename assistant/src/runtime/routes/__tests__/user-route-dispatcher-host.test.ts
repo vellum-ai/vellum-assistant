@@ -1,23 +1,51 @@
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type {
-  RouteHostClient,
-  RouteInvokeResponse,
-} from "../../../routes/route-host-client.js";
-import {
-  RouteHostTimeoutError,
-  RouteHostUnavailableError,
-} from "../../../routes/route-host-client.js";
 import type { RouteInvokeParams } from "../../../routes/route-host-protocol.js";
 import { getWorkspaceRoutesDir } from "../../../util/platform.js";
 import { AssistantEventHub } from "../../assistant-event-hub.js";
-import type {
-  RouteHostBinding,
-  UserRouteContext,
-} from "../user-route-dispatcher.js";
-import { UserRouteDispatcher } from "../user-route-dispatcher.js";
+import type { UserRouteContext } from "../user-route-dispatcher.js";
+
+// The dispatcher constructs the route host client inline and reads the enabled
+// flag from config, so both are mocked here (there is no injection seam).
+interface RouteInvokeResponse {
+  status: number;
+  headers: [string, string][];
+  body: Uint8Array | null;
+}
+interface InvokeCall {
+  params: RouteInvokeParams;
+  body: Uint8Array | null;
+}
+
+let hostEnabled = false;
+let invokeImpl: (call: InvokeCall) => Promise<RouteInvokeResponse>;
+const invokeCalls: InvokeCall[] = [];
+
+class FakeTimeoutError extends Error {
+  constructor(public readonly timeoutMs: number) {
+    super(`route handler timed out after ${timeoutMs}ms`);
+  }
+}
+class FakeUnavailableError extends Error {}
+
+mock.module("../../../routes/control.js", () => ({
+  isRouteHostEnabled: () => hostEnabled,
+}));
+mock.module("../../../routes/route-host-client.js", () => ({
+  RouteHostClient: class {
+    async invoke(params: RouteInvokeParams, body: Uint8Array | null) {
+      const call = { params, body };
+      invokeCalls.push(call);
+      return invokeImpl(call);
+    }
+  },
+  RouteHostTimeoutError: FakeTimeoutError,
+  RouteHostUnavailableError: FakeUnavailableError,
+}));
+
+const { UserRouteDispatcher } = await import("../user-route-dispatcher.js");
 
 function context(): UserRouteContext {
   return {
@@ -26,38 +54,13 @@ function context(): UserRouteContext {
   };
 }
 
+function makeDispatcher() {
+  return new UserRouteDispatcher({ context: context() });
+}
+
 function writeHandler(name: string, content: string): void {
-  const full = join(getWorkspaceRoutesDir(), name);
   mkdirSync(getWorkspaceRoutesDir(), { recursive: true });
-  writeFileSync(full, content);
-}
-
-afterEach(() => {
-  rmSync(getWorkspaceRoutesDir(), { recursive: true, force: true });
-});
-
-interface InvokeCall {
-  params: RouteInvokeParams;
-  body: Uint8Array | null;
-}
-
-/** A fake RouteHostClient recording invocations, with a scriptable reply. */
-function fakeHost(reply: (call: InvokeCall) => Promise<RouteInvokeResponse>): {
-  binding: (enabled: boolean) => RouteHostBinding;
-  calls: InvokeCall[];
-} {
-  const calls: InvokeCall[] = [];
-  const client = {
-    invoke: async (params: RouteInvokeParams, body: Uint8Array | null) => {
-      const call = { params, body };
-      calls.push(call);
-      return reply(call);
-    },
-  } as unknown as RouteHostClient;
-  return {
-    calls,
-    binding: (enabled: boolean) => ({ client, isEnabled: () => enabled }),
-  };
+  writeFileSync(join(getWorkspaceRoutesDir(), name), content);
 }
 
 function jsonResponse(status: number, value: unknown): RouteInvokeResponse {
@@ -68,19 +71,26 @@ function jsonResponse(status: number, value: unknown): RouteInvokeResponse {
   };
 }
 
+beforeEach(() => {
+  hostEnabled = false;
+  invokeImpl = async () => jsonResponse(200, { via: "host" });
+  invokeCalls.length = 0;
+});
+
+afterEach(() => {
+  rmSync(getWorkspaceRoutesDir(), { recursive: true, force: true });
+});
+
 describe("UserRouteDispatcher — route host delegation", () => {
   test("delegates to the host when enabled (in-band handler never runs)", async () => {
-    // If the in-band path ran, it would return {via:"in-band"}; the host reply
+    // If the in-band path ran it would return {via:"in-band"}; the host reply
     // returns {via:"host"}, so the response distinguishes which path executed.
     writeHandler(
       "foo.ts",
       `export function GET() { return Response.json({ via: "in-band" }); }`,
     );
-    const host = fakeHost(async () => jsonResponse(200, { via: "host" }));
-    const dispatcher = new UserRouteDispatcher({
-      context: context(),
-      routeHost: host.binding(true),
-    });
+    hostEnabled = true;
+    const dispatcher = makeDispatcher();
 
     const res = await dispatcher.dispatch(
       "foo",
@@ -89,10 +99,10 @@ describe("UserRouteDispatcher — route host delegation", () => {
 
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ via: "host" });
-    expect(host.calls).toHaveLength(1);
-    expect(host.calls[0].params.method).toBe("GET");
-    expect(host.calls[0].params.filePath.endsWith("foo.ts")).toBe(true);
-    expect(host.calls[0].params.url).toContain("/v1/x/foo");
+    expect(invokeCalls).toHaveLength(1);
+    expect(invokeCalls[0].params.method).toBe("GET");
+    expect(invokeCalls[0].params.filePath.endsWith("foo.ts")).toBe(true);
+    expect(invokeCalls[0].params.url).toContain("/v1/x/foo");
   });
 
   test("runs in-band when disabled (host never called)", async () => {
@@ -100,11 +110,8 @@ describe("UserRouteDispatcher — route host delegation", () => {
       "bar.ts",
       `export function GET() { return Response.json({ via: "in-band" }); }`,
     );
-    const host = fakeHost(async () => jsonResponse(200, { via: "host" }));
-    const dispatcher = new UserRouteDispatcher({
-      context: context(),
-      routeHost: host.binding(false),
-    });
+    hostEnabled = false;
+    const dispatcher = makeDispatcher();
 
     const res = await dispatcher.dispatch(
       "bar",
@@ -113,7 +120,7 @@ describe("UserRouteDispatcher — route host delegation", () => {
 
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ via: "in-band" });
-    expect(host.calls).toHaveLength(0);
+    expect(invokeCalls).toHaveLength(0);
   });
 
   test("forwards a POST body to the host", async () => {
@@ -121,15 +128,12 @@ describe("UserRouteDispatcher — route host delegation", () => {
       "echo.ts",
       `export function POST() { return new Response(); }`,
     );
-    const host = fakeHost(async (call) =>
+    hostEnabled = true;
+    invokeImpl = async (call) =>
       jsonResponse(201, {
         received: new TextDecoder().decode(call.body ?? new Uint8Array()),
-      }),
-    );
-    const dispatcher = new UserRouteDispatcher({
-      context: context(),
-      routeHost: host.binding(true),
-    });
+      });
+    const dispatcher = makeDispatcher();
 
     const res = await dispatcher.dispatch(
       "echo",
@@ -148,13 +152,11 @@ describe("UserRouteDispatcher — route host delegation", () => {
 
   test("maps a host timeout to 504", async () => {
     writeHandler("slow.ts", `export function GET() { return new Response(); }`);
-    const host = fakeHost(async () => {
-      throw new RouteHostTimeoutError(1000);
-    });
-    const dispatcher = new UserRouteDispatcher({
-      context: context(),
-      routeHost: host.binding(true),
-    });
+    hostEnabled = true;
+    invokeImpl = async () => {
+      throw new FakeTimeoutError(1000);
+    };
+    const dispatcher = makeDispatcher();
 
     const res = await dispatcher.dispatch(
       "slow",
@@ -163,15 +165,13 @@ describe("UserRouteDispatcher — route host delegation", () => {
     expect(res.status).toBe(504);
   });
 
-  test("maps host unavailable to 503", async () => {
+  test("maps host unavailable (incl. failed startup) to 503", async () => {
     writeHandler("down.ts", `export function GET() { return new Response(); }`);
-    const host = fakeHost(async () => {
-      throw new RouteHostUnavailableError("route host killed");
-    });
-    const dispatcher = new UserRouteDispatcher({
-      context: context(),
-      routeHost: host.binding(true),
-    });
+    hostEnabled = true;
+    invokeImpl = async () => {
+      throw new FakeUnavailableError("route host failed to start");
+    };
+    const dispatcher = makeDispatcher();
 
     const res = await dispatcher.dispatch(
       "down",
@@ -181,17 +181,14 @@ describe("UserRouteDispatcher — route host delegation", () => {
   });
 
   test("unknown route 404s without touching the host", async () => {
-    const host = fakeHost(async () => jsonResponse(200, {}));
-    const dispatcher = new UserRouteDispatcher({
-      context: context(),
-      routeHost: host.binding(true),
-    });
+    hostEnabled = true;
+    const dispatcher = makeDispatcher();
 
     const res = await dispatcher.dispatch(
       "does-not-exist",
       new Request("http://localhost/v1/x/does-not-exist", { method: "GET" }),
     );
     expect(res.status).toBe(404);
-    expect(host.calls).toHaveLength(0);
+    expect(invokeCalls).toHaveLength(0);
   });
 });

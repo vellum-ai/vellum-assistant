@@ -143,14 +143,25 @@ export class RouteHostClient {
   }
 
   private async spawnAndConnect(): Promise<Socket> {
-    const { pid } = await spawnWorkerProcess({
-      pidPath: this.pidPath,
-      entry: this.workerEntryUrl,
-      workerLabel: "Route host",
-      // Owned by the daemon (appears in its process tree, torn down with it);
-      // kill it if it hangs during startup so a failed spawn leaves nothing.
-      options: { detached: false, terminateOnTimeout: true },
-    });
+    let pid: number;
+    try {
+      ({ pid } = await spawnWorkerProcess({
+        pidPath: this.pidPath,
+        entry: this.workerEntryUrl,
+        workerLabel: "Route host",
+        // Owned by the daemon (appears in its process tree, torn down with it);
+        // kill it if it hangs during startup so a failed spawn leaves nothing.
+        options: { detached: false, terminateOnTimeout: true },
+      }));
+    } catch (err) {
+      // A failed bring-up (crash-on-startup, PID-file timeout) is a retryable
+      // availability failure, not a handler error — surface it as such so the
+      // dispatcher maps it to a 503 rather than a 500.
+      const message = err instanceof Error ? err.message : String(err);
+      throw new RouteHostUnavailableError(
+        `route host failed to start: ${message}`,
+      );
+    }
     this.pid = pid;
 
     const socket = await new Promise<Socket>((resolve, reject) => {
