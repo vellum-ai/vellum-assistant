@@ -1,5 +1,17 @@
 import { z } from "zod";
 
+import type {
+  Audio,
+  CallbackQuery,
+  Chat,
+  Document as TelegramApiDocument,
+  Message,
+  PhotoSize,
+  Update,
+  User,
+  Voice,
+} from "@grammyjs/types";
+
 import type { GatewayInboundEvent } from "../types.js";
 
 // Telegram webhook payloads are untrusted external input (Telegram Bot API).
@@ -295,3 +307,68 @@ export function normalizeTelegramUpdate(
     raw: payload,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Compile-time cross-check against the official Telegram Bot API types.
+//
+// `@grammyjs/types` is a types-only dev dependency: it contributes nothing at
+// runtime (the `import type` above is erased from the build) and the schemas
+// above stay the sole runtime validators. Its only job is to make TypeScript
+// prove two things about those schemas, so a drift from the real Bot API shape
+// fails `tsc` instead of silently mis-parsing a live webhook:
+//   1. every field name we model is a real field on the official type — a typo
+//      like `messsage_thread_id`, which would otherwise always parse to
+//      `undefined`, fails the build; and
+//   2. a real official value satisfies our (tolerant) schema — modeling a field
+//      with the wrong primitive (e.g. `chat.id` as a string) fails the build.
+//
+// The check is one-directional on purpose: our schemas are intentionally a
+// *narrower and looser* view (only the fields the normalizer reads, each
+// optional and `.catch()`-guarded), so we do NOT require our type to satisfy
+// the official one — only that we never contradict it.
+type Expect<T extends true> = T;
+/** Every key we model is a real key on the official type. */
+type ModeledKeysAreOfficial<Ours, Official> = keyof Ours extends keyof Official
+  ? true
+  : false;
+/** A real official value is accepted by our tolerant schema. */
+type OfficialValueSatisfiesOurs<Ours, Official> = Official extends Ours
+  ? true
+  : false;
+
+type TelegramFrom = NonNullable<z.infer<typeof TelegramFromSchema>>;
+type TelegramChat = NonNullable<TelegramMessage["chat"]>;
+
+type _TelegramApiCrossChecks = [
+  Expect<ModeledKeysAreOfficial<z.infer<typeof TelegramUpdateSchema>, Update>>,
+  Expect<
+    OfficialValueSatisfiesOurs<z.infer<typeof TelegramUpdateSchema>, Update>
+  >,
+  Expect<ModeledKeysAreOfficial<TelegramMessage, Message>>,
+  Expect<OfficialValueSatisfiesOurs<TelegramMessage, Message>>,
+  Expect<
+    ModeledKeysAreOfficial<
+      z.infer<typeof TelegramCallbackQuerySchema>,
+      CallbackQuery
+    >
+  >,
+  Expect<
+    OfficialValueSatisfiesOurs<
+      z.infer<typeof TelegramCallbackQuerySchema>,
+      CallbackQuery
+    >
+  >,
+  Expect<ModeledKeysAreOfficial<TelegramChat, Chat>>,
+  Expect<ModeledKeysAreOfficial<TelegramFrom, User>>,
+  Expect<
+    ModeledKeysAreOfficial<z.infer<typeof TelegramPhotoSizeSchema>, PhotoSize>
+  >,
+  Expect<
+    ModeledKeysAreOfficial<
+      z.infer<typeof TelegramDocumentSchema>,
+      TelegramApiDocument
+    >
+  >,
+  Expect<ModeledKeysAreOfficial<z.infer<typeof TelegramVoiceSchema>, Voice>>,
+  Expect<ModeledKeysAreOfficial<z.infer<typeof TelegramAudioSchema>, Audio>>,
+];
