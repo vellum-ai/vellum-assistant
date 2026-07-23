@@ -86,6 +86,11 @@ export const installShare = (): void => {
       await writeFile(filePath, bytes);
 
       const shareMenu = new ShareMenu({ filePaths: [filePath] });
+      // Anchor the sheet to the sender's window. The option is `window`, not
+      // `browserWindow`: ShareMenu.popup forwards to Menu.popup, which reads
+      // `options.window` (electron@42's types agree — PopupOptions.window). The
+      // published share-menu docs say `browserWindow`, but that name is ignored
+      // at runtime and would fall back to the focused window.
       shareMenu.popup({
         window: BrowserWindow.fromWebContents(event.sender) ?? undefined,
       });
