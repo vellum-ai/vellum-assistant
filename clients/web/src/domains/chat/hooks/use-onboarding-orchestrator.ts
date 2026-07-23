@@ -30,7 +30,10 @@ import {
   isInChatTourOn,
   readInChatTourVariant,
 } from "@/domains/chat/in-chat-onboarding/in-chat-tour-flag";
-import { emitInChatTourStarted } from "@/domains/chat/in-chat-onboarding/tour-telemetry";
+import {
+  emitInChatTourExposed,
+  emitInChatTourStarted,
+} from "@/domains/chat/in-chat-onboarding/tour-telemetry";
 import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
 import { routes } from "@/utils/routes";
 
@@ -71,10 +74,13 @@ export function useOnboardingOrchestrator(): UseOnboardingOrchestratorResult {
     onboardingDraftConversationIdRef.current = draftId;
     setOnboardingConversationId(draftId);
     useConversationStore.getState().setActiveConversationId(draftId);
-    // The in-chat-onboarding-tour experiment's `tour` arm: the eyes-led
-    // tour plays over the workspace the user just landed in. Read at
-    // consumption time — flags hydrated long ago during the onboarding
-    // flow itself, and the signal is one-shot.
+    // The in-chat-onboarding-tour experiment: an exposure event fires for
+    // BOTH arms at the hand-off (control emits nothing else, and the
+    // funnel needs its rows for comparison), then the `tour` arm plays
+    // the eyes-led tour over the workspace the user just landed in. The
+    // arm is read at consumption time — flags hydrated long ago during
+    // the onboarding flow itself, and the signal is one-shot.
+    emitInChatTourExposed();
     if (isInChatTourOn(readInChatTourVariant())) {
       useInChatOnboardingStore.getState().startPrototype();
       emitInChatTourStarted("auto");

@@ -7,6 +7,9 @@
  * the 70% `tour` arm against `control`.
  *
  * Events:
+ * - `tour_exposed`   — the post-onboarding hand-off, fired for BOTH arms;
+ *                      the control cohort emits nothing else, and the
+ *                      experiment needs its rows for comparison.
  * - `tour_started`   — the tour began; `screen` records the trigger
  *                      (`auto` = post-onboarding hand-off, `replay` = the
  *                      header button).
@@ -22,13 +25,24 @@ import { readInChatTourVariant } from "./in-chat-tour-flag";
 export const IN_CHAT_TOUR_FUNNEL_VERSION = "in_chat_tour_v1_2026_07";
 
 export const IN_CHAT_TOUR_FUNNEL_STEPS = {
-  started: { stepName: "tour_started", stepIndex: 0 },
-  completed: { stepName: "tour_completed", stepIndex: 1 },
-  skipped: { stepName: "tour_skipped", stepIndex: 2 },
+  exposed: { stepName: "tour_exposed", stepIndex: 0 },
+  started: { stepName: "tour_started", stepIndex: 1 },
+  completed: { stepName: "tour_completed", stepIndex: 2 },
+  skipped: { stepName: "tour_skipped", stepIndex: 3 },
 } as const;
 
 /** How the tour began: the post-onboarding hand-off or the header button. */
 export type InChatTourTrigger = "auto" | "replay";
+
+/** The arm-exposure moment — emitted for every user (both arms) at the
+ *  post-onboarding hand-off, stamped with their assigned arm. */
+export function emitInChatTourExposed(): void {
+  emitOnboardingFunnelStepCompleted(IN_CHAT_TOUR_FUNNEL_STEPS.exposed, {
+    funnelVersion: IN_CHAT_TOUR_FUNNEL_VERSION,
+    variant: readInChatTourVariant(),
+    outcome: "completed",
+  });
+}
 
 export function emitInChatTourStarted(trigger: InChatTourTrigger): void {
   emitOnboardingFunnelStepCompleted(IN_CHAT_TOUR_FUNNEL_STEPS.started, {
