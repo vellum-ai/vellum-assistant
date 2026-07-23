@@ -94,9 +94,19 @@ mock.module("@/hooks/use-is-org-ready", () => ({
 mock.module(
     "@/domains/settings/billing/pro-onboarding/billing-onboarding-modal",
     () => ({
-        BillingOnboardingModal: ({ open }: { open: boolean }) => (
+        BillingOnboardingModal: ({
+            open,
+            mode,
+        }: {
+            open: boolean;
+            mode?: "checkout" | "resize";
+        }) => (
             <div
-                data-testid="onboarding-modal"
+                data-testid={
+                    mode === "resize"
+                        ? "resize-onboarding-modal"
+                        : "onboarding-modal"
+                }
                 data-open={open ? "true" : "false"}
             />
         ),
@@ -126,13 +136,12 @@ mock.module("@/domains/settings/components/invoices-table", () => ({
     InvoicesTable: () => null,
 }));
 mock.module("@/domains/settings/components/plan-card", () => ({
-    PlanCard: () => null,
+    PlanCard: ({ onTierUpgraded }: { onTierUpgraded?: () => void }) => (
+        <button data-testid="plan-card-tier-upgraded" onClick={onTierUpgraded} />
+    ),
 }));
 mock.module("@/domains/settings/components/referral-panel", () => ({
     ReferralPanel: () => null,
-}));
-mock.module("@/domains/settings/components/tier-upgrade-resize-modal", () => ({
-    TierUpgradeResizeModal: () => null,
 }));
 
 const { BillingPage } = await import("./billing-page");
@@ -223,6 +232,39 @@ describe("BillingTab ?pro_onboarding param", () => {
             expect(
                 getByTestId("onboarding-modal").getAttribute("data-open"),
             ).toBe("true"),
+        );
+        // The checkout instance opens; the dedicated resize instance stays inert.
+        expect(
+            getByTestId("resize-onboarding-modal").getAttribute("data-open"),
+        ).toBe("false");
+        expect(getByTestId("loc").textContent).toBe(
+            "/assistant/settings/usage?tab=billing",
+        );
+    });
+});
+
+describe("BillingTab tier-upgrade resize takeover", () => {
+    test("opens the resize instance on tier upgrade without touching the URL or the checkout instance", async () => {
+        const { getByTestId } = renderPage();
+
+        await waitFor(() =>
+            expect(getByTestId("resize-onboarding-modal")).toBeTruthy(),
+        );
+        expect(
+            getByTestId("resize-onboarding-modal").getAttribute("data-open"),
+        ).toBe("false");
+
+        fireEvent.click(getByTestId("plan-card-tier-upgraded"));
+
+        await waitFor(() =>
+            expect(
+                getByTestId("resize-onboarding-modal").getAttribute("data-open"),
+            ).toBe("true"),
+        );
+        // The checkout instance is untouched and the resize flow leaves the URL
+        // params exactly as they were.
+        expect(getByTestId("onboarding-modal").getAttribute("data-open")).toBe(
+            "false",
         );
         expect(getByTestId("loc").textContent).toBe(
             "/assistant/settings/usage?tab=billing",
