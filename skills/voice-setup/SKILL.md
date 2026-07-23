@@ -8,7 +8,7 @@ metadata:
   vellum:
     category: "voice"
     display-name: "Voice Setup"
-    includes: ["elevenlabs-voice"]
+    includes: ["elevenlabs-voice", "deepgram-voice"]
     activation-hints:
       - "Guided setup or troubleshooting (walkthrough, PTT not working, mic issues, ElevenLabs/TTS)"
       - "Simple voice setting changes (PTT key, wake word) -> use voice_config_update directly"
@@ -58,13 +58,13 @@ Ask which key they prefer, then use `voice_config_update` with `setting: "activa
 - If they pick a key that conflicts with their emoji picker (Fn or Globe on newer Macs), warn them and suggest an alternative.
 - If they use a terminal app heavily, warn that some keys may be captured by the terminal.
 
-### 3. Text-to-Speech / ElevenLabs (Optional)
+### 3. Text-to-Speech Voice (Optional)
 
-Ask if they want high-quality text-to-speech voices via ElevenLabs (optional - standard TTS works without it).
+Ask if they want high-quality text-to-speech voices via ElevenLabs or Deepgram (optional - standard TTS works without it).
 
-If yes, the included **ElevenLabs Voice** skill (automatically appended below via `includes`) provides the full setup flow: curated voice list, API key collection, advanced voice selection, and tuning parameters. Follow the instructions there.
+If yes, the included **ElevenLabs Voice** and **Deepgram Voice** skills (automatically appended below via `includes`) provide the full setup flow for each provider: curated voice list, API key collection, advanced voice selection, and tuning parameters. Follow the instructions for whichever provider matches the active `services.tts.provider` (or the user's preference).
 
-Note: The config key `services.tts.providers.elevenlabs.voiceId` controls the voice for both in-app TTS and phone calls. If the user sets up phone calls later, they will automatically use the same voice for a consistent experience.
+Note: The active provider's voice config key controls the voice for both in-app TTS and phone calls. If the user sets up phone calls later, they will automatically use the same voice for a consistent experience.
 
 ### 4. Verification
 
