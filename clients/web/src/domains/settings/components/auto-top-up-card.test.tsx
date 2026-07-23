@@ -29,6 +29,7 @@ import * as sdkGen from "@/generated/api/sdk.gen";
 import type { AutoTopUpConfigResponse } from "@/generated/api/types.gen";
 
 let removeCalls: Array<Record<string, unknown>> = [];
+let removeShouldFail = false;
 let retrieveResponse: AutoTopUpConfigResponse;
 
 mock.module("@/generated/api/sdk.gen", () => ({
@@ -37,6 +38,9 @@ mock.module("@/generated/api/sdk.gen", () => ({
     opts: Record<string, unknown>,
   ) => {
     removeCalls.push(opts);
+    if (removeShouldFail) {
+      return Promise.reject(new Error("remove failed"));
+    }
     // The endpoint clears the PM and disables auto-reload server-side, so the
     // next GET reflects that.
     retrieveResponse = {
@@ -100,6 +104,7 @@ const DISABLED_WITH_CARD: AutoTopUpConfigResponse = {
 
 beforeEach(() => {
   removeCalls = [];
+  removeShouldFail = false;
   retrieveResponse = { ...DISABLED_CONFIG };
 });
 
@@ -255,6 +260,52 @@ describe("AutoTopUpCard remove card", () => {
         throw new Error("payment-method row still present");
       }
     });
+  });
+
+  test("a failed removal closes the confirm dialog and surfaces the error notice", async () => {
+    removeShouldFail = true;
+    retrieveResponse = { ...ENABLED_WITH_CARD };
+    const { container } = render(
+      <QueryClientProvider client={makeClient(ENABLED_WITH_CARD)}>
+        <AutoTopUpCard />
+      </QueryClientProvider>,
+    );
+
+    fireEvent.click(
+      container.querySelector('[data-testid="payment-method-remove"]')!,
+    );
+    const confirmButton = await waitFor(() => {
+      const btn = document.querySelector<HTMLButtonElement>(
+        "[data-confirm-dialog-confirm]",
+      );
+      if (!btn) {
+        throw new Error("confirm dialog not open");
+      }
+      return btn;
+    });
+    fireEvent.click(confirmButton);
+
+    await waitFor(() => {
+      if (removeCalls.length === 0) {
+        throw new Error("remove endpoint not called");
+      }
+    });
+
+    // On failure the dialog closes (so the notice isn't hidden behind the
+    // overlay) and the card row stays put for a retry.
+    await waitFor(() => {
+      if (document.querySelector("[data-confirm-dialog-confirm]")) {
+        throw new Error("confirm dialog still open");
+      }
+      if (
+        !container.querySelector('[data-testid="auto-top-up-remove-error"]')
+      ) {
+        throw new Error("remove error notice not shown");
+      }
+    });
+    expect(
+      container.querySelector('[data-testid="payment-method-row"]'),
+    ).not.toBeNull();
   });
 });
 

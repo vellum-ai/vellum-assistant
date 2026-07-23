@@ -354,6 +354,11 @@ export function AutoTopUpCard() {
           // to keep the OFF toggle and a saveable form from coexisting.
           exitFormMode();
         },
+        // Close the dialog on failure so the error notice isn't hidden behind
+        // the overlay; the card row stays put for a retry.
+        onError: () => {
+          setConfirmingRemove(false);
+        },
       },
     );
   };
