@@ -41,6 +41,7 @@ import {
   organizationsBillingSubscriptionUpgradeCreateMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
 import type {
+  CreditTierEnum,
   MachineSizeEnum,
   ProPlan,
   SubscriptionUpgradeRequestRequest,
@@ -151,6 +152,11 @@ export function PlansPage() {
   // the grow-only resize the platform already fired server-side (no redundant
   // client-driven resize).
   const [resizeTakeoverOpen, setResizeTakeoverOpen] = useState(false);
+  // The credit tier applied by an in-place change, threaded to the takeover's
+  // terminal confirmation. See `ProvisioningStateProps.resizeCredits`.
+  const [resizeCreditTier, setResizeCreditTier] = useState<
+    CreditTierEnum | null | undefined
+  >(undefined);
 
   const subscription = subscriptionQuery.data;
   const proPlan = plansQuery.data?.plans.find(
@@ -323,6 +329,8 @@ export function PlansPage() {
       if (relation === "downgrade") {
         toast.success(`Downgraded to ${target.name}.`);
       } else {
+        // The switch path owes no credit confirmation; clear any prior tier.
+        setResizeCreditTier(undefined);
         setResizeTakeoverOpen(true);
       }
     };
@@ -356,9 +364,12 @@ export function PlansPage() {
         return;
       }
       setCustomPlanOpen(false);
-      if (result.needsResize) {
-        // A machine/storage change needs the assistant to provision the new
-        // ceiling — open the same in-tab resize takeover the tier-change flow uses.
+      if (result.needsResize || result.creditChanged) {
+        // Both a resize and a credit-only change open the takeover; thread the
+        // applied tier only when credits actually changed.
+        setResizeCreditTier(
+          result.creditChanged ? selection.creditTier : undefined,
+        );
         setResizeTakeoverOpen(true);
       } else {
         toast.success("Plan updated.");
@@ -493,7 +504,13 @@ export function PlansPage() {
         <BillingOnboardingModal
           mode="resize"
           open={resizeTakeoverOpen}
-          onClose={() => setResizeTakeoverOpen(false)}
+          onClose={() => {
+            setResizeTakeoverOpen(false);
+            // Fail-safe: clear the tier so a stale credit chip can't resurface
+            // if an open path forgot to set it.
+            setResizeCreditTier(undefined);
+          }}
+          resizeCredits={resizeCreditTier}
         />
 
         <p className="mt-10 text-center text-[12px] font-medium text-[var(--content-tertiary)]">

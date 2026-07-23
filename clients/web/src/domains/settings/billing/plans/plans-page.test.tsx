@@ -153,19 +153,29 @@ mock.module("@/utils/use-bundled-avatar-components", () => ({
 // revealed in resize mode without driving its own provisioning polls.
 // The full loading → "You're all set!" flow is owned by
 // billing-onboarding-modal.test.tsx's resize-mode suite.
+//
+// Captures the credit tier the page threads in so the credit-change confirmation
+// (and the switch path's deliberate omission of it) can be asserted directly.
+let takeoverResizeCredits: string | null | undefined;
 mock.module(
   "@/domains/settings/billing/pro-onboarding/billing-onboarding-modal",
   () => ({
     BillingOnboardingModal: ({
       open,
       mode,
+      resizeCredits,
     }: {
       open: boolean;
       mode?: string;
-    }) =>
-      open ? (
+      resizeCredits?: string | null;
+    }) => {
+      if (open) {
+        takeoverResizeCredits = resizeCredits;
+      }
+      return open ? (
         <div data-testid="resize-takeover" data-mode={mode ?? "checkout"} />
-      ) : null,
+      ) : null;
+    },
   }),
 );
 
@@ -543,6 +553,7 @@ beforeEach(() => {
   plansFixture = null;
   onboardingFixture = null;
   toastSuccessCalls.length = 0;
+  takeoverResizeCredits = undefined;
 });
 
 afterEach(() => {
@@ -590,6 +601,9 @@ describe("PlansPage — Pro package switch (change-package)", () => {
 
     const takeover = await findByTestId("resize-takeover");
     expect(takeover.getAttribute("data-mode")).toBe("resize");
+    // The switch path sources no bundle, so it threads none — a stale value
+    // from a prior custom change must never surface on this takeover.
+    expect(takeoverResizeCredits).toBeUndefined();
     expect(getByTestId("loc").textContent).toBe("/assistant/plans");
   });
 
@@ -955,6 +969,37 @@ describe("PlansPage — Pro custom plan (change-tier)", () => {
     // (which no-ops for active Pro) is never touched.
     const takeover = await findByTestId("resize-takeover");
     expect(takeover.getAttribute("data-mode")).toBe("resize");
+    // The bundle changed alongside the machine, so it's threaded through too.
+    expect(takeoverResizeCredits).toBe("credits_50");
+    expect(upgradeCall).toBeNull();
+  });
+
+  test("a credits-only Continue opens the takeover, not just a toast", async () => {
+    // Current config is medium machine / 10 GB (xs) storage / no credits; change
+    // only the credit bundle.
+    const { findByRole, findByTestId } = renderInteractive(
+      proMightySubscription(),
+      { plans: customCatalog() },
+    );
+
+    fireEvent.click(await findByRole("button", { name: "Configure" }));
+
+    selectOption("Credit bundle", "50 credits");
+    fireEvent.click(continueButton());
+
+    await waitFor(() => expect(creditTierCall).not.toBeNull());
+    expect(creditTierCall!.body).toEqual({ credit_tier: "credits_50" });
+    // Machine and storage are unchanged, so no resource-tier request fires.
+    expect(machineTierCall).toBeNull();
+    expect(storageTierCall).toBeNull();
+
+    // A credit-only change owes no provisioning but still opens the takeover for
+    // a readable confirmation moment.
+    const takeover = await findByTestId("resize-takeover");
+    expect(takeover.getAttribute("data-mode")).toBe("resize");
+    // The applied bundle is threaded through so the takeover can confirm it —
+    // the credit-only path never reaches the WAITING credits chip.
+    expect(takeoverResizeCredits).toBe("credits_50");
     expect(upgradeCall).toBeNull();
   });
 
