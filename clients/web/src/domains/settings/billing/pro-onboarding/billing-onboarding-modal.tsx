@@ -168,19 +168,26 @@ export function BillingOnboardingModal({
   // subscription and onboarding queries on open; without it a fresh-enough cache
   // never advances `domainsUpdatedAt` past the fence and routing can only fall
   // through the escape hatch.
-  const domainsInvalidatedRef = useRef(false);
+  //
+  // `assistantId` can CHANGE mid-open: `provisioning.assistantId` starts on the
+  // active assistant and flips to the onboarding payload's primary once that
+  // lands fresh (multi-assistant orgs). Track the id we last invalidated rather
+  // than a plain "did we invalidate?" boolean, so the refetch re-fires for the
+  // primary too — otherwise a primary whose list is already cached within
+  // staleTime would never cross the fence and routing would strand.
+  const domainsInvalidatedForIdRef = useRef<string | null>(null);
   useEffect(() => {
     if (!open) {
-      domainsInvalidatedRef.current = false;
-      return;
-    }
-    if (domainsInvalidatedRef.current) {
+      domainsInvalidatedForIdRef.current = null;
       return;
     }
     if (!domainAnswerNeeded || assistantId == null) {
       return;
     }
-    domainsInvalidatedRef.current = true;
+    if (domainsInvalidatedForIdRef.current === assistantId) {
+      return;
+    }
+    domainsInvalidatedForIdRef.current = assistantId;
     void queryClient.invalidateQueries({
       queryKey: assistantsDomainsListQueryKey({
         path: { assistant_id: assistantId },
@@ -198,8 +205,9 @@ export function BillingOnboardingModal({
   // (React Query keeps `isError` set with the OLD list while the forced on-open
   // refetch is still in flight) must NOT read as answered — otherwise routing
   // latches on the stale list before the fresh response lands. A genuine
-  // post-open error still counts as answered: routing then falls back to the
-  // domain step, whose own fetch/locked-state handling degrades gracefully.
+  // post-open error still counts as answered: routing then advances on whatever
+  // list React Query retained — the domain step when none is known, complete
+  // when a retained list still shows a domain — degrading gracefully either way.
   const domainsFreshData =
     domainsOpenedAt != null && domainsUpdatedAt >= domainsOpenedAt;
   const domainsFreshError =
