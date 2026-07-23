@@ -271,7 +271,10 @@ export class VelayTunnelClient {
   }
 
   private async connect(): Promise<void> {
-    if (!this.running || this.connecting) return;
+    // `this.ws` check: a reconnect timer scheduled by a stale async cleanup
+    // (e.g. the one prepareForCheckpoint starts) must not open a second
+    // tunnel next to one that resumeAfterWake already re-established.
+    if (!this.running || this.connecting || this.ws) return;
     if (Date.now() < this.reconnectHoldoffUntil) {
       // Pre-checkpoint holdoff: defer any connect attempt (credential
       // refresh, config invalidation, early timer) until it expires.

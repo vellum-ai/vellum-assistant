@@ -710,7 +710,11 @@ export const ROUTES: RouteDefinition[] = [
     responseHeaders: {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache",
-      Connection: "keep-alive",
+      // `close`, not `keep-alive`: an SSE connection is dedicated to this
+      // stream, so when it ends the TCP connection must close with it —
+      // otherwise a pre-checkpoint quiesce leaves an idle keep-alive socket
+      // in the epoll set (Bun's idleTimeout is 0) that is dead on restore.
+      Connection: "close",
     },
     handler: (args) => handleSubscribeAssistantEvents(args),
   },

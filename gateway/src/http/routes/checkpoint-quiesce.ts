@@ -89,34 +89,39 @@ export async function handleCheckpointQuiesce(
 
   const callAssistant = deps.callAssistant ?? ipcCallAssistant;
 
-  // Daemon first — its quiesce is independent of the gateway's own sockets,
-  // and a daemon failure must not stop the gateway from closing its own.
-  let daemon: Record<string, unknown>;
-  try {
-    daemon = (await callAssistant(
-      CHECKPOINT_PREPARE_IPC_METHOD,
-      {},
-      { timeoutMs: DAEMON_QUIESCE_TIMEOUT_MS },
-    )) as Record<string, unknown>;
-  } catch (err) {
-    // Tolerated: old daemon images without the method (IpcHandlerError),
-    // IPC transport failures, timeouts. The capture proceeds either way.
-    log.warn(
-      { err, tolerated: err instanceof IpcHandlerError },
-      "Daemon pre-checkpoint quiesce failed",
-    );
-    daemon = {
-      ok: false,
-      error: err instanceof Error ? err.message : String(err),
-    };
-  }
+  const quiesceDaemon = async (): Promise<Record<string, unknown>> => {
+    try {
+      return (await callAssistant(
+        CHECKPOINT_PREPARE_IPC_METHOD,
+        {},
+        { timeoutMs: DAEMON_QUIESCE_TIMEOUT_MS },
+      )) as Record<string, unknown>;
+    } catch (err) {
+      // Tolerated: old daemon images without the method (IpcHandlerError),
+      // IPC transport failures, timeouts. The capture proceeds either way.
+      log.warn(
+        { err, tolerated: err instanceof IpcHandlerError },
+        "Daemon pre-checkpoint quiesce failed",
+      );
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+  };
 
-  // Awaited: each resolves only once the socket's close handshake finished
-  // (or was force-terminated), so the 200 below means the sockets are gone.
-  const velayTunnelClosed =
-    (await deps.velayTunnelClient?.prepareForCheckpoint()) ?? false;
-  const slackSocketClosed =
-    (await deps.getSlackSocketClient()?.prepareForCheckpoint()) ?? false;
+  // Concurrent: the three quiesce operations are independent, and their
+  // worst-case waits (3s IPC + 2s + 2s close-handshake bounds) must overlap
+  // to stay inside vembda's 5s request budget. Each socket close resolves
+  // only once its handshake finished (or was force-terminated), so the 200
+  // below still means the sockets are gone.
+  const [daemon, velayTunnelClosed, slackSocketClosed] = await Promise.all([
+    quiesceDaemon(),
+    Promise.resolve(deps.velayTunnelClient?.prepareForCheckpoint() ?? false),
+    Promise.resolve(
+      deps.getSlackSocketClient()?.prepareForCheckpoint() ?? false,
+    ),
+  ]);
 
   const summary = {
     ok: true,
