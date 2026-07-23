@@ -426,15 +426,16 @@ export function TtsProviderForm({
   const managedVoiceSupported =
     isManaged && selectedProvider.supportsVoiceSelection;
 
-  // The catalog/custom toggle reads as a link at rest — icon plus a standing
-  // underline — and sits on the action row beside Save. `inline-flex` overrides
-  // the link variant's `inline` display so the icon centers with the label
-  // instead of riding the line above it.
+  // The catalog/custom toggle sits on the action row beside Save. It's a muted
+  // secondary action — the icon plus a standing underline carry the affordance
+  // while the tertiary tone keeps Save the dominant control. `inline-flex`
+  // overrides the link variant's `inline` display so the icon centers with the
+  // label instead of riding the line above it.
   const enterCustomVoiceLink = (
     <Button
       variant="link"
       size="compact"
-      className="inline-flex h-auto items-center gap-1 px-0 underline"
+      className="inline-flex h-auto items-center gap-1 px-0 underline [--vbtn-fg:var(--content-tertiary)]"
       onClick={() => setCustomModeOverride(true)}
     >
       <Pencil className="h-3.5 w-3.5" aria-hidden />
@@ -445,7 +446,7 @@ export function TtsProviderForm({
     <Button
       variant="link"
       size="compact"
-      className="inline-flex h-auto items-center gap-1 px-0 underline"
+      className="inline-flex h-auto items-center gap-1 px-0 underline [--vbtn-fg:var(--content-tertiary)]"
       onClick={() => {
         setCustomModeOverride(false);
         // Snap a non-catalog draft back to a real catalog voice so the picker's
