@@ -239,9 +239,13 @@ function VoiceSettingsView({
   onStart: () => void;
   onBack: () => void;
 }) {
-  // Managed assistants get the credits subtitle; BYO ones see no catalog here
-  // (the footer note is their path), so the Vellum-credits line wouldn't apply.
-  const { available } = useManagedVoiceSelection(assistantId);
+  // Own the selection here (rather than let the list self-commit) so the write's
+  // in-flight state can gate Start: the picker reports a pick via `onChange`, and
+  // `selecting` stays true until the config patch and refetch settle. Managed
+  // assistants also get the credits subtitle; BYO ones see no catalog (the footer
+  // note is their path), so the Vellum-credits line wouldn't apply.
+  const { available, currentModel, selectModel, selecting } =
+    useManagedVoiceSelection(assistantId);
 
   return (
     <>
@@ -261,11 +265,17 @@ function VoiceSettingsView({
             it hot-applies on the next reply (no Save). A provider dropdown
             scopes the list; it hides itself for assistants on a bring-your-own
             provider, leaving the footer note as their path. */}
-        <VoiceList assistantId={assistantId} filterBySource />
+        <VoiceList
+          assistantId={assistantId}
+          filterBySource
+          value={currentModel}
+          onChange={selectModel}
+        />
       </Modal.Body>
       {/* Mirrors the intro footer (fine print left, primary right) and is always
           present, so the picker flows straight into the session without a size
-          change when a voice is chosen. */}
+          change when a voice is chosen. Start waits out an in-flight voice write
+          so the session can't open on the previous voice. */}
       <Modal.Footer className="items-center justify-between gap-3">
         <p className="text-label-small-default text-[var(--content-tertiary)]">
           Speech providers, transcription, and API keys live in{" "}
@@ -277,7 +287,12 @@ function VoiceSettingsView({
           </Link>
           .
         </p>
-        <Button variant="primary" onClick={onStart} className="shrink-0">
+        <Button
+          variant="primary"
+          onClick={onStart}
+          disabled={selecting}
+          className="shrink-0"
+        >
           Start talking
         </Button>
       </Modal.Footer>
