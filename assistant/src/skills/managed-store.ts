@@ -170,7 +170,11 @@ export function validateCompanionSource(sourcePath: string): {
       error: `copy_from source is a denied filename: "${sourcePath}"`,
     };
   }
-  const allowedRoots = [getWorkspaceDir(), tmpdir()].map((root) => {
+  // Literal /tmp is allowed alongside os.tmpdir(): on macOS tmpdir() is the
+  // per-user /var/folders/... path, but the documented snippet-testing
+  // workflow (and the retrospective prompt) use /tmp, which realpaths to
+  // /private/tmp there.
+  const allowedRoots = [getWorkspaceDir(), tmpdir(), "/tmp"].map((root) => {
     try {
       return realpathSync(root);
     } catch {

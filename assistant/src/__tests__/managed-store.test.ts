@@ -838,6 +838,32 @@ describe("createManagedSkill copy_from companion sources", () => {
     );
   });
 
+  test("accepts a source under literal /tmp (macOS: tmpdir() is /var/folders)", () => {
+    const tmpDir = fs.mkdtempSync("/tmp/copy-from-test-");
+    const sourcePath = join(tmpDir, "tested-snippet.ts");
+    writeFileSync(sourcePath, "console.log('ok');\n", "utf-8");
+
+    try {
+      const result = createManagedSkill({
+        id: "copy-tmp",
+        name: "Tmp Source",
+        description: "Copies from literal /tmp",
+        bodyMarkdown: "Body.",
+        files: [{ path: "scripts/tested-snippet.ts", copyFrom: sourcePath }],
+      });
+
+      expect(result.created).toBe(true);
+      expect(
+        readFileSync(
+          join(TEST_DIR, "skills", "copy-tmp", "scripts", "tested-snippet.ts"),
+          "utf-8",
+        ),
+      ).toBe("console.log('ok');\n");
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
   test("rejects a denied basename source even inside the workspace", () => {
     const keyPath = join(TEST_DIR, "backup.key");
     writeFileSync(keyPath, "secret", "utf-8");
