@@ -1,10 +1,12 @@
 /**
- * The sidebar's assistant cluster: a "New Chat" row — a plus glyph inside
- * a circular chip, label beside it — with the "Your Assistant" nav row
- * directly beneath, dressed up as the assistant: a standard-height row
- * painted solid in the avatar's color with the avatar's eyes sitting in
- * the leading icon slot, centered on the same axis as the New Chat chip
- * so the two rows' labels align.
+ * The sidebar's assistant cluster: a "New Chat" row — a plus glyph with a
+ * label beside it, on the same avatar-tinted wash the identity page's
+ * feature cards wear — with the "Your Assistant" nav row directly beneath,
+ * dressed up as the assistant: a standard-height row painted solid in the
+ * avatar's color with the avatar's eyes sitting in the leading icon slot,
+ * centered on the same axis as the New Chat plus so the two rows' labels
+ * align. On the collapsed rail both rows survive as icon-only tiles
+ * (Figma 7257:135811).
  *
  * Periodically the eyes go on patrol: they sink out through the row's
  * bottom fold, resurface grown on the right side (cut off by the edge),
@@ -23,6 +25,7 @@
 
 import { Brain, Plus } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { CSSProperties } from "react";
 import { motion, useAnimationControls, useReducedMotion } from "motion/react";
 
 import { cn } from "@vellumai/design-library";
@@ -38,10 +41,14 @@ import { pathBBox, unionBBox } from "@/utils/eye-bbox";
 const ROW_HEIGHT = 30;
 /** Mobile-overlay row height, matching `SideMenu.Item`'s mobile row. */
 const MOBILE_ROW_HEIGHT = 44;
+/** The New Chat row runs taller than a standard nav row (Figma 7257:135743). */
+const NEW_CHAT_ROW_HEIGHT = 38;
+/** Collapsed-rail assistant tile height (Figma 7257:135820). */
+const COLLAPSED_ASSISTANT_ROW_HEIGHT = 32;
 const ROW_PADDING_X = 6;
 /**
- * Diameter of the New Chat row's circular plus chip; the assistant row's
- * leading eye slot is the same width so the eyes center on the chip's axis
+ * Width of the New Chat row's leading plus slot; the assistant row's
+ * leading eye slot is the same width so the eyes center on the plus's axis
  * and both labels start at the same x.
  */
 const CHIP_SIZE = 20;
@@ -111,7 +118,7 @@ export function AssistantNavItem({
   const eyesWidth = eye ? eyeStyleBaseWidth(eye.id) : 0;
   const eyesHeight = eye ? eyesWidth * (eye.bbox.h / eye.bbox.w) : 0;
 
-  const showNewConversation = Boolean(onNewConversation) && !collapsed;
+  const showNewConversation = Boolean(onNewConversation);
 
   useEffect(() => {
     if (navTourActive) {
@@ -214,6 +221,12 @@ export function AssistantNavItem({
       components.colors.find((c) => c.id === traits.color)?.hex) ||
     null;
 
+  // The row wears the identity page's feature-card wash — 28% of the
+  // avatar color mixed into the lifted surface, the Personality card's
+  // recipe (see `identity-overview.tsx` `--card-feature-bg`) — falling
+  // back to the plain hover treatment when there's no character avatar.
+  // While the tour owns the nav the wash drains away like the assistant
+  // row's color.
   const newConversationRow = showNewConversation ? (
     <button
       type="button"
@@ -223,31 +236,40 @@ export function AssistantNavItem({
       className={cn(
         "group relative flex w-full cursor-pointer items-center gap-[6px] overflow-hidden rounded-[8px] select-none",
         "outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]",
-        "transition-colors duration-150 hover:bg-[var(--surface-hover)] active:scale-[0.98]",
+        "transition-colors duration-150 active:scale-[0.98]",
+        hex && !navTourActive
+          ? "bg-[color-mix(in_srgb,var(--assistant-tint)_28%,var(--surface-lift))] hover:bg-[color-mix(in_srgb,var(--assistant-tint)_36%,var(--surface-lift))]"
+          : "hover:bg-[var(--surface-hover)]",
+        collapsed && "justify-center",
       )}
-      style={{
-        height: rowHeight,
-        paddingLeft: ROW_PADDING_X,
-        paddingRight: ROW_PADDING_X,
-      }}
+      style={
+        {
+          height: isMobile ? MOBILE_ROW_HEIGHT : NEW_CHAT_ROW_HEIGHT,
+          paddingLeft: collapsed ? 0 : ROW_PADDING_X,
+          paddingRight: collapsed ? 0 : ROW_PADDING_X,
+          ...(hex ? { "--assistant-tint": hex } : null),
+        } as CSSProperties
+      }
     >
       <span
         aria-hidden="true"
-        className="flex shrink-0 items-center justify-center rounded-full bg-[var(--surface-active)]"
+        className="flex shrink-0 items-center justify-center"
         style={{ width: CHIP_SIZE, height: CHIP_SIZE }}
       >
         <Plus
           className="h-3.5 w-3.5"
-          style={{ color: "var(--content-emphasised)" }}
+          style={{ color: "var(--content-secondary)" }}
         />
       </span>
-      <span
-        className={`min-w-0 flex-1 truncate text-left text-[color:var(--content-secondary)] ${
-          isMobile ? "text-body-large-default" : "text-body-medium-lighter"
-        }`}
-      >
-        New Chat
-      </span>
+      {!collapsed && (
+        <span
+          className={`min-w-0 flex-1 truncate text-left text-[color:var(--content-default)] ${
+            isMobile ? "text-body-large-default" : "text-body-medium-lighter"
+          }`}
+        >
+          New Chat
+        </span>
+      )}
     </button>
   ) : null;
 
@@ -257,7 +279,7 @@ export function AssistantNavItem({
     // the same CHIP_SIZE slot the plus chip and the eyes use, so both
     // rows' labels stay on one axis.
     return (
-      <div className="flex flex-col gap-[4px]">
+      <div className="flex flex-col gap-[8px]">
         {newConversationRow}
         <button
           type="button"
@@ -266,7 +288,8 @@ export function AssistantNavItem({
           data-tour-id="assistant-page"
           aria-current={active ? "page" : undefined}
           className={cn(
-            "group relative flex w-full cursor-pointer items-center gap-[6px] overflow-hidden rounded-[8px] select-none",
+            "group relative flex w-full cursor-pointer items-center gap-[6px] overflow-hidden select-none",
+            collapsed ? "rounded-[8px]" : "rounded-[6px]",
             "outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]",
             "transition-colors duration-150 active:scale-[0.98]",
             active
@@ -275,7 +298,7 @@ export function AssistantNavItem({
             collapsed && "justify-center",
           )}
           style={{
-            height: rowHeight,
+            height: collapsed ? COLLAPSED_ASSISTANT_ROW_HEIGHT : rowHeight,
             paddingLeft: collapsed ? 0 : ROW_PADDING_X,
             paddingRight: collapsed ? 0 : ROW_PADDING_X,
           }}
@@ -347,7 +370,8 @@ export function AssistantNavItem({
       data-tour-id="assistant-page"
       aria-current={active ? "page" : undefined}
       className={cn(
-        "group relative flex w-full cursor-pointer items-center gap-[6px] overflow-hidden rounded-[8px] select-none",
+        "group relative flex w-full cursor-pointer items-center gap-[6px] overflow-hidden select-none",
+        collapsed ? "rounded-[8px]" : "rounded-[6px]",
         "outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]",
         "transition-[filter,transform,background-color,color] duration-300 active:scale-[0.98]",
         navTourActive
@@ -356,7 +380,7 @@ export function AssistantNavItem({
         collapsed && "justify-center",
       )}
       style={{
-        height: rowHeight,
+        height: collapsed ? COLLAPSED_ASSISTANT_ROW_HEIGHT : rowHeight,
         // While the tour owns the nav, the color leaves this row — it
         // drains to a plain nav item so the tour's flood is the only color
         // treatment on screen.
@@ -435,7 +459,7 @@ export function AssistantNavItem({
   );
 
   return (
-    <div className="flex flex-col gap-[4px]">
+    <div className="flex flex-col gap-[8px]">
       {newConversationRow}
       {assistantRow}
     </div>
