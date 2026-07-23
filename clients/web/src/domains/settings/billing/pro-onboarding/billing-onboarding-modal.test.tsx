@@ -14,12 +14,17 @@ import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
 
+import {
+  assistantsDomainsListOptions,
+  assistantsDomainsListSetQueryData,
+} from "@/generated/api/@tanstack/react-query.gen";
 import * as sdkGen from "@/generated/api/sdk.gen";
 import type {
   Assistant,
   EnsureProvisionedResponse,
   OnboardingStateResponse,
   OperationalStatus,
+  PaginatedAssistantDomainList,
   SubscriptionResponse,
 } from "@/generated/api/types.gen";
 import { readCheckoutIntent, saveCheckoutIntent } from "@/lib/billing/checkout-intent";
@@ -128,6 +133,24 @@ function makeEnsureResponse(
   };
 }
 
+function makeDomains(hasDomain: boolean): PaginatedAssistantDomainList {
+  return {
+    count: hasDomain ? 1 : 0,
+    next: null,
+    previous: null,
+    results: hasDomain
+      ? [
+          {
+            id: "domain-1",
+            subdomain: "velly",
+            created: "2026-07-01T00:00:00Z",
+            modified: "2026-07-01T00:00:00Z",
+          },
+        ]
+      : [],
+  };
+}
+
 let subscriptionPlanId: SubscriptionResponse["plan_id"] = "base";
 let onboardingResponse = makeOnboarding();
 let assistantResponse = makeAssistant("small", 10);
@@ -140,6 +163,14 @@ let ensureCalls = 0;
 let ensureResponse = makeEnsureResponse("started");
 /** When set, the reconcile rejects with this error body (e.g. the 503). */
 let ensureError: unknown = null;
+/** Domains list the modal-level resize query reads; empty by default. */
+let domainsResponse: PaginatedAssistantDomainList = makeDomains(false);
+/** Counts modal-level domains fetches so tests can assert it never fires. */
+let domainsCalls = 0;
+/** When set, the domains list rejects (models the endpoint failing). */
+let domainsFails = false;
+/** When set, domains responses hold until this promise resolves. */
+let domainsHold: Promise<void> | null = null;
 
 mock.module("@/generated/api/sdk.gen", () => ({
   ...sdkGen,
@@ -173,8 +204,16 @@ mock.module("@/generated/api/sdk.gen", () => ({
     }
     return Promise.resolve({ data: ensureResponse, response: { ok: true } });
   },
-  assistantsDomainsList: () =>
-    Promise.resolve({ data: { results: [] }, response: { ok: true } }),
+  assistantsDomainsList: () => {
+    domainsCalls += 1;
+    if (domainsFails) {
+      return Promise.reject(new Error("500 Internal Server Error"));
+    }
+    const result = { data: domainsResponse, response: { ok: true } };
+    return domainsHold
+      ? domainsHold.then(() => result)
+      : Promise.resolve(result);
+  },
   organizationsBillingSubscriptionOnboardingDomainCreate: () =>
     Promise.resolve({ data: { status: "ok" }, response: { ok: true } }),
 }));
@@ -192,7 +231,7 @@ const BACKGROUND_LINE =
  */
 const TEST_DWELL_MS = 250;
 
-function renderModal() {
+function renderModal({ mode }: { mode?: "checkout" | "resize" } = {}) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -205,6 +244,7 @@ function renderModal() {
           onClose={onClose}
           dwellMs={TEST_DWELL_MS}
           phaseMinMs={0}
+          mode={mode}
         />
       </QueryClientProvider>
     </MemoryRouter>,
@@ -222,6 +262,10 @@ beforeEach(() => {
   ensureCalls = 0;
   ensureResponse = makeEnsureResponse("started");
   ensureError = null;
+  domainsResponse = makeDomains(false);
+  domainsCalls = 0;
+  domainsFails = false;
+  domainsHold = null;
   dateNowOffsetMs = 0;
   sessionStorage.clear();
 });
@@ -297,6 +341,8 @@ describe("BillingOnboardingModal", () => {
     expect(queryByText("Assistant Email")).toBeNull();
     expect(queryByText(BACKGROUND_LINE)).toBeNull();
     expect(readCheckoutIntent()).toBeNull();
+    // Checkout mode never fires the modal-level domains query.
+    expect(domainsCalls).toBe(0);
   });
 
   test("storage-only package provisions without a machine card", async () => {
@@ -850,6 +896,272 @@ describe("BillingOnboardingModal", () => {
           ).toBe(false),
         { timeout: 5000 },
       );
+    },
+    20_000,
+  );
+
+  test("an already-registered domain does not skip the domain step in checkout mode", async () => {
+    subscriptionPlanId = "pro";
+    assistantResponse = makeAssistant("large", 50);
+    // A domain already exists, but checkout mode never consults it — the
+    // modal-level query stays off and DomainStep renders its locked variant.
+    domainsResponse = makeDomains(true);
+    const { getByText } = renderModal();
+
+    await waitFor(() => expect(getByText("All done!")).toBeTruthy(), {
+      timeout: 5000,
+    });
+    await waitFor(() => expect(getByText("Assistant Email")).toBeTruthy(), {
+      timeout: 5000,
+    });
+  });
+});
+
+describe("BillingOnboardingModal — resize mode", () => {
+  test("entitled with no domain routes through the domain step", async () => {
+    subscriptionPlanId = "pro";
+    const { client, getByText } = renderModal({ mode: "resize" });
+
+    await waitFor(
+      () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
+      { timeout: 5000 },
+    );
+
+    assistantResponse = makeAssistant("large", 50);
+    await client.invalidateQueries();
+    await waitFor(() => expect(getByText("All done!")).toBeTruthy(), {
+      timeout: 5000,
+    });
+    await waitFor(() => expect(getByText("Assistant Email")).toBeTruthy(), {
+      timeout: 5000,
+    });
+  });
+
+  test("entitled with an existing domain skips straight to complete", async () => {
+    subscriptionPlanId = "pro";
+    domainsResponse = makeDomains(true);
+    const { client, getByText, queryByText } = renderModal({ mode: "resize" });
+
+    await waitFor(
+      () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
+      { timeout: 5000 },
+    );
+
+    assistantResponse = makeAssistant("large", 50);
+    await client.invalidateQueries();
+    await waitFor(() => expect(getByText("You're all set!")).toBeTruthy(), {
+      timeout: 5000,
+    });
+    expect(queryByText("Assistant Email")).toBeNull();
+  });
+
+  test("fee-less package goes straight to complete and never queries domains", async () => {
+    subscriptionPlanId = "pro";
+    onboardingResponse = makeOnboarding({ domain_setup_available: false });
+    const { client, getByText, queryByText } = renderModal({ mode: "resize" });
+
+    await waitFor(
+      () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
+      { timeout: 5000 },
+    );
+    await waitFor(() => expect(getByText("10 GB")).toBeTruthy(), {
+      timeout: 5000,
+    });
+
+    assistantResponse = makeAssistant("large", 50);
+    await client.invalidateQueries();
+    await waitFor(() => expect(getByText("You're all set!")).toBeTruthy(), {
+      timeout: 5000,
+    });
+    expect(queryByText("Assistant Email")).toBeNull();
+    // The fee-less gate keeps the modal-level domains query fully off.
+    expect(domainsCalls).toBe(0);
+  });
+
+  test("a failing domains endpoint still advances to the domain step", async () => {
+    subscriptionPlanId = "pro";
+    domainsFails = true;
+    const { client, getByText } = renderModal({ mode: "resize" });
+
+    await waitFor(
+      () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
+      { timeout: 5000 },
+    );
+
+    assistantResponse = makeAssistant("large", 50);
+    await client.invalidateQueries();
+    // An errored fetch counts as answered: routing falls back to the domain
+    // step rather than hanging on the celebration.
+    await waitFor(() => expect(getByText("Assistant Email")).toBeTruthy(), {
+      timeout: 5000,
+    });
+  });
+
+  test("a stale checkout intent is ignored in resize mode", async () => {
+    // Keep the plan at base so CONFIRMING persists and the copy is observable.
+    saveCheckoutIntent({ kind: "package", packageKey: "super" });
+    const { getByText, queryByText } = renderModal({ mode: "resize" });
+
+    await waitFor(
+      () => expect(getByText("Confirming your upgrade…")).toBeTruthy(),
+      { timeout: 5000 },
+    );
+    expect(queryByText("Super package")).toBeNull();
+  });
+
+  test(
+    "waits for a domains answer fresh for this open, not a stale cached one",
+    async () => {
+      // The reviewer's race: the shared assistantsDomainsList cache holds a
+      // STALE empty result (the billing page's finish-setup notice populated it
+      // just before this open) while the assistant in fact already has a domain.
+      // Routing must ignore the stale cache and wait for the fresh refetch, then
+      // skip to complete — never latch on the empty cache and route to the
+      // domain step.
+      subscriptionPlanId = "pro";
+      assistantResponse = makeAssistant("large", 50);
+      // Already at the target, so DONE lands off the reconcile without a resize.
+      ensureResponse = makeEnsureResponse("already_done");
+      // The fresh answer says a domain exists; held so routing can only observe
+      // it once it lands — never the stale empty cache.
+      domainsResponse = makeDomains(true);
+      let releaseDomains!: () => void;
+      domainsHold = new Promise((resolve) => {
+        releaseDomains = resolve;
+      });
+
+      const client = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      });
+      // Seed the stale empty list, timestamped before this open (negative
+      // offset) yet still inside the 10s staleTime — so only the forced on-open
+      // refetch, not a staleness-driven one, can produce a fresh answer.
+      dateNowOffsetMs = -5000;
+      assistantsDomainsListSetQueryData(
+        client,
+        { path: { assistant_id: "assistant-1" } },
+        makeDomains(false),
+      );
+      dateNowOffsetMs = 0;
+
+      const onClose = mock(() => {});
+      const { getByText, queryByText } = render(
+        <MemoryRouter>
+          <QueryClientProvider client={client}>
+            <BillingOnboardingModal
+              open
+              onClose={onClose}
+              dwellMs={TEST_DWELL_MS}
+              phaseMinMs={0}
+              mode="resize"
+            />
+          </QueryClientProvider>
+        </MemoryRouter>,
+      );
+
+      // Provisioning reaches DONE, but routing can't settle on the stale cache.
+      await waitFor(() => expect(getByText("All done!")).toBeTruthy(), {
+        timeout: 5000,
+      });
+      // The forced on-open refetch fired — a staleness check alone would not
+      // have refetched the 5s-old cache.
+      await waitFor(() => expect(domainsCalls).toBeGreaterThan(0));
+      // While the fresh answer is still in flight, routing must not fall through
+      // to the domain step off the stale empty cache.
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      expect(queryByText("Assistant Email")).toBeNull();
+      expect(queryByText("You're all set!")).toBeNull();
+
+      // The fresh answer lands: a domain already exists → skip to complete.
+      releaseDomains();
+      await waitFor(() => expect(getByText("You're all set!")).toBeTruthy(), {
+        timeout: 5000,
+      });
+      expect(queryByText("Assistant Email")).toBeNull();
+    },
+    20_000,
+  );
+
+  test(
+    "waits past a stale cached domains ERROR, not just a stale success",
+    async () => {
+      // The reviewer's P2 race: the shared assistantsDomainsList cache holds a
+      // FAILED background refetch from before this open — React Query exposes
+      // isError=true alongside the OLD (empty) list. That cached error must not
+      // count as an answered domains read: routing has to wait for the forced
+      // on-open refetch, which reveals an existing domain, then skip straight to
+      // complete — never latch on the stale error and route to the domain step.
+      subscriptionPlanId = "pro";
+      assistantResponse = makeAssistant("large", 50);
+      // Already at the target, so DONE lands off the reconcile without a resize.
+      ensureResponse = makeEnsureResponse("already_done");
+
+      const client = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      });
+      const domainsQuery = assistantsDomainsListOptions({
+        path: { assistant_id: "assistant-1" },
+      });
+
+      // Seed a stale errored cache timestamped before this open (negative
+      // offset): an empty success, then a failed refetch on top. React Query
+      // keeps the empty data with isError=true and an errorUpdatedAt earlier
+      // than the open — the exact state the success-only fence let slip through.
+      dateNowOffsetMs = -5000;
+      domainsResponse = makeDomains(false);
+      domainsFails = false;
+      await client.fetchQuery({ ...domainsQuery, retry: false });
+      domainsFails = true;
+      await client
+        .fetchQuery({ ...domainsQuery, retry: false, staleTime: 0 })
+        .catch(() => {});
+      dateNowOffsetMs = 0;
+
+      // The forced on-open refetch reveals an existing domain; held so routing
+      // can only observe it once it lands — never the stale cached error.
+      domainsFails = false;
+      domainsResponse = makeDomains(true);
+      let releaseDomains!: () => void;
+      domainsHold = new Promise((resolve) => {
+        releaseDomains = resolve;
+      });
+      // Reset so `domainsCalls > 0` cleanly means the on-open refetch fired,
+      // not the two seeding fetches above.
+      domainsCalls = 0;
+
+      const onClose = mock(() => {});
+      const { getByText, queryByText } = render(
+        <MemoryRouter>
+          <QueryClientProvider client={client}>
+            <BillingOnboardingModal
+              open
+              onClose={onClose}
+              dwellMs={TEST_DWELL_MS}
+              phaseMinMs={0}
+              mode="resize"
+            />
+          </QueryClientProvider>
+        </MemoryRouter>,
+      );
+
+      // Provisioning reaches DONE, but the cached error must not settle routing.
+      await waitFor(() => expect(getByText("All done!")).toBeTruthy(), {
+        timeout: 5000,
+      });
+      // The forced on-open refetch fired — the stale error alone is not answered.
+      await waitFor(() => expect(domainsCalls).toBeGreaterThan(0));
+      // While the fresh answer is still in flight, routing must not latch on the
+      // stale error — neither the domain step nor complete may appear yet.
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      expect(queryByText("Assistant Email")).toBeNull();
+      expect(queryByText("You're all set!")).toBeNull();
+
+      // The fresh answer lands: a domain already exists → skip to complete.
+      releaseDomains();
+      await waitFor(() => expect(getByText("You're all set!")).toBeTruthy(), {
+        timeout: 5000,
+      });
+      expect(queryByText("Assistant Email")).toBeNull();
     },
     20_000,
   );

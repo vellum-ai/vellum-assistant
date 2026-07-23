@@ -21,11 +21,32 @@ export function useAssistantDomains(
 ) {
   const assistant = usePreferredOrActiveAssistant(preferredAssistantId, enabled);
   const assistantId = preferredAssistantId ?? assistant?.id;
-  const { data: domains } = useQuery({
+  const {
+    data: domains,
+    isError: domainsError,
+    // Freshness signals so a caller can tell "stale cache still refetching"
+    // from "a response fetched for this view". `domains` being defined is not
+    // enough — the shared list has a staleTime, so a cache hit resolves it
+    // immediately while a refetch is still in flight. `errorUpdatedAt` lets a
+    // caller fence a cached error the same way `dataUpdatedAt` fences cached
+    // data, so a pre-view failed refetch can't read as freshly answered. Purely
+    // additive; existing callers ignore these.
+    isFetching: domainsFetching,
+    dataUpdatedAt: domainsUpdatedAt,
+    errorUpdatedAt: domainsErrorUpdatedAt,
+  } = useQuery({
     ...assistantsDomainsListOptions({
       path: { assistant_id: assistantId ?? "" },
     }),
     enabled: enabled && !!assistantId,
   });
-  return { assistant, assistantId, domains };
+  return {
+    assistant,
+    assistantId,
+    domains,
+    domainsError,
+    domainsFetching,
+    domainsUpdatedAt,
+    domainsErrorUpdatedAt,
+  };
 }
