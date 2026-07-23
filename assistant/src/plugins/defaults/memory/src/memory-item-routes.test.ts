@@ -77,7 +77,6 @@ import { eq } from "drizzle-orm";
 
 import { setConfig } from "../../../../__tests__/helpers/set-config.js";
 import {
-  getDb,
   getMemoryDb,
   getMemorySqlite,
 } from "../../../../persistence/db-connection.js";
@@ -162,7 +161,7 @@ function insertItem(opts: {
   lastAccessed?: number;
   sourceConversations?: string[];
 }) {
-  const db = getDb();
+  const db = getMemoryDb()!;
   const now = Date.now();
   db.insert(memoryGraphNodes)
     .values({
@@ -207,7 +206,7 @@ describe("Memory Item Routes", () => {
   beforeEach(() => {
     // Keep memory v2 disabled so the v1 paths under test stay active.
     setConfig("memory", { v2: { enabled: false } });
-    const db = getDb();
+    const db = getMemorySqlite()!;
     db.run("DELETE FROM memory_graph_node_edits");
     db.run("DELETE FROM memory_graph_triggers");
     db.run("DELETE FROM memory_graph_edges");
@@ -893,7 +892,7 @@ describe("Memory Item Routes", () => {
       expect(res.status).toBe(204);
 
       // Verify the node is soft-deleted (fidelity='gone')
-      const db = getDb();
+      const db = getMemoryDb()!;
       const node = db
         .select()
         .from(memoryGraphNodes)
