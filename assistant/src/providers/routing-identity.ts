@@ -1,18 +1,12 @@
 /**
  * Routing-identity translation and the connection-resolution error type.
  *
- * This lives in its own leaf module — deliberately below both
- * `connection-resolution.ts` and `usage/attribution.ts` — because it is
- * what those two would otherwise have to share directly. Attribution
- * importing `resolveRoutingIdentity` from `connection-resolution.ts`
- * closed the module graph's only import cycle
- * (connection-resolution → inference/connections → registry →
- * inference/adapter-factory → retry → usage/attribution →
- * connection-resolution), and the compiled binary's cyclic-module
- * lowering destabilized unrelated bindings in graphs containing that
- * cycle. Keep this module's imports to leaves (codecs, constants,
- * error base classes); an import from anything that reaches the
- * provider registry re-forms the cycle.
+ * This is a leaf module shared by `connection-resolution.ts` and
+ * `usage/attribution.ts`. Keep its imports to leaves (codecs, constants,
+ * error base classes): an import from anything that reaches the provider
+ * registry creates an import cycle through retry/attribution, and the
+ * compiled binary's cyclic-module lowering destabilizes bindings in
+ * graphs containing a cycle.
  */
 
 import { ConfigError } from "../util/errors.js";

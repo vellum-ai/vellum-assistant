@@ -54,11 +54,6 @@ import {
   MANAGED_ROUTABLE_PROVIDERS,
 } from "./vellum-model-routing.js";
 
-// Re-exported for the many existing importers; the definitions moved to
-// `routing-identity.ts` so `usage/attribution.ts` can use them without
-// importing this module (this file sits on the registry/attribution import
-// cycle that the move broke — see routing-identity.ts). New code should
-// import them from there.
 export { ConnectionResolutionError, resolveRoutingIdentity };
 
 const log = getLogger("providers/connection-resolution");
