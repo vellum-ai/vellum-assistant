@@ -10,18 +10,25 @@
  *
  * Which token a call uses is a question of WHO should act, not read-vs-write:
  *
- *   - "bot"  — act as the app. Used for the presence list ("which rooms is the
- *     bot in", whose `is_member` view is relative to the token's own
- *     identity), the workspace roster, and content the assistant posts as
- *     itself. Never the user token — that would answer "which rooms is the
- *     USER in", or post as the user.
+ *   - "bot"  — act as the app. Used by everything reachable from the
+ *     settings/control-plane surface: the presence list ("which rooms is the
+ *     bot in", whose `is_member` view is relative to the token's own identity),
+ *     the workspace roster, the share picker, and the share post. Those routes
+ *     are exposed at the gateway with generic edge auth and the daemon never
+ *     sees the calling actor's identity (the proxy swaps the caller's
+ *     Authorization for a service token), so they MUST act as the neutral app
+ *     identity — acting as the single stored installer `user_token` would let
+ *     any caller read the installer's channels or post as them. Also used for
+ *     content the assistant posts as itself.
  *
- *   - "user" — act as the human. Prefers the user token for its wider reach
- *     (channels the user is in but the bot isn't; `search.messages`, which
- *     only a user token can call) and for human-initiated actions (sharing).
- *     Falls back to the bot token when no user token is stored — the user
- *     token is optional, so "user" intent must always resolve to *something*
- *     when Slack is connected.
+ *   - "user" — act as the assistant's owner, using the optional user token for
+ *     its wider reach (channels the owner is in but the bot isn't; and
+ *     `search.messages`, which only a user token can call). Scoped to the
+ *     in-conversation messaging adapter, where the assistant is acting for its
+ *     own owner within a trust-classified conversation — NOT the edge-reachable
+ *     control-plane routes above. Falls back to the bot token when no user
+ *     token is stored, so "user" always resolves to *something* when Slack is
+ *     connected.
  *
  * For Socket Mode installs the resolved value is a raw token string; for legacy
  * OAuth installs it is a refreshing `OAuthConnection` (whose access_token is
@@ -35,7 +42,6 @@ import { resolveOAuthConnection } from "../../../oauth/connection-resolver.js";
 import { getConnectionByProvider } from "../../../oauth/oauth-store.js";
 import { credentialKey } from "../../../security/credential-key.js";
 import { getSecureKeyAsync } from "../../../security/secure-keys.js";
-import { SlackApiError } from "./client.js";
 
 export type SlackAuth = OAuthConnection | string;
 
@@ -69,46 +75,4 @@ export async function resolveSlackAuth(
     return undefined;
   }
   return resolveOAuthConnection("slack", { account: opts.account });
-}
-
-/**
- * Run a Slack call as the user — using the user token when one is stored —
- * and fall back to the bot token when the user token can't do the job.
- *
- * Callers resolve the bot auth first (it is always present when Slack is
- * connected) and pass it as `botFallback`, so this never has to re-resolve
- * credentials or signal "not configured".
- *
- * The default fallback trigger is a 401 — the user token was revoked or
- * expired. Callers whose operation can also fail because the user token lacks
- * a required scope (e.g. a share post needs `chat:write`, which surfaces as a
- * non-401 `missing_scope`) pass a wider `shouldFallback`.
- *
- * `call` must be idempotent: on fallback it is re-run from the top with the
- * bot auth. Slack reads are safe to repeat, and a Slack write that threw
- * created nothing (the error is raised before the message is posted), so a
- * single retry cannot double-post.
- */
-export async function runAsUserWithBotFallback<T>(
-  botFallback: SlackAuth,
-  call: (auth: SlackAuth) => Promise<T>,
-  opts: {
-    account?: string;
-    shouldFallback?: (err: SlackApiError) => boolean;
-  } = {},
-): Promise<T> {
-  const userAuth = (await resolveSlackAuth("user", opts)) ?? botFallback;
-  const shouldFallback = opts.shouldFallback ?? ((err) => err.status === 401);
-  try {
-    return await call(userAuth);
-  } catch (err) {
-    if (
-      userAuth !== botFallback &&
-      err instanceof SlackApiError &&
-      shouldFallback(err)
-    ) {
-      return call(botFallback);
-    }
-    throw err;
-  }
 }

@@ -9,7 +9,6 @@ import { z } from "zod";
 
 import {
   resolveSlackAuth,
-  runAsUserWithBotFallback,
   type SlackAuth,
 } from "../../../../messaging/providers/slack/auth.js";
 import {
@@ -68,13 +67,14 @@ export async function handleListSlackChannels({
 }: RouteHandlerArgs = {}) {
   const memberOnly = queryParams?.memberOnly === "true";
 
-  // The presence list ("where the assistant is present") reflects the BOT's
-  // own membership — Slack's `is_member` is relative to the token's identity —
-  // so it always reads as the bot, never the optional user token. The share
-  // picker (memberOnly absent) reads as the user for broader reach (channels
-  // the user is in but the bot isn't), falling back to the bot token when no
-  // user token is stored or it has been revoked. Resolve the bot auth up front
-  // either way: it anchors the fallback and gives the "not configured" check.
+  // Both views read as the BOT. This route is exposed at the gateway with
+  // generic edge auth and the daemon never sees the calling actor's identity,
+  // so it must act as the neutral app identity, never the single stored
+  // installer user_token (which would leak the installer's channel list to any
+  // caller). The presence list needs the bot regardless — Slack's `is_member`
+  // is relative to the token's own identity, so only the bot token answers
+  // "which rooms is the bot in". The share picker uses it too so its results
+  // match where the (bot-identity) share can actually post.
   const botAuth = await resolveSlackAuth("bot");
   if (botAuth === undefined) {
     throw new ServiceUnavailableError("No Slack token configured");
@@ -175,11 +175,7 @@ export async function handleListSlackChannels({
     return channels;
   };
 
-  // Presence reads as the bot; the share picker reads as the user with a bot
-  // fallback when no user token is stored or it has been revoked.
-  const channels = memberOnly
-    ? await enumerate(botAuth)
-    : await runAsUserWithBotFallback(botAuth, enumerate);
+  const channels = await enumerate(botAuth);
 
   return { channels };
 }
