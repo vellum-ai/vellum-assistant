@@ -19,8 +19,6 @@ export function brandLabel(brand: string): string {
 
 /**
  * Render the canonical "<brand> •••• <last4>" shape with safe fallbacks.
- * Used by `AutoTopUpCard.formatSavedPaymentMethodLine` (with "Charged to"
- * prefix).
  *
  * Fallback chain when brand is null: passes the literal `"card"` to
  * `brandLabel`, which falls through to the default branch (lowercase
