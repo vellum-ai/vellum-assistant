@@ -819,14 +819,15 @@ describe("scaffold_managed_skill tool", () => {
     );
 
     expect(result.isError).toBe(true);
-    expect(result.content).toContain("system temp dir for retrospective");
+    expect(result.content).toContain("vellum-eval for retrospective");
     expect(existsSync(join(TEST_DIR, "skills", "retro-copy-workspace"))).toBe(
       false,
     );
   });
 
-  test("retrospective copy_from accepts a /tmp source", async () => {
-    const tmpDir = mkdtempSync("/tmp/retro-copy-test-");
+  test("retrospective copy_from accepts a /tmp/vellum-eval source", async () => {
+    mkdirSync("/tmp/vellum-eval", { recursive: true });
+    const tmpDir = mkdtempSync("/tmp/vellum-eval/retro-copy-test-");
     const sourcePath = join(tmpDir, "tested.py");
     writeFileSync(sourcePath, "print('tmp')\n", "utf-8");
 

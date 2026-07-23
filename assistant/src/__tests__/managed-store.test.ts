@@ -871,7 +871,7 @@ describe("createManagedSkill copy_from companion sources", () => {
     // message — proving the restricted root list was used.
     const outside = validateCompanionSource("/etc/hosts", { tmpOnly: true });
     expect(outside.error).toContain(
-      "system temp dir for retrospective scaffolds",
+      "/tmp/vellum-eval for retrospective scaffolds",
     );
 
     const outsideDefault = validateCompanionSource("/etc/hosts");
@@ -884,12 +884,13 @@ describe("createManagedSkill copy_from companion sources", () => {
 
     const result = validateCompanionSource(sourcePath, { tmpOnly: true });
     expect(result.error).toContain(
-      "system temp dir for retrospective scaffolds",
+      "/tmp/vellum-eval for retrospective scaffolds",
     );
   });
 
-  test("tmpOnly still accepts a /tmp source", () => {
-    const tmpDir = fs.mkdtempSync("/tmp/tmponly-test-");
+  test("tmpOnly still accepts a /tmp/vellum-eval source", () => {
+    fs.mkdirSync("/tmp/vellum-eval", { recursive: true });
+    const tmpDir = fs.mkdtempSync("/tmp/vellum-eval/tmponly-test-");
     const sourcePath = join(tmpDir, "ok.py");
     writeFileSync(sourcePath, "print('ok')\n", "utf-8");
     try {

@@ -130,6 +130,14 @@ const RESERVED_COMPANION_NAMES = new Set([
 export const MAX_COMPANION_SOURCE_BYTES = 1024 * 1024;
 
 /**
+ * The Vellum-owned temp convention dir where the documented workflow tests
+ * snippets (`/tmp/vellum-eval/snippet.ts` in the scaffold tool description).
+ * Retrospective-origin copy_from sources are confined to it (plus its
+ * `os.tmpdir()` sibling) — see validateCompanionSource.
+ */
+export const RETRO_COPY_SOURCE_DIR = "/tmp/vellum-eval";
+
+/**
  * Validate a `copy_from` companion source and return its contents.
  *
  * The scaffold's `files` input is the only write path available to the
@@ -178,10 +186,10 @@ export function validateCompanionSource(
   // workflow (and the retrospective prompt) use /tmp, which realpaths to
   // /private/tmp there.
   //
-  // tmpOnly explicitly denies workspace sources before the temp-root
-  // allowlist is consulted: a workspace configured under os.tmpdir() (or
-  // /tmp) would otherwise leave every workspace file reachable through the
-  // temp roots, defeating the no-workspace-reads restriction.
+  // tmpOnly explicitly denies workspace sources before the allowlist is
+  // consulted: a workspace configured under os.tmpdir() (or /tmp) would
+  // otherwise leave every workspace file reachable through the temp roots,
+  // defeating the no-workspace-reads restriction.
   if (opts.tmpOnly) {
     let realWorkspace = getWorkspaceDir();
     try {
@@ -195,23 +203,24 @@ export function validateCompanionSource(
       (!relToWorkspace.startsWith("..") && !isAbsolute(relToWorkspace))
     ) {
       return {
-        error: `copy_from source must live under the system temp dir for retrospective scaffolds: "${sourcePath}"`,
+        error: `copy_from source must live under ${RETRO_COPY_SOURCE_DIR} for retrospective scaffolds: "${sourcePath}"`,
       };
     }
   }
-  // tmpOnly drops the workspace root. The unattended retrospective runs over
-  // prompt-injectable content with scaffold_managed_skill auto-granted, so a
-  // workspace-wide read would let an injected pass persist unrelated
-  // user/assistant state (other skills, persona files, user documents) into a
-  // skill folder. Restricting it to the temp roots keeps copy_from usable for
-  // tested snippets while giving the unattended pass zero workspace reads —
-  // workspace-resident code still travels via inline `content`, which the
-  // model already holds in its trace.
-  const allowedRoots = [
-    ...(opts.tmpOnly ? [] : [getWorkspaceDir()]),
-    tmpdir(),
-    "/tmp",
-  ].map((root) => {
+  // tmpOnly narrows the roots to the Vellum-owned snippet-eval convention dir
+  // instead of the whole world-shared temp tree. The unattended retrospective
+  // runs over prompt-injectable content with scaffold_managed_skill
+  // auto-granted, so this root list is its entire read boundary: workspace
+  // reads would let an injected pass persist unrelated user/assistant state
+  // into a skill folder, and tmp-wide reads would do the same for other
+  // processes' temp files. /tmp/vellum-eval is where the documented workflow
+  // tests snippets, so proven scripts land there; anything else travels via
+  // inline `content`, which the model already holds in its trace.
+  const allowedRoots = (
+    opts.tmpOnly
+      ? [join(tmpdir(), "vellum-eval"), RETRO_COPY_SOURCE_DIR]
+      : [getWorkspaceDir(), tmpdir(), "/tmp"]
+  ).map((root) => {
     try {
       return realpathSync(root);
     } catch {
@@ -225,7 +234,7 @@ export function validateCompanionSource(
   if (!underAllowedRoot) {
     return {
       error: opts.tmpOnly
-        ? `copy_from source must live under the system temp dir for retrospective scaffolds: "${sourcePath}"`
+        ? `copy_from source must live under ${RETRO_COPY_SOURCE_DIR} for retrospective scaffolds: "${sourcePath}"`
         : `copy_from source must live under the workspace or the system temp dir: "${sourcePath}"`,
     };
   }
