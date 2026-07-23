@@ -45,6 +45,10 @@ import {
   HostCuCancelEventSchema,
   HostCuRequestEventSchema,
 } from "./events/host-cu.js";
+import {
+  HostUiSnapshotCancelEventSchema,
+  HostUiSnapshotRequestEventSchema,
+} from "./events/host-ui-snapshot.js";
 import { IdentityChangedEventSchema } from "./events/identity-changed.js";
 import { InteractionResolvedEventSchema } from "./events/interaction-resolved.js";
 import { MemoryRecalledEventSchema } from "./events/memory-recalled.js";
@@ -304,6 +308,14 @@ export {
   type HostCuRequestEvent,
   HostCuRequestEventSchema,
 } from "./events/host-cu.js";
+export {
+  type HostUiSnapshotCancelEvent,
+  HostUiSnapshotCancelEventSchema,
+  type HostUiSnapshotRequestEvent,
+  HostUiSnapshotRequestEventSchema,
+  type HostUiSnapshotView,
+  HostUiSnapshotViewSchema,
+} from "./events/host-ui-snapshot.js";
 export {
   type IdentityChangedEvent,
   IdentityChangedEventSchema,
@@ -775,6 +787,8 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   HostBashRequestEventSchema,
   HostCuCancelEventSchema,
   HostCuRequestEventSchema,
+  HostUiSnapshotCancelEventSchema,
+  HostUiSnapshotRequestEventSchema,
   IdentityChangedEventSchema,
   InteractionResolvedEventSchema,
   MemoryRecalledEventSchema,
