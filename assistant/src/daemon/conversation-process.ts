@@ -96,8 +96,10 @@ export function isEchoSuppressedUserMessage(
 /**
  * True when the row is a persisted `<background_event source="...">` trigger —
  * every wake, scheduled run, and backgrounded-tool completion stamps one (see
- * {@link persistWakeTriggerMessage}). Such turns are dispatched
- * non-interactively (clientless/headless).
+ * {@link persistWakeTriggerMessage}). The permission mode such a turn ran under
+ * varies (most run interactive; clientless/headless wakes do not) and is
+ * recorded separately in `backgroundEventInteractive`; this predicate only
+ * identifies the row as a background event.
  */
 export function isBackgroundEventMetadata(
   metadata: Record<string, unknown> | undefined,
