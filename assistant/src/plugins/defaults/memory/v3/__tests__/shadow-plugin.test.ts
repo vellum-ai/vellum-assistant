@@ -75,19 +75,22 @@ const realCliCommandStore = {
 };
 const realCoreSet = { ...(await import("../core-set.js")) };
 const realHotSet = { ...(await import("../hot-set.js")) };
-const realCheckpoints = {
-  ...(await import("../../../../../persistence/checkpoints.js")),
+const realLanesVersionStore = {
+  ...(await import("../lanes-version-store.js")),
 };
 
 let shadowMockActive = false;
 
 // ─── mutable test state, read by the mocks below ────────────────────────────
 
-// In-memory stand-in for the `memory_checkpoints` row backing the
-// lanes-version token, so tests control the cross-process signal without a
-// migrated main DB. `checkpointReadThrows` simulates an unavailable DB.
-const checkpointStore = new Map<string, string>();
-let checkpointReadThrows = false;
+// In-memory stand-in for the plugin-owned lanes-version token file, so tests
+// drive the cross-process signal without touching disk. `null` mirrors an
+// absent token; a fresh string mirrors another process's bump. Each mocked
+// bump writes a distinct value (via `bumpCounter`) like the real store's UUID.
+// `lanesVersionReadThrows` mirrors the store's "read failed → undefined" branch.
+let mockLanesVersion: string | null = null;
+let lanesVersionReadThrows = false;
+let bumpCounter = 0;
 
 let liveEnabled = false;
 let memoryEnabled = true;
@@ -458,19 +461,24 @@ mock.module("../orchestrate.js", () => ({
       : realOrchestrate.orchestrate(...args),
 }));
 
-mock.module("../../../../../persistence/checkpoints.js", () => ({
-  ...realCheckpoints,
-  getMemoryCheckpoint: (key: string) => {
-    if (!shadowMockActive) return realCheckpoints.getMemoryCheckpoint(key);
-    if (checkpointReadThrows) throw new Error("checkpoint store unavailable");
-    return checkpointStore.get(key) ?? null;
-  },
-  setMemoryCheckpoint: (key: string, value: string) => {
+mock.module("../lanes-version-store.js", () => ({
+  ...realLanesVersionStore,
+  readLanesVersion: (workspaceDir: string) => {
     if (!shadowMockActive) {
-      realCheckpoints.setMemoryCheckpoint(key, value);
-      return;
+      return realLanesVersionStore.readLanesVersion(workspaceDir);
     }
-    checkpointStore.set(key, value);
+    // The store swallows read errors and returns `undefined`; mirror that so
+    // `getLanes` exercises its "cannot judge staleness → serve memo" branch.
+    if (lanesVersionReadThrows) return undefined;
+    return mockLanesVersion;
+  },
+  bumpLanesVersion: (workspaceDir: string) => {
+    if (!shadowMockActive) {
+      return realLanesVersionStore.bumpLanesVersion(workspaceDir);
+    }
+    const token = `bump-${++bumpCounter}`;
+    mockLanesVersion = token;
+    return token;
   },
 }));
 
@@ -479,7 +487,6 @@ const {
   observeTurn: observeTurnImpl,
   resetShadowLanesForTests,
   invalidateLanes,
-  LANES_VERSION_CHECKPOINT_KEY,
   attributeSelections,
   writeSelections,
   backfillMemoryV3SelectionMessageId,
@@ -536,8 +543,9 @@ beforeEach(() => {
   hotSetResult = [];
   hotSetOpts = null;
   testDb = makeDb();
-  checkpointStore.clear();
-  checkpointReadThrows = false;
+  mockLanesVersion = null;
+  lanesVersionReadThrows = false;
+  bumpCounter = 0;
   resetShadowLanesForTests();
   // The injector memoizes one orchestration per (conversation, turn); clear it
   // so tests reusing the same ids observe fresh orchestrations.
@@ -945,11 +953,11 @@ describe("memory-v3 engine", () => {
 
   test("invalidateLanes writes a new, distinct lanes-version token each call", () => {
     invalidateLanes();
-    const first = checkpointStore.get(LANES_VERSION_CHECKPOINT_KEY);
+    const first = mockLanesVersion;
     invalidateLanes();
-    const second = checkpointStore.get(LANES_VERSION_CHECKPOINT_KEY);
-    expect(first).toBeDefined();
-    expect(second).toBeDefined();
+    const second = mockLanesVersion;
+    expect(first).not.toBeNull();
+    expect(second).not.toBeNull();
     expect(second).not.toBe(first);
   });
 
@@ -961,7 +969,7 @@ describe("memory-v3 engine", () => {
     // Simulate the memory worker's invalidateLanes(): its in-process memo
     // clear is invisible to this process — only the persisted token write
     // crosses the boundary.
-    checkpointStore.set(LANES_VERSION_CHECKPOINT_KEY, "worker-bump-1");
+    mockLanesVersion = "worker-bump-1";
 
     await observeTurn("conv-1", 2);
     expect(sectionBuilds).toBe(2);
@@ -977,7 +985,7 @@ describe("memory-v3 engine", () => {
     await observeTurn("conv-1", 0);
     expect(sectionBuilds).toBe(1);
 
-    checkpointReadThrows = true;
+    lanesVersionReadThrows = true;
     await observeTurn("conv-1", 1);
     expect(sectionBuilds).toBe(1);
   });
