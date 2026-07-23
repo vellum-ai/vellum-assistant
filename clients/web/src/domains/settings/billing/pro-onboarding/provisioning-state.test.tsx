@@ -469,6 +469,48 @@ describe("takeover avatar", () => {
   });
 });
 
+describe("takeover avatar mode", () => {
+  /** The mode is carried as a class on the avatar's outer element. */
+  function modeClasses(container: HTMLElement): string {
+    const el = container.querySelector(".provision-avatar-evolve");
+    return el?.className ?? "";
+  }
+
+  const CASES: Array<[ProvisioningStateProps["state"], boolean, string]> = [
+    ["CONFIRMING", false, ""],
+    ["CONFIRM_TIMEOUT", false, ""],
+    ["WAITING", false, "is-working"],
+    ["RESIZING", false, "is-working"],
+    ["WAITING", true, "is-settling"],
+    ["RESIZING", true, "is-settling"],
+    ["STALLED", false, "is-stalled"],
+    ["DONE", false, "is-evolved"],
+    ["NOT_APPLICABLE", false, "is-evolved"],
+  ];
+
+  for (const [state, softWaiting, expected] of CASES) {
+    const label = softWaiting ? `${state} past the grace window` : state;
+    test(`${label} renders ${expected || "no mode class"}`, () => {
+      const { container } = renderState({ state, softWaiting });
+      const classes = modeClasses(container);
+
+      if (expected) {
+        expect(classes).toContain(expected);
+      } else {
+        for (const mode of ["is-working", "is-settling", "is-stalled", "is-evolved"]) {
+          expect(classes).not.toContain(mode);
+        }
+      }
+    });
+  }
+
+  test("the grace window never softens a state that isn't waiting", () => {
+    const { container } = renderState({ state: "STALLED", softWaiting: true });
+
+    expect(modeClasses(container)).toContain("is-stalled");
+  });
+});
+
 describe("ProvisioningState phase hold", () => {
   test("keeps a phase on screen for its minimum before the next one shows", async () => {
     const { rerender, getByText, queryByText } = renderState({

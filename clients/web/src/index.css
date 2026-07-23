@@ -282,12 +282,12 @@ body {
   to { opacity: 1; transform: translateY(0); }
 }
 
-/* Provisioning takeover — the assistant evolves when the upgrade lands. A
- * larger copy of the creature swells in behind the current one at low opacity,
- * then resolves to full colour as the front copy dissolves into it. The two
- * copies share a bottom baseline so the creature stands taller off its shadow
- * rather than floating up the screen. `--provision-avatar-size` and
- * `--provision-avatar-growth` come from the component. */
+/* Provisioning takeover — the assistant grows into a larger form when the
+ * upgrade lands. It crouches, then pulses up twice, each pulse overshooting and
+ * relaxing a little higher than the one before, and settles at
+ * `--provision-avatar-growth`. The origin is the bottom edge, so the creature
+ * stands taller off its shadow rather than floating up the screen. Both custom
+ * properties come from the component. */
 .provision-avatar-stage {
   position: relative;
   width: 100%;
@@ -303,14 +303,9 @@ body {
   justify-content: center;
 }
 
-.provision-avatar-current,
-.provision-avatar-next {
+.provision-avatar-current {
   transform-origin: bottom center;
-  will-change: transform, opacity;
-}
-
-.provision-avatar-next {
-  opacity: 0;
+  will-change: transform;
 }
 
 .provision-avatar-shadow {
@@ -326,57 +321,94 @@ body {
   );
 }
 
-/* Grows to a slight overshoot while still dim, then lights up as it settles. */
-@keyframes provision-evolve-in {
-  0% { transform: scale(1); opacity: 0; }
-  10% { opacity: 0.34; }
-  55% {
-    transform: scale(calc(var(--provision-avatar-growth) + 0.05));
-    opacity: 0.34;
-  }
-  100% { transform: scale(var(--provision-avatar-growth)); opacity: 1; }
+/* The crouch is what makes this read as the creature pushing itself up rather
+ * than as something being scaled. */
+@keyframes provision-grow {
+  0% { transform: scale(1); }
+  11% { transform: scale(1.03) scaleY(0.9); }
+  38% { transform: scale(1.3); }
+  50% { transform: scale(1.24); }
+  82% { transform: scale(1.49); }
+  100% { transform: scale(var(--provision-avatar-growth)); }
 }
 
-@keyframes provision-evolve-out {
-  0% { transform: scale(1); opacity: 1; }
-  55% { transform: scale(1.06); opacity: 0.7; }
-  100% { transform: scale(1.18); opacity: 0; }
-}
-
-@keyframes provision-evolve-shadow {
+/* The shadow tightens as it leaves the ground and spreads as it lands. */
+@keyframes provision-grow-shadow {
   0% { transform: scaleX(1); opacity: 0.85; }
-  55% { transform: scaleX(1.24); opacity: 0.55; }
+  18% { transform: scaleX(1.08); opacity: 1; }
+  45% { transform: scaleX(0.95); opacity: 0.6; }
   100% { transform: scaleX(1.16); opacity: 1; }
 }
 
-.provision-avatar-evolve.is-evolved .provision-avatar-next {
-  animation: provision-evolve-in 1.25s cubic-bezier(0.22, 1, 0.36, 1) both;
-}
-
-/* Held until the copy behind has finished swelling, so the two read as one
- * creature growing rather than two creatures crossfading. */
 .provision-avatar-evolve.is-evolved .provision-avatar-current {
-  animation: provision-evolve-out 0.48s 0.6s ease-out both;
+  animation: provision-grow 1.1s cubic-bezier(0.36, 0.02, 0.24, 1) both;
 }
 
 .provision-avatar-evolve.is-evolved .provision-avatar-shadow {
-  animation: provision-evolve-shadow 1.25s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: provision-grow-shadow 1.1s cubic-bezier(0.36, 0.02, 0.24, 1) both;
+}
+
+/* One gesture at three amplitudes. The strain loop sits on its own nesting
+ * level so it multiplies with the growth on the parent rather than fighting it
+ * for `transform`; the transition is what carries it back to rest from wherever
+ * in the cycle the resolve caught it, instead of snapping. */
+.provision-avatar-strain {
+  transform-origin: bottom center;
+  transition:
+    transform 260ms ease-out,
+    filter 400ms ease;
+}
+
+@keyframes provision-strain {
+  0% { transform: scale(1); }
+  18% {
+    transform: scaleX(calc(1 + var(--provision-strain) * 0.35))
+      scaleY(calc(1 - var(--provision-strain) * 0.75));
+  }
+  44% { transform: scale(calc(1 + var(--provision-strain))); }
+  66%, 100% { transform: scale(1); }
+}
+
+/* A third of every cycle is rest — that pause is what keeps it reading as
+ * effort rather than fidgeting. */
+.provision-avatar-evolve.is-working {
+  --provision-strain: 0.05;
+  --provision-strain-cycle: 3.5s;
+}
+
+.provision-avatar-evolve.is-settling {
+  --provision-strain: 0.035;
+  --provision-strain-cycle: 5s;
+}
+
+.provision-avatar-evolve.is-working .provision-avatar-strain,
+.provision-avatar-evolve.is-settling .provision-avatar-strain {
+  animation: provision-strain var(--provision-strain-cycle)
+    cubic-bezier(0.36, 0.05, 0.28, 1) infinite;
+}
+
+/* The hatching screen tilts a dead egg 45deg; this machine is recoverable and
+ * the screen offers a retry, so it slumps rather than falls over. */
+.provision-avatar-evolve.is-stalled .provision-avatar-strain {
+  transform: rotate(8deg);
+  filter: grayscale(0.7) brightness(0.78);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .provision-avatar-evolve.is-evolved .provision-avatar-next,
-  .provision-avatar-evolve.is-evolved .provision-avatar-current,
+  .provision-avatar-evolve.is-evolved .provision-avatar-current {
+    animation: none;
+    transform: scale(var(--provision-avatar-growth));
+  }
+
   .provision-avatar-evolve.is-evolved .provision-avatar-shadow {
     animation: none;
+    transform: scaleX(1.16);
   }
 
-  .provision-avatar-evolve.is-evolved .provision-avatar-next {
-    transform: scale(var(--provision-avatar-growth));
-    opacity: 1;
-  }
-
-  .provision-avatar-evolve.is-evolved .provision-avatar-current {
-    opacity: 0;
+  /* The stalled tilt stays — it reports a state rather than animating one. */
+  .provision-avatar-evolve.is-working .provision-avatar-strain,
+  .provision-avatar-evolve.is-settling .provision-avatar-strain {
+    animation: none;
   }
 }
 
