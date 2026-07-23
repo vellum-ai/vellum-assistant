@@ -11,9 +11,10 @@
  * switch/reload.
  *
  * This route runs the notification on the daemon instead: it records the
- * snapshot anchor at the daemon's own `getCurrentSeq()` and republishes the
+ * snapshot anchor from the daemon's own seq authority and republishes the
  * messages-changed invalidation on the daemon's hub, where real subscribers
- * observe it. (Why anchoring at the current seq is honest: see the handler.)
+ * observe it. (How the anchor is chosen so it never claims un-flushed content:
+ * see the handler.)
  *
  * IPC-only: registered directly on the assistant IPC server (see
  * `assistant-server.ts`), never in the shared `ROUTES` array. DB-migration
@@ -24,6 +25,7 @@
 
 import { z } from "zod";
 
+import { getInflightFlushedContentSeq } from "../../daemon/inflight-turn-registry.js";
 import { recordConversationPersistedSeq } from "../../persistence/conversation-crud.js";
 import { getCurrentSeq } from "../../runtime/assistant-stream-state.js";
 import type { RouteHandlerArgs } from "../../runtime/routes/types.js";
@@ -43,12 +45,18 @@ export function handleNotifyConversationPersisted({
 }: RouteHandlerArgs) {
   const { conversationId } =
     NotifyConversationPersistedParamsSchema.parse(body);
-  // The daemon's live counter is at or above every seq it has served for this
-  // conversation, and the worker's freshly written rows carry no higher seq, so
-  // anchoring at the current seq is honest — never above the served frontier.
-  // `recordConversationPersistedSeq` is monotonic (raise-only) and ignores a
-  // non-positive seq, so a cold daemon (seq 0) simply leaves the anchor as-is.
-  recordConversationPersistedSeq(conversationId, getCurrentSeq());
+  // Anchor at the highest seq whose content the durable rows hold. While the
+  // daemon streams a turn into this conversation, its live seq counter runs
+  // ahead of flushed content, so a `getCurrentSeq()` anchor would advertise
+  // in-flight content the snapshot omits — clients drop those deltas as replays
+  // and the streamed text vanishes until the next flush. Cap at the streaming
+  // turn's flushed watermark; `undefined` means no turn is in flight, where the
+  // live counter is honest (the worker's fresh rows carry no higher seq).
+  // `recordConversationPersistedSeq` is raise-only and ignores a non-positive
+  // seq, so a cold daemon or an un-flushed turn leaves the anchor as-is.
+  const anchor =
+    getInflightFlushedContentSeq(conversationId) ?? getCurrentSeq();
+  recordConversationPersistedSeq(conversationId, anchor);
   publishConversationMessagesChanged(conversationId);
   return { ok: true };
 }

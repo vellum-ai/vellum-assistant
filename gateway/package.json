@@ -53,6 +53,7 @@
     "@vellumai/twilio-client"
   ],
   "devDependencies": {
+    "@grammyjs/types": "4.0.0",
     "@types/bun": "1.3.9",
     "eslint": "10.0.0",
     "fast-check": "4.7.0",

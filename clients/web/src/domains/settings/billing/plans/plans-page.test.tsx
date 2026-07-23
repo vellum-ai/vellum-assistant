@@ -45,6 +45,7 @@ import type {
   PackageChangeResponse,
   PlanListResponse,
   ProPackage,
+  ProPlan,
   SubscriptionResponse,
 } from "@/generated/api/types.gen";
 
@@ -339,11 +340,12 @@ describe("PlansPage — full catalog render", () => {
     expect(html).toContain("$200/month");
   });
 
-  test("shows the Most Popular badge exactly once", () => {
+  test("shows the Recommended badge exactly once", () => {
     const html = renderStatic(freeSubscription(), fullCatalog());
-    // The badge text is "Most Popular"; the all-caps look is CSS `uppercase`,
+    // The badge text is "Recommended"; the all-caps look is CSS `uppercase`,
     // which renderToStaticMarkup does not apply.
-    expect(count(html, /Most Popular/g)).toBe(1);
+    expect(count(html, /Recommended/g)).toBe(1);
+    expect(html).not.toContain("Most Popular");
   });
 
   test("derives feature rows from the fixture (storage, credits, machine)", () => {
@@ -412,6 +414,22 @@ describe("PlansPage — current-plan state", () => {
     // which a static first-paint render (no effects) never loads.
     expect(count(html, /disabled=""/g)).toBe(2);
   });
+
+  test("pro subscriber on Mighty: no Recommended badge, but Mighty keeps the light card", () => {
+    const html = renderStatic(proMightySubscription(), fullCatalog());
+    expect(html).not.toContain("Recommended");
+    expect(count(html, /data-theme="light"/g)).toBe(1);
+    expect(html).toContain("Current Plan");
+  });
+
+  test("pro subscriber on Super: Mighty is a downgrade, no Recommended badge, but keeps the light card", () => {
+    const html = renderStatic(proSuperSubscription(), fullCatalog());
+    // Mighty sits below Super, so its CTA is a downgrade and the chip is hidden.
+    expect(html).toContain("Downgrade to Mighty");
+    expect(html).not.toContain("Recommended");
+    // Mighty still renders as the light card for a Super subscriber.
+    expect(count(html, /data-theme="light"/g)).toBe(1);
+  });
 });
 
 describe("PlansPage — empty catalog (pro-packages flag off)", () => {
@@ -428,9 +446,10 @@ describe("PlansPage — empty catalog (pro-packages flag off)", () => {
 });
 
 describe("getPlanTierCopy", () => {
-  test("returns tier copy including the most-popular flag and CTA", () => {
+  test("returns tier copy including the recommended flag and CTA", () => {
     expect(getPlanTierCopy("mighty")?.cta).toBe("Power Up");
-    expect(getPlanTierCopy("super")?.mostPopular).toBe(true);
+    expect(getPlanTierCopy("mighty")?.recommended).toBe(true);
+    expect(getPlanTierCopy("super")?.recommended).toBeFalsy();
     expect(getPlanTierCopy("ultra")?.cta).toBe("Unleash Ultra");
   });
 
@@ -849,6 +868,23 @@ function customCatalog(): PlanListResponse {
   };
 }
 
+/**
+ * A catalog whose only 10 GB storage tier is legacy. A Pro sub sitting on it
+ * can't be represented by the (legacy-filtered) modal storage picker, yet
+ * Configure must still open the modal rather than bounce to the manage surface.
+ */
+function legacyStorageCatalog(): PlanListResponse {
+  const catalog = customCatalog();
+  const pro = catalog.plans.find((p) => p.id === "pro") as ProPlan;
+  // storage_tiers[0] is the 10 GB tier.
+  pro.storage_tiers[0] = {
+    ...pro.storage_tiers[0],
+    lookup_key: "storage_10_legacy",
+    legacy: true,
+  };
+  return catalog;
+}
+
 function openDropdown(ariaLabel: string): void {
   const trigger = document.querySelector<HTMLButtonElement>(
     `button[role="combobox"][aria-label="${ariaLabel}"]`,
@@ -922,20 +958,49 @@ describe("PlansPage — Pro custom plan (change-tier)", () => {
     expect(upgradeCall).toBeNull();
   });
 
-  test("an ineligible (cancelling) Pro sub's Configure routes to manage", async () => {
-    const { findByRole, getByTestId, queryByText } = renderInteractive(
+  // Configure always opens the in-place custom modal for a Pro sub, whatever the
+  // sub's eligibility or tier legacy status. An ineligible or legacy-tier sub
+  // that then tries to apply a change surfaces the backend's 4xx as a toast (the
+  // modal stays open) instead of being pre-emptively bounced to the manage
+  // surface.
+  test("an ineligible (cancelling) Pro sub's Configure opens the modal, not adjust_plan", async () => {
+    const { findByRole, getByTestId, getByText } = renderInteractive(
       { ...proMightySubscription(), cancel_at_period_end: true },
       { plans: customCatalog() },
     );
 
     fireEvent.click(await findByRole("button", { name: "Configure" }));
 
-    await waitFor(() =>
-      expect(getByTestId("loc").textContent).toBe(
-        "/assistant/settings/usage?tab=billing&adjust_plan",
-      ),
+    getByText("Create a custom plan");
+    expect(getByTestId("loc").textContent).toBe("/assistant/plans");
+    expect(machineTierCall).toBeNull();
+    expect(upgradeCall).toBeNull();
+  });
+
+  test("a base user's Configure opens the custom modal (checkout path), not adjust_plan", async () => {
+    const { findByRole, getByTestId, getByText } = renderInteractive(
+      freeSubscription(),
+      { plans: customCatalog() },
     );
-    expect(queryByText("Create a custom plan")).toBeNull();
+
+    fireEvent.click(await findByRole("button", { name: "Configure" }));
+
+    getByText("Create a custom plan");
+    expect(getByTestId("loc").textContent).toBe("/assistant/plans");
+    // Checkout only fires once the modal's Continue is pressed.
+    expect(upgradeCall).toBeNull();
+  });
+
+  test("a Pro sub on a legacy storage tier's Configure opens the modal, not adjust_plan", async () => {
+    const { findByRole, getByTestId, getByText } = renderInteractive(
+      proMightySubscription(),
+      { plans: legacyStorageCatalog() },
+    );
+
+    fireEvent.click(await findByRole("button", { name: "Configure" }));
+
+    getByText("Create a custom plan");
+    expect(getByTestId("loc").textContent).toBe("/assistant/plans");
     expect(machineTierCall).toBeNull();
     expect(upgradeCall).toBeNull();
   });
