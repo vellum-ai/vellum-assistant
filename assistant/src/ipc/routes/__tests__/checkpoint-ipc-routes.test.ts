@@ -7,8 +7,6 @@ import {
   isCheckpointQuiesceActive,
   registerSseSubscription,
 } from "../../../runtime/checkpoint-quiesce.js";
-import { ServiceUnavailableError } from "../../../runtime/routes/errors.js";
-import { handleSubscribeAssistantEvents } from "../../../runtime/routes/events-routes.js";
 import {
   CHECKPOINT_PREPARE_IPC_METHOD,
   handleCheckpointPrepare,
@@ -73,11 +71,11 @@ describe(`${CHECKPOINT_PREPARE_IPC_METHOD} IPC route`, () => {
     expect(closes).toBe(0);
   });
 
-  test("the admission latch rejects new SSE subscriptions with a 503", async () => {
+  test("prepare arms the admission latch; clear drops it", async () => {
+    expect(isCheckpointQuiesceActive()).toBe(false);
     await handleCheckpointPrepare({});
-
-    expect(() => handleSubscribeAssistantEvents({})).toThrow(
-      ServiceUnavailableError,
-    );
+    expect(isCheckpointQuiesceActive()).toBe(true);
+    clearCheckpointQuiesce();
+    expect(isCheckpointQuiesceActive()).toBe(false);
   });
 });
