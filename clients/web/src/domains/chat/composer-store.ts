@@ -84,12 +84,10 @@ export type ChatAttachment =
 const STORAGE_KEY_PREFIX = "vellum:chatDrafts:";
 
 /**
- * Size limit enforced on the client before we attempt an upload, so the UI
- * can reject oversized files immediately instead of round-tripping the upload
- * just to surface an error. The server chain now allows up to 500 MB (Django
- * `_MAX_ATTACHMENT_BYTES`, runtime `MAX_UPLOAD_BYTES` — raised for the
- * bring-your-agent import handoff); 50 MB here is a deliberate chat-UX cap
- * for composer attachments, not server parity.
+ * Size limit enforced on the client before we attempt an upload. The Django
+ * backend caps attachments at 50 MB (`_MAX_ATTACHMENT_BYTES`) — we use the same
+ * value here so the UI can reject oversized files immediately instead of
+ * round-tripping the upload just to surface an error.
  */
 export const MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024;
 
