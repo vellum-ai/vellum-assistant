@@ -76,15 +76,15 @@ export function useConversationGroupActions({
   });
 
   const handleCreateGroup = useCallback(async (): Promise<ConversationGroup | null> => {
-    if (!assistantId) return null;
+    if (!assistantId) {return null;}
     haptic.light();
     const name =
       typeof window === "undefined"
         ? null
         : window.prompt("New group name");
-    if (name == null) return null;
+    if (name == null) {return null;}
     const trimmed = name.trim();
-    if (!trimmed) return null;
+    if (!trimmed) {return null;}
 
     const groupsKey = groupsGetQueryKey({ path: { assistant_id: assistantId } });
     await queryClient.cancelQueries({ queryKey: groupsKey });

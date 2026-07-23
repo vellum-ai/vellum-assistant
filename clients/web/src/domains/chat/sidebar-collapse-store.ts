@@ -121,19 +121,19 @@ const useSidebarCollapseStoreBase = create<SidebarCollapseStore>()(
           prev.scheduledActivated || next.includes("scheduled"),
       }));
       const { assistantId } = get();
-      if (assistantId) saveOpenCategories(assistantId, next);
+      if (assistantId) {saveOpenCategories(assistantId, next);}
     },
 
     setOpenCustomGroups: (next: string[]) => {
       set({ openCustomGroups: next });
       const { assistantId } = get();
-      if (assistantId) saveOpenCustomGroups(assistantId, next);
+      if (assistantId) {saveOpenCustomGroups(assistantId, next);}
     },
 
     setOpenPrimary: (next: string[]) => {
       set({ openPrimary: next });
       const { assistantId } = get();
-      if (assistantId) saveOpenPrimary(assistantId, next);
+      if (assistantId) {saveOpenPrimary(assistantId, next);}
     },
 
     activateBackground: () => {
