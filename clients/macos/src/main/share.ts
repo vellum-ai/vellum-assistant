@@ -1,8 +1,8 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { BrowserWindow, ShareMenu } from "electron";
+import { app, BrowserWindow, ShareMenu } from "electron";
 import { z } from "zod";
 
 import { handle } from "./ipc";
@@ -17,13 +17,44 @@ import { handle } from "./ipc";
  * the app" UX the iOS build gets from `@capacitor/share`, and the one thing a
  * plain browser download can't offer.
  *
- * `ShareMenu` shares files by path, so the bytes are written to a throwaway
- * temp dir first and removed once the sheet closes. Share targets copy the
- * file when picked (AirDrop keeps its own reference), so tearing the temp dir
- * down on close is safe — mirroring the iOS path's post-dismiss cleanup.
+ * `ShareMenu` shares files by path, so each share writes its bytes to a
+ * throwaway temp dir. Cleanup is deliberately NOT tied to the picker closing:
+ * Electron's `popup` callback fires on menu *close* — the moment a service is
+ * selected — not when the selected service has finished with the file. An
+ * AirDrop transfer, a pasteboard / file-promise reference, or a share extension
+ * can still read the file after the menu closes, so deleting there could pull
+ * it out from under an in-flight share. Instead the temp dirs are swept when no
+ * share can be in flight — at startup and best-effort on quit — and the OS
+ * reclaims `$TMPDIR` regardless.
  */
 
+const SHARE_TMP_PREFIX = "vellum-share-";
+
 const ShareFileArgs = z.tuple([z.instanceof(Uint8Array), z.string().min(1)]);
+
+/**
+ * Remove leftover share temp dirs. Safe only when no share is in flight — call
+ * at startup (before any file is shared) or on quit (the app is closing).
+ * Exported for unit tests.
+ */
+export const sweepShareDirs = async (): Promise<void> => {
+  const root = tmpdir();
+  let entries: string[];
+  try {
+    entries = await readdir(root);
+  } catch {
+    return;
+  }
+  await Promise.all(
+    entries
+      .filter((name) => name.startsWith(SHARE_TMP_PREFIX))
+      .map((name) =>
+        rm(path.join(root, name), { recursive: true, force: true }).catch(
+          () => {},
+        ),
+      ),
+  );
+};
 
 let installed = false;
 
@@ -31,6 +62,11 @@ let installed = false;
 export const installShare = (): void => {
   if (installed) return;
   installed = true;
+
+  // Reclaim temp files an earlier run left behind (crash / force-quit), and
+  // clean this run's files on quit. Neither runs while a share is in flight.
+  void sweepShareDirs();
+  app.on("before-quit", () => void sweepShareDirs());
 
   handle(
     "vellum:share:file",
@@ -43,7 +79,7 @@ export const installShare = (): void => {
         throw new Error("Share sheet is only available on macOS");
       }
 
-      const dir = await mkdtemp(path.join(tmpdir(), "vellum-share-"));
+      const dir = await mkdtemp(path.join(tmpdir(), SHARE_TMP_PREFIX));
       // `basename` strips any path components the renderer's filename may
       // carry, keeping the write inside the temp dir.
       const filePath = path.join(dir, path.basename(filename));
@@ -52,7 +88,6 @@ export const installShare = (): void => {
       const shareMenu = new ShareMenu({ filePaths: [filePath] });
       shareMenu.popup({
         window: BrowserWindow.fromWebContents(event.sender) ?? undefined,
-        callback: () => void rm(dir, { recursive: true, force: true }),
       });
     },
   );

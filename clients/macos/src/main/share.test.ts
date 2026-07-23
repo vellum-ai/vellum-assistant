@@ -4,10 +4,10 @@ import path from "node:path";
 
 import type { z } from "zod";
 
-// Capture the invocable IPC registration `installShare` makes so the tests
-// can drive the handler directly without a real `ipcMain`. The sender-origin
-// guard inside the real `handle` is covered by `ipc.test.ts`, so it's
-// intentionally absent here (mirrors `dock.test.ts`).
+// Capture the invocable IPC registration `installShare` makes so the tests can
+// drive the handler directly without a real `ipcMain`. The sender-origin guard
+// inside the real `handle` is covered by `ipc.test.ts`, so it's intentionally
+// absent here (mirrors `dock.test.ts`).
 type Handler = (args: unknown[], event: unknown) => unknown;
 type Registration = {
   channel: string;
@@ -21,27 +21,29 @@ mock.module("./ipc", () => ({
   },
 }));
 
-// `node:fs/promises` is mocked so the handler's temp-file dance is asserted
-// structurally — no real disk writes, and the fire-and-forget cleanup in the
-// sheet-close callback becomes observable via `rmMock`. `node:os` / `node:path`
-// stay real (pure helpers), so the asserted paths match what production builds.
+// `node:fs/promises` is mocked so the temp-file dance and the sweep are
+// asserted structurally — no real disk access. `node:os` / `node:path` stay
+// real (pure helpers), so the asserted paths match what production builds.
 const mkdtempMock = mock((prefix: string) =>
   Promise.resolve(`${prefix}abc123`),
 );
 const writeFileMock = mock((_path: string, _data: unknown) =>
   Promise.resolve(),
 );
+const readdirMock = mock((_path: string) => Promise.resolve<string[]>([]));
 const rmMock = mock((_path: string, _opts: unknown) => Promise.resolve());
 mock.module("node:fs/promises", () => ({
   mkdtemp: mkdtempMock,
   writeFile: writeFileMock,
+  readdir: readdirMock,
   rm: rmMock,
 }));
 
-// Mock the two electron seams `share.ts` touches: the `ShareMenu` picker and
-// `BrowserWindow.fromWebContents` (used to anchor the sheet to the calling
-// window). `ShareMenu` records its constructor arg + `popup` options so the
-// tests can assert the file path and teardown callback.
+// Mock the electron seams `share.ts` touches: `app.on` (to register the
+// before-quit cleanup), the `ShareMenu` picker, and `BrowserWindow` (used to
+// anchor the sheet to the calling window). `ShareMenu` records its constructor
+// arg + `popup` options so the tests can assert the file path and that no
+// teardown callback is wired to menu close.
 type PopupOpts = { window?: unknown; callback?: () => void };
 const shareMenuArgs: Array<{ filePaths: string[] }> = [];
 const popupCalls: PopupOpts[] = [];
@@ -55,7 +57,9 @@ class ShareMenuMock {
 }
 const fakeWindow = { id: "main-window" };
 const fromWebContentsMock = mock((_sender: unknown): unknown => fakeWindow);
+const appOnMock = mock((_event: string, _listener: () => void) => undefined);
 mock.module("electron", () => ({
+  app: { on: appOnMock },
   ShareMenu: ShareMenuMock,
   BrowserWindow: { fromWebContents: fromWebContentsMock },
 }));
@@ -69,11 +73,19 @@ const setPlatform = (value: NodeJS.Platform): void => {
 };
 setPlatform("darwin");
 
-const { installShare } = await import("./share");
+const { installShare, sweepShareDirs } = await import("./share");
 
 // Idempotent — a second call must not double-register (module-level flag).
 installShare();
 installShare();
+
+// installShare kicks off a startup sweep (a `readdir`) and registers the
+// before-quit cleanup synchronously; snapshot both before `beforeEach` clears
+// the mocks.
+const readdirCallsAtInstall = readdirMock.mock.calls.length;
+const beforeQuitListener = appOnMock.mock.calls.find(
+  (call) => call[0] === "before-quit",
+)?.[1] as (() => void) | undefined;
 
 const shareReg = (): Registration =>
   handleRegistrations.find((r) => r.channel === "vellum:share:file")!;
@@ -91,17 +103,29 @@ beforeEach(() => {
   mkdtempMock.mockClear();
   writeFileMock.mockClear();
   rmMock.mockClear();
-  fromWebContentsMock.mockClear();
+  readdirMock.mockReset();
+  readdirMock.mockReturnValue(Promise.resolve<string[]>([]));
+  fromWebContentsMock.mockReset();
   fromWebContentsMock.mockReturnValue(fakeWindow);
   setPlatform("darwin");
 });
 
-describe("installShare IPC registration", () => {
+describe("installShare wiring", () => {
   test("registers vellum:share:file exactly once over the invocable `handle` path", () => {
     const matches = handleRegistrations.filter(
       (r) => r.channel === "vellum:share:file",
     );
     expect(matches).toHaveLength(1);
+  });
+
+  test("sweeps once at startup and registers a before-quit cleanup", () => {
+    // Startup sweep ran (one `readdir`) and idempotency held — two
+    // installShare() calls, still a single sweep + before-quit registration.
+    expect(readdirCallsAtInstall).toBe(1);
+    expect(beforeQuitListener).toBeDefined();
+    expect(
+      appOnMock.mock.calls.filter((call) => call[0] === "before-quit"),
+    ).toHaveLength(1);
   });
 });
 
@@ -173,17 +197,15 @@ describe("share handler", () => {
     expect(popupCalls[0]!.window).toBeUndefined();
   });
 
-  test("tears down the temp dir when the sheet closes", async () => {
+  test("does not delete the temp dir on menu close", async () => {
     await shareReg().fn([bytes, "report.pdf"], fakeEvent);
 
-    // The temp dir is only removed once the sheet closes, via the popup
-    // callback — not eagerly, or the file would vanish before a target reads it.
+    // Cleanup is intentionally NOT wired to the picker closing: Electron's
+    // popup callback fires on menu close (service selected), not when the
+    // service is done reading the file, so no teardown callback is passed and
+    // the share itself removes nothing.
+    expect(popupCalls[0]!.callback).toBeUndefined();
     expect(rmMock).not.toHaveBeenCalled();
-    popupCalls[0]!.callback?.();
-    expect(rmMock).toHaveBeenCalledWith(expectedDir, {
-      recursive: true,
-      force: true,
-    });
   });
 
   test("rejects on a non-darwin host without touching the filesystem", async () => {
@@ -197,5 +219,64 @@ describe("share handler", () => {
     expect(mkdtempMock).not.toHaveBeenCalled();
     expect(writeFileMock).not.toHaveBeenCalled();
     expect(shareMenuArgs).toHaveLength(0);
+  });
+});
+
+describe("sweepShareDirs", () => {
+  test("removes only vellum-share-* dirs, leaving unrelated temp entries", async () => {
+    readdirMock.mockReturnValue(
+      Promise.resolve([
+        "vellum-share-aaa",
+        "vellum-mac-helper-permission-x",
+        "some-other-app",
+        "vellum-share-bbb",
+      ]),
+    );
+
+    await sweepShareDirs();
+
+    expect(readdirMock).toHaveBeenCalledWith(tmpdir());
+    expect(rmMock).toHaveBeenCalledTimes(2);
+    expect(rmMock).toHaveBeenCalledWith(
+      path.join(tmpdir(), "vellum-share-aaa"),
+      { recursive: true, force: true },
+    );
+    expect(rmMock).toHaveBeenCalledWith(
+      path.join(tmpdir(), "vellum-share-bbb"),
+      { recursive: true, force: true },
+    );
+  });
+
+  test("no-ops when the temp dir holds no share dirs", async () => {
+    readdirMock.mockReturnValue(
+      Promise.resolve(["vellum-mac-helper-permission-x", "unrelated"]),
+    );
+
+    await sweepShareDirs();
+
+    expect(rmMock).not.toHaveBeenCalled();
+  });
+
+  test("swallows a readdir failure without throwing or deleting", async () => {
+    readdirMock.mockImplementation(() =>
+      Promise.reject(new Error("tmpdir unreadable")),
+    );
+
+    await expect(sweepShareDirs()).resolves.toBeUndefined();
+    expect(rmMock).not.toHaveBeenCalled();
+  });
+
+  test("the before-quit listener triggers a sweep", async () => {
+    readdirMock.mockReturnValue(Promise.resolve(["vellum-share-ccc"]));
+
+    // Invoke the captured before-quit listener; it fires the sweep.
+    beforeQuitListener?.();
+    // Let the fire-and-forget sweep settle (a macrotask flushes microtasks).
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(rmMock).toHaveBeenCalledWith(
+      path.join(tmpdir(), "vellum-share-ccc"),
+      { recursive: true, force: true },
+    );
   });
 });
