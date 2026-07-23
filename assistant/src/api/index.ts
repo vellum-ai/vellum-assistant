@@ -18,6 +18,7 @@ import { CompactionCircuitClosedEventSchema } from "./events/compaction-circuit-
 import { CompactionCircuitOpenEventSchema } from "./events/compaction-circuit-open.js";
 import { ConfirmationRequestEventSchema } from "./events/confirmation-request.js";
 import { ContactRequestEventSchema } from "./events/contact-request.js";
+import { ContactsChangedEventSchema } from "./events/contacts-changed.js";
 import { ConversationErrorEventSchema } from "./events/conversation-error.js";
 import { ConversationListInvalidatedEventSchema } from "./events/conversation-list-invalidated.js";
 import { ConversationNoticeEventSchema } from "./events/conversation-notice.js";
@@ -192,6 +193,10 @@ export {
   type ContactRequestEvent,
   ContactRequestEventSchema,
 } from "./events/contact-request.js";
+export {
+  type ContactsChangedEvent,
+  ContactsChangedEventSchema,
+} from "./events/contacts-changed.js";
 export {
   type ConversationErrorCode,
   ConversationErrorCodeSchema,
@@ -702,6 +707,7 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   CompactionCircuitOpenEventSchema,
   ConfirmationRequestEventSchema,
   ContactRequestEventSchema,
+  ContactsChangedEventSchema,
   ConversationErrorEventSchema,
   ConversationListInvalidatedEventSchema,
   ConversationNoticeEventSchema,
