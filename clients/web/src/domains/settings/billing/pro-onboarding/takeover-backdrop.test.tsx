@@ -38,4 +38,22 @@ describe("TakeoverBackdrop", () => {
     expect(image?.style.width.replace(/\s/g, "")).toBe("calc(100%+240px)");
     expect(image?.style.height.replace(/\s/g, "")).toBe("calc(100%+240px)");
   });
+
+  test("fades the layer in by default", () => {
+    const { getByTestId } = render(
+      <TakeoverBackdrop imageUrl="https://cdn.test/avatar.png" />,
+    );
+    expect(getByTestId("takeover-backdrop").className).toContain(
+      "provision-avatar-reveal",
+    );
+  });
+
+  test("omits the reveal when animateIn is false", () => {
+    const { getByTestId } = render(
+      <TakeoverBackdrop imageUrl="https://cdn.test/avatar.png" animateIn={false} />,
+    );
+    expect(getByTestId("takeover-backdrop").className).not.toContain(
+      "provision-avatar-reveal",
+    );
+  });
 });

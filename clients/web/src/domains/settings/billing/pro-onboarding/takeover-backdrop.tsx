@@ -6,13 +6,26 @@ const OVERSCAN_PX = BLUR_RADIUS_PX * 2; // 120px per side
 /**
  * Decorative backdrop for the provisioning takeover: the avatar image blurred
  * behind a scrim, so the takeover's ground picks up the avatar's color.
+ *
+ * `animateIn` fades the layer in over `--provision-reveal` as the image
+ * decodes — right where the backdrop mounts cold. Pass false where an ancestor
+ * already drives the fade (the takeover-exit sheet), so the two opacity ramps
+ * don't multiply.
  */
-export function TakeoverBackdrop({ imageUrl }: { imageUrl: string }) {
+export function TakeoverBackdrop({
+  imageUrl,
+  animateIn = true,
+}: {
+  imageUrl: string;
+  animateIn?: boolean;
+}) {
   return (
     <div
       aria-hidden
       data-testid="takeover-backdrop"
-      className="provision-avatar-reveal pointer-events-none absolute inset-0 overflow-hidden"
+      className={`pointer-events-none absolute inset-0 overflow-hidden${
+        animateIn ? " provision-avatar-reveal" : ""
+      }`}
     >
       {/* `blur()` samples transparent outside the element, so the layer
           over-scans the container by an absolute amount tied to the radius —
