@@ -447,6 +447,22 @@ describe("PlanCard", () => {
     expect(html).toContain("Custom");
     expect(html).not.toContain("Pro");
   });
+
+  test("a clean-pinned Pro sub whose package is absent from the catalog shows no chips", () => {
+    // A clean pin on Mighty, but the catalog has no packages (e.g. the
+    // `pro-packages` flag is off, or the pinned key isn't in this response). The
+    // package lookup misses, so the current card's specs are unknowable and it
+    // must render NO chips — crucially NOT the free baseline, which would
+    // mislabel this paid Pro sub as $0 credits / 4 GB / Small Machine.
+    const html = renderCard(proMightySubscription(), emptyCatalogPlans());
+    // The current card still names the pinned package ("Mighty"), not "Custom".
+    expect(html).toContain("plan-card-name");
+    expect(html).toContain("Mighty");
+    // No free-baseline chips leak onto the paid sub's current card.
+    expect(html).not.toContain("$0 credits");
+    expect(html).not.toContain("4 GB");
+    expect(html).not.toContain("Small Machine");
+  });
 });
 
 describe("PlanCard action button", () => {

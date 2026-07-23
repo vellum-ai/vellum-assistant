@@ -378,14 +378,19 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
 
   const currentCopy = getPlanTierCopy(currentTier);
   // The current card shows absolute chips only when its specs are knowable: the
-  // free/base baseline, or a clean-pinned stock package. A customized pin or an
-  // unpinned legacy Pro sub (both read "Custom") has tiers that can diverge from
-  // any stock package, so it renders no chips.
+  // free/base baseline, or a clean-pinned stock package that's present in the
+  // catalog. A customized pin or an unpinned legacy Pro sub (both read "Custom")
+  // has tiers that can diverge from any stock package; and a clean pin whose key
+  // is absent from the catalog (e.g. the `pro-packages` flag left `packages`
+  // empty, or a newer key isn't in this response) has unknown specs — both
+  // render no chips. `.find()`'s natural `undefined` for a missing package must
+  // flow through untouched: coercing it to `null` would make `packageSpecs` emit
+  // the FREE baseline, mislabeling a paid Pro sub as $0/4 GB/Small.
   const currentStockPackage =
     currentPlan.id === "base"
       ? null
       : isCleanPin(subscription.package)
-        ? (packages.find((p) => p.key === currentKey) ?? null)
+        ? packages.find((p) => p.key === currentKey)
         : undefined; // undefined = unknown specs → no chips
   const currentSpecs =
     currentStockPackage === undefined ? null : packageSpecs(currentStockPackage);
