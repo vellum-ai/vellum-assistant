@@ -14,6 +14,7 @@
  * update assertions every time an export is added.
  */
 
+import { spawnSync } from "node:child_process";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -31,23 +32,32 @@ import {
 const SHIM_REL_PATH = "node_modules/@vellumai/plugin-api";
 
 describe("buildShimSource", () => {
-  test("emits a globalThis trampoline + one binding per export", () => {
+  test("emits a globalThis trampoline with a direct-import fallback + one binding per export", () => {
     const source = buildShimSource(
       ["foo", "bar"],
       Symbol.for("vellum.plugin-api"),
     );
-    expect(source).toBe(
-      `const api = globalThis[Symbol.for("vellum.plugin-api")];\n` +
-        `export const foo = api.foo;\n` +
-        `export const bar = api.bar;\n`,
+    // Prefers the host-installed namespace, falls back to importing the
+    // plugin-api source directly, and caches the fallback on globalThis.
+    expect(source).toContain(
+      `let api = globalThis[Symbol.for("vellum.plugin-api")];`,
     );
+    expect(source).toContain(`if (api === undefined) {`);
+    expect(source).toContain(`await import(`);
+    expect(source).toContain(
+      `process.env.VELLUM_PLUGIN_API_ENTRY ?? "/app/assistant/src/plugin-api/index.ts"`,
+    );
+    expect(source).toContain(
+      `api = globalThis[Symbol.for("vellum.plugin-api")] = apid;`,
+    );
+    expect(source).toContain(`export const foo = api.foo;`);
+    expect(source).toContain(`export const bar = api.bar;`);
   });
 
-  test("handles an empty export list (today's types-only surface)", () => {
+  test("handles an empty export list (types-only surface)", () => {
     const source = buildShimSource([], Symbol.for("vellum.plugin-api"));
-    expect(source).toBe(
-      `const api = globalThis[Symbol.for("vellum.plugin-api")];\n`,
-    );
+    expect(source).not.toContain("export const");
+    expect(source).toContain(`let api = globalThis[`);
   });
 });
 
@@ -97,6 +107,37 @@ describe("ensurePluginApiShim", () => {
     // Exports list is non-null but may be empty until runtime exports
     // migrate in later PRs.
     expect(Array.isArray(PLUGIN_API_EXPORTS)).toBe(true);
+  });
+
+  test("a bare subprocess falls back to importing the plugin-api source directly", async () => {
+    // A plugin-spawned subprocess never evaluates the assistant's embed
+    // wrapper, so globalThis carries no namespace there. The shim must
+    // fall back to importing the plugin-api entry itself. Point the
+    // entry override at this repo's real source and prove a runtime
+    // export is live in a fresh process.
+    const workspaceDir = await mkdtemp(join(tmpdir(), "plugin-api-shim-"));
+    await ensurePluginApiShim({ workspaceDir });
+
+    const pluginDir = join(workspaceDir, "plugins", "fake-plugin");
+    await mkdir(pluginDir, { recursive: true });
+    const probe = join(pluginDir, "probe.js");
+    await writeFile(
+      probe,
+      `import * as api from "@vellumai/plugin-api";\n` +
+        `console.log(JSON.stringify({\n` +
+        `  hasOpen: typeof api.openTranscriptionSession === "function",\n` +
+        `}));\n`,
+    );
+
+    const entry = join(import.meta.dir, "..", "plugin-api", "index.ts");
+    const result = spawnSync(process.execPath, ["run", probe], {
+      encoding: "utf8",
+      env: { ...process.env, VELLUM_PLUGIN_API_ENTRY: entry },
+      timeout: 30_000,
+    });
+    expect(result.status).toBe(0);
+    const lastLine = result.stdout.trim().split("\n").at(-1) ?? "";
+    expect(JSON.parse(lastLine)).toEqual({ hasOpen: true });
   });
 
   test("a fake user plugin can resolve @vellumai/plugin-api via Node-style walk-up", async () => {

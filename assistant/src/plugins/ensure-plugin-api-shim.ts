@@ -9,7 +9,11 @@
  * finds `<workspaceDir>/node_modules/@vellumai/plugin-api/` — a tiny
  * shim package whose `index.js` re-binds the plugin-api namespace that
  * the assistant already loaded into its module graph (and parked on
- * `globalThis` under {@link PLUGIN_API_REGISTRY_KEY}).
+ * `globalThis` under {@link PLUGIN_API_REGISTRY_KEY}). When no host
+ * process installed that namespace — a plugin-spawned subprocess — the
+ * shim imports the plugin-api source directly from
+ * {@link PLUGIN_API_FALLBACK_ENTRY} instead, so process-portable
+ * surfaces (config, CES-backed credentials, STT) work out-of-process.
  *
  * This avoids duplicating the plugin-api package per plugin while still
  * letting the assistant's compiled binary be the single source of truth
@@ -46,16 +50,40 @@ const log = getLogger("plugin-api-shim");
 const PACKAGE_NAME = "@vellumai/plugin-api";
 
 /**
+ * Where the shim imports the plugin-api implementation from when no host
+ * process installed the namespace on `globalThis`: the assistant's own
+ * source tree in the container image. Overridable via
+ * `VELLUM_PLUGIN_API_ENTRY` for tests and non-standard layouts.
+ */
+export const PLUGIN_API_FALLBACK_ENTRY =
+  "/app/assistant/src/plugin-api/index.ts";
+
+/**
  * Build the body of the workspace shim's `index.js`. Exported so the
  * smoke test can assert against the same generator the daemon uses.
+ *
+ * The generated module prefers the namespace the assistant parked on
+ * `globalThis` (a plugin loaded inside an assistant process), and falls
+ * back to importing the plugin-api source directly when the namespace is
+ * absent — a plugin-spawned subprocess that never evaluated the
+ * assistant's embed wrapper. The fallback instance is cached back onto
+ * `globalThis` under the same key so every shim evaluation in that
+ * process shares one namespace.
  */
 export function buildShimSource(
   exports: readonly string[] = PLUGIN_API_EXPORTS,
   registryKey: symbol = PLUGIN_API_REGISTRY_KEY,
 ): string {
   const description = registryKey.description ?? "";
+  const key = `Symbol.for(${JSON.stringify(description)})`;
   const lines = [
-    `const api = globalThis[Symbol.for(${JSON.stringify(description)})];`,
+    `let api = globalThis[${key}];`,
+    `if (api === undefined) {`,
+    `  const apid = await import(`,
+    `    process.env.VELLUM_PLUGIN_API_ENTRY ?? ${JSON.stringify(PLUGIN_API_FALLBACK_ENTRY)}`,
+    `  );`,
+    `  api = globalThis[${key}] = apid;`,
+    `}`,
     ...exports.map((name) => `export const ${name} = api.${name};`),
   ];
   return `${lines.join("\n")}\n`;
