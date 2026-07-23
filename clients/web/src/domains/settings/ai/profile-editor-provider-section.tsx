@@ -10,10 +10,7 @@ import {
   PROVIDER_DISPLAY_NAMES,
 } from "@/assistant/llm-model-catalog";
 
-import {
-  OPENAI_COMPATIBLE_PROVIDER,
-  VELLUM_CONNECTION_PROVIDER,
-} from "@/domains/settings/ai/constants";
+import { OPENAI_COMPATIBLE_PROVIDER } from "@/domains/settings/ai/constants";
 import {
   providersServedByConnections,
   useSelectableCatalogProviders,
@@ -212,13 +209,13 @@ export function ProfileEditorProviderSection({
   const providerOptionsSource =
     connections === undefined ? allProvidersForPicker : visibleProviders;
 
-  // Show the Connection field whenever there's something meaningful to show:
-  //  - matching connections to pick from, OR
-  //  - a non-empty saved binding (so the user can see + clear stale state).
-  // Provider must be selected; without it we can't filter or label.
+  // The endpoint picker is openai-compatible-only: each custom endpoint is
+  // its own named entry, and the binding selects which endpoint (and model
+  // list) the profile uses. Catalog providers resolve their credential from
+  // the provider value alone — profiles carry no user-facing binding, and a
+  // stored one passes through the save path untouched.
   const showConnectionField =
-    provider !== "" &&
-    provider !== VELLUM_CONNECTION_PROVIDER &&
+    provider === OPENAI_COMPATIBLE_PROVIDER &&
     (availableConnectionsForProvider.length > 0 || providerConnection !== "");
 
   // For openai-compatible providers the static catalog is empty — use models
@@ -372,12 +369,12 @@ export function ProfileEditorProviderSection({
         </div>
       )}
 
-      {/* Connection — visible when matching connections exist or a saved
-          binding exists (even if stale). */}
+      {/* Endpoint — openai-compatible only: picks which named endpoint the
+          profile uses. */}
       {showConnectionField && (
         <div className="space-y-1">
           <label className="block text-body-small-default text-[var(--content-tertiary)]">
-            Connection{" "}
+            Endpoint{" "}
             <span className="text-[var(--content-disabled)]">(optional)</span>
           </label>
           <Dropdown
@@ -389,9 +386,7 @@ export function ProfileEditorProviderSection({
                 ? [
                     {
                       value: "",
-                      label: `Any ${
-                        PROVIDER_DISPLAY_NAMES[provider] ?? provider
-                      } connection`,
+                      label: "Any endpoint",
                     },
                   ]
                 : []),
@@ -418,7 +413,7 @@ export function ProfileEditorProviderSection({
               as="p"
               className="text-(--system-negative-strong)"
             >
-              Connection &ldquo;{providerConnection}&rdquo; not found. Will be
+              Endpoint &ldquo;{providerConnection}&rdquo; not found. Will be
               cleared on save unless you pick another.
             </Typography>
           ) : null}

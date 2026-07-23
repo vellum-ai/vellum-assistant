@@ -490,6 +490,28 @@ describe("ProfileEditorModal create mode — provider-first", () => {
     expect(saveCalls[0].entry.provider_connection).toBe("vellum-managed");
   });
 
+  test("catalog providers show no connection field, even with multiple keys", async () => {
+    renderCreate([
+      makeConnection("anthropic-personal"),
+      makeConnection("anthropic-personal-2"),
+    ]);
+    selectProvider("Anthropic");
+    expect(document.body.textContent).not.toContain("Connection");
+    expect(document.body.textContent).not.toContain("Endpoint");
+  });
+
+  test("openai-compatible providers keep the endpoint picker", async () => {
+    renderCreate([
+      makeConnection("lm-studio", "openai-compatible"),
+      makeConnection("vllm-box", "openai-compatible"),
+    ]);
+    selectProvider("OpenAI-compatible");
+    await waitFor(() => {
+      expect(document.body.textContent).toContain("Endpoint");
+    });
+    expect(document.body.textContent).not.toContain("Connection (optional)");
+  });
+
   test("a new-enough assistant gets the identity payload: provider vellum, no binding", async () => {
     const { useAssistantIdentityStore } = await import(
       "@/stores/assistant-identity-store"
