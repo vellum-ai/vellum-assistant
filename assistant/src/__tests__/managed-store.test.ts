@@ -20,6 +20,7 @@ import {
   createManagedSkill,
   deleteManagedSkill,
   validateCompanionPath,
+  validateCompanionSource,
   validateManagedSkillId,
 } from "../skills/managed-store.js";
 
@@ -859,6 +860,32 @@ describe("createManagedSkill copy_from companion sources", () => {
           "utf-8",
         ),
       ).toBe("console.log('ok');\n");
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  test("tmpOnly drops the workspace root and rewords the error", () => {
+    // The test workspace lives under os.tmpdir(), so exercise the tmpOnly
+    // branch with an out-of-bounds path and assert the retrospective-specific
+    // message — proving the restricted root list was used.
+    const outside = validateCompanionSource("/etc/hosts", { tmpOnly: true });
+    expect(outside.error).toContain(
+      "system temp dir for retrospective scaffolds",
+    );
+
+    const outsideDefault = validateCompanionSource("/etc/hosts");
+    expect(outsideDefault.error).toContain("workspace or the system temp dir");
+  });
+
+  test("tmpOnly still accepts a /tmp source", () => {
+    const tmpDir = fs.mkdtempSync("/tmp/tmponly-test-");
+    const sourcePath = join(tmpDir, "ok.py");
+    writeFileSync(sourcePath, "print('ok')\n", "utf-8");
+    try {
+      const result = validateCompanionSource(sourcePath, { tmpOnly: true });
+      expect(result.error).toBeUndefined();
+      expect(result.content).toBe("print('ok')\n");
     } finally {
       rmSync(tmpDir, { recursive: true, force: true });
     }

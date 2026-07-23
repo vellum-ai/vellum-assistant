@@ -143,7 +143,10 @@ export const MAX_COMPANION_SOURCE_BYTES = 1024 * 1024;
  * Contents are read here, at validation time, so the caller's write loop stays
  * a single all-or-nothing pass over pre-resolved content.
  */
-export function validateCompanionSource(sourcePath: string): {
+export function validateCompanionSource(
+  sourcePath: string,
+  opts: { tmpOnly?: boolean } = {},
+): {
   content?: string;
   error?: string;
 } {
@@ -174,7 +177,20 @@ export function validateCompanionSource(sourcePath: string): {
   // per-user /var/folders/... path, but the documented snippet-testing
   // workflow (and the retrospective prompt) use /tmp, which realpaths to
   // /private/tmp there.
-  const allowedRoots = [getWorkspaceDir(), tmpdir(), "/tmp"].map((root) => {
+  //
+  // tmpOnly drops the workspace root. The unattended retrospective runs over
+  // prompt-injectable content with scaffold_managed_skill auto-granted, so a
+  // workspace-wide read would let an injected pass persist unrelated
+  // user/assistant state (other skills, persona files, user documents) into a
+  // skill folder. Restricting it to the temp roots keeps copy_from usable for
+  // tested snippets while giving the unattended pass zero workspace reads —
+  // workspace-resident code still travels via inline `content`, which the
+  // model already holds in its trace.
+  const allowedRoots = [
+    ...(opts.tmpOnly ? [] : [getWorkspaceDir()]),
+    tmpdir(),
+    "/tmp",
+  ].map((root) => {
     try {
       return realpathSync(root);
     } catch {
@@ -187,7 +203,9 @@ export function validateCompanionSource(sourcePath: string): {
   });
   if (!underAllowedRoot) {
     return {
-      error: `copy_from source must live under the workspace or the system temp dir: "${sourcePath}"`,
+      error: opts.tmpOnly
+        ? `copy_from source must live under the system temp dir for retrospective scaffolds: "${sourcePath}"`
+        : `copy_from source must live under the workspace or the system temp dir: "${sourcePath}"`,
     };
   }
   const stat = statSync(realSource);
@@ -308,6 +326,9 @@ interface CreateManagedSkillParams {
   // Exactly one of `content` (inline) or `copyFrom` (validated on-disk source)
   // per entry — enforced in the pre-write validation loop.
   files?: Array<{ path: string; content?: string; copyFrom?: string }>;
+  // Restrict copyFrom sources to the temp roots (no workspace reads). Set for
+  // unattended retrospective scaffolds — see validateCompanionSource.
+  restrictCopySourcesToTmp?: boolean;
 }
 
 interface CreateManagedSkillResult {
@@ -385,7 +406,9 @@ export function createManagedSkill(
     }
     let content: string;
     if (file.copyFrom !== undefined) {
-      const source = validateCompanionSource(file.copyFrom);
+      const source = validateCompanionSource(file.copyFrom, {
+        tmpOnly: params.restrictCopySourcesToTmp === true,
+      });
       if (source.error || source.content === undefined) {
         return {
           created: false,

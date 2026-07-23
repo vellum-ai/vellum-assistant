@@ -320,6 +320,9 @@ export async function executeScaffoldManagedSkill(
     avoidWhen,
     category,
     files,
+    // The unattended retrospective may only copy sources from the temp roots
+    // (no workspace reads) — see validateCompanionSource in managed-store.
+    restrictCopySourcesToTmp: fromRetrospective,
     author,
     sourceConversationId,
     retrospectiveConversationId,

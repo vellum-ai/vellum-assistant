@@ -1,6 +1,7 @@
 import {
   existsSync,
   mkdirSync,
+  mkdtempSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -800,6 +801,39 @@ describe("scaffold_managed_skill tool", () => {
         detail: { authored_by: "retrospective" },
       },
     ]);
+  });
+
+  // The workspace-source REJECTION under retrospective origin is covered by
+  // the validateCompanionSource unit tests (managed-store.test.ts): the test
+  // workspace lives under os.tmpdir(), so at this level a workspace path is
+  // indistinguishable from a temp path.
+  test("retrospective copy_from accepts a /tmp source", async () => {
+    const tmpDir = mkdtempSync("/tmp/retro-copy-test-");
+    const sourcePath = join(tmpDir, "tested.py");
+    writeFileSync(sourcePath, "print('tmp')\n", "utf-8");
+
+    try {
+      const result = await executeScaffoldManagedSkill(
+        {
+          skill_id: "retro-copy-tmp",
+          name: "Retro Copy Tmp",
+          description: "Tmp source under retrospective origin",
+          body_markdown: "Body.",
+          files: [{ path: "scripts/tested.py", copy_from: sourcePath }],
+        },
+        makeRetrospectiveContext(),
+      );
+
+      expect(result.isError).toBe(false);
+      expect(
+        readFileSync(
+          join(TEST_DIR, "skills", "retro-copy-tmp", "scripts", "tested.py"),
+          "utf-8",
+        ),
+      ).toBe("print('tmp')\n");
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 
   test('tags author "user" for a normal (non-retrospective) scaffold', async () => {
