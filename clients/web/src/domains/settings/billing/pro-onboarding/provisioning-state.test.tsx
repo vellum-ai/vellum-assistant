@@ -540,14 +540,19 @@ describe("takeover avatar mode", () => {
   test("keeps waiting while the target assistant is still unknown", () => {
     // `useAssistantAvatar(null)` is a disabled query, and a disabled query
     // reports `isLoading: false` with no data — so the id has to gate the
-    // render too. On a cold Stripe return both the onboarding primary and the
-    // active-store id are null for a beat.
-    useResolvedAssistantsStore.setState({ activeAssistantId: null });
+    // render too. The active assistant is deliberately set here: an explicit
+    // null target must not fall back to it, or a multi-assistant org fades in
+    // the active assistant before the provisioning primary resolves.
+    useResolvedAssistantsStore.setState({
+      activeAssistantId: "active-assistant",
+    });
 
     const { container } = renderState({ state: "WAITING", assistantId: null });
 
     expect(container.querySelector(".provision-avatar-reveal")).toBeNull();
     expect(container.querySelector(".provision-avatar-stage")).toBeTruthy();
+    // Nor should it fetch the wrong assistant's avatar on the way.
+    expect(avatarQueryId).toBeNull();
   });
 
   test("holds the grow until there is an avatar to play it on", () => {

@@ -187,7 +187,13 @@ function TakeoverAvatar({
   mode: AvatarMode;
 }) {
   const activeId = useResolvedAssistantsStore.use.activeAssistantId();
-  const resolvedId = assistantId ?? activeId;
+  // An explicit null is the provisioning hook saying it does not know the
+  // target yet — it withholds `primary_assistant_id` until onboarding is fresh
+  // precisely so a multi-assistant org does not aim at the active assistant
+  // when the two diverge. Only an omitted prop falls back to active; a null one
+  // stays unresolved, so the takeover never fades in a different assistant's
+  // avatar on the way to the right one.
+  const resolvedId = assistantId === undefined ? activeId : assistantId;
   const { components, traits, customImageUrl, isLoading } =
     useAssistantAvatar(resolvedId);
   const fallbackComponents = useBundledAvatarComponents();
