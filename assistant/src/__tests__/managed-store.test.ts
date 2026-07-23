@@ -878,6 +878,16 @@ describe("createManagedSkill copy_from companion sources", () => {
     expect(outsideDefault.error).toContain("workspace or the system temp dir");
   });
 
+  test("tmpOnly rejects a workspace source even though the test workspace lives under tmpdir", () => {
+    const sourcePath = join(TEST_DIR, "ws-under-tmp.py");
+    writeFileSync(sourcePath, "print('ws')\n", "utf-8");
+
+    const result = validateCompanionSource(sourcePath, { tmpOnly: true });
+    expect(result.error).toContain(
+      "system temp dir for retrospective scaffolds",
+    );
+  });
+
   test("tmpOnly still accepts a /tmp source", () => {
     const tmpDir = fs.mkdtempSync("/tmp/tmponly-test-");
     const sourcePath = join(tmpDir, "ok.py");

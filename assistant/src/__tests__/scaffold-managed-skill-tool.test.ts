@@ -803,10 +803,28 @@ describe("scaffold_managed_skill tool", () => {
     ]);
   });
 
-  // The workspace-source REJECTION under retrospective origin is covered by
-  // the validateCompanionSource unit tests (managed-store.test.ts): the test
-  // workspace lives under os.tmpdir(), so at this level a workspace path is
-  // indistinguishable from a temp path.
+  test("retrospective copy_from rejects a workspace source even when the workspace lives under tmpdir", async () => {
+    const sourcePath = join(TEST_DIR, "workspace-script.py");
+    writeFileSync(sourcePath, "print('workspace')\n", "utf-8");
+
+    const result = await executeScaffoldManagedSkill(
+      {
+        skill_id: "retro-copy-workspace",
+        name: "Retro Copy Workspace",
+        description: "Workspace source under retrospective origin",
+        body_markdown: "Body.",
+        files: [{ path: "scripts/x.py", copy_from: sourcePath }],
+      },
+      makeRetrospectiveContext(),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("system temp dir for retrospective");
+    expect(existsSync(join(TEST_DIR, "skills", "retro-copy-workspace"))).toBe(
+      false,
+    );
+  });
+
   test("retrospective copy_from accepts a /tmp source", async () => {
     const tmpDir = mkdtempSync("/tmp/retro-copy-test-");
     const sourcePath = join(tmpDir, "tested.py");

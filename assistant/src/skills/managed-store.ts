@@ -178,6 +178,27 @@ export function validateCompanionSource(
   // workflow (and the retrospective prompt) use /tmp, which realpaths to
   // /private/tmp there.
   //
+  // tmpOnly explicitly denies workspace sources before the temp-root
+  // allowlist is consulted: a workspace configured under os.tmpdir() (or
+  // /tmp) would otherwise leave every workspace file reachable through the
+  // temp roots, defeating the no-workspace-reads restriction.
+  if (opts.tmpOnly) {
+    let realWorkspace = getWorkspaceDir();
+    try {
+      realWorkspace = realpathSync(realWorkspace);
+    } catch {
+      // Missing workspace dir: nothing can resolve under it.
+    }
+    const relToWorkspace = relative(realWorkspace, realSource);
+    if (
+      relToWorkspace === "" ||
+      (!relToWorkspace.startsWith("..") && !isAbsolute(relToWorkspace))
+    ) {
+      return {
+        error: `copy_from source must live under the system temp dir for retrospective scaffolds: "${sourcePath}"`,
+      };
+    }
+  }
   // tmpOnly drops the workspace root. The unattended retrospective runs over
   // prompt-injectable content with scaffold_managed_skill auto-granted, so a
   // workspace-wide read would let an injected pass persist unrelated
