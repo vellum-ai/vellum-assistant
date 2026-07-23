@@ -165,6 +165,14 @@ function avatarModeFor(
  * body-morph and the reduced-motion gating all come from `AnimatedAvatar`
  * inside `ChatAvatar`.
  *
+ * Nothing renders until the target assistant resolves and its avatar query
+ * settles. `components ?? fallback`
+ * synthesizes traits from the first bundled entry of each list — a green blob —
+ * so drawing during the fetch shows a different assistant's avatar for a beat,
+ * and the takeover is the one surface that reliably mounts cold: the Stripe
+ * return is a full page load, so the fetch always loses the race. Withholding
+ * costs no layout, because the stage reserves its height from first paint.
+ *
  * On resolve it grows to `AVATAR_GROWTH` against a bottom baseline, so the
  * creature stands taller off its shadow instead of drifting up the screen. The
  * stage reserves the grown height from first paint. The strain loop sits on its
@@ -179,15 +187,33 @@ function TakeoverAvatar({
   mode: AvatarMode;
 }) {
   const activeId = useResolvedAssistantsStore.use.activeAssistantId();
-  const resolvedId = assistantId ?? activeId;
-  const { components, traits, customImageUrl } = useAssistantAvatar(resolvedId);
+  // An explicit null is the provisioning hook saying it does not know the
+  // target yet — it withholds `primary_assistant_id` until onboarding is fresh
+  // precisely so a multi-assistant org does not aim at the active assistant
+  // when the two diverge. Only an omitted prop falls back to active; a null one
+  // stays unresolved, so the takeover never fades in a different assistant's
+  // avatar on the way to the right one.
+  const resolvedId = assistantId === undefined ? activeId : assistantId;
+  const { components, traits, customImageUrl, isLoading } =
+    useAssistantAvatar(resolvedId);
   const fallbackComponents = useBundledAvatarComponents();
   const size = useTakeoverAvatarSize();
   const laboring = mode === "working" || mode === "settling";
+  // A null id means the target assistant has not resolved yet, not that it has
+  // no avatar — and `useAssistantAvatar(null)` is a disabled query, which
+  // reports `isLoading: false` with no data. Both have to clear before there is
+  // anything safe to draw.
+  const avatarReady = resolvedId != null && !isLoading;
+  // Every mode animates the wrapper or its child, so the class waits for
+  // something to animate. Otherwise a phase that resolves before the fetch does
+  // — likely here, since the avatar is read off the machine being restarted —
+  // runs the grow on an empty wrapper and leaves the creature to fade in at its
+  // final scale with the success beat already spent.
+  const activeMode: AvatarMode = avatarReady ? mode : "idle";
   return (
     <div
       aria-hidden
-      className={`provision-avatar-evolve flex flex-col items-center${AVATAR_MODE_CLASS[mode]}`}
+      className={`provision-avatar-evolve flex flex-col items-center${AVATAR_MODE_CLASS[activeMode]}`}
       style={
         {
           "--provision-avatar-size": `${size}px`,
@@ -199,13 +225,17 @@ function TakeoverAvatar({
         <div className="provision-avatar-layer">
           <div className="provision-avatar-current">
             <div className="provision-avatar-strain">
-              <ChatAvatar
-                components={components ?? fallbackComponents}
-                traits={traits}
-                customImageUrl={customImageUrl}
-                size={size}
-                isAssistantBusy={laboring}
-              />
+              {avatarReady && (
+                <div className="provision-avatar-reveal">
+                  <ChatAvatar
+                    components={components ?? fallbackComponents}
+                    traits={traits}
+                    customImageUrl={customImageUrl}
+                    size={size}
+                    isAssistantBusy={laboring}
+                  />
+                </div>
+              )}
             </div>
           </div>
         </div>

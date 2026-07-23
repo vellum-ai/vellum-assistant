@@ -20,6 +20,8 @@ import type { ProvisioningStateProps } from "./provisioning-state";
 /** The id handed to the avatar hook, captured so the target-selection wiring
  *  can be asserted without a network fetch. */
 let avatarQueryId: string | null | undefined;
+/** Flipped per-test to hold the avatar query in flight. */
+let avatarLoading = false;
 mock.module("@/hooks/use-assistant-avatar", () => ({
   useAssistantAvatar: (assistantId: string | null) => {
     avatarQueryId = assistantId;
@@ -27,7 +29,7 @@ mock.module("@/hooks/use-assistant-avatar", () => ({
       components: null,
       traits: null,
       customImageUrl: null,
-      isLoading: false,
+      isLoading: avatarLoading,
       invalidate: () => {},
     };
   },
@@ -46,6 +48,7 @@ const { ProvisioningState } = await import("./provisioning-state");
 
 beforeEach(() => {
   avatarQueryId = undefined;
+  avatarLoading = false;
   reducedMotion = false;
   useResolvedAssistantsStore.setState({ activeAssistantId: null });
 });
@@ -487,7 +490,11 @@ describe("takeover avatar mode", () => {
   for (const [state, softWaiting, expected] of CASES) {
     const label = softWaiting ? `${state} past the grace window` : state;
     test(`${label} renders ${expected || "no mode class"}`, () => {
-      const { container } = renderState({ state, softWaiting });
+      const { container } = renderState({
+        state,
+        softWaiting,
+        assistantId: "primary-assistant",
+      });
       const classes = modeClasses(container);
 
       if (expected) {
@@ -504,6 +511,65 @@ describe("takeover avatar mode", () => {
       }
     });
   }
+
+  test("withholds the avatar until its query settles", () => {
+    // `components ?? fallback` synthesizes traits from the first bundled entry
+    // of each list, so drawing during the fetch shows a green blob regardless
+    // of the assistant's real avatar.
+    avatarLoading = true;
+
+    const { container } = renderState({
+      state: "WAITING",
+      assistantId: "primary-assistant",
+    });
+
+    expect(container.querySelector(".provision-avatar-reveal")).toBeNull();
+    // The stage still reserves its height, so nothing moves when it arrives.
+    expect(container.querySelector(".provision-avatar-stage")).toBeTruthy();
+  });
+
+  test("reveals the avatar once the target and the query both settle", () => {
+    const { container } = renderState({
+      state: "WAITING",
+      assistantId: "primary-assistant",
+    });
+
+    expect(container.querySelector(".provision-avatar-reveal")).toBeTruthy();
+  });
+
+  test("keeps waiting while the target assistant is still unknown", () => {
+    // `useAssistantAvatar(null)` is a disabled query, and a disabled query
+    // reports `isLoading: false` with no data — so the id has to gate the
+    // render too. The active assistant is deliberately set here: an explicit
+    // null target must not fall back to it, or a multi-assistant org fades in
+    // the active assistant before the provisioning primary resolves.
+    useResolvedAssistantsStore.setState({
+      activeAssistantId: "active-assistant",
+    });
+
+    const { container } = renderState({ state: "WAITING", assistantId: null });
+
+    expect(container.querySelector(".provision-avatar-reveal")).toBeNull();
+    expect(container.querySelector(".provision-avatar-stage")).toBeTruthy();
+    // Nor should it fetch the wrong assistant's avatar on the way.
+    expect(avatarQueryId).toBeNull();
+  });
+
+  test("holds the grow until there is an avatar to play it on", () => {
+    // The phase can resolve before the avatar fetch does — the avatar is read
+    // off the machine being restarted — and a grow that runs on an empty
+    // wrapper leaves the creature to fade in already at its final scale.
+    avatarLoading = true;
+
+    const { container } = renderState({
+      state: "DONE",
+      assistantId: "primary-assistant",
+    });
+
+    expect(
+      container.querySelector(".provision-avatar-evolve")?.className,
+    ).not.toContain("is-evolved");
+  });
 
   test("steps the creature down so a short viewport keeps the actions below it", () => {
     // The stage reserves the grown height, so a full-size creature needs about
@@ -545,7 +611,11 @@ describe("takeover avatar mode", () => {
   });
 
   test("the grace window never softens a state that isn't waiting", () => {
-    const { container } = renderState({ state: "STALLED", softWaiting: true });
+    const { container } = renderState({
+      state: "STALLED",
+      softWaiting: true,
+      assistantId: "primary-assistant",
+    });
 
     expect(modeClasses(container)).toContain("is-stalled");
   });
