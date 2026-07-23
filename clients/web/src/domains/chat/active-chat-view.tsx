@@ -159,6 +159,7 @@ export function ActiveChatView() {
   const {
     didOnboarding,
     onboardingTasksEmpty,
+    onboardingKickoffHidden,
     onboardingConversationId,
     pendingOnboardingContextRef,
     onboardingDraftConversationIdRef,
@@ -555,6 +556,7 @@ export function ActiveChatView() {
 
     // Onboarding
     onboardingTasksEmpty,
+    onboardingKickoffHidden,
     didOnboarding,
     onboardingConversationId,
   };

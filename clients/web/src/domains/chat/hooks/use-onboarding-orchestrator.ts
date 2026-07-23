@@ -44,6 +44,13 @@ export interface UseOnboardingOrchestratorResult {
   didOnboarding: boolean;
   /** Whether the user skipped task selection during prechat. */
   onboardingTasksEmpty: boolean;
+  /**
+   * Whether the onboarding handoff auto-sends a hidden kickoff message
+   * (`initialMessageHidden` on the pre-chat context). Hidden-kickoff flows
+   * (research onboarding's "Let's chat") script their own first-reply UI, so
+   * the in-chat onboarding choice card must not stack on top of it.
+   */
+  onboardingKickoffHidden: boolean;
   /** The draft conversation created for the onboarding flow. */
   onboardingConversationId: string | null;
   /** Shared with `useSendMessage` — pre-chat context for the first send. */
@@ -62,6 +69,7 @@ export function useOnboardingOrchestrator(): UseOnboardingOrchestratorResult {
   const onboardingDraftConversationIdRef = useRef<string | null>(null);
   const [didOnboarding, setDidOnboarding] = useState(false);
   const [onboardingTasksEmpty, setOnboardingTasksEmpty] = useState(false);
+  const [onboardingKickoffHidden, setOnboardingKickoffHidden] = useState(false);
   const [onboardingConversationId, setOnboardingConversationId] = useState<string | null>(null);
 
   // Consume the `?onboarding=1` signal left by `/onboarding/hatching` when
@@ -107,9 +115,15 @@ export function useOnboardingOrchestrator(): UseOnboardingOrchestratorResult {
     try {
       const raw = globalThis.sessionStorage?.getItem("onboarding.prechat.pendingContext");
       if (!raw) return;
-      const ctx = JSON.parse(raw) as { tasks?: string[] };
+      const ctx = JSON.parse(raw) as {
+        tasks?: string[];
+        initialMessageHidden?: boolean;
+      };
       if (Array.isArray(ctx.tasks) && ctx.tasks.length === 0) {
         setOnboardingTasksEmpty(true);
+      }
+      if (ctx.initialMessageHidden === true) {
+        setOnboardingKickoffHidden(true);
       }
     } catch {
       // Storage or parse failure — ignore.
@@ -119,6 +133,7 @@ export function useOnboardingOrchestrator(): UseOnboardingOrchestratorResult {
   return {
     didOnboarding,
     onboardingTasksEmpty,
+    onboardingKickoffHidden,
     onboardingConversationId,
     pendingOnboardingContextRef,
     onboardingDraftConversationIdRef,
