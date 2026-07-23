@@ -171,9 +171,10 @@ export function resolveVellumEvalRoot(parent: string): string | null {
  * retrospective fork (it has no shell), so the same call is the only sanctioned
  * read of an on-disk source. The source must be an absolute path to a regular
  * file whose real path (symlinks resolved) lives under the workspace or the
- * system temp dir — the two places conversation-produced scripts land. That
- * boundary keeps an unattended, prompt-injectable pass from lifting arbitrary
- * host files (dotfiles, keys) into a skill folder the model will later read.
+ * vellum-eval snippet dir — the places conversation-produced scripts land.
+ * That boundary keeps an unattended, prompt-injectable pass from lifting
+ * arbitrary host files (dotfiles, keys) into a skill folder the model will
+ * later read.
  *
  * Contents are read here, at validation time, so the caller's write loop stays
  * a single all-or-nothing pass over pre-resolved content.
@@ -199,7 +200,7 @@ export function validateCompanionSource(
   // existence oracle: inject candidate paths, read which error comes back.
   const genericError = opts.tmpOnly
     ? `copy_from source must be an existing regular file under ${RETRO_COPY_SOURCE_DIR}: "${sourcePath}"`
-    : `copy_from source must be an existing regular file under the workspace or the system temp dir: "${sourcePath}"`;
+    : `copy_from source must be an existing regular file under the workspace or ${RETRO_COPY_SOURCE_DIR}: "${sourcePath}"`;
   // Lexical denylist check (path-policy.ts) on the submitted path — this leaks
   // nothing (it derives from the input alone). Key-material basenames are
   // unreadable even inside the workspace boundary, so a copy must not become a
@@ -220,10 +221,10 @@ export function validateCompanionSource(
   if (isDeniedBasename(realSource)) {
     return { error: genericError };
   }
-  // Literal /tmp is allowed alongside os.tmpdir(): on macOS tmpdir() is the
-  // per-user /var/folders/... path, but the documented snippet-testing
-  // workflow (and the retrospective prompt) use /tmp, which realpaths to
-  // /private/tmp there.
+  // Both the literal /tmp and os.tmpdir() vellum-eval siblings are resolved:
+  // on macOS tmpdir() is the per-user /var/folders/... path, but the
+  // documented snippet-testing workflow (and the retrospective prompt) use
+  // /tmp, which realpaths to /private/tmp there.
   //
   // tmpOnly explicitly denies workspace sources before the allowlist is
   // consulted: a workspace configured under os.tmpdir() (or /tmp) would
@@ -253,17 +254,27 @@ export function validateCompanionSource(
   // processes' temp files. /tmp/vellum-eval is where the documented workflow
   // tests snippets, so proven scripts land there; anything else travels via
   // inline `content`, which the model already holds in its trace.
+  // Interactive scaffolds additionally get the workspace root, which parallels
+  // what the interactive session's own file tools can already read — a
+  // persisted scaffold_managed_skill approval must not silently expand into a
+  // broad temp-tree read grant, so /tmp beyond vellum-eval is out of bounds in
+  // BOTH modes.
+  const evalRoots = [
+    resolveVellumEvalRoot(tmpdir()),
+    resolveVellumEvalRoot("/tmp"),
+  ].filter((root): root is string => root !== null);
   const allowedRoots = opts.tmpOnly
-    ? [resolveVellumEvalRoot(tmpdir()), resolveVellumEvalRoot("/tmp")].filter(
-        (root): root is string => root !== null,
-      )
-    : [getWorkspaceDir(), tmpdir(), "/tmp"].map((root) => {
-        try {
-          return realpathSync(root);
-        } catch {
-          return root;
-        }
-      });
+    ? evalRoots
+    : [
+        ...[getWorkspaceDir()].map((root) => {
+          try {
+            return realpathSync(root);
+          } catch {
+            return root;
+          }
+        }),
+        ...evalRoots,
+      ];
   const underAllowedRoot = allowedRoots.some((root) => {
     const rel = relative(root, realSource);
     return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel);

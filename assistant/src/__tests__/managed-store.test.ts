@@ -818,7 +818,7 @@ describe("createManagedSkill copy_from companion sources", () => {
 
     expect(result.created).toBe(false);
     expect(result.error).toContain(
-      "existing regular file under the workspace or the system temp dir",
+      "existing regular file under the workspace or /tmp/vellum-eval",
     );
   });
 
@@ -836,12 +836,13 @@ describe("createManagedSkill copy_from companion sources", () => {
 
     expect(result.created).toBe(false);
     expect(result.error).toContain(
-      "existing regular file under the workspace or the system temp dir",
+      "existing regular file under the workspace or /tmp/vellum-eval",
     );
   });
 
-  test("accepts a source under literal /tmp (macOS: tmpdir() is /var/folders)", () => {
-    const tmpDir = fs.mkdtempSync("/tmp/copy-from-test-");
+  test("accepts a source under literal /tmp/vellum-eval (macOS: tmpdir() is /var/folders)", () => {
+    fs.mkdirSync("/tmp/vellum-eval", { recursive: true });
+    const tmpDir = fs.mkdtempSync("/tmp/vellum-eval/copy-from-test-");
     const sourcePath = join(tmpDir, "tested-snippet.ts");
     writeFileSync(sourcePath, "console.log('ok');\n", "utf-8");
 
@@ -876,7 +877,7 @@ describe("createManagedSkill copy_from companion sources", () => {
     );
 
     const outsideDefault = validateCompanionSource("/etc/hosts");
-    expect(outsideDefault.error).toContain("workspace or the system temp dir");
+    expect(outsideDefault.error).toContain("workspace or /tmp/vellum-eval");
   });
 
   test("tmpOnly rejects a workspace source even though the test workspace lives under tmpdir", () => {

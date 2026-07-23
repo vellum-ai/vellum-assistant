@@ -67,7 +67,7 @@
                 },
                 "copy_from": {
                   "type": "string",
-                  "description": "Absolute path of an existing file to copy into the skill instead of re-emitting its contents — prefer this when the file is still on disk. The source must live under the workspace or the system temp dir (/tmp/vellum-eval only for unattended retrospective scaffolds) and be at most 1 MiB. Set exactly one of content or copy_from."
+                  "description": "Absolute path of an existing file to copy into the skill instead of re-emitting its contents — prefer this when the file is still on disk. The source must live under the workspace or /tmp/vellum-eval (/tmp/vellum-eval only for unattended retrospective scaffolds) and be at most 1 MiB. Set exactly one of content or copy_from."
                 }
               },
               "required": ["path"]
