@@ -99,7 +99,7 @@ The same key is shared with Deepgram speech-to-text — storing it once covers b
 
 ## Advanced Voice Selection (with API key)
 
-Users with a Deepgram API key can go beyond the curated list above.
+Users with a Deepgram API key can go beyond the curated list above — **only when the active provider is `deepgram` (BYO key)**. On managed `vellum`, stay with the curated voices: the platform only accepts its rate-carded subset, and an unoffered id is persisted successfully but fails on the next spoken turn.
 
 ### Check for an existing key
 
