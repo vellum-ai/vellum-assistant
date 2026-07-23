@@ -31,7 +31,6 @@ export * from "./message-types/host-browser.js";
 export * from "./message-types/host-cu.js";
 export * from "./message-types/host-file.js";
 export * from "./message-types/host-transfer.js";
-export * from "./message-types/inbox.js";
 export * from "./message-types/integrations.js";
 export * from "./message-types/memory.js";
 export * from "./message-types/messages.js";
@@ -70,10 +69,7 @@ import type {
   _ConversationsClientMessages,
   _ConversationsServerMessages,
 } from "./message-types/conversations.js";
-import type {
-  _DiagnosticsClientMessages,
-  _DiagnosticsServerMessages,
-} from "./message-types/diagnostics.js";
+import type { _DiagnosticsClientMessages } from "./message-types/diagnostics.js";
 import type { _DocumentCommentsServerMessages } from "./message-types/document-comments.js";
 import type {
   _DocumentsClientMessages,
@@ -94,10 +90,6 @@ import type { _HostCuServerMessages } from "./message-types/host-cu.js";
 import type { _HostFileServerMessages } from "./message-types/host-file.js";
 import type { _HostTransferServerMessages } from "./message-types/host-transfer.js";
 import type { _HostUiSnapshotServerMessages } from "./message-types/host-ui-snapshot.js";
-import type {
-  _InboxClientMessages,
-  _InboxServerMessages,
-} from "./message-types/inbox.js";
 import type {
   _IntegrationsClientMessages,
   _IntegrationsServerMessages,
@@ -167,7 +159,6 @@ export type ClientMessage =
   | _WorkspaceClientMessages
   | _SchedulesClientMessages
   | _DiagnosticsClientMessages
-  | _InboxClientMessages
   | _NotificationsClientMessages
   | _SettingsClientMessages;
 
@@ -199,8 +190,6 @@ export type ServerMessage =
   | _WorkspaceServerMessages
   | _SchedulesServerMessages
   | _SettingsServerMessages
-  | _DiagnosticsServerMessages
-  | _InboxServerMessages
   | _NotificationsServerMessages
   | _UpgradesServerMessages
   | _AcpServerMessages
