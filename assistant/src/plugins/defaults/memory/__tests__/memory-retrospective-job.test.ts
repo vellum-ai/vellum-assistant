@@ -1831,6 +1831,12 @@ describe("memoryRetrospectiveJob", () => {
     expect(instructionText).toContain("references/failure-modes.md");
     expect(instructionText).toContain("`files`");
 
+    // Reusable-scripts directive: verbatim executed code only, invocation
+    // anchored to the skill folder via {baseDir}.
+    expect(instructionText).toContain("`scripts/`");
+    expect(instructionText).toContain("code the trace does not prove ran");
+    expect(instructionText).toContain("{baseDir}/scripts/");
+
     // Category directive: pick the best-fitting canonical Skills-UI bucket.
     expect(instructionText).toContain("`category`");
     expect(instructionText).toContain("Skills-UI bucket");
