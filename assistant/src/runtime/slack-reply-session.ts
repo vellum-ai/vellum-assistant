@@ -234,7 +234,18 @@ export function createSlackReplySession(params: {
           confirmedLength = firstChunk.length;
           deliveredProgressKey = progressKey(title, tasks);
           state = "streaming";
-          params.onStreamOpen?.(result.ts);
+          // The stream is already open on Slack's side, so an `onStreamOpen`
+          // failure must not downgrade to fallback and repost the visible
+          // reply. Losing the breadcrumb only forfeits crash-window dedup —
+          // strictly better than a guaranteed duplicate post.
+          try {
+            params.onStreamOpen?.(result.ts);
+          } catch (err) {
+            log.warn(
+              { err, chatId },
+              "Slack onStreamOpen callback failed; keeping streamed state",
+            );
+          }
         } else {
           state = "fallback";
         }
