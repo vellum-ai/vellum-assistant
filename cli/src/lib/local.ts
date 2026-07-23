@@ -148,6 +148,39 @@ function envWithBunPath(
   };
 }
 
+interface SupervisedProcessOptions {
+  command: string;
+  args: string[];
+  cwd?: string;
+  env: Record<string, string | undefined>;
+  label: string;
+}
+
+function spawnSupervisedProcess(options: SupervisedProcessOptions) {
+  const supervisorArgs = isCompiledCli()
+    ? ["__supervise"]
+    : ["run", join(import.meta.dir, "..", "index.ts"), "__supervise"];
+  const supervisorEnv = {
+    ...options.env,
+    VELLUM_SUPERVISED_PROCESS: JSON.stringify({
+      command: options.command,
+      args: options.args,
+      cwd: options.cwd,
+      label: options.label,
+    }),
+  };
+
+  return spawn(
+    isCompiledCli() ? process.execPath : resolveBunExecutable(),
+    supervisorArgs,
+    {
+      detached: true,
+      stdio: ["ignore", "pipe", "pipe"],
+      env: supervisorEnv,
+    },
+  );
+}
+
 function localRuntimeAssistantIndex(
   resources: LocalInstanceResources,
 ): string | undefined {
@@ -684,10 +717,11 @@ async function startDaemonFromSource(
       })
     : (() => {
         const daemonLogFd = openLogFile("hatch.log");
-        const c = spawn(bunPath, ["run", daemonMainPath], {
-          detached: true,
-          stdio: ["ignore", "pipe", "pipe"],
+        const c = spawnSupervisedProcess({
+          command: bunPath,
+          args: ["run", daemonMainPath],
           env: spawnEnv,
+          label: "Assistant",
         });
         pipeToLogFile(c, daemonLogFd, "daemon");
         c.unref();
@@ -751,10 +785,11 @@ async function startDaemonWatchFromSource(
   writeFileSync(pidFile, "starting", "utf-8");
 
   const daemonLogFd = openLogFile("hatch.log");
-  const child = spawn(resolveBunExecutable(), ["--watch", "run", mainPath], {
-    detached: true,
-    stdio: ["ignore", "pipe", "pipe"],
+  const child = spawnSupervisedProcess({
+    command: resolveBunExecutable(),
+    args: ["--watch", "run", mainPath],
     env: envWithBunPath(env),
+    label: "Assistant",
   });
   pipeToLogFile(child, daemonLogFd, "daemon");
   child.unref();
@@ -916,10 +951,11 @@ export async function startCes(
   if (!runtimeCesDir && isCompiledCli() && existsSync(cesBinary) && !watch) {
     // Compiled binary alongside the CLI (desktop app / compiled CLI).
     const cesLogFd = openLogFile("hatch.log");
-    ces = spawn(cesBinary, [], {
-      detached: true,
-      stdio: ["ignore", "pipe", "pipe"],
+    ces = spawnSupervisedProcess({
+      command: cesBinary,
+      args: [],
       env: cesEnv,
+      label: "Credential executor",
     });
     pipeToLogFile(ces, cesLogFd, "credential-executor");
   } else {
@@ -929,11 +965,12 @@ export async function startCes(
       ? ["--watch", "run", "src/main.ts"]
       : ["run", "src/main.ts"];
     const cesLogFd = openLogFile("hatch.log");
-    ces = spawn(resolveBunExecutable(), bunArgs, {
+    ces = spawnSupervisedProcess({
+      command: resolveBunExecutable(),
+      args: bunArgs,
       cwd: cesDir,
-      detached: true,
-      stdio: ["ignore", "pipe", "pipe"],
       env: envWithBunPath(cesEnv),
+      label: "Credential executor",
     });
     pipeToLogFile(ces, cesLogFd, "credential-executor");
     if (watch) {
@@ -1435,11 +1472,12 @@ export async function startLocalDaemon(
           })
         : (() => {
             const daemonLogFd = openLogFile("hatch.log");
-            const c = spawn(daemonBinary, [], {
+            const c = spawnSupervisedProcess({
+              command: daemonBinary,
+              args: [],
               cwd: dirname(daemonBinary),
-              detached: true,
-              stdio: ["ignore", "pipe", "pipe"],
               env: daemonEnv,
+              label: "Assistant",
             });
             pipeToLogFile(c, daemonLogFd, "daemon");
             c.unref();
@@ -1635,10 +1673,11 @@ export async function startGateway(
     // CLI invoked from the terminal). In watch mode, skip the bundled binary
     // and use source (bun --watch only works with source files).
     const gatewayLogFd = openLogFile("hatch.log");
-    gateway = spawn(gatewayBinary, [], {
-      detached: true,
-      stdio: ["ignore", "pipe", "pipe"],
+    gateway = spawnSupervisedProcess({
+      command: gatewayBinary,
+      args: [],
       env: gatewayEnv,
+      label: "Gateway",
     });
     pipeToLogFile(gateway, gatewayLogFd, "gateway");
   } else {
@@ -1648,11 +1687,12 @@ export async function startGateway(
       ? ["--watch", "run", "src/index.ts", "--vellum-gateway"]
       : ["run", "src/index.ts", "--vellum-gateway"];
     const gwLogFd = openLogFile("hatch.log");
-    gateway = spawn(resolveBunExecutable(), bunArgs, {
+    gateway = spawnSupervisedProcess({
+      command: resolveBunExecutable(),
+      args: bunArgs,
       cwd: gatewayDir,
-      detached: true,
-      stdio: ["ignore", "pipe", "pipe"],
       env: envWithBunPath(gatewayEnv),
+      label: "Gateway",
     });
     pipeToLogFile(gateway, gwLogFd, "gateway");
     if (watch) {
