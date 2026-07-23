@@ -50,10 +50,7 @@ export * from "./message-types/workspace.js";
 import type { DiskPressureStatusChangedEvent } from "../api/events/disk-pressure-status-changed.js";
 import type { HookEvent } from "../api/events/hook-event.js";
 import type { _AcpServerMessages } from "./message-types/acp.js";
-import type {
-  _AppsClientMessages,
-  _AppsServerMessages,
-} from "./message-types/apps.js";
+import type { _AppsServerMessages } from "./message-types/apps.js";
 import type { _BackgroundToolsServerMessages } from "./message-types/background-tools.js";
 import type { _BookmarksServerMessages } from "./message-types/bookmarks.js";
 import type {
@@ -127,7 +124,6 @@ export type ClientMessage =
   | _ConversationsClientMessages
   | _MessagesClientMessages
   | _SurfacesClientMessages
-  | _AppsClientMessages
   | _IntegrationsClientMessages
   | _ComputerUseClientMessages
   | _HostBrowserClientMessages
