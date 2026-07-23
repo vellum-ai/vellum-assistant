@@ -187,6 +187,8 @@ const BACKGROUND_LINE =
 /**
  * Fast celebration dwell. Long enough for waitFor (50ms polls) to reliably
  * observe the transient DONE / NOT_APPLICABLE copy before it auto-advances.
+ * These tests cover the flow, not the pacing, so the per-phase hold is off —
+ * `use-held-phase.test.ts` and `provisioning-state.test.tsx` own that.
  */
 const TEST_DWELL_MS = 250;
 
@@ -198,7 +200,12 @@ function renderModal() {
   const view = render(
     <MemoryRouter>
       <QueryClientProvider client={client}>
-        <BillingOnboardingModal open onClose={onClose} dwellMs={TEST_DWELL_MS} />
+        <BillingOnboardingModal
+          open
+          onClose={onClose}
+          dwellMs={TEST_DWELL_MS}
+          phaseMinMs={0}
+        />
       </QueryClientProvider>
     </MemoryRouter>,
   );

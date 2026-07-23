@@ -13,8 +13,8 @@ import { Button } from "@vellumai/design-library/components/button";
 import { Typography } from "@vellumai/design-library/components/typography";
 
 import type {
-    ProvisioningDimensions,
-    ProvisioningStateKind,
+  ProvisioningDimensions,
+  ProvisioningStateKind,
 } from "./provisioning-machine";
 import { SERIF_HEADING_STYLE, type StalledApplyAction } from "./primitives";
 import {
@@ -23,11 +23,16 @@ import {
 } from "./resource-changes";
 import { useProvisioningCredits } from "./use-provisioning-credits";
 import { useRotatingIndex } from "./use-rotating-index";
-import { extractOnboardingErrorMessage, PROVISION_MIN_DWELL_MS } from "./utils";
+import { useHeldPhase } from "./use-held-phase";
+import {
+  extractOnboardingErrorMessage,
+  PROVISION_MIN_DWELL_MS,
+  PROVISION_PHASE_MIN_MS,
+} from "./utils";
 
 // The mock's takeover tint, matched to the green Vellum creature. No token
 // holds this, so it follows the plans-page PAGE_BACKGROUND raw-hex precedent.
-const TAKEOVER_BACKGROUND = "#1D271E";
+export const TAKEOVER_BACKGROUND = "#1D271E";
 
 const CHIP_BACKGROUND =
   "color-mix(in srgb, var(--content-emphasised) 10%, transparent)";
@@ -59,8 +64,12 @@ export interface ProvisioningStateProps {
   assistantId?: string | null;
   escapeAvailable: boolean;
   onEscape: () => void;
+  /** Reports the phase actually on screen, which lags `state` by the hold. */
+  onPhaseChange?: (phase: ProvisioningStateKind) => void;
   stalledAction: StalledApplyAction;
   confirm: { onRetry: () => void; onGoToBilling: () => void };
+  /** Test hook — overrides the per-phase minimum; 0 disables the hold. */
+  phaseMinMs?: number;
   /** Test hook — overrides the celebration min dwell. */
   dwellMs?: number;
 }
@@ -109,7 +118,10 @@ function TakeoverAvatar({
 function Copy({ status, caption }: { status: string; caption?: string }) {
   return (
     <div className="flex flex-col items-center gap-1.5">
-      <h1 className="text-[var(--content-emphasised)]" style={SERIF_HEADING_STYLE}>
+      <h1
+        className="text-[var(--content-emphasised)]"
+        style={SERIF_HEADING_STYLE}
+      >
         {status}
       </h1>
       {caption && (
@@ -359,17 +371,33 @@ export function ProvisioningState({
   assistantId,
   escapeAvailable,
   onEscape,
+  onPhaseChange,
   stalledAction,
   confirm,
   dwellMs = PROVISION_MIN_DWELL_MS,
+  phaseMinMs = PROVISION_PHASE_MIN_MS,
 }: ProvisioningStateProps) {
   const onCelebrationEndRef = useRef(onCelebrationEnd);
   useEffect(() => {
     onCelebrationEndRef.current = onCelebrationEnd;
   }, [onCelebrationEnd]);
 
-  const resolved = state === "DONE" || state === "NOT_APPLICABLE";
-  const phaseKey = state === "RESIZING" ? "WAITING" : state;
+  // Everything below renders from the held phase, not the live one, so a phase
+  // the user couldn't have read never reaches the screen. The celebration dwell
+  // keys off it too — otherwise the wizard could advance past "All done!"
+  // before it was shown.
+  const heldState = useHeldPhase(state, phaseMinMs);
+  const resolved = heldState === "DONE" || heldState === "NOT_APPLICABLE";
+  const phaseKey = heldState === "RESIZING" ? "WAITING" : heldState;
+
+  // The wizard locks itself against the phase on screen, not the live one.
+  const onPhaseChangeRef = useRef(onPhaseChange);
+  useEffect(() => {
+    onPhaseChangeRef.current = onPhaseChange;
+  }, [onPhaseChange]);
+  useEffect(() => {
+    onPhaseChangeRef.current?.(heldState);
+  }, [heldState]);
 
   const dwelling = celebrating && resolved;
   useEffect(() => {
@@ -417,7 +445,7 @@ export function ProvisioningState({
   }
 
   function renderPhase() {
-    if (state === "CONFIRMING") {
+    if (heldState === "CONFIRMING") {
       return (
         <>
           <Copy
@@ -430,7 +458,7 @@ export function ProvisioningState({
       );
     }
 
-    if (state === "WAITING" || state === "RESIZING") {
+    if (heldState === "WAITING" || heldState === "RESIZING") {
       return (
         <>
           <Copy
@@ -451,7 +479,7 @@ export function ProvisioningState({
       );
     }
 
-    if (state === "DONE") {
+    if (heldState === "DONE") {
       return (
         <>
           <Copy status="All done!" />
@@ -460,11 +488,11 @@ export function ProvisioningState({
       );
     }
 
-    if (state === "NOT_APPLICABLE") {
+    if (heldState === "NOT_APPLICABLE") {
       return <Copy status="Your plan is ready" />;
     }
 
-    if (state === "STALLED") {
+    if (heldState === "STALLED") {
       return (
         <>
           <Copy
@@ -488,7 +516,7 @@ export function ProvisioningState({
       );
     }
 
-    if (state === "CONFIRM_TIMEOUT") {
+    if (heldState === "CONFIRM_TIMEOUT") {
       return (
         <>
           <Copy
