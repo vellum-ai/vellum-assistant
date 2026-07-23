@@ -112,6 +112,10 @@ import { recordUsage } from "./conversation-usage.js";
 import { resolveTurnTimezoneContext } from "./date-context.js";
 import { getDiskPressureStatus } from "./disk-pressure-guard.js";
 import { classifyDiskPressureTurnPolicy } from "./disk-pressure-policy.js";
+import {
+  registerInflightTurn,
+  unregisterInflightTurn,
+} from "./inflight-turn-registry.js";
 import type { ServerMessage, UsageStats } from "./message-protocol.js";
 import type { TrustContext } from "./trust-context-types.js";
 import { resolveTurnCallSite } from "./turn-call-site.js";
@@ -596,6 +600,11 @@ export async function runAgentLoopImpl(
   startToolProfilingRequest(ctx.conversationId);
   let turnStarted = false;
   const state = createEventHandlerState();
+  // Publish this turn's flushed-content watermark so the worker → daemon
+  // persist hand-off can cap a snapshot anchor at flushed content rather than
+  // the live seq counter, which runs ahead while the turn streams. Cleared in
+  // the `finally`.
+  registerInflightTurn(ctx.conversationId, state);
   let persistedErrorAssistantMessage = false;
   let deletedReservedAssistantMessage = false;
   // Abnormal turn outcome for telemetry, stamped onto the user-message row in
@@ -1584,6 +1593,10 @@ export async function runAgentLoopImpl(
     }
     ctx.abortController = null;
     ctx.setProcessing(false);
+    // The turn's content is fully flushed by here (`settlePendingPartialFlush`
+    // ran inside the try), so daemon-side callers can safely fall back to the
+    // live seq counter once this registration is gone.
+    unregisterInflightTurn(ctx.conversationId, state);
 
     if (turnStarted) {
       ctx.turnCount++;
