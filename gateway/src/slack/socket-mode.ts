@@ -1577,7 +1577,7 @@ export class SlackSocketModeClient {
 
     // First try to normalize as a channel-scoped block_actions event
     const normalized = normalizeSlackBlockActions(
-      payload as unknown as SlackBlockActionsPayload,
+      payload,
       payload.envelope_id ?? "unknown",
       this.config.gatewayConfig,
     );

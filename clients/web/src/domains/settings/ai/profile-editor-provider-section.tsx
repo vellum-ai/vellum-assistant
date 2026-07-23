@@ -97,6 +97,18 @@ const MODEL_EMPTY_STATE_COPY = {
  */
 const CUSTOM_MODEL_OPTION_VALUE = "__custom-model-id__";
 
+/**
+ * Right-aligned muted annotation on a provider-picker row: the row answers
+ * "whose infrastructure" at the moment of choice (Managed / Custom).
+ */
+export function PickerMeta({ text }: { text: string }) {
+  return (
+    <span className="text-body-small-default text-[var(--content-tertiary)]">
+      {text}
+    </span>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Props
 // ---------------------------------------------------------------------------
@@ -363,7 +375,11 @@ export function ProfileEditorProviderSection({
                 providerOptionsSource,
                 connections ?? [],
                 (p) => PROVIDER_DISPLAY_NAMES[p] ?? p,
-              ),
+              ).map(({ value, label, meta }) => ({
+                value,
+                label,
+                suffix: meta ? <PickerMeta text={meta} /> : undefined,
+              })),
               // A bound endpoint whose row was deleted still renders on the
               // trigger; the warning below explains the state.
               ...(connectionNotFound &&
