@@ -131,6 +131,37 @@ describe("detectSecretsInText — placeholder suppression", () => {
     // known placeholder.
     expect(detectSecretsInText("acme_key_replace_with_your_key")).toEqual([]);
   });
+
+  test("placeholder pre-context suppresses a prefix match (fake_ghp_...)", () => {
+    // The GitHub regex matches starting at `ghp_`, so the `fake_` marker
+    // sits in the pre-context window rather than the matched value.
+    expect(detectSecretsInText(`fake_${"ghp_" + filler(36)}`)).toEqual([]);
+    expect(
+      detectSecretsInText(`docs use example_ghp_${filler(36)} as a stand-in`),
+    ).toEqual([]);
+  });
+
+  test("repeated-character variable portion suppresses a prefix match", () => {
+    // AKIA followed by 16 repeated placeholder characters.
+    expect(detectSecretsInText("AKIAXXXXXXXXXXXXXXXX")).toEqual([]);
+    expect(detectSecretsInText(`set AWS_KEY=AKIA${"X".repeat(16)}`)).toEqual(
+      [],
+    );
+  });
+
+  test("the same tokens without placeholder context still match", () => {
+    const github = `ghp_${filler(36)}`;
+    expect(detectSecretsInText(github).map((m) => m.label)).toEqual([
+      "GitHub Token",
+    ]);
+    expect(
+      detectSecretsInText("AKIAABCDEFGHIJKLMNOP").map((m) => m.label),
+    ).toEqual(["AWS Access Key"]);
+  });
+
+  test("token-shaped message with a repeated-character tail is suppressed", () => {
+    expect(detectSecretsInText(`my_key_${"x".repeat(16)}`)).toEqual([]);
+  });
 });
 
 describe("detectSecretsInText — whole-message token shape", () => {

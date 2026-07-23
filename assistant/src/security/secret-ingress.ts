@@ -10,8 +10,8 @@
  */
 
 import {
-  KNOWN_PLACEHOLDERS,
-  PLACEHOLDER_PREFIXES,
+  isPlaceholderContext,
+  isPlaceholderValue,
   TOKEN_SHAPE,
 } from "@vellumai/service-contracts/secret-detection";
 
@@ -59,54 +59,6 @@ const getGlobalPatterns = memoizePluginPatternDerivation(
 );
 
 // ---------------------------------------------------------------------------
-// Placeholder detection — ingress-specific heuristics layered on the shared
-// placeholder constants (not imported from secret-scanner.ts)
-// ---------------------------------------------------------------------------
-
-/**
- * Check if the text immediately before a matched value indicates
- * a placeholder context (e.g. "fake_", "test_").
- */
-function isPlaceholderContext(preContext: string): boolean {
-  const lower = preContext.toLowerCase();
-  for (const prefix of PLACEHOLDER_PREFIXES) {
-    if (lower.endsWith(prefix)) return true;
-  }
-  return false;
-}
-
-/**
- * Check if a matched value is a placeholder/test value that should not
- * trigger blocking.
- */
-function isPlaceholder(value: string): boolean {
-  const lower = value.toLowerCase();
-
-  // Known placeholder values
-  if (KNOWN_PLACEHOLDERS.has(lower)) return true;
-
-  // Placeholder prefixes
-  for (const prefix of PLACEHOLDER_PREFIXES) {
-    if (lower.startsWith(prefix)) return true;
-  }
-
-  // Repeated characters in the variable portion (e.g. "AKIA" + "X" x 16)
-  // Strip known prefixes to isolate the variable part
-  const variablePart = value
-    .replace(
-      /^(?:AKIA|gh[pousr]_|github_pat_|glpat-|sk_live_|rk_live_|xoxb-|xoxp-|xapp-|sk-ant-|sk-proj-|sk-or-v1-|AIza|GOCSPX-|SK|SG\.|npm_|pypi-|key-|lin_api_|ntn_|fw_|pplx-|-----BEGIN [A-Z ]*PRIVATE KEY-----)/,
-      "",
-    )
-    .replace(/[^A-Za-z0-9]/g, "");
-  if (variablePart.length >= 8) {
-    const firstChar = variablePart[0];
-    if (variablePart.split("").every((c) => c === firstChar)) return true;
-  }
-
-  return false;
-}
-
-// ---------------------------------------------------------------------------
 // Token-shape heuristic (whole-message only)
 // ---------------------------------------------------------------------------
 
@@ -136,7 +88,7 @@ function isBlockedTokenShapedMessage(content: string): boolean {
   // Check both the full value (test_/fake_ prefixes) and the tail after the
   // keyword infix (repeated-char fillers like "xxxxxxxxxxxxxxxx")
   const tail = match[1]!;
-  if (isPlaceholder(trimmed) || isPlaceholder(tail)) {
+  if (isPlaceholderValue(trimmed) || isPlaceholderValue(tail)) {
     return false;
   }
 
@@ -181,7 +133,9 @@ export function checkIngressForSecrets(content: string): IngressCheckResult {
       // a small window before it for placeholder prefixes like "fake_")
       const contextStart = Math.max(0, match.index - 10);
       const preContext = content.slice(contextStart, match.index);
-      if (isPlaceholder(value) || isPlaceholderContext(preContext)) continue;
+      if (isPlaceholderValue(value) || isPlaceholderContext(preContext)) {
+        continue;
+      }
 
       // Skip user-allowlisted values
       if (isAllowlisted(value)) continue;
