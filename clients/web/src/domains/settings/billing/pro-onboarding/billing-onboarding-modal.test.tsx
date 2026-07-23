@@ -14,6 +14,7 @@ import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
 
+import { assistantsDomainsListSetQueryData } from "@/generated/api/@tanstack/react-query.gen";
 import * as sdkGen from "@/generated/api/sdk.gen";
 import type {
   Assistant,
@@ -165,6 +166,8 @@ let domainsResponse: PaginatedAssistantDomainList = makeDomains(false);
 let domainsCalls = 0;
 /** When set, the domains list rejects (models the endpoint failing). */
 let domainsFails = false;
+/** When set, domains responses hold until this promise resolves. */
+let domainsHold: Promise<void> | null = null;
 
 mock.module("@/generated/api/sdk.gen", () => ({
   ...sdkGen,
@@ -203,7 +206,10 @@ mock.module("@/generated/api/sdk.gen", () => ({
     if (domainsFails) {
       return Promise.reject(new Error("500 Internal Server Error"));
     }
-    return Promise.resolve({ data: domainsResponse, response: { ok: true } });
+    const result = { data: domainsResponse, response: { ok: true } };
+    return domainsHold
+      ? domainsHold.then(() => result)
+      : Promise.resolve(result);
   },
   organizationsBillingSubscriptionOnboardingDomainCreate: () =>
     Promise.resolve({ data: { status: "ok" }, response: { ok: true } }),
@@ -256,6 +262,7 @@ beforeEach(() => {
   domainsResponse = makeDomains(false);
   domainsCalls = 0;
   domainsFails = false;
+  domainsHold = null;
   dateNowOffsetMs = 0;
   sessionStorage.clear();
 });
@@ -998,4 +1005,77 @@ describe("BillingOnboardingModal — resize mode", () => {
     );
     expect(queryByText("Super package")).toBeNull();
   });
+
+  test(
+    "waits for a domains answer fresh for this open, not a stale cached one",
+    async () => {
+      // The reviewer's race: the shared assistantsDomainsList cache holds a
+      // STALE empty result (the billing page's finish-setup notice populated it
+      // just before this open) while the assistant in fact already has a domain.
+      // Routing must ignore the stale cache and wait for the fresh refetch, then
+      // skip to complete — never latch on the empty cache and route to the
+      // domain step.
+      subscriptionPlanId = "pro";
+      assistantResponse = makeAssistant("large", 50);
+      // Already at the target, so DONE lands off the reconcile without a resize.
+      ensureResponse = makeEnsureResponse("already_done");
+      // The fresh answer says a domain exists; held so routing can only observe
+      // it once it lands — never the stale empty cache.
+      domainsResponse = makeDomains(true);
+      let releaseDomains!: () => void;
+      domainsHold = new Promise((resolve) => {
+        releaseDomains = resolve;
+      });
+
+      const client = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      });
+      // Seed the stale empty list, timestamped before this open (negative
+      // offset) yet still inside the 10s staleTime — so only the forced on-open
+      // refetch, not a staleness-driven one, can produce a fresh answer.
+      dateNowOffsetMs = -5000;
+      assistantsDomainsListSetQueryData(
+        client,
+        { path: { assistant_id: "assistant-1" } },
+        makeDomains(false),
+      );
+      dateNowOffsetMs = 0;
+
+      const onClose = mock(() => {});
+      const { getByText, queryByText } = render(
+        <MemoryRouter>
+          <QueryClientProvider client={client}>
+            <BillingOnboardingModal
+              open
+              onClose={onClose}
+              dwellMs={TEST_DWELL_MS}
+              phaseMinMs={0}
+              mode="resize"
+            />
+          </QueryClientProvider>
+        </MemoryRouter>,
+      );
+
+      // Provisioning reaches DONE, but routing can't settle on the stale cache.
+      await waitFor(() => expect(getByText("All done!")).toBeTruthy(), {
+        timeout: 5000,
+      });
+      // The forced on-open refetch fired — a staleness check alone would not
+      // have refetched the 5s-old cache.
+      await waitFor(() => expect(domainsCalls).toBeGreaterThan(0));
+      // While the fresh answer is still in flight, routing must not fall through
+      // to the domain step off the stale empty cache.
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      expect(queryByText("Assistant Email")).toBeNull();
+      expect(queryByText("You're all set!")).toBeNull();
+
+      // The fresh answer lands: a domain already exists → skip to complete.
+      releaseDomains();
+      await waitFor(() => expect(getByText("You're all set!")).toBeTruthy(), {
+        timeout: 5000,
+      });
+      expect(queryByText("Assistant Email")).toBeNull();
+    },
+    20_000,
+  );
 });

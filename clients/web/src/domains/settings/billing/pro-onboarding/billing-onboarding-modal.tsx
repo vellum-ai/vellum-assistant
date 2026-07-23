@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { useQueryClient } from "@tanstack/react-query";
+
+import { assistantsDomainsListQueryKey } from "@/generated/api/@tanstack/react-query.gen";
 import {
   clearCheckoutIntent,
   readCheckoutIntent,
@@ -74,6 +77,7 @@ export function BillingOnboardingModal({
   mode = "checkout",
 }: BillingOnboardingModalProps) {
   const isResize = mode === "resize";
+  const queryClient = useQueryClient();
   const [step, setStep] = useState<WizardStep>("provisioning");
   const [finishedInBackground, setFinishedInBackground] = useState(false);
   const [takeoverExit, setTakeoverExit] = useState<TakeoverExit>("idle");
@@ -83,6 +87,10 @@ export function BillingOnboardingModal({
   // up to the per-phase hold. Null until the takeover first reports.
   const [displayedPhase, setDisplayedPhase] =
     useState<ProvisioningStateKind | null>(null);
+  // Wall-clock fence for the resize-mode domains read, mirroring the provisioning
+  // hook's `openedAt`: only a domains response fetched at/after this instant is
+  // trusted for routing. Null while closed.
+  const [domainsOpenedAt, setDomainsOpenedAt] = useState<number | null>(null);
 
   // The hook owns the on-open subscription/onboarding cache invalidation and
   // every provisioning poll; it keeps tracking across step changes so a
@@ -92,6 +100,9 @@ export function BillingOnboardingModal({
   useEffect(() => {
     if (open) {
       setIntent(isResize ? null : readCheckoutIntent());
+      // Fence the domains freshness check to this open before any domains fetch
+      // can land, so a pre-open cached list never reads as fresh.
+      setDomainsOpenedAt((prev) => prev ?? Date.now());
       return;
     }
     // Closing mid-exit must drop the queued step change with it, or it lands
@@ -102,6 +113,7 @@ export function BillingOnboardingModal({
     setFinishedInBackground(false);
     setTakeoverExit("idle");
     setDisplayedPhase(null);
+    setDomainsOpenedAt(null);
   }, [open, isResize]);
 
   useEffect(
@@ -139,21 +151,51 @@ export function BillingOnboardingModal({
   // checkout mode never consults — DomainStep owns its own fetch there. The
   // enabled gate keeps this query fully off in checkout mode and in fee-less
   // resize flows (domainSetupAvailable false for Mighty-tier packages).
-  const { domains, domainsError } = useAssistantDomains(
-    open && isResize && domainSetupAvailable === true,
-    assistantId,
-  );
+  const domainAnswerNeeded = isResize && domainSetupAvailable === true;
+  const { domains, domainsError, domainsFetching, domainsUpdatedAt } =
+    useAssistantDomains(open && domainAnswerNeeded, assistantId);
   const hasExistingDomain = (domains?.results.length ?? 0) > 0;
-  // An errored fetch counts as answered: routing then falls back to the
+
+  // The domains list is a shared query — the billing page's finish-setup notice
+  // reads it too — with a staleTime, so opening this modal can be served that
+  // recently-cached list without a refetch. Force one refetch for this open the
+  // moment the query is enabled, exactly as use-pro-provisioning invalidates the
+  // subscription and onboarding queries on open; without it a fresh-enough cache
+  // never advances `domainsUpdatedAt` past the fence and routing can only fall
+  // through the escape hatch.
+  const domainsInvalidatedRef = useRef(false);
+  useEffect(() => {
+    if (!open) {
+      domainsInvalidatedRef.current = false;
+      return;
+    }
+    if (domainsInvalidatedRef.current) return;
+    if (!domainAnswerNeeded || assistantId == null) return;
+    domainsInvalidatedRef.current = true;
+    void queryClient.invalidateQueries({
+      queryKey: assistantsDomainsListQueryKey({
+        path: { assistant_id: assistantId },
+      }),
+    });
+  }, [open, domainAnswerNeeded, assistantId, queryClient]);
+
+  // "Answered" must mean a domains response fetched during THIS open, not merely
+  // one already sitting in the shared cache. Mirror the onboarding freshness
+  // guard: require `dataUpdatedAt` to cross the open fence (and not be mid-
+  // refetch) before trusting it, so a stale empty cache can't latch routing with
+  // hasExistingDomain=false and route to the domain step when a domain exists.
+  // An errored fetch still counts as answered: routing then falls back to the
   // domain step, whose own fetch/locked-state handling degrades gracefully.
-  const domainsKnown = domains !== undefined || domainsError;
+  const domainsFresh =
+    domainsOpenedAt != null && domainsUpdatedAt >= domainsOpenedAt;
+  const domainsKnown =
+    (domainsFresh && !domainsFetching) || Boolean(domainsError);
   // Routing must never use a stale domain_setup_available: until the first
   // post-confirm fetch settles, TanStack may still serve pre-checkout cached
   // data. Both the celebration dwell and the escape hatch wait on this.
   // Latched: once fresh data has landed, a later background refetch must not
   // yank the escape hatch or restart the dwell.
   const [routingSettled, setRoutingSettled] = useState(false);
-  const domainAnswerNeeded = isResize && domainSetupAvailable === true;
   const routingInputsSettled =
     onboardingSettled && (!domainAnswerNeeded || domainsKnown);
   useEffect(() => {
