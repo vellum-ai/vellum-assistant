@@ -24,7 +24,7 @@ import { cn } from "@vellumai/design-library";
 import { Popover } from "@vellumai/design-library/components/popover";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 
-import { VoicePickerModal } from "@/domains/chat/voice/voice-room/voice-picker-modal";
+import { VoicePickerModal } from "@/components/speech/voice-picker-modal";
 import { VoiceSettingRow } from "@/domains/chat/voice/voice-room/voice-setting-row";
 import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
 

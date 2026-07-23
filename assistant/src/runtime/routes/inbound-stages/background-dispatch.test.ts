@@ -97,11 +97,6 @@ mock.module("../../channel-reply-delivery.js", () => ({
   },
 }));
 
-import {
-  clearThreadTs,
-  getThreadTs,
-  setThreadTs,
-} from "../../../channels/slack-thread-store.js";
 import type { TrustContext } from "../../../daemon/trust-context-types.js";
 import type { MessageProcessor } from "../../http-types.js";
 import {
@@ -174,7 +169,7 @@ describe("isBoundGuardianActor", () => {
   });
 });
 
-describe("processChannelMessageInBackground — slack thread mapping", () => {
+describe("processChannelMessageInBackground — reply delivery", () => {
   const trustCtx: TrustContext = {
     trustClass: "guardian",
     guardianExternalUserId: "guardian-1",
@@ -183,74 +178,6 @@ describe("processChannelMessageInBackground — slack thread mapping", () => {
 
   const flush = (): Promise<void> =>
     new Promise((resolve) => setTimeout(resolve, 10));
-
-  test("restores prior thread mapping when processMessage is rejected as already-processing", async () => {
-    const conversationId = "conv-restore-on-busy";
-    const channelId = "C-RESTORE";
-    const inFlightThreadTs = "1700000000.000001";
-
-    // Simulate a prior threaded turn that installed the mapping and is
-    // still in flight when a new channel-root event arrives.
-    setThreadTs(conversationId, channelId, inFlightThreadTs);
-
-    const processMessage: MessageProcessor = async () => {
-      throw new Error("Conversation is already processing a message");
-    };
-
-    processChannelMessageInBackground({
-      processMessage,
-      conversationId,
-      eventId: "evt-1",
-      content: "root-level message",
-      sourceChannel: "slack",
-      sourceInterface: "slack",
-      externalChatId: channelId,
-      trustCtx,
-      metadataHints: [],
-      // Callback URL has no threadTs query param → channel-root event
-      // that would otherwise call `clearThreadTs`.
-      replyCallbackUrl: `https://example.test/deliver/slack?channel=${channelId}`,
-    });
-
-    await flush();
-
-    // The in-flight threaded turn's mapping must survive the busy rejection.
-    expect(getThreadTs(conversationId)).toBe(inFlightThreadTs);
-
-    clearThreadTs(conversationId);
-  });
-
-  test("retains updated mapping when processMessage succeeds", async () => {
-    const conversationId = "conv-retain-on-success";
-    const channelId = "C-SUCCESS";
-    const newThreadTs = "1700000000.000002";
-
-    // No prior mapping; this turn arrives in a thread and should install one.
-    clearThreadTs(conversationId);
-
-    const processMessage: MessageProcessor = async () => ({
-      messageId: "user-msg-1",
-    });
-
-    processChannelMessageInBackground({
-      processMessage,
-      conversationId,
-      eventId: "evt-2",
-      content: "thread reply",
-      sourceChannel: "slack",
-      sourceInterface: "slack",
-      externalChatId: channelId,
-      trustCtx,
-      metadataHints: [],
-      replyCallbackUrl: `https://example.test/deliver/slack?channel=${channelId}&threadTs=${newThreadTs}`,
-    });
-
-    await flush();
-
-    expect(getThreadTs(conversationId)).toBe(newThreadTs);
-
-    clearThreadTs(conversationId);
-  });
 
   test("records callback delivery failures without failing processing", async () => {
     const conversationId = "conv-delivery-failure";
@@ -300,8 +227,6 @@ describe("processChannelMessageInBackground — slack thread mapping", () => {
     ]);
     expect(deliveryFailureEvents).toEqual(["evt-delivery-failure"]);
     expect(deliveredEvents).toEqual([]);
-
-    clearThreadTs(conversationId);
   });
 
   test("stores assistant reply ids returned by non-agent-loop fast paths", async () => {
@@ -339,8 +264,6 @@ describe("processChannelMessageInBackground — slack thread mapping", () => {
       { messageId: "assistant-msg-fast-path", startFromSegment: 0 },
     ]);
     expect(deliveredEvents).toEqual(["evt-fast-path"]);
-
-    clearThreadTs(conversationId);
   });
 
   test("suppresses reply delivery when a deduplicated redelivery's prior attempt already delivered", async () => {
@@ -378,8 +301,6 @@ describe("processChannelMessageInBackground — slack thread mapping", () => {
     expect(replyDeliveryCalls).toEqual([]);
     expect(deliveredEvents).toEqual([]);
     expect(deliveredChannelReplies).toEqual([]);
-
-    clearThreadTs(conversationId);
   });
 
   test("skips reply delivery when a deduplicated redelivery's prior attempt failed (sweep owns recovery)", async () => {
@@ -413,8 +334,6 @@ describe("processChannelMessageInBackground — slack thread mapping", () => {
     expect(replyDeliveryCalls).toEqual([]);
     expect(deliveredEvents).toEqual([]);
     expect(deliveredChannelReplies).toEqual([]);
-
-    clearThreadTs(conversationId);
   });
 
   test("recovers the reply when a deduplicated redelivery's prior attempt is stuck pending (crash window)", async () => {
@@ -454,8 +373,6 @@ describe("processChannelMessageInBackground — slack thread mapping", () => {
       { messageId: undefined, startFromSegment: 0 },
     ]);
     expect(deliveredEvents).toEqual(["evt-dedup-pending"]);
-
-    clearThreadTs(conversationId);
   });
 
   test("edits the sibling's streamed Slack reply in place when recovering a deduplicated redelivery in the crash window", async () => {
@@ -497,8 +414,6 @@ describe("processChannelMessageInBackground — slack thread mapping", () => {
       { messageId: undefined, startFromSegment: 0, messageTs: streamTs },
     ]);
     expect(deliveredEvents).toEqual(["evt-dedup-pending-streamed"]);
-
-    clearThreadTs(conversationId);
   });
 
   test("falls back to durable delivery for a non-threaded Slack DM", async () => {
@@ -549,8 +464,6 @@ describe("processChannelMessageInBackground — slack thread mapping", () => {
       { messageId: "assistant-msg-no-thread", startFromSegment: 0 },
     ]);
     expect(deliveredEvents).toEqual(["evt-no-thread"]);
-
-    clearThreadTs(conversationId);
   });
 
   test("streams a threaded Slack DM reply and reconciles durable delivery to the stream", async () => {
@@ -621,8 +534,6 @@ describe("processChannelMessageInBackground — slack thread mapping", () => {
       { eventId: "evt-streamed", messageTs: streamTs },
     ]);
     expect(deliveredEvents).toEqual(["evt-streamed"]);
-
-    clearThreadTs(conversationId);
   });
 
   test("keeps Slack channel replies on the existing final delivery path", async () => {
@@ -686,8 +597,6 @@ describe("processChannelMessageInBackground — slack thread mapping", () => {
       { messageId: "assistant-msg-channel-final", startFromSegment: 0 },
     ]);
     expect(deliveredEvents).toEqual(["evt-channel-final-delivery"]);
-
-    clearThreadTs(conversationId);
   });
 
   test("falls back to durable delivery when the Slack stream fails to start", async () => {
@@ -734,8 +643,6 @@ describe("processChannelMessageInBackground — slack thread mapping", () => {
       { messageId: "assistant-msg-stream-start-fails", startFromSegment: 0 },
     ]);
     expect(deliveredEvents).toEqual(["evt-stream-start-fails"]);
-
-    clearThreadTs(conversationId);
   });
 
   test("finalizes the stream and records a processing failure when processing throws", async () => {
@@ -788,8 +695,6 @@ describe("processChannelMessageInBackground — slack thread mapping", () => {
     ]);
     expect(processingFailureEvents).toEqual(["evt-stream-processing-failure"]);
     expect(operationOrder).toEqual(["store-streamed-ts", "processing-failure"]);
-
-    clearThreadTs(conversationId);
   });
 });
 
