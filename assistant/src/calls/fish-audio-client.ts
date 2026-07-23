@@ -44,7 +44,7 @@ export async function synthesizeWithFishAudio(
   );
   if (!apiKey) {
     throw new Error(
-      "Fish Audio API key not configured. Store it via: assistant credentials set --service fish-audio --field api_key <key>",
+      'Fish Audio API key not configured. Collect it via: assistant credentials prompt --service fish-audio --field api_key --label "Fish Audio API Key"',
     );
   }
 

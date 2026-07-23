@@ -99,6 +99,9 @@ const GLOBAL_STREAM_EVENT_TYPE_NAMES = [
   // Contacts-table invalidation broadcast — carries no `conversationId`; clients
   // refetch their contact list on receipt.
   "contacts_changed",
+  // Skill install/enable state-change broadcast — carries no `conversationId`;
+  // clients refetch their skill list on receipt.
+  "skills_state_changed",
   // Settings/config broadcasts (client-setting push, config.json change, sounds
   // change) carry no `conversationId` — they're app-wide, not conversation-scoped.
   "client_settings_update",

@@ -97,10 +97,7 @@ import type {
   _SchedulesServerMessages,
 } from "./message-types/schedules.js";
 import type { _SettingsServerMessages } from "./message-types/settings.js";
-import type {
-  _SkillsClientMessages,
-  _SkillsServerMessages,
-} from "./message-types/skills.js";
+import type { _SkillsServerMessages } from "./message-types/skills.js";
 import type {
   _SubagentsClientMessages,
   _SubagentsServerMessages,
@@ -133,7 +130,6 @@ export type ClientMessage =
   | _ConversationsClientMessages
   | _MessagesClientMessages
   | _SurfacesClientMessages
-  | _SkillsClientMessages
   | _AppsClientMessages
   | _IntegrationsClientMessages
   | _ComputerUseClientMessages

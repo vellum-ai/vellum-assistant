@@ -39,6 +39,8 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 
+import type { Logger } from "pino";
+
 import {
   clearPluginHooks,
   collectUserHookEntries,
@@ -51,6 +53,11 @@ import {
   WORKSPACE_HOOKS_OWNER,
 } from "../hooks/hook-loader.js";
 import type { HookFunction, ShutdownReason } from "../plugin-api/types.js";
+import {
+  registerPluginSecretPatterns,
+  resetPluginSecretPatternsForTests,
+  unregisterPluginSecretPatterns,
+} from "../security/plugin-secret-patterns.js";
 import { finalizeTool } from "../tools/tool-defaults.js";
 import type { Tool, ToolDefinition } from "../tools/types.js";
 import { getLogger } from "../util/logger.js";
@@ -78,7 +85,7 @@ import {
   importWithTimeout,
   setSurfaceImportTimeout,
 } from "./surface-import.js";
-import type { HookEntry } from "./types.js";
+import type { HookEntry, PluginCredentialKeyPattern } from "./types.js";
 
 // Re-export for type compat — consumers that import HookFunction from
 // the mtime cache module still resolve.
@@ -486,7 +493,11 @@ async function applySourceVersions(
             membershipChanged = true;
           }
           await reconcilePluginTools(dir, manifest.name);
-          await activatePlugin(dir, manifest.name);
+          await activatePlugin(
+            dir,
+            manifest.name,
+            manifest.credentialKeyPatterns,
+          );
         }
       }
     }
@@ -523,7 +534,7 @@ async function bringUpPlugin(dir: string): Promise<boolean> {
   disabledPluginDirs.delete(dir);
   log.info({ plugin: manifest.name, dir }, "plugin discovered");
   await reconcilePluginTools(dir, manifest.name);
-  await activatePlugin(dir, manifest.name);
+  await activatePlugin(dir, manifest.name, manifest.credentialKeyPatterns);
   return true;
 }
 
@@ -801,6 +812,12 @@ async function scanPlugins(): Promise<void> {
   }
 
   const currentDirs = new Map<string, string>();
+  // Declared credential key patterns per directory, carried from the manifest
+  // parse below to the activation loop at the bottom of the scan.
+  const credentialPatternsByDir = new Map<
+    string,
+    PluginCredentialKeyPattern[] | undefined
+  >();
 
   for (const entry of entries) {
     const pluginDir = join(pluginsDir, entry);
@@ -843,6 +860,7 @@ async function scanPlugins(): Promise<void> {
     const { name: pluginName } = manifest;
 
     currentDirs.set(pluginDir, pluginName);
+    credentialPatternsByDir.set(pluginDir, manifest.credentialKeyPatterns);
     disabledPluginDirs.delete(pluginDir);
 
     if (!discoveredPluginDirs.has(pluginDir)) {
@@ -875,7 +893,7 @@ async function scanPlugins(): Promise<void> {
   // into `toolCache` by `reconcilePluginTools` above, so they are visible to
   // the registry's pull reconcile as soon as activation flips.
   for (const [dir, name] of discoveredPluginDirs) {
-    await activatePlugin(dir, name);
+    await activatePlugin(dir, name, credentialPatternsByDir.get(dir));
   }
 }
 
@@ -909,6 +927,10 @@ async function evictPlugin(
   // Evict tools.
   evictToolCacheEntries(pluginName);
 
+  // Belt to deactivatePlugin's suspenders — eviction can run for a plugin
+  // that never fully activated.
+  unregisterPluginSecretPatterns(pluginName);
+
   log.info(
     { plugin: pluginName, pluginDir },
     "plugin evicted (directory removed)",
@@ -935,6 +957,9 @@ function evictToolCacheEntries(pluginName: string): void {
  */
 async function evictAll(): Promise<void> {
   clearPluginHooks();
+  for (const pluginName of discoveredPluginDirs.values()) {
+    unregisterPluginSecretPatterns(pluginName);
+  }
   toolCache.clear();
   discoveredPluginDirs.clear();
   installDateCache.clear();
@@ -983,6 +1008,7 @@ const activatedNames = new Set<string>();
 async function activatePlugin(
   pluginDir: string,
   pluginName: string,
+  credentialKeyPatterns?: PluginCredentialKeyPattern[],
 ): Promise<void> {
   if (activatedNames.has(pluginName)) {
     return;
@@ -992,10 +1018,53 @@ async function activatePlugin(
   // plugin's cached tools are visible to the registry's pull reconcile.
   activatedNames.add(pluginName);
 
+  // Register declared credential key patterns BEFORE the `init` hook runs so
+  // init-time logging (including caught-error paths that echo a configured
+  // key) is already covered by log redaction — mirroring the default-plugin
+  // bootstrap. Activation never aborts (init failures are swallowed below and
+  // the plugin still counts as activated), so every teardown path unregisters.
+  registerDeclaredCredentialKeyPatterns(pluginName, credentialKeyPatterns, log);
+
   // Run the `init` hook if present.
   await runInitHook(pluginName, pluginDir);
 
   activatedPlugins.push({ kind: "plugin", name: pluginName });
+}
+
+/**
+ * Register a plugin's declared credential key patterns (its manifest
+ * `credentialKeyPatterns`) into the secret-pattern registry, replacing any
+ * prior set for that plugin. Invalid declarations never fail activation: each
+ * rejection is logged with plugin attribution — the declared label plus the
+ * rejection reason, never the full pattern source. Shared by the user-plugin
+ * activation path here and the default-plugin bootstrap
+ * (`daemon/external-plugins-bootstrap.ts`); disabled plugins never reach
+ * either call site, which is what keeps disabled-state filtering at the
+ * lifecycle layer (the registry itself does no config reads).
+ */
+export function registerDeclaredCredentialKeyPatterns(
+  pluginName: string,
+  patterns: readonly PluginCredentialKeyPattern[] | undefined,
+  logger: Logger,
+): void {
+  if (patterns === undefined || patterns.length === 0) {
+    return;
+  }
+  const { rejected } = registerPluginSecretPatterns(pluginName, patterns);
+  if (rejected.length === 0) {
+    return;
+  }
+  const labelByPattern = new Map(patterns.map((p) => [p.pattern, p.label]));
+  logger.warn(
+    {
+      plugin: pluginName,
+      rejected: rejected.map((r) => ({
+        label: labelByPattern.get(r.pattern),
+        reason: r.reason,
+      })),
+    },
+    `plugin ${pluginName} declared ${rejected.length} invalid credential key pattern(s) — ignoring them`,
+  );
 }
 
 /**
@@ -1044,6 +1113,7 @@ async function deactivatePlugin(
   if (idx >= 0) {
     activatedPlugins.splice(idx, 1);
   }
+  unregisterPluginSecretPatterns(pluginName);
 
   if (reason !== "uninstall") {
     await runShutdownHook("plugin", pluginName, reason);
@@ -1113,6 +1183,7 @@ export function resetPluginCacheForTests(): void {
   }
   resetHookCacheForTests();
   clearSurfaceImportInflight();
+  resetPluginSecretPatternsForTests();
   toolCache.clear();
   discoveredPluginDirs.clear();
   installDateCache.clear();

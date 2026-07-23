@@ -5,6 +5,7 @@ import type { Command } from "commander";
 import { applyCommandHelp, subcommand } from "../lib/cli-command-help.js";
 import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
+import { refuseAgentShellInlineSecret } from "../utils/inline-secret-guard.js";
 import { keysHelp } from "./keys.help.js";
 
 const loadModule = createRequire(import.meta.url);
@@ -37,6 +38,10 @@ export function registerKeysCommand(program: Command): void {
         () => `
 Keys are stored in secure local storage and are never written to disk in
 plaintext. Each key is identified by provider name.
+
+"keys set" refuses inline values from agent shells unless --generated is
+passed — user-supplied keys belong in the Settings page under API Keys or in
+a command the user runs from their own terminal.
 
 Known providers: ${apiKeyProviders().join(", ")}
 
@@ -80,18 +85,38 @@ Examples:
           }
         });
 
-      subcommand(keys, "set").action(async (provider: string, key: string) => {
-        const { setSecureKeyViaDaemon } =
-          await import("../lib/daemon-credential-client.js");
-        const setResult = await setSecureKeyViaDaemon("api_key", provider, key);
-        if (setResult.ok) {
-          log.info(`Stored API key for "${provider}"`);
-        } else {
-          const detail = setResult.error ? `: ${setResult.error}` : "";
-          log.error(`Failed to store API key for "${provider}"${detail}`);
-          process.exit(1);
-        }
-      });
+      subcommand(keys, "set").action(
+        async (
+          provider: string,
+          key: string,
+          opts: { generated?: boolean },
+          cmd: Command,
+        ) => {
+          if (
+            refuseAgentShellInlineSecret(cmd, opts, {
+              what: "API key",
+              redirect: `Ask the user to add the key from the Settings page under API Keys, or to run this from their own terminal: assistant keys set ${provider} <key>`,
+            })
+          ) {
+            return;
+          }
+
+          const { setSecureKeyViaDaemon } =
+            await import("../lib/daemon-credential-client.js");
+          const setResult = await setSecureKeyViaDaemon(
+            "api_key",
+            provider,
+            key,
+          );
+          if (setResult.ok) {
+            log.info(`Stored API key for "${provider}"`);
+          } else {
+            const detail = setResult.error ? `: ${setResult.error}` : "";
+            log.error(`Failed to store API key for "${provider}"${detail}`);
+            process.exit(1);
+          }
+        },
+      );
 
       subcommand(keys, "delete").action(async (provider: string) => {
         const { deleteSecureKeyViaDaemon } =

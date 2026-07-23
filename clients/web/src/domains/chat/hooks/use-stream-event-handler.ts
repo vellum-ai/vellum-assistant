@@ -485,6 +485,10 @@ export function useStreamEventHandler(
         // the contacts page refetches through its own query invalidation.
         case "contacts_changed":
           break;
+        // Skill state-change broadcast. The chat handler is a no-op; the skills
+        // surfaces refetch through their own query invalidation.
+        case "skills_state_changed":
+          break;
         // Settings/config broadcasts. The chat handler is a no-op — these target
         // the desktop client or are handled by config-sync consumers.
         case "client_settings_update":
