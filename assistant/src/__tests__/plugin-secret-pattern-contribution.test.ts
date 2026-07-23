@@ -13,8 +13,8 @@
  * (`mtime-cache.test.ts`):
  *
  *  1. User plugins — synthetic plugin directories driven through boot
- *     discovery and the source-versions reconcile (install, disable,
- *     uninstall published exactly the way production publishes them).
+ *     discovery and the imperative source-versions reconcile (install,
+ *     disable, uninstall applied exactly the way production applies them).
  *  2. Default/registered plugins — `bootstrapPlugins()` registering the
  *     manifest declaration and rolling it back when `init()` fails.
  *
@@ -35,13 +35,9 @@ import {
 
 import { bootstrapPlugins } from "../daemon/external-plugins-bootstrap.js";
 import {
-  createSourceWatchState,
-  runSourceWatchPass,
-  type SourceWatchState,
-} from "../monitoring/plugin-source-watch.js";
-import {
   getUserHooksFor,
   populateCacheAtBoot,
+  reconcilePluginSourcesNow,
   resetPluginCacheForTests,
 } from "../plugins/mtime-cache.js";
 import {
@@ -116,21 +112,11 @@ function findRegistered(label: string, pluginName: string) {
 }
 
 /**
- * Watcher state shared by a test's publishes, reset per test so each test's
- * first publish takes a fresh baseline.
- */
-let watchState: SourceWatchState | null = null;
-
-/**
- * Publish pending source changes the way production does — one watcher pass —
- * then dispatch a hook read so the daemon-side sentinel gate applies the diff.
+ * Apply pending source changes the way production does: the imperative
+ * reconcile the install/uninstall/enable/disable routes call.
  */
 async function publishAndDispatch(): Promise<void> {
-  if (watchState === null) {
-    watchState = createSourceWatchState();
-  }
-  runSourceWatchPass(watchState);
-  await getUserHooksFor("user-prompt-submit");
+  await reconcilePluginSourcesNow();
 }
 
 // ─── Setup / teardown ────────────────────────────────────────────────────────
@@ -142,7 +128,6 @@ beforeAll(() => {
 beforeEach(() => {
   ensurePluginsDir();
   rmSync(getSourceVersionsPath(), { force: true });
-  watchState = null;
   // Also clears the secret-pattern registry via resetPluginSecretPatternsForTests.
   resetPluginCacheForTests();
   resetPluginRegistryForTests();
