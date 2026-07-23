@@ -337,7 +337,7 @@ describe("live-voice triage-and-escalate routing", () => {
     await waitFor(() => starter.mock.calls.length >= 2);
     await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
 
-    // voice-mode alone now activates the front door and its escalation hand-off.
+    // voice-mode alone activates the front door and its escalation hand-off.
     expect(starter).toHaveBeenCalledTimes(2);
     expect(starter.mock.calls[0]?.[0]?.routingLeg).toBe("front-door");
     expect(starter.mock.calls[1]?.[0]?.routingLeg).toBe("escalated");
