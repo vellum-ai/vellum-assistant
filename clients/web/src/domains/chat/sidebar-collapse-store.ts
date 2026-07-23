@@ -24,8 +24,10 @@ import { createSelectors } from "@/utils/create-selectors";
 import {
   loadOpenCategories,
   loadOpenCustomGroups,
+  loadOpenPrimary,
   saveOpenCategories,
   saveOpenCustomGroups,
+  saveOpenPrimary,
 } from "@/domains/chat/utils/sidebar-group-collapse-storage";
 
 // ---------------------------------------------------------------------------
@@ -36,6 +38,11 @@ export interface SidebarCollapseState {
   assistantId: string | null;
   openCategories: string[];
   openCustomGroups: string[];
+  /**
+   * Open state of the always-present primary sections (Pinned, Chats).
+   * Defaults to both open (see {@link loadOpenPrimary}).
+   */
+  openPrimary: string[];
   /**
    * Whether the user has revealed the Background section this session —
    * either by expanding it in the full sidebar or opening its rail flyout.
@@ -57,6 +64,7 @@ export interface SidebarCollapseActions {
   setAssistantId: (assistantId: string) => void;
   setOpenCategories: (next: string[]) => void;
   setOpenCustomGroups: (next: string[]) => void;
+  setOpenPrimary: (next: string[]) => void;
   activateBackground: () => void;
   activateScheduled: () => void;
 }
@@ -72,6 +80,9 @@ const INITIAL_STATE: SidebarCollapseState = {
   assistantId: null,
   openCategories: [],
   openCustomGroups: [],
+  // Pinned + Chats start open; the real per-assistant value loads on
+  // setAssistantId.
+  openPrimary: ["pinned", "recents"],
   backgroundActivated: false,
   scheduledActivated: false,
 };
@@ -91,6 +102,7 @@ const useSidebarCollapseStoreBase = create<SidebarCollapseStore>()(
         assistantId,
         openCategories,
         openCustomGroups: loadOpenCustomGroups(assistantId),
+        openPrimary: loadOpenPrimary(assistantId),
         // A persisted expanded section counts as a reveal, so each lazy
         // fetch resumes for assistants the user already had that section
         // open on — tracked per section so they stay independent.
@@ -115,6 +127,12 @@ const useSidebarCollapseStoreBase = create<SidebarCollapseStore>()(
       set({ openCustomGroups: next });
       const { assistantId } = get();
       if (assistantId) saveOpenCustomGroups(assistantId, next);
+    },
+
+    setOpenPrimary: (next: string[]) => {
+      set({ openPrimary: next });
+      const { assistantId } = get();
+      if (assistantId) saveOpenPrimary(assistantId, next);
     },
 
     activateBackground: () => {

@@ -75,16 +75,16 @@ export function useConversationGroupActions({
     },
   });
 
-  const handleCreateGroup = useCallback(async () => {
-    if (!assistantId) return;
+  const handleCreateGroup = useCallback(async (): Promise<ConversationGroup | null> => {
+    if (!assistantId) return null;
     haptic.light();
     const name =
       typeof window === "undefined"
         ? null
         : window.prompt("New group name");
-    if (name == null) return;
+    if (name == null) return null;
     const trimmed = name.trim();
-    if (!trimmed) return;
+    if (!trimmed) return null;
 
     const groupsKey = groupsGetQueryKey({ path: { assistant_id: assistantId } });
     await queryClient.cancelQueries({ queryKey: groupsKey });
@@ -98,8 +98,10 @@ export function useConversationGroupActions({
         body: { name: trimmed },
       } as Options<GroupsPostData>);
       replaceOptimisticGroup(queryClient, assistantId, optimisticId, created);
+      return created;
     } catch {
       removeGroup(queryClient, assistantId, optimisticId);
+      return null;
     } finally {
       void queryClient.invalidateQueries({ queryKey: groupsKey });
     }

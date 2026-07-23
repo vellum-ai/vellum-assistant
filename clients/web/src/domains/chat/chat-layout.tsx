@@ -215,10 +215,11 @@ export function ChatLayout({
   // create/rename/delete affordances are rendered here, not in ChatPage.
   // The hook is self-sufficient (cache invalidation handles rollback), so
   // it can live wherever the sidebar lives.
-  const { handleRenameGroup, handleDeleteGroup } = useConversationGroupActions({
-    assistantId,
-    conversationGroups,
-  });
+  const { handleCreateGroup, handleRenameGroup, handleDeleteGroup } =
+    useConversationGroupActions({
+      assistantId,
+      conversationGroups,
+    });
 
   // Mirror the unread count + signed-in flag into the Electron Dock
   // (no-op off Electron). Uses the conversation list this layout
@@ -466,6 +467,8 @@ export function ChatLayout({
     handleMarkConversationUnread,
     handleMarkConversationRead,
     handleTogglePinConversation,
+    handleMoveToGroup,
+    handleRemoveFromGroup,
     handleRenameConversation,
     handleReorderConversations,
     handleMarkAllReadInGroup,
@@ -478,6 +481,18 @@ export function ChatLayout({
     startNewConversation,
     prePinGroupIdsRef,
   });
+
+  // Create a new custom group (via the "New group…" menu item) and move the
+  // conversation into it. This is the only group-creation entry point — there
+  // is no standalone create button. `handleCreateGroup` prompts for a name and
+  // returns the created group (or null if cancelled/failed).
+  const handleCreateGroupForConversation = useCallback(
+    async (conversation: Conversation) => {
+      const group = await handleCreateGroup();
+      if (group) handleMoveToGroup(conversation, group.id);
+    },
+    [handleCreateGroup, handleMoveToGroup],
+  );
 
   // Resolve the active row from whichever list cache holds it (foreground,
   // background, or scheduled), fetching the single row when an open
@@ -501,12 +516,16 @@ export function ChatLayout({
         activeConversation={activeConversation}
         headerSupplements={headerSupplements}
         showLlmInspector={showLlmInspector}
+        conversationGroups={conversationGroups}
         onArchive={handleArchiveConversation}
         onUnarchive={handleUnarchiveConversation}
         onMarkUnread={handleMarkConversationUnread}
         onMarkRead={handleMarkConversationRead}
         onPinToggle={handleTogglePinConversation}
         onRename={handleRenameConversation}
+        onMoveToGroup={handleMoveToGroup}
+        onCreateGroupInto={handleCreateGroupForConversation}
+        onRemoveFromGroup={handleRemoveFromGroup}
       />
     ) : null);
 
@@ -742,6 +761,9 @@ export function ChatLayout({
       onArchiveAllInGroup={handleArchiveAllInGroup}
       onOpenInNewWindow={isNative ? undefined : handleOpenInNewWindow}
       onInspect={showLlmInspector ? handleInspectConversation : undefined}
+      onMoveToGroup={handleMoveToGroup}
+      onCreateGroupInto={handleCreateGroupForConversation}
+      onRemoveFromGroup={handleRemoveFromGroup}
       footerAction={
         <PreferencesMenu
           assistantId={assistantId}
