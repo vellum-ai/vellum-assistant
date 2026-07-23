@@ -21,6 +21,8 @@ let subscriptionFixture: SubscriptionResponse | null = null;
 let subscriptionFetches = 0;
 // When true, the query never resolves — models the first load still in flight.
 let subscriptionHangs = false;
+// Drives the mocked `useIsOrgReady`; the hook folds it into its `enabled` gate.
+let orgReady = true;
 
 mock.module("@/generated/api/@tanstack/react-query.gen", () => ({
   organizationsBillingSubscriptionRetrieveOptions: () => ({
@@ -32,6 +34,10 @@ mock.module("@/generated/api/@tanstack/react-query.gen", () => ({
         : subscriptionFixture;
     },
   }),
+}));
+
+mock.module("@/hooks/use-is-org-ready", () => ({
+  useIsOrgReady: () => orgReady,
 }));
 
 const { useIsFreePlan } = await import("./use-is-free-plan");
@@ -88,6 +94,7 @@ describe("useIsFreePlan", () => {
     subscriptionFetches = 0;
     subscriptionHangs = false;
     subscriptionFixture = subscription();
+    orgReady = true;
   });
 
   test("returns true for a base (free) plan", () => {
@@ -110,6 +117,15 @@ describe("useIsFreePlan", () => {
   test("does not fetch and returns undefined when disabled", () => {
     // Unseeded + disabled: the read must not fire and the value stays unknown.
     const { result } = setup({ enabled: false });
+    expect(subscriptionFetches).toBe(0);
+    expect(result.current).toBeUndefined();
+  });
+
+  test("does not fetch and returns undefined when the org is not ready", () => {
+    // Even with `enabled` true, a not-ready org must keep the query from firing
+    // — the request would omit `Vellum-Organization-Id` and be rejected.
+    orgReady = false;
+    const { result } = setup({ enabled: true });
     expect(subscriptionFetches).toBe(0);
     expect(result.current).toBeUndefined();
   });
