@@ -370,6 +370,38 @@ describe("createSlackReplySession", () => {
     expect(reconciliation).toEqual({ mode: "fallback" });
   });
 
+  test("keeps streaming when the onStreamOpen breadcrumb write throws", async () => {
+    // The stream opened on Slack's side, so a throwing `onStreamOpen` (e.g. a
+    // transient breadcrumb write error) must not knock the session into
+    // fallback — that would repost the already-visible streamed reply.
+    const onStreamOpenCalls: string[] = [];
+    const session = createSlackReplySession({
+      sourceChannel: "slack",
+      chatType: "im",
+      replyCallbackUrl: CALLBACK_URL,
+      chatId: CHANNEL,
+      onStreamOpen: (streamTs) => {
+        onStreamOpenCalls.push(streamTs);
+        throw new Error("transient SQLite write error");
+      },
+    })!;
+    expect(session).toBeDefined();
+
+    session.observeEvent(textDelta("The complete answer."));
+    session.observeEvent(messageComplete("assistant-msg-1"));
+    const reconciliation = await session.finish();
+
+    // The callback fired with the opened stream's ts, and its throw left the
+    // session streaming: the stop still lands and finalize reconciles in place.
+    expect(onStreamOpenCalls).toEqual(["stream-ts-1"]);
+    expect(slackStreamOps().map((op) => op.action)).toEqual(["start", "stop"]);
+    expect(reconciliation).toEqual({
+      mode: "streamed",
+      messageTs: "stream-ts-1",
+      deliveredSegmentCount: 1,
+    });
+  });
+
   test("appends task-only progress that advances without new body text", async () => {
     // `chat.appendStream` accepts a chunks-only call, so a plan that advances
     // during tool work lands live instead of waiting for the final stop.
