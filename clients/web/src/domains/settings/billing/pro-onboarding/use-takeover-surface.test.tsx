@@ -155,4 +155,25 @@ describe("resolved surfaces", () => {
     expect(result.current.tintHex.toLowerCase()).toBe(GREEN_SURFACE);
     expect(result.current.backdropImageUrl).toBeNull();
   });
+
+  test("a settled query with no components still tints from the bundled creature", () => {
+    // The query settles (ready) with no data at all: components and traits null,
+    // no image. ChatAvatar draws the bundled green creature from its own
+    // fallback, so the surface tints green to match it rather than dropping to
+    // the neutral ground.
+    avatar = {
+      components: null,
+      traits: null,
+      customImageUrl: null,
+      isLoading: false,
+    };
+
+    const { result } = renderHook(() =>
+      useTakeoverSurface("primary-assistant"),
+    );
+
+    expect(result.current.ready).toBe(true);
+    expect(result.current.tintHex.toLowerCase()).toBe(GREEN_SURFACE);
+    expect(result.current.backdropImageUrl).toBeNull();
+  });
 });

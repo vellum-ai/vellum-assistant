@@ -2,6 +2,7 @@ import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { resolveAvatarAccentHex } from "@/hooks/use-avatar-accent-var";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
+import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 import { SURFACE_GROUND, avatarSurfaceHex } from "@/utils/avatar-tone";
 
 /**
@@ -58,9 +59,13 @@ export function useTakeoverSurface(
 
   const accent =
     resolveAvatarAccentHex(components, traits) ??
-    // With no traits and no image, ChatAvatar draws the first bundled color, so
-    // the surface matches that creature rather than falling through to neutral.
-    (customImageUrl ? null : (components?.colors[0]?.hex ?? null));
+    // ChatAvatar draws from `components ?? bundled`, so the surface tints from
+    // the same source it does — the first bundled color when the query settles
+    // with none — and matches whatever creature is on screen instead of falling
+    // through to neutral.
+    (customImageUrl
+      ? null
+      : ((components ?? BUNDLED_COMPONENTS).colors?.[0]?.hex ?? null));
 
   return {
     tintHex: ready && accent ? avatarSurfaceHex(accent) : SURFACE_GROUND,
