@@ -181,7 +181,9 @@ export class VelayTunnelClient {
    * Returns true when an active tunnel socket was closed.
    */
   prepareForCheckpoint(): boolean {
-    if (!this.running) return false;
+    if (!this.running) {
+      return false;
+    }
     this.reconnectHoldoffUntil = Date.now() + CHECKPOINT_RECONNECT_HOLDOFF_MS;
     this.reconnectAttempt = 0;
     if (this.reconnectTimer) {
@@ -207,7 +209,9 @@ export class VelayTunnelClient {
    */
   resumeAfterWake(): void {
     this.reconnectHoldoffUntil = 0;
-    if (!this.running || this.ws || this.connecting) return;
+    if (!this.running || this.ws || this.connecting) {
+      return;
+    }
     this.reconnectAttempt = 0;
     if (this.reconnectTimer) {
       this.timerApi.clearTimeout(this.reconnectTimer);
@@ -327,6 +331,15 @@ export class VelayTunnelClient {
       if (this.consumePendingCredentialRefresh("Velay base URL invalid")) {
         return;
       }
+      this.scheduleReconnect();
+      return;
+    }
+
+    // Re-check after the awaits above: a pre-checkpoint quiesce may have
+    // arrived while this connect was in flight, and constructing the socket
+    // now would put a doomed connection into the snapshot.
+    if (Date.now() < this.reconnectHoldoffUntil) {
+      this.connecting = false;
       this.scheduleReconnect();
       return;
     }

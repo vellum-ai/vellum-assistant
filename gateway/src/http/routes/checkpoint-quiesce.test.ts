@@ -24,6 +24,7 @@ function makeDeps(
 ): CheckpointQuiesceDeps {
   const calls = overrides.calls ?? [];
   return {
+    isPlatform: overrides.isPlatform ?? true,
     velayTunnelClient:
       "velayTunnelClient" in overrides
         ? overrides.velayTunnelClient
@@ -114,6 +115,27 @@ describe("handleCheckpointQuiesce", () => {
       velayTunnelClosed: false,
       slackSocketClosed: false,
     });
+  });
+
+  test("404s on non-platform deployments without touching any socket", async () => {
+    const calls: Array<{ method: string }> = [];
+    let velayClosed = false;
+    const deps = makeDeps({
+      calls,
+      isPlatform: false,
+      velayTunnelClient: {
+        prepareForCheckpoint: () => {
+          velayClosed = true;
+          return true;
+        },
+      },
+    });
+
+    const res = await handleCheckpointQuiesce(makeRequest(), deps);
+
+    expect(res.status).toBe(404);
+    expect(calls).toHaveLength(0);
+    expect(velayClosed).toBe(false);
   });
 
   test("rejects Velay-bridged requests", async () => {

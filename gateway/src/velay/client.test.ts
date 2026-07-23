@@ -1335,3 +1335,41 @@ describe("pre-checkpoint quiesce", () => {
     await client.stop();
   });
 });
+
+describe("pre-checkpoint quiesce vs in-flight connect", () => {
+  test("aborts an in-flight connect before the socket is constructed", async () => {
+    const sockets: FakeWebSocket[] = [];
+    const reconnectDelays: number[] = [];
+    let releaseCredentials!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      releaseCredentials = resolve;
+    });
+    const values: Record<string, string> = {
+      [credentialKey("vellum", "assistant_api_key")]: "api-key-123",
+      [credentialKey("vellum", "platform_assistant_id")]: "asst-123",
+    };
+    const credentials = {
+      get: async (key: string) => {
+        await gate;
+        return values[key];
+      },
+      onInvalidate: () => () => {},
+    } as unknown as CredentialCache;
+    const client = makeClient({ sockets, reconnectDelays, credentials });
+
+    client.start();
+    await flushPromises();
+    // Connect is in flight, blocked on the credential read.
+    expect(sockets).toHaveLength(0);
+
+    expect(client.prepareForCheckpoint()).toBe(false);
+    releaseCredentials();
+    await flushPromises();
+
+    // The in-flight connect aborted before constructing a doomed socket.
+    expect(sockets).toHaveLength(0);
+    const lastDelay = reconnectDelays[reconnectDelays.length - 1];
+    expect(lastDelay).toBeGreaterThanOrEqual(59_000);
+    await client.stop();
+  });
+});

@@ -329,7 +329,9 @@ export class SlackSocketModeClient {
    * Returns true when an active socket was closed.
    */
   prepareForCheckpoint(): boolean {
-    if (!this.running) return false;
+    if (!this.running) {
+      return false;
+    }
     this.reconnectHoldoffUntil = Date.now() + CHECKPOINT_RECONNECT_HOLDOFF_MS;
     this.reconnectAttempt = 0;
     if (this.reconnectTimer) {
@@ -660,6 +662,15 @@ export class SlackSocketModeClient {
       wsUrl = await this.getWebSocketUrl();
     } catch (err) {
       log.error({ err }, "Failed to obtain Socket Mode WebSocket URL");
+      this.connecting = false;
+      this.scheduleReconnect();
+      return;
+    }
+
+    // Re-check after the await above: a pre-checkpoint quiesce may have
+    // arrived while this connect was in flight, and constructing the socket
+    // now would put a doomed connection into the snapshot.
+    if (Date.now() < this.reconnectHoldoffUntil) {
       this.connecting = false;
       this.scheduleReconnect();
       return;

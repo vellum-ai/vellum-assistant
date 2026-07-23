@@ -21,10 +21,12 @@
  * paths. The call is strictly best-effort on the vembda side: any failure
  * here only means the capture proceeds unquiesced.
  *
- * Not authenticated: the route is only reachable from inside the cluster
- * (the Velay allowlist excludes it from the public tunnel, and the handler
- * additionally rejects tunnel-bridged and edge-proxied requests). Its effect
- * is a transient, self-healing disconnect.
+ * Exposure: the route only exists on managed-platform pods (`IS_PLATFORM`),
+ * where the gateway port is cluster-internal; self-hosted deployments (which
+ * may publish the port publicly) get a 404. The Velay allowlist excludes it
+ * from the public tunnel and the handler additionally rejects tunnel-bridged
+ * and edge-proxied requests. Its effect is a transient, self-healing
+ * disconnect.
  */
 
 import {
@@ -48,12 +50,30 @@ export type CheckpointQuiesceDeps = {
   getSlackSocketClient: () => { prepareForCheckpoint(): boolean } | null;
   /** Injectable for tests; defaults to the real IPC client. */
   callAssistant?: typeof ipcCallAssistant;
+  /** Injectable for tests; defaults to the IS_PLATFORM env detection. */
+  isPlatform?: boolean;
 };
+
+/**
+ * Pod snapshots only exist on the managed platform, where the gateway port is
+ * cluster-internal. Self-hosted deployments can expose the gateway port
+ * publicly (Docker publish, GCP firewall), so the route must not exist there.
+ */
+function isPlatformDeployment(): boolean {
+  const raw = process.env.IS_PLATFORM?.trim().toLowerCase();
+  return raw === "true" || raw === "1";
+}
 
 export async function handleCheckpointQuiesce(
   req: Request,
   deps: CheckpointQuiesceDeps,
 ): Promise<Response> {
+  // Managed-platform pods only — on self-hosted deployments the gateway port
+  // can be publicly reachable and there is no checkpoint control plane, so
+  // the route does not exist.
+  if (!(deps.isPlatform ?? isPlatformDeployment())) {
+    return errorResponse("NOT_FOUND", "not found", 404);
+  }
   // In-cluster control-plane only: never reachable through the public tunnel
   // or the self-hosted edge.
   if (req.headers.get(VELAY_FORWARDED_HEADER)) {
