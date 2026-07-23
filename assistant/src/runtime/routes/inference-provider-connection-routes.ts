@@ -45,9 +45,12 @@ import {
   resolveHostAddresses,
   resolveRequestAddress,
 } from "../../tools/network/url-safety.js";
+import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, ConflictError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
+
+const log = getLogger("routes/inference-provider-connections");
 
 // ---------------------------------------------------------------------------
 // Shared Zod schema for the ProviderConnection response shape
@@ -379,7 +382,7 @@ async function handleUpdateConnection({
   return result.connection;
 }
 
-function handleDeleteConnection({ pathParams = {} }: RouteHandlerArgs) {
+async function handleDeleteConnection({ pathParams = {} }: RouteHandlerArgs) {
   const { name } = pathParams;
   if (!name) {
     throw new BadRequestError("name is required");
@@ -464,13 +467,23 @@ function handleDeleteConnection({ pathParams = {} }: RouteHandlerArgs) {
 
   // A per-connection credential slot is owned by exactly this row, so the
   // delete removes it too. Provider-keyed and custom refs stay: they can be
-  // shared across rows. Best-effort — a vault outage leaves an orphaned
-  // secret, never a failed delete.
+  // shared across rows. Awaited so the response orders after the vault
+  // delete — a client that deletes, recreates the name, and saves a new key
+  // must never have that key erased by a still-in-flight deletion. Failures
+  // are logged, never surfaced: a vault outage leaves an orphaned secret,
+  // not a failed delete (the timeout on vault calls bounds the wait).
   if (
     existing.auth.type === "api_key" &&
     existing.auth.credential === credentialKey(name, "api_key")
   ) {
-    void deleteSecureKeyAsync(existing.auth.credential).catch(() => {});
+    try {
+      await deleteSecureKeyAsync(existing.auth.credential);
+    } catch (err) {
+      log.warn(
+        { err, connection: name, credential: existing.auth.credential },
+        "Failed to delete the connection's credential slot — secret orphaned in the vault",
+      );
+    }
   }
 
   return { ok: true as const };
