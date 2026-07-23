@@ -38,6 +38,7 @@ import {
   getHealthPort,
   getLocalSocketPath,
   getSecurityDir,
+  isAbstractSocketPath,
   type CesMode,
 } from "./paths.js";
 import { CesRpcServer, type RpcHandlerRegistry } from "./server.js";
@@ -154,11 +155,15 @@ function serveStandaloneSocket(opts: {
     onApiKeyUpdate,
   } = opts;
 
-  mkdirSync(dirname(socketPath), { recursive: true });
-  try {
-    unlinkSync(socketPath);
-  } catch {
-    // stale or absent — fine
+  // Abstract-namespace names have no on-disk presence; fs calls throw on
+  // the leading NUL byte.
+  if (!isAbstractSocketPath(socketPath)) {
+    mkdirSync(dirname(socketPath), { recursive: true });
+    try {
+      unlinkSync(socketPath);
+    } catch {
+      // stale or absent — fine
+    }
   }
 
   const netServer = createNetServer();
