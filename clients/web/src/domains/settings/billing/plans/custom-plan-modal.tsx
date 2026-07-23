@@ -1,5 +1,4 @@
 import {
-  Circle,
   CircleCheck,
   Coins,
   Computer,
@@ -367,14 +366,20 @@ export function CustomPlanModal({
                   {diff.rows.map((row) => (
                     <li key={row.key} className="flex flex-col gap-2">
                       {row.previousLabel != null && (
-                        <div className="flex items-start gap-2">
-                          <Circle
+                        // The rule is drawn across the row rather than set as a
+                        // text decoration because the design strikes the icon too.
+                        <div className="relative flex w-fit items-start gap-2">
+                          <CircleCheck
                             className="mt-0.5 h-4 w-4 shrink-0 text-[var(--content-disabled)]"
                             aria-hidden
                           />
-                          <s className="text-[14px] font-medium leading-[18px] text-[var(--content-disabled)] line-through">
+                          <s className="text-[14px] font-medium leading-[18px] text-[var(--content-disabled)] no-underline">
                             {row.previousLabel}
                           </s>
+                          <span
+                            aria-hidden
+                            className="pointer-events-none absolute -left-1 right-0 top-[9px] h-px bg-[var(--content-disabled)]"
+                          />
                         </div>
                       )}
                       <div className="flex items-start gap-2">

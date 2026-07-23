@@ -439,7 +439,7 @@ function recapRows(): string[] {
 /** Struck-through (previous-value) recap labels. */
 function strikethroughs(): string[] {
   const dialog = document.querySelector('[role="dialog"]');
-  return Array.from(dialog?.querySelectorAll("s.line-through") ?? []).map(
+  return Array.from(dialog?.querySelectorAll("s") ?? []).map(
     (el) => el.textContent?.trim() ?? "",
   );
 }
