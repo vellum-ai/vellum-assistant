@@ -42,6 +42,19 @@ mock.module("@/components/speech/voice-list", () => ({
   VoiceList: () => <div data-testid="voice-list" />,
 }));
 
+// The Voices view reads managed-voice availability (for the credits subtitle)
+// off the daemon config graph; stub it so the card renders without React Query.
+mock.module("@/components/speech/use-managed-voice-selection", () => ({
+  useManagedVoiceSelection: () => ({
+    available: true,
+    voices: [],
+    currentModel: "",
+    defaultModel: "",
+    selectModel: () => {},
+    selecting: false,
+  }),
+}));
+
 // The settings view links to Models & Services; give it a plain anchor so the
 // card renders without a Router.
 mock.module("react-router", () => ({
@@ -60,9 +73,9 @@ const { VoiceFirstRunCard } = await import(
 const SETTINGS_LINK = "Voice settings";
 
 /**
- * The dialog's current title. The settings view shares its copy with the footer
- * link, so assertions read the heading rather than matching text anywhere —
- * otherwise the link alone would satisfy them.
+ * The dialog's current title. Read the heading specifically rather than matching
+ * text anywhere — the intro's "Voice settings" link would otherwise satisfy a
+ * loose text match for the settings-view assertions.
  */
 function dialogTitle(): string {
   return document.querySelector('[data-slot="modal-title"]')?.textContent ?? "";
@@ -158,15 +171,16 @@ describe("VoiceFirstRunCard", () => {
 
       fireEvent.click(getByText(SETTINGS_LINK));
 
-      expect(dialogTitle()).toBe("Voice settings");
+      expect(dialogTitle()).toBe("Voices");
       // The view is just the voice picker plus a pointer to Models & Services,
       // where advanced/BYO provider and API-key config lives.
       expect(getByTestId("voice-list")).toBeTruthy();
       expect(getByText("Models & Services")).toBeTruthy();
-      // The voice hot-applies, so there's no Save; and this is a view swap, not
-      // an overlay — the intro's forward action is gone and there's one dialog.
+      // The voice hot-applies, so there's no Save. "Start talking" moves into
+      // this view so a pick flows straight in, and it's a view swap, not an
+      // overlay — one dialog.
       expect(queryByText("Save")).toBeNull();
-      expect(queryByText("Start talking")).toBeNull();
+      expect(getByText("Start talking")).toBeTruthy();
       expect(baseElement.querySelectorAll('[role="dialog"]').length).toBe(1);
     });
 
@@ -196,7 +210,7 @@ describe("VoiceFirstRunCard", () => {
       );
 
       fireEvent.click(getByText(SETTINGS_LINK));
-      expect(dialogTitle()).toBe("Voice settings");
+      expect(dialogTitle()).toBe("Voices");
       fireEvent.click(getByLabelText("Back"));
       expect(getByText("Start talking")).toBeTruthy();
     });

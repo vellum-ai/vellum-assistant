@@ -1,27 +1,10 @@
-// Host computer-use proxy types.
-// Enables proxying computer-use actions (click, type, screenshot, etc.)
-// to the desktop client when running as a managed assistant.
+// Host computer-use proxy events.
+//
+// Server→client events are single-sourced from their canonical `api/events`
+// wire schemas; this file only composes them into the domain union consumed by
+// `message-protocol.ts`.
 
-// === Server → Client ===
+import type { HostCuCancelEvent } from "../../api/events/host-cu.js";
+import type { HostCuRequestEvent } from "../../api/events/host-cu.js";
 
-export interface HostCuRequest {
-  type: "host_cu_request";
-  requestId: string;
-  conversationId: string;
-  targetClientId?: string;
-  toolName: string; // "computer_use_click", "computer_use_type_text", etc.
-  input: Record<string, unknown>;
-  stepNumber: number;
-  reasoning?: string;
-}
-
-export interface HostCuCancelRequest {
-  type: "host_cu_cancel";
-  requestId: string;
-  conversationId: string;
-  targetClientId?: string;
-}
-
-// --- Domain-level union aliases (consumed by the barrel file) ---
-
-export type _HostCuServerMessages = HostCuRequest | HostCuCancelRequest;
+export type _HostCuServerMessages = HostCuRequestEvent | HostCuCancelEvent;

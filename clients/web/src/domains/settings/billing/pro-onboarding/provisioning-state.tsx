@@ -11,10 +11,9 @@ import {
 
 import { ChatAvatar } from "@/components/avatar/chat-avatar";
 import type { CreditTierEnum } from "@/generated/api/types.gen";
-import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import type { CheckoutIntent } from "@/lib/billing/checkout-intent";
 import { MACHINE_TIER_LABEL, SIZE_LABEL } from "@/lib/billing/machine-sizes";
-import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+import { SURFACE_GROUND } from "@/utils/avatar-tone";
 import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
 import { Button } from "@vellumai/design-library/components/button";
 import { Typography } from "@vellumai/design-library/components/typography";
@@ -28,10 +27,12 @@ import {
   buildResourceChanges,
   type ResourceChangeKey,
 } from "./resource-changes";
+import { TakeoverBackdrop } from "./takeover-backdrop";
 import {
   useCreditTierLabel,
   useProvisioningCredits,
 } from "./use-provisioning-credits";
+import { useTakeoverSurface } from "./use-takeover-surface";
 import { useRotatingIndex } from "./use-rotating-index";
 import { useHeldPhase } from "./use-held-phase";
 import {
@@ -40,9 +41,13 @@ import {
   PROVISION_PHASE_MIN_MS,
 } from "./utils";
 
-// The mock's takeover tint, matched to the green Vellum creature. No token
-// holds this, so it follows the plans-page PAGE_BACKGROUND raw-hex precedent.
-export const TAKEOVER_BACKGROUND = "#1D271E";
+// The takeover's paint, published as a custom property on the modal so the
+// takeover and the sheet that covers it on the way out resolve one value. The
+// fallback is the hue-neutral ground the surface holds until the avatar
+// resolves. It carries no space after the comma — happy-dom's inline-style
+// parser drops the whole declaration otherwise, so the tests can't see it.
+export const TAKEOVER_SURFACE_VAR = "--takeover-surface";
+export const TAKEOVER_SURFACE = `var(${TAKEOVER_SURFACE_VAR},${SURFACE_GROUND})`;
 
 const CHIP_BACKGROUND =
   "color-mix(in srgb, var(--content-emphasised) 10%, transparent)";
@@ -200,24 +205,13 @@ function TakeoverAvatar({
   assistantId?: string | null;
   mode: AvatarMode;
 }) {
-  const activeId = useResolvedAssistantsStore.use.activeAssistantId();
-  // An explicit null is the provisioning hook saying it does not know the
-  // target yet — it withholds `primary_assistant_id` until onboarding is fresh
-  // precisely so a multi-assistant org does not aim at the active assistant
-  // when the two diverge. Only an omitted prop falls back to active; a null one
-  // stays unresolved, so the takeover never fades in a different assistant's
-  // avatar on the way to the right one.
-  const resolvedId = assistantId === undefined ? activeId : assistantId;
-  const { components, traits, customImageUrl, isLoading } =
-    useAssistantAvatar(resolvedId);
+  // `useTakeoverSurface` owns which assistant the takeover draws and when its
+  // avatar is safe to draw, so the creature and the paint around it can never
+  // disagree about either.
+  const { avatar, ready: avatarReady } = useTakeoverSurface(assistantId);
   const fallbackComponents = useBundledAvatarComponents();
   const size = useTakeoverAvatarSize();
   const laboring = mode === "working" || mode === "settling";
-  // A null id means the target assistant has not resolved yet, not that it has
-  // no avatar — and `useAssistantAvatar(null)` is a disabled query, which
-  // reports `isLoading: false` with no data. Both have to clear before there is
-  // anything safe to draw.
-  const avatarReady = resolvedId != null && !isLoading;
   // Every mode animates the wrapper or its child, so the class waits for
   // something to animate. Otherwise a phase that resolves before the fetch does
   // — likely here, since the avatar is read off the machine being restarted —
@@ -227,7 +221,7 @@ function TakeoverAvatar({
   return (
     <div
       aria-hidden
-      className={`provision-avatar-evolve flex flex-col items-center${AVATAR_MODE_CLASS[activeMode]}`}
+      className={`provision-avatar-evolve relative z-10 flex flex-col items-center${AVATAR_MODE_CLASS[activeMode]}`}
       style={
         {
           "--provision-avatar-size": `${size}px`,
@@ -242,9 +236,9 @@ function TakeoverAvatar({
               {avatarReady && (
                 <div className="provision-avatar-reveal">
                   <ChatAvatar
-                    components={components ?? fallbackComponents}
-                    traits={traits}
-                    customImageUrl={customImageUrl}
+                    components={avatar.components ?? fallbackComponents}
+                    traits={avatar.traits}
+                    customImageUrl={avatar.customImageUrl}
                     size={size}
                     isAssistantBusy={laboring}
                   />
@@ -549,6 +543,10 @@ export function ProvisioningState({
     onPhaseChangeRef.current?.(heldState);
   }, [heldState]);
 
+  // The surface commits to a hue only once the avatar query settles, and eases
+  // there over `--provision-reveal` — the same beat the avatar fades in on.
+  const { tintHex, backdropImageUrl } = useTakeoverSurface(assistantId);
+
   const dwelling = celebrating && resolved;
   useEffect(() => {
     if (!dwelling) {
@@ -561,9 +559,17 @@ export function ProvisioningState({
   return (
     <div
       data-theme="dark"
-      className="relative flex h-full min-h-[420px] w-full flex-col items-center [justify-content:safe_center] gap-10 px-6 py-10 text-center"
-      style={{ backgroundColor: TAKEOVER_BACKGROUND }}
+      className="provision-surface-settle relative flex h-full min-h-[420px] w-full flex-col items-center [justify-content:safe_center] gap-10 px-6 py-10 text-center"
+      style={
+        {
+          [TAKEOVER_SURFACE_VAR]: tintHex,
+          backgroundColor: TAKEOVER_SURFACE,
+        } as CSSProperties
+      }
     >
+      {/* An absolutely positioned layer paints over in-flow siblings, so the
+          content below carries `z-10` to sit on top of it. */}
+      {backdropImageUrl && <TakeoverBackdrop imageUrl={backdropImageUrl} />}
       <TakeoverAvatar
         assistantId={assistantId}
         mode={avatarModeFor(heldState, softWaiting)}
@@ -577,7 +583,7 @@ export function ProvisioningState({
           mid-animation. */}
       <div
         key={phaseKey}
-        className="flex min-h-[144px] w-full flex-col items-center gap-8 [animation:onboarding-step-in_420ms_ease-out] motion-reduce:[animation:none]"
+        className="relative z-10 flex min-h-[144px] w-full flex-col items-center gap-8 [animation:onboarding-step-in_420ms_ease-out] motion-reduce:[animation:none]"
       >
         {renderPhase()}
       </div>

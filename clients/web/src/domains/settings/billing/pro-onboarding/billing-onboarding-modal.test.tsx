@@ -32,6 +32,8 @@ import type {
   SubscriptionResponse,
 } from "@/generated/api/types.gen";
 import { readCheckoutIntent, saveCheckoutIntent } from "@/lib/billing/checkout-intent";
+import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
+import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 
 import * as proOnboardingUtils from "./utils";
 
@@ -55,12 +57,16 @@ mock.module("@/stores/organization-store", () => ({
 
 // Stub the takeover avatar hook so the provisioning target's avatar doesn't
 // fire (404-ing) fetches that each invalidateQueries() would await, slowing
-// the polls past the test budget.
+// the polls past the test budget. The payload is mutable so the surface tint
+// derived from it can be driven per-test.
+let avatarComponents: CharacterComponents | null = null;
+let avatarTraits: CharacterTraits | null = null;
+let avatarCustomImageUrl: string | null = null;
 mock.module("@/hooks/use-assistant-avatar", () => ({
   useAssistantAvatar: () => ({
-    components: null,
-    traits: null,
-    customImageUrl: null,
+    components: avatarComponents,
+    traits: avatarTraits,
+    customImageUrl: avatarCustomImageUrl,
     isLoading: false,
     invalidate: () => {},
   }),
@@ -251,6 +257,9 @@ mock.module("@/generated/api/sdk.gen", () => ({
 }));
 
 const { BillingOnboardingModal } = await import("./billing-onboarding-modal");
+const { TAKEOVER_SURFACE, TAKEOVER_SURFACE_VAR } = await import(
+  "./provisioning-state"
+);
 
 const BACKGROUND_LINE =
   "Assistant will go offline briefly while it resizes. Chat might not work during that time.";
@@ -299,6 +308,9 @@ function renderModal({
 }
 
 beforeEach(() => {
+  avatarComponents = null;
+  avatarTraits = null;
+  avatarCustomImageUrl = null;
   subscriptionPlanId = "base";
   onboardingResponse = makeOnboarding();
   assistantResponse = makeAssistant("small", 10);
@@ -474,6 +486,61 @@ describe("BillingOnboardingModal", () => {
     const card = document.body.querySelector('[data-slot="modal-content"]');
     expect(card?.getAttribute("data-theme")).toBeNull();
     expect(card?.className).not.toContain("w-screen");
+  });
+
+  test("the takeover and its exit sheet both paint from the modal's surface variable", async () => {
+    // The sheet covers the takeover while the modal changes shape and theme
+    // underneath it, so a second colour there would show as a cross-fade.
+    avatarComponents = BUNDLED_COMPONENTS;
+    avatarTraits = { bodyShape: "blob", eyeStyle: "curious", color: "purple" };
+    subscriptionPlanId = "pro";
+    assistantResponse = makeAssistant("large", 50);
+    const { getByText, findByTestId } = renderModal();
+
+    await waitFor(() => expect(getByText("All done!")).toBeTruthy(), {
+      timeout: 5000,
+    });
+    const content = document.body.querySelector<HTMLElement>(
+      '[data-slot="modal-content"]',
+    );
+    expect(
+      content?.style.getPropertyValue(TAKEOVER_SURFACE_VAR).toLowerCase(),
+    ).toBe("#29202e");
+    const takeover = document.body.querySelector<HTMLElement>(
+      ".provision-surface-settle",
+    );
+    expect(takeover?.style.backgroundColor).toBe(TAKEOVER_SURFACE);
+
+    const sheet = await findByTestId("takeover-exit-sheet");
+    expect(sheet.style.backgroundColor).toBe(TAKEOVER_SURFACE);
+  });
+
+  test("a custom-image takeover's exit sheet reproduces the blurred backdrop", async () => {
+    // A custom-image takeover paints its colour in a blurred backdrop, not the
+    // ground fill. The exit sheet must carry that same image, or the covering
+    // fade cross-fades the image to flat neutral — the handoff it exists to
+    // prevent.
+    avatarComponents = BUNDLED_COMPONENTS;
+    avatarCustomImageUrl = "blob:vellum/avatar-image";
+    subscriptionPlanId = "pro";
+    assistantResponse = makeAssistant("large", 50);
+    const { getByText, findByTestId } = renderModal();
+
+    await waitFor(() => expect(getByText("All done!")).toBeTruthy(), {
+      timeout: 5000,
+    });
+
+    const sheet = await findByTestId("takeover-exit-sheet");
+    const backdrop = sheet.querySelector<HTMLElement>(
+      '[data-testid="takeover-backdrop"]',
+    );
+    expect(backdrop).not.toBeNull();
+    expect(backdrop?.querySelector("img")?.getAttribute("src")).toBe(
+      "blob:vellum/avatar-image",
+    );
+    // The sheet's own fade drives the reveal here, so the backdrop must not
+    // re-fade over it.
+    expect(backdrop?.className).not.toContain("provision-avatar-reveal");
   });
 
   test(
