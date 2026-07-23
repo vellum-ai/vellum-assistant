@@ -200,7 +200,7 @@ export function BillingOnboardingModal({
 
   // Full-bleed dark content that fills the viewport for the takeover.
   const provisioningContentClass =
-    "overflow-hidden inset-0 max-w-none w-screen h-screen max-h-none rounded-none border-0";
+    "overflow-y-auto inset-0 max-w-none w-screen h-screen max-h-none rounded-none border-0";
 
   // The backdrop goes from a 50% scrim to solid black as the takeover opens.
   // Easing that colour keeps the room darkening rather than blinking; padding

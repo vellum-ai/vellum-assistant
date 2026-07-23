@@ -465,6 +465,92 @@ describe("takeover avatar", () => {
   });
 });
 
+describe("takeover avatar mode", () => {
+  /** The mode is carried as a class on the avatar's outer element. */
+  function modeClasses(container: HTMLElement): string {
+    const el = container.querySelector(".provision-avatar-evolve");
+    return el?.className ?? "";
+  }
+
+  const CASES: Array<[ProvisioningStateProps["state"], boolean, string]> = [
+    ["CONFIRMING", false, ""],
+    ["CONFIRM_TIMEOUT", false, ""],
+    ["WAITING", false, "is-working"],
+    ["RESIZING", false, "is-working"],
+    ["WAITING", true, "is-settling"],
+    ["RESIZING", true, "is-settling"],
+    ["STALLED", false, "is-stalled"],
+    ["DONE", false, "is-evolved"],
+    ["NOT_APPLICABLE", false, "is-evolved"],
+  ];
+
+  for (const [state, softWaiting, expected] of CASES) {
+    const label = softWaiting ? `${state} past the grace window` : state;
+    test(`${label} renders ${expected || "no mode class"}`, () => {
+      const { container } = renderState({ state, softWaiting });
+      const classes = modeClasses(container);
+
+      if (expected) {
+        expect(classes).toContain(expected);
+      } else {
+        for (const mode of [
+          "is-working",
+          "is-settling",
+          "is-stalled",
+          "is-evolved",
+        ]) {
+          expect(classes).not.toContain(mode);
+        }
+      }
+    });
+  }
+
+  test("steps the creature down so a short viewport keeps the actions below it", () => {
+    // The stage reserves the grown height, so a full-size creature needs about
+    // 650px before the phase block — which carries the escape hatch and the
+    // stalled retry — starts to clip out of the h-screen takeover.
+    const original = window.innerHeight;
+    Object.defineProperty(window, "innerHeight", {
+      value: 568,
+      configurable: true,
+    });
+
+    const { container } = renderState({ state: "WAITING" });
+    const el = container.querySelector<HTMLElement>(".provision-avatar-evolve");
+
+    expect(el?.style.getPropertyValue("--provision-avatar-size")).toBe("132px");
+
+    Object.defineProperty(window, "innerHeight", {
+      value: original,
+      configurable: true,
+    });
+  });
+
+  test("uses the full size when the viewport has room for it", () => {
+    const original = window.innerHeight;
+    Object.defineProperty(window, "innerHeight", {
+      value: 900,
+      configurable: true,
+    });
+
+    const { container } = renderState({ state: "WAITING" });
+    const el = container.querySelector<HTMLElement>(".provision-avatar-evolve");
+
+    expect(el?.style.getPropertyValue("--provision-avatar-size")).toBe("240px");
+
+    Object.defineProperty(window, "innerHeight", {
+      value: original,
+      configurable: true,
+    });
+  });
+
+  test("the grace window never softens a state that isn't waiting", () => {
+    const { container } = renderState({ state: "STALLED", softWaiting: true });
+
+    expect(modeClasses(container)).toContain("is-stalled");
+  });
+});
+
 describe("ProvisioningState phase hold", () => {
   test("keeps a phase on screen for its minimum before the next one shows", async () => {
     const { rerender, getByText, queryByText } = renderState({
