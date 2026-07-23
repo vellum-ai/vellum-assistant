@@ -68,7 +68,7 @@
               },
               "required": ["path", "content"]
             },
-            "description": "Optional companion files written under the skill directory, referenced from SKILL.md: references/*.md for gotchas and cached values, and scripts/* for reusable code that has already been run successfully (invoked later via python3 or bun — the only guaranteed runtimes; these are plain files, not registered skill tools). Paths must resolve inside the skill folder."
+            "description": "Optional companion files written under the skill directory, referenced from SKILL.md: references/*.md for gotchas and cached values, scripts/* for reusable code that already ran successfully. Have the body invoke scripts via the {baseDir} placeholder (e.g. `python3 {baseDir}/scripts/export-report.py`) — it resolves to the skill folder on load. Paths must resolve inside the skill folder."
           },
           "add_to_index": {
             "type": "boolean",

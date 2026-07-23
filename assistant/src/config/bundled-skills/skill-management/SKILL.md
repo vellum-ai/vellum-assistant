@@ -114,7 +114,7 @@ Past 500 lines the model loses things in the middle. Warnings get buried, branch
 Companion files ship through `scaffold_managed_skill`'s `files` input and live inside the skill folder:
 
 - **`references/*.md`** for failure modes, gotchas, and cached values the body should point to.
-- **`scripts/*`** for reusable code the procedure runs. Store the exact version that already ran successfully — verbatim, not reconstructed from memory — and have SKILL.md give the literal invocation (`python3 scripts/export-report.py <args>`, `bun run scripts/fetch-stats.ts`). Only target `python3` or `bun`; they are the only runtimes the assistant environment guarantees. Scripts are plain files invoked from the terminal at skill-use time — they are NOT registered skill tools, and companion files can never write `TOOLS.json`.
+- **`scripts/*`** for reusable code the procedure runs. Store the exact version that already ran successfully, and have the body invoke it through the `{baseDir}` placeholder (e.g. `python3 {baseDir}/scripts/export-report.py`) — `{baseDir}` resolves to the skill folder on load, and the terminal does not run from there.
 
 ## Step 6 - Test the skill before calling it done
 
