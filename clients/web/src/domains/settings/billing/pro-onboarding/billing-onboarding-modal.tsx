@@ -356,7 +356,9 @@ export function BillingOnboardingModal({
     >
       <Modal.Content
         size="md"
-        hideCloseButton
+        // The final step is terminal — nothing is in flight to interrupt, so it
+        // gets the standard dismiss. Earlier steps keep their exits in-content.
+        hideCloseButton={step !== "complete"}
         dismissOnOverlayClick={!lockTakeover}
         onEscapeKeyDown={lockTakeover ? (e) => e.preventDefault() : undefined}
         onInteractOutside={lockTakeover ? (e) => e.preventDefault() : undefined}
