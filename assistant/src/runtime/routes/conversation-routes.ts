@@ -650,6 +650,7 @@ async function tryConsumeGuardianReply(params: {
  */
 function buildQueuedMessagePayloads(
   conversationId: string,
+  includeAttachmentContent: boolean,
 ): RuntimeMessagePayload[] {
   const conversation = findConversation(conversationId);
   if (!conversation) {
@@ -672,10 +673,14 @@ function buildQueuedMessagePayloads(
           sizeBytes:
             a.sizeBytes ?? (a.data ? Math.floor((a.data.length * 3) / 4) : 0),
           kind: classifyKind(a.mimeType),
-          ...(a.mimeType.startsWith("image/") && a.data
+          ...(includeAttachmentContent &&
+          a.mimeType.startsWith("image/") &&
+          a.data
             ? { data: a.data }
             : {}),
-          ...(a.thumbnailData ? { thumbnailData: a.thumbnailData } : {}),
+          ...(includeAttachmentContent && a.thumbnailData
+            ? { thumbnailData: a.thumbnailData }
+            : {}),
         }),
       );
 
@@ -737,6 +742,7 @@ export function handleListMessages({
   const beforeTimestampRaw = queryParams?.beforeTimestamp;
   const limitRaw = queryParams?.limit;
   const pageRaw = queryParams?.page;
+  const attachmentContentRaw = queryParams?.attachmentContent;
 
   // Validate: reject NaN values with 400
   if (beforeTimestampRaw != null && isNaN(Number(beforeTimestampRaw))) {
@@ -748,7 +754,13 @@ export function handleListMessages({
   if (pageRaw != null && pageRaw !== "latest") {
     throw new BadRequestError("page must be 'latest' when provided");
   }
+  if (attachmentContentRaw != null && attachmentContentRaw !== "metadata") {
+    throw new BadRequestError(
+      "attachmentContent must be 'metadata' when provided",
+    );
+  }
   const isLatestPage = pageRaw === "latest";
+  const includeAttachmentContent = attachmentContentRaw !== "metadata";
 
   if (!resolvedConversationId) {
     // Unresolved conversation keys still need to advertise the stable
@@ -987,7 +999,9 @@ export function handleListMessages({
     if (m.id) {
       const idsToQuery = [m.id, ...mergedMessageIds];
       const linked = idsToQuery.flatMap((id) =>
-        getAttachmentMetadataForMessage(id),
+        getAttachmentMetadataForMessage(id, {
+          includeThumbnail: includeAttachmentContent,
+        }),
       );
       if (linked.length > 0) {
         msgAttachments = linked.map((a) => {
@@ -1001,7 +1015,7 @@ export function handleListMessages({
           const isImage = a.mimeType.startsWith("image/");
           const isLegacyHeic = !isImage && isHeicFilename(a.originalFilename);
           const full =
-            isImage || isLegacyHeic
+            includeAttachmentContent && (isImage || isLegacyHeic)
               ? getAttachmentById(a.id, { hydrateFileData: true })
               : null;
           const display = full?.dataBase64
@@ -1043,6 +1057,7 @@ export function handleListMessages({
       m.content,
       attachmentBlocks,
       m.id ?? undefined,
+      { includeMediaData: includeAttachmentContent },
     );
 
     const toolCalls = enrichToolCallsWithQuestion(
@@ -1180,7 +1195,12 @@ export function handleListMessages({
   // yet persisted, so they belong only on a request for the latest content —
   // never on an older-history page (`beforeTimestamp` set).
   if (beforeTimestamp == null) {
-    messages.push(...buildQueuedMessagePayloads(resolvedConversationId));
+    messages.push(
+      ...buildQueuedMessagePayloads(
+        resolvedConversationId,
+        includeAttachmentContent,
+      ),
+    );
   }
 
   if (isPaginated) {
@@ -2908,6 +2928,13 @@ export const ROUTES: RouteDefinition[] = [
         type: "integer",
         required: false,
         description: "Maximum number of messages to return.",
+      },
+      {
+        name: "attachmentContent",
+        required: false,
+        description:
+          "Set to 'metadata' to omit attachment and tool-image bytes while retaining stable references and metadata.",
+        schema: { type: "string", enum: ["metadata"] },
       },
     ],
     responseBody: z.object({

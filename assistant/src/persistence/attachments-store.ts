@@ -1167,7 +1167,9 @@ export function getAttachmentsForMessage(
     .orderBy(messageAttachments.position)
     .all();
 
-  if (links.length === 0) return [];
+  if (links.length === 0) {
+    return [];
+  }
 
   const ids = links
     .map((l) => l.attachmentId)
@@ -1183,8 +1185,29 @@ export function getAttachmentsForMessage(
  */
 export function getAttachmentMetadataForMessage(
   messageId: string,
+  options?: { includeThumbnail?: boolean },
 ): StoredAttachment[] {
   const db = getDb();
+  if (options?.includeThumbnail === false) {
+    return db
+      .select({
+        id: attachments.id,
+        originalFilename: attachments.originalFilename,
+        mimeType: attachments.mimeType,
+        sizeBytes: attachments.sizeBytes,
+        kind: attachments.kind,
+        createdAt: attachments.createdAt,
+      })
+      .from(messageAttachments)
+      .innerJoin(
+        attachments,
+        eq(messageAttachments.attachmentId, attachments.id),
+      )
+      .where(eq(messageAttachments.messageId, messageId))
+      .orderBy(messageAttachments.position)
+      .all()
+      .map((row) => ({ ...row, thumbnailBase64: null }));
+  }
   const links = db
     .select({ attachmentId: messageAttachments.attachmentId })
     .from(messageAttachments)
@@ -1192,11 +1215,15 @@ export function getAttachmentMetadataForMessage(
     .orderBy(messageAttachments.position)
     .all();
 
-  if (links.length === 0) return [];
+  if (links.length === 0) {
+    return [];
+  }
 
   const results: StoredAttachment[] = [];
   for (const link of links) {
-    if (!link.attachmentId) continue;
+    if (!link.attachmentId) {
+      continue;
+    }
     const row = db
       .select({
         id: attachments.id,
@@ -1210,7 +1237,9 @@ export function getAttachmentMetadataForMessage(
       .from(attachments)
       .where(eq(attachments.id, link.attachmentId))
       .get();
-    if (row) results.push(row);
+    if (row) {
+      results.push(row);
+    }
   }
   return results;
 }

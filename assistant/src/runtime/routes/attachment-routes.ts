@@ -33,6 +33,7 @@ import {
   validateAttachmentUpload,
 } from "../../persistence/attachments-store.js";
 import {
+  isHeicFilename,
   isHeifImage,
   jpegFilenameFor,
   normalizeImageBytes,
@@ -55,6 +56,18 @@ const MAX_UPLOAD_BODY_BYTES = 150 * 1024 * 1024;
 
 /** 100 MB — maximum file size for file-backed uploads (matches client memorySafetyLimit). */
 const MAX_FILE_BACKED_UPLOAD_BYTES = 100 * 1024 * 1024;
+
+const BROWSER_DISPLAY_IMAGE_MIME_TYPES = new Set([
+  "image/avif",
+  "image/bmp",
+  "image/gif",
+  "image/jpeg",
+  "image/png",
+  "image/svg+xml",
+  "image/vnd.microsoft.icon",
+  "image/webp",
+  "image/x-icon",
+]);
 
 /** Read the first `length` bytes of a file without loading the rest. */
 function readFileHead(path: string, length: number): Buffer {
@@ -506,16 +519,69 @@ function handleGetAttachmentRoute({ pathParams }: RouteHandlerArgs) {
   };
 }
 
+function displayAttachmentResponse(
+  mimeType: string,
+  originalBytes: Uint8Array,
+): RouteResponse {
+  const originalIsHeif = isHeifImage(originalBytes);
+  const normalized = normalizeImageBytes(mimeType, originalBytes);
+  if (originalIsHeif && !normalized.converted) {
+    throw new UnsupportedMediaTypeError(
+      "A browser-displayable representation is unavailable for this HEIF attachment",
+    );
+  }
+  if (!BROWSER_DISPLAY_IMAGE_MIME_TYPES.has(normalized.mimeType)) {
+    throw new UnsupportedMediaTypeError(
+      `A browser-displayable representation is unavailable for ${normalized.mimeType}`,
+    );
+  }
+  const bytes = Buffer.from(normalized.bytes);
+  return new RouteResponse(bytes, {
+    "Content-Type": normalized.mimeType,
+    "Content-Length": String(bytes.length),
+    "Accept-Ranges": "none",
+  });
+}
+
+function assertDisplayRequestSupported(
+  filename: string,
+  mimeType: string,
+  rangeHeader: string | undefined,
+): void {
+  if (rangeHeader) {
+    throw new RangeNotSatisfiableError(
+      "Range requests are not supported for display representations",
+    );
+  }
+  if (!mimeType.startsWith("image/") && !isHeicFilename(filename)) {
+    throw new UnsupportedMediaTypeError(
+      "Display representations are available only for image attachments",
+    );
+  }
+}
+
 /**
- * Serve raw file bytes for an attachment. For file-backed attachments this
- * streams from disk; for inline attachments it decodes the base64 data.
- * Supports Range headers for video seeking.
+ * Serve original bytes for an attachment, streaming file-backed content and
+ * decoding legacy inline base64. The optional display representation prepares
+ * image bytes for browsers. Original content supports Range for video seeking.
  */
 function handleGetAttachmentContentRoute({
   pathParams,
+  queryParams,
   headers = {},
 }: RouteHandlerArgs): RouteResponse {
   const attachmentId = pathParams!.id;
+  const representation = queryParams?.representation;
+  if (
+    representation !== undefined &&
+    representation !== "original" &&
+    representation !== "display"
+  ) {
+    throw new BadRequestError(
+      "representation must be 'original' or 'display' when provided",
+    );
+  }
+  const displayRepresentation = representation === "display";
   const filePath = getFilePathForAttachment(attachmentId);
   const isFileBacked = !!filePath;
 
@@ -532,6 +598,18 @@ function handleGetAttachmentContentRoute({
     }
     if (!existsSync(resolvedPath)) {
       throw new NotFoundError("Recording file not found on disk");
+    }
+
+    if (displayRepresentation) {
+      assertDisplayRequestSupported(
+        attachment.originalFilename,
+        attachment.mimeType,
+        headers["range"],
+      );
+      return displayAttachmentResponse(
+        attachment.mimeType,
+        readFileSync(resolvedPath),
+      );
     }
 
     const file = Bun.file(resolvedPath);
@@ -592,7 +670,18 @@ function handleGetAttachmentContentRoute({
     throw new NotFoundError("No content available");
   }
 
+  if (displayRepresentation) {
+    assertDisplayRequestSupported(
+      attachment.originalFilename,
+      attachment.mimeType,
+      headers["range"],
+    );
+  }
+
   const buffer = Buffer.from(attachment.dataBase64, "base64");
+  if (displayRepresentation) {
+    return displayAttachmentResponse(attachment.mimeType, buffer);
+  }
   return new RouteResponse(buffer, {
     "Content-Type": attachment.mimeType,
     "Content-Length": String(buffer.length),
@@ -726,14 +815,25 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Get attachment content",
     description:
-      "Serve raw file bytes for an attachment. Supports Range headers.",
+      "Serve original attachment bytes by default. Set representation=display for browser-displayable image bytes; display representations do not support Range requests.",
     tags: ["attachments"],
+    queryParams: [
+      {
+        name: "representation",
+        required: false,
+        description:
+          "Content representation. 'original' preserves stored bytes and Range behavior; 'display' returns browser-displayable bytes and rejects Range requests.",
+        schema: { type: "string", enum: ["original", "display"] },
+      },
+    ],
     responseStatus: ({ headers }) => (headers?.["range"] ? "206" : "200"),
     responseBody: {
       contentType: "application/octet-stream",
       schema: { type: "string", format: "binary" },
     },
     additionalResponses: {
+      "400": { description: "Invalid representation" },
+      "415": { description: "Display representation unavailable" },
       "416": { description: "Range Not Satisfiable" },
     },
     handler: handleGetAttachmentContentRoute,
