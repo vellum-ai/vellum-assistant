@@ -14,6 +14,7 @@ import { MemoryRouter, useLocation } from "react-router";
 
 import * as sdkGen from "@/generated/api/sdk.gen";
 import * as browserRuntime from "@/runtime/browser";
+import * as orgReadyMod from "@/hooks/use-is-org-ready";
 import * as platformGateMod from "@/hooks/use-platform-gate";
 import type { PlatformGateState } from "@/hooks/use-platform-gate";
 
@@ -25,6 +26,8 @@ const upgradeCalls: Captured[] = [];
 let openedUrl: string | null = null;
 // Gate value the mocked `usePlatformGate` returns (default: session-only full).
 let gateValue: PlatformGateState = "full";
+// Org-readiness the mocked `useIsOrgReady` returns (default: hydrated/ready).
+let orgReadyValue = true;
 // When true the upgrade rejects — drives the error path. Otherwise it resolves
 // with `upgradeData`.
 let upgradeRejects = false;
@@ -58,6 +61,11 @@ mock.module("@/hooks/use-platform-gate", () => ({
   usePlatformGate: () => gateValue,
 }));
 
+mock.module("@/hooks/use-is-org-ready", () => ({
+  ...orgReadyMod,
+  useIsOrgReady: () => orgReadyValue,
+}));
+
 const { CheckoutPage } = await import("./checkout-page");
 
 function LocationProbe() {
@@ -83,6 +91,7 @@ beforeEach(() => {
   upgradeCalls.length = 0;
   openedUrl = null;
   gateValue = "full";
+  orgReadyValue = true;
   upgradeRejects = false;
   upgradeData = { status: "redirect", checkout_url: CHECKOUT_URL, message: "" };
   sessionStorage.removeItem(INTENT_KEY);
@@ -113,6 +122,37 @@ describe("CheckoutPage", () => {
       kind: "package",
       packageKey: "super",
     });
+  });
+
+  test("holds the upgrade until org is ready, then fires once it hydrates", async () => {
+    orgReadyValue = false;
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    // A fresh element each render so the rerender doesn't hit React's
+    // same-reference bailout and actually re-reads the org-readiness value.
+    const makeTree = () => (
+      <MemoryRouter initialEntries={["/assistant/checkout?package=super"]}>
+        <QueryClientProvider client={client}>
+          <CheckoutPage />
+        </QueryClientProvider>
+        <LocationProbe />
+      </MemoryRouter>
+    );
+    const { getByLabelText, getByTestId, rerender } = render(makeTree());
+
+    // Org store not yet hydrated: the spinner shows, nothing fires, and the
+    // route holds instead of redirecting.
+    getByLabelText("Preparing checkout");
+    expect(upgradeCalls.length).toBe(0);
+    expect(getByTestId("loc").textContent).toBe(
+      "/assistant/checkout?package=super",
+    );
+
+    // Once the org id lands, the upgrade fires exactly once.
+    orgReadyValue = true;
+    rerender(makeTree());
+    await waitFor(() => expect(upgradeCalls.length).toBe(1));
   });
 
   test("a no_op result navigates to plans and stashes no intent", async () => {

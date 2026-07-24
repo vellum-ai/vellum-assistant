@@ -5,6 +5,7 @@ import { Link, useNavigate, useSearchParams } from "react-router";
 import { useMutation } from "@tanstack/react-query";
 
 import { organizationsBillingSubscriptionUpgradeCreateMutation } from "@/generated/api/@tanstack/react-query.gen";
+import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { saveCheckoutIntent } from "@/lib/billing/checkout-intent";
 import { checkoutReturnTarget } from "@/lib/billing/checkout-return-target";
@@ -35,6 +36,10 @@ export function CheckoutPage() {
   // Default (session-only) gate: a signed-in platform session reads `"full"`
   // even without an active assistant. See `use-platform-gate.ts`.
   const gate = usePlatformGate();
+  // The request interceptor reads `Vellum-Organization-Id` from the org store,
+  // which hydrates asynchronously after auth. On a cold deep link the platform
+  // session can settle before the org id lands, so gate the fire on this too.
+  const isOrgReady = useIsOrgReady();
 
   const { mutateAsync } = useMutation(
     organizationsBillingSubscriptionUpgradeCreateMutation(),
@@ -76,12 +81,15 @@ export function CheckoutPage() {
       navigate(routes.plans, { replace: true });
       return;
     }
-    if (gate !== "full" || startedRef.current) {
+    // Hold until the platform gate is full AND the org store is ready. Firing
+    // before the org id hydrates sends a header-less request that fails; the
+    // "Preparing checkout…" spinner keeps showing meanwhile.
+    if (gate !== "full" || !isOrgReady || startedRef.current) {
       return;
     }
     startedRef.current = true;
     void runCheckout();
-  }, [gate, navigate, packageKey, runCheckout]);
+  }, [gate, isOrgReady, navigate, packageKey, runCheckout]);
 
   if (failed) {
     return (

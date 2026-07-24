@@ -535,6 +535,21 @@ describe("resolveNavigation", () => {
       ).toEqual(ALLOW);
     });
 
+    // Checkout is exempt from the no-assistant funnel, NOT from consent: a
+    // no-assistant user with a stale consent toggle deep-linking to checkout is
+    // routed to review-terms first, never straight into a paid Stripe session.
+    test("routes a stale-consent no-assistant user off /assistant/checkout to review-terms", () => {
+      expect(
+        guard(
+          s({ hasAssistants: false, analyticsConsentCurrent: false }),
+          "/assistant/checkout?package=super",
+        ),
+      ).toEqual({
+        action: "redirect",
+        to: "/assistant/review-terms?returnTo=%2Fassistant%2Fcheckout%3Fpackage%3Dsuper",
+      });
+    });
+
     test("still funnels a no-assistant user returning to a billing URL", () => {
       expect(
         guard(
