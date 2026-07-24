@@ -191,8 +191,8 @@ export function BillingOnboardingModal({
   // recently-cached list without a refetch. Force one refetch for this open the
   // moment the query is enabled, exactly as use-pro-provisioning invalidates the
   // subscription and onboarding queries on open; without it a fresh-enough cache
-  // never advances `domainsUpdatedAt` past the fence and routing can only fall
-  // through the escape hatch.
+  // never advances `domainsUpdatedAt` past the fence and routing strands,
+  // leaving the escape CTA (which closes the takeover) as the only way out.
   //
   // `assistantId` can CHANGE mid-open: `provisioning.assistantId` starts on the
   // active assistant and flips to the onboarding payload's primary once that
@@ -243,9 +243,10 @@ export function BillingOnboardingModal({
     !domainsFetching && (domainsFreshData || domainsFreshError);
   // Routing must never use a stale domain_setup_available: until the first
   // post-confirm fetch settles, TanStack may still serve pre-checkout cached
-  // data. Both the celebration dwell and the escape hatch wait on this.
-  // Latched: once fresh data has landed, a later background refetch must not
-  // yank the escape hatch or restart the dwell.
+  // data. The celebration dwell and the DONE advance wait on this; the escape
+  // CTA does not — it gates only on the machine being busy and the escape
+  // window having elapsed. Latched: once fresh data has landed, a later
+  // background refetch must not restart the dwell or flip the routing decision.
   const [routingSettled, setRoutingSettled] = useState(false);
   const routingInputsSettled =
     onboardingSettled && (!domainAnswerNeeded || domainsKnown);
