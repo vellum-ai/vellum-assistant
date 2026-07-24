@@ -122,8 +122,13 @@ describe("parseServerFrame", () => {
   });
 
   test("passes through a known-type frame missing a field (only the type discriminator is validated)", () => {
+    // Deliberately not a well-formed LiveVoiceMinimizeRoomServerFrame (no
+    // turnId) — the parser validates only the type discriminator, so the raw
+    // object passes through unchanged. The cast reflects that documented gap.
     const raw = { type: "minimize_room", seq: 21 };
-    expect(parseServerFrame(JSON.stringify(raw))).toEqual(raw);
+    expect(parseServerFrame(JSON.stringify(raw))).toEqual(
+      raw as unknown as LiveVoiceServerFrame,
+    );
   });
 
   test("round-trips utterance_end with a max-duration reason", () => {
