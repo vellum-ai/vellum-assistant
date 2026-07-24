@@ -7,6 +7,7 @@ const deliveredChannelReplies: Array<{
 const markedProcessedEvents: string[] = [];
 const processingFailureEvents: string[] = [];
 const retryableFailureEvents: string[] = [];
+const deferredRetryEvents: string[] = [];
 const deliveredEvents: string[] = [];
 const deliveryFailureEvents: string[] = [];
 const deliveredSegmentCounts: Array<{ eventId: string; count: number }> = [];
@@ -70,6 +71,10 @@ mock.module("../../../persistence/delivery-status.js", () => ({
     operationOrder.push("retryable-failure");
     retryableFailureEvents.push(eventId);
   },
+  deferRetryUntilIdle: (eventId: string) => {
+    operationOrder.push("defer-retry");
+    deferredRetryEvents.push(eventId);
+  },
   getSiblingEventDeliveryStatuses: () => siblingDeliveryStatuses,
 }));
 
@@ -125,6 +130,7 @@ beforeEach(() => {
   markedProcessedEvents.length = 0;
   processingFailureEvents.length = 0;
   retryableFailureEvents.length = 0;
+  deferredRetryEvents.length = 0;
   deliveredEvents.length = 0;
   deliveryFailureEvents.length = 0;
   deliveredSegmentCounts.length = 0;
@@ -841,7 +847,9 @@ describe("processChannelMessageInBackground — admission (queue if busy)", () =
 
     await flush();
 
-    expect(retryableFailureEvents).toEqual(["evt-admission-busy-race"]);
+    // Re-scheduled for the sweep without burning an attempt or dead-lettering.
+    expect(deferredRetryEvents).toEqual(["evt-admission-busy-race"]);
+    expect(retryableFailureEvents).toEqual([]);
     expect(processingFailureEvents).toEqual([]);
     expect(markedProcessedEvents).toEqual([]);
     expect(deliveredEvents).toEqual([]);

@@ -969,8 +969,45 @@ describe("channel-retry-sweep", () => {
       .from(channelInboundEvents)
       .where(eq(channelInboundEvents.id, eventId))
       .get();
-    // Retryable (a later sweep reprocesses once idle) — never dead-lettered.
+    // Retryable (a later sweep reprocesses once idle) — never dead-lettered,
+    // and the defer does NOT burn a retry attempt, so a conversation that stays
+    // busy across many sweeps can never exhaust the budget and drop the reply.
     expect(row?.processingStatus).toBe("failed");
-    expect(row?.processingAttempts).toBe(2); // 1 (seed) + 1 (this defer)
+    expect(row?.processingAttempts).toBe(1); // seed value, unchanged by the defer
+    // retry_after was pushed into the future so it is not re-selected in a loop.
+    expect(row?.retryAfter).toBeGreaterThan(Date.now());
+  });
+
+  test("re-defers a mid-turn retry across many sweeps without ever dead-lettering", async () => {
+    const eventId = seedFailedEventWithTrustClass("guardian");
+    const conversationId = getDb()
+      .select({ conversationId: channelInboundEvents.conversationId })
+      .from(channelInboundEvents)
+      .where(eq(channelInboundEvents.id, eventId))
+      .get()!.conversationId;
+    setConversation(conversationId, {
+      isProcessing: () => true,
+    } as unknown as Conversation);
+
+    const noopProcess = async () => ({ messageId: "should-not-run" });
+    // Far more sweeps than RETRY_MAX_ATTEMPTS (8): the old attempt-burning defer
+    // would have dead-lettered the event long before this loop finishes.
+    for (let i = 0; i < 20; i++) {
+      // Each sweep only selects events whose retry_after has elapsed; force it.
+      getDb()
+        .update(channelInboundEvents)
+        .set({ retryAfter: Date.now() - 1 })
+        .where(eq(channelInboundEvents.id, eventId))
+        .run();
+      await sweepFailedEvents(noopProcess);
+    }
+
+    const row = getDb()
+      .select()
+      .from(channelInboundEvents)
+      .where(eq(channelInboundEvents.id, eventId))
+      .get();
+    expect(row?.processingStatus).toBe("failed"); // never dead_letter
+    expect(row?.processingAttempts).toBe(1); // still unburned
   });
 });

@@ -7,10 +7,7 @@ import {
   parseChannelId,
   parseInterfaceId,
 } from "../channels/types.js";
-import {
-  CONVERSATION_BUSY_MESSAGE,
-  isConversationBusyError,
-} from "../daemon/conversation-messaging.js";
+import { isConversationBusyError } from "../daemon/conversation-messaging.js";
 import { findConversation } from "../daemon/conversation-registry.js";
 import { getDiskPressureStatus } from "../daemon/disk-pressure-guard.js";
 import { classifyDiskPressureTurnPolicy } from "../daemon/disk-pressure-policy.js";
@@ -23,6 +20,7 @@ import {
   storeReplyMessageId,
 } from "../persistence/delivery-crud.js";
 import {
+  deferRetryUntilIdle,
   getRetryableDeliveryEvents,
   getRetryableEvents,
   markDeliveryDelivered,
@@ -314,15 +312,17 @@ export async function sweepFailedEvents(
     // Defer — don't dead-letter — a retry whose conversation is mid-turn. The
     // sweep runs turns directly (no admission gate), so reprocessing a busy
     // conversation throws the busy error, and `recordProcessingFailure`
-    // classifies that as fatal → `dead_letter`. Re-mark it retryable so a later
-    // sweep reprocesses once the lock frees. This is the sweep-side counterpart
-    // to the inbound defer-until-idle admission in `channel-turn-admission.ts`.
+    // classifies that as fatal → `dead_letter`. Re-schedule it without burning a
+    // retry attempt (`deferRetryUntilIdle`) so a long in-flight turn can never
+    // exhaust the budget and drop the reply; a later sweep reprocesses once the
+    // lock frees. This is the sweep-side counterpart to the inbound
+    // defer-until-idle admission in `channel-turn-admission.ts`.
     if (findConversation(event.conversationId)?.isProcessing()) {
       log.info(
         { eventId: event.id, conversationId: event.conversationId },
         "Channel retry deferred: conversation is mid-turn",
       );
-      markRetryableFailure(event.id, CONVERSATION_BUSY_MESSAGE);
+      deferRetryUntilIdle(event.id);
       continue;
     }
 
@@ -358,12 +358,13 @@ export async function sweepFailedEvents(
     } catch (err) {
       if (isConversationBusyError(err)) {
         // The conversation took its processing lock between the pre-check above
-        // and this call. Same treatment: retryable, never a fatal dead-letter.
+        // and this call. Same treatment: re-schedule without burning an attempt,
+        // never a fatal dead-letter.
         log.info(
           { eventId: event.id, conversationId: event.conversationId },
           "Channel retry hit the processing lock; deferring to a later sweep",
         );
-        markRetryableFailure(event.id, CONVERSATION_BUSY_MESSAGE);
+        deferRetryUntilIdle(event.id);
         continue;
       }
       log.error({ err, eventId: event.id }, "Retry failed for channel event");

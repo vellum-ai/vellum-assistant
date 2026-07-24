@@ -17,6 +17,14 @@ import {
 import { channelInboundEvents } from "./schema.js";
 
 /**
+ * How long {@link deferRetryUntilIdle} pushes `retryAfter` forward. Shorter than
+ * the retry sweep's own interval so a busy-deferred event is re-evaluated on the
+ * next sweep (and delivered soon after its conversation frees the lock), without
+ * being re-selected in a tight loop within a single sweep run.
+ */
+const BUSY_DEFER_RETRY_DELAY_MS = 15_000;
+
+/**
  * Acknowledge delivery of an outbound message for a channel event.
  */
 export function acknowledgeDelivery(
@@ -214,6 +222,35 @@ export function markRetryableFailure(
       .where(eq(channelInboundEvents.id, eventId))
       .run();
   }
+}
+
+/**
+ * Reschedule a retryable channel event for a later sweep WITHOUT consuming its
+ * processing-attempt budget or ever dead-lettering it.
+ *
+ * Used when a channel turn is deferred purely because its conversation is
+ * mid-turn (lock contention) — the turn never ran, so it is not a processing
+ * failure and must not count toward {@link RETRY_MAX_ATTEMPTS}. Counting it would
+ * dead-letter (silently drop) the deferred reply once a conversation stayed busy
+ * across ~8 sweeps — the exact failure this defer path exists to prevent. Keeps
+ * `processingStatus = 'failed'` so the sweep re-selects the event (promoting a
+ * still-`pending` orphan onto the retry path), leaves `processingAttempts`
+ * untouched, and pushes `retryAfter` forward so it is not re-selected in a tight
+ * loop. A conversation that stays busy indefinitely re-defers indefinitely
+ * rather than dropping the reply — matching the event-driven inbound admission
+ * gate, which also waits without a deadline.
+ */
+export function deferRetryUntilIdle(eventId: string): void {
+  const db = getDb();
+  const now = Date.now();
+  db.update(channelInboundEvents)
+    .set({
+      processingStatus: "failed",
+      retryAfter: now + BUSY_DEFER_RETRY_DELAY_MS,
+      updatedAt: now,
+    })
+    .where(eq(channelInboundEvents.id, eventId))
+    .run();
 }
 
 /** Fetch events eligible for automatic retry (failed + past their backoff). */
