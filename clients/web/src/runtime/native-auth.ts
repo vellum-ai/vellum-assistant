@@ -7,6 +7,8 @@ import {
 } from "@/domains/account/social-auth";
 import { sanitizeReturnTo } from "@/domains/account/return-to";
 import { getSession } from "@/lib/auth/allauth-client";
+import { saveCheckoutIntent } from "@/lib/billing/checkout-intent";
+import { checkoutPackageFromDestination } from "@/lib/navigation/navigation-resolver";
 import { isPlatformLocal, startLoopbackAuth } from "@/lib/auth/loopback-auth";
 import { isLocalMode } from "@/lib/local-mode";
 import { isElectron } from "@/runtime/is-electron";
@@ -220,6 +222,27 @@ export function getSessionTokenFromCookies(): string | null {
 }
 
 /**
+ * Post-auth destination for the native (Capacitor/Electron) flows, mirroring
+ * the web `resolvePostAuth` path. A signup always routes through consent
+ * (privacy) first; before doing so it stashes any pricing-CTA checkout package
+ * from the `returnTo` so the consent screen can resume checkout afterward. A
+ * login keeps its sanitized `returnTo`.
+ */
+export function resolveNativePostAuthDestination(
+  intent: string | undefined,
+  returnTo: string | null | undefined,
+): string | null {
+  if (intent !== "signup") {
+    return returnTo ?? null;
+  }
+  const packageKey = checkoutPackageFromDestination(returnTo ?? "");
+  if (packageKey) {
+    saveCheckoutIntent({ kind: "package", packageKey });
+  }
+  return routes.onboarding.privacy;
+}
+
+/**
  * Unified auth-flow entry point that transparently chooses between the
  * native iOS plugin path and the web form-POST path.
  *
@@ -242,10 +265,10 @@ export async function startAuthFlow(
   if (isNativePlatform()) {
     try {
       await startNativeLogin({
-        returnTo:
-          options.intent === "signup"
-            ? routes.onboarding.privacy
-            : options.returnTo ?? null,
+        returnTo: resolveNativePostAuthDestination(
+          options.intent,
+          options.returnTo,
+        ),
         loginHint: options.loginHint,
         intent: options.intent,
       });
@@ -277,9 +300,7 @@ export async function startAuthFlow(
         primeElectronSessionToken(result.sessionToken);
         await setMenuPlatformSession(true);
         const destination = sanitizeReturnTo(
-          options.intent === "signup"
-            ? routes.onboarding.privacy
-            : options.returnTo ?? null,
+          resolveNativePostAuthDestination(options.intent, options.returnTo),
           DEFAULT_POST_AUTH_DESTINATION,
         );
         window.location.href = destination;

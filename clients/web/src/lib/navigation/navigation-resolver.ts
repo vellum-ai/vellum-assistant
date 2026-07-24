@@ -433,8 +433,9 @@ function isImportFunnelDestination(destination: string): boolean {
 
 // The `package` slug of a deep-link checkout destination
 // (`/assistant/checkout?package=`), or null when the destination is not a
-// checkout link or carries no package.
-function checkoutPackageFromDestination(destination: string): string | null {
+// checkout link or carries no package. Shared with the native signup paths so
+// they stash the same package before routing through consent.
+export function checkoutPackageFromDestination(destination: string): string | null {
   let url: URL;
   try {
     url = new URL(destination, "http://placeholder.invalid");
