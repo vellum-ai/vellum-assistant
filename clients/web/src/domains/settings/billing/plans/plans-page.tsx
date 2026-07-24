@@ -128,9 +128,15 @@ function customCurrentSummary(current: CurrentTiers, proPlan: ProPlan): string {
   if (current.storageGib != null) {
     parts.push(`${current.storageGib} GB`);
   }
-  const creditLabel = findCreditTier(proPlan, current.creditTier)?.label;
-  if (creditLabel != null) {
-    parts.push(creditLabel);
+  if (current.creditTier != null) {
+    // A held/deprecated credit tier absent from the catalog can't resolve to a
+    // catalog label; derive the amount from the tier key (credits_<usd>) so the
+    // paid bundle still shows instead of being silently dropped.
+    const usd = current.creditTier.match(/^credits_(\d+)$/)?.[1];
+    parts.push(
+      findCreditTier(proPlan, current.creditTier)?.label ??
+        (usd != null ? `${usd} credits` : "Credit bundle"),
+    );
   }
   return parts.join(" · ");
 }

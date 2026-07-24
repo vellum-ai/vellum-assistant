@@ -937,6 +937,18 @@ describe("PlansPage — Custom row current-plan marker", () => {
     await findByText("Medium Machine · 10 GB · 50 credits");
   });
 
+  test("a custom sub holding a deprecated credit tier shows a derived credit label", async () => {
+    // credits_45 is a valid tier the sub holds but the catalog no longer lists,
+    // so the summary derives "45 credits" from the key instead of dropping it.
+    const { findByText } = renderInteractive(
+      { ...proCustomizedWithCredits(), selected_credit_tier: "credits_45" },
+      { plans: customCatalog() },
+    );
+
+    await findByText("Your Current Plan");
+    await findByText("Medium Machine · 10 GB · 45 credits");
+  });
+
   test("a clean-pinned Pro sub sees no marker on the Custom row", async () => {
     const { findByRole, queryByText } = renderInteractive(
       proMightySubscription(),
