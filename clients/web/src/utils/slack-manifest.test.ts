@@ -23,7 +23,9 @@ describe("oauth scopes", () => {
   });
 
   it("exposes the full bot request to the scope-drift probe", () => {
-    expect([...SLACK_MANIFEST_BOT_SCOPES].sort()).toEqual([...scopes.bot].sort());
+    expect([...SLACK_MANIFEST_BOT_SCOPES].sort()).toEqual(
+      [...scopes.bot].sort(),
+    );
   });
 
   it("requests no duplicate scopes", () => {
@@ -62,8 +64,12 @@ describe("field limits", () => {
   });
 
   it("clamps the name to 35 characters and falls back when blank", () => {
-    expect(buildSlackManifest("A".repeat(50)).display_information.name).toHaveLength(35);
-    expect(buildSlackManifest("   ").display_information.name).toBe("My Assistant");
+    expect(
+      buildSlackManifest("A".repeat(50)).display_information.name,
+    ).toHaveLength(35);
+    expect(buildSlackManifest("   ").display_information.name).toBe(
+      "My Assistant",
+    );
   });
 
   it("omits description entirely when none is given", () => {
@@ -75,19 +81,29 @@ describe("field limits", () => {
 
 describe("JSON round-trip", () => {
   // LUM-704: symbols in the assistant name used to break the generated
-  // manifest. The manifest now travels through the clipboard, so what matters
-  // is that stringify/parse preserves them intact for the paste.
+  // manifest. The manifest travels through the clipboard, so what matters is
+  // that stringify/parse preserves them intact for the paste. The slash and
+  // quotes are the payload here — the name itself is a generic placeholder.
   it("round-trips a name and description containing symbols", () => {
-    const built = buildSlackManifest("Becky 24/7", 'Ops & "stuff" <3');
+    const built = buildSlackManifest(
+      "Example Assistant 24/7",
+      'Ops & "stuff" <3',
+    );
     const parsed = JSON.parse(JSON.stringify(built));
 
-    expect(parsed.display_information.name).toBe("Becky 24/7");
+    expect(parsed.display_information.name).toBe("Example Assistant 24/7");
     expect(parsed.display_information.description).toBe('Ops & "stuff" <3');
-    expect(parsed.features.agent_view.agent_description).toBe('Ops & "stuff" <3');
+    expect(parsed.features.agent_view.agent_description).toBe(
+      'Ops & "stuff" <3',
+    );
   });
 
   it("produces valid JSON for the clipboard", () => {
-    const text = JSON.stringify(buildSlackManifest("Becky 24/7"), null, 2);
+    const text = JSON.stringify(
+      buildSlackManifest("Example Assistant 24/7"),
+      null,
+      2,
+    );
 
     expect(() => JSON.parse(text)).not.toThrow();
   });
