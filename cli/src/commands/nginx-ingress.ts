@@ -14,21 +14,15 @@ import {
   isAssistantFeatureFlagEnabled,
   WEB_REMOTE_INGRESS_FLAG,
 } from "../lib/feature-flags.js";
-import { waitForDaemonReady } from "../lib/http-client.js";
 import {
   DEFAULT_NGINX_INGRESS_PORT,
-  findWebDistDir,
   getIngressPaths,
   getIngressPid,
-  getNginxIngressPort,
-  getNginxVersion,
   isIngressRunning,
   resolveTunnelTargetPort,
-  startIngressNginx,
+  startRemoteWebIngress,
   stopIngressNginx,
 } from "../lib/nginx-ingress.js";
-
-const READY_TIMEOUT_MS = 5_000;
 
 function printHelp(): void {
   console.log("Usage: vellum nginx-ingress <subcommand> [<name>] [options]");
@@ -164,79 +158,71 @@ async function assertWebRemoteIngressEnabled(
 
 async function up(target: NginxIngressTarget): Promise<void> {
   const { workspaceDir, gatewayPort } = target;
-  const listenPort = getNginxIngressPort();
 
   await assertWebRemoteIngressEnabled(target);
 
-  const version = getNginxVersion();
-  if (!version) {
-    console.error("Error: nginx is not installed.");
-    console.error("");
-    console.error("Install nginx:");
-    console.error("  macOS:  brew install nginx");
-    console.error("  Linux:  sudo apt install nginx");
-    console.error("");
-    console.error(
-      "Or point NGINX_BIN at an existing binary: NGINX_BIN=/path/to/nginx",
-    );
-    process.exit(1);
-  }
-
-  if (isIngressRunning(workspaceDir)) {
-    console.log("nginx ingress is already running.");
-    await status(target);
-    return;
-  }
-
-  const webDistDir = findWebDistDir();
-  if (!webDistDir) {
-    console.error(
-      "Error: unable to locate built web assets for remote web ingress.",
-    );
-    console.error("");
-    console.error("Build the SPA first:");
-    console.error("  cd clients/web && VITE_PLATFORM_MODE=false bun run build");
-    console.error("");
-    console.error(
-      "Or install @vellumai/web so its packaged dist directory is available.",
-    );
-    process.exit(1);
-  }
-
-  console.log(`Using ${version}`);
-  console.log(
-    `Starting nginx ingress on 127.0.0.1:${listenPort} → web ${webDistDir} + gateway 127.0.0.1:${gatewayPort}...`,
-  );
-
-  const child = startIngressNginx({
+  const result = await startRemoteWebIngress({
     workspaceDir,
     gatewayPort,
-    listenPort,
-    remoteWebIngress: { webDistDir },
+    onStarting: ({ version, webDistDir, listenPort }) => {
+      console.log(`Using ${version}`);
+      console.log(
+        `Starting nginx ingress on 127.0.0.1:${listenPort} → web ${webDistDir} + gateway 127.0.0.1:${gatewayPort}...`,
+      );
+    },
   });
-  child.unref();
 
-  // /healthz proxies through nginx to the gateway, so a 200 proves the whole
-  // ingress → gateway path works.
-  const ready = await waitForDaemonReady(listenPort, READY_TIMEOUT_MS);
-  if (!ready) {
-    const { logPath } = getIngressPaths(workspaceDir);
-    await stopIngressNginx(workspaceDir);
-    console.error(
-      `Error: nginx ingress did not become reachable on 127.0.0.1:${listenPort}.`,
-    );
-    console.error(`Check the nginx log: ${logPath}`);
-    process.exit(1);
+  switch (result.status) {
+    case "already-running":
+      console.log("nginx ingress is already running.");
+      await status(target);
+      return;
+    case "started":
+      console.log("");
+      console.log(
+        `nginx ingress running: http://127.0.0.1:${result.listenPort}`,
+      );
+      console.log("");
+      console.log("Next steps:");
+      console.log(
+        "  vellum tunnel --provider ngrok   # tunnel now targets nginx ingress",
+      );
+      console.log("  vellum nginx-ingress down        # stop the proxy");
+      return;
+    case "nginx-missing":
+      console.error("Error: nginx is not installed.");
+      console.error("");
+      console.error("Install nginx:");
+      console.error("  macOS:  brew install nginx");
+      console.error("  Linux:  sudo apt install nginx");
+      console.error("");
+      console.error(
+        "Or point NGINX_BIN at an existing binary: NGINX_BIN=/path/to/nginx",
+      );
+      break;
+    case "web-dist-missing":
+      console.error(
+        "Error: unable to locate built web assets for remote web ingress.",
+      );
+      console.error("");
+      console.error("Build the SPA first:");
+      console.error(
+        "  cd clients/web && VITE_PLATFORM_MODE=false bun run build",
+      );
+      console.error("");
+      console.error(
+        "Or install @vellumai/web so its packaged dist directory is available.",
+      );
+      break;
+    case "unreachable":
+      console.error(
+        `Error: nginx ingress did not become reachable on 127.0.0.1:${result.listenPort}.`,
+      );
+      console.error(`Check the nginx log: ${result.logPath}`);
+      break;
   }
 
-  console.log("");
-  console.log(`nginx ingress running: http://127.0.0.1:${listenPort}`);
-  console.log("");
-  console.log("Next steps:");
-  console.log(
-    "  vellum tunnel --provider ngrok   # tunnel now targets nginx ingress",
-  );
-  console.log("  vellum nginx-ingress down        # stop the proxy");
+  process.exit(1);
 }
 
 async function down(target: NginxIngressTarget): Promise<void> {
