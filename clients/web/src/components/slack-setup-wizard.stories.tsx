@@ -2,7 +2,10 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { userEvent, within } from "storybook/test";
 
 import { SlackSetupWizard } from "./slack-setup-wizard";
-import { SLACK_MANIFEST_BOT_SCOPES } from "@/utils/slack-manifest";
+import {
+  SLACK_MANIFEST_BOT_SCOPES,
+  SLACK_MANIFEST_BOT_SCOPES_OPTIONAL,
+} from "@/utils/slack-manifest";
 import type { SlackScopeProbeResult } from "@/utils/slack-scope-probe";
 
 const meta: Meta<typeof SlackSetupWizard> = {
@@ -53,6 +56,20 @@ const ALL_GRANTED: SlackScopeProbeResult = {
   status: "complete",
   grantedScopes: [...SLACK_MANIFEST_BOT_SCOPES],
   missingScopes: [],
+  missingRequiredScopes: [],
+  appId: "A0EXAMPLE",
+  reinstallUrl: "https://api.slack.com/apps/A0EXAMPLE/oauth",
+};
+
+const OPTIONAL_DECLINED: SlackScopeProbeResult = {
+  status: "degraded",
+  grantedScopes: SLACK_MANIFEST_BOT_SCOPES.filter(
+    (s) => !SLACK_MANIFEST_BOT_SCOPES_OPTIONAL.includes(
+      s as (typeof SLACK_MANIFEST_BOT_SCOPES_OPTIONAL)[number],
+    ),
+  ),
+  missingScopes: [...SLACK_MANIFEST_BOT_SCOPES_OPTIONAL],
+  missingRequiredScopes: [],
   appId: "A0EXAMPLE",
   reinstallUrl: "https://api.slack.com/apps/A0EXAMPLE/oauth",
 };
@@ -64,6 +81,14 @@ const SILENTLY_DROPPED: SlackScopeProbeResult = {
   missingScopes: SLACK_MANIFEST_BOT_SCOPES.filter(
     (s) => s !== "chat:write" && s !== "im:history",
   ),
+  missingRequiredScopes: SLACK_MANIFEST_BOT_SCOPES.filter(
+    (s) =>
+      s !== "chat:write" &&
+      s !== "im:history" &&
+      !SLACK_MANIFEST_BOT_SCOPES_OPTIONAL.includes(
+        s as (typeof SLACK_MANIFEST_BOT_SCOPES_OPTIONAL)[number],
+      ),
+  ),
   appId: "A0EXAMPLE",
   reinstallUrl: "https://api.slack.com/apps/A0EXAMPLE/oauth",
 };
@@ -72,6 +97,7 @@ const UNREADABLE: SlackScopeProbeResult = {
   status: "unknown",
   grantedScopes: [],
   missingScopes: [],
+  missingRequiredScopes: [],
   appId: null,
   reinstallUrl: "https://api.slack.com/apps",
 };
@@ -88,9 +114,19 @@ export const Connected: Story = {
   play: fillTokens,
 };
 
-/** Scope drift — the probe surfaces the reinstall nudge. */
+/** Silent drop — mandatory scopes are missing, so the reinstall nudge fires. */
 export const ConnectedWithScopeDrift: Story = {
   args: { saveStatus: "success", probeScopes: stubProbe(SILENTLY_DROPPED) },
+  play: fillTokens,
+};
+
+/**
+ * The workspace declined the optional scopes on Slack's consent screen. Their
+ * choice is reported without a reinstall prompt — reinstalling would only
+ * replay the same screen and earn the same answer.
+ */
+export const ConnectedWithOptionalDeclined: Story = {
+  args: { saveStatus: "success", probeScopes: stubProbe(OPTIONAL_DECLINED) },
   play: fillTokens,
 };
 

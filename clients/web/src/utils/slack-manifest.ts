@@ -1,9 +1,10 @@
 /**
  * Every bot scope the manifest requests.
  *
- * The scope-drift probe diffs against this full list on purpose: marking a
- * scope optional changes how Slack asks for it, not whether we want it. A
- * dropped optional scope still surfaces the reinstall nudge.
+ * The scope-drift probe diffs against this full list, not just the mandatory
+ * ones — a scope being declinable doesn't mean we stop wanting it. What the
+ * probe does about a gap depends on which side of
+ * {@link SLACK_MANIFEST_BOT_SCOPES_OPTIONAL} it falls on.
  */
 export const SLACK_MANIFEST_BOT_SCOPES = [
   "app_mentions:read",
@@ -35,7 +36,7 @@ export const SLACK_MANIFEST_BOT_SCOPES = [
  * the complete request and `bot_optional` as the opt-out subset within it, so
  * a scope listed only here is never requested at all.
  */
-const SLACK_BOT_SCOPES_OPTIONAL = [
+export const SLACK_MANIFEST_BOT_SCOPES_OPTIONAL = [
   "channels:join",
   "files:read",
   "files:write",
@@ -112,7 +113,7 @@ export function buildSlackManifest(name: string, desc = "") {
     oauth_config: {
       scopes: {
         bot: [...SLACK_MANIFEST_BOT_SCOPES],
-        bot_optional: [...SLACK_BOT_SCOPES_OPTIONAL],
+        bot_optional: [...SLACK_MANIFEST_BOT_SCOPES_OPTIONAL],
         user: [...SLACK_MANIFEST_USER_SCOPES],
         user_optional: [...SLACK_USER_SCOPES_OPTIONAL],
       },

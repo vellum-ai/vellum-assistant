@@ -4,7 +4,10 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { SlackSetupWizard } from "./slack-setup-wizard";
-import { SLACK_MANIFEST_BOT_SCOPES } from "@/utils/slack-manifest";
+import {
+  SLACK_MANIFEST_BOT_SCOPES,
+  SLACK_MANIFEST_BOT_SCOPES_OPTIONAL,
+} from "@/utils/slack-manifest";
 import type { SlackScopeProbeResult } from "@/utils/slack-scope-probe";
 
 afterEach(cleanup);
@@ -15,6 +18,16 @@ const DRIFTED: SlackScopeProbeResult = {
   missingScopes: SLACK_MANIFEST_BOT_SCOPES.filter(
     (s) => s !== "chat:write" && s !== "im:history",
   ),
+  missingRequiredScopes: ["assistant:write", "chat:write"],
+  appId: "A0EXAMPLE",
+  reinstallUrl: "https://api.slack.com/apps/A0EXAMPLE/oauth",
+};
+
+const OPTIONAL_DECLINED: SlackScopeProbeResult = {
+  status: "degraded",
+  grantedScopes: [],
+  missingScopes: [...SLACK_MANIFEST_BOT_SCOPES_OPTIONAL],
+  missingRequiredScopes: [],
   appId: "A0EXAMPLE",
   reinstallUrl: "https://api.slack.com/apps/A0EXAMPLE/oauth",
 };
@@ -33,6 +46,7 @@ const CLEAN: SlackScopeProbeResult = {
   status: "complete",
   grantedScopes: [...SLACK_MANIFEST_BOT_SCOPES],
   missingScopes: [],
+  missingRequiredScopes: [],
   appId: "A0EXAMPLE",
   reinstallUrl: "https://api.slack.com/apps/A0EXAMPLE/oauth",
 };
@@ -88,5 +102,26 @@ describe("SlackSetupWizard scope probe", () => {
       expect(screen.getByText(/Credentials saved/i)).toBeDefined();
     });
     expect(screen.queryByText(/didn.t grant every permission/i)).toBeNull();
+  });
+
+  test("does not nudge a reinstall when only optional scopes were declined", async () => {
+    render(
+      <StrictMode>
+        <SlackSetupWizard
+          assistantName="Example Assistant"
+          saveStatus="success"
+          probeScopes={async () => OPTIONAL_DECLINED}
+        />
+      </StrictMode>,
+    );
+    await pasteBotToken();
+
+    await waitFor(() => {
+      expect(screen.getByText(/Optional permissions you declined/i)).toBeDefined();
+    });
+    // The whole point: no reinstall loop for a choice the workspace made.
+    expect(screen.queryByText(/Reinstall in Slack/i)).toBeNull();
+    expect(screen.queryByText(/didn.t grant every permission/i)).toBeNull();
+    expect(screen.getByText(/Credentials saved/i)).toBeDefined();
   });
 });

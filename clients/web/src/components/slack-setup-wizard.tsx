@@ -298,45 +298,8 @@ export function SlackSetupWizard({
             </Button>
           </div>
 
-          {saveStatus === "success" &&
-            (scopeProbe?.status === "incomplete" ? (
-              <Notice
-                tone="warning"
-                title="Slack didn&rsquo;t grant every permission we asked for"
-                actions={
-                  <Button
-                    type="button"
-                    variant="outlined"
-                    size="compact"
-                    onClick={() =>
-                      window.open(
-                        scopeProbe.reinstallUrl,
-                        "_blank",
-                        "noopener,noreferrer",
-                      )
-                    }
-                    rightIcon={<ExternalLink aria-hidden className="size-4" />}
-                  >
-                    Reinstall in Slack
-                  </Button>
-                }
-              >
-                <Typography as="p" variant="body-small-default">
-                  Your credentials are saved, but{" "}
-                  {scopeProbe.missingScopes.length} of{" "}
-                  {SLACK_MANIFEST_BOT_SCOPES.length} permissions are missing, so
-                  some features won&apos;t work. Reinstalling the app grants
-                  them to this same token — you won&apos;t need new ones.
-                </Typography>
-                <Typography
-                  as="p"
-                  variant="body-small-default"
-                  className="mt-2 font-mono text-[color:var(--content-faint)]"
-                >
-                  Missing: {scopeProbe.missingScopes.join(", ")}
-                </Typography>
-              </Notice>
-            ) : (
+          {saveStatus === "success" && (
+            <>
               <Typography
                 as="p"
                 variant="body-small-default"
@@ -344,7 +307,64 @@ export function SlackSetupWizard({
               >
                 Credentials saved.
               </Typography>
-            ))}
+
+              {/* Only a missing mandatory scope is worth interrupting for.
+                  Optional ones were declined on Slack's consent screen, and
+                  reinstalling would replay that screen to the same answer. */}
+              {scopeProbe?.status === "incomplete" && (
+                <Notice
+                  tone="warning"
+                  title="Slack didn&rsquo;t grant every permission we asked for"
+                  actions={
+                    <Button
+                      type="button"
+                      variant="outlined"
+                      size="compact"
+                      onClick={() =>
+                        window.open(
+                          scopeProbe.reinstallUrl,
+                          "_blank",
+                          "noopener,noreferrer",
+                        )
+                      }
+                      rightIcon={<ExternalLink aria-hidden className="size-4" />}
+                    >
+                      Reinstall in Slack
+                    </Button>
+                  }
+                >
+                  <Typography as="p" variant="body-small-default">
+                    {scopeProbe.missingRequiredScopes.length} of{" "}
+                    {SLACK_MANIFEST_BOT_SCOPES.length} permissions are missing,
+                    so some features won&apos;t work. Reinstalling grants them
+                    to this same token — you won&apos;t need new ones.
+                  </Typography>
+                  <Typography
+                    as="p"
+                    variant="body-small-default"
+                    className="mt-2 font-mono text-[color:var(--content-faint)]"
+                  >
+                    Missing: {scopeProbe.missingRequiredScopes.join(", ")}
+                  </Typography>
+                </Notice>
+              )}
+
+              {scopeProbe?.status === "degraded" && (
+                <Typography
+                  as="p"
+                  variant="body-small-default"
+                  className="text-[color:var(--content-faint)]"
+                >
+                  Optional permissions you declined stay off:{" "}
+                  <span className="font-mono">
+                    {scopeProbe.missingScopes.join(", ")}
+                  </span>
+                  . Everything else is connected — grant them later from the
+                  app&apos;s settings in Slack if you change your mind.
+                </Typography>
+              )}
+            </>
+          )}
           {saveStatus === "error" && saveError && (
             <Typography
               as="p"

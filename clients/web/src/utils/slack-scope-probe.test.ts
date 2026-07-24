@@ -57,9 +57,12 @@ describe("probeSlackScopes", () => {
     expect(result.missingScopes).toHaveLength(
       SLACK_MANIFEST_BOT_SCOPES.length - 2,
     );
+    expect(result.missingRequiredScopes.length).toBeGreaterThan(0);
   });
 
-  it("checks optional scopes too — optional is not unwanted", async () => {
+  it("reports declined optional scopes as degraded, not incomplete", async () => {
+    // Declining an optional scope is a choice made on Slack's consent screen.
+    // Reinstalling replays that screen, so it must not trigger the nudge.
     const withoutOptional = SLACK_MANIFEST_BOT_SCOPES.filter(
       (s) => s !== "reactions:read" && s !== "files:read",
     );
@@ -67,8 +70,21 @@ describe("probeSlackScopes", () => {
       fetchImpl: mockAuthTest({ scopes: [...withoutOptional] }),
     });
 
-    expect(result.status).toBe("incomplete");
+    expect(result.status).toBe("degraded");
     expect(result.missingScopes).toEqual(["files:read", "reactions:read"]);
+    expect(result.missingRequiredScopes).toEqual([]);
+  });
+
+  it("still reports incomplete when a mandatory scope goes missing alongside optional ones", async () => {
+    const result = await probeSlackScopes(TOKEN, {
+      fetchImpl: mockAuthTest({ scopes: ["chat:write"] }),
+    });
+
+    expect(result.status).toBe("incomplete");
+    expect(result.missingRequiredScopes).toContain("assistant:write");
+    // Optional gaps are still reported, just not what drives the nudge.
+    expect(result.missingScopes).toContain("files:read");
+    expect(result.missingRequiredScopes).not.toContain("files:read");
   });
 
   it("deep-links to the app's OAuth page when app_id is present", async () => {
@@ -95,6 +111,7 @@ describe("probeSlackScopes", () => {
 
     expect(result.status).toBe("unknown");
     expect(result.missingScopes).toEqual([]);
+    expect(result.missingRequiredScopes).toEqual([]);
   });
 
   it("stays unknown when Slack rejects the token", async () => {
@@ -139,6 +156,7 @@ describe("probeSlackScopes", () => {
     const result = await probeSlackScopes(TOKEN, {
       fetchImpl: mockAuthTest({ scopes: ["chat:write"] }),
       expectedScopes: ["chat:write"],
+      optionalScopes: [],
     });
 
     expect(result.status).toBe("complete");

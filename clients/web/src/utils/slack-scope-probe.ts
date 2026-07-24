@@ -1,4 +1,7 @@
-import { SLACK_MANIFEST_BOT_SCOPES } from "./slack-manifest";
+import {
+  SLACK_MANIFEST_BOT_SCOPES,
+  SLACK_MANIFEST_BOT_SCOPES_OPTIONAL,
+} from "./slack-manifest";
 
 const AUTH_TEST_URL = "https://slack.com/api/auth.test";
 
@@ -8,18 +11,33 @@ const SLACK_APPS_URL = "https://api.slack.com/apps";
 /**
  * Outcome of the post-install scope check.
  *
+ * `degraded` and `incomplete` both mean scopes are missing, but they need
+ * opposite responses. A missing optional scope is a choice the workspace made
+ * on Slack's consent screen; telling them to reinstall would just replay the
+ * same screen and earn the same answer. Only a missing mandatory scope
+ * indicates the silent drop that reinstalling actually fixes.
+ *
  * `unknown` is a first-class result, not a failure: the browser cannot always
  * read `x-oauth-scopes` off a cross-origin response, and a probe that can't see
  * the granted scopes must stay quiet rather than accuse Slack of dropping them.
  */
-export type SlackScopeProbeStatus = "complete" | "incomplete" | "unknown";
+export type SlackScopeProbeStatus =
+  | "complete"
+  | "degraded"
+  | "incomplete"
+  | "unknown";
 
 export interface SlackScopeProbeResult {
   status: SlackScopeProbeStatus;
   /** Scopes Slack reports on the token, empty when `status` is `unknown`. */
   grantedScopes: string[];
-  /** Expected scopes absent from the grant, empty unless `incomplete`. */
+  /** Every expected scope absent from the grant, mandatory or optional. */
   missingScopes: string[];
+  /**
+   * The mandatory subset of {@link missingScopes}. Non-empty only when
+   * `status` is `incomplete`, and the only thing worth a reinstall.
+   */
+  missingRequiredScopes: string[];
   appId: string | null;
   /** Where to send the user to reinstall and pick up the missing scopes. */
   reinstallUrl: string;
@@ -37,6 +55,8 @@ export type FetchLike = (
 export interface ProbeSlackScopesOptions {
   fetchImpl?: FetchLike;
   expectedScopes?: readonly string[];
+  /** Subset of `expectedScopes` a workspace may decline without a nudge. */
+  optionalScopes?: readonly string[];
 }
 
 function reinstallUrlFor(appId: string | null): string {
@@ -48,6 +68,7 @@ function unknown(appId: string | null = null): SlackScopeProbeResult {
     status: "unknown",
     grantedScopes: [],
     missingScopes: [],
+    missingRequiredScopes: [],
     appId,
     reinstallUrl: reinstallUrlFor(appId),
   };
@@ -72,6 +93,9 @@ function parseScopeHeader(raw: string | null): string[] | null {
  * from the app's OAuth page fixes the same token, so the payoff for catching
  * this at setup time is a single click.
  *
+ * The drop takes mandatory scopes with it, which is what separates it from a
+ * workspace deliberately declining an optional one.
+ *
  * Never throws: a probe failure resolves to `unknown` so it can't block or
  * falsely fail a setup that otherwise succeeded.
  */
@@ -80,6 +104,7 @@ export async function probeSlackScopes(
   {
     fetchImpl = fetch,
     expectedScopes = SLACK_MANIFEST_BOT_SCOPES,
+    optionalScopes = SLACK_MANIFEST_BOT_SCOPES_OPTIONAL,
   }: ProbeSlackScopesOptions = {},
 ): Promise<SlackScopeProbeResult> {
   let response: Response;
@@ -111,12 +136,22 @@ export async function probeSlackScopes(
   if (granted === null) {return unknown(appId);}
 
   const grantedSet = new Set(granted);
+  const optionalSet = new Set(optionalScopes);
   const missingScopes = expectedScopes.filter((s) => !grantedSet.has(s));
+  const missingRequiredScopes = missingScopes.filter((s) => !optionalSet.has(s));
+
+  let status: SlackScopeProbeStatus = "complete";
+  if (missingRequiredScopes.length > 0) {
+    status = "incomplete";
+  } else if (missingScopes.length > 0) {
+    status = "degraded";
+  }
 
   return {
-    status: missingScopes.length > 0 ? "incomplete" : "complete",
+    status,
     grantedScopes: granted,
     missingScopes,
+    missingRequiredScopes,
     appId,
     reinstallUrl: reinstallUrlFor(appId),
   };
