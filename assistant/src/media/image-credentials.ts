@@ -29,8 +29,6 @@ export function resolveImageGenRouting(
   svc: { provider: string; model: string; mode?: string },
   modelOverride?: unknown,
 ): { backendProvider: ImageGenProvider; managed: boolean } {
-  // ponytail: the `mode` half is the pre-migration-133 signal; delete it once
-  // migration 133 has shipped everywhere.
   const managed = svc.provider === "vellum" || svc.mode === "managed";
   if (svc.provider === "vellum") {
     const model =
