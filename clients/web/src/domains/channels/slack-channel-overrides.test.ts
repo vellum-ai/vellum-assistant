@@ -34,11 +34,15 @@ describe("CAPABILITY_TIER_META", () => {
     expect(CAPABILITY_TIER_META.high.tone).toBe("positive");
   });
 
-  test("sublabels frame each tier's read/answer depth, not free action", () => {
-    expect(CAPABILITY_TIER_META.none.sublabel).toBe("asks before acting");
-    expect(CAPABILITY_TIER_META.low.sublabel).toBe("safe reads only");
+  // The tier only gates non-sensitive lookup tools — every side-effect tool
+  // (file writes, bash) and every host tool (MCP, messaging, phone) escalates
+  // to the owner at any tier via the capability floor. So the sublabels stay on
+  // one axis, lookup depth, and none of them may imply free action.
+  test("sublabels all sit on the lookup-depth axis", () => {
+    expect(CAPABILITY_TIER_META.none.sublabel).toBe("asks every time");
+    expect(CAPABILITY_TIER_META.low.sublabel).toBe("safe lookups");
     expect(CAPABILITY_TIER_META.medium.sublabel).toBe("broader lookups");
-    expect(CAPABILITY_TIER_META.high.sublabel).toBe("answers on its own");
+    expect(CAPABILITY_TIER_META.high.sublabel).toBe("any lookup");
   });
 });
 

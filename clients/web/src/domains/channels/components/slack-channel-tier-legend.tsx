@@ -40,13 +40,13 @@ import { routes } from "@/utils/routes";
 function tierDescription(tier: RiskThreshold, assistantName: string): string {
   switch (tier) {
     case "none":
-      return `${assistantName} replies in this channel, but asks you before taking any action.`;
+      return `${assistantName} replies, but asks you before looking anything up — even a web search.`;
     case "low":
-      return `${assistantName} replies and runs safe, read-only actions on its own, like web searches and reading files in its workspace. Anything that writes, sends, or spends asks you first.`;
+      return `Low-risk lookups run on their own: web searches, reading files in ${assistantName}'s own workspace.`;
     case "medium":
-      return `${assistantName} reads and looks up more widely on its own, beyond the safe basics. Anything that writes, sends, or spends still asks you first.`;
+      return `Also allows medium-risk lookups. No tool ranks medium today, so this currently behaves like Conservative.`;
     case "high":
-      return `${assistantName} answers any request on its own without asking. Tools that take action — writing, sending, spending — still come to you first.`;
+      return `Any lookup runs on its own, including reads of sensitive local files.`;
   }
 }
 
@@ -85,8 +85,10 @@ export function SlackChannelTierLegend({
         variant="body-small-default"
         className="text-[color:var(--content-tertiary)]"
       >
-        These levels only cover how much it looks up on its own before answering.
-        Writing, sending, and spending always ask first — at every level. Your{" "}
+        Applies to other people in the channel — your own requests use your
+        global Assistant Access. The levels only cover how much {assistantName}{" "}
+        looks up on its own before answering; writing, sending, and spending
+        always come to you first, at every level. Your{" "}
         <Link
           to={routes.settings.privacy}
           className="text-[var(--content-link)] underline hover:text-[var(--content-link-hover)]"
@@ -95,26 +97,32 @@ export function SlackChannelTierLegend({
         </Link>{" "}
         fine-tune when it asks.
       </Typography>
-      <ul className="grid gap-x-6 gap-y-2 sm:grid-cols-2">
+      <ul className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
         {CAPABILITY_TIER_VALUES.map((tier) => {
           const meta = CAPABILITY_TIER_META[tier];
           return (
-            <li
-              key={tier}
-              className="flex items-center gap-1.5"
-              title={tierDescription(tier, assistantName)}
-            >
-              <TierDot color={meta.dotColor} />
-              <Typography as="span" variant="body-small-emphasised">
-                {meta.label}
-              </Typography>
+            <li key={tier} className="flex flex-col gap-0.5">
+              <span className="flex items-center gap-1.5">
+                <TierDot color={meta.dotColor} />
+                <Typography as="span" variant="body-small-emphasised">
+                  {meta.label}
+                </Typography>
+                {tier === defaultTier ? (
+                  <Typography
+                    as="span"
+                    variant="body-small-default"
+                    className="text-[color:var(--content-tertiary)]"
+                  >
+                    · default
+                  </Typography>
+                ) : null}
+              </span>
               <Typography
                 as="span"
                 variant="body-small-default"
                 className="text-[color:var(--content-tertiary)]"
               >
-                {meta.sublabel}
-                {tier === defaultTier ? " · default" : ""}
+                {tierDescription(tier, assistantName)}
               </Typography>
             </li>
           );
