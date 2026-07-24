@@ -44,7 +44,7 @@ import {
   isVisionRecoveryAttempted,
   markVisionRecoveryAttempted,
 } from "../src/recovery-state.js";
-import { findVisionProfile } from "../src/vision-caption.js";
+import { createVisionProviderResolver } from "../src/vision-caption.js";
 
 const postModelCall: HookFunction<PostModelCallContext> = async (ctx) => {
   if (
@@ -56,11 +56,11 @@ const postModelCall: HookFunction<PostModelCallContext> = async (ctx) => {
   }
   markVisionRecoveryAttempted(ctx.conversationId);
 
-  const visionProfileKey = findVisionProfile();
+  const resolver = createVisionProviderResolver(ctx.logger);
   const captioned = await captionOutboundImagesInMessages(
     ctx.messages,
     ctx.conversationId,
-    visionProfileKey,
+    resolver,
     ctx.logger,
   );
 

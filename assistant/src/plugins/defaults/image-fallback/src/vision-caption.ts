@@ -15,6 +15,7 @@ import {
   getProfileInputTokenPrice,
   type ImageContent,
   type PluginLogger,
+  type Provider,
   resolveMediaSourceData,
 } from "@vellumai/plugin-api";
 
@@ -34,21 +35,51 @@ const CAPTION_SYSTEM_PROMPT =
 const CAPTION_USER_PROMPT =
   "Describe this image concisely for a text-only assistant.";
 
+/** A vision-capable profile whose provider resolved and is ready to caption. */
+export interface ResolvedVisionProvider {
+  /** Key of the vision-capable profile the provider was resolved for. */
+  profileKey: string;
+  /** Provider handle bound to that profile via the `vision` call site. */
+  provider: Provider;
+}
+
 /**
- * Find a vision-capable, enabled profile key for captioning, preferring the
- * cheapest.
+ * Rank-then-try vision provider selection, scoped to a single sweep.
+ *
+ * {@link hasCandidates} answers the cheap, synchronous question "does any
+ * enabled vision-capable profile exist to attempt captioning?" so the caller
+ * can distinguish "no vision model configured" from "captioning failed" without
+ * resolving a provider. {@link resolve} walks the ranked candidates cheapest
+ * first and returns the first one whose provider actually resolves — so a
+ * cheapest profile with a dangling connection or an unavailable credential
+ * falls through to the next usable one rather than silently breaking
+ * captioning. Resolution is lazy (never runs for an all-cache-hit sweep) and
+ * memoized (one resolution per sweep, reused across every image).
+ */
+export interface VisionProviderResolver {
+  /** Whether any enabled vision-capable profile exists to caption with. */
+  hasCandidates(): boolean;
+  /**
+   * The first usable vision provider in cheapest-first order, or `null` when no
+   * candidate resolves. Resolves lazily on first call and memoizes the result
+   * for the rest of the sweep.
+   */
+  resolve(): Promise<ResolvedVisionProvider | null>;
+}
+
+/**
+ * Rank enabled, vision-capable profile keys cheapest first for captioning.
  *
  * Collects every enabled profile whose resolved model supports vision, in
  * `getModelProfiles()` order (the order the `/model` picker shows them), then
- * returns the one with the lowest resolved input-token price. Any vision model
+ * sorts by the resolved model's input-token price ascending. Any vision model
  * captions a 1-2 sentence description adequately, so cost is the tiebreak.
  * Profiles the catalog can't price rank after all priced ones, and equal prices
  * keep picker order — so a single vision profile, or a set with no known
- * pricing, is returned exactly as picker order presents it. Returns `null` when
- * no vision profile exists — the hook fails-open in that case, leaving a
- * placeholder text block.
+ * pricing, is returned exactly as picker order presents it. Returns an empty
+ * array when no vision profile exists.
  */
-export function findVisionProfile(): string | null {
+export function rankVisionProfiles(): string[] {
   const visionProfileKeys: string[] = [];
   for (const profile of getModelProfiles()) {
     if (profile.isDisabled) {
@@ -58,21 +89,21 @@ export function findVisionProfile(): string | null {
       visionProfileKeys.push(profile.key);
     }
   }
-  return cheapestByInputPrice(visionProfileKeys);
+  return rankByInputPrice(visionProfileKeys);
 }
 
 /**
- * Pick the cheapest profile key by resolved input-token price. `profileKeys`
+ * Order profile keys by resolved input-token price ascending. `profileKeys`
  * arrives in picker order; unknown-price profiles rank after every priced
  * profile and, along with equal-priced ones, keep that incoming order. A list
  * of zero or one key is returned without pricing any profile, so single-profile
- * selection stays identical to picker order. Returns `null` for an empty list.
+ * selection stays identical to picker order.
  */
-function cheapestByInputPrice(profileKeys: string[]): string | null {
+function rankByInputPrice(profileKeys: string[]): string[] {
   if (profileKeys.length <= 1) {
-    return profileKeys[0] ?? null;
+    return profileKeys;
   }
-  const ranked = profileKeys
+  return profileKeys
     .map((key, index) => ({
       key,
       index,
@@ -81,17 +112,57 @@ function cheapestByInputPrice(profileKeys: string[]): string | null {
     }))
     .sort((a, b) =>
       a.price !== b.price ? a.price - b.price : a.index - b.index,
-    );
-  return ranked[0].key;
+    )
+    .map((entry) => entry.key);
 }
 
 /**
- * Caption a single image block via a vision-capable profile.
+ * Build a sweep-scoped {@link VisionProviderResolver} over the ranked vision
+ * profiles. Construct one per hook invocation and thread it through the sweep;
+ * its memoization keeps provider resolution to at most once per sweep, however
+ * many images the sweep captions.
+ */
+export function createVisionProviderResolver(
+  logger: PluginLogger,
+): VisionProviderResolver {
+  const rankedKeys = rankVisionProfiles();
+  let pending: Promise<ResolvedVisionProvider | null> | undefined;
+
+  const attempt = async (): Promise<ResolvedVisionProvider | null> => {
+    for (const profileKey of rankedKeys) {
+      const provider = await getConfiguredProvider("vision", {
+        overrideProfile: profileKey,
+        forceOverrideProfile: true,
+      });
+      if (provider) {
+        return { profileKey, provider };
+      }
+    }
+    if (rankedKeys.length > 0) {
+      logger.warn(
+        { plugin: "image-fallback", candidates: rankedKeys.length },
+        "No vision provider resolved for captioning across ranked profiles",
+      );
+    }
+    return null;
+  };
+
+  return {
+    hasCandidates: () => rankedKeys.length > 0,
+    // Memoize the in-flight promise so the whole sweep shares one resolution.
+    resolve: () => (pending ??= attempt()),
+  };
+}
+
+/**
+ * Caption a single image block via the sweep's resolved vision provider.
  *
  * @param image     The image content block to caption.
  * @param conversationId  Conversation the image belongs to, recorded on the
  *          cache row so `conversation-deleted` cleanup stays accurate.
- * @param profileKey  Key of a vision-capable profile (from {@link findVisionProfile}).
+ * @param resolver  Sweep-scoped resolver that supplies the first usable
+ *          (cheapest-first) vision provider; resolution is deferred until an
+ *          uncached image needs it and shared across the sweep.
  * @param logger    Turn-scoped logger for attribution.
  * @returns The caption text, or `null` when captioning failed (caller should
  *          use a fail-open placeholder).
@@ -99,7 +170,7 @@ function cheapestByInputPrice(profileKeys: string[]): string | null {
 export async function captionImage(
   image: ImageContent,
   conversationId: string,
-  profileKey: string,
+  resolver: VisionProviderResolver,
   logger: PluginLogger,
 ): Promise<string | null> {
   // Hash the image's content (resolving a reference source to its bytes, a
@@ -114,19 +185,15 @@ export async function captionImage(
     return cached;
   }
 
-  try {
-    const provider = await getConfiguredProvider("vision", {
-      overrideProfile: profileKey,
-      forceOverrideProfile: true,
-    });
-    if (!provider) {
-      logger.warn(
-        { plugin: "image-fallback" },
-        "No provider resolved for vision captioning profile",
-      );
-      return null;
-    }
+  // Resolve the provider only once the sweep hits an uncached image; the
+  // resolver memoizes so a multi-image sweep resolves at most once.
+  const visionProvider = await resolver.resolve();
+  if (!visionProvider) {
+    return null;
+  }
+  const { profileKey, provider } = visionProvider;
 
+  try {
     const response = await provider.sendMessage(
       [
         {

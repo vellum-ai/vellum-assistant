@@ -29,8 +29,8 @@ let visionProfiles: Set<string>;
 let visionModels: Set<string>;
 let mockProfiles: ModelProfileInfo[];
 // Resolved input-token price ($/1M) per profile key, controlling how
-// `findVisionProfile` ranks vision-capable profiles. A key absent from the map
-// reads as unknown price (ranked after every priced profile).
+// `rankVisionProfiles` orders vision-capable profiles. A key absent from the
+// map reads as unknown price (ranked after every priced profile).
 let profilePrices: Map<string, number>;
 let sendMessageResponse = {
   content: [{ type: "text", text: "A red chart showing Q3 revenue." }],
@@ -84,7 +84,7 @@ const postToolUse = (await import("../hooks/post-tool-use.js")).default;
 const postCompact = (await import("../hooks/post-compact.js")).default;
 const conversationDeleted = (await import("../hooks/conversation-deleted.js"))
   .default;
-const { findVisionProfile } = await import("../src/vision-caption.js");
+const { rankVisionProfiles } = await import("../src/vision-caption.js");
 const { closeCaptionStore, initCaptionStore, resetCaptionCacheForTests } =
   await import("../src/caption-cache.js");
 
@@ -191,6 +191,38 @@ function makeToolCtx(
     logger,
     ...overrides,
   } as unknown as PostToolUseContext;
+}
+
+// Re-register the plugin-api mock with a caller-supplied `getConfiguredProvider`
+// so a test can make provider resolution depend on the requested profile key
+// (the shipped resolver tries ranked candidates cheapest-first). The other
+// mocked members mirror the module-load default.
+type GetConfiguredProviderMock = (
+  callSite: unknown,
+  opts: { overrideProfile: string; forceOverrideProfile?: boolean },
+) => Promise<unknown>;
+
+function setPluginApiMock(getConfiguredProvider: GetConfiguredProviderMock) {
+  mock.module("@vellumai/plugin-api", () => ({
+    doesSupportVision: (arg: ModelProfileInfo | string) =>
+      typeof arg === "string"
+        ? visionModels.has(arg)
+        : visionProfiles.has(arg.key),
+    getModelProfiles: () => mockProfiles,
+    getProfileInputTokenPrice: (arg: ModelProfileInfo | string) => {
+      const key = typeof arg === "string" ? arg : arg.key;
+      return profilePrices.get(key) ?? null;
+    },
+    resolveMediaSourceData: mockResolveMediaSourceData,
+    getConfiguredProvider,
+    lastToolResultUserMessageIndex,
+  }));
+}
+
+// Restore the module-load default: resolution is profile-agnostic and gated on
+// the `providerResolves` flag beforeEach resets.
+function restorePluginApiMock() {
+  setPluginApiMock(async () => (providerResolves ? fakeProvider : null));
 }
 
 // ─── Setup ──────────────────────────────────────────────────────────────────
@@ -418,9 +450,9 @@ describe("image-fallback user-prompt-submit hook", () => {
   });
 });
 
-describe("findVisionProfile", () => {
-  test("returns the first enabled vision-capable profile", () => {
-    expect(findVisionProfile()).toBe("vision-profile");
+describe("rankVisionProfiles", () => {
+  test("returns the enabled vision-capable profile", () => {
+    expect(rankVisionProfiles()).toEqual(["vision-profile"]);
   });
 
   test("skips disabled vision profiles", () => {
@@ -428,12 +460,12 @@ describe("findVisionProfile", () => {
       profile("text-only", { label: "Text", isActive: true }),
       profile("vision-profile", { label: "Vision", isDisabled: true }),
     ];
-    expect(findVisionProfile()).toBeNull();
+    expect(rankVisionProfiles()).toEqual([]);
   });
 
-  test("returns null when no profiles support vision", () => {
+  test("returns an empty list when no profiles support vision", () => {
     visionProfiles = new Set<string>();
-    expect(findVisionProfile()).toBeNull();
+    expect(rankVisionProfiles()).toEqual([]);
   });
 
   test("returns the sole vision profile without consulting pricing", () => {
@@ -444,10 +476,10 @@ describe("findVisionProfile", () => {
     visionProfiles = new Set(["only-vision"]);
     // No price known — a single vision profile is returned regardless.
     profilePrices = new Map<string, number>();
-    expect(findVisionProfile()).toBe("only-vision");
+    expect(rankVisionProfiles()).toEqual(["only-vision"]);
   });
 
-  test("prefers the cheapest vision-capable profile among several", () => {
+  test("orders vision-capable profiles cheapest first", () => {
     mockProfiles = [
       profile("premium-vision", { label: "Premium" }),
       profile("cheap-vision", { label: "Cheap" }),
@@ -459,7 +491,11 @@ describe("findVisionProfile", () => {
       ["cheap-vision", 0.8],
       ["mid-vision", 3],
     ]);
-    expect(findVisionProfile()).toBe("cheap-vision");
+    expect(rankVisionProfiles()).toEqual([
+      "cheap-vision",
+      "mid-vision",
+      "premium-vision",
+    ]);
   });
 
   test("ranks unknown-price vision profiles after priced ones", () => {
@@ -469,10 +505,14 @@ describe("findVisionProfile", () => {
       profile("unknown-last", { label: "Unknown Last" }),
     ];
     visionProfiles = new Set(["unknown-first", "priced", "unknown-last"]);
-    // Only "priced" has a known price; it wins over both unknowns even though
-    // one precedes it in picker order.
+    // Only "priced" has a known price; it leads, then the unknowns keep picker
+    // order behind it even though one precedes it in picker order.
     profilePrices = new Map<string, number>([["priced", 9]]);
-    expect(findVisionProfile()).toBe("priced");
+    expect(rankVisionProfiles()).toEqual([
+      "priced",
+      "unknown-first",
+      "unknown-last",
+    ]);
   });
 
   test("keeps picker order among unknown-price vision profiles", () => {
@@ -481,9 +521,9 @@ describe("findVisionProfile", () => {
       profile("second-vision", { label: "Second" }),
     ];
     visionProfiles = new Set(["first-vision", "second-vision"]);
-    // Every profile is unknown-price, so the first in picker order wins.
+    // Every profile is unknown-price, so picker order is preserved.
     profilePrices = new Map<string, number>();
-    expect(findVisionProfile()).toBe("first-vision");
+    expect(rankVisionProfiles()).toEqual(["first-vision", "second-vision"]);
   });
 
   test("keeps picker order among equally-priced vision profiles", () => {
@@ -496,10 +536,10 @@ describe("findVisionProfile", () => {
       ["vision-a", 2],
       ["vision-b", 2],
     ]);
-    expect(findVisionProfile()).toBe("vision-a");
+    expect(rankVisionProfiles()).toEqual(["vision-a", "vision-b"]);
   });
 
-  test("never selects a disabled or non-vision profile even when cheaper", () => {
+  test("never includes a disabled or non-vision profile even when cheaper", () => {
     mockProfiles = [
       profile("cheap-disabled-vision", {
         label: "Cheap Disabled",
@@ -515,7 +555,119 @@ describe("findVisionProfile", () => {
       ["cheap-text-only", 0.2],
       ["enabled-vision", 20],
     ]);
-    expect(findVisionProfile()).toBe("enabled-vision");
+    expect(rankVisionProfiles()).toEqual(["enabled-vision"]);
+  });
+});
+
+describe("vision provider resilience", () => {
+  // Two ranked vision profiles: "cheap-vision" (0.8) leads "premium-vision" (15).
+  function twoRankedVisionProfiles() {
+    mockProfiles = [
+      profile("premium-vision", { label: "Premium" }),
+      profile("cheap-vision", { label: "Cheap" }),
+    ];
+    visionProfiles = new Set(["premium-vision", "cheap-vision"]);
+    profilePrices = new Map<string, number>([
+      ["premium-vision", 15],
+      ["cheap-vision", 0.8],
+    ]);
+  }
+
+  test("captions via the next-cheapest profile when the cheapest can't resolve", async () => {
+    twoRankedVisionProfiles();
+    const resolutionAttempts: string[] = [];
+    let ranProfile: string | undefined;
+    const capturingProvider = {
+      name: "mock-vision-provider",
+      async sendMessage(
+        _messages: unknown,
+        opts: { config: { overrideProfile: string } },
+      ) {
+        ranProfile = opts.config.overrideProfile;
+        return sendMessageResponse;
+      },
+    };
+    // The cheapest profile has a dangling connection; only premium resolves.
+    setPluginApiMock(async (_callSite, opts) => {
+      resolutionAttempts.push(opts.overrideProfile);
+      return opts.overrideProfile === "cheap-vision" ? null : capturingProvider;
+    });
+    try {
+      const ctx = makeCtx({ latestMessages: [imageMsg("img1")] });
+      await userPromptSubmit(ctx);
+
+      // Tried cheapest first, then fell through to the next usable profile.
+      expect(resolutionAttempts).toEqual(["cheap-vision", "premium-vision"]);
+      // Captioning ran on premium and succeeded — not a fail-open placeholder.
+      expect(ranProfile).toBe("premium-vision");
+      expect(ctx.latestMessages[0].content[0].type).toBe("text");
+      expect((ctx.latestMessages[0].content[0] as { text: string }).text).toBe(
+        "[Image auto-described for text-only model: A red chart showing Q3 revenue.]",
+      );
+    } finally {
+      restorePluginApiMock();
+    }
+  });
+
+  test("falls open to the failed-description placeholder when no ranked profile resolves", async () => {
+    twoRankedVisionProfiles();
+    const resolutionAttempts: string[] = [];
+    setPluginApiMock(async (_callSite, opts) => {
+      resolutionAttempts.push(opts.overrideProfile);
+      return null; // every vision profile is unusable
+    });
+    try {
+      const ctx = makeCtx({ latestMessages: [imageMsg("img1")] });
+      await userPromptSubmit(ctx);
+
+      // Exhausted every ranked candidate, cheapest-first.
+      expect(resolutionAttempts).toEqual(["cheap-vision", "premium-vision"]);
+      // Vision profiles exist but none resolve → "failed", not "no model".
+      expect(ctx.latestMessages[0].content[0].type).toBe("text");
+      const text = (ctx.latestMessages[0].content[0] as { text: string }).text;
+      expect(text).toContain("auto-description failed");
+      expect(text).not.toContain("no vision-capable model");
+    } finally {
+      restorePluginApiMock();
+    }
+  });
+
+  test("resolves the provider once per sweep when the cheapest is usable", async () => {
+    twoRankedVisionProfiles();
+    const resolutionAttempts: string[] = [];
+    let sendCount = 0;
+    const countingProvider = {
+      name: "mock-vision-provider",
+      async sendMessage(
+        _messages: unknown,
+        opts: { config: { overrideProfile: string } },
+      ) {
+        sendCount++;
+        // The cheapest profile resolved, so it captions every image.
+        expect(opts.config.overrideProfile).toBe("cheap-vision");
+        return sendMessageResponse;
+      },
+    };
+    setPluginApiMock(async (_callSite, opts) => {
+      resolutionAttempts.push(opts.overrideProfile);
+      return countingProvider;
+    });
+    try {
+      // Two distinct (uncached) images in a single sweep.
+      const ctx = makeCtx({
+        latestMessages: [imageMsg("img-a"), imageMsg("img-b")],
+      });
+      await userPromptSubmit(ctx);
+
+      // Provider resolved exactly once for the whole sweep — no per-image churn.
+      expect(resolutionAttempts).toEqual(["cheap-vision"]);
+      // ...yet both images were captioned.
+      expect(sendCount).toBe(2);
+      expect(ctx.latestMessages[0].content[0].type).toBe("text");
+      expect(ctx.latestMessages[1].content[0].type).toBe("text");
+    } finally {
+      restorePluginApiMock();
+    }
   });
 });
 
