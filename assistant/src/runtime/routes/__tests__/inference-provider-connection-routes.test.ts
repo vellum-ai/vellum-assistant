@@ -393,7 +393,7 @@ describe("POST inference/provider-connections (create)", () => {
       .values({
         name: "legacy-endpoint",
         provider: "openai-compatible",
-        label: "Anthropic",
+        label: " Anthropic ",
         auth: JSON.stringify({ type: "none" }),
         baseUrl: "http://localhost:1234/v1",
         models: JSON.stringify([{ id: "my-model" }]),
@@ -409,7 +409,14 @@ describe("POST inference/provider-connections (create)", () => {
         body: { models: [{ id: "another-model" }] },
       },
     )) as { label: string | null };
-    expect(result.label).toBe("Anthropic");
+    expect(result.label).toBe(" Anthropic ");
+
+    // Labels compare trimmed: resending the stored label without its
+    // padding is not an identity change.
+    await call(findHandler("inference_provider_connections_update"), {
+      pathParams: { name: "legacy-endpoint" },
+      body: { label: "Anthropic", models: [{ id: "third-model" }] },
+    });
 
     await expect(
       call(findHandler("inference_provider_connections_update"), {

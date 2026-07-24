@@ -413,10 +413,14 @@ async function handleUpdateConnection({
 
   // Only a CHANGED label is validated: keeping a stored label — whatever it
   // is — must never block unrelated edits (key rotation, models).
+  // Labels compare trimmed, the same normalization the identity check
+  // applies, so a stored padded label resent trimmed is not a change.
   // Checked in the same event-loop turn as the write so concurrent requests
   // cannot both pass.
   const labelChanging =
-    labelRaw !== undefined && (labelRaw ?? "") !== (existing.label ?? "");
+    labelRaw !== undefined &&
+    (typeof labelRaw === "string" ? labelRaw.trim() : "") !==
+      (existing.label ?? "").trim();
   if (labelChanging) {
     assertValidCustomProviderIdentity(existing.provider, labelRaw, name);
   }
