@@ -119,7 +119,14 @@ assistant conversations wake "$id" --hint "Summarize the new items" --external-c
 
 ## Inference Profile
 
-Execute-mode runs use the default `mainAgent` model selection unless the schedule pins an `inference_profile` (a key from `llm.profiles`). Pin a profile when a recurring task should run on a specific model — e.g. a cost-optimized profile for a high-frequency digest. Pass `inference_profile: null` on update to revert to the default. The pinned profile is shown on the schedule's details page in settings.
+Execute-mode runs inherit the user's active `mainAgent` chat-model selection unless the schedule pins an `inference_profile` (a key from `llm.profiles`). This inheritance is the cost trap: a recurring schedule created while the user's main model is a premium one will silently run that premium model on every firing, and a daily job quietly compounds into real money over weeks. Pass `inference_profile: null` on update to revert to inheriting the active selection. The pinned profile is shown on the schedule's details page in settings.
+
+Make a deliberate model choice for every recurring execute-mode schedule instead of defaulting to inheritance:
+
+- **Routine or mechanical work** — digests, inbox checks, reminders, status polls, scraping-and-summarizing — pin a **cost-efficient** profile (e.g. `cost-optimized`). These tasks rarely need a premium model, and the savings recur on every run.
+- **Quality-sensitive work** — reasoning, drafting, judgement, anything where a weaker model would degrade the result — keep the user's main model (omit `inference_profile`), and say so explicitly so the choice is intentional.
+
+When you confirm a new recurring schedule, **tell the user which model it will run on** and, when it inherits the main model, note that they'll be paying for that model on an ongoing basis so they can decide whether to pin a cheaper profile. `inference_profile` only affects execute-mode runs; notify, script, and workflow schedules don't invoke the mainAgent model.
 
 ## Conversation Reuse
 

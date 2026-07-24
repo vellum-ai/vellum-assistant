@@ -19,6 +19,10 @@ import {
   resolveCapabilities as resolveWorkflowCapabilities,
 } from "../../workflows/capabilities.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
+import {
+  ACTIVE_MODEL_SELECTION_NOTE,
+  shouldNoteActiveModelSelection,
+} from "./model-selection-note.js";
 
 const VALID_MODES: ScheduleMode[] = ["notify", "execute", "script", "workflow"];
 const VALID_ROUTING_INTENTS: RoutingIntent[] = [
@@ -240,6 +244,9 @@ export async function executeScheduleCreate(
           ``,
           `Integrations: ${integrations}`,
           `\u26a0 If this schedule requires an integration that isn't connected, it will fail at runtime. Warn about any missing capabilities before confirming the schedule is ready.`,
+          ...(shouldNoteActiveModelSelection(job.mode, job.inferenceProfile)
+            ? [ACTIVE_MODEL_SELECTION_NOTE]
+            : []),
         ].join("\n"),
         isError: false,
       };
@@ -340,6 +347,9 @@ export async function executeScheduleCreate(
         ``,
         `Integrations: ${integrations}`,
         `\u26a0 If this schedule requires an integration that isn't connected, it will fail at runtime. Warn about any missing capabilities before confirming the schedule is ready.`,
+        ...(shouldNoteActiveModelSelection(job.mode, job.inferenceProfile)
+          ? [ACTIVE_MODEL_SELECTION_NOTE]
+          : []),
       ].join("\n"),
       isError: false,
     };
