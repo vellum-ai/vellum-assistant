@@ -147,7 +147,7 @@ describe("buildSubagentTerminalMessage", () => {
     expect(msg).not.toContain("re-spawn");
   });
 
-  test("routes a budget-capped run to the read pointer instead of inlining stale preamble", () => {
+  test("inlines the final tool output for a budget-capped run instead of the stale preamble", () => {
     const msg = buildSubagentTerminalMessage({
       label: "long-run",
       subagentId: "sa-10",
@@ -159,17 +159,101 @@ describe("buildSubagentTerminalMessage", () => {
       // stale snapshot that hides the last iteration's output.
       finalText: "I'll inspect the config next...",
       iterationBudgetReached: true,
+      // The last real work lives in the trailing tool-result message.
+      finalToolResultText: "CONFIG: port=8080\nmode=prod",
     });
 
     // The stale preamble must NOT be presented as the result.
     expect(msg).not.toContain("I'll inspect the config next");
-    // Instead the parent is pointed at the latest child output (which includes
-    // the final iteration's tool results)...
+    // The parent reaches the final iteration's tool output directly — this is
+    // the content subagent_read (assistant messages only) cannot surface.
+    expect(msg).toContain("CONFIG: port=8080");
+    expect(msg).toContain("final iteration's tool output");
+    expect(msg).not.toContain("truncated"); // short output — not truncated
+    // The read pointer is retained for the earlier assistant history...
     expect(msg).toContain('subagent_read with subagent_id "sa-10"');
-    // ...and told the run was truncated so it can continue rather than treating
-    // the output as final.
+    expect(msg).toContain("earlier assistant messages");
+    // ...and the run is flagged as truncated so the parent can continue.
     expect(msg).toContain("reached its iteration budget");
     expect(msg).toContain("may be incomplete");
+    expect(msg).toContain("re-spawn it to continue");
+  });
+
+  test("bounds an oversized inlined tool output and says it truncated", () => {
+    const big = "X".repeat(5_000);
+    const msg = buildSubagentTerminalMessage({
+      label: "long-run",
+      subagentId: "sa-10b",
+      isFork: false,
+      outcome: "completed",
+      silent: false,
+      finalText: "preamble",
+      iterationBudgetReached: true,
+      finalToolResultText: big,
+    });
+
+    // Bounded to the head; the note reports the exact budget honestly.
+    expect(msg).toContain("truncated to the first 4000 characters");
+    expect(msg).toContain("X".repeat(4_000));
+    expect(msg).not.toContain("X".repeat(4_001));
+    expect(msg).toContain('subagent_read with subagent_id "sa-10b"');
+    expect(msg).toContain("re-spawn it to continue");
+  });
+
+  test("fork capped-run inline points read at last_n: 1 and can stay internal", () => {
+    const msg = buildSubagentTerminalMessage({
+      label: "fork-run",
+      subagentId: "sa-10c",
+      isFork: true,
+      outcome: "completed",
+      silent: true,
+      finalText: "I'll keep going...",
+      iterationBudgetReached: true,
+      finalToolResultText: "partial fork findings",
+    });
+
+    expect(msg).toContain("partial fork findings");
+    expect(msg).toContain(
+      'subagent_read with subagent_id "sa-10c" and last_n: 1',
+    );
+    expect(msg).toContain("Keep the result internal.");
+  });
+
+  test("a queued follow-up still defers a capped run to the read pointer, not the tool output", () => {
+    const msg = buildSubagentTerminalMessage({
+      label: "interactive-cap",
+      subagentId: "sa-10d",
+      isFork: false,
+      outcome: "completed",
+      silent: false,
+      finalText: "stale preamble",
+      iterationBudgetReached: true,
+      finalToolResultText: "tool output that is also stale",
+      deferred: true,
+    });
+
+    // A draining follow-up turn supersedes both the preamble and this snapshot.
+    expect(msg).not.toContain("tool output that is also stale");
+    expect(msg).toContain("Queued follow-up guidance is still being processed");
+    expect(msg).toContain('subagent_read with subagent_id "sa-10d"');
+  });
+
+  test("falls back to the read pointer when a capped run left no tool output", () => {
+    const msg = buildSubagentTerminalMessage({
+      label: "long-empty-tools",
+      subagentId: "sa-10e",
+      isFork: false,
+      outcome: "completed",
+      silent: false,
+      finalText: "I'll inspect next...",
+      iterationBudgetReached: true,
+      // No trailing tool-result content to inline.
+      finalToolResultText: "   ",
+    });
+
+    expect(msg).not.toContain("I'll inspect next");
+    expect(msg).toContain('subagent_read with subagent_id "sa-10e"');
+    expect(msg).toContain("reached its iteration budget");
     expect(msg).toContain("re-spawn it to continue");
   });
 
@@ -199,5 +283,33 @@ describe("buildSubagentTerminalMessage", () => {
     });
 
     expect(msg).not.toContain("iteration budget");
+  });
+
+  test("normal completion output is byte-identical (unaffected by the capped-run path)", () => {
+    const opts = {
+      label: "research-pricing",
+      subagentId: "sa-1",
+      isFork: false as const,
+      outcome: "completed" as const,
+      silent: false,
+      finalText: "Competitor X charges $20/mo.",
+    };
+
+    const msg = buildSubagentTerminalMessage(opts);
+
+    // Frozen expectation: the inline-completion wording must not drift when the
+    // budget-capped tool-output path is added.
+    expect(msg).toBe(
+      '[Subagent "research-pricing" completed — result below]\n\n' +
+        "Competitor X charges $20/mo.\n\n" +
+        "(Incorporate this into your reply to the user as appropriate.)",
+    );
+
+    // A stray finalToolResultText can never leak into a non-capped completion.
+    const withToolText = buildSubagentTerminalMessage({
+      ...opts,
+      finalToolResultText: "should be ignored",
+    });
+    expect(withToolText).toBe(msg);
   });
 });

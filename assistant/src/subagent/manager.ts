@@ -36,6 +36,7 @@ import type { Message, TextContent } from "../providers/types.js";
 import { createAbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
 import { getSandboxWorkingDir } from "../util/platform.js";
+import { safeStringSlice } from "../util/unicode.js";
 import { injectMessageIntoParent } from "./notify.js";
 import {
   SUBAGENT_LIMITS,
@@ -88,6 +89,55 @@ function extractFinalAssistantText(messages: Message[]): string {
       .join("");
   }
   return "";
+}
+
+/**
+ * Byte-ish budget for the final-tool-result excerpt inlined into a
+ * budget-capped run's terminal message. Bounds how much of the last
+ * iteration's tool output is copied into the parent conversation; the rest is
+ * recovered by re-spawning to continue (the excerpt is not retrievable via
+ * `subagent_read`, which returns only the assistant-text history).
+ */
+const MAX_INLINED_TOOL_RESULT_CHARS = 4_000;
+
+/**
+ * Concatenate the text of the `tool_result` blocks in the conversation's
+ * trailing message. A budget-capped run breaks the tool-use loop right after
+ * appending the final iteration's tool results as a user-role message, so the
+ * trailing assistant message is only the pre-tool preamble — this recovers that
+ * last real work so it can be inlined into the parent terminal message. Returns
+ * an empty string when the trailing message carries no tool results.
+ */
+function extractTrailingToolResultText(messages: Message[]): string {
+  const last = messages[messages.length - 1];
+  if (!last) {
+    return "";
+  }
+  const parts: string[] = [];
+  for (const block of last.content) {
+    if (block.type === "tool_result" && block.content.trim()) {
+      parts.push(block.content);
+    }
+  }
+  return parts.join("\n\n");
+}
+
+/**
+ * Bound an inlined tool-result excerpt to {@link MAX_INLINED_TOOL_RESULT_CHARS},
+ * keeping the head (the tool's first output) and never splitting a surrogate
+ * pair. Reports whether it truncated so the caller's note can say so accurately.
+ */
+function truncateInlinedToolResult(text: string): {
+  text: string;
+  truncated: boolean;
+} {
+  if (text.length <= MAX_INLINED_TOOL_RESULT_CHARS) {
+    return { text, truncated: false };
+  }
+  return {
+    text: safeStringSlice(text, 0, MAX_INLINED_TOOL_RESULT_CHARS),
+    truncated: true,
+  };
 }
 
 /**
@@ -155,12 +205,19 @@ function iterationBudgetTruncationNote(isFork: boolean): string {
  *
  * For a completed subagent the final synthesis is inlined directly, so the
  * parent acts on the result without a `subagent_read` round-trip and has
- * nothing left to re-spawn. The `subagent_read` pointer survives only as a
- * fallback for the rare run that ends with no trailing assistant text, or when
- * the run was stopped at its iteration budget — where the trailing assistant
- * text is a pre-tool preamble, so the parent must read the latest child output
- * (including the final iteration's tool results) rather than act on the stale
- * snapshot.
+ * nothing left to re-spawn.
+ *
+ * A run stopped at its iteration budget breaks the loop after appending the
+ * final iteration's tool results, so its trailing assistant text is a pre-tool
+ * preamble. `subagent_read` returns only the assistant-text history, so that
+ * pointer alone would strand the last real work in the trailing tool-result
+ * message. When `finalToolResultText` is supplied, a bounded excerpt of it is
+ * inlined so the parent reaches that output directly, with the `subagent_read`
+ * pointer retained for the earlier assistant messages.
+ *
+ * The `subagent_read` pointer is otherwise the fallback for the rare run that
+ * ends with no trailing assistant text, a queued follow-up turn still draining,
+ * or a capped run whose trailing message carried no tool output.
  *
  * Exported for unit testing.
  */
@@ -182,6 +239,13 @@ export function buildSubagentTerminalMessage(opts: {
    * the budget ran out — potentially incomplete.
    */
   iterationBudgetReached?: boolean;
+  /**
+   * Concatenated text of the trailing tool-result message for a budget-capped
+   * run. A bounded excerpt is inlined so the parent reaches the final
+   * iteration's output, which `subagent_read` (assistant messages only) cannot
+   * surface. Ignored unless `iterationBudgetReached` is set.
+   */
+  finalToolResultText?: string;
 }): string {
   const {
     label,
@@ -194,6 +258,7 @@ export function buildSubagentTerminalMessage(opts: {
     deferred,
     deniedTools,
     iterationBudgetReached,
+    finalToolResultText,
   } = opts;
   const prefix = isFork ? "Fork" : "Subagent";
 
@@ -239,10 +304,36 @@ export function buildSubagentTerminalMessage(opts: {
     );
   }
 
+  // Budget-capped run with recoverable tool output: the trailing assistant
+  // text is a pre-tool preamble, but the final iteration's tool results carry
+  // the run's last real work. `subagent_read` returns only assistant messages,
+  // so inline a bounded excerpt of that tool output directly and keep the read
+  // pointer for the earlier assistant history. Skipped when a follow-up turn is
+  // still draining — that snapshot is stale for a different reason.
+  const trimmedToolResult = finalToolResultText?.trim() ?? "";
+  if (iterationBudgetReached && trimmedToolResult && !deferred) {
+    const excerpt = truncateInlinedToolResult(trimmedToolResult);
+    const readLastN = isFork ? " and last_n: 1" : "";
+    const truncatedClause = excerpt.truncated
+      ? `, truncated to the first ${MAX_INLINED_TOOL_RESULT_CHARS} characters`
+      : "";
+    const silentClause = silent ? " Keep the result internal." : "";
+    return (
+      `[${prefix} "${label}" completed — final tool output below (stopped at iteration budget)]\n\n` +
+      `${excerpt.text}\n\n` +
+      `(This ${prefix.toLowerCase()} reached its iteration budget and was stopped before it ` +
+      `signaled completion. The text above is the final iteration's tool output${truncatedClause} — ` +
+      `its last real work, not a synthesis. Use subagent_read with subagent_id "${subagentId}"${readLastN} ` +
+      `for its earlier assistant messages; its output may be incomplete, so re-spawn it to continue ` +
+      `from here.${silentClause})` +
+      deniedNote
+    );
+  }
+
   // Read-pointer path: the run left no trailing assistant text to inline, a
   // queued follow-up turn is still draining, or the run was stopped at its
-  // iteration budget — in each case the trailing text is a stale snapshot and
-  // the parent should read the latest output instead.
+  // iteration budget with no tool output to inline — in each case the trailing
+  // text is a stale snapshot and the parent should read the latest output.
   const lastN = isFork ? " and last_n: 1" : "";
   const reason = deferred
     ? `Queued follow-up guidance is still being processed`
@@ -847,6 +938,14 @@ export class SubagentManager {
       // before a release nulls the conversation reference so the parent-facing
       // terminal message can carry a truncation notice.
       const iterationBudgetReached = conversation.lastRunIterationBudgetReached;
+      // A capped run stops right after appending the final iteration's tool
+      // results, so those results — not the trailing assistant preamble — hold
+      // its last real work. Extract them (before a release nulls the
+      // conversation) so the terminal message can inline them; `subagent_read`
+      // returns only assistant messages and cannot surface them.
+      const finalToolResultText = iterationBudgetReached
+        ? extractTrailingToolResultText(conversation.messages)
+        : undefined;
       // Copy usage stats from the conversation before sending status (which includes usage).
       managed.state.usage = { ...conversation.usageStats };
       // Only update state + notify if still non-terminal (guards against abort race).
@@ -867,6 +966,7 @@ export class SubagentManager {
             finalText,
             deniedTools,
             iterationBudgetReached,
+            finalToolResultText,
           );
         } else if (iterationBudgetReached) {
           // The synchronous caller (advisor consult, voice continuation)
@@ -1487,6 +1587,7 @@ export class SubagentManager {
     finalText?: string,
     deniedTools?: string[],
     iterationBudgetReached?: boolean,
+    finalToolResultText?: string,
   ): void {
     const { config } = managed.state;
     const isFork = managed.state.isFork;
@@ -1509,6 +1610,7 @@ export class SubagentManager {
       deferred: managed.hadEnqueuedMessages === true,
       deniedTools,
       iterationBudgetReached,
+      finalToolResultText,
     });
 
     const notification: SubagentNotificationInfo = {
