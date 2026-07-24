@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
+import { ChevronDown } from "lucide-react";
 import { Link } from "react-router";
 
-import { Card } from "@vellumai/design-library/components/card";
+import { Collapsible } from "@vellumai/design-library/components/collapsible";
 import type { TagTone } from "@vellumai/design-library/components/tag";
 import { Typography } from "@vellumai/design-library/components/typography";
 
@@ -93,59 +94,79 @@ export interface SlackChannelTierLegendProps {
 }
 
 /**
- * One-time Assistant Access legend card beside the channel list: every tier
- * with its behavior description, so the expanded rows don't repeat the same
- * paragraph per channel.
+ * Collapsible Assistant Access legend at the foot of the channel list card:
+ * every tier with its behavior description, so the expanded rows don't repeat
+ * the same paragraph per channel. Collapsed by default to stay out of the way.
  */
 export function SlackChannelTierLegend({
   assistantName,
 }: SlackChannelTierLegendProps) {
   return (
-    <Card.Root>
-      <Card.Header>Assistant Access levels</Card.Header>
-      <Card.Body className="grid gap-4 sm:grid-cols-2">
-        {CAPABILITY_TIER_VALUES.map((tier) => {
-          const meta = CAPABILITY_TIER_META[tier];
-          return (
-            <div key={tier} className="flex flex-col gap-1.5">
-              <span className="flex items-center gap-1.5">
-                <span
-                  aria-hidden="true"
-                  className="h-1.5 w-1.5 rounded-full"
-                  style={{ backgroundColor: TONE_DOT_COLOR[meta.tone] }}
-                />
-                <Typography as="span" variant="body-small-emphasised">
-                  {meta.label}
-                </Typography>
-              </span>
-              <Typography
-                as="p"
-                variant="body-small-default"
-                className="text-[color:var(--content-tertiary)]"
-              >
-                {tierDescription(tier, assistantName)}
-              </Typography>
+    <Collapsible.Root type="single" collapsible>
+      <Collapsible.Item value="access-levels">
+        <Collapsible.Trigger className="group justify-between gap-2 px-4 py-3">
+          <Typography as="span" variant="body-small-emphasised">
+            Assistant Access levels
+          </Typography>
+          <ChevronDown
+            aria-hidden="true"
+            className="h-4 w-4 shrink-0 text-[var(--content-tertiary)] transition-transform group-data-[state=open]:rotate-180"
+          />
+        </Collapsible.Trigger>
+        <Collapsible.Content>
+          <div className="flex flex-col gap-3 px-4 pb-4">
+            <div className="grid gap-3 sm:grid-cols-2">
+              {CAPABILITY_TIER_VALUES.map((tier) => {
+                const meta = CAPABILITY_TIER_META[tier];
+                return (
+                  <div key={tier} className="flex flex-col gap-1">
+                    <span className="flex items-center gap-1.5">
+                      <span
+                        aria-hidden="true"
+                        className="h-1.5 w-1.5 rounded-full"
+                        style={{ backgroundColor: TONE_DOT_COLOR[meta.tone] }}
+                      />
+                      <Typography as="span" variant="body-small-emphasised">
+                        {meta.label}
+                      </Typography>
+                    </span>
+                    <Typography
+                      as="p"
+                      variant="body-small-default"
+                      className="text-[color:var(--content-tertiary)]"
+                    >
+                      {tierDescription(tier, assistantName)}
+                    </Typography>
+                  </div>
+                );
+              })}
             </div>
-          );
-        })}
-      </Card.Body>
-      <Card.Footer>
-        <Typography
-          as="p"
-          variant="body-small-default"
-          className="text-[color:var(--content-tertiary)]"
-        >
-          Your{" "}
-          <Link
-            to={routes.settings.privacy}
-            className="text-[var(--content-link)] underline hover:text-[var(--content-link-hover)]"
-          >
-            Trust Rules
-          </Link>{" "}
-          fine-tune these levels: a rule raises or lowers how risky a specific
-          action is treated, which changes when it asks first.
-        </Typography>
-      </Card.Footer>
-    </Card.Root>
+            <Typography
+              as="p"
+              variant="body-small-default"
+              className="text-[color:var(--content-tertiary)]"
+            >
+              Writes, sends, and spends always come to you first — at every
+              level.
+            </Typography>
+            <Typography
+              as="p"
+              variant="body-small-default"
+              className="text-[color:var(--content-tertiary)]"
+            >
+              Your{" "}
+              <Link
+                to={routes.settings.privacy}
+                className="text-[var(--content-link)] underline hover:text-[var(--content-link-hover)]"
+              >
+                Trust Rules
+              </Link>{" "}
+              fine-tune these levels: a rule raises or lowers how risky a
+              specific action is treated, which changes when it asks first.
+            </Typography>
+          </div>
+        </Collapsible.Content>
+      </Collapsible.Item>
+    </Collapsible.Root>
   );
 }

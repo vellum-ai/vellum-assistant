@@ -1,21 +1,22 @@
-import { ChevronDown, Hash, Lock, Search } from "lucide-react";
+import { Hash, Lock, Search } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { cn } from "@vellumai/design-library";
-import { Button } from "@vellumai/design-library/components/button";
 import { Card } from "@vellumai/design-library/components/card";
-import { Collapsible } from "@vellumai/design-library/components/collapsible";
+import {
+  Dropdown,
+  type DropdownOption,
+} from "@vellumai/design-library/components/dropdown";
 import { Input } from "@vellumai/design-library/components/input";
 import { ListRow } from "@vellumai/design-library/components/list-row";
-import { Tag } from "@vellumai/design-library/components/tag";
 import { Typography } from "@vellumai/design-library/components/typography";
 import { VirtualList } from "@vellumai/design-library/components/virtual-list";
 
 import { EmptyState } from "@/components/empty-state";
-import { SlackChannelOverridePanel } from "@/domains/channels/components/slack-channel-override-panel";
 import { SlackChannelTierLegend } from "@/domains/channels/components/slack-channel-tier-legend";
 import {
   CAPABILITY_TIER_META,
+  CAPABILITY_TIER_VALUES,
   resolveChannelTier,
 } from "@/domains/channels/slack-channel-overrides";
 import type { RiskThreshold } from "@/utils/threshold-presets";
@@ -192,36 +193,6 @@ export function SlackChannelList({
 }: SlackChannelListProps) {
   const [search, setSearch] = useState("");
   const [kindFilter, setKindFilter] = useState<SlackRoomKind | null>(null);
-  const [openIds, setOpenIds] = useState<ReadonlySet<string>>(new Set());
-  const [multiOpen, setMultiOpen] = useState(false);
-
-  // Rows are stock ListRows (not Accordion.Triggers), so the open set is
-  // toggled here and drives the Collapsible.Root value one-way. Outside
-  // "Expand all" mode the single-open rule keeps only the newest row.
-  const toggleRow = (id: string) => {
-    setOpenIds((prev) => {
-      if (multiOpen) {
-        const next = new Set(prev);
-        if (next.has(id)) {
-          next.delete(id);
-        } else {
-          next.add(id);
-        }
-        return next;
-      }
-      return prev.has(id) ? new Set() : new Set([id]);
-    });
-  };
-
-  const toggleExpandAll = () => {
-    if (multiOpen) {
-      setMultiOpen(false);
-      setOpenIds(new Set());
-    } else {
-      setMultiOpen(true);
-      setOpenIds(new Set(allChannels.map((channel) => channel.id)));
-    }
-  };
 
   const allChannels = useMemo(() => roomsOnly(channels ?? []), [channels]);
   const visibleChannels = useMemo(
@@ -234,19 +205,24 @@ export function SlackChannelList({
   );
 
   const handle = slackHandle ?? `@${assistantDisplayName}`;
-  const inviteHint = (
+  const presenceHint = (
     <>
-      To add {assistantDisplayName} to a channel, type{" "}
+      Add with{" "}
       <code className="text-[color:var(--content-secondary)]">
         /invite {handle}
       </code>{" "}
-      inside that Slack channel.
+      or remove with{" "}
+      <code className="text-[color:var(--content-secondary)]">
+        /remove {handle}
+      </code>{" "}
+      in that Slack channel. Only channels {assistantDisplayName} is in appear
+      here.
     </>
   );
 
   return (
     <>
-      <Card.Root>
+      <Card.Root className="flex min-h-0 flex-1 flex-col">
         <Card.Header>
           <div className="flex flex-col gap-1">
             Where {assistantDisplayName} is present
@@ -255,11 +231,11 @@ export function SlackChannelList({
               variant="body-small-default"
               className="text-[color:var(--content-tertiary)]"
             >
-              {inviteHint}
+              {presenceHint}
             </Typography>
           </div>
         </Card.Header>
-        <Card.Body className="flex flex-col gap-3">
+        <Card.Body className="flex min-h-0 flex-1 flex-col gap-3">
           {loading ? (
             <Typography
               as="span"
@@ -322,13 +298,6 @@ export function SlackChannelList({
                     );
                   })}
                 </div>
-                <Button
-                  type="button"
-                  variant="outlined"
-                  onClick={toggleExpandAll}
-                >
-                  {multiOpen ? "Collapse all" : "Expand all"}
-                </Button>
               </div>
               {visibleChannels.length === 0 ? (
                 <Typography
@@ -339,45 +308,16 @@ export function SlackChannelList({
                   No channels match.
                 </Typography>
               ) : (
-                <Collapsible.Root type="multiple" value={[...openIds]}>
-                  {visibleChannels.length > VIRTUALIZE_THRESHOLD ? (
-                    // Virtuoso sizes its scroller to 100% of the wrapper, so
-                    // the fixed height lives on the wrapper, not the list.
-                    <div className="h-96">
-                      <VirtualList
-                        items={visibleChannels}
-                        computeItemKey={(_, channel) => channel.id}
-                        itemContent={(_, channel) => (
-                          <SlackChannelRow
-                            channel={channel}
-                            open={openIds.has(channel.id)}
-                            onToggle={() => toggleRow(channel.id)}
-                            pending={pendingChannelIds.has(channel.id)}
-                            overridesLoading={tierOverridesLoading}
-                            overridesError={tierOverridesError}
-                            defaultTier={defaultTier}
-                            accessControls={accessControlsSupported}
-                            tierOverride={tierOverrides?.[channel.id]}
-                            onTierChange={(tier) =>
-                              onTierChange?.(channel.id, tier)
-                            }
-                            onReset={() => onTierReset?.(channel.id)}
-                          />
-                        )}
-                        className="h-full"
-                      />
-                    </div>
-                  ) : (
-                    // Cap the list so the "Assistant Access levels" key stays
-                    // reachable without scrolling past every channel; the rows
-                    // scroll within this bound (mirrors the virtualized h-96).
-                    <div className="max-h-96 overflow-y-auto">
-                      {visibleChannels.map((channel) => (
+                visibleChannels.length > VIRTUALIZE_THRESHOLD ? (
+                  // Virtuoso sizes its scroller to 100% of the wrapper, so the
+                  // wrapper fills the card's flex scroll area.
+                  <div className="min-h-0 flex-1">
+                    <VirtualList
+                      items={visibleChannels}
+                      computeItemKey={(_, channel) => channel.id}
+                      itemContent={(_, channel) => (
                         <SlackChannelRow
-                          key={channel.id}
                           channel={channel}
-                          open={openIds.has(channel.id)}
-                          onToggle={() => toggleRow(channel.id)}
                           pending={pendingChannelIds.has(channel.id)}
                           overridesLoading={tierOverridesLoading}
                           overridesError={tierOverridesError}
@@ -389,63 +329,90 @@ export function SlackChannelList({
                           }
                           onReset={() => onTierReset?.(channel.id)}
                         />
-                      ))}
-                    </div>
-                  )}
-                </Collapsible.Root>
+                      )}
+                      className="h-full"
+                    />
+                  </div>
+                ) : (
+                  // Rows scroll within the card's flex area; the collapsed
+                  // Assistant Access levels key stays pinned in the footer.
+                  <div className="min-h-0 flex-1 overflow-y-auto">
+                    {visibleChannels.map((channel) => (
+                      <SlackChannelRow
+                        key={channel.id}
+                        channel={channel}
+                        pending={pendingChannelIds.has(channel.id)}
+                        overridesLoading={tierOverridesLoading}
+                        overridesError={tierOverridesError}
+                        defaultTier={defaultTier}
+                        accessControls={accessControlsSupported}
+                        tierOverride={tierOverrides?.[channel.id]}
+                        onTierChange={(tier) => onTierChange?.(channel.id, tier)}
+                        onReset={() => onTierReset?.(channel.id)}
+                      />
+                    ))}
+                  </div>
+                )
               )}
             </>
           )}
         </Card.Body>
-        {!loading && !error && allChannels.length > 0 ? (
-          <Card.Footer>
-            <Typography
-              as="p"
-              variant="body-small-default"
-              className="text-[color:var(--content-tertiary)]"
-            >
-              Only showing channels {assistantDisplayName} is in. To remove{" "}
-              {assistantDisplayName} from a channel, use{" "}
-              <code className="text-[color:var(--content-secondary)]">
-                /remove {handle}
-              </code>{" "}
-              in that Slack channel.
-            </Typography>
+        {accessControlsSupported &&
+        !loading &&
+        !error &&
+        allChannels.length > 0 ? (
+          <Card.Footer className="p-0">
+            <SlackChannelTierLegend assistantName={assistantDisplayName} />
           </Card.Footer>
         ) : null}
       </Card.Root>
-      {accessControlsSupported &&
-      !loading &&
-      !error &&
-      allChannels.length > 0 ? (
-        <SlackChannelTierLegend assistantName={assistantDisplayName} />
-      ) : null}
     </>
+  );
+}
+
+/** Accent dot per tier, matching the collapsed Assistant Access levels key. */
+const TIER_DOT_COLOR: Record<RiskThreshold, string> = {
+  none: "var(--system-negative-strong)",
+  low: "var(--system-mid-strong)",
+  medium: "var(--system-info-strong)",
+  high: "var(--system-positive-strong)",
+};
+
+/**
+ * Sentinel picker value that clears a channel's stored cell so the room
+ * follows the owner's global Assistant Access setting again.
+ */
+const DEFAULT_CHOICE = "default";
+type TierChoice = RiskThreshold | typeof DEFAULT_CHOICE;
+
+function TierDot({ color }: { color: string }) {
+  return (
+    <span
+      aria-hidden="true"
+      className="h-1.5 w-1.5 rounded-full"
+      style={{ backgroundColor: color }}
+    />
   );
 }
 
 function SlackChannelRow({
   channel,
-  open,
   pending,
   overridesLoading,
   overridesError,
   defaultTier,
   accessControls,
   tierOverride,
-  onToggle,
   onTierChange,
   onReset,
 }: {
   channel: SlackChannel;
-  open: boolean;
   pending: boolean;
   overridesLoading: boolean;
   overridesError: boolean;
   defaultTier: RiskThreshold | null;
   accessControls: boolean;
   tierOverride: RiskThreshold | undefined;
-  onToggle: () => void;
   onTierChange: (tier: RiskThreshold) => void;
   onReset: () => void;
 }) {
@@ -457,18 +424,14 @@ function SlackChannelRow({
   const Icon = CHANNEL_KIND_ICONS[kind];
   const metaLabel = slackChannelMetaLabel(channel);
   const settings = resolveChannelTier(tierOverride);
-  // No cell → the row shows the gateway-resolved fall-through tier marked
-  // "default", never a hardcoded one.
-  const tierMeta =
-    settings.tier !== null ? CAPABILITY_TIER_META[settings.tier] : null;
-  const defaultMeta =
-    defaultTier !== null ? CAPABILITY_TIER_META[defaultTier] : null;
+  const rowClassName = "[&+&]:border-t [&+&]:border-[var(--border-base)]";
 
-  // Older assistant without the channel-permission routes: a plain
-  // presence row — no badge, no expansion, nothing to configure.
+  // Older assistant without the channel-permission routes: a plain presence
+  // row — no picker, nothing to configure.
   if (!accessControls) {
     return (
       <ListRow
+        className={rowClassName}
         leading={<Icon className="h-4 w-4 text-[var(--content-tertiary)]" />}
         title={channel.name}
         trailing={
@@ -482,59 +445,59 @@ function SlackChannelRow({
     );
   }
 
+  // A stored cell shows its tier; a cell-less row follows the resolved default
+  // via the sentinel, which clears the cell when re-selected.
+  const value: TierChoice = settings.tier ?? DEFAULT_CHOICE;
+  const defaultDotColor =
+    defaultTier !== null
+      ? TIER_DOT_COLOR[defaultTier]
+      : "var(--content-tertiary)";
+  const options: DropdownOption<TierChoice>[] = [
+    {
+      value: DEFAULT_CHOICE,
+      label: "Default",
+      icon: <TierDot color={defaultDotColor} />,
+    },
+    ...CAPABILITY_TIER_VALUES.map((tier) => ({
+      value: tier,
+      label: CAPABILITY_TIER_META[tier].label,
+      icon: <TierDot color={TIER_DOT_COLOR[tier]} />,
+      tooltip: CAPABILITY_TIER_META[tier].sublabel,
+    })),
+  ];
+
+  const handleChange = (choice: TierChoice) => {
+    if (choice === DEFAULT_CHOICE) {
+      onReset();
+    } else {
+      onTierChange(choice);
+    }
+  };
+
   return (
-    <Collapsible.Item
-      value={channel.id}
-      className="[&+&]:border-t [&+&]:border-[var(--border-base)]"
-    >
-      <ListRow
-        leading={<Icon className="h-4 w-4 text-[var(--content-tertiary)]" />}
-        title={channel.name}
-        onClick={onToggle}
-        contentAriaLabel={`${channel.name} — ${open ? "collapse" : "expand"} channel settings`}
-        showChevron={false}
-        selected={open}
-        trailing={
-          <>
-            {pending ? (
-              <span className="text-body-small-default text-[color:var(--content-tertiary)]">
-                Saving…
-              </span>
-            ) : metaLabel != null ? (
-              <span className="text-body-small-default text-[color:var(--content-tertiary)]">
-                {metaLabel}
-              </span>
-            ) : null}
-            {tierMeta !== null ? (
-              <Tag tone={tierMeta.tone}>{tierMeta.label} • custom</Tag>
-            ) : (
-              <Tag>
-                {defaultMeta !== null
-                  ? `${defaultMeta.label} • default`
-                  : "Default"}
-              </Tag>
-            )}
-            <ChevronDown
-              aria-hidden="true"
-              className={cn(
-                "h-4 w-4 text-[var(--content-tertiary)] transition-transform",
-                open && "rotate-180",
-              )}
+    <ListRow
+      className={rowClassName}
+      leading={<Icon className="h-4 w-4 text-[var(--content-tertiary)]" />}
+      title={channel.name}
+      trailing={
+        <>
+          {metaLabel != null ? (
+            <span className="text-body-small-default text-[color:var(--content-tertiary)]">
+              {metaLabel}
+            </span>
+          ) : null}
+          <div className="w-44">
+            <Dropdown<TierChoice>
+              value={value}
+              onChange={handleChange}
+              options={options}
+              disabled={pending || overridesLoading || overridesError}
+              menuAlign="end"
+              aria-label={`Assistant Access in ${channel.name}`}
             />
-          </>
-        }
-      />
-      <Collapsible.Content>
-        <SlackChannelOverridePanel
-          channelName={channel.name}
-          settings={settings}
-          defaultTier={defaultTier}
-          loading={overridesLoading}
-          error={overridesError}
-          onTierChange={onTierChange}
-          onReset={onReset}
-        />
-      </Collapsible.Content>
-    </Collapsible.Item>
+          </div>
+        </>
+      }
+    />
   );
 }

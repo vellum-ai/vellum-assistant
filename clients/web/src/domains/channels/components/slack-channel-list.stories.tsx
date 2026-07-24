@@ -105,12 +105,6 @@ export const OverriddenChannel: Story = {
     onTierChange: () => {},
     onTierReset: () => {},
   },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    await userEvent.click(
-      canvas.getByLabelText("eng-releases — expand channel settings"),
-    );
-  },
 };
 
 /** Search-as-you-type narrows rows by channel name. */
@@ -135,7 +129,11 @@ export const LoadError: Story = {
   },
 };
 
-/** Past ~100 rows the list virtualizes into a fixed-height scroller. */
+/**
+ * Past ~100 rows the list virtualizes. Shown in a fixed-height panel (the real
+ * settings context) so the card fills the space and the rows scroll inside it,
+ * with the "Assistant Access levels" key pinned in the footer.
+ */
 export const ManyChannels: Story = {
   args: {
     channels: Array.from({ length: 250 }, (_, i) =>
@@ -146,5 +144,26 @@ export const ManyChannels: Story = {
         memberCount: (i % 30) + 2,
       }),
     ),
+  },
+  decorators: [
+    (Story) => (
+      <div style={{ height: 480, display: "flex", flexDirection: "column" }}>
+        <Story />
+      </div>
+    ),
+  ],
+};
+
+/**
+ * The "Assistant Access levels" key expanded — each tier's behavior
+ * description, folded into the foot of the presence card instead of a separate
+ * card below it.
+ */
+export const AccessLevelsOpen: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(
+      canvas.getByRole("button", { name: /assistant access levels/i }),
+    );
   },
 };

@@ -98,7 +98,7 @@ export function ChannelPanel({
   // their card chrome, so it returns bare (the parent skips the DetailCard).
   if (channel.key === "slack") {
     return (
-      <div className="flex flex-col gap-4">
+      <div className="flex min-h-0 flex-1 flex-col gap-4">
         {connected ? (
           <SlackConnectionCard
             slackHandle={channel.address}

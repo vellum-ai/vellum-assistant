@@ -57,15 +57,11 @@ describe("CAPABILITY_TIER_META", () => {
     expect(CAPABILITY_TIER_META.high.tone).toBe("positive");
   });
 
-  test("sublabels use the behavior framing, not tool inventory", () => {
-    expect(CAPABILITY_TIER_META.none.sublabel).toBe("ask before every action");
-    expect(CAPABILITY_TIER_META.low.sublabel).toBe(
-      "low-risk actions, ask for the rest",
-    );
-    expect(CAPABILITY_TIER_META.medium.sublabel).toBe(
-      "beyond its workspace too",
-    );
-    expect(CAPABILITY_TIER_META.high.sublabel).toBe("acts freely");
+  test("sublabels frame each tier's read/answer depth, not free action", () => {
+    expect(CAPABILITY_TIER_META.none.sublabel).toBe("asks first");
+    expect(CAPABILITY_TIER_META.low.sublabel).toBe("safe reads");
+    expect(CAPABILITY_TIER_META.medium.sublabel).toBe("more lookups");
+    expect(CAPABILITY_TIER_META.high.sublabel).toBe("answers anything");
   });
 });
 
