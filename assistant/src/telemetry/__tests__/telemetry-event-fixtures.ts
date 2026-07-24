@@ -43,6 +43,9 @@ const llmUsage: LlmUsageTelemetryEvent = {
   // Zero is legitimate (wire bound is min(0)): a subagent can be spawned
   // before the parent's first real user turn.
   parent_turn_index: 0,
+  conversation_source: "subagent",
+  // Parent linkage present, so the coarse bucket is the delegated child.
+  work_origin: "delegated_child",
   provider: "anthropic",
   model: "claude-fable-5",
   input_tokens: 1200,

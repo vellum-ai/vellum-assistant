@@ -257,6 +257,7 @@ let eventIdCounter = 0;
 // exactly.
 type UnreportedUsageEventFixture = UsageEvent & {
   conversationType: string | null;
+  conversationSource: string | null;
   turnIndex: number | null;
   parentConversationId: string | null;
   parentTurnIndex: number | null;
@@ -287,6 +288,7 @@ function makeUsageEvent(
     pricingStatus: "priced",
     assistantVersion: "test-app-version",
     conversationType: "standard",
+    conversationSource: "user",
     turnIndex: 1,
     parentConversationId: null,
     parentTurnIndex: null,
@@ -1626,12 +1628,14 @@ describe("UsageTelemetryReporter", () => {
         id: "evt-fg-call",
         conversationId: "conv-fg",
         conversationType: "standard",
+        conversationSource: "user",
         turnIndex: 4,
       }),
       makeUsageEvent({
         id: "evt-bg-call",
         conversationId: "conv-bg",
         conversationType: "background",
+        conversationSource: "subagent",
         turnIndex: 1,
         parentConversationId: "conv-fg",
         parentTurnIndex: 4,
@@ -1640,6 +1644,7 @@ describe("UsageTelemetryReporter", () => {
         id: "evt-untied-call",
         conversationId: null,
         conversationType: null,
+        conversationSource: null,
         turnIndex: null,
       }),
     ]);
@@ -1661,6 +1666,8 @@ describe("UsageTelemetryReporter", () => {
         type: string;
         conversation_id: string | null;
         conversation_type: string | null;
+        conversation_source: string | null;
+        work_origin: string;
         turn_index: number | null;
         parent_conversation_id: string | null;
         parent_turn_index: number | null;
@@ -1671,6 +1678,8 @@ describe("UsageTelemetryReporter", () => {
       daemon_event_id: string;
       conversation_id: string | null;
       conversation_type: string | null;
+      conversation_source: string | null;
+      work_origin: string;
       turn_index: number | null;
       parent_conversation_id: string | null;
       parent_turn_index: number | null;
@@ -1682,6 +1691,9 @@ describe("UsageTelemetryReporter", () => {
       type: "llm_usage",
       conversation_id: "conv-fg",
       conversation_type: "standard",
+      conversation_source: "user",
+      // Standard user conversation, no parent → interactive.
+      work_origin: "user_interactive",
       turn_index: 4,
       parent_conversation_id: null,
       parent_turn_index: null,
@@ -1690,6 +1702,9 @@ describe("UsageTelemetryReporter", () => {
       type: "llm_usage",
       conversation_id: "conv-bg",
       conversation_type: "background",
+      conversation_source: "subagent",
+      // Parent linkage present → delegated child, whatever the type/source.
+      work_origin: "delegated_child",
       turn_index: 1,
       parent_conversation_id: "conv-fg",
       parent_turn_index: 4,
@@ -1697,14 +1712,72 @@ describe("UsageTelemetryReporter", () => {
     // LLM calls without a parent conversation flush through with all
     // conversation-level fields null — the serializer accepts
     // allow_null and downstream SQL filters can `WHERE conversation_id
-    // IS NOT NULL` to scope to foreground analytics.
+    // IS NOT NULL` to scope to foreground analytics. `conversation_source`
+    // is null too, but `work_origin` is still classified (here, no call
+    // site either, so `unknown`) — it is never null on the wire.
     expect(byId["evt-untied-call"]).toMatchObject({
       type: "llm_usage",
       conversation_id: null,
       conversation_type: null,
+      conversation_source: null,
+      work_origin: "unknown",
       turn_index: null,
       parent_conversation_id: null,
       parent_turn_index: null,
+    });
+  });
+
+  test("llm_usage work_origin is classified from the call site when there is no joined conversation", async () => {
+    // A memory-consolidation call has no conversation (legacy rows and
+    // detached maintenance work): conversation_source is null, but the call
+    // site still classifies work_origin. Legacy rows with neither survive as
+    // `unknown` — never a null work_origin.
+    mockQueryUnreportedUsageEvents.mockReturnValue([
+      makeUsageEvent({
+        id: "evt-consolidation",
+        conversationId: null,
+        conversationType: null,
+        conversationSource: null,
+        callSite: "memoryConsolidation",
+        turnIndex: null,
+      }),
+      makeUsageEvent({
+        id: "evt-legacy-untied",
+        conversationId: null,
+        conversationType: null,
+        conversationSource: null,
+        callSite: null,
+        turnIndex: null,
+      }),
+    ]);
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":2}', { status: 200 })),
+    );
+
+    const reporter = makeReporter();
+    await reporter.flush();
+
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    const byId: Record<
+      string,
+      { conversation_source: string | null; work_origin: string }
+    > = {};
+    for (const e of body.events as Array<{
+      daemon_event_id: string;
+      conversation_source: string | null;
+      work_origin: string;
+    }>) {
+      byId[e.daemon_event_id] = e;
+    }
+    expect(byId["evt-consolidation"]).toMatchObject({
+      conversation_source: null,
+      work_origin: "memory_maintenance",
+    });
+    expect(byId["evt-legacy-untied"]).toMatchObject({
+      conversation_source: null,
+      work_origin: "unknown",
     });
   });
 

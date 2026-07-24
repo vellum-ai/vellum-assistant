@@ -459,6 +459,7 @@ import { migrateMemorySummariesScopeUpdatedIndex } from "./migrations/348-memory
 import { migrateMoveMemoryGraphTablesToMemoryDb } from "./migrations/349-move-memory-graph-tables-to-memory-db.js";
 import { migrateConversationsTotalInputTokensNullable } from "./migrations/350-conversations-total-input-tokens-nullable.js";
 import { migrateAddLlmUsageConversationType } from "./migrations/353-add-llm-usage-conversation-type.js";
+import { migrateAddLlmUsageConversationSource } from "./migrations/354-add-llm-usage-conversation-source.js";
 import type { MigrationStep } from "./migrations/run-migrations.js";
 
 export const migrationSteps: MigrationStep[] = [
@@ -1475,4 +1476,5 @@ export const migrationSteps: MigrationStep[] = [
   },
   migrateConversationsTotalInputTokensNullable,
   migrateAddLlmUsageConversationType,
+  migrateAddLlmUsageConversationSource,
 ];

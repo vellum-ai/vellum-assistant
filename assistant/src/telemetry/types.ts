@@ -1,5 +1,6 @@
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import type { UsageAttributionProfileSource } from "../usage/types.js";
+import type { WorkOrigin } from "../usage/work-origin.js";
 import type * as wire from "./telemetry-wire.generated.js";
 import { telemetryEventSchema } from "./telemetry-wire.generated.js";
 import type { TurnOutcome } from "./turn-outcome.js";
@@ -114,6 +115,20 @@ export interface LlmUsageTelemetryEvent extends TelemetryEventBase {
    * parent conversation.
    */
   parent_turn_index: number | null;
+  /**
+   * `source` of the parent conversation (`"user"` / `"subagent"` /
+   * `"schedule"` / `"memory-retrospective"` / ...), captured at record time
+   * (survives deletion of the parent conversation before flush). Null when
+   * the LLM call has no conversation. The raw value; {@link work_origin} is
+   * the derived coarse bucket.
+   */
+  conversation_source: string | null;
+  /**
+   * Coarse work-origin bucket derived from the row's conversation metadata
+   * and call site (see {@link WorkOrigin}). Always present — classification
+   * falls back to `"unknown"` when nothing is attributable, never null.
+   */
+  work_origin: WorkOrigin;
   provider: string;
   model: string;
   input_tokens: number;

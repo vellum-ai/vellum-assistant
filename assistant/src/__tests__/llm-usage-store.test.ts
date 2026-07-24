@@ -1829,6 +1829,91 @@ describe("queryUnreportedUsageEvents", () => {
     expect(events[0].conversationType).toBe("scheduled");
   });
 
+  // -------------------------------------------------------------------------
+  // Conversation source (migration 354): stamped on the row at record time
+  // (survives deletion of the parent conversation before flush) with a JOIN
+  // fallback for pre-migration rows — mirrors conversationType above.
+  // -------------------------------------------------------------------------
+
+  test("conversationSource resolves from the conversations table", () => {
+    const db = getDb();
+    const now = Date.now();
+    db.run(
+      `INSERT INTO conversations (id, conversation_type, source, created_at, updated_at) VALUES ('conv-u', 'standard', 'user', ${now}, ${now})`,
+    );
+    db.run(
+      `INSERT INTO conversations (id, conversation_type, source, created_at, updated_at) VALUES ('conv-sub', 'background', 'subagent', ${now}, ${now})`,
+    );
+
+    insertEventAt(1000, { conversationId: "conv-u" });
+    insertEventAt(2000, { conversationId: "conv-sub" });
+    insertEventAt(3000, { conversationId: null });
+
+    const events = queryUnreportedUsageEvents(0, undefined, 100);
+    expect(events).toHaveLength(3);
+    expect(events[0].conversationSource).toBe("user");
+    expect(events[1].conversationSource).toBe("subagent");
+    // LLM calls without a parent conversation get null — LEFT JOIN, not INNER.
+    expect(events[2].conversationSource).toBeNull();
+  });
+
+  test("conversationSource is stamped on the row at record time", () => {
+    const db = getDb();
+    const now = Date.now();
+    db.run(
+      `INSERT INTO conversations (id, conversation_type, source, created_at, updated_at) VALUES ('conv-stamp-src', 'background', 'memory-retrospective', ${now}, ${now})`,
+    );
+
+    const event = recordUsageEvent(
+      makeInput({ conversationId: "conv-stamp-src" }),
+      pricedResult,
+    );
+
+    const row = getSqlite()
+      .query("SELECT conversation_source FROM llm_usage_events WHERE id = ?")
+      .get(event.id) as { conversation_source: string | null } | null;
+    expect(row?.conversation_source).toBe("memory-retrospective");
+  });
+
+  test("conversationSource survives deletion of the parent conversation before flush", () => {
+    // Same deletion-survival mechanism as conversationType: the
+    // retrospective fork's background conversation is GC'd once superseded,
+    // so a flush-time JOIN alone would null out the source.
+    const db = getDb();
+    const now = Date.now();
+    db.run(
+      `INSERT INTO conversations (id, conversation_type, source, created_at, updated_at) VALUES ('conv-src-gone', 'background', 'memory-retrospective', ${now}, ${now})`,
+    );
+    insertEventAt(1000, {
+      conversationId: "conv-src-gone",
+      callSite: "memoryRetrospective",
+    });
+
+    db.run(`DELETE FROM conversations WHERE id = 'conv-src-gone'`);
+
+    const events = queryUnreportedUsageEvents(0, undefined, 100);
+    expect(events).toHaveLength(1);
+    expect(events[0].conversationId).toBe("conv-src-gone");
+    expect(events[0].conversationSource).toBe("memory-retrospective");
+  });
+
+  test("conversationSource falls back to the JOIN for pre-migration rows", () => {
+    const db = getDb();
+    const now = Date.now();
+    db.run(
+      `INSERT INTO conversations (id, conversation_type, source, created_at, updated_at) VALUES ('conv-src-legacy', 'scheduled', 'schedule', ${now}, ${now})`,
+    );
+    insertEventAt(1000, { conversationId: "conv-src-legacy" });
+    // Simulate a row persisted before migration 354 stamped the column.
+    db.run(
+      `UPDATE llm_usage_events SET conversation_source = NULL WHERE conversation_id = 'conv-src-legacy'`,
+    );
+
+    const events = queryUnreportedUsageEvents(0, undefined, 100);
+    expect(events).toHaveLength(1);
+    expect(events[0].conversationSource).toBe("schedule");
+  });
+
   test("turnIndex counts real user turns up to the LLM call's createdAt", () => {
     const db = getDb();
     const now = Date.now();
