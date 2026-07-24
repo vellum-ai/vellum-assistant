@@ -626,6 +626,53 @@ describe("PlanCard action button", () => {
     });
     expect(onManage).not.toHaveBeenCalled();
   });
+
+  test("a cancelling custom Pro sub's Manage stays on the manage fallback", async () => {
+    const onManage = mock(() => {});
+    // A customized/unpinned sub pending cancellation keeps the manage modal,
+    // which surfaces the cancellation state and the "Keep your Plan" action; the
+    // takeover can't act on a cancelling sub.
+    const subscription = proMightySubscription();
+    subscription.package = {
+      key: "mighty",
+      name: "Mighty",
+      version: 1,
+      customized: true,
+    };
+    subscription.cancel_at = "2026-08-23T12:36:05Z";
+    const { findByTestId } = renderCardInteractive(
+      subscription,
+      plansWithSuper(),
+      onManage,
+    );
+
+    fireEvent.click(await findByTestId("plan-card-manage-button"));
+
+    await waitFor(() => {
+      expect(onManage).toHaveBeenCalledTimes(1);
+    });
+    expect(navigateArgs).toEqual([]);
+  });
+
+  test("a cancelling clean-pin Pro sub still opens the plans takeover", async () => {
+    const onManage = mock(() => {});
+    // A clean pin routes to the takeover even while cancelling; its package CTA
+    // reaches the manage surface from there.
+    const subscription = proMightySubscription();
+    subscription.cancel_at = "2026-08-23T12:36:05Z";
+    const { findByTestId } = renderCardInteractive(
+      subscription,
+      plansWithSuper(),
+      onManage,
+    );
+
+    fireEvent.click(await findByTestId("plan-card-manage-button"));
+
+    await waitFor(() => {
+      expect(navigateArgs).toEqual([[routes.plans, undefined]]);
+    });
+    expect(onManage).not.toHaveBeenCalled();
+  });
 });
 
 describe("PlanCard recommended upgrade — change-package", () => {
