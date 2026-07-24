@@ -102,7 +102,9 @@ async function expandSubagentSummary(container: HTMLElement) {
   const toggles = container.querySelectorAll<HTMLButtonElement>(
     '[data-testid="subagent-avatar-row-details"]',
   );
-  if (toggles.length === 0) return; // already expanded — nothing to wait for
+  if (toggles.length === 0) {
+    return; // already expanded — nothing to wait for
+  }
   toggles.forEach((toggle) => fireEvent.click(toggle));
   // mode="wait" defers mounting the expanded cards until the collapse exit completes
   await waitFor(() =>
@@ -634,8 +636,11 @@ describe("Transcript — cross-group claimed-set (fix-r1-c)", () => {
         items={items}
         conversationId={null}
         onSurfaceAction={noop}
-
       />,
+    );
+
+    fireEvent.click(
+      within(container).getByRole("button", { name: "Earlier activity" }),
     );
 
     // The two spawns land in distinct activity groups (split by the interleaved
