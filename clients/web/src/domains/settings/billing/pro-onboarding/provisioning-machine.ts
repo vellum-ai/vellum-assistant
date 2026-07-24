@@ -16,8 +16,8 @@ import {
 
 import { PROVISION_STALL_MS, PROVISION_WAIT_GRACE_MS } from "./utils";
 
-// Re-exported from lib/billing so existing pro-onboarding consumers keep
-// importing them from here unchanged.
+// The provisioning-target primitives live in lib/billing (shared across
+// domains); this module re-exports them as the pro-onboarding entrypoint.
 export { targetsMet, type ProvisioningDimensions };
 
 export type ProvisioningStateKind =
