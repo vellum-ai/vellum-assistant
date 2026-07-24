@@ -47,6 +47,16 @@ interface LinkedAttachmentRow extends AttachmentRow {
   position: number;
 }
 
+interface AttachmentMatch {
+  kind: "exact" | "optimized";
+  storedBytes: Buffer;
+}
+
+interface SelectedAttachment {
+  row: LinkedAttachmentRow;
+  match: AttachmentMatch;
+}
+
 interface PendingAttachment {
   id: string;
   originalFilename: string;
@@ -103,22 +113,22 @@ function readableAttachmentBytes(row: AttachmentRow): Buffer | null {
   return decodeBase64(row.dataBase64);
 }
 
-function attachmentMatchesBlock(
+function matchAttachmentToBlock(
   row: AttachmentRow,
   storedBytes: Buffer | null,
   blockType: "image" | "file",
   mediaType: string,
   inlineBytes: Buffer,
   optimizedBytesCache: Map<string, Buffer | null>,
-): boolean {
+): AttachmentMatch | null {
   if (!storedBytes) {
-    return false;
+    return null;
   }
   if (storedBytes.equals(inlineBytes)) {
-    return true;
+    return { kind: "exact", storedBytes };
   }
   if (blockType !== "image") {
-    return false;
+    return null;
   }
   const cacheKey = `${row.id}\0${mediaType}`;
   if (!optimizedBytesCache.has(cacheKey)) {
@@ -131,7 +141,9 @@ function attachmentMatchesBlock(
       optimized.mediaType === mediaType ? decodeBase64(optimized.data) : null,
     );
   }
-  return optimizedBytesCache.get(cacheKey)?.equals(inlineBytes) === true;
+  return optimizedBytesCache.get(cacheKey)?.equals(inlineBytes) === true
+    ? { kind: "optimized", storedBytes }
+    : null;
 }
 
 function ensureDeterministicFile(
@@ -316,43 +328,48 @@ export async function migrateMaterializeHistoricalInlineMessageMedia(
           return block;
         }
 
-        let selected: LinkedAttachmentRow | undefined;
+        let selected: SelectedAttachment | undefined;
         if (typeof block._attachmentId === "string") {
           const linked = linkedById.get(block._attachmentId);
-          if (
-            linked &&
-            attachmentMatchesBlock(
+          if (linked) {
+            const match = matchAttachmentToBlock(
               linked,
               linkedBytes.get(linked.linkId) ?? null,
               block.type as "image" | "file",
               mediaType,
               inlineBytes,
               optimizedBytesCache,
-            )
-          ) {
-            selected = linked;
+            );
+            if (match) {
+              selected = { row: linked, match };
+            }
           }
         } else {
-          selected = linkedRows.find(
-            (linked) =>
-              !consumedLinkIds.has(linked.linkId) &&
-              attachmentMatchesBlock(
-                linked,
-                linkedBytes.get(linked.linkId) ?? null,
-                block.type as "image" | "file",
-                mediaType,
-                inlineBytes,
-                optimizedBytesCache,
-              ),
-          );
+          for (const linked of linkedRows) {
+            if (consumedLinkIds.has(linked.linkId)) {
+              continue;
+            }
+            const match = matchAttachmentToBlock(
+              linked,
+              linkedBytes.get(linked.linkId) ?? null,
+              block.type as "image" | "file",
+              mediaType,
+              inlineBytes,
+              optimizedBytesCache,
+            );
+            if (match) {
+              selected = { row: linked, match };
+              break;
+            }
+          }
         }
 
         const jsonPath = path.join("/");
         const contentHash = sha256(inlineBytes);
         let attachmentId: string;
         if (selected) {
-          attachmentId = selected.id;
-          consumedLinkIds.add(selected.linkId);
+          attachmentId = selected.row.id;
+          consumedLinkIds.add(selected.row.linkId);
         } else {
           attachmentId = `${ATTACHMENT_ID_PREFIX}${sha256(
             `${row.id}\0${jsonPath}\0${contentHash}`,
@@ -406,11 +423,20 @@ export async function migrateMaterializeHistoricalInlineMessageMedia(
         }
 
         const { data: _data, ...sourceMetadata } = block.source;
+        const referenceMediaType =
+          selected?.match.kind === "optimized"
+            ? selected.row.mimeType
+            : mediaType;
+        const referenceSizeBytes =
+          selected?.match.kind === "optimized"
+            ? selected.match.storedBytes.length
+            : inlineBytes.length;
         const nextSource: Record<string, unknown> = {
           ...sourceMetadata,
           type: "workspace_ref",
+          media_type: referenceMediaType,
           attachmentId,
-          sizeBytes: inlineBytes.length,
+          sizeBytes: referenceSizeBytes,
         };
         if (block.type === "image") {
           const optimized = optimizeImageForTransport(data, mediaType);

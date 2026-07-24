@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { eq, like } from "drizzle-orm";
 
 import {
+  attachInlineAttachmentToMessage,
   getAttachmentsForMessage,
   linkAttachmentToMessage,
   uploadAttachment,
@@ -17,8 +18,10 @@ import {
 import {
   addMessage,
   createConversation,
+  deleteConversation,
   forkConversation,
   getMessages,
+  updateMessageContent,
 } from "../persistence/conversation-crud.js";
 import { getConversationDirPath } from "../persistence/conversation-disk-view.js";
 import {
@@ -60,6 +63,8 @@ import {
   MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
   recordInjected as recordV3Injected,
 } from "../plugins/defaults/memory/v3/ever-injected-store.js";
+import { resolveMediaReferences } from "../providers/media-resolve.js";
+import type { ContentBlock } from "../providers/types.js";
 
 await initializeDb();
 
@@ -735,6 +740,122 @@ describe("forkConversation", () => {
     expect(forkJsonl[1]?.attachments).toEqual(["wireframe.png"]);
     expect(getAttachmentsForMessage(sourceAssistant.id)[0]?.id).toBe(
       sourceAttachments[0]?.id,
+    );
+  });
+
+  test("remaps root and nested workspace references to fork-owned attachments", async () => {
+    const source = createConversation("Referenced attachment thread");
+    const sourceMessage = await addMessage(
+      source.id,
+      "assistant",
+      "attachments",
+      { skipIndexing: true },
+    );
+    const rootBytes = Buffer.from("root-image-bytes");
+    const nestedBytes = Buffer.from("nested-file-bytes");
+    const rootAttachment = attachInlineAttachmentToMessage(
+      sourceMessage.id,
+      0,
+      "root.png",
+      "image/png",
+      rootBytes.toString("base64"),
+    );
+    const nestedAttachment = attachInlineAttachmentToMessage(
+      sourceMessage.id,
+      1,
+      "nested.txt",
+      "text/plain",
+      nestedBytes.toString("base64"),
+    );
+    const sourceContent: ContentBlock[] = [
+      {
+        type: "image",
+        source: {
+          type: "workspace_ref",
+          media_type: "image/png",
+          attachmentId: rootAttachment.id,
+          sizeBytes: rootAttachment.sizeBytes,
+        },
+      },
+      {
+        type: "tool_result",
+        tool_use_id: "tool-1",
+        content: "generated file",
+        contentBlocks: [
+          {
+            type: "file",
+            source: {
+              type: "workspace_ref",
+              media_type: "text/plain",
+              attachmentId: nestedAttachment.id,
+              sizeBytes: nestedAttachment.sizeBytes,
+              filename: "nested.txt",
+            },
+          },
+        ],
+      },
+    ];
+    updateMessageContent(sourceMessage.id, JSON.stringify(sourceContent));
+    const sourceDir = getConversationDirPath(source.id, source.createdAt);
+
+    const fork = forkConversation({ conversationId: source.id });
+    const forkMessage = getMessages(fork.id)[0]!;
+    const forkAttachments = getAttachmentsForMessage(forkMessage.id);
+    expect(forkAttachments).toHaveLength(2);
+    const rootBlock = forkMessage.content[0] as Extract<
+      ContentBlock,
+      { type: "image" }
+    >;
+    const toolResult = forkMessage.content[1] as Extract<
+      ContentBlock,
+      { type: "tool_result" }
+    >;
+    const nestedBlock = toolResult.contentBlocks![0] as Extract<
+      ContentBlock,
+      { type: "file" }
+    >;
+    expect(rootBlock.source.type).toBe("workspace_ref");
+    expect(nestedBlock.source.type).toBe("workspace_ref");
+    if (
+      rootBlock.source.type !== "workspace_ref" ||
+      nestedBlock.source.type !== "workspace_ref"
+    ) {
+      throw new Error("expected forked workspace references");
+    }
+    expect(rootBlock.source.attachmentId).toBe(forkAttachments[0]!.id);
+    expect(nestedBlock.source.attachmentId).toBe(forkAttachments[1]!.id);
+    expect(rootBlock.source.attachmentId).not.toBe(rootAttachment.id);
+    expect(nestedBlock.source.attachmentId).not.toBe(nestedAttachment.id);
+
+    deleteConversation(source.id);
+    expect(existsSync(sourceDir)).toBe(false);
+
+    const resolved = resolveMediaReferences([
+      { role: "assistant", content: forkMessage.content },
+    ])[0]!.content;
+    const resolvedRoot = resolved[0] as Extract<
+      ContentBlock,
+      { type: "image" }
+    >;
+    const resolvedToolResult = resolved[1] as Extract<
+      ContentBlock,
+      { type: "tool_result" }
+    >;
+    const resolvedNested = resolvedToolResult.contentBlocks![0] as Extract<
+      ContentBlock,
+      { type: "file" }
+    >;
+    expect(resolvedRoot.source.type).toBe("base64");
+    expect(resolvedNested.source.type).toBe("base64");
+    if (
+      resolvedRoot.source.type !== "base64" ||
+      resolvedNested.source.type !== "base64"
+    ) {
+      throw new Error("expected resolved fork media");
+    }
+    expect(Buffer.from(resolvedRoot.source.data, "base64")).toEqual(rootBytes);
+    expect(Buffer.from(resolvedNested.source.data, "base64")).toEqual(
+      nestedBytes,
     );
   });
 

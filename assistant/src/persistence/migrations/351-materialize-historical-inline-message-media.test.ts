@@ -15,6 +15,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
+import { assertNotLiveDb } from "../../__tests__/assert-not-live-db.js";
 import { resolveConversationDirectoryPaths } from "../conversation-directories.js";
 import * as schema from "../schema.js";
 import { migrationSteps } from "../steps.js";
@@ -183,6 +184,7 @@ function linkAttachment(
 
 afterEach(() => {
   for (const dir of tempDirs.splice(0)) {
+    assertNotLiveDb(dir);
     rmSync(dir, { recursive: true, force: true });
   }
 });
@@ -487,6 +489,7 @@ describe("migration 351: materialize historical inline message media", () => {
       1000,
       workspaceDir,
     ).resolvedDirPath;
+    assertNotLiveDb(conversationDirA);
     rmSync(conversationDirA, {
       recursive: true,
       force: true,
