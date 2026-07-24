@@ -53,6 +53,47 @@ describe("classifyWorkOrigin", () => {
       }),
       expected: "delegated_child",
     },
+    // 1b. Delegated child recovered from the record-time source when the
+    // spawning conversation was deleted before flush (parent linkage gone).
+    {
+      name: "GC'd retrospective fork (stamped source, no parent, memory call site) → delegated_child",
+      input: input({
+        conversationType: "background",
+        conversationSource: "memory-retrospective-fork",
+        callSite: "memoryRetrospective",
+        parentConversationId: null,
+      }),
+      expected: "delegated_child",
+    },
+    {
+      name: "GC'd legacy retrospective (stamped source, no parent) → delegated_child",
+      input: input({
+        conversationType: "background",
+        conversationSource: "memory-retrospective",
+        callSite: "memoryRetrospective",
+        parentConversationId: null,
+      }),
+      expected: "delegated_child",
+    },
+    {
+      name: "GC'd subagent conversation (stamped source, no parent) → delegated_child",
+      input: input({
+        conversationType: "background",
+        conversationSource: "subagent",
+        callSite: "mainAgent",
+        parentConversationId: null,
+      }),
+      expected: "delegated_child",
+    },
+    {
+      name: "stamped-spawn source wins over a scheduled type when parent is gone",
+      input: input({
+        conversationType: "scheduled",
+        conversationSource: "subagent",
+        parentConversationId: null,
+      }),
+      expected: "delegated_child",
+    },
     // 2. Scheduled.
     {
       name: "scheduled conversation → user_created_schedule",

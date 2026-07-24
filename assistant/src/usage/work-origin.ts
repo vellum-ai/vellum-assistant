@@ -1,4 +1,8 @@
 import { type LLMCallSite, LLMCallSiteEnum } from "../config/schemas/llm.js";
+import {
+  MEMORY_RETROSPECTIVE_FORK_SOURCE,
+  MEMORY_RETROSPECTIVE_SOURCE,
+} from "../plugins/defaults/memory/memory-retrospective-constants.js";
 
 /**
  * Coarse attribution of *why* an LLM call happened, derived from the durable
@@ -10,7 +14,11 @@ import { type LLMCallSite, LLMCallSiteEnum } from "../config/schemas/llm.js";
  *   conversation (subagent spawn, or a retrospective fork whose parent is
  *   resolved via `fork_parent_conversation_id`). Its cost belongs to the
  *   delegating turn, captured by the row's `parent_conversation_id` /
- *   `parent_turn_index`.
+ *   `parent_turn_index`. Recognized by real parent linkage, or — when the
+ *   spawning conversation was deleted before the usage batch flushed (fork
+ *   GC, user deletion), leaving the linkage unresolvable — by the
+ *   record-time `conversation_source` still marking it as spawned work
+ *   ({@link SPAWNED_CONVERSATION_SOURCES}).
  * - `user_created_schedule` — a user-created schedule fired the work.
  * - `heartbeat` — the periodic heartbeat agent.
  * - `memory_maintenance` — memory extraction / consolidation / retrieval /
@@ -59,6 +67,28 @@ const RECOGNIZED_CALL_SITES: ReadonlySet<string> = new Set(
 );
 
 /**
+ * `conversations.source` values the daemon stamps at spawn time on
+ * conversations that another conversation delegated to — a subagent spawn (or
+ * advisor consult, which shares the subagent source) and both kinds of memory
+ * retrospective (each forked from a source conversation via
+ * `fork_parent_conversation_id`). These conversations always carry parent
+ * linkage while their spawning conversation exists, so the row's
+ * `parentConversationId` normally settles them as `delegated_child`. This set
+ * is the recovery path for when that conversation was deleted before the
+ * usage batch flushed: the linkage is gone, but the record-time source
+ * survives on the usage row and still mechanically denotes delegated work.
+ *
+ * Stamp sites: `subagent/manager.ts` (`source: "subagent"`) and
+ * `memory-retrospective-job.ts` (the two retrospective sentinels). Keep in
+ * lockstep with those.
+ */
+const SPAWNED_CONVERSATION_SOURCES: ReadonlySet<string> = new Set([
+  "subagent",
+  MEMORY_RETROSPECTIVE_SOURCE,
+  MEMORY_RETROSPECTIVE_FORK_SOURCE,
+]);
+
+/**
  * The record-time conversation metadata (and call site) a usage row carries,
  * as resolved by the telemetry read path. `callSite` is stored free-form —
  * it is matched against {@link LLMCallSiteEnum} rather than assumed valid.
@@ -80,9 +110,13 @@ export interface WorkOriginInput {
  * bucket, falling through to `unknown` when nothing is attributable.
  *
  * Precedence (highest first), so overlapping signals resolve deterministically:
- *   1. spawned/delegated conversation (parent linkage wins over the call site,
- *      so a retrospective fork's memory work is attributed to its delegating
- *      turn rather than the memory-maintenance bucket),
+ *   1. spawned/delegated conversation, recognized by EITHER real parent
+ *      linkage OR — when the spawning conversation was deleted before flush —
+ *      a record-time source that marks spawned work
+ *      ({@link SPAWNED_CONVERSATION_SOURCES}). Both take precedence over the
+ *      call site, so a retrospective fork's memory work is attributed to its
+ *      delegating turn rather than the memory-maintenance bucket even after
+ *      the fork is GC'd,
  *   2. scheduled conversation,
  *   3. heartbeat / memory-maintenance call sites (dedicated system origins that
  *      run with or without a conversation),
@@ -100,6 +134,15 @@ export function classifyWorkOrigin(input: WorkOriginInput): WorkOrigin {
   } = input;
 
   if (parentConversationId !== null) {
+    return "delegated_child";
+  }
+  // The spawning conversation was deleted before this batch flushed, so the
+  // JOIN that resolves parent linkage misses — but the record-time source
+  // stamped on the usage row still mechanically denotes delegated work.
+  if (
+    conversationSource !== null &&
+    SPAWNED_CONVERSATION_SOURCES.has(conversationSource)
+  ) {
     return "delegated_child";
   }
   if (conversationType === "scheduled") {
