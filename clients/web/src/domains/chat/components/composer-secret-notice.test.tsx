@@ -1,8 +1,9 @@
 /**
  * Tests for `ComposerSecretNotice` — masked display, generic copy, and
  * dismissal in the passive state, plus the blocked-send state's exact copy
- * and "Send anyway" / "Dismiss" actions. The token is a synthetic value
- * invented for these tests.
+ * and "Send anyway" / "Dismiss" actions, and the "Store securely" action
+ * offered in both states. The token is a synthetic value invented for
+ * these tests.
  */
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
@@ -37,6 +38,7 @@ function renderNotice(overrides: Partial<ComposerSecretNoticeProps> = {}) {
       sendBlocked={false}
       onDismiss={() => {}}
       onSendAnyway={() => {}}
+      onStoreSecurely={() => {}}
       {...overrides}
     />,
   );
@@ -83,6 +85,13 @@ describe("ComposerSecretNotice (passive)", () => {
     const { container } = renderNotice({ matches: [] });
     expect(container.innerHTML).toBe("");
   });
+
+  test("Store securely action is offered and invokes onStoreSecurely", () => {
+    const onStoreSecurely = mock(() => {});
+    renderNotice({ onStoreSecurely });
+    fireEvent.click(screen.getByRole("button", { name: "Store securely" }));
+    expect(onStoreSecurely).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("ComposerSecretNotice (blocked send)", () => {
@@ -99,6 +108,14 @@ describe("ComposerSecretNotice (blocked send)", () => {
       screen.getByRole("button", { name: "Send anyway" }),
     ).toBeTruthy();
     expect(screen.getByRole("button", { name: "Dismiss" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Store securely" })).toBeTruthy();
+  });
+
+  test("Store securely action invokes onStoreSecurely while blocked", () => {
+    const onStoreSecurely = mock(() => {});
+    renderNotice({ sendBlocked: true, onStoreSecurely });
+    fireEvent.click(screen.getByRole("button", { name: "Store securely" }));
+    expect(onStoreSecurely).toHaveBeenCalledTimes(1);
   });
 
   test("Send anyway invokes the bypass-and-resubmit handler once", () => {
