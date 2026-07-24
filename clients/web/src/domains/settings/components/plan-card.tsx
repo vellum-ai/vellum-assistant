@@ -372,14 +372,12 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
   const packages = proPlan?.packages ?? [];
   const currentKey = subscription.package?.key ?? null;
   const currentTier = currentKey ?? "free";
-  // The plans takeover derives the current tier from the pinned package key
-  // alone, so a Pro sub without a package (legacy) or with a customized one
-  // (its tiers differ from the stock package) would be misrepresented there.
-  // Those stay on the manage modal; only base and clean packaged-Pro subs open
-  // the takeover.
-  const canOpenPlansTakeover =
-    packages.length > 0 &&
-    (currentPlan.id === "base" || isCleanPin(subscription.package));
+  // A live packages catalog opens the plans takeover for base and every Pro sub
+  // — a clean pin, a customized pin, and an unpinned (legacy Custom) sub alike;
+  // the takeover's own CTAs handle each state's transitions. An empty catalog
+  // (the `pro-packages` flag off) has no takeover to open, so Manage falls back
+  // to the manage modal.
+  const canOpenPlansTakeover = packages.length > 0;
   // The banner's one-click switch is offered to any switch-eligible Pro sub —
   // a clean pin, a customized pin, or an unpinned (Custom) sub — inheriting the
   // shared eligibility gate. The confirm copy adapts to the sub's state via
