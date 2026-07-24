@@ -58,8 +58,9 @@ const meta: Meta<typeof SlackChannelList> = {
     slackHandle: "@example-assistant",
     channels: MIXED_CHANNELS,
     // Gateway-resolved fall-through (no broader-scope cells → the owner's
-    // global interactive threshold, Conservative here).
-    defaultTier: "low",
+    // global interactive threshold, which defaults to Relaxed / medium — the
+    // seeded `auto_approve_thresholds.interactive` value).
+    defaultTier: "medium",
   },
   decorators: [
     // Mirrors the Slack sub-tab's card column (flex flex-col gap-4 in
@@ -97,7 +98,7 @@ export const Empty: Story = {
 /**
  * `eng-releases` is pinned to Full access — its picker names that level with no
  * "default" marker, while every cell-less row shows the resolved default
- * ("Conservative · default"). Re-selecting the default-marked level clears the
+ * ("Relaxed · default"). Re-selecting the default-marked level clears the
  * override.
  */
 export const OverriddenChannel: Story = {
