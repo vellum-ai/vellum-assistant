@@ -72,8 +72,8 @@ export interface AssistantChannelsListProps {
   /**
    * Per-channel admission floor, keyed by channel. Omit (or pass no
    * `onChannelPolicyChange`) to hide the trust-floor control entirely —
-   * `useChannelTrustFloors` does so while the `channelTrustFloors` flag is
-   * off.
+   * `useChannelTrustFloors` does so when the connected assistant can't serve
+   * it.
    */
   channelPolicies?: Partial<Record<ChannelKey, AdmissionPolicy>>;
   policySavingKey?: ChannelKey | null;
@@ -107,9 +107,7 @@ export interface AssistantChannelsListProps {
  * adapter's detail panel (`ChannelPanel`), plus the disconnect and trust-floor
  * confirmation dialogs. Rendered by the Channels tab (`ChannelsPage`). The
  * active adapter persists in `adapter-selection-store`; the queries and
- * mutations behind the props live in `useAssistantChannels`. The
- * `channel-trust-floors` flag gates the Channels tab itself (in
- * `IntelligenceLayout`), not anything in here.
+ * mutations behind the props live in `useAssistantChannels`.
  */
 export function AssistantChannelsList({
   assistantId,
