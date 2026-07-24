@@ -414,7 +414,13 @@ function resolveHatchGate(state: NavigationState): NavigationDecision {
 // (including plugin-attributed signups) keep the onboarding redirect.
 const IMPORT_FUNNEL_PATH = "/import";
 
-function isImportFunnelDestination(destination: string): boolean {
+/**
+ * Exact-match the bring-your-agent import funnel (`/import`, `/import?…`,
+ * `/import/…`) without catching unrelated `/import`-prefixed SPA paths such as
+ * `/importantly-not-the-funnel`. Shared with `requiresFullPageNavigation` in
+ * the login flow so both callers gate on the same predicate.
+ */
+export function isImportFunnelDestination(destination: string): boolean {
   return (
     destination === IMPORT_FUNNEL_PATH ||
     destination.startsWith(`${IMPORT_FUNNEL_PATH}?`) ||

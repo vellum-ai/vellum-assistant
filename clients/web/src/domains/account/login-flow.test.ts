@@ -77,5 +77,9 @@ describe("login flow routing", () => {
     // /import is served by the platform Next.js app, not this SPA.
     expect(requiresFullPageNavigation("/import")).toBe(true);
     expect(requiresFullPageNavigation("/import?utm_source=hermes")).toBe(true);
+    expect(requiresFullPageNavigation("/import/anything")).toBe(true);
+    // A merely `/import`-prefixed SPA path is NOT the funnel and must stay a
+    // client-side navigation.
+    expect(requiresFullPageNavigation("/importantly-not-the-funnel")).toBe(false);
   });
 });

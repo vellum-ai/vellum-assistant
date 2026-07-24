@@ -1,4 +1,7 @@
-import { resolveNavigation } from "@/lib/navigation/navigation-resolver";
+import {
+  isImportFunnelDestination,
+  resolveNavigation,
+} from "@/lib/navigation/navigation-resolver";
 import { buildNavigationState } from "@/lib/navigation/build-state";
 import { routes } from "@/utils/routes";
 
@@ -42,7 +45,9 @@ export function requiresFullPageNavigation(destination: string): boolean {
     destination.startsWith("/_allauth/") ||
     // The bring-your-agent import funnel is a marketing page served by the
     // platform Next.js app, not this SPA — client-side navigation would miss.
-    destination.startsWith("/import")
+    // Exact funnel predicate (shared with the post-auth resolver) so an
+    // unrelated `/import`-prefixed SPA path isn't forced into a full nav.
+    isImportFunnelDestination(destination)
   );
 }
 
