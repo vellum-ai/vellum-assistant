@@ -8,6 +8,7 @@ import {
 import { sanitizeForTts } from "../calls/tts-text-sanitizer.js";
 import {
   couldBeControlMarker,
+  MINIMIZE_ROOM_MARKER,
   stripInternalSpeechMarkers,
 } from "../calls/voice-control-protocol.js";
 import type {
@@ -428,6 +429,9 @@ interface ActiveAssistantTurn {
   progress: TurnProgressState;
   assistantCompleted: boolean;
   ttsDone: boolean;
+  // Latched when the leg's stream contains MINIMIZE_ROOM_MARKER; consumed
+  // once at TTS drain, where the minimize_room frame goes out after tts_done.
+  minimizeRequested: boolean;
   // A tts_audio frame actually went out to the client — latches on the first
   // forwarded chunk so the firstTtsAudio metric is marked exactly once per turn.
   ttsAudioStarted: boolean;
@@ -514,6 +518,44 @@ interface ActiveAssistantTurn {
   assistantAudioChunks: Buffer[];
   assistantAudioMimeType: string;
   assistantAudioSampleRate?: number;
+}
+
+/**
+ * Control-marker hygiene for one model leg's delta stream, shared by the
+ * front-door answer stage and the default/escalated leg. The returned flush
+ * forwards the stripped (stripInternalSpeechMarkers) prefix of `raw` that has
+ * not been emitted yet and can no longer become a control marker: a trailing
+ * "[…"-tail that could still complete one (couldBeControlMarker) is held back
+ * until a later delta disproves it, and `force` (leg completion) emits the
+ * held tail so real text that merely resembles a marker prefix is not
+ * dropped. As a side effect the flush latches the turn's `minimizeRequested`
+ * once the raw stream contains MINIMIZE_ROOM_MARKER — the marker itself is
+ * stripped, so the latch is the only observable.
+ */
+function createControlMarkerHoldback(
+  turn: ActiveAssistantTurn,
+  emit: (chunk: string) => void,
+): (raw: string, opts?: { force?: boolean }) => void {
+  let emitted = 0;
+  return (raw, opts) => {
+    if (!turn.minimizeRequested && raw.includes(MINIMIZE_ROOM_MARKER)) {
+      turn.minimizeRequested = true;
+    }
+    let safeEnd = raw.length;
+    if (opts?.force !== true) {
+      const lastOpen = raw.lastIndexOf("[");
+      if (lastOpen >= emitted) {
+        const tail = raw.slice(lastOpen);
+        if (!tail.includes("]") && couldBeControlMarker(tail)) {
+          safeEnd = lastOpen;
+        }
+      }
+    }
+    if (safeEnd > emitted) {
+      emit(stripInternalSpeechMarkers(raw.slice(emitted, safeEnd)));
+      emitted = safeEnd;
+    }
+  };
 }
 
 // Base control prompt for every live-voice turn. When a turn starts from a
@@ -2569,6 +2611,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       },
       assistantCompleted: false,
       ttsDone: false,
+      minimizeRequested: false,
       ttsAudioStarted: false,
       finalized: false,
       speculativePending: opts?.speculative === true,
@@ -2710,29 +2753,32 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     }
     const { token, utterance, turnId } = activeTurn;
 
-    // Front-door verdict gate (verdict-first protocol — see
-    // voice-triage-escalate.ts). `rawText` accumulates this leg's full
-    // stream; the leg starts in `deciding` until its leading tokens
-    // classify as hold / escalate / answer. An answer flushes through
-    // `flushFrontDoor` (with `frontDoorEmitted` tracking what has been
-    // forwarded); an escalation buffers the post-verdict stream into
-    // `bridgeRaw` until the bridge is complete, then hands off.
+    // `rawText` accumulates this leg's full stream. A front-door leg starts
+    // in `deciding` until its leading tokens classify as hold / escalate /
+    // answer: an answer flushes through the shared marker holdback, while an
+    // escalation buffers the post-verdict stream into `bridgeRaw` until the
+    // bridge is complete, then hands off. A default/escalated leg flushes
+    // every delta through the same holdback, so a stray control marker from
+    // the main model is stripped instead of spoken.
     let rawText = "";
-    let frontDoorEmitted = 0;
     let frontDoorStage: "deciding" | "answer" | "bridging" | "handedOff" =
       "deciding";
     let bridgeRaw = "";
 
-    const emitFrontDoor = (chunk: string): void => {
+    const emitLegText = (chunk: string): void => {
       if (chunk.length === 0) {
         return;
       }
       this.markFirstAssistantDelta(utterance, turnId);
       this.markFirstDeltaForAck(activeTurn);
-      // Same send-time abort gate as the default-leg delta path: a front-door
-      // delta queued behind a backed-up outbound frame must not be written
-      // once barge-in aborts the turn. Escalation aborts the front-door handle,
-      // not this turn's controller, so legitimate front-door text still sends.
+      // Send-time abort gate: a delta queued behind a backed-up outbound
+      // frame must not be written once barge-in aborts the turn, or the
+      // cancelled reply's text leaks ahead of turn_cancelled. Key off this
+      // turn's own abort signal — a normal message_complete finalizes and
+      // clears activeAssistantTurn while trailing deltas may still be
+      // draining, so an activeAssistantTurn-based guard would drop them.
+      // Escalation aborts the front-door handle, not this turn's controller,
+      // so legitimate front-door text still sends.
       void this.sendFrame(
         { type: "assistant_text_delta", text: chunk },
         () => !activeTurn.abortController.signal.aborted && !this.isClosed,
@@ -2740,26 +2786,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       this.bufferAssistantTextForTts(token, chunk);
     };
 
-    // Forward the stripped, non-partial-marker prefix that has not been
-    // emitted yet (answer stage only). A trailing "[…" that could still
-    // become a control marker is held back until a later delta disproves
-    // it; a real partial that never completes is simply never spoken.
-    const flushFrontDoor = (): void => {
-      let safeEnd = rawText.length;
-      const lastOpen = rawText.lastIndexOf("[");
-      if (lastOpen >= frontDoorEmitted) {
-        const tail = rawText.slice(lastOpen);
-        if (!tail.includes("]") && couldBeControlMarker(tail)) {
-          safeEnd = lastOpen;
-        }
-      }
-      if (safeEnd > frontDoorEmitted) {
-        emitFrontDoor(
-          stripInternalSpeechMarkers(rawText.slice(frontDoorEmitted, safeEnd)),
-        );
-        frontDoorEmitted = safeEnd;
-      }
-    };
+    const flushLegText = createControlMarkerHoldback(activeTurn, emitLegText);
 
     // Hand off once enough of the post-verdict stream has arrived to cap
     // the bridge (sentence terminator or hard cap). Until then nothing is
@@ -2856,7 +2883,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
                 }
                 frontDoorStage = "answer";
               }
-              flushFrontDoor();
+              flushLegText(rawText);
               return;
             }
             // Defensive: speculative legs are always front-door today, but a
@@ -2871,24 +2898,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
                 return;
               }
             }
-            this.markFirstAssistantDelta(utterance, turnId);
-            this.markFirstDeltaForAck(activeTurn);
-            void this.sendFrame(
-              {
-                type: "assistant_text_delta",
-                text: msg.text,
-              },
-              // Re-check at send time (mirrors the tts_audio path): a delta
-              // already queued behind a backed-up outbound frame must not be
-              // written once barge-in has aborted the turn, or the cancelled
-              // reply's text leaks ahead of turn_cancelled. Key off this turn's
-              // own abort signal — a normal message_complete finalizes and
-              // clears activeAssistantTurn while trailing deltas may still be
-              // draining, so an activeAssistantTurn-based guard would drop them.
-              () =>
-                !activeTurn.abortController.signal.aborted && !this.isClosed,
-            );
-            this.bufferAssistantTextForTts(token, msg.text);
+            rawText += msg.text;
+            flushLegText(rawText);
           },
           message_complete: (msg) => {
             const current = this.activeAssistantTurn;
@@ -2929,6 +2940,13 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
             // (including the generation_cancelled from its abort) is a no-op.
             if (leg.frontDoor && current.escalationHandedOff) {
               return;
+            }
+            // A held "[…"-tail that never completed a marker is real text —
+            // force-flush it before assistantCompleted closes the TTS buffer
+            // and completeTtsForTurn signals the drain, so it is spoken and
+            // emitted rather than dropped.
+            if (!leg.frontDoor && msg.type === "message_complete") {
+              flushLegText(rawText, { force: true });
             }
             current.assistantCompleted = true;
             if (msg.type === "generation_cancelled") {
@@ -3663,6 +3681,20 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
             currentTurn.finalized &&
             !this.isClosed,
         );
+
+        // Drain-scoped minimize: the latched marker is consumed here, after
+        // the turn's speech has fully drained — never mid-speech, never for
+        // a barged-in turn, at most once per turn.
+        if (
+          currentTurn.minimizeRequested &&
+          !currentTurn.abortController.signal.aborted
+        ) {
+          currentTurn.minimizeRequested = false;
+          await this.sendFrame(
+            { type: "minimize_room", turnId: currentTurn.turnId },
+            () => !this.isClosed,
+          );
+        }
 
         if (this.activeAssistantTurn?.token === token) {
           if (currentTurn.handle && currentTurn.finalized) {
