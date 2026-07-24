@@ -100,7 +100,7 @@ describe("handleMessageDequeued", () => {
     expect(ctx.setOptimisticSends).not.toHaveBeenCalled();
   });
 
-  it("removes an uncorrelatable server-backed transcript row", () => {
+  it("marks an uncorrelated transcript row optimistic until its echo", () => {
     useChatSessionStore.setState({
       snapshot: {
         messages: [
@@ -127,7 +127,10 @@ describe("handleMessageDequeued", () => {
       makeCtx(),
     );
 
-    expect(useChatSessionStore.getState().snapshot?.messages).toEqual([]);
+    const message = useChatSessionStore.getState().snapshot?.messages[0];
+    expect(message?.isOptimistic).toBe(true);
+    expect(message?.queueStatus).toBeUndefined();
+    expect(message?.queuePosition).toBeUndefined();
   });
 });
 

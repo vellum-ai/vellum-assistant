@@ -72,13 +72,13 @@ export interface DisplayMessage {
    */
   id: string;
   /**
-   * True when `id` is a client-generated placeholder rather than a
-   * server-assigned id. Set on optimistic user sends and on assistant
-   * rows born from SSE events that didn't carry `messageId`. Reconcile
-   * uses this as the signal that the row's id can't be matched against
-   * the server snapshot directly; optimistic user rows get a derived-text
-   * match + id swap, optimistic assistant rows are preserved as-is until
-   * a subsequent SSE event or history fetch resolves them.
+   * True when `id` is a transient placeholder rather than a persisted message
+   * id. Set on optimistic user sends, dequeued request-id rows awaiting their
+   * persisted echo, and assistant rows born from SSE events that didn't carry
+   * `messageId`. Reconcile uses this as the signal that the row's id can't be
+   * matched against the server snapshot directly; optimistic user rows get a
+   * derived-text match + id swap, optimistic assistant rows are preserved
+   * as-is until a subsequent SSE event or history fetch resolves them.
    */
   isOptimistic?: boolean;
   /**

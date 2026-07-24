@@ -160,16 +160,16 @@ export function applyQueuedMessageDequeue(
   prev: DisplayMessage[],
   id: string,
 ): DisplayMessage[] {
-  return prev.flatMap((message) => {
+  return prev.map((message) => {
     if (!messageMatchesKey(message, id)) {
-      return [message];
+      return message;
     }
-    if (!message.clientMessageId) {
-      return [];
-    }
-    return [
-      { ...message, queueStatus: undefined, queuePosition: undefined },
-    ];
+    return {
+      ...message,
+      ...(!message.clientMessageId ? { isOptimistic: true } : {}),
+      queueStatus: undefined,
+      queuePosition: undefined,
+    };
   });
 }
 
