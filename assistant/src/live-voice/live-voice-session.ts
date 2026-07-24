@@ -2397,9 +2397,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // `final` still drive turn lifecycle. Only transient categories are
   // recoverable — auth/rate-limit/invalid-audio/credits-exhausted will not
   // self-heal, so hands-free clients must surface them instead of suppressing
-  // them. `credits-exhausted` in particular used to ride in `provider-error`,
-  // which made an out-of-credits call look like it had simply stopped
-  // listening: the client suppressed it and left the mic open forever.
+  // them. `credits-exhausted` must stay out of the recoverable set for that
+  // reason: a hands-free client suppresses recoverable errors and returns to
+  // listening, which against an exhausted balance is a mic left open forever on
+  // a relay that can never transcribe again.
   private async sendTranscriberErrorFrame(
     event: SttStreamServerErrorEvent,
   ): Promise<void> {
