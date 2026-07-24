@@ -19,6 +19,7 @@ import {
   type SlackHistoryMessage,
 } from "./slack-web.js";
 import { isSlackDmChannel } from "./channel.js";
+import { parseSlackEnvelope } from "./envelope.js";
 import { slackEventOrderingKey } from "./event-ordering.js";
 import { slackEventText } from "./event-text.js";
 import { stampSlackEventTeam } from "./event-team.js";
@@ -39,7 +40,6 @@ import {
   type SlackChannelMessageEvent,
   type SlackMessageChangedEvent,
   type SlackMessageDeletedEvent,
-  type SlackBlockActionsPayload,
   type SlackReactionAddedEvent,
   type SlackReactionRemovedEvent,
   type NormalizedSlackEvent,
@@ -655,7 +655,11 @@ export class SlackSocketModeClient {
       });
 
       ws.addEventListener("message", (messageEvent) => {
-        this.handleMessage(messageEvent.data as string, ws);
+        // Slack Socket Mode delivers text frames; ignore any non-string frame
+        // rather than casting untrusted WebSocket data to `string`.
+        const frame = messageEvent.data;
+        if (typeof frame !== "string") return;
+        this.handleMessage(frame, ws);
       });
 
       ws.addEventListener("close", (closeEvent) => {
@@ -717,36 +721,9 @@ export class SlackSocketModeClient {
   }
 
   private handleMessage(raw: string, originWs: WebSocket): void {
-    let envelope: {
-      envelope_id?: string;
-      type?: string;
-      payload?: {
-        event_id?: string;
-        event_time?: number;
-        team_id?: string;
-        event?:
-          | SlackAppMentionEvent
-          | SlackDirectMessageEvent
-          | SlackChannelMessageEvent
-          | SlackMessageChangedEvent
-          | SlackMessageDeletedEvent
-          | SlackReactionAddedEvent
-          | SlackReactionRemovedEvent;
-        // Interactive payloads are delivered directly as the payload
-        type?: string;
-        trigger_id?: string;
-        user?: { id: string; username?: string; name?: string };
-        channel?: { id: string; name?: string };
-        message?: { ts: string; thread_ts?: string; text?: string };
-        actions?: SlackBlockActionsPayload["actions"];
-      };
-      reason?: string;
-    };
-
-    try {
-      envelope = JSON.parse(raw);
-    } catch {
-      log.warn("Received non-JSON Socket Mode message");
+    const envelope = parseSlackEnvelope(raw);
+    if (!envelope) {
+      log.warn("Received non-JSON or malformed Socket Mode message");
       return;
     }
 
