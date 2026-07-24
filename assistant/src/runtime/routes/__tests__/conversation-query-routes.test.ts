@@ -1507,6 +1507,57 @@ describe("call-site override tuning backfill", () => {
     });
     expect(savedCallSites().recall).toBeUndefined();
   });
+
+  test("profile-only memoryV3SelectL2 entry backfills tuning but never the shipped model pin", async () => {
+    await configPatchRoute.handler({
+      body: { llm: { callSites: { memoryV3SelectL2: { profile: "mine" } } } },
+    });
+    const saved = savedCallSites().memoryV3SelectL2!;
+    expect(saved.profile).toBe("mine");
+    // Tuning survives so the user's profile switch keeps the shipped knobs.
+    expect(saved.temperature).toBe(0);
+    expect(saved.thinking).toEqual({ enabled: false, streamThinking: false });
+    // The shipped haiku pin is selection, not tuning: the user's profile must
+    // control model selection, so no model key is stamped. Backfilling it would
+    // make the resolver treat it as an explicit user override and route a BYOK
+    // profile to Anthropic with no connection.
+    expect("model" in saved).toBe(false);
+  });
+
+  test("profile-only voiceFront entries backfill tuning but never the shipped model pin", async () => {
+    await configPatchRoute.handler({
+      body: {
+        llm: {
+          callSites: {
+            voiceFrontDecision: { profile: "mine" },
+            voiceFrontDoor: { profile: "mine" },
+          },
+        },
+      },
+    });
+    for (const site of ["voiceFrontDecision", "voiceFrontDoor"] as const) {
+      const saved = savedCallSites()[site]!;
+      expect(saved.profile).toBe("mine");
+      expect(saved.effort).toBe("low");
+      expect(saved.thinking).toEqual({ enabled: false });
+      expect("model" in saved).toBe(false);
+    }
+  });
+
+  test("an explicit model in the patch is persisted as written", async () => {
+    await configPatchRoute.handler({
+      body: {
+        llm: {
+          callSites: {
+            memoryV3SelectL2: { profile: "mine", model: "gpt-4o-mini" },
+          },
+        },
+      },
+    });
+    const saved = savedCallSites().memoryV3SelectL2!;
+    expect(saved.profile).toBe("mine");
+    expect(saved.model).toBe("gpt-4o-mini");
+  });
 });
 
 describe("config invariant flag enrichment", () => {

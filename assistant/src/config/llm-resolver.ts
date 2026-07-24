@@ -53,6 +53,12 @@ import {
  * tweak); `logitBias` only ever from the winner. These are provider-coupled, so
  * a shadowed profile can never leak its sampling onto a different provider.
  *
+ * A default-owned call-site `model` pin (from the shipped call-site default, or
+ * a tuning-only workspace override inheriting it) is a best-effort optimization
+ * for the call site's DEFAULT resolution — it does NOT apply when an explicit
+ * `opts.overrideProfile` wins, so the override profile's own model stands. An
+ * explicit user call-site `model` is honored as written regardless.
+ *
  * `opts.forceOverrideProfile` is a no-op here: the override profile already
  * sits at the top of the chain for every call site.
  *
@@ -100,9 +106,14 @@ export interface ResolveCallSiteOpts {
   onMixSelected?: (info: { mixProfile: string; chosenProfile: string }) => void;
   /**
    * Invoked once per chain rung that named a profile the resolver could not
-   * use, before resolution continues to the next rung. Fallback is silent to
-   * the call but must be visible in logs — callers on user-facing paths should
-   * log at warn.
+   * use (before resolution continues to the next rung), and once when a
+   * default-owned call-site model pin resolves to a provider this install
+   * cannot reach so the pin is dropped (`reason: "unroutable"`). The pin is
+   * default-owned when it comes from the shipped call-site default or from a
+   * tuning-only workspace override that inherits it (an override setting
+   * neither `profile` nor its own `model`); an explicit user model pin is never
+   * dropped. Fallback is silent to the call but must be visible in logs —
+   * callers on user-facing paths should log at warn.
    */
   onResolutionFallback?: (info: {
     callSite: LLMCallSite;
@@ -111,7 +122,11 @@ export interface ResolveCallSiteOpts {
   }) => void;
 }
 
-export type ResolutionFallbackReason = "missing" | "disabled" | "incomplete";
+export type ResolutionFallbackReason =
+  | "missing"
+  | "disabled"
+  | "incomplete"
+  | "unroutable";
 
 export function resolveCallSiteConfig(
   callSite: LLMCallSite,
@@ -144,6 +159,10 @@ export function resolveCallSiteConfig(
 // tweaks (`thinking.enabled`) combine leaf-wise instead of wiping siblings.
 // `temperature`/`topP` come from the winner (or an explicit tweak);
 // `logitBias` only ever from the winner.
+// A default-owned `model` pin (shipped call-site default, or a tuning-only
+// override inheriting it) is suppressed when the winner is an explicit
+// `overrideProfile`, so the override profile's own model stands; an explicit
+// user call-site `model` still applies.
 // `forceOverrideProfile` is a no-op here (the override is already first).
 
 export interface ProfileWinnerSelection {
@@ -365,18 +384,74 @@ function resolveOverrideOrDefault(
 
   // The call site's own tweak fragment: the workspace override replaces the
   // code default wholesale. `profile` is the selection discriminator and
-  // `logitBias` is winner-owned, so neither enters the merge.
-  const site = llm.callSites?.[callSite] ?? CALL_SITE_DEFAULTS[callSite];
+  // `logitBias` is winner-owned, so neither enters the merge. `userSite`
+  // distinguishes an explicit workspace override from the shipped call-site
+  // default so a bare model pin is treated differently in each case (below).
+  const userSite = llm.callSites?.[callSite];
+  const shipped = CALL_SITE_DEFAULTS[callSite];
+  const site = userSite ?? shipped;
   const {
     profile: _siteProfile,
     logitBias: _siteBias,
     ...tweak
   } = (site ?? {}) as Record<string, unknown>;
 
-  // Direct call-site model overrides are fragments by design: when the tweak
-  // pins a model the winner's provider does not serve, stamp the catalog
-  // owner and drop the winner's connection (it belongs to the replaced
-  // provider; dispatch auto-resolves an absent connection by provider).
+  // A tuning-only workspace override — a `llm.callSites[id]` entry that sets
+  // neither `profile` nor its own `model` (e.g. `{ temperature: 0.2 }`) —
+  // replaces the shipped call-site default wholesale, dropping the shipped
+  // model pin. Resolution would then fall back to the winning profile's model,
+  // silently disabling a shipped pin (e.g. memoryV3SelectL2's haiku
+  // cache-latency pin). Re-apply the shipped default's model as a
+  // default-owned pin so it keeps the SAME `unroutable` fall-through the
+  // shipped default gets (the `userSite == null` case below): it applies where
+  // the implied provider is reachable and is dropped, not fatal, where it is
+  // not. A user entry that sets its own `profile` or `model` is an explicit
+  // selection, so the shipped pin does not apply.
+  const userSiteRecord = userSite as Record<string, unknown> | null | undefined;
+  const tuningOnlyUserOverride =
+    userSiteRecord != null &&
+    userSiteRecord.profile === undefined &&
+    userSiteRecord.model === undefined;
+  if (tuningOnlyUserOverride && typeof shipped?.model === "string") {
+    tweak.model = shipped.model;
+  }
+  // A model pin is default-owned — and thus eligible for the graceful
+  // `unroutable` drop below — when it comes from the shipped call-site default
+  // (no user entry) or from a tuning-only override that inherited it above. A
+  // model the user set explicitly is honored as written, never dropped.
+  const modelPinIsDefaultOwned = userSite == null || tuningOnlyUserOverride;
+
+  // An explicit `overrideProfile` winner is a per-turn model selection that
+  // supersedes a default-owned pin: the caller (e.g. the image-fallback
+  // plugin's vision profile candidate) is choosing the profile precisely to
+  // run ITS model. A shipped default's `model` pin — a best-effort latency
+  // optimization for the call site's DEFAULT resolution — must not silently
+  // override that choice (which would run haiku for every candidate on managed
+  // installs, or force an unroutable concrete combination on BYOK). Drop the
+  // default-owned pin so the override profile's own model stands. An explicit
+  // user call-site `model` (not default-owned) is honored as written.
+  if (selection.source === "override" && modelPinIsDefaultOwned) {
+    delete tweak.model;
+  }
+
+  // A bare model tweak (a model with no sibling provider) is catalog-implied:
+  // the winner's provider does not serve it, so the model's catalog owner is
+  // the real dispatch provider. What happens next depends on whether that
+  // provider is reachable on this install:
+  //  - reachable — stamp the implied provider and drop the winner's connection
+  //    (it belongs to the replaced provider; dispatch auto-resolves an absent
+  //    connection by provider), unless it is the provider-agnostic Vellum
+  //    managed connection, which routes any managed-routable upstream and must
+  //    survive or platform installs lose their only connection.
+  //  - unreachable AND the pin is default-owned (the shipped call-site default,
+  //    or a tuning-only override that inherited it above) — drop the pin and let
+  //    the winner (the call site's profile/intent resolved through
+  //    `llm.defaultProvider`) stand. This is the same graceful fall-through an
+  //    unusable profile rung gets: a default pin is a best-effort optimization,
+  //    not a hard requirement, so on a BYOK install with no connection for the
+  //    implied provider it degrades to the profile's own model instead of
+  //    failing every dispatch. An explicit user model override is honored as
+  //    written, never silently swapped.
   const applicableProvider =
     (winnerFragment.provider as string | undefined) ??
     CODE_DEFAULT_BASE.provider;
@@ -391,21 +466,28 @@ function resolveOverrideOrDefault(
     tweak.provider === undefined &&
     !winnerServesModel(tweak.model)
   ) {
-    const implied = getCatalogProviderForModel(tweak.model);
+    const pinnedModel = tweak.model;
+    const implied = getCatalogProviderForModel(pinnedModel);
+    // The provider-agnostic Vellum managed connection reaches any
+    // managed-routable upstream, so a managed winner serves the implied
+    // provider even though its own `provider` field differs.
+    const managedRouteServesImplied =
+      implied !== undefined &&
+      winnerFragment.provider_connection === VELLUM_MANAGED_CONNECTION_NAME &&
+      MANAGED_ROUTABLE_PROVIDERS.has(implied);
     if (implied !== undefined) {
-      tweak.provider = implied;
-      // A provider-specific connection must not pin a mismatch onto the
-      // implied provider — but the provider-agnostic Vellum managed
-      // connection routes any managed-routable upstream and must survive,
-      // or platform installs lose their only connection.
-      if (
-        !(
-          winnerFragment.provider_connection ===
-            VELLUM_MANAGED_CONNECTION_NAME &&
-          MANAGED_ROUTABLE_PROVIDERS.has(implied)
-        )
-      ) {
-        delete winnerFragment.provider_connection;
+      if (modelPinIsDefaultOwned && !managedRouteServesImplied) {
+        delete tweak.model;
+        opts.onResolutionFallback?.({
+          callSite,
+          requested: pinnedModel,
+          reason: "unroutable",
+        });
+      } else {
+        tweak.provider = implied;
+        if (!managedRouteServesImplied) {
+          delete winnerFragment.provider_connection;
+        }
       }
     }
   }

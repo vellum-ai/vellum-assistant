@@ -21,7 +21,9 @@ function ensureTestDir(): void {
     join(WORKSPACE_DIR, "data", "logs"),
   ];
   for (const dir of dirs) {
-    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
+    }
   }
 }
 
@@ -37,10 +39,12 @@ function writeConfig(obj: unknown): void {
 }
 
 /**
- * Base config where the active profile resolves to a DIFFERENT model than the
- * `balanced` profile that the shipped `memoryV3SelectL2` call-site default
- * points at. This lets each test distinguish the two failure modes:
- *   - call-site default applied (fixed)  -> model "balanced-model"
+ * Base config whose active profile ("speedy") resolves to a DIFFERENT model
+ * than the shipped `memoryV3SelectL2` call-site default produces. That default
+ * anchors on the `balanced` profile and pins the `claude-haiku-4-5-20251001`
+ * model, so applying it yields the pinned model. This lets each test
+ * distinguish the two failure modes:
+ *   - call-site default applied (fixed)  -> pinned model "claude-haiku-4-5-20251001"
  *   - silently downgraded to active      -> model "active-model"
  */
 function baseLlm(callSites: Record<string, unknown>): unknown {
@@ -60,14 +64,18 @@ function baseLlm(callSites: Record<string, unknown>): unknown {
 describe("config recovery prunes call-site overrides emptied by a strip", () => {
   beforeEach(() => {
     ensureTestDir();
-    if (existsSync(CONFIG_PATH)) rmSync(CONFIG_PATH, { force: true });
+    if (existsSync(CONFIG_PATH)) {
+      rmSync(CONFIG_PATH, { force: true });
+    }
     delete process.env.IS_PLATFORM;
     invalidateConfigCache();
   });
 
   afterEach(() => {
     delete process.env.IS_PLATFORM;
-    if (existsSync(CONFIG_PATH)) rmSync(CONFIG_PATH, { force: true });
+    if (existsSync(CONFIG_PATH)) {
+      rmSync(CONFIG_PATH, { force: true });
+    }
     invalidateConfigCache();
   });
 
@@ -83,10 +91,10 @@ describe("config recovery prunes call-site overrides emptied by a strip", () => 
     // The emptied call-site entry must be pruned entirely, not left as `{}`.
     expect(config.llm.callSites?.memoryV3SelectL2).toBeUndefined();
 
-    // Resolution now lands on the shipped call-site default (balanced), not the
-    // active profile ("active-model"), which is what the bug produced.
+    // With the invalid entry pruned, resolution uses the shipped call-site
+    // default (which pins the haiku model) rather than the active profile.
     const resolved = resolveCallSiteConfig("memoryV3SelectL2", config.llm);
-    expect(resolved.model).toBe("balanced-model");
+    expect(resolved.model).toBe("claude-haiku-4-5-20251001");
   });
 
   test("a valid sibling call-site override survives while the invalid one is pruned", () => {
