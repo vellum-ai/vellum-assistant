@@ -21,6 +21,7 @@ import { z } from "zod";
 import {
   deleteAttachment,
   getAttachmentById,
+  getAttachmentMetadataById,
   getFilePathBySourcePath,
   StoredAttachment,
   uploadAttachment,
@@ -592,22 +593,20 @@ function handleGetAttachmentContentRoute({
   const filePath = getFilePathForAttachment(attachmentId);
   const isFileBacked = !!filePath;
 
-  const attachment = getAttachmentById(attachmentId, {
-    hydrateFileData: !isFileBacked,
-  });
-  if (!attachment) {
-    throw new NotFoundError("Attachment not found");
-  }
-  if (filePath) {
-    const resolvedPath = resolveAllowedFileBackedAttachmentPath(filePath);
-    if (!resolvedPath) {
-      throw new NotFoundError("Attachment content not found");
+  if (displayRepresentation) {
+    const attachment = getAttachmentMetadataById(attachmentId);
+    if (!attachment) {
+      throw new NotFoundError("Attachment not found");
     }
-    if (!existsSync(resolvedPath)) {
-      throw new NotFoundError("Recording file not found on disk");
-    }
+    if (filePath) {
+      const resolvedPath = resolveAllowedFileBackedAttachmentPath(filePath);
+      if (!resolvedPath) {
+        throw new NotFoundError("Attachment content not found");
+      }
+      if (!existsSync(resolvedPath)) {
+        throw new NotFoundError("Recording file not found on disk");
+      }
 
-    if (displayRepresentation) {
       assertDisplayRangeSupported(headers["range"]);
       assertDisplayImageCandidate(
         attachment.originalFilename,
@@ -632,6 +631,38 @@ function handleGetAttachmentContentRoute({
         "Content-Length": String(displayFile.size),
         "Accept-Ranges": "none",
       });
+    }
+
+    assertDisplayRangeSupported(headers["range"]);
+    assertDisplayImageCandidate(
+      attachment.originalFilename,
+      attachment.mimeType,
+    );
+    const inlineAttachment = getAttachmentById(attachmentId, {
+      hydrateFileData: true,
+    });
+    if (!inlineAttachment?.dataBase64) {
+      throw new NotFoundError("No content available");
+    }
+    return displayAttachmentResponse(
+      attachment.mimeType,
+      Buffer.from(inlineAttachment.dataBase64, "base64"),
+    );
+  }
+
+  const attachment = getAttachmentById(attachmentId, {
+    hydrateFileData: !isFileBacked,
+  });
+  if (!attachment) {
+    throw new NotFoundError("Attachment not found");
+  }
+  if (filePath) {
+    const resolvedPath = resolveAllowedFileBackedAttachmentPath(filePath);
+    if (!resolvedPath) {
+      throw new NotFoundError("Attachment content not found");
+    }
+    if (!existsSync(resolvedPath)) {
+      throw new NotFoundError("Recording file not found on disk");
     }
 
     const file = Bun.file(resolvedPath);
@@ -692,18 +723,7 @@ function handleGetAttachmentContentRoute({
     throw new NotFoundError("No content available");
   }
 
-  if (displayRepresentation) {
-    assertDisplayRangeSupported(headers["range"]);
-    assertDisplayImageCandidate(
-      attachment.originalFilename,
-      attachment.mimeType,
-    );
-  }
-
   const buffer = Buffer.from(attachment.dataBase64, "base64");
-  if (displayRepresentation) {
-    return displayAttachmentResponse(attachment.mimeType, buffer);
-  }
   return new RouteResponse(buffer, {
     "Content-Type": attachment.mimeType,
     "Content-Length": String(buffer.length),

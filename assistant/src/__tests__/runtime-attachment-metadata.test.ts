@@ -8,6 +8,7 @@ import {
   describe,
   expect,
   mock,
+  spyOn,
   test,
 } from "bun:test";
 
@@ -44,6 +45,10 @@ import { ACTOR_PRINCIPALS } from "../runtime/auth/route-policy.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { ROUTES as ATTACHMENT_ROUTES } from "../runtime/routes/attachment-routes.js";
+import {
+  RangeNotSatisfiableError,
+  UnsupportedMediaTypeError,
+} from "../runtime/routes/errors.js";
 import { RouteResponse } from "../runtime/routes/types.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
 import {
@@ -72,6 +77,15 @@ const AUTH_HEADERS = { Authorization: `Bearer ${TEST_TOKEN}` };
 const ATTACHMENT_CONTENT_ROUTE = ATTACHMENT_ROUTES.find(
   (candidate) => candidate.operationId === "attachment_content",
 )!;
+
+function expectOnlyProjectedAttachmentPreflightSelects(
+  calls: readonly (readonly unknown[])[],
+): void {
+  expect(calls).toHaveLength(2);
+  for (const call of calls) {
+    expect(call[0]).toBeDefined();
+  }
+}
 
 describe("Runtime attachment metadata", () => {
   let server: RuntimeHttpServer;
@@ -356,6 +370,49 @@ describe("Runtime attachment metadata", () => {
 
     expect(rangeRes.status).toBe(416);
     expect(missingRes.status).toBe(404);
+  });
+
+  test("inline display Range rejection does not select the content row", () => {
+    const stored = uploadAttachment(
+      "pixel.png",
+      "image/png",
+      PNG_1PX_BYTES.toString("base64"),
+    );
+    const selectSpy = spyOn(getDb(), "select");
+    try {
+      expect(() =>
+        ATTACHMENT_CONTENT_ROUTE.handler({
+          pathParams: { id: stored.id },
+          queryParams: { representation: "display" },
+          headers: { range: "bytes=0-3" },
+        }),
+      ).toThrow(RangeNotSatisfiableError);
+
+      expectOnlyProjectedAttachmentPreflightSelects(selectSpy.mock.calls);
+    } finally {
+      selectSpy.mockRestore();
+    }
+  });
+
+  test("inline non-image display rejects without selecting the content row", () => {
+    const stored = uploadAttachment(
+      "report.pdf",
+      "application/pdf",
+      "JVBERA==",
+    );
+    const selectSpy = spyOn(getDb(), "select");
+    try {
+      expect(() =>
+        ATTACHMENT_CONTENT_ROUTE.handler({
+          pathParams: { id: stored.id },
+          queryParams: { representation: "display" },
+        }),
+      ).toThrow(UnsupportedMediaTypeError);
+
+      expectOnlyProjectedAttachmentPreflightSelects(selectSpy.mock.calls);
+    } finally {
+      selectSpy.mockRestore();
+    }
   });
 
   test("display representation rejects non-image files before reading their path", async () => {

@@ -10,6 +10,7 @@ import {
   deleteOrphanAttachments,
   getAttachmentById,
   getAttachmentContent,
+  getAttachmentMetadataById,
   getAttachmentMetadataForMessage,
   getAttachmentsByIds,
   getAttachmentsForMessage,
@@ -256,6 +257,45 @@ describe("getAttachmentMetadataForMessage", () => {
           thumbnailBase64: null,
         }),
       ]);
+
+      expect(selectSpy).toHaveBeenCalledTimes(1);
+      const projection = selectSpy.mock.calls[0]?.[0] as
+        | Record<string, unknown>
+        | undefined;
+      expect(Object.keys(projection ?? {})).toEqual([
+        "id",
+        "originalFilename",
+        "mimeType",
+        "sizeBytes",
+        "kind",
+        "createdAt",
+      ]);
+      expect(projection).not.toHaveProperty("dataBase64");
+      expect(projection).not.toHaveProperty("thumbnailBase64");
+    } finally {
+      selectSpy.mockRestore();
+    }
+  });
+
+  test("single-attachment metadata reuses the lightweight projection", () => {
+    const stored = uploadAttachment("image.png", "image/png", "AAAA");
+    rawRun(
+      "test:setSingleAttachmentThumbnail",
+      "UPDATE attachments SET thumbnail_base64 = ? WHERE id = ?",
+      "BBBB",
+      stored.id,
+    );
+
+    const db = getDb();
+    const selectSpy = spyOn(db, "select");
+    try {
+      expect(getAttachmentMetadataById(stored.id)).toEqual(
+        expect.objectContaining({
+          id: stored.id,
+          originalFilename: "image.png",
+          thumbnailBase64: null,
+        }),
+      );
 
       expect(selectSpy).toHaveBeenCalledTimes(1);
       const projection = selectSpy.mock.calls[0]?.[0] as

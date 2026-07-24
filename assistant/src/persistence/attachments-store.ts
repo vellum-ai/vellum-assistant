@@ -43,6 +43,15 @@ export interface StoredAttachment {
   createdAt: number;
 }
 
+const attachmentMetadataProjection = {
+  id: attachments.id,
+  originalFilename: attachments.originalFilename,
+  mimeType: attachments.mimeType,
+  sizeBytes: attachments.sizeBytes,
+  kind: attachments.kind,
+  createdAt: attachments.createdAt,
+};
+
 export function classifyKind(mimeType: string): string {
   if (mimeType.startsWith("image/")) return "image";
   if (mimeType.startsWith("video/")) return "video";
@@ -1190,14 +1199,7 @@ export function getAttachmentMetadataForMessage(
   const db = getDb();
   if (options?.includeThumbnail === false) {
     return db
-      .select({
-        id: attachments.id,
-        originalFilename: attachments.originalFilename,
-        mimeType: attachments.mimeType,
-        sizeBytes: attachments.sizeBytes,
-        kind: attachments.kind,
-        createdAt: attachments.createdAt,
-      })
+      .select(attachmentMetadataProjection)
       .from(messageAttachments)
       .innerJoin(
         attachments,
@@ -1242,6 +1244,18 @@ export function getAttachmentMetadataForMessage(
     }
   }
   return results;
+}
+
+/** Retrieve one attachment without selecting content or thumbnail columns. */
+export function getAttachmentMetadataById(
+  attachmentId: string,
+): StoredAttachment | null {
+  const row = getDb()
+    .select(attachmentMetadataProjection)
+    .from(attachments)
+    .where(eq(attachments.id, attachmentId))
+    .get();
+  return row ? { ...row, thumbnailBase64: null } : null;
 }
 
 /**
