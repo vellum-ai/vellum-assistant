@@ -32,35 +32,46 @@ interface CapabilityTierMeta {
   /** Preset name, straight from the matching global Assistant Access preset. */
   label: string;
   /**
-   * Short qualifier shown under the label in the tier picker. The full
-   * per-tier description lives in the one-time legend
-   * (`SlackChannelTierLegend`) — it needs the assistant name and a settings
-   * link, so it can't be a static string here.
+   * Short qualifier shown beside the label in the picker and the legend key.
+   * Frames how much the assistant does on its own before checking with the
+   * owner — reads/answers only, since writes/sends/spends always escalate. The
+   * full per-tier sentence lives in the legend (`SlackChannelTierLegend`); it
+   * interpolates the assistant name, so it can't be a static string here.
    */
   sublabel: string;
   tone: TagTone;
+  /**
+   * Accent dot color for this tier, the single source shared by the per-row
+   * picker and the legend key so the two can't drift. Mirrors the tone's Tag
+   * accent (`--system-*-strong`).
+   */
+  dotColor: string;
 }
 
 export const CAPABILITY_TIER_META: Record<RiskThreshold, CapabilityTierMeta> = {
   none: {
     label: presetFromThreshold("none").label,
-    sublabel: "ask before every action",
+    sublabel: "asks before acting",
     tone: "negative",
+    dotColor: "var(--system-negative-strong)",
   },
   low: {
     label: presetFromThreshold("low").label,
-    sublabel: "low-risk actions, ask for the rest",
+    sublabel: "safe reads only",
     tone: "warning",
+    dotColor: "var(--system-mid-strong)",
   },
   medium: {
     label: presetFromThreshold("medium").label,
-    sublabel: "beyond its workspace too",
+    sublabel: "broader lookups",
     tone: "info",
+    dotColor: "var(--system-info-strong)",
   },
   high: {
     label: presetFromThreshold("high").label,
-    sublabel: "acts freely",
+    sublabel: "answers on its own",
     tone: "positive",
+    dotColor: "var(--system-positive-strong)",
   },
 };
 
@@ -116,31 +127,4 @@ export function tierOverridesFromCells(
     }
   }
   return overrides;
-}
-
-/** The row's resolved tier plus whether a persisted cell backs it. */
-export interface SlackChannelTierSettings {
-  /**
-   * The persisted tier, or `null` when no cell exists — the runtime then
-   * falls through to broader-scope cells and the owner's global Assistant
-   * Access setting, so the UI must not present a tier as set.
-   */
-  tier: RiskThreshold | null;
-  /**
-   * True when a persisted cell backs the tier. A cell is an override by
-   * existing: it pins the channel above the global auto-approve cascade
-   * even when its tier matches the room default, so it must stay visible
-   * (badge, callout, reset).
-   */
-  overridden: boolean;
-}
-
-/** Resolves the row's tier from a persisted cell, if any. */
-export function resolveChannelTier(
-  override: RiskThreshold | undefined,
-): SlackChannelTierSettings {
-  return {
-    tier: override ?? null,
-    overridden: override !== undefined,
-  };
 }

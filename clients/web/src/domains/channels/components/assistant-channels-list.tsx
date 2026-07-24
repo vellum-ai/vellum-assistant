@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 
+import { cn } from "@vellumai/design-library";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 
 import { DetailCard } from "@/components/detail-card";
@@ -72,8 +73,8 @@ export interface AssistantChannelsListProps {
   /**
    * Per-channel admission floor, keyed by channel. Omit (or pass no
    * `onChannelPolicyChange`) to hide the trust-floor control entirely —
-   * `useChannelTrustFloors` does so while the `channelTrustFloors` flag is
-   * off.
+   * `useChannelTrustFloors` does so when the connected assistant can't serve
+   * it.
    */
   channelPolicies?: Partial<Record<ChannelKey, AdmissionPolicy>>;
   policySavingKey?: ChannelKey | null;
@@ -107,9 +108,7 @@ export interface AssistantChannelsListProps {
  * adapter's detail panel (`ChannelPanel`), plus the disconnect and trust-floor
  * confirmation dialogs. Rendered by the Channels tab (`ChannelsPage`). The
  * active adapter persists in `adapter-selection-store`; the queries and
- * mutations behind the props live in `useAssistantChannels`. The
- * `channel-trust-floors` flag gates the Channels tab itself (in
- * `IntelligenceLayout`), not anything in here.
+ * mutations behind the props live in `useAssistantChannels`.
  */
 export function AssistantChannelsList({
   assistantId,
@@ -258,9 +257,17 @@ export function AssistantChannelsList({
           />
         </aside>
 
-        {/* Slack brings its own cards (connection card + channel list); the
-            other adapters render bare content, so wrap them in a card to match. */}
-        <section className="min-h-0 min-w-0 flex-1 overflow-y-auto">
+        {/* Slack brings its own cards (connection card + channel list) and owns
+            its internal table scroll, so it fills the panel; the other adapters
+            render bare content in a scrollable card to match. */}
+        <section
+          className={cn(
+            "min-h-0 min-w-0 flex-1",
+            selected.key === "slack"
+              ? "flex flex-col overflow-hidden"
+              : "overflow-y-auto",
+          )}
+        >
           {selected.key === "slack" ? detail : <DetailCard>{detail}</DetailCard>}
         </section>
       </div>
