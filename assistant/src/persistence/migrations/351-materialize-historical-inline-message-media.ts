@@ -13,7 +13,11 @@ import {
 } from "../conversation-directories.js";
 import type { DrizzleDb } from "../db-connection.js";
 import { getSqliteFrom } from "../db-connection.js";
-import { enqueueLexicalIndexForMessage } from "../job-handlers/message-lexical.js";
+import {
+  type PreparedLexicalIndexJob,
+  prepareLexicalIndexForMessage,
+  releasePreparedLexicalIndexJob,
+} from "../job-handlers/message-lexical.js";
 
 const log = getLogger("migration-historical-inline-media");
 
@@ -28,7 +32,8 @@ export interface HistoricalInlineMediaMigrationOptions {
   ) => string;
   writeFile?: (path: string, data: Buffer) => void;
   readLinkedAttachmentBytes?: (attachmentId: string) => Buffer | null;
-  scheduleLexicalReindex?: (messageId: string) => void;
+  prepareLexicalReindex?: (messageId: string) => PreparedLexicalIndexJob;
+  releaseLexicalReindex?: (prepared: PreparedLexicalIndexJob) => void;
   yieldToEventLoop?: () => Promise<void>;
 }
 
@@ -264,8 +269,10 @@ export async function migrateMaterializeHistoricalInlineMessageMedia(
     options.resolveAttachmentsDir ?? defaultResolveAttachmentsDir;
   const writeFile = options.writeFile ?? defaultWriteFile;
   const yieldToEventLoop = options.yieldToEventLoop ?? defaultYield;
-  const scheduleLexicalReindex =
-    options.scheduleLexicalReindex ?? enqueueLexicalIndexForMessage;
+  const prepareLexicalReindex =
+    options.prepareLexicalReindex ?? prepareLexicalIndexForMessage;
+  const releaseLexicalReindex =
+    options.releaseLexicalReindex ?? releasePreparedLexicalIndexJob;
   const readLinkedAttachmentBytes =
     options.readLinkedAttachmentBytes ??
     ((attachmentId: string): Buffer | null => {
@@ -535,6 +542,7 @@ export async function migrateMaterializeHistoricalInlineMessageMedia(
         continue;
       }
       const rewrittenContent = JSON.stringify(rewritten);
+      const preparedLexicalReindex = prepareLexicalReindex(row.id);
 
       const applyMessage = raw.transaction(() => {
         for (const attachment of pendingAttachments) {
@@ -588,20 +596,21 @@ export async function migrateMaterializeHistoricalInlineMessageMedia(
             `Historical inline media message changed during migration: ${row.id}`,
           );
         }
-        // The lexical queue lives in a separate database. Enqueue after the
-        // guarded update but before this transaction commits so a crash cannot
-        // leave committed content without a pending idempotent reindex job.
-        // A queue failure stays non-fatal, matching the canonical enqueue seam.
-        try {
-          scheduleLexicalReindex(row.id);
-        } catch (err) {
-          log.warn(
-            { err, messageId: row.id },
-            "Failed to schedule lexical reindex after inline-media migration",
-          );
-        }
       });
       applyMessage();
+      try {
+        releaseLexicalReindex(preparedLexicalReindex);
+      } catch (err) {
+        log.warn(
+          {
+            err,
+            jobId: preparedLexicalReindex.jobId,
+            messageId: row.id,
+            fallbackRunAfter: preparedLexicalReindex.fallbackRunAfter,
+          },
+          "Failed to release prepared lexical reindex after inline-media migration",
+        );
+      }
     }
 
     await yieldToEventLoop();

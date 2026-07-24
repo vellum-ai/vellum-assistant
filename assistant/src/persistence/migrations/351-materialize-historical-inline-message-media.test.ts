@@ -26,6 +26,17 @@ const tempDirs: string[] = [];
 const DEFAULT_CONVERSATION_ID = "conversation-test";
 const DEFAULT_CONVERSATION_CREATED_AT = 1000;
 
+function preparedLexicalJob(
+  messageId: string,
+  jobId = `prepared-${messageId}`,
+) {
+  return {
+    jobId,
+    messageId,
+    fallbackRunAfter: Number.MAX_SAFE_INTEGER,
+  };
+}
+
 function createTestDb() {
   const sqlite = new Database(":memory:");
   sqlite.exec(/*sql*/ `
@@ -89,7 +100,8 @@ function createTestDb() {
     attachmentsDirFor,
     options: {
       resolveAttachmentsDir: attachmentsDirFor,
-      scheduleLexicalReindex: () => {},
+      prepareLexicalReindex: preparedLexicalJob,
+      releaseLexicalReindex: () => {},
       yieldToEventLoop: async () => {},
     },
   };
@@ -205,7 +217,8 @@ describe("migration 351: materialize historical inline message media", () => {
 
   test("materializes root and nested image/file blocks with stable links and metadata", async () => {
     const { sqlite, db, options } = createTestDb();
-    const scheduledMessageIds: string[] = [];
+    const preparedMessageIds: string[] = [];
+    const releasedMessageIds: string[] = [];
     const imageOne = Buffer.from("image-one").toString("base64");
     const fileOne = Buffer.from("file-one").toString("base64");
     const imageTwo = Buffer.from("image-two").toString("base64");
@@ -276,8 +289,12 @@ describe("migration 351: materialize historical inline message media", () => {
 
     await migrateMaterializeHistoricalInlineMessageMedia(db, {
       ...options,
-      scheduleLexicalReindex: (messageId) => {
-        scheduledMessageIds.push(messageId);
+      prepareLexicalReindex: (messageId) => {
+        preparedMessageIds.push(messageId);
+        return preparedLexicalJob(messageId);
+      },
+      releaseLexicalReindex: (prepared) => {
+        releasedMessageIds.push(prepared.messageId);
       },
     });
 
@@ -307,7 +324,8 @@ describe("migration 351: materialize historical inline message media", () => {
     expect(content[3].contentBlocks[0].source.filename).toBe("result.txt");
     expect(count(sqlite, "attachments")).toBe(5);
     expect(count(sqlite, "message_attachments")).toBe(5);
-    expect(scheduledMessageIds).toEqual(["message-1"]);
+    expect(preparedMessageIds).toEqual(["message-1"]);
+    expect(releasedMessageIds).toEqual(["message-1"]);
     const positions = (
       sqlite
         .query(
@@ -421,7 +439,7 @@ describe("migration 351: materialize historical inline message media", () => {
     );
     linkAttachment(sqlite, "message-referenced", "attachment-existing", 0);
     const reads: string[] = [];
-    const scheduledMessageIds: string[] = [];
+    const preparedMessageIds: string[] = [];
 
     await migrateMaterializeHistoricalInlineMessageMedia(db, {
       ...options,
@@ -429,13 +447,14 @@ describe("migration 351: materialize historical inline message media", () => {
         reads.push(attachmentId);
         throw new Error("linked attachment must not be read");
       },
-      scheduleLexicalReindex: (messageId) => {
-        scheduledMessageIds.push(messageId);
+      prepareLexicalReindex: (messageId) => {
+        preparedMessageIds.push(messageId);
+        return preparedLexicalJob(messageId);
       },
     });
 
     expect(reads).toEqual([]);
-    expect(scheduledMessageIds).toEqual([]);
+    expect(preparedMessageIds).toEqual([]);
     expect(messageContent(sqlite, "message-referenced")).toEqual(content);
   });
 
@@ -472,15 +491,20 @@ describe("migration 351: materialize historical inline message media", () => {
       ["attachment-never-read", Buffer.from("unused")],
     ]);
     const reads: string[] = [];
-    const scheduledMessageIds: string[] = [];
+    const preparedMessageIds: string[] = [];
+    const releasedMessageIds: string[] = [];
     const migrationOptions = {
       ...options,
       readLinkedAttachmentBytes: (attachmentId: string): Buffer | null => {
         reads.push(attachmentId);
         return candidateBytes.get(attachmentId) ?? null;
       },
-      scheduleLexicalReindex: (messageId: string): void => {
-        scheduledMessageIds.push(messageId);
+      prepareLexicalReindex: (messageId: string) => {
+        preparedMessageIds.push(messageId);
+        return preparedLexicalJob(messageId);
+      },
+      releaseLexicalReindex: (prepared: { messageId: string }): void => {
+        releasedMessageIds.push(prepared.messageId);
       },
     };
 
@@ -495,12 +519,14 @@ describe("migration 351: materialize historical inline message media", () => {
     });
     expect(count(sqlite, "attachments")).toBe(3);
     expect(count(sqlite, "message_attachments")).toBe(3);
-    expect(scheduledMessageIds).toEqual(["message-lazy-match"]);
+    expect(preparedMessageIds).toEqual(["message-lazy-match"]);
+    expect(releasedMessageIds).toEqual(["message-lazy-match"]);
 
     await migrateMaterializeHistoricalInlineMessageMedia(db, migrationOptions);
 
     expect(reads).toEqual(["attachment-wrong", "attachment-match"]);
-    expect(scheduledMessageIds).toEqual(["message-lazy-match"]);
+    expect(preparedMessageIds).toEqual(["message-lazy-match"]);
+    expect(releasedMessageIds).toEqual(["message-lazy-match"]);
     expect(count(sqlite, "attachments")).toBe(3);
     expect(count(sqlite, "message_attachments")).toBe(3);
   });
@@ -815,7 +841,7 @@ describe("migration 351: materialize historical inline message media", () => {
 
   test("leaves malformed JSON, invalid base64, and unfinalized rows untouched", async () => {
     const { sqlite, db, options, attachmentsDir } = createTestDb();
-    const scheduledMessageIds: string[] = [];
+    const preparedMessageIds: string[] = [];
     insertMessage(sqlite, "malformed-json", "{not-json");
     insertMessage(sqlite, "invalid-base64", [
       {
@@ -858,8 +884,9 @@ describe("migration 351: materialize historical inline message media", () => {
 
     await migrateMaterializeHistoricalInlineMessageMedia(db, {
       ...options,
-      scheduleLexicalReindex: (messageId) => {
-        scheduledMessageIds.push(messageId);
+      prepareLexicalReindex: (messageId) => {
+        preparedMessageIds.push(messageId);
+        return preparedLexicalJob(messageId);
       },
     });
 
@@ -868,13 +895,99 @@ describe("migration 351: materialize historical inline message media", () => {
     ).toEqual(before);
     expect(count(sqlite, "attachments")).toBe(0);
     expect(count(sqlite, "message_attachments")).toBe(0);
-    expect(scheduledMessageIds).toEqual([]);
+    expect(preparedMessageIds).toEqual([]);
     expect(existsSync(attachmentsDir)).toBe(false);
   });
 
-  test("keeps a lexical scheduling failure non-fatal after committing rewritten content", async () => {
+  test("prepares before the rewrite and releases only after its commit", async () => {
     const { sqlite, db, options } = createTestDb();
-    let schedulingAttempts = 0;
+    const events: string[] = [];
+    insertMessage(sqlite, "message-lexical-order", [
+      {
+        type: "file",
+        source: {
+          type: "base64",
+          media_type: "text/plain",
+          data: Buffer.from("ordered").toString("base64"),
+          filename: "ordered.txt",
+        },
+      },
+    ]);
+
+    await migrateMaterializeHistoricalInlineMessageMedia(db, {
+      ...options,
+      prepareLexicalReindex: (messageId) => {
+        expect(
+          (messageContent(sqlite, messageId) as Array<any>)[0].source.type,
+        ).toBe("base64");
+        events.push("prepare-before-update");
+        return preparedLexicalJob(messageId);
+      },
+      releaseLexicalReindex: (prepared) => {
+        expect(
+          (messageContent(sqlite, prepared.messageId) as Array<any>)[0].source
+            .type,
+        ).toBe("workspace_ref");
+        expect(count(sqlite, "attachments")).toBe(1);
+        events.push("release-after-commit");
+      },
+    });
+
+    expect(events).toEqual(["prepare-before-update", "release-after-commit"]);
+  });
+
+  test("leaves the row and migration checkpoint unfinished when preparation fails", async () => {
+    const { sqlite, db, options } = createTestDb();
+    const content = [
+      {
+        type: "file",
+        source: {
+          type: "base64",
+          media_type: "text/plain",
+          data: Buffer.from("retryable").toString("base64"),
+          filename: "retryable.txt",
+        },
+      },
+    ];
+    insertMessage(sqlite, "message-lexical-prepare-failure", content);
+
+    const result = await runMigrationSteps(db, [
+      {
+        name: "migrateMaterializeHistoricalInlineMessageMedia",
+        run: (migrationDb) =>
+          migrateMaterializeHistoricalInlineMessageMedia(migrationDb, {
+            ...options,
+            prepareLexicalReindex: () => {
+              throw new Error("jobs database unavailable");
+            },
+          }),
+      },
+    ]);
+
+    expect(result.failed).toEqual([
+      "migrateMaterializeHistoricalInlineMessageMedia",
+    ]);
+    expect(
+      (
+        sqlite
+          .query(
+            `SELECT value FROM memory_checkpoints
+             WHERE key = 'step:migrateMaterializeHistoricalInlineMessageMedia'`,
+          )
+          .get() as { value: string }
+      ).value,
+    ).toBe("started");
+    expect(messageContent(sqlite, "message-lexical-prepare-failure")).toEqual(
+      content,
+    );
+    expect(count(sqlite, "attachments")).toBe(0);
+    expect(count(sqlite, "message_attachments")).toBe(0);
+  });
+
+  test("keeps the deferred fallback durable when post-commit release fails", async () => {
+    const { sqlite, db, options } = createTestDb();
+    const preparedJobs: Array<ReturnType<typeof preparedLexicalJob>> = [];
+    let releaseAttempts = 0;
     insertMessage(sqlite, "message-lexical-failure", [
       {
         type: "file",
@@ -889,8 +1002,13 @@ describe("migration 351: materialize historical inline message media", () => {
 
     await migrateMaterializeHistoricalInlineMessageMedia(db, {
       ...options,
-      scheduleLexicalReindex: () => {
-        schedulingAttempts += 1;
+      prepareLexicalReindex: (messageId) => {
+        const prepared = preparedLexicalJob(messageId, `durable-${messageId}`);
+        preparedJobs.push(prepared);
+        return prepared;
+      },
+      releaseLexicalReindex: () => {
+        releaseAttempts += 1;
         throw new Error("jobs database unavailable");
       },
     });
@@ -900,7 +1018,13 @@ describe("migration 351: materialize historical inline message media", () => {
       "message-lexical-failure",
     ) as Array<any>;
     expect(content[0].source.type).toBe("workspace_ref");
-    expect(schedulingAttempts).toBe(1);
+    expect(releaseAttempts).toBe(1);
+    expect(preparedJobs).toHaveLength(1);
+    expect(preparedJobs[0]).toMatchObject({
+      jobId: "durable-message-lexical-failure",
+      messageId: "message-lexical-failure",
+    });
+    expect(preparedJobs[0]!.fallbackRunAfter).toBeGreaterThan(Date.now());
     expect(count(sqlite, "attachments")).toBe(1);
     expect(count(sqlite, "message_attachments")).toBe(1);
   });
@@ -952,11 +1076,19 @@ describe("migration 351: materialize historical inline message media", () => {
 
   test("rolls back database writes and reuses the deterministic file after interruption", async () => {
     const { sqlite, db, options, attachmentsDir } = createTestDb();
-    const scheduledMessageIds: string[] = [];
+    const preparedMessageIds: string[] = [];
+    const releasedMessageIds: string[] = [];
     const migrationOptions = {
       ...options,
-      scheduleLexicalReindex: (messageId: string): void => {
-        scheduledMessageIds.push(messageId);
+      prepareLexicalReindex: (messageId: string) => {
+        preparedMessageIds.push(messageId);
+        return preparedLexicalJob(
+          messageId,
+          `prepared-${preparedMessageIds.length}-${messageId}`,
+        );
+      },
+      releaseLexicalReindex: (prepared: { messageId: string }): void => {
+        releasedMessageIds.push(prepared.messageId);
       },
     };
     insertMessage(sqlite, "message-5", [
@@ -983,7 +1115,8 @@ describe("migration 351: materialize historical inline message media", () => {
     ).rejects.toThrow("interrupted");
     expect(count(sqlite, "attachments")).toBe(0);
     expect(count(sqlite, "message_attachments")).toBe(0);
-    expect(scheduledMessageIds).toEqual([]);
+    expect(preparedMessageIds).toEqual(["message-5"]);
+    expect(releasedMessageIds).toEqual([]);
     expect(readdirSync(attachmentsDir)).toHaveLength(1);
 
     sqlite.exec(`DROP TRIGGER fail_message_rewrite`);
@@ -993,7 +1126,8 @@ describe("migration 351: materialize historical inline message media", () => {
     expect(content[0].source.type).toBe("workspace_ref");
     expect(count(sqlite, "attachments")).toBe(1);
     expect(count(sqlite, "message_attachments")).toBe(1);
-    expect(scheduledMessageIds).toEqual(["message-5"]);
+    expect(preparedMessageIds).toEqual(["message-5", "message-5"]);
+    expect(releasedMessageIds).toEqual(["message-5"]);
     expect(readdirSync(attachmentsDir)).toHaveLength(1);
   });
 });

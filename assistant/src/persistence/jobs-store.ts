@@ -181,6 +181,20 @@ export function enqueueMemoryJob(
 }
 
 /**
+ * Make one prepared job runnable without changing a job that has already left
+ * the pending state. Returns whether the exact pending row was released.
+ */
+export function releasePendingMemoryJob(id: string): boolean {
+  const now = Date.now();
+  memoryDb()
+    .update(memoryJobs)
+    .set({ runAfter: now, updatedAt: now })
+    .where(and(eq(memoryJobs.id, id), eq(memoryJobs.status, "pending")))
+    .run();
+  return rawMemoryChanges() === 1;
+}
+
+/**
  * Upsert a debounced job: if a pending job of the same type and conversation
  * already exists, merge the new payload into the existing row and update
  * `runAfter` instead of creating a duplicate. This prevents rapid message
