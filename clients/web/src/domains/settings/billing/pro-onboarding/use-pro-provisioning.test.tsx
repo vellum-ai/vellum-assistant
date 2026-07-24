@@ -655,6 +655,52 @@ describe("useProProvisioning", () => {
     20_000,
   );
 
+  test(
+    "kickProvisioning fires the reconcile, never flips pending, and a success clears kickError",
+    async () => {
+      const { client } = renderProbe();
+      await reachResizing(client);
+      const autoCalls = ensureCalls;
+
+      dateNowOffsetMs = 200_000;
+      await waitFor(() => expect(latest!.state).toBe("STALLED"), {
+        timeout: 5000,
+      });
+
+      // A fire-and-forget escape kick that fails captures kickError without
+      // ever flipping the manual-pending flag — a hung escape-fired call must
+      // never strand later UI.
+      ensureError = { error: "provisioning_submission_failed" };
+      act(() => latest!.kickProvisioning());
+      await waitFor(() => expect(ensureCalls).toBe(autoCalls + 1));
+      await waitFor(() =>
+        expect(latest!.kickError).toEqual({
+          error: "provisioning_submission_failed",
+        }),
+      );
+      expect(latest!.stalledAction.pending).toBe(false);
+      // kickError and stalledAction.error are the same value.
+      expect(latest!.stalledAction.error).toEqual({
+        error: "provisioning_submission_failed",
+      });
+      // The failure is not terminal: still STALLED, still polling.
+      expect(latest!.state).toBe("STALLED");
+
+      // A subsequent successful escape kick clears kickError and re-bases the
+      // stall clock — the `started` verdict lifts the wizard back to RESIZING.
+      ensureError = null;
+      ensureResponse = makeEnsureResponse("started");
+      act(() => latest!.kickProvisioning());
+      await waitFor(() => expect(ensureCalls).toBe(autoCalls + 2));
+      await waitFor(() => expect(latest!.kickError).toBeNull());
+      await waitFor(() => expect(latest!.state).toBe("RESIZING"), {
+        timeout: 5000,
+      });
+      expect(latest!.stalledAction.pending).toBe(false);
+    },
+    20_000,
+  );
+
   test("org-scoped queries hold until the org id is available", async () => {
     isOrgReadyMock = false;
     const { rerender } = renderProbe();
@@ -1182,7 +1228,32 @@ describe("useProProvisioning — ensure-provisioned reconcile", () => {
   );
 
   test(
-    "a 503 leaves the wizard inferring rather than erroring",
+    "a dead-end no_active_pro on the automatic path sets kickError",
+    async () => {
+      // The auto reconcile hits no_active_pro and schedules its one race
+      // retry; the retry (also auto) hits the same dead end. With the
+      // once-per-open re-ask spent, the repeat dead end now surfaces kickError
+      // regardless of source.
+      ensureResponse = makeEnsureResponse("not_applicable", "no_active_pro");
+      subscriptionPlanId = "pro";
+      renderProbe();
+
+      // Two automatic calls: the initial one and its single race retry.
+      await waitFor(() => expect(ensureCalls).toBe(2), { timeout: 5000 });
+      await waitFor(
+        () =>
+          expect(latest!.kickError).toEqual({ error: "no_active_pro" }),
+        { timeout: 5000 },
+      );
+      // The verdict is still never adopted — inference keeps the flow WAITING.
+      expect(latest!.state).toBe("WAITING");
+      expect(latest!.stalledAction.pending).toBe(false);
+    },
+    20_000,
+  );
+
+  test(
+    "a 503 on the automatic call never blocks the flow but is captured in kickError",
     async () => {
       ensureError = { error: "provisioning_submission_failed" };
       subscriptionPlanId = "pro";
@@ -1192,9 +1263,18 @@ describe("useProProvisioning — ensure-provisioned reconcile", () => {
       await waitFor(() => expect(latest!.state).toBe("WAITING"), {
         timeout: 5000,
       });
-      // The automatic call failing is silent: no error surface, no new
-      // blocking state, no auto-retry storm.
-      expect(latest!.stalledAction.error).toBeNull();
+      // The automatic call failing no longer blocks: no new blocking state,
+      // no auto-retry storm. But it is no longer *silent* — the failure is
+      // captured in kickError (and its stalledAction.error alias) so the
+      // takeover can surface the snag variant.
+      await waitFor(() =>
+        expect(latest!.kickError).toEqual({
+          error: "provisioning_submission_failed",
+        }),
+      );
+      expect(latest!.stalledAction.error).toEqual({
+        error: "provisioning_submission_failed",
+      });
       expect(latest!.confirmError).toBe(false);
       expect(latest!.targetsError).toBe(false);
       await new Promise((resolve) => setTimeout(resolve, 500));
@@ -1263,7 +1343,8 @@ describe("useProProvisioning — ensure-provisioned reconcile", () => {
         timeout: 5000,
       });
 
-      // A user-initiated reconcile — the only source that surfaces an error.
+      // Any reconcile now captures its error; this one is fired while open but
+      // only rejects after close, so generation-gating must still discard it.
       act(() => latest!.stalledAction.onApply());
       await waitFor(() => expect(ensureCalls).toBe(2), { timeout: 5000 });
 
