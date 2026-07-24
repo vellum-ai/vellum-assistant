@@ -105,7 +105,7 @@ export function SlackChannelTypeDefaults({
               title={title}
               subtitle={description}
               trailing={
-                <div className="w-48">
+                <div className="w-40 sm:w-48">
                   <TierPicker
                     tier={bucketTiers?.[bucket]}
                     defaultTier={inheritedTier}

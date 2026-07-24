@@ -430,24 +430,20 @@ function SlackChannelRow({
       className={rowClassName}
       leading={<Icon className="h-4 w-4 text-[var(--content-tertiary)]" />}
       title={channel.name}
+      // Member count rides the subtitle (not the trailing cluster), so the
+      // fixed-width picker never squeezes the channel name off narrow screens.
+      subtitle={metaLabel ?? undefined}
       trailing={
-        <>
-          {metaLabel != null ? (
-            <span className="text-body-small-default text-[color:var(--content-tertiary)]">
-              {metaLabel}
-            </span>
-          ) : null}
-          <div className="w-48">
-            <TierPicker
-              tier={tierOverride}
-              defaultTier={defaultTier}
-              disabled={pending || overridesLoading || overridesError}
-              onTierChange={onTierChange}
-              onReset={onReset}
-              aria-label={`Assistant Access in ${channel.name}`}
-            />
-          </div>
-        </>
+        <div className="w-40 sm:w-48">
+          <TierPicker
+            tier={tierOverride}
+            defaultTier={defaultTier}
+            disabled={pending || overridesLoading || overridesError}
+            onTierChange={onTierChange}
+            onReset={onReset}
+            aria-label={`Assistant Access in ${channel.name}`}
+          />
+        </div>
       }
     />
   );
