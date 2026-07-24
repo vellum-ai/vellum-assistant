@@ -161,6 +161,38 @@ describe("slack remote probe (auth.test)", () => {
  * real API call failed with missing_scope. auth.test passing is therefore not
  * evidence the install is usable.
  */
+describe("slack auth.test response validation", () => {
+  test("reports an unexpected shape instead of trusting the field types", async () => {
+    mockSecureKeys[credentialKey("slack_channel", "bot_token")] = "xoxb-fake";
+    // `ok` as a string slips past a cast and makes `!data.ok` decide on a
+    // truthy string rather than a boolean.
+    fetchHandler = () => ({ ok: true, body: { ok: "yes" } });
+
+    const [snapshot] = await runSlackRemoteProbe();
+    const authTest = snapshot.remoteChecks!.find(
+      (c) => c.name === "auth_test",
+    )!;
+
+    expect(authTest.passed).toBe(false);
+    expect(authTest.message).toMatch(/unexpected response shape/i);
+  });
+
+  test("tolerates unknown fields Slack adds over time", async () => {
+    mockSecureKeys[credentialKey("slack_channel", "bot_token")] = "xoxb-fake";
+    fetchHandler = () => ({
+      ok: true,
+      body: { ok: true, team: "acme", user: "bot", some_new_field: 42 },
+    });
+
+    const [snapshot] = await runSlackRemoteProbe();
+    const authTest = snapshot.remoteChecks!.find(
+      (c) => c.name === "auth_test",
+    )!;
+
+    expect(authTest.passed).toBe(true);
+  });
+});
+
 describe("slack scope-grant check", () => {
   const ALL_REQUIRED = [
     "app_mentions:read",

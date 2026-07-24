@@ -19,6 +19,10 @@ const READINESS_SOURCE = readFileSync(
   join(import.meta.dir, "..", "runtime", "channel-readiness-service.ts"),
   "utf-8",
 );
+const WEB_HELPER_SOURCE = readFileSync(
+  join(REPO_ROOT, "clients/web/src/utils/slack-manifest.ts"),
+  "utf-8",
+);
 
 /** Pull the quoted strings out of the array introduced by `opener`. */
 function scopeArrayAfter(source: string, opener: string): string[] {
@@ -40,6 +44,14 @@ const required = scopeArrayAfter(
   READINESS_SOURCE,
   "const SLACK_REQUIRED_BOT_SCOPES = [",
 );
+const webBot = scopeArrayAfter(
+  WEB_HELPER_SOURCE,
+  "export const SLACK_MANIFEST_BOT_SCOPES = [",
+);
+const webBotOptional = scopeArrayAfter(
+  WEB_HELPER_SOURCE,
+  "const SLACK_MANIFEST_BOT_SCOPES_OPTIONAL = [",
+);
 
 describe("required Slack scopes stay in sync with the manifest", () => {
   test("the manifest source parses into usable scope arrays", () => {
@@ -57,5 +69,13 @@ describe("required Slack scopes stay in sync with the manifest", () => {
 
   test("readiness never demands a scope the workspace may decline", () => {
     expect(required.filter((scope) => botOptional.includes(scope))).toEqual([]);
+  });
+
+  // The web helper is the third copy. Both mirrors are asserted to emit
+  // identical manifest JSON elsewhere, but that check lives in the web package
+  // and cannot see this one, so pin the scope arrays here too.
+  test("the web helper requests the same bot scopes as the skill script", () => {
+    expect([...webBot].sort()).toEqual([...bot].sort());
+    expect([...webBotOptional].sort()).toEqual([...botOptional].sort());
   });
 });

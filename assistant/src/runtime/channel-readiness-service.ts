@@ -3,6 +3,7 @@ import {
   normalizePublicBaseUrl,
   resolveTwilioPublicBaseUrl,
 } from "@vellumai/service-contracts/twilio-ingress";
+import { z } from "zod";
 
 import { resolveTwilioPhoneNumber } from "../calls/twilio-config.js";
 import { hasTwilioCredentials } from "../calls/twilio-rest.js";
@@ -53,6 +54,22 @@ const SLACK_REQUIRED_BOT_SCOPES = [
   "mpim:read",
   "users:read",
 ] as const;
+
+/**
+ * Shape of a Slack `auth.test` response.
+ *
+ * Validated rather than cast: this crosses a runtime boundary, so a `ok` that
+ * arrives as a string would slip past a cast and make `!data.ok` decide on the
+ * wrong value. Unknown keys are ignored — Slack adds fields over time and a
+ * new one is not a reason to report the integration broken.
+ */
+const AuthTestResponseSchema = z.object({
+  ok: z.boolean(),
+  error: z.string().optional(),
+  team_id: z.string().optional(),
+  team: z.string().optional(),
+  user: z.string().optional(),
+});
 
 /** Slack returns `x-oauth-scopes` as a comma-separated list on every response. */
 function parseGrantedScopes(raw: string | null): string[] | null {
@@ -373,13 +390,18 @@ const slackProbe: ChannelProbe = {
         method: "POST",
         headers: { Authorization: `Bearer ${botToken}` },
       });
-      const data = (await res.json()) as {
-        ok: boolean;
-        error?: string;
-        team_id?: string;
-        team?: string;
-        user?: string;
-      };
+      const parsed = AuthTestResponseSchema.safeParse(await res.json());
+      if (!parsed.success) {
+        return [
+          check(
+            "auth_test",
+            false,
+            "Slack auth.test ok",
+            `Slack auth.test returned an unexpected response shape: ${parsed.error.issues.map((i) => i.path.join(".") || "(root)").join(", ")}`,
+          ),
+        ];
+      }
+      const data = parsed.data;
       if (!data.ok) {
         return [
           check(
