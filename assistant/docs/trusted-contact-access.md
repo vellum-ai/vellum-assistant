@@ -119,6 +119,8 @@ The two outcomes differ on re-contact. Suppression of re-prompting keys off the 
 - `leave_unverified` → `unverified` contact: a neutral park, **not** kept out. If the contact later does something that needs trust — e.g. DMs on a `trusted_contacts` channel — the deny-path flow **re-fires** (self-verify challenge + a fresh guardian card), so the guardian decides afresh. The guardian's way to stop the prompts is to `block`.
 - `block` → `revoked` contact: a durable keep-out. Re-contact is suppressed (no challenge, no guardian notification) on every floor.
 
+The resolved approval card mirrors this distinction on every surface (in-app, Slack): a `leave_unverified` park reads as a neutral **"Left unverified"**, while `block` reads as **"Denied"**. Both share the `denied` request status, so the card presentation is keyed off the decided action, not the status (see `PARK_ACTION_SET` / `isParkAction` in `runtime/channel-approval-types.ts`).
+
 Separately, the admitted-mode introduction **nudge** (for a contact who cleared the floor unclassified) is quieted once the guardian has decided the contact, so a classified contact is not re-nudged across conversations. That is distinct from the deny-path re-fire above.
 
 ### Stage: `expired`

@@ -175,7 +175,7 @@ describe("completeSubmittedSurface", () => {
             actions: [
               {
                 id: "apr:req1:leave_unverified",
-                label: "Deny",
+                label: "Leave unverified",
                 style: "secondary",
               },
             ],
@@ -184,14 +184,13 @@ describe("completeSubmittedSurface", () => {
       }),
     ];
 
-    const replyText =
-      "Alice will stay unverified. They won't be able to message the assistant.";
+    const replyText = "Alice will stay unverified.";
     const result = completeSubmittedSurface(
       messages,
       "access-request-req1",
       "apr:req1:leave_unverified",
       replyText,
-      { isGuardianDecision: true, tone: "danger" },
+      { isGuardianDecision: true, tone: "neutral" },
     );
 
     const surface = result[0]!.surfaces![0]!;
@@ -199,7 +198,8 @@ describe("completeSubmittedSurface", () => {
     // The secondary-style button must NOT collapse to "Cancelled" for a
     // guardian decision — the resolver's reply text is preserved.
     expect(surface.completionSummary).toBe(replyText);
-    expect(surface.completionTone).toBe("danger");
+    // A leave-unverified park is a neutral hold, not a denial.
+    expect(surface.completionTone).toBe("neutral");
   });
 });
 

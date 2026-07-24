@@ -20,10 +20,8 @@ import { useStreamStore } from "@/domains/chat/stream-store";
 import { useTurnStore } from "@/domains/chat/turn-store";
 import { completeSubmittedSurface } from "@/domains/chat/utils/send-message-utils";
 import { submitSurfaceAction } from "@/domains/chat/api/surfaces";
-import type {
-  DisplayMessage,
-  SurfaceCompletionTone,
-} from "@/domains/chat/types/types";
+import { guardianDecisionTone } from "@/domains/chat/completion-tone";
+import type { DisplayMessage } from "@/domains/chat/types/types";
 
 // Guardian-decision failure reasons (applied === false) → guardian-facing
 // label. Covers every reason `processGuardianDecision` can return; anything
@@ -45,37 +43,6 @@ function formatDecisionReason(reason?: string): string {
   return DECISION_REASON_LABELS[reason] ?? "Not applied";
 }
 
-/** Guardian-decision actions that resolve a request to a denied state. */
-const DENY_DECISION_ACTIONS: ReadonlySet<string> = new Set([
-  "reject",
-  "leave_unverified",
-  "block",
-]);
-
-/** Action segment of an `apr:<requestId>:<action>` guardian-decision id. */
-function guardianDecisionAction(actionId: string): string {
-  return actionId.startsWith("apr:")
-    ? actionId.split(":").slice(2).join(":")
-    : actionId;
-}
-
-/**
- * Completion tone for a guardian decision (apr:*): a decision that didn't apply
- * (already resolved, expired, …) is a neutral non-affirmative state; an applied
- * deny/block is a rejection (danger); an applied approve/trust is a success.
- * This keeps the completed card's icon from showing an affirmative green check
- * on a denial.
- */
-function guardianDecisionTone(
-  actionId: string,
-  result: { applied?: boolean },
-): SurfaceCompletionTone {
-  if (result.applied === false) {return "neutral";}
-  return DENY_DECISION_ACTIONS.has(guardianDecisionAction(actionId))
-    ? "danger"
-    : "success";
-}
-
 /**
  * Funnel telemetry for the first-run greeting's scope options. The
  * `firstRunScope` marker only ever appears on choice-option payloads authored
@@ -86,7 +53,7 @@ function guardianDecisionTone(
  */
 function emitFirstRunScopeTelemetry(data?: Record<string, unknown>): void {
   const scope = data?.[FIRST_RUN_SCOPE_DATA_KEY];
-  if (!isFirstRunScope(scope)) return;
+  if (!isFirstRunScope(scope)) {return;}
   try {
     // Same auth source `active-chat-view.tsx` derives `authUserId` from, read
     // non-reactively; an absent user id emits as null rather than blocking.

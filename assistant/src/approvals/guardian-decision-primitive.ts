@@ -450,7 +450,9 @@ export async function applyGuardianDecision(
       actor: actorContext,
       channelDeliveryContext,
       emissionContext,
-      ...(decided.mintedSession ? { mintedSession: decided.mintedSession } : {}),
+      ...(decided.mintedSession
+        ? { mintedSession: decided.mintedSession }
+        : {}),
     });
 
     if (!resolverResult.ok) {
@@ -510,6 +512,7 @@ export async function applyGuardianDecision(
     request: resolved,
     status: targetStatus,
     originChannel: actorContext.channel,
+    decidedAction: effectiveAction,
   }).catch((err) => {
     log.warn(
       { err, requestId },
