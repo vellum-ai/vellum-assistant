@@ -157,9 +157,9 @@ export function BillingOnboardingModal({
   const provisioningSettled = isSettled(provisioning.state);
 
   // The lock describes the screen the user is looking at, so it reads the
-  // takeover's held phase rather than the live one. The steps after it keep
-  // tracking live provisioning: a resize backgrounded via the escape hatch has
-  // to unblock the domain step when it actually finishes.
+  // takeover's held phase rather than the live one. The domain step still keys
+  // its submit guard off live provisioning, so a resize that finishes after a
+  // genuine advance into that step unblocks it the moment it settles.
   const onScreenPhase = displayedPhase ?? provisioning.state;
   const onScreenSettled = isSettled(onScreenPhase);
 
