@@ -159,9 +159,37 @@ describe("shouldEnqueueRetrospective", () => {
 function resetTables(): void {
   const db = getDb();
   db.run(`DELETE FROM messages`);
-  // `memory_retrospective_state` lives on the memory connection now.
+  // `memory_retrospective_state` and the daily-attempt counter both live on
+  // the memory connection now.
   getMemorySqlite()!.exec(`DELETE FROM memory_retrospective_state`);
+  getMemorySqlite()!.exec(`DELETE FROM memory_retrospective_daily_count`);
   db.run(`DELETE FROM conversations`);
+}
+
+/** Today's UTC day key, matching `maybeEnqueueRetrospective`'s internal clock. */
+function todayKey(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+/** Pre-seed today's retrospective attempt count on the memory connection. */
+function seedDailyCount(count: number): void {
+  getMemorySqlite()!
+    .query(
+      `INSERT INTO memory_retrospective_daily_count (day_key, run_count)
+       VALUES (?, ?)
+       ON CONFLICT(day_key) DO UPDATE SET run_count = excluded.run_count`,
+    )
+    .run(todayKey(), count);
+}
+
+function readDailyCount(): number {
+  const row = getMemorySqlite()!
+    .query<
+      { run_count: number },
+      [string]
+    >(`SELECT run_count FROM memory_retrospective_daily_count WHERE day_key = ?`)
+    .get(todayKey());
+  return row?.run_count ?? 0;
 }
 
 let messageSeq = 0;
@@ -199,12 +227,22 @@ function insertSkillCardMessage(
   });
 }
 
+// High enough that the accounting tests never trip the cap; the cap-specific
+// tests pass an explicit low value.
+const DEFAULT_MAX_RUNS_PER_DAY = 10_000;
+
 function makeConfig(
-  overrides: Partial<typeof THRESHOLDS> = {},
+  overrides: Partial<typeof THRESHOLDS> & {
+    maxRunsPerAssistantPerDay?: number;
+  } = {},
 ): AssistantConfig {
   return {
     memory: {
-      retrospective: { ...THRESHOLDS, ...overrides },
+      retrospective: {
+        ...THRESHOLDS,
+        maxRunsPerAssistantPerDay: DEFAULT_MAX_RUNS_PER_DAY,
+        ...overrides,
+      },
     },
   } as unknown as AssistantConfig;
 }
@@ -305,5 +343,105 @@ describe("maybeEnqueueRetrospective — kind-aware accounting", () => {
     expect(enqueueCalls).toEqual([
       { conversationId: conv.id, trigger: "interval" },
     ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// maybeEnqueueRetrospective — daily runaway cap.
+//
+// The cap counts enqueue attempts across all conversations for the assistant in
+// a UTC day. A trigger that would otherwise fire is skipped once the day's
+// count reaches `maxRunsPerAssistantPerDay`. A firing enqueue reserves one unit
+// of the day's budget.
+// ---------------------------------------------------------------------------
+
+describe("maybeEnqueueRetrospective — daily runaway cap", () => {
+  beforeEach(() => {
+    resetTables();
+    enqueueCalls = [];
+  });
+
+  test("at the cap: a would-be trigger is skipped and the count is untouched", () => {
+    const conv = createConversation("conv");
+    insertMessage(conv.id, { createdAt: 2_000 }); // first-run interval would fire
+    seedDailyCount(40); // already at cap
+
+    maybeEnqueueRetrospective(
+      conv.id,
+      makeConfig({ maxRunsPerAssistantPerDay: 40 }),
+    );
+
+    expect(enqueueCalls).toEqual([]);
+    expect(readDailyCount()).toBe(40);
+  });
+
+  test("one below the cap: the enqueue fires and consumes the last unit", () => {
+    const conv = createConversation("conv");
+    insertMessage(conv.id, { createdAt: 2_000 });
+    seedDailyCount(39);
+
+    maybeEnqueueRetrospective(
+      conv.id,
+      makeConfig({ maxRunsPerAssistantPerDay: 40 }),
+    );
+
+    expect(enqueueCalls).toEqual([
+      { conversationId: conv.id, trigger: "interval" },
+    ]);
+    expect(readDailyCount()).toBe(40);
+
+    // A subsequent qualifying turn is now capped.
+    insertMessage(conv.id, { createdAt: 3_000 });
+    maybeEnqueueRetrospective(
+      conv.id,
+      makeConfig({ maxRunsPerAssistantPerDay: 40 }),
+    );
+    expect(enqueueCalls).toEqual([
+      { conversationId: conv.id, trigger: "interval" },
+    ]);
+    expect(readDailyCount()).toBe(40);
+  });
+
+  test("the cap spans conversations: attempts from different conversations share the budget", () => {
+    const a = createConversation("conv-a");
+    const b = createConversation("conv-b");
+    insertMessage(a.id, { createdAt: 2_000 });
+    insertMessage(b.id, { createdAt: 2_000 });
+    seedDailyCount(1);
+
+    maybeEnqueueRetrospective(
+      a.id,
+      makeConfig({ maxRunsPerAssistantPerDay: 2 }),
+    );
+    maybeEnqueueRetrospective(
+      b.id,
+      makeConfig({ maxRunsPerAssistantPerDay: 2 }),
+    );
+
+    // conv-a takes the last unit; conv-b is capped even though it is a
+    // different conversation.
+    expect(enqueueCalls).toEqual([
+      { conversationId: a.id, trigger: "interval" },
+    ]);
+    expect(readDailyCount()).toBe(2);
+  });
+
+  test("a would-be-quiet turn under the cap never touches the counter", async () => {
+    const conv = createConversation("conv");
+    const cutoff = insertMessage(conv.id, { createdAt: 1_000 });
+    // Cooldown not elapsed and no new work → no trigger, so no reservation.
+    await upsertRetrospectiveState({
+      conversationId: conv.id,
+      lastProcessedMessageId: cutoff,
+      lastRunAt: Date.now() - 60_000,
+    });
+
+    maybeEnqueueRetrospective(
+      conv.id,
+      makeConfig({ maxRunsPerAssistantPerDay: 40 }),
+    );
+
+    expect(enqueueCalls).toEqual([]);
+    expect(readDailyCount()).toBe(0);
   });
 });

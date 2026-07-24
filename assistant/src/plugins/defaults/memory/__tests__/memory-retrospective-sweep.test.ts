@@ -37,9 +37,21 @@ await initializeDb();
 
 const SWEEP_INTERVAL_MS = 8 * 60 * 60 * 1000; // 8h
 
-function makeConfig(sweepIntervalMs = SWEEP_INTERVAL_MS): AssistantConfig {
+// High enough that the trust/interval/accounting tests never trip the cap; the
+// cap-specific tests pass an explicit low value.
+const DEFAULT_MAX_RUNS_PER_DAY = 10_000;
+
+function makeConfig(
+  opts: { sweepIntervalMs?: number; maxRunsPerAssistantPerDay?: number } = {},
+): AssistantConfig {
   return {
-    memory: { retrospective: { sweepIntervalMs } },
+    memory: {
+      retrospective: {
+        sweepIntervalMs: opts.sweepIntervalMs ?? SWEEP_INTERVAL_MS,
+        maxRunsPerAssistantPerDay:
+          opts.maxRunsPerAssistantPerDay ?? DEFAULT_MAX_RUNS_PER_DAY,
+      },
+    },
   } as unknown as AssistantConfig;
 }
 
@@ -47,7 +59,20 @@ function resetTables(): void {
   const db = getDb();
   db.run(`DELETE FROM messages`);
   getMemorySqlite()!.exec(`DELETE FROM memory_retrospective_state`);
+  getMemorySqlite()!.exec(`DELETE FROM memory_retrospective_daily_count`);
   db.run(`DELETE FROM conversations`);
+}
+
+/** Pre-seed a UTC day's retrospective attempt count on the memory connection. */
+function seedDailyCount(now: number, count: number): void {
+  const dayKey = new Date(now).toISOString().slice(0, 10);
+  getMemorySqlite()!
+    .query(
+      `INSERT INTO memory_retrospective_daily_count (day_key, run_count)
+       VALUES (?, ?)
+       ON CONFLICT(day_key) DO UPDATE SET run_count = excluded.run_count`,
+    )
+    .run(dayKey, count);
 }
 
 let messageSeq = 0;
@@ -210,6 +235,42 @@ describe("runRetrospectiveSweep", () => {
     expect(enqueueCalls).toEqual([
       { conversationId: conv.id, trigger: "sweep" },
     ]);
+  });
+
+  test("at the daily cap: no conversation is swept even with unprocessed work", async () => {
+    const now = Date.now();
+    const conv = createConversation({ id: "conv-a" });
+    insertMessage(conv.id, { createdAt: 1_000 });
+    seedDailyCount(now, 40); // already at cap
+
+    const result = await runRetrospectiveSweep(
+      makeConfig({ maxRunsPerAssistantPerDay: 40 }),
+      now,
+    );
+
+    expect(enqueueCalls).toEqual([]);
+    expect(result.enqueued).toBe(0);
+  });
+
+  test("halts once the shared daily budget is exhausted mid-pass", async () => {
+    const now = Date.now();
+    // Two conversations both have unprocessed work; the budget only affords one.
+    createConversation({ id: "conv-a" });
+    insertMessage("conv-a", { createdAt: 1_000 });
+    createConversation({ id: "conv-b" });
+    insertMessage("conv-b", { createdAt: 1_000 });
+
+    const result = await runRetrospectiveSweep(
+      makeConfig({ maxRunsPerAssistantPerDay: 1 }),
+      now,
+    );
+
+    // conv-a (sorted first) takes the last unit; conv-b is left for a later
+    // pass once the budget refreshes.
+    expect(enqueueCalls).toEqual([
+      { conversationId: "conv-a", trigger: "sweep" },
+    ]);
+    expect(result.enqueued).toBe(1);
   });
 });
 
