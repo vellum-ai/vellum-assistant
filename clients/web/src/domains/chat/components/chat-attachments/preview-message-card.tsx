@@ -6,7 +6,7 @@ interface PreviewMessageCardProps {
   message: string;
   filename: string;
   onDownload: () => void;
-  /** Disable the download affordance when there is no fetchable URL yet. */
+  /** Disable the download affordance when there is no fetchable source. */
   downloadDisabled?: boolean;
 }
 

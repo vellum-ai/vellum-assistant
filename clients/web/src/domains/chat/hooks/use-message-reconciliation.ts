@@ -76,6 +76,7 @@ interface UseMessageReconciliationReturn {
     serverSeq: number | null,
   ) => boolean;
   startReconciliationLoop: (epoch: number) => void;
+  /** Stops the legacy polling loop without interrupting a one-shot recovery. */
   cancelReconciliation: () => void;
   /** Fetches the latest messages, refreshes the history cache, and reconciles
    *  turn state (dispatches POLL_RECONCILED when the turn is stuck in a
@@ -119,17 +120,20 @@ export function useMessageReconciliation({
     }
   }, []);
 
-  const cancelReconciliation = useCallback(() => {
+  const cancelAllReconciliation = useCallback(() => {
     cancelPolling();
     if (activeFetchControllerRef.current) {
       activeFetchControllerRef.current.abort();
       activeFetchControllerRef.current = null;
     }
   }, [cancelPolling]);
+  // Live message/tool deltas only supersede legacy polling. A one-shot
+  // snapshot recovery may still be healing an earlier delivery gap.
+  const cancelReconciliation = cancelPolling;
 
   useEffect(() => {
     if (!assistantId || !activeConversationId) {
-      cancelReconciliation();
+      cancelAllReconciliation();
       return;
     }
 
@@ -139,18 +143,18 @@ export function useMessageReconciliation({
         return;
       }
       currentEpoch = state.streamEpoch;
-      cancelReconciliation();
+      cancelAllReconciliation();
     });
 
     return () => {
       unsubscribe();
-      cancelReconciliation();
+      cancelAllReconciliation();
     };
   }, [
     assistantId,
     activeConversationId,
     progressiveAttachmentLoadingPolicy,
-    cancelReconciliation,
+    cancelAllReconciliation,
   ]);
 
   // The transcript the user currently sees: the materialized snapshot overlaid
@@ -397,7 +401,7 @@ export function useMessageReconciliation({
         ctx.conversationId !== activeConversationId ||
         progressiveAttachmentLoadingPolicy === "pending"
       ) {
-        cancelReconciliation();
+        cancelAllReconciliation();
         return empty;
       }
 
@@ -511,7 +515,7 @@ export function useMessageReconciliation({
       activeConversationId,
       progressiveAttachmentLoadingPolicy,
       reconcileFetchedMessages,
-      cancelReconciliation,
+      cancelAllReconciliation,
     ],
   );
 

@@ -303,6 +303,24 @@ describe("useMessageReconciliation — attachment policy and cancellation", () =
     });
   });
 
+  test("public live cancellation leaves an active one-shot reconcile running", async () => {
+    const signals = mockPendingServerFetch();
+    const view = renderReconciliation();
+
+    const request = view.result.current.reconcileActiveConversation();
+    await waitFor(() => expect(signals).toHaveLength(1));
+    view.result.current.cancelReconciliation();
+
+    expect(signals[0]?.aborted).toBe(false);
+    view.unmount();
+    expect(signals[0]?.aborted).toBe(true);
+    await expect(request).resolves.toEqual({
+      changed: false,
+      messagesAdded: 0,
+      assistantProgress: false,
+    });
+  });
+
   test("epoch and assistant-scope changes abort in-flight reconciliation", async () => {
     const signals = mockPendingServerFetch();
     const view = renderReconciliation();

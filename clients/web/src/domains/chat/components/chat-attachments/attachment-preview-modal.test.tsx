@@ -1,9 +1,16 @@
-import { afterEach, describe, expect, mock, test } from "bun:test";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactElement } from "react";
 
 import * as daemonSdk from "@/generated/daemon/sdk.gen";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import type { DisplayAttachment } from "@/types/attachment-types";
 
 type ContentResult = { data: Blob | null; error: { message: string } | null };
@@ -25,6 +32,9 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
   attachmentsByIdContentGet,
 }));
 
+const saveFile = mock(async (_data: Blob | string, _filename: string) => {});
+mock.module("@/runtime/native-file", () => ({ saveFile }));
+
 // happy-dom doesn't implement object URLs.
 globalThis.URL.createObjectURL = mock(
   (_obj: Blob | MediaSource): string => "blob:preview-mock",
@@ -43,7 +53,7 @@ const ATTACHMENT: DisplayAttachment = {
   previewUrl: null,
 };
 
-function renderModal(attachment: DisplayAttachment): void {
+function renderModal(attachment: DisplayAttachment) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -57,12 +67,22 @@ function renderModal(attachment: DisplayAttachment): void {
       />
     </QueryClientProvider>
   );
-  render(ui);
+  return { ...render(ui), client };
 }
+
+beforeEach(() => {
+  useAssistantIdentityStore.getState().clearIdentity();
+  attachmentsByIdContentGet.mockClear();
+  attachmentsByIdContentGet.mockImplementation(async () => ({
+    data: new Blob(["content"]),
+    error: null,
+  }));
+  saveFile.mockClear();
+});
 
 afterEach(() => {
   cleanup();
-  attachmentsByIdContentGet.mockClear();
+  useAssistantIdentityStore.getState().clearIdentity();
 });
 
 describe("AttachmentPreviewModal content loading", () => {
@@ -86,8 +106,8 @@ describe("AttachmentPreviewModal content loading", () => {
     expect(attachmentsByIdContentGet).not.toHaveBeenCalled();
   });
 
-  test("fetches from the daemon and renders the resulting object URL", async () => {
-    renderModal(ATTACHMENT);
+  test("unknown assistants omit the representation and render original bytes", async () => {
+    const { client } = renderModal(ATTACHMENT);
 
     const img = await screen.findByAltText("photo.png");
     expect(img.getAttribute("src")).toBe("blob:preview-mock");
@@ -96,6 +116,104 @@ describe("AttachmentPreviewModal content loading", () => {
     expect(
       attachmentsByIdContentGet.mock.calls[0]![0].signal,
     ).toBeInstanceOf(AbortSignal);
+    expect(
+      client.getQueryData([
+        "attachmentContent",
+        "original",
+        "asst-1",
+        ATTACHMENT.id,
+      ]),
+    ).toBeInstanceOf(Blob);
+  });
+
+  test("supported image previews request display bytes under a distinct query key", async () => {
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity("assistant", "0.10.12", "asst-1");
+    const { client } = renderModal(ATTACHMENT);
+
+    await screen.findByAltText("photo.png");
+
+    expect(attachmentsByIdContentGet).toHaveBeenCalledTimes(1);
+    expect(attachmentsByIdContentGet.mock.calls[0]![0].query).toEqual({
+      representation: "display",
+    });
+    expect(
+      attachmentsByIdContentGet.mock.calls[0]![0].signal,
+    ).toBeInstanceOf(AbortSignal);
+    expect(
+      client.getQueryData([
+        "attachmentContent",
+        "display",
+        "asst-1",
+        ATTACHMENT.id,
+      ]),
+    ).toBeInstanceOf(Blob);
+    expect(
+      client.getQueryData([
+        "attachmentContent",
+        "original",
+        "asst-1",
+        ATTACHMENT.id,
+      ]),
+    ).toBeUndefined();
+  });
+
+  test("known legacy assistants omit the display representation", async () => {
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity("assistant", "0.10.11", "asst-1");
+    renderModal({ ...ATTACHMENT, id: "att-legacy" });
+
+    await screen.findByAltText("photo.png");
+
+    expect(attachmentsByIdContentGet).toHaveBeenCalledTimes(1);
+    expect(attachmentsByIdContentGet.mock.calls[0]![0].query).toBeUndefined();
+    expect(
+      attachmentsByIdContentGet.mock.calls[0]![0].signal,
+    ).toBeInstanceOf(AbortSignal);
+  });
+
+  test("supported HEIC metadata with a generic MIME requests and renders display bytes", async () => {
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity("assistant", "0.10.12", "asst-1");
+    renderModal({
+      ...ATTACHMENT,
+      id: "att-heic",
+      filename: "photo.heic",
+      mimeType: "application/octet-stream",
+    });
+
+    await screen.findByAltText("photo.heic");
+
+    expect(attachmentsByIdContentGet).toHaveBeenCalledTimes(1);
+    expect(attachmentsByIdContentGet.mock.calls[0]![0].query).toEqual({
+      representation: "display",
+    });
+  });
+
+  test("unmount aborts the exact display request signal", async () => {
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity("assistant", "0.10.12", "asst-1");
+    let requestSignal: AbortSignal | undefined;
+    attachmentsByIdContentGet.mockImplementationOnce(async (options) => {
+      requestSignal = options.signal;
+      return await new Promise<ContentResult>((_resolve, reject) => {
+        requestSignal?.addEventListener(
+          "abort",
+          () => reject(requestSignal?.reason),
+          { once: true },
+        );
+      });
+    });
+    const view = renderModal({ ...ATTACHMENT, id: "att-cancel" });
+    await waitFor(() => expect(requestSignal).toBeDefined());
+
+    view.unmount();
+
+    await waitFor(() => expect(requestSignal?.aborted).toBe(true));
   });
 
   test("shows the failure fallback when the daemon fetch fails", async () => {
@@ -137,6 +255,10 @@ describe("AttachmentPreviewModal content loading", () => {
     expect(video.getAttribute("poster")).toBe("data:image/jpeg;base64,AAAA");
     expect(video.getAttribute("src")).toBe("blob:preview-mock");
     expect(attachmentsByIdContentGet).toHaveBeenCalledTimes(1);
+    expect(attachmentsByIdContentGet.mock.calls[0]![0].query).toBeUndefined();
+    expect(
+      attachmentsByIdContentGet.mock.calls[0]![0].signal,
+    ).toBeInstanceOf(AbortSignal);
   });
 
   test("small video with inline data still lazy-fetches to blob URL (CSP fix)", async () => {
@@ -158,5 +280,47 @@ describe("AttachmentPreviewModal content loading", () => {
     expect(video.getAttribute("src")).toBe("blob:preview-mock");
     expect(video.getAttribute("poster")).toBe("data:image/jpeg;base64,BBBB");
     expect(attachmentsByIdContentGet).toHaveBeenCalledTimes(1);
+  });
+
+  test("downloads original bytes after rendering a display representation", async () => {
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity("assistant", "0.10.12", "asst-1");
+    const displayBlob = new Blob(["display"]);
+    const originalBlob = new Blob(["original"]);
+    attachmentsByIdContentGet
+      .mockImplementationOnce(async () => ({ data: displayBlob, error: null }))
+      .mockImplementationOnce(async () => ({ data: originalBlob, error: null }));
+    renderModal({ ...ATTACHMENT, id: "att-download" });
+    await screen.findByAltText("photo.png");
+
+    fireEvent.click(screen.getByLabelText("Download photo.png"));
+
+    await waitFor(() => {
+      expect(attachmentsByIdContentGet).toHaveBeenCalledTimes(2);
+      expect(saveFile).toHaveBeenCalledTimes(1);
+    });
+    expect(attachmentsByIdContentGet.mock.calls[0]![0].query).toEqual({
+      representation: "display",
+    });
+    expect(attachmentsByIdContentGet.mock.calls[1]![0].query).toBeUndefined();
+    expect(saveFile).toHaveBeenCalledWith(originalBlob, "photo.png");
+    expect(saveFile).not.toHaveBeenCalledWith(displayBlob, "photo.png");
+  });
+
+  test("download falls back to an inline preview when original bytes are unavailable", async () => {
+    attachmentsByIdContentGet.mockImplementationOnce(async () => ({
+      data: null,
+      error: { message: "unavailable" },
+    }));
+    const previewUrl = "data:image/png;base64,aW5saW5l";
+    renderModal({ ...ATTACHMENT, id: "att-inline", previewUrl });
+
+    fireEvent.click(screen.getByLabelText("Download photo.png"));
+
+    await waitFor(() => expect(saveFile).toHaveBeenCalledTimes(1));
+    expect(attachmentsByIdContentGet).toHaveBeenCalledTimes(1);
+    expect(attachmentsByIdContentGet.mock.calls[0]![0].query).toBeUndefined();
+    expect(saveFile).toHaveBeenCalledWith(previewUrl, "photo.png");
   });
 });

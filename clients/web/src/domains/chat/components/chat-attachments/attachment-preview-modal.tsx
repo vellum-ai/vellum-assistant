@@ -4,7 +4,11 @@ import type { FC, KeyboardEvent, MouseEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
-import { fetchAttachmentContentBlob } from "@/domains/chat/components/chat-attachments/download-attachment";
+import {
+  downloadAttachment,
+  fetchAttachmentContentBlob,
+} from "@/domains/chat/components/chat-attachments/download-attachment";
+import { isHeicAttachment } from "@/domains/chat/components/chat-attachments/attachment-image-resize";
 import { Button, Typography } from "@vellumai/design-library";
 
 import { PdfPreview } from "@/domains/chat/components/chat-attachments/pdf-preview";
@@ -14,6 +18,7 @@ import { formatAttachmentSize } from "@/domains/chat/components/chat-attachments
 import { useGallerySwipe } from "@/domains/chat/components/chat-attachments/use-gallery-swipe";
 import { useEdgeSwipeArbiterStore } from "@/stores/edge-swipe-arbiter-store";
 import type { DisplayAttachment } from "@/types/attachment-types";
+import { useSupportsProgressiveAttachmentLoading } from "@/lib/backwards-compat/use-supports-progressive-attachment-loading";
 
 // File extensions routed to the inline text preview even when the upstream
 // MIME type is generic (e.g. application/octet-stream).
@@ -79,6 +84,14 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
   onNavigate,
 }) => {
   const overlayRef = useRef<HTMLDivElement>(null);
+  const mime = attachment.mimeType.toLowerCase();
+  const isImage =
+    mime.startsWith("image/") ||
+    isHeicAttachment({ name: attachment.filename, type: attachment.mimeType });
+  const supportsProgressiveAttachmentLoading =
+    useSupportsProgressiveAttachmentLoading(assistantId);
+  const previewRepresentation =
+    isImage && supportsProgressiveAttachmentLoading ? "display" : "original";
 
   // Focus the overlay itself (not a child button) on open so the keydown
   // handler receives ArrowLeft/ArrowRight reliably — a focused child can steal
@@ -109,24 +122,36 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
   // instead of a misleading network error.
   const isRehydrated =
     !attachment.previewUrl && attachment.id.startsWith("rehydrated:");
+  const hasResolvableOriginal =
+    !!assistantId && !!attachment.id && !isRehydrated;
+  const canDownload = !!attachment.previewUrl || hasResolvableOriginal;
 
   // Fetch content from the daemon only when there's no inline previewUrl and we
   // have a real, resolvable id to fetch with.
   const shouldFetch =
     open &&
     !attachment.previewUrl &&
-    !!assistantId &&
-    !!attachment.id &&
-    !isRehydrated;
+    hasResolvableOriginal;
 
   const { data: blob, isError } = useQuery({
-    // The attachment id is stable and unique, so it is the cache key — reopening
-    // the same attachment reuses the fetched blob instead of refetching.
-    queryKey: ["attachmentContent", "original", assistantId, attachment.id],
+    // The attachment id and representation form the cache key, so reopening
+    // reuses compatible bytes without letting original and display payloads
+    // alias each other.
+    queryKey: [
+      "attachmentContent",
+      previewRepresentation,
+      assistantId,
+      attachment.id,
+    ],
     queryFn: async ({ signal }) => {
-      const data = await fetchAttachmentContentBlob(assistantId!, attachment.id, {
-        signal,
-      });
+      const requestOptions = previewRepresentation === "display"
+        ? { representation: "display" as const, signal }
+        : { signal };
+      const data = await fetchAttachmentContentBlob(
+        assistantId!,
+        attachment.id,
+        requestOptions,
+      );
       if (!data) {
         throw new Error("Failed to load file");
       }
@@ -229,17 +254,16 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
   );
 
   const handleDownload = useCallback(async () => {
-    if (!effectiveUrl) return;
-    const { saveFile } = await import("@/runtime/native-file");
-    await saveFile(effectiveUrl, attachment.filename);
-  }, [effectiveUrl, attachment.filename]);
+    if (!canDownload) {
+      return;
+    }
+    await downloadAttachment(attachment, assistantId);
+  }, [attachment, assistantId, canDownload]);
 
   if (!open) {
     return null;
   }
 
-  const mime = attachment.mimeType.toLowerCase();
-  const isImage = mime.startsWith("image/");
   const isVideo = mime.startsWith("video/");
   // Some uploads come through with a generic application/octet-stream MIME;
   // fall back to the filename extension so a real PDF still gets the inline
@@ -273,7 +297,7 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
           message={previewError}
           filename={attachment.filename}
           onDownload={handleDownload}
-          downloadDisabled={!effectiveUrl}
+          downloadDisabled={!canDownload}
         />
       );
     }
@@ -329,7 +353,7 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
           variant="ghost"
           leftIcon={<Download />}
           onClick={handleDownload}
-          disabled={!effectiveUrl}
+          disabled={!canDownload}
           aria-label={`Download ${attachment.filename}`}
           className="mt-4 text-white/70 hover:bg-white/10 hover:text-white max-md:bg-transparent"
           tintColor="currentColor"
@@ -392,7 +416,7 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
             iconOnly={<Download />}
             expandOnMobile={false}
             onClick={handleDownload}
-            disabled={!effectiveUrl}
+            disabled={!canDownload}
             aria-label={`Download ${attachment.filename}`}
             className="h-11 w-11 rounded-full bg-white/10 text-white/70 hover:bg-white/20 hover:text-white"
             tintColor="currentColor"
