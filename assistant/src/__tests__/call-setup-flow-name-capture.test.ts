@@ -19,6 +19,7 @@ import type {
   GuardianWaitStartParams,
 } from "../calls/guardian-wait-controller.js";
 import type { CallSession } from "../calls/types.js";
+import type { ChannelStatus } from "../contacts/types.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
 import type { TrustClass } from "../runtime/trust-class.js";
 
@@ -72,6 +73,51 @@ function makeResolved(trustClass: TrustClass = "unknown"): SetupResolved {
         username: undefined,
         channel: "phone",
         trustStatus: trustClass,
+      },
+    },
+  };
+}
+
+/**
+ * A resolved context whose caller is a known member with the given channel
+ * status — used to exercise the `previousMemberStatus` threading into the
+ * guardian-notify call (a `revoked` caller reaches name capture when the phone
+ * admission floor is inactive; see `routeSetup`).
+ */
+function makeResolvedWithMemberStatus(status: ChannelStatus): SetupResolved {
+  const base = makeResolved(
+    status === "revoked" || status === "blocked"
+      ? "unknown"
+      : "unverified_contact",
+  );
+  return {
+    ...base,
+    actorTrust: {
+      ...base.actorTrust,
+      memberRecord: {
+        contact: {
+          id: "contact-caller",
+          displayName: "Sam Example",
+          notes: null,
+          createdAt: 0,
+          updatedAt: 0,
+          contactType: "human",
+          userFile: null,
+          channels: [],
+        },
+        channel: {
+          id: "channel-caller",
+          contactId: "contact-caller",
+          type: "phone",
+          address: PHONE_NUMBER,
+          isPrimary: true,
+          externalChatId: null,
+          updatedAt: null,
+          createdAt: 0,
+        },
+        status,
+        policy: "allow",
+        role: "contact",
       },
     },
   };
@@ -558,15 +604,31 @@ describe("CallSetupFlow name capture", () => {
     ]);
   });
 
-  test("a kept-out caller (revoked/blocked) gets the denial copy, not the timeout copy", async () => {
+  test("a kept-out (revoked) caller reaching name capture is threaded + gets the denial copy", async () => {
+    // A `revoked` caller (trustClass `unknown`, status `revoked`, not `blocked`)
+    // reaches name capture when the phone admission floor is inactive — see
+    // routeSetup. startNameCapture threads the caller's channel status as
+    // `previousMemberStatus`, so the guardian-notify helper suppresses
+    // (contact_kept_out) and the caller hears the denial copy, not the timeout
+    // copy. Asserting the threaded param (not just the mocked reply) proves the
+    // wiring is live, not defensive dead code.
     const f = createFlow({
       notifyResult: { notified: false, reason: "contact_kept_out" },
     });
-    await f.flow.start(nameCaptureOutcome, makeResolved());
+    await f.flow.start(
+      nameCaptureOutcome,
+      makeResolvedWithMemberStatus("revoked"),
+    );
 
     f.flow.pushTranscriptFinal(CALLER_NAME);
     await sleep();
 
+    // The caller's durable status is threaded into the guardian-notify call.
+    expect(f.notifyCalls).toHaveLength(1);
+    expect(f.notifyCalls[0].previousMemberStatus).toBe("revoked");
+
+    // And the caller gets the denial copy rather than the "I'll let them know"
+    // timeout copy.
     expect(f.waits).toHaveLength(0);
     expect(
       f.events.find((e) => e.eventType === "inbound_acl_access_denied")

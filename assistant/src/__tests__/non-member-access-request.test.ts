@@ -321,7 +321,7 @@ describe("non-member access request notification", () => {
   });
 
   // A bare guardian deny (a `denied` request with no durable contact seeded)
-  // no longer suppresses re-prompting: suppression keys off the contact being
+  // does not suppress re-prompting: suppression keys off the contact being
   // kept out (revoked/blocked), not off a denied request row. So a sender the
   // guardian denied without blocking is re-surfaced when they message again and
   // the guardian can decide afresh. (Durable keep-out vs. re-fire by contact
@@ -953,8 +953,8 @@ describe("access-request-helper unit tests", () => {
   });
 
   test("notifyGuardianOfAccessRequest re-fires for a parked contact even after a prior deny (deny is not a keep-out)", async () => {
-    // A prior `denied` request for this sender no longer suppresses: the
-    // contact was parked (unverified → pending), not kept out, so a later
+    // A prior `denied` request for this sender does not suppress: the contact
+    // is parked (unverified → pending), not kept out, so a later
     // trust-requiring inbound re-surfaces to the guardian.
     bridgeState.seedRequest({
       id: `denied-${Date.now()}`,
