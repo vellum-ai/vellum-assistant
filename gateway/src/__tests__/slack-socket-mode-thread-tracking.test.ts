@@ -1921,3 +1921,178 @@ describe("SlackSocketModeClient thread tracking", () => {
     }
   });
 });
+
+// Characterization of the processEventPayload classification/admit filter,
+// pinning the observable emit/drop outcome for each event type across its
+// multi-branch admit conditions (DM, subscribed channel via conversation_id
+// routing, tracked thread, and unrouted/untracked). This locks the intricate
+// dispatch behavior before the discriminated-union classifier refactor.
+describe("SlackSocketModeClient event classification admit conditions", () => {
+  function emitFor(
+    store: SlackStore,
+    innerEvent: Record<string, unknown>,
+    eventId: string,
+  ): { emitted: NormalizedSlackEvent[]; run: () => Promise<void> } {
+    const emitted: NormalizedSlackEvent[] = [];
+    const client = createHarness(store, (event) => emitted.push(event));
+    const ws = makeOpenSocket();
+    return {
+      emitted,
+      run: async () => {
+        client.handleMessage(
+          JSON.stringify({
+            envelope_id: `env-${eventId}`,
+            type: "events_api",
+            payload: { event_id: eventId, event: innerEvent },
+          }),
+          ws,
+        );
+        await flushAsyncEventEmission();
+      },
+    };
+  }
+
+  function reaction(channel: string, ts = "1700000000.010000") {
+    return {
+      type: "reaction_added",
+      user: "U-reactor",
+      reaction: "eyes",
+      item: { type: "message", channel, ts },
+      event_ts: "1700000000.010001",
+    };
+  }
+
+  function edit(channel: string, channelType?: string) {
+    return {
+      type: "message",
+      subtype: "message_changed",
+      channel,
+      ...(channelType ? { channel_type: channelType } : {}),
+      message: {
+        user: "U-editor",
+        text: "edited",
+        ts: "1700000000.020000",
+      },
+    };
+  }
+
+  function del(channel: string, channelType?: string) {
+    return {
+      type: "message",
+      subtype: "message_deleted",
+      channel,
+      ...(channelType ? { channel_type: channelType } : {}),
+      deleted_ts: "1700000000.030000",
+      previous_message: {
+        user: "U-author",
+        text: "gone",
+        ts: "1700000000.030000",
+      },
+    };
+  }
+
+  test("admits a reaction in a subscribed channel (conversation_id route)", async () => {
+    const { rawDb, store } = createSlackStore();
+    try {
+      const { emitted, run } = emitFor(
+        store,
+        reaction("C-thread"),
+        "Ev-rx-sub",
+      );
+      await run();
+      expect(emitted).toHaveLength(1);
+      expect(emitted[0].event.message.callbackData).toBe("reaction:eyes");
+    } finally {
+      rawDb.close();
+    }
+  });
+
+  test("admits a reaction in a DM channel via the default assistant", async () => {
+    const { rawDb, store } = createSlackStore();
+    try {
+      const { emitted, run } = emitFor(store, reaction("D-direct"), "Ev-rx-dm");
+      await run();
+      expect(emitted).toHaveLength(1);
+      expect(emitted[0].routing.assistantId).toBe("ast-default");
+    } finally {
+      rawDb.close();
+    }
+  });
+
+  test("drops a reaction in an unsubscribed, untracked, non-DM channel", async () => {
+    const { rawDb, store } = createSlackStore();
+    try {
+      const { emitted, run } = emitFor(
+        store,
+        reaction("C-random"),
+        "Ev-rx-drop",
+      );
+      await run();
+      expect(emitted).toHaveLength(0);
+    } finally {
+      rawDb.close();
+    }
+  });
+
+  test("admits a message edit in a subscribed channel", async () => {
+    const { rawDb, store } = createSlackStore();
+    try {
+      const { emitted, run } = emitFor(
+        store,
+        edit("C-thread", "channel"),
+        "Ev-edit-sub",
+      );
+      await run();
+      expect(emitted).toHaveLength(1);
+      expect(emitted[0].event.message.isEdit).toBe(true);
+    } finally {
+      rawDb.close();
+    }
+  });
+
+  test("drops a message edit in an unsubscribed, untracked, non-DM channel", async () => {
+    const { rawDb, store } = createSlackStore();
+    try {
+      const { emitted, run } = emitFor(
+        store,
+        edit("C-random", "channel"),
+        "Ev-edit-drop",
+      );
+      await run();
+      expect(emitted).toHaveLength(0);
+    } finally {
+      rawDb.close();
+    }
+  });
+
+  test("admits a message delete in a subscribed channel", async () => {
+    const { rawDb, store } = createSlackStore();
+    try {
+      const { emitted, run } = emitFor(
+        store,
+        del("C-thread", "channel"),
+        "Ev-del-sub",
+      );
+      await run();
+      expect(emitted).toHaveLength(1);
+      expect(emitted[0].event.message.callbackData).toBe("message_deleted");
+    } finally {
+      rawDb.close();
+    }
+  });
+
+  test("drops a message delete in an unsubscribed, untracked, non-DM channel", async () => {
+    const { rawDb, store } = createSlackStore();
+    try {
+      const { emitted, run } = emitFor(
+        store,
+        del("C-random", "channel"),
+        "Ev-del-drop",
+      );
+      await run();
+      expect(emitted).toHaveLength(0);
+    } finally {
+      rawDb.close();
+    }
+  });
+});
