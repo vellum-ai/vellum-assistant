@@ -6,7 +6,7 @@ import type {
   SlackMessageChangedEvent,
   SlackMessageDeletedEvent,
   SlackReactionEvent,
-} from "./normalize.js";
+} from "./message-schemas.js";
 
 const CHANNEL = "C0ABCDEF";
 const TS = "1700000000.000100";

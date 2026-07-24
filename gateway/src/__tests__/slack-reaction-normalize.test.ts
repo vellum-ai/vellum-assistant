@@ -1,8 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import {
-  normalizeSlackReactionAdded,
-  type SlackReactionEvent,
-} from "../slack/normalize.js";
+import { normalizeSlackReactionAdded } from "../slack/normalize.js";
+import type { SlackReactionEvent } from "../slack/message-schemas.js";
 import type { GatewayConfig } from "../config.js";
 
 function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {

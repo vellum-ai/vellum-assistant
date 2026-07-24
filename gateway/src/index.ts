@@ -162,7 +162,7 @@ import {
   type SlackSocketModeClient,
 } from "./slack/socket-mode.js";
 import { downloadSlackFile } from "./slack/download.js";
-import { slackBotContactNote } from "./slack/normalize.js";
+import { slackBotContactNote } from "./slack/actor.js";
 import { handleInbound } from "./handlers/handle-inbound.js";
 import { upsertContactChannel } from "./verification/contact-helpers.js";
 import { checkAuthRateLimit } from "./http/middleware/rate-limit.js";

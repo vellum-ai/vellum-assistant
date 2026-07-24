@@ -7,7 +7,7 @@ import type {
   SlackMessageChangedEvent,
   SlackMessageDeletedEvent,
   SlackReactionEvent,
-} from "./normalize.js";
+} from "./message-schemas.js";
 
 const optionalString = () => z.string().optional().catch(undefined);
 

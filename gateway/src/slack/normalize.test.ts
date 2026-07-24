@@ -8,16 +8,17 @@ import {
   normalizeSlackAppMention,
   normalizeSlackMessageEdit,
   normalizeSlackMessageDelete,
-  enrichNormalizedActor,
-  slackBotContactNote,
-  type SlackBlockActionsPayload,
-  type SlackDirectMessageEvent,
-  type SlackChannelMessageEvent,
-  type SlackAppMentionEvent,
-  type SlackMessageChangedEvent,
-  type SlackMessageDeletedEvent,
-  type SlackFile,
 } from "./normalize.js";
+import { enrichNormalizedActor, slackBotContactNote } from "./actor.js";
+import type {
+  SlackBlockActionsPayload,
+  SlackDirectMessageEvent,
+  SlackChannelMessageEvent,
+  SlackAppMentionEvent,
+  SlackMessageChangedEvent,
+  SlackMessageDeletedEvent,
+  SlackFile,
+} from "./message-schemas.js";
 import type { GatewayConfig } from "../config.js";
 
 function makeConfig(overrides?: Partial<GatewayConfig>): GatewayConfig {
