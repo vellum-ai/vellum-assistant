@@ -24,14 +24,22 @@ import { lastToolResultUserMessageIndex } from "../../../../context/outbound-san
 
 // Control doesSupportVision from the test: by profile key for the
 // user-prompt-submit path (ModelProfileInfo) and by model id for the
-// post-tool-use path (bare string).
+// post-tool-use path and the vision call-site default (bare string).
 let visionProfiles: Set<string>;
 let visionModels: Set<string>;
 let mockProfiles: ModelProfileInfo[];
 // Resolved input-token price ($/1M) per profile key, controlling how
-// `rankVisionProfiles` orders vision-capable profiles. A key absent from the
-// map reads as unknown price (ranked after every priced profile).
+// `buildVisionCandidates` orders vision-capable profiles. A key absent from the
+// map reads as unknown price (ranked after every priced candidate).
 let profilePrices: Map<string, number>;
+// The model the `vision` call site resolves to with no override — the shipped
+// call-site default captioner — or null when the test wants no call-site
+// default candidate. Its vision capability is read from `visionModels` and its
+// price from `modelPrices`.
+let callSiteVisionModel: string | null;
+// Resolved input-token price ($/1M) per bare model id, for pricing the
+// call-site default candidate. A model absent from the map reads as unknown.
+let modelPrices: Map<string, number>;
 let sendMessageResponse = {
   content: [{ type: "text", text: "A red chart showing Q3 revenue." }],
 };
@@ -52,22 +60,46 @@ const mockResolveMediaSourceData = (source: ImageContent["source"]) =>
     ? { data: source.data, media_type: source.media_type }
     : null;
 
-// Mock @vellumai/plugin-api — only the runtime handles the plugin imports.
-// `extractAllText` stays real (imported from the relative path, not plugin-api).
-mock.module("@vellumai/plugin-api", () => ({
-  doesSupportVision: (arg: ModelProfileInfo | string) =>
-    typeof arg === "string"
-      ? visionModels.has(arg)
-      : visionProfiles.has(arg.key),
-  getModelProfiles: () => mockProfiles,
-  getProfileInputTokenPrice: (arg: ModelProfileInfo | string) => {
-    const key = typeof arg === "string" ? arg : arg.key;
-    return profilePrices.get(key) ?? null;
-  },
-  resolveMediaSourceData: mockResolveMediaSourceData,
-  getConfiguredProvider: async () => (providerResolves ? fakeProvider : null),
-  lastToolResultUserMessageIndex,
-}));
+// The `getConfiguredProvider` a mock installs. A profile candidate passes
+// `{ overrideProfile, forceOverrideProfile }`; the call-site default candidate
+// passes `{}`, so `opts.overrideProfile` is undefined for it.
+type GetConfiguredProviderMock = (
+  callSite: unknown,
+  opts: { overrideProfile?: string; forceOverrideProfile?: boolean },
+) => Promise<unknown>;
+
+// Single source of truth for the mocked `@vellumai/plugin-api` surface the
+// plugin imports — only the runtime handles are mocked (`extractAllText` and
+// the like stay real via relative imports). Only `getConfiguredProvider`
+// varies per install; every other member reads the module-level fixture state
+// the tests mutate.
+function pluginApiExports(getConfiguredProvider: GetConfiguredProviderMock) {
+  return {
+    doesSupportVision: (arg: ModelProfileInfo | string) =>
+      typeof arg === "string"
+        ? visionModels.has(arg)
+        : visionProfiles.has(arg.key),
+    getModelProfiles: () => mockProfiles,
+    getProfileInputTokenPrice: (arg: ModelProfileInfo | string) => {
+      const key = typeof arg === "string" ? arg : arg.key;
+      return profilePrices.get(key) ?? null;
+    },
+    getModelInputTokenPrice: (model: string) => modelPrices.get(model) ?? null,
+    resolveCallSiteModel: () => callSiteVisionModel,
+    resolveMediaSourceData: mockResolveMediaSourceData,
+    getConfiguredProvider,
+    lastToolResultUserMessageIndex,
+  };
+}
+
+// The module-load default: resolution is profile-agnostic and gated on the
+// `providerResolves` flag beforeEach resets.
+const defaultGetConfiguredProvider: GetConfiguredProviderMock = async () =>
+  providerResolves ? fakeProvider : null;
+
+mock.module("@vellumai/plugin-api", () =>
+  pluginApiExports(defaultGetConfiguredProvider),
+);
 
 // Mock the image-persist module to avoid filesystem side effects in tests.
 let mockPersistPath: string | null =
@@ -84,7 +116,7 @@ const postToolUse = (await import("../hooks/post-tool-use.js")).default;
 const postCompact = (await import("../hooks/post-compact.js")).default;
 const conversationDeleted = (await import("../hooks/conversation-deleted.js"))
   .default;
-const { rankVisionProfiles } = await import("../src/vision-caption.js");
+const { buildVisionCandidates } = await import("../src/vision-caption.js");
 const { closeCaptionStore, initCaptionStore, resetCaptionCacheForTests } =
   await import("../src/caption-cache.js");
 
@@ -194,35 +226,18 @@ function makeToolCtx(
 }
 
 // Re-register the plugin-api mock with a caller-supplied `getConfiguredProvider`
-// so a test can make provider resolution depend on the requested profile key
-// (the shipped resolver tries ranked candidates cheapest-first). The other
-// mocked members mirror the module-load default.
-type GetConfiguredProviderMock = (
-  callSite: unknown,
-  opts: { overrideProfile: string; forceOverrideProfile?: boolean },
-) => Promise<unknown>;
-
+// so a test can make provider resolution depend on the requested candidate (the
+// resolver tries ranked candidates cheapest-first). Every other mocked member
+// mirrors the module-load default via the shared factory.
 function setPluginApiMock(getConfiguredProvider: GetConfiguredProviderMock) {
-  mock.module("@vellumai/plugin-api", () => ({
-    doesSupportVision: (arg: ModelProfileInfo | string) =>
-      typeof arg === "string"
-        ? visionModels.has(arg)
-        : visionProfiles.has(arg.key),
-    getModelProfiles: () => mockProfiles,
-    getProfileInputTokenPrice: (arg: ModelProfileInfo | string) => {
-      const key = typeof arg === "string" ? arg : arg.key;
-      return profilePrices.get(key) ?? null;
-    },
-    resolveMediaSourceData: mockResolveMediaSourceData,
-    getConfiguredProvider,
-    lastToolResultUserMessageIndex,
-  }));
+  mock.module("@vellumai/plugin-api", () =>
+    pluginApiExports(getConfiguredProvider),
+  );
 }
 
-// Restore the module-load default: resolution is profile-agnostic and gated on
-// the `providerResolves` flag beforeEach resets.
+// Restore the module-load default.
 function restorePluginApiMock() {
-  setPluginApiMock(async () => (providerResolves ? fakeProvider : null));
+  setPluginApiMock(defaultGetConfiguredProvider);
 }
 
 // ─── Setup ──────────────────────────────────────────────────────────────────
@@ -237,12 +252,17 @@ beforeEach(() => {
     profile("vision-profile", { label: "Vision" }),
   ];
   profilePrices = new Map<string, number>();
+  // No call-site default candidate by default; opt in per-test.
+  callSiteVisionModel = null;
+  modelPrices = new Map<string, number>();
   sendMessageResponse = {
     content: [{ type: "text", text: "A red chart showing Q3 revenue." }],
   };
   providerResolves = true;
   mockPersistPath = "/workspace/data/attachments/mock-hash.png";
   resetCaptionCacheForTests();
+  // Reset the plugin-api mock so a prior test's custom install can't leak.
+  restorePluginApiMock();
 });
 
 // ─── Tests ──────────────────────────────────────────────────────────────────
@@ -374,15 +394,7 @@ describe("image-fallback user-prompt-submit hook", () => {
       },
     };
     // Override the mock to track calls.
-    mock.module("@vellumai/plugin-api", () => ({
-      doesSupportVision: (arg: ModelProfileInfo | string) =>
-        typeof arg === "string"
-          ? visionModels.has(arg)
-          : visionProfiles.has(arg.key),
-      getModelProfiles: () => mockProfiles,
-      resolveMediaSourceData: mockResolveMediaSourceData,
-      getConfiguredProvider: async () => trackingProvider,
-    }));
+    setPluginApiMock(async () => trackingProvider);
 
     const messages1 = [imageMsg("same-data")];
     const ctx1 = makeCtx({ latestMessages: messages1 });
@@ -394,18 +406,6 @@ describe("image-fallback user-prompt-submit hook", () => {
     const ctx2 = makeCtx({ latestMessages: messages2 });
     await userPromptSubmit(ctx2);
     expect(callCount).toBe(1); // still 1 — cache hit
-
-    // Restore the original mock for other tests.
-    mock.module("@vellumai/plugin-api", () => ({
-      doesSupportVision: (arg: ModelProfileInfo | string) =>
-        typeof arg === "string"
-          ? visionModels.has(arg)
-          : visionProfiles.has(arg.key),
-      getModelProfiles: () => mockProfiles,
-      resolveMediaSourceData: mockResolveMediaSourceData,
-      getConfiguredProvider: async () =>
-        providerResolves ? fakeProvider : null,
-    }));
   });
 
   test("captions images nested in a historical tool_result's contentBlocks", async () => {
@@ -450,9 +450,17 @@ describe("image-fallback user-prompt-submit hook", () => {
   });
 });
 
-describe("rankVisionProfiles", () => {
+// The ranked candidates' `overrideProfile` values: a profile key per profile
+// candidate, or `null` for the `vision` call-site default candidate. beforeEach
+// leaves `callSiteVisionModel` null, so a test opts into the call-site default
+// candidate by setting it (plus its vision flag and price).
+function rankedOverrides(): Array<string | null> {
+  return buildVisionCandidates().map((c) => c.overrideProfile);
+}
+
+describe("buildVisionCandidates", () => {
   test("returns the enabled vision-capable profile", () => {
-    expect(rankVisionProfiles()).toEqual(["vision-profile"]);
+    expect(rankedOverrides()).toEqual(["vision-profile"]);
   });
 
   test("skips disabled vision profiles", () => {
@@ -460,23 +468,22 @@ describe("rankVisionProfiles", () => {
       profile("text-only", { label: "Text", isActive: true }),
       profile("vision-profile", { label: "Vision", isDisabled: true }),
     ];
-    expect(rankVisionProfiles()).toEqual([]);
+    expect(rankedOverrides()).toEqual([]);
   });
 
-  test("returns an empty list when no profiles support vision", () => {
+  test("returns an empty list when nothing can caption", () => {
     visionProfiles = new Set<string>();
-    expect(rankVisionProfiles()).toEqual([]);
+    expect(rankedOverrides()).toEqual([]);
   });
 
-  test("returns the sole vision profile without consulting pricing", () => {
+  test("returns the sole vision profile", () => {
     mockProfiles = [
       profile("text-only", { label: "Text", isActive: true }),
       profile("only-vision", { label: "Vision" }),
     ];
     visionProfiles = new Set(["only-vision"]);
-    // No price known — a single vision profile is returned regardless.
     profilePrices = new Map<string, number>();
-    expect(rankVisionProfiles()).toEqual(["only-vision"]);
+    expect(rankedOverrides()).toEqual(["only-vision"]);
   });
 
   test("orders vision-capable profiles cheapest first", () => {
@@ -491,7 +498,7 @@ describe("rankVisionProfiles", () => {
       ["cheap-vision", 0.8],
       ["mid-vision", 3],
     ]);
-    expect(rankVisionProfiles()).toEqual([
+    expect(rankedOverrides()).toEqual([
       "cheap-vision",
       "mid-vision",
       "premium-vision",
@@ -508,7 +515,7 @@ describe("rankVisionProfiles", () => {
     // Only "priced" has a known price; it leads, then the unknowns keep picker
     // order behind it even though one precedes it in picker order.
     profilePrices = new Map<string, number>([["priced", 9]]);
-    expect(rankVisionProfiles()).toEqual([
+    expect(rankedOverrides()).toEqual([
       "priced",
       "unknown-first",
       "unknown-last",
@@ -523,7 +530,7 @@ describe("rankVisionProfiles", () => {
     visionProfiles = new Set(["first-vision", "second-vision"]);
     // Every profile is unknown-price, so picker order is preserved.
     profilePrices = new Map<string, number>();
-    expect(rankVisionProfiles()).toEqual(["first-vision", "second-vision"]);
+    expect(rankedOverrides()).toEqual(["first-vision", "second-vision"]);
   });
 
   test("keeps picker order among equally-priced vision profiles", () => {
@@ -536,7 +543,7 @@ describe("rankVisionProfiles", () => {
       ["vision-a", 2],
       ["vision-b", 2],
     ]);
-    expect(rankVisionProfiles()).toEqual(["vision-a", "vision-b"]);
+    expect(rankedOverrides()).toEqual(["vision-a", "vision-b"]);
   });
 
   test("never includes a disabled or non-vision profile even when cheaper", () => {
@@ -555,7 +562,71 @@ describe("rankVisionProfiles", () => {
       ["cheap-text-only", 0.2],
       ["enabled-vision", 20],
     ]);
-    expect(rankVisionProfiles()).toEqual(["enabled-vision"]);
+    expect(rankedOverrides()).toEqual(["enabled-vision"]);
+  });
+
+  test("includes the vision call-site default, priced by its resolved model", () => {
+    // The managed default: the sole vision PROFILE is the $10 quality profile;
+    // the vision call-site default resolves to a $1 model, the cheaper captioner.
+    mockProfiles = [profile("quality-optimized", { label: "Quality" })];
+    visionProfiles = new Set(["quality-optimized"]);
+    profilePrices = new Map<string, number>([["quality-optimized", 10]]);
+    callSiteVisionModel = "haiku-model";
+    visionModels = new Set(["haiku-model"]);
+    modelPrices = new Map<string, number>([["haiku-model", 1]]);
+    // `null` (the call-site default) leads the pricier profile.
+    expect(rankedOverrides()).toEqual([null, "quality-optimized"]);
+  });
+
+  test("excludes the call-site default when its resolved model is text-only", () => {
+    // A workspace `llm.callSites.vision` override resolves the call site to a
+    // cheaper text-only model — it must be excluded, not ranked then fail.
+    mockProfiles = [profile("vision-profile", { label: "Vision" })];
+    visionProfiles = new Set(["vision-profile"]);
+    profilePrices = new Map<string, number>([["vision-profile", 12]]);
+    callSiteVisionModel = "text-router";
+    visionModels = new Set<string>(); // resolved model is text-only
+    modelPrices = new Map<string, number>([["text-router", 0.1]]); // ineligible
+    expect(rankedOverrides()).toEqual(["vision-profile"]);
+  });
+
+  test("excludes the call-site default when the call site resolves to no model", () => {
+    callSiteVisionModel = null;
+    mockProfiles = [profile("vision-profile", { label: "Vision" })];
+    visionProfiles = new Set(["vision-profile"]);
+    expect(rankedOverrides()).toEqual(["vision-profile"]);
+  });
+
+  test("ranks the call-site default among profiles by price", () => {
+    mockProfiles = [
+      profile("cheapest-vision", { label: "Cheapest" }),
+      profile("premium-vision", { label: "Premium" }),
+    ];
+    visionProfiles = new Set(["cheapest-vision", "premium-vision"]);
+    profilePrices = new Map<string, number>([
+      ["cheapest-vision", 0.8],
+      ["premium-vision", 15],
+    ]);
+    callSiteVisionModel = "haiku-model";
+    visionModels = new Set(["haiku-model"]);
+    modelPrices = new Map<string, number>([["haiku-model", 5]]);
+    // $0.8 profile, then the $5 call-site default, then the $15 profile.
+    expect(rankedOverrides()).toEqual([
+      "cheapest-vision",
+      null,
+      "premium-vision",
+    ]);
+  });
+
+  test("ranks the call-site default before an equal-priced profile", () => {
+    mockProfiles = [profile("tied-vision", { label: "Tied" })];
+    visionProfiles = new Set(["tied-vision"]);
+    profilePrices = new Map<string, number>([["tied-vision", 5]]);
+    callSiteVisionModel = "haiku-model";
+    visionModels = new Set(["haiku-model"]);
+    modelPrices = new Map<string, number>([["haiku-model", 5]]);
+    // Equal price: the call-site default leads on assembly order.
+    expect(rankedOverrides()).toEqual([null, "tied-vision"]);
   });
 });
 
@@ -575,7 +646,7 @@ describe("vision provider resilience", () => {
 
   test("captions via the next-cheapest profile when the cheapest can't resolve", async () => {
     twoRankedVisionProfiles();
-    const resolutionAttempts: string[] = [];
+    const resolutionAttempts: Array<string | undefined> = [];
     let ranProfile: string | undefined;
     const capturingProvider = {
       name: "mock-vision-provider",
@@ -611,7 +682,7 @@ describe("vision provider resilience", () => {
 
   test("falls open to the failed-description placeholder when no ranked profile resolves", async () => {
     twoRankedVisionProfiles();
-    const resolutionAttempts: string[] = [];
+    const resolutionAttempts: Array<string | undefined> = [];
     setPluginApiMock(async (_callSite, opts) => {
       resolutionAttempts.push(opts.overrideProfile);
       return null; // every vision profile is unusable
@@ -634,7 +705,7 @@ describe("vision provider resilience", () => {
 
   test("resolves the provider once per sweep when the cheapest is usable", async () => {
     twoRankedVisionProfiles();
-    const resolutionAttempts: string[] = [];
+    const resolutionAttempts: Array<string | undefined> = [];
     let sendCount = 0;
     const countingProvider = {
       name: "mock-vision-provider",
@@ -672,7 +743,7 @@ describe("vision provider resilience", () => {
 
   test("captions via the next-cheapest profile when the cheapest throws a hard config error", async () => {
     twoRankedVisionProfiles();
-    const resolutionAttempts: string[] = [];
+    const resolutionAttempts: Array<string | undefined> = [];
     let ranProfile: string | undefined;
     const capturingProvider = {
       name: "mock-vision-provider",
@@ -713,7 +784,7 @@ describe("vision provider resilience", () => {
 
   test("falls open to the failed-description placeholder when every candidate throws", async () => {
     twoRankedVisionProfiles();
-    const resolutionAttempts: string[] = [];
+    const resolutionAttempts: Array<string | undefined> = [];
     setPluginApiMock(async (_callSite, opts) => {
       resolutionAttempts.push(opts.overrideProfile);
       throw new Error(`provider_connection for ${opts.overrideProfile} broken`);
@@ -737,7 +808,7 @@ describe("vision provider resilience", () => {
 
   test("memoizes the settled resolution when the cheapest throws — no rejection cached, no per-image re-attempt", async () => {
     twoRankedVisionProfiles();
-    const resolutionAttempts: string[] = [];
+    const resolutionAttempts: Array<string | undefined> = [];
     let sendCount = 0;
     const countingProvider = {
       name: "mock-vision-provider",
@@ -774,6 +845,134 @@ describe("vision provider resilience", () => {
     } finally {
       restorePluginApiMock();
     }
+  });
+});
+
+describe("vision candidate selection (call-site default vs profiles)", () => {
+  // A provider that records the override it captioned under (undefined for the
+  // call-site default, which passes no `overrideProfile`).
+  function capturingProvider(record: (override: string | undefined) => void) {
+    return {
+      name: "mock-vision-provider",
+      async sendMessage(
+        _messages: unknown,
+        opts: { config: { overrideProfile?: string } },
+      ) {
+        record(opts.config.overrideProfile);
+        return sendMessageResponse;
+      },
+    };
+  }
+
+  test("managed install captions via the call-site default over the pricier vision profile", async () => {
+    // Only `quality-optimized` ($10) is a vision PROFILE; the vision call-site
+    // default resolves to a $1 model — the managed population driving the
+    // captioning spend must land on the cheaper call-site default.
+    mockProfiles = [
+      profile("balanced", { label: "Balanced", isActive: true }),
+      profile("quality-optimized", { label: "Quality" }),
+    ];
+    visionProfiles = new Set(["quality-optimized"]);
+    profilePrices = new Map<string, number>([["quality-optimized", 10]]);
+    callSiteVisionModel = "haiku-model";
+    visionModels = new Set(["haiku-model"]);
+    modelPrices = new Map<string, number>([["haiku-model", 1]]);
+
+    const attempts: Array<string | undefined> = [];
+    let ranOverride: string | undefined;
+    setPluginApiMock(async (_callSite, opts) => {
+      attempts.push(opts.overrideProfile);
+      return capturingProvider((o) => {
+        ranOverride = o;
+      });
+    });
+    try {
+      const ctx = makeCtx({ latestMessages: [imageMsg("img1")] });
+      await userPromptSubmit(ctx);
+      // The call-site default (no override) was attempted first and captioned;
+      // the pricier profile was never reached.
+      expect(attempts).toEqual([undefined]);
+      expect(ranOverride).toBeUndefined();
+      expect((ctx.latestMessages[0].content[0] as { text: string }).text).toBe(
+        "[Image auto-described for text-only model: A red chart showing Q3 revenue.]",
+      );
+    } finally {
+      restorePluginApiMock();
+    }
+  });
+
+  test("BYOK without the call-site default's provider falls through to the vision profile", async () => {
+    mockProfiles = [profile("byok-vision", { label: "BYOK Vision" })];
+    visionProfiles = new Set(["byok-vision"]);
+    profilePrices = new Map<string, number>([["byok-vision", 12]]);
+    // The call-site default resolves to a vision-capable model (ranked first at
+    // $1) but its provider can't resolve — no Anthropic credentials.
+    callSiteVisionModel = "haiku-model";
+    visionModels = new Set(["haiku-model"]);
+    modelPrices = new Map<string, number>([["haiku-model", 1]]);
+
+    const attempts: Array<string | undefined> = [];
+    let ranOverride: string | undefined;
+    setPluginApiMock(async (_callSite, opts) => {
+      attempts.push(opts.overrideProfile);
+      return opts.overrideProfile === "byok-vision"
+        ? capturingProvider((o) => {
+            ranOverride = o;
+          })
+        : null;
+    });
+    try {
+      const ctx = makeCtx({ latestMessages: [imageMsg("img1")] });
+      await userPromptSubmit(ctx);
+      // Tried the call-site default first (unresolvable), then the profile.
+      expect(attempts).toEqual([undefined, "byok-vision"]);
+      expect(ranOverride).toBe("byok-vision");
+      expect(
+        (ctx.latestMessages[0].content[0] as { text: string }).text,
+      ).toContain("[Image auto-described");
+    } finally {
+      restorePluginApiMock();
+    }
+  });
+
+  test("excludes a text-only call-site default before resolution and captions via the profile", async () => {
+    mockProfiles = [profile("byok-vision", { label: "BYOK Vision" })];
+    visionProfiles = new Set(["byok-vision"]);
+    profilePrices = new Map<string, number>([["byok-vision", 12]]);
+    // A workspace `llm.callSites.vision` override resolves the call site to a
+    // cheaper text-only model; the vision guard excludes it, so it is never
+    // attempted (which would fail at caption time).
+    callSiteVisionModel = "text-router";
+    visionModels = new Set<string>();
+    modelPrices = new Map<string, number>([["text-router", 0.1]]);
+
+    const attempts: Array<string | undefined> = [];
+    setPluginApiMock(async (_callSite, opts) => {
+      attempts.push(opts.overrideProfile);
+      return capturingProvider(() => {});
+    });
+    try {
+      const ctx = makeCtx({ latestMessages: [imageMsg("img1")] });
+      await userPromptSubmit(ctx);
+      expect(attempts).toEqual(["byok-vision"]);
+      expect(
+        (ctx.latestMessages[0].content[0] as { text: string }).text,
+      ).toContain("[Image auto-described");
+    } finally {
+      restorePluginApiMock();
+    }
+  });
+
+  test("uses the no-model placeholder when neither the call-site default nor a profile can caption", async () => {
+    visionProfiles = new Set<string>(); // no vision profiles
+    callSiteVisionModel = "text-router"; // resolves, but text-only
+    visionModels = new Set<string>();
+    const ctx = makeCtx({ latestMessages: [imageMsg("img1")] });
+    await userPromptSubmit(ctx);
+    expect(ctx.latestMessages[0].content[0].type).toBe("text");
+    expect(
+      (ctx.latestMessages[0].content[0] as { text: string }).text,
+    ).toContain("no vision-capable model");
   });
 });
 
@@ -926,15 +1125,7 @@ describe("image-fallback post-compact hook", () => {
         return sendMessageResponse;
       },
     };
-    mock.module("@vellumai/plugin-api", () => ({
-      doesSupportVision: (arg: ModelProfileInfo | string) =>
-        typeof arg === "string"
-          ? visionModels.has(arg)
-          : visionProfiles.has(arg.key),
-      getModelProfiles: () => mockProfiles,
-      resolveMediaSourceData: mockResolveMediaSourceData,
-      getConfiguredProvider: async () => trackingProvider,
-    }));
+    setPluginApiMock(async () => trackingProvider);
 
     // The image is captioned once at ingestion (turn-start sweep)...
     const ctx1 = makeCtx({ latestMessages: [imageMsg("compacted-image")] });
@@ -947,18 +1138,6 @@ describe("image-fallback post-compact hook", () => {
     await postCompact(ctx2);
     expect(callCount).toBe(1); // still 1 — cache hit
     expect(ctx2.history[0].content[0].type).toBe("text");
-
-    // Restore the original mock for other tests.
-    mock.module("@vellumai/plugin-api", () => ({
-      doesSupportVision: (arg: ModelProfileInfo | string) =>
-        typeof arg === "string"
-          ? visionModels.has(arg)
-          : visionProfiles.has(arg.key),
-      getModelProfiles: () => mockProfiles,
-      resolveMediaSourceData: mockResolveMediaSourceData,
-      getConfiguredProvider: async () =>
-        providerResolves ? fakeProvider : null,
-    }));
   });
 
   test("uses fail-open placeholder when no vision profile is configured", async () => {
@@ -989,15 +1168,7 @@ describe("image-fallback conversation-deleted hook", () => {
         return sendMessageResponse;
       },
     };
-    mock.module("@vellumai/plugin-api", () => ({
-      doesSupportVision: (arg: ModelProfileInfo | string) =>
-        typeof arg === "string"
-          ? visionModels.has(arg)
-          : visionProfiles.has(arg.key),
-      getModelProfiles: () => mockProfiles,
-      resolveMediaSourceData: mockResolveMediaSourceData,
-      getConfiguredProvider: async () => trackingProvider,
-    }));
+    setPluginApiMock(async () => trackingProvider);
 
     // Caption an image in the doomed conversation.
     const ctx1 = makeCtx({
@@ -1017,18 +1188,6 @@ describe("image-fallback conversation-deleted hook", () => {
     });
     await userPromptSubmit(ctx2);
     expect(callCount).toBe(2);
-
-    // Restore the original mock for other tests.
-    mock.module("@vellumai/plugin-api", () => ({
-      doesSupportVision: (arg: ModelProfileInfo | string) =>
-        typeof arg === "string"
-          ? visionModels.has(arg)
-          : visionProfiles.has(arg.key),
-      getModelProfiles: () => mockProfiles,
-      resolveMediaSourceData: mockResolveMediaSourceData,
-      getConfiguredProvider: async () =>
-        providerResolves ? fakeProvider : null,
-    }));
   });
 
   test("captions shared with a surviving conversation keep serving hits", async () => {
@@ -1040,15 +1199,7 @@ describe("image-fallback conversation-deleted hook", () => {
         return sendMessageResponse;
       },
     };
-    mock.module("@vellumai/plugin-api", () => ({
-      doesSupportVision: (arg: ModelProfileInfo | string) =>
-        typeof arg === "string"
-          ? visionModels.has(arg)
-          : visionProfiles.has(arg.key),
-      getModelProfiles: () => mockProfiles,
-      resolveMediaSourceData: mockResolveMediaSourceData,
-      getConfiguredProvider: async () => trackingProvider,
-    }));
+    setPluginApiMock(async () => trackingProvider);
 
     // The same image is captioned in one conversation and cache-hit in a
     // second, which records the second conversation's association.
@@ -1073,17 +1224,5 @@ describe("image-fallback conversation-deleted hook", () => {
     });
     await userPromptSubmit(ctxB2);
     expect(callCount).toBe(1);
-
-    // Restore the original mock for other tests.
-    mock.module("@vellumai/plugin-api", () => ({
-      doesSupportVision: (arg: ModelProfileInfo | string) =>
-        typeof arg === "string"
-          ? visionModels.has(arg)
-          : visionProfiles.has(arg.key),
-      getModelProfiles: () => mockProfiles,
-      resolveMediaSourceData: mockResolveMediaSourceData,
-      getConfiguredProvider: async () =>
-        providerResolves ? fakeProvider : null,
-    }));
   });
 });

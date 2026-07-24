@@ -2,7 +2,10 @@ import { beforeEach, describe, expect, test } from "bun:test";
 
 import { setConfig } from "../__tests__/helpers/set-config.js";
 import { getConfig } from "../config/loader.js";
-import { getProfileInputTokenPrice } from "./profile-pricing.js";
+import {
+  getModelInputTokenPrice,
+  getProfileInputTokenPrice,
+} from "./profile-pricing.js";
 import type { ModelProfileInfo } from "./types.js";
 
 // ─── Fixture config ─────────────────────────────────────────────────────────
@@ -125,5 +128,27 @@ describe("getProfileInputTokenPrice", () => {
       fable: { provider: "anthropic", model: "claude-fable-5" },
     });
     expect(getProfileInputTokenPrice(profile("mix-profile"))).toBeNull();
+  });
+});
+
+describe("getModelInputTokenPrice", () => {
+  test("prices a concrete model id from the catalog", () => {
+    expect(getModelInputTokenPrice("claude-haiku-4-5-20251001")).toBe(1);
+    expect(getModelInputTokenPrice("claude-fable-5")).toBe(10);
+  });
+
+  test("ranks the vision call-site default (Haiku) below the Quality profile (Fable)", () => {
+    // The image-fallback fix rests on this: on a default managed catalog the
+    // only vision-capable default profile is Fable, but the vision call-site
+    // default pins Haiku — which must price cheaper so it wins the ranking.
+    const haiku = getModelInputTokenPrice("claude-haiku-4-5-20251001");
+    const fable = getModelInputTokenPrice("claude-fable-5");
+    expect(haiku).not.toBeNull();
+    expect(fable).not.toBeNull();
+    expect(haiku!).toBeLessThan(fable!);
+  });
+
+  test("returns null for a model the catalog does not know", () => {
+    expect(getModelInputTokenPrice("nonexistent-model")).toBeNull();
   });
 });

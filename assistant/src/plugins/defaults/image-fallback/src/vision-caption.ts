@@ -11,11 +11,13 @@
 import {
   doesSupportVision,
   getConfiguredProvider,
+  getModelInputTokenPrice,
   getModelProfiles,
   getProfileInputTokenPrice,
   type ImageContent,
   type PluginLogger,
   type Provider,
+  resolveCallSiteModel,
   resolveMediaSourceData,
 } from "@vellumai/plugin-api";
 
@@ -35,35 +37,53 @@ const CAPTION_SYSTEM_PROMPT =
 const CAPTION_USER_PROMPT =
   "Describe this image concisely for a text-only assistant.";
 
-/** A vision-capable profile whose provider resolved and is ready to caption. */
+/**
+ * One caption target the resolver can attempt, carrying only what the caption
+ * call needs. The `vision` call-site default and every enabled vision-capable
+ * profile are candidates; {@link buildVisionCandidates} ranks them by price.
+ */
+export interface VisionCandidate {
+  /**
+   * Profile key to pin via `overrideProfile`, or `null` for the `vision`
+   * call-site default (no profile pin — the resolver's own chain picks the
+   * model). Threaded through to the caption call so it dispatches on the same
+   * target it resolved.
+   */
+  overrideProfile: string | null;
+  /** Identifier for logs: a profile key, or `call-site default (<model>)`. */
+  label: string;
+}
+
+/** A caption candidate whose provider resolved and is ready to caption. */
 export interface ResolvedVisionProvider {
-  /** Key of the vision-capable profile the provider was resolved for. */
-  profileKey: string;
-  /** Provider handle bound to that profile via the `vision` call site. */
+  /** The candidate the provider was resolved for. */
+  candidate: VisionCandidate;
+  /** Provider handle bound to that candidate via the `vision` call site. */
   provider: Provider;
 }
 
 /**
- * Rank-then-try vision provider selection, scoped to a single sweep.
+ * Rank-then-try caption-target selection, scoped to a single sweep.
  *
  * {@link hasCandidates} answers the cheap, synchronous question "does any
- * enabled vision-capable profile exist to attempt captioning?" so the caller
- * can distinguish "no vision model configured" from "captioning failed" without
- * resolving a provider. {@link resolve} walks the ranked candidates cheapest
- * first and returns the first one whose provider actually resolves — so a
- * cheapest profile that resolves to `null` (dangling connection, unavailable
- * credential) or that *throws* a hard config error (missing/mismatched
- * `provider_connection`) falls through to the next usable one rather than
- * silently breaking captioning. Resolution is lazy (never runs for an
- * all-cache-hit sweep) and memoized (one resolution per sweep, reused across
- * every image).
+ * caption target (the vision call-site default or an enabled vision-capable
+ * profile) exist to attempt captioning?" so the caller can distinguish "no
+ * vision model configured" from "captioning failed" without resolving a
+ * provider. {@link resolve} walks the ranked candidates cheapest first and
+ * returns the first one whose provider actually resolves — so a cheapest
+ * candidate that resolves to `null` (dangling connection, unavailable
+ * credential, a BYOK install missing the call-site default's provider) or that
+ * *throws* a hard config error (missing/mismatched `provider_connection`) falls
+ * through to the next usable one rather than silently breaking captioning.
+ * Resolution is lazy (never runs for an all-cache-hit sweep) and memoized (one
+ * resolution per sweep, reused across every image).
  */
 export interface VisionProviderResolver {
-  /** Whether any enabled vision-capable profile exists to caption with. */
+  /** Whether any caption candidate exists to caption with. */
   hasCandidates(): boolean;
   /**
-   * The first usable vision provider in cheapest-first order, or `null` when no
-   * candidate resolves. A candidate that throws during resolution is treated
+   * The first usable caption provider in cheapest-first order, or `null` when
+   * no candidate resolves. A candidate that throws during resolution is treated
    * exactly like a `null` resolution — logged and skipped — so `resolve()`
    * never rejects; it settles to `null` only after every candidate is
    * exhausted. Resolves lazily on first call and memoizes the settled result
@@ -73,103 +93,124 @@ export interface VisionProviderResolver {
 }
 
 /**
- * Rank enabled, vision-capable profile keys cheapest first for captioning.
+ * Assemble the caption candidates for the workspace, cheapest first.
  *
- * Collects every enabled profile whose resolved model supports vision, in
- * `getModelProfiles()` order (the order the `/model` picker shows them), then
- * sorts by the resolved model's input-token price ascending. Any vision model
- * captions a 1-2 sentence description adequately, so cost is the tiebreak.
- * Profiles the catalog can't price rank after all priced ones, and equal prices
- * keep picker order — so a single vision profile, or a set with no known
- * pricing, is returned exactly as picker order presents it. Returns an empty
- * array when no vision profile exists.
+ * Candidates are the `vision` call-site default (the shipped managed-install
+ * captioner, resolved with no profile override) plus every enabled,
+ * vision-capable workspace profile in `getModelProfiles()` order (the order the
+ * `/model` picker shows them). The call-site default is included only when its
+ * resolved model actually supports vision — a workspace `llm.callSites.vision`
+ * override or a BYOK default provider could resolve it to a text-only model,
+ * which must be excluded here rather than fail at caption time.
+ *
+ * All candidates are ranked by resolved input-token price ascending — any
+ * vision model captions a 1-2 sentence description adequately, so cost is the
+ * tiebreak. Candidates the catalog can't price rank after every priced one, and
+ * equal prices keep assembly order: the call-site default leads the profiles,
+ * and profiles keep picker order. Returns an empty array when nothing can
+ * caption.
  */
-export function rankVisionProfiles(): string[] {
-  const visionProfileKeys: string[] = [];
+export function buildVisionCandidates(): VisionCandidate[] {
+  const priced: Array<{ candidate: VisionCandidate; price: number | null }> =
+    [];
+
+  const callSiteModel = resolveCallSiteModel("vision");
+  if (callSiteModel != null && doesSupportVision(callSiteModel)) {
+    priced.push({
+      candidate: {
+        overrideProfile: null,
+        label: `call-site default (${callSiteModel})`,
+      },
+      price: getModelInputTokenPrice(callSiteModel),
+    });
+  }
+
   for (const profile of getModelProfiles()) {
     if (profile.isDisabled) {
       continue;
     }
     if (doesSupportVision(profile)) {
-      visionProfileKeys.push(profile.key);
+      priced.push({
+        candidate: { overrideProfile: profile.key, label: profile.key },
+        price: getProfileInputTokenPrice(profile.key),
+      });
     }
   }
-  return rankByInputPrice(visionProfileKeys);
-}
 
-/**
- * Order profile keys by resolved input-token price ascending. `profileKeys`
- * arrives in picker order; unknown-price profiles rank after every priced
- * profile and, along with equal-priced ones, keep that incoming order. A list
- * of zero or one key is returned without pricing any profile, so single-profile
- * selection stays identical to picker order.
- */
-function rankByInputPrice(profileKeys: string[]): string[] {
-  if (profileKeys.length <= 1) {
-    return profileKeys;
-  }
-  return profileKeys
-    .map((key, index) => ({
-      key,
+  return priced
+    .map((entry, index) => ({
+      candidate: entry.candidate,
       index,
       // Unknown price sorts after every known price.
-      price: getProfileInputTokenPrice(key) ?? Number.POSITIVE_INFINITY,
+      price: entry.price ?? Number.POSITIVE_INFINITY,
     }))
     .sort((a, b) =>
       a.price !== b.price ? a.price - b.price : a.index - b.index,
     )
-    .map((entry) => entry.key);
+    .map((entry) => entry.candidate);
 }
 
 /**
- * Build a sweep-scoped {@link VisionProviderResolver} over the ranked vision
- * profiles. Construct one per hook invocation and thread it through the sweep;
- * its memoization keeps provider resolution to at most once per sweep, however
- * many images the sweep captions.
+ * The `getConfiguredProvider` opts a candidate resolves with. A profile
+ * candidate floats its pinned profile above the call-site layers; the call-site
+ * default candidate passes no override so the resolver's own chain (the shipped
+ * model pin, or a workspace/BYOK override) selects the model.
+ */
+function candidateProviderOpts(candidate: VisionCandidate) {
+  return candidate.overrideProfile != null
+    ? { overrideProfile: candidate.overrideProfile, forceOverrideProfile: true }
+    : {};
+}
+
+/**
+ * Build a sweep-scoped {@link VisionProviderResolver} over the ranked caption
+ * candidates. Construct one per hook invocation and thread it through the
+ * sweep; its memoization keeps provider resolution to at most once per sweep,
+ * however many images the sweep captions.
  */
 export function createVisionProviderResolver(
   logger: PluginLogger,
 ): VisionProviderResolver {
-  const rankedKeys = rankVisionProfiles();
+  const candidates = buildVisionCandidates();
   let pending: Promise<ResolvedVisionProvider | null> | undefined;
 
   const attempt = async (): Promise<ResolvedVisionProvider | null> => {
-    for (const profileKey of rankedKeys) {
+    for (const candidate of candidates) {
       try {
-        const provider = await getConfiguredProvider("vision", {
-          overrideProfile: profileKey,
-          forceOverrideProfile: true,
-        });
+        const provider = await getConfiguredProvider(
+          "vision",
+          candidateProviderOpts(candidate),
+        );
         if (provider) {
-          return { profileKey, provider };
+          return { candidate, provider };
         }
       } catch (err) {
         // A hard config error (missing/mismatched `provider_connection`) throws
         // rather than resolving `null`. Treat it exactly like a `null`
         // resolution: log it and fall through to the next ranked candidate so
-        // one broken profile can't sink captioning for the whole sweep. This
+        // one broken candidate can't sink captioning for the whole sweep. This
         // also keeps the memoized promise from caching a rejection.
         logger.warn(
           {
             plugin: "image-fallback",
-            profileKey,
+            candidate: candidate.label,
             err: err instanceof Error ? err.message : String(err),
           },
           "Vision provider candidate threw during resolution; trying next",
         );
       }
     }
-    if (rankedKeys.length > 0) {
+    if (candidates.length > 0) {
       logger.warn(
-        { plugin: "image-fallback", candidates: rankedKeys.length },
-        "No vision provider resolved for captioning across ranked profiles",
+        { plugin: "image-fallback", candidates: candidates.length },
+        "No vision provider resolved for captioning across ranked candidates",
       );
     }
     return null;
   };
 
   return {
-    hasCandidates: () => rankedKeys.length > 0,
+    hasCandidates: () => candidates.length > 0,
     // Memoize the in-flight promise so the whole sweep shares one resolution.
     resolve: () => (pending ??= attempt()),
   };
@@ -212,7 +253,7 @@ export async function captionImage(
   if (!visionProvider) {
     return null;
   }
-  const { profileKey, provider } = visionProvider;
+  const { candidate, provider } = visionProvider;
 
   try {
     const response = await provider.sendMessage(
@@ -227,8 +268,10 @@ export async function captionImage(
         config: {
           callSite: "vision",
           conversationId,
-          overrideProfile: profileKey,
-          forceOverrideProfile: true,
+          // Dispatch on the same target the candidate resolved: a profile
+          // candidate re-pins its profile; the call-site default passes no
+          // override so the resolver's chain selects the model.
+          ...candidateProviderOpts(candidate),
           tool_choice: { type: "none" },
         },
         signal: AbortSignal.timeout(CAPTION_TIMEOUT_MS),

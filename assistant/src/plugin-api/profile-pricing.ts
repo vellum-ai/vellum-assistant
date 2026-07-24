@@ -33,3 +33,18 @@ export function getProfileInputTokenPrice(
   }
   return resolveEntryCatalogModel(entry)?.pricing?.inputPer1mTokens ?? null;
 }
+
+/**
+ * The catalog input-token price (USD per 1M tokens) of a concrete model id, or
+ * `null` when the catalog doesn't know the model or carries no pricing for it.
+ *
+ * The provider is inferred from the catalog (a model id carries the same price
+ * under every provider that offers it). A caller ranking a call site's resolved
+ * model against profile prices — e.g. the image-fallback plugin pricing the
+ * `vision` call-site default alongside its vision profiles — reads it here so a
+ * bare model and a profile rank on the same scale. Callers ranking by cost
+ * treat `null` as "rank last".
+ */
+export function getModelInputTokenPrice(model: string): number | null {
+  return resolveEntryCatalogModel({ model })?.pricing?.inputPer1mTokens ?? null;
+}

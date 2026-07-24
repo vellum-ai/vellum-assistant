@@ -162,7 +162,19 @@ export { doesSupportVision } from "./vision-support.js";
 // "mix" profile with no single model. A plugin choosing among routing-eligible
 // profiles by cost (e.g. the cheapest vision-capable profile for image
 // captioning) ranks on this instead of hardcoding model names.
-export { getProfileInputTokenPrice } from "./profile-pricing.js";
+// `getModelInputTokenPrice` is the bare-model-id variant, so a call site's
+// resolved model and a profile rank on one scale.
+export {
+  getModelInputTokenPrice,
+  getProfileInputTokenPrice,
+} from "./profile-pricing.js";
+// Resolve the concrete model a call site runs with no per-turn override — the
+// model `getConfiguredProvider(callSite)` dispatches to, accounting for
+// workspace `llm.callSites` overrides and the BYOK default provider. A plugin
+// pricing or capability-checking a call site's default target (e.g. ranking the
+// `vision` call-site default against vision profiles) reads it instead of
+// assuming the shipped pin. Returns null when resolution fails.
+export { resolveCallSiteModel } from "./call-site-model.js";
 // Resolve a stored credential to its plaintext value — the same value
 // `assistant credentials reveal` prints — from a UUID or a "service/field"
 // reference. When a plugin is in context, resolution is scoped to credentials
