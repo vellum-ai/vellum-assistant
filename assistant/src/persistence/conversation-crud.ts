@@ -1781,6 +1781,28 @@ export function deleteConversation(id: string): DeletedMemoryIds {
   deleteRequestLogsForConversation(id);
   deletePendingTelemetryEventsForConversation(id);
 
+  // Collect the conversation's segment ids from the memory connection BEFORE the
+  // delete: the startup orphan sweep purges memory_segments whose conversation_id
+  // no longer exists, so reading after the conversation row is gone could race
+  // it and return nothing (losing the Qdrant purge). Best-effort — a missing or
+  // locked memory database yields no ids and must not abort the delete.
+  const memoryDb = getMemoryDb();
+  if (memoryDb) {
+    try {
+      result.segmentIds = memoryDb
+        .select({ id: memorySegments.id })
+        .from(memorySegments)
+        .where(eq(memorySegments.conversationId, id))
+        .all()
+        .map((r) => r.id);
+    } catch (err) {
+      log.warn(
+        { err, conversationId: id },
+        "Failed to read memory segments for deleted conversation; continuing",
+      );
+    }
+  }
+
   db.transaction((tx) => {
     // memory_segments no longer cascades from messages/conversations — it lives
     // on the memory connection now and is purged by the conversation-deleted
@@ -1792,20 +1814,11 @@ export function deleteConversation(id: string): DeletedMemoryIds {
     tx.delete(conversations).where(eq(conversations.id, id)).run();
   });
 
-  // Clean up the moved segment/embedding tables on the memory connection, after
-  // the main delete succeeds and before the conversation-deleted hook purges the
-  // segment rows. Collect the segment ids (keyed by conversation_id) for the
-  // caller's Qdrant vector purge, then delete their embeddings. Best-effort: a
-  // missing memory database no-ops, mirroring the cross-file split elsewhere.
-  const memoryDb = getMemoryDb();
-  if (memoryDb) {
-    result.segmentIds = memoryDb
-      .select({ id: memorySegments.id })
-      .from(memorySegments)
-      .where(eq(memorySegments.conversationId, id))
-      .all()
-      .map((r) => r.id);
-    if (result.segmentIds.length > 0) {
+  // Delete the segment embeddings on the memory connection after the main delete
+  // succeeds. Best-effort — a memory-DB failure must not abort the disk cleanup
+  // and conversation-deleted hook below.
+  if (memoryDb && result.segmentIds.length > 0) {
+    try {
       memoryDb
         .delete(memoryEmbeddings)
         .where(
@@ -1815,6 +1828,11 @@ export function deleteConversation(id: string): DeletedMemoryIds {
           ),
         )
         .run();
+    } catch (err) {
+      log.warn(
+        { err, conversationId: id },
+        "Failed to delete segment embeddings for deleted conversation; continuing",
+      );
     }
   }
 
@@ -1885,14 +1903,21 @@ export async function deleteConversationGently(
   // conversation-deleted hook; their embeddings are deleted after the main
   // delete below. Best-effort: a missing memory database yields no ids.
   const memoryDb = getMemoryDb();
-  result.segmentIds = memoryDb
-    ? memoryDb
+  if (memoryDb) {
+    try {
+      result.segmentIds = memoryDb
         .select({ id: memorySegments.id })
         .from(memorySegments)
         .where(eq(memorySegments.conversationId, id))
         .all()
-        .map((r) => r.id)
-    : [];
+        .map((r) => r.id);
+    } catch (err) {
+      log.warn(
+        { err, conversationId: id },
+        "Failed to read memory segments for deleted conversation; continuing",
+      );
+    }
+  }
 
   // Pending telemetry_events rows live in the dedicated telemetry connection;
   // delete them (by conversation_id, regardless of event name) before ANY
@@ -1954,17 +1979,25 @@ export async function deleteConversationGently(
 
   // Delete the segment embeddings on the memory connection (memory_embeddings is
   // not FK-linked to segments, so nothing cascades them). Best-effort, after the
-  // main delete succeeds.
+  // main delete succeeds — a memory-DB failure must not abort the hook/disk
+  // cleanup below.
   if (memoryDb && result.segmentIds.length > 0) {
-    memoryDb
-      .delete(memoryEmbeddings)
-      .where(
-        and(
-          eq(memoryEmbeddings.targetType, "segment"),
-          inArray(memoryEmbeddings.targetId, result.segmentIds),
-        ),
-      )
-      .run();
+    try {
+      memoryDb
+        .delete(memoryEmbeddings)
+        .where(
+          and(
+            eq(memoryEmbeddings.targetType, "segment"),
+            inArray(memoryEmbeddings.targetId, result.segmentIds),
+          ),
+        )
+        .run();
+    } catch (err) {
+      log.warn(
+        { err, conversationId: id },
+        "Failed to delete segment embeddings for deleted conversation; continuing",
+      );
+    }
   }
 
   // Remove the conversation's disk-view directory after the DB transaction.
@@ -3277,6 +3310,45 @@ export function deleteLastExchange(conversationId: string): number {
           .filter((id): id is string => id != null)
       : [];
 
+  // The undone messages' segments live on the memory connection, so the message
+  // delete no longer cascades them and the conversation-keyed purge does not
+  // apply (the conversation survives). Delete them and their embeddings
+  // explicitly BEFORE the messages are removed: a crash between the two then
+  // leaves live messages whose segments re-index rather than orphaned segments
+  // for gone messages (no orphan-sweep backstop). Best-effort — a locked/missing
+  // memory database must not abort the undo.
+  const memoryDb = getMemoryDb();
+  if (memoryDb && messageIds.length > 0) {
+    try {
+      const segmentIds = memoryDb
+        .select({ id: memorySegments.id })
+        .from(memorySegments)
+        .where(inArray(memorySegments.messageId, messageIds))
+        .all()
+        .map((r) => r.id);
+      if (segmentIds.length > 0) {
+        memoryDb
+          .delete(memoryEmbeddings)
+          .where(
+            and(
+              eq(memoryEmbeddings.targetType, "segment"),
+              inArray(memoryEmbeddings.targetId, segmentIds),
+            ),
+          )
+          .run();
+      }
+      memoryDb
+        .delete(memorySegments)
+        .where(inArray(memorySegments.messageId, messageIds))
+        .run();
+    } catch (err) {
+      log.warn(
+        { err, conversationId },
+        "Failed to clean up memory segments for undone messages; continuing",
+      );
+    }
+  }
+
   db.transaction((tx) => {
     tx.delete(messages).where(condition).run();
     const maxResult = tx
@@ -3292,35 +3364,6 @@ export function deleteLastExchange(conversationId: string): number {
       .where(eq(conversations.id, conversationId))
       .run();
   });
-
-  // The undone messages' segments moved to the memory connection, so the message
-  // cascade no longer removes them and the conversation-keyed purge does not
-  // apply (the conversation survives). Delete the segments and their embeddings
-  // explicitly — the sole cleanup for these message-scoped rows. Best-effort.
-  const memoryDb = getMemoryDb();
-  if (memoryDb && messageIds.length > 0) {
-    const segmentIds = memoryDb
-      .select({ id: memorySegments.id })
-      .from(memorySegments)
-      .where(inArray(memorySegments.messageId, messageIds))
-      .all()
-      .map((r) => r.id);
-    memoryDb
-      .delete(memorySegments)
-      .where(inArray(memorySegments.messageId, messageIds))
-      .run();
-    if (segmentIds.length > 0) {
-      memoryDb
-        .delete(memoryEmbeddings)
-        .where(
-          and(
-            eq(memoryEmbeddings.targetType, "segment"),
-            inArray(memoryEmbeddings.targetId, segmentIds),
-          ),
-        )
-        .run();
-    }
-  }
 
   deleteOrphanAttachments(candidateAttachmentIds);
 
@@ -3571,18 +3614,41 @@ export function deleteMessageById(messageId: string): DeletedMemoryIds {
 
   // memory_segments and memory_embeddings live on the memory connection now.
   // Deleting one message leaves its conversation alive, so the conversation-
-  // keyed purge never reclaims these rows — collect the segment ids first, then
-  // delete the segments and their embeddings explicitly below. This explicit
-  // delete is the sole cleanup for message-scoped segments (no orphan-sweep
-  // backstop). Best-effort: a missing memory database yields no ids and no-ops.
+  // keyed purge never reclaims these rows — this explicit delete is their sole
+  // cleanup (no orphan-sweep backstop). Run it BEFORE the message row is
+  // removed: a crash between the two then leaves a live message whose segments
+  // simply re-index, rather than orphaned segments for a message that is gone.
+  // Best-effort: a missing or locked memory database must not abort the delete.
   const memoryDb = getMemoryDb();
   if (memoryDb) {
-    result.segmentIds = memoryDb
-      .select({ id: memorySegments.id })
-      .from(memorySegments)
-      .where(eq(memorySegments.messageId, messageId))
-      .all()
-      .map((r) => r.id);
+    try {
+      result.segmentIds = memoryDb
+        .select({ id: memorySegments.id })
+        .from(memorySegments)
+        .where(eq(memorySegments.messageId, messageId))
+        .all()
+        .map((r) => r.id);
+      if (result.segmentIds.length > 0) {
+        memoryDb
+          .delete(memoryEmbeddings)
+          .where(
+            and(
+              eq(memoryEmbeddings.targetType, "segment"),
+              inArray(memoryEmbeddings.targetId, result.segmentIds),
+            ),
+          )
+          .run();
+      }
+      memoryDb
+        .delete(memorySegments)
+        .where(eq(memorySegments.messageId, messageId))
+        .run();
+    } catch (err) {
+      log.warn(
+        { err, messageId },
+        "Failed to clean up memory segments for deleted message; continuing",
+      );
+    }
   }
 
   db.transaction((tx) => {
@@ -3593,7 +3659,7 @@ export function deleteMessageById(messageId: string): DeletedMemoryIds {
       .run();
 
     // NOT NULL cascades remove message_attachments (memory_segments moved to the
-    // memory connection and is deleted explicitly below).
+    // memory connection and was deleted above).
     tx.delete(messages).where(eq(messages.id, messageId)).run();
 
     // Recalculate lastMessageAt after deletion.
@@ -3611,25 +3677,6 @@ export function deleteMessageById(messageId: string): DeletedMemoryIds {
         .run();
     }
   });
-
-  // Delete this message's segments and their embeddings on the memory connection.
-  if (memoryDb) {
-    memoryDb
-      .delete(memorySegments)
-      .where(eq(memorySegments.messageId, messageId))
-      .run();
-    if (result.segmentIds.length > 0) {
-      memoryDb
-        .delete(memoryEmbeddings)
-        .where(
-          and(
-            eq(memoryEmbeddings.targetType, "segment"),
-            inArray(memoryEmbeddings.targetId, result.segmentIds),
-          ),
-        )
-        .run();
-    }
-  }
 
   deleteOrphanAttachments(candidateAttachmentIds);
 
