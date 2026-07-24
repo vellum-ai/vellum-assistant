@@ -254,6 +254,18 @@ export class OpenAIResponsesProvider implements Provider {
         );
       }
 
+      // A per-conversation prompt-cache key gives OpenAI's cache router a
+      // stable affinity key so a conversation's requests land on the same
+      // cache shard. Every model on the direct API receives it — both
+      // breakpoint-capable models (which additionally opt into explicit mode
+      // below) and implicit-mode models, which carry no explicit breakpoints
+      // yet still gain prefix-cache routing affinity from a stable key. The
+      // Codex subscription endpoint rejects extra params, so it is skipped
+      // there.
+      if (!this.codexSubscription && promptCacheKey) {
+        params.prompt_cache_key = promptCacheKey;
+      }
+
       // Explicit prompt-cache mode (GPT-5.6+ semantics, direct API only).
       // Explicit mode disables the implicit latest-message breakpoint — under
       // implicit mode a volatile latest user message (mutableLatestUserMessage)
@@ -264,15 +276,12 @@ export class OpenAIResponsesProvider implements Provider {
       // breakpoints neither uses the cache nor incurs cache-write charges,
       // which is exactly the opt-out `disableCache` wants (omitting the param
       // would re-enable implicit mode). The Codex subscription endpoint
-      // rejects extra params, so cache params are skipped entirely there.
+      // rejects extra params, so these params are skipped entirely there.
       if (
         !this.codexSubscription &&
         PROMPT_CACHE_BREAKPOINT_MODEL_IDS.has(effectiveModel)
       ) {
         params.prompt_cache_options = { mode: "explicit" };
-        if (promptCacheKey) {
-          params.prompt_cache_key = promptCacheKey;
-        }
         if (!disableCache) {
           this.applyPromptCacheBreakpoints(input, {
             mutableLatestUserMessage,
