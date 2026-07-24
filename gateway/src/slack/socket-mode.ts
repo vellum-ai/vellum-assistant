@@ -20,6 +20,7 @@ import {
 } from "./slack-web.js";
 import { isSlackDmChannel } from "./channel.js";
 import { parseSlackEnvelope } from "./envelope.js";
+import type { SlackEnvelopePayload } from "./envelope.js";
 import { slackEventOrderingKey } from "./event-ordering.js";
 import { slackEventText } from "./event-text.js";
 import { stampSlackEventTeam } from "./event-team.js";
@@ -757,7 +758,7 @@ export class SlackSocketModeClient {
 
     // Handle interactive payloads (block_actions from Block Kit buttons)
     if (envelope.type === "interactive") {
-      this.handleInteractive(envelope.payload);
+      this.handleInteractive(envelope.payload, envelope.envelope_id);
       return;
     }
 
@@ -1545,17 +1546,21 @@ export class SlackSocketModeClient {
     return true;
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private handleInteractive(payload: Record<string, any> | undefined): void {
+  private handleInteractive(
+    payload: SlackEnvelopePayload | undefined,
+    envelopeId: string | undefined,
+  ): void {
     if (!payload) return;
 
     // Only handle block_actions (from Block Kit buttons)
     if (payload.type !== "block_actions") return;
 
-    // First try to normalize as a channel-scoped block_actions event
+    // The envelope id lives on the envelope wrapper, not the interaction
+    // payload; thread it through as the update id so block_actions correlate
+    // with their frame instead of always falling back to "unknown".
     const normalized = normalizeSlackBlockActions(
       payload,
-      payload.envelope_id ?? "unknown",
+      envelopeId ?? "unknown",
       this.config.gatewayConfig,
     );
     if (normalized) {
