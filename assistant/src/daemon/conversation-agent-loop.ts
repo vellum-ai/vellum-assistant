@@ -596,6 +596,9 @@ export async function runAgentLoopImpl(
 
   ctx.lastAssistantAttachments = [];
   ctx.lastAttachmentWarnings = [];
+  // Cleared per run so a reused subagent conversation (a queued follow-up turn)
+  // doesn't inherit the prior run's iteration-budget verdict.
+  ctx.lastRunIterationBudgetReached = false;
 
   startToolProfilingRequest(ctx.conversationId);
   let turnStarted = false;
@@ -1008,6 +1011,16 @@ export async function runAgentLoopImpl(
     const eventHandler = (event: AgentEvent): Promise<void> => {
       if (
         event.type === "agent_loop_exit" &&
+        event.reason === "iteration_budget_reached"
+      ) {
+        // The subagent run hit its per-run LLM-call cap. Flag it on the
+        // conversation so the subagent manager attaches a truncation notice to
+        // the parent-facing terminal message after the run resolves; still
+        // dispatch below so the DB row is stamped with the exit reason.
+        ctx.lastRunIterationBudgetReached = true;
+      }
+      if (
+        event.type === "agent_loop_exit" &&
         (event.reason === "context_too_large" ||
           event.reason === "budget_yield_unrecovered")
       ) {
@@ -1053,6 +1066,20 @@ export async function runAgentLoopImpl(
     const loopTrust =
       ctx.currentTurnTrustContext ?? ctx.trustContext ?? FALLBACK_TURN_TRUST;
 
+    // Per-run iteration budget, applied only to subagent spawns — the
+    // unattended runs whose tool-use loop can iterate LLM calls without a human
+    // in the loop. `subagentSpawn` is the exclusive call site for those runs
+    // (`resolveTurnCallSite` keeps subagent conversations on it), so gating here
+    // leaves interactive `mainAgent` turns and other background call sites
+    // (heartbeat, memory consolidation) uncapped.
+    const subagentIterationBudget =
+      turnCallSite === "subagentSpawn"
+        ? {
+            softNudgeAtCalls: config.subagent.softNudgeAtCalls,
+            maxCallsPerRun: config.subagent.maxCallsPerRun,
+          }
+        : undefined;
+
     /**
      * Shared closure: runs the agent loop with the wrapper's turn context and
      * maps the loop's returned checkpoint pause-reason into the wrapper's yield
@@ -1085,6 +1112,9 @@ export async function runAgentLoopImpl(
           isNonInteractive,
           modelProfileKey,
           latencyTracker,
+          ...(subagentIterationBudget
+            ? { iterationBudget: subagentIterationBudget }
+            : {}),
           ...(ctx.modelOverride ? { model: ctx.modelOverride } : {}),
         }),
         abortController.signal,

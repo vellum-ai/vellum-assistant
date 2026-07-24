@@ -623,6 +623,17 @@ interface AgentLoopRunOptionsBase {
     mark(name: string): void;
     markFirstToken(kind: "thinking" | "text"): void;
   };
+  /**
+   * Per-run LLM-call governor for unattended runs (subagent spawns). When set,
+   * the loop injects a one-time wrap-up nudge into the history once
+   * `softNudgeAtCalls` provider calls have been made, and stops the run
+   * gracefully with the {@link AgentLoopExitReason} `iteration_budget_reached`
+   * once `maxCallsPerRun` calls have been made. It is a cost backstop: a run
+   * that never stops re-reads its full accumulated context on every late call,
+   * so cost grows super-linearly. Omitted for interactive turns, which stay
+   * uncapped.
+   */
+  iterationBudget?: { softNudgeAtCalls: number; maxCallsPerRun: number };
 }
 
 interface AgentLoopRunOptionsWithContextWindow extends AgentLoopRunOptionsBase {
@@ -708,6 +719,28 @@ function deferredForExclusiveMessage(exclusiveToolName: string): string {
     `(not run: \`${exclusiveToolName}\` was called this turn and runs first, on its own, ` +
     `so the rest of your tool calls were held back. Read its output, then call this tool ` +
     `again if it is still the right next step.)`
+  );
+}
+
+/**
+ * One-time wrap-up directive appended to a tool-result message once a run has
+ * used most of its per-run iteration budget (see
+ * {@link AgentLoopRunOptionsBase.iterationBudget}). Phrased as a system
+ * directive so the model treats it as a hard signal to stop exploring and
+ * return its best final answer before the hard cap ends the run.
+ */
+function iterationBudgetNudgeMessage(
+  callsSoFar: number,
+  maxCallsPerRun: number,
+): string {
+  return (
+    "⎯⎯⎯ ITERATION BUDGET NOTICE ⎯⎯⎯\n" +
+    `You have made ${callsSoFar} tool-use iterations on this task and are approaching ` +
+    `the hard limit of ${maxCallsPerRun}. Stop exploring now and return your best final ` +
+    "answer with what you have gathered so far. If the task is genuinely incomplete, say " +
+    "so explicitly and summarize your progress and what remains, so it can be continued in " +
+    "a fresh run.\n" +
+    "⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯"
   );
 }
 
@@ -1021,6 +1054,21 @@ export class AgentLoop {
     let toolUseTurns = 0;
     let postModelCallContinues = 0;
     let lastLlmCallTime = 0;
+    // Per-run LLM-call governor (subagent spawns). `llmCallCount` counts every
+    // provider call attempted this run; the hard cap ends the run before the
+    // (maxCallsPerRun + 1)th call, and the soft nudge fires once. Both are inert
+    // when `options.iterationBudget` is absent (interactive turns).
+    const iterationBudget = options.iterationBudget;
+    let llmCallCount = 0;
+    let iterationBudgetNudged = false;
+    // Set at a retry/repair re-entry (overflow reduction, post-model-call
+    // repair, or a discarded-reply re-query) to mark that the NEXT iteration is
+    // recovering a provider call already counted this run — its `llm_call_started`
+    // reservation is still pending, not finalized. The hard cap consults it so it
+    // never truncates recovery of an already-started call: the cap bounds NEW
+    // work, so a pending retry runs to completion (or surfaces its failure)
+    // first. Consumed (reset) at the top of every iteration.
+    let pendingProviderCallRetry = false;
     let exitReason: ExitReason | null = null;
     // Armed at the end of a tool-use iteration so the budget gate runs at the
     // top of the NEXT iteration — before that iteration's provider call —
@@ -1153,6 +1201,50 @@ export class AgentLoop {
     while (true) {
       if (signal?.aborted) {
         await stopTurn("aborted_pre_call");
+        break;
+      }
+
+      // Consume the retry marker for this iteration. When set, the previous
+      // provider call failed (or its reply was discarded) on a retryable path
+      // and this trip is its recovery — its reserved assistant row is still
+      // pending. Reset before the cap check so the flag suspends the cap for
+      // exactly this one recovery iteration.
+      const retryingPreviousCall = pendingProviderCallRetry;
+      pendingProviderCallRetry = false;
+
+      // ── Iteration-budget hard cap ─────────────────────────────────
+      // A subagent run that has already made `maxCallsPerRun` provider calls
+      // stops here — before issuing another — so cost is bounded. The prior
+      // iteration's assistant output is already in `history`; the run ends as a
+      // normal completion (`iteration_budget_reached`), and the parent-facing
+      // truncation notice is attached by the subagent manager off this exit
+      // reason. Inert when no budget is configured (interactive turns).
+      //
+      // The cap bounds NEW work only. A retry/repair re-entry
+      // (`retryingPreviousCall`) is recovering a call already counted this run
+      // whose `llm_call_started` row is still pending — the overflow reduction
+      // ladder, a post-model-call history repair, or a discarded-reply re-query.
+      // Stopping here would strand that empty row and swallow the provider's real
+      // error as a clean `iteration_budget_reached`. So a pending retry always
+      // runs first: it either completes (finalizing the row) and lets a later
+      // clean boundary trip the cap, or surfaces its failure as the failure it
+      // is. That retry may push `llmCallCount` one past the cap; accepting one
+      // extra call is the cost of never truncating recovery of an already-started
+      // call, and the retry mechanisms carry their own independent ceilings.
+      if (
+        iterationBudget &&
+        llmCallCount >= iterationBudget.maxCallsPerRun &&
+        !retryingPreviousCall
+      ) {
+        rlog.warn(
+          {
+            turn: toolUseTurns,
+            llmCallCount,
+            maxCallsPerRun: iterationBudget.maxCallsPerRun,
+          },
+          "Iteration budget reached — stopping the run gracefully",
+        );
+        await stopTurn("iteration_budget_reached");
         break;
       }
 
@@ -1687,6 +1779,10 @@ export class AgentLoop {
         // Latency: the request is about to leave for the provider. The span
         // from here to the first streamed token is time-to-first-token.
         latencyTracker?.mark("request_sent");
+        // Count the call for the per-run iteration budget. Incremented at the
+        // send site so retries (overflow recovery, post-model-call re-query)
+        // each count as the real provider calls they are.
+        llmCallCount++;
         let response: ProviderResponse;
         try {
           response = await traceAsyncSection("agent-loop:provider-send", () =>
@@ -1997,6 +2093,10 @@ export class AgentLoop {
               "post-model-call requested a retry — re-querying the model",
             );
             history = postModelCallMessages;
+            // This re-query discards the reply without finalizing its reserved
+            // row, so the next trip is recovering an already-counted call — the
+            // hard cap must let it run rather than strand the empty row.
+            pendingProviderCallRetry = true;
             continue;
           } else {
             rlog.warn(
@@ -2302,6 +2402,34 @@ export class AgentLoop {
         // tool's actual result.
         resultBlocks.push(...additionalContextBlocks);
 
+        // ── Iteration-budget soft nudge ───────────────────────────────
+        // Once a subagent run crosses `softNudgeAtCalls`, append a one-time
+        // wrap-up directive to this tool-result message so the next provider
+        // call reads it inline and returns its best result before the hard cap
+        // ends the run. Fires exactly once per run; inert without a budget.
+        if (
+          iterationBudget &&
+          !iterationBudgetNudged &&
+          llmCallCount >= iterationBudget.softNudgeAtCalls
+        ) {
+          iterationBudgetNudged = true;
+          resultBlocks.push({
+            type: "text",
+            text: iterationBudgetNudgeMessage(
+              llmCallCount,
+              iterationBudget.maxCallsPerRun,
+            ),
+          });
+          rlog.info(
+            {
+              turn: toolUseTurns,
+              llmCallCount,
+              softNudgeAtCalls: iterationBudget.softNudgeAtCalls,
+            },
+            "Injected iteration-budget wrap-up nudge",
+          );
+        }
+
         // Add tool results as a user message and continue the loop.
         history.push({ role: "user", content: resultBlocks });
 
@@ -2403,6 +2531,10 @@ export class AgentLoop {
             isInteractive: !isNonInteractive,
           };
           budgetGateArmed = true;
+          // The provider rejected this call; the next trip reduces context and
+          // re-issues it. That is recovery of an already-counted call whose
+          // reserved row is still pending, so the hard cap must not truncate it.
+          pendingProviderCallRetry = true;
           rlog.warn(
             {
               turn: toolUseTurns,
@@ -2461,6 +2593,11 @@ export class AgentLoop {
             // onto the new array; the repaired history is the base the retry's
             // output appends after.
             newMessagesStart = history.length;
+            // The provider call failed and the hook repaired the history to
+            // re-issue it, so the next trip is recovering an already-counted
+            // call whose reserved row is still pending — the hard cap must let it
+            // run rather than convert the rejection into a clean budget stop.
+            pendingProviderCallRetry = true;
             continue;
           }
         }

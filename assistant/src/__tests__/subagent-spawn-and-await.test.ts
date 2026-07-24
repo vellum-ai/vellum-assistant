@@ -45,6 +45,11 @@ interface FakeConversationConfig {
    * captures partial trailing text.
    */
   onLoopStart?: () => void;
+  /**
+   * Sets `lastRunIterationBudgetReached` on the fake conversation, simulating a
+   * run that stopped by reaching its per-run LLM-call ceiling.
+   */
+  iterationBudgetReached?: boolean;
 }
 
 let nextConversationConfig: FakeConversationConfig = {};
@@ -63,6 +68,7 @@ class FakeConversation {
   subagentDeniedToolNames = new Set<string>();
   conversationType = "background";
   hasSystemPromptOverride = false;
+  lastRunIterationBudgetReached = false;
 
   private sendToClient: (msg: ServerMessage) => void;
   private readonly cfg: FakeConversationConfig;
@@ -80,6 +86,8 @@ class FakeConversation {
     this.sendToClient = sendToClient;
     this.cfg = nextConversationConfig;
     this.messages = this.cfg.messages ?? [];
+    this.lastRunIterationBudgetReached =
+      this.cfg.iterationBudgetReached ?? false;
   }
 
   updateClient(sendToClient: (msg: ServerMessage) => void) {
@@ -125,7 +133,9 @@ class FakeConversation {
           this.resolveAbort = resolve;
         });
       }
-      if (this.cfg.resolveOnAbort) return;
+      if (this.cfg.resolveOnAbort) {
+        return;
+      }
       throw new Error("aborted");
     }
     if (this.cfg.runError) {
@@ -465,6 +475,125 @@ describe("SubagentManager.spawnAndAwait", () => {
     await expect(manager.spawnAndAwait(makeConfig(), () => {})).rejects.toThrow(
       "boom",
     );
+  });
+
+  test("appends a truncation notice when a synchronous run hits its iteration budget", async () => {
+    // The synchronous caller (advisor consult, voice continuation) receives the
+    // child's text directly with no parent-injected notification, so the
+    // truncation must ride along on the returned string or it is lost entirely.
+    nextConversationConfig = {
+      iterationBudgetReached: true,
+      messages: [
+        {
+          role: "assistant",
+          content: [{ type: "text", text: "partial answer" }],
+        },
+      ],
+    };
+
+    const manager = new SubagentManager();
+    const text = await manager.spawnAndAwait(makeConfig(), () => {});
+
+    // The best-available text is still returned...
+    expect(text).toContain("partial answer");
+    // ...but the caller is told the run stopped early and may be incomplete.
+    expect(text).toContain("reached its iteration budget");
+    expect(text).toContain("may be incomplete");
+  });
+
+  test("inlines the final tool output for a capped synchronous run (not just the stale preamble)", async () => {
+    // A capped run breaks the loop right after appending the final iteration's
+    // tool results, so the trailing assistant text is only the pre-tool
+    // preamble. The last real work lives in the trailing tool-result message —
+    // the async path recovers it via the read pointer, but the synchronous
+    // caller has no such round-trip, so it must ride along on the returned text.
+    nextConversationConfig = {
+      iterationBudgetReached: true,
+      messages: [
+        {
+          role: "assistant",
+          content: [
+            { type: "text", text: "I'll inspect the logs next" },
+            { type: "tool_use", id: "t1", name: "read_file", input: {} },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "t1",
+              content: "LOG LINE: the last real work the subagent did",
+              is_error: false,
+            },
+          ],
+        },
+      ],
+    };
+
+    const manager = new SubagentManager();
+    const text = await manager.spawnAndAwait(makeConfig(), () => {});
+
+    // The final iteration's tool output — the run's last real work — is present.
+    expect(text).toContain("LOG LINE: the last real work the subagent did");
+    // The preamble is preserved alongside it, not presented as the whole result.
+    expect(text).toContain("I'll inspect the logs next");
+    // And the caller is told the run stopped early and may be incomplete.
+    expect(text).toContain("reached its iteration budget");
+    expect(text).toContain("may be incomplete");
+  });
+
+  test("bounds an oversized inlined tool output on the synchronous capped path", async () => {
+    const big = "X".repeat(5_000);
+    nextConversationConfig = {
+      iterationBudgetReached: true,
+      messages: [
+        {
+          role: "assistant",
+          content: [
+            { type: "text", text: "preamble" },
+            { type: "tool_use", id: "t1", name: "read_file", input: {} },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "t1",
+              content: big,
+              is_error: false,
+            },
+          ],
+        },
+      ],
+    };
+
+    const manager = new SubagentManager();
+    const text = await manager.spawnAndAwait(makeConfig(), () => {});
+
+    // Bounded to the 4000-char head; the wording reports the truncation honestly.
+    expect(text).toContain("truncated to the first 4000 characters");
+    expect(text).toContain("X".repeat(4_000));
+    expect(text).not.toContain("X".repeat(4_001));
+    expect(text).toContain("reached its iteration budget");
+  });
+
+  test("returns the final text unchanged when a synchronous run stays within budget", async () => {
+    nextConversationConfig = {
+      messages: [
+        {
+          role: "assistant",
+          content: [{ type: "text", text: "clean answer" }],
+        },
+      ],
+    };
+
+    const manager = new SubagentManager();
+    const text = await manager.spawnAndAwait(makeConfig(), () => {});
+
+    // Uncapped runs are byte-identical — no truncation note is appended.
+    expect(text).toBe("clean answer");
   });
 });
 
