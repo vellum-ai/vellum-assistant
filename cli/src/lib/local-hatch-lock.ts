@@ -10,7 +10,7 @@ import {
   utimesSync,
   writeFileSync,
 } from "fs";
-import { tmpdir } from "os";
+import { hostname, userInfo } from "os";
 import { dirname, join } from "path";
 
 const DEFAULT_TIMEOUT_MS = 240_000;
@@ -37,11 +37,19 @@ interface LockSnapshot {
   signature: string;
 }
 
-function defaultLockPath(): string {
-  const uid = typeof process.getuid === "function" ? process.getuid() : "user";
-  const lockDir = join(tmpdir(), `vellum-${uid}`);
-  mkdirSync(lockDir, { recursive: true, mode: 0o700 });
-  return join(lockDir, "local-hatch.lock");
+export function resolveLocalHatchLockPath(): string {
+  const machineKey = createHash("sha256")
+    .update(hostname())
+    .digest("hex")
+    .slice(0, 12);
+  return join(
+    userInfo().homedir,
+    ".cache",
+    "vellum",
+    "runtime",
+    machineKey,
+    "local-hatch.lock",
+  );
 }
 
 function processIsAlive(pid: number): boolean {
@@ -132,15 +140,16 @@ function ownerIsActive(
   if (!processIsAlive(owner.pid)) {
     return false;
   }
-  if (ageMs !== undefined && ageMs < MAX_LOCK_AGE_MS) {
-    expiredLiveOwners.delete(owner.token);
-    return true;
-  }
   if (owner.processStartedAt) {
     const currentStartedAt = processStartedAt(owner.pid);
     if (currentStartedAt) {
+      expiredLiveOwners.delete(owner.token);
       return currentStartedAt === owner.processStartedAt;
     }
+  }
+  if (ageMs !== undefined && ageMs < MAX_LOCK_AGE_MS) {
+    expiredLiveOwners.delete(owner.token);
+    return true;
   }
 
   const firstExpiredAt = expiredLiveOwners.get(owner.token) ?? Date.now();
@@ -266,7 +275,7 @@ export async function withLocalHatchLock<T>(
   action: () => Promise<T>,
   options: LocalHatchLockOptions = {},
 ): Promise<T> {
-  const lockPath = options.lockPath ?? defaultLockPath();
+  const lockPath = options.lockPath ?? resolveLocalHatchLockPath();
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const retryMs = options.retryMs ?? DEFAULT_RETRY_MS;
   const liveOwnerRecoveryGraceMs =

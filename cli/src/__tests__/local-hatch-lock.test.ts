@@ -3,7 +3,10 @@ import { existsSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
-import { withLocalHatchLock } from "../lib/local-hatch-lock.js";
+import {
+  resolveLocalHatchLockPath,
+  withLocalHatchLock,
+} from "../lib/local-hatch-lock.js";
 
 const tempDirs: string[] = [];
 
@@ -20,6 +23,30 @@ function makeLockPath(): string {
 }
 
 describe("withLocalHatchLock", () => {
+  test("uses the same machine lock when callers have different temp directories", () => {
+    const originalTmpDir = process.env.TMPDIR;
+    const firstTmpDir = mkdtempSync(join(tmpdir(), "vellum-tmp-a-"));
+    const secondTmpDir = mkdtempSync(join(tmpdir(), "vellum-tmp-b-"));
+    tempDirs.push(firstTmpDir, secondTmpDir);
+
+    try {
+      process.env.TMPDIR = firstTmpDir;
+      const firstPath = resolveLocalHatchLockPath();
+      process.env.TMPDIR = secondTmpDir;
+      const secondPath = resolveLocalHatchLockPath();
+
+      expect(secondPath).toBe(firstPath);
+      expect(firstPath.startsWith(firstTmpDir)).toBe(false);
+      expect(firstPath.startsWith(secondTmpDir)).toBe(false);
+    } finally {
+      if (originalTmpDir === undefined) {
+        delete process.env.TMPDIR;
+      } else {
+        process.env.TMPDIR = originalTmpDir;
+      }
+    }
+  });
+
   test("serializes startup work that shares the machine-wide lock", async () => {
     const lockPath = makeLockPath();
     let releaseFirst!: () => void;
@@ -90,6 +117,27 @@ describe("withLocalHatchLock", () => {
     const result = await withLocalHatchLock(async () => "started", {
       lockPath,
       liveOwnerRecoveryGraceMs: 0,
+      timeoutMs: 1_000,
+      retryMs: 5,
+    });
+
+    expect(result).toBe("started");
+    expect(existsSync(lockPath)).toBe(false);
+  });
+
+  test("recovers a fresh lock when its PID has been reused", async () => {
+    const lockPath = makeLockPath();
+    writeFileSync(
+      lockPath,
+      JSON.stringify({
+        pid: process.pid,
+        processStartedAt: "not-the-current-process",
+        token: "fresh-reused-pid-owner",
+      }) + "\n",
+    );
+
+    const result = await withLocalHatchLock(async () => "started", {
+      lockPath,
       timeoutMs: 1_000,
       retryMs: 5,
     });
