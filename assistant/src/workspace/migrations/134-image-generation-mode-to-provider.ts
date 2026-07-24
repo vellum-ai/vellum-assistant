@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import type { WorkspaceMigration } from "./types.js";
@@ -62,7 +62,12 @@ export const imageGenerationModeToProviderMigration: WorkspaceMigration = {
     }
     delete service.mode;
 
-    writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
+    // Write-then-rename keeps the migration rerunnable: a crash mid-write
+    // must not leave a truncated config.json that a retry reads as malformed
+    // and "completes" past, quarantining the user's unrelated settings.
+    const tmpPath = `${configPath}.tmp`;
+    writeFileSync(tmpPath, JSON.stringify(config, null, 2) + "\n");
+    renameSync(tmpPath, configPath);
   },
   down(workspaceDir: string): void {
     const configPath = join(workspaceDir, "config.json");
@@ -98,7 +103,12 @@ export const imageGenerationModeToProviderMigration: WorkspaceMigration = {
     // model prefix, so it re-derives on the next model write.
     service.mode = service.provider === "vellum" ? "managed" : "your-own";
 
-    writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
+    // Write-then-rename keeps the migration rerunnable: a crash mid-write
+    // must not leave a truncated config.json that a retry reads as malformed
+    // and "completes" past, quarantining the user's unrelated settings.
+    const tmpPath = `${configPath}.tmp`;
+    writeFileSync(tmpPath, JSON.stringify(config, null, 2) + "\n");
+    renameSync(tmpPath, configPath);
   },
 };
 
