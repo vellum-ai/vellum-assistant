@@ -325,6 +325,36 @@ describe("ImageGenerationCard — provider-only configuration", () => {
     expect(provisionedKeys).toEqual([{ provider: "gemini", key: "gm-secret" }]);
   });
 
+  test("a stale stored model reconciles with no daemon config at all", async () => {
+    // The narrowest variant: no daemon data, provider falls back to the
+    // localStorage default (gemini) while the stored model is a gpt one.
+    // The derived reconciliation must still gate the save and the key
+    // provisioning — never a gemini provider with an openai model/key.
+    localStorage.setItem("vellum:ai:imageGenModel", "gpt-image-2");
+    daemonConfigData = { services: {} };
+    renderCard();
+
+    expect(trigger("Image generation provider").textContent).toContain(
+      "Gemini",
+    );
+    expect(trigger("Image generation model").textContent).toContain(
+      "Nano Banana 2",
+    );
+
+    const keyInput = screen.getByPlaceholderText("Enter your Gemini API key");
+    fireEvent.change(keyInput, { target: { value: "gm-secret" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(modelPutCalls.length).toBe(1));
+    expect(modelPutCalls[0]!.body).toMatchObject({
+      modelId: "gemini-3.1-flash-image-preview",
+    });
+    expect(provisionedKeys).toEqual([{ provider: "gemini", key: "gm-secret" }]);
+    expect(localStorage.getItem("vellum:ai:imageGenModel")).toBe(
+      "gemini-3.1-flash-image-preview",
+    );
+  });
+
   test("a daemon predating the vellum provider gets the legacy managed write", async () => {
     // Old daemon schemas reject provider "vellum" outright; the Vellum
     // selection degrades to the legacy mode-only representation the read
