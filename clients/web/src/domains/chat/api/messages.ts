@@ -301,21 +301,33 @@ export const RECONCILE_LATEST_PAGE_LIMIT = 50;
  * of the full conversation. Reconciliation and seq probes use this: they only
  * read the tail and `seq`, both of which the `page=latest` response carries
  * (the daemon emits `seq`/`processing` on the paginated path identically to the
- * full-snapshot path). Omit it — as the inspector does — to download every
- * message, which the inspector genuinely needs to enumerate the conversation.
+ * full-snapshot path). Pass `attachmentContent: "metadata"` only for assistants
+ * that support metadata-only history; omitting it preserves the legacy inline
+ * payload used by inspector/export callers. The optional signal cancels an
+ * obsolete request when its reconciliation scope changes.
  */
 export async function fetchConversationMessages(
   assistantId: string,
   conversationId: string,
-  options?: { latestPageLimit?: number },
+  options?: {
+    latestPageLimit?: number;
+    attachmentContent?: "metadata";
+    signal?: AbortSignal;
+  },
 ): Promise<MessagesGetResponse | undefined> {
-  const query: NonNullable<MessagesGetData["query"]> =
-    options?.latestPageLimit != null
-      ? { conversationId, page: "latest", limit: options.latestPageLimit }
-      : { conversationId };
+  const query: NonNullable<MessagesGetData["query"]> = {
+    conversationId,
+    ...(options?.latestPageLimit != null
+      ? { page: "latest", limit: options.latestPageLimit }
+      : {}),
+    ...(options?.attachmentContent === "metadata"
+      ? { attachmentContent: "metadata" as const }
+      : {}),
+  };
   const { data, error, response } = await messagesGet({
     path: { assistant_id: assistantId },
     query,
+    signal: options?.signal,
     throwOnError: false,
   });
   assertHasResponse(response, error, "Failed to fetch conversation messages");

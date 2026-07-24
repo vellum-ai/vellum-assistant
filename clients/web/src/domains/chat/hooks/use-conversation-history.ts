@@ -38,7 +38,10 @@ import { recordLocalSeq } from "@/lib/streaming/local-seq";
 import { getSeqGeneration } from "@/lib/streaming/reconnect-cursor";
 import { anchorColdStartReplay } from "@/lib/streaming/cold-anchor";
 import { useConversationStore } from "@/stores/conversation-store";
-import { useProgressiveAttachmentLoadingPolicy } from "@/lib/backwards-compat/use-supports-progressive-attachment-loading";
+import {
+  type ProgressiveAttachmentLoadingPolicy,
+  useProgressiveAttachmentLoadingPolicy,
+} from "@/lib/backwards-compat/use-supports-progressive-attachment-loading";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useBackgroundTaskStore } from "@/domains/chat/background-task-store";
@@ -76,6 +79,7 @@ interface UseConversationHistoryParams {
 
 export interface ConversationHistoryResult {
   pagination: HistoryPaginationResult;
+  progressiveAttachmentLoadingPolicy: ProgressiveAttachmentLoadingPolicy;
 }
 
 type HistoryCache = InfiniteData<PaginatedHistoryResult>;
@@ -510,5 +514,5 @@ export function useConversationHistory({
     }
   }, [pagination.isError, pagination.isSuccess, pagination.error, setIsLoadingHistory, setError]);
 
-  return { pagination };
+  return { pagination, progressiveAttachmentLoadingPolicy };
 }

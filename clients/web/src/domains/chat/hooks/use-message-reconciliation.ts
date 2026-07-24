@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
 
 import * as Sentry from "@sentry/react";
 
@@ -29,13 +29,32 @@ import {
 import type { ConversationMessage } from "@vellumai/assistant-api";
 import { useConversationStore } from "@/stores/conversation-store";
 import { endTurn } from "@/domains/chat/turn-coordinator";
+import type { ProgressiveAttachmentLoadingPolicy } from "@/lib/backwards-compat/use-supports-progressive-attachment-loading";
 
 const RECONCILE_DELAY_MS = 5000;
 const RECONCILE_MAX_MS = 60_000;
 const RECONCILE_STABLE_COUNT = 2;
 
+function isCurrentReconciliationScope(
+  assistantId: string,
+  conversationId: string,
+  epoch: number,
+): boolean {
+  const streamState = useStreamStore.getState();
+  const streamContext = streamState.streamContext;
+  return (
+    streamState.streamEpoch === epoch &&
+    streamContext?.assistantId === assistantId &&
+    streamContext.conversationId === conversationId &&
+    useConversationStore.getState().activeConversationId === conversationId
+  );
+}
+
 interface UseMessageReconciliationArgs {
+  assistantId: string | null;
+  activeConversationId: string | null;
   latestPageOldestTimestamp: number | null;
+  progressiveAttachmentLoadingPolicy: ProgressiveAttachmentLoadingPolicy;
 }
 
 /** Result of reconciling the active conversation against the server. */
@@ -69,7 +88,10 @@ interface UseMessageReconciliationReturn {
 }
 
 export function useMessageReconciliation({
+  assistantId,
+  activeConversationId,
   latestPageOldestTimestamp,
+  progressiveAttachmentLoadingPolicy,
 }: UseMessageReconciliationArgs): UseMessageReconciliationReturn {
   const initialPageOldestTsRef = useRef<number | null>(latestPageOldestTimestamp);
   useLayoutEffect(() => {
@@ -77,18 +99,59 @@ export function useMessageReconciliation({
   }, [latestPageOldestTimestamp]);
   const queryClient = useQueryClient();
   const reconcileTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const activeFetchControllerRef = useRef<AbortController | null>(null);
+  const pollFetchControllerRef = useRef<AbortController | null>(null);
 
-  const cancelReconciliation = useCallback(() => {
-    // Below-floor only. The poll loop is the sole thing that arms a timer,
-    // and it runs only below the events-tail floor. At/above the floor
-    // there is no loop, so the cancel is fully off.
-    if (supportsEventsTail()) return;
+  const cancelPolling = useCallback(() => {
+    let cancelled = false;
     if (reconcileTimerRef.current) {
       clearTimeout(reconcileTimerRef.current);
       reconcileTimerRef.current = null;
+      cancelled = true;
+    }
+    if (pollFetchControllerRef.current) {
+      pollFetchControllerRef.current.abort();
+      pollFetchControllerRef.current = null;
+      cancelled = true;
+    }
+    if (cancelled) {
       recordDiagnostic("reconciliation_loop_cancelled", {});
     }
   }, []);
+
+  const cancelReconciliation = useCallback(() => {
+    cancelPolling();
+    if (activeFetchControllerRef.current) {
+      activeFetchControllerRef.current.abort();
+      activeFetchControllerRef.current = null;
+    }
+  }, [cancelPolling]);
+
+  useEffect(() => {
+    if (!assistantId || !activeConversationId) {
+      cancelReconciliation();
+      return;
+    }
+
+    let currentEpoch = useStreamStore.getState().streamEpoch;
+    const unsubscribe = useStreamStore.subscribe((state) => {
+      if (state.streamEpoch === currentEpoch) {
+        return;
+      }
+      currentEpoch = state.streamEpoch;
+      cancelReconciliation();
+    });
+
+    return () => {
+      unsubscribe();
+      cancelReconciliation();
+    };
+  }, [
+    assistantId,
+    activeConversationId,
+    progressiveAttachmentLoadingPolicy,
+    cancelReconciliation,
+  ]);
 
   // The transcript the user currently sees: the materialized snapshot overlaid
   // with the client's optimistic sends — the same union `useTranscriptMessages`
@@ -328,7 +391,19 @@ export function useMessageReconciliation({
       };
       const streamState = useStreamStore.getState();
       const ctx = streamState.streamContext;
-      if (!ctx) return empty;
+      if (
+        !ctx ||
+        ctx.assistantId !== assistantId ||
+        ctx.conversationId !== activeConversationId ||
+        progressiveAttachmentLoadingPolicy === "pending"
+      ) {
+        cancelReconciliation();
+        return empty;
+      }
+
+      activeFetchControllerRef.current?.abort();
+      const controller = new AbortController();
+      activeFetchControllerRef.current = controller;
 
       // Snapshot the turn identity before the async fetch so the
       // POLL_RECONCILED dispatch is scoped to THIS turn. If the user
@@ -346,15 +421,32 @@ export function useMessageReconciliation({
         const snapshot = await fetchConversationMessages(
           ctx.assistantId,
           ctx.conversationId,
-          { latestPageLimit: RECONCILE_LATEST_PAGE_LIMIT },
+          {
+            latestPageLimit: RECONCILE_LATEST_PAGE_LIMIT,
+            ...(progressiveAttachmentLoadingPolicy === "metadata"
+              ? { attachmentContent: "metadata" as const }
+              : {}),
+            signal: controller.signal,
+          },
         );
+        if (controller.signal.aborted) {
+          return empty;
+        }
         const serverMessages = snapshot?.messages ?? [];
         const serverSeq = snapshot?.seq ?? null;
         const serverProcessing = snapshot?.processing;
-        if (useConversationStore.getState().activeConversationId !== ctx.conversationId) return empty;
         // If the epoch changed during the fetch (e.g. page went hidden
-        // and back), this reconciliation is stale — bail out.
-        if (useStreamStore.getState().streamEpoch !== snapshotEpoch) return empty;
+        // and back), or the active stream scope changed, this reconciliation
+        // is stale — bail out.
+        if (
+          !isCurrentReconciliationScope(
+            ctx.assistantId,
+            ctx.conversationId,
+            snapshotEpoch,
+          )
+        ) {
+          return empty;
+        }
         // Pair the snapshot with the daemon's buffered event tail above its
         // anchor BEFORE reconciling: the reconcile invalidates history, and
         // the reseed replay reads the client event ring — priming it first
@@ -366,8 +458,18 @@ export function useMessageReconciliation({
           ctx.conversationId,
           serverSeq,
         );
-        if (useConversationStore.getState().activeConversationId !== ctx.conversationId) return empty;
-        if (useStreamStore.getState().streamEpoch !== snapshotEpoch) return empty;
+        if (controller.signal.aborted) {
+          return empty;
+        }
+        if (
+          !isCurrentReconciliationScope(
+            ctx.assistantId,
+            ctx.conversationId,
+            snapshotEpoch,
+          )
+        ) {
+          return empty;
+        }
         recordDiagnostic("reconciliation_active_fetch", {
           assistantId: ctx.assistantId,
           conversationId: ctx.conversationId,
@@ -385,6 +487,9 @@ export function useMessageReconciliation({
           issuedGeneration,
         );
       } catch (err) {
+        if (controller.signal.aborted) {
+          return empty;
+        }
         // Re-throw so callers that await the result (e.g. the
         // reconnect-recovery reconcile in reconcile-on-reopen) can
         // distinguish "fetch succeeded, nothing new" from "fetch failed."
@@ -395,11 +500,20 @@ export function useMessageReconciliation({
           epoch: snapshotEpoch,
         });
         throw err;
+      } finally {
+        if (activeFetchControllerRef.current === controller) {
+          activeFetchControllerRef.current = null;
+        }
       }
     },
     [
-    reconcileFetchedMessages,
-  ]);
+      assistantId,
+      activeConversationId,
+      progressiveAttachmentLoadingPolicy,
+      reconcileFetchedMessages,
+      cancelReconciliation,
+    ],
+  );
 
   const startReconciliationLoop = useCallback(
     (epoch: number) => {
@@ -411,9 +525,16 @@ export function useMessageReconciliation({
       // and the callers' invocations become no-ops there. Below the floor
       // the daemon doesn't serve the endpoint, so the poll-until-stable
       // loop is retained to wait out the partial-persist debounce.
-      if (supportsEventsTail()) return;
+      if (supportsEventsTail()) {
+        cancelPolling();
+        return;
+      }
+      if (progressiveAttachmentLoadingPolicy === "pending") {
+        cancelPolling();
+        return;
+      }
 
-      cancelReconciliation();
+      cancelPolling();
       recordDiagnostic("reconciliation_loop_start", { epoch });
 
       const startTime = Date.now();
@@ -422,10 +543,17 @@ export function useMessageReconciliation({
       const tick = () => {
         reconcileTimerRef.current = null;
         const ctx = useStreamStore.getState().streamContext;
-        if (!ctx || epoch !== useStreamStore.getState().streamEpoch) {
+        const scopeChanged =
+          !ctx ||
+          ctx.assistantId !== assistantId ||
+          ctx.conversationId !== activeConversationId;
+        if (
+          scopeChanged ||
+          epoch !== useStreamStore.getState().streamEpoch
+        ) {
           recordDiagnostic("reconciliation_loop_finish", {
             epoch,
-            reason: !ctx ? "no_context" : "epoch_changed",
+            reason: scopeChanged ? "scope_changed" : "epoch_changed",
             stableCount,
             elapsedMs: Date.now() - startTime,
           });
@@ -444,12 +572,32 @@ export function useMessageReconciliation({
         // Issue-time generation (see `reconcileActiveConversation`): a reset
         // mid-fetch makes this snapshot's watermark a dead-generation anchor.
         const issuedGeneration = getSeqGeneration();
+        const controller = new AbortController();
+        pollFetchControllerRef.current = controller;
 
         fetchConversationMessages(ctx.assistantId, ctx.conversationId, {
           latestPageLimit: RECONCILE_LATEST_PAGE_LIMIT,
+          ...(progressiveAttachmentLoadingPolicy === "metadata"
+            ? { attachmentContent: "metadata" as const }
+            : {}),
+          signal: controller.signal,
         })
           .then((snapshot) => {
-            if (epoch !== useStreamStore.getState().streamEpoch) return;
+            if (pollFetchControllerRef.current === controller) {
+              pollFetchControllerRef.current = null;
+            }
+            if (controller.signal.aborted) {
+              return;
+            }
+            if (
+              !isCurrentReconciliationScope(
+                ctx.assistantId,
+                ctx.conversationId,
+                epoch,
+              )
+            ) {
+              return;
+            }
             const serverMessages = snapshot?.messages ?? [];
             const serverSeq = snapshot?.seq ?? null;
             const serverProcessing = snapshot?.processing;
@@ -488,10 +636,16 @@ export function useMessageReconciliation({
               });
               return;
             }
-            if (epoch !== useStreamStore.getState().streamEpoch) {
+            if (
+              !isCurrentReconciliationScope(
+                ctx.assistantId,
+                ctx.conversationId,
+                epoch,
+              )
+            ) {
               recordDiagnostic("reconciliation_loop_finish", {
                 epoch,
-                reason: "epoch_changed_post_fetch",
+                reason: "scope_changed_post_fetch",
                 stableCount,
                 elapsedMs: Date.now() - startTime,
               });
@@ -500,10 +654,22 @@ export function useMessageReconciliation({
             reconcileTimerRef.current = setTimeout(tick, RECONCILE_DELAY_MS);
           })
           .catch(() => {
-            if (epoch !== useStreamStore.getState().streamEpoch) {
+            if (pollFetchControllerRef.current === controller) {
+              pollFetchControllerRef.current = null;
+            }
+            if (controller.signal.aborted) {
+              return;
+            }
+            if (
+              !isCurrentReconciliationScope(
+                ctx.assistantId,
+                ctx.conversationId,
+                epoch,
+              )
+            ) {
               recordDiagnostic("reconciliation_loop_finish", {
                 epoch,
-                reason: "epoch_changed_post_error",
+                reason: "scope_changed_post_error",
                 stableCount,
                 elapsedMs: Date.now() - startTime,
               });
@@ -521,7 +687,13 @@ export function useMessageReconciliation({
 
       reconcileTimerRef.current = setTimeout(tick, RECONCILE_DELAY_MS);
     },
-    [cancelReconciliation, reconcileFetchedMessages],
+    [
+      cancelPolling,
+      assistantId,
+      activeConversationId,
+      progressiveAttachmentLoadingPolicy,
+      reconcileFetchedMessages,
+    ],
   );
 
   return {
