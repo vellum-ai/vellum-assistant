@@ -90,6 +90,7 @@ function parsePaginatedResponse(
 async function fetchPaginatedHistory(
   assistantId: string,
   query: HistoryQuery,
+  signal?: AbortSignal,
 ): Promise<PaginatedHistoryResult> {
   // Capture the seq generation at request-ISSUE time: if the daemon's counter
   // resets while this fetch is in flight, the watermark it returns belongs to
@@ -100,6 +101,7 @@ async function fetchPaginatedHistory(
   const { data, error, response } = await messagesGet({
     path: { assistant_id: assistantId },
     query,
+    signal,
     throwOnError: false,
   });
 
@@ -145,12 +147,17 @@ export async function fetchLatestHistoryPage(
   assistantId: string,
   conversationId: string,
   limit: number = DEFAULT_LATEST_LIMIT,
+  signal?: AbortSignal,
 ): Promise<PaginatedHistoryResult> {
-  return fetchPaginatedHistory(assistantId, {
-    conversationId,
-    page: "latest",
-    limit,
-  });
+  return fetchPaginatedHistory(
+    assistantId,
+    {
+      conversationId,
+      page: "latest",
+      limit,
+    },
+    signal,
+  );
 }
 
 /**
@@ -164,10 +171,15 @@ export async function fetchOlderHistoryPage(
   conversationId: string,
   beforeTimestamp: number,
   limit: number = DEFAULT_OLDER_LIMIT,
+  signal?: AbortSignal,
 ): Promise<PaginatedHistoryResult> {
-  return fetchPaginatedHistory(assistantId, {
-    conversationId,
-    beforeTimestamp,
-    limit,
-  });
+  return fetchPaginatedHistory(
+    assistantId,
+    {
+      conversationId,
+      beforeTimestamp,
+      limit,
+    },
+    signal,
+  );
 }

@@ -160,15 +160,21 @@ export function useHistoryPagination({
       if (!assistantId || !conversationId) {
         throw new Error("Missing assistantId or conversationId");
       }
-      void signal; // AbortController signal available for future use
       if (pageParam != null) {
         return fetchOlderHistoryPage(
           assistantId,
           conversationId,
           pageParam,
+          undefined,
+          signal,
         );
       }
-      return fetchLatestHistoryPage(assistantId, conversationId);
+      return fetchLatestHistoryPage(
+        assistantId,
+        conversationId,
+        undefined,
+        signal,
+      );
     },
     initialPageParam: null as number | null,
     getNextPageParam: (lastPage): number | undefined => {
