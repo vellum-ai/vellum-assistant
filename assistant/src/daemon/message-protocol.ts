@@ -1,15 +1,13 @@
 /**
  * Message Protocol -- message types and serialization.
  *
- * All message types are defined in domain files under ./message-types/.
- * Each domain file exports `_<Domain>ClientMessages` and/or
- * `_<Domain>ServerMessages` type aliases. This file composes those
- * into the aggregate ClientMessage and ServerMessage unions.
+ * Client message types are defined in domain files under ./message-types/;
+ * each exports a `_<Domain>ClientMessages` alias that this file composes into
+ * the aggregate `ClientMessage` union.
  *
- * To add a new message type:
- *   1. Define its interface in the appropriate domain file.
- *   2. Add it to that file's _<Domain>ClientMessages or _<Domain>ServerMessages.
- * No changes needed here unless you're adding an entirely new domain file.
+ * The server->client union `ServerMessage` is single-sourced from the canonical
+ * `AssistantEventSchema` in `../api` -- `ServerMessage` is `z.infer` of that
+ * schema, so every hub-published event type appears in it automatically.
  */
 
 // Re-export domain modules (all individual types remain importable)
@@ -46,53 +44,14 @@ export * from "./message-types/web-activity.js";
 export * from "./message-types/workflows.js";
 export * from "./message-types/workspace.js";
 
-// Import domain-level union aliases for composition
-import type { DiskPressureStatusChangedEvent } from "../api/events/disk-pressure-status-changed.js";
-import type { HookEvent } from "../api/events/hook-event.js";
-import type { SubagentEventEvent } from "../api/events/subagent-event.js";
-import type { _AcpServerMessages } from "./message-types/acp.js";
-import type { _AppsServerMessages } from "./message-types/apps.js";
-import type { _BackgroundToolsServerMessages } from "./message-types/background-tools.js";
-import type { _BookmarksServerMessages } from "./message-types/bookmarks.js";
-import type {
-  _ComputerUseClientMessages,
-  _ComputerUseServerMessages,
-} from "./message-types/computer-use.js";
-import type { _ContactsServerMessages } from "./message-types/contacts.js";
-import type { _ConversationsServerMessages } from "./message-types/conversations.js";
+// Canonical server->client event union.
+import type { AssistantEvent } from "../api/index.js";
+// Client-message domain aliases for the ClientMessage union.
+import type { _ComputerUseClientMessages } from "./message-types/computer-use.js";
 import type { _DiagnosticsClientMessages } from "./message-types/diagnostics.js";
-import type { _DocumentCommentsServerMessages } from "./message-types/document-comments.js";
-import type { _DocumentsServerMessages } from "./message-types/documents.js";
-import type { _HomeServerMessages } from "./message-types/home.js";
-import type { _HostAppControlServerMessages } from "./message-types/host-app-control.js";
-import type { _HostBashServerMessages } from "./message-types/host-bash.js";
-import type {
-  _HostBrowserClientMessages,
-  _HostBrowserServerMessages,
-} from "./message-types/host-browser.js";
-import type { _HostCuServerMessages } from "./message-types/host-cu.js";
-import type { _HostFileServerMessages } from "./message-types/host-file.js";
-import type { _HostTransferServerMessages } from "./message-types/host-transfer.js";
-import type { _HostUiSnapshotServerMessages } from "./message-types/host-ui-snapshot.js";
-import type { _IntegrationsServerMessages } from "./message-types/integrations.js";
-import type { _MemoryServerMessages } from "./message-types/memory.js";
-import type {
-  _MessagesClientMessages,
-  _MessagesServerMessages,
-} from "./message-types/messages.js";
-import type {
-  _NotificationsClientMessages,
-  _NotificationsServerMessages,
-} from "./message-types/notifications.js";
-import type { _SchedulesServerMessages } from "./message-types/schedules.js";
-import type { _SettingsServerMessages } from "./message-types/settings.js";
-import type { _SkillsServerMessages } from "./message-types/skills.js";
-import type { _SubagentsServerMessages } from "./message-types/subagents.js";
-import type { _SurfacesServerMessages } from "./message-types/surfaces.js";
-import type { _SyncInvalidationServerMessages } from "./message-types/sync.js";
-import type { _UpgradesServerMessages } from "./message-types/upgrades.js";
-import type { _WorkflowsServerMessages } from "./message-types/workflows.js";
-import type { _WorkspaceServerMessages } from "./message-types/workspace.js";
+import type { _HostBrowserClientMessages } from "./message-types/host-browser.js";
+import type { _MessagesClientMessages } from "./message-types/messages.js";
+import type { _NotificationsClientMessages } from "./message-types/notifications.js";
 
 // === Client -> Server aggregate union ===
 
@@ -105,44 +64,9 @@ export type ClientMessage =
 
 // === Server -> Client aggregate union ===
 
-export type ServerMessage =
-  | _ConversationsServerMessages
-  | _MessagesServerMessages
-  | _SurfacesServerMessages
-  | _SkillsServerMessages
-  | _AppsServerMessages
-  | _IntegrationsServerMessages
-  | _ComputerUseServerMessages
-  | _ContactsServerMessages
-  | _SubagentsServerMessages
-  | _DocumentsServerMessages
-  | _DocumentCommentsServerMessages
-  | _SyncInvalidationServerMessages
-  | _HomeServerMessages
-  | _HostAppControlServerMessages
-  | _HostBashServerMessages
-  | _HostBrowserServerMessages
-  | _HostCuServerMessages
-  | _HostFileServerMessages
-  | _HostTransferServerMessages
-  | _HostUiSnapshotServerMessages
-  | _MemoryServerMessages
-  | _WorkspaceServerMessages
-  | _SchedulesServerMessages
-  | _SettingsServerMessages
-  | _NotificationsServerMessages
-  | _UpgradesServerMessages
-  | _AcpServerMessages
-  | _BackgroundToolsServerMessages
-  | _BookmarksServerMessages
-  | _WorkflowsServerMessages
-  | DiskPressureStatusChangedEvent
-  | HookEvent
-  | SubagentEventEvent;
-
-// === Contract schema ===
-
-export interface ContractSchema {
-  client: ClientMessage;
-  server: ServerMessage;
-}
+/**
+ * Every message the daemon can send to a client. Single-sourced from the
+ * canonical `AssistantEventSchema` (`z.infer`), so this stays in lock-step
+ * with the published wire contract.
+ */
+export type ServerMessage = AssistantEvent;
