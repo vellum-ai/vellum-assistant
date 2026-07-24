@@ -456,7 +456,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
 
   test("strips ttl from a caller's block cache_control and omits the beta for Haiku", async () => {
     // The haiku family rejects the extended-cache-ttl beta and a custom cache
-    // `ttl` with a 400 (PR #25302), so a caller-stamped 1h ttl on a message
+    // `ttl` with a 400, so a caller-stamped 1h ttl on a message
     // block must be stripped and the beta omitted before sending. This is
     // load-bearing for the memoryV3SelectL2 selector pin: the selector stamps a
     // 1h breakpoint on its card-corpus prefix but runs a pinned haiku model
