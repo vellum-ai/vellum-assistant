@@ -152,29 +152,36 @@ export { pluginAssistantEventHub as assistantEventHub } from "./event-hub-facade
 export { getModelProfiles } from "./model-profiles.js";
 // Check whether a model or profile can process image input. Accepts a concrete
 // model id, a profile key, or a `ModelProfileInfo`; a bare string is resolved
-// as a model id first and then as a profile key. Profile resolution merges over
-// the workspace default and infers the provider for model-only profiles, then
-// looks up the model catalog's `supportsVision` flag (mix profiles are
-// vision-capable if any arm is). Returns false when nothing resolves.
+// as a model id first and then as a profile key. For a concrete model id, an
+// optional resolved provider selects the provider-specific catalog entry (a
+// model can support vision under one provider and not another). Profile
+// resolution merges over the workspace default and infers the provider for
+// model-only profiles, then looks up the model catalog's `supportsVision` flag
+// (mix profiles are vision-capable if any arm is). Returns false when nothing
+// resolves.
 export { doesSupportVision } from "./vision-support.js";
 // Input-token price (USD per 1M tokens) of the model a profile resolves to, or
 // null when unknown — an unresolvable profile, an unpriced catalog model, or a
 // "mix" profile with no single model. A plugin choosing among routing-eligible
 // profiles by cost (e.g. the cheapest vision-capable profile for image
 // captioning) ranks on this instead of hardcoding model names.
-// `getModelInputTokenPrice` is the bare-model-id variant, so a call site's
-// resolved model and a profile rank on one scale.
+// `getModelInputTokenPrice` is the bare-model-id variant; an optional resolved
+// provider prices the provider-specific catalog entry (the same model id can
+// cost differently under different providers), so a call site's resolved model
+// and a profile rank on one scale.
 export {
   getModelInputTokenPrice,
   getProfileInputTokenPrice,
 } from "./profile-pricing.js";
-// Resolve the concrete model a call site runs with no per-turn override — the
-// model `getConfiguredProvider(callSite)` dispatches to, accounting for
-// workspace `llm.callSites` overrides and the BYOK default provider. A plugin
-// pricing or capability-checking a call site's default target (e.g. ranking the
-// `vision` call-site default against vision profiles) reads it instead of
-// assuming the shipped pin. Returns null when resolution fails.
-export { resolveCallSiteModel } from "./call-site-model.js";
+// Resolve the concrete `(provider, model)` a call site runs with no per-turn
+// override — what `getConfiguredProvider(callSite)` dispatches to, accounting
+// for workspace `llm.callSites` overrides and the BYOK default provider. A
+// plugin pricing or capability-checking a call site's default target (e.g.
+// ranking the `vision` call-site default against vision profiles) reads it
+// instead of assuming the shipped pin, and prices with the resolved provider so
+// a multi-provider model ranks by its real rate. Returns null when resolution
+// fails.
+export { type CallSiteModel, resolveCallSiteModel } from "./call-site-model.js";
 // Resolve a stored credential to its plaintext value — the same value
 // `assistant credentials reveal` prints — from a UUID or a "service/field"
 // reference. When a plugin is in context, resolution is scoped to credentials

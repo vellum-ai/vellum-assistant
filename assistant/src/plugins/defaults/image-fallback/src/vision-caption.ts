@@ -115,13 +115,22 @@ export function buildVisionCandidates(): VisionCandidate[] {
     [];
 
   const callSiteModel = resolveCallSiteModel("vision");
-  if (callSiteModel != null && doesSupportVision(callSiteModel)) {
+  if (
+    callSiteModel != null &&
+    doesSupportVision(callSiteModel.model, callSiteModel.provider)
+  ) {
     priced.push({
       candidate: {
         overrideProfile: null,
-        label: `call-site default (${callSiteModel})`,
+        label: `call-site default (${callSiteModel.model})`,
       },
-      price: getModelInputTokenPrice(callSiteModel),
+      // Price by the resolved provider: the same model id can carry different
+      // rates under different providers, so a multi-provider `vision` override
+      // must rank by the rate it will actually be billed at.
+      price: getModelInputTokenPrice(
+        callSiteModel.model,
+        callSiteModel.provider,
+      ),
     });
   }
 

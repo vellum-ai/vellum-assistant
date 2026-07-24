@@ -151,4 +151,29 @@ describe("getModelInputTokenPrice", () => {
   test("returns null for a model the catalog does not know", () => {
     expect(getModelInputTokenPrice("nonexistent-model")).toBeNull();
   });
+
+  test("prices a multi-provider model by the resolved provider's rate", () => {
+    // `moonshotai/kimi-k2.6` is offered by two providers at different input
+    // rates; the resolved provider decides which the caller is billed at.
+    expect(getModelInputTokenPrice("moonshotai/kimi-k2.6", "openrouter")).toBe(
+      0.6,
+    );
+    expect(
+      getModelInputTokenPrice("moonshotai/kimi-k2.6", "vercel-ai-gateway"),
+    ).toBe(0.95);
+  });
+
+  test("falls back to the first catalog provider's rate when provider is omitted", () => {
+    // No provider given → the first catalog provider that offers the model
+    // (openrouter) sets the rate.
+    expect(getModelInputTokenPrice("moonshotai/kimi-k2.6")).toBe(0.6);
+  });
+
+  test("falls back to the model-id-only rate for a provider that does not offer the model", () => {
+    // A provider the catalog doesn't offer this model under is ignored rather
+    // than resolving to null.
+    expect(
+      getModelInputTokenPrice("moonshotai/kimi-k2.6", "no-such-provider"),
+    ).toBe(0.6);
+  });
 });

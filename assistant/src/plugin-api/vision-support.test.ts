@@ -169,4 +169,20 @@ describe("doesSupportVision with a bare string", () => {
     setMockConfig({});
     expect(doesSupportVision("some-unknown-string")).toBe(false);
   });
+
+  test("checks the provider-scoped catalog entry when a provider is given", () => {
+    // `moonshotai/kimi-k2.6` is offered by two providers; both are
+    // vision-capable, so the provider-scoped entry answers true either way.
+    expect(doesSupportVision("moonshotai/kimi-k2.6", "vercel-ai-gateway")).toBe(
+      true,
+    );
+    expect(doesSupportVision("moonshotai/kimi-k2.6", "openrouter")).toBe(true);
+  });
+
+  test("falls back to the model-id-only entry for a provider that does not offer the model", () => {
+    // An unknown provider is ignored; the model-id-only catalog match decides.
+    expect(doesSupportVision("moonshotai/kimi-k2.6", "no-such-provider")).toBe(
+      true,
+    );
+  });
 });

@@ -18,7 +18,6 @@
 
 import { getEffectiveProfile } from "../config/default-profile-catalog.js";
 import { getConfig } from "../config/loader.js";
-import { PROVIDER_CATALOG } from "../providers/model-catalog.js";
 import { resolveEntryCatalogModel } from "./profile-catalog-resolution.js";
 import type { ModelProfileInfo } from "./types.js";
 
@@ -27,15 +26,22 @@ import type { ModelProfileInfo } from "./types.js";
  *
  * `modelOrProfile` may be a concrete model id, a profile key, or a
  * {@link ModelProfileInfo}. A bare string is resolved as a model id first and,
- * failing that, as a profile key. Returns `false` when nothing resolves.
+ * failing that, as a profile key. For a concrete model id, pass the resolved
+ * `provider` to read the provider-specific catalog entry — a model can support
+ * vision under one provider and not another. `provider` is ignored for a
+ * profile (a profile carries its own provider). Returns `false` when nothing
+ * resolves.
  */
 export function doesSupportVision(
   modelOrProfile: ModelProfileInfo | string,
+  provider?: string,
 ): boolean {
   if (typeof modelOrProfile === "string") {
     // Concrete model id first, then fall back to treating it as a profile key.
     return (
-      modelVision(modelOrProfile) ?? profileVision(modelOrProfile) ?? false
+      modelVision(modelOrProfile, provider) ??
+      profileVision(modelOrProfile) ??
+      false
     );
   }
   return profileVision(modelOrProfile.key) ?? false;
@@ -43,17 +49,24 @@ export function doesSupportVision(
 
 /**
  * Catalog vision flag for a concrete model id, or `undefined` when the catalog
- * doesn't know the model. The same model id carries the same capability under
- * every provider that offers it, so the first catalog match wins.
+ * doesn't know the model. When `provider` is given, the provider-specific
+ * catalog entry decides; when it is omitted, or the provider doesn't offer this
+ * model, the first catalog provider that offers the model wins. A routing
+ * identity (e.g. `vellum`) resolves through the model's catalog owner.
  */
-function modelVision(model: string): boolean | undefined {
-  for (const provider of PROVIDER_CATALOG) {
-    const catalogModel = provider.models.find((m) => m.id === model);
-    if (catalogModel != null) {
-      return catalogModel.supportsVision ?? false;
+function modelVision(model: string, provider?: string): boolean | undefined {
+  if (provider != null) {
+    const scoped = resolveEntryCatalogModel({ model, provider });
+    if (scoped != null) {
+      return scoped.supportsVision ?? false;
     }
+    // Provider unknown or doesn't offer this model — fall back to the
+    // model-id-only catalog match below.
   }
-  return undefined;
+  const catalogModel = resolveEntryCatalogModel({ model });
+  return catalogModel != null
+    ? (catalogModel.supportsVision ?? false)
+    : undefined;
 }
 
 /**

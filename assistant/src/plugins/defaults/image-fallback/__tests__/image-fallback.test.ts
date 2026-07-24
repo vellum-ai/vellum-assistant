@@ -35,11 +35,20 @@ let profilePrices: Map<string, number>;
 // The model the `vision` call site resolves to with no override — the shipped
 // call-site default captioner — or null when the test wants no call-site
 // default candidate. Its vision capability is read from `visionModels` and its
-// price from `modelPrices`.
+// price from `modelPricesByProvider` (keyed by the resolved provider) or, when
+// absent there, from `modelPrices`.
 let callSiteVisionModel: string | null;
+// The provider the `vision` call site resolves to alongside `callSiteVisionModel`.
+// Threaded into the provider-scoped price lookup so a multi-provider model ranks
+// by its resolved provider's rate.
+let callSiteVisionProvider: string;
 // Resolved input-token price ($/1M) per bare model id, for pricing the
 // call-site default candidate. A model absent from the map reads as unknown.
 let modelPrices: Map<string, number>;
+// Provider-scoped resolved input-token price ($/1M), keyed `"<provider>:<model>"`.
+// Consulted before `modelPrices` so a test can price the same model id
+// differently per provider (a multi-provider model).
+let modelPricesByProvider: Map<string, number>;
 let sendMessageResponse = {
   content: [{ type: "text", text: "A red chart showing Q3 revenue." }],
 };
@@ -84,8 +93,19 @@ function pluginApiExports(getConfiguredProvider: GetConfiguredProviderMock) {
       const key = typeof arg === "string" ? arg : arg.key;
       return profilePrices.get(key) ?? null;
     },
-    getModelInputTokenPrice: (model: string) => modelPrices.get(model) ?? null,
-    resolveCallSiteModel: () => callSiteVisionModel,
+    getModelInputTokenPrice: (model: string, provider?: string) => {
+      if (provider != null) {
+        const scoped = modelPricesByProvider.get(`${provider}:${model}`);
+        if (scoped != null) {
+          return scoped;
+        }
+      }
+      return modelPrices.get(model) ?? null;
+    },
+    resolveCallSiteModel: () =>
+      callSiteVisionModel == null
+        ? null
+        : { provider: callSiteVisionProvider, model: callSiteVisionModel },
     resolveMediaSourceData: mockResolveMediaSourceData,
     getConfiguredProvider,
     lastToolResultUserMessageIndex,
@@ -254,7 +274,9 @@ beforeEach(() => {
   profilePrices = new Map<string, number>();
   // No call-site default candidate by default; opt in per-test.
   callSiteVisionModel = null;
+  callSiteVisionProvider = "anthropic";
   modelPrices = new Map<string, number>();
+  modelPricesByProvider = new Map<string, number>();
   sendMessageResponse = {
     content: [{ type: "text", text: "A red chart showing Q3 revenue." }],
   };
@@ -627,6 +649,33 @@ describe("buildVisionCandidates", () => {
     modelPrices = new Map<string, number>([["haiku-model", 5]]);
     // Equal price: the call-site default leads on assembly order.
     expect(rankedOverrides()).toEqual([null, "tied-vision"]);
+  });
+
+  test("prices the call-site default by its resolved provider, flipping the rank for a multi-provider model", () => {
+    // A `vision` override resolves to a model two providers offer at different
+    // rates ($0.60 vs $0.95). The model-id-only rate ($0.60) would always rank
+    // the default ahead of the $0.80 profile — but the default must rank by the
+    // rate of the provider it actually resolves to.
+    mockProfiles = [profile("mid-vision", { label: "Mid" })];
+    visionProfiles = new Set(["mid-vision"]);
+    profilePrices = new Map<string, number>([["mid-vision", 0.8]]);
+    callSiteVisionModel = "multi-provider-model";
+    visionModels = new Set(["multi-provider-model"]);
+    // Model-id-only rate (the misleading cheap one) plus per-provider rates.
+    modelPrices = new Map<string, number>([["multi-provider-model", 0.6]]);
+    modelPricesByProvider = new Map<string, number>([
+      ["openrouter:multi-provider-model", 0.6],
+      ["vercel-ai-gateway:multi-provider-model", 0.95],
+    ]);
+
+    // Cheaper provider ($0.60 < $0.80): the call-site default leads.
+    callSiteVisionProvider = "openrouter";
+    expect(rankedOverrides()).toEqual([null, "mid-vision"]);
+
+    // Pricier provider ($0.95 > $0.80): the same model id now ranks behind the
+    // profile — the resolved provider's rate, not the model-id-only rate, wins.
+    callSiteVisionProvider = "vercel-ai-gateway";
+    expect(rankedOverrides()).toEqual(["mid-vision", null]);
   });
 });
 

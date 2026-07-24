@@ -38,13 +38,30 @@ export function getProfileInputTokenPrice(
  * The catalog input-token price (USD per 1M tokens) of a concrete model id, or
  * `null` when the catalog doesn't know the model or carries no pricing for it.
  *
- * The provider is inferred from the catalog (a model id carries the same price
- * under every provider that offers it). A caller ranking a call site's resolved
- * model against profile prices — e.g. the image-fallback plugin pricing the
- * `vision` call-site default alongside its vision profiles — reads it here so a
- * bare model and a profile rank on the same scale. Callers ranking by cost
- * treat `null` as "rank last".
+ * The same model id can carry different rates under different providers (e.g. a
+ * multi-provider model routed through two gateways), so pass the resolved
+ * `provider` to price the provider-specific catalog entry. When `provider` is
+ * omitted — or names a provider the catalog doesn't offer this model under —
+ * the price falls back to the model-id-only lookup (the first catalog provider
+ * that offers the model). A routing identity (e.g. `vellum`) resolves through
+ * the model's catalog owner.
+ *
+ * A caller ranking a call site's resolved model against profile prices — e.g.
+ * the image-fallback plugin pricing the `vision` call-site default alongside its
+ * vision profiles — reads it here so a bare model and a profile rank on the same
+ * scale. Callers ranking by cost treat `null` as "rank last".
  */
-export function getModelInputTokenPrice(model: string): number | null {
+export function getModelInputTokenPrice(
+  model: string,
+  provider?: string,
+): number | null {
+  if (provider != null) {
+    const scoped = resolveEntryCatalogModel({ model, provider });
+    if (scoped != null) {
+      return scoped.pricing?.inputPer1mTokens ?? null;
+    }
+    // The provider is unknown or doesn't offer this model — fall back to the
+    // model-id-only lookup below.
+  }
   return resolveEntryCatalogModel({ model })?.pricing?.inputPer1mTokens ?? null;
 }
