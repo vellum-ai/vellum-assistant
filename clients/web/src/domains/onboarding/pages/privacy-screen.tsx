@@ -75,12 +75,19 @@ export function PrivacyScreen() {
 
     // A pricing-CTA signup stashes its chosen package (see navigation-resolver
     // post-auth). With consent now recorded, resume checkout so payment happens
-    // after consent and before the assistant hatches. The checkout route owns
-    // the already-Pro case and re-stashes the intent, so leave the stash for its
-    // lifecycle to clear. Resuming only from this explicit Start click — never a
-    // render effect — keeps consent and checkout from looping.
+    // after consent and before the assistant hatches. Resume ONLY a
+    // signup-marked intent (`resumeAfterOnboarding`): an ordinary billing-surface
+    // stash (an abandoned CheckoutPage/takeover checkout) carries no marker, so
+    // it's ignored here and left untouched for its own flow — onboarding proceeds
+    // normally. The checkout route owns the already-Pro case and re-stashes the
+    // intent, so leave the marked stash for its lifecycle to clear. Resuming only
+    // from this explicit Start click — never a render effect — keeps consent and
+    // checkout from looping.
     const checkoutIntent = readCheckoutIntent();
-    if (checkoutIntent?.kind === "package") {
+    if (
+      checkoutIntent?.kind === "package" &&
+      checkoutIntent.resumeAfterOnboarding === true
+    ) {
       const params = new URLSearchParams({
         package: checkoutIntent.packageKey,
       });

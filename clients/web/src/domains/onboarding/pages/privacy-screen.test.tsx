@@ -186,11 +186,12 @@ describe("PrivacyScreen — Start navigation", () => {
     expect(navigateMock).toHaveBeenCalledWith(routes.onboarding.hatching);
   });
 
-  test("resumes checkout when a pending package intent is present", () => {
+  test("resumes checkout when a pending signup-marked package intent is present", () => {
     checkoutIntentValue = {
       kind: "package",
       packageKey: "super",
       savedAt: Date.now(),
+      resumeAfterOnboarding: true,
     };
     searchParamsValue = new URLSearchParams("hosting=managed");
     render(<PrivacyScreen />);
@@ -205,11 +206,33 @@ describe("PrivacyScreen — Start navigation", () => {
     );
   });
 
+  test("does NOT resume an unmarked billing-surface intent — onboarding proceeds normally", () => {
+    // An abandoned CheckoutPage/takeover checkout leaves a discriminator-less
+    // package intent. Without the signup marker it must not hijack onboarding:
+    // Start advances to the normal next step instead of launching checkout.
+    checkoutIntentValue = {
+      kind: "package",
+      packageKey: "super",
+      savedAt: Date.now(),
+    };
+    searchParamsValue = new URLSearchParams("hosting=managed");
+    render(<PrivacyScreen />);
+
+    clickStart();
+
+    expect(saveConsentMock).toHaveBeenCalledTimes(1);
+    expect(navigateMock).toHaveBeenCalledTimes(1);
+    const target = navigateMock.mock.calls[0]?.[0] as string;
+    expect(target.startsWith(routes.onboarding.research)).toBe(true);
+    expect(target).not.toContain(routes.checkout);
+  });
+
   test("resume fires only on the Start click, not on render (no loop)", () => {
     checkoutIntentValue = {
       kind: "package",
       packageKey: "super",
       savedAt: Date.now(),
+      resumeAfterOnboarding: true,
     };
     searchParamsValue = new URLSearchParams();
     render(<PrivacyScreen />);

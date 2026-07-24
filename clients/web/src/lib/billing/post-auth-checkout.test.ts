@@ -44,9 +44,12 @@ describe("resolveSignupCheckoutDestination", () => {
       destination: "/assistant/onboarding/privacy",
       stashedPackage: "super",
     });
+    // The signup carry marks its stash so only the onboarding privacy screen
+    // resumes it — an ordinary billing-surface stash carries no such marker.
     expect(readCheckoutIntent()).toMatchObject({
       kind: "package",
       packageKey: "super",
+      resumeAfterOnboarding: true,
     });
   });
 

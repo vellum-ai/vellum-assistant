@@ -66,7 +66,9 @@ export function resolveSignupCheckoutDestination(args: {
 
   if (intent === "signup") {
     if (packageKey) {
-      saveCheckoutIntent({ kind: "package", packageKey });
+      // Mark the stash as signup-originated so only the onboarding privacy
+      // screen resumes it — an ordinary billing-surface stash stays inert here.
+      saveCheckoutIntent({ kind: "package", packageKey, resumeAfterOnboarding: true });
     }
     return { destination: routes.onboarding.privacy, stashedPackage: packageKey };
   }

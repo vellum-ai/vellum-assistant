@@ -29,6 +29,32 @@ describe("saveCheckoutIntent / readCheckoutIntent", () => {
     expect(intent!.savedAt).toBeLessThanOrEqual(Date.now());
   });
 
+  test("round-trips a signup-marked package intent, preserving the marker", () => {
+    saveCheckoutIntent({
+      kind: "package",
+      packageKey: "super",
+      resumeAfterOnboarding: true,
+    });
+
+    expect(readCheckoutIntent()).toMatchObject({
+      kind: "package",
+      packageKey: "super",
+      resumeAfterOnboarding: true,
+    });
+  });
+
+  test("an ordinary package intent round-trips without the marker (takeover/CheckoutPage path)", () => {
+    // The billing takeover and CheckoutPage save discriminator-less intents;
+    // they must read back unchanged, with no marker present.
+    saveCheckoutIntent({ kind: "package", packageKey: "mighty" });
+
+    const intent = readCheckoutIntent();
+    expect(intent).toMatchObject({ kind: "package", packageKey: "mighty" });
+    expect(
+      (intent as { resumeAfterOnboarding?: true }).resumeAfterOnboarding,
+    ).toBeUndefined();
+  });
+
   test("round-trips a custom intent, including null tiers", () => {
     saveCheckoutIntent({
       kind: "custom",

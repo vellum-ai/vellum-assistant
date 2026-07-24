@@ -14,7 +14,20 @@ import type {
  * that shouldn't resurface as a phantom "provisioning" state.
  */
 export type CheckoutIntent =
-  | { kind: "package"; packageKey: string; savedAt: number }
+  | {
+      kind: "package";
+      packageKey: string;
+      savedAt: number;
+      /**
+       * Marks a stash written by the post-auth signup carry (a pricing-CTA
+       * signup routed through consent). Only the onboarding privacy screen
+       * resumes checkout from a marked intent, so an ordinary billing-surface
+       * stash (CheckoutPage, the plans/adjust takeovers) can't hijack
+       * onboarding. Optional and backward-compatible: ordinary saves omit it,
+       * and the provisioning takeover ignores it.
+       */
+      resumeAfterOnboarding?: true;
+    }
   | {
       kind: "custom";
       machineTier: MachineTierEnum | null;

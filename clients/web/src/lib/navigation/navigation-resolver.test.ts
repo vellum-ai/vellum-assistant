@@ -1,6 +1,7 @@
 import { beforeEach, describe, test, expect } from "bun:test";
 
 import {
+  clearCheckoutIntent,
   readCheckoutIntent,
   saveCheckoutIntent,
 } from "@/lib/billing/checkout-intent";
@@ -766,6 +767,9 @@ describe("resolveNavigation", () => {
   describe("post-auth", () => {
     beforeEach(() => {
       sessionStorage.clear();
+      // Reset the module-level in-memory mirror so a stash set by one case
+      // can't leak into the next through the sessionStorage fallback.
+      clearCheckoutIntent();
     });
 
     const postAuth = (authIntent: "login" | "signup", returnTo: string | null, fallback = "/assistant") =>
