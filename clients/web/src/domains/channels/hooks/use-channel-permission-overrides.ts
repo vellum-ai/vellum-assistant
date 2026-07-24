@@ -158,6 +158,14 @@ export function useChannelPermissionOverrides({
     () => assistantChannelPermissionOverridesListQueryKey(pathOptions),
     [pathOptions],
   );
+  // The resolve query (the cell-less fall-through) is keyed separately and
+  // caches for 30s. A `channels`-bucket write changes an adapter-scope cell,
+  // which the resolve reads — so bucket writes must invalidate it too, or the
+  // per-channel rows keep their stale `defaultTier`.
+  const resolveQueryKey = useMemo(
+    () => ["channel-permission-resolve", assistantId, adapter] as const,
+    [assistantId, adapter],
+  );
 
   const query = useQuery({
     ...assistantChannelPermissionOverridesListOptions(pathOptions),
@@ -192,7 +200,7 @@ export function useChannelPermissionOverrides({
   // (0.10.7 gateways 404 it deterministically), and an errored query just
   // leaves the badge at a plain "Default".
   const defaultQuery = useQuery({
-    queryKey: ["channel-permission-resolve", assistantId, adapter],
+    queryKey: resolveQueryKey,
     queryFn: async () => {
       const { data } = await assistantChannelPermissionResolve({
         ...pathOptions,
@@ -315,7 +323,10 @@ export function useChannelPermissionOverrides({
       queryClient.setQueryData(queryKey, context?.previous);
       toastOnError("Failed to save the default")(err);
     },
-    onSettled: () => queryClient.invalidateQueries({ queryKey }),
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey });
+      queryClient.invalidateQueries({ queryKey: resolveQueryKey });
+    },
   });
 
   const bucketDeleteMutation = useMutation({
@@ -337,7 +348,10 @@ export function useChannelPermissionOverrides({
       queryClient.setQueryData(queryKey, context?.previous);
       toastOnError("Failed to reset the default")(err);
     },
-    onSettled: () => queryClient.invalidateQueries({ queryKey }),
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey });
+      queryClient.invalidateQueries({ queryKey: resolveQueryKey });
+    },
   });
 
   const pendingChannelIds = useMemo(() => {
