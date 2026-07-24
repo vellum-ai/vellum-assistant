@@ -44,7 +44,7 @@ import { z } from "zod";
 import { type AgentEvent, AgentLoop } from "../agent/loop.js";
 import { getEffectiveProfile } from "../config/default-profile-catalog.js";
 import { getConfig } from "../config/loader.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../daemon/message-protocol.js";
 import { isPersonalMemoryAllowed } from "../daemon/trust-context.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
 import { ConversationGraphMemory } from "../plugins/defaults/memory/graph/conversation-graph-memory.js";
@@ -133,16 +133,16 @@ async function injectPersonaMemory(
   opts: RunLeafOptions,
   messages: Message[],
 ): Promise<Message[]> {
-  if (!isPersonalMemoryAllowed(opts.trustContext)) return messages;
+  if (!isPersonalMemoryAllowed(opts.trustContext)) {return messages;}
 
   const config = getConfig();
-  if (config.memory?.enabled === false) return messages;
+  if (config.memory?.enabled === false) {return messages;}
 
   const ephemeralConversationId = `workflow-leaf:${randomUUID()}`;
   const graphMemory = new ConversationGraphMemory(ephemeralConversationId);
   // The memory pipeline broadcasts retrieval progress to the shared event hub
   // (matching the main-agent hook); a leaf has no per-turn event callback.
-  const onEvent = (msg: ServerMessage): void => {
+  const onEvent = (msg: AssistantEvent): void => {
     broadcastMessage(msg);
   };
   // `prepareMemory` requires a non-aborting signal; reuse the caller's when
@@ -552,7 +552,7 @@ async function executeLeafTool(
 function finalAssistantText(history: Message[]): string {
   for (let i = history.length - 1; i >= 0; i--) {
     const msg = history[i];
-    if (msg.role !== "assistant") continue;
+    if (msg.role !== "assistant") {continue;}
     const text = msg.content
       .filter(
         (b): b is Extract<typeof b, { type: "text" }> => b.type === "text",

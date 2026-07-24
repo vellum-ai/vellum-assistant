@@ -98,7 +98,7 @@ mock.module("../notifications/conversation-pairing.js", () => ({
   },
 }));
 
-import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../daemon/message-protocol.js";
 import { VellumAdapter } from "../notifications/adapters/macos.js";
 import { NotificationBroadcaster } from "../notifications/broadcaster.js";
 import type { NotificationSignal } from "../notifications/signal.js";
@@ -179,7 +179,7 @@ describe("notification deep-link metadata", () => {
 
   describe("VellumAdapter", () => {
     test("broadcasts notification_intent with deepLinkMetadata from payload", async () => {
-      const messages: ServerMessage[] = [];
+      const messages: AssistantEvent[] = [];
       const adapter = new VellumAdapter((msg) => messages.push(msg));
 
       await adapter.send(
@@ -207,7 +207,7 @@ describe("notification deep-link metadata", () => {
     });
 
     test("broadcasts notification_intent without deepLinkMetadata when absent", async () => {
-      const messages: ServerMessage[] = [];
+      const messages: AssistantEvent[] = [];
       const adapter = new VellumAdapter((msg) => messages.push(msg));
 
       await adapter.send(
@@ -226,7 +226,7 @@ describe("notification deep-link metadata", () => {
     });
 
     test("includes conversationId in deepLinkMetadata for navigation", async () => {
-      const messages: ServerMessage[] = [];
+      const messages: AssistantEvent[] = [];
       const adapter = new VellumAdapter((msg) => messages.push(msg));
 
       const conversationId = "conv-deep-link-test";
@@ -279,7 +279,7 @@ describe("notification deep-link metadata", () => {
     });
 
     test("sourceEventName is included in the event payload", async () => {
-      const messages: ServerMessage[] = [];
+      const messages: AssistantEvent[] = [];
       const adapter = new VellumAdapter((msg) => messages.push(msg));
 
       await adapter.send(
@@ -296,7 +296,7 @@ describe("notification deep-link metadata", () => {
     });
 
     test("deepLinkMetadata with conversationId enables client-side navigation", async () => {
-      const messages: ServerMessage[] = [];
+      const messages: AssistantEvent[] = [];
       const adapter = new VellumAdapter((msg) => messages.push(msg));
 
       // Simulate a notification that should deep-link to a specific conversation
@@ -320,7 +320,7 @@ describe("notification deep-link metadata", () => {
     });
 
     test("deep-link payload includes messageId when present", async () => {
-      const messages: ServerMessage[] = [];
+      const messages: AssistantEvent[] = [];
       const adapter = new VellumAdapter((msg) => messages.push(msg));
 
       await adapter.send(
@@ -341,7 +341,7 @@ describe("notification deep-link metadata", () => {
     // ── Deep-link conversationId present regardless of reuse/new ──────
 
     test("deep-link payload includes conversationId for a newly created conversation", async () => {
-      const messages: ServerMessage[] = [];
+      const messages: AssistantEvent[] = [];
       const adapter = new VellumAdapter((msg) => messages.push(msg));
 
       // Simulates the broadcaster merging pairing.conversationId into deep-link
@@ -362,7 +362,7 @@ describe("notification deep-link metadata", () => {
     });
 
     test("deep-link payload includes conversationId for a reused conversation", async () => {
-      const messages: ServerMessage[] = [];
+      const messages: AssistantEvent[] = [];
       const adapter = new VellumAdapter((msg) => messages.push(msg));
 
       // Simulates the broadcaster merging pairing.conversationId into deep-link
@@ -388,7 +388,7 @@ describe("notification deep-link metadata", () => {
     // ── Reused conversation deep-link stability regressions ─────────────────
 
     test("reused conversation preserves the same conversationId across follow-up notifications", async () => {
-      const messages: ServerMessage[] = [];
+      const messages: AssistantEvent[] = [];
       const adapter = new VellumAdapter((msg) => messages.push(msg));
 
       const stableConversationId = "conv-bound-telegram-dest-001";
@@ -438,7 +438,7 @@ describe("notification deep-link metadata", () => {
     });
 
     test("reused conversation deep-link messageId changes per delivery for scroll targeting", async () => {
-      const messages: ServerMessage[] = [];
+      const messages: AssistantEvent[] = [];
       const adapter = new VellumAdapter((msg) => messages.push(msg));
 
       const conversationId = "conv-reused-scroll-test";
@@ -475,7 +475,7 @@ describe("notification deep-link metadata", () => {
     });
 
     test("deep-link metadata is stable when conversation is reused via binding-key continuation", async () => {
-      const messages: ServerMessage[] = [];
+      const messages: AssistantEvent[] = [];
       const adapter = new VellumAdapter((msg) => messages.push(msg));
 
       // Simulates the binding-key continuation path: multiple notifications

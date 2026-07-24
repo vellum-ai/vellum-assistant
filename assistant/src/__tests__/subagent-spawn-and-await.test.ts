@@ -13,7 +13,7 @@
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../daemon/message-protocol.js";
 import type { Message } from "../providers/types.js";
 
 // ── Fake Conversation ───────────────────────────────────────────────────────
@@ -36,7 +36,7 @@ interface FakeConversationConfig {
    */
   resolveOnAbort?: boolean;
   /** Deltas to emit through sendToClient before runAgentLoop resolves. */
-  emitDeltas?: ServerMessage[];
+  emitDeltas?: AssistantEvent[];
   /**
    * Invoked synchronously at the very start of runAgentLoop (after the loop has
    * begun, so the run is past the early-terminal guard and marked "running").
@@ -64,7 +64,7 @@ class FakeConversation {
   conversationType = "background";
   hasSystemPromptOverride = false;
 
-  private sendToClient: (msg: ServerMessage) => void;
+  private sendToClient: (msg: AssistantEvent) => void;
   private readonly cfg: FakeConversationConfig;
   private aborted = false;
   private resolveAbort?: () => void;
@@ -73,7 +73,7 @@ class FakeConversation {
     _id: string,
     _provider: unknown,
     _systemPrompt: string,
-    sendToClient: (msg: ServerMessage) => void,
+    sendToClient: (msg: AssistantEvent) => void,
     _workingDir: string,
     _options?: unknown,
   ) {
@@ -82,7 +82,7 @@ class FakeConversation {
     this.messages = this.cfg.messages ?? [];
   }
 
-  updateClient(sendToClient: (msg: ServerMessage) => void) {
+  updateClient(sendToClient: (msg: AssistantEvent) => void) {
     // The manager re-points sendToClient via updateClient; honor it so the
     // wrappedSendToClient tap is the one the deltas flow through.
     this.sendToClient = sendToClient;
@@ -125,7 +125,7 @@ class FakeConversation {
           this.resolveAbort = resolve;
         });
       }
-      if (this.cfg.resolveOnAbort) return;
+      if (this.cfg.resolveOnAbort) {return;}
       throw new Error("aborted");
     }
     if (this.cfg.runError) {
@@ -199,7 +199,7 @@ function makeConfig(overrides: Record<string, unknown> = {}) {
 }
 
 /** Statuses broadcast to the parent via `subagent_status_changed` events. */
-function broadcastStatuses(events: ServerMessage[]): string[] {
+function broadcastStatuses(events: AssistantEvent[]): string[] {
   return events
     .filter((m) => m.type === "subagent_status_changed")
     .map((m) => (m as { status: string }).status);
@@ -326,14 +326,14 @@ describe("SubagentManager.spawnAndAwait", () => {
         { role: "assistant", content: [{ type: "text", text: "done" }] },
       ],
       emitDeltas: [
-        { type: "assistant_text_delta", text: "Hello " } as ServerMessage,
+        { type: "assistant_text_delta", text: "Hello " } as AssistantEvent,
         {
           type: "assistant_thinking_delta",
           thinking: "(pondering) ",
-        } as ServerMessage,
-        { type: "assistant_text_delta", text: "world" } as ServerMessage,
+        } as AssistantEvent,
+        { type: "assistant_text_delta", text: "world" } as AssistantEvent,
         // Non-delta events must not be forwarded to onText.
-        { type: "subagent_status_changed" } as ServerMessage,
+        { type: "subagent_status_changed" } as AssistantEvent,
       ],
     };
 
@@ -382,7 +382,7 @@ describe("SubagentManager.spawnAndAwait", () => {
     // terminal first so this is recorded and broadcast as "aborted".
     nextConversationConfig = { resolveOnAbort: true };
 
-    const events: ServerMessage[] = [];
+    const events: AssistantEvent[] = [];
     const controller = new AbortController();
     const manager = new SubagentManager();
     const promise = manager.spawnAndAwait(
@@ -441,7 +441,7 @@ describe("SubagentManager.spawnAndAwait", () => {
     const controller = new AbortController();
     controller.abort();
 
-    const events: ServerMessage[] = [];
+    const events: AssistantEvent[] = [];
     const manager = new SubagentManager();
     await expect(
       manager.spawnAndAwait(makeConfig(), (msg) => events.push(msg), {

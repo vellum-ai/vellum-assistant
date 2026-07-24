@@ -102,8 +102,9 @@ const SCHEMA_MANAGED_DEFAULT_SERVICES = [
 ] as const;
 
 // web-search is absent from both lists: it carries no mode at all.
+// image-generation and web-search are absent from both lists: they carry
+// no mode at all.
 const SCHEMA_YOUR_OWN_DEFAULT_SERVICES = [
-  "image-generation",
   "outlook-oauth",
   "linear-oauth",
   "github-oauth",
@@ -214,13 +215,16 @@ describe("platform-managed config defaults", () => {
 
     const written = readConfig() as { services?: Record<string, unknown> };
     expect(written.services).toBeDefined();
-    // The existing value must be preserved — backfill path, not fresh-write path
+    // The raw value must be preserved — backfill path, not fresh-write path.
+    // (Migration 134 rewrites this legacy shape at daemon startup; the loader
+    // itself must simply leave it alone.)
     expect(
       (written.services!["image-generation"] as { mode?: string })?.mode,
     ).toBe("your-own");
-    // ...and the in-memory config must mirror the explicit user choice (the
-    // fill-defaults pass must not override an explicit "your-own").
-    expect(config.services["image-generation"].mode).toBe("your-own");
+    // The parsed config strips the legacy key and carries the filled
+    // provider; no mode survives the schema.
+    expect(config.services["image-generation"]).not.toHaveProperty("mode");
+    expect(config.services["image-generation"].provider).toBe("vellum");
   });
 
   test("IS_PLATFORM=true, config file with explicit notion-oauth mode='your-own' → preserved (schema default is 'managed')", () => {
@@ -323,11 +327,11 @@ describe("platform-managed config defaults", () => {
     const imageGen = (
       config.services as unknown as Record<
         string,
-        { mode: string; provider?: string }
+        { mode?: string; provider?: string }
       >
     )["image-generation"]!;
     expect(imageGen.provider).toBe("openai");
-    expect(imageGen.mode).toBe("your-own");
+    expect(imageGen).not.toHaveProperty("mode");
   });
 
   test("IS_PLATFORM=false, config file exists without services key → in-memory config keeps schema defaults (your-own except google/notion-oauth which are managed)", () => {
@@ -430,9 +434,11 @@ describe("GET /v1/config handler — context-default fill on raw response", () =
   test("IS_PLATFORM=true, raw config has explicit services.image-generation.mode='your-own' → preserved", () => {
     process.env.IS_PLATFORM = "true";
 
-    // User has explicitly chosen "your-own" for image-generation via the macOS
-    // Save flow. The patch handler persisted that to disk; the fill pass must
-    // not override an explicit user choice.
+    // A legacy raw shape: mode with no provider leaf. Migration 134 rewrites
+    // it (pinning provider gemini) before any real request reaches this
+    // function, so the fill's only obligation here is to be non-destructive:
+    // existing keys pass through untouched, absent leaves get the platform
+    // default.
     const raw: Record<string, unknown> = {
       services: {
         "image-generation": { mode: "your-own" },
@@ -443,8 +449,12 @@ describe("GET /v1/config handler — context-default fill on raw response", () =
       string,
       unknown
     >;
-    const services = result["services"] as Record<string, { mode: string }>;
+    const services = result["services"] as Record<
+      string,
+      { mode?: string; provider?: string }
+    >;
     expect(services["image-generation"]!.mode).toBe("your-own");
+    expect(services["image-generation"]!.provider).toBe("vellum");
     // web-search is not context-filled: a filled `mode` would override BYOK
     // configs on every load.
     expect(services["web-search"]).toBeUndefined();

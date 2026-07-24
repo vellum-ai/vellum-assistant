@@ -14,7 +14,7 @@ import {
 } from "../persistence/conversation-crud.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
-import type { AssistantEvent } from "../runtime/assistant-event.js";
+import type { AssistantEventEnvelope } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { ROUTES as CONVERSATION_LIST_ROUTES } from "../runtime/routes/conversation-list-routes.js";
 import { ROUTES as CONVERSATION_MANAGEMENT_ROUTES } from "../runtime/routes/conversation-management-routes.js";
@@ -50,8 +50,8 @@ function findRoute(
 async function captureEvents(
   action: () => void | Promise<unknown>,
   expectedCount: number,
-): Promise<AssistantEvent[]> {
-  const received: AssistantEvent[] = [];
+): Promise<AssistantEventEnvelope[]> {
+  const received: AssistantEventEnvelope[] = [];
   const subscription = assistantEventHub.subscribe({
     type: "process",
     callback: (event) => {
@@ -371,7 +371,7 @@ describe("conversation sync tags", () => {
       JSON.stringify([{ type: "text", text: "first" }]),
     );
 
-    const received: AssistantEvent[] = [];
+    const received: AssistantEventEnvelope[] = [];
     const subscription = assistantEventHub.subscribe({
       type: "process",
       callback: (event) => {
@@ -404,7 +404,7 @@ describe("conversation sync tags", () => {
     // messages advance the attention cursor via projectAssistantMessage.
     const conversation = createConversation("User message");
 
-    const received: AssistantEvent[] = [];
+    const received: AssistantEventEnvelope[] = [];
     const subscription = assistantEventHub.subscribe({
       type: "process",
       callback: (event) => {

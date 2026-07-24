@@ -12,7 +12,7 @@ import type {
 import type { AuthContext } from "../runtime/auth/types.js";
 import { getLogger } from "../util/logger.js";
 import type {
-  ServerMessage,
+  AssistantEvent,
   UserMessageAttachment,
 } from "./message-protocol.js";
 import type { ConversationTransportMetadata } from "./message-types/conversations.js";
@@ -23,7 +23,7 @@ export interface QueuedMessage {
   content: string;
   attachments: UserMessageAttachment[];
   requestId: string;
-  onEvent: (msg: ServerMessage) => void;
+  onEvent: (msg: AssistantEvent) => void;
   activeSurfaceId?: string;
   currentPage?: string;
   metadata?: Record<string, unknown>;
@@ -156,7 +156,7 @@ export class MessageQueue {
    */
   shiftN(count: number): QueuedMessage[] {
     const n = Math.min(Math.max(0, count), this.items.length);
-    if (n === 0) return [];
+    if (n === 0) {return [];}
     const removed = this.items.splice(0, n);
     for (const item of removed) {
       this.currentBytes -= estimateItemBytes(item);
@@ -188,8 +188,8 @@ export class MessageQueue {
    */
   promoteToHead(requestId: string): QueuedMessage | undefined {
     const idx = this.items.findIndex((m) => m.requestId === requestId);
-    if (idx === -1) return undefined;
-    if (idx === 0) return this.items[0]; // already at head
+    if (idx === -1) {return undefined;}
+    if (idx === 0) {return this.items[0];} // already at head
     const [promoted] = this.items.splice(idx, 1);
     this.items.unshift(promoted);
     return promoted;
@@ -201,7 +201,7 @@ export class MessageQueue {
    */
   removeByRequestId(requestId: string): QueuedMessage | undefined {
     const idx = this.items.findIndex((m) => m.requestId === requestId);
-    if (idx === -1) return undefined;
+    if (idx === -1) {return undefined;}
     const [removed] = this.items.splice(idx, 1);
     this.currentBytes -= estimateItemBytes(removed);
     return removed;
@@ -220,7 +220,7 @@ function estimateItemBytes(item: QueuedMessage): number {
   let bytes = item.content.length * 2; // JS strings are UTF-16
   for (const a of item.attachments) {
     bytes += a.data.length * 2;
-    if (a.extractedText) bytes += a.extractedText.length * 2;
+    if (a.extractedText) {bytes += a.extractedText.length * 2;}
   }
   // Include transport metadata in the estimate so large transport
   // payloads (e.g. hostHomeDir, hostUsername) count against the budget.

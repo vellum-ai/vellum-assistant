@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../daemon/message-protocol.js";
 import { SubagentManager } from "../subagent/manager.js";
 import type { SubagentState } from "../subagent/types.js";
 
@@ -13,7 +13,7 @@ interface FakeManagedSubagent {
       role: string;
       content: Array<{ type: string; text: string }>;
     }>;
-    sendToClient: (msg: ServerMessage) => void;
+    sendToClient: (msg: AssistantEvent) => void;
     persistUserMessage?: () => { id: string; deduplicated: boolean };
     runAgentLoop?: () => Promise<void>;
     enqueueMessage?: () => { rejected: boolean; queued: boolean };
@@ -25,7 +25,7 @@ interface FakeManagedSubagent {
     subagentDeniedToolNames: Set<string>;
   } | null;
   state: SubagentState;
-  parentSendToClient: (msg: ServerMessage) => void;
+  parentSendToClient: (msg: AssistantEvent) => void;
   retainedUntil?: number;
   hadEnqueuedMessages?: boolean;
 }
@@ -60,7 +60,7 @@ function injectFakeSubagent(
   manager: SubagentManager,
   subagentId: string,
   state: SubagentState,
-  parentSendToClient?: (msg: ServerMessage) => void,
+  parentSendToClient?: (msg: AssistantEvent) => void,
   conversation?: FakeManagedSubagent["conversation"],
 ): void {
   const internals = asInternals(manager);
@@ -332,8 +332,8 @@ describe("SubagentManager terminal disposal", () => {
 describe("SubagentManager.abort usage", () => {
   test("emits the conversation's latest usage on abort, not zeros", () => {
     const manager = new SubagentManager();
-    const sent: ServerMessage[] = [];
-    const sender = (msg: ServerMessage) => sent.push(msg);
+    const sent: AssistantEvent[] = [];
+    const sender = (msg: AssistantEvent) => sent.push(msg);
 
     const subagentId = "sa-abort-usage";
     // state.usage starts at {0,0,0}; the live (fake) conversation has accrued
@@ -347,7 +347,7 @@ describe("SubagentManager.abort usage", () => {
     expect(aborted).toBe(true);
 
     const statusMsg = sent.find(
-      (m): m is Extract<ServerMessage, { type: "subagent_status_changed" }> =>
+      (m): m is Extract<AssistantEvent, { type: "subagent_status_changed" }> =>
         m.type === "subagent_status_changed",
     );
     expect(statusMsg).toBeDefined();
@@ -365,8 +365,8 @@ describe("SubagentManager.abort usage", () => {
 
   test("keeps the last-known state.usage when the conversation was already released", () => {
     const manager = new SubagentManager();
-    const sent: ServerMessage[] = [];
-    const sender = (msg: ServerMessage) => sent.push(msg);
+    const sent: AssistantEvent[] = [];
+    const sender = (msg: AssistantEvent) => sent.push(msg);
 
     const subagentId = "sa-abort-no-conv";
     // No live conversation (released), but state carries a last-known usage —
@@ -381,7 +381,7 @@ describe("SubagentManager.abort usage", () => {
     });
 
     const statusMsg = sent.find(
-      (m): m is Extract<ServerMessage, { type: "subagent_status_changed" }> =>
+      (m): m is Extract<AssistantEvent, { type: "subagent_status_changed" }> =>
         m.type === "subagent_status_changed",
     );
     expect(statusMsg!.usage).toEqual({

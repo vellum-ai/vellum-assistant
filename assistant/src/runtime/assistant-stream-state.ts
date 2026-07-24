@@ -69,7 +69,7 @@ import {
 } from "../api/constants/sse-replay.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
-import type { AssistantEvent } from "./assistant-event.js";
+import type { AssistantEventEnvelope } from "./assistant-event.js";
 
 const log = getLogger("assistant-stream-state");
 
@@ -122,7 +122,7 @@ export interface ReplaySubscriber {
 
 interface RingEntry {
   seq: number;
-  event: AssistantEvent;
+  event: AssistantEventEnvelope;
   emittedAt: number;
   sizeBytes: number;
   targeting?: EventTargeting;
@@ -214,7 +214,7 @@ export function isStreamSeqStampingDisabled(): boolean {
  * Mutates `event.seq` in place.
  */
 export function stampAndBuffer(
-  event: AssistantEvent,
+  event: AssistantEventEnvelope,
   options?: { targeting?: EventTargeting },
 ): void {
   if (stampingDisabled) {
@@ -289,7 +289,7 @@ export function getReplayWindow(
   lastSeenSeq: number,
   subscriber?: ReplaySubscriber,
   conversationId?: string,
-): readonly AssistantEvent[] | null {
+): readonly AssistantEventEnvelope[] | null {
   evict();
 
   if (state.ring.length === 0) {

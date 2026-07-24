@@ -5,7 +5,10 @@ import {
   handleSurfaceAction,
   type SurfaceConversationContext,
 } from "../daemon/conversation-surfaces.js";
-import type { ServerMessage, SurfaceType } from "../daemon/message-protocol.js";
+import type {
+  AssistantEvent,
+  SurfaceType,
+} from "../daemon/message-protocol.js";
 
 /**
  * Build a minimal SurfaceConversationContext for testing table surface actions.
@@ -27,7 +30,7 @@ function makeContext(): SurfaceConversationContext & {
     surfaceId?: string;
     displayContent?: string;
   }>;
-  sentMessages: ServerMessage[];
+  sentMessages: AssistantEvent[];
 } {
   const enqueueCalls: Array<{
     content: string;
@@ -43,7 +46,7 @@ function makeContext(): SurfaceConversationContext & {
     surfaceId?: string;
     displayContent?: string;
   }> = [];
-  const sentMessages: ServerMessage[] = [];
+  const sentMessages: AssistantEvent[] = [];
 
   return {
     conversationId: "test-convo",

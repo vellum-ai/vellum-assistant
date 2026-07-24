@@ -703,7 +703,10 @@ const ConfigGetResponseSchema = z
           .passthrough()
           .optional(),
         "image-generation": z
-          .object({ mode: ServiceModeSchema.optional() })
+          .object({
+            provider: z.string().optional(),
+            model: z.string().optional(),
+          })
           .passthrough()
           .optional(),
         inference: z
@@ -807,7 +810,10 @@ const ConfigPatchRequestSchema = z
           .nullable()
           .optional(),
         "image-generation": z
-          .object({ mode: ServiceModeSchema.optional() })
+          .object({
+            provider: z.string().optional(),
+            model: z.string().optional(),
+          })
           .passthrough()
           .nullable()
           .optional(),
@@ -1449,6 +1455,28 @@ export async function commitConfigWrite(
   }
 }
 
+/**
+ * Web clients pair provider writes with a legacy `mode` key so their saves
+ * stay valid on daemons whose schemas still carry it. The provider-only
+ * services (web-search, image-generation) parse-strip that key, but the
+ * deep-merge would still persist it to raw config.json on every save —
+ * scrub it so the removed field cannot be resurrected on disk.
+ */
+function scrubRemovedServiceModes(raw: Record<string, unknown>): void {
+  const services = raw.services as
+    | Record<string, Record<string, unknown> | undefined>
+    | undefined;
+  if (!services) {
+    return;
+  }
+  for (const key of ["web-search", "image-generation"]) {
+    const entry = services[key];
+    if (entry && typeof entry === "object" && "mode" in entry) {
+      delete entry.mode;
+    }
+  }
+}
+
 async function handlePatchConfig({ body }: RouteHandlerArgs) {
   if (
     !body ||
@@ -1467,6 +1495,7 @@ async function handlePatchConfig({ body }: RouteHandlerArgs) {
   const patch = body as Record<string, unknown>;
   backfillNewCallSiteEntries(raw, patch);
   deepMergeOverwrite(raw, patch);
+  scrubRemovedServiceModes(raw);
 
   await commitConfigWrite(raw, "patch");
 

@@ -1,16 +1,21 @@
 /**
- * Assistant Events -- shared envelope type, SSE framing helpers, and the
+ * Assistant Events -- generic SSE envelope, framing helpers, and the
  * daemon-side specialization.
  *
  * The generic `BaseAssistantEvent<TMessage>` envelope and its framing
- * helpers carry no daemon imports. This file pins the generic payload to
- * the daemon-side `ServerMessage` union so existing callers continue to get
- * full discriminated-union narrowing.
+ * helpers carry no daemon imports. The daemon-side `AssistantEvent` type and
+ * `buildAssistantEvent` builder pin the payload to the canonical
+ * `AssistantEvent` message union (`z.infer<AssistantEventSchema>`), so callers
+ * get full discriminated-union narrowing. The concrete envelope shape is the
+ * canonical `AssistantEventEnvelope` from `../api`.
  */
 
 import { randomUUID } from "node:crypto";
 
-import type { ServerMessage } from "../daemon/message-protocol.js";
+import type {
+  AssistantEvent as AssistantEventMessage,
+  AssistantEventEnvelope,
+} from "../api/index.js";
 
 // -- Generic base --------------------------------------------------------------
 
@@ -92,13 +97,20 @@ export function formatSseHeartbeat(): string {
 
 // -- Daemon-side specialization ------------------------------------------------
 
-/** Daemon-side specialization of the generic event envelope. */
-export type AssistantEvent = BaseAssistantEvent<ServerMessage>;
+// Re-export the canonical envelope so daemon callers import it alongside the
+// builder below.
+export type { AssistantEventEnvelope };
 
-/** Daemon-side wrapper preserving the original `ServerMessage`-typed signature. */
+/**
+ * Build a daemon event envelope (`AssistantEventEnvelope`) around an
+ * `AssistantEvent` message payload.
+ */
 export function buildAssistantEvent(
-  message: ServerMessage,
+  message: AssistantEventMessage,
   conversationId?: string,
-): AssistantEvent {
-  return baseBuildAssistantEvent<ServerMessage>(message, conversationId);
+): AssistantEventEnvelope {
+  return baseBuildAssistantEvent<AssistantEventMessage>(
+    message,
+    conversationId,
+  );
 }

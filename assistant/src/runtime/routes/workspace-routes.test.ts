@@ -18,7 +18,7 @@ import { join } from "node:path";
 import { beforeAll, describe, expect, test } from "bun:test";
 
 import { SYNC_TAGS } from "../../daemon/message-types/sync.js";
-import type { AssistantEvent } from "../assistant-event.js";
+import type { AssistantEventEnvelope } from "../assistant-event.js";
 import { assistantEventHub } from "../assistant-event-hub.js";
 
 // ---------------------------------------------------------------------------
@@ -557,7 +557,7 @@ describe("POST /v1/workspace/write", () => {
   });
 
   test("publishes sounds sync events when writing sounds config", async () => {
-    const received: AssistantEvent[] = [];
+    const received: AssistantEventEnvelope[] = [];
     const subscription = assistantEventHub.subscribe({
       type: "process",
       callback: (event) => {

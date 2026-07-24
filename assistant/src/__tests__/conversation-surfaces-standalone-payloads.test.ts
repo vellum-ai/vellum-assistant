@@ -19,11 +19,11 @@
 
 import { describe, expect, mock, test } from "bun:test";
 
-import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../daemon/message-protocol.js";
 
-let broadcastImpl: (msg: ServerMessage) => void = () => {};
+let broadcastImpl: (msg: AssistantEvent) => void = () => {};
 mock.module("../runtime/assistant-event-hub.js", () => ({
-  broadcastMessage: (msg: ServerMessage) => broadcastImpl(msg),
+  broadcastMessage: (msg: AssistantEvent) => broadcastImpl(msg),
 }));
 
 import {
@@ -42,11 +42,11 @@ function createMockContext(
     channel: string;
   }>,
 ): SurfaceConversationContext & {
-  sentMessages: ServerMessage[];
+  sentMessages: AssistantEvent[];
   enqueuedMessages: Array<{ content: string; requestId: string }>;
 } {
-  const sentMessages: ServerMessage[] = [];
-  broadcastImpl = (msg: ServerMessage) => sentMessages.push(msg);
+  const sentMessages: AssistantEvent[] = [];
+  broadcastImpl = (msg: AssistantEvent) => sentMessages.push(msg);
   const enqueuedMessages: Array<{ content: string; requestId: string }> = [];
 
   return {
@@ -59,7 +59,7 @@ function createMockContext(
           supportsDynamicUi: overrides.supportsDynamicUi ?? true,
         }
       : undefined,
-    sendToClient: (msg: ServerMessage) => sentMessages.push(msg),
+    sendToClient: (msg: AssistantEvent) => sentMessages.push(msg),
     pendingSurfaceActions: new Map(),
     lastSurfaceAction: new Map(),
     surfaceState: new Map(),
@@ -91,7 +91,7 @@ function createMockContext(
 type AnyRecord = Record<string, unknown>;
 
 function findByType(
-  messages: ServerMessage[],
+  messages: AssistantEvent[],
   type: string,
 ): AnyRecord | undefined {
   return messages.find(
@@ -99,7 +99,7 @@ function findByType(
   ) as unknown as AnyRecord | undefined;
 }
 
-function findAllByType(messages: ServerMessage[], type: string): AnyRecord[] {
+function findAllByType(messages: AssistantEvent[], type: string): AnyRecord[] {
   return messages.filter(
     (m) => (m as unknown as AnyRecord).type === type,
   ) as unknown as AnyRecord[];

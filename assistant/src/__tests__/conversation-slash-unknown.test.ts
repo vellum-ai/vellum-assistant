@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { CompactionCircuit } from "../agent/compaction-circuit.js";
 import type { AgentEvent } from "../agent/loop.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../daemon/message-protocol.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
 
 // ---------------------------------------------------------------------------
@@ -255,7 +255,7 @@ describe("Conversation slash command — passthrough for unknown tokens", () => 
 
   test("normal messages still go through standard path", async () => {
     const conversation = makeConversation();
-    const events: ServerMessage[] = [];
+    const events: AssistantEvent[] = [];
     await conversation.processMessage({
       content: "hello world",
       attachments: [],

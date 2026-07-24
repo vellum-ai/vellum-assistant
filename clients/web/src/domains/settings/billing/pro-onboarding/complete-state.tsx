@@ -4,31 +4,13 @@ import { setSelectedAssistant } from "@/assistant/selection";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
-import { Notice } from "@vellumai/design-library/components/notice";
 
-import type { StalledApplyAction } from "./primitives";
-import {
-  CreatureCorners,
-  StalledApplyControls,
-  SUBTLE_NOTICE_CLASS,
-  SUBTLE_NOTICE_TEXT_CLASS,
-  WizardCardHeading,
-} from "./primitives";
+import { CreatureCorners, WizardCardHeading } from "./primitives";
 import { usePreferredOrActiveAssistant } from "./use-preferred-or-active-assistant";
 
-/** Shown while a backgrounded resize is still finishing; cleared once done. */
-const OFFLINE_WHILE_RESIZING =
-  "Assistant will go offline briefly while it resizes. Chat might not work during that time.";
-
 export function CompleteState({
-  finishedInBackground = false,
-  stalledAction,
   assistantId,
 }: {
-  /** The user backgrounded the machine resize; hidden once it completes. */
-  finishedInBackground?: boolean;
-  /** Set only while the backgrounded resize is stalled — offers manual apply. */
-  stalledAction?: StalledApplyAction;
   /** The provisioning target assistant (onboarding primary, else active). */
   assistantId?: string | null;
 }) {
@@ -37,8 +19,6 @@ export function CompleteState({
   const assistant = usePreferredOrActiveAssistant(assistantId, isOrgReady);
   const assistantName = assistant?.name || "your assistant";
 
-  // `justify-center` only bites when the notice is absent — with it the content
-  // exceeds the min-height and sits at the mock's top offset.
   return (
     <div className="relative flex min-h-[320px] flex-col items-center justify-center overflow-hidden px-8 pb-16 [animation:onboarding-step-in_350ms_ease-out] motion-reduce:[animation:none]">
       <CreatureCorners variant="full" />
@@ -67,22 +47,6 @@ export function CompleteState({
           >
             Return to {assistantName}
           </Button>
-
-          {stalledAction ? (
-            <StalledApplyControls
-              action={stalledAction}
-              buttonTestId="complete-stalled-apply"
-              className="w-full"
-            />
-          ) : (
-            finishedInBackground && (
-              <Notice tone="info" className={SUBTLE_NOTICE_CLASS}>
-                <span className={SUBTLE_NOTICE_TEXT_CLASS}>
-                  {OFFLINE_WHILE_RESIZING}
-                </span>
-              </Notice>
-            )
-          )}
         </div>
       </div>
     </div>

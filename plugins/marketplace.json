@@ -474,6 +474,18 @@
       "homepage": "https://github.com/vellum-ai/battleship",
       "license": "MIT",
       "icon": "⚓"
+    },
+    {
+      "name": "octolens",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/octolens",
+        "ref": "d9117f5c6b97b3bff75dec1a04bedc32571c6538"
+      },
+      "description": "Social listening plugin for Octolens. Monitor brand mentions, competitor activity, and industry conversations across 13+ platforms. Query mentions, run analytics, manage keywords and feeds via REST API tools, or connect the Octolens MCP server for natural-language workflows.",
+      "category": "growth",
+      "homepage": "https://github.com/vellum-ai/octolens",
+      "license": "MIT"
     }
   ]
 }

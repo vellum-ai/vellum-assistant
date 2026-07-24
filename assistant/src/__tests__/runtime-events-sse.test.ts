@@ -4,7 +4,7 @@
  * Tests:
  *   - 401 unauthorized (missing bearer token)
  *   - 200 when conversationKey is omitted (unfiltered subscription)
- *   - Happy path: stream receives a published AssistantEvent
+ *   - Happy path: stream receives a published AssistantEventEnvelope
  *   - Unfiltered: streams events from multiple conversations
  */
 import { beforeEach, describe, expect, test } from "bun:test";

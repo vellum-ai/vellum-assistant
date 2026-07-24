@@ -30,3 +30,26 @@ export function conversationSupportsDynamicUi(
     conversation.channelCapabilities;
   return caps?.supportsDynamicUi !== false;
 }
+
+/**
+ * Channels whose adapter can render inline tappable options — approval buttons
+ * today, question option pickers next. Single source of truth: `resolveChannelCapabilities`
+ * populates `ChannelCapabilities.supportsInlineOptions` from this, and the approval
+ * delivery path reads it directly, so no feature re-hardcodes its own channel set.
+ *
+ * Distinct from `supportsDynamicUi` (which gates the app's dynamic-UI surfaces): a
+ * text-only channel like Telegram renders inline buttons yet has no dynamic UI.
+ */
+const INLINE_OPTIONS_CHANNELS: ReadonlySet<string> = new Set([
+  "telegram",
+  "whatsapp",
+  "slack",
+]);
+
+/**
+ * Whether a channel's adapter can render inline tappable options. Pure
+ * set-membership on the canonical channel id (no normalization).
+ */
+export function channelSupportsInlineOptions(channel: string): boolean {
+  return INLINE_OPTIONS_CHANNELS.has(channel);
+}

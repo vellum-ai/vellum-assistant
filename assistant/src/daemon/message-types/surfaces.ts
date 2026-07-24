@@ -155,12 +155,3 @@ export type UiSurfaceShowWorkResult = UiSurfaceShowFor<"work_result">;
 // types above are daemon-side construction helpers derived from the same
 // canonical `UISurfaceShowEvent` — they narrow `surfaceType` ↔ `data` for
 // typed construction and are assignable to the opaque wire type.
-
-// --- Domain-level union aliases (consumed by the barrel file) ---
-
-export type _SurfacesServerMessages =
-  | UISurfaceShowEvent
-  | UISurfaceUpdateEvent
-  | UISurfaceDismissEvent
-  | UISurfaceCompleteEvent
-  | UISurfaceUndoResultEvent;

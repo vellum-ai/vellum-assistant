@@ -7,7 +7,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { Conversation } from "../daemon/conversation.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../daemon/message-protocol.js";
 import type { SecretPromptResult } from "../permissions/secret-prompt-types.js";
 
 mock.module("../config/env.js", () => ({
@@ -123,7 +123,7 @@ function makeIdleSession(opts?: {
     runAgentLoop: async (
       _content: string,
       _messageId: string,
-      options?: { onEvent?: (msg: ServerMessage) => void },
+      options?: { onEvent?: (msg: AssistantEvent) => void },
     ) => {
       const onEvent = options?.onEvent ?? (() => {});
       onEvent({ type: "assistant_text_delta", text: "Hello!" });
@@ -186,7 +186,7 @@ function makeConfirmationEmittingSession(opts?: {
     runAgentLoop: async (
       _content: string,
       _messageId: string,
-      options?: { onEvent?: (msg: ServerMessage) => void },
+      options?: { onEvent?: (msg: AssistantEvent) => void },
     ) => {
       const onEvent = options?.onEvent ?? (() => {});
       // Simulate PermissionPrompter.prompt(): self-register in pendingInteractions

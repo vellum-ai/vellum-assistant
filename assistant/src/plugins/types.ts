@@ -91,8 +91,8 @@ export type {
 /**
  * The complete set of compaction circuit-breaker transition events:
  * `compaction_circuit_open` when the breaker trips and `compaction_circuit_closed`
- * on the open→closed transition. Both are a subset of `ServerMessage`, so any
- * existing `ServerMessage` sink remains assignable to a
+ * on the open→closed transition. Both are a subset of `AssistantEvent`, so any
+ * existing `AssistantEvent` sink remains assignable to a
  * `(msg: CompactionCircuitEvent) => void` parameter.
  */
 export type CompactionCircuitEvent =

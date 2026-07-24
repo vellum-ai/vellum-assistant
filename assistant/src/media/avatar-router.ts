@@ -15,7 +15,7 @@ export async function generateAvatar(
   const { backendProvider, managed } = resolveImageGenRouting(svc);
   const { credentials, errorHint } = await resolveImageGenCredentials({
     provider: backendProvider,
-    mode: managed ? "managed" : "your-own",
+    managed,
   });
 
   if (!credentials) {

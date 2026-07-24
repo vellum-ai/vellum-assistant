@@ -208,52 +208,13 @@ describe("DomainStep domain registration", () => {
   });
 });
 
-describe("DomainStep stalled resize", () => {
-  test("stalledAction swaps the busy notice for the warning and apply controls", async () => {
-    const onApply = mock(() => {});
+describe("DomainStep machine busy", () => {
+  test("machine-busy shows the neutral restarting notice and disables Next", async () => {
     const client = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
 
-    const { getByText, getByTestId, queryByText } = render(
-      <QueryClientProvider client={client}>
-        <DomainStep
-          onExit={() => {}}
-          machineBusy
-          stalledAction={{ onApply, pending: false, error: null }}
-        />
-      </QueryClientProvider>,
-    );
-
-    await waitFor(() =>
-      expect(getByTestId("domain-stalled-apply")).toBeTruthy(),
-    );
-    expect(
-      getByText(/We couldn't finish your machine upgrade automatically/),
-    ).toBeTruthy();
-    expect(
-      queryByText(
-        "Your assistant is restarting — you can set the domain in a moment.",
-      ),
-    ).toBeNull();
-
-    fireEvent.click(getByTestId("domain-stalled-apply"));
-    expect(onApply).toHaveBeenCalledTimes(1);
-
-    // The guardian-channel submit stays locked while the machine is busy.
-    await waitFor(() =>
-      expect(
-        (getByTestId("onboarding-domain-set") as HTMLButtonElement).disabled,
-      ).toBe(true),
-    );
-  });
-
-  test("plain machine-busy keeps the neutral notice and disables Next", async () => {
-    const client = new QueryClient({
-      defaultOptions: { queries: { retry: false } },
-    });
-
-    const { getByText, getByTestId, queryByTestId } = render(
+    const { getByText, getByTestId } = render(
       <QueryClientProvider client={client}>
         <DomainStep onExit={() => {}} machineBusy />
       </QueryClientProvider>,
@@ -266,7 +227,6 @@ describe("DomainStep stalled resize", () => {
         ),
       ).toBeTruthy(),
     );
-    expect(queryByTestId("domain-stalled-apply")).toBeNull();
     // The restart guard keeps Next disabled while the machine is busy.
     expect(
       (getByTestId("onboarding-domain-set") as HTMLButtonElement).disabled,

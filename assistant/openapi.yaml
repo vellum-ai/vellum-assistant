@@ -32459,8 +32459,10 @@ components:
               anyOf:
                 - type: object
                   properties:
-                    mode:
-                      $ref: "#/components/schemas/ServiceMode"
+                    provider:
+                      type: string
+                    model:
+                      type: string
                   additionalProperties: {}
                 - type: "null"
             inference:
@@ -33271,8 +33273,10 @@ components:
             image-generation:
               type: object
               properties:
-                mode:
-                  $ref: "#/components/schemas/ServiceMode"
+                provider:
+                  type: string
+                model:
+                  type: string
               additionalProperties: {}
             inference:
               type: object

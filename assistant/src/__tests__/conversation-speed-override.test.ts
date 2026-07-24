@@ -9,7 +9,7 @@ import { describe, expect, mock, test } from "bun:test";
 
 import { CompactionCircuit } from "../agent/compaction-circuit.js";
 import type { AgentEvent, AgentLoopConfig } from "../agent/loop.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../daemon/message-protocol.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
 
 // ---------------------------------------------------------------------------
@@ -208,7 +208,7 @@ function makeProvider() {
   };
 }
 
-function makeSendToClient(): (msg: ServerMessage) => void {
+function makeSendToClient(): (msg: AssistantEvent) => void {
   return () => {};
 }
 

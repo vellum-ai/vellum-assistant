@@ -68,7 +68,7 @@ import type { UserPromptSubmitContext } from "@vellumai/plugin-api";
 
 import type { AssistantConfig } from "../config/schema.js";
 import type { Conversation } from "../daemon/conversation.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../daemon/message-protocol.js";
 import type { QdrantSparseVector } from "../persistence/embeddings/qdrant-client.js";
 import type { ConversationGraphMemory } from "../plugins/defaults/memory/graph/conversation-graph-memory.js";
 import userPromptSubmitMemoryRetrieval from "../plugins/defaults/memory/hooks/user-prompt-submit.js";
@@ -337,7 +337,7 @@ describe("user-prompt-submit hook (memory retrieval)", () => {
     expect(logEntry.reason).toBe("graph:none");
     // The `memory_recalled` summary publishes through the shared broadcast hub.
     expect(broadcastMessageMock).toHaveBeenCalledTimes(1);
-    const emitted = broadcastMessageMock.mock.calls[0]?.[0] as ServerMessage;
+    const emitted = broadcastMessageMock.mock.calls[0]?.[0] as AssistantEvent;
     expect(emitted.type).toBe("memory_recalled");
   });
 
@@ -449,7 +449,7 @@ describe("user-prompt-submit hook (memory retrieval)", () => {
         _msgs: Message[],
         _cfg: AssistantConfig,
         _signal: AbortSignal,
-        _onEvent: (msg: ServerMessage) => void,
+        _onEvent: (msg: AssistantEvent) => void,
       ) => Promise.reject(new Error("retrieval failed")),
     );
     const graphMemory = {
@@ -472,7 +472,7 @@ describe("user-prompt-submit hook (memory retrieval)", () => {
         _msgs: Message[],
         _cfg: AssistantConfig,
         signal: AbortSignal,
-        _onEvent: (msg: ServerMessage) => void,
+        _onEvent: (msg: AssistantEvent) => void,
       ) => {
         capturedSignal = signal;
         return {

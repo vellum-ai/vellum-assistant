@@ -16,7 +16,7 @@ import type {
 // Re-export so route modules (background-dispatch, etc.) can pull the type
 // from the runtime barrel without reaching into daemon internals.
 export type { SlackInboundMessageMetadata };
-import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../daemon/message-protocol.js";
 import type { AssistantEventHub } from "./assistant-event-hub.js";
 
 export type {
@@ -84,7 +84,7 @@ export interface RuntimeMessageConversationOptions {
    */
   displayContent?: string;
   /** Optional callback to receive real-time agent loop events (text deltas, tool starts, etc.). */
-  onEvent?: (msg: ServerMessage) => void;
+  onEvent?: (msg: AssistantEvent) => void;
   /**
    * Optional LLM call-site identifier. Channel ingress and other inbound paths
    * may pass this so the daemon's per-call provider config picks up the right

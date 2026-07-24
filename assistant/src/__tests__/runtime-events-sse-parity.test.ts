@@ -1,7 +1,7 @@
 /**
  * HTTP parity tests for the SSE assistant-events endpoint.
  *
- * Asserts that every streaming/delta ServerMessage type is preserved
+ * Asserts that every streaming/delta AssistantEvent type is preserved
  * exactly — field-for-field — when delivered through the SSE route.
  *
  * Message types covered:
@@ -17,11 +17,11 @@
  */
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../daemon/message-protocol.js";
 import { getOrCreateConversation } from "../persistence/conversation-key-store.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
-import type { AssistantEvent } from "../runtime/assistant-event.js";
+import type { AssistantEventEnvelope } from "../runtime/assistant-event.js";
 import { buildAssistantEvent } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 
@@ -33,15 +33,15 @@ await initializeDb();
 
 /**
  * Subscribe to the SSE endpoint for a given conversationKey, publish one
- * event, read the first SSE frame, and return the parsed AssistantEvent.
+ * event, read the first SSE frame, and return the parsed AssistantEventEnvelope.
  *
  * Uses handleSubscribeAssistantEvents directly (bypassing HTTP) to avoid
  * chunked-transfer buffering in Bun's loopback implementation.
  */
 async function publishAndReadFrame(
   conversationKey: string,
-  message: ServerMessage,
-): Promise<AssistantEvent> {
+  message: AssistantEvent,
+): Promise<AssistantEventEnvelope> {
   const { conversationId } = getOrCreateConversation(conversationKey);
 
   const ac = new AbortController();
@@ -68,8 +68,8 @@ async function publishAndReadFrame(
   const frame = new TextDecoder().decode(value);
   // SSE frame: "event: assistant_event\nid: <id>\ndata: <json>\n\n"
   const dataLine = frame.split("\n").find((l) => l.startsWith("data: "));
-  if (!dataLine) throw new Error(`No data line in SSE frame:\n${frame}`);
-  return JSON.parse(dataLine.slice("data: ".length)) as AssistantEvent;
+  if (!dataLine) {throw new Error(`No data line in SSE frame:\n${frame}`);}
+  return JSON.parse(dataLine.slice("data: ".length)) as AssistantEventEnvelope;
 }
 
 // ---------------------------------------------------------------------------
@@ -317,7 +317,7 @@ describe("SSE HTTP parity — streaming/delta message types", () => {
       abortSignal: ac.signal,
     });
 
-    const msg: ServerMessage = {
+    const msg: AssistantEvent = {
       type: "assistant_text_delta" as const,
       text: "envelope test",
     };
@@ -337,7 +337,7 @@ describe("SSE HTTP parity — streaming/delta message types", () => {
     const dataLine = frame.split("\n").find((l) => l.startsWith("data: "))!;
     const received = JSON.parse(
       dataLine.slice("data: ".length),
-    ) as AssistantEvent;
+    ) as AssistantEventEnvelope;
 
     // Envelope fields
     expect(received.id).toBe(published.id);

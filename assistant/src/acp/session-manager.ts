@@ -10,7 +10,7 @@ import { eq, inArray } from "drizzle-orm";
 
 import type { AcpSessionUpdateEvent } from "../api/events/acp-session-update.js";
 import { findConversation } from "../daemon/conversation-registry.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../daemon/message-protocol.js";
 import { getDb } from "../persistence/db-connection.js";
 import { acpSessionHistory } from "../persistence/schema/index.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
@@ -69,7 +69,7 @@ interface SessionEntry {
   state: AcpSessionState;
   clientHandler: VellumAcpClientHandler;
   /** Wrapped sender that also appends to the ring buffer. */
-  sendToVellum: (msg: ServerMessage) => void;
+  sendToVellum: (msg: AssistantEvent) => void;
   currentPrompt: Promise<unknown> | null;
   parentConversationId: string;
   cwd: string;
@@ -195,7 +195,7 @@ export class AcpSessionManager {
     task: string,
     cwd: string,
     parentConversationId: string,
-    sendToVellum: (msg: ServerMessage) => void,
+    sendToVellum: (msg: AssistantEvent) => void,
     parentToolUseId?: string,
   ): Promise<{ acpSessionId: string; protocolSessionId: string }> {
     this.assertCapacity();
@@ -275,7 +275,7 @@ export class AcpSessionManager {
     parentConversationId: string;
     cwd: string;
     startedAt: number;
-    sendToVellum: (msg: ServerMessage) => void;
+    sendToVellum: (msg: AssistantEvent) => void;
     parentToolUseId?: string;
     task?: string;
   }): SessionEntry {
@@ -287,7 +287,7 @@ export class AcpSessionManager {
     // Wrap the sender so every emitted message is mirrored into the buffer
     // when it's an `acp_session_update`. The wrapper preserves the original
     // call semantics: it forwards every message unchanged.
-    const wrappedSend = (msg: ServerMessage) => {
+    const wrappedSend = (msg: AssistantEvent) => {
       if (msg.type === "acp_session_update") {
         this.appendToBuffer(acpSessionId, msg);
       } else if (msg.type === "acp_session_usage") {
@@ -383,7 +383,7 @@ export class AcpSessionManager {
    */
   async resumeFromHistory(
     acpSessionId: string,
-    sendToVellum: (msg: ServerMessage) => void,
+    sendToVellum: (msg: AssistantEvent) => void,
   ): Promise<void> {
     if (
       this.sessions.has(acpSessionId) ||
@@ -448,7 +448,7 @@ export class AcpSessionManager {
   private async performResume(
     acpSessionId: string,
     row: ResumableHistoryRow,
-    sendToVellum: (msg: ServerMessage) => void,
+    sendToVellum: (msg: AssistantEvent) => void,
   ): Promise<void> {
     // Resolve the adapter, silently auto-installing a missing allowlisted
     // binary via the same sandboxed `bun` path as spawn (see
@@ -658,7 +658,7 @@ export class AcpSessionManager {
   async steerOrResume(
     acpSessionId: string,
     instruction: string,
-    sendToVellum: (msg: ServerMessage) => void,
+    sendToVellum: (msg: AssistantEvent) => void,
   ): Promise<{ resumed: boolean }> {
     try {
       await this.steer(acpSessionId, instruction);

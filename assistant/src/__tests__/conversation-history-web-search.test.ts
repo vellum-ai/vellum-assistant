@@ -652,7 +652,7 @@ describe("web_search_tool_result structural guard", () => {
     // provider, not the local tool executor, so they never flow here.
     "agent/loop.ts",
 
-    // Matches the `tool_result` ServerMessage SSE event (api/events/
+    // Matches the `tool_result` AssistantEvent SSE event (api/events/
     // tool-result.ts), not a conversation content block. There is no
     // web_search_tool_result SSE event — web-search activity travels as
     // activityMetadata on the same tool_result event. Same event-vs-block

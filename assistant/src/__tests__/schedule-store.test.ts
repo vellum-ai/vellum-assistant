@@ -15,7 +15,7 @@ mock.module("../background-wake/publisher.js", () => ({
 import { SYNC_TAGS } from "../daemon/message-types/sync.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
-import type { AssistantEvent } from "../runtime/assistant-event.js";
+import type { AssistantEventEnvelope } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import {
   cancelSchedule,
@@ -56,7 +56,7 @@ async function waitFor(predicate: () => boolean): Promise<void> {
 }
 
 async function expectScheduleSyncEvent(
-  received: AssistantEvent[],
+  received: AssistantEventEnvelope[],
 ): Promise<void> {
   await waitFor(() =>
     received.some(
@@ -85,7 +85,7 @@ describe("schedule sync invalidation", () => {
   });
 
   test("store-level schedule mutations emit schedule sync invalidation", async () => {
-    const received: AssistantEvent[] = [];
+    const received: AssistantEventEnvelope[] = [];
     const subscription = assistantEventHub.subscribe({
       type: "process",
       callback: (event) => {

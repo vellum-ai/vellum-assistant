@@ -1,7 +1,7 @@
 /**
  * Behavioral test for the generic CLI→daemon event bridge.
  *
- * Callers write a JSON-encoded {@link ServerMessage} to
+ * Callers write a JSON-encoded {@link AssistantEvent} to
  * `<signalsDir>/emit-event`. {@link handleEmitEventSignal} reads that
  * payload and republishes it through the {@link assistantEventHub} so
  * SSE subscribers receive it.
@@ -10,8 +10,8 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 
-import type { ServerMessage } from "../daemon/message-protocol.js";
-import type { AssistantEvent } from "../runtime/assistant-event.js";
+import type { AssistantEvent } from "../daemon/message-protocol.js";
+import type { AssistantEventEnvelope } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { handleEmitEventSignal } from "../signals/emit-event.js";
 import { getSignalsDir } from "../util/platform.js";
@@ -33,14 +33,14 @@ afterEach(() => {
 });
 
 describe("handleEmitEventSignal", () => {
-  test("reads a ServerMessage from the signal file and publishes it to the event hub", async () => {
+  test("reads a AssistantEvent from the signal file and publishes it to the event hub", async () => {
     mkdirSync(getSignalsDir(), { recursive: true });
 
-    const payload: ServerMessage = { type: "contacts_changed" };
+    const payload: AssistantEvent = { type: "contacts_changed" };
 
     writeFileSync(signalPath(), JSON.stringify(payload), "utf-8");
 
-    const received: AssistantEvent[] = [];
+    const received: AssistantEventEnvelope[] = [];
     let resolveDelivered: (() => void) | null = null;
     const delivered = new Promise<void>((resolve) => {
       resolveDelivered = resolve;

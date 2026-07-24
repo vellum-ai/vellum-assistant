@@ -88,7 +88,7 @@ import {
   createEventHandlerState,
   dispatchAgentEvent,
 } from "../daemon/conversation-agent-loop-handlers.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../daemon/message-protocol.js";
 import { _resetStreamStateForTesting } from "../runtime/assistant-stream-state.js";
 import {
   recordForChatMint,
@@ -107,16 +107,16 @@ import {
   SYNTHETIC_OPENAI_PROJECT_KEY,
 } from "./secret-fixtures.js";
 
-function toolResults(events: ServerMessage[]): string[] {
+function toolResults(events: AssistantEvent[]): string[] {
   return events
     .filter(
-      (e): e is Extract<ServerMessage, { type: "tool_result" }> =>
+      (e): e is Extract<AssistantEvent, { type: "tool_result" }> =>
         (e as { type?: string }).type === "tool_result",
     )
     .map((e) => (typeof e.result === "string" ? e.result : ""));
 }
 
-function createMockDeps(collected: ServerMessage[]): EventHandlerDeps {
+function createMockDeps(collected: AssistantEvent[]): EventHandlerDeps {
   return {
     ctx: {
       conversationId: "test-conversation",
@@ -126,7 +126,7 @@ function createMockDeps(collected: ServerMessage[]): EventHandlerDeps {
       markWorkspaceTopLevelDirty: () => {},
       currentTurnSurfaces: [],
     } as unknown as EventHandlerDeps["ctx"],
-    onEvent: (msg: ServerMessage) => {
+    onEvent: (msg: AssistantEvent) => {
       collected.push(msg);
     },
     reqId: "test-req-id",
@@ -146,10 +146,10 @@ function createMockDeps(collected: ServerMessage[]): EventHandlerDeps {
   } as EventHandlerDeps;
 }
 
-function streamedText(events: ServerMessage[]): string {
+function streamedText(events: AssistantEvent[]): string {
   return events
     .filter(
-      (e): e is Extract<ServerMessage, { type: "assistant_text_delta" }> =>
+      (e): e is Extract<AssistantEvent, { type: "assistant_text_delta" }> =>
         (e as { type?: string }).type === "assistant_text_delta",
     )
     .map((e) => e.text)
@@ -182,7 +182,7 @@ beforeEach(() => {
 
 describe("live reveal guard priming barrier", () => {
   test("a text delta dispatched while priming is pending waits for the guard and emits the sentinel", async () => {
-    const events: ServerMessage[] = [];
+    const events: AssistantEvent[] = [];
     const state = createEventHandlerState();
     const deps = createMockDeps(events);
 
@@ -223,7 +223,7 @@ describe("live reveal guard priming barrier", () => {
   });
 
   test("a plaintext echo cannot beat the guard onto the wire", async () => {
-    const events: ServerMessage[] = [];
+    const events: AssistantEvent[] = [];
     const state = createEventHandlerState();
     const deps = createMockDeps(events);
 
@@ -250,7 +250,7 @@ describe("live reveal guard priming barrier", () => {
   });
 
   test("a denied or failed reveal never reads the store and stays unrevealable", async () => {
-    const events: ServerMessage[] = [];
+    const events: AssistantEvent[] = [];
     const state = createEventHandlerState();
     const deps = createMockDeps(events);
 
@@ -308,7 +308,7 @@ describe("live reveal guard priming barrier", () => {
   });
 
   test("a proven reveal primes even when the enclosing command exits non-zero", async () => {
-    const events: ServerMessage[] = [];
+    const events: AssistantEvent[] = [];
     const state = createEventHandlerState();
     const deps = createMockDeps(events);
 
@@ -340,7 +340,7 @@ describe("live reveal guard priming barrier", () => {
   });
 
   test("steady-state deltas with no priming in flight emit synchronously", async () => {
-    const events: ServerMessage[] = [];
+    const events: AssistantEvent[] = [];
     const state = createEventHandlerState();
     const deps = createMockDeps(events);
 
@@ -354,7 +354,7 @@ describe("live reveal guard priming barrier", () => {
   });
 
   test("a rotate-and-re-reveal in one window guards both served values", async () => {
-    const events: ServerMessage[] = [];
+    const events: AssistantEvent[] = [];
     const state = createEventHandlerState();
     const deps = createMockDeps(events);
 
@@ -395,7 +395,7 @@ describe("live reveal guard priming barrier", () => {
 
 describe("reveal stdout redaction on the live tool_result", () => {
   test("an opaque revealed value in the reveal's own stdout is redacted before emit", async () => {
-    const events: ServerMessage[] = [];
+    const events: AssistantEvent[] = [];
     const state = createEventHandlerState();
     const deps = createMockDeps(events);
 
@@ -424,7 +424,7 @@ describe("reveal stdout redaction on the live tool_result", () => {
   });
 
   test("buffers the RAW tool result so persist redacts exactly once", async () => {
-    const events: ServerMessage[] = [];
+    const events: AssistantEvent[] = [];
     const state = createEventHandlerState();
     const deps = createMockDeps(events);
 
@@ -454,7 +454,7 @@ describe("reveal stdout redaction on the live tool_result", () => {
   });
 
   test("a tool_result that never revealed anything is forwarded unchanged", async () => {
-    const events: ServerMessage[] = [];
+    const events: AssistantEvent[] = [];
     const state = createEventHandlerState();
     const deps = createMockDeps(events);
 
@@ -478,10 +478,10 @@ describe("reveal stdout redaction on the live tool_result", () => {
   });
 });
 
-function outputChunks(events: ServerMessage[]): string[] {
+function outputChunks(events: AssistantEvent[]): string[] {
   return events
     .filter(
-      (e): e is Extract<ServerMessage, { type: "tool_output_chunk" }> =>
+      (e): e is Extract<AssistantEvent, { type: "tool_output_chunk" }> =>
         (e as { type?: string }).type === "tool_output_chunk",
     )
     .map((e) => e.chunk);
@@ -489,7 +489,7 @@ function outputChunks(events: ServerMessage[]): string[] {
 
 describe("live tool output chunk redaction", () => {
   test("reveal stdout chunks are redacted before forwarding", async () => {
-    const events: ServerMessage[] = [];
+    const events: AssistantEvent[] = [];
     const state = createEventHandlerState();
     const deps = createMockDeps(events);
 
@@ -517,7 +517,7 @@ describe("live tool output chunk redaction", () => {
   });
 
   test("a value split across chunks is held back, then flushed redacted", async () => {
-    const events: ServerMessage[] = [];
+    const events: AssistantEvent[] = [];
     const state = createEventHandlerState();
     const deps = createMockDeps(events);
 
@@ -549,7 +549,7 @@ describe("live tool output chunk redaction", () => {
   });
 
   test("a held remainder is DISCARDED at tool_result, never emitted raw", async () => {
-    const events: ServerMessage[] = [];
+    const events: AssistantEvent[] = [];
     const state = createEventHandlerState();
     const deps = createMockDeps(events);
 
@@ -587,7 +587,7 @@ describe("live tool output chunk redaction", () => {
   });
 
   test("chunks from a tool with no reveal candidates pass through verbatim", async () => {
-    const events: ServerMessage[] = [];
+    const events: AssistantEvent[] = [];
     const state = createEventHandlerState();
     const deps = createMockDeps(events);
 
@@ -608,7 +608,7 @@ describe("live tool output chunk redaction", () => {
   });
 
   test("a later tool echoing an already-promoted value is redacted too", async () => {
-    const events: ServerMessage[] = [];
+    const events: AssistantEvent[] = [];
     const state = createEventHandlerState();
     const deps = createMockDeps(events);
 
@@ -662,7 +662,7 @@ describe("for-chat re-mint authority (two legs: staged AND executed)", () => {
   } as Extract<AgentEvent, { type: "tool_result" }>;
 
   test("staged by this run + route-minted: the echoed sentinel re-mints on the live wire", async () => {
-    const events: ServerMessage[] = [];
+    const events: AssistantEvent[] = [];
     const state = createEventHandlerState();
     const deps = createMockDeps(events);
 
@@ -694,7 +694,7 @@ describe("for-chat re-mint authority (two legs: staged AND executed)", () => {
     // same identity. That mint passes the watermark and staging checks but
     // carries the OTHER conversation's nonce, so it grants nothing here
     // and the echoed sentinel neutralizes like any forgery.
-    const events: ServerMessage[] = [];
+    const events: AssistantEvent[] = [];
     const state = createEventHandlerState();
     const deps = createMockDeps(events);
 
@@ -721,7 +721,7 @@ describe("for-chat re-mint authority (two legs: staged AND executed)", () => {
     // other conversation's mint lands later. This run's own mint must
     // still re-mint its echoed sentinel — an identity-only dedupe in the
     // registry would have dropped it in favor of the foreign-nonce record.
-    const events: ServerMessage[] = [];
+    const events: AssistantEvent[] = [];
     const state = createEventHandlerState();
     const deps = createMockDeps(events);
 
@@ -750,7 +750,7 @@ describe("for-chat re-mint authority (two legs: staged AND executed)", () => {
   });
 
   test("a mint alone — identity never staged by this run — neutralizes", async () => {
-    const events: ServerMessage[] = [];
+    const events: AssistantEvent[] = [];
     const state = createEventHandlerState();
     const deps = createMockDeps(events);
 
@@ -771,7 +771,7 @@ describe("for-chat re-mint authority (two legs: staged AND executed)", () => {
   });
 
   test("staging alone — a quoted command that never executed — neutralizes", async () => {
-    const events: ServerMessage[] = [];
+    const events: AssistantEvent[] = [];
     const state = createEventHandlerState();
     const deps = createMockDeps(events);
 

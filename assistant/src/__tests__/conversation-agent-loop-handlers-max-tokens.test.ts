@@ -6,11 +6,11 @@ import {
   type EventHandlerDeps,
   handleMaxTokensReached,
 } from "../daemon/conversation-agent-loop-handlers.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../daemon/message-protocol.js";
 
 describe("max tokens reached handler", () => {
   test("emits and stores an inline continuation card", () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = {
       conversationId: "conv-1",
       surfaceState: new Map(),
@@ -18,7 +18,7 @@ describe("max tokens reached handler", () => {
     };
     const deps = {
       ctx,
-      onEvent: (msg: ServerMessage) => sent.push(msg),
+      onEvent: (msg: AssistantEvent) => sent.push(msg),
       reqId: "req-1",
       isFirstMessage: false,
       shouldGenerateTitle: false,
@@ -40,7 +40,7 @@ describe("max tokens reached handler", () => {
 
     const show = sent.find((msg) => msg.type === "ui_surface_show");
     expect(show).toBeDefined();
-    if (!show || show.type !== "ui_surface_show") return;
+    if (!show || show.type !== "ui_surface_show") {return;}
 
     expect(show.surfaceType).toBe("card");
     expect((show.data as { title?: unknown }).title).toBe(

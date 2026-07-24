@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { SYNC_TAGS } from "../daemon/message-types/sync.js";
-import type { AssistantEvent } from "../runtime/assistant-event.js";
+import type { AssistantEventEnvelope } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import {
   publishConfigChanged,
@@ -22,7 +22,7 @@ async function waitFor(predicate: () => boolean): Promise<void> {
 
 describe("config and sounds sync events", () => {
   test("config changes emit legacy config event and sync tag", async () => {
-    const received: AssistantEvent[] = [];
+    const received: AssistantEventEnvelope[] = [];
     const subscription = assistantEventHub.subscribe({
       type: "process",
       callback: (event) => {
@@ -48,7 +48,7 @@ describe("config and sounds sync events", () => {
   });
 
   test("sounds config changes emit legacy sounds event and sync tag", async () => {
-    const received: AssistantEvent[] = [];
+    const received: AssistantEventEnvelope[] = [];
     const subscription = assistantEventHub.subscribe({
       type: "process",
       callback: (event) => {
@@ -74,7 +74,7 @@ describe("config and sounds sync events", () => {
   });
 
   test("schedule changes emit a sync tag", async () => {
-    const received: AssistantEvent[] = [];
+    const received: AssistantEventEnvelope[] = [];
     const subscription = assistantEventHub.subscribe({
       type: "process",
       callback: (event) => {

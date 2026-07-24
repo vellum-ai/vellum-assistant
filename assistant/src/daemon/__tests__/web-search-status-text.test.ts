@@ -30,7 +30,7 @@ import {
   formatFetchStatusText,
   formatSearchStatusText,
 } from "../conversation-agent-loop-handlers.js";
-import type { ServerMessage } from "../message-protocol.js";
+import type { AssistantEvent } from "../message-protocol.js";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -68,7 +68,7 @@ function createCollectorDeps(): {
       markWorkspaceTopLevelDirty: () => {},
       currentTurnSurfaces: [],
     } as unknown as EventHandlerDeps["ctx"],
-    onEvent: (_msg: ServerMessage) => {},
+    onEvent: (_msg: AssistantEvent) => {},
     reqId: "req-status-text",
     isFirstMessage: false,
     shouldGenerateTitle: false,

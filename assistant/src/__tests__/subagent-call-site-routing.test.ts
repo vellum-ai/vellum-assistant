@@ -17,7 +17,7 @@
  */
 import { afterAll, describe, expect, mock, test } from "bun:test";
 
-import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../daemon/message-protocol.js";
 import { getProvider as getProviderImport } from "../providers/registry.js";
 import { setConfig } from "./helpers/set-config.js";
 
@@ -42,7 +42,7 @@ class FakeConversation {
     provider: unknown,
     _systemPrompt: string,
     _maxTokens: number,
-    _sendToClient: (msg: ServerMessage) => void,
+    _sendToClient: (msg: AssistantEvent) => void,
   ) {
     capturedProvider = provider;
     this.capturedState = {

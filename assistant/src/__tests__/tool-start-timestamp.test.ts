@@ -47,11 +47,11 @@ import {
   createEventHandlerState,
   handleToolUse,
 } from "../daemon/conversation-agent-loop-handlers.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../daemon/message-protocol.js";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function makeDeps(onEvent: (event: ServerMessage) => void): EventHandlerDeps {
+function makeDeps(onEvent: (event: AssistantEvent) => void): EventHandlerDeps {
   return {
     ctx: {
       conversationId: "test-conv",
@@ -120,7 +120,7 @@ describe("handleToolUse — tool start timestamp", () => {
         input: { command: "ls" },
       },
     ]);
-    const events: ServerMessage[] = [];
+    const events: AssistantEvent[] = [];
     const before = Date.now();
 
     // WHEN the tool begins
@@ -155,7 +155,7 @@ describe("handleToolUse — tool start timestamp", () => {
         input: { command: "ls" },
       },
     ]);
-    const events: ServerMessage[] = [];
+    const events: AssistantEvent[] = [];
 
     // WHEN the tool begins
     handleToolUse(

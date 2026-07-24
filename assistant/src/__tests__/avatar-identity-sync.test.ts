@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { SYNC_TAGS } from "../daemon/message-types/sync.js";
-import type { AssistantEvent } from "../runtime/assistant-event.js";
+import type { AssistantEventEnvelope } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { ROUTES as AVATAR_ROUTES } from "../runtime/routes/avatar-routes.js";
 import { publishIdentityChanged } from "../runtime/sync/resource-sync-events.js";
@@ -19,7 +19,7 @@ async function waitFor(predicate: () => boolean): Promise<void> {
 
 describe("avatar and identity sync events", () => {
   test("notify_avatar_updated emits legacy avatar event and sync tag", async () => {
-    const received: AssistantEvent[] = [];
+    const received: AssistantEventEnvelope[] = [];
     const subscription = assistantEventHub.subscribe({
       type: "process",
       callback: (event) => {
@@ -50,7 +50,7 @@ describe("avatar and identity sync events", () => {
   });
 
   test("identity changes emit legacy identity event and identity sync tags", async () => {
-    const received: AssistantEvent[] = [];
+    const received: AssistantEventEnvelope[] = [];
     const subscription = assistantEventHub.subscribe({
       type: "process",
       callback: (event) => {

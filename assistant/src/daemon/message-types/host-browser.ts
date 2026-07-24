@@ -5,9 +5,6 @@
 // wire schema. The client→server events below are unsolicited signals the
 // chrome extension pushes back to the runtime.
 
-import type { HostBrowserCancelEvent } from "../../api/events/host-browser.js";
-import type { HostBrowserRequestEvent } from "../../api/events/host-browser.js";
-
 // === Client → Server ===
 
 /**
@@ -75,10 +72,6 @@ export interface HostBrowserSessionInvalidated {
 }
 
 // --- Domain-level union aliases (consumed by the barrel file) ---
-
-export type _HostBrowserServerMessages =
-  | HostBrowserRequestEvent
-  | HostBrowserCancelEvent;
 
 export type _HostBrowserClientMessages =
   | HostBrowserEvent

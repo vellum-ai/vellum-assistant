@@ -13,7 +13,7 @@ import { describe, expect, mock, test } from "bun:test";
 
 import { CompactionCircuit } from "../agent/compaction-circuit.js";
 import type { AgentEvent } from "../agent/loop.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../daemon/message-protocol.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
 
 // ---------------------------------------------------------------------------
@@ -176,7 +176,7 @@ function makeProvider() {
 }
 
 function makeConversation(
-  sendToClient?: (msg: ServerMessage) => void,
+  sendToClient?: (msg: AssistantEvent) => void,
 ): Conversation {
   return new Conversation(
     "conv-signals-test",
@@ -212,7 +212,7 @@ function seedPendingConfirmation(
 
 describe("centralized confirmation emissions", () => {
   test("handleConfirmationResponse emits confirmation_state_changed with approved state for allow decision", () => {
-    const emitted: ServerMessage[] = [];
+    const emitted: AssistantEvent[] = [];
     const conversation = makeConversation((msg) => emitted.push(msg));
 
     seedPendingConfirmation(conversation, "req-allow-1");
@@ -240,7 +240,7 @@ describe("centralized confirmation emissions", () => {
   });
 
   test("handleConfirmationResponse emits confirmation_state_changed with denied state for deny decision", () => {
-    const emitted: ServerMessage[] = [];
+    const emitted: AssistantEvent[] = [];
     const conversation = makeConversation((msg) => emitted.push(msg));
 
     seedPendingConfirmation(conversation, "req-deny-1");
@@ -264,7 +264,7 @@ describe("centralized confirmation emissions", () => {
   });
 
   test("handleConfirmationResponse emits assistant_activity_state with thinking phase", () => {
-    const emitted: ServerMessage[] = [];
+    const emitted: AssistantEvent[] = [];
     const conversation = makeConversation((msg) => emitted.push(msg));
 
     seedPendingConfirmation(conversation, "req-activity-1");
@@ -287,7 +287,7 @@ describe("centralized confirmation emissions", () => {
   });
 
   test("handleConfirmationResponse passes emissionContext source", () => {
-    const emitted: ServerMessage[] = [];
+    const emitted: AssistantEvent[] = [];
     const conversation = makeConversation((msg) => emitted.push(msg));
 
     seedPendingConfirmation(conversation, "req-ctx-1");
@@ -314,7 +314,7 @@ describe("centralized confirmation emissions", () => {
 
 describe("activity version ordering", () => {
   test("emitActivityState produces monotonically increasing activityVersion", () => {
-    const emitted: ServerMessage[] = [];
+    const emitted: AssistantEvent[] = [];
     const conversation = makeConversation((msg) => emitted.push(msg));
 
     conversation.emitActivityState("thinking", "message_dequeued");
@@ -326,7 +326,7 @@ describe("activity version ordering", () => {
 
     const activityMsgs = emitted.filter(
       (m) => m.type === "assistant_activity_state",
-    ) as Array<ServerMessage & { activityVersion: number }>;
+    ) as Array<AssistantEvent & { activityVersion: number }>;
 
     expect(activityMsgs).toHaveLength(4);
 
@@ -342,7 +342,7 @@ describe("activity version ordering", () => {
   });
 
   test("handleConfirmationResponse increments activityVersion for its activity emission", () => {
-    const emitted: ServerMessage[] = [];
+    const emitted: AssistantEvent[] = [];
     const conversation = makeConversation((msg) => emitted.push(msg));
 
     // Emit a baseline activity state
@@ -350,7 +350,7 @@ describe("activity version ordering", () => {
 
     const baselineMsg = emitted.find(
       (m) => m.type === "assistant_activity_state",
-    ) as ServerMessage & { activityVersion: number };
+    ) as AssistantEvent & { activityVersion: number };
     const baselineVersion = baselineMsg.activityVersion;
 
     // Now handle a confirmation
@@ -359,7 +359,7 @@ describe("activity version ordering", () => {
 
     const activityMsgs = emitted.filter(
       (m) => m.type === "assistant_activity_state",
-    ) as Array<ServerMessage & { activityVersion: number; reason: string }>;
+    ) as Array<AssistantEvent & { activityVersion: number; reason: string }>;
 
     // The confirmation_resolved activity message should have a higher version
     const resolvedMsg = activityMsgs.find(
@@ -372,7 +372,7 @@ describe("activity version ordering", () => {
 
 describe("sendToClient receives state signals", () => {
   test("emitActivityState delivers to sendToClient", () => {
-    const clientMsgs: ServerMessage[] = [];
+    const clientMsgs: AssistantEvent[] = [];
     const conversation = makeConversation((msg) => clientMsgs.push(msg));
 
     conversation.emitActivityState("thinking", "message_dequeued");
@@ -383,7 +383,7 @@ describe("sendToClient receives state signals", () => {
   });
 
   test("emitConfirmationStateChanged delivers to sendToClient", () => {
-    const clientMsgs: ServerMessage[] = [];
+    const clientMsgs: AssistantEvent[] = [];
     const conversation = makeConversation((msg) => clientMsgs.push(msg));
 
     conversation.emitConfirmationStateChanged({
@@ -399,7 +399,7 @@ describe("sendToClient receives state signals", () => {
   });
 
   test("handleConfirmationResponse delivers state signals to sendToClient", () => {
-    const clientMsgs: ServerMessage[] = [];
+    const clientMsgs: AssistantEvent[] = [];
     const conversation = makeConversation((msg) => clientMsgs.push(msg));
 
     seedPendingConfirmation(conversation, "req-signal-confirm");

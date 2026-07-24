@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { CompactionCircuit } from "../agent/compaction-circuit.js";
 import type { AgentEvent, AgentLoopRunResult } from "../agent/loop.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../daemon/message-protocol.js";
 import {
   conversationMessagesSyncTag,
   type SyncChangedEvent,
@@ -301,9 +301,9 @@ describe("Conversation queue — slash-like messages pass through to agent loop"
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    const events1: ServerMessage[] = [];
-    const eventsSlash: ServerMessage[] = [];
-    const events3: ServerMessage[] = [];
+    const events1: AssistantEvent[] = [];
+    const eventsSlash: AssistantEvent[] = [];
+    const events3: AssistantEvent[] = [];
 
     // Start first message — blocks on agent loop
     const p1 = conversation.processMessage({
@@ -348,8 +348,8 @@ describe("Conversation queue — slash-like messages pass through to agent loop"
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    const sharedEvents: ServerMessage[] = [];
-    const sharedOnEvent = (event: ServerMessage) => sharedEvents.push(event);
+    const sharedEvents: AssistantEvent[] = [];
+    const sharedOnEvent = (event: AssistantEvent) => sharedEvents.push(event);
 
     const p1 = conversation.processMessage({
       content: "msg-1",
@@ -390,8 +390,8 @@ describe("Conversation queue — slash-like messages pass through to agent loop"
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    const events1: ServerMessage[] = [];
-    const eventsSlash: ServerMessage[] = [];
+    const events1: AssistantEvent[] = [];
+    const eventsSlash: AssistantEvent[] = [];
 
     // Start first message — blocks on agent loop
     const p1 = conversation.processMessage({
@@ -433,9 +433,9 @@ describe("Conversation queue — slash-like messages pass through to agent loop"
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    const eventsHi: ServerMessage[] = [];
-    const eventsCompact: ServerMessage[] = [];
-    const eventsBye: ServerMessage[] = [];
+    const eventsHi: AssistantEvent[] = [];
+    const eventsCompact: AssistantEvent[] = [];
+    const eventsBye: AssistantEvent[] = [];
 
     // Start in-flight message
     const p1 = conversation.processMessage({

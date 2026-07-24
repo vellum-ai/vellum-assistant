@@ -374,6 +374,33 @@ describe("resolveChannelCapabilities", () => {
     expect(caps.supportsVoiceInput).toBe(false);
   });
 
+  test("supportsInlineOptions is true only for inline-button channels", () => {
+    // Drives rich approval delivery (and, next, channel-native questions).
+    // Same membership as the retired RICH_APPROVAL_CHANNELS set — a channel can
+    // render inline buttons yet have no dynamic UI.
+    expect(resolveChannelCapabilities("telegram").supportsInlineOptions).toBe(
+      true,
+    );
+    expect(resolveChannelCapabilities("whatsapp").supportsInlineOptions).toBe(
+      true,
+    );
+    expect(resolveChannelCapabilities("slack").supportsInlineOptions).toBe(
+      true,
+    );
+    expect(resolveChannelCapabilities("email").supportsInlineOptions).toBe(
+      false,
+    );
+    expect(resolveChannelCapabilities("phone").supportsInlineOptions).toBe(
+      false,
+    );
+    expect(
+      resolveChannelCapabilities(undefined, "macos").supportsInlineOptions,
+    ).toBe(false);
+    expect(
+      resolveChannelCapabilities("unknown-thing").supportsInlineOptions,
+    ).toBe(false);
+  });
+
   test("propagates chatType when provided", () => {
     const caps = resolveChannelCapabilities("telegram", null, "group");
     expect(caps.chatType).toBe("group");

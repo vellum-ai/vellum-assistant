@@ -1,65 +1,8 @@
 import type { CSSProperties } from "react";
 import type { LucideIcon } from "lucide-react";
 
-import { Button } from "@vellumai/design-library/components/button";
-import { Notice } from "@vellumai/design-library/components/notice";
-
 import { AvatarRenderer } from "@/components/avatar-renderer";
-import { cn } from "@/utils/misc";
 import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
-
-import { extractOnboardingErrorMessage } from "./utils";
-
-/** The manual Apply & Restart recovery threaded down from the modal. */
-export interface StalledApplyAction {
-  onApply: () => void;
-  pending: boolean;
-  error: unknown;
-}
-
-/** Warning shown when a backgrounded resize stalls mid-wizard. */
-const STALLED_UPGRADE_WARNING =
-  "We couldn't finish your machine upgrade automatically. Apply it now to finish — your assistant will briefly restart.";
-
-/**
- * Warning notice + Apply & Restart button for recovering a stalled resize.
- * Shared by the complete screen and the domain step so the recovery affordance
- * can't drift between them. (The dark provisioning takeover renders its own
- * inline button by design.)
- */
-export function StalledApplyControls({
-  action,
-  buttonTestId,
-  className,
-}: {
-  action: StalledApplyAction;
-  buttonTestId: string;
-  className?: string;
-}) {
-  return (
-    <div className={cn("flex flex-col items-center gap-2", className)}>
-      <Notice tone="warning" className="w-full text-left">
-        {STALLED_UPGRADE_WARNING}
-      </Notice>
-      {action.error != null && (
-        <Notice tone="error" className="w-full text-left">
-          {extractOnboardingErrorMessage(
-            action.error,
-            "Couldn't apply changes. Please try again.",
-          )}
-        </Notice>
-      )}
-      <Button
-        variant="outlined"
-        data-testid={buttonTestId}
-        disabled={action.pending}
-        onClick={action.onApply}
-      >
-        Apply &amp; Restart
-      </Button>
-    </div>
-  );
-}
 
 export function IconBadge({ icon: Icon }: { icon: LucideIcon }) {
   return (

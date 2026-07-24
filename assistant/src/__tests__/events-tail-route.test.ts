@@ -13,7 +13,7 @@
  */
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import type { AssistantEvent } from "../runtime/assistant-event.js";
+import type { AssistantEventEnvelope } from "../runtime/assistant-event.js";
 import {
   _resetStreamStateForTesting,
   stampAndBuffer,
@@ -30,7 +30,7 @@ if (!tailRoute) {
 }
 
 interface TailResponse {
-  events: AssistantEvent[];
+  events: AssistantEventEnvelope[];
   complete: boolean;
   frontier: number | null;
 }
@@ -45,7 +45,9 @@ function callTail(
   }) as TailResponse;
 }
 
-function mkEvent(overrides: Partial<AssistantEvent> = {}): AssistantEvent {
+function mkEvent(
+  overrides: Partial<AssistantEventEnvelope> = {},
+): AssistantEventEnvelope {
   const conversationId =
     "conversationId" in overrides ? overrides.conversationId : CONV;
   return {
@@ -58,7 +60,7 @@ function mkEvent(overrides: Partial<AssistantEvent> = {}): AssistantEvent {
       text: "x",
     },
     ...overrides,
-  } as AssistantEvent;
+  } as AssistantEventEnvelope;
 }
 
 describe("GET events/tail", () => {

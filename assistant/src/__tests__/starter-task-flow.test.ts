@@ -1,10 +1,13 @@
 import { describe, expect, mock, test } from "bun:test";
 
-import type { ServerMessage, SurfaceType } from "../daemon/message-protocol.js";
+import type {
+  AssistantEvent,
+  SurfaceType,
+} from "../daemon/message-protocol.js";
 
 mock.module("../apps/app-store.js", () => ({
   getApp: (id: string) => {
-    if (id !== "test-app") return null;
+    if (id !== "test-app") {return null;}
     return {
       id,
       name: "Test App",
@@ -116,7 +119,7 @@ describe("starter task surface actions", () => {
   });
 
   test("app_open registers dynamic_page surface as action-capable", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext();
     ctx.sendToClient = (msg) => sent.push(msg);
 

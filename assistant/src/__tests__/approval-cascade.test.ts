@@ -11,7 +11,7 @@ import { Minimatch } from "minimatch";
 import { CompactionCircuit } from "../agent/compaction-circuit.js";
 import type { AgentEvent } from "../agent/loop.js";
 import type { ConfirmationStateChangedEvent } from "../api/events/confirmation-state-changed.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../daemon/message-protocol.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
 import type { ConfirmationDetails } from "../runtime/pending-interactions.js";
 
@@ -188,7 +188,7 @@ function makeProvider() {
 }
 
 function makeConversation(
-  sendToClient?: (msg: ServerMessage) => void,
+  sendToClient?: (msg: AssistantEvent) => void,
   conversationId = CONV_ID,
 ): Conversation {
   return new Conversation(
@@ -257,7 +257,7 @@ beforeEach(() => {
 
 describe("approval cascading", () => {
   test("allow (one-time) does NOT cascade", () => {
-    const emitted: ServerMessage[] = [];
+    const emitted: AssistantEvent[] = [];
     const conversationObj = makeConversation(
       (msg) => emitted.push(msg),
       CONV_ID,
@@ -291,7 +291,7 @@ describe("approval cascading", () => {
   });
 
   test("deny (one-time) does NOT cascade", () => {
-    const emitted: ServerMessage[] = [];
+    const emitted: AssistantEvent[] = [];
     const conversationObj = makeConversation(
       (msg) => emitted.push(msg),
       CONV_ID,
@@ -325,7 +325,7 @@ describe("approval cascading", () => {
   });
 
   test("already-resolved request handled gracefully", () => {
-    const emitted: ServerMessage[] = [];
+    const emitted: AssistantEvent[] = [];
     const conversationObj = makeConversation(
       (msg) => emitted.push(msg),
       CONV_ID,

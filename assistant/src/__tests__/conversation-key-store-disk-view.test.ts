@@ -21,7 +21,7 @@ import {
   conversationKeys,
   conversations,
 } from "../persistence/schema/index.js";
-import type { AssistantEvent } from "../runtime/assistant-event.js";
+import type { AssistantEventEnvelope } from "../runtime/assistant-event.js";
 import {
   _resetStreamStateForTesting,
   _simulateRestartForTesting,
@@ -87,7 +87,7 @@ describe("conversation-key-store disk view", () => {
     // /messages for their entire first turn — the anchor-less snapshot that
     // let mid-turn refetches wipe streamed transcript content on clients.
     _resetStreamStateForTesting();
-    const event: AssistantEvent = {
+    const event: AssistantEventEnvelope = {
       id: "seed-evt",
       conversationId: "other-conversation",
       emittedAt: new Date().toISOString(),
@@ -95,7 +95,7 @@ describe("conversation-key-store disk view", () => {
         type: "assistant_text_delta",
         conversationId: "other-conversation",
         text: "x",
-      } as AssistantEvent["message"],
+      } as AssistantEventEnvelope["message"],
     };
     stampAndBuffer(event);
     const baseline = getCurrentSeq();
@@ -116,7 +116,7 @@ describe("conversation-key-store disk view", () => {
     // its ceiling — a conversation created before the first stamp must seed
     // from that ceiling, not report NULL as if the assistant were brand new.
     _resetStreamStateForTesting();
-    const event: AssistantEvent = {
+    const event: AssistantEventEnvelope = {
       id: "restart-evt",
       conversationId: "other-conversation",
       emittedAt: new Date().toISOString(),
@@ -124,7 +124,7 @@ describe("conversation-key-store disk view", () => {
         type: "assistant_text_delta",
         conversationId: "other-conversation",
         text: "x",
-      } as AssistantEvent["message"],
+      } as AssistantEventEnvelope["message"],
     };
     stampAndBuffer(event);
     _simulateRestartForTesting();

@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => true }));
 
 import type { Conversation } from "../daemon/conversation.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../daemon/message-protocol.js";
 import {
   getConversationByKey,
   getOrCreateConversation,
@@ -100,7 +100,7 @@ mock.module(
 import { __resetGuardianDeliveryCacheForTest } from "../contacts/guardian-delivery-reader.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
-import type { AssistantEvent } from "../runtime/assistant-event.js";
+import type { AssistantEventEnvelope } from "../runtime/assistant-event.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import type { ApprovalConversationGenerator } from "../runtime/http-types.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
@@ -143,7 +143,7 @@ function makeCompletingConversation(): Conversation {
     runAgentLoop: async (
       _content: string,
       _messageId: string,
-      options?: { onEvent?: (msg: ServerMessage) => void },
+      options?: { onEvent?: (msg: AssistantEvent) => void },
     ) => {
       const onEvent = options?.onEvent ?? (() => {});
       onEvent({ type: "assistant_text_delta", text: "Hello!" });
@@ -162,7 +162,7 @@ function makeHangingConversation(): Conversation {
   const messages: unknown[] = [];
   const enqueuedMessages: Array<{
     content: string;
-    onEvent?: (msg: ServerMessage) => void;
+    onEvent?: (msg: AssistantEvent) => void;
     requestId?: string;
   }> = [];
   return {
@@ -191,7 +191,7 @@ function makeHangingConversation(): Conversation {
     getQueueDepth: () => enqueuedMessages.length,
     enqueueMessage: (options: {
       content: string;
-      onEvent?: (msg: ServerMessage) => void;
+      onEvent?: (msg: AssistantEvent) => void;
       requestId?: string;
     }) => {
       enqueuedMessages.push({
@@ -375,7 +375,7 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
   });
 
   test("publishes events to assistantEventHub when conversation is idle", async () => {
-    const publishedEvents: AssistantEvent[] = [];
+    const publishedEvents: AssistantEventEnvelope[] = [];
 
     await startServer(() => makeCompletingConversation());
 
@@ -384,7 +384,7 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
       await import("../runtime/assistant-event-hub.js");
     routeEventHub.subscribe({
       type: "process",
-      callback: (event: AssistantEvent) => {
+      callback: (event: AssistantEventEnvelope) => {
         publishedEvents.push(event);
       },
     });

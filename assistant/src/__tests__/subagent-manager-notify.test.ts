@@ -29,7 +29,7 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
   broadcastMessage: () => {},
 }));
 
-import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../daemon/message-protocol.js";
 import { SubagentManager } from "../subagent/manager.js";
 import type { SubagentState } from "../subagent/types.js";
 
@@ -42,7 +42,7 @@ interface FakeManagedSubagent {
       role: string;
       content: Array<{ type: string; text: string }>;
     }>;
-    sendToClient: (msg: ServerMessage) => void;
+    sendToClient: (msg: AssistantEvent) => void;
     loadFromDb?: () => Promise<void>;
     persistUserMessage?: () => { id: string; deduplicated: boolean };
     runAgentLoop?: () => Promise<void>;
@@ -54,7 +54,7 @@ interface FakeManagedSubagent {
     subagentDeniedToolNames: Set<string>;
   } | null;
   state: SubagentState;
-  parentSendToClient: (msg: ServerMessage) => void;
+  parentSendToClient: (msg: AssistantEvent) => void;
 }
 
 /** Type-safe accessor for SubagentManager's private internals via bracket notation. */
@@ -77,7 +77,7 @@ function injectFakeSubagent(
   manager: SubagentManager,
   subagentId: string,
   state: SubagentState,
-  parentSendToClient?: (msg: ServerMessage) => void,
+  parentSendToClient?: (msg: AssistantEvent) => void,
 ): void {
   const fakeSession: FakeManagedSubagent["conversation"] = {
     abort: () => {},
@@ -137,8 +137,8 @@ describe("SubagentManager abort notification", () => {
     const state = makeState(subagentId);
     injectFakeSubagent(manager, subagentId, state);
 
-    const clientMessages: ServerMessage[] = [];
-    const sendToClient = (msg: ServerMessage) => clientMessages.push(msg);
+    const clientMessages: AssistantEvent[] = [];
+    const sendToClient = (msg: AssistantEvent) => clientMessages.push(msg);
 
     const result = manager.abort(subagentId, sendToClient);
 
@@ -160,8 +160,8 @@ describe("SubagentManager abort notification", () => {
     injectFakeSubagent(manager, subagentId, state, parentSender);
 
     // A different sender (simulating abort from a different thread's socket).
-    const abortingSender = ((_msg: ServerMessage) => {}) as (
-      msg: ServerMessage,
+    const abortingSender = ((_msg: AssistantEvent) => {}) as (
+      msg: AssistantEvent,
     ) => void;
 
     manager.abort(subagentId, abortingSender);
@@ -175,8 +175,8 @@ describe("SubagentManager abort notification", () => {
     const manager = new SubagentManager();
     const subagentId = "sub-1";
 
-    const clientMessages: ServerMessage[] = [];
-    const sendToClient = (msg: ServerMessage) => clientMessages.push(msg);
+    const clientMessages: AssistantEvent[] = [];
+    const sendToClient = (msg: AssistantEvent) => clientMessages.push(msg);
 
     // Pass the sender as parentSendToClient so the stored sender receives the status update.
     injectFakeSubagent(

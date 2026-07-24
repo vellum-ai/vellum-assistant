@@ -1,12 +1,12 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { SecretRequestEvent } from "../api/events/secret-request.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../daemon/message-protocol.js";
 import type { SecretPromptResult } from "../permissions/secret-prompt-types.js";
 
-let broadcastedMessages: ServerMessage[] = [];
+let broadcastedMessages: AssistantEvent[] = [];
 mock.module("../runtime/assistant-event-hub.js", () => ({
-  broadcastMessage: (msg: ServerMessage) => broadcastedMessages.push(msg),
+  broadcastMessage: (msg: AssistantEvent) => broadcastedMessages.push(msg),
 }));
 
 // Use a real Map so SecretPrompter can store and retrieve promptResolve/promptReject callbacks.

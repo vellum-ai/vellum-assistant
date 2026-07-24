@@ -34,18 +34,18 @@ import {
   createEventHandlerState,
   handleToolResult,
 } from "../daemon/conversation-agent-loop-handlers.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../daemon/message-protocol.js";
 import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.js";
 
-type ToolResultEvent = Extract<ServerMessage, { type: "tool_result" }>;
+type ToolResultEvent = Extract<AssistantEvent, { type: "tool_result" }>;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function createCollectorDeps(): {
   deps: EventHandlerDeps;
-  events: ServerMessage[];
+  events: AssistantEvent[];
 } {
-  const events: ServerMessage[] = [];
+  const events: AssistantEvent[] = [];
   const deps = {
     ctx: {
       conversationId: "conv-meta",
@@ -55,7 +55,7 @@ function createCollectorDeps(): {
       markWorkspaceTopLevelDirty: () => {},
       currentTurnSurfaces: [],
     } as unknown as EventHandlerDeps["ctx"],
-    onEvent: (msg: ServerMessage) => events.push(msg),
+    onEvent: (msg: AssistantEvent) => events.push(msg),
     reqId: "req-meta",
     isFirstMessage: false,
     shouldGenerateTitle: false,

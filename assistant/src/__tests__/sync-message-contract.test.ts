@@ -1,16 +1,16 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  type AssistantEvent,
   buildSyncChangedMessage,
   conversationMessagesSyncTag,
-  type ServerMessage,
   SYNC_TAGS,
   SyncChangedEventSchema,
 } from "../daemon/message-protocol.js";
 
 describe("sync message contract", () => {
-  test("sync_changed is assignable to ServerMessage", () => {
-    const message: ServerMessage = {
+  test("sync_changed is assignable to AssistantEvent", () => {
+    const message: AssistantEvent = {
       type: "sync_changed",
       tags: [SYNC_TAGS.assistantAvatar],
     };

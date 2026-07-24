@@ -9,7 +9,7 @@ import type {
   CheckpointInfo,
   ExitReason,
 } from "../agent/loop.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../daemon/message-protocol.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
 import { stampAndBuffer } from "../runtime/assistant-stream-state.js";
 import { setConfig } from "./helpers/set-config.js";
@@ -376,7 +376,7 @@ type ConversationWithWorkspaceDeps = Conversation & {
 };
 
 function makeConversation(
-  sendToClient?: (msg: ServerMessage) => void,
+  sendToClient?: (msg: AssistantEvent) => void,
 ): Conversation {
   const provider = {
     name: "mock",
@@ -504,8 +504,8 @@ describe("Conversation message queue", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    const events1: ServerMessage[] = [];
-    const events2: ServerMessage[] = [];
+    const events1: AssistantEvent[] = [];
+    const events2: AssistantEvent[] = [];
 
     // Start first message — this will block on AgentLoop.run
     const p1 = conversation.processMessage({
@@ -553,9 +553,9 @@ describe("Conversation message queue", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    const events1: ServerMessage[] = [];
-    const events2: ServerMessage[] = [];
-    const events3: ServerMessage[] = [];
+    const events1: AssistantEvent[] = [];
+    const events2: AssistantEvent[] = [];
+    const events3: AssistantEvent[] = [];
 
     // Start first message
     const p1 = conversation.processMessage({
@@ -673,7 +673,7 @@ describe("Conversation message queue", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    const events2: ServerMessage[] = [];
+    const events2: AssistantEvent[] = [];
 
     // Start first message
     const p1 = conversation.processMessage({
@@ -714,8 +714,8 @@ describe("Conversation message queue", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    const events2: ServerMessage[] = [];
-    const events3: ServerMessage[] = [];
+    const events2: AssistantEvent[] = [];
+    const events3: AssistantEvent[] = [];
 
     // Start first message
     conversation.processMessage({
@@ -785,7 +785,7 @@ describe("Conversation message queue", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    const events: ServerMessage[] = [];
+    const events: AssistantEvent[] = [];
 
     // Start a message — blocks on AgentLoop.run
     const p1 = conversation.processMessage({
@@ -851,9 +851,9 @@ describe("Conversation message queue", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    const events1: ServerMessage[] = [];
-    const events2: ServerMessage[] = [];
-    const events3: ServerMessage[] = [];
+    const events1: AssistantEvent[] = [];
+    const events2: AssistantEvent[] = [];
+    const events3: AssistantEvent[] = [];
 
     // Start first message — blocks on AgentLoop.run
     const p1 = conversation.processMessage({
@@ -973,10 +973,10 @@ describe("Batched drain", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    const events2: ServerMessage[] = [];
-    const events3: ServerMessage[] = [];
-    const events4: ServerMessage[] = [];
-    const events5: ServerMessage[] = [];
+    const events2: AssistantEvent[] = [];
+    const events3: AssistantEvent[] = [];
+    const events4: AssistantEvent[] = [];
+    const events5: AssistantEvent[] = [];
 
     // Start in-flight message (msg-1)
     const p1 = conversation.processMessage({
@@ -1085,9 +1085,9 @@ describe("Batched drain", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    const eventsHello: ServerMessage[] = [];
-    const eventsSlash: ServerMessage[] = [];
-    const eventsWorld: ServerMessage[] = [];
+    const eventsHello: AssistantEvent[] = [];
+    const eventsSlash: AssistantEvent[] = [];
+    const eventsWorld: AssistantEvent[] = [];
 
     // Start in-flight message
     const p1 = conversation.processMessage({
@@ -1158,9 +1158,9 @@ describe("Batched drain", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    const eventsPlainA: ServerMessage[] = [];
-    const eventsSlash: ServerMessage[] = [];
-    const eventsPlainB: ServerMessage[] = [];
+    const eventsPlainA: AssistantEvent[] = [];
+    const eventsSlash: AssistantEvent[] = [];
+    const eventsPlainB: AssistantEvent[] = [];
 
     // Start in-flight message
     const p1 = conversation.processMessage({
@@ -1343,7 +1343,7 @@ describe("Batched drain", () => {
     // A third would push the queue over budget → rejected. Capture its
     // onEvent callback so we can verify the queue_full error event reaches
     // the rejected caller (not just the synchronous return value).
-    const rejectedEvents: ServerMessage[] = [];
+    const rejectedEvents: AssistantEvent[] = [];
     const rejected = conversation.enqueueMessage({
       content: "z".repeat(500),
       onEvent: (e) => rejectedEvents.push(e),
@@ -1421,8 +1421,8 @@ describe("Batched drain correctness fixes", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    const eventsSurface: ServerMessage[] = [];
-    const eventsRegular: ServerMessage[] = [];
+    const eventsSurface: AssistantEvent[] = [];
+    const eventsRegular: AssistantEvent[] = [];
 
     // Start in-flight message
     const p1 = conversation.processMessage({
@@ -1485,10 +1485,10 @@ describe("Batched drain correctness fixes", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    const events1: ServerMessage[] = [];
-    const events2: ServerMessage[] = [];
-    const events3: ServerMessage[] = [];
-    const events4: ServerMessage[] = [];
+    const events1: AssistantEvent[] = [];
+    const events2: AssistantEvent[] = [];
+    const events3: AssistantEvent[] = [];
+    const events4: AssistantEvent[] = [];
 
     // Start in-flight message
     const p1 = conversation.processMessage({
@@ -1516,7 +1516,7 @@ describe("Batched drain correctness fixes", () => {
     // this before enqueueing so the wrapped callback is what drainBatch
     // invokes.
     let aborted = false;
-    const onMsg3Event = (e: ServerMessage) => {
+    const onMsg3Event = (e: AssistantEvent) => {
       events3.push(e);
       if (!aborted && e.type === "message_dequeued") {
         aborted = true;
@@ -1564,10 +1564,10 @@ describe("Batched drain correctness fixes", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    const events1: ServerMessage[] = [];
-    const events2: ServerMessage[] = [];
-    const events3: ServerMessage[] = [];
-    const events4: ServerMessage[] = [];
+    const events1: AssistantEvent[] = [];
+    const events2: AssistantEvent[] = [];
+    const events3: AssistantEvent[] = [];
+    const events4: AssistantEvent[] = [];
 
     // Start in-flight message
     const p1 = conversation.processMessage({
@@ -1627,10 +1627,10 @@ describe("Batched drain correctness fixes", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    const events1: ServerMessage[] = [];
-    const events2: ServerMessage[] = [];
-    const events3: ServerMessage[] = [];
-    const events4: ServerMessage[] = [];
+    const events1: AssistantEvent[] = [];
+    const events2: AssistantEvent[] = [];
+    const events3: AssistantEvent[] = [];
+    const events4: AssistantEvent[] = [];
 
     const p1 = conversation.processMessage({
       content: "msg-1",
@@ -1679,7 +1679,7 @@ describe("Batched drain correctness fixes", () => {
   });
 
   test("drainBatch emits exactly one activity-state event for the whole batch", async () => {
-    const activityStates: ServerMessage[] = [];
+    const activityStates: AssistantEvent[] = [];
     const conversation = makeConversation((msg) => {
       if ("type" in msg && msg.type === "assistant_activity_state") {
         activityStates.push(msg);
@@ -1870,7 +1870,7 @@ describe("Conversation checkpoint handoff", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    const events1: ServerMessage[] = [];
+    const events1: AssistantEvent[] = [];
 
     // Start processing first message
     const p1 = conversation.processMessage({
@@ -1955,10 +1955,10 @@ describe("Conversation checkpoint handoff", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    const events1: ServerMessage[] = [];
-    const events2: ServerMessage[] = [];
-    const events3: ServerMessage[] = [];
-    const events4: ServerMessage[] = [];
+    const events1: AssistantEvent[] = [];
+    const events2: AssistantEvent[] = [];
+    const events3: AssistantEvent[] = [];
+    const events4: AssistantEvent[] = [];
 
     // Start first message (mid-tool-use — will yield at the next checkpoint)
     const p1 = conversation.processMessage({
@@ -2025,8 +2025,8 @@ describe("Conversation checkpoint handoff", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    const events1: ServerMessage[] = [];
-    const events2: ServerMessage[] = [];
+    const events1: AssistantEvent[] = [];
+    const events2: AssistantEvent[] = [];
 
     // Start processing first message
     const p1 = conversation.processMessage({
@@ -2094,8 +2094,8 @@ describe("Conversation checkpoint handoff", () => {
 
     const dequeueOrder: string[] = [];
 
-    const eventsA: ServerMessage[] = [];
-    const makeHandler = (label: string) => (e: ServerMessage) => {
+    const eventsA: AssistantEvent[] = [];
+    const makeHandler = (label: string) => (e: AssistantEvent) => {
       if (e.type === "message_dequeued") {
         dequeueOrder.push(label);
       }
@@ -2205,9 +2205,9 @@ describe("Conversation checkpoint handoff", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    const eventsA: ServerMessage[] = [];
-    const eventsB: ServerMessage[] = [];
-    const eventsC: ServerMessage[] = [];
+    const eventsA: AssistantEvent[] = [];
+    const eventsB: AssistantEvent[] = [];
+    const eventsC: AssistantEvent[] = [];
 
     // Start processing message A
     const pA = conversation.processMessage({
@@ -2305,8 +2305,8 @@ describe("Conversation host attachment directives", () => {
     writeFileSync(hostPath, "host attachment content");
 
     try {
-      const clientEvents: ServerMessage[] = [];
-      const events: ServerMessage[] = [];
+      const clientEvents: AssistantEvent[] = [];
+      const events: AssistantEvent[] = [];
       const conversation = makeConversation((msg) => clientEvents.push(msg));
       await conversation.loadFromDb();
 
@@ -2375,8 +2375,8 @@ describe("Conversation host attachment directives", () => {
     writeFileSync(hostPath, "host attachment content");
 
     try {
-      const clientEvents: ServerMessage[] = [];
-      const events: ServerMessage[] = [];
+      const clientEvents: AssistantEvent[] = [];
+      const events: AssistantEvent[] = [];
       const conversation = makeConversation((msg) => clientEvents.push(msg));
       await conversation.loadFromDb();
 
@@ -2463,7 +2463,7 @@ describe("Conversation attachment event payloads", () => {
   });
 
   test("message_complete includes assistant attachments", async () => {
-    const events: ServerMessage[] = [];
+    const events: AssistantEvent[] = [];
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
@@ -2526,7 +2526,7 @@ describe("Conversation attachment event payloads", () => {
   });
 
   test("generation_handoff includes assistant attachments", async () => {
-    const events1: ServerMessage[] = [];
+    const events1: AssistantEvent[] = [];
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
@@ -2610,7 +2610,7 @@ describe("Regression: cancel semantics and error channel split", () => {
   });
 
   test("user cancellation emits generation_cancelled, never conversation_error", async () => {
-    const msgEvents: ServerMessage[] = [];
+    const msgEvents: AssistantEvent[] = [];
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
@@ -2644,7 +2644,7 @@ describe("Regression: cancel semantics and error channel split", () => {
   });
 
   test("post-processing failure still attempts turn-boundary commit", async () => {
-    const events: ServerMessage[] = [];
+    const events: AssistantEvent[] = [];
     const conversation = makeConversation();
     await conversation.loadFromDb();
     linkAttachmentShouldThrow = true;
@@ -2699,7 +2699,7 @@ describe("Regression: cancel semantics and error channel split", () => {
   });
 
   test("provider failure during processing emits both conversation_error and generic error", async () => {
-    const allEvents: ServerMessage[] = [];
+    const allEvents: AssistantEvent[] = [];
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
@@ -2730,7 +2730,7 @@ describe("Regression: cancel semantics and error channel split", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    const eventsPerMsg: ServerMessage[][] = [[], [], []];
+    const eventsPerMsg: AssistantEvent[][] = [[], [], []];
 
     conversation.processMessage({
       content: "msg-1",
@@ -2787,8 +2787,8 @@ describe("Regression: cancel semantics and error channel split", () => {
 
       turnCommitHangForever = true;
 
-      const events1: ServerMessage[] = [];
-      const events2: ServerMessage[] = [];
+      const events1: AssistantEvent[] = [];
+      const events2: AssistantEvent[] = [];
 
       // Start first message (promise intentionally not awaited — we test queue drain behavior)
       const _p1 = conversation.processMessage({
@@ -2937,11 +2937,11 @@ describe("persisted-seq anchor advance on user_message_echo", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    const events1: ServerMessage[] = [];
-    const eventsQueued: ServerMessage[] = [];
+    const events1: AssistantEvent[] = [];
+    const eventsQueued: AssistantEvent[] = [];
     // Mirror `broadcastMessage`'s inline stamp so `getCurrentSeq()` read
     // right after the emit is this echo's seq, as in production.
-    const stampingOnEvent = (sink: ServerMessage[]) => (e: ServerMessage) => {
+    const stampingOnEvent = (sink: AssistantEvent[]) => (e: AssistantEvent) => {
       stampAndBuffer(e as unknown as Parameters<typeof stampAndBuffer>[0]);
       sink.push(e);
     };
@@ -2965,7 +2965,7 @@ describe("persisted-seq anchor advance on user_message_echo", () => {
     await waitForPendingRun(2);
 
     const echo = eventsQueued.find((e) => e.type === "user_message_echo") as
-      | (ServerMessage & { seq?: number })
+      | (AssistantEvent & { seq?: number })
       | undefined;
     const echoSeq = echo?.seq;
     if (typeof echoSeq !== "number") {
@@ -2988,8 +2988,8 @@ describe("persisted-seq anchor advance on user_message_echo", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    const events1: ServerMessage[] = [];
-    const eventsNotif: ServerMessage[] = [];
+    const events1: AssistantEvent[] = [];
+    const eventsNotif: AssistantEvent[] = [];
 
     const p1 = conversation.processMessage({
       content: "msg-1",
@@ -3037,8 +3037,8 @@ describe("subagent notification user_message_echo suppression", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    const events1: ServerMessage[] = [];
-    const eventsNotif: ServerMessage[] = [];
+    const events1: AssistantEvent[] = [];
+    const eventsNotif: AssistantEvent[] = [];
 
     // Occupy the conversation so the injected notification queues.
     const p1 = conversation.processMessage({
@@ -3088,8 +3088,8 @@ describe("subagent notification user_message_echo suppression", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    const events1: ServerMessage[] = [];
-    const eventsNormal: ServerMessage[] = [];
+    const events1: AssistantEvent[] = [];
+    const eventsNormal: AssistantEvent[] = [];
 
     const p1 = conversation.processMessage({
       content: "msg-1",
@@ -3119,8 +3119,8 @@ describe("subagent notification user_message_echo suppression", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    const events1: ServerMessage[] = [];
-    const eventsHidden: ServerMessage[] = [];
+    const events1: AssistantEvent[] = [];
+    const eventsHidden: AssistantEvent[] = [];
 
     // Occupy the conversation so the hidden send queues — e.g. the user
     // closes the channel-setup wizard while the assistant is mid-turn.
@@ -3167,8 +3167,8 @@ describe("subagent notification user_message_echo suppression", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    const events1: ServerMessage[] = [];
-    const eventsNotif: ServerMessage[] = [];
+    const events1: AssistantEvent[] = [];
+    const eventsNotif: AssistantEvent[] = [];
 
     // Occupy the conversation so the injected notification queues.
     const p1 = conversation.processMessage({
@@ -3210,8 +3210,8 @@ describe("subagent notification user_message_echo suppression", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    const events1: ServerMessage[] = [];
-    const eventsNotif: ServerMessage[] = [];
+    const events1: AssistantEvent[] = [];
+    const eventsNotif: AssistantEvent[] = [];
 
     // Occupy the conversation so the injected wake queues.
     const p1 = conversation.processMessage({

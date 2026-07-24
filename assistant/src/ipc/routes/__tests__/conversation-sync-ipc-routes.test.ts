@@ -35,7 +35,7 @@ import {
   registerInflightTurn,
   unregisterInflightTurn,
 } from "../../../daemon/inflight-turn-registry.js";
-import type { AssistantEvent } from "../../../runtime/assistant-event.js";
+import type { AssistantEventEnvelope } from "../../../runtime/assistant-event.js";
 import {
   _resetStreamStateForTesting,
   stampAndBuffer,
@@ -50,7 +50,7 @@ function stampEvent(): void {
   stampAndBuffer({
     conversationId: "conv-x",
     message: { type: "assistant_text_delta", text: "x" },
-  } as unknown as AssistantEvent);
+  } as unknown as AssistantEventEnvelope);
 }
 
 describe("conversation-sync IPC route", () => {

@@ -7,7 +7,10 @@ import {
   type SurfaceConversationContext,
   surfaceProxyResolver,
 } from "../daemon/conversation-surfaces.js";
-import type { ServerMessage, SurfaceType } from "../daemon/message-protocol.js";
+import type {
+  AssistantEvent,
+  SurfaceType,
+} from "../daemon/message-protocol.js";
 
 interface ContextOptions {
   hasNoClient?: boolean;
@@ -15,7 +18,7 @@ interface ContextOptions {
 }
 
 function makeContext(
-  sent: ServerMessage[] = [],
+  sent: AssistantEvent[] = [],
   options: ContextOptions = {},
 ): SurfaceConversationContext {
   return {
@@ -43,7 +46,7 @@ function makeContext(
 
 describe("app_open render-capability gate", () => {
   test("returns an error without broadcasting on a clientless turn", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent, { hasNoClient: true });
 
     const result = await surfaceProxyResolver(ctx, "app_open", {
@@ -56,7 +59,7 @@ describe("app_open render-capability gate", () => {
   });
 
   test("returns an error on a channel without dynamic UI (e.g. Slack)", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent, {
       channelCapabilities: { channel: "slack", supportsDynamicUi: false },
     });

@@ -2,7 +2,7 @@ import { validateInferenceProfileKey } from "../../config/inference-profile-vali
 import { resolveDefaultProfileKey } from "../../config/llm-resolver.js";
 import { getConfig } from "../../config/loader.js";
 import { findConversation } from "../../daemon/conversation-registry.js";
-import type { ServerMessage } from "../../daemon/message-protocol.js";
+import type { AssistantEvent } from "../../daemon/message-protocol.js";
 import {
   getConversationOverrideProfile,
   getMessages,
@@ -105,7 +105,7 @@ export async function executeSubagentSpawn(
       context,
       label,
       objective,
-      sendToClient: sendToClient as (msg: ServerMessage) => void,
+      sendToClient: sendToClient as (msg: AssistantEvent) => void,
       requestedOverrideProfile,
     });
   }
@@ -238,7 +238,7 @@ async function runAdvisorConsult(args: {
   label: string;
   /** The agent's own `objective` — its framing of what it wants advised on. */
   objective: string;
-  sendToClient: (msg: ServerMessage) => void;
+  sendToClient: (msg: AssistantEvent) => void;
   requestedOverrideProfile: string | undefined;
 }): Promise<ToolExecutionResult> {
   const { context, label, objective, sendToClient, requestedOverrideProfile } =

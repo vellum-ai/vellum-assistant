@@ -126,7 +126,7 @@ const { createSurfaceMutex, handleSurfaceAction } =
 type SurfaceConversationContext =
   import("../conversation-surfaces.js").SurfaceConversationContext;
 type TrustContext = import("../trust-context-types.js").TrustContext;
-type ServerMessage = import("../message-protocol.js").ServerMessage;
+type AssistantEvent = import("../message-protocol.js").AssistantEvent;
 type SurfaceType = import("../message-protocol.js").SurfaceType;
 
 // ── Harness reset helper ───────────────────────────────────────────
@@ -145,7 +145,7 @@ function resetProcessHarness(): void {
 // ── Surface-context harness ────────────────────────────────────────
 
 interface HarnessContext extends SurfaceConversationContext {
-  sent: ServerMessage[];
+  sent: AssistantEvent[];
   enqueueCalls: Array<{ content: string }>;
   processCalls: Array<{ content: string }>;
 }
@@ -153,7 +153,7 @@ interface HarnessContext extends SurfaceConversationContext {
 function makeContext(
   overrides?: Partial<SurfaceConversationContext>,
 ): HarnessContext {
-  const sent: ServerMessage[] = [];
+  const sent: AssistantEvent[] = [];
   const enqueueCalls: Array<{ content: string }> = [];
   const processCalls: Array<{ content: string }> = [];
 
