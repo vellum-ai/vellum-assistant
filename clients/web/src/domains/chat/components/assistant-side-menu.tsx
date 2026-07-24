@@ -18,7 +18,7 @@ import {
 import { useCommandPaletteStore } from "@/stores/command-palette-store";
 
 import { CollapsibleNavSection } from "@/components/collapsible-nav-section";
-import { CollapsedGroupIcon, getGroupIndicatorState } from "@/domains/chat/components/collapsed-group-icon";
+import { CollapsedGroupIcon, getGroupIndicatorState, GroupIndicatorDot } from "@/domains/chat/components/collapsed-group-icon";
 import {
     ConversationListProvider,
     type ConversationListContextValue,
@@ -271,6 +271,18 @@ export function AssistantSideMenu({
   // Shared context for every conversation row (Pinned, Recents, channel
   // sections, custom groups, rail flyout): the action callbacks,
   // active/processing/attention state, and drag controller the rows read.
+  // Activity dot for a collapsed section header — surfaces processing/unread
+  // conversations that live in a collapsed section (attention already
+  // force-opens the section via effectiveOpen*). Null when the section is idle.
+  const collapsedActivityDot = (conversations: Conversation[]): ReactNode => {
+    const state = getGroupIndicatorState(
+      conversations,
+      processingConversationIds,
+      attentionConversationIds,
+    );
+    return state ? <GroupIndicatorDot state={state} /> : null;
+  };
+
   const listContext: ConversationListContextValue = {
     activeConversationId,
     activeConversationProcessing,
@@ -473,6 +485,7 @@ export function AssistantSideMenu({
                     label="Pinned"
                     items={sidebar.pinned}
                     dragSection="pinned"
+                    collapsedIndicator={collapsedActivityDot(sidebar.pinned)}
                   />
                 ) : null}
 
@@ -482,6 +495,7 @@ export function AssistantSideMenu({
                   label="Chats"
                   items={sidebar.recents.items}
                   pagination={sidebar.recents}
+                  collapsedIndicator={collapsedActivityDot(sidebar.recents.all)}
                 />
               </CollapsibleNavSection.Root>
 
@@ -502,6 +516,7 @@ export function AssistantSideMenu({
                       contextMenuContent={buildGroupContextMenu(label, section.all)}
                       items={section.items}
                       pagination={section}
+                      collapsedIndicator={collapsedActivityDot(section.all)}
                     />
                   );
                 })}
@@ -545,6 +560,7 @@ export function AssistantSideMenu({
                           )}
                           items={group.conversations}
                           dragSection={`group:${group.id}`}
+                          collapsedIndicator={collapsedActivityDot(group.conversations)}
                         />
                       ))}
                     </CollapsibleNavSection.Root>
