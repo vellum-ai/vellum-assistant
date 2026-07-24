@@ -79,7 +79,7 @@ const VELLUM_PROFILE_IMPLS: Record<ProfileMatrixKey, DefaultProfileTemplate> = {
     },
   },
   "quality-optimized": {
-    model: "claude-fable-5",
+    model: "gpt-5.6-sol",
     provider: "vellum",
     source: "managed",
     label: "Quality",
