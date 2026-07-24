@@ -28,6 +28,15 @@ export const END_CALL_MARKER = "[END_CALL]";
 export const HOLD_VERDICT_TOKEN = "[0]";
 export const ESCALATE_VERDICT_TOKEN = "[1]";
 
+/**
+ * Emitted inline by the main/escalated voice leg to ask the live-voice
+ * client to minimize the voice room and reveal the screen behind it
+ * (e.g. after creating an app worth showing). Advisory: the daemon
+ * translates it into a `minimize_room` server frame after the turn's TTS
+ * drains; it is never spoken and never persisted.
+ */
+export const MINIMIZE_ROOM_MARKER = "[-1]";
+
 // ---------------------------------------------------------------------------
 // Regexes
 // ---------------------------------------------------------------------------
@@ -47,6 +56,7 @@ const CALL_OPENING_ACK_MARKER_REGEX = /\[CALL_OPENING_ACK\]/g;
 const END_CALL_MARKER_REGEX = /\[END_CALL\]/g;
 const HOLD_VERDICT_TOKEN_REGEX = /\[0\]/g;
 const ESCALATE_VERDICT_TOKEN_REGEX = /\[1\]/g;
+const MINIMIZE_ROOM_MARKER_REGEX = /\[-1\]/g;
 const GUARDIAN_TIMEOUT_MARKER_REGEX = /\[GUARDIAN_TIMEOUT\]/g;
 const GUARDIAN_UNAVAILABLE_MARKER_REGEX = /\[GUARDIAN_UNAVAILABLE\]/g;
 
@@ -163,6 +173,7 @@ export function stripInternalSpeechMarkers(text: string): string {
     .replace(END_CALL_MARKER_REGEX, "")
     .replace(HOLD_VERDICT_TOKEN_REGEX, "")
     .replace(ESCALATE_VERDICT_TOKEN_REGEX, "")
+    .replace(MINIMIZE_ROOM_MARKER_REGEX, "")
     .replace(GUARDIAN_TIMEOUT_MARKER_REGEX, "")
     .replace(GUARDIAN_UNAVAILABLE_MARKER_REGEX, "");
   return result;
@@ -187,6 +198,7 @@ const CONTROL_MARKER_STRINGS = [
   "[END_CALL]",
   "[0]",
   "[1]",
+  "[-1]",
   "[GUARDIAN_TIMEOUT]",
   "[GUARDIAN_UNAVAILABLE]",
 ];
