@@ -211,7 +211,14 @@ export function useDraftSecretDetection({
 
     let timer: ReturnType<typeof setTimeout> | null = null;
     const unsubscribe = useComposerStore.subscribe((state, prevState) => {
-      if (state.input === prevState.input) {
+      const scanImmediately = scanNextInputImmediatelyRef.current;
+      // Unchanged input is normally ignored, but a conversation-switch draft
+      // swap must still be scanned even when the incoming draft is
+      // byte-identical to the outgoing one (e.g. the same pasted key drafted
+      // in both conversations). Skipping it here would leave the repeated
+      // secret un-warned until the next edit, since the identity guard would
+      // otherwise consume the switch notification without scanning.
+      if (state.input === prevState.input && !scanImmediately) {
         return;
       }
       // Any draft edit invalidates an armed send bypass AND the blocked
@@ -227,7 +234,7 @@ export function useDraftSecretDetection({
         clearTimeout(timer);
         timer = null;
       }
-      if (scanNextInputImmediatelyRef.current) {
+      if (scanImmediately) {
         // Conversation-switch draft swap: surface the incoming draft's
         // secrets without waiting out the keystroke debounce.
         scanNextInputImmediatelyRef.current = false;
